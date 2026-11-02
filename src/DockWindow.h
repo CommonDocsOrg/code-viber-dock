@@ -12,6 +12,7 @@
 #include "Clock.h"
 #include "Config.h"
 #include "DockItems.h"
+#include "ForegroundWatch.h"
 #include "IconCache.h"
 #include "PreviewPopup.h"
 #include "Renderer.h"
@@ -41,7 +42,7 @@ public:
     static constexpr UINT_PTR kRemoveTimerId = 15;   // end of the fade of an icon dragged off the dock
     static constexpr UINT_PTR kPreviewTimerId = 16;  // previewDelayMs hover delay before the thumbnail popup
     static constexpr UINT_PTR kPreviewLeaveTimerId = 17;  // grace period after leaving item and popup
-    // 18 is reserved (intelligent hide)
+    // 18 = ForegroundWatch::kTimerId (intelligent hide)
     static constexpr UINT_PTR kLabelFadeTimerId = 19;     // end of the name label's fade-out
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
@@ -57,9 +58,12 @@ public:
     // dock window has the mouse capture; 9: insertion index of the current drag (-1 none);
     // 10: 1 if the OLE drop target is registered; 11: 1 while the thumbnail popup is visible;
     // 12: number of cards in the thumbnail popup; 13: the window shown by popup card lp (0 none);
-    // 14: auto-hide mode (0 off, 1 always, 2 intelligent); 17: 1 while reduce-motion is in effect
-    // (animation.reduceMotion, or "system" and Windows' animation effects are off); 20: 1 if the
-    // theme preset failed to resolve on the last load.
+    // 14: auto-hide mode (0 off, 1 always, 2 intelligent); 15: 1 while the foreground window
+    // overlaps the dock (intelligent mode; 0 otherwise); 17: 1 while reduce-motion is in effect
+    // (animation.reduceMotion, or "system" and Windows' animation effects are off); 19: number of
+    // foreground-watch events accepted so far (they only arrive in intelligent mode); 20: 1 if the
+    // theme preset failed to resolve on the last load; 21: number of foreground-watch callbacks
+    // delivered so far, filtered ones included.
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -100,8 +104,9 @@ public:
     // Re-reads every setting from the config (sizes, theme, clock, monitor, auto-hide) and
     // redraws. Pins are separate: ReloadPins().
     void ApplyConfig();
-    // Applies config->autoHide: off shows the dock and keeps it shown; always / intelligent hide
-    // it once the mouse is away (intelligent does not test window overlap yet).
+    // Applies config->autoHide: off shows the dock and keeps it shown; always hides it once the
+    // mouse is away; intelligent does too, but only while the foreground window overlaps the dock
+    // (and shows it again when it no longer does). Only intelligent installs the WinEvent hooks.
     void ApplyAutoHide();
     // While held (a menu is open, a drag is in progress) the dock never hides. Releasing the
     // hold starts the hide delay if the mouse is outside the dock.
@@ -291,6 +296,19 @@ private:
     double ApplyRootPose(double duration);
     bool CursorOnStrip() const;
     void ArmMouseTracking();
+    // A fullscreen app, game or presentation runs (SHQueryUserNotificationState): no reveal.
+    bool RevealSuppressed() const;
+    // Intelligent hide: the foreground window (not ours, not minimized / hidden / cloaked, not
+    // the desktop or a shell surface) intersects the bar's column from the rest bar top down to
+    // the monitor bottom.
+    bool ForegroundOverlaps() const;
+    // Re-tests the overlap (watch_ events, ApplyAutoHide) and hides / shows on a change (always
+    // with `force`). A show blocked by RevealSuppressed() leaves overlapped_ untouched so the next
+    // event re-tests; ScheduleHide / OnHideTimer re-test on their own anyway.
+    void OnOverlapCheck(bool force = false);
+    // Puts the (hidden) dock back on top of the z-order: a monitor-sized window that was just
+    // activated can be placed above a topmost window and would bury the reveal strip.
+    void AssertTopmost();
 
     void ResolvePins();
     // Rebuilds items_: pins in config order, then running apps in first-seen order.
@@ -448,6 +466,8 @@ private:
     bool hidePending_ = false;
     bool revealPending_ = false;
     bool revealArmed_ = true;     // false until the cursor leaves the strip (no reveal loops)
+    ForegroundWatch watch_;       // running only with autoHide "intelligent"
+    bool overlapped_ = false;     // intelligent: the foreground window overlaps the dock
 
     PinRequests pinRequests_;
 

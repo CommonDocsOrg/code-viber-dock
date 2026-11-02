@@ -50,6 +50,10 @@ public:
     // Tracked window that owns `hwnd` (itself or its root owner), or nullptr.
     HWND TrackedOwnerOf(HWND hwnd) const;
 
+    // Shell windows that are never apps: the desktop (Progman / WorkerW), the taskbars, and
+    // Windows.UI.Core.CoreWindow (Start, Search, Action Center and other shell flyouts).
+    static bool IsExcludedClass(HWND hwnd);
+
 private:
     struct Tracked {
         HWND hwnd;

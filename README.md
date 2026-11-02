@@ -96,12 +96,37 @@ Right-click the tray icon or an empty part of the dock for the menu:
   one of its menus is open.
 - The dock is not revealed while a fullscreen app, game, or presentation runs
   (`SHQueryUserNotificationState` reports busy, Direct3D fullscreen, or presentation mode).
-- A window that appears or flashes while the dock is hidden does not reveal it. A flashing app's
-  dot is orange when you next reveal the dock.
+- A window that appears or flashes while the dock is hidden does not reveal it (with
+  `"intelligent"`, a new foreground window that does not overlap the dock does, see below). A
+  flashing app's dot is orange when you next reveal the dock.
 - With `"autoHide": "off"` the dock stays visible. It still floats over windows and reserves no
   screen space.
-- `"autoHide": "intelligent"` is meant to hide the dock only while the foreground window overlaps
-  it. The overlap test is not implemented yet: for now it behaves like `"always"`.
+- `"autoHide": "intelligent"` (menu: **When a window overlaps**) hides the dock only while the
+  foreground window overlaps it, and shows it again by itself as soon as that window no longer
+  does (no need to touch the bottom edge).
+  - "Overlaps" means the foreground window's visible frame (without the invisible resize borders)
+    intersects the bar's column, from the top of the resting bar down to the bottom of the
+    monitor. A maximized window counts (the taskbar is hidden, so it covers the bottom edge), and
+    so does a fullscreen app. A window beside the bar, or above it, does not, even if it reaches
+    the bottom of the screen elsewhere.
+  - Only the foreground window counts. Minimized, hidden or cloaked windows (another virtual
+    desktop), the desktop, Start / Search and the other shell surfaces, and the dock's own
+    windows never count, so clicking the desktop or opening Start shows the dock.
+  - Becoming overlapped starts the usual `hideDelayMs` wait, unless the mouse is on the dock or
+    one of its menus / the preview popup / a drag holds it; the dock then hides once the mouse
+    leaves. While it is hidden, the bottom-edge strip still reveals it as with `"always"`; once
+    the mouse leaves, it hides again if the window still overlaps it.
+  - The fullscreen suppression above still applies: the dock does not show by itself, or from
+    the strip, while `SHQueryUserNotificationState` reports a fullscreen app or presentation.
+  - It reacts to activation, moves and resizes (dragged or programmatic, Win+Arrow snapping),
+    maximize, minimize and restore, within about 100 ms, through WinEvent hooks
+    (`EVENT_SYSTEM_FOREGROUND`, `EVENT_SYSTEM_MOVESIZEEND`, `EVENT_SYSTEM_MINIMIZESTART/END`, and
+    `EVENT_OBJECT_LOCATIONCHANGE` limited to the foreground window's thread). The hooks exist
+    only in this mode; `"off"` and `"always"` install none. Nothing runs while no window changes.
+    The location hook also reports the mouse cursor while it moves over some apps' windows
+    (Chromium-based apps, for example); the first such event turns that hook off for 100 ms,
+    after which it is turned back on and the overlap is re-tested once, so a moving mouse costs
+    at most about ten cheap wake-ups a second instead of one per mouse move.
 - At rest the dock window covers exactly the drawn bar, so clicks just above or beside it reach
   the windows underneath. When the mouse enters the bar, the window grows to make room above it
   for magnified icons and the label and beside it for the bar to grow; the cursor is on the bar
@@ -210,9 +235,9 @@ the file untouched.
   magnification off. Icons are rendered at the magnified size, so they stay sharp.
 - `magnifyRange`: how many neighbouring slots the magnification spreads over, 1 - 4.
 - `autoHide`: `"off"`, `"always"` (default; hide when the mouse leaves the dock, see above) or
-  `"intelligent"` (hide only while the foreground window overlaps the dock; for now the same as
-  `"always"`). The older `true` / `false` are still read (as `"always"` / `"off"`) and written
-  back as strings on the next save. `hideDelayMs` (default 400) and `revealDelayMs` (default 150)
+  `"intelligent"` (hide only while the foreground window overlaps the dock, see above). The older
+  `true` / `false` are still read (as `"always"` / `"off"`) and written back as strings on the
+  next save. `hideDelayMs` (default 400) and `revealDelayMs` (default 150)
   are the delays before hiding and revealing.
 - `previews` (default `true`): the window-thumbnail popup for apps with two or more windows (see
   above). `previewDelayMs` (default 600, 0 - 10000) is how long the mouse must rest on the icon.
@@ -355,16 +380,21 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
 - `WinDock.QueryState`: `wParam` selects the value. 0 = auto-hide state (0 Shown, 1 Hiding,
   2 Hidden, 3 Showing). 1 = current `SHQueryUserNotificationState` value. 2 = hovered item index
   (-1 for none). 3 = 1 if the name label is shown (0 as soon as it starts fading out). 4 = 1
-  while magnified. 5 = number of pending interaction timers (the label fade-out included) and
-  running slides (0 when idle). 6 = 1 while the acrylic backdrop is active.
+  while magnified. 5 = number of pending interaction timers (the label fade-out and the
+  intelligent-hide re-test included) and running slides (0 when idle). 6 = 1 while the acrylic backdrop is active.
   7 = drag state (0 none, 1 dragging an icon, 2 fading out an icon dragged off the dock, 3 files
   dragged over the dock). 8 = 1 while the dock window has the mouse capture. 9 = insertion index
   of the current drag (-1 for none). 10 = 1 if the OLE drop target is registered. 11 = 1 while
   the window-preview popup is visible. 12 = number of cards in the popup (0 when hidden).
   13 = the window handle shown by popup card `lParam` (0-based; 0 if there is none).
-  14 = auto-hide mode (0 off, 1 always, 2 intelligent). 17 = 1 while reduce-motion is in effect
-  (`animation.reduceMotion` `"on"`, or `"system"` with Windows' animation effects off). 20 = 1 if
-  the theme preset failed to resolve on the last load (the dock uses `dark`).
+  14 = auto-hide mode (0 off, 1 always, 2 intelligent). 15 = 1 while the foreground window
+  overlaps the dock (`"intelligent"` only; always 0 in the other modes). 17 = 1 while
+  reduce-motion is in effect (`animation.reduceMotion` `"on"`, or `"system"` with Windows'
+  animation effects off). 19 = number of window events the intelligent-hide hooks accepted
+  since the dock started (foreground changes, moves, minimize / restore of the foreground
+  window; it stops counting in the other modes). 20 = 1 if the theme preset failed to resolve on
+  the last load (the dock uses `dark`). 21 = number of callbacks those hooks delivered, the
+  filtered ones (cursor, caret, child windows) included.
 - `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle, 801 new window,
   802 open file location, 900 close all windows), `lParam` = item index or a window handle of
   the item. Returns 1 if the item was found.

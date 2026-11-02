@@ -27,6 +27,7 @@ add_executable(WinDock WIN32
   src/ContextMenu.cpp
   src/AppIdentity.cpp
   src/WindowTracker.cpp
+  src/ForegroundWatch.cpp
   src/IconCache.cpp
   src/Activation.cpp
   src/Launcher.cpp

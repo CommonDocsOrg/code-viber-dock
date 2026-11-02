@@ -9,9 +9,7 @@
 
 WindowTracker* WindowTracker::s_instance = nullptr;
 
-namespace {
-
-bool IsExcludedClass(HWND hwnd) {
+bool WindowTracker::IsExcludedClass(HWND hwnd) {
     wchar_t cls[64]{};
     GetClassNameW(hwnd, cls, static_cast<int>(std::size(cls)));
     static const wchar_t* const kExcluded[] = {
@@ -22,6 +20,8 @@ bool IsExcludedClass(HWND hwnd) {
     }
     return false;
 }
+
+namespace {
 
 bool IsCloaked(HWND hwnd) {
     DWORD cloaked = 0;

@@ -1,5 +1,6 @@
 #include "DockWindow.h"
 
+#include <dwmapi.h>
 #include <ole2.h>
 #include <shellapi.h>
 #include <windowsx.h>
@@ -438,6 +439,7 @@ void DockWindow::LayoutPass() {
         old.bar.top != l.bar.top || old.bar.right != l.bar.right || old.bar.bottom != l.bar.bottom ||
         old.itemsLeft != l.itemsLeft || old.iconPx != l.iconPx || old.gap != l.gap || old.growMax != l.growMax) {
         snapPending_ = true;
+        watch_.Poke();  // the bar's column moved: re-test the overlap (no-op unless intelligent)
     }
 
     inLayout_ = false;
@@ -1472,12 +1474,21 @@ void DockWindow::RefreshMotion() {
 // --- Auto-hide -------------------------------------------------------------------------------
 // Shown --(mouse leaves, hideDelayMs)--> Hiding --(slide/fade done)--> Hidden (1 px strip)
 // Hidden --(mouse on the strip for revealDelayMs, no fullscreen app)--> Showing --> Shown.
+// autoHide "intelligent" adds: the hide delay only starts (and only ends in a hide) while the
+// foreground window overlaps the dock (overlapped_, kept current by watch_), and the dock shows
+// by itself, without the strip, as soon as that window stops overlapping it.
 // Hiding <-> Showing reverse smoothly: the root's slide offset and opacity are Tweens, so a new
 // animation starts from the interpolated current value, with a duration proportional to the
 // remaining distance. All waits are one-shot SetTimers.
 
 void DockWindow::ScheduleHide() {
     if (!hwnd_ || !config_->AutoHideOn() || Held() || hidePending_) return;
+    // Intelligent: re-test now (cheap; this runs on a mouse leave, not while idle) rather than
+    // trusting overlapped_, which may be stale after a suppressed show (see OnOverlapCheck).
+    if (config_->autoHide == AutoHideMode::Intelligent) {
+        overlapped_ = ForegroundOverlaps();
+        if (!overlapped_) return;
+    }
     if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) return;
     SetTimer(hwnd_, kHideTimerId, std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->hideDelayMs)),
              nullptr);
@@ -1494,6 +1505,10 @@ void DockWindow::OnHideTimer() {
     KillTimer(hwnd_, kHideTimerId);
     hidePending_ = false;
     if (!config_->AutoHideOn() || Held()) return;
+    if (config_->autoHide == AutoHideMode::Intelligent) {
+        overlapped_ = ForegroundOverlaps();
+        if (!overlapped_) return;
+    }
     if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) return;
     if (CursorInZone()) return;  // came back; its WM_MOUSEMOVE cancels the next attempt anyway
     StartHide();
@@ -1551,6 +1566,7 @@ void DockWindow::OnSlideTimer() {
         });
         UpdateWindowRect();  // shrink to the reveal strip
         SyncBackdrop();      // hide the blur
+        AssertTopmost();     // a monitor-sized window in front may have been put above the dock
         // If the cursor already sits on the edge (e.g. it was below the dock), require it to
         // leave the strip first; otherwise the dock would reveal itself right away.
         revealArmed_ = !CursorOnStrip();
@@ -1570,15 +1586,77 @@ void DockWindow::OnRevealTimer() {
     KillTimer(hwnd_, kRevealTimerId);
     revealPending_ = false;
     if (hideState_ != HideState::Hidden || !config_->AutoHideOn() || !CursorOnStrip()) return;
+    if (RevealSuppressed()) return;  // a fullscreen app / presentation: stay hidden
+    StartShow();
+}
+
+bool DockWindow::RevealSuppressed() const {
     QUERY_USER_NOTIFICATION_STATE quns{};
     if (SUCCEEDED(SHQueryUserNotificationState(&quns)) &&
         (quns == QUNS_RUNNING_D3D_FULL_SCREEN || quns == QUNS_PRESENTATION_MODE || quns == QUNS_BUSY)) {
         wchar_t buf[96];
         swprintf_s(buf, L"WinDock: reveal suppressed (notification state %d)\n", static_cast<int>(quns));
         OutputDebugStringW(buf);
-        return;  // a fullscreen app / presentation: stay hidden
+        return true;
     }
-    StartShow();
+    return false;
+}
+
+bool DockWindow::ForegroundOverlaps() const {
+    const HWND fg = GetForegroundWindow();
+    if (!fg || !hwnd_) return false;
+    DWORD pid = 0;
+    GetWindowThreadProcessId(fg, &pid);
+    if (pid == GetCurrentProcessId()) return false;  // the dock's own windows (a settings window)
+    if (IsIconic(fg) || !IsWindowVisible(fg)) return false;
+    DWORD cloaked = 0;
+    if (SUCCEEDED(DwmGetWindowAttribute(fg, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return false;
+    if (WindowTracker::IsExcludedClass(fg)) return false;  // desktop, taskbars, Start / Search
+    RECT r{};
+    if (FAILED(DwmGetWindowAttribute(fg, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof(r))) && !GetWindowRect(fg, &r)) {
+        return false;
+    }
+    // The bar's column from the resting bar's top down to the screen edge (the bottom margin
+    // included: a window there sits between the bar and the reveal strip).
+    const Layout& l = layout_;
+    const RECT dock{l.window.left + static_cast<LONG>(std::floor(l.bar.left)),
+                    l.window.top + static_cast<LONG>(std::floor(l.bar.top)),
+                    l.window.left + static_cast<LONG>(std::ceil(l.bar.right)), l.monitor.bottom};
+    RECT hit{};
+    return IntersectRect(&hit, &r, &dock) != FALSE;
+}
+
+void DockWindow::OnOverlapCheck(bool force) {
+    if (!hwnd_ || config_->autoHide != AutoHideMode::Intelligent) return;
+    const bool overlapped = ForegroundOverlaps();
+    if (overlapped == overlapped_ && !force) return;
+    const bool hidden = hideState_ == HideState::Hidden || hideState_ == HideState::Hiding;
+    if (!overlapped && hidden && RevealSuppressed()) {
+        // A fullscreen app / presentation in front: stay hidden and keep the old state, so the
+        // next event (that app going away) counts as a change and re-tests.
+        return;
+    }
+    overlapped_ = overlapped;
+    if (overlapped) {
+        // Like the mouse leaving: hide after hideDelayMs, unless the mouse is on the dock or a
+        // menu / drag holds it (leaving / releasing schedules the hide then).
+        if (hideState_ == HideState::Hidden) {
+            AssertTopmost();  // keep the reveal strip above the window that just covered the dock
+        } else if (hideState_ != HideState::Hiding && !Held() && !CursorInZone()) {
+            ScheduleHide();
+        }
+        return;
+    }
+    CancelHide();
+    if (hidden) StartShow();
+}
+
+void DockWindow::AssertTopmost() {
+    // A newly activated window that covers its whole monitor (maximized with the taskbar hidden,
+    // borderless fullscreen) can end up above the topmost dock, burying the 1 px reveal strip.
+    // Re-asserting the z-order is cheap and only happens on hide transitions.
+    if (!hwnd_) return;
+    SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 }
 
 double DockWindow::ApplyRootPose(double duration) {
@@ -1639,6 +1717,10 @@ void DockWindow::ArmMouseTracking() {
 
 void DockWindow::ApplyAutoHide() {
     if (!hwnd_) return;
+    if (config_->autoHide != AutoHideMode::Intelligent) {
+        watch_.Stop();  // off / always: no hooks at all
+        overlapped_ = false;
+    }
     if (!config_->AutoHideOn()) {
         CancelHide();
         if (revealPending_) {
@@ -1646,6 +1728,11 @@ void DockWindow::ApplyAutoHide() {
             revealPending_ = false;
         }
         if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) StartShow();
+        return;
+    }
+    if (config_->autoHide == AutoHideMode::Intelligent) {
+        watch_.Start(hwnd_, [this] { OnOverlapCheck(); });
+        OnOverlapCheck(true);  // hide if overlapped now, show if hidden and not
         return;
     }
     if ((hideState_ == HideState::Shown || hideState_ == HideState::Showing) && !Held() && !CursorInZone()) {
@@ -1826,6 +1913,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     UpdateIconUsage();
     ScheduleBounceTimer();
     if (landed && !CursorInZone()) TryCompact();  // no bounce timer left to do it
+    watch_.Poke();  // windows came or went: the foreground one may have changed
 }
 
 int DockWindow::IndexOfWindow(HWND hwnd) const {
@@ -2461,7 +2549,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                    (labelPending_ ? 1 : 0) + (labelFading_ ? 1 : 0) + (restPending_ ? 1 : 0) +
                    (hideState_ == HideState::Hiding || hideState_ == HideState::Showing ? 1 : 0) +
                    (backdropPending_ ? 1 : 0) + (dragPending_ ? 1 : 0) + (removePending_ ? 1 : 0) +
-                   (previewPending_ ? 1 : 0) + (previewLeavePending_ ? 1 : 0) + (preview_.FadePending() ? 1 : 0);
+                   (previewPending_ ? 1 : 0) + (previewLeavePending_ ? 1 : 0) + (preview_.FadePending() ? 1 : 0) +
+                   (watch_.Pending() ? 1 : 0);
         case 6:
             return acrylic_ ? 1 : 0;
         case 7:
@@ -2480,10 +2569,16 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return reinterpret_cast<LRESULT>(preview_.CardWindow(static_cast<size_t>(lp)));
         case 14:
             return static_cast<LRESULT>(config_->autoHide);  // 0 off, 1 always, 2 intelligent
+        case 15:
+            return overlapped_ ? 1 : 0;
         case 17:
             return motion_.reduce ? 1 : 0;
+        case 19:
+            return static_cast<LRESULT>(watch_.AcceptedEvents());
         case 20:
             return config_->themeResolveFailed ? 1 : 0;
+        case 21:
+            return static_cast<LRESULT>(watch_.DeliveredEvents());
         default:
             return -1;
     }
@@ -2513,6 +2608,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         if (hook_(hwnd_, msg, wp, lp, result)) return result;
     }
     if (tracker_.HandleMessage(msg, wp, lp)) return 0;
+    if (watch_.HandleMessage(msg, wp, lp)) return 0;
     if (msgQueryItem_ && msg == msgQueryItem_) return QueryItemPoint(wp, lp);
     if (msgQueryState_ && msg == msgQueryState_) return QueryState(wp, lp);
 
@@ -2754,6 +2850,8 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_DESTROY:
             tracker_.Stop();
+            watch_.Stop();
+            overlapped_ = false;
             if (dropTarget_) {
                 RevokeDragDrop(hwnd_);
                 dropTarget_->Detach();
