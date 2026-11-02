@@ -243,9 +243,18 @@ All on the `running` / `app` elements.
 
 ## Phase 9: notifications and badges
 
-- Spike: `UserNotificationListener::RequestAccessAsync` from an unpackaged exe on this build.
-  If it needs package identity, decide between a sparse MSIX package (keeps the plain exe) and
-  dropping the feature.
+- Spike done 2026-11-02 (unpackaged exe, Win11 26300): `UserNotificationListener` access is
+  Allowed with no prompt (follows the global "let apps access notifications" consent store;
+  call `GetAccessStatus()` on every poll). `GetNotificationsAsync(Toast)` returns every toast
+  with display name, AUMID, time and text in ~70 ms for ~40 items. `AppInfo` can throw
+  `E_NOTIMPL` for some toasts (wrap per item). AUMIDs arrive as `PFN!App`, plain ids
+  (`Chrome`) or `{KnownFolderGUID}/path/exe`; match case-insensitively against the dock's keys.
+  **`NotificationChanged` throws `0x80070490` without package identity**, so the design is a
+  background MTA poll every 2 to 5 s (1 s while the centre is open) diffing notification ids,
+  posted to the UI thread. A sparse MSIX package (`userNotificationListener` capability,
+  signed, `Add-AppxPackage -ExternalLocation`) would restore the event but costs signing and
+  installer work; not planned. No public API reads another app's badge or overlay icon; the
+  per-AUMID toast count is the badge. Harness: scratchpad `notify-spike\harness.cpp`.
 - Notification centre element: unread count, popup listing notifications (app icon, title,
   body, time), click activates the app, dismiss one / all.
 - Badges on app slots: per-app unread notification count (the listener groups by AUMID / exe),
