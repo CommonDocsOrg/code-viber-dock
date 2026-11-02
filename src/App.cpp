@@ -54,6 +54,8 @@ bool App::Initialize(HINSTANCE instance) {
     msgTaskbarCreated_ = RegisterWindowMessageW(L"TaskbarCreated");
     msgItemCommand_ = RegisterWindowMessageW(AppIpc::kItemCommandMessage);
     msgDockCommand_ = RegisterWindowMessageW(AppIpc::kDockCommandMessage);
+    msgOpenSettings_ = RegisterWindowMessageW(AppIpc::kOpenSettingsMessage);
+    msgQueryState_ = RegisterWindowMessageW(DockWindow::kQueryStateMessage);
 
     if (config_.Load()) {
         // First run: no config file yet. Seed the default pins and write the file.
@@ -255,6 +257,8 @@ void App::RunItemCommand(UINT cmd, const AppKey& key, const std::vector<HWND>& w
 
 void App::Shutdown() {
     if (shutDown_) return;
+    // First: closing it may commit a pending edit (focus loss), which must still be saved.
+    settings_.reset();
     shutDown_ = true;
     FlushSave();
     taskbar_.Restore();
@@ -356,21 +360,26 @@ void App::OnCommand(UINT cmd) {
     switch (cmd) {
         case ContextMenu::kAutoHide:
             SetAutoHide(config_.AutoHideOn() ? AutoHideMode::Off : lastOnMode_);
+            RefreshSettings();
             break;
         case ContextMenu::kAutoHideOff:
             SetAutoHide(AutoHideMode::Off);
+            RefreshSettings();
             break;
         case ContextMenu::kAutoHideAlways:
             SetAutoHide(AutoHideMode::Always);
+            RefreshSettings();
             break;
         case ContextMenu::kAutoHideIntelligent:
             SetAutoHide(AutoHideMode::Intelligent);
+            RefreshSettings();
             break;
         case ContextMenu::kHideTaskbar: {
             const bool hide = !taskbar_.Enabled();
             config_.hideTaskbar = hide;
             taskbar_.SetEnabled(hide);
             RequestSave();
+            RefreshSettings();
             break;
         }
         case ContextMenu::kStartWithWindows: {
@@ -381,8 +390,12 @@ void App::OnCommand(UINT cmd) {
             } else {
                 MessageBeep(MB_ICONWARNING);
             }
+            RefreshSettings();
             break;
         }
+        case ContextMenu::kOpenSettings:
+            OpenSettings();
+            break;
         case ContextMenu::kOpenConfig:
             OpenConfigFile();
             break;
@@ -393,6 +406,7 @@ void App::OnCommand(UINT cmd) {
             // For this session only: the controller is disabled (so "Hide taskbar" shows
             // unchecked and Explorer restarts do not re-hide), config.hideTaskbar is untouched.
             taskbar_.SetEnabled(false);
+            RefreshSettings();
             break;
         case ContextMenu::kQuit:
             Quit();
@@ -435,6 +449,70 @@ void App::ReloadConfig() {
     dock_.ReloadPins();
     if (taskbar_.Enabled() != config_.hideTaskbar) taskbar_.SetEnabled(config_.hideTaskbar);
     if (AutostartEnabled() != config_.startWithWindows) SetAutostart(config_.startWithWindows);
+    RefreshSettings();
+}
+
+void App::RefreshSettings() {
+    if (settings_) settings_->Refresh();
+}
+
+void App::OpenSettings() {
+    if (shutDown_) return;
+    if (settings_ && settings_->Hwnd()) {
+        settings_->Activate();
+        return;
+    }
+    SettingsHost host;
+    host.config = &config_;
+    host.changed = [this](SettingsScope scope) { OnSettingsChanged(scope); };
+    host.pins = [this]() -> const std::vector<AppIdentity::ResolvedPin>& { return dock_.Pins(); };
+    host.pinFiles = [this](const std::vector<std::wstring>& paths) { PinFiles(paths, config_.pinned.size()); };
+    host.command = [this](UINT cmd) { OnCommand(cmd); };
+    host.usingWarp = [this] { return dock_.UsingWarp(); };
+    host.dockMonitor = [this] { return dock_.MonitorRect(); };
+    host.dockDpi = [this] { return dock_.Dpi(); };
+    host.keepDockShown = [this](bool keep) {
+        if (!shutDown_) dock_.SetKeepShown(keep);
+    };
+    host.dockBar = [this] { return dock_.RestBarRect(); };
+    host.taskbarHidden = [this] { return taskbar_.Enabled(); };
+    host.autostartEnabled = [] { return AutostartEnabled(); };
+    host.destroyed = [this] {
+        if (dock_.Hwnd()) PostMessageW(dock_.Hwnd(), kSettingsClosed, 0, 0);
+    };
+    settings_ = std::make_unique<SettingsWindow>(std::move(host));
+    if (!settings_->Create(instance_)) {
+        settings_.reset();
+        MessageBeep(MB_ICONWARNING);
+    }
+}
+
+void App::OnSettingsChanged(SettingsScope scope) {
+    if (shutDown_) return;
+    switch (scope) {
+        case SettingsScope::Appearance:
+            dock_.ApplyConfig();
+            break;
+        case SettingsScope::AutoHide:
+            SetAutoHide(config_.autoHide);  // keeps lastOnMode_ in step; saves
+            return;
+        case SettingsScope::Pins:
+            dock_.ReloadPins();
+            break;
+        case SettingsScope::Taskbar:
+            taskbar_.SetEnabled(config_.hideTaskbar);
+            break;
+        case SettingsScope::Autostart:
+            if (!SetAutostart(config_.startWithWindows)) {
+                MessageBeep(MB_ICONWARNING);
+                config_.startWithWindows = AutostartEnabled();
+                RefreshSettings();
+            }
+            break;
+        case SettingsScope::SaveOnly:
+            break;
+    }
+    RequestSave();
 }
 
 void App::OpenConfigFile() {
@@ -473,11 +551,22 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         OnCommand(ContextMenu::kRestoreTaskbar);
         return true;
     }
+    if (msgOpenSettings_ && msg == msgOpenSettings_) {
+        OpenSettings();
+        return true;
+    }
+    if (msg == kSettingsClosed) {
+        // The window is gone (its WM_NCDESTROY posted this); a newly opened one is kept.
+        if (settings_ && !settings_->Hwnd()) settings_.reset();
+        return true;
+    }
+    if (msgQueryState_ && msg == msgQueryState_ && wp == 16) {
+        result = settings_ && settings_->Hwnd() ? 1 : 0;  // 16: the settings window exists
+        return true;
+    }
     if (msgDockCommand_ && msg == msgDockCommand_) {
         const UINT cmd = static_cast<UINT>(wp);
-        // kOpenSettings is reserved until the settings window exists.
-        const bool known = cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand &&
-                           cmd != ContextMenu::kOpenSettings;
+        const bool known = cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand;
         result = known ? 1 : 0;
         if (known) OnCommand(cmd);  // after setting result: kQuit destroys the window
         return true;

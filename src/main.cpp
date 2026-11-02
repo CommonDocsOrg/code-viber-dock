@@ -17,6 +17,7 @@ namespace {
 struct Options {
     bool quit = false;
     bool restoreTaskbar = false;
+    bool settings = false;  // open the settings window (in the running dock, or after starting)
 };
 
 Options ParseCommandLine() {
@@ -28,22 +29,23 @@ Options ParseCommandLine() {
         std::wstring_view a = argv[i];
         if (a == L"--quit") o.quit = true;
         else if (a == L"--restore-taskbar") o.restoreTaskbar = true;
+        else if (a == L"--settings") o.settings = true;
     }
     LocalFree(argv);
     return o;
 }
 
-// Posts a registered message to the running dock. If `waitForExit`, waits (bounded) for it to exit.
-bool SignalRunningInstance(const wchar_t* messageName, bool waitForExit) {
+// Posts a registered message to the running dock. If `waitForExit`, waits (bounded) for it to
+// exit. `allowForeground`: the dock may take the foreground (it is about to show a window).
+bool SignalRunningInstance(const wchar_t* messageName, bool waitForExit, bool allowForeground = false) {
     HWND hwnd = FindWindowW(DockWindow::kClassName, nullptr);
     if (!hwnd) return false;
 
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (allowForeground && pid) AllowSetForegroundWindow(pid);
     HANDLE process = nullptr;
-    if (waitForExit) {
-        DWORD pid = 0;
-        GetWindowThreadProcessId(hwnd, &pid);
-        process = OpenProcess(SYNCHRONIZE, FALSE, pid);
-    }
+    if (waitForExit) process = OpenProcess(SYNCHRONIZE, FALSE, pid);
     const bool posted = PostMessageW(hwnd, RegisterWindowMessageW(messageName), 0, 0) != FALSE;
     if (process) {
         if (posted) WaitForSingleObject(process, 5000);
@@ -83,6 +85,8 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         }
         return 0;
     }
+    // A running dock opens its settings window; otherwise start normally and open it then.
+    if (options.settings && SignalRunningInstance(AppIpc::kOpenSettingsMessage, false, true)) return 0;
 
     HANDLE mutex = CreateMutexW(nullptr, FALSE, AppIpc::kMutexName);
     if (!mutex) return 1;
@@ -107,8 +111,10 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         if (!app.Initialize(instance)) {
             exitCode = 1;
         } else {
+            if (options.settings) app.OpenSettings();
             MSG msg;
             while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
+                if (app.PreTranslateMessage(msg)) continue;  // settings window keyboard navigation
                 TranslateMessage(&msg);
                 DispatchMessageW(&msg);
             }

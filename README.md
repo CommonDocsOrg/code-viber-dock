@@ -29,10 +29,12 @@ Output: `build\x64-release\WinDock.exe`. Use the `x64-debug` preset for a debug 
 build\x64-release\WinDock.exe                     :: start the dock (only one instance runs)
 build\x64-release\WinDock.exe --quit              :: ask the running dock to exit
 build\x64-release\WinDock.exe --restore-taskbar   :: bring the Explorer taskbar back
+build\x64-release\WinDock.exe --settings          :: open the settings window (starts the dock if needed)
 ```
 
 Right-click the tray icon or an empty part of the dock for the menu:
 
+- **Settings…**: opens the settings window (see Settings), or brings it to the front.
 - **Auto-hide** submenu (radio items): **Off**, **Always**, **When a window overlaps**. Sets
   `autoHide` (`"off"`, `"always"`, `"intelligent"`) immediately and saves it.
 - **Hide taskbar** (checkmark): hides or restores the Explorer taskbar immediately and saves
@@ -196,6 +198,43 @@ While hiding the taskbar the dock writes `%LocalAppData%\WinDock\taskbar-hidden`
 original taskbar state. If the dock is killed or crashes, the next start (or
 `WinDock.exe --restore-taskbar`, which works without a running dock) restores from it. The Start
 menu still opens with the Win key while the taskbar is hidden.
+
+## Settings
+
+**Settings…** in the tray / dock menu, `WinDock.exe --settings` (asks the running dock to open it,
+or starts the dock and opens it) and `WinDock.DockCommand` 107 open the settings window. There is
+only ever one; opening it again brings it to the front. It appears centred on the dock's monitor,
+above the dock, and is a normal window (Alt+Tab, minimize; the dock stays the topmost window).
+
+Pages (left column; Up / Down / Home / End switch pages while it has the focus, Tab moves into
+the page, Esc closes the window, Enter applies the text in an edit box):
+
+- **General**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
+  magnification range (1-4 icons), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
+  dock's order), clock on / off, time format (pick one or type a `strftime` format; a preview shows
+  the result), date line, Start with Windows, Hide the Windows taskbar, and the renderer
+  (`auto` / `software`; takes effect after WinDock restarts, the page shows the one in use).
+- **Behaviour**: auto-hide Off / Always / When a window overlaps the dock, hide and reveal delays,
+  window previews on / off and their delay.
+- **About**: version, the config file path (click it to show the file in Explorer), **Open config
+  file**, **Reload config**, and the renderer in use.
+- **Appearance**, **Animation**, **Pinned apps**: coming in the next update (until then: config.json,
+  see below).
+
+Every change applies to the dock at once (sliders when you release them, number boxes on each
+arrow step, on Enter or when the box loses the focus) and is saved within 300 ms, exactly like the
+menu toggles. The tray menu and **Reload config** update an open settings window. While the
+settings window is the active window the dock stays shown, so you can watch your changes; auto-hide
+resumes as soon as another window is activated.
+
+The window follows the Windows app mode (Settings > Personalization > Colors > Choose your app
+mode) and switches live: dark or light title bar, Mica behind the title bar and the page list
+(when transparency effects are on; otherwise solid colours), dark buttons, boxes, lists and scroll
+bars. Sliders stay light for now, and so will the colour picker (`ChooseColor`) of the coming
+Appearance page: Windows has no dark style for them. Dark context menus and drop-down lists use
+undocumented Windows functions when they are available; without them those popups are light. High
+contrast uses the system colours. Closing the window frees everything it used; nothing of it runs
+while it is closed.
 
 ## Configuration
 
@@ -375,8 +414,8 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
-  always, 110 Auto-hide when a window overlaps). Runs it as if it was chosen from the menu.
-  Returns 1 for a known command. 107 (settings window) is reserved and returns 0 for now.
+  always, 110 Auto-hide when a window overlaps, 107 open or activate the settings window). Runs it
+  as if it was chosen from the menu. Returns 1 for a known command.
 - `WinDock.QueryState`: `wParam` selects the value. 0 = auto-hide state (0 Shown, 1 Hiding,
   2 Hidden, 3 Showing). 1 = current `SHQueryUserNotificationState` value. 2 = hovered item index
   (-1 for none). 3 = 1 if the name label is shown (0 as soon as it starts fading out). 4 = 1
@@ -388,13 +427,22 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   the window-preview popup is visible. 12 = number of cards in the popup (0 when hidden).
   13 = the window handle shown by popup card `lParam` (0-based; 0 if there is none).
   14 = auto-hide mode (0 off, 1 always, 2 intelligent). 15 = 1 while the foreground window
-  overlaps the dock (`"intelligent"` only; always 0 in the other modes). 17 = 1 while
+  overlaps the dock (`"intelligent"` only; always 0 in the other modes). 16 = 1 while the
+  settings window exists. 17 = 1 while
   reduce-motion is in effect (`animation.reduceMotion` `"on"`, or `"system"` with Windows'
   animation effects off). 19 = number of window events the intelligent-hide hooks accepted
   since the dock started (foreground changes, moves, minimize / restore of the foreground
   window; it stops counting in the other modes). 20 = 1 if the theme preset failed to resolve on
   the last load (the dock uses `dark`). 21 = number of callbacks those hooks delivered, the
   filtered ones (cursor, caret, child windows) included.
+- `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
+  what `WinDock.exe --settings` sends to a running dock.
+- Settings window (class `WinDock.Settings`, title "WinDock Settings"): the page list is the child
+  `WinDock.SettingsNav` (control id 100; its window text is the selected page's name); the pages
+  are `WinDock.SettingsPage` children with ids 200 + page index (0 General, 1 Appearance,
+  2 Behaviour, 3 Animation, 4 Pinned apps, 5 About), and every control on them has the stable id
+  listed in `src/SettingsIds.h`. Check boxes and radio buttons carry no visible text of their own:
+  their caption is a separate static (id + 1) that forwards clicks.
 - `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle, 801 new window,
   802 open file location, 900 close all windows), `lParam` = item index or a window handle of
   the item. Returns 1 if the item was found.

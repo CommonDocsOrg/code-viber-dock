@@ -31,6 +31,10 @@ add_executable(WinDock WIN32
   src/IconCache.cpp
   src/Activation.cpp
   src/Launcher.cpp
+  src/DarkMode.cpp
+  src/SettingsWindow.cpp
+  src/SettingsNav.cpp
+  src/SettingsPages.cpp
   res/app.rc
   res/app.manifest
 )
@@ -54,5 +58,6 @@ target_link_options(WinDock PRIVATE
 target_link_libraries(WinDock PRIVATE
   d3d11 dxgi d2d1 dcomp dwrite windowscodecs
   shell32 ole32 shlwapi dwmapi propsys user32 gdi32 version advapi32
+  comctl32 uxtheme comdlg32
   windowsapp
 )

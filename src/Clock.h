@@ -36,8 +36,10 @@ public:
 
     void ReleaseLayout();
 
-private:
+    // strftime-style formatting that never terminates on a bad specifier (falls back to %H:%M).
     static std::wstring Format(const std::wstring& format, const tm& t);
+
+private:
     bool HasSeconds() const;
 
     std::wstring format_ = L"%H:%M";

@@ -19,7 +19,7 @@ enum Command : UINT {
     kRestoreTaskbar,  // show the taskbar for this session (unchecks "Hide taskbar"; config unchanged)
     kQuit,
     kReloadConfig,
-    kOpenSettings = 107,  // reserved for the settings window (no menu item yet)
+    kOpenSettings = 107,  // opens (or activates) the settings window
     kAutoHideOff = 108,
     kAutoHideAlways = 109,
     kAutoHideIntelligent = 110,

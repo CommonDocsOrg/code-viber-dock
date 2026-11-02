@@ -12,6 +12,8 @@ void Append(HMENU menu, UINT id, const wchar_t* text, bool enabled, bool checked
 }
 
 void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
+    Append(menu, kOpenSettings, L"Settings…", true);
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     if (HMENU sub = CreatePopupMenu()) {  // destroyed with its parent
         Append(sub, kAutoHideOff, L"Off", true);
         Append(sub, kAutoHideAlways, L"Always", true);

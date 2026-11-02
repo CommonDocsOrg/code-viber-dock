@@ -4,6 +4,7 @@
 #include <shellapi.h>
 
 #include <functional>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -11,6 +12,7 @@
 #include "Config.h"
 #include "ContextMenu.h"
 #include "DockWindow.h"
+#include "SettingsWindow.h"
 #include "TaskbarController.h"
 
 // Names shared between the running instance and command-line invocations.
@@ -24,9 +26,11 @@ inline constexpr wchar_t kRestoreTaskbarMessage[] = L"WinDock.RestoreTaskbar";
 // is a window handle. Returns 1 if the item was found.
 inline constexpr wchar_t kItemCommandMessage[] = L"WinDock.ItemCommand";
 // Automation: SendMessage(dock, RegisterWindowMessage(kDockCommandMessage), cmd, 0) runs a dock /
-// tray menu command (ContextMenu::kAutoHide ... kLastDockCommand), exactly as if it was chosen
-// from the menu. Returns 1 for a known command (kOpenSettings is reserved and returns 0 for now).
+// tray menu command (ContextMenu::kAutoHide ... kLastDockCommand, kOpenSettings included),
+// exactly as if it was chosen from the menu. Returns 1 for a known command.
 inline constexpr wchar_t kDockCommandMessage[] = L"WinDock.DockCommand";
+// Posted by `WinDock.exe --settings` to the running dock: open (or activate) the settings window.
+inline constexpr wchar_t kOpenSettingsMessage[] = L"WinDock.OpenSettings";
 }  // namespace AppIpc
 
 // Wires the modules together: config, dock window, tray icon, taskbar controller.
@@ -40,10 +44,16 @@ public:
     // Returns false (after telling the user) if the dock can't start.
     bool Initialize(HINSTANCE instance);
     void Shutdown();
+    // Opens the settings window, or activates it if it is open.
+    void OpenSettings();
+    // Called by the message loop for every message: keyboard navigation in the settings window.
+    // Returns true if the message was handled (do not translate / dispatch it).
+    bool PreTranslateMessage(MSG& msg) { return settings_ && settings_->PreTranslateMessage(msg); }
 
 private:
     static constexpr UINT kTrayCallback = WM_APP + 1;
     static constexpr UINT kTrayId = 1;
+    static constexpr UINT kSettingsClosed = WM_APP + 2;  // posted: delete the destroyed settings window
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
 
@@ -75,6 +85,10 @@ private:
     UINT RunMenu(const std::function<UINT()>& show);
     void ReloadConfig();
     void OpenConfigFile();
+    // A setting was changed in the settings window: apply it to the dock, then save (debounced).
+    void OnSettingsChanged(SettingsScope scope);
+    // Reloads the settings window's controls from the config (no-op while it is closed).
+    void RefreshSettings();
     void Quit();
 
     HINSTANCE instance_ = nullptr;
@@ -87,10 +101,13 @@ private:
     UINT msgTaskbarCreated_ = 0;
     UINT msgItemCommand_ = 0;
     UINT msgDockCommand_ = 0;
+    UINT msgOpenSettings_ = 0;
+    UINT msgQueryState_ = 0;
     bool savePending_ = false;
     // The auto-hide mode the kAutoHide toggle turns back on (from the config, default Always).
     AutoHideMode lastOnMode_ = AutoHideMode::Always;
     HICON trayIcon_ = nullptr;
     bool trayAdded_ = false;
     bool shutDown_ = false;
+    std::unique_ptr<SettingsWindow> settings_;  // null (nothing allocated) while closed
 };

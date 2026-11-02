@@ -59,7 +59,8 @@ public:
     // 10: 1 if the OLE drop target is registered; 11: 1 while the thumbnail popup is visible;
     // 12: number of cards in the thumbnail popup; 13: the window shown by popup card lp (0 none);
     // 14: auto-hide mode (0 off, 1 always, 2 intelligent); 15: 1 while the foreground window
-    // overlaps the dock (intelligent mode; 0 otherwise); 17: 1 while reduce-motion is in effect
+    // overlaps the dock (intelligent mode; 0 otherwise); 16: 1 while the settings window exists
+    // (answered by App's message hook); 17: 1 while reduce-motion is in effect
     // (animation.reduceMotion, or "system" and Windows' animation effects are off); 19: number of
     // foreground-watch events accepted so far (they only arrive in intelligent mode); 20: 1 if the
     // theme preset failed to resolve on the last load; 21: number of foreground-watch callbacks
@@ -111,6 +112,17 @@ public:
     // While held (a menu is open, a drag is in progress) the dock never hides. Releasing the
     // hold starts the hide delay if the mouse is outside the dock.
     void SetHold(bool hold);
+    // While kept shown (the settings window is active) the dock never hides and is revealed if
+    // hidden (unless a fullscreen app runs). Unlike SetHold it does not keep the HWND at stage
+    // size and does not suppress the label or previews. Releasing it re-applies auto-hide.
+    void SetKeepShown(bool keep);
+
+    // The monitor the dock is on (screen px), its DPI, and the bar at rest (screen px).
+    RECT MonitorRect() const { return layout_.monitor; }
+    UINT Dpi() const { return dpi_; }
+    RECT RestBarRect() const;
+    // The renderer runs on WARP (software) rather than a hardware device.
+    bool UsingWarp() const { return renderer_.UsingWarp(); }
 
     // The item under a client-area point (relative to the current window rect), or nullptr.
     const DockItem* ItemAt(POINT clientPt) const;
@@ -263,7 +275,7 @@ private:
     // The item list changed: follow the popup's app (its windows) or dismiss it.
     void RefreshPreview();
     void OnPreviewHover(bool inside);
-    bool Held() const { return hold_ || previewHold_; }
+    bool Held() const { return hold_ || previewHold_ || keepShown_; }
 
     // --- acrylic backdrop ---
     // Creates / destroys the backdrop window per config and system settings (call before a
@@ -463,6 +475,7 @@ private:
     HideState hideState_ = HideState::Shown;
     Tween rootY_, rootOpacity_;
     bool hold_ = false;
+    bool keepShown_ = false;      // SetKeepShown: part of Held(), not of NeedsStage()
     bool hidePending_ = false;
     bool revealPending_ = false;
     bool revealArmed_ = true;     // false until the cursor leaves the strip (no reveal loops)

@@ -1740,6 +1740,23 @@ void DockWindow::ApplyAutoHide() {
     }
 }
 
+void DockWindow::SetKeepShown(bool keep) {
+    if (keep == keepShown_ || !hwnd_) return;
+    keepShown_ = keep;
+    if (keep) {
+        CancelHide();
+        if ((hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) && !RevealSuppressed()) StartShow();
+        return;
+    }
+    ApplyAutoHide();  // hides after the delay if auto-hide wants it now
+}
+
+RECT DockWindow::RestBarRect() const {
+    const RECT& w = layout_.window;
+    return RECT{w.left + static_cast<LONG>(std::floor(layout_.bar.left)), w.top + static_cast<LONG>(std::floor(layout_.bar.top)),
+                w.left + static_cast<LONG>(std::ceil(layout_.bar.right)), w.top + static_cast<LONG>(std::ceil(layout_.bar.bottom))};
+}
+
 void DockWindow::SetHold(bool hold) {
     if (hold == hold_ || !hwnd_) return;
     hold_ = hold;
