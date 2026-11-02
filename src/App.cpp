@@ -112,7 +112,29 @@ bool App::Initialize(HINSTANCE instance) {
     };
     requests.pinFiles = [this](const std::vector<std::wstring>& paths, size_t at) { PinFiles(paths, at); };
     requests.moveItem = [this](size_t from, size_t to) { MoveItem(from, to); };
+    requests.moveDock = [this](DockEdge edge, DockAlign align, int offset) {
+        DockConfig& d = config_.Main();
+        if (d.edge == edge && d.align == align && d.offset == offset) {
+            dock_.Relayout();  // back to its own place
+            return;
+        }
+        d.edge = edge;
+        d.align = align;
+        d.offset = offset;
+        dock_.ApplyConfig();
+        RequestSave();
+        RefreshSettings();
+    };
     dock_.SetPinRequests(std::move(requests));
+    // The dock's app bar (reserve screen space): the taskbar controller must not undo the work
+    // area it leaves.
+    dock_.SetAppBarCallback([this](bool on, const RECT& monitor, const RECT& work) {
+        if (on) {
+            taskbar_.SetReservedWorkArea(monitor, work);
+        } else {
+            taskbar_.ClearReservedWorkArea();
+        }
+    });
     DockWindow::WeatherCallbacks weather;
     weather.openSettings = [this] { OpenSettings(SettingsIds::kPageWeather); };
     weather.changed = [this] {
@@ -122,6 +144,8 @@ bool App::Initialize(HINSTANCE instance) {
 
     AddTrayIcon();
     taskbar_.SetEnabled(config_.hideTaskbar);
+    // Only now: the controller has saved the original work area (without our reservation).
+    dock_.AllowAppBar(true);
     return true;
 }
 
@@ -399,6 +423,7 @@ void App::Shutdown() {
     geocodeDone_ = nullptr;
     shutDown_ = true;
     FlushSave();
+    dock_.AllowAppBar(false);  // first: the restored work area must not keep our band
     taskbar_.Restore();
     RemoveTrayIcon();
     dock_.Destroy();
@@ -537,7 +562,7 @@ void App::OnCommand(UINT cmd) {
         case ContextMenu::kHideTaskbar: {
             const bool hide = !taskbar_.Enabled();
             config_.hideTaskbar = hide;
-            taskbar_.SetEnabled(hide);
+            SetTaskbarEnabled(hide);
             RequestSave();
             RefreshSettings();
             break;
@@ -613,7 +638,7 @@ void App::OnCommand(UINT cmd) {
         case ContextMenu::kRestoreTaskbar:
             // For this session only: the controller is disabled (so "Hide taskbar" shows
             // unchecked and Explorer restarts do not re-hide), config.hideTaskbar is untouched.
-            taskbar_.SetEnabled(false);
+            SetTaskbarEnabled(false);
             RefreshSettings();
             break;
         case ContextMenu::kQuit:
@@ -622,6 +647,13 @@ void App::OnCommand(UINT cmd) {
         default:
             break;
     }
+}
+
+void App::SetTaskbarEnabled(bool enabled) {
+    // The controller saves / restores the work area: never with our app bar registered.
+    dock_.AllowAppBar(false);
+    taskbar_.SetEnabled(enabled);
+    dock_.AllowAppBar(!shutDown_);
 }
 
 void App::SetAutoHide(AutoHideMode mode) {
@@ -656,7 +688,7 @@ void App::ReloadConfig() {
     if (config_.themeResolveFailed) MessageBeep(MB_ICONWARNING);
     dock_.ApplyConfig();
     dock_.ReloadPins();
-    if (taskbar_.Enabled() != config_.hideTaskbar) taskbar_.SetEnabled(config_.hideTaskbar);
+    if (taskbar_.Enabled() != config_.hideTaskbar) SetTaskbarEnabled(config_.hideTaskbar);
     if (AutostartEnabled() != config_.startWithWindows) SetAutostart(config_.startWithWindows);
     RefreshSettings();
 }
@@ -720,7 +752,7 @@ void App::OnSettingsChanged(SettingsScope scope) {
             dock_.ReloadPins();
             break;
         case SettingsScope::Taskbar:
-            taskbar_.SetEnabled(config_.hideTaskbar);
+            SetTaskbarEnabled(config_.hideTaskbar);
             break;
         case SettingsScope::Autostart:
             if (!SetAutostart(config_.startWithWindows)) {
@@ -849,7 +881,10 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         // Explorer restarted: the tray icon is gone and the new taskbar must be re-hidden.
         trayAdded_ = false;
         AddTrayIcon();
+        // The new Explorer knows no app bars: register again once the taskbar is re-hidden.
+        dock_.AllowAppBar(false);
         taskbar_.OnTaskbarCreated();
+        dock_.AllowAppBar(!shutDown_);
         return true;
     }
 
@@ -877,14 +912,17 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
             FlushSave();
             // Restore while Explorer is certainly still alive to persist the appbar state; if
             // the logoff is cancelled, WM_ENDSESSION(FALSE) hides the taskbar again.
+            dock_.AllowAppBar(false);
             taskbar_.Restore();
             result = TRUE;
             return true;
         case WM_ENDSESSION:
             if (wp) {
+                dock_.AllowAppBar(false);
                 taskbar_.Restore();  // the session is ending (no-op if already restored)
-            } else if (config_.hideTaskbar) {
-                taskbar_.Hide();     // shutdown was cancelled
+            } else {
+                if (config_.hideTaskbar) taskbar_.Hide();  // shutdown was cancelled
+                dock_.AllowAppBar(true);
             }
             return true;
         case WM_SETTINGCHANGE:

@@ -97,6 +97,8 @@ private:
     void RequestSave();
     void FlushSave();
     void OnCommand(UINT cmd);
+    // taskbar_.SetEnabled with the dock's app bar withdrawn around it (see DockWindow::AllowAppBar).
+    void SetTaskbarEnabled(bool enabled);
     // Sets config_.Main().autoHide, applies it to the dock and saves; remembers on-modes for kAutoHide.
     void SetAutoHide(AutoHideMode mode);
     ContextMenu::TrayMenuState MenuState() const;

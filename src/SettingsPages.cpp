@@ -113,10 +113,30 @@ protected:
                 [](Config& c) -> int& { return c.Main().offset; }, SettingsScope::Appearance);
         NextRow(kRowH);
         Text(kPositionNote, CtlKind::Note,
-             L"Moves the dock along its edge from the aligned place (right / down). Reflections show on bottom "
-             L"and top docks only.",
-             kColX, right - kColX, 36);
-        NextRow(38);
+             L"Moves the dock along its edge from the aligned place (right / down). Ctrl+drag the dock to move it "
+             L"along its edge or onto another edge (unless it is locked).",
+             kColX, right - kColX, 54);
+        NextRow(56);
+        Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
+        NextRow();
+        Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)",
+              kMargin + 24);
+        NextRow();
+        Label(kPeekLabel, L"Peek when hidden (pixels)");
+        IntSpin(kPeekEdit, kPeekSpin, kColX, 72, 0, 64, 2, [](Config& c) -> int& { return c.Main().peekPx; },
+                SettingsScope::Appearance);
+        NextRow();
+        Label(kPeekOpacityLabel, L"Peek opacity (%)");
+        Spin(kPeekOpacityEdit, kPeekOpacitySpin, kColX, 72, 5, 100, 5);
+        NextRow();
+        Label(kTitleLabel, L"Title");
+        EditBox(kTitleEdit, kColX, right - kColX, 128);
+        NextRow(kRowH);
+        Text(kPositionNote2, CtlKind::Note,
+             L"Space is reserved only by a full-width dock with auto-hide off. Peek keeps that much of the hidden "
+             L"dock on screen (0: off). The title is drawn beside the bar, toward the middle of the screen.",
+             kColX, right - kColX, 70);
+        NextRow(72);
 
         Section(kSectionClock, L"Clock");
         Check(kClockShow, kClockShowCaption, L"Show the clock");
@@ -174,6 +194,11 @@ protected:
         FillMonitors();
         SetComboSel(kEdgeCombo, static_cast<int>(c.Main().edge));
         SetComboSel(kAlignCombo, static_cast<int>(c.Main().align));
+        SetCheck(kFullWidth, c.Main().fullWidth);
+        SetCheck(kReserveSpace, c.Main().reserveSpace);
+        Enable(kReserveSpace, c.Main().fullWidth);
+        SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(c.Main().peekOpacity * 100.0)));
+        SetText(kTitleEdit, c.Main().title);
         SetCheck(kClockShow, c.Main().Has(ItemKind::Clock));
         SetText(kClockFormatCombo, c.clock.format);
         SetText(kClockPreview, ClockPreview(c.clock.format, c.clock.showSeconds));
@@ -233,6 +258,19 @@ protected:
                         c.Main().edge = static_cast<DockEdge>(sel);
                         Changed(SettingsScope::Appearance);
                     }
+                }
+                break;
+            case kFullWidth:
+                if (code == BN_CLICKED) {
+                    c.Main().fullWidth = GetCheck(id);
+                    Enable(kReserveSpace, c.Main().fullWidth);
+                    Changed(SettingsScope::Appearance);
+                }
+                break;
+            case kReserveSpace:
+                if (code == BN_CLICKED) {
+                    c.Main().reserveSpace = GetCheck(id);
+                    Changed(SettingsScope::Appearance);
                 }
                 break;
             case kAlignCombo:
@@ -315,6 +353,35 @@ protected:
     void Commit(int id) override {
         if (id == kClockFormatCombo) CommitFormat(GetText(id));
         if (id == kClockTargetEdit) CommitTarget(GetText(id));
+        if (id == kTitleEdit) {
+            std::wstring title = GetText(id);
+            if (title.size() > 128) title.resize(128);
+            if (title != Cfg().Main().title) {
+                Cfg().Main().title = title;
+                Changed(SettingsScope::Appearance);
+            }
+        }
+        if (id == kPeekOpacityEdit) {
+            int v = 0;
+            if (ReadInt(id, 5, 100, v)) {
+                SetPeekOpacity(v);
+            } else {
+                SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(Cfg().Main().peekOpacity * 100.0)));
+            }
+        }
+    }
+
+    void Spun(int spin, int pos) override {
+        if (spin == kPeekOpacitySpin) SetPeekOpacity(pos);
+    }
+
+    void SetPeekOpacity(int percent) {
+        percent = std::clamp(percent, 5, 100);
+        SetSpin(kPeekOpacitySpin, percent);
+        const double v = percent / 100.0;
+        if (std::fabs(Cfg().Main().peekOpacity - v) < 1e-9) return;
+        Cfg().Main().peekOpacity = v;
+        Changed(SettingsScope::Appearance);
     }
 
 private:

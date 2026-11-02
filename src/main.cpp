@@ -60,7 +60,10 @@ bool SignalRunningInstance(const wchar_t* messageName, bool waitForExit, bool al
 LONG g_crashRestoreDone = 0;
 
 void CrashRestoreTaskbar() {
-    if (InterlockedExchange(&g_crashRestoreDone, 1) == 0) TaskbarController::EmergencyRestore();
+    if (InterlockedExchange(&g_crashRestoreDone, 1) == 0) {
+        DockWindow::EmergencyRemoveAppBar();  // the dock's reserved band first (best effort)
+        TaskbarController::EmergencyRestore();
+    }
 }
 
 LONG WINAPI UnhandledExceptionHandler(EXCEPTION_POINTERS*) {

@@ -29,7 +29,7 @@ enum class Field : uint32_t {
     ClockDateText, PlaceholderFill, PlaceholderText, PreviewHotBackground, PreviewHotBorder, CloseHover,
     Shelf, ShelfSlant, ShelfEdge,
     Glow, GlowColor, GlowRadius, GlowStrength, Reflection, ReflectionHeight, ReflectionOpacity, Perspective,
-    PerspectiveAngle,
+    PerspectiveAngle, ReflectionClip,
     Count
 };
 static_assert(static_cast<uint32_t>(Field::Count) <= 64, "one override bit per field");

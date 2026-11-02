@@ -85,6 +85,11 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadString(o, L"align", s);
     if (!s.empty()) FromString(s, d.align);  // unknown text: center
     ReadInt(o, L"offset", d.offset);
+    ReadBool(o, L"fullWidth", d.fullWidth);
+    ReadBool(o, L"reserveSpace", d.reserveSpace);
+    ReadInt(o, L"peekPx", d.peekPx);
+    ReadNumber(o, L"peekOpacity", d.peekOpacity);
+    ReadString(o, L"title", d.title);
 }
 
 // The path names a directory (environment variables expanded). A .lnk to a folder is not one:
@@ -322,6 +327,10 @@ void Config::Sanitize() {
         if (static_cast<unsigned>(d.edge) > static_cast<unsigned>(DockEdge::Right)) d.edge = DockEdge::Bottom;
         if (static_cast<unsigned>(d.align) > static_cast<unsigned>(DockAlign::End)) d.align = DockAlign::Center;
         d.offset = std::clamp(d.offset, -16000, 16000);
+        d.peekPx = std::clamp(d.peekPx, 0, 64);
+        if (!(d.peekOpacity >= 0.05)) d.peekOpacity = d.peekOpacity >= 0.0 ? 0.05 : 0.5;  // also NaN
+        d.peekOpacity = std::min(d.peekOpacity, 1.0);
+        if (d.title.size() > 128) d.title.resize(128);
         d.iconSize = std::clamp(d.iconSize, 16, 256);
         if (!(d.magnification >= 1.0)) d.magnification = 1.0;  // also catches NaN
         d.magnification = std::min(d.magnification, 2.5);
@@ -567,6 +576,9 @@ bool Config::Save() const {
             o += d.items.empty() ? L"],\n" : L"\n      ],\n";
             o += L"      \"edge\": " + Quote(ToString(d.edge)) + L", \"align\": " + Quote(ToString(d.align)) +
                  L", \"offset\": " + Num(d.offset) + L", \"locked\": " + Bool(d.locked) + L",\n";
+            o += L"      \"fullWidth\": " + Bool(d.fullWidth) + L", \"reserveSpace\": " + Bool(d.reserveSpace) +
+                 L", \"peekPx\": " + Num(d.peekPx) + L", \"peekOpacity\": " + Num(d.peekOpacity) +
+                 L", \"title\": " + Quote(d.title) + L",\n";
             o += L"      \"iconSize\": " + Num(d.iconSize) + L", \"magnification\": " + Num(d.magnification) +
                  L", \"magnifyRange\": " + Num(d.magnifyRange) + L",\n";
             o += L"      \"autoHide\": " + Quote(ToString(d.autoHide)) + L", \"hideDelayMs\": " + Num(d.hideDelayMs) +

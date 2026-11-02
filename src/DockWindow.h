@@ -61,6 +61,8 @@ public:
     // WM_APP + 23 = WeatherService::kGeocodeMessage (a place search finished; handled by App).
     static constexpr UINT kRecycleBinChangedMessage = WM_APP + 21;
     static constexpr UINT kDropActionMessage = WM_APP + 22;
+    // The shell's app bar notifications (SHAppBarMessage ABM_NEW callback; ABN_POSCHANGED, ...).
+    static constexpr UINT kAppBarMessage = WM_APP + 24;
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -97,7 +99,11 @@ public:
     // -1 no such item); 36: 1 while the dock is locked (docks[].locked); 37: the index in
     // docks[0].items[] of the config item that contributes slot lp (-1 no such slot); 38: the edge
     // the dock is laid out on (0 bottom, 1 top, 2 left, 3 right); 39: docks[0].align (0 center,
-    // 1 start, 2 end); 40: docks[0].offset (DIPs).
+    // 1 start, 2 end); 40: docks[0].offset (DIPs); 41: 1 while laid out full width; 42:
+    // docks[0].reserveSpace; 43: 1 while registered as an app bar (reserving screen space); 44: the
+    // peek strip's height in px (0: off; used while auto-hide hides the dock); 45: 1 while a title is drawn; 46: dock
+    // drag (0 none, 1 moving the dock along its edge, 2 over another edge's zone: dropping there
+    // moves it to that edge).
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -119,6 +125,8 @@ public:
         // Move config item `from` (a widget dragged on the dock) right before item `to` (>= the item
         // count: to the end) of config->Main().items.
         std::function<void(size_t from, size_t to)> moveItem;
+        // The dock was dragged (Ctrl + drag): put it on `edge` at `align` + `offset` DIPs.
+        std::function<void(DockEdge edge, DockAlign align, int offset)> moveDock;
     };
 
     DockWindow() = default;
@@ -132,8 +140,23 @@ public:
     void Destroy();
     HWND Hwnd() const override { return hwnd_; }
     void SetPinRequests(PinRequests requests) { pinRequests_ = std::move(requests); }
-    // An icon is being dragged (or fading out after being dragged off the dock).
-    bool InDrag() const { return dragPhase_ != DragPhase::None; }
+    // An icon is being dragged (or fading out after being dragged off the dock), or the dock itself.
+    bool InDrag() const { return dragPhase_ != DragPhase::None || dockDrag_; }
+
+    // --- app bar (fullWidth + reserveSpace with autoHide "off") ---
+    // The owner allows the registration once the taskbar controller has saved the work area
+    // (and withdraws it around every taskbar hide / restore, and before quitting), so the
+    // controller never records our reservation as the original work area.
+    void AllowAppBar(bool allow);
+    bool AppBarRegistered() const { return appBar_; }
+    // Told whenever the reservation changes: on (with the dock's monitor and the work area it
+    // leaves) or off.
+    void SetAppBarCallback(std::function<void(bool on, const RECT& monitor, const RECT& work)> cb) {
+        appBarChanged_ = std::move(cb);
+    }
+    // Crash path (unhandled exception filter): removes the registration of the dock window that
+    // registered one, if any. Best effort, no allocation of our own.
+    static void EmergencyRemoveAppBar();
 
     // Recomputes the layout, moves/resizes the window and redraws everything.
     void Relayout();
@@ -259,6 +282,12 @@ private:
         float growRoomStart = 0.0f;
         float growRoomEnd = 0.0f;
         float popupY = 0.0f;      // popups open beyond this cross coordinate (with kPreviewGap)
+        bool fullWidth = false;   // the bar spans the monitor's edge (docks[].fullWidth)
+        float slack = 0.0f;       // stage room beside the bar on each side (before a monitor end cuts it)
+        float peek = 0.0f;        // px of the bar left visible while hidden (0: the 1 px strip)
+        float hiddenSlide = 0.0f; // slide distance of the hidden pose (`slide`, or to the peek strip)
+        bool reflClip = false;    // reflections are clipped at the bar's edge (theme.reflectionClip)
+        D2D1_RECT_F title{};      // the title's physical stage rect (empty: none)
 
         D2D1_POINT_2F Phys(float u, float v) const { return DockGeometry::Point(edge, u, v, stageCross); }
         D2D1_RECT_F PhysRect(float u0, float v0, float u1, float v1) const {
@@ -287,8 +316,27 @@ private:
     }
     // Where a popup opens for a slot centred on stage main coordinate `anchor`.
     PopupAnchor PopupAnchorAt(float anchor) const;
-    // The HWND rect while hidden: the 1 px reveal strip along the monitor's edge.
+    // The HWND rect while hidden: the 1 px reveal strip along the monitor's edge, or the peek strip.
     RECT HiddenRect() const;
+    // The label's text format (labels and the title), at scale `s`. False without DirectWrite.
+    bool EnsureLabelFormat(float s);
+    HRESULT RenderTitle();
+    // Clips the icons at the bar's edge while reflections are clipped (theme.reflectionClip).
+    void ApplyReflectionClip();
+    // Registers / moves / removes the app bar per config (after a layout pass).
+    void UpdateAppBar();
+    void RemoveAppBar();
+    void OnAppBarNotify(WPARAM wp, LPARAM lp);
+    // The reserved screen rect (the bar's band along its edge).
+    RECT AppBarRect() const;
+
+    // --- drag the dock (Ctrl + drag on the bar, unlocked) ---
+    void BeginDockDrag();
+    void UpdateDockDrag();
+    void EndDockDrag(bool commit);
+    // The edge whose zone the screen point is in: the current edge, or another one when the point
+    // is in the outer quarter of the monitor next to it (and nearer to it than to the others).
+    DockEdge DockZoneAt(POINT screenPt) const;
 
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
     LRESULT WndProc(UINT msg, WPARAM wp, LPARAM lp);
@@ -671,6 +719,11 @@ private:
     // item's dot visual (each DComp surface has a sizeable fixed cost). The source visuals are hidden.
     Layer dotSources_[3];
     Layer label_;
+    Layer title_;
+    winrt::com_ptr<IDWriteTextLayout> titleLayout_;  // docks[].title laid out (null: none)
+    std::wstring titleText_;
+    float titleScale_ = 0.0f;
+    bool titleDirty_ = true;
     Layout layout_;
     Tween bgLeftX_, bgRightX_, labelX_, labelY_;
     float bgLeftTarget_ = 0.0f, bgRightTarget_ = 0.0f;
@@ -734,6 +787,20 @@ private:
     bool overlapped_ = false;     // intelligent: the foreground window overlaps the dock
 
     PinRequests pinRequests_;
+
+    // App bar
+    bool appBarAllowed_ = false;  // AllowAppBar
+    bool appBar_ = false;         // registered (ABM_NEW)
+    RECT appBarRect_{};           // the rect last set (ABM_SETPOS)
+    bool fullscreenApp_ = false;  // ABN_FULLSCREENAPP: a fullscreen app is open, the dock is not topmost
+    std::function<void(bool, const RECT&, const RECT&)> appBarChanged_;
+
+    // Dragging the dock
+    bool dockPress_ = false;      // a Ctrl + left press on the bar (a drag may start)
+    POINT dockPressScreen_{};     // where (screen)
+    bool dockDrag_ = false;       // moving the dock
+    LONG dockShift_ = 0;          // how far the window has been moved along the edge (px)
+    DockEdge dockZone_ = DockEdge::Bottom;  // the edge a drop would put the dock on
 
     // Drag to reorder
     POINT pressPt_{};             // stage point of the last left press on an item

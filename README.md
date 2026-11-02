@@ -41,7 +41,8 @@ Right-click the tray icon or an empty part of the dock for the menu:
 
 - **Settings…**: opens the settings window (see Settings), or brings it to the front.
 - **Position on screen** submenu (radio items): **Bottom**, **Top**, **Left**, **Right**. Moves the
-  dock to that edge of its monitor (`edge`; alignment and offset are kept) and saves it. See
+  dock to that edge of its monitor (`edge`; alignment and offset are kept) and saves it. The
+  submenu ends with a reminder that **Ctrl+drag** moves the dock (see Position). See
   [Position](#position-edge-alignment-offset).
 - **Auto-hide** submenu (radio items): **Off**, **Always**, **When a window overlaps**. Sets
   `autoHide` (`"off"`, `"always"`, `"intelligent"`) immediately and saves it.
@@ -202,6 +203,48 @@ things go, not how they behave:
   near an end), magnification cannot grow the bar past the monitor's end; it grows away from it
   instead (the icon under the pointer then drifts a little off the pointer at the very end).
 - The Explorer taskbar handling is unchanged: it is hidden whatever edge the dock is on.
+
+**Moving the dock by dragging**: hold **Ctrl** and drag the bar (anywhere on it, icons included)
+of an unlocked dock. The dock follows the pointer along its edge (it stays on the monitor); on
+release it snaps to the centre or to an end when it is within 24 DIP of it, otherwise it keeps the
+nearest alignment (centre, start or end) plus the distance from it, saved as `align` and `offset`.
+Drag it out of its edge's band (a quarter of the monitor) toward another edge and the dock dims;
+releasing there puts it on that edge, at the pointer. Escape cancels; a Ctrl + click without a
+move is an ordinary click. A locked dock does not move (`locked`, **Lock dock**). A full-width
+dock only changes edges. `WinDock.QueryState` 46 reports the drag.
+
+**Full width** (`fullWidth`, default `false`): the bar spans the whole edge of the monitor, flush
+with the screen edge (no margin) and with square corners (also the acrylic blur). The items sit in
+it at its start, centre or end per `align`, moved by `offset`, and keep the bar's padding from the
+monitor's ends. Magnification grows the run of items inside the bar (the bar's own ends slide past
+the monitor's, where the window cuts them off, so the bar always looks full); auto-hide works as
+usual (the whole bar slides off the edge).
+
+**Reserve screen space** (`reserveSpace`, default `true`, only used with `fullWidth`): the dock
+registers its window as an app bar (`SHAppBarMessage` `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS`)
+so the shell takes the bar's band out of the work area: maximized windows stop at the dock and
+popups / the settings window stay clear of it. **Only a dock with `autoHide` `"off"` reserves
+space**; with `"always"` or `"intelligent"` nothing is reserved (like Explorer's auto-hide
+taskbar: an intelligent dock would otherwise never be overlapped, so it would never hide). The
+registration follows the bar (edge, monitor, DPI), answers `ABN_POSCHANGED`, and steps out of the
+topmost band while the shell reports a fullscreen app (`ABN_FULLSCREENAPP`). It is removed when
+any of those conditions goes away, before the Explorer taskbar is restored or hidden again (so
+the saved work area never includes it), on quit and when the dock window is destroyed; the crash
+filter removes it too, and after a hard kill the shell drops the dead window's band by itself.
+With the Explorer taskbar shown on the same edge (hide taskbar off) the shell stacks the two, so
+both reserve their height. `WinDock.QueryState` 43 tells whether the dock is registered.
+
+**Peek strip** (`peekPx`, DIPs, default 0 = off, 0 - 64; `peekOpacity`, default 0.5, 0.05 - 1):
+while auto-hide keeps the dock hidden, that much of the bar's far side (the top of a bottom dock)
+stays on screen at that opacity instead of the invisible 1 px strip, and hovering it for
+`revealDelayMs` reveals the dock as before. The dock always slides to the peek position (also with
+`hideStyle` `"fade"`); the acrylic blur is not shown on the strip. `WinDock.QueryState` 44.
+
+**Title** (`title`, default empty, up to 128 characters): a label in the name label's font, colours
+and pill, drawn outside the bar on the side facing the middle of the screen (above a bottom dock,
+beside a vertical one), centred on the items. It takes no part in hit testing (hovering or
+clicking it does nothing), hides and slides with the dock, and the resting window includes its
+band. `WinDock.QueryState` 45.
 
 ### Dock items
 
@@ -397,7 +440,8 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 
 - **General**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
   magnification range (1-4 icons), **Position**: screen edge, alignment and offset (pixels at
-  100 % scale; applied on Enter or focus loss; see Position), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
+  100 % scale; applied on Enter or focus loss), Full width, Reserve screen space (enabled with
+  full width), Peek when hidden (pixels), Peek opacity (%) and Title (see Position), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
   dock's order), clock on / off, time format (pick one or type a `strftime` format; a preview shows
   the result), **Show seconds**, date line, **Clicking the clock opens** (the month calendar, the
   app or URL below, nothing), **App or URL** (typed, applied on Enter or when the box loses the
@@ -414,7 +458,8 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   are check boxes, numbers are number boxes with their unit (DIPs; percent for the 0 - 1 values
   such as the glow strength; degrees for the perspective angle), and the glow mode is a drop-down
   (Off, While hovered, Active app, Always). **Icon effects** holds the glow (mode, colour, radius,
-  strength), the reflection (on / off, height, opacity) and the 3D perspective (on / off, angle);
+  strength), the reflection (on / off, **Clip the reflection to the bar** right under it, height, opacity)
+  and the 3D perspective (on / off, angle);
   see [Icon effects](#icon-effects). The preview strip under every page shows them on its
   placeholder icons (the perspective as the shelf's trapezoid with the icons a little shorter).
 - **Behaviour**: auto-hide Off / Always / When a window overlaps the dock, hide and reveal delays,
@@ -515,6 +560,7 @@ with the defaults and leaves the file untouched.
         { "kind": "clock" }
       ],
       "edge": "bottom", "align": "center", "offset": 0, "locked": false,
+      "fullWidth": false, "reserveSpace": true, "peekPx": 0, "peekOpacity": 0.5, "title": "",
       "iconSize": 48, "magnification": 1.5, "magnifyRange": 2,
       "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
       "previews": true, "previewsSingleWindow": false, "previewDelayMs": 600,
@@ -590,6 +636,9 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   - `edge` (default `"bottom"`; `"top"`, `"left"`, `"right"`), `align` (default `"center"`;
     `"start"`, `"end"`) and `offset` (DIPs, default 0): where the dock sits, see
     [Position](#position-edge-alignment-offset). Unknown text reads as the default.
+  - `fullWidth` (default `false`), `reserveSpace` (default `true`, used with `fullWidth` and
+    `autoHide` `"off"` only), `peekPx` (default 0), `peekOpacity` (default 0.5), `title`
+    (default `""`): see Position.
   - `locked` (default `false`): no dragging, no pinning by dropping files, no Add separator / Add
     widget from the dock menu (see Dock items).
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
@@ -731,6 +780,7 @@ Theme keys (colours are `#AARRGGBB` or `#RRGGBB`; defaults are the `dark` preset
 | `reflection` | `false` | a mirrored copy of each icon under it, fading out downwards (the bar grows by its height) |
 | `reflectionHeight` | `0.5` | reflection height as a fraction of the icon, 0.2 - 1 |
 | `reflectionOpacity` | `0.35` | reflection opacity at the icon's foot (fading to 0), 0 - 1 |
+| `reflectionClip` | `false` | clip the reflection at the bar's edge instead of growing the bar: the dock keeps its height and shows the part of the reflection that fits |
 | `perspective` | `false` | tilt the bar, the icons and the clock back about the bar's bottom edge (3D); acrylic is not used |
 | `perspectiveAngle` | `18` | tilt in degrees, 0 - 35 |
 
@@ -748,7 +798,9 @@ the dock window at rest is that much taller (the band above the bar takes clicks
 nothing).
 
 On a top dock the reflections are drawn above the icons (toward the screen edge); left / right
-docks have none. The perspective pivots on the bar's screen-edge side on every edge (see
+docks have none. With `reflectionClip` the bar does not grow: the icons are clipped at the bar's
+screen-edge side, so the part of each reflection between the icon and that edge shows (magnified
+icons' reflections are cut there too; so is a glow reaching past that edge). The perspective pivots on the bar's screen-edge side on every edge (see
 [Position](#position-edge-alignment-offset)).
 
 The perspective is a DirectComposition 3D transform (a rotation about the bar's bottom edge plus
@@ -868,7 +920,10 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   while the dock is locked. 37 = the index in `docks[0].items` of the config item that shows item
   `lParam` (every running app of the `running` item reports that item's index; -1 if there is no
   such item). 38 = the edge the dock is laid out on (0 bottom, 1 top, 2 left, 3 right). 39 =
-  `docks[0].align` (0 center, 1 start, 2 end). 40 = `docks[0].offset` (DIPs). `QueryItemPoint`
+  `docks[0].align` (0 center, 1 start, 2 end). 40 = `docks[0].offset` (DIPs). 41 = 1 while laid out
+  full width. 42 = `docks[0].reserveSpace`. 43 = 1 while the dock is registered as an app bar
+  (reserving screen space). 44 = the peek strip's height in px (0 when off). 45 = 1 while a title
+  is drawn. 46 = dock drag (0 none, 1 moving it along its edge, 2 over another edge's zone). `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
   what `WinDock.exe --settings` sends to a running dock.
@@ -880,7 +935,8 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   added 2612 Add widget, 2613 Settings…, 2614 Lock the dock; its list 2600 has one row per config
   item, columns Name, Kind, Details; General 2130 / 2131 are retired, replaced by 2132 Show
   seconds, 2135 Clicking the clock opens, 2137 App or URL, 2138 Browse…; Position 2140 - 2148: 2142 screen edge and 2144 alignment drop-downs in DockEdge /
-  DockAlign order, 2146 / 2147 offset box and up-down; Behaviour added 2223
+  DockAlign order, 2146 / 2147 offset box and up-down, 2149 Full width, 2151 Reserve screen space,
+  2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied on Enter / focus loss); Behaviour added 2223
   single-window previews, 2227 middle click, 2229 mouse wheel). "Add widget ▾" opens a popup menu
   (items 1 Clock, 2 Weather, 3 Running apps), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme

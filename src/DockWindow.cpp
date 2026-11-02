@@ -8,6 +8,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <atomic>
 #include <climits>
 #include <cmath>
 #include <cwctype>
@@ -61,6 +62,7 @@ constexpr UINT kPreviewLeaveMs = 300;        // grace period after leaving the i
 constexpr float kDropScale = 1.15f;          // an app / the bin under a file drag (open with / recycle)
 constexpr float kDropEdge = 0.15f;           // slot fraction per side that still means "between items"
 constexpr UINT kRecycleBinCoalesceMs = 200;  // bursts of bin change notifications -> one redraw
+constexpr float kDockSnapDip = 24.0f;        // a dragged dock snaps to the centre / an end this close
 constexpr float kPi = 3.14159265358979f;
 
 BOOL CALLBACK CollectMonitor(HMONITOR mon, HDC, LPRECT, LPARAM lp) {
@@ -284,11 +286,13 @@ void DockWindow::ComputeLayout() {
     const float s = l.scale;
     l.edge = d.edge;
     l.vertical = IsVertical(d.edge);
+    // Full width: the bar spans the monitor's edge, flush with the screen edge, square corners.
+    l.fullWidth = d.fullWidth;
 
     l.iconPx = std::round(static_cast<float>(d.iconSize) * s);
     l.padding = std::round(kPadding * s);
     // With acrylic, DWM rounds the blur with its own radius; the tint matches it.
-    l.cornerRadius = std::round((acrylic_ ? acrylicRadiusDip_ : c.theme.cornerRadius) * s);
+    l.cornerRadius = l.fullWidth ? 0.0f : std::round((acrylic_ ? acrylicRadiusDip_ : c.theme.cornerRadius) * s);
     l.magnification = static_cast<float>(d.magnification);
     l.bitmapPx = static_cast<UINT>(std::lround(static_cast<double>(d.iconSize) * d.magnification * s));
 
@@ -301,15 +305,48 @@ void DockWindow::ComputeLayout() {
     l.reflH = reflSurface && l.bitmapPx ? std::ceil(static_cast<float>(reflSurface) * l.iconPx /
                                                     static_cast<float>(l.bitmapPx))
                                         : 0.0f;
+    // Clipped reflections (theme.reflectionClip) do not grow the bar: the icons are clipped at the
+    // bar's edge instead (ApplyReflectionClip), showing the part of the reflection that fits.
+    l.reflClip = reflSurface > 0 && t.reflectionClip;
+    if (l.reflClip) l.reflH = 0.0f;
     const GlowMode glow = GlowOf(t);
     l.glowPad = glow != GlowMode::Off ? std::ceil(t.glowRadius * s) + 1.0f : 0.0f;
 
     const float iconBarH = std::round(l.iconPx + kBarExtraHeight * s);  // the bar without reflections
     const float barH = iconBarH + l.reflH;
-    const float margin = std::round(kBottomMargin * s);
+    const float margin = l.fullWidth ? 0.0f : std::round(kBottomMargin * s);
     float winH = std::round(l.iconPx * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
                  l.reflH;
     winH = std::max(winH, barH + margin);
+    // The title (docks[].title): upright, in the label's font, kLabelGap beyond the bar's far side.
+    float titleMain = 0.0f, titleCross = 0.0f;
+    const float titleGap = std::round(kLabelGap * s);
+    if (!d.title.empty() && EnsureLabelFormat(s)) {
+        if (!titleLayout_ || titleText_ != d.title || titleScale_ != s) {
+            titleLayout_ = nullptr;
+            if (FAILED(renderer_.DWrite()->CreateTextLayout(d.title.c_str(), static_cast<UINT32>(d.title.size()),
+                                                            labelFormat_.get(), std::round(kLabelMaxWidth * s), 1000.0f,
+                                                            titleLayout_.put()))) {
+                titleLayout_ = nullptr;
+            }
+            titleText_ = d.title;
+            titleScale_ = s;
+            titleDirty_ = true;
+        }
+        DWRITE_TEXT_METRICS tm{};
+        if (titleLayout_ && SUCCEEDED(titleLayout_->GetMetrics(&tm))) {
+            const float w = std::ceil(std::min(tm.widthIncludingTrailingWhitespace, std::round(kLabelMaxWidth * s))) +
+                            2.0f * std::round(10.0f * s);
+            const float h = std::ceil(tm.height) + 2.0f * std::round(4.0f * s);
+            titleMain = l.vertical ? h : w;
+            titleCross = l.vertical ? w : h;
+        }
+    } else if (titleLayout_) {
+        titleLayout_ = nullptr;
+        titleText_.clear();
+        titleDirty_ = true;
+    }
+    if (titleCross > 0.0f) winH = std::max(winH, barH + margin + titleGap + titleCross);
     if (l.glowPad > 0.0f) {
         // Room above a fully magnified icon for its halo.
         const float magTopRel =
@@ -379,8 +416,8 @@ void DockWindow::ComputeLayout() {
     // A file dragged over the dock opens a one-slot gap: the bar grows by half a slot per side.
     if (n) l.growMax = std::max(l.growMax, std::ceil(stride / 2.0f) + 2.0f);
     // The bar may grow by up to growMax on either side (it grows away from the cursor).
-    const float slack = std::max(l.growMax, std::round(kMinSideSlack * s));
-    const float winW = barW + 2.0f * slack;
+    float slack = std::max(l.growMax, std::round(kMinSideSlack * s));
+    float winW = barW + 2.0f * slack;
 
     // Placement along the edge: the bar centred (the stage centred on the monitor, as always), or
     // `margin` from the start / end, plus `offset` DIPs; the bar is kept on the monitor and the
@@ -389,10 +426,16 @@ void DockWindow::ComputeLayout() {
     const RECT& m = l.monitor;
     const LONG mStart = DockGeometry::MainStart(l.edge, m), mEnd = DockGeometry::MainEnd(l.edge, m);
     const LONG offsetPx = static_cast<LONG>(std::lround(static_cast<double>(d.offset) * s));
+    if (l.fullWidth) {
+        // The whole edge; the items are placed in it below.
+        barW = static_cast<float>(mEnd - mStart);
+        slack = 0.0f;
+        winW = barW;
+    }
     const LONG barPx = static_cast<LONG>(barW), slackPx = static_cast<LONG>(slack), marginPx = static_cast<LONG>(margin);
     LONG barStart = 0;
-    switch (d.align) {
-        case DockAlign::Start: barStart = mStart + marginPx + offsetPx; break;
+    switch (l.fullWidth ? DockAlign::Start : d.align) {
+        case DockAlign::Start: barStart = mStart + (l.fullWidth ? 0 : marginPx + offsetPx); break;
         case DockAlign::End: barStart = mEnd - marginPx - barPx + offsetPx; break;
         case DockAlign::Center:
         default: barStart = mStart + ((mEnd - mStart) - static_cast<LONG>(winW)) / 2 + slackPx + offsetPx; break;
@@ -401,6 +444,7 @@ void DockWindow::ComputeLayout() {
     const LONG stageStart = std::max(barStart - slackPx, mStart);
     const LONG stageEnd = std::max(stageStart + 1, std::min(barStart + barPx + slackPx, mEnd));
     const float barLeft = static_cast<float>(barStart - stageStart);
+    l.slack = slack;
     l.stageMain = static_cast<float>(stageEnd - stageStart);
     l.stageCross = winH;
     const LONG crossPx = static_cast<LONG>(winH);
@@ -427,6 +471,18 @@ void DockWindow::ComputeLayout() {
     }
     l.separatorX = l.leftSeparatorX = -1.0f;
     l.itemsLeft = l.bar.left + lead;
+    if (l.fullWidth) {
+        // The run of items inside the full bar: at its start, centred or at its end, plus the
+        // offset, kept inside the bar's padding. Magnification grows the run inside the bar (the
+        // bar's own ends move past the monitor's, where the window cuts them off).
+        const float lo = l.bar.left + lead, hi = std::max(lo, l.bar.right - trail - itemsW);
+        float at = lo;
+        if (d.align == DockAlign::End) at = hi;
+        if (d.align == DockAlign::Center) at = l.bar.left + std::round((barW - (lead + itemsW + trail)) / 2.0f) + lead;
+        l.itemsLeft = std::clamp(std::round(at + static_cast<float>(offsetPx)), lo, hi);
+        l.growRoomStart = l.itemsLeft - lo;
+        l.growRoomEnd = hi - l.itemsLeft;
+    }
     float slotX = l.itemsLeft;
     for (size_t i = 0; i < items_.size(); ++i) {
         DockItem& item = items_[i];
@@ -459,6 +515,15 @@ void DockWindow::ComputeLayout() {
     l.restTopExtra = (glow == GlowMode::Always || glow == GlowMode::Active)
                          ? std::max(0.0f, l.glowPad - std::round(kIconTop * s))
                          : 0.0f;
+    // The title is part of the resting window too (it takes no part in hit testing), centred on the
+    // run of items along the bar.
+    if (titleCross > 0.0f) {
+        const float u0 = std::round(l.itemsLeft + itemsW / 2.0f - titleMain / 2.0f);
+        const float v0 = l.bar.top - titleGap - titleCross;
+        l.title = l.PhysRect(std::clamp(u0, 0.0f, std::max(0.0f, l.stageMain - titleMain)), v0,
+                             std::clamp(u0, 0.0f, std::max(0.0f, l.stageMain - titleMain)) + titleMain, v0 + titleCross);
+        l.restTopExtra = std::max(l.restTopExtra, titleGap + titleCross);
+    }
 
     // Background halves: the seam must sit where both halves show plain fill (between the
     // rounded left end / left hairline and the hairline / rounded right end) for every amount of
@@ -477,6 +542,11 @@ void DockWindow::ComputeLayout() {
 
     // Moves the bar (and a glow shown above it at rest) just past the window's screen edge.
     l.slide = winH - (l.bar.top - l.restTopExtra) + 2.0f;
+    // The peek strip (docks[].peekPx with auto-hide): hidden, the bar's far side stays this far on
+    // screen (at peekOpacity) instead of the whole dock sliding off.
+    // (Only used while hidden, so it does not depend on the auto-hide mode.)
+    l.peek = d.peekPx > 0 ? std::min(std::round(static_cast<float>(d.peekPx) * s), barH) : 0.0f;
+    l.hiddenSlide = l.peek > 0.0f ? l.stageCross - l.peek - l.bar.top : l.slide;
 
     layout_ = l;
 }
@@ -491,6 +561,11 @@ RECT DockWindow::StageToScreen(float u0, float v0, float u1, float v1, bool oute
 }
 
 RECT DockWindow::HiddenRect() const {
+    // The peek strip: the part of the bar left on screen (drawn at peekOpacity); hovering it reveals.
+    if (layout_.peek > 0.0f) {
+        const Layout& l = layout_;
+        return StageToScreen(l.bar.left, l.stageCross - l.peek, l.bar.right, l.stageCross, true);
+    }
     // The reveal trigger: a 1 px strip along the monitor's edge. Nothing is drawn in it (the root
     // visual is transparent while hidden and there is no redirection bitmap).
     const RECT& m = layout_.monitor;
@@ -564,7 +639,9 @@ void DockWindow::ApplyWindowPos() {
     ApplyStageTransform();
     // While a modal dialog owned by the dock is open (an icon picker; it disables the dock), the
     // z-order stays: HWND_TOPMOST with SWP_NOOWNERZORDER would put the dock above its own dialog.
-    const UINT keepOrder = IsWindowEnabled(hwnd_) ? 0 : SWP_NOZORDER;
+    // While a fullscreen app runs (an app bar's ABN_FULLSCREENAPP) the dock stays where it was
+    // put, below it.
+    const UINT keepOrder = IsWindowEnabled(hwnd_) && !fullscreenApp_ ? 0 : SWP_NOZORDER;
     SetWindowPos(hwnd_, HWND_TOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER | keepOrder);
 }
@@ -614,12 +691,14 @@ void DockWindow::Relayout() {
     if (!hwnd_ || inLayout_) return;
     LayoutPass();
     RenderAll();
+    UpdateAppBar();  // the reserved band follows the bar (no-op unless it changed)
 }
 
 void DockWindow::RelayoutItems() {
     if (!hwnd_ || inLayout_) return;
     LayoutPass();
     RenderWithRecovery([this] { return DrawFrame(false); });
+    UpdateAppBar();
 }
 
 void DockWindow::LayoutPass() {
@@ -681,6 +760,7 @@ void DockWindow::ResetLayers() {
     label3_ = nullptr;
     labelOpacity_.valid = false;
     label_.Reset();
+    title_.Reset();
     for (DockItem& item : items_) {
         item.layer.Reset();
         item.glow.Reset();
@@ -699,6 +779,7 @@ HRESULT DockWindow::CreateLayers() {
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgLeft_, &bgLeftClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRightClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRight_, &bgRightClip_);
+    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(title_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(widgetsGroup_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(itemsGroup_);
     for (Layer& d : dotSources_) {
@@ -718,6 +799,7 @@ HRESULT DockWindow::CreateLayers() {
     }
     labelShown_ = false;
     labelDirty_ = true;
+    titleDirty_ = true;
     snapPending_ = true;
     rootY_.valid = false;
     rootOpacity_.valid = false;
@@ -1156,21 +1238,7 @@ HRESULT DockWindow::RenderLabel() {
                                                                      : item.displayName;
     const float s = layout_.scale;
     IDWriteFactory* dw = renderer_.DWrite();
-    if (!labelFormat_ || labelScale_ != s) {
-        labelFormat_ = nullptr;
-        labelEllipsis_ = nullptr;
-        if (FAILED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                                        DWRITE_FONT_STRETCH_NORMAL, kLabelFontSize * s, L"", labelFormat_.put()))) {
-            labelFormat_ = nullptr;
-            return S_OK;
-        }
-        labelFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-        if (SUCCEEDED(dw->CreateEllipsisTrimmingSign(labelFormat_.get(), labelEllipsis_.put()))) {
-            const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
-            labelFormat_->SetTrimming(&trimming, labelEllipsis_.get());
-        }
-        labelScale_ = s;
-    }
+    if (!EnsureLabelFormat(s)) return S_OK;
 
     const float maxW = std::round(kLabelMaxWidth * s);
     winrt::com_ptr<IDWriteTextLayout> textLayout;
@@ -1211,6 +1279,66 @@ HRESULT DockWindow::RenderLabel() {
     return S_OK;
 }
 
+bool DockWindow::EnsureLabelFormat(float s) {
+    IDWriteFactory* dw = renderer_.DWrite();
+    if (!dw) return false;
+    if (labelFormat_ && labelScale_ == s) return true;
+    labelFormat_ = nullptr;
+    labelEllipsis_ = nullptr;
+    if (FAILED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                    DWRITE_FONT_STRETCH_NORMAL, kLabelFontSize * s, L"", labelFormat_.put()))) {
+        labelFormat_ = nullptr;
+        return false;
+    }
+    labelFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    if (SUCCEEDED(dw->CreateEllipsisTrimmingSign(labelFormat_.get(), labelEllipsis_.put()))) {
+        const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+        labelFormat_->SetTrimming(&trimming, labelEllipsis_.get());
+    }
+    labelScale_ = s;
+    return true;
+}
+
+HRESULT DockWindow::RenderTitle() {
+    // Like the name label: the label's pill, font and colours.
+    const Layout& l = layout_;
+    const UINT w = static_cast<UINT>(l.title.right - l.title.left);
+    const UINT h = static_cast<UINT>(l.title.bottom - l.title.top);
+    titleDirty_ = false;
+    if (!titleLayout_ || !w || !h) return renderer_.DrawLayer(title_, 0, 0, {});
+    const float s = l.scale;
+    const float padX = std::round(10.0f * s), padY = std::round(4.0f * s);
+    const float radius = std::min(std::round(config_->theme.labelCornerRadius * s), static_cast<float>(h) / 2.0f);
+    const float stroke = std::max(1.0f, std::round(s));
+    const ThemeConfig& t = config_->theme;
+    return renderer_.DrawLayer(title_, w, h, [&](ID2D1DeviceContext* dc) {
+        winrt::com_ptr<ID2D1SolidColorBrush> brush;
+        if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(t.labelBackground), brush.put()))) return;
+        const float fw = static_cast<float>(w), fh = static_cast<float>(h);
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, fw, fh), radius, radius), brush.get());
+        const float inset = stroke / 2.0f;
+        brush->SetColor(Theme::ToColor(t.labelBorder));
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, fw - inset, fh - inset),
+                                                   std::max(0.0f, radius - inset), std::max(0.0f, radius - inset)),
+                                 brush.get(), stroke);
+        brush->SetColor(Theme::ToColor(t.labelText));
+        dc->DrawTextLayout(D2D1::Point2F(padX, padY), titleLayout_.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    });
+}
+
+void DockWindow::ApplyReflectionClip() {
+    // A clip on the icons' container at the bar's screen-edge side (in front of it, nothing of the
+    // icons is cut: bounces and the label go the other way).
+    if (!itemsGroup_.visual) return;
+    if (layout_.reflClip) {
+        const Layout& l = layout_;
+        renderer_.SetClip(itemsGroup_, l.PhysRect(-1e5f, -1e5f, 1e5f, l.bar.bottom));
+    } else if (itemsGroup_.clip) {
+        itemsGroup_.visual->SetClip(nullptr);
+        itemsGroup_.clip = nullptr;
+    }
+}
+
 HRESULT DockWindow::DrawFrame(bool all) {
     HRESULT hr = S_OK;
     const bool snap = all || snapPending_;
@@ -1234,12 +1362,19 @@ HRESULT DockWindow::DrawFrame(bool all) {
         if (SUCCEEDED(hr) && (all || item.dotDirty) && !item.IsWidget()) hr = RenderDot(item);  // widgets: no dot
     }
     if (SUCCEEDED(hr) && labelShown_ && (all || labelDirty_)) hr = RenderLabel();
+    const UINT titleW = static_cast<UINT>(layout_.title.right - layout_.title.left);
+    if (SUCCEEDED(hr) && (all || titleDirty_ || title_.width != titleW)) hr = RenderTitle();
     if (FAILED(hr)) return hr;
 
     if (snap) {
         snapPending_ = false;
         ResetPlacementTweens();
         ApplyPerspective();  // its centre follows the stage size and the bar
+        ApplyReflectionClip();
+        if (title_.visual) {
+            title_.visual->SetOffsetX(layout_.title.left);
+            title_.visual->SetOffsetY(layout_.title.top);
+        }
     }
     if (!rootY_.valid) ApplyRootPose(0.0);
     ComputeTargets();
@@ -2262,7 +2397,7 @@ void DockWindow::UpdateAcrylic() {
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
     if (acrylic_) {
-        acrylicRadiusDip_ = backdrop_.SetCornerRadius(config_->theme.cornerRadius);
+        acrylicRadiusDip_ = backdrop_.SetCornerRadius(config_->Main().fullWidth ? 0.0f : config_->theme.cornerRadius);
         return;
     }
     if (backdropPending_) {
@@ -2292,7 +2427,7 @@ void DockWindow::SyncBackdrop() {
         const float left = value(bgLeftX_, bgLeftTarget_);
         const float right = value(bgRightX_, bgRightTarget_) + l.bgSurfaceW;
         // The slide is a physical offset on the cross axis (signed: toward the edge).
-        const float dy = value(rootY_, shown ? 0.0f : DockGeometry::OutwardSign(l.edge) * l.slide);
+        const float dy = value(rootY_, shown ? 0.0f : DockGeometry::OutwardSign(l.edge) * l.hiddenSlide);
         D2D1_RECT_F p = l.PhysRect(left, l.bar.top, right, l.bar.bottom);
         if (l.vertical) {
             p.left += dy;
@@ -2313,6 +2448,11 @@ void DockWindow::SyncBackdrop() {
             case DockEdge::Bottom:
             default: r.bottom = std::min(r.bottom, l.monitor.bottom); break;
         }
+        // A full-width bar's ends move past the monitor's while it grows: the blur stays on it.
+        r.left = std::max(r.left, l.monitor.left);
+        r.right = std::min(r.right, l.monitor.right);
+        r.top = std::max(r.top, l.monitor.top);
+        r.bottom = std::min(r.bottom, l.monitor.bottom);
         if (r.right <= r.left || r.bottom <= r.top) r = RECT{};
     }
     backdrop_.Place(hwnd_, r);
@@ -2544,7 +2684,7 @@ void DockWindow::AssertTopmost() {
     // borderless fullscreen) can end up above the topmost dock, burying the 1 px reveal strip.
     // Re-asserting the z-order is cheap and only happens on hide transitions. Not while a modal
     // dialog owned by the dock is open (see ApplyWindowPos).
-    if (!hwnd_ || !IsWindowEnabled(hwnd_)) return;
+    if (!hwnd_ || !IsWindowEnabled(hwnd_) || fullscreenApp_) return;
     SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 }
 
@@ -2554,15 +2694,20 @@ double DockWindow::ApplyRootPose(double duration) {
     if (!rootY_.valid) ApplyStageTransform();  // a fresh root (device recovery)
     const HideStyle style = motion_.hide;
     if (style == HideStyle::None) duration = 0.0;
-    const bool moves = style != HideStyle::Fade;                             // slide, slideOnly, none
+    // With a peek strip the dock always moves to it (also with "fade").
+    const bool peek = layout_.peek > 0.0f;
+    const bool moves = style != HideStyle::Fade || peek;                     // slide, slideOnly, none
     const bool fades = style == HideStyle::Slide || style == HideStyle::Fade;  // animated opacity
     const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
     // The slide: a physical offset on the cross axis toward the screen edge (root OffsetY, or
     // OffsetX on vertical docks; negative for top / left docks).
-    const float targetY = shown || !moves ? 0.0f : DockGeometry::OutwardSign(layout_.edge) * layout_.slide;
-    // slideOnly keeps full opacity while it slides and is transparent only once Hidden.
+    const float travel = layout_.hiddenSlide;
+    const float targetY = shown || !moves ? 0.0f : DockGeometry::OutwardSign(layout_.edge) * travel;
+    // slideOnly keeps full opacity while it slides and is transparent (or at peekOpacity) only once
+    // Hidden.
+    const float hiddenOpacity = peek ? static_cast<float>(config_->Main().peekOpacity) : 0.0f;
     const float targetOpacity =
-        shown ? 1.0f : (fades || style == HideStyle::None || hideState_ == HideState::Hidden ? 0.0f : 1.0f);
+        shown ? 1.0f : (fades || style == HideStyle::None || hideState_ == HideState::Hidden ? hiddenOpacity : 1.0f);
     const double now = Renderer::Now();
     if (duration > 0.0) {
         // A reversal mid-slide only travels the remaining distance, at the same speed. The
@@ -2570,8 +2715,8 @@ double DockWindow::ApplyRootPose(double duration) {
         float remaining = 1.0f;
         if (fades && rootOpacity_.valid) {
             remaining = std::fabs(targetOpacity - rootOpacity_.Value(now));
-        } else if (!fades && rootY_.valid && layout_.slide > 0.0f) {
-            remaining = std::min(1.0f, std::fabs(targetY - rootY_.Value(now)) / layout_.slide);
+        } else if (!fades && rootY_.valid && travel > 0.0f) {
+            remaining = std::min(1.0f, std::fabs(targetY - rootY_.Value(now)) / travel);
         }
         if (fades ? rootOpacity_.valid : rootY_.valid) {
             duration = std::max(std::min(0.04, duration), duration * static_cast<double>(remaining));
@@ -2608,6 +2753,7 @@ void DockWindow::ArmMouseTracking() {
 
 void DockWindow::ApplyAutoHide() {
     if (!hwnd_) return;
+    UpdateAppBar();  // only a dock that does not auto-hide reserves space
     if (config_->Main().autoHide != AutoHideMode::Intelligent) {
         watch_.Stop();  // off / always: no hooks at all
         overlapped_ = false;
@@ -3802,6 +3948,285 @@ void DockWindow::OnDropAction() {
     }
 }
 
+// --- App bar (reserve screen space) ----------------------------------------------------------------
+// A full-width dock with reserveSpace and auto-hide "off" registers its window as an app bar
+// (SHAppBarMessage ABM_NEW), so the shell takes the bar's band along the edge out of the work
+// area and maximized windows stop at the dock. With auto-hide on nothing is reserved (like an
+// auto-hide taskbar: the dock would never hide in intelligent mode, and "always" hides over the
+// windows anyway). The owner (App) allows the registration only while the taskbar controller is
+// not saving or restoring the work area (AllowAppBar), and is told the reservation, which the
+// controller then treats as the correct work area instead of forcing the full monitor. The
+// registration is removed on every path out: config changes, WM_DESTROY, App::Shutdown before the
+// taskbar is restored, and the crash filter (EmergencyRemoveAppBar).
+
+namespace {
+std::atomic<HWND> g_appBarHwnd{nullptr};  // the registered dock window (crash path)
+}  // namespace
+
+void DockWindow::EmergencyRemoveAppBar() {
+    HWND h = g_appBarHwnd.exchange(nullptr);
+    if (!h) return;
+    APPBARDATA abd{sizeof(abd)};
+    abd.hWnd = h;
+    SHAppBarMessage(ABM_REMOVE, &abd);
+}
+
+void DockWindow::AllowAppBar(bool allow) {
+    appBarAllowed_ = allow;
+    if (allow) {
+        UpdateAppBar();
+    } else {
+        RemoveAppBar();
+    }
+}
+
+RECT DockWindow::AppBarRect() const {
+    // The bar's band from the screen edge (full-width bars have no margin).
+    const Layout& l = layout_;
+    return StageToScreen(l.bar.left, l.bar.top, l.bar.right, l.stageCross, true);
+}
+
+void DockWindow::UpdateAppBar() {
+    const DockConfig& d = config_->Main();
+    const bool wanted = hwnd_ && appBarAllowed_ && d.fullWidth && d.reserveSpace && !d.AutoHideOn();
+    if (!wanted) {
+        RemoveAppBar();
+        return;
+    }
+    static bool busy = false;  // ABM_SETPOS broadcasts WM_SETTINGCHANGE, which relayouts (re-enters)
+    if (busy) return;
+    const RECT rect = AppBarRect();
+    if (appBar_ && EqualRect(&rect, &appBarRect_)) return;
+    busy = true;
+    APPBARDATA abd{sizeof(abd)};
+    abd.hWnd = hwnd_;
+    if (!appBar_) {
+        abd.uCallbackMessage = kAppBarMessage;
+        if (!SHAppBarMessage(ABM_NEW, &abd)) {
+            Log(L"ABM_NEW", E_FAIL);
+            busy = false;
+            return;
+        }
+        appBar_ = true;
+        g_appBarHwnd = hwnd_;
+    }
+    static const UINT kEdges[] = {ABE_BOTTOM, ABE_TOP, ABE_LEFT, ABE_RIGHT};
+    const Layout& l = layout_;
+    abd.uEdge = kEdges[static_cast<int>(l.edge)];
+    abd.rc = rect;
+    SHAppBarMessage(ABM_QUERYPOS, &abd);
+    // The shell may move the rect off another app bar on that edge: keep our thickness.
+    const LONG thick = l.vertical ? rect.right - rect.left : rect.bottom - rect.top;
+    switch (l.edge) {
+        case DockEdge::Top: abd.rc.bottom = abd.rc.top + thick; break;
+        case DockEdge::Left: abd.rc.right = abd.rc.left + thick; break;
+        case DockEdge::Right: abd.rc.left = abd.rc.right - thick; break;
+        case DockEdge::Bottom:
+        default: abd.rc.top = abd.rc.bottom - thick; break;
+    }
+    // The work area this leaves, told first: ABM_SETPOS broadcasts the work area change while it
+    // runs, and the taskbar controller must not "fix" it back to the full monitor.
+    RECT work = l.monitor;
+    switch (l.edge) {
+        case DockEdge::Top: work.top = std::max(work.top, abd.rc.bottom); break;
+        case DockEdge::Left: work.left = std::max(work.left, abd.rc.right); break;
+        case DockEdge::Right: work.right = std::min(work.right, abd.rc.left); break;
+        case DockEdge::Bottom:
+        default: work.bottom = std::min(work.bottom, abd.rc.top); break;
+    }
+    appBarRect_ = rect;
+    if (appBarChanged_) appBarChanged_(true, l.monitor, work);
+    SHAppBarMessage(ABM_SETPOS, &abd);
+    busy = false;
+}
+
+void DockWindow::RemoveAppBar() {
+    if (!appBar_) return;
+    appBar_ = false;
+    appBarRect_ = RECT{};
+    if (appBarChanged_) appBarChanged_(false, layout_.monitor, layout_.monitor);
+    APPBARDATA abd{sizeof(abd)};
+    abd.hWnd = hwnd_;
+    SHAppBarMessage(ABM_REMOVE, &abd);
+    g_appBarHwnd = nullptr;
+    if (fullscreenApp_) {
+        fullscreenApp_ = false;
+        AssertTopmost();
+    }
+}
+
+void DockWindow::OnAppBarNotify(WPARAM wp, LPARAM lp) {
+    if (!appBar_) return;
+    switch (wp) {
+        case ABN_POSCHANGED:
+            // Another app bar or the taskbar changed: ask for our place again.
+            appBarRect_ = RECT{};
+            UpdateAppBar();
+            break;
+        case ABN_FULLSCREENAPP:
+            // A fullscreen window opened / closed: step out of its way, then come back on top.
+            fullscreenApp_ = lp != 0;
+            if (fullscreenApp_) {
+                // Out of the topmost band, then to the bottom of the z-order.
+                SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+                SetWindowPos(hwnd_, HWND_BOTTOM, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            } else {
+                AssertTopmost();
+            }
+            break;
+        default:
+            break;
+    }
+}
+
+// --- Drag the dock -----------------------------------------------------------------------------
+// Ctrl + left press on the bar (anywhere on it, icons included) and a move past the system drag
+// threshold moves the whole dock along its edge (the window follows the pointer; the bar is kept
+// on the monitor). Released, the dock snaps to the centre or an end of the edge when within
+// 24 DIP of it, otherwise it keeps the nearest alignment (start / centre / end) plus the offset
+// from it: docks[0].align and offset. Dragged out of the edge's band (a quarter of the monitor)
+// toward another edge (the nearest, within 40 % of the monitor), the dock dims and a release
+// puts it on that edge there. Escape or losing the capture cancels. A locked dock does not move;
+// a full-width dock only changes edges. No timer runs but the 50 ms Escape poll during the drag.
+
+DockEdge DockWindow::DockZoneAt(POINT pt) const {
+    const RECT& m = layout_.monitor;
+    const float w = std::max(1.0f, static_cast<float>(m.right - m.left));
+    const float h = std::max(1.0f, static_cast<float>(m.bottom - m.top));
+    // Distance to each edge as a fraction of the monitor's size across it, in DockEdge order.
+    const float dist[4] = {static_cast<float>(m.bottom - pt.y) / h, static_cast<float>(pt.y - m.top) / h,
+                           static_cast<float>(pt.x - m.left) / w, static_cast<float>(m.right - pt.x) / w};
+    const int current = static_cast<int>(layout_.edge);
+    if (dist[current] <= 0.25f) return layout_.edge;
+    int best = -1;
+    for (int e = 0; e < 4; ++e) {
+        if (e != current && (best < 0 || dist[e] < dist[best])) best = e;
+    }
+    return best >= 0 && dist[best] < 0.4f ? static_cast<DockEdge>(best) : layout_.edge;
+}
+
+void DockWindow::BeginDockDrag() {
+    dockPress_ = false;
+    dockDrag_ = true;
+    dockShift_ = 0;
+    dockZone_ = layout_.edge;
+    pressed_ = -1;
+    GetAsyncKeyState(VK_ESCAPE);  // clears the "pressed since the last call" bit
+    SetCapture(hwnd_);
+    SetHold(true);  // no label, popups or auto-hide while moving
+    magnifying_ = false;
+    if (magnifyPending_) {
+        KillTimer(hwnd_, kMagnifyTimerId);
+        magnifyPending_ = false;
+    }
+    SetHover(-1);
+    if (!expanded_) {
+        expanded_ = true;
+        UpdateWindowRect();
+    }
+    RenderWithRecovery([this] {
+        ComputeTargets();
+        ApplyTargets(motion_.rest);  // back to rest: the dock moves as it is
+        return S_OK;
+    });
+    SetCursor(LoadCursorW(nullptr, IDC_SIZEALL));
+    SetTimer(hwnd_, kDragTimerId, kDragPollMs, nullptr);
+    dragPending_ = true;
+    UpdateDockDrag();
+}
+
+void DockWindow::UpdateDockDrag() {
+    if (!dockDrag_) return;
+    POINT pt{};
+    if (!GetCursorPos(&pt)) return;
+    Layout& l = layout_;
+    // Along the edge: follow the pointer, the bar kept on the monitor (a full-width bar stays).
+    const LONG mStart = DockGeometry::MainStart(l.edge, l.monitor), mEnd = DockGeometry::MainEnd(l.edge, l.monitor);
+    const LONG origin = (l.vertical ? l.window.top : l.window.left) - dockShift_;  // the stage before the drag
+    const LONG barStart = origin + static_cast<LONG>(l.bar.left), barEnd = origin + static_cast<LONG>(l.bar.right);
+    const LONG delta = l.vertical ? pt.y - dockPressScreen_.y : pt.x - dockPressScreen_.x;
+    const LONG shift = std::clamp(delta, std::min(0L, mStart - barStart), std::max(0L, mEnd - barEnd));
+    if (shift != dockShift_) {
+        const LONG d = shift - dockShift_;
+        OffsetRect(&l.window, l.vertical ? 0 : d, l.vertical ? d : 0);
+        OffsetRect(&winRect_, l.vertical ? 0 : d, l.vertical ? d : 0);
+        dockShift_ = shift;
+        SetWindowPos(hwnd_, nullptr, winRect_.left, winRect_.top, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        SyncBackdrop();
+    }
+    // Over another edge's zone the dock dims: a release moves it there.
+    const DockEdge zone = DockZoneAt(pt);
+    if (zone != dockZone_) {
+        dockZone_ = zone;
+        RenderWithRecovery([&] {
+            if (IDCompositionVisual3* root3 = renderer_.Root3()) {
+                renderer_.Drive(
+                    rootOpacity_, zone == l.edge ? 1.0f : 0.5f, motion_.labelFade, Renderer::Now(),
+                    [&](auto v) { return root3->SetOpacity(v); }, 0.001f, renderer_.FadeEasing());
+            }
+            return S_OK;
+        });
+    }
+}
+
+void DockWindow::EndDockDrag(bool commit) {
+    if (!dockDrag_) return;
+    if (commit && (GetAsyncKeyState(VK_ESCAPE) & 0x8001)) commit = false;
+    dockDrag_ = false;  // first: releasing the capture sends WM_CAPTURECHANGED
+    if (dragPending_ && dragPhase_ == DragPhase::None) {
+        KillTimer(hwnd_, kDragTimerId);
+        dragPending_ = false;
+    }
+    if (GetCapture() == hwnd_) ReleaseCapture();
+    RenderWithRecovery([this] {
+        if (IDCompositionVisual3* root3 = renderer_.Root3()) {
+            renderer_.Drive(
+                rootOpacity_, 1.0f, 0.0, Renderer::Now(), [&](auto v) { return root3->SetOpacity(v); }, 0.001f,
+                renderer_.FadeEasing());
+        }
+        return S_OK;
+    });
+    const DockConfig& d = config_->Main();
+    POINT pt{};
+    if (!commit || !pinRequests_.moveDock || !GetCursorPos(&pt)) {
+        Relayout();  // back to where it was
+        SetHold(false);
+        return;
+    }
+    const Layout& l = layout_;
+    const DockEdge edge = DockZoneAt(pt);
+    DockAlign align = d.align;
+    int offset = d.offset;
+    if (!d.fullWidth) {
+        // Where the bar starts along the (new) edge (the same edge: where it was dragged to;
+        // another edge: centred on the pointer), then the alignment whose place is nearest, in
+        // ComputeLayout's own integer arithmetic so an undragged dock gives offset 0.
+        const bool vertical = IsVertical(edge);
+        const float s = l.scale;
+        const LONG mStart = DockGeometry::MainStart(edge, l.monitor), mEnd = DockGeometry::MainEnd(edge, l.monitor);
+        const LONG len = static_cast<LONG>(l.bar.right - l.bar.left);  // on another edge it differs a little
+        const LONG slack = static_cast<LONG>(l.slack);
+        const LONG margin = static_cast<LONG>(std::round(kBottomMargin * s));
+        LONG start = (vertical ? pt.y : pt.x) - len / 2;
+        if (edge == l.edge) start = (l.vertical ? l.window.top : l.window.left) + static_cast<LONG>(l.bar.left);
+        start = std::clamp(start, mStart, std::max(mStart, mEnd - len));
+        const LONG places[3] = {mStart + ((mEnd - mStart) - (len + 2 * slack)) / 2 + slack, mStart + margin,
+                                mEnd - margin - len};  // DockAlign order
+        int best = 0;
+        for (int a = 1; a < 3; ++a) {
+            if (std::abs(start - places[a]) < std::abs(start - places[best])) best = a;
+        }
+        align = static_cast<DockAlign>(best);
+        const LONG off = start - places[best];
+        offset = std::abs(off) <= static_cast<LONG>(std::round(kDockSnapDip * s))
+                     ? 0
+                     : static_cast<int>(std::lround(static_cast<double>(off) / s));
+    }
+    SetHold(false);
+    pinRequests_.moveDock(edge, align, offset);  // relayouts the dock (also when nothing changed)
+}
+
 int DockWindow::HitTest(POINT pt) const {  // stage coordinates
     // Rest-slot hit-testing inside the active zone. The magnified layout is anchored at the
     // cursor, so the rest slot under the cursor is also the icon drawn under it.
@@ -3938,6 +4363,18 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return static_cast<LRESULT>(config_->Main().align);  // 0 center, 1 start, 2 end
         case 40:
             return static_cast<LRESULT>(config_->Main().offset);  // DIPs
+        case 41:
+            return layout_.fullWidth ? 1 : 0;
+        case 42:
+            return config_->Main().reserveSpace ? 1 : 0;
+        case 43:
+            return appBar_ ? 1 : 0;
+        case 44:
+            return static_cast<LRESULT>(layout_.peek);
+        case 45:
+            return titleLayout_ && title_.width > 0 ? 1 : 0;
+        case 46:
+            return !dockDrag_ ? 0 : dockZone_ == config_->Main().edge ? 1 : 2;
         case 37:
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             return static_cast<LRESULT>(items_[static_cast<size_t>(lp)].element);
@@ -3947,7 +4384,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const bool reflection =
                 std::any_of(items_.begin(), items_.end(), [](const DockItem& i) { return i.reflection.width > 0; });
             if (glow && GlowOf(config_->theme) != GlowMode::Off) mask |= 1;
-            if (reflection && layout_.reflH > 0.0f) mask |= 2;
+            if (reflection && (layout_.reflH > 0.0f || layout_.reflClip)) mask |= 2;
             if (perspectiveApplied_) mask |= 4;
             return mask;
         }
@@ -4007,6 +4444,19 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_MOUSEMOVE: {
             ArmMouseTracking();
             const POINT pt = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
+            if (dockDrag_) {
+                UpdateDockDrag();
+                return 0;
+            }
+            if (dockPress_ && (wp & MK_LBUTTON) && dragPhase_ == DragPhase::None) {
+                POINT screen{};
+                GetCursorPos(&screen);
+                if (std::abs(screen.x - dockPressScreen_.x) > GetSystemMetricsForDpi(SM_CXDRAG, dpi_) ||
+                    std::abs(screen.y - dockPressScreen_.y) > GetSystemMetricsForDpi(SM_CYDRAG, dpi_)) {
+                    BeginDockDrag();
+                    return 0;
+                }
+            }
             if (dragPhase_ == DragPhase::Dragging) {
                 UpdateDrag(pt);
                 return 0;
@@ -4052,7 +4502,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_MOUSELEAVE:
             trackingMouse_ = false;
-            if (dragPhase_ != DragPhase::None) return 0;  // the drag owns the mouse
+            if (dragPhase_ != DragPhase::None || dockDrag_) return 0;  // the drag owns the mouse
             if (hideState_ == HideState::Hidden) {
                 if (revealPending_) {  // left the strip before the reveal delay: stay hidden
                     KillTimer(hwnd_, kRevealTimerId);
@@ -4068,6 +4518,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             SuppressPreview();  // the click cycles / starts a drag: no popup over it
             pressPt_ = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
             pressed_ = dragPhase_ == DragPhase::None ? HitTest(pressPt_) : -1;
+            // Ctrl + press on the bar of an unlocked dock: moving on drags the whole dock.
+            dockPress_ = (wp & MK_CONTROL) && !config_->Main().locked && dragPhase_ == DragPhase::None &&
+                         hideState_ == HideState::Shown && InZone(pressPt_) && GetCursorPos(&dockPressScreen_);
+            // The capture from the press on: a quick first move may already leave the dock.
+            if (dockPress_) SetCapture(hwnd_);
             // A press on the dock closes the click popup; on the slot whose popup it is (a folder,
             // the clock, the weather) the release then does not open it again (the click toggles).
             pressClosedPopup_ = pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).OnPress(pressed_);
@@ -4075,6 +4530,14 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_LBUTTONUP: {
+            if (dockPress_) {
+                dockPress_ = false;  // a Ctrl + click without a move: an ordinary click
+                if (GetCapture() == hwnd_) ReleaseCapture();
+            }
+            if (dockDrag_) {
+                EndDockDrag(true);
+                return 0;
+            }
             if (dragPhase_ == DragPhase::Dragging) {
                 EndDrag(true);
                 return 0;
@@ -4135,9 +4598,22 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             OnDropAction();
             return 0;
 
+        case kAppBarMessage:
+            OnAppBarNotify(wp, lp);
+            return 0;
+
+        case WM_ACTIVATE:
+            if (appBar_) {
+                APPBARDATA abd{sizeof(abd)};
+                abd.hWnd = hwnd_;
+                SHAppBarMessage(ABM_ACTIVATE, &abd);
+            }
+            break;
+
         case WM_CAPTURECHANGED:
             // Someone else took the mouse (a menu, Alt+Tab...): cancel the drag.
             if (dragPhase_ == DragPhase::Dragging && reinterpret_cast<HWND>(lp) != hwnd_) EndDrag(false);
+            if (dockDrag_ && reinterpret_cast<HWND>(lp) != hwnd_) EndDockDrag(false);
             return 0;
 
         case WM_ERASEBKGND:
@@ -4181,7 +4657,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                     if (magnifying_ || dragPhase_ == DragPhase::Dragging) ApplyMagnify();
                     return 0;
                 case kDragTimerId:
-                    if (dragPhase_ != DragPhase::Dragging) {
+                    if (dockDrag_) {
+                        if (GetAsyncKeyState(VK_ESCAPE) & 0x8001) EndDockDrag(false);
+                    } else if (dragPhase_ != DragPhase::Dragging) {
                         KillTimer(hwnd_, kDragTimerId);
                         dragPending_ = false;
                     } else if (GetAsyncKeyState(VK_ESCAPE) & 0x8001) {
@@ -4273,9 +4751,16 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // Keep the blur directly beneath the dock whenever the dock's z-order changes (layout
             // passes re-assert topmost; another topmost window must not end up between the two).
             if (!(reinterpret_cast<const WINDOWPOS*>(lp)->flags & SWP_NOZORDER)) backdrop_.Restack(hwnd_);
+            if (appBar_) {
+                APPBARDATA abd{sizeof(abd)};
+                abd.hWnd = hwnd_;
+                SHAppBarMessage(ABM_WINDOWPOSCHANGED, &abd);
+            }
             break;
 
         case WM_DESTROY:
+            RemoveAppBar();  // never leave a registration behind
+            appBarAllowed_ = false;
             tracker_.Stop();
             watch_.Stop();
             weather_.Stop();  // a fetch still in flight posts to a window that is gone (and frees it)
@@ -4288,6 +4773,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             dragPhase_ = DragPhase::None;
             dropActive_ = false;
+            dockDrag_ = dockPress_ = false;
             if (GetCapture() == hwnd_) ReleaseCapture();
             for (UINT_PTR id : {kClockTimerId, kIconEvictTimerId, kBounceTimerId, kHideTimerId, kRevealTimerId,
                                 kSlideTimerId, kMagnifyTimerId, kLabelTimerId, kRestTimerId, kBackdropTimerId,

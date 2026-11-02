@@ -67,6 +67,7 @@ const FieldInfo kFields[] = {
     WD_FLOAT(ReflectionOpacity, reflectionOpacity, L"Reflection opacity", 0.0f, 1.0f, L"%", 100.0f),
     WD_FIELD(Perspective, perspective, L"3D perspective", Bool, 0.0f, 0.0f),
     WD_FLOAT(PerspectiveAngle, perspectiveAngle, L"Perspective angle", 0.0f, 35.0f, L"degrees", 1.0f),
+    WD_FIELD(ReflectionClip, reflectionClip, L"Clip the reflection to the bar", Bool, 0.0f, 0.0f),
 };
 
 #undef WD_FIELD

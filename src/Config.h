@@ -60,6 +60,18 @@ struct DockConfig {
     // DIPs (pixels at 100 % scale) added to the aligned position along the edge (positive: right /
     // down). The dock is kept on its monitor.
     int offset = 0;
+    // The bar spans the whole edge of the monitor (flush with the screen edge, square corners);
+    // the items sit in it per `align` / `offset`.
+    bool fullWidth = false;
+    // With fullWidth (ignored otherwise) and autoHide "off": the dock registers as an app bar so
+    // maximized windows stop at it. Auto-hide docks reserve nothing (like an auto-hide taskbar).
+    bool reserveSpace = true;
+    // Hidden by auto-hide: peekPx DIPs of the bar stay visible at peekOpacity (0: the invisible
+    // 1 px reveal strip). Hovering the visible part reveals the dock.
+    int peekPx = 0;
+    double peekOpacity = 0.5;
+    // Drawn outside the bar on the side facing the middle of the screen; empty: none.
+    std::wstring title;
     // No drag reorder, no pinning by file drop, no Add separator / Add widget from the dock menu.
     // The settings window still edits everything.
     bool locked = false;
@@ -235,6 +247,9 @@ struct ThemeConfig {
     bool reflection = false;
     float reflectionHeight = 0.5f;          // 0.2 - 1, fraction of the icon height
     float reflectionOpacity = 0.35f;        // 0 - 1, at the icon's foot (fading to 0)
+    // The reflection is cut at the bar's edge instead of growing the bar: the dock keeps its height
+    // and shows the part of the reflection that fits between the icons and the bar's edge.
+    bool reflectionClip = false;
     // The icon row and the bar tilted back about the bar's bottom edge (cosmetic: hit-testing uses
     // the untilted layout). Acrylic is not used with it.
     bool perspective = false;

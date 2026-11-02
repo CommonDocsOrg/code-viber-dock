@@ -79,6 +79,20 @@ inline constexpr int kOffsetLabel = 2145;
 inline constexpr int kOffsetEdit = 2146;       // DIPs, -16000 - 16000
 inline constexpr int kOffsetSpin = 2147;
 inline constexpr int kPositionNote = 2148;
+// Round 4 phase 2b: full width, reserve space, peek strip, title.
+inline constexpr int kFullWidth = 2149;        // check box (+ caption 2150)
+inline constexpr int kFullWidthCaption = 2150;
+inline constexpr int kReserveSpace = 2151;     // check box (+ caption 2152); with full width and auto-hide off
+inline constexpr int kReserveSpaceCaption = 2152;
+inline constexpr int kPeekLabel = 2153;
+inline constexpr int kPeekEdit = 2154;         // docks[].peekPx, 0 - 64 (0: off)
+inline constexpr int kPeekSpin = 2155;
+inline constexpr int kPeekOpacityLabel = 2156;
+inline constexpr int kPeekOpacityEdit = 2157;  // docks[].peekOpacity x 100, 5 - 100
+inline constexpr int kPeekOpacitySpin = 2158;
+inline constexpr int kTitleLabel = 2159;
+inline constexpr int kTitleEdit = 2160;        // docks[].title; applied on Enter / focus loss
+inline constexpr int kPositionNote2 = 2161;
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;

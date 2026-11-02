@@ -29,6 +29,10 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
         Append(sub, kEdgeLeft, L"Left", true);
         Append(sub, kEdgeRight, L"Right", true);
         CheckMenuRadioItem(sub, kEdgeBottom, kEdgeRight, kEdgeBottom + static_cast<UINT>(state.edge), MF_BYCOMMAND);
+        AppendMenuW(sub, MF_SEPARATOR, 0, nullptr);
+        // How to move it along the edge (or to another one): a hint, not a command.
+        Append(sub, kNone, state.locked ? L"Unlock the dock to move it by dragging" : L"Ctrl+drag the dock to move it",
+               false);
         AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(sub), L"Position on screen");
     }
     if (state.weatherShown) {

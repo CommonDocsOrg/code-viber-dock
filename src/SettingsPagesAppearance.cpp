@@ -49,10 +49,12 @@ std::vector<FieldGroup> FieldGroups() {
          {Field::PreviewHotBackground, Field::PreviewHotBorder, Field::CloseHover}},
         {kSectionFieldsEffects, L"Icon effects",
          {Field::Glow, Field::GlowColor, Field::GlowRadius, Field::GlowStrength, Field::Reflection,
-          Field::ReflectionHeight, Field::ReflectionOpacity, Field::Perspective, Field::PerspectiveAngle},
+          Field::ReflectionClip, Field::ReflectionHeight, Field::ReflectionOpacity, Field::Perspective,
+          Field::PerspectiveAngle},
          kEffectsNote,
          L"A clear glow colour (alpha 0) uses each icon's own colour. Reflections show on bottom and top docks "
-         L"only (left / right docks have none). The perspective tilt is cosmetic (clicks use the flat layout) "
+         L"only (left / right docks have none); clipped, they keep the bar at its height and show the part "
+         L"that fits. The perspective tilt is cosmetic (clicks use the flat layout) "
          L"and turns acrylic off, like the glass shelf."},
     };
     FieldGroup other{kSectionFieldsOther, L"Other", {}};
@@ -132,8 +134,8 @@ protected:
             Section(g.sectionId, g.title);
             for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
             if (g.note) {
-                Text(g.noteId, CtlKind::Note, g.note, kMargin, right - kMargin, 54);
-                NextRow(54);
+                Text(g.noteId, CtlKind::Note, g.note, kMargin, right - kMargin, 72);
+                NextRow(72);
             }
         }
     }

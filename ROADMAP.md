@@ -115,6 +115,9 @@ magnification / tween machinery runs over the *slots* they produce.
 
 ## Phase 2: geometry (foundation)
 
+Status: done (2026-11-02) as 2a (axis layout, edges, alignment / offset, popups per edge) and 2b
+(full width, reserve space, peek strip, title, reflection clip, drag the dock); see STATUS.md.
+
 Goal: a dock is placed on an edge, at an offset, horizontal or vertical, without any element or
 popup knowing which.
 
