@@ -10,8 +10,7 @@
 
 namespace ContextMenu {
 
-// Dock commands 100 - kLastDockCommand are stable automation ids (WinDock.DockCommand); 111 is
-// reserved (refresh weather).
+// Dock commands 100 - kLastDockCommand are stable automation ids (WinDock.DockCommand).
 enum Command : UINT {
     kNone = 0,
     kAutoHide = 100,  // toggles Off <-> the last on-mode (Always / Intelligent)
@@ -25,9 +24,12 @@ enum Command : UINT {
     kAutoHideOff = 108,
     kAutoHideAlways = 109,
     kAutoHideIntelligent = 110,
-    kReservedRefreshWeather = 111,  // not a command yet (weather widget)
+    kRefreshWeather = 111,  // fetches the weather now
     kAddSeparator = 112,  // appends a separator item to the pinned list
-    kLastDockCommand = kAddSeparator,
+    kWeatherSettings = 113,     // opens the settings window on the Weather page
+    kToggleCalendar = 114,      // shows / hides the month calendar over the clock
+    kToggleWeatherPopup = 115,  // shows / hides the forecast popup over the weather widget
+    kLastDockCommand = kToggleWeatherPopup,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -45,6 +47,8 @@ struct TrayMenuState {
     AutoHideMode autoHide = AutoHideMode::Off;
     bool hideTaskbar = false;       // the taskbar controller is enabled (taskbar hidden by the dock)
     bool startWithWindows = false;  // the HKCU Run value exists
+    bool weatherShown = false;      // config weather.show: Refresh weather / Weather settings… entries
+    bool weatherConfigured = false; // ... and a location is set (Refresh weather enabled)
 };
 
 // Shows the dock/tray menu at a screen point and returns the chosen Command (kNone if dismissed).

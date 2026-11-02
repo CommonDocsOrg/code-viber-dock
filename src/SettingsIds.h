@@ -17,7 +17,8 @@ inline constexpr int kPageBehaviour = 2;
 inline constexpr int kPageAnimation = 3;
 inline constexpr int kPagePinned = 4;
 inline constexpr int kPageAbout = 5;
-inline constexpr int kPageCount = 6;
+inline constexpr int kPageWeather = 6;  // appended after About (pages are shown in index order)
+inline constexpr int kPageCount = 7;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -55,6 +56,8 @@ inline constexpr int kSectionDock = 2126;
 inline constexpr int kSectionClock = 2127;
 inline constexpr int kSectionStartup = 2128;
 inline constexpr int kSectionRenderer = 2129;
+inline constexpr int kClockCalendar = 2130;   // check box: a click on the clock opens the calendar (+ caption 2131)
+inline constexpr int kClockCalendarCaption = 2131;
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;
@@ -176,5 +179,34 @@ inline constexpr int kPinAddRecycleBin = 2608;    // appends { "kind": "recycleB
 inline constexpr int kPinChooseIcon = 2609;       // "Choose icon…" (the Change Icon dialog); disabled for separators
 inline constexpr int kPinChooseImage = 2610;      // "Choose image…" (open dialog: images, .ico / .exe / .dll)
 inline constexpr int kPinResetIcon = 2611;        // "Reset icon": clears `icon`; enabled when the entry has one
+
+// Weather (2700 - 2799)
+inline constexpr int kSectionWeather = 2700;
+inline constexpr int kWeatherShow = 2701;          // check box (+ caption 2702)
+inline constexpr int kWeatherShowCaption = 2702;
+inline constexpr int kSectionWeatherPlace = 2703;
+inline constexpr int kWeatherSearchLabel = 2704;
+inline constexpr int kWeatherSearchEdit = 2705;    // place name; Enter searches
+inline constexpr int kWeatherSearch = 2706;        // "Search" (Open-Meteo geocoding, 10 results)
+inline constexpr int kWeatherResultsLabel = 2707;
+inline constexpr int kWeatherResultsCombo = 2708;  // "Name, Admin1, Country"; choosing one sets the place
+inline constexpr int kWeatherSearchNote = 2709;    // "Searching…", "10 places found", "No places found", errors
+inline constexpr int kWeatherLocationLabel = 2710;
+inline constexpr int kWeatherLocationEdit = 2711;  // display name; applied on Enter / focus loss
+inline constexpr int kWeatherLatLabel = 2712;
+inline constexpr int kWeatherLatEdit = 2713;       // -90 - 90; applied on Enter / focus loss
+inline constexpr int kWeatherLonLabel = 2714;
+inline constexpr int kWeatherLonEdit = 2715;       // -180 - 180
+inline constexpr int kSectionWeatherUpdates = 2716;
+inline constexpr int kWeatherUnitsLabel = 2717;
+inline constexpr int kWeatherUnitsCombo = 2718;    // 0 metric (°C, km/h), 1 imperial (°F, mph)
+inline constexpr int kWeatherRefreshLabel = 2719;
+inline constexpr int kWeatherRefreshEdit = 2720;   // minutes, 5 - 360
+inline constexpr int kWeatherRefreshSpin = 2721;
+inline constexpr int kWeatherRefreshUnit = 2722;
+inline constexpr int kWeatherRefreshNow = 2723;    // "Refresh now" (= DockCommand 111)
+inline constexpr int kWeatherStatusLabel = 2724;
+inline constexpr int kWeatherStatus = 2725;        // "Updated 10:15", "(stale)", "Not configured", "Error: …"
+inline constexpr int kWeatherCredit = 2726;        // SysLink: Open-Meteo (CC BY 4.0)
 
 }  // namespace SettingsIds

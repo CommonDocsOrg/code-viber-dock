@@ -21,7 +21,9 @@ cmake --preset x64-release
 cmake --build --preset x64-release
 ```
 
-Output: `build\x64-release\WinDock.exe`. Use the `x64-debug` preset for a debug build.
+Output: `build\x64-release\WinDock.exe`. Use the `x64-debug` preset for a debug build. It links
+only Windows SDK libraries (Direct3D 11, Direct2D, DirectComposition, DirectWrite, WIC, the shell,
+DWM, common controls, `windowsapp` for the JSON parser, and `winhttp` for the weather widget).
 
 ## Run
 
@@ -42,6 +44,8 @@ Right-click the tray icon or an empty part of the dock for the menu:
 - **Start with Windows** (checkmark): writes or deletes the `WinDock` value under
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (the quoted path of the running exe). The
   checkmark shows whether that value exists; `startWithWindows` in the config follows it.
+- **Refresh weather**, **Weather settings…** (only while the weather widget is on; Refresh is
+  greyed until a location is set): fetch the forecast now; open Settings on the Weather page.
 - **Open config file**, **Reload config**: see Configuration.
 - **Show taskbar until re-enabled**: brings the taskbar back for this session only. "Hide taskbar"
   shows unchecked until you check it again; the config is not changed, so the next start hides
@@ -258,6 +262,45 @@ original taskbar state. If the dock is killed or crashes, the next start (or
 `WinDock.exe --restore-taskbar`, which works without a running dock) restores from it. The Start
 menu still opens with the Win key while the taskbar is hidden.
 
+### Weather and calendar
+
+**Weather widget** (`weather.show`, off by default; Settings > Weather): left of the clock, after
+the separator, the current conditions as a small glyph (sun or moon, partly cloudy, overcast,
+fog, drizzle, rain, snow, thunder; drawn as vector shapes, so they stay sharp at any DPI) and the
+temperature in the clock's font. It moves with the clock while the bar grows under the mouse.
+Without a location it shows a map-pin glyph, and a click on it opens Settings on the Weather page.
+
+- A click on the widget opens the **forecast popup** above it (click again, Escape, or clicking
+  anywhere else closes it; F5 refreshes): the place, a large glyph and temperature, the condition,
+  humidity and wind, when the data was fetched, the **Weather data by Open-Meteo** credit (a link)
+  and a refresh button; then 24 hourly columns starting at the current hour (hour, glyph,
+  temperature, the chance of precipitation when it is above 0 %, and a thin line through the
+  temperatures) and 7 daily rows (weekday, glyph, low and high, and a bar showing the day's range
+  on the week's scale, coloured from cool to warm). While the popup is open the dock does not
+  auto-hide.
+- Data: [Open-Meteo](https://open-meteo.com) (free, no API key; weather data by Open-Meteo.com,
+  licensed CC BY 4.0). One HTTPS request per refresh (`refreshMinutes`, default 30) to
+  `api.open-meteo.com` with the configured latitude / longitude and units, `timezone=auto` (hours
+  and days are the location's local time). The request runs on a short-lived worker thread
+  (WinHTTP, the system's automatic proxy settings, 5 s timeouts, TLS only, at most 1 MB); between
+  refreshes no thread exists and nothing polls: one one-shot timer waits for the next refresh. After
+  a failure (offline, timeout, an HTTP error) the dock retries after 1, 2, 4 ... minutes, never
+  later than the refresh interval, and keeps showing the last data, dimmed. The widget and the
+  popup are redrawn only when the data, the theme or the DPI changes.
+- The last good response is cached in `%LocalAppData%\WinDock\weather-cache.json` (with the time
+  it was fetched, the coordinates and the units). At start the dock shows it at once, dimmed as
+  stale, when it is for the same place and units, and fetches fresh data straight away.
+- **Settings > Weather** finds places by name (Open-Meteo's geocoding service, 10 results, as
+  "Name, Region, Country"); picking one fills in the latitude, longitude and the name shown.
+- Right-click the dock (the widget included) for **Refresh weather** and **Weather settings…**.
+
+**Calendar**: a click on the clock opens a month calendar above it: today's date in the locale's
+long format, the month and year with previous / next arrows (also Left / Right and Page Up / Page
+Down; a click on the month name or Home goes back to the current month), the weekday names from
+the locale starting on its first day of the week, and six weeks of days with today on an
+accent-coloured disc. No events. Escape or clicking anywhere else closes it. Turn it off with
+`clock.calendarPopup` (General page: "Click the clock to show a month calendar").
+
 ## Settings
 
 **Settings…** in the tray / dock menu, `WinDock.exe --settings` (asks the running dock to open it,
@@ -271,8 +314,9 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 - **General**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
   magnification range (1-4 icons), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
   dock's order), clock on / off, time format (pick one or type a `strftime` format; a preview shows
-  the result), date line, Start with Windows, Hide the Windows taskbar, and the renderer
-  (`auto` / `software`; takes effect after WinDock restarts, the page shows the one in use).
+  the result), date line, the calendar popup on a clock click, Start with Windows, Hide the Windows
+  taskbar, and the renderer (`auto` / `software`; takes effect after WinDock restarts, the page
+  shows the one in use).
 - **Appearance**: the theme (the built-in presets, then your theme files from the themes folder by
   name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
   **Open themes folder**, **Reset all to preset**, and one row per theme field (see
@@ -299,6 +343,12 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   icon entries) show up in the list at once.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
+- **Weather** (after About): show the weather on the dock; **Find a place** (type a name, then
+  Enter or **Search**; the results list shows "Name, Region, Country" and choosing one sets the
+  place), the name shown, latitude and longitude (typed values apply on Enter or when the box loses
+  the focus; an invalid value beeps and goes back), units (metric: °C and km/h; imperial: °F and
+  mph), the refresh interval (5-360 minutes), the status ("Updated 10:15", "(stale)", "Updating…",
+  "Not configured", "Error: …"), **Refresh now** and the Open-Meteo credit.
 
 Every change applies to the dock at once (sliders when you release them, number boxes on each
 arrow step, on Enter or when the box loses the focus) and is saved within 300 ms, exactly like the
@@ -309,7 +359,8 @@ resumes as soon as another window is activated.
 Under every page a **preview strip** draws a small dock from the current settings: the bar with
 its border, acrylic tint (over a stand-in wallpaper) or background, corner radius, six placeholder
 apps with the three indicator dot states (running, active, attention), the separator and the clock,
-the name label above the magnified app, and a sample window-preview popup with a hovered card and
+a sun standing in for the weather widget (when it is on), the name label above the magnified app,
+and a sample window-preview popup with a hovered card and
 its hovered close button. Move the mouse over it and the magnification follows the pointer, with
 the configured magnification, range and falloff. It repaints only when a setting changes or the
 mouse moves over it (no timers).
@@ -342,8 +393,8 @@ auto-hide, `hideTaskbar` and `startWithWindows`. `renderer` needs a restart of t
 is malformed, Reload keeps the current settings (and beeps). Pinning, unpinning, and the menu
 toggles save the file within 300 ms. The write is atomic (a temp file
 replaced with `MoveFileEx`). The dock rewrites the whole file in its own layout. Top-level keys it
-does not know are kept, as compact JSON. Unknown keys inside `pinned` entries, `clock`, `theme`
-or `animation` are dropped. If the file is malformed, the dock starts with the defaults and leaves
+does not know are kept, as compact JSON. Unknown keys inside `pinned` entries, `clock`, `theme`,
+`animation` or `weather` are dropped. If the file is malformed, the dock starts with the defaults and leaves
 the file untouched.
 
 ```json
@@ -357,12 +408,14 @@ the file untouched.
   "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
   "previews": true, "previewDelayMs": 600,
   "monitor": 0, "hideTaskbar": true, "startWithWindows": false, "renderer": "auto",
-  "clock": { "show": true, "format": "%H:%M", "showDate": false },
+  "clock": { "show": true, "format": "%H:%M", "showDate": false, "calendarPopup": true },
   "theme": { "preset": "dark",
              "accent": "#FF4CC2FF" },
   "animation": { "speed": 1, "hideStyle": "slide", "launchStyle": "bounce",
                  "magnifyFalloff": "cosine", "easing": "easeOut", "labelFadeMs": 120,
-                 "reduceMotion": "system" }
+                 "reduceMotion": "system" },
+  "weather": { "show": true, "latitude": 47.6062, "longitude": -122.3321,
+               "location": "Seattle", "units": "metric", "refreshMinutes": 30 }
 }
 ```
 
@@ -379,7 +432,14 @@ the file untouched.
   above). `previewDelayMs` (default 600, 0 - 10000) is how long the mouse must rest on the icon.
 
 - `clock.format` uses `strftime` specifiers (`%H:%M`, `%I:%M %p`, `%H:%M:%S`, ...). Formats with
-  seconds tick every second; otherwise the clock wakes once a minute.
+  seconds tick every second; otherwise the clock wakes once a minute. `clock.calendarPopup`
+  (default `true`): a click on the clock opens the month calendar (see Weather and calendar).
+- `weather`: the weather widget (see Weather and calendar). `show` (default `false`);
+  `latitude` (-90 - 90) and `longitude` (-180 - 180), in degrees, saved with 4 decimals (both 0:
+  no location yet); `location`, the name shown in the popup (it is not looked up); `units`,
+  `"metric"` or `"imperial"` (when the key is missing: from the Windows region's measurement
+  system); `refreshMinutes`, 5 - 360 (default 30). **Reload config** applies a changed place or
+  units at once (the data is fetched again).
 - `pinned`: in dock order. Each entry is `{ "path": "<.lnk, .exe or folder>" }` or
   `{ "aumid": "<AppUserModelID>" }`. Environment variables in paths are expanded. Folders need
   no `kind`: they are detected from the path (or from a shortcut's target). Optional keys, written
@@ -538,8 +598,10 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
   always, 110 Auto-hide when a window overlaps, 107 open or activate the settings window,
-  112 Add separator; 111 is reserved and returns 0). Runs it as if it was chosen from the menu.
-  Returns 1 for a known command.
+  111 Refresh weather, 112 Add separator, 113 Weather settings… (the settings window on the
+  Weather page), 114 show / hide the calendar popup, 115 show / hide the weather popup). Runs it
+  as if it was chosen from the menu. Returns 1 for a known command. A popup opened this way
+  usually cannot take the foreground (see the folder popup below).
 - `WinDock.QueryState`: `wParam` selects the value. 0 = auto-hide state (0 Shown, 1 Hiding,
   2 Hidden, 3 Showing). 1 = current `SHQueryUserNotificationState` value. 2 = hovered item index
   (-1 for none). 3 = 1 if the name label is shown (0 as soon as it starts fading out). 4 = 1
@@ -563,7 +625,12 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   has a custom icon from its `icon` key (0 if not, -1 if there is no such item). 22 = 1 while the
   folder popup is visible. 23 = number of entries (cells) shown in the folder popup (0 when it is
   hidden). 26 = drop mode while files are dragged over the dock (0 none, 1 insertion marker,
-  2 open with the app under the pointer, 3 recycle on the Recycle Bin). 35 = the
+  2 open with the app under the pointer, 3 recycle on the Recycle Bin). 27 = weather state
+  (0 none: the widget is off, has no location or has no data yet; 1 stale: cached data, or the
+  last refresh failed; 2 fresh; 3 error: the fetch failed and there is no data). 28 = the current
+  temperature x 10 in the configured units (`INT_MIN` without data). 29 = 1 while the weather
+  popup is visible. 30 = seconds since the weather data was fetched (-1 without data; cached data
+  counts from when it was fetched). 31 = 1 while the calendar popup is visible. 35 = the
   dominant colour of item `lParam`'s icon as `0xAARRGGBB` (a saturation- and alpha-weighted
   average, computed once per icon load; 0 when unknown, -1 if there is no such item).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
@@ -571,7 +638,7 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
 - Settings window (class `WinDock.Settings`, title "WinDock Settings"): the page list is the child
   `WinDock.SettingsNav` (control id 100; its window text is the selected page's name); the pages
   are `WinDock.SettingsPage` children with ids 200 + page index (0 General, 1 Appearance,
-  2 Behaviour, 3 Animation, 4 Pinned apps, 5 About), and every control on them has the stable id
+  2 Behaviour, 3 Animation, 4 Pinned apps, 5 About, 6 Weather), and every control on them has the stable id
   listed in `src/SettingsIds.h`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
   field rows use `3000 + 10 * field index + part` (field index in `Theme::Fields()` order; part 0
@@ -589,4 +656,4 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   Escape does not reach it; it still closes when another window comes to the foreground, on a dock
   click, or with 806 again.
 - Popup windows: the window-preview popup is class `WinDockPreview`, the folder popup
-  `WinDockFolder`.
+  `WinDockFolder`, the weather popup `WinDockWeather`, the calendar `WinDockCalendar`.

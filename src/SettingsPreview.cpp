@@ -9,6 +9,7 @@
 
 #include "Backdrop.h"
 #include "Theme.h"
+#include "WeatherGlyphs.h"
 
 namespace {
 
@@ -282,8 +283,12 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
         clockSize = clock_.BuildLayout(dwrite_.get(), u);
     }
     const float clockW = static_cast<float>(clockSize.width), clockH = static_cast<float>(clockSize.height);
-    const float sepW = c.clock.show ? std::round(17.0f * u) : 0.0f;
-    float barW = c.clock.show ? lead + itemsW + sepW + clockW + padding : lead + itemsW + lead;
+    // The weather widget: a sun glyph standing in for it (no data here), left of the clock.
+    const float weatherW = c.weather.show ? std::round(22.0f * u) : 0.0f;
+    const float widgetGap = c.weather.show && c.clock.show ? std::round(10.0f * u) : 0.0f;
+    const bool widgets = c.clock.show || c.weather.show;
+    const float sepW = widgets ? std::round(17.0f * u) : 0.0f;
+    float barW = widgets ? lead + itemsW + sepW + weatherW + widgetGap + clockW + padding : lead + itemsW + lead;
     barW = std::round(barW);
 
     const float cardW = px(kCardW), cardH = std::min(px(kCardH), wall.bottom - wall.top - px(8.0f));
@@ -343,18 +348,29 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const D2D1_RECT_F bar = D2D1::RectF(barLeft - growLeft, barTop, barLeft + barW + growRight, barBottom);
     const float separatorX = std::round(barLeft + lead + itemsW + sepW / 2.0f) + growRight;
     if (t.shelf) {
-        Theme::DrawShelf(dc, bar, t, u, stroke, c.clock.show ? separatorX : -1.0f);
+        Theme::DrawShelf(dc, bar, t, u, stroke, widgets ? separatorX : -1.0f);
     } else {
         fillPanel(Rounded(bar, std::round(radiusDip * u)));
     }
-    if (c.clock.show) {
+    if (widgets) {
         if (!t.shelf) {
             const float x = separatorX + stroke / 2.0f;
             const float vInset = std::round(barH * 0.22f);
             brush->SetColor(Theme::ToColor(t.separator));
             dc->DrawLine(D2D1::Point2F(x, barTop + vInset), D2D1::Point2F(x, barBottom - vInset), brush.get(), stroke);
         }
-        clock_.Draw(dc, barLeft + barW - padding - clockW + growRight, std::round(barTop + (barH - clockH) / 2.0f));
+        if (c.clock.show) {
+            clock_.Draw(dc, barLeft + barW - padding - clockW + growRight, std::round(barTop + (barH - clockH) / 2.0f));
+        }
+        if (c.weather.show) {
+            const float x = barLeft + barW - padding - clockW - widgetGap - weatherW + growRight;
+            const float y = std::round(barTop + (barH - weatherW) / 2.0f);
+            WeatherGlyphs::Colors colors;
+            colors.ink = t.clockText;
+            colors.water = t.accent;
+            WeatherGlyphs::Draw(dc, WeatherGlyphs::Glyph::Clear, true, D2D1::RectF(x, y, x + weatherW, y + weatherW),
+                                colors);
+        }
     }
 
     // --- icons and dots ---

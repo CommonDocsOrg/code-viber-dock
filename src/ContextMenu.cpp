@@ -14,6 +14,11 @@ void Append(HMENU menu, UINT id, const wchar_t* text, bool enabled, bool checked
 void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
     Append(menu, kOpenSettings, L"Settings…", true);
     Append(menu, kAddSeparator, L"Add separator", true);
+    if (state.weatherShown) {
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        Append(menu, kRefreshWeather, L"Refresh weather", state.weatherConfigured);
+        Append(menu, kWeatherSettings, L"Weather settings…", true);
+    }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     if (HMENU sub = CreatePopupMenu()) {  // destroyed with its parent
         Append(sub, kAutoHideOff, L"Off", true);

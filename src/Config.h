@@ -29,7 +29,25 @@ struct ClockConfig {
     bool show = true;
     std::wstring format = L"%H:%M";
     bool showDate = false;
+    bool calendarPopup = true;  // a click on the clock opens the month calendar
 };
+
+// Temperatures in °C and wind in km/h ("metric") or °F and mph ("imperial").
+enum class Units { Metric, Imperial };
+
+// The weather widget (Open-Meteo, no API key). Unconfigured (latitude and longitude both 0) it
+// shows a "set location" glyph instead of the conditions.
+struct WeatherConfig {
+    bool show = false;
+    double latitude = 0.0;   // -90 - 90
+    double longitude = 0.0;  // -180 - 180
+    std::wstring location;   // display name (header of the popup); not used to look anything up
+    Units units = Units::Metric;  // without a "units" key: from the locale (LOCALE_IMEASURE)
+    int refreshMinutes = 30;  // 5 - 360
+    bool Configured() const { return latitude != 0.0 || longitude != 0.0; }
+};
+// The user's locale measurement system (LOCALE_IMEASURE: 1 = U.S.) as Units.
+Units LocaleUnits();
 
 // "off": always shown. "always": hides when the mouse leaves. "intelligent": hides only while
 // the foreground window overlaps the dock.
@@ -53,12 +71,14 @@ const wchar_t* ToString(LaunchStyle v);
 const wchar_t* ToString(Falloff v);
 const wchar_t* ToString(Easing v);
 const wchar_t* ToString(ReduceMotion v);
+const wchar_t* ToString(Units v);
 bool FromString(std::wstring_view s, AutoHideMode& v);
 bool FromString(std::wstring_view s, HideStyle& v);
 bool FromString(std::wstring_view s, LaunchStyle& v);
 bool FromString(std::wstring_view s, Falloff& v);
 bool FromString(std::wstring_view s, Easing& v);
 bool FromString(std::wstring_view s, ReduceMotion& v);
+bool FromString(std::wstring_view s, Units& v);
 
 struct AnimationConfig {
     double speed = 1.0;  // 0 = animations off; otherwise 0.25 - 4.0 (durations are divided by it)
@@ -122,6 +142,7 @@ struct Config {
     // GPU user-mode driver's per-process memory (the dock redraws rarely, so WARP is cheap).
     std::wstring renderer = L"auto";
     ClockConfig clock;
+    WeatherConfig weather;
     // Theme layering: built-in preset -> user theme file (themes\<id>.json, which names its own
     // built-in `base`) -> fields set inline in config.json. `themePreset` is a built-in id or a
     // user theme file stem; "" means none (inline fields over the dark defaults).
@@ -131,7 +152,7 @@ struct Config {
     bool themeResolveFailed = false;  // the last ResolveTheme() fell back to dark (not saved)
     AnimationConfig animation;
     // Top-level keys this version does not know, kept verbatim (compact JSON) so a save does not
-    // drop them. Unknown keys inside known objects (pinned entries, clock, theme, animation) are
+    // drop them. Unknown keys inside known objects (pinned entries, clock, theme, animation, weather) are
     // not kept.
     std::vector<std::pair<std::wstring, std::wstring>> extraFields;
 

@@ -40,7 +40,19 @@ const wchar_t* const kLaunchStyleNames[] = {L"bounce", L"hop", L"pulse", L"none"
 const wchar_t* const kFalloffNames[] = {L"cosine", L"linear"};
 const wchar_t* const kEasingNames[] = {L"easeOut", L"linear", L"spring"};
 const wchar_t* const kReduceMotionNames[] = {L"system", L"on", L"off"};
+const wchar_t* const kUnitsNames[] = {L"metric", L"imperial"};
 const wchar_t* const kSpecialPinNames[] = {L"", L"separator", L"recycleBin"};
+
+// Latitude / longitude: 4 decimals (~11 m), no exponent, trailing zeros dropped.
+std::wstring Coord(double v) {
+    wchar_t buf[32];
+    swprintf_s(buf, L"%.4f", v);
+    std::wstring s = buf;
+    while (!s.empty() && s.back() == L'0') s.pop_back();
+    if (!s.empty() && s.back() == L'.') s.pop_back();
+    if (s == L"-0") s = L"0";
+    return s;
+}
 
 template <typename E>
 void ReadEnum(const json::JsonObject& o, const wchar_t* key, E& v) {
@@ -57,12 +69,24 @@ const wchar_t* ToString(LaunchStyle v) { return EnumToString(v, kLaunchStyleName
 const wchar_t* ToString(Falloff v) { return EnumToString(v, kFalloffNames); }
 const wchar_t* ToString(Easing v) { return EnumToString(v, kEasingNames); }
 const wchar_t* ToString(ReduceMotion v) { return EnumToString(v, kReduceMotionNames); }
+const wchar_t* ToString(Units v) { return EnumToString(v, kUnitsNames); }
 bool FromString(std::wstring_view s, AutoHideMode& v) { return EnumFromString(s, v, kAutoHideNames); }
 bool FromString(std::wstring_view s, HideStyle& v) { return EnumFromString(s, v, kHideStyleNames); }
 bool FromString(std::wstring_view s, LaunchStyle& v) { return EnumFromString(s, v, kLaunchStyleNames); }
 bool FromString(std::wstring_view s, Falloff& v) { return EnumFromString(s, v, kFalloffNames); }
 bool FromString(std::wstring_view s, Easing& v) { return EnumFromString(s, v, kEasingNames); }
 bool FromString(std::wstring_view s, ReduceMotion& v) { return EnumFromString(s, v, kReduceMotionNames); }
+bool FromString(std::wstring_view s, Units& v) { return EnumFromString(s, v, kUnitsNames); }
+
+Units LocaleUnits() {
+    DWORD measure = 0;  // 0 metric, 1 U.S.
+    if (GetLocaleInfoEx(LOCALE_NAME_USER_DEFAULT, LOCALE_IMEASURE | LOCALE_RETURN_NUMBER,
+                        reinterpret_cast<LPWSTR>(&measure), sizeof(measure) / sizeof(wchar_t)) &&
+        measure == 1) {
+        return Units::Imperial;
+    }
+    return Units::Metric;
+}
 
 SpecialPin SpecialPinOf(std::wstring_view kind) {
     SpecialPin v = SpecialPin::None;
@@ -150,10 +174,17 @@ void Config::Sanitize() {
     animation.labelFadeMs = std::clamp(animation.labelFadeMs, 0, 1000);
     if (clock.format.size() > 128) clock.format.resize(128);
     if (renderer != L"auto" && renderer != L"software") renderer = L"auto";
+    if (!(weather.latitude >= -90.0 && weather.latitude <= 90.0)) weather.latitude = 0.0;  // also NaN
+    if (!(weather.longitude >= -180.0 && weather.longitude <= 180.0)) weather.longitude = 0.0;
+    weather.latitude = std::round(weather.latitude * 1e4) / 1e4;  // what Save writes (4 decimals)
+    weather.longitude = std::round(weather.longitude * 1e4) / 1e4;
+    weather.refreshMinutes = std::clamp(weather.refreshMinutes, 5, 360);
+    if (weather.location.size() > 128) weather.location.resize(128);
 }
 
 Config::LoadResult Config::LoadFile() {
     *this = Config{};
+    weather.units = LocaleUnits();  // the default when the file (or its "units" key) is absent
     const std::wstring path = FilePath();
 
     std::string bytes;
@@ -173,7 +204,7 @@ Config::LoadResult Config::LoadFile() {
         static const wchar_t* const kKnown[] = {
             L"pinned",        L"iconSize", L"magnification", L"magnifyRange",     L"autoHide", L"hideDelayMs",
             L"revealDelayMs", L"monitor",  L"hideTaskbar",   L"startWithWindows", L"renderer", L"clock",
-            L"theme",         L"previews", L"previewDelayMs", L"animation",
+            L"theme",         L"previews", L"previewDelayMs", L"animation",        L"weather",
         };
         for (const auto& kv : root) {
             const std::wstring key(kv.Key());
@@ -223,6 +254,15 @@ Config::LoadResult Config::LoadFile() {
             ReadBool(c, L"show", clock.show);
             ReadString(c, L"format", clock.format);
             ReadBool(c, L"showDate", clock.showDate);
+            ReadBool(c, L"calendarPopup", clock.calendarPopup);
+        }
+        if (auto w = ReadObject(root, L"weather")) {
+            ReadBool(w, L"show", weather.show);
+            ReadNumber(w, L"latitude", weather.latitude);
+            ReadNumber(w, L"longitude", weather.longitude);
+            ReadString(w, L"location", weather.location);
+            ReadEnum(w, L"units", weather.units);
+            ReadInt(w, L"refreshMinutes", weather.refreshMinutes);
         }
         // A config without "preset" (older versions) is "dark" with every key present as an override.
         if (auto t = ReadObject(root, L"theme")) {
@@ -241,6 +281,7 @@ Config::LoadResult Config::LoadFile() {
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
         *this = Config{};
+        weather.units = LocaleUnits();
         return LoadResult::Malformed;
     }
     Sanitize();  // also validates themePreset before it is used as a file name
@@ -295,7 +336,8 @@ bool Config::Save() const {
         o += L"  \"startWithWindows\": " + Bool(startWithWindows) + L",\n";
         o += L"  \"renderer\": " + Quote(renderer) + L",\n";
         o += L"  \"clock\": { \"show\": " + Bool(clock.show) + L", \"format\": " + Quote(clock.format) +
-             L", \"showDate\": " + Bool(clock.showDate) + L" },\n";
+             L", \"showDate\": " + Bool(clock.showDate) + L", \"calendarPopup\": " + Bool(clock.calendarPopup) +
+             L" },\n";
         // Only the preset and the fields set inline: editing the theme file keeps affecting the dock.
         o += L"  \"theme\": { \"preset\": " + Quote(themePreset) +
              Theme::WriteFields(theme, themeOverrides, L"             ") + L" },\n";
@@ -305,7 +347,11 @@ bool Config::Save() const {
              L",\n                 \"magnifyFalloff\": " + Quote(ToString(animation.magnifyFalloff)) +
              L", \"easing\": " + Quote(ToString(animation.easing)) +
              L", \"labelFadeMs\": " + Num(animation.labelFadeMs) +
-             L",\n                 \"reduceMotion\": " + Quote(ToString(animation.reduceMotion)) + L" }";
+             L",\n                 \"reduceMotion\": " + Quote(ToString(animation.reduceMotion)) + L" },\n";
+        o += L"  \"weather\": { \"show\": " + Bool(weather.show) + L", \"latitude\": " + Coord(weather.latitude) +
+             L", \"longitude\": " + Coord(weather.longitude) + L",\n               \"location\": " +
+             Quote(weather.location) + L", \"units\": " + Quote(ToString(weather.units)) +
+             L", \"refreshMinutes\": " + Num(weather.refreshMinutes) + L" }";
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";
         return WriteFileAtomic(FilePath(), WideToUtf8(o));

@@ -33,6 +33,10 @@ constexpr float kIconTop = 5.0f;            // bar top -> icon top
 constexpr float kDotFromBottom = 5.0f;      // bar bottom -> indicator dot centre
 constexpr float kDotRadius = 2.0f;          // 4 px dot at 100 %
 constexpr float kSeparatorWidth = 17.0f;    // space between the last icon slot and the clock
+constexpr float kWidgetGap = 10.0f;         // between the weather widget and the clock
+constexpr float kWeatherGlyph = 26.0f;      // weather widget glyph (24 with the date under the time)
+constexpr float kWeatherTextGap = 3.0f;     // glyph -> temperature
+constexpr float kWeatherStaleAlpha = 0.6f;  // stale / missing weather data
 constexpr float kSeparatorSlot = 12.0f;     // a separator item's slot (its hairline is centred in it)
 constexpr float kMinSideSlack = 24.0f;      // window space beside the bar (labels of edge icons)
 constexpr float kLabelGap = 6.0f;           // magnified icon top -> label bottom
@@ -175,6 +179,17 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, MessageHook
                      [this] { DismissFolderPopup(true); },
                      [this] { OnFolderPopupClosed(); },
                  });
+    weatherPopup_.Init(instance, &renderer_, &weather_,
+                       WeatherPopup::Callbacks{
+                           [this] { weather_.RefreshNow(); },
+                           [this] {
+                               DismissWeatherPopup(true);
+                               if (weatherCallbacks_.openSettings) weatherCallbacks_.openSettings();
+                           },
+                           [this] { ReleasePopupHold(kHoldWeather, true); },
+                       });
+    calendar_.Init(instance, &renderer_, [this] { ReleasePopupHold(kHoldCalendar, true); });
+    weather_.SetChangedCallback([this] { OnWeatherChanged(); });
 
     // File drops (OLE: needs OleInitialize on this thread, see main.cpp).
     dropTarget_ = new DropTarget(this);
@@ -203,7 +218,7 @@ void DockWindow::Destroy() {
 void DockWindow::ApplyConfig() {
     RefreshMotion();
     DismissPreview(false, false);  // previews / theme / sizes may have changed
-    DismissFolderPopup(false, false);
+    DismissClickPopups(false, false);
     FinishLabelFade();             // its text / position may no longer match
     clock_.Configure(config_->clock.format, config_->clock.showDate);
     clock_.SetColors(config_->theme.clockText, config_->theme.clockDateText);
@@ -216,6 +231,12 @@ void DockWindow::ApplyConfig() {
     labelDirty_ = true;
     labelFormat_ = nullptr;  // theme / size may have changed
     labelEllipsis_ = nullptr;
+    weatherDirty_ = true;
+    weatherFormat_ = nullptr;  // the clock's font size may have changed (date on / off)
+    weatherLayout_ = nullptr;
+    weatherQuiet_ = true;  // the relayout below measures and draws the widget
+    weather_.Configure(config_->weather, hwnd_);
+    weatherQuiet_ = false;
     UpdateAcrylic();
     Relayout();
     if (config_->clock.show) {
@@ -255,12 +276,17 @@ void DockWindow::ComputeLayout() {
     float winH = std::round(l.iconPx * l.magnification + kWindowExtraHeight * s);
     winH = std::max(winH, barH + margin);
 
-    // Clock text block (already laid out at this scale).
+    // Clock text block and weather widget (already laid out at this scale).
     const float clockW = c.clock.show ? static_cast<float>(clockSize_.width) : 0.0f;
     const float clockH = c.clock.show ? static_cast<float>(clockSize_.height) : 0.0f;
+    const bool weatherShown = c.weather.show && weatherSize_.width > 0;
+    const float weatherW = weatherShown ? static_cast<float>(weatherSize_.width) : 0.0f;
+    const float weatherH = weatherShown ? static_cast<float>(weatherSize_.height) : 0.0f;
+    const float widgetGap = weatherShown && c.clock.show ? std::round(kWidgetGap * s) : 0.0f;
+    const bool widgets = c.clock.show || weatherShown;
 
     // Bar: lead + N slots (iconPx + gap each, icon centred; separator items: a narrow slot) +
-    // separator + clock + padding.
+    // separator + weather + gap + clock + padding.
     const size_t n = items_.size();
     l.gap = std::round(kGap * s);
     const float half = std::floor(l.gap / 2.0f);
@@ -273,9 +299,9 @@ void DockWindow::ComputeLayout() {
         itemsW += item.slotW;
     }
     l.itemsW = itemsW;
-    const float sepW = (n && c.clock.show) ? std::round(kSeparatorWidth * s) : 0.0f;
-    float barW = lead + itemsW + sepW + clockW + l.padding;
-    if (n && !c.clock.show) barW = lead + itemsW + lead;
+    const float sepW = (n && widgets) ? std::round(kSeparatorWidth * s) : 0.0f;
+    float barW = lead + itemsW + sepW + weatherW + widgetGap + clockW + l.padding;
+    if (n && !widgets) barW = lead + itemsW + lead;
     barW = std::round(std::max(barW, l.iconPx + 2.0f * l.padding));
 
     // Magnified icons widen the run by sum((scale - 1) * iconPx). Both falloffs (cosine, linear) sum
@@ -302,6 +328,9 @@ void DockWindow::ComputeLayout() {
     const float clockX = l.bar.right - l.padding - clockW;
     const float clockY = std::round(l.bar.top + (barH - clockH) / 2.0f);
     l.clock = D2D1::RectF(clockX, clockY, clockX + clockW, clockY + clockH);
+    const float weatherX = clockX - widgetGap - weatherW;
+    const float weatherY = std::round(l.bar.top + (barH - weatherH) / 2.0f);
+    l.weather = D2D1::RectF(weatherX, weatherY, weatherX + weatherW, weatherY + weatherH);
 
     l.itemsLeft = l.bar.left + lead;
     float slotX = l.itemsLeft;
@@ -446,6 +475,9 @@ void DockWindow::LayoutPass() {
         const float scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
         if (clock_.UpdateText()) clockDirty_ = true;
         clockSize_ = config_->clock.show ? clock_.BuildLayout(renderer_.DWrite(), scale) : D2D1_SIZE_U{};
+        const D2D1_SIZE_U weatherSize = MeasureWeather(scale);
+        if (weatherSize.width != weatherSize_.width || weatherSize.height != weatherSize_.height) weatherDirty_ = true;
+        weatherSize_ = weatherSize;
         ComputeLayout();
         ApplyWindowPos();
         // Moving to another monitor may change our DPI (WM_DPICHANGED arrives re-entrantly
@@ -454,6 +486,7 @@ void DockWindow::LayoutPass() {
         dpi_ = now;
         if (now == before) break;
         clockDirty_ = true;
+        weatherDirty_ = true;
         labelDirty_ = true;
         for (DockItem& item : items_) {
             item.dirty = true;
@@ -480,6 +513,8 @@ void DockWindow::ResetLayers() {
     bgRightClip_.Reset();
     bgRight_.Reset();
     clockLayer_.Reset();
+    weatherLayer_.Reset();
+    weatherAppliedY_ = -1.0f;
     itemsGroup_.Reset();
     for (Layer& d : dotSources_) d.Reset();
     marker_.Reset();
@@ -496,13 +531,14 @@ void DockWindow::ResetLayers() {
 }
 
 HRESULT DockWindow::CreateLayers() {
-    // Z-order (back to front): background halves, clock, items, label.
+    // Z-order (back to front): background halves, clock, weather, items, label.
     ResetLayers();
     HRESULT hr = renderer_.CreateLayer(bgLeftClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgLeft_, &bgLeftClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRightClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRight_, &bgRightClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(clockLayer_);
+    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(weatherLayer_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(itemsGroup_);
     for (Layer& d : dotSources_) {
         if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(d, &itemsGroup_);
@@ -522,6 +558,7 @@ HRESULT DockWindow::CreateLayers() {
     labelShown_ = false;
     labelDirty_ = true;
     clockDirty_ = true;
+    weatherDirty_ = true;
     snapPending_ = true;
     rootY_.valid = false;
     rootOpacity_.valid = false;
@@ -596,6 +633,116 @@ HRESULT DockWindow::RenderClock() {
     if (FAILED(hr)) return hr;
     clockDirty_ = false;
     return S_OK;
+}
+
+D2D1_SIZE_U DockWindow::MeasureWeather(float scale) {
+    if (!config_->weather.show) {
+        weatherText_.clear();
+        weatherLayout_ = nullptr;
+        return D2D1_SIZE_U{};
+    }
+    // The temperature in the clock's time font; unconfigured: the "set location" glyph alone.
+    const bool date = config_->clock.show && config_->clock.showDate;
+    const float glyph = std::round((date ? kWeatherGlyph - 2.0f : kWeatherGlyph) * scale);
+    std::wstring text;
+    if (config_->weather.Configured()) {
+        const WeatherService::Forecast& data = weather_.Data();
+        if (data.valid && std::isfinite(data.temp)) {
+            long t = std::lround(data.temp);
+            if (t == 0) t = 0;
+            text = std::to_wstring(t) + L"°";
+        } else {
+            text = L"--°";
+        }
+    }
+    IDWriteFactory* dw = renderer_.DWrite();
+    if (scale != weatherTextScale_) {
+        weatherFormat_ = nullptr;
+        weatherLayout_ = nullptr;
+    }
+    if (!weatherFormat_ && dw &&
+        FAILED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+                                    DWRITE_FONT_STRETCH_NORMAL, (date ? 14.0f : 16.0f) * scale, L"",
+                                    weatherFormat_.put()))) {
+        weatherFormat_ = nullptr;
+    }
+    weatherTextScale_ = scale;
+    if (text != weatherText_) weatherLayout_ = nullptr;
+    weatherText_ = text;
+    float textW = 0.0f, textH = 0.0f;
+    if (!text.empty() && weatherFormat_ && dw) {
+        if (!weatherLayout_ &&
+            FAILED(dw->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), weatherFormat_.get(), 4096.0f,
+                                        4096.0f, weatherLayout_.put()))) {
+            weatherLayout_ = nullptr;
+        }
+        DWRITE_TEXT_METRICS m{};
+        if (weatherLayout_ && SUCCEEDED(weatherLayout_->GetMetrics(&m))) {
+            textW = std::ceil(m.widthIncludingTrailingWhitespace);
+            textH = std::ceil(m.height);
+        }
+    }
+    const float gap = textW > 0.0f ? std::round(kWeatherTextGap * scale) : 0.0f;
+    return D2D1::SizeU(static_cast<UINT32>(glyph + gap + textW), static_cast<UINT32>(std::max(glyph, textH)));
+}
+
+HRESULT DockWindow::RenderWeather() {
+    weatherDirty_ = false;
+    if (!config_->weather.show || weatherSize_.width == 0 || weatherSize_.height == 0) {
+        return renderer_.DrawLayer(weatherLayer_, 0, 0, {});
+    }
+    const ThemeConfig& theme = config_->theme;
+    const float h = static_cast<float>(weatherSize_.height);
+    const bool date = config_->clock.show && config_->clock.showDate;
+    const float glyph = std::round((date ? kWeatherGlyph - 2.0f : kWeatherGlyph) * layout_.scale);
+    const WeatherService::Forecast& data = weather_.Data();
+    const bool configured = config_->weather.Configured();
+    // Stale data (and none yet) are drawn dimmed.
+    const bool dim = configured && (!data.valid || weather_.State() != WeatherService::Status::Fresh);
+    WeatherGlyphs::Colors colors;
+    colors.ink = theme.clockText;
+    colors.water = theme.accent;
+    colors.opacity = dim ? kWeatherStaleAlpha : 1.0f;
+    const WeatherGlyphs::Glyph g = !configured     ? WeatherGlyphs::Glyph::SetLocation
+                                   : data.valid    ? WeatherGlyphs::FromWmo(data.code)
+                                                   : WeatherGlyphs::Glyph::Overcast;
+    const bool isDay = !data.valid || data.isDay;
+    return renderer_.DrawLayer(weatherLayer_, weatherSize_.width, weatherSize_.height, [&](ID2D1DeviceContext* dc) {
+        const float top = std::round((h - glyph) / 2.0f);
+        WeatherGlyphs::Draw(dc, g, isDay, D2D1::RectF(0.0f, top, glyph, top + glyph), colors);
+        if (!weatherLayout_) return;
+        winrt::com_ptr<ID2D1SolidColorBrush> brush;
+        if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(theme.clockText, colors.opacity), brush.put()))) return;
+        DWRITE_TEXT_METRICS m{};
+        weatherLayout_->GetMetrics(&m);
+        const float x = glyph + std::round(kWeatherTextGap * layout_.scale);
+        dc->DrawTextLayout(D2D1::Point2F(x, std::round((h - m.height) / 2.0f)), weatherLayout_.get(), brush.get());
+    });
+}
+
+void DockWindow::OnWeatherChanged() {
+    if (!hwnd_) return;
+    if (inLayout_ || weatherQuiet_) {  // ApplyConfig: its relayout measures and draws the widget
+        if (weatherCallbacks_.changed) weatherCallbacks_.changed();
+        return;
+    }
+    const float scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
+    const D2D1_SIZE_U size = MeasureWeather(scale);
+    if (size.width != weatherSize_.width || size.height != weatherSize_.height) {
+        Relayout();  // the bar width depends on the widget
+    } else {
+        RenderWithRecovery([this] { return RenderWeather(); });
+    }
+    weatherPopup_.Update();
+    if (weatherCallbacks_.changed) weatherCallbacks_.changed();
+}
+
+void DockWindow::ApplyWeather() {
+    if (!config_->weather.show) DismissWeatherPopup(false, true);
+    weatherQuiet_ = true;
+    weather_.Configure(config_->weather, hwnd_);
+    weatherQuiet_ = false;
+    OnWeatherChanged();  // redraw (relayout if the widget's size changed); once, whatever changed
 }
 
 HRESULT DockWindow::RenderSeparator(DockItem& item) {
@@ -800,6 +947,7 @@ HRESULT DockWindow::DrawFrame(bool all) {
     const UINT barH = static_cast<UINT>(layout_.bar.bottom - layout_.bar.top);
     if (all || bgLeft_.width != bgW || bgLeft_.height != barH) hr = RenderBackground();
     if (SUCCEEDED(hr) && (all || clockDirty_)) hr = RenderClock();
+    if (SUCCEEDED(hr) && (all || weatherDirty_)) hr = RenderWeather();
     if (SUCCEEDED(hr) && (all || dotSources_[0].width != static_cast<UINT>(layout_.iconPx) ||
                           dotSources_[0].height != layout_.dotHeight)) {
         hr = RenderDotSources();
@@ -845,9 +993,11 @@ bool DockWindow::RecoverDevice() {
     // Device removed/reset: rebuild the whole chain and every surface. Retry a few times
     // because a driver update can keep the adapter unavailable for a moment.
     DismissPreview(false, false);
-    DismissFolderPopup(false, false);
+    DismissClickPopups(false, false);
     preview_.Destroy();  // its composition target belongs to the lost device; recreated on demand
     folder_.Destroy();
+    weatherPopup_.Destroy();
+    calendar_.Destroy();
     for (int attempt = 0; attempt < 3; ++attempt) {
         ResetLayers();
         icons_.Clear();  // the bitmaps belong to the lost device
@@ -949,6 +1099,7 @@ void DockWindow::ComputeTargets() {
         bgLeftTarget_ = l.bar.left - shiftLeft;
         bgRightTarget_ = l.bar.right + shiftRight - l.bgSurfaceW;
         clockTarget_ = l.clock.left + shiftRight;
+        weatherTarget_ = l.weather.left + shiftRight;
         return;
     }
 
@@ -1015,6 +1166,7 @@ void DockWindow::ComputeTargets() {
     bgLeftTarget_ = l.bar.left - growLeft;
     bgRightTarget_ = l.bar.right + growRight - l.bgSurfaceW;
     clockTarget_ = l.clock.left + growRight;
+    weatherTarget_ = l.weather.left + growRight;
 
     if (labelShown_ && hovered_ >= 0 && hovered_ < static_cast<int>(n) && label_.width) {
         const DockItem& h = items_[static_cast<size_t>(hovered_)];
@@ -1060,6 +1212,16 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
     if (clockLayer_.visual) {
         renderer_.Drive(
             clockX_, clockTarget_, duration, now, [&](auto v) { return clockLayer_.visual->SetOffsetX(v); },
+            posEpsilon, easing);
+    }
+    if (weatherLayer_.visual) {
+        // Its height can change without a snap (the first data arriving): follow it here.
+        if (weatherAppliedY_ != l.weather.top) {
+            weatherLayer_.visual->SetOffsetY(l.weather.top);
+            weatherAppliedY_ = l.weather.top;
+        }
+        renderer_.Drive(
+            weatherX_, weatherTarget_, duration, now, [&](auto v) { return weatherLayer_.visual->SetOffsetX(v); },
             posEpsilon, easing);
     }
 
@@ -1116,7 +1278,7 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
 }
 
 void DockWindow::ResetPlacementTweens() {
-    bgLeftX_.valid = bgRightX_.valid = clockX_.valid = false;
+    bgLeftX_.valid = bgRightX_.valid = clockX_.valid = weatherX_.valid = false;
     labelX_.valid = labelY_.valid = false;
     markerX_.valid = false;
     for (DockItem& item : items_) item.tx.valid = item.ts.valid = false;
@@ -1326,7 +1488,7 @@ bool DockWindow::PreviewEligible(int index) const {
     // Showing counts: the hover usually starts while the dock slides in (OnPreviewTimer requires
     // Shown).
     return (hideState_ == HideState::Shown || hideState_ == HideState::Showing) && !hold_ &&
-           dragPhase_ == DragPhase::None && !dropActive_ && !folder_.OnScreen();
+           dragPhase_ == DragPhase::None && !dropActive_ && !ClickPopupOnScreen();
 }
 
 void DockWindow::UpdatePreviewHover() {
@@ -1506,6 +1668,8 @@ void DockWindow::ShowFolderPopup(int index) {
     const DockItem& item = items_[static_cast<size_t>(index)];
     if (item.kind != DockItem::Kind::Folder) return;
     DismissPreview(false, false);
+    DismissWeatherPopup(false, false);
+    DismissCalendarPopup(false, false);
     const Layout& l = layout_;
     FolderPopup::Style style;
     style.scale = l.scale;
@@ -1551,6 +1715,131 @@ void DockWindow::RefreshFolderPopup() {
         return item.key == folderKey_ && item.kind == DockItem::Kind::Folder;
     });
     if (!present) DismissFolderPopup(true);  // unpinned while open
+}
+
+// --- Weather and calendar popups -------------------------------------------------------------
+// A left click on the weather widget toggles WeatherPopup (unconfigured: opens Settings > Weather
+// instead); on the clock, CalendarPopup (clock.calendarPopup). Both are click popups like the
+// folder popup: anchored over their widget, they hold the dock shown (kHoldWeather /
+// kHoldCalendar) and are dismissed by the dock's own button-down, a drag, a menu, a hide and any
+// relayout. At most one click popup is open at a time.
+
+bool DockWindow::HitWeather(POINT pt) const {
+    const Layout& l = layout_;
+    if (!config_->weather.show || l.weather.right <= l.weather.left || !InZone(pt)) return false;
+    // The rest layout: with the cursor right of the icons the bar grows to the left only, so the
+    // widget does not move under it. Half the gap to the clock on each side counts.
+    const float slack = std::round(kWidgetGap * l.scale / 2.0f);
+    const float x = static_cast<float>(pt.x);
+    return x >= l.weather.left - slack && x < l.weather.right + slack;
+}
+
+bool DockWindow::HitClock(POINT pt) const {
+    const Layout& l = layout_;
+    if (!config_->clock.show || l.clock.right <= l.clock.left || !InZone(pt)) return false;
+    const float slack = std::round(kWidgetGap * l.scale / 2.0f);
+    const float x = static_cast<float>(pt.x);
+    return x >= l.clock.left - slack && x < std::min(l.clock.right + slack, l.bar.right);
+}
+
+WeatherPopup::Style DockWindow::WeatherPopupStyle() const {
+    const Layout& l = layout_;
+    const ThemeConfig& theme = config_->theme;
+    WeatherPopup::Style style;
+    style.scale = l.scale;
+    style.acrylic = acrylic_;
+    style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
+    style.text = theme.labelText;
+    style.secondary = theme.clockDateText;
+    style.border = theme.barBorder;
+    style.hotBackground = theme.previewHotBackground;
+    style.hotBorder = theme.previewHotBorder;
+    style.cornerRadiusDip = theme.cornerRadius;
+    style.monitor = l.monitor;
+    style.glyphs.ink = theme.labelText;
+    style.glyphs.water = theme.accent;
+    return style;
+}
+
+void DockWindow::ToggleWeatherPopup() {
+    if (weatherPopup_.Visible()) {
+        DismissWeatherPopup(true);
+        return;
+    }
+    ShowWeatherPopup();
+}
+
+void DockWindow::ShowWeatherPopup() {
+    if (!config_->weather.show || hideState_ == HideState::Hidden) return;
+    DismissPreview(false, false);
+    DismissFolderPopup(false, false);
+    DismissCalendarPopup(false, false);
+    const Layout& l = layout_;
+    const int anchorX = l.window.left + static_cast<int>(std::lround((l.weather.left + l.weather.right) / 2.0f));
+    const int bottom = l.window.top - static_cast<int>(std::lround(kPreviewGap * l.scale));
+    if (!weatherPopup_.Show(WeatherPopupStyle(), anchorX, bottom)) {
+        DismissWeatherPopup(false);
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    TakePopupHold(kHoldWeather);
+    HideLabel();
+    RenderWithRecovery([] { return S_OK; });  // commit the label hide
+}
+
+void DockWindow::DismissWeatherPopup(bool animate, bool leaveCheck) {
+    weatherPopup_.Hide(animate);
+    ReleasePopupHold(kHoldWeather, leaveCheck);
+}
+
+void DockWindow::ToggleCalendarPopup() {
+    if (calendar_.Visible()) {
+        DismissCalendarPopup(true);
+        return;
+    }
+    ShowCalendarPopup();
+}
+
+void DockWindow::ShowCalendarPopup() {
+    if (!config_->clock.show || hideState_ == HideState::Hidden) return;
+    DismissPreview(false, false);
+    DismissFolderPopup(false, false);
+    DismissWeatherPopup(false, false);
+    const Layout& l = layout_;
+    const ThemeConfig& theme = config_->theme;
+    CalendarPopup::Style style;
+    style.scale = l.scale;
+    style.acrylic = acrylic_;
+    style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
+    style.text = theme.labelText;
+    style.secondary = theme.clockDateText;
+    style.border = theme.barBorder;
+    style.hotBackground = theme.previewHotBackground;
+    style.hotBorder = theme.previewHotBorder;
+    style.accent = theme.accent;
+    style.cornerRadiusDip = theme.cornerRadius;
+    style.monitor = l.monitor;
+    const int anchorX = l.window.left + static_cast<int>(std::lround((l.clock.left + l.clock.right) / 2.0f));
+    const int bottom = l.window.top - static_cast<int>(std::lround(kPreviewGap * l.scale));
+    if (!calendar_.Show(style, anchorX, bottom)) {
+        DismissCalendarPopup(false);
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    TakePopupHold(kHoldCalendar);
+    HideLabel();
+    RenderWithRecovery([] { return S_OK; });  // commit the label hide
+}
+
+void DockWindow::DismissCalendarPopup(bool animate, bool leaveCheck) {
+    calendar_.Hide(animate);
+    ReleasePopupHold(kHoldCalendar, leaveCheck);
+}
+
+void DockWindow::DismissClickPopups(bool animate, bool leaveCheck) {
+    DismissFolderPopup(animate, leaveCheck);
+    DismissWeatherPopup(animate, leaveCheck);
+    DismissCalendarPopup(animate, leaveCheck);
 }
 
 // --- Recycle Bin item --------------------------------------------------------------------------
@@ -1704,6 +1993,8 @@ void DockWindow::RefreshMotion() {
     renderer_.SetDefaultEasing(m.easing);
     preview_.SetFadeSeconds(m.previewFade);
     folder_.SetFadeSeconds(m.previewFade);
+    weatherPopup_.SetFadeSeconds(m.previewFade);
+    calendar_.SetFadeSeconds(m.previewFade);
 }
 
 // --- Auto-hide -------------------------------------------------------------------------------
@@ -1752,7 +2043,7 @@ void DockWindow::OnHideTimer() {
 void DockWindow::StartHide() {
     CancelHide();
     DismissPreview(false, false);
-    DismissFolderPopup(false, false);
+    DismissClickPopups(false, false);
     if (magnifyPending_) {
         KillTimer(hwnd_, kMagnifyTimerId);
         magnifyPending_ = false;
@@ -2001,7 +2292,7 @@ void DockWindow::SetHold(bool hold) {
     if (hold) {
         CancelHide();
         SuppressPreview();  // a menu opens or a drag starts
-        DismissFolderPopup(true, false);
+        DismissClickPopups(true, false);
         HideLabel();
         RenderWithRecovery([] { return S_OK; });  // commit the label hide
         return;
@@ -2997,7 +3288,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                    (hideState_ == HideState::Hiding || hideState_ == HideState::Showing ? 1 : 0) +
                    (backdropPending_ ? 1 : 0) + (dragPending_ ? 1 : 0) + (removePending_ ? 1 : 0) +
                    (previewPending_ ? 1 : 0) + (previewLeavePending_ ? 1 : 0) + (preview_.FadePending() ? 1 : 0) +
-                   (folder_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (watch_.Pending() ? 1 : 0);
+                   (folder_.FadePending() ? 1 : 0) + (weatherPopup_.FadePending() ? 1 : 0) +
+                   (calendar_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (watch_.Pending() ? 1 : 0);
         case 6:
             return acrylic_ ? 1 : 0;
         case 7:
@@ -3032,6 +3324,19 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return static_cast<LRESULT>(folder_.EntryCount());
         case 26:
             return dropActive_ ? static_cast<LRESULT>(dropMode_) : 0;
+        case 27:
+            return static_cast<LRESULT>(weather_.State());
+        case 28: {
+            const WeatherService::Forecast& data = weather_.Data();
+            if (!weather_.Active() || !data.valid || !std::isfinite(data.temp)) return INT_MIN;
+            return static_cast<LRESULT>(std::lround(data.temp * 10.0));
+        }
+        case 29:
+            return weatherPopup_.Visible() ? 1 : 0;
+        case 30:
+            return weather_.Active() ? static_cast<LRESULT>(weather_.Age()) : -1;
+        case 31:
+            return calendar_.Visible() ? 1 : 0;
         case 24:
         case 25:
         case 35: {
@@ -3070,6 +3375,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (tracker_.HandleMessage(msg, wp, lp)) return 0;
     if (watch_.HandleMessage(msg, wp, lp)) return 0;
+    if (weather_.HandleMessage(msg, wp, lp)) return 0;  // fetch results, the refresh timer
     if (msgQueryItem_ && msg == msgQueryItem_) return QueryItemPoint(wp, lp);
     if (msgQueryState_ && msg == msgQueryState_) return QueryState(wp, lp);
 
@@ -3141,7 +3447,15 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // does not open it again (the click toggles).
             folderPressClosed_ = folder_.Visible() && pressed_ >= 0 &&
                                  items_[static_cast<size_t>(pressed_)].key == folderKey_;
-            if (folder_.OnScreen()) DismissFolderPopup(true, false);
+            // The same for the weather widget and the clock.
+            pressedWidget_ = Widget::None;
+            if (pressed_ < 0 && dragPhase_ == DragPhase::None) {
+                if (HitWeather(pressPt_)) pressedWidget_ = Widget::Weather;
+                else if (HitClock(pressPt_)) pressedWidget_ = Widget::Clock;
+            }
+            widgetPressClosed_ = (pressedWidget_ == Widget::Weather && weatherPopup_.Visible()) ||
+                                 (pressedWidget_ == Widget::Clock && calendar_.Visible());
+            if (ClickPopupOnScreen()) DismissClickPopups(true, false);
             return 0;
 
         case WM_LBUTTONUP: {
@@ -3149,11 +3463,28 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 EndDrag(true);
                 return 0;
             }
-            const int index = HitTest(ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)}));
+            const POINT upPt = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
+            const int index = HitTest(upPt);
             const bool clicked = index >= 0 && index == pressed_;
             pressed_ = -1;
             const bool pressClosed = folderPressClosed_;
             folderPressClosed_ = false;
+            const Widget widget = pressedWidget_;
+            const bool widgetClosed = widgetPressClosed_;
+            pressedWidget_ = Widget::None;
+            widgetPressClosed_ = false;
+            if (widget == Widget::Weather && HitWeather(upPt) && !widgetClosed) {
+                if (config_->weather.Configured()) {
+                    ShowWeatherPopup();
+                } else if (weatherCallbacks_.openSettings) {
+                    weatherCallbacks_.openSettings();  // nothing to show yet: choose a place
+                }
+                return 0;
+            }
+            if (widget == Widget::Clock && HitClock(upPt) && !widgetClosed && config_->clock.calendarPopup) {
+                ShowCalendarPopup();
+                return 0;
+            }
             if (clicked && items_[static_cast<size_t>(index)].kind == DockItem::Kind::Folder) {
                 if (!pressClosed) ShowFolderPopup(index);  // middle click opens it in Explorer
             } else if (clicked) {
@@ -3169,7 +3500,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_MBUTTONDOWN:
             SuppressPreview();
-            if (folder_.OnScreen()) DismissFolderPopup(true, false);
+            if (ClickPopupOnScreen()) DismissClickPopups(true, false);
             pressedMiddle_ = HitTest(ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)}));
             return 0;
 
@@ -3314,13 +3645,13 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             dpi_ = HIWORD(wp);
             labelDirty_ = true;
             DismissPreview(false, false);
-            DismissFolderPopup(false, false);
+            DismissClickPopups(false, false);
             Relayout();
             return 0;
 
         case WM_DISPLAYCHANGE:
             DismissPreview(false, false);
-            DismissFolderPopup(false, false);
+            DismissClickPopups(false, false);
             Relayout();  // re-picks the monitor (falls back to the primary) and re-centres
             return 0;
 
@@ -3348,6 +3679,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DESTROY:
             tracker_.Stop();
             watch_.Stop();
+            weather_.Stop();  // a fetch still in flight posts to a window that is gone (and frees it)
             overlapped_ = false;
             if (dropTarget_) {
                 RevokeDragDrop(hwnd_);
@@ -3378,6 +3710,10 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             preview_.Destroy();
             folder_.Destroy();
             folderKey_ = AppKey{};
+            weatherPopup_.Destroy();
+            calendar_.Destroy();
+            weatherFormat_ = nullptr;
+            weatherLayout_ = nullptr;
             acrylic_ = false;
             backdrop_.Destroy();
             labelFormat_ = nullptr;

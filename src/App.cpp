@@ -10,6 +10,7 @@
 #include "AppIdentity.h"
 #include "ContextMenu.h"
 #include "IconUtil.h"
+#include "SettingsIds.h"
 #include "resource.h"
 
 namespace {
@@ -109,6 +110,12 @@ bool App::Initialize(HINSTANCE instance) {
     };
     requests.pinFiles = [this](const std::vector<std::wstring>& paths, size_t at) { PinFiles(paths, at); };
     dock_.SetPinRequests(std::move(requests));
+    DockWindow::WeatherCallbacks weather;
+    weather.openSettings = [this] { OpenSettings(SettingsIds::kPageWeather); };
+    weather.changed = [this] {
+        if (settings_) settings_->WeatherChanged();  // the Weather page's status line
+    };
+    dock_.SetWeatherCallbacks(std::move(weather));
 
     AddTrayIcon();
     taskbar_.SetEnabled(config_.hideTaskbar);
@@ -360,6 +367,7 @@ void App::Shutdown() {
     if (shutDown_) return;
     // First: closing it may commit a pending edit (focus loss), which must still be saved.
     settings_.reset();
+    geocodeDone_ = nullptr;
     shutDown_ = true;
     FlushSave();
     taskbar_.Restore();
@@ -414,6 +422,8 @@ ContextMenu::TrayMenuState App::MenuState() const {
     state.autoHide = config_.autoHide;
     state.hideTaskbar = taskbar_.Enabled();
     state.startWithWindows = AutostartEnabled();
+    state.weatherShown = config_.weather.show;
+    state.weatherConfigured = config_.weather.Configured();
     return state;
 }
 
@@ -512,6 +522,18 @@ void App::OnCommand(UINT cmd) {
         case ContextMenu::kOpenSettings:
             OpenSettings();
             break;
+        case ContextMenu::kRefreshWeather:
+            dock_.RefreshWeather();
+            break;
+        case ContextMenu::kWeatherSettings:
+            OpenSettings(SettingsIds::kPageWeather);
+            break;
+        case ContextMenu::kToggleCalendar:
+            dock_.ToggleCalendarPopup();
+            break;
+        case ContextMenu::kToggleWeatherPopup:
+            dock_.ToggleWeatherPopup();
+            break;
         case ContextMenu::kAddSeparator: {
             PinnedEntry separator;
             separator.kind = L"separator";
@@ -581,9 +603,10 @@ void App::RefreshSettings() {
     if (settings_) settings_->Refresh();
 }
 
-void App::OpenSettings() {
+void App::OpenSettings(int page) {
     if (shutDown_) return;
     if (settings_ && settings_->Hwnd()) {
+        if (page >= 0) settings_->ShowPage(page);
         settings_->Activate();
         return;
     }
@@ -602,6 +625,14 @@ void App::OpenSettings() {
     host.dockBar = [this] { return dock_.RestBarRect(); };
     host.taskbarHidden = [this] { return taskbar_.Enabled(); };
     host.autostartEnabled = [] { return AutostartEnabled(); };
+    host.weatherStatus = [this] { return dock_.Weather().StatusText(); };
+    host.geocode = [this](const std::wstring& query,
+                          std::function<void(const std::vector<WeatherService::Place>&, const std::wstring&)> done) {
+        // A newer search replaces an older one (its result is dropped when it arrives).
+        if (!WeatherService::Geocode(query, dock_.Hwnd(), WeatherService::kGeocodeMessage, ++geocodeTag_)) return false;
+        geocodeDone_ = std::move(done);
+        return true;
+    };
     host.destroyed = [this] {
         if (dock_.Hwnd()) PostMessageW(dock_.Hwnd(), kSettingsClosed, 0, 0);
     };
@@ -609,7 +640,9 @@ void App::OpenSettings() {
     if (!settings_->Create(instance_)) {
         settings_.reset();
         MessageBeep(MB_ICONWARNING);
+        return;
     }
+    if (page >= 0) settings_->ShowPage(page);
 }
 
 void App::OnSettingsChanged(SettingsScope scope) {
@@ -633,6 +666,9 @@ void App::OnSettingsChanged(SettingsScope scope) {
                 config_.startWithWindows = AutostartEnabled();
                 RefreshSettings();
             }
+            break;
+        case SettingsScope::Weather:
+            dock_.ApplyWeather();
             break;
         case SettingsScope::SaveOnly:
             break;
@@ -697,7 +733,22 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     }
     if (msg == kSettingsClosed) {
         // The window is gone (its WM_NCDESTROY posted this); a newly opened one is kept.
-        if (settings_ && !settings_->Hwnd()) settings_.reset();
+        if (settings_ && !settings_->Hwnd()) {
+            settings_.reset();
+            geocodeDone_ = nullptr;
+        }
+        return true;
+    }
+    if (msg == WeatherService::kGeocodeMessage) {
+        // A place search of the settings window finished (posted by its worker; ours to free).
+        std::unique_ptr<WeatherService::Response> response(reinterpret_cast<WeatherService::Response*>(lp));
+        if (wp != geocodeTag_ || !geocodeDone_ || !settings_ || !response) return true;  // superseded / closed
+        std::vector<WeatherService::Place> places;
+        std::wstring error;
+        WeatherService::ParsePlaces(*response, places, error);
+        auto done = std::move(geocodeDone_);
+        geocodeDone_ = nullptr;
+        done(places, error);
         return true;
     }
     if (msgQueryState_ && msg == msgQueryState_ && wp == 16) {
@@ -706,8 +757,7 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     }
     if (msgDockCommand_ && msg == msgDockCommand_) {
         const UINT cmd = static_cast<UINT>(wp);
-        const bool known = cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand &&
-                           cmd != ContextMenu::kReservedRefreshWeather;
+        const bool known = cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand;
         result = known ? 1 : 0;
         if (known) OnCommand(cmd);  // after setting result: kQuit destroys the window
         return true;

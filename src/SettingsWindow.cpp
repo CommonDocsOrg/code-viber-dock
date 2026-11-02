@@ -457,6 +457,18 @@ void SettingsWindow::Refresh() {
     if (preview_) preview_->Invalidate();
 }
 
+void SettingsWindow::ShowPage(int index) {
+    if (!hwnd_ || index < 0 || index >= static_cast<int>(pages_.size())) return;
+    SelectPage(index);
+}
+
+void SettingsWindow::WeatherChanged() {
+    if (!hwnd_) return;
+    loading_ = true;
+    for (auto& page : pages_) page->OnWeatherChanged();
+    loading_ = false;
+}
+
 void SettingsWindow::ConfigApplied() {
     if (preview_) preview_->Invalidate();
 }

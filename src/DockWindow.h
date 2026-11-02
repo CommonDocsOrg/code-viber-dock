@@ -11,6 +11,7 @@
 
 #include "AppIdentity.h"
 #include "Backdrop.h"
+#include "CalendarPopup.h"
 #include "Clock.h"
 #include "Config.h"
 #include "DockItems.h"
@@ -19,6 +20,8 @@
 #include "IconCache.h"
 #include "PreviewPopup.h"
 #include "Renderer.h"
+#include "Weather.h"
+#include "WeatherPopup.h"
 #include "WindowTracker.h"
 
 struct IDataObject;
@@ -47,10 +50,12 @@ public:
     static constexpr UINT_PTR kPreviewLeaveTimerId = 17;  // grace period after leaving item and popup
     // 18 = ForegroundWatch::kTimerId (intelligent hide)
     static constexpr UINT_PTR kLabelFadeTimerId = 19;     // end of the name label's fade-out
-    // 20 is reserved (weather refresh)
+    // 20 = WeatherService::kTimerId (the next weather refresh, one-shot)
     static constexpr UINT_PTR kRecycleBinTimerId = 21;    // coalesces Recycle Bin change notifications
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);
     // a dropped file's open-with / recycle action (run after the OLE Drop call has returned).
+    // WM_APP + 20 = WeatherService::kResultMessage (a forecast fetch finished; handled here) and
+    // WM_APP + 23 = WeatherService::kGeocodeMessage (a place search finished; handled by App).
     static constexpr UINT kRecycleBinChangedMessage = WM_APP + 21;
     static constexpr UINT kDropActionMessage = WM_APP + 22;
 
@@ -77,8 +82,12 @@ public:
     // 2 separator, 3 Recycle Bin; -1 no such item); 25: 1 if item lp has a custom icon (0 no,
     // -1 no such item); 22: 1 while the folder popup is visible; 23: number of entries (cells)
     // shown in the folder popup; 26: drop mode of a file drag over the dock (0 none, 1 insertion
-    // marker, 2 open with the app under the pointer, 3 recycle on the Recycle Bin); 35: the
-    // dominant colour of item lp's icon as 0xAARRGGBB (0 unknown, -1 no such item).
+    // marker, 2 open with the app under the pointer, 3 recycle on the Recycle Bin); 27: weather
+    // state (0 none: off, unconfigured or no data yet; 1 stale; 2 fresh; 3 error); 28: current
+    // temperature x 10 in the configured units (INT_MIN without data); 29: 1 while the weather
+    // popup is visible; 30: seconds since the weather data was fetched (-1 none); 31: 1 while
+    // the calendar popup is visible; 35: the dominant colour of item lp's icon as 0xAARRGGBB
+    // (0 unknown, -1 no such item).
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -159,6 +168,23 @@ public:
     // Shows the folder popup of the folder item at `index`, or hides it if it is showing that item.
     void ToggleFolderPopup(int index);
 
+    // --- weather widget and calendar ---
+    // Re-reads config->weather (start / stop / restart the service) and relayouts if the widget's
+    // size changed. Also part of ApplyConfig.
+    void ApplyWeather();
+    // Fetches the weather now (DockCommand 111; no-op while off / unconfigured).
+    void RefreshWeather() { weather_.RefreshNow(); }
+    // Shows / hides the forecast popup over the widget (no-op while the widget is off).
+    void ToggleWeatherPopup();
+    // Shows / hides the month calendar over the clock (no-op while the clock is off).
+    void ToggleCalendarPopup();
+    const WeatherService& Weather() const { return weather_; }
+    struct WeatherCallbacks {
+        std::function<void()> openSettings;  // the unconfigured widget was clicked: Settings > Weather
+        std::function<void()> changed;       // the weather data / status changed
+    };
+    void SetWeatherCallbacks(WeatherCallbacks callbacks) { weatherCallbacks_ = std::move(callbacks); }
+
 private:
     class DropTarget;
     friend class DropTarget;
@@ -174,6 +200,7 @@ private:
         RECT window{};         // screen coordinates: the stage
         D2D1_RECT_F bar{};     // drawn background at rest
         D2D1_RECT_F clock{};   // clock text block at rest
+        D2D1_RECT_F weather{}; // weather widget at rest (left of the clock; empty when off)
         float cornerRadius = 0.0f;
         float iconPx = 0.0f;   // unmagnified icon size
         UINT bitmapPx = 0;     // icon bitmap size (iconPx * magnification, for crisp magnification)
@@ -232,6 +259,13 @@ private:
     void ResetLayers();
     HRESULT RenderBackground();
     HRESULT RenderClock();
+    HRESULT RenderWeather();
+    // Lays out the weather widget's text for the current data at `scale`; returns its size (0x0
+    // while the widget is off).
+    D2D1_SIZE_U MeasureWeather(float scale);
+    // The weather service's data or status changed: redraw the widget (relayout if its size
+    // changed), update the popup, tell the owner.
+    void OnWeatherChanged();
     HRESULT RenderItem(DockItem& item);
     HRESULT RenderSeparator(DockItem& item);
     HRESULT RenderDotSources();
@@ -306,6 +340,22 @@ private:
     // The item list changed: dismiss the popup if its folder item is gone.
     void RefreshFolderPopup();
 
+    // --- weather / calendar popups ---
+    // The widget under a stage point (rest layout, inside the active zone).
+    bool HitWeather(POINT stagePt) const;
+    bool HitClock(POINT stagePt) const;
+    void ShowWeatherPopup();
+    void DismissWeatherPopup(bool animate, bool leaveCheck = true);
+    void ShowCalendarPopup();
+    void DismissCalendarPopup(bool animate, bool leaveCheck = true);
+    // Every click popup (folder, weather, calendar).
+    void DismissClickPopups(bool animate, bool leaveCheck = true);
+    bool ClickPopupOnScreen() const {
+        return folder_.OnScreen() || weatherPopup_.OnScreen() || calendar_.OnScreen();
+    }
+    // Popup chrome from the theme (scale, acrylic, tint, colours, monitor).
+    WeatherPopup::Style WeatherPopupStyle() const;
+
     // --- Recycle Bin item ---
     // Registers for the bin's shell change notifications while a Recycle Bin item exists.
     void UpdateRecycleBinWatch();
@@ -315,7 +365,12 @@ private:
 
     // --- popup holds ---
     // An open popup keeps the dock shown (part of Held()): one bit per popup in popupHolds_.
-    enum PopupHold : uint32_t { kHoldPreview = 1u << 0, kHoldFolder = 1u << 1 };
+    enum PopupHold : uint32_t {
+        kHoldPreview = 1u << 0,
+        kHoldFolder = 1u << 1,
+        kHoldWeather = 1u << 2,
+        kHoldCalendar = 1u << 3,
+    };
     // Takes the hold for `bit` (cancels a pending hide).
     void TakePopupHold(uint32_t bit);
     // Releases it. With `leaveCheck`, once no hold remains a cursor outside the dock counts as
@@ -497,8 +552,17 @@ private:
     Layer label_;
     Layout layout_;
     D2D1_SIZE_U clockSize_{};
-    Tween bgLeftX_, bgRightX_, clockX_, labelX_, labelY_;
-    float bgLeftTarget_ = 0.0f, bgRightTarget_ = 0.0f, clockTarget_ = 0.0f;
+    // Weather widget: one surface left of the clock, moved like it (weatherX_).
+    Layer weatherLayer_;
+    D2D1_SIZE_U weatherSize_{};
+    bool weatherDirty_ = true;
+    float weatherAppliedY_ = -1.0f;  // the layer's OffsetY as last set (< 0: not yet)
+    std::wstring weatherText_;       // "12°" (empty: glyph only)
+    float weatherTextScale_ = 0.0f;
+    winrt::com_ptr<IDWriteTextFormat> weatherFormat_;
+    winrt::com_ptr<IDWriteTextLayout> weatherLayout_;
+    Tween bgLeftX_, bgRightX_, clockX_, weatherX_, labelX_, labelY_;
+    float bgLeftTarget_ = 0.0f, bgRightTarget_ = 0.0f, clockTarget_ = 0.0f, weatherTarget_ = 0.0f;
     float labelXTarget_ = 0.0f, labelYTarget_ = 0.0f;
 
     WindowTracker tracker_;
@@ -588,6 +652,18 @@ private:
     // The left press that started the current click closed the popup of the pressed item: the
     // release must not open it again (a click on the folder icon toggles).
     bool folderPressClosed_ = false;
+
+    // Weather and calendar
+    WeatherService weather_;
+    WeatherPopup weatherPopup_;
+    CalendarPopup calendar_;
+    WeatherCallbacks weatherCallbacks_;
+    // The widget the current left press started on, and whether that press closed its popup (the
+    // release then does not open it again: a click on the widget toggles).
+    enum class Widget { None, Weather, Clock };
+    Widget pressedWidget_ = Widget::None;
+    bool widgetPressClosed_ = false;
+    bool weatherQuiet_ = false;   // Configure is running inside ApplyConfig / ApplyWeather
 
     // Recycle Bin item
     ULONG binNotify_ = 0;         // SHChangeNotifyRegister id (0: not registered)

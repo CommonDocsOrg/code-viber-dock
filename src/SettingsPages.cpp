@@ -1,6 +1,6 @@
 // The settings pages: control tables (DIP layout) and handlers. This file: General, Behaviour,
 // About and the page list; Appearance: SettingsPagesAppearance.cpp; Animation and Pinned apps:
-// SettingsPagesMore.cpp. The frame, fonts, colours, theming, layout and scrolling live in
+// SettingsPagesMore.cpp; Weather: SettingsPagesWeather.cpp. The frame, fonts, colours, theming, layout and scrolling live in
 // SettingsWindow.cpp.
 
 #include <windows.h>
@@ -107,6 +107,8 @@ protected:
         NextRow();
         Check(kClockDate, kClockDateCaption, L"Show the date under the time");
         NextRow();
+        Check(kClockCalendar, kClockCalendarCaption, L"Click the clock to show a month calendar");
+        NextRow();
 
         Section(kSectionStartup, L"System");
         Check(kStartWithWindows, kStartWithWindowsCaption, L"Start with Windows");
@@ -139,6 +141,7 @@ protected:
         SetText(kClockFormatCombo, c.clock.format);
         SetText(kClockPreview, ClockPreview(c.clock.format));
         SetCheck(kClockDate, c.clock.showDate);
+        SetCheck(kClockCalendar, c.clock.calendarPopup);
         EnableClock(c.clock.show);
         SetCheck(kStartWithWindows, Host().autostartEnabled ? Host().autostartEnabled() : c.startWithWindows);
         SetCheck(kHideTaskbar, Host().taskbarHidden ? Host().taskbarHidden() : c.hideTaskbar);
@@ -206,6 +209,12 @@ protected:
                     Changed(SettingsScope::Appearance);
                 }
                 break;
+            case kClockCalendar:
+                if (code == BN_CLICKED) {
+                    c.clock.calendarPopup = GetCheck(id);  // read at click time
+                    Changed(SettingsScope::SaveOnly);
+                }
+                break;
             case kStartWithWindows:
                 if (code == BN_CLICKED) {
                     c.startWithWindows = GetCheck(id);
@@ -251,6 +260,7 @@ private:
     void EnableClock(bool on) {
         Enable(kClockFormatCombo, on);
         Enable(kClockDate, on);
+        Enable(kClockCalendar, on);
     }
 
     void FillMonitors() {
@@ -451,5 +461,6 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
     pages.push_back(MakeAnimationPage(window));  // kPageAnimation
     pages.push_back(MakePinnedPage(window));  // kPagePinned
     pages.push_back(std::make_unique<AboutPage>(window));  // kPageAbout
+    pages.push_back(MakeWeatherPage(window));  // kPageWeather (after About: the nav shows pages in index order)
     return pages;
 }

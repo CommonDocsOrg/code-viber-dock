@@ -47,8 +47,9 @@ public:
     // Returns false (after telling the user) if the dock can't start.
     bool Initialize(HINSTANCE instance);
     void Shutdown();
-    // Opens the settings window, or activates it if it is open.
-    void OpenSettings();
+    // Opens the settings window, or activates it if it is open; `page` >= 0 selects that page
+    // (SettingsIds::kPage*).
+    void OpenSettings(int page = -1);
     // Called by the message loop for every message: keyboard navigation in the settings window.
     // Returns true if the message was handled (do not translate / dispatch it).
     bool PreTranslateMessage(MSG& msg) { return settings_ && settings_->PreTranslateMessage(msg); }
@@ -121,4 +122,8 @@ private:
     bool trayAdded_ = false;
     bool shutDown_ = false;
     std::unique_ptr<SettingsWindow> settings_;  // null (nothing allocated) while closed
+    // The settings window's place search in flight (host.geocode): its tag and where its result
+    // goes (cleared when the window closes, so a late result is dropped).
+    WPARAM geocodeTag_ = 0;
+    std::function<void(const std::vector<WeatherService::Place>&, const std::wstring&)> geocodeDone_;
 };

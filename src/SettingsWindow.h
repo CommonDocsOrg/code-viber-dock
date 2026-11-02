@@ -12,6 +12,7 @@
 #include "AppIdentity.h"
 #include "Config.h"
 #include "DarkMode.h"
+#include "Weather.h"
 
 // What a settings change affects; the host applies it to the dock, then saves (debounced).
 enum class SettingsScope {
@@ -20,6 +21,7 @@ enum class SettingsScope {
     Pins,        // config.pinned: DockWindow::ReloadPins
     Taskbar,     // config.hideTaskbar: TaskbarController::SetEnabled
     Autostart,   // config.startWithWindows: the HKCU Run value
+    Weather,     // config.weather: DockWindow::ApplyWeather
     SaveOnly,    // read from the config when used (delays, renderer): just save
 };
 
@@ -39,6 +41,13 @@ struct SettingsHost {
     std::function<bool()> taskbarHidden;      // the taskbar controller is enabled (session state)
     std::function<bool()> autostartEnabled;   // the HKCU Run value exists
     std::function<void()> destroyed;          // the window is gone: delete the object (posted)
+    // Weather page.
+    std::function<std::wstring()> weatherStatus;  // WeatherService::StatusText of the dock's service
+    // Starts a place search; `done` gets the places (or an error) later, on the UI thread, unless
+    // a newer search replaced it or the window closed. False if it could not be started.
+    std::function<bool(const std::wstring& query,
+                       std::function<void(const std::vector<WeatherService::Place>&, const std::wstring& error)> done)>
+        geocode;
 };
 
 class SettingsWindow;
@@ -121,6 +130,8 @@ class SettingsPreview;
     // The DPI, the fonts or the palette changed (after the window updated them): rebuild image
     // lists and other DPI / colour dependent resources of the page.
     virtual void OnStyleChanged() {}
+    // The dock's weather data / status changed (SettingsWindow::WeatherChanged).
+    virtual void OnWeatherChanged() {}
 
     // --- layout table builders (DIPs; the cursor y_ moves down row by row) ---
     static constexpr int kMargin = 24;
@@ -209,6 +220,10 @@ public:
     bool PreTranslateMessage(MSG& msg);
     // Reloads every control from *host.config (after tray toggles, Reload config).
     void Refresh();
+    // Selects a page (SettingsIds::kPage*), as a click in the nav column would.
+    void ShowPage(int index);
+    // The dock's weather data / status changed: pages update what shows it (no config reload).
+    void WeatherChanged();
 
     // --- for pages ---
     SettingsHost& Host() { return host_; }
