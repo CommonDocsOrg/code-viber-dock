@@ -18,9 +18,10 @@ Full design: `C:\Users\olson\.claude\plans\need-you-to-come-async-grove.md` (cop
 | 6a Acrylic blur background | Done, verified | Second `WinDockBackdrop` HWND with DWM system backdrop; corner radius snaps to system 8 DIP; `theme.acrylic`, `theme.acrylicBackground` |
 | 6b Drag to reorder pins + IDropTarget insertion marker | Done, verified | Unpin by dragging a non-running pin away; dragging unpinned running items into the pinned section pins them; `theme.accent` |
 | 6c Window previews on hover | Done, verified | `PreviewPopup` on a second DComp target; DWM live thumbnails; `previews`, `previewDelayMs` |
-| 6 Extras (thumbnail popup, drag reorder, acrylic, intelligent hide, multi-monitor, settings dialog) | Not started |
+| 7 Settings, themes, animation styles, intelligent hide (plan: `C:\Users\olson\.claude\plans\plan-a-proper-settings-fuzzy-pumpkin.md`) | In progress | A1 schema + theme presets + user theme files + tri-state auto-hide: committed f0cb280. A2 animation styles (easing, speed, hide/launch styles, label fade, reduce motion): committed cd658bb. A3 intelligent hide (ForegroundWatch): committed 5c364a2. B1 settings window shell and B2 Appearance / preview / Animation / Pinned pages: pending |
+| 6 Other extras (multi-monitor docks, icon atlas, live preview titles) | Not started | |
 
-Nothing is committed yet. The repo is `git init`ed with no commits. All work through 6c is uncommitted; commit before further changes.
+Everything through phase A3 is committed; commit after each further phase.
 
 ## Decisions made by the user (keep these)
 - Renderer default stays `"auto"` (hardware D3D11, WARP fallback). `"software"` is available in config.json for ~8 MB private bytes instead of ~65 MB; the difference is the NVIDIA user-mode driver.
@@ -45,9 +46,10 @@ The dock hides it. Run `WinDock.exe --restore-taskbar`, or simply launch and qui
 - `explorer.exe C:\` opens tabs in the existing window on this build, so it cannot be used for a two-window test. Use two `mspaint.exe` windows.
 - Listary's `SearchBarWindow` appears next to file dialogs; the tracker ignores `WS_EX_NOACTIVATE` windows without `WS_EX_APPWINDOW` for this reason.
 - Always finish a test run with `--quit` and confirm `Shell_TrayWnd` is visible and no `WinDock` process remains.
-- Hidden test messages (registered window messages, all documented in README.md): `WinDock.QueryItemPoint`, `WinDock.ItemCommand`, `WinDock.DockCommand` (100 auto-hide, 101 hide taskbar, 102 autostart, 103 open config, 104 show taskbar until re-enabled, 105 quit, 106 reload config), `WinDock.QueryState` (0 auto-hide state, 1 notification state, 2 hovered item, 3 label visible, 4 magnifying, 5 pending timers).
+- Hidden test messages (registered window messages, all documented in README.md): `WinDock.QueryItemPoint`, `WinDock.ItemCommand`, `WinDock.DockCommand` (100 auto-hide toggle, 101 hide taskbar, 102 autostart, 103 open config, 104 show taskbar until re-enabled, 105 quit, 106 reload config, 107 settings window, 108/109/110 auto-hide off/always/intelligent), `WinDock.QueryState` (0 auto-hide state, 1 notification state, 2 hovered item, 3 label visible, 4 magnifying, 5 pending timers, 14 auto-hide mode, 15 overlapped, 17 reduce motion, 19/21 foreground-watch counters, 20 theme resolve failed).
+- PowerShell P/Invoke: pass `[NullString]::Value` (not `$null`) as the title to `FindWindowW`; `$null` binds as "" and matches only untitled windows. Build from PowerShell: in Git Bash `cmd /c` gets its `/c` path-mangled.
 
 ## How to resume
 1. Open this repo in Claude Code and say: "Resume WinDock from STATUS.md." v1 plus the user-selected extras (acrylic, drag reorder, window previews) are complete as of 2026-11-01.
-2. Remaining Phase 6 candidates not yet requested: intelligent hide (hide only when the foreground window overlaps); multi-monitor docks; small settings dialog; pack icon surfaces into one atlas to cut ~4 MB; live title updates in the preview popup.
+2. Phase 7 is the approved plan file named in the table: continue with the first phase not yet committed (B1 settings window shell, then B2 pages), one Opus agent per phase, review and commit each. Remaining unplanned extras: multi-monitor docks; pack icon surfaces into one atlas to cut ~4 MB; live title updates in the preview popup.
 3. Manual checks still open: drop a .lnk onto the dock (WM_DROPFILES pinning); a real DPI change; a real exclusive-fullscreen game with auto-hide; Steam's label shows "Client" (display-name lookup picks the wrong version-resource string).
