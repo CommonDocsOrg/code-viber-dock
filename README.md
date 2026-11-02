@@ -159,12 +159,28 @@ the primary monitor.
 - Left click: launches the app if it has no windows; otherwise activates, minimizes, or cycles
   through its windows. While an app is launching its icon bounces, until a new window shows up or
   5 s pass (`animation.launchStyle` can make it a single hop, an opacity pulse, or nothing).
-- Middle click: starts a new instance (and bounces until its window appears).
+- Middle click on an app (`middleClick`, Settings > Behaviour): starts a new instance (the
+  default; it bounces until its window appears), minimizes all its windows, closes all its
+  windows (each gets a normal close request, so apps can still ask to save), or does nothing.
+  Folders and the Recycle Bin always open in Explorer.
+- Mouse wheel over an app (`wheel`, Settings > Behaviour): nothing (the default), or switch
+  between its windows: each notch towards you brings the next window to the front (in the order
+  the windows appeared, wrapping around), away from you the previous one; with one window it is
+  brought to the front.
 - Right click: Pin to dock / Unpin from dock, the icon entries for a pinned app (see **Custom
   icons** below), New window (shows as Open when the app is not running), Open file location (for
   path-based items), Close for each window, then the dock menu.
-  Folders, separators and the Recycle Bin have their own short menus (below). The dock menu has
-  **Add separator** (appends a separator to the pinned items).
+  Folders, separators and the Recycle Bin have their own short menus (below); a widget (the
+  clock, the weather) shows the dock menu. The dock menu has **Lock dock** (checked while the
+  dock is locked, see below), **Add separator** (appends a separator to the pinned items) and
+  **Add widget >** **Clock** (added at the end), **Weather** (before a clock that ends the list,
+  else at the end) and **Running apps** (after the last pin; greyed while the dock has a running
+  apps item). Several clocks or weather widgets are allowed.
+- **Lock dock** (`locked` in the dock's config, also a check box on Settings > Dock contents):
+  while locked nothing can be dragged (no reordering, no unpinning by dragging an icon away),
+  files dropped between icons are not pinned (the pointer shows "no drop"; dropping a file on an
+  app to open it, or on the Recycle Bin, still works) and the dock menu's Add separator and Add
+  widget are greyed. The settings window still changes everything.
 - Drag an icon to reorder: press on it and move past the system drag threshold. The icon follows
   the pointer (slightly enlarged and translucent), magnification and the name label pause, the
   dock does not auto-hide, and the other icons slide apart to open a gap where it would land (the
@@ -180,6 +196,15 @@ the primary monitor.
     to unpin it: the icon dims while it is in that zone and fades out when released. This only
     applies to pinned apps with no open windows; a running pinned app dropped there just goes back
     to its slot (use the menu's Unpin for those).
+  - The clock and the weather widget can be dragged the same way (a press and release without
+    moving is still a click). The widget follows the pointer in front of the icons, the other
+    items make room, and on release its item moves to the new place in the dock's `items` list
+    (saved within 300 ms). It goes in front of the first item whose centre is right of the
+    pointer; the running apps count as one block, so a widget released over them lands before or
+    after the whole block, whichever side of the block's centre the pointer is on. (Move the
+    running apps block itself on Settings > Dock contents.) A widget cannot be dragged off the
+    dock; remove it in Settings. When the widget's new place changes the dock's width (the gaps
+    around widgets move with it), the dock settles at once instead of animating the landing.
 - Drag files onto the dock. What a drop does depends on where the pointer is:
   - Over the middle 70 % of an app's slot: the icon grows a little (no marker) and dropping opens
     the files with that app. When the app is registered for the file type (the first file's
@@ -193,7 +218,7 @@ the primary monitor.
     are pinned. The icons open a gap at the insertion point with a thin accent-coloured marker in
     it (between the two icons whose centres the pointer is between, within the pinned section);
     dropping pins them there. Files whose app is already pinned are skipped; other file types do
-    nothing there.
+    nothing there. A locked dock pins nothing there.
 
   Dragging files to the bottom screen edge reveals a hidden dock immediately. File drops use OLE
   drag and drop, so they work from Explorer and any other drag source running at the same
@@ -207,8 +232,8 @@ the primary monitor.
   item. It shows the folder's own icon (custom `desktop.ini` icons included) and the folder's name
   (`C:` for a drive root); there is no launch bounce and no running dot, because Explorer's
   windows belong to File Explorer. A folder and a shortcut to it are the same item (shown once).
-  Pin one by dropping it (or a shortcut to it) on the dock, with **Add folder…** on the Pinned
-  apps page, or in config.json.
+  Pin one by dropping it (or a shortcut to it) on the dock, with **Add folder…** on the Dock
+  contents page, or in config.json.
   - A left click opens the folder's contents in a popup above the icon; clicking the icon again
     closes it. The popup shows the folder's name, an **Open in Explorer** button and a grid of its
     entries: sub-folders first, then files, in Explorer's name order ("file2" before "file10"),
@@ -221,14 +246,14 @@ the primary monitor.
     not auto-hide.
   - Middle click on the icon opens the folder in Explorer. Right click: the name, Unpin from
     dock, the icon entries, Open in Explorer, then the dock menu.
-- **Recycle Bin** (`{ "kind": "recycleBin" }` in the dock's `items`, or **Add Recycle Bin** on the Pinned
-  apps page): shows the bin's empty or full icon, which follows the bin (the dock asks the shell to
+- **Recycle Bin** (`{ "kind": "recycleBin" }` in the dock's `items`, or **Add Recycle Bin** on the Dock
+  contents page): shows the bin's empty or full icon, which follows the bin (the dock asks the shell to
   tell it when the bin changes; nothing polls). Its name label reads "Recycle Bin (12 items,
   3.4 MB)", or "Recycle Bin (empty)". A click opens the Recycle Bin; files dropped on it are
   recycled. Right click: **Open**, **Empty Recycle Bin** (the shell's own confirmation; greyed when
   the bin is empty), **Unpin from dock**, the icon entries, then the dock menu.
 - **Separators** (`{ "kind": "separator" }` in the dock's `items`, any number; **Add separator** in the dock
-  menu or on the Pinned apps page): a thin vertical line in `theme.separator` in a narrow slot
+  menu or on the Dock contents page): a thin vertical line in `theme.separator` in a narrow slot
   (12 DIPs). It has no name label and no dot, is never magnified (its neighbours are) and does not
   react to clicks. It can be dragged to another place or off the dock like any pin; right click
   shows **Remove**, then the dock menu.
@@ -244,7 +269,7 @@ the primary monitor.
 
   Both dialogs belong to the dock: they open in front of it, and the dock does not auto-hide
   while one is open. What the dialog returned is stored as an absolute path (`"file,index"` for
-  an icon in an `.exe` / `.dll`), saved within 300 ms and drawn at once; the Pinned apps page in
+  an icon in an `.exe` / `.dll`), saved within 300 ms and drawn at once; the Dock contents page in
   Settings has the same three buttons. Editing `"icon"` by hand and choosing **Reload config**
   also redraws the icon at once.
 
@@ -302,8 +327,14 @@ Without a location it shows a map-pin glyph, and a click on it opens Settings on
 long format, the month and year with previous / next arrows (also Left / Right and Page Up / Page
 Down; a click on the month name or Home goes back to the current month), the weekday names from
 the locale starting on its first day of the week, and six weeks of days with today on an
-accent-coloured disc. No events. Escape or clicking anywhere else closes it. Turn it off with
-`clock.calendarPopup` (General page: "Click the clock to show a month calendar").
+accent-coloured disc. No events. Escape or clicking anywhere else closes it.
+
+What a click on the clock opens is `clock.click` (General page: "Clicking the clock opens"):
+`"calendar"` (the default), `"launch"` (the app, file or URL in `clock.clickTarget`, for example
+Outlook or `https://calendar.google.com`) or `"none"`. With a `clickTarget` set, the calendar also
+gets an **Open …** button at the bottom ("Open" and the file name, or the URL's host), so the popup and
+the app are both a click away (`WinDock.DockCommand` 114 still opens the calendar in "launch"
+mode).
 
 ## Settings
 
@@ -318,9 +349,11 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 - **General**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
   magnification range (1-4 icons), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
   dock's order), clock on / off, time format (pick one or type a `strftime` format; a preview shows
-  the result), date line, the calendar popup on a clock click, Start with Windows, Hide the Windows
-  taskbar, and the renderer (`auto` / `software`; takes effect after WinDock restarts, the page
-  shows the one in use).
+  the result), **Show seconds**, date line, **Clicking the clock opens** (the month calendar, the
+  app or URL below, nothing), **App or URL** (typed, applied on Enter or when the box loses the
+  focus, or **Browse…** for an app; a path with spaces is quoted), Start with Windows, Hide the
+  Windows taskbar, and the renderer (`auto` / `software`; takes effect after WinDock restarts, the
+  page shows the one in use).
 - **Appearance**: the theme (the built-in presets, then your theme files from the themes folder by
   name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
   **Open themes folder**, **Reset all to preset**, and one row per theme field (see
@@ -335,21 +368,33 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   see [Icon effects](#icon-effects). The preview strip under every page shows them on its
   placeholder icons (the perspective as the shelf's trapezoid with the icons a little shorter).
 - **Behaviour**: auto-hide Off / Always / When a window overlaps the dock, hide and reveal delays,
-  window previews on / off and their delay.
+  window previews on / off, **Show window previews for apps with a single window**, the preview
+  delay, and **Mouse**: what a middle click on an app does (start a new instance, minimize its
+  windows, close its windows, nothing) and what the mouse wheel over an app does (nothing, switch
+  between its windows).
 - **Animation**: speed (Off, then 0.25× to 4× on a logarithmic slider), hide style (slide and
   fade, slide, fade, none), launch feedback (bounce until the app opens, hop once, pulse, none),
   magnification falloff (smooth / linear), easing (ease out, linear, spring), the name label fade
   (0-1000 ms) and reduce motion (follow Windows, on, off; the page shows whether Windows'
   animation effects are on). See [Animation](#animation).
-- **Pinned apps**: the pinned list in dock order (name and target; "(missing)" when the file is
-  gone; separators show as "Separator"), **Add…** (pick one or more `.lnk` / `.exe` files; a
-  shortcut is pinned as the shortcut, apps that are already pinned are skipped), **Remove**,
-  **Move up**, **Move down**, **Add folder…** (a folder picker), **Add separator** (appends one),
-  **Add Recycle Bin** (greyed while the bin is pinned), and for the selected entry **Choose
-  icon…**, **Choose image…** and **Reset icon** (as in the dock's menu, see Custom icons; greyed
-  for a separator, Reset only when the entry has an `icon`). The list shows custom icons, images
-  included. Changes from the dock itself (drag to reorder, drop to pin, drag off to unpin, the
-  icon entries) show up in the list at once.
+- **Dock contents** (was "Pinned apps"): every item of the dock in its order, one row each: the
+  name (with the icon for apps, folders and the Recycle Bin; "(missing)" when the file is gone),
+  the kind (App, Folder, Separator, Recycle Bin, Running apps, Clock, Weather) and details (the
+  target; the clock's format; the weather's place; a second running apps item reads "Not shown:
+  only the first running apps item is used"; a kind this version does not know is listed as
+  written). Buttons: **Add app…** (pick one or more `.lnk` / `.exe` files; a shortcut is pinned as
+  the shortcut, apps that are already pinned are skipped), **Add folder…** (a folder picker),
+  **Add separator** (after the last pin), **Add widget ▾** (a menu: Clock, Weather, Running apps,
+  placed as the dock menu's Add widget does; Running apps is greyed while the dock has one),
+  **Move up** / **Move down** (any item past any other, the running apps block included),
+  **Remove** (any item; without a running apps item, running apps that are not pinned are not
+  shown, add it back with Add widget > Running apps), **Settings…** for the selected item (the
+  clock: the General page; the weather: the Weather page; the running apps: the Behaviour page;
+  an app, folder or the Recycle Bin: Choose icon…; greyed for a separator), **Choose icon…**,
+  **Choose image…**, **Reset icon** (as in the dock's menu, see Custom icons; for apps, folders
+  and the Recycle Bin, Reset only when the entry has an `icon`), **Add Recycle Bin** (greyed
+  while the bin is on the dock) and **Lock the dock**. Every change applies to the dock at once;
+  changes from the dock itself (drags, drops, the menus) show up in the list at once.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
 - **Weather** (after About): show the weather on the dock; **Find a place** (type a name, then
@@ -385,8 +430,8 @@ the preset at once, with no overrides left. A theme file named after a built-in 
 
 The window follows the Windows app mode (Settings > Personalization > Colors > Choose your app
 mode) and switches live: dark or light title bar, Mica behind the title bar and the page list
-(when transparency effects are on; otherwise solid colours), dark buttons, boxes, lists, the pinned
-apps list and its header, and scroll bars; sliders have no dark style in Windows, so the window
+(when transparency effects are on; otherwise solid colours), dark buttons, boxes, lists, the Dock
+contents list and its header, and scroll bars; sliders have no dark style in Windows, so the window
 paints their track and thumb itself in dark mode. The colour picker (`ChooseColor`) and the file
 dialogs are system dialogs; the colour picker is always light. Dark context menus and drop-down
 lists use undocumented Windows functions when they are available; without them those popups are
@@ -422,14 +467,16 @@ with the defaults and leaves the file untouched.
       "edge": "bottom", "locked": false,
       "iconSize": 48, "magnification": 1.5, "magnifyRange": 2,
       "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
-      "previews": true, "previewDelayMs": 600,
+      "previews": true, "previewsSingleWindow": false, "previewDelayMs": 600,
+      "middleClick": "newInstance", "wheel": "none",
       "monitor": 0
     }
   ],
   "hideTaskbar": true,
   "startWithWindows": false,
   "renderer": "auto",
-  "clock": { "format": "%H:%M", "showDate": false, "calendarPopup": true },
+  "clock": { "format": "%H:%M", "showSeconds": false, "showDate": false,
+             "click": "calendar", "clickTarget": "" },
   "theme": { "preset": "dark",
              "accent": "#FF4CC2FF" },
   "animation": { "speed": 1, "hideStyle": "slide", "launchStyle": "bounce",
@@ -486,13 +533,16 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     10 DIP gap. Widgets never magnify; at an end of the dock they move with that end of the bar
     while icons magnify. Dragging an icon reorders the pins among the pins' places in the list
     (pin k always takes the place of the k-th pin item, so a pin can move past a widget) and the
-    running apps among themselves; the clock and the weather widget cannot be dragged yet (moving
-    them: edit the list, or the coming edit mode). A file dropped on the dock is pinned before a
-    pin, after the last pin, or (no pins) before the running apps, whichever place is nearest.
-  - `edge` (default `"bottom"`, the only edge implemented) and `locked` (default `false`, not used
-    yet): read and written for later versions.
+    running apps among themselves; dragging the clock or the weather widget moves its own item
+    (see Dock items; the running apps count as one block). Settings > Dock contents moves any
+    item. A file dropped on the dock is pinned before a pin, after the last pin, or (no pins)
+    before the running apps, whichever place is nearest.
+  - `edge` (default `"bottom"`, the only edge implemented; read and written for later versions).
+  - `locked` (default `false`): no dragging, no pinning by dropping files, no Add separator / Add
+    widget from the dock menu (see Dock items).
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
-    `hideDelayMs`, `revealDelayMs`, `previews`, `previewDelayMs`, `monitor`.
+    `hideDelayMs`, `revealDelayMs`, `previews`, `previewsSingleWindow`, `previewDelayMs`,
+    `middleClick`, `wheel`, `monitor`.
 
   ```json
   "items": [
@@ -515,11 +565,23 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   next save. `hideDelayMs` (default 400) and `revealDelayMs` (default 150)
   are the delays before hiding and revealing.
 - `previews` (default `true`): the window-thumbnail popup for apps with two or more windows (see
-  above). `previewDelayMs` (default 600, 0 - 10000) is how long the mouse must rest on the icon.
+  above); with `previewsSingleWindow` (default `false`) also for apps with one window.
+  `previewDelayMs` (default 600, 0 - 10000) is how long the mouse must rest on the icon.
+- `middleClick` (default `"newInstance"`): a middle click on an app: `"newInstance"`,
+  `"minimize"`, `"close"` or `"none"` (see Dock items). `wheel` (default `"none"`): the mouse wheel
+  over an app: `"none"` or `"cycle"`. Unknown values keep the default.
 
 - `clock.format` uses `strftime` specifiers (`%H:%M`, `%I:%M %p`, `%H:%M:%S`, ...). Formats with
-  seconds tick every second; otherwise the clock wakes once a minute. `clock.calendarPopup`
-  (default `true`): a click on the clock opens the month calendar (see Weather and calendar).
+  seconds tick every second; otherwise the clock wakes once a minute. `clock.showSeconds`
+  (default `false`) adds `:%S` right after the minutes (`%H:%M` shows as `%H:%M:%S`, `%I:%M %p` as
+  `%I:%M:%S %p`; a format without minutes gets it at the end); a format that already shows seconds
+  is used as it is. `clock.click` (default `"calendar"`): what a click on the clock opens,
+  `"calendar"`, `"launch"` or `"none"`; files written before it had `clock.calendarPopup`, and
+  without a `click` key `"calendarPopup": false` still reads as `"none"` (the key is not written
+  any more). `clock.clickTarget` (default empty): what `"launch"` and the calendar's footer button
+  open, through the shell (like Run): an app, a shortcut, a document or a URL; environment
+  variables are expanded, and a quoted path may be followed by arguments
+  (`"\"C:\\Program Files\\App\\app.exe\" --calendar"`). See Weather and calendar.
 - `weather`: the weather widget (see Weather and calendar; shown by a `weather` item);
   `latitude` (-90 - 90) and `longitude` (-180 - 180), in degrees, saved with 4 decimals (both 0:
   no location yet); `location`, the name shown in the popup (it is not looked up); `units`,
@@ -704,9 +766,12 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
   always, 110 Auto-hide when a window overlaps, 107 open or activate the settings window,
   111 Refresh weather, 112 Add separator, 113 Weather settings… (the settings window on the
-  Weather page), 114 show / hide the calendar popup, 115 show / hide the weather popup). Runs it
-  as if it was chosen from the menu. Returns 1 for a known command. A popup opened this way
-  usually cannot take the foreground (see the folder popup below).
+  Weather page), 114 show / hide the calendar popup, 115 show / hide the weather popup, 116 Lock
+  dock toggle, 117 Add widget > Clock, 118 Add widget > Weather, 119 Add widget > Running apps).
+  Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
+  (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
+  known command. A popup opened this way usually cannot take the foreground (see the folder popup
+  below).
 - `WinDock.QueryState`: `wParam` selects the value. 0 = auto-hide state (0 Shown, 1 Hiding,
   2 Hidden, 3 Showing). 1 = current `SHQueryUserNotificationState` value. 2 = hovered item index
   (-1 for none). 3 = 1 if the name label is shown (0 as soon as it starts fading out). 4 = 1
@@ -742,14 +807,22 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   of item `lParam`'s reflection surface (at the magnified bitmap size; 0 when reflections are off
   and for separators, -1 if there is no such item). 35 = the
   dominant colour of item `lParam`'s icon as `0xAARRGGBB` (a saturation- and alpha-weighted
-  average, computed once per icon load; 0 when unknown, -1 if there is no such item).
+  average, computed once per icon load; 0 when unknown, -1 if there is no such item). 36 = 1
+  while the dock is locked. 37 = the index in `docks[0].items` of the config item that shows item
+  `lParam` (every running app of the `running` item reports that item's index; -1 if there is no
+  such item). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
   what `WinDock.exe --settings` sends to a running dock.
 - Settings window (class `WinDock.Settings`, title "WinDock Settings"): the page list is the child
   `WinDock.SettingsNav` (control id 100; its window text is the selected page's name); the pages
   are `WinDock.SettingsPage` children with ids 200 + page index (0 General, 1 Appearance,
-  2 Behaviour, 3 Animation, 4 Pinned apps, 5 About, 6 Weather), and every control on them has the stable id
-  listed in `src/SettingsIds.h`. Check boxes and radio buttons carry no visible text of their own:
+  2 Behaviour, 3 Animation, 4 Dock contents, 5 About, 6 Weather), and every control on them has the stable id
+  listed in `src/SettingsIds.h` (the Dock contents page kept the Pinned apps ids 2600 - 2611 and
+  added 2612 Add widget, 2613 Settings…, 2614 Lock the dock; its list 2600 has one row per config
+  item, columns Name, Kind, Details; General 2130 / 2131 are retired, replaced by 2132 Show
+  seconds, 2135 Clicking the clock opens, 2137 App or URL, 2138 Browse…; Behaviour added 2223
+  single-window previews, 2227 middle click, 2229 mouse wheel). "Add widget ▾" opens a popup menu
+  (items 1 Clock, 2 Weather, 3 Running apps), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
   field rows use `3000 + 10 * field index + part` (ids 3000 - 3399; field index in
   `Theme::Fields()` order; part 0 label, 1 swatch / check box, 2 hex box / check box caption,

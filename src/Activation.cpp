@@ -73,4 +73,19 @@ void ActivateItem(const std::vector<HWND>& windows) {
     BringToFront(windows[next]);
 }
 
+void CycleItem(const std::vector<HWND>& windows, bool forward) {
+    const size_t n = windows.size();
+    if (n == 0) return;
+    size_t current = n;
+    for (size_t i = 0; i < n; ++i) {
+        if (IsForeground(windows[i])) {
+            current = i;
+            break;
+        }
+    }
+    size_t next = forward ? 0 : n - 1;
+    if (current < n) next = forward ? (current + 1) % n : (current + n - 1) % n;
+    BringToFront(windows[next]);
+}
+
 }  // namespace Activation

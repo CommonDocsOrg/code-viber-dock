@@ -7,6 +7,42 @@ namespace {
 
 constexpr float kSeparatorSlot = 12.0f;  // a separator's slot, DIPs (its hairline is centred in it)
 
+// A middle click on an app's slot: what the dock's middleClick says.
+void AppMiddleClick(ElementHost& host, int slot) {
+    switch (host.DockCfg().middleClick) {
+        case MiddleClickAction::NewInstance: host.LaunchSlot(slot, true); break;
+        case MiddleClickAction::Minimize: host.SlotWindows(slot, WindowsCommand::Minimize); break;
+        case MiddleClickAction::Close: host.SlotWindows(slot, WindowsCommand::Close); break;
+        case MiddleClickAction::None:
+        default: break;
+    }
+}
+
+// The wheel over an app's slot with the dock's wheel "cycle": one window per notch (WHEEL_DELTA;
+// the smaller steps of a precision wheel add up in `acc`, per slot). Towards the user (negative):
+// the next window, away: the previous one. Consumed even when the app has no windows.
+class WheelCycler {
+public:
+    bool OnWheel(ElementHost& host, int slot, int delta, bool horizontal) {
+        if (horizontal || host.DockCfg().wheel != WheelAction::Cycle) return false;
+        if (slot != slot_) {
+            slot_ = slot;
+            acc_ = 0;
+        }
+        acc_ += delta;
+        if (acc_ >= WHEEL_DELTA || acc_ <= -WHEEL_DELTA) {
+            const bool forward = acc_ < 0;
+            acc_ %= WHEEL_DELTA;
+            host.SlotWindows(slot, forward ? WindowsCommand::Next : WindowsCommand::Previous);
+        }
+        return true;
+    }
+
+private:
+    int slot_ = -1;
+    int acc_ = 0;
+};
+
 // app / folder / separator / recycleBin: one slot for the resolved pin (none when an earlier
 // entry resolved to the same app). A pinned app that is running shows its windows (the dock
 // merges the window group with the same key into it).
@@ -53,7 +89,17 @@ public:
         }
         host_.ActivateOrLaunch(slot);  // a separator does nothing
     }
-    void OnMiddleClick(int slot) override { host_.LaunchSlot(slot, true); }
+    // Apps: the dock's middleClick action. Folders and the Recycle Bin open in Explorer.
+    void OnMiddleClick(int slot) override {
+        if (resolved_ == DockItem::Kind::App) {
+            AppMiddleClick(host_, slot);
+        } else {
+            host_.LaunchSlot(slot, true);  // a separator does nothing
+        }
+    }
+    bool OnWheel(int slot, int delta, bool horizontal) override {
+        return resolved_ == DockItem::Kind::App && wheel_.OnWheel(host_, slot, delta, horizontal);
+    }
     ClickPopup Popup() const override {
         return resolved_ == DockItem::Kind::Folder ? ClickPopup::Folder : ClickPopup::None;
     }
@@ -61,6 +107,7 @@ public:
 private:
     size_t pinIndex_;
     DockItem::Kind resolved_ = DockItem::Kind::App;  // the resolved pin's kind (AppendSlots)
+    WheelCycler wheel_;
 };
 
 // running: the running apps that are not pinned, one slot each, in first-seen order (or the order
@@ -105,7 +152,13 @@ public:
 
     ElementSize Measure(const LayoutContext& ctx) override { return {ctx.iconPx, ctx.iconPx}; }
     void OnClick(int slot, bool) override { host_.ActivateOrLaunch(slot); }
-    void OnMiddleClick(int slot) override { host_.LaunchSlot(slot, true); }
+    void OnMiddleClick(int slot) override { AppMiddleClick(host_, slot); }
+    bool OnWheel(int slot, int delta, bool horizontal) override {
+        return wheel_.OnWheel(host_, slot, delta, horizontal);
+    }
+
+private:
+    WheelCycler wheel_;
 };
 
 }  // namespace

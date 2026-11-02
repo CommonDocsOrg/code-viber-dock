@@ -100,6 +100,13 @@ protected:
         return true;
     }
 
+    // A one-line edit box in the current row (committed on Enter / focus loss: OnCommit).
+    void EditBox(int id, int x, int w, int maxLength) {
+        Ctl& e = Add(id, CtlKind::Edit, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL, RECT{x, y_ + 4, x + w, y_ + kRowH - 4});
+        e.exStyle = WS_EX_CLIENTEDGE;
+        e.hi = maxLength;
+    }
+
     int ComboSel(int id) const { return static_cast<int>(SendMessageW(Item(id), CB_GETCURSEL, 0, 0)); }
     void SetComboSel(int id, int index) { SendMessageW(Item(id), CB_SETCURSEL, static_cast<WPARAM>(index), 0); }
     void ComboAdd(int id, const wchar_t* text) { SendMessageW(Item(id), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text)); }
@@ -111,5 +118,5 @@ private:
 // Page factories (one source file each, besides SettingsPages.cpp).
 std::unique_ptr<SettingsPage> MakeAppearancePage(SettingsWindow& window);  // SettingsPagesAppearance.cpp
 std::unique_ptr<SettingsPage> MakeAnimationPage(SettingsWindow& window);   // SettingsPagesMore.cpp
-std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window);      // SettingsPagesMore.cpp
+std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window);      // SettingsPagesMore.cpp ("Dock contents")
 std::unique_ptr<SettingsPage> MakeWeatherPage(SettingsWindow& window);     // SettingsPagesWeather.cpp

@@ -208,12 +208,6 @@ protected:
     }
 
 private:
-    void EditBox(int id, int x, int w, int maxLength) {
-        Ctl& e = Add(id, CtlKind::Edit, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL, RECT{x, y_ + 4, x + w, y_ + kRowH - 4});
-        e.exStyle = WS_EX_CLIENTEDGE;
-        e.hi = maxLength;
-    }
-
     void UpdateStatus() {
         if (Host().weatherStatus) SetText(kWeatherStatus, Host().weatherStatus());
     }

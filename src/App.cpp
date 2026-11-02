@@ -111,6 +111,7 @@ bool App::Initialize(HINSTANCE instance) {
         if (index >= 0 && dock_.Items()[static_cast<size_t>(index)].pinned) TogglePin(key);
     };
     requests.pinFiles = [this](const std::vector<std::wstring>& paths, size_t at) { PinFiles(paths, at); };
+    requests.moveItem = [this](size_t from, size_t to) { MoveItem(from, to); };
     dock_.SetPinRequests(std::move(requests));
     DockWindow::WeatherCallbacks weather;
     weather.openSettings = [this] { OpenSettings(SettingsIds::kPageWeather); };
@@ -185,7 +186,7 @@ void App::TogglePin(const AppKey& key) {
     }
     dock_.ReloadPins();
     RequestSave();
-    RefreshSettings();  // the Pinned apps page
+    RefreshSettings();  // the Dock contents page
 }
 
 bool App::SetPinIcon(const AppKey& key, const std::wstring& icon) {
@@ -204,7 +205,7 @@ bool App::SetPinIcon(const AppKey& key, const std::wstring& icon) {
     if (!changed) return found;
     dock_.ReloadPins();
     RequestSave();
-    RefreshSettings();  // the Pinned apps page
+    RefreshSettings();  // the Dock contents page
     return true;
 }
 
@@ -306,6 +307,23 @@ void App::PinFiles(const std::vector<std::wstring>& paths, size_t at) {
     }
     if (!changed) return;
     dock_.ReloadPins();
+    RequestSave();
+    RefreshSettings();
+}
+
+void App::MoveItem(size_t from, size_t to) {
+    if (!config_.Main().MoveItem(from, to)) return;
+    dock_.ReloadPins();
+    RequestSave();
+    RefreshSettings();  // the Dock contents page
+}
+
+void App::AddWidget(ItemKind kind) {
+    if (config_.Main().AddWidget(kind) == SIZE_MAX) {
+        MessageBeep(MB_ICONWARNING);  // a second running item
+        return;
+    }
+    dock_.ReloadPins();  // also starts the weather service for a weather item
     RequestSave();
     RefreshSettings();
 }
@@ -435,6 +453,8 @@ ContextMenu::TrayMenuState App::MenuState() const {
     state.startWithWindows = AutostartEnabled();
     state.weatherShown = config_.Main().Has(ItemKind::Weather);
     state.weatherConfigured = config_.weather.Configured();
+    state.locked = config_.Main().locked;
+    state.hasRunning = config_.Main().Has(ItemKind::Running);
     return state;
 }
 
@@ -547,7 +567,21 @@ void App::OnCommand(UINT cmd) {
         case ContextMenu::kToggleWeatherPopup:
             dock_.TogglePopup(ItemKind::Weather);
             break;
+        case ContextMenu::kLockDock:
+            config_.Main().locked = !config_.Main().locked;  // read by the dock when a drag / drop starts
+            RequestSave();
+            RefreshSettings();
+            break;
+        case ContextMenu::kAddClock:
+        case ContextMenu::kAddWeather:
+        case ContextMenu::kAddRunning:
+            if (config_.Main().locked) break;  // greyed in the menu; Settings > Dock contents still adds
+            AddWidget(cmd == ContextMenu::kAddClock     ? ItemKind::Clock
+                      : cmd == ContextMenu::kAddWeather ? ItemKind::Weather
+                                                        : ItemKind::Running);
+            break;
         case ContextMenu::kAddSeparator: {
+            if (config_.Main().locked) break;
             DockItemEntry separator;
             separator.kind = ToString(ItemKind::Separator);
             config_.Main().InsertPin(SIZE_MAX, std::move(separator));  // after the last pin

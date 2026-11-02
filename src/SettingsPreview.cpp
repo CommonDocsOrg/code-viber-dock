@@ -277,9 +277,10 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
 
     D2D1_SIZE_U clockSize{};
     if (clockShown && dwrite_) {
-        if (!clockConfigured_ || clockFormat_ != c.clock.format || clockDate_ != c.clock.showDate) {
-            clock_.Configure(c.clock.format, c.clock.showDate);
-            clockFormat_ = c.clock.format;
+        const std::wstring format = Clock::EffectiveFormat(c.clock.format, c.clock.showSeconds);
+        if (!clockConfigured_ || clockFormat_ != format || clockDate_ != c.clock.showDate) {
+            clock_.Configure(format, c.clock.showDate);
+            clockFormat_ = format;
             clockDate_ = c.clock.showDate;
             clockConfigured_ = true;
         }

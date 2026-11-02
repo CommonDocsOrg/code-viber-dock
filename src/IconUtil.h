@@ -6,7 +6,7 @@
 
 #include "AppIdentity.h"
 
-// Custom-icon helpers shared by the dock (item menu) and the settings window (Pinned apps page):
+// Custom-icon helpers shared by the dock (item menu) and the settings window (Dock contents page):
 // the two pickers, where they start for a pin, and HICONs from image files for the settings list.
 namespace IconUtil {
 

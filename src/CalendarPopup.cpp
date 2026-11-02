@@ -18,6 +18,8 @@ constexpr float kArrow = 28.0f;
 constexpr float kHeadTop = 74.0f, kHeadH = 20.0f;
 constexpr float kGridTop = 98.0f;
 constexpr float kBottomPad = 10.0f;
+constexpr float kFooterGap = 6.0f;    // grid -> footer button
+constexpr float kFooterH = 30.0f;
 constexpr float kTodayDiameter = 28.0f;
 constexpr float kRadius = 6.0f;
 
@@ -57,9 +59,11 @@ uint32_t OnColor(uint32_t argb) {
 
 }  // namespace
 
-void CalendarPopup::Init(HINSTANCE instance, Renderer* renderer, std::function<void()> closed) {
+void CalendarPopup::Init(HINSTANCE instance, Renderer* renderer, std::function<void()> closed,
+                         std::function<void()> footer) {
     PopupWindow::Init(instance, renderer);
     SetClosedCallback(std::move(closed));
+    footer_ = std::move(footer);
 }
 
 void CalendarPopup::OnDestroying() {
@@ -137,7 +141,13 @@ SIZE CalendarPopup::Measure() {
     nextRect_ = RECT{w - pad - arrow, top, w - pad, top + arrow};
     prevRect_ = RECT{nextRect_.left - arrow - Px(4.0f, s), top, nextRect_.left - Px(4.0f, s), top + arrow};
     monthRect_ = RECT{pad - Px(6.0f, s), top, prevRect_.left - Px(8.0f, s), top + Px(kMonthH, s)};
-    const LONG h = Px(kGridTop + kRows * kRowH + kBottomPad, s);
+    LONG h = Px(kGridTop + kRows * kRowH + kBottomPad, s);
+    footerRect_ = RECT{};
+    if (!style_.footer.empty()) {
+        const LONG footerTop = Px(kGridTop + kRows * kRowH + kFooterGap, s);
+        footerRect_ = RECT{pad, footerTop, w - pad, footerTop + Px(kFooterH, s)};
+        h = footerRect_.bottom + Px(kBottomPad, s);
+    }
     return SIZE{w, h};
 }
 
@@ -238,6 +248,19 @@ void CalendarPopup::Paint(ID2D1DeviceContext* dc) {
         }
         text(dayFormat_.get(), std::to_wstring(day), r, color, alpha);
     }
+
+    // The footer button (clock.clickTarget): a quiet box, outlined while hovered.
+    if (!IsRectEmpty(&footerRect_)) {
+        const float radius = std::round(kRadius * s);
+        const D2D1_RECT_F f = ToRectF(footerRect_);
+        if (hot == kHitFooter) {
+            hotBox(footerRect_);
+        } else {
+            brush->SetColor(Theme::ToColor(style_.hotBackground, 0.6f));
+            dc->FillRoundedRectangle(D2D1::RoundedRect(f, radius, radius), brush.get());
+        }
+        text(dayFormat_.get(), style_.footer, f, style_.text, 1.0f);
+    }
 }
 
 int CalendarPopup::HitAt(POINT pt, int* part) const {
@@ -245,6 +268,7 @@ int CalendarPopup::HitAt(POINT pt, int* part) const {
     if (PtInRect(&prevRect_, pt)) return kHitPrev;
     if (PtInRect(&nextRect_, pt)) return kHitNext;
     if (PtInRect(&monthRect_, pt)) return kHitMonth;
+    if (!IsRectEmpty(&footerRect_) && PtInRect(&footerRect_, pt)) return kHitFooter;
     return -1;
 }
 
@@ -253,6 +277,7 @@ void CalendarPopup::OnClick(int index, int, Button button) {
     if (index == kHitPrev) Shift(-1);
     if (index == kHitNext) Shift(1);
     if (index == kHitMonth) Shift(0);
+    if (index == kHitFooter && footer_) footer_();
 }
 
 bool CalendarPopup::OnMessage(UINT msg, WPARAM wp, LPARAM, LRESULT& result) {

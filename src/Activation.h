@@ -20,4 +20,9 @@ void Minimize(HWND hwnd);
 //   none of them is foreground.
 void ActivateItem(const std::vector<HWND>& windows);
 
+// The mouse wheel over an item: brings the window after (forward) / before the foreground one to
+// the front, wrapping; the first / last one when none of them is foreground. One window: it is
+// brought to the front (never minimized).
+void CycleItem(const std::vector<HWND>& windows, bool forward);
+
 }  // namespace Activation

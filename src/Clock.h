@@ -38,9 +38,13 @@ public:
 
     // strftime-style formatting that never terminates on a bad specifier (falls back to %H:%M).
     static std::wstring Format(const std::wstring& format, const tm& t);
+    // The format shows seconds (%S, %T, %X, %c, %r): the clock ticks every second.
+    static bool FormatHasSeconds(const std::wstring& format);
+    // clock.format with clock.showSeconds applied: ":%S" right after the last minutes specifier
+    // (%M, %#M, %R; none: at the end), unless the format shows seconds already.
+    static std::wstring EffectiveFormat(const std::wstring& format, bool showSeconds);
 
 private:
-    bool HasSeconds() const;
 
     std::wstring format_ = L"%H:%M";
     bool showDate_ = false;

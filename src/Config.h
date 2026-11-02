@@ -36,6 +36,11 @@ struct DockItemEntry {
 // "off": always shown. "always": hides when the mouse leaves. "intelligent": hides only while
 // the foreground window overlaps the dock.
 enum class AutoHideMode { Off, Always, Intelligent };
+// A middle click on an app: "newInstance" (start another copy), "minimize" / "close" its windows,
+// "none". Folders and the Recycle Bin always open in Explorer.
+enum class MiddleClickAction { NewInstance, Minimize, Close, None };
+// The mouse wheel over an app: "none", "cycle" (bring its next / previous window to the front).
+enum class WheelAction { None, Cycle };
 
 // One dock: its contents and the settings that are per dock. Config::docks always holds at least
 // one (docks[0], Config::Main()).
@@ -45,17 +50,23 @@ struct DockConfig {
     // the clock. The first run also seeds pins in front of them.
     std::vector<DockItemEntry> items = {DockItemEntry{L"running"}, DockItemEntry{L"clock"}};
     std::wstring edge = L"bottom";  // read and written; only "bottom" is implemented (Phase 2)
-    bool locked = false;            // read and written; not used yet (Phase 1c)
+    // No drag reorder, no pinning by file drop, no Add separator / Add widget from the dock menu.
+    // The settings window still edits everything.
+    bool locked = false;
     int iconSize = 48;
     double magnification = 1.5;  // hovered icon scale; 1.0 disables magnification (1.0 - 2.5)
     int magnifyRange = 2;        // falloff radius in icon slots (1 - 4)
     AutoHideMode autoHide = AutoHideMode::Always;
     int hideDelayMs = 400;
     int revealDelayMs = 150;
-    // Hover popup with live window thumbnails for apps with two or more windows.
+    // Hover popup with live window thumbnails for apps with two or more windows (with
+    // previewSingle: one or more).
     bool previews = true;
+    bool previewSingle = false;  // "previewsSingleWindow"
     int previewDelayMs = 600;
     int monitor = 0;
+    MiddleClickAction middleClick = MiddleClickAction::NewInstance;
+    WheelAction wheel = WheelAction::None;
 
     bool AutoHideOn() const { return autoHide != AutoHideMode::Off; }
     // An item of this kind is in `items` (the clock / weather widget is shown).
@@ -63,6 +74,14 @@ struct DockConfig {
     // Adds an item of `kind` at the end when there is none (on), or removes every item of that
     // kind (off). Returns true if `items` changed.
     bool Show(ItemKind kind, bool on);
+    // Adds a clock, weather or running item (Add widget): the clock at the end, the weather
+    // before a clock that ends the list (else at the end), the running apps after the last pin
+    // (no pins: first). A second `running` item is refused (only the first one expands). Returns
+    // the new item's index, or SIZE_MAX if nothing was added.
+    size_t AddWidget(ItemKind kind);
+    // Moves item `from` so it comes right before the item now at `to` (to >= items.size(): to the
+    // end). Returns true if the order changed.
+    bool MoveItem(size_t from, size_t to);
 
     // The pins (IsPin() items) in order, and their indexes into `items`. A "pin index" k below
     // is the position among the pins, which is what the dock's pinned section and its resolved
@@ -80,11 +99,22 @@ struct DockConfig {
     void SetPins(std::vector<DockItemEntry> pins);
 };
 
+// What a click on the clock does: "calendar" (the month calendar popup), "launch" (open
+// clock.clickTarget), "none".
+enum class ClockClick { Calendar, Launch, None };
+
 struct ClockConfig {
     // Shown when the dock has a "clock" item (DockConfig::Has(ItemKind::Clock)).
     std::wstring format = L"%H:%M";
+    // Adds ":%S" after the minutes of `format` (Clock::EffectiveFormat); a format that shows
+    // seconds already is used as it is.
+    bool showSeconds = false;
     bool showDate = false;
-    bool calendarPopup = true;  // a click on the clock opens the month calendar
+    // Without a "click" key, the older "calendarPopup": false reads as "none".
+    ClockClick click = ClockClick::Calendar;
+    // An app / file path or a URL, opened by ShellExecute ("%VAR%" expanded; a quoted path may be
+    // followed by arguments). Used by click "launch" and by the calendar popup's footer button.
+    std::wstring clickTarget;
 };
 
 // Temperatures in °C and wind in km/h ("metric") or °F and mph ("imperial").
@@ -124,6 +154,12 @@ const wchar_t* ToString(Falloff v);
 const wchar_t* ToString(Easing v);
 const wchar_t* ToString(ReduceMotion v);
 const wchar_t* ToString(Units v);
+const wchar_t* ToString(MiddleClickAction v);
+const wchar_t* ToString(WheelAction v);
+const wchar_t* ToString(ClockClick v);
+bool FromString(std::wstring_view s, MiddleClickAction& v);
+bool FromString(std::wstring_view s, WheelAction& v);
+bool FromString(std::wstring_view s, ClockClick& v);
 bool FromString(std::wstring_view s, AutoHideMode& v);
 bool FromString(std::wstring_view s, HideStyle& v);
 bool FromString(std::wstring_view s, LaunchStyle& v);

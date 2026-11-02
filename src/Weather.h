@@ -94,6 +94,8 @@ public:
 
     // Shown on the dock and has a location.
     bool Active() const { return hwnd_ && shown_ && cfg_.Configured(); }
+    // The last Configure was told the widget is shown (the dock has a weather item).
+    bool Shown() const { return shown_; }
     Status State() const { return Active() ? status_ : Status::None; }
     const Forecast& Data() const { return data_; }
     const WeatherConfig& Settings() const { return cfg_; }

@@ -30,7 +30,8 @@ inline constexpr wchar_t kRestoreTaskbarMessage[] = L"WinDock.RestoreTaskbar";
 inline constexpr wchar_t kItemCommandMessage[] = L"WinDock.ItemCommand";
 // Automation: SendMessage(dock, RegisterWindowMessage(kDockCommandMessage), cmd, 0) runs a dock /
 // tray menu command (ContextMenu::kAutoHide ... kLastDockCommand, kOpenSettings included),
-// exactly as if it was chosen from the menu. Returns 1 for a known command.
+// exactly as if it was chosen from the menu (a greyed one does nothing: Add separator / Add widget
+// while the dock is locked). Returns 1 for a known command.
 inline constexpr wchar_t kDockCommandMessage[] = L"WinDock.DockCommand";
 // Posted by `WinDock.exe --settings` to the running dock: open (or activate) the settings window.
 inline constexpr wchar_t kOpenSettingsMessage[] = L"WinDock.OpenSettings";
@@ -86,6 +87,11 @@ private:
     // Inserts .lnk / .exe files (and folders) so the first becomes pin `at` of config_.Main() (past the
     // last pin: after it), skipping apps that are already pinned.
     void PinFiles(const std::vector<std::wstring>& paths, size_t at);
+    // Moves config item `from` of config_.Main() right before item `to` (a widget dragged on the
+    // dock), then reloads, saves and refreshes the settings window.
+    void MoveItem(size_t from, size_t to);
+    // Add widget > Clock / Weather / Running apps (DockConfig::AddWidget's placement).
+    void AddWidget(ItemKind kind);
     void SeedDefaultPins();
     int IndexOfKey(const AppKey& key) const;
     void RequestSave();

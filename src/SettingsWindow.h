@@ -18,7 +18,7 @@
 enum class SettingsScope {
     Appearance,  // sizes, magnification, theme, clock, monitor: DockWindow::ApplyConfig
     AutoHide,    // config.Main().autoHide: DockWindow::ApplyAutoHide
-    Pins,        // the pin items of config.Main(): DockWindow::ReloadPins
+    Pins,        // the items of config.Main() (Dock contents): DockWindow::ReloadPins
     Taskbar,     // config.hideTaskbar: TaskbarController::SetEnabled
     Autostart,   // config.startWithWindows: the HKCU Run value
     Weather,     // config.weather: DockWindow::ApplyWeather

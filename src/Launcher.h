@@ -36,4 +36,11 @@ bool OpenWith(const DockItem& item, const std::vector<std::wstring>& files);
 // loop while it works.
 bool Recycle(const std::vector<std::wstring>& files, HWND owner);
 
+// Opens a target the user typed (clock.clickTarget): an app / file path or a URL, environment
+// variables expanded; a quoted path may be followed by arguments ("C:\x y\app.exe" -n). A file
+// starts in its own folder.
+bool OpenTarget(const std::wstring& target);
+// A short name for a target: the file name without extension, or a URL's host.
+std::wstring TargetName(const std::wstring& target);
+
 }  // namespace Launcher

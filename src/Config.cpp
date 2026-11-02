@@ -41,6 +41,9 @@ const wchar_t* const kFalloffNames[] = {L"cosine", L"linear"};
 const wchar_t* const kEasingNames[] = {L"easeOut", L"linear", L"spring"};
 const wchar_t* const kReduceMotionNames[] = {L"system", L"on", L"off"};
 const wchar_t* const kUnitsNames[] = {L"metric", L"imperial"};
+const wchar_t* const kMiddleClickNames[] = {L"newInstance", L"minimize", L"close", L"none"};
+const wchar_t* const kWheelNames[] = {L"none", L"cycle"};
+const wchar_t* const kClockClickNames[] = {L"calendar", L"launch", L"none"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather"};
 
@@ -62,6 +65,17 @@ void ReadDockFields(const json::JsonObject& o, DockConfig& d) {
     ReadBool(o, L"previews", d.previews);
     ReadInt(o, L"previewDelayMs", d.previewDelayMs);
     ReadInt(o, L"monitor", d.monitor);
+}
+
+// The keys that exist only in dock objects (never in legacy files).
+void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
+    ReadBool(o, L"previewsSingleWindow", d.previewSingle);
+    std::wstring s;
+    ReadString(o, L"middleClick", s);
+    if (!s.empty()) FromString(s, d.middleClick);  // unknown text: keep the default
+    s.clear();
+    ReadString(o, L"wheel", s);
+    if (!s.empty()) FromString(s, d.wheel);
 }
 
 // The path names a directory (environment variables expanded). A .lnk to a folder is not one:
@@ -102,6 +116,12 @@ const wchar_t* ToString(Falloff v) { return EnumToString(v, kFalloffNames); }
 const wchar_t* ToString(Easing v) { return EnumToString(v, kEasingNames); }
 const wchar_t* ToString(ReduceMotion v) { return EnumToString(v, kReduceMotionNames); }
 const wchar_t* ToString(Units v) { return EnumToString(v, kUnitsNames); }
+const wchar_t* ToString(MiddleClickAction v) { return EnumToString(v, kMiddleClickNames); }
+const wchar_t* ToString(WheelAction v) { return EnumToString(v, kWheelNames); }
+const wchar_t* ToString(ClockClick v) { return EnumToString(v, kClockClickNames); }
+bool FromString(std::wstring_view s, MiddleClickAction& v) { return EnumFromString(s, v, kMiddleClickNames); }
+bool FromString(std::wstring_view s, WheelAction& v) { return EnumFromString(s, v, kWheelNames); }
+bool FromString(std::wstring_view s, ClockClick& v) { return EnumFromString(s, v, kClockClickNames); }
 bool FromString(std::wstring_view s, AutoHideMode& v) { return EnumFromString(s, v, kAutoHideNames); }
 bool FromString(std::wstring_view s, HideStyle& v) { return EnumFromString(s, v, kHideStyleNames); }
 bool FromString(std::wstring_view s, LaunchStyle& v) { return EnumFromString(s, v, kLaunchStyleNames); }
@@ -143,6 +163,35 @@ bool DockConfig::Show(ItemKind kind, bool on) {
         at = std::find_if(items.begin(), items.end(), [](const DockItemEntry& i) { return i.Kind() == ItemKind::Clock; });
     }
     items.insert(at, std::move(e));
+    return true;
+}
+
+size_t DockConfig::AddWidget(ItemKind kind) {
+    if (kind != ItemKind::Clock && kind != ItemKind::Weather && kind != ItemKind::Running) return SIZE_MAX;
+    if (kind == ItemKind::Running && Has(ItemKind::Running)) return SIZE_MAX;  // only the first one expands
+    size_t at = items.size();
+    if (kind == ItemKind::Weather && !items.empty() && items.back().Kind() == ItemKind::Clock) {
+        at = items.size() - 1;
+    } else if (kind == ItemKind::Running) {
+        at = 0;
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (items[i].IsPin()) at = i + 1;
+        }
+    }
+    DockItemEntry e;
+    e.kind = ToString(kind);
+    items.insert(items.begin() + static_cast<ptrdiff_t>(at), std::move(e));
+    return at;
+}
+
+bool DockConfig::MoveItem(size_t from, size_t to) {
+    if (from >= items.size()) return false;
+    to = std::min(to, items.size());
+    if (to == from || to == from + 1) return false;  // already right before `to`
+    DockItemEntry e = std::move(items[from]);
+    items.erase(items.begin() + static_cast<ptrdiff_t>(from));
+    if (to > from) --to;
+    items.insert(items.begin() + static_cast<ptrdiff_t>(to), std::move(e));
     return true;
 }
 
@@ -294,6 +343,7 @@ void Config::Sanitize() {
     if (animation.speed != 0.0) animation.speed = std::clamp(animation.speed, 0.25, 4.0);
     animation.labelFadeMs = std::clamp(animation.labelFadeMs, 0, 1000);
     if (clock.format.size() > 128) clock.format.resize(128);
+    if (clock.clickTarget.size() > 2048) clock.clickTarget.resize(2048);
     if (renderer != L"auto" && renderer != L"software") renderer = L"auto";
     if (!(weather.latitude >= -90.0 && weather.latitude <= 90.0)) weather.latitude = 0.0;  // also NaN
     if (!(weather.longitude >= -180.0 && weather.longitude <= 180.0)) weather.longitude = 0.0;
@@ -345,8 +395,18 @@ Config::LoadResult Config::LoadFile() {
         const json::JsonObject clockObj = ReadObject(root, L"clock");
         if (clockObj) {
             ReadString(clockObj, L"format", clock.format);
+            ReadBool(clockObj, L"showSeconds", clock.showSeconds);
             ReadBool(clockObj, L"showDate", clock.showDate);
-            ReadBool(clockObj, L"calendarPopup", clock.calendarPopup);
+            std::wstring click;
+            ReadString(clockObj, L"click", click);
+            if (!click.empty()) {
+                FromString(click, clock.click);  // unknown text: keep the default
+            } else {
+                bool calendarPopup = true;  // before "click": a bool for the calendar popup
+                ReadBool(clockObj, L"calendarPopup", calendarPopup);
+                if (!calendarPopup) clock.click = ClockClick::None;
+            }
+            ReadString(clockObj, L"clickTarget", clock.clickTarget);
         }
         const json::JsonObject weatherObj = ReadObject(root, L"weather");
 
@@ -361,6 +421,7 @@ Config::LoadResult Config::LoadFile() {
                     ReadString(obj, L"edge", d.edge);
                     ReadBool(obj, L"locked", d.locked);
                     ReadDockFields(obj, d);
+                    ReadDockOnlyFields(obj, d);
                     if (auto items = ReadArray(obj, L"items")) {
                         d.items.clear();
                         for (const auto& iv : items) {
@@ -495,7 +556,9 @@ bool Config::Save() const {
                  L", \"magnifyRange\": " + Num(d.magnifyRange) + L",\n";
             o += L"      \"autoHide\": " + Quote(ToString(d.autoHide)) + L", \"hideDelayMs\": " + Num(d.hideDelayMs) +
                  L", \"revealDelayMs\": " + Num(d.revealDelayMs) + L",\n";
-            o += L"      \"previews\": " + Bool(d.previews) + L", \"previewDelayMs\": " + Num(d.previewDelayMs) +
+            o += L"      \"previews\": " + Bool(d.previews) + L", \"previewsSingleWindow\": " + Bool(d.previewSingle) +
+                 L", \"previewDelayMs\": " + Num(d.previewDelayMs) + L",\n";
+            o += L"      \"middleClick\": " + Quote(ToString(d.middleClick)) + L", \"wheel\": " + Quote(ToString(d.wheel)) +
                  L",\n";
             o += L"      \"monitor\": " + Num(d.monitor) + L"\n    }";
         }
@@ -503,8 +566,9 @@ bool Config::Save() const {
         o += L"  \"hideTaskbar\": " + Bool(hideTaskbar) + L",\n";
         o += L"  \"startWithWindows\": " + Bool(startWithWindows) + L",\n";
         o += L"  \"renderer\": " + Quote(renderer) + L",\n";
-        o += L"  \"clock\": { \"format\": " + Quote(clock.format) + L", \"showDate\": " + Bool(clock.showDate) +
-             L", \"calendarPopup\": " + Bool(clock.calendarPopup) + L" },\n";
+        o += L"  \"clock\": { \"format\": " + Quote(clock.format) + L", \"showSeconds\": " + Bool(clock.showSeconds) +
+             L", \"showDate\": " + Bool(clock.showDate) + L",\n             \"click\": " + Quote(ToString(clock.click)) +
+             L", \"clickTarget\": " + Quote(clock.clickTarget) + L" },\n";
         // Only the preset and the fields set inline: editing the theme file keeps affecting the dock.
         o += L"  \"theme\": { \"preset\": " + Quote(themePreset) +
              Theme::WriteFields(theme, themeOverrides, L"             ") + L" },\n";

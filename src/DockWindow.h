@@ -93,7 +93,8 @@ public:
     // bit 1 reflections, bit 2 the perspective tilt); 33: glow opacity target x 100 of item lp
     // (0 without a glow surface, -1 no such item); 34: height in pixels of item lp's reflection
     // surface (0 when off); 35: the dominant colour of item lp's icon as 0xAARRGGBB (0 unknown,
-    // -1 no such item).
+    // -1 no such item); 36: 1 while the dock is locked (docks[].locked); 37: the index in
+    // docks[0].items[] of the config item that contributes slot lp (-1 no such slot).
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -112,6 +113,9 @@ public:
         std::function<void(const AppKey& key)> unpin;
         // Pin .lnk / .exe files (dropped on the dock) as pin `at` onwards (at == pin count: append).
         std::function<void(const std::vector<std::wstring>& paths, size_t at)> pinFiles;
+        // Move config item `from` (a widget dragged on the dock) right before item `to` (>= the item
+        // count: to the end) of config->Main().items.
+        std::function<void(size_t from, size_t to)> moveItem;
     };
 
     DockWindow() = default;
@@ -165,7 +169,8 @@ public:
     const std::vector<DockItem>& Items() const { return items_; }
 
     // Re-resolves the pins of config->Main() (cached per entry), rebuilds the elements from its
-    // items and the item list. Call after changing the item list.
+    // items and the item list, and starts / stops the weather service when a weather item came or
+    // went. Call after changing the item list.
     void ReloadPins();
     // Resolved pins, parallel to the pin items of config->Main() (DockConfig::PinIndexes()).
     const std::vector<AppIdentity::ResolvedPin>& Pins() const { return pins_; }
@@ -460,6 +465,9 @@ private:
 
     // --- ElementHost (what elements ask of the dock; Hwnd and Weather are public) ---
     const Config& Cfg() const override { return *config_; }
+    const DockConfig& DockCfg() const override { return config_->Main(); }
+    void SlotWindows(int slot, WindowsCommand cmd) override;
+    void OpenTarget(const std::wstring& target) override;
     void ActivateOrLaunch(int slot) override;
     void LaunchSlot(int slot, bool newInstance) override { LaunchItem(slot, newInstance); }
     bool PopupShownFor(int slot) const override;
@@ -504,10 +512,16 @@ private:
     // dragToPins_, dragPins_ / dragRunning_ (the new orders), dragOrder_ (the slots in the order
     // they would be shown) and dragInsert_ (the dragged item's index in it).
     void UpdateDragTarget(float stageX);
+    // The same for a dragged widget: it moves among the other elements (the running apps are one
+    // block), dragMoveTo_ is the config item it would go before.
+    void UpdateElementDragTarget(float stageX);
     // The dragged item back in its own place (dragOrder_ = the rest order).
     void ResetDragOrder();
-    // An item a drag can be dropped on (a pin or an unpinned running app; not a widget).
+    // An item a pin / running-app drag can be dropped on (a pin or an unpinned running app; not a
+    // widget).
     bool Droppable(size_t index) const { return !items_[index].IsWidget(); }
+    // A press on slot `index` may start a drag: every slot, unless the dock is locked.
+    bool Draggable(size_t index) const { return index < items_.size() && !config_->Main().locked; }
     // Gap slot (an index into items_, at most items_.size()) for an external drop at stage x: before
     // a pin, after the last pin, or (no pins) before the first running app; -1 if there is none.
     int DropGapIndex(float stageX) const;
@@ -516,6 +530,9 @@ private:
     // The pin index (DockConfig::PinIndexes()) of the item at `itemIndex` (the pin count past the pins).
     size_t ConfigIndexOfItem(size_t itemIndex) const;
     void SetItemOpacity(DockItem& item, float to, double duration);
+    // A dragged widget is shown in front of the icons: its visual moves into itemsGroup_ for the
+    // drag (front) and back into widgetsGroup_ after it (both carry the same perspective tilt).
+    void SetWidgetFront(DockItem& item, bool front);
     // Keeps the HWND at stage size until an animation of `seconds` has ended.
     void KeepStage(double seconds);
 
@@ -669,6 +686,8 @@ private:
     float dragGrabDx_ = 0.0f;     // cursor x - icon box left edge when the drag started
     int dragInsert_ = -1;         // final item index of the dragged icon if dropped now
     bool dragToPins_ = false;     // dropped now, the new order is the pins' (else the running apps')
+    bool dragWidget_ = false;     // a widget is dragged: it moves its config item (dragMoveTo_)
+    size_t dragMoveTo_ = SIZE_MAX;  // the config item the dragged widget would go before (SIZE_MAX: the end)
     std::vector<size_t> dragPins_;     // pin slots (item indexes) in their new order
     std::vector<size_t> dragRunning_;  // unpinned running slots in their new order
     std::vector<size_t> dragOrder_;    // every slot in the order the drag layout shows them

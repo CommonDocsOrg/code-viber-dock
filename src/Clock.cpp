@@ -41,13 +41,13 @@ std::wstring Clock::Format(const std::wstring& format, const tm& t) {
     return std::wstring(buf, n);
 }
 
-bool Clock::HasSeconds() const {
+bool Clock::FormatHasSeconds(const std::wstring& format) {
     // Any specifier whose output includes seconds needs a 1 s tick.
-    for (size_t i = 0; i + 1 < format_.size(); ++i) {
-        if (format_[i] != L'%') continue;
+    for (size_t i = 0; i + 1 < format.size(); ++i) {
+        if (format[i] != L'%') continue;
         size_t j = i + 1;
-        if (format_[j] == L'#' && j + 1 < format_.size()) ++j;  // MSVC '#' flag
-        switch (format_[j]) {
+        if (format[j] == L'#' && j + 1 < format.size()) ++j;  // MSVC '#' flag
+        switch (format[j]) {
             case L'S': case L'T': case L'X': case L'c': case L'r': return true;
             default: break;
         }
@@ -56,11 +56,25 @@ bool Clock::HasSeconds() const {
     return false;
 }
 
+std::wstring Clock::EffectiveFormat(const std::wstring& format, bool showSeconds) {
+    if (!showSeconds || format.empty() || FormatHasSeconds(format)) return format;
+    size_t after = std::wstring::npos;  // just past the last minutes specifier
+    for (size_t i = 0; i + 1 < format.size(); ++i) {
+        if (format[i] != L'%') continue;
+        size_t j = i + 1;
+        if (format[j] == L'#' && j + 1 < format.size()) ++j;
+        if (format[j] == L'M' || format[j] == L'R') after = j + 1;
+        i = j;
+    }
+    if (after == std::wstring::npos) return format + L":%S";
+    return format.substr(0, after) + L":%S" + format.substr(after);
+}
+
 void Clock::ScheduleNextTick(HWND hwnd, UINT_PTR timerId) const {
     SYSTEMTIME st{};
     GetLocalTime(&st);
     UINT delay;
-    if (HasSeconds()) {
+    if (FormatHasSeconds(format_)) {
         delay = 1000u - st.wMilliseconds;
     } else {
         delay = (59u - st.wSecond) * 1000u + (1000u - st.wMilliseconds);

@@ -6,6 +6,7 @@
 
 #include <winrt/base.h>
 
+#include <iterator>
 #include <string>
 
 namespace Launcher {
@@ -201,6 +202,72 @@ bool Recycle(const std::vector<std::wstring>& files, HWND owner) {
     if (SUCCEEDED(hr)) hr = op->PerformOperations();
     if (FAILED(hr)) LogFailure(L"Recycle", hr);
     return SUCCEEDED(hr);
+}
+
+namespace {
+
+std::wstring Trim(const std::wstring& s) {
+    const size_t b = s.find_first_not_of(L" \t");
+    if (b == std::wstring::npos) return {};
+    const size_t e = s.find_last_not_of(L" \t");
+    return s.substr(b, e - b + 1);
+}
+
+std::wstring Expand(const std::wstring& s) {
+    wchar_t buf[MAX_PATH * 4];
+    const DWORD n = ExpandEnvironmentStringsW(s.c_str(), buf, static_cast<DWORD>(std::size(buf)));
+    return n > 0 && n <= std::size(buf) ? std::wstring(buf) : s;
+}
+
+// "scheme:..." with a scheme of two or more letters (a drive letter is one).
+bool IsUrl(const std::wstring& s) {
+    const size_t colon = s.find(L':');
+    if (colon == std::wstring::npos || colon < 2) return false;
+    for (size_t i = 0; i < colon; ++i) {
+        const wchar_t c = s[i];
+        if (!((c >= L'a' && c <= L'z') || (c >= L'A' && c <= L'Z') || (c >= L'0' && c <= L'9') || c == L'+' ||
+              c == L'-' || c == L'.')) {
+            return false;
+        }
+    }
+    return true;
+}
+
+}  // namespace
+
+bool OpenTarget(const std::wstring& target) {
+    std::wstring t = Trim(target);
+    if (t.empty()) return false;
+    if (IsUrl(t)) return Execute(t, {});
+    std::wstring file = t, args;
+    if (t.front() == L'"') {
+        const size_t close = t.find(L'"', 1);
+        file = close == std::wstring::npos ? t.substr(1) : t.substr(1, close - 1);
+        if (close != std::wstring::npos) args = Trim(t.substr(close + 1));
+    }
+    file = Expand(file);
+    return Execute(file, DirectoryOf(file), Expand(args));
+}
+
+std::wstring TargetName(const std::wstring& target) {
+    std::wstring t = Trim(target);
+    if (t.empty()) return {};
+    if (IsUrl(t)) {
+        const size_t slashes = t.find(L"://");
+        if (slashes == std::wstring::npos) return t.substr(0, t.find(L':'));  // mailto:, ms-settings: ...
+        const size_t start = slashes + 3;
+        const size_t end = t.find_first_of(L"/?#", start);
+        return t.substr(start, end == std::wstring::npos ? std::wstring::npos : end - start);
+    }
+    if (t.front() == L'"') {
+        const size_t close = t.find(L'"', 1);
+        t = close == std::wstring::npos ? t.substr(1) : t.substr(1, close - 1);
+    }
+    const size_t slash = t.find_last_of(L"\\/");
+    std::wstring name = slash == std::wstring::npos ? t : t.substr(slash + 1);
+    const size_t dot = name.rfind(L'.');
+    if (dot != std::wstring::npos && dot > 0) name.resize(dot);
+    return name;
 }
 
 }  // namespace Launcher

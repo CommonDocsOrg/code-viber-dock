@@ -1,11 +1,14 @@
 // The settings pages: control tables (DIP layout) and handlers. This file: General, Behaviour,
-// About and the page list; Appearance: SettingsPagesAppearance.cpp; Animation and Pinned apps:
+// About and the page list; Appearance: SettingsPagesAppearance.cpp; Animation and Dock contents:
 // SettingsPagesMore.cpp; Weather: SettingsPagesWeather.cpp. The frame, fonts, colours, theming, layout and scrolling live in
 // SettingsWindow.cpp.
 
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shobjidl.h>
+
+#include <winrt/base.h>
 
 #include <algorithm>
 #include <cmath>
@@ -36,11 +39,11 @@ std::wstring FormatMagnification(int pos) {
     return buf;
 }
 
-std::wstring ClockPreview(const std::wstring& format) {
+std::wstring ClockPreview(const std::wstring& format, bool seconds) {
     const std::time_t now = std::time(nullptr);
     std::tm local{};
     localtime_s(&local, &now);
-    const std::wstring text = Clock::Format(format, local);
+    const std::wstring text = Clock::Format(Clock::EffectiveFormat(format, seconds), local);
     return text.empty() ? std::wstring() : L"Shows “" + text + L"”";
 }
 
@@ -105,10 +108,20 @@ protected:
         Combo(kClockFormatCombo, kColX, 140, true);
         Text(kClockPreview, CtlKind::Note, L"", kColX + 152, right - kColX - 152);
         NextRow();
+        Check(kClockSeconds, kClockSecondsCaption, L"Show seconds");
+        NextRow();
         Check(kClockDate, kClockDateCaption, L"Show the date under the time");
         NextRow();
-        Check(kClockCalendar, kClockCalendarCaption, L"Click the clock to show a month calendar");
+        Label(kClockClickLabel, L"Clicking the clock opens");
+        Combo(kClockClickCombo, kColX, right - kColX, false);
         NextRow();
+        Label(kClockTargetLabel, L"App or URL");
+        EditBox(kClockTargetEdit, kColX, right - kColX - 112, 2048);
+        Button(kClockTargetBrowse, L"Browse…", right - 104, 104);
+        NextRow(kRowH);
+        Text(kClockTargetNote, CtlKind::Note, L"The month calendar shows a button that opens it too.", kColX,
+             right - kColX, 20);
+        NextRow(22);
 
         Section(kSectionStartup, L"System");
         Check(kStartWithWindows, kStartWithWindowsCaption, L"Start with Windows");
@@ -125,6 +138,9 @@ protected:
     void Created() override {
         for (const wchar_t* f : kClockFormats) ComboAdd(kClockFormatCombo, f);
         SendMessageW(Item(kClockFormatCombo), CB_LIMITTEXT, 128, 0);
+        ComboAdd(kClockClickCombo, L"The month calendar");  // ClockClick order
+        ComboAdd(kClockClickCombo, L"The app or URL below");
+        ComboAdd(kClockClickCombo, L"Nothing");
         ComboAdd(kRendererCombo, L"Automatic (GPU, software if that fails)");
         ComboAdd(kRendererCombo, L"Software (WARP, less memory)");
     }
@@ -139,9 +155,11 @@ protected:
         FillMonitors();
         SetCheck(kClockShow, c.Main().Has(ItemKind::Clock));
         SetText(kClockFormatCombo, c.clock.format);
-        SetText(kClockPreview, ClockPreview(c.clock.format));
+        SetText(kClockPreview, ClockPreview(c.clock.format, c.clock.showSeconds));
+        SetCheck(kClockSeconds, c.clock.showSeconds);
         SetCheck(kClockDate, c.clock.showDate);
-        SetCheck(kClockCalendar, c.clock.calendarPopup);
+        SetComboSel(kClockClickCombo, static_cast<int>(c.clock.click));
+        SetText(kClockTargetEdit, c.clock.clickTarget);
         EnableClock(c.Main().Has(ItemKind::Clock));
         SetCheck(kStartWithWindows, Host().autostartEnabled ? Host().autostartEnabled() : c.startWithWindows);
         SetCheck(kHideTaskbar, Host().taskbarHidden ? Host().taskbarHidden() : c.hideTaskbar);
@@ -201,19 +219,32 @@ protected:
                     const int sel = ComboSel(id);
                     if (sel >= 0 && sel < static_cast<int>(std::size(kClockFormats))) CommitFormat(kClockFormats[sel]);
                 } else if (code == CBN_EDITCHANGE) {
-                    SetText(kClockPreview, ClockPreview(GetText(id)));  // live preview, applied on commit
+                    SetText(kClockPreview, ClockPreview(GetText(id), c.clock.showSeconds));  // live preview, applied on commit
                 }
+                break;
+            case kClockSeconds:
+                if (code == BN_CLICKED) {
+                    c.clock.showSeconds = GetCheck(id);
+                    SetText(kClockPreview, ClockPreview(c.clock.format, c.clock.showSeconds));
+                    Changed(SettingsScope::Appearance);  // the clock's text, its width and its tick
+                }
+                break;
+            case kClockClickCombo:
+                if (code == CBN_SELCHANGE) {
+                    const int sel = ComboSel(id);
+                    if (sel >= 0 && sel <= 2 && static_cast<ClockClick>(sel) != c.clock.click) {
+                        c.clock.click = static_cast<ClockClick>(sel);  // read at click time
+                        Changed(SettingsScope::SaveOnly);
+                    }
+                }
+                break;
+            case kClockTargetBrowse:
+                if (code == BN_CLICKED) BrowseTarget();
                 break;
             case kClockDate:
                 if (code == BN_CLICKED) {
                     c.clock.showDate = GetCheck(id);
                     Changed(SettingsScope::Appearance);
-                }
-                break;
-            case kClockCalendar:
-                if (code == BN_CLICKED) {
-                    c.clock.calendarPopup = GetCheck(id);  // read at click time
-                    Changed(SettingsScope::SaveOnly);
                 }
                 break;
             case kStartWithWindows:
@@ -244,15 +275,49 @@ protected:
 
     void Commit(int id) override {
         if (id == kClockFormatCombo) CommitFormat(GetText(id));
+        if (id == kClockTargetEdit) CommitTarget(GetText(id));
     }
 
 private:
+    void CommitTarget(std::wstring target) {
+        if (target.size() > 2048) target.resize(2048);
+        Config& c = Cfg();
+        if (target == c.clock.clickTarget) return;
+        c.clock.clickTarget = target;  // read when the clock is clicked / the calendar opens
+        Changed(SettingsScope::SaveOnly);
+    }
+
+    void BrowseTarget() {
+        winrt::com_ptr<IFileOpenDialog> dialog;
+        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
+            MessageBeep(MB_ICONERROR);
+            return;
+        }
+        const COMDLG_FILTERSPEC filters[] = {{L"Apps and shortcuts (*.exe;*.lnk)", L"*.exe;*.lnk"},
+                                             {L"All files", L"*.*"}};
+        dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+        dialog->SetTitle(L"Open when the clock is clicked");
+        FILEOPENDIALOGOPTIONS options = 0;
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NODEREFERENCELINKS | FOS_NOCHANGEDIR);
+        if (FAILED(dialog->Show(Owner()))) return;  // cancelled
+        winrt::com_ptr<IShellItem> item;
+        PWSTR raw = nullptr;
+        if (FAILED(dialog->GetResult(item.put())) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw) return;
+        std::wstring path(raw);
+        CoTaskMemFree(raw);
+        // A path with spaces is quoted, so arguments may be typed after it.
+        if (path.find(L' ') != std::wstring::npos) path = L"\"" + path + L"\"";
+        SetText(kClockTargetEdit, path);
+        CommitTarget(path);
+    }
+
     void CommitFormat(std::wstring format) {
         if (format.size() > 128) format.resize(128);
         Config& c = Cfg();
         if (format.empty()) format = c.clock.format;  // an empty format would hide the clock
         SetText(kClockFormatCombo, format);
-        SetText(kClockPreview, ClockPreview(format));
+        SetText(kClockPreview, ClockPreview(format, c.clock.showSeconds));
         if (format == c.clock.format) return;
         c.clock.format = format;
         Changed(SettingsScope::Appearance);
@@ -260,8 +325,11 @@ private:
 
     void EnableClock(bool on) {
         Enable(kClockFormatCombo, on);
+        Enable(kClockSeconds, on);
         Enable(kClockDate, on);
-        Enable(kClockCalendar, on);
+        Enable(kClockClickCombo, on);
+        Enable(kClockTargetEdit, on);
+        Enable(kClockTargetBrowse, on);
     }
 
     void FillMonitors() {
@@ -311,11 +379,31 @@ protected:
         Section(kSectionPreviews, L"Window previews");
         Check(kPreviews, kPreviewsCaption, L"Show window previews for apps with several windows");
         NextRow();
+        Check(kPreviewSingle, kPreviewSingleCaption, L"Show window previews for apps with a single window",
+              kMargin + kCaptionDx);
+        NextRow();
         Label(kPreviewDelayLabel, L"Preview delay");
         IntSpin(kPreviewDelayEdit, kPreviewDelaySpin, kColX, 90, 0, 10000, 50,
                 [](Config& c) -> int& { return c.Main().previewDelayMs; }, SettingsScope::SaveOnly);
         Text(kPreviewDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
+
+        Section(kSectionMouse, L"Mouse");
+        Label(kMiddleClickLabel, L"Middle click on an app");
+        Combo(kMiddleClickCombo, kColX, right - kColX, false);
+        NextRow();
+        Label(kWheelLabel, L"Mouse wheel over an app");
+        Combo(kWheelCombo, kColX, right - kColX, false);
+        NextRow();
+    }
+
+    void Created() override {
+        ComboAdd(kMiddleClickCombo, L"Start a new instance");  // MiddleClickAction order
+        ComboAdd(kMiddleClickCombo, L"Minimize its windows");
+        ComboAdd(kMiddleClickCombo, L"Close its windows");
+        ComboAdd(kMiddleClickCombo, L"Nothing");
+        ComboAdd(kWheelCombo, L"Nothing");  // WheelAction order
+        ComboAdd(kWheelCombo, L"Switch between its windows");
     }
 
     void Load() override {
@@ -325,12 +413,27 @@ protected:
         SetCheck(kAutoHideAlways, c.Main().autoHide == AutoHideMode::Always);
         SetCheck(kAutoHideIntelligent, c.Main().autoHide == AutoHideMode::Intelligent);
         SetCheck(kPreviews, c.Main().previews);
+        SetCheck(kPreviewSingle, c.Main().previewSingle);
+        SetComboSel(kMiddleClickCombo, static_cast<int>(c.Main().middleClick));
+        SetComboSel(kWheelCombo, static_cast<int>(c.Main().wheel));
         EnableDependents();
     }
 
     void OnCommand(int id, int code, HWND) override {
-        if (code != BN_CLICKED) return;
         Config& c = Cfg();
+        if (code == CBN_SELCHANGE) {
+            // Read by the dock at click / wheel time.
+            const int sel = ComboSel(id);
+            if (id == kMiddleClickCombo && sel >= 0 && sel <= 3 && static_cast<MiddleClickAction>(sel) != c.Main().middleClick) {
+                c.Main().middleClick = static_cast<MiddleClickAction>(sel);
+                Changed(SettingsScope::SaveOnly);
+            } else if (id == kWheelCombo && sel >= 0 && sel <= 1 && static_cast<WheelAction>(sel) != c.Main().wheel) {
+                c.Main().wheel = static_cast<WheelAction>(sel);
+                Changed(SettingsScope::SaveOnly);
+            }
+            return;
+        }
+        if (code != BN_CLICKED) return;
         switch (id) {
             case kAutoHideOff:
             case kAutoHideAlways:
@@ -349,6 +452,10 @@ protected:
                 EnableDependents();
                 Changed(SettingsScope::SaveOnly);
                 break;
+            case kPreviewSingle:
+                c.Main().previewSingle = GetCheck(id);  // read when the mouse rests on an app
+                Changed(SettingsScope::SaveOnly);
+                break;
             default:
                 break;
         }
@@ -360,6 +467,7 @@ private:
         Enable(kHideDelayEdit, c.Main().AutoHideOn());
         Enable(kRevealDelayEdit, c.Main().AutoHideOn());
         Enable(kPreviewDelayEdit, c.Main().previews);
+        Enable(kPreviewSingle, c.Main().previews);
     }
 };
 

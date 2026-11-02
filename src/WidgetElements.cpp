@@ -20,7 +20,8 @@ constexpr float kWeatherTextGap = 3.0f;     // glyph -> temperature
 constexpr float kWeatherStaleAlpha = 0.6f;  // stale / missing weather data
 
 // A widget: one slot keyed "kind:<kind>" ("#n" for the second one of a kind and on), never
-// magnified, dragged or labelled. A right click opens the dock menu.
+// magnified or labelled. It can be dragged to another place (unless the dock is locked); a right
+// click opens the dock menu.
 class WidgetElement : public DockElement {
 public:
     WidgetElement(ElementHost& host, const DockItemEntry& entry, DockItem::Kind slotKind, const wchar_t* name,
@@ -50,8 +51,9 @@ private:
     AppKey key_;
 };
 
-// clock: the time (clock.format, strftime) and optionally the date, from Clock. A one-shot timer
-// aligned to the next minute (or second) boundary redraws it.
+// clock: the time (clock.format, strftime, with clock.showSeconds) and optionally the date, from
+// Clock. A one-shot timer aligned to the next minute (or second) boundary redraws it. A click
+// opens the month calendar, or clock.clickTarget (clock.click).
 class ClockElement final : public WidgetElement {
 public:
     ClockElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal)
@@ -61,7 +63,7 @@ public:
 
     void Configure() override {
         const Config& c = host_.Cfg();
-        clock_.Configure(c.clock.format, c.clock.showDate);
+        clock_.Configure(Clock::EffectiveFormat(c.clock.format, c.clock.showSeconds), c.clock.showDate);
         clock_.SetColors(c.theme.clockText, c.theme.clockDateText);
     }
     void Start() override {
@@ -81,9 +83,18 @@ public:
         return clock_.UpdateText();
     }
 
+    // The calendar popup (also when a click launches clock.clickTarget instead: DockCommand 114
+    // opens it, and a press on the clock closes it).
     ClickPopup Popup() const override { return ClickPopup::Calendar; }
     void OnClick(int slot, bool pressClosedPopup) override {
-        if (!pressClosedPopup && host_.Cfg().clock.calendarPopup) host_.ShowClickPopup(slot);
+        if (pressClosedPopup) return;
+        const ClockConfig& c = host_.Cfg().clock;
+        switch (c.click) {
+            case ClockClick::Calendar: host_.ShowClickPopup(slot); break;
+            case ClockClick::Launch: host_.OpenTarget(c.clickTarget); break;
+            case ClockClick::None:
+            default: break;
+        }
     }
 
 private:

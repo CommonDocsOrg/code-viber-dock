@@ -13,7 +13,16 @@ void Append(HMENU menu, UINT id, const wchar_t* text, bool enabled, bool checked
 
 void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
     Append(menu, kOpenSettings, L"Settings…", true);
-    Append(menu, kAddSeparator, L"Add separator", true);
+    Append(menu, kLockDock, L"Lock dock", true, state.locked);
+    Append(menu, kAddSeparator, L"Add separator", !state.locked);
+    if (HMENU sub = CreatePopupMenu()) {  // destroyed with its parent
+        Append(sub, kAddClock, L"Clock", true);
+        Append(sub, kAddWeather, L"Weather", true);
+        Append(sub, kAddRunning, L"Running apps", !state.hasRunning);
+        UINT flags = MF_POPUP | MF_STRING;
+        if (state.locked) flags |= MF_GRAYED;
+        AppendMenuW(menu, flags, reinterpret_cast<UINT_PTR>(sub), L"Add widget");
+    }
     if (state.weatherShown) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         Append(menu, kRefreshWeather, L"Refresh weather", state.weatherConfigured);

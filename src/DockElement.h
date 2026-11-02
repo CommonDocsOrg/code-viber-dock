@@ -55,6 +55,9 @@ enum class ClickPopup { None, Folder, Weather, Calendar };
 // What a right click on a slot opens.
 enum class RightClickAction { ItemMenu, DockMenu };
 
+// Something to do with the windows of a slot's app (ElementHost::WindowsCommand).
+enum class WindowsCommand { Minimize, Close, Next, Previous };
+
 // What elements may ask of the dock (DockWindow implements it).
 class ElementHost {
 public:
@@ -62,6 +65,8 @@ public:
 
     virtual HWND Hwnd() const = 0;
     virtual const Config& Cfg() const = 0;
+    // This dock's own settings (the per-dock keys: middle click, wheel, previews ...).
+    virtual const DockConfig& DockCfg() const = 0;
     virtual const WeatherService& Weather() const = 0;
     // Brings the slot's app to the front (cycles / minimizes its windows), or starts it.
     virtual void ActivateOrLaunch(int slot) = 0;
@@ -74,6 +79,10 @@ public:
     virtual void ShowClickPopup(int slot) = 0;
     // Settings > Weather (the unconfigured weather widget was clicked).
     virtual void OpenWeatherSettings() = 0;
+    // Minimizes / closes the slot's windows, or brings its next / previous window to the front.
+    virtual void SlotWindows(int slot, WindowsCommand cmd) = 0;
+    // Opens an app / file / URL the user configured (Launcher::OpenTarget; beeps on failure).
+    virtual void OpenTarget(const std::wstring& target) = 0;
 
 protected:
     ~ElementHost() = default;

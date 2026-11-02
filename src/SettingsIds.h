@@ -15,7 +15,8 @@ inline constexpr int kPageGeneral = 0;
 inline constexpr int kPageAppearance = 1;
 inline constexpr int kPageBehaviour = 2;
 inline constexpr int kPageAnimation = 3;
-inline constexpr int kPagePinned = 4;
+inline constexpr int kPagePinned = 4;   // "Dock contents" (was "Pinned apps")
+inline constexpr int kPageDockContents = kPagePinned;
 inline constexpr int kPageAbout = 5;
 inline constexpr int kPageWeather = 6;  // appended after About (pages are shown in index order)
 inline constexpr int kPageCount = 7;
@@ -56,8 +57,18 @@ inline constexpr int kSectionDock = 2126;
 inline constexpr int kSectionClock = 2127;
 inline constexpr int kSectionStartup = 2128;
 inline constexpr int kSectionRenderer = 2129;
-inline constexpr int kClockCalendar = 2130;   // check box: a click on the clock opens the calendar (+ caption 2131)
+// 2130 / 2131: the "Click the clock to show a month calendar" check box until 1c (replaced by
+// kClockClickCombo); reserved.
+inline constexpr int kClockCalendar = 2130;
 inline constexpr int kClockCalendarCaption = 2131;
+inline constexpr int kClockSeconds = 2132;     // check box: clock.showSeconds (+ caption 2133)
+inline constexpr int kClockSecondsCaption = 2133;
+inline constexpr int kClockClickLabel = 2134;
+inline constexpr int kClockClickCombo = 2135;  // clock.click: 0 calendar, 1 launch, 2 none
+inline constexpr int kClockTargetLabel = 2136;
+inline constexpr int kClockTargetEdit = 2137;  // clock.clickTarget; applied on Enter / focus loss
+inline constexpr int kClockTargetBrowse = 2138;  // "Browse…" (open dialog for an app)
+inline constexpr int kClockTargetNote = 2139;
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;
@@ -83,6 +94,13 @@ inline constexpr int kHideDelayUnit = 2219;
 inline constexpr int kRevealDelayUnit = 2220;
 inline constexpr int kPreviewDelayUnit = 2221;
 inline constexpr int kAutoHideNote = 2222;
+inline constexpr int kPreviewSingle = 2223;        // check box: previewsSingleWindow (+ caption 2224)
+inline constexpr int kPreviewSingleCaption = 2224;
+inline constexpr int kSectionMouse = 2225;
+inline constexpr int kMiddleClickLabel = 2226;
+inline constexpr int kMiddleClickCombo = 2227;     // middleClick: 0 newInstance, 1 minimize, 2 close, 3 none
+inline constexpr int kWheelLabel = 2228;
+inline constexpr int kWheelCombo = 2229;           // wheel: 0 none, 1 cycle
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;
@@ -169,9 +187,9 @@ inline constexpr int kReduceMotionCombo = 2533;   // 0 system, 1 on, 2 off
 inline constexpr int kReduceMotionNote = 2534;    // "Windows animation effects: on / off"
 inline constexpr int kSpeedNote = 2535;
 
-// Pinned apps (2600 - 2699)
-inline constexpr int kPinnedList = 2600;          // SysListView32 (report): Name, Target
-inline constexpr int kPinAdd = 2601;              // "Add…" (open dialog, .lnk / .exe, multi-select)
+// Dock contents (2600 - 2699; "Pinned apps" until 1c, the ids are kept)
+inline constexpr int kPinnedList = 2600;          // SysListView32 (report): Name, Kind, Details; one row per docks[0].items[] entry
+inline constexpr int kPinAdd = 2601;              // "Add app…" (open dialog, .lnk / .exe, multi-select)
 inline constexpr int kPinRemove = 2602;
 inline constexpr int kPinUp = 2603;
 inline constexpr int kPinDown = 2604;
@@ -182,6 +200,10 @@ inline constexpr int kPinAddRecycleBin = 2608;    // appends { "kind": "recycleB
 inline constexpr int kPinChooseIcon = 2609;       // "Choose icon…" (the Change Icon dialog); disabled for separators
 inline constexpr int kPinChooseImage = 2610;      // "Choose image…" (open dialog: images, .ico / .exe / .dll)
 inline constexpr int kPinResetIcon = 2611;        // "Reset icon": clears `icon`; enabled when the entry has one
+inline constexpr int kPinAddWidget = 2612;        // "Add widget" (menu: Clock, Weather, Running apps)
+inline constexpr int kPinSettings = 2613;         // "Settings…" of the selected item (see the page)
+inline constexpr int kLockDock = 2614;            // check box: docks[0].locked (+ caption 2615)
+inline constexpr int kLockDockCaption = 2615;
 
 // Weather (2700 - 2799)
 inline constexpr int kSectionWeather = 2700;
