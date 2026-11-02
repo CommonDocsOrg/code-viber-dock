@@ -91,7 +91,7 @@ void PreviewPopup::SyncCards(const std::vector<HWND>& windows) {
     cards_ = std::move(next);
 }
 
-bool PreviewPopup::Show(const Content& content, const Style& style, int anchorX, int bottom) {
+bool PreviewPopup::Show(const Content& content, const Style& style, const PopupAnchor& anchor) {
     if (content.windows.empty()) return false;
     style_ = style;
     contentData_ = content;
@@ -100,7 +100,7 @@ bool PreviewPopup::Show(const Content& content, const Style& style, int anchorX,
     frame.acrylic = style.acrylic;
     frame.cornerRadiusDip = style.cornerRadiusDip;
     frame.monitor = style.monitor;
-    return ShowAt(frame, anchorX, bottom);
+    return ShowAt(frame, anchor);
 }
 
 SIZE PreviewPopup::Measure() {

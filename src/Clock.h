@@ -26,6 +26,15 @@ public:
     void ScheduleNextTick(HWND hwnd, UINT_PTR timerId) const;
     static void Stop(HWND hwnd, UINT_PTR timerId);
 
+    // Vertical docks: every space of the time and date text breaks the line ("12:34" over "PM"),
+    // so the block stays narrow. Rebuilds the layouts when it changes.
+    void SetStacked(bool stacked) {
+        if (stacked == stacked_) return;
+        stacked_ = stacked;
+        timeLayout_ = nullptr;
+        dateLayout_ = nullptr;
+    }
+
     // Re-formats the text. Returns true if it changed (layout must be rebuilt).
     bool UpdateText();
 
@@ -48,6 +57,7 @@ private:
 
     std::wstring format_ = L"%H:%M";
     bool showDate_ = false;
+    bool stacked_ = false;
     uint32_t textColor_ = 0xF2FFFFFF;
     uint32_t dateColor_ = 0xB6FFFFFF;
     std::wstring timeText_;

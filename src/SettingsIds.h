@@ -69,6 +69,16 @@ inline constexpr int kClockTargetLabel = 2136;
 inline constexpr int kClockTargetEdit = 2137;  // clock.clickTarget; applied on Enter / focus loss
 inline constexpr int kClockTargetBrowse = 2138;  // "Browse…" (open dialog for an app)
 inline constexpr int kClockTargetNote = 2139;
+// Position (round 4, phase 2): docks[0].edge / align / offset.
+inline constexpr int kSectionPosition = 2140;
+inline constexpr int kEdgeLabel = 2141;
+inline constexpr int kEdgeCombo = 2142;        // 0 bottom, 1 top, 2 left, 3 right
+inline constexpr int kAlignLabel = 2143;
+inline constexpr int kAlignCombo = 2144;       // 0 center, 1 start, 2 end
+inline constexpr int kOffsetLabel = 2145;
+inline constexpr int kOffsetEdit = 2146;       // DIPs, -16000 - 16000
+inline constexpr int kOffsetSpin = 2147;
+inline constexpr int kPositionNote = 2148;
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;

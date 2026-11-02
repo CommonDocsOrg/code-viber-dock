@@ -36,6 +36,12 @@ struct DockItemEntry {
 // "off": always shown. "always": hides when the mouse leaves. "intelligent": hides only while
 // the foreground window overlaps the dock.
 enum class AutoHideMode { Off, Always, Intelligent };
+// The screen edge a dock sits on: "bottom" (default), "top", "left", "right". Left / right docks
+// are vertical (the icons stack along the edge).
+enum class DockEdge { Bottom, Top, Left, Right };
+inline bool IsVertical(DockEdge e) { return e == DockEdge::Left || e == DockEdge::Right; }
+// Where along its edge a dock sits: "center" (default), "start" (left / top end), "end".
+enum class DockAlign { Center, Start, End };
 // A middle click on an app: "newInstance" (start another copy), "minimize" / "close" its windows,
 // "none". Folders and the Recycle Bin always open in Explorer.
 enum class MiddleClickAction { NewInstance, Minimize, Close, None };
@@ -49,7 +55,11 @@ struct DockConfig {
     // Defaults (first run, a malformed file, a dock object without "items"): the running apps and
     // the clock. The first run also seeds pins in front of them.
     std::vector<DockItemEntry> items = {DockItemEntry{L"running"}, DockItemEntry{L"clock"}};
-    std::wstring edge = L"bottom";  // read and written; only "bottom" is implemented (Phase 2)
+    DockEdge edge = DockEdge::Bottom;  // unknown text reads as bottom
+    DockAlign align = DockAlign::Center;
+    // DIPs (pixels at 100 % scale) added to the aligned position along the edge (positive: right /
+    // down). The dock is kept on its monitor.
+    int offset = 0;
     // No drag reorder, no pinning by file drop, no Add separator / Add widget from the dock menu.
     // The settings window still edits everything.
     bool locked = false;
@@ -157,6 +167,10 @@ const wchar_t* ToString(Units v);
 const wchar_t* ToString(MiddleClickAction v);
 const wchar_t* ToString(WheelAction v);
 const wchar_t* ToString(ClockClick v);
+const wchar_t* ToString(DockEdge v);
+const wchar_t* ToString(DockAlign v);
+bool FromString(std::wstring_view s, DockEdge& v);
+bool FromString(std::wstring_view s, DockAlign& v);
 bool FromString(std::wstring_view s, MiddleClickAction& v);
 bool FromString(std::wstring_view s, WheelAction& v);
 bool FromString(std::wstring_view s, ClockClick& v);

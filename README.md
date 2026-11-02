@@ -40,6 +40,9 @@ build\x64-release\WinDock.exe --settings          :: open the settings window (s
 Right-click the tray icon or an empty part of the dock for the menu:
 
 - **Settings…**: opens the settings window (see Settings), or brings it to the front.
+- **Position on screen** submenu (radio items): **Bottom**, **Top**, **Left**, **Right**. Moves the
+  dock to that edge of its monitor (`edge`; alignment and offset are kept) and saves it. See
+  [Position](#position-edge-alignment-offset).
 - **Auto-hide** submenu (radio items): **Off**, **Always**, **When a window overlaps**. Sets
   `autoHide` (`"off"`, `"always"`, `"intelligent"`) immediately and saves it.
 - **Hide taskbar** (checkmark): hides or restores the Explorer taskbar immediately and saves
@@ -56,6 +59,11 @@ Right-click the tray icon or an empty part of the dock for the menu:
 - **Quit**.
 
 ### Magnification, name label, auto-hide
+
+The descriptions below are for a bottom dock. On the other edges everything turns with the dock
+(see [Position](#position-edge-alignment-offset)): "up" means away from the screen edge, "left /
+right" means along the dock, the label and the popups open on the side facing the middle of the
+screen, and auto-hide slides the dock off its own edge.
 
 - **Magnification**: icons near the mouse grow, up to `magnification` times their size for the
   icon under the pointer, falling off with a cosine curve (or a straight line with
@@ -151,8 +159,49 @@ Right-click the tray icon or an empty part of the dock for the menu:
 
 The dock follows DPI changes: it redraws every icon at the new pixel size and lays itself out
 again. On display changes (resolution, monitors added or removed, work area changes) it moves
-back to the bottom centre of the configured monitor. If that monitor no longer exists, it uses
+back to its place on its edge of the configured monitor (see Position). If that monitor no longer exists, it uses
 the primary monitor.
+
+### Position: edge, alignment, offset
+
+Per dock, `edge` puts the dock on the `"bottom"` (default), `"top"`, `"left"` or `"right"` edge of
+its monitor, `align` places it along that edge (`"center"`, default; `"start"`: the left end of a
+bottom / top dock, the top end of a left / right one; `"end"`: the other end, both 8 DIP from the
+monitor's end), and `offset` (DIPs, i.e. pixels at 100 % scaling, default 0, -16000 - 16000) moves
+it from there along the edge, toward the right / bottom when positive. The dock never leaves its
+monitor: an offset that would push it off is cut at the monitor's end. The dock menu's
+**Position on screen**, Settings > General > Position and `WinDock.DockCommand` 120 - 123 set the
+edge; missing keys mean the defaults, and every save writes all three.
+
+The layout is computed once for every edge in "main" (along the dock) and "cross" (across it,
+toward the screen edge) coordinates and then mapped onto the screen, so an edge changes where
+things go, not how they behave:
+
+- **Bottom / top** docks are horizontal; a top dock is a bottom dock mirrored: the icons stand on
+  the edge-facing side of the bar (the top), the running dots sit between the icons and the screen
+  edge, magnified icons grow downward, the name label, the window previews and the folder /
+  weather / calendar popups open below the dock, and auto-hide slides it up off the screen into a
+  1 px strip along the top edge.
+- **Left / right** docks are vertical: the icons stack along the edge (in config order, top to
+  bottom), magnification grows along the edge and away from it, the label is drawn beside the
+  magnified icon toward the middle of the screen (upright, vertically centred on the icon), and
+  the popups open beside the dock, centred on the item along the edge and kept on the monitor.
+  The dots are on the screen-edge side of the icons. While the mouse is on a vertical dock its
+  window is wide enough for the longest label (about 400 DIP across), at rest it is just the bar.
+- **Widgets on a vertical dock** stay upright and are laid out narrow: the clock puts every word
+  on its own line (`14:45` over the date's `Mon` / `02` / `Nov`; a 12-hour format puts `PM` under
+  the time), the weather widget puts its glyph above the temperature. Their height is their
+  length along the dock.
+- **Icon effects**: reflections point toward the screen edge, so they are drawn under the icons of
+  a bottom dock and above the icons of a top dock (the icon's top mirrored about its top edge);
+  left / right docks have no reflections (Settings says so under Icon effects). The glow is the
+  same on every edge. The perspective tilt rotates about the bar's screen-edge side (about the X
+  axis on horizontal docks, the Y axis on vertical ones), so the side facing the middle of the
+  screen recedes.
+- **Placement at the monitor's ends**: with `"start"` / `"end"` (or an offset that brings the dock
+  near an end), magnification cannot grow the bar past the monitor's end; it grows away from it
+  instead (the icon under the pointer then drifts a little off the pointer at the very end).
+- The Explorer taskbar handling is unchanged: it is hidden whatever edge the dock is on.
 
 ### Dock items
 
@@ -347,7 +396,8 @@ Pages (left column; Up / Down / Home / End switch pages while it has the focus, 
 the page, Esc closes the window, Enter applies the text in an edit box):
 
 - **General**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
-  magnification range (1-4 icons), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
+  magnification range (1-4 icons), **Position**: screen edge, alignment and offset (pixels at
+  100 % scale; applied on Enter or focus loss; see Position), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
   dock's order), clock on / off, time format (pick one or type a `strftime` format; a preview shows
   the result), **Show seconds**, date line, **Clicking the clock opens** (the month calendar, the
   app or URL below, nothing), **App or URL** (typed, applied on Enter or when the box loses the
@@ -464,7 +514,7 @@ with the defaults and leaves the file untouched.
         { "kind": "weather" },
         { "kind": "clock" }
       ],
-      "edge": "bottom", "locked": false,
+      "edge": "bottom", "align": "center", "offset": 0, "locked": false,
       "iconSize": 48, "magnification": 1.5, "magnifyRange": 2,
       "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
       "previews": true, "previewsSingleWindow": false, "previewDelayMs": 600,
@@ -537,7 +587,9 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     (see Dock items; the running apps count as one block). Settings > Dock contents moves any
     item. A file dropped on the dock is pinned before a pin, after the last pin, or (no pins)
     before the running apps, whichever place is nearest.
-  - `edge` (default `"bottom"`, the only edge implemented; read and written for later versions).
+  - `edge` (default `"bottom"`; `"top"`, `"left"`, `"right"`), `align` (default `"center"`;
+    `"start"`, `"end"`) and `offset` (DIPs, default 0): where the dock sits, see
+    [Position](#position-edge-alignment-offset). Unknown text reads as the default.
   - `locked` (default `false`): no dragging, no pinning by dropping files, no Add separator / Add
     widget from the dock menu (see Dock items).
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
@@ -695,6 +747,10 @@ reflections lie on it. A glow that shows at rest (`"active"`, `"always"`) reache
 the dock window at rest is that much taller (the band above the bar takes clicks but does
 nothing).
 
+On a top dock the reflections are drawn above the icons (toward the screen edge); left / right
+docks have none. The perspective pivots on the bar's screen-edge side on every edge (see
+[Position](#position-edge-alignment-offset)).
+
 The perspective is a DirectComposition 3D transform (a rotation about the bar's bottom edge plus
 a perspective projection, viewer distance one dock-stage width) on the bar, the icons and the
 clock / weather widget; it is static and does not redraw anything. It is cosmetic: clicks, hover
@@ -767,7 +823,8 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   always, 110 Auto-hide when a window overlaps, 107 open or activate the settings window,
   111 Refresh weather, 112 Add separator, 113 Weather settings… (the settings window on the
   Weather page), 114 show / hide the calendar popup, 115 show / hide the weather popup, 116 Lock
-  dock toggle, 117 Add widget > Clock, 118 Add widget > Weather, 119 Add widget > Running apps).
+  dock toggle, 117 Add widget > Clock, 118 Add widget > Weather, 119 Add widget > Running apps,
+  120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right; saved like the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -810,7 +867,9 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   average, computed once per icon load; 0 when unknown, -1 if there is no such item). 36 = 1
   while the dock is locked. 37 = the index in `docks[0].items` of the config item that shows item
   `lParam` (every running app of the `running` item reports that item's index; -1 if there is no
-  such item). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
+  such item). 38 = the edge the dock is laid out on (0 bottom, 1 top, 2 left, 3 right). 39 =
+  `docks[0].align` (0 center, 1 start, 2 end). 40 = `docks[0].offset` (DIPs). `QueryItemPoint`
+  answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
   what `WinDock.exe --settings` sends to a running dock.
 - Settings window (class `WinDock.Settings`, title "WinDock Settings"): the page list is the child
@@ -820,7 +879,8 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   listed in `src/SettingsIds.h` (the Dock contents page kept the Pinned apps ids 2600 - 2611 and
   added 2612 Add widget, 2613 Settings…, 2614 Lock the dock; its list 2600 has one row per config
   item, columns Name, Kind, Details; General 2130 / 2131 are retired, replaced by 2132 Show
-  seconds, 2135 Clicking the clock opens, 2137 App or URL, 2138 Browse…; Behaviour added 2223
+  seconds, 2135 Clicking the clock opens, 2137 App or URL, 2138 Browse…; Position 2140 - 2148: 2142 screen edge and 2144 alignment drop-downs in DockEdge /
+  DockAlign order, 2146 / 2147 offset box and up-down; Behaviour added 2223
   single-window previews, 2227 middle click, 2229 mouse wheel). "Add widget ▾" opens a popup menu
   (items 1 Clock, 2 Weather, 3 Running apps), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme

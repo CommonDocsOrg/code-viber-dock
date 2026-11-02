@@ -23,6 +23,14 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
         if (state.locked) flags |= MF_GRAYED;
         AppendMenuW(menu, flags, reinterpret_cast<UINT_PTR>(sub), L"Add widget");
     }
+    if (HMENU sub = CreatePopupMenu()) {  // destroyed with its parent
+        Append(sub, kEdgeBottom, L"Bottom", true);
+        Append(sub, kEdgeTop, L"Top", true);
+        Append(sub, kEdgeLeft, L"Left", true);
+        Append(sub, kEdgeRight, L"Right", true);
+        CheckMenuRadioItem(sub, kEdgeBottom, kEdgeRight, kEdgeBottom + static_cast<UINT>(state.edge), MF_BYCOMMAND);
+        AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(sub), L"Position on screen");
+    }
     if (state.weatherShown) {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         Append(menu, kRefreshWeather, L"Refresh weather", state.weatherConfigured);

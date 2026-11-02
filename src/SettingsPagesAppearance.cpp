@@ -51,8 +51,9 @@ std::vector<FieldGroup> FieldGroups() {
          {Field::Glow, Field::GlowColor, Field::GlowRadius, Field::GlowStrength, Field::Reflection,
           Field::ReflectionHeight, Field::ReflectionOpacity, Field::Perspective, Field::PerspectiveAngle},
          kEffectsNote,
-         L"A clear glow colour (alpha 0) uses each icon's own colour. The perspective tilt is cosmetic (clicks "
-         L"use the flat layout) and turns acrylic off, like the glass shelf."},
+         L"A clear glow colour (alpha 0) uses each icon's own colour. Reflections show on bottom and top docks "
+         L"only (left / right docks have none). The perspective tilt is cosmetic (clicks use the flat layout) "
+         L"and turns acrylic off, like the glass shelf."},
     };
     FieldGroup other{kSectionFieldsOther, L"Other", {}};
     for (size_t i = 0; i < Theme::FieldCount(); ++i) {
@@ -131,8 +132,8 @@ protected:
             Section(g.sectionId, g.title);
             for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
             if (g.note) {
-                Text(g.noteId, CtlKind::Note, g.note, kMargin, right - kMargin, 36);
-                NextRow(36);
+                Text(g.noteId, CtlKind::Note, g.note, kMargin, right - kMargin, 54);
+                NextRow(54);
             }
         }
     }

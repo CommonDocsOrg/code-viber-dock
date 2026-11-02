@@ -48,9 +48,9 @@ public:
     ~PreviewPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, Callbacks callbacks);
-    // Shows the popup (fading in) or updates it in place: centred on screen x `anchorX`, bottom
-    // edge at screen y `bottom`, clamped to the monitor. Returns false if it could not be shown.
-    bool Show(const Content& content, const Style& style, int anchorX, int bottom);
+    // Shows the popup (fading in) or updates it in place at `anchor` (PopupAnchor: beside the dock,
+    // away from its edge), clamped to the monitor. Returns false if it could not be shown.
+    bool Show(const Content& content, const Style& style, const PopupAnchor& anchor);
 
     size_t CardCount() const { return OnScreen() ? cards_.size() : 0; }
     HWND CardWindow(size_t card) const { return OnScreen() && card < cards_.size() ? cards_[card].window : nullptr; }

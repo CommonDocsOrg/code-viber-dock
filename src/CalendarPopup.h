@@ -42,8 +42,8 @@ public:
     // `closed`: the popup closed by itself (deactivated, Escape); `footer`: the footer button was
     // clicked.
     void Init(HINSTANCE instance, Renderer* renderer, std::function<void()> closed, std::function<void()> footer);
-    // Shows the current month centred on screen x `anchorX`, bottom edge at screen y `bottom`.
-    bool Show(const Style& style, int anchorX, int bottom);
+    // Shows the current month at `anchor` (beside the dock, away from its edge).
+    bool Show(const Style& style, const PopupAnchor& anchor);
     // Months between the month shown and the current one (0 while hidden).
     int MonthOffset() const;
 

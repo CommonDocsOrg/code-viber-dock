@@ -108,8 +108,8 @@ void FolderPopup::OnDestroying() {
     formatScale_ = 0.0f;
 }
 
-bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, const Style& style, int anchorX,
-                       int bottom) {
+bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, const Style& style,
+                       const PopupAnchor& anchor) {
     if (folder.empty()) return false;
     style_ = style;
     frame_ = Frame{};
@@ -117,12 +117,11 @@ bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, con
     frame_.acrylic = style.acrylic;
     frame_.cornerRadiusDip = style.cornerRadiusDip;
     frame_.monitor = style.monitor;
-    anchorX_ = anchorX;
-    bottom_ = bottom;
+    anchor_ = anchor;
     root_ = Normalize(folder);
     rootName_ = name.empty() ? LastComponent(root_) : name;
     Load(root_);
-    if (!ShowAt(frame_, anchorX_, bottom_)) {
+    if (!ShowAt(frame_, anchor_)) {
         if (!OnScreen()) Release();
         return false;
     }
@@ -162,13 +161,29 @@ void FolderPopup::Load(const std::wstring& folder) {
     });
     total_ = all.size();
 
-    // As many cells as fit: columns min(6, ceil(sqrt(n))) within the monitor's width, rows within
-    // the room above the dock; the rest goes into "+N more".
+    // As many cells as fit: columns min(6, ceil(sqrt(n))) within the monitor's width (beside a
+    // vertical dock: the room on its side), rows within the room above the dock (below a top dock,
+    // the monitor's height beside a vertical one); the rest goes into "+N more".
     const float s = style_.scale;
     const RECT& m = style_.monitor;
     const LONG pad = Px(kPad, s), cellW = Px(kCellW, s), cellH = Px(kCellH, s), margin = Px(kMonitorMargin, s);
-    const LONG availW = (m.right - m.left) - 2 * margin - 2 * pad;
-    const LONG availH = (bottom_ - m.top) - margin - 2 * pad - Px(kHeaderH + kHeaderGap + kFooterH, s);
+    LONG roomW = (m.right - m.left) - 2 * margin;
+    LONG roomH = (anchor_.side - m.top) - margin;
+    switch (anchor_.edge) {
+        case DockEdge::Top: roomH = (m.bottom - anchor_.side) - margin; break;
+        case DockEdge::Left:
+            roomW = (m.right - anchor_.side) - margin;
+            roomH = (m.bottom - m.top) - 2 * margin;
+            break;
+        case DockEdge::Right:
+            roomW = (anchor_.side - m.left) - margin;
+            roomH = (m.bottom - m.top) - 2 * margin;
+            break;
+        case DockEdge::Bottom:
+        default: break;
+    }
+    const LONG availW = roomW - 2 * pad;
+    const LONG availH = roomH - 2 * pad - Px(kHeaderH + kHeaderGap + kFooterH, s);
     const size_t maxColumns = static_cast<size_t>(std::max<LONG>(1, availW / std::max<LONG>(1, cellW)));
     const size_t maxRows = static_cast<size_t>(std::max<LONG>(1, availH / std::max<LONG>(1, cellH)));
     size_t n = std::min(total_, kMaxEntries);
@@ -209,7 +224,7 @@ void FolderPopup::Load(const std::wstring& folder) {
 void FolderPopup::Navigate(const std::wstring& folder) {
     if (folder.empty()) return;
     Load(folder);
-    if (!ShowAt(frame_, anchorX_, bottom_) && callbacks_.dismiss) callbacks_.dismiss();
+    if (!ShowAt(frame_, anchor_) && callbacks_.dismiss) callbacks_.dismiss();
 }
 
 void FolderPopup::GoBack() {

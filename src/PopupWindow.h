@@ -6,7 +6,18 @@
 #include <functional>
 
 #include "Backdrop.h"
+#include "Config.h"
 #include "Renderer.h"
+
+// Where a dock popup opens: centred on screen coordinate `along` along the dock's edge (x for
+// bottom / top docks, y for left / right ones), with its dock-facing side at screen coordinate
+// `side` on the cross axis, extending away from the edge (above a bottom dock, below a top dock,
+// right of a left dock, left of a right dock). The popup is kept inside the frame's monitor rect.
+struct PopupAnchor {
+    DockEdge edge = DockEdge::Bottom;
+    int along = 0;
+    int side = 0;
+};
 
 // Base of the dock's popups (window previews; later folder contents, weather, calendar): a
 // separate top-level window (WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP) whose
@@ -42,7 +53,7 @@ public:
         float scale = 1.0f;            // DPI scale
         bool acrylic = false;          // wanted; ShowAt falls back to none if the backdrop fails
         float cornerRadiusDip = 8.0f;  // without acrylic (with it, the system radius)
-        RECT monitor{};                // screen px; the popup is kept inside it
+        RECT monitor{};                // screen px (the dock monitor's work area); the popup is kept inside it
     };
 
     PopupWindow(const wchar_t* className, const wchar_t* title, Mode mode)
@@ -79,9 +90,9 @@ public:
 
 protected:
     // Shows the popup (fading in) or updates it in place: Measure() gives the client size,
-    // Paint() draws it, and it is centred on screen x `anchorX` with its bottom edge at screen y
-    // `bottom`, clamped to frame.monitor. Returns false if it could not be shown.
-    bool ShowAt(const Frame& frame, int anchorX, int bottom);
+    // Paint() draws it, and it is placed at `anchor` (see PopupAnchor), clamped to frame.monitor.
+    // Returns false if it could not be shown.
+    bool ShowAt(const Frame& frame, const PopupAnchor& anchor);
     // Paint() into the content surface again (no commit; call Commit()).
     HRESULT Redraw();
     void Commit();

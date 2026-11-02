@@ -44,6 +44,8 @@ const wchar_t* const kUnitsNames[] = {L"metric", L"imperial"};
 const wchar_t* const kMiddleClickNames[] = {L"newInstance", L"minimize", L"close", L"none"};
 const wchar_t* const kWheelNames[] = {L"none", L"cycle"};
 const wchar_t* const kClockClickNames[] = {L"calendar", L"launch", L"none"};
+const wchar_t* const kEdgeNames[] = {L"bottom", L"top", L"left", L"right"};
+const wchar_t* const kAlignNames[] = {L"center", L"start", L"end"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather"};
 
@@ -76,6 +78,13 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     s.clear();
     ReadString(o, L"wheel", s);
     if (!s.empty()) FromString(s, d.wheel);
+    s.clear();
+    ReadString(o, L"edge", s);
+    if (!s.empty() && !FromString(s, d.edge)) d.edge = DockEdge::Bottom;
+    s.clear();
+    ReadString(o, L"align", s);
+    if (!s.empty()) FromString(s, d.align);  // unknown text: center
+    ReadInt(o, L"offset", d.offset);
 }
 
 // The path names a directory (environment variables expanded). A .lnk to a folder is not one:
@@ -119,6 +128,10 @@ const wchar_t* ToString(Units v) { return EnumToString(v, kUnitsNames); }
 const wchar_t* ToString(MiddleClickAction v) { return EnumToString(v, kMiddleClickNames); }
 const wchar_t* ToString(WheelAction v) { return EnumToString(v, kWheelNames); }
 const wchar_t* ToString(ClockClick v) { return EnumToString(v, kClockClickNames); }
+const wchar_t* ToString(DockEdge v) { return EnumToString(v, kEdgeNames); }
+const wchar_t* ToString(DockAlign v) { return EnumToString(v, kAlignNames); }
+bool FromString(std::wstring_view s, DockEdge& v) { return EnumFromString(s, v, kEdgeNames); }
+bool FromString(std::wstring_view s, DockAlign& v) { return EnumFromString(s, v, kAlignNames); }
 bool FromString(std::wstring_view s, MiddleClickAction& v) { return EnumFromString(s, v, kMiddleClickNames); }
 bool FromString(std::wstring_view s, WheelAction& v) { return EnumFromString(s, v, kWheelNames); }
 bool FromString(std::wstring_view s, ClockClick& v) { return EnumFromString(s, v, kClockClickNames); }
@@ -306,7 +319,9 @@ void Config::Sanitize() {
     for (DockConfig& d : docks) {
         if (d.id.empty()) d.id = L"main";
         if (d.id.size() > 64) d.id.resize(64);
-        if (d.edge.empty()) d.edge = L"bottom";
+        if (static_cast<unsigned>(d.edge) > static_cast<unsigned>(DockEdge::Right)) d.edge = DockEdge::Bottom;
+        if (static_cast<unsigned>(d.align) > static_cast<unsigned>(DockAlign::End)) d.align = DockAlign::Center;
+        d.offset = std::clamp(d.offset, -16000, 16000);
         d.iconSize = std::clamp(d.iconSize, 16, 256);
         if (!(d.magnification >= 1.0)) d.magnification = 1.0;  // also catches NaN
         d.magnification = std::min(d.magnification, 2.5);
@@ -418,7 +433,6 @@ Config::LoadResult Config::LoadFile() {
                     const json::JsonObject obj = dv.GetObject();
                     DockConfig d;
                     ReadString(obj, L"id", d.id);
-                    ReadString(obj, L"edge", d.edge);
                     ReadBool(obj, L"locked", d.locked);
                     ReadDockFields(obj, d);
                     ReadDockOnlyFields(obj, d);
@@ -551,7 +565,8 @@ bool Config::Save() const {
                 o += L"{ " + fields + L" }";
             }
             o += d.items.empty() ? L"],\n" : L"\n      ],\n";
-            o += L"      \"edge\": " + Quote(d.edge) + L", \"locked\": " + Bool(d.locked) + L",\n";
+            o += L"      \"edge\": " + Quote(ToString(d.edge)) + L", \"align\": " + Quote(ToString(d.align)) +
+                 L", \"offset\": " + Num(d.offset) + L", \"locked\": " + Bool(d.locked) + L",\n";
             o += L"      \"iconSize\": " + Num(d.iconSize) + L", \"magnification\": " + Num(d.magnification) +
                  L", \"magnifyRange\": " + Num(d.magnifyRange) + L",\n";
             o += L"      \"autoHide\": " + Quote(ToString(d.autoHide)) + L", \"hideDelayMs\": " + Num(d.hideDelayMs) +

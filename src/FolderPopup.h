@@ -49,9 +49,9 @@ public:
     ~FolderPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, IconCache* icons, Callbacks callbacks);
-    // Shows the contents of `folder` (titled `name`), centred on screen x `anchorX` with its
-    // bottom edge at screen y `bottom`. Returns false if it could not be shown.
-    bool Show(const std::wstring& folder, const std::wstring& name, const Style& style, int anchorX, int bottom);
+    // Shows the contents of `folder` (titled `name`) at `anchor` (beside the dock, away from its
+    // edge). Returns false if it could not be shown.
+    bool Show(const std::wstring& folder, const std::wstring& name, const Style& style, const PopupAnchor& anchor);
 
     // Cells shown (0 while hidden).
     size_t EntryCount() const { return OnScreen() ? entries_.size() : 0; }
@@ -98,8 +98,7 @@ private:
     IconCache* icons_ = nullptr;
     Style style_;
     Frame frame_;
-    int anchorX_ = 0;
-    int bottom_ = 0;
+    PopupAnchor anchor_;
 
     std::wstring root_;      // the pinned folder
     std::wstring rootName_;  // its name on the dock

@@ -15,6 +15,7 @@
 #include "CalendarPopup.h"
 #include "Config.h"
 #include "DockElement.h"
+#include "DockGeometry.h"
 #include "DockItems.h"
 #include "FolderPopup.h"
 #include "ForegroundWatch.h"
@@ -94,7 +95,9 @@ public:
     // (0 without a glow surface, -1 no such item); 34: height in pixels of item lp's reflection
     // surface (0 when off); 35: the dominant colour of item lp's icon as 0xAARRGGBB (0 unknown,
     // -1 no such item); 36: 1 while the dock is locked (docks[].locked); 37: the index in
-    // docks[0].items[] of the config item that contributes slot lp (-1 no such slot).
+    // docks[0].items[] of the config item that contributes slot lp (-1 no such slot); 38: the edge
+    // the dock is laid out on (0 bottom, 1 top, 2 left, 3 right); 39: docks[0].align (0 center,
+    // 1 start, 2 end); 40: docks[0].offset (DIPs).
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -207,10 +210,20 @@ private:
     // label, bar growth); the HWND covers all of it only while the mouse is on the dock (see
     // DesiredRect). Visuals are positioned in stage coordinates; the root visual's transform
     // maps them into the HWND's client area.
+    //
+    // Everything below except `monitor`, `work` and `window` is CANONICAL (DockGeometry.h): x / left
+    // / right / "X" names are the main axis (along the bar), y / top / bottom / "Y" names the cross
+    // axis, with "bottom" the side at the screen edge, whatever the dock's edge. Phys / Canon map
+    // between canonical stage coordinates and physical stage coordinates (identity for a bottom dock).
     struct Layout {
         float scale = 1.0f;
-        RECT monitor{};        // screen coordinates
-        RECT window{};         // screen coordinates: the stage
+        DockEdge edge = DockEdge::Bottom;
+        bool vertical = false; // left / right: the main axis is y
+        RECT monitor{};        // screen coordinates (the dock's monitor; DockWindow::MonitorRects)
+        RECT work{};           // its work area (popups are kept inside it)
+        RECT window{};         // screen coordinates: the stage (physical)
+        float stageMain = 0.0f;   // the stage's canonical size
+        float stageCross = 0.0f;
         D2D1_RECT_F bar{};     // drawn background at rest
         float cornerRadius = 0.0f;
         float iconPx = 0.0f;   // unmagnified icon size
@@ -241,12 +254,48 @@ private:
         float reflH = 0.0f;       // icon reflections under the icon row (the bar's extra height)
         float glowPad = 0.0f;     // how far the glow reaches beyond the icon box (0: no glow)
         float restTopExtra = 0.0f; // the resting HWND reaches this far above the bar (a glow shown at rest)
+        // How far the bar's ends may grow toward the stage's start / end while magnified (the stage
+        // is kept on the monitor, so a dock at a monitor end grows away from it).
+        float growRoomStart = 0.0f;
+        float growRoomEnd = 0.0f;
+        float popupY = 0.0f;      // popups open beyond this cross coordinate (with kPreviewGap)
+
+        D2D1_POINT_2F Phys(float u, float v) const { return DockGeometry::Point(edge, u, v, stageCross); }
+        D2D1_RECT_F PhysRect(float u0, float v0, float u1, float v1) const {
+            return DockGeometry::Rect(edge, u0, v0, u1, v1, stageCross);
+        }
+        // Physical cross offset (y, or x on vertical docks) of the band [v, v + length].
+        float CrossOrigin(float v, float length) const { return DockGeometry::CrossOrigin(edge, v, length, stageCross); }
+        // A stage pixel -> canonical.
+        D2D1_POINT_2F Canon(POINT stagePt) const { return DockGeometry::Canon(edge, stagePt.x, stagePt.y, stageCross); }
+        // Physical size of a box main x cross long.
+        D2D1_SIZE_F PhysSize(float main, float cross) const { return DockGeometry::Size(edge, main, cross); }
     };
+    // A canonical stage rect -> screen (truncating, like the bottom dock always did; `outer`: floor /
+    // ceil so the rect covers the box).
+    RECT StageToScreen(float u0, float v0, float u1, float v1, bool outer = false) const;
+    // Draws `layer` (main x cross long) in the dock's orientation: `draw` paints canonical coordinates.
+    HRESULT DrawCanonical(Layer& layer, float main, float cross, const std::function<void(ID2D1DeviceContext*)>& draw);
+    // The physical offsets of a visual / translate transform along the main / cross axis.
+    template <class T, class V>
+    HRESULT SetMainOffset(T* target, V v) const {
+        return layout_.vertical ? target->SetOffsetY(v) : target->SetOffsetX(v);
+    }
+    template <class T, class V>
+    HRESULT SetCrossOffset(T* target, V v) const {
+        return layout_.vertical ? target->SetOffsetX(v) : target->SetOffsetY(v);
+    }
+    // Where a popup opens for a slot centred on stage main coordinate `anchor`.
+    PopupAnchor PopupAnchorAt(float anchor) const;
+    // The HWND rect while hidden: the 1 px reveal strip along the monitor's edge.
+    RECT HiddenRect() const;
 
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
     LRESULT WndProc(UINT msg, WPARAM wp, LPARAM lp);
 
     HMONITOR PickMonitor() const;
+    // The dock's monitor and its work area (screen px): the one place the layout gets them from.
+    void MonitorRects(RECT& monitor, RECT& work) const;
     void ComputeLayout();
     // The HWND rect (screen) for the current state: the 1 px strip while Hidden, the whole stage
     // while expanded_ (mouse on the dock), the bar column down to the screen edge while sliding,
@@ -492,6 +541,10 @@ private:
     float BoxW(const DockItem& item) const { return item.Magnifies() ? layout_.iconPx : item.slotW; }
     // Height (cross axis) of an item's box: the icon, or a widget's content.
     float BoxCross(const DockItem& item) const { return item.IsWidget() ? item.boxCross : layout_.iconPx; }
+    // The point (box-local, physical) an icon box scales about: the middle of its edge-facing side.
+    D2D1_POINT_2F FootOf(const DockItem& item) const {
+        return DockGeometry::Point(layout_.edge, BoxW(item) / 2.0f, layout_.iconPx, layout_.iconPx);
+    }
     // Rest slot left edge -> icon box left edge.
     float BoxInset(const DockItem& item) const { return item.Magnifies() ? std::floor(layout_.gap / 2.0f) : 0.0f; }
     LRESULT QueryItemPoint(WPARAM wp, LPARAM lp) const;
@@ -545,6 +598,10 @@ private:
     DWORD OnDragOver(POINT screenPt, DWORD allowed);
     void OnDragLeave();
     DWORD OnDrop(IDataObject* data, POINT screenPt, DWORD allowed);
+    // The main (along the bar) stage coordinate of a screen point.
+    float DropMainAt(POINT screenPt) const {
+        return layout_.Canon(POINT{screenPt.x - layout_.window.left, screenPt.y - layout_.window.top}).x;
+    }
     // The mode, target item (OpenWith / Recycle) and gap (Insert) for a drop at stage x.
     DropMode DropModeAt(float stageX, int* item, int* gap) const;
     // Switches the drop feedback: the marker in a gap (Insert), the target icon scaled up
@@ -640,7 +697,7 @@ private:
 
     // Magnification
     bool magnifying_ = false;
-    float cursorX_ = 0.0f;        // client x of the last mouse position in the zone
+    float cursorX_ = 0.0f;        // stage main coordinate (canonical x) of the last mouse position in the zone
     double lastMagnify_ = 0.0;    // Renderer::Now() of the last applied update
     bool magnifyPending_ = false;
     bool restPending_ = false;
@@ -706,7 +763,7 @@ private:
     bool previewLeavePending_ = false;  // kPreviewLeaveTimerId running
     int previewItem_ = -1;              // item the popup shows
     AppKey previewKey_;
-    int previewAnchorX_ = 0;            // screen x the popup is centred on
+    int previewAnchor_ = 0;             // screen coordinate along the edge the popup is centred on
     // Dismissed by a click or a menu while the mouse stays on the item: no popup for that item
     // again until the mouse hovers another item or leaves the dock.
     bool previewSuppressed_ = false;

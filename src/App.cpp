@@ -455,6 +455,7 @@ ContextMenu::TrayMenuState App::MenuState() const {
     state.weatherConfigured = config_.weather.Configured();
     state.locked = config_.Main().locked;
     state.hasRunning = config_.Main().Has(ItemKind::Running);
+    state.edge = config_.Main().edge;
     return state;
 }
 
@@ -586,6 +587,19 @@ void App::OnCommand(UINT cmd) {
             separator.kind = ToString(ItemKind::Separator);
             config_.Main().InsertPin(SIZE_MAX, std::move(separator));  // after the last pin
             dock_.ReloadPins();
+            RequestSave();
+            RefreshSettings();
+            break;
+        }
+        case ContextMenu::kEdgeBottom:
+        case ContextMenu::kEdgeTop:
+        case ContextMenu::kEdgeLeft:
+        case ContextMenu::kEdgeRight: {
+            // The dock moves to that edge of its monitor (alignment and offset are kept).
+            const DockEdge edge = static_cast<DockEdge>(cmd - ContextMenu::kEdgeBottom);
+            if (config_.Main().edge == edge) break;
+            config_.Main().edge = edge;
+            dock_.ApplyConfig();
             RequestSave();
             RefreshSettings();
             break;

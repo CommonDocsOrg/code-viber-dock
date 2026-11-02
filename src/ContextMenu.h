@@ -33,7 +33,11 @@ enum Command : UINT {
     kAddClock = 117,            // Add widget > Clock (DockConfig::AddWidget; not while locked)
     kAddWeather = 118,          // Add widget > Weather
     kAddRunning = 119,          // Add widget > Running apps (only when the dock has none)
-    kLastDockCommand = kAddRunning,
+    kEdgeBottom = 120,          // Position > Bottom / Top / Left / Right (docks[0].edge)
+    kEdgeTop = 121,
+    kEdgeLeft = 122,
+    kEdgeRight = 123,
+    kLastDockCommand = kEdgeRight,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -55,6 +59,7 @@ struct TrayMenuState {
     bool weatherConfigured = false; // ... and a location is set (Refresh weather enabled)
     bool locked = false;            // the dock is locked: Lock dock checked, Add separator / widget greyed
     bool hasRunning = false;        // the dock has a running item (Add widget > Running apps greyed)
+    DockEdge edge = DockEdge::Bottom;  // Position > (radio)
 };
 
 // Shows the dock/tray menu at a screen point and returns the chosen Command (kNone if dismissed).

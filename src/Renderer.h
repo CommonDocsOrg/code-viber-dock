@@ -73,8 +73,7 @@ struct Layer {
     winrt::com_ptr<IDCompositionSurface> surface;
     UINT width = 0;
     UINT height = 0;
-    // Animation currently driving the visual's OffsetY (null: static value). While set,
-    // placement changes leave OffsetY alone so the animation is not cancelled.
+    // Animation currently driving the visual's OffsetY / OffsetX (a launch bounce; null: static).
     winrt::com_ptr<IDCompositionAnimation> offsetYAnimation;
     // Optional placement transform (Renderer::EnsurePlacement): uniform scale about a centre,
     // then a translation. Both have animatable properties.
@@ -140,10 +139,13 @@ public:
     // Animations: a fresh IDCompositionAnimation to fill with AddCubic/AddRepeat/End segments,
     // then attach it to a layer property. DWM runs it after the next Commit(); we stay idle.
     winrt::com_ptr<IDCompositionAnimation> CreateAnimation();
-    // Drives the layer's OffsetY (added on top of its placement transform) with `animation`.
-    HRESULT AnimateOffsetY(Layer& layer, IDCompositionAnimation* animation);
-    // Detaches the OffsetY animation and sets the static value.
-    void StopOffsetYAnimation(Layer& layer, float value = 0.0f);
+    // Drives the layer's OffsetY (OffsetX with `alongX`; added on top of its placement transform)
+    // with `animation`.
+    HRESULT AnimateOffset(Layer& layer, IDCompositionAnimation* animation, bool alongX);
+    // Detaches that animation and sets the static value.
+    void StopOffsetAnimation(Layer& layer, float value, bool alongX);
+    HRESULT AnimateOffsetY(Layer& layer, IDCompositionAnimation* animation) { return AnimateOffset(layer, animation, false); }
+    void StopOffsetYAnimation(Layer& layer, float value = 0.0f) { StopOffsetAnimation(layer, value, false); }
     // Drives the layer's opacity (IDCompositionVisual3) with `animation` / sets it statically.
     HRESULT AnimateOpacity(Layer& layer, IDCompositionAnimation* animation);
     void StopOpacityAnimation(Layer& layer, float value = 1.0f);

@@ -117,7 +117,7 @@ void PopupWindow::PaintPanel(ID2D1DeviceContext* dc, uint32_t tint, uint32_t bor
                              brush.get(), stroke);
 }
 
-bool PopupWindow::ShowAt(const Frame& frame, int anchorX, int bottom) {
+bool PopupWindow::ShowAt(const Frame& frame, const PopupAnchor& anchor) {
     if (!EnsureWindow()) return false;
     const bool wasHidden = state_ == State::Hidden;
     frame_ = frame;
@@ -134,18 +134,35 @@ bool PopupWindow::ShowAt(const Frame& frame, int anchorX, int bottom) {
 
     const RECT& m = frame_.monitor;
     const LONG margin = Px(kMonitorMargin, frame_.scale);
-    LONG x = anchorX - size_.cx / 2;
+    // Main axis (along the dock's edge) and cross axis, as x / y of a bottom dock.
+    const bool vertical = IsVertical(anchor.edge);
+    const LONG mainSize = vertical ? size_.cy : size_.cx;
+    const LONG crossSize = vertical ? size_.cx : size_.cy;
+    const LONG mainLo = vertical ? m.top : m.left, mainHi = vertical ? m.bottom : m.right;
+    LONG along = static_cast<LONG>(anchor.along) - mainSize / 2;
+    const LONG side = static_cast<LONG>(anchor.side);
     // Shrunk while the mouse is in it (e.g. a window closed): keep the cursor inside instead of
     // re-centring away from it, so a hover popup does not dismiss itself under a still mouse. A
     // click popup keeps its anchor (it does not close when the mouse leaves it).
     POINT cursor{};
     if (mode_ == Mode::Hover && inside_ && !wasHidden && GetCursorPos(&cursor)) {
         const LONG keep = Px(kKeepCursorDip, frame_.scale);
-        if (cursor.x >= x + size_.cx) x = cursor.x - size_.cx + keep;
-        if (cursor.x < x) x = cursor.x - keep;
+        const LONG c = vertical ? cursor.y : cursor.x;
+        if (c >= along + mainSize) along = c - mainSize + keep;
+        if (c < along) along = c - keep;
     }
-    x = std::clamp(x, m.left + margin, std::max(m.left + margin, m.right - margin - size_.cx));
-    LONG y = std::max(bottom - size_.cy, m.top + margin);
+    along = std::clamp(along, mainLo + margin, std::max(mainLo + margin, mainHi - margin - mainSize));
+    // Away from the edge, kept inside the monitor on that side.
+    LONG across = 0;
+    switch (anchor.edge) {
+        case DockEdge::Top: across = std::min(side, m.bottom - margin - crossSize); break;
+        case DockEdge::Left: across = std::min(side, m.right - margin - crossSize); break;
+        case DockEdge::Right: across = std::max(side - crossSize, m.left + margin); break;
+        case DockEdge::Bottom:
+        default: across = std::max(side - crossSize, m.top + margin); break;
+    }
+    const LONG x = vertical ? across : along;
+    const LONG y = vertical ? along : across;
     rect_ = RECT{x, y, x + size_.cx, y + size_.cy};
 
     const double now = Renderer::Now();

@@ -70,9 +70,15 @@ public:
         if (host_.Hwnd()) clock_.ScheduleNextTick(host_.Hwnd(), ElementHost::kClockTimerId);
     }
     bool Update() override { return clock_.UpdateText(); }
+    // Main / cross: width / height on a horizontal dock. On a vertical dock the lines stack one
+    // word per line (the time over its AM / PM, the date's words under it) and the block's height
+    // runs along the bar.
     ElementSize Measure(const LayoutContext& ctx) override {
+        const bool vertical = ctx.axis == DockAxis::Vertical;
+        clock_.SetStacked(vertical);
         size_ = clock_.BuildLayout(ctx.dwrite, ctx.scale);
-        return {static_cast<float>(size_.width), static_cast<float>(size_.height)};
+        const float w = static_cast<float>(size_.width), h = static_cast<float>(size_.height);
+        return vertical ? ElementSize{h, w} : ElementSize{w, h};
     }
     HRESULT Render(Renderer& r, Layer& content, const LayoutContext&) override {
         return r.DrawLayer(content, size_.width, size_.height, [&](ID2D1DeviceContext* dc) { clock_.Draw(dc, 0.0f, 0.0f); });
@@ -158,6 +164,12 @@ public:
             }
         }
         const float gap = textW > 0.0f ? std::round(kWeatherTextGap * scale) : 0.0f;
+        // Horizontal docks: the glyph left of the temperature; vertical docks: above it.
+        vertical_ = ctx.axis == DockAxis::Vertical;
+        if (vertical_) {
+            size_ = D2D1::SizeU(static_cast<UINT32>(std::max(glyph, textW)), static_cast<UINT32>(glyph + gap + textH));
+            return {static_cast<float>(size_.height), static_cast<float>(size_.width)};
+        }
         size_ = D2D1::SizeU(static_cast<UINT32>(glyph + gap + textW), static_cast<UINT32>(std::max(glyph, textH)));
         return {static_cast<float>(size_.width), static_cast<float>(size_.height)};
     }
@@ -182,6 +194,21 @@ public:
                                                     : WeatherGlyphs::Glyph::Overcast;
         const bool isDay = !data.valid || data.isDay;
         const float scale = ctx.scale;
+        if (vertical_) {
+            const float w = static_cast<float>(size_.width);
+            return r.DrawLayer(content, size_.width, size_.height, [&](ID2D1DeviceContext* dc) {
+                const float left = std::round((w - glyph) / 2.0f);
+                WeatherGlyphs::Draw(dc, g, isDay, D2D1::RectF(left, 0.0f, left + glyph, glyph), colors);
+                if (!layout_) return;
+                winrt::com_ptr<ID2D1SolidColorBrush> brush;
+                if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(theme.clockText, colors.opacity), brush.put()))) return;
+                DWRITE_TEXT_METRICS m{};
+                layout_->GetMetrics(&m);
+                const float y = glyph + std::round(kWeatherTextGap * scale);
+                dc->DrawTextLayout(D2D1::Point2F(std::round((w - m.widthIncludingTrailingWhitespace) / 2.0f), y),
+                                   layout_.get(), brush.get());
+            });
+        }
         return r.DrawLayer(content, size_.width, size_.height, [&](ID2D1DeviceContext* dc) {
             const float top = std::round((h - glyph) / 2.0f);
             WeatherGlyphs::Draw(dc, g, isDay, D2D1::RectF(0.0f, top, glyph, top + glyph), colors);
@@ -212,6 +239,7 @@ private:
         return c.Main().Has(ItemKind::Clock) && c.clock.showDate;
     }
 
+    bool vertical_ = false;  // measured for a vertical dock: the glyph above the temperature
     std::wstring text_;  // "12°" (empty: glyph only)
     float textScale_ = 0.0f;
     winrt::com_ptr<IDWriteTextFormat> format_;

@@ -101,6 +101,23 @@ protected:
         Combo(kMonitorCombo, kColX, right - kColX, false);
         NextRow();
 
+        Section(kSectionPosition, L"Position");
+        Label(kEdgeLabel, L"Screen edge");
+        Combo(kEdgeCombo, kColX, 160, false);
+        NextRow();
+        Label(kAlignLabel, L"Alignment");
+        Combo(kAlignCombo, kColX, 160, false);
+        NextRow();
+        Label(kOffsetLabel, L"Offset (pixels)");
+        IntSpin(kOffsetEdit, kOffsetSpin, kColX, 88, -16000, 16000, 10,
+                [](Config& c) -> int& { return c.Main().offset; }, SettingsScope::Appearance);
+        NextRow(kRowH);
+        Text(kPositionNote, CtlKind::Note,
+             L"Moves the dock along its edge from the aligned place (right / down). Reflections show on bottom "
+             L"and top docks only.",
+             kColX, right - kColX, 36);
+        NextRow(38);
+
         Section(kSectionClock, L"Clock");
         Check(kClockShow, kClockShowCaption, L"Show the clock");
         NextRow();
@@ -141,6 +158,8 @@ protected:
         ComboAdd(kClockClickCombo, L"The month calendar");  // ClockClick order
         ComboAdd(kClockClickCombo, L"The app or URL below");
         ComboAdd(kClockClickCombo, L"Nothing");
+        for (const wchar_t* e : {L"Bottom", L"Top", L"Left", L"Right"}) ComboAdd(kEdgeCombo, e);  // DockEdge order
+        for (const wchar_t* a : {L"Centre", L"Start (left / top)", L"End (right / bottom)"}) ComboAdd(kAlignCombo, a);
         ComboAdd(kRendererCombo, L"Automatic (GPU, software if that fails)");
         ComboAdd(kRendererCombo, L"Software (WARP, less memory)");
     }
@@ -153,6 +172,8 @@ protected:
         SetTrack(kMagnifyTrack, mag);
         SetText(kMagnifyValue, FormatMagnification(mag));
         FillMonitors();
+        SetComboSel(kEdgeCombo, static_cast<int>(c.Main().edge));
+        SetComboSel(kAlignCombo, static_cast<int>(c.Main().align));
         SetCheck(kClockShow, c.Main().Has(ItemKind::Clock));
         SetText(kClockFormatCombo, c.clock.format);
         SetText(kClockPreview, ClockPreview(c.clock.format, c.clock.showSeconds));
@@ -201,6 +222,24 @@ protected:
                     const int sel = ComboSel(id);
                     if (sel >= 0 && sel != c.Main().monitor) {
                         c.Main().monitor = sel;
+                        Changed(SettingsScope::Appearance);
+                    }
+                }
+                break;
+            case kEdgeCombo:
+                if (code == CBN_SELCHANGE) {
+                    const int sel = ComboSel(id);
+                    if (sel >= 0 && sel <= 3 && static_cast<DockEdge>(sel) != c.Main().edge) {
+                        c.Main().edge = static_cast<DockEdge>(sel);
+                        Changed(SettingsScope::Appearance);
+                    }
+                }
+                break;
+            case kAlignCombo:
+                if (code == CBN_SELCHANGE) {
+                    const int sel = ComboSel(id);
+                    if (sel >= 0 && sel <= 2 && static_cast<DockAlign>(sel) != c.Main().align) {
+                        c.Main().align = static_cast<DockAlign>(sel);
                         Changed(SettingsScope::Appearance);
                     }
                 }

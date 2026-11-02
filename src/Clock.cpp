@@ -135,15 +135,23 @@ D2D1_SIZE_U Clock::BuildLayout(IDWriteFactory* dwrite, float scale) {
         return size_;
     }
 
+    // Stacked (vertical docks): one word per line.
+    auto shown = [this](const std::wstring& text) {
+        std::wstring out = text;
+        if (stacked_) std::replace(out.begin(), out.end(), L' ', L'\n');
+        return out;
+    };
     if (!timeLayout_ && !timeText_.empty()) {
-        if (FAILED(dwrite->CreateTextLayout(timeText_.c_str(), static_cast<UINT32>(timeText_.size()),
-                                            timeFormat_.get(), 4096.0f, 4096.0f, timeLayout_.put()))) {
+        const std::wstring text = shown(timeText_);
+        if (FAILED(dwrite->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), timeFormat_.get(), 4096.0f,
+                                            4096.0f, timeLayout_.put()))) {
             timeLayout_ = nullptr;
         }
     }
     if (showDate_ && !dateLayout_ && !dateText_.empty()) {
-        if (FAILED(dwrite->CreateTextLayout(dateText_.c_str(), static_cast<UINT32>(dateText_.size()),
-                                            dateFormat_.get(), 4096.0f, 4096.0f, dateLayout_.put()))) {
+        const std::wstring text = shown(dateText_);
+        if (FAILED(dwrite->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), dateFormat_.get(), 4096.0f,
+                                            4096.0f, dateLayout_.put()))) {
             dateLayout_ = nullptr;
         }
     }

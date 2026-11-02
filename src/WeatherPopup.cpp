@@ -57,7 +57,7 @@ void WeatherPopup::OnDestroying() {
     formatScale_ = 0.0f;
 }
 
-bool WeatherPopup::Show(const Style& style, int anchorX, int bottom) {
+bool WeatherPopup::Show(const Style& style, const PopupAnchor& anchor) {
     if (!weather_) return false;
     style_ = style;
     frame_ = Frame{};
@@ -65,9 +65,8 @@ bool WeatherPopup::Show(const Style& style, int anchorX, int bottom) {
     frame_.acrylic = style.acrylic;
     frame_.cornerRadiusDip = style.cornerRadiusDip;
     frame_.monitor = style.monitor;
-    anchorX_ = anchorX;
-    bottom_ = bottom;
-    return ShowAt(frame_, anchorX_, bottom_);
+    anchor_ = anchor;
+    return ShowAt(frame_, anchor_);
 }
 
 void WeatherPopup::Update() {
@@ -79,7 +78,7 @@ void WeatherPopup::Update() {
         if (SUCCEEDED(Redraw())) Commit();  // same size: no re-placement (and no activation)
         return;
     }
-    ShowAt(frame_, anchorX_, bottom_);
+    ShowAt(frame_, anchor_);
 }
 
 void WeatherPopup::EnsureFormats() {

@@ -71,7 +71,7 @@ void CalendarPopup::OnDestroying() {
     formatScale_ = 0.0f;
 }
 
-bool CalendarPopup::Show(const Style& style, int anchorX, int bottom) {
+bool CalendarPopup::Show(const Style& style, const PopupAnchor& anchor) {
     style_ = style;
     frame_ = Frame{};
     frame_.scale = style.scale;
@@ -86,7 +86,7 @@ bool CalendarPopup::Show(const Style& style, int anchorX, int bottom) {
                         reinterpret_cast<LPWSTR>(&first), sizeof(first) / sizeof(wchar_t))) {
         firstDay_ = static_cast<int>(first % 7);
     }
-    return ShowAt(frame_, anchorX, bottom);
+    return ShowAt(frame_, anchor);
 }
 
 int CalendarPopup::MonthOffset() const {

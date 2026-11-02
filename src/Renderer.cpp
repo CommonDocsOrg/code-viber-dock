@@ -235,16 +235,21 @@ winrt::com_ptr<IDCompositionAnimation> Renderer::CreateAnimation() {
     return animation;
 }
 
-HRESULT Renderer::AnimateOffsetY(Layer& layer, IDCompositionAnimation* animation) {
+HRESULT Renderer::AnimateOffset(Layer& layer, IDCompositionAnimation* animation, bool alongX) {
     if (!layer.visual || !animation) return E_INVALIDARG;
-    RETURN_IF_FAILED(layer.visual->SetOffsetY(animation));
+    RETURN_IF_FAILED(alongX ? layer.visual->SetOffsetX(animation) : layer.visual->SetOffsetY(animation));
     layer.offsetYAnimation.copy_from(animation);
     return S_OK;
 }
 
-void Renderer::StopOffsetYAnimation(Layer& layer, float value) {
+void Renderer::StopOffsetAnimation(Layer& layer, float value, bool alongX) {
     layer.offsetYAnimation = nullptr;
-    if (layer.visual) layer.visual->SetOffsetY(value);  // replaces the animation
+    if (!layer.visual) return;
+    if (alongX) {
+        layer.visual->SetOffsetX(value);  // replaces the animation
+    } else {
+        layer.visual->SetOffsetY(value);
+    }
 }
 
 HRESULT Renderer::AnimateOpacity(Layer& layer, IDCompositionAnimation* animation) {

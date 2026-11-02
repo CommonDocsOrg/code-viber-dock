@@ -25,8 +25,12 @@ class WeatherService;
 // knows its kind and config entry, measures its slots, draws non-icon content, and handles input
 // on its slots. Elements are rebuilt whenever the item list changes (they hold no visuals).
 
-// Layout axes, so that no element bakes in x or y. Main: along the bar; cross: away from the screen
-// edge. Only the bottom edge exists until Phase 2 (the dock maps main -> x, cross -> y).
+// Layout axes, so that no element bakes in x or y. Main: along the bar (x on bottom / top docks, y
+// on left / right docks); cross: across it, perpendicular to the screen edge (the height of a box
+// on a horizontal dock, its width on a vertical one). The dock maps main / cross onto the screen
+// for its edge (DockGeometry.h); an element only measures. Content an element draws (Render) stays
+// upright: on a vertical axis it lays itself out to be narrow (the clock stacks its words, the
+// weather puts its glyph above the temperature) and reports its height as `main`.
 enum class DockAxis { Horizontal, Vertical };
 
 struct ElementSize {

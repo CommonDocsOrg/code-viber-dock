@@ -46,8 +46,8 @@ public:
     ~WeatherPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, const WeatherService* weather, Callbacks callbacks);
-    // Shows the popup centred on screen x `anchorX` with its bottom edge at screen y `bottom`.
-    bool Show(const Style& style, int anchorX, int bottom);
+    // Shows the popup at `anchor` (beside the dock, away from its edge).
+    bool Show(const Style& style, const PopupAnchor& anchor);
     // The weather data / status changed: lay out and redraw in place (no-op unless visible).
     void Update();
 
@@ -77,8 +77,7 @@ private:
     const WeatherService* weather_ = nullptr;
     Style style_;
     Frame frame_;
-    int anchorX_ = 0;
-    int bottom_ = 0;
+    PopupAnchor anchor_;
     bool full_ = false;      // the forecast layout (else the message layout)
 
     RECT refreshRect_{};
