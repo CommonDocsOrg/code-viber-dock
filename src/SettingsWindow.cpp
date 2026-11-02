@@ -11,6 +11,7 @@
 
 #include "Backdrop.h"
 #include "SettingsIds.h"
+#include "SettingsPreview.h"
 #include "resource.h"
 
 namespace {
@@ -188,6 +189,7 @@ bool SettingsPage::Loading() const { return window_.Loading(); }
 void SettingsPage::Changed(SettingsScope scope) {
     if (window_.Loading()) return;
     if (window_.Host().changed) window_.Host().changed(scope);
+    window_.ConfigApplied();
 }
 
 void SettingsPage::SetText(int id, const std::wstring& text) {
@@ -237,6 +239,19 @@ void SettingsPage::Enable(int id, bool enable) {
         }
     }
 }
+
+void SettingsPage::Show(int id, bool show) {
+    HWND h = Item(id);
+    // The style bit, not IsWindowVisible: the page itself may be hidden.
+    if (!h || ((GetWindowLongW(h, GWL_STYLE) & WS_VISIBLE) != 0) == show) return;
+    if (!show && GetFocus() == h) {
+        // Keep the keyboard focus on the page: the next control in the tab order.
+        if (HWND next = GetNextDlgTabItem(hwnd_, h, FALSE); next && next != h) SetFocus(next);
+    }
+    ShowWindow(h, show ? SW_SHOWNA : SW_HIDE);
+}
+
+HWND SettingsPage::Owner() const { return GetAncestor(hwnd_, GA_ROOT); }
 
 bool SettingsPage::ReadInt(int editId, int lo, int hi, int& value) {
     const std::wstring text = GetText(editId);
@@ -363,6 +378,10 @@ bool SettingsWindow::Create(HINSTANCE instance) {
             return false;
         }
     }
+    preview_ = std::make_unique<SettingsPreview>();
+    if (!preview_->Create(instance, hwnd_, SettingsIds::kPreview, host_.config, dpi_)) {
+        preview_.reset();  // the window works without it
+    }
     CreateFonts();  // also hands them to the controls
     ApplyTheme();
     Layout();
@@ -386,6 +405,10 @@ bool SettingsWindow::CreatePage(SettingsPage& page, int index) {
                                  page.hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(c.id)), instance_, nullptr);
         if (!c.hwnd) continue;
         switch (c.kind) {
+            case CtlKind::List:
+                ListView_SetExtendedListViewStyle(c.hwnd, LVS_EX_FULLROWSELECT | LVS_EX_DOUBLEBUFFER);
+                SetWindowSubclass(c.hwnd, ListSubclassProc, 1, reinterpret_cast<DWORD_PTR>(this));
+                break;
             case CtlKind::Trackbar:
                 SendMessageW(c.hwnd, TBM_SETRANGEMIN, FALSE, c.lo);
                 SendMessageW(c.hwnd, TBM_SETRANGEMAX, FALSE, c.hi);
@@ -430,6 +453,17 @@ void SettingsWindow::Refresh() {
     if (!hwnd_) return;
     loading_ = true;
     for (auto& page : pages_) page->Load();
+    loading_ = false;
+    if (preview_) preview_->Invalidate();
+}
+
+void SettingsWindow::ConfigApplied() {
+    if (preview_) preview_->Invalidate();
+}
+
+void SettingsWindow::StyleChanged() {
+    loading_ = true;
+    for (auto& page : pages_) page->OnStyleChanged();
     loading_ = false;
 }
 
@@ -545,9 +579,12 @@ void SettingsWindow::ApplyTheme() {
                     DarkMode::ThemeControl(c.hwnd, dark);
                     break;
                 case CtlKind::Trackbar:
-                    // No dark theme (Phase B2 custom-draws them), but a trackbar caches its
-                    // background brush: a theme reset makes it ask WM_CTLCOLORSTATIC again.
+                    // No dark theme (custom-drawn in dark mode: DrawTrackbar), but a trackbar
+                    // caches its background brush: a theme reset makes it ask WM_CTLCOLORSTATIC again.
                     SetWindowTheme(c.hwnd, nullptr, nullptr);
+                    break;
+                case CtlKind::List:
+                    ThemeList(c.hwnd);
                     break;
                 default:
                     break;
@@ -555,7 +592,106 @@ void SettingsWindow::ApplyTheme() {
             UnselectComboText(c);
         }
     }
+    if (preview_) {
+        // The strip sits on the content layer, with a hairline between it and the page.
+        const COLORREF a = palette_.layer, b = palette_.text;
+        auto mix = [](BYTE x, BYTE y) { return static_cast<BYTE>((x * 88 + y * 12) / 100); };
+        preview_->SetColors(a, RGB(mix(GetRValue(a), GetRValue(b)), mix(GetGValue(a), GetGValue(b)),
+                                   mix(GetBValue(a), GetBValue(b))));
+    }
+    StyleChanged();
     RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
+}
+
+void SettingsWindow::ThemeList(HWND list) {
+    const bool dark = palette_.dark;
+    DarkMode::AllowDarkForWindow(list, dark);
+    SetWindowTheme(list, dark ? L"DarkMode_ItemsView" : L"Explorer", nullptr);
+    if (HWND header = ListView_GetHeader(list)) {
+        DarkMode::AllowDarkForWindow(header, dark);
+        SetWindowTheme(header, dark ? L"DarkMode_ItemsView" : L"Explorer", nullptr);
+    }
+    ListView_SetBkColor(list, palette_.control);
+    ListView_SetTextBkColor(list, CLR_NONE);  // rows on the list background (no lighter bands)
+    ListView_SetTextColor(list, palette_.text);
+    InvalidateRect(list, nullptr, TRUE);
+}
+
+LRESULT CALLBACK SettingsWindow::ListSubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id,
+                                                  DWORD_PTR data) {
+    auto* self = reinterpret_cast<SettingsWindow*>(data);
+    if (msg == WM_NOTIFY && self && self->palette_.dark) {
+        // The header's dark theme keeps dark item text: draw it in the palette's text colour.
+        auto* nm = reinterpret_cast<NMHDR*>(lp);
+        if (nm->code == NM_CUSTOMDRAW && nm->hwndFrom == ListView_GetHeader(hwnd)) {
+            auto* cd = reinterpret_cast<NMCUSTOMDRAW*>(lp);
+            if (cd->dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+            if (cd->dwDrawStage == CDDS_ITEMPREPAINT) {
+                SetTextColor(cd->hdc, self->palette_.text);
+                return CDRF_DODEFAULT;
+            }
+        }
+    } else if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, ListSubclassProc, id);
+    }
+    return DefSubclassProc(hwnd, msg, wp, lp);
+}
+
+LRESULT SettingsWindow::DrawTrackbar(NMCUSTOMDRAW& cd) {
+    // Trackbars have no dark visual style: paint the channel and the thumb (Windows 11 shapes).
+    if (!palette_.dark || palette_.highContrast) return CDRF_DODEFAULT;
+    if (cd.dwDrawStage == CDDS_PREPAINT) return CDRF_NOTIFYITEMDRAW;
+    if (cd.dwDrawStage != CDDS_ITEMPREPAINT) return CDRF_DODEFAULT;
+    HWND tb = cd.hdr.hwndFrom;
+    const bool enabled = IsWindowEnabled(tb) != FALSE;
+    const COLORREF accent = enabled ? palette_.accent : palette_.textDisabled;
+    auto fill = [&](const RECT& r, COLORREF color, int radius) {
+        HBRUSH brush = CreateSolidBrush(color);
+        HPEN pen = CreatePen(PS_SOLID, 1, color);
+        HGDIOBJ oldBrush = SelectObject(cd.hdc, brush);
+        HGDIOBJ oldPen = SelectObject(cd.hdc, pen);
+        if (radius > 0) {
+            RoundRect(cd.hdc, r.left, r.top, r.right, r.bottom, radius, radius);
+        } else {
+            Ellipse(cd.hdc, r.left, r.top, r.right, r.bottom);
+        }
+        SelectObject(cd.hdc, oldBrush);
+        SelectObject(cd.hdc, oldPen);
+        DeleteObject(pen);
+        DeleteObject(brush);
+    };
+    RECT thumb{};
+    SendMessageW(tb, TBM_GETTHUMBRECT, 0, reinterpret_cast<LPARAM>(&thumb));
+    const int thumbX = (thumb.left + thumb.right) / 2;
+    switch (cd.dwItemSpec) {
+        case TBCD_CHANNEL: {
+            const int h = std::max(2, Px(4));
+            const int cy = (cd.rc.top + cd.rc.bottom) / 2;
+            const RECT left{cd.rc.left, cy - h / 2, std::max(static_cast<int>(cd.rc.left) + h, thumbX), cy - h / 2 + h};
+            const RECT right{std::min(static_cast<int>(cd.rc.right) - h, thumbX), left.top, cd.rc.right, left.bottom};
+            fill(right, RGB(0x9A, 0x9A, 0x9A), h);
+            fill(left, accent, h);
+            return CDRF_SKIPDEFAULT;
+        }
+        case TBCD_THUMB: {
+            RECT client{};
+            GetClientRect(tb, &client);
+            const int d = std::min({Px(18), static_cast<int>(client.bottom - client.top),
+                                    static_cast<int>(thumb.right - thumb.left) + Px(8)});
+            const int cy = (thumb.top + thumb.bottom) / 2;
+            const RECT outer{thumbX - d / 2, cy - d / 2, thumbX - d / 2 + d, cy - d / 2 + d};
+            fill(outer, RGB(0x45, 0x45, 0x45), 0);
+            const bool hot = (cd.uItemState & (CDIS_HOT | CDIS_SELECTED)) != 0;
+            const int inner = std::max(4, d * (hot ? 6 : 5) / 10);
+            const RECT in{thumbX - inner / 2, cy - inner / 2, thumbX - inner / 2 + inner, cy - inner / 2 + inner};
+            fill(in, accent, 0);
+            return CDRF_SKIPDEFAULT;
+        }
+        case TBCD_TICS:
+            return CDRF_SKIPDEFAULT;
+        default:
+            return CDRF_DODEFAULT;
+    }
 }
 
 void SettingsWindow::ApplyBackdrop() {
@@ -591,6 +727,11 @@ void SettingsWindow::Layout() {
     GetClientRect(hwnd_, &rc);
     const int navW = Px(kNavWidthDip);
     SetWindowPos(nav_, nullptr, 0, 0, navW, rc.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+    if (preview_) {
+        const int footer = std::min(Px(kFooterDip), static_cast<int>(rc.bottom));
+        SetWindowPos(preview_->Hwnd(), nullptr, navW, rc.bottom - footer, std::max(0, static_cast<int>(rc.right) - navW),
+                     footer, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
     for (auto& page : pages_) {
         if (!page->hwnd_) continue;
         SetWindowPos(page->hwnd_, nullptr, navW, 0, rc.right - navW, std::max(0, static_cast<int>(rc.bottom) - Px(kFooterDip)),
@@ -779,11 +920,13 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             for (auto& page : pages_) page->scrollPx_ = MulDiv(page->scrollPx_, static_cast<int>(dpi_), static_cast<int>(old));
             CreateFonts();
             UpdateIcons();
+            if (preview_) preview_->SetDpi(dpi_);
             const RECT* r = reinterpret_cast<const RECT*>(lp);
             SetWindowPos(hwnd_, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
                          SWP_NOZORDER | SWP_NOACTIVATE);
             ApplyBackdrop();  // the nav width in pixels changed
             Layout();
+            StyleChanged();  // image lists at the new DPI
             RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
             return 0;
         }
@@ -803,6 +946,9 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 CreateFonts();
                 Layout();
             }
+            loading_ = true;
+            for (auto& page : pages_) page->OnSettingChange(wp, lp);
+            loading_ = false;
             return 0;
 
         case WM_THEMECHANGED:
@@ -849,6 +995,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 page->hwnd_ = nullptr;
                 for (Ctl& c : page->table_) c.hwnd = nullptr;
             }
+            preview_.reset();  // its window (a child) is already gone, with its D2D objects
             DestroyFonts();
             DestroyBrushes();
             DestroyIcons();
@@ -966,9 +1113,16 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
             page.OnCommand(c->id, code, ctl);
             return 0;
         }
-        case WM_NOTIFY:
+        case WM_NOTIFY: {
+            auto* nm = reinterpret_cast<NMHDR*>(lp);
+            if (nm->code == NM_CUSTOMDRAW) {
+                if (const Ctl* c = page.Find(nm->hwndFrom); c && c->kind == CtlKind::Trackbar) {
+                    return DrawTrackbar(*reinterpret_cast<NMCUSTOMDRAW*>(lp));
+                }
+            }
             if (loading_) return 0;
-            return page.OnNotify(*reinterpret_cast<const NMHDR*>(lp));
+            return page.OnNotify(*nm);
+        }
         case WM_HSCROLL:
         case WM_VSCROLL:
             if (lp) {
@@ -1007,6 +1161,7 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
                 DrawCaption(page, *di);
                 return TRUE;
             }
+            if (di->CtlType == ODT_BUTTON && page.OnDrawItem(*di)) return TRUE;
             break;
         }
         case WM_ERASEBKGND: {

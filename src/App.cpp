@@ -154,6 +154,7 @@ void App::TogglePin(const AppKey& key) {
     }
     dock_.ReloadPins();
     RequestSave();
+    RefreshSettings();  // the Pinned apps page
 }
 
 std::optional<PinnedEntry> App::EntryForItem(const DockItem& item) {
@@ -197,6 +198,7 @@ void App::ApplyPinOrder(const std::vector<AppKey>& order) {
     config_.pinned = std::move(next);
     dock_.ReloadPins();
     RequestSave();
+    RefreshSettings();
 }
 
 void App::PinFiles(const std::vector<std::wstring>& paths, size_t at) {
@@ -217,6 +219,7 @@ void App::PinFiles(const std::vector<std::wstring>& paths, size_t at) {
     if (!changed) return;
     dock_.ReloadPins();
     RequestSave();
+    RefreshSettings();
 }
 
 void App::RunItemCommand(UINT cmd, const AppKey& key, const std::vector<HWND>& windows) {

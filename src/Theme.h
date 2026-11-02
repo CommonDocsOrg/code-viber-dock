@@ -53,6 +53,13 @@ const FieldInfo& Info(Field f);
 // Field access by table entry.
 void CopyField(const FieldInfo& f, const ThemeConfig& from, ThemeConfig& to);
 bool FieldEquals(const FieldInfo& f, const ThemeConfig& a, const ThemeConfig& b);
+// Typed access by table entry (the kind must match: Color / Float / Bool).
+uint32_t GetColor(const ThemeConfig& t, const FieldInfo& f);
+void SetColor(ThemeConfig& t, const FieldInfo& f, uint32_t argb);
+float GetFloat(const ThemeConfig& t, const FieldInfo& f);
+void SetFloat(ThemeConfig& t, const FieldInfo& f, float v);  // clamped to [min, max]
+bool GetBool(const ThemeConfig& t, const FieldInfo& f);
+void SetBool(ThemeConfig& t, const FieldInfo& f, bool v);
 
 struct Preset {
     const wchar_t* id;    // "dark", "light", "glass", "solid", "contrast"

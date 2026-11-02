@@ -1,0 +1,114 @@
+#pragma once
+
+// Shared by the settings page sources (SettingsPages*.cpp): the FormPage helper base class and
+// the page factories. Not part of the settings window's interface.
+
+#include <windows.h>
+#include <commctrl.h>
+
+#include <algorithm>
+#include <memory>
+#include <vector>
+
+#include "SettingsWindow.h"
+
+// A page with integer spinners bound to Config fields (applied on every up-down step, on Enter and
+// on focus loss) and trackbars applied on release.
+class FormPage : public SettingsPage {
+public:
+    using SettingsPage::SettingsPage;
+
+protected:
+    using IntRef = int& (*)(Config&);
+    struct IntField {
+        int edit;
+        int spin;
+        int lo;
+        int hi;
+        IntRef field;
+        SettingsScope scope;
+    };
+
+    // `field` returns the bound int (a captureless lambda, e.g. [](Config& c) -> int& { return c.x; }).
+    void IntSpin(int edit, int spin, int x, int w, int lo, int hi, int step, IntRef field, SettingsScope scope) {
+        Spin(edit, spin, x, w, lo, hi, step);
+        ints_.push_back(IntField{edit, spin, lo, hi, field, scope});
+    }
+
+    void LoadInts() {
+        for (const IntField& f : ints_) SetSpin(f.spin, f.field(Cfg()));
+    }
+
+    // Applies `value` to the field (if it changed) and tells the host.
+    void SetInt(const IntField& f, int value) {
+        value = std::clamp(value, f.lo, f.hi);
+        SetSpin(f.spin, value);
+        int& field = f.field(Cfg());
+        if (field != value) {
+            field = value;
+            Changed(f.scope);
+        }
+        IntChanged(f.spin, value);
+    }
+
+    // A bound value changed (from its spinner or edit).
+    virtual void IntChanged(int /*spin*/, int /*value*/) {}
+    // WM_HSCROLL from a trackbar; `released` = apply now (see TrackReleased).
+    virtual void Track(int /*id*/, int /*pos*/, bool /*released*/) {}
+    // An up-down that is not bound with IntSpin moved (SB_THUMBPOSITION / SB_ENDSCROLL).
+    virtual void Spun(int /*spin*/, int /*pos*/) {}
+    virtual void Commit(int /*id*/) {}
+
+    void OnScroll(int id, int code) override {
+        for (const IntField& f : ints_) {
+            if (f.spin == id) {
+                if (code == SB_THUMBPOSITION || code == SB_ENDSCROLL) SetInt(f, GetSpin(id));
+                return;
+            }
+        }
+        if (const Ctl* c = Find(id); c && c->kind == CtlKind::Spin) {
+            if (code == SB_THUMBPOSITION || code == SB_ENDSCROLL) Spun(id, GetSpin(id));
+            return;
+        }
+        Track(id, GetTrack(id), TrackReleased(code));
+    }
+
+    void OnCommit(int id) override {
+        for (const IntField& f : ints_) {
+            if (f.edit == id) {
+                int value = 0;
+                if (ReadInt(f.edit, f.lo, f.hi, value)) {
+                    SetInt(f, value);
+                } else {
+                    SetSpin(f.spin, f.field(Cfg()));  // not a number: back to the current value
+                }
+                return;
+            }
+        }
+        Commit(id);
+    }
+
+    // Trackbars apply on release: the end of a drag or of a key / channel-click sequence
+    // (TB_ENDTRACK), or a step with no button or key held (the mouse wheel).
+    static bool TrackReleased(int code) {
+        if (code == TB_ENDTRACK || code == TB_THUMBPOSITION) return true;
+        if (code == TB_THUMBTRACK) return false;
+        if (GetKeyState(VK_LBUTTON) < 0) return false;
+        for (int vk : {VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_PRIOR, VK_NEXT, VK_HOME, VK_END}) {
+            if (GetKeyState(vk) < 0) return false;
+        }
+        return true;
+    }
+
+    int ComboSel(int id) const { return static_cast<int>(SendMessageW(Item(id), CB_GETCURSEL, 0, 0)); }
+    void SetComboSel(int id, int index) { SendMessageW(Item(id), CB_SETCURSEL, static_cast<WPARAM>(index), 0); }
+    void ComboAdd(int id, const wchar_t* text) { SendMessageW(Item(id), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text)); }
+
+private:
+    std::vector<IntField> ints_;
+};
+
+// Page factories (one source file each, besides SettingsPages.cpp).
+std::unique_ptr<SettingsPage> MakeAppearancePage(SettingsWindow& window);  // SettingsPagesAppearance.cpp
+std::unique_ptr<SettingsPage> MakeAnimationPage(SettingsWindow& window);   // SettingsPagesMore.cpp
+std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window);      // SettingsPagesMore.cpp

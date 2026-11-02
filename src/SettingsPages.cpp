@@ -1,5 +1,7 @@
-// The settings pages: control tables (DIP layout) and handlers. The frame, fonts, colours,
-// theming, layout and scrolling live in SettingsWindow.cpp.
+// The settings pages: control tables (DIP layout) and handlers. This file: General, Behaviour,
+// About and the page list; Appearance: SettingsPagesAppearance.cpp; Animation and Pinned apps:
+// SettingsPagesMore.cpp. The frame, fonts, colours, theming, layout and scrolling live in
+// SettingsWindow.cpp.
 
 #include <windows.h>
 #include <commctrl.h>
@@ -15,99 +17,13 @@
 
 #include "Clock.h"
 #include "ContextMenu.h"
+#include "SettingsForm.h"
 #include "SettingsIds.h"
 #include "SettingsWindow.h"
 
 namespace {
 
 using namespace SettingsIds;
-
-// A page with integer spinners bound straight to Config fields (applied on every up-down step,
-// on Enter and on focus loss) and trackbars applied on release.
-class FormPage : public SettingsPage {
-public:
-    using SettingsPage::SettingsPage;
-
-protected:
-    struct IntField {
-        int edit;
-        int spin;
-        int lo;
-        int hi;
-        int Config::*field;
-        SettingsScope scope;
-    };
-
-    void IntSpin(int edit, int spin, int x, int w, int lo, int hi, int step, int Config::*field, SettingsScope scope) {
-        Spin(edit, spin, x, w, lo, hi, step);
-        ints_.push_back(IntField{edit, spin, lo, hi, field, scope});
-    }
-
-    void LoadInts() {
-        for (const IntField& f : ints_) SetSpin(f.spin, Cfg().*f.field);
-    }
-
-    // Applies `value` to the field (if it changed) and tells the host.
-    void SetInt(const IntField& f, int value) {
-        value = std::clamp(value, f.lo, f.hi);
-        SetSpin(f.spin, value);
-        if (Cfg().*f.field != value) {
-            Cfg().*f.field = value;
-            Changed(f.scope);
-        }
-        IntChanged(f.spin, value);
-    }
-
-    // A bound value changed (from its spinner or edit).
-    virtual void IntChanged(int /*spin*/, int /*value*/) {}
-    // WM_HSCROLL from a trackbar; `released` = apply now (see TrackReleased).
-    virtual void Track(int /*id*/, int /*pos*/, bool /*released*/) {}
-    virtual void Commit(int /*id*/) {}
-
-    void OnScroll(int id, int code) override {
-        for (const IntField& f : ints_) {
-            if (f.spin == id) {
-                if (code == SB_THUMBPOSITION || code == SB_ENDSCROLL) SetInt(f, GetSpin(id));
-                return;
-            }
-        }
-        Track(id, GetTrack(id), TrackReleased(code));
-    }
-
-    void OnCommit(int id) override {
-        for (const IntField& f : ints_) {
-            if (f.edit == id) {
-                int value = 0;
-                if (ReadInt(f.edit, f.lo, f.hi, value)) {
-                    SetInt(f, value);
-                } else {
-                    SetSpin(f.spin, Cfg().*f.field);  // not a number: back to the current value
-                }
-                return;
-            }
-        }
-        Commit(id);
-    }
-
-    // Trackbars apply on release: the end of a drag or of a key / channel-click sequence
-    // (TB_ENDTRACK), or a step with no button or key held (the mouse wheel).
-    static bool TrackReleased(int code) {
-        if (code == TB_ENDTRACK || code == TB_THUMBPOSITION) return true;
-        if (code == TB_THUMBTRACK) return false;
-        if (GetKeyState(VK_LBUTTON) < 0) return false;
-        for (int vk : {VK_LEFT, VK_RIGHT, VK_UP, VK_DOWN, VK_PRIOR, VK_NEXT, VK_HOME, VK_END}) {
-            if (GetKeyState(vk) < 0) return false;
-        }
-        return true;
-    }
-
-    int ComboSel(int id) const { return static_cast<int>(SendMessageW(Item(id), CB_GETCURSEL, 0, 0)); }
-    void SetComboSel(int id, int index) { SendMessageW(Item(id), CB_SETCURSEL, static_cast<WPARAM>(index), 0); }
-    void ComboAdd(int id, const wchar_t* text) { SendMessageW(Item(id), CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text)); }
-
-private:
-    std::vector<IntField> ints_;
-};
 
 // --- General ---------------------------------------------------------------------------------
 
@@ -167,14 +83,16 @@ protected:
         Section(kSectionDock, L"Dock");
         Label(kIconSizeLabel, L"Icon size");
         Trackbar(kIconSizeTrack, kColX - 6, 212, 16, kMaxTrackIconSize, 8);
-        IntSpin(kIconSizeEdit, kIconSizeSpin, kColX + 216, 72, 16, 256, 4, &Config::iconSize, SettingsScope::Appearance);
+        IntSpin(kIconSizeEdit, kIconSizeSpin, kColX + 216, 72, 16, 256, 4,
+                [](Config& c) -> int& { return c.iconSize; }, SettingsScope::Appearance);
         NextRow();
         Label(kMagnifyLabel, L"Magnification");
         Trackbar(kMagnifyTrack, kColX - 6, 212, 20, 50, 2);
         Text(kMagnifyValue, CtlKind::Value, L"", kColX + 216, 72);
         NextRow();
         Label(kRangeLabel, L"Magnification range (icons)");
-        IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, &Config::magnifyRange, SettingsScope::Appearance);
+        IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config& c) -> int& { return c.magnifyRange; },
+                SettingsScope::Appearance);
         NextRow();
         Label(kMonitorLabel, L"Display");
         Combo(kMonitorCombo, kColX, right - kColX, false);
@@ -367,12 +285,13 @@ protected:
             {kAutoHideIntelligent, kAutoHideIntelligentCaption, L"When a window overlaps the dock"},
         });
         Label(kHideDelayLabel, L"Hide delay");
-        IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50, &Config::hideDelayMs, SettingsScope::SaveOnly);
+        IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50, [](Config& c) -> int& { return c.hideDelayMs; },
+                SettingsScope::SaveOnly);
         Text(kHideDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
         Label(kRevealDelayLabel, L"Reveal delay");
-        IntSpin(kRevealDelayEdit, kRevealDelaySpin, kColX, 90, 0, 10000, 50, &Config::revealDelayMs,
-                SettingsScope::SaveOnly);
+        IntSpin(kRevealDelayEdit, kRevealDelaySpin, kColX, 90, 0, 10000, 50,
+                [](Config& c) -> int& { return c.revealDelayMs; }, SettingsScope::SaveOnly);
         Text(kRevealDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow(kRowH);
         Text(kAutoHideNote, CtlKind::Note, L"The dock stays shown while this window is active.", kMargin, right - kMargin, 20);
@@ -382,8 +301,8 @@ protected:
         Check(kPreviews, kPreviewsCaption, L"Show window previews for apps with several windows");
         NextRow();
         Label(kPreviewDelayLabel, L"Preview delay");
-        IntSpin(kPreviewDelayEdit, kPreviewDelaySpin, kColX, 90, 0, 10000, 50, &Config::previewDelayMs,
-                SettingsScope::SaveOnly);
+        IntSpin(kPreviewDelayEdit, kPreviewDelaySpin, kColX, 90, 0, 10000, 50,
+                [](Config& c) -> int& { return c.previewDelayMs; }, SettingsScope::SaveOnly);
         Text(kPreviewDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
     }
@@ -522,30 +441,15 @@ protected:
     }
 };
 
-// --- placeholders (Phase B2 fills them in) ----------------------------------------------------
-
-class PlaceholderPage : public SettingsPage {
-public:
-    PlaceholderPage(SettingsWindow& w, const wchar_t* name, wchar_t glyph) : SettingsPage(w, name, glyph) {}
-
-protected:
-    void Build() override {
-        Title(Name().c_str());
-        Text(kPlaceholderText, CtlKind::Note, L"Coming in the next update.", kMargin, Width() - 2 * kMargin);
-        NextRow();
-    }
-    void Load() override {}
-};
-
 }  // namespace
 
 std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& window) {
     std::vector<std::unique_ptr<SettingsPage>> pages;
     pages.push_back(std::make_unique<GeneralPage>(window));  // kPageGeneral
-    pages.push_back(std::make_unique<PlaceholderPage>(window, L"Appearance", L'\xE790'));  // kPageAppearance
+    pages.push_back(MakeAppearancePage(window));  // kPageAppearance
     pages.push_back(std::make_unique<BehaviourPage>(window));  // kPageBehaviour
-    pages.push_back(std::make_unique<PlaceholderPage>(window, L"Animation", L'\xE768'));  // kPageAnimation
-    pages.push_back(std::make_unique<PlaceholderPage>(window, L"Pinned apps", L'\xE718'));  // kPagePinned
+    pages.push_back(MakeAnimationPage(window));  // kPageAnimation
+    pages.push_back(MakePinnedPage(window));  // kPagePinned
     pages.push_back(std::make_unique<AboutPage>(window));  // kPageAbout
     return pages;
 }

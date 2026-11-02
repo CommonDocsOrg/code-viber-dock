@@ -21,7 +21,7 @@ inline constexpr int kPageCount = 6;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
-// Placeholder pages (B1): the "Coming in the next update" text.
+// Placeholder pages of B1 ("Coming in the next update"); unused since B2, kept reserved.
 inline constexpr int kPlaceholderText = 2001;
 
 // General (2100 - 2199)
@@ -93,6 +93,82 @@ inline constexpr int kAboutRendererLabel = 2307;
 inline constexpr int kAboutRenderer = 2308;
 inline constexpr int kAboutNote = 2309;
 
-// Appearance (2400 - 2499), Animation (2500 - 2599), Pinned apps (2600 - 2699): Phase B2.
+// Frame: the dock preview strip under every page (WinDock.SettingsPreview, child of the window).
+inline constexpr int kPreview = 101;
+
+// Appearance (2400 - 2499; the theme field rows: 3000 - 3299, see FieldRow)
+inline constexpr int kSectionTheme = 2400;
+inline constexpr int kThemeLabel = 2401;
+inline constexpr int kThemeCombo = 2402;          // built-ins, then user theme files by name
+inline constexpr int kExportTheme = 2403;         // "Export current theme…" (save dialog)
+inline constexpr int kThemesFolderLink = 2404;    // SysLink: opens the themes folder
+inline constexpr int kResetAllTheme = 2405;       // clears every override (config theme = preset)
+inline constexpr int kThemeNote = 2406;
+// Sections of the field rows (one per group).
+inline constexpr int kSectionFieldsBar = 2410;
+inline constexpr int kSectionFieldsLabel = 2411;
+inline constexpr int kSectionFieldsDots = 2412;
+inline constexpr int kSectionFieldsClock = 2413;
+inline constexpr int kSectionFieldsIcons = 2414;
+inline constexpr int kSectionFieldsPreviews = 2415;
+inline constexpr int kSectionFieldsOther = 2416;
+
+// One row per Theme::Field (Theme::Fields() order): id = FieldRow(field index, part).
+inline constexpr int kFieldRowBase = 3000;
+inline constexpr int kFieldRowStride = 10;
+inline constexpr int kFieldLabel = 0;    // row label (static; Color / Float rows)
+inline constexpr int kFieldSwatch = 1;   // Color: owner-drawn button (ChooseColor); Bool: the check box
+inline constexpr int kFieldHex = 2;      // Color: "#AARRGGBB" edit (applied on Enter / focus loss); Bool: caption
+inline constexpr int kFieldValue = 3;    // Color: alpha edit 0 - 255; Float: value edit
+inline constexpr int kFieldSpin = 4;     // up-down of kFieldValue
+inline constexpr int kFieldReset = 5;    // "Reset" button, shown only while the field is overridden
+inline constexpr int kFieldUnit = 6;     // Float: the unit note ("DIPs")
+constexpr int FieldRow(int field, int part) { return kFieldRowBase + field * kFieldRowStride + part; }
+
+// Animation (2500 - 2599)
+inline constexpr int kSectionSpeed = 2500;
+inline constexpr int kSpeedLabel = 2501;
+inline constexpr int kSpeedTrack = 2502;          // 0 = off, 1 - 33 = 0.25x - 4x (log2, 1/8 octave steps)
+inline constexpr int kSpeedValue = 2503;          // "1.00×" / "Off"
+inline constexpr int kSectionHide = 2504;
+inline constexpr int kHideSlide = 2505;           // radio (+ caption id + 1)
+inline constexpr int kHideSlideCaption = 2506;
+inline constexpr int kHideSlideOnly = 2507;
+inline constexpr int kHideSlideOnlyCaption = 2508;
+inline constexpr int kHideFade = 2509;
+inline constexpr int kHideFadeCaption = 2510;
+inline constexpr int kHideNone = 2511;
+inline constexpr int kHideNoneCaption = 2512;
+inline constexpr int kSectionLaunch = 2513;
+inline constexpr int kLaunchBounce = 2514;
+inline constexpr int kLaunchBounceCaption = 2515;
+inline constexpr int kLaunchHop = 2516;
+inline constexpr int kLaunchHopCaption = 2517;
+inline constexpr int kLaunchPulse = 2518;
+inline constexpr int kLaunchPulseCaption = 2519;
+inline constexpr int kLaunchNone = 2520;
+inline constexpr int kLaunchNoneCaption = 2521;
+inline constexpr int kSectionMotion = 2522;
+inline constexpr int kFalloffLabel = 2523;
+inline constexpr int kFalloffCombo = 2524;        // 0 cosine, 1 linear
+inline constexpr int kEasingLabel = 2525;
+inline constexpr int kEasingCombo = 2526;         // 0 easeOut, 1 linear, 2 spring
+inline constexpr int kLabelFadeLabel = 2527;
+inline constexpr int kLabelFadeEdit = 2528;       // ms, 0 - 1000
+inline constexpr int kLabelFadeSpin = 2529;
+inline constexpr int kLabelFadeUnit = 2530;
+inline constexpr int kSectionAccessibility = 2531;
+inline constexpr int kReduceMotionLabel = 2532;
+inline constexpr int kReduceMotionCombo = 2533;   // 0 system, 1 on, 2 off
+inline constexpr int kReduceMotionNote = 2534;    // "Windows animation effects: on / off"
+inline constexpr int kSpeedNote = 2535;
+
+// Pinned apps (2600 - 2699)
+inline constexpr int kPinnedList = 2600;          // SysListView32 (report): Name, Target
+inline constexpr int kPinAdd = 2601;              // "Add…" (open dialog, .lnk / .exe, multi-select)
+inline constexpr int kPinRemove = 2602;
+inline constexpr int kPinUp = 2603;
+inline constexpr int kPinDown = 2604;
+inline constexpr int kPinnedNote = 2605;
 
 }  // namespace SettingsIds

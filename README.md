@@ -214,12 +214,27 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   dock's order), clock on / off, time format (pick one or type a `strftime` format; a preview shows
   the result), date line, Start with Windows, Hide the Windows taskbar, and the renderer
   (`auto` / `software`; takes effect after WinDock restarts, the page shows the one in use).
+- **Appearance**: the theme (the built-in presets, then your theme files from the themes folder by
+  name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
+  **Open themes folder**, **Reset all to preset**, and one row per theme field (see
+  [Themes](#themes)) grouped as Bar, Name label, Indicator dots, Clock, Placeholder icon and Window
+  previews. A colour row has a swatch (click it for the Windows colour picker; it replaces the
+  colour and keeps the alpha), the `#AARRGGBB` value (applied on Enter or when the box loses the
+  focus; an invalid value beeps and goes back) and the alpha 0-255. Acrylic blur is a check box,
+  the two corner radii are number boxes (DIPs).
 - **Behaviour**: auto-hide Off / Always / When a window overlaps the dock, hide and reveal delays,
   window previews on / off and their delay.
+- **Animation**: speed (Off, then 0.25× to 4× on a logarithmic slider), hide style (slide and
+  fade, slide, fade, none), launch feedback (bounce until the app opens, hop once, pulse, none),
+  magnification falloff (smooth / linear), easing (ease out, linear, spring), the name label fade
+  (0-1000 ms) and reduce motion (follow Windows, on, off; the page shows whether Windows'
+  animation effects are on). See [Animation](#animation).
+- **Pinned apps**: the pinned list in dock order (name and target; "(missing)" when the file is
+  gone), **Add…** (pick one or more `.lnk` / `.exe` files; a shortcut is pinned as the shortcut,
+  apps that are already pinned are skipped), **Remove**, **Move up**, **Move down**. Changes from
+  the dock itself (drag to reorder, drop to pin, drag off to unpin) show up in the list at once.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
-- **Appearance**, **Animation**, **Pinned apps**: coming in the next update (until then: config.json,
-  see below).
 
 Every change applies to the dock at once (sliders when you release them, number boxes on each
 arrow step, on Enter or when the box loses the focus) and is saved within 300 ms, exactly like the
@@ -227,14 +242,32 @@ menu toggles. The tray menu and **Reload config** update an open settings window
 settings window is the active window the dock stays shown, so you can watch your changes; auto-hide
 resumes as soon as another window is activated.
 
+Under every page a **preview strip** draws a small dock from the current settings: the bar with
+its border, acrylic tint (over a stand-in wallpaper) or background, corner radius, six placeholder
+apps with the three indicator dot states (running, active, attention), the separator and the clock,
+the name label above the magnified app, and a sample window-preview popup with a hovered card and
+its hovered close button. Move the mouse over it and the magnification follows the pointer, with
+the configured magnification, range and falloff. It repaints only when a setting changes or the
+mouse moves over it (no timers).
+
+**Theme overrides.** Choosing a theme sets `theme.preset` and clears every override. A theme field
+you change on the Appearance page becomes an override: it is saved inline in config.json next to
+`"preset"` (only overridden fields are saved) and its **Reset** button appears; Reset copies the
+preset's value back and removes the field from config.json. **Reset all to preset** does that for
+every field. **Export current theme…** saves all 21 resolved values plus a `name` (the file name)
+as a theme file, by default into the themes folder (created on demand); a file saved there becomes
+the preset at once, with no overrides left. A theme file named after a built-in id (`dark.json`,
+...) is ignored, so for a built-in preset the suggested name is `my-<id>`.
+
 The window follows the Windows app mode (Settings > Personalization > Colors > Choose your app
 mode) and switches live: dark or light title bar, Mica behind the title bar and the page list
-(when transparency effects are on; otherwise solid colours), dark buttons, boxes, lists and scroll
-bars. Sliders stay light for now, and so will the colour picker (`ChooseColor`) of the coming
-Appearance page: Windows has no dark style for them. Dark context menus and drop-down lists use
-undocumented Windows functions when they are available; without them those popups are light. High
-contrast uses the system colours. Closing the window frees everything it used; nothing of it runs
-while it is closed.
+(when transparency effects are on; otherwise solid colours), dark buttons, boxes, lists, the pinned
+apps list and its header, and scroll bars; sliders have no dark style in Windows, so the window
+paints their track and thumb itself in dark mode. The colour picker (`ChooseColor`) and the file
+dialogs are system dialogs; the colour picker is always light. Dark context menus and drop-down
+lists use undocumented Windows functions when they are available; without them those popups are
+light. High contrast uses the system colours. Closing the window frees everything it used (the
+preview's Direct2D objects included); nothing of it runs while it is closed.
 
 ## Configuration
 
@@ -442,7 +475,10 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   are `WinDock.SettingsPage` children with ids 200 + page index (0 General, 1 Appearance,
   2 Behaviour, 3 Animation, 4 Pinned apps, 5 About), and every control on them has the stable id
   listed in `src/SettingsIds.h`. Check boxes and radio buttons carry no visible text of their own:
-  their caption is a separate static (id + 1) that forwards clicks.
+  their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
+  field rows use `3000 + 10 * field index + part` (field index in `Theme::Fields()` order; part 0
+  label, 1 swatch / check box, 2 hex box / check box caption, 3 alpha or value box, 4 its up-down,
+  5 Reset, 6 unit). The preview strip is the child `WinDock.SettingsPreview` (control id 101).
 - `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle, 801 new window,
   802 open file location, 900 close all windows), `lParam` = item index or a window handle of
   the item. Returns 1 if the item was found.

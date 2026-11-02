@@ -173,6 +173,19 @@ bool FieldEquals(const FieldInfo& f, const ThemeConfig& a, const ThemeConfig& b)
     return false;
 }
 
+uint32_t GetColor(const ThemeConfig& t, const FieldInfo& f) { return f.kind == Kind::Color ? At<uint32_t>(t, f) : 0; }
+void SetColor(ThemeConfig& t, const FieldInfo& f, uint32_t argb) {
+    if (f.kind == Kind::Color) At<uint32_t>(t, f) = argb;
+}
+float GetFloat(const ThemeConfig& t, const FieldInfo& f) { return f.kind == Kind::Float ? At<float>(t, f) : 0.0f; }
+void SetFloat(ThemeConfig& t, const FieldInfo& f, float v) {
+    if (f.kind == Kind::Float && std::isfinite(v)) At<float>(t, f) = std::clamp(v, f.min, f.max);
+}
+bool GetBool(const ThemeConfig& t, const FieldInfo& f) { return f.kind == Kind::Bool && At<bool>(t, f); }
+void SetBool(ThemeConfig& t, const FieldInfo& f, bool v) {
+    if (f.kind == Kind::Bool) At<bool>(t, f) = v;
+}
+
 const Preset* BuiltIns(size_t& count) {
     static const Preset kPresets[] = {
         {L"dark", L"Dark", ThemeConfig{}},

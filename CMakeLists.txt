@@ -35,6 +35,9 @@ add_executable(WinDock WIN32
   src/SettingsWindow.cpp
   src/SettingsNav.cpp
   src/SettingsPages.cpp
+  src/SettingsPagesAppearance.cpp
+  src/SettingsPagesMore.cpp
+  src/SettingsPreview.cpp
   res/app.rc
   res/app.manifest
 )

@@ -42,6 +42,7 @@ struct SettingsHost {
 };
 
 class SettingsWindow;
+class SettingsPreview;
 
 // What a control is: decides its font, colours and visual-style class.
 enum class CtlKind {
@@ -59,6 +60,8 @@ enum class CtlKind {
     Combo,
     Trackbar,
     Link,      // SysLink
+    Swatch,    // owner-drawn push button (BS_OWNERDRAW): the page paints it in OnDrawItem
+    List,      // SysListView32 (report view): dark items view theme, palette colours
 };
 
 // One row of a page's layout table. Rects are in DIPs, page coordinates (unscrolled); the window
@@ -95,6 +98,7 @@ public:
 
 protected:
     friend class SettingsWindow;
+class SettingsPreview;
 
     // --- content (SettingsPages.cpp) ---
     // Fills the control table with the builders below. Called once, before the controls exist.
@@ -110,6 +114,13 @@ protected:
     // Enter in edit / editable combo `id`, or it lost the focus: commit its text.
     virtual void OnCommit(int /*id*/) {}
     virtual void OnDisplayChange() {}
+    // WM_DRAWITEM for an owner-drawn button (CtlKind::Swatch). Return true if drawn.
+    virtual bool OnDrawItem(const DRAWITEMSTRUCT& /*di*/) { return false; }
+    // WM_SETTINGCHANGE reached the window (after its own handling).
+    virtual void OnSettingChange(WPARAM /*wp*/, LPARAM /*lp*/) {}
+    // The DPI, the fonts or the palette changed (after the window updated them): rebuild image
+    // lists and other DPI / colour dependent resources of the page.
+    virtual void OnStyleChanged() {}
 
     // --- layout table builders (DIPs; the cursor y_ moves down row by row) ---
     static constexpr int kMargin = 24;
@@ -156,6 +167,9 @@ protected:
     void SetTrack(int id, int pos);
     int GetTrack(int id) const;
     void Enable(int id, bool enable);
+    void Show(int id, bool show);
+    // The top-level settings window (owner for dialogs).
+    HWND Owner() const;
     // Parses the edit's integer, clamps it to [lo, hi] and writes the clamped text back.
     // Returns false (the text is restored by the caller's Load) if it is not a number.
     bool ReadInt(int editId, int lo, int hi, int& value);
@@ -202,6 +216,8 @@ public:
     UINT Dpi() const { return dpi_; }
     int Px(int dip) const { return MulDiv(dip, static_cast<int>(dpi_), USER_DEFAULT_SCREEN_DPI); }
     const DarkMode::Palette& Colors() const { return palette_; }
+    // A setting was applied to the dock: repaint the preview strip.
+    void ConfigApplied();
     static constexpr int ContentWidthDip() { return kWidthDip - kNavWidthDip; }
 
 private:
@@ -213,8 +229,8 @@ private:
     static constexpr int kNavTopDip = 12;
     static constexpr int kNavItemDip = 36;
     static constexpr int kAboveBarDip = 24;   // gap between the window and the dock's bar
-    // Phase B2 puts the dock preview strip under every page; B1 has no footer.
-    static constexpr int kFooterDip = 0;
+    // The dock preview strip (SettingsPreview) under every page, content-pane wide.
+    static constexpr int kFooterDip = 96;
     // Set to false to drop the Mica nav column (frame extension) if a driver misbehaves: the
     // nav column is then painted solid, as when transparency effects are off.
     static constexpr bool kNavMica = true;
@@ -258,6 +274,11 @@ private:
     // Page colours
     LRESULT CtlColor(UINT msg, HDC hdc, HWND control, const SettingsPage& page);
     void DrawCaption(const SettingsPage& page, const DRAWITEMSTRUCT& di);
+    // Dark mode trackbars (no dark visual style): channel and thumb in palette colours.
+    LRESULT DrawTrackbar(NMCUSTOMDRAW& cd);
+    void ThemeList(HWND list);
+    static LRESULT CALLBACK ListSubclassProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+    void StyleChanged();
 
     SettingsHost host_;
     HINSTANCE instance_ = nullptr;
@@ -265,6 +286,7 @@ private:
     HWND nav_ = nullptr;
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
     std::vector<std::unique_ptr<SettingsPage>> pages_;
+    std::unique_ptr<SettingsPreview> preview_;  // the strip under the pages; freed with the window
     int active_ = 0;
     int navHot_ = -1;
     bool navTracking_ = false;
