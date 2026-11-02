@@ -162,9 +162,10 @@ the primary monitor.
   Escape while dragging (or let another window take the mouse) to cancel: everything slides back.
   A press and release without moving past the threshold is still a click.
   - Pinned icons move within the pinned section only.
-  - A running app that is not pinned can be dragged into the pinned section; dropping it there
-    pins it at that position. Dropped anywhere else it goes back to its place. Windows without a
-    usable app identity (shown with a class-name fallback) cannot be dragged.
+  - A running app that is not pinned can be moved anywhere among the running apps; that order
+    lasts for the session (it is not saved, and newly started apps are added at the end). Dropped
+    on a pinned slot, it is pinned at that position. Windows without a usable app identity (shown
+    with a class-name fallback) can be reordered among the running apps but not pinned.
   - Drag a pinned icon well above the dock (more than 1.5 bar heights above the bar) and release
     to unpin it: the icon dims while it is in that zone and fades out when released. This only
     applies to pinned apps with no open windows; a running pinned app dropped there just goes back

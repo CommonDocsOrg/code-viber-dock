@@ -1864,6 +1864,32 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
         groupOf[index] = &g;
     }
 
+    // 3. After the user reordered the running section: that order, apps not in it at the end.
+    if (!runningOrder_.empty() && next.size() > pinnedCount) {
+        auto rank = [&](const AppKey& key) {
+            const auto it = std::find(runningOrder_.begin(), runningOrder_.end(), key);
+            return static_cast<size_t>(it - runningOrder_.begin());
+        };
+        std::vector<size_t> perm(next.size() - pinnedCount);
+        for (size_t k = 0; k < perm.size(); ++k) perm[k] = pinnedCount + k;
+        std::stable_sort(perm.begin(), perm.end(),
+                         [&](size_t a, size_t b) { return rank(next[a].key) < rank(next[b].key); });
+        std::vector<DockItem> tail;
+        std::vector<const WindowTracker::Group*> tailGroups;
+        tail.reserve(perm.size());
+        tailGroups.reserve(perm.size());
+        for (size_t i : perm) {
+            tail.push_back(std::move(next[i]));
+            tailGroups.push_back(groupOf[i]);
+        }
+        runningOrder_.clear();  // keeps only apps that are still running
+        for (size_t k = 0; k < tail.size(); ++k) {
+            runningOrder_.push_back(tail[k].key);
+            next[pinnedCount + k] = std::move(tail[k]);
+            groupOf[pinnedCount + k] = tailGroups[k];
+        }
+    }
+
     bool landed = false;  // a launch feedback ended at once (a hop that was already over)
     for (size_t i = 0; i < next.size(); ++i) {
         DockItem& item = next[i];
@@ -2136,8 +2162,10 @@ void DockWindow::UpdateIconUsage() {
 // takes the mouse capture and holds itself shown (no auto-hide, no label), magnification stops,
 // the dragged icon follows the cursor (slightly enlarged and translucent) and the other icons
 // make room at the insertion slot (80 ms retargets through the usual placement tweens; nothing is
-// redrawn). The insertion slot is the rest slot under the cursor, limited to the pinned section.
-// Release: the icon lands in its slot (120 ms) and the new pinned order goes to the config. The
+// redrawn). The insertion slot is the rest slot under the cursor; pinned icons stay in the pinned
+// section, running ones move anywhere (a pinned slot pins them).
+// Release: the icon lands in its slot (120 ms) and the new pinned order goes to the config (or,
+// within the running section, to runningOrder_ for this session). The
 // layout keeps its geometry, so the landing animation keeps running through the item rebuild.
 // Released more than 1.5 bar heights above the bar, a pinned app without windows is unpinned (the
 // icon fades out first). Escape (polled: the dock never has keyboard focus) or losing the capture
@@ -2166,10 +2194,12 @@ int DockWindow::DragInsertIndex(float stageX) const {
     const float stride = layout_.iconPx + layout_.gap;
     const int raw = std::clamp(static_cast<int>(std::floor((stageX - layout_.itemsLeft) / stride)), 0, n - 1);
     const int pinned = static_cast<int>(PinnedCount());
-    if (items_[static_cast<size_t>(s)].pinned) return std::min(raw, pinned - 1);
-    // A running (unpinned) item: dropped into the pinned section (slots 0..pinned), it is pinned
-    // there; anywhere else it goes back to its own slot.
-    return raw <= pinned && raw != s ? raw : s;
+    const DockItem& item = items_[static_cast<size_t>(s)];
+    if (item.pinned) return std::min(raw, pinned - 1);
+    // A running (unpinned) item: dropped on a pinned slot (0..pinned-1), it is pinned there;
+    // anywhere in the running section it just moves there (for this session). An item without a
+    // pinnable identity stays in the running section.
+    return item.key.IsClassFallback() ? std::max(raw, pinned) : raw;
 }
 
 int DockWindow::DropGapIndex(float stageX) const {
@@ -2211,7 +2241,6 @@ void DockWindow::BeginDrag(POINT pt) {
     pressed_ = -1;
     if (s < 0 || s >= static_cast<int>(items_.size())) return;
     DockItem& item = items_[static_cast<size_t>(s)];
-    if (!item.pinned && item.key.IsClassFallback()) return;  // could never be pinned: click only
     if (!item.layer.visual) return;
     // A launch pulse animates the opacity the drag uses: end it first (it fades back to opaque,
     // which the drag's dimming below replaces).
@@ -2304,8 +2333,9 @@ void DockWindow::EndDrag(bool commit) {
         return;
     }
 
-    // The new pinned order, if it changed.
+    // The new pinned order, or the new running-section order, if either changed.
     std::vector<AppKey> order;
+    std::vector<AppKey> running;
     if (valid && commit && dragInsert_ >= 0 && dragInsert_ != s) {
         std::vector<size_t> seq;
         seq.reserve(items_.size());
@@ -2313,10 +2343,16 @@ void DockWindow::EndDrag(bool commit) {
             if (static_cast<int>(i) != s) seq.push_back(i);
         }
         seq.insert(seq.begin() + dragInsert_, static_cast<size_t>(s));
-        const size_t pinned = PinnedCount() + (items_[static_cast<size_t>(s)].pinned ? 0 : 1);
-        for (size_t k = 0; k < pinned && k < seq.size(); ++k) order.push_back(items_[seq[k]].key);
+        const bool wasPinned = items_[static_cast<size_t>(s)].pinned;
+        const bool pins = wasPinned || static_cast<size_t>(dragInsert_) < PinnedCount();
+        const size_t pinned = PinnedCount() + (pins && !wasPinned ? 1 : 0);
+        if (pins) {
+            for (size_t k = 0; k < pinned && k < seq.size(); ++k) order.push_back(items_[seq[k]].key);
+        } else {
+            for (size_t k = pinned; k < seq.size(); ++k) running.push_back(items_[seq[k]].key);
+        }
     }
-    if (order.empty()) dragInsert_ = s;  // cancelled / unchanged: back to its own slot
+    if (order.empty() && running.empty()) dragInsert_ = s;  // cancelled / unchanged: back to its own slot
 
     // Land: the dragged icon slides into its slot (120 ms) and becomes opaque. With a new order
     // these are exactly its targets in the rebuilt list, so the rebuild leaves the animation alone.
@@ -2334,6 +2370,10 @@ void DockWindow::EndDrag(bool commit) {
 
     KeepStage(motion_.rest + 0.04);  // the window stays at stage size until the icon has landed
     if (!order.empty() && pinRequests_.reorder) pinRequests_.reorder(order);
+    if (!running.empty()) {
+        runningOrder_ = std::move(running);
+        Rebuild(tracker_.Current());
+    }
     SetHold(false);  // starts the hide delay if the mouse is no longer on the dock
     POINT cursor{};
     if (hwnd_ && GetCursorPos(&cursor) && PtInRect(&winRect_, cursor)) ArmMouseTracking();

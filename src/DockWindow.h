@@ -496,6 +496,9 @@ private:
     bool dragPending_ = false;    // kDragTimerId running
     bool removePending_ = false;  // kRemoveTimerId running
     AppKey removeKey_;
+    // Order of the running (unpinned) section after the user dragged within it; empty until then.
+    // Session only (not saved): Rebuild sorts that section by it and appends new apps at the end.
+    std::vector<AppKey> runningOrder_;
 
     // Thumbnail popup
     PreviewPopup preview_;
