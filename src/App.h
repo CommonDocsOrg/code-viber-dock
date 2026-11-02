@@ -24,8 +24,8 @@ inline constexpr wchar_t kRestoreTaskbarMessage[] = L"WinDock.RestoreTaskbar";
 // is a window handle. Returns 1 if the item was found.
 inline constexpr wchar_t kItemCommandMessage[] = L"WinDock.ItemCommand";
 // Automation: SendMessage(dock, RegisterWindowMessage(kDockCommandMessage), cmd, 0) runs a dock /
-// tray menu command (ContextMenu::kAutoHide ... kReloadConfig), exactly as if it was chosen
-// from the menu. Returns 1 for a known command.
+// tray menu command (ContextMenu::kAutoHide ... kLastDockCommand), exactly as if it was chosen
+// from the menu. Returns 1 for a known command (kOpenSettings is reserved and returns 0 for now).
 inline constexpr wchar_t kDockCommandMessage[] = L"WinDock.DockCommand";
 }  // namespace AppIpc
 
@@ -68,6 +68,8 @@ private:
     void RequestSave();
     void FlushSave();
     void OnCommand(UINT cmd);
+    // Sets config_.autoHide, applies it to the dock and saves; remembers on-modes for kAutoHide.
+    void SetAutoHide(AutoHideMode mode);
     ContextMenu::TrayMenuState MenuState() const;
     // Runs a modal menu with the dock held shown (no auto-hide while it is open).
     UINT RunMenu(const std::function<UINT()>& show);
@@ -86,6 +88,8 @@ private:
     UINT msgItemCommand_ = 0;
     UINT msgDockCommand_ = 0;
     bool savePending_ = false;
+    // The auto-hide mode the kAutoHide toggle turns back on (from the config, default Always).
+    AutoHideMode lastOnMode_ = AutoHideMode::Always;
     HICON trayIcon_ = nullptr;
     bool trayAdded_ = false;
     bool shutDown_ = false;

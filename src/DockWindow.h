@@ -95,8 +95,8 @@ public:
     // Re-reads every setting from the config (sizes, theme, clock, monitor, auto-hide) and
     // redraws. Pins are separate: ReloadPins().
     void ApplyConfig();
-    // Applies config->autoHide: off shows the dock and keeps it shown; on hides it once the
-    // mouse is away.
+    // Applies config->autoHide: off shows the dock and keeps it shown; always / intelligent hide
+    // it once the mouse is away (intelligent does not test window overlap yet).
     void ApplyAutoHide();
     // While held (a menu is open, a drag is in progress) the dock never hides. Releasing the
     // hold starts the hide delay if the mouse is outside the dock.

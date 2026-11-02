@@ -5,6 +5,8 @@
 #include <algorithm>
 #include <cmath>
 
+#include "Theme.h"
+
 namespace {
 
 constexpr DWORD kExStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
@@ -28,12 +30,6 @@ constexpr float kCardRadius = 6.0f;
 constexpr float kIconDip = 48.0f;     // app icon in a card without a thumbnail
 constexpr float kMonitorMargin = 8.0f;
 constexpr double kFadeS = 0.12;
-
-D2D1_COLOR_F ArgbToColor(uint32_t argb, float alphaScale = 1.0f) {
-    return D2D1::ColorF(static_cast<float>((argb >> 16) & 0xFF) / 255.0f,
-                        static_cast<float>((argb >> 8) & 0xFF) / 255.0f, static_cast<float>(argb & 0xFF) / 255.0f,
-                        static_cast<float>((argb >> 24) & 0xFF) / 255.0f * alphaScale);
-}
 
 D2D1_RECT_F ToRectF(const RECT& r) {
     return D2D1::RectF(static_cast<float>(r.left), static_cast<float>(r.top), static_cast<float>(r.right),
@@ -236,7 +232,7 @@ HRESULT PreviewPopup::Draw() {
         std::round((style_.acrylic ? style_.cornerRadiusDip : std::min(style_.cornerRadiusDip, 12.0f)) * s);
     const float stroke = std::max(1.0f, std::round(s));
     const float cardRadius = std::round(kCardRadius * s);
-    const D2D1_COLOR_F tint = ArgbToColor(style_.tint);
+    const D2D1_COLOR_F tint = Theme::ToColor(style_.tint);
     const UINT w = static_cast<UINT>(size_.cx), h = static_cast<UINT>(size_.cy);
 
     return renderer_->DrawLayer(content_, w, h, [&](ID2D1DeviceContext* dc) {
@@ -245,7 +241,7 @@ HRESULT PreviewPopup::Draw() {
         const float fw = static_cast<float>(w), fh = static_cast<float>(h);
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, fw, fh), radius, radius), brush.get());
         const float inset = stroke / 2.0f;
-        brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.14f));
+        brush->SetColor(Theme::ToColor(style_.border));
         dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, fw - inset, fh - inset),
                                                    std::max(0.0f, radius - inset), std::max(0.0f, radius - inset)),
                                  brush.get(), stroke);
@@ -255,9 +251,9 @@ HRESULT PreviewPopup::Draw() {
             const bool hot = static_cast<int>(i) == hot_;
             const D2D1_RECT_F card = ToRectF(c.rect);
             if (hot) {
-                brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.10f));
+                brush->SetColor(Theme::ToColor(style_.hotBackground));
                 dc->FillRoundedRectangle(D2D1::RoundedRect(card, cardRadius, cardRadius), brush.get());
-                brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.20f));
+                brush->SetColor(Theme::ToColor(style_.hotBorder));
                 const D2D1_RECT_F edge = D2D1::RectF(card.left + inset, card.top + inset, card.right - inset,
                                                      card.bottom - inset);
                 dc->DrawRoundedRectangle(D2D1::RoundedRect(edge, cardRadius - inset, cardRadius - inset), brush.get(),
@@ -274,7 +270,7 @@ HRESULT PreviewPopup::Draw() {
                 if (right > left &&
                     SUCCEEDED(dw->CreateTextLayout(c.title.c_str(), static_cast<UINT32>(c.title.size()),
                                                    titleFormat_.get(), right - left, bottom - top, layout.put()))) {
-                    brush->SetColor(ArgbToColor(style_.text, hot ? 1.0f : 0.85f));
+                    brush->SetColor(Theme::ToColor(style_.text, hot ? 1.0f : 0.85f));
                     dc->DrawTextLayout(D2D1::Point2F(left, top), layout.get(), brush.get(),
                                        D2D1_DRAW_TEXT_OPTIONS_CLIP);
                 }
@@ -283,13 +279,13 @@ HRESULT PreviewPopup::Draw() {
             // Close glyph: a red rounded square behind it while hovered.
             const D2D1_RECT_F close = ToRectF(c.closeRect);
             if (hot && hotClose_) {
-                brush->SetColor(D2D1::ColorF(0.769f, 0.169f, 0.110f, 1.0f));  // #C42B1C
+                brush->SetColor(Theme::ToColor(style_.closeHover));
                 const float r = std::round(4.0f * s);
                 dc->FillRoundedRectangle(D2D1::RoundedRect(close, r, r), brush.get());
             }
             const float cx = (close.left + close.right) / 2.0f, cy = (close.top + close.bottom) / 2.0f;
             const float g = std::round(kCloseGlyph * s) / 2.0f;
-            brush->SetColor(ArgbToColor(style_.text, hot ? 1.0f : 0.55f));
+            brush->SetColor(Theme::ToColor(style_.text, hot ? 1.0f : 0.55f));
             const float glyphStroke = std::max(1.0f, 1.25f * s);
             dc->DrawLine(D2D1::Point2F(cx - g, cy - g), D2D1::Point2F(cx + g, cy + g), brush.get(), glyphStroke);
             dc->DrawLine(D2D1::Point2F(cx - g, cy + g), D2D1::Point2F(cx + g, cy - g), brush.get(), glyphStroke);
@@ -302,7 +298,7 @@ HRESULT PreviewPopup::Draw() {
             } else {
                 // No thumbnail (e.g. a minimized window without a cached frame): the app icon.
                 const D2D1_RECT_F box = ToRectF(c.boxRect);
-                brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.05f));
+                brush->SetColor(Theme::ToColor(style_.hotBackground, 0.5f));
                 dc->FillRoundedRectangle(D2D1::RoundedRect(box, cardRadius, cardRadius), brush.get());
                 if (ID2D1Bitmap* icon = contentData_.icon.get()) {
                     const float size = std::round(kIconDip * s);
@@ -316,7 +312,7 @@ HRESULT PreviewPopup::Draw() {
 
         if (hiddenCount_ && moreFormat_) {
             const std::wstring more = L"+" + std::to_wstring(hiddenCount_) + L" more";
-            brush->SetColor(ArgbToColor(style_.text, 0.75f));
+            brush->SetColor(Theme::ToColor(style_.text, 0.75f));
             dc->DrawText(more.c_str(), static_cast<UINT32>(more.size()), moreFormat_.get(), ToRectF(moreRect_),
                          brush.get());
         }

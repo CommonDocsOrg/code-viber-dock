@@ -12,7 +12,16 @@ void Append(HMENU menu, UINT id, const wchar_t* text, bool enabled, bool checked
 }
 
 void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
-    Append(menu, kAutoHide, L"Auto-hide", true, state.autoHide);
+    if (HMENU sub = CreatePopupMenu()) {  // destroyed with its parent
+        Append(sub, kAutoHideOff, L"Off", true);
+        Append(sub, kAutoHideAlways, L"Always", true);
+        Append(sub, kAutoHideIntelligent, L"When a window overlaps", true);
+        const UINT checked = state.autoHide == AutoHideMode::Intelligent ? kAutoHideIntelligent
+                             : state.autoHide == AutoHideMode::Always    ? kAutoHideAlways
+                                                                         : kAutoHideOff;
+        CheckMenuRadioItem(sub, kAutoHideOff, kAutoHideIntelligent, checked, MF_BYCOMMAND);
+        AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(sub), L"Auto-hide");
+    }
     Append(menu, kHideTaskbar, L"Hide taskbar", true, state.hideTaskbar);
     Append(menu, kStartWithWindows, L"Start with Windows", true, state.startWithWindows);
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

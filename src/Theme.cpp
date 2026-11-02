@@ -1,0 +1,341 @@
+#include "Theme.h"
+
+#include <algorithm>
+#include <cmath>
+#include <cwchar>
+#include <iterator>
+
+#include "JsonUtil.h"
+
+namespace Theme {
+
+using namespace JsonUtil;
+
+namespace {
+
+#define WD_FIELD(f, member, label, kind, mn, mx) \
+    FieldInfo { Field::f, L"" #member, label, Kind::kind, offsetof(ThemeConfig, member), mn, mx }
+
+const FieldInfo kFields[] = {
+    WD_FIELD(Background, background, L"Background", Color, 0.0f, 0.0f),
+    WD_FIELD(CornerRadius, cornerRadius, L"Corner radius", Float, 0.0f, 64.0f),
+    WD_FIELD(Acrylic, acrylic, L"Acrylic blur", Bool, 0.0f, 0.0f),
+    WD_FIELD(AcrylicBackground, acrylicBackground, L"Acrylic tint", Color, 0.0f, 0.0f),
+    WD_FIELD(LabelBackground, labelBackground, L"Label background", Color, 0.0f, 0.0f),
+    WD_FIELD(LabelText, labelText, L"Label text", Color, 0.0f, 0.0f),
+    WD_FIELD(LabelBorder, labelBorder, L"Label border", Color, 0.0f, 0.0f),
+    WD_FIELD(LabelCornerRadius, labelCornerRadius, L"Label corner radius", Float, 0.0f, 32.0f),
+    WD_FIELD(Accent, accent, L"Accent", Color, 0.0f, 0.0f),
+    WD_FIELD(BarBorder, barBorder, L"Bar border", Color, 0.0f, 0.0f),
+    WD_FIELD(Separator, separator, L"Separator", Color, 0.0f, 0.0f),
+    WD_FIELD(DotRunning, dotRunning, L"Running dot", Color, 0.0f, 0.0f),
+    WD_FIELD(DotActive, dotActive, L"Active dot", Color, 0.0f, 0.0f),
+    WD_FIELD(DotAttention, dotAttention, L"Attention dot", Color, 0.0f, 0.0f),
+    WD_FIELD(ClockText, clockText, L"Clock text", Color, 0.0f, 0.0f),
+    WD_FIELD(ClockDateText, clockDateText, L"Clock date text", Color, 0.0f, 0.0f),
+    WD_FIELD(PlaceholderFill, placeholderFill, L"Placeholder icon", Color, 0.0f, 0.0f),
+    WD_FIELD(PlaceholderText, placeholderText, L"Placeholder letter", Color, 0.0f, 0.0f),
+    WD_FIELD(PreviewHotBackground, previewHotBackground, L"Preview hover background", Color, 0.0f, 0.0f),
+    WD_FIELD(PreviewHotBorder, previewHotBorder, L"Preview hover border", Color, 0.0f, 0.0f),
+    WD_FIELD(CloseHover, closeHover, L"Close button hover", Color, 0.0f, 0.0f),
+};
+
+#undef WD_FIELD
+
+static_assert(std::size(kFields) == static_cast<size_t>(Field::Count), "one table entry per field");
+
+template <typename T>
+T& At(ThemeConfig& t, const FieldInfo& f) {
+    return *reinterpret_cast<T*>(reinterpret_cast<unsigned char*>(&t) + f.offset);
+}
+
+template <typename T>
+const T& At(const ThemeConfig& t, const FieldInfo& f) {
+    return *reinterpret_cast<const T*>(reinterpret_cast<const unsigned char*>(&t) + f.offset);
+}
+
+bool EqualsNoCase(std::wstring_view a, std::wstring_view b) {
+    if (a.size() != b.size()) return false;
+    if (a.empty()) return true;
+    return CompareStringOrdinal(a.data(), static_cast<int>(a.size()), b.data(), static_cast<int>(b.size()), TRUE) ==
+           CSTR_EQUAL;
+}
+
+// A theme id must be usable as a file stem inside the themes folder.
+bool ValidId(std::wstring_view id) {
+    if (id.empty() || id.size() > 64 || id == L"." || id == L"..") return false;
+    return std::none_of(id.begin(), id.end(),
+                        [](wchar_t c) { return c < 32 || std::wcschr(L"\\/:*?\"<>|", c) != nullptr; });
+}
+
+ThemeConfig MakeLight() {
+    ThemeConfig t;
+    t.background = 0xD9F3F3F3;
+    t.acrylic = true;
+    t.acrylicBackground = 0x80F7F7F7;
+    t.cornerRadius = 16.0f;
+    t.labelBackground = 0xF0FFFFFF;
+    t.labelText = 0xFF1B1B1B;
+    t.labelBorder = 0x1F000000;
+    t.accent = 0xFF0067C0;
+    t.barBorder = 0x1F000000;
+    t.separator = 0x33000000;
+    t.dotRunning = 0x99000000;
+    t.dotActive = 0xFF1B1B1B;
+    t.dotAttention = 0xFFD9780A;
+    t.clockText = 0xF21B1B1B;
+    t.clockDateText = 0xBF1B1B1B;
+    t.placeholderFill = 0xFF8A93A6;
+    t.placeholderText = 0xFFFFFFFF;
+    t.previewHotBackground = 0x14000000;
+    t.previewHotBorder = 0x29000000;
+    t.closeHover = 0xFFC42B1C;
+    return t;
+}
+
+ThemeConfig MakeGlass() {  // fields not set here are dark's
+    ThemeConfig t;
+    t.background = 0x59202020;
+    t.acrylic = true;
+    t.acrylicBackground = 0x1A202020;
+    t.cornerRadius = 16.0f;
+    t.labelBackground = 0xCC202020;
+    t.labelText = 0xFFFFFFFF;
+    t.labelBorder = 0x33FFFFFF;
+    t.accent = 0xFF4CC2FF;
+    t.barBorder = 0x33FFFFFF;
+    t.separator = 0x40FFFFFF;
+    return t;
+}
+
+ThemeConfig MakeSolid() {  // fields not set here are dark's
+    ThemeConfig t;
+    t.background = 0xFF202020;
+    t.acrylic = false;
+    t.acrylicBackground = 0x66202020;
+    t.cornerRadius = 12.0f;
+    t.labelBackground = 0xFF2B2B2B;
+    t.labelText = 0xFFFFFFFF;
+    t.labelBorder = 0x1FFFFFFF;
+    t.accent = 0xFF4CC2FF;
+    t.barBorder = 0x2EFFFFFF;
+    t.separator = 0x38FFFFFF;
+    return t;
+}
+
+ThemeConfig MakeContrast() {
+    ThemeConfig t;
+    t.background = 0xFF000000;
+    t.acrylic = false;
+    t.acrylicBackground = 0x66202020;
+    t.cornerRadius = 0.0f;
+    t.labelBackground = 0xFF000000;
+    t.labelText = 0xFFFFFFFF;
+    t.labelBorder = 0xFFFFFFFF;
+    t.accent = 0xFF1AEBFF;
+    t.barBorder = 0xFFFFFFFF;
+    t.separator = 0xFFFFFFFF;
+    t.dotRunning = 0xFFB0B0B0;
+    t.dotActive = 0xFFFFFFFF;
+    t.dotAttention = 0xFFFFD400;
+    t.clockText = 0xFFFFFFFF;
+    t.clockDateText = 0xFFFFFFFF;
+    t.placeholderFill = 0xFF000000;
+    t.placeholderText = 0xFFFFFFFF;
+    t.previewHotBackground = 0x40FFFFFF;
+    t.previewHotBorder = 0xFFFFFFFF;
+    t.closeHover = 0xFFC42B1C;
+    return t;
+}
+
+void Log(const std::wstring& text) { OutputDebugStringW((L"WinDock: " + text + L"\n").c_str()); }
+
+}  // namespace
+
+const FieldInfo* Fields() { return kFields; }
+size_t FieldCount() { return std::size(kFields); }
+const FieldInfo& Info(Field f) { return kFields[static_cast<size_t>(f)]; }
+
+void CopyField(const FieldInfo& f, const ThemeConfig& from, ThemeConfig& to) {
+    switch (f.kind) {
+        case Kind::Color: At<uint32_t>(to, f) = At<uint32_t>(from, f); break;
+        case Kind::Float: At<float>(to, f) = At<float>(from, f); break;
+        case Kind::Bool: At<bool>(to, f) = At<bool>(from, f); break;
+    }
+}
+
+bool FieldEquals(const FieldInfo& f, const ThemeConfig& a, const ThemeConfig& b) {
+    switch (f.kind) {
+        case Kind::Color: return At<uint32_t>(a, f) == At<uint32_t>(b, f);
+        case Kind::Float: return At<float>(a, f) == At<float>(b, f);
+        case Kind::Bool: return At<bool>(a, f) == At<bool>(b, f);
+    }
+    return false;
+}
+
+const Preset* BuiltIns(size_t& count) {
+    static const Preset kPresets[] = {
+        {L"dark", L"Dark", ThemeConfig{}},
+        {L"light", L"Light", MakeLight()},
+        {L"glass", L"Glass", MakeGlass()},
+        {L"solid", L"Solid", MakeSolid()},
+        {L"contrast", L"High contrast", MakeContrast()},
+    };
+    count = std::size(kPresets);
+    return kPresets;
+}
+
+const Preset* FindBuiltIn(std::wstring_view id) {
+    size_t count = 0;
+    const Preset* presets = BuiltIns(count);
+    for (size_t i = 0; i < count; ++i) {
+        if (EqualsNoCase(id, presets[i].id)) return &presets[i];
+    }
+    return nullptr;
+}
+
+std::wstring Directory() { return Config::Directory() + L"\\themes"; }
+
+std::vector<UserTheme> ListUserThemes() {
+    std::vector<UserTheme> out;
+    const std::wstring dir = Directory();
+    WIN32_FIND_DATAW fd{};
+    HANDLE find =
+        FindFirstFileExW((dir + L"\\*.json").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, 0);
+    if (find == INVALID_HANDLE_VALUE) return out;
+    do {
+        if (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) continue;
+        const std::wstring file = fd.cFileName;
+        const size_t dot = file.rfind(L'.');
+        // "*.json" also matches 8.3 short names: check the real extension.
+        if (dot == std::wstring::npos || !EqualsNoCase(std::wstring_view(file).substr(dot), L".json")) continue;
+        UserTheme t;
+        t.id = file.substr(0, dot);
+        if (!ValidId(t.id)) continue;
+        if (FindBuiltIn(t.id)) {
+            Log(L"theme file " + file + L" ignored: its name is a built-in preset id");
+            continue;
+        }
+        t.path = dir + L"\\" + file;
+        t.name = t.id;
+        json::JsonObject root{nullptr};
+        t.valid = ReadObjectFile(t.path, root);
+        if (t.valid) {
+            try {
+                ReadString(root, L"name", t.name);
+            } catch (...) {
+            }
+            if (t.name.empty()) t.name = t.id;
+        }
+        out.push_back(std::move(t));
+    } while (FindNextFileW(find, &fd));
+    FindClose(find);
+    std::sort(out.begin(), out.end(), [](const UserTheme& a, const UserTheme& b) {
+        return CompareStringOrdinal(a.name.c_str(), -1, b.name.c_str(), -1, TRUE) == CSTR_LESS_THAN;
+    });
+    return out;
+}
+
+bool LoadUserTheme(const std::wstring& path, ThemeConfig& out, std::wstring* name) {
+    json::JsonObject root{nullptr};
+    if (!ReadObjectFile(path, root)) {
+        Log(L"theme file " + path + L" is missing, unreadable or malformed");
+        return false;
+    }
+    try {
+        std::wstring base;
+        ReadString(root, L"base", base);
+        const Preset* preset = FindBuiltIn(base.empty() ? std::wstring_view(L"dark") : std::wstring_view(base));
+        if (!preset) {
+            Log(L"theme file " + path + L": unknown base \"" + base + L"\", using dark");
+            preset = FindBuiltIn(L"dark");
+        }
+        ThemeConfig t = preset->values;
+        ReadFields(root, t, nullptr);
+        if (name) {
+            std::wstring n;
+            ReadString(root, L"name", n);
+            *name = std::move(n);
+        }
+        out = t;
+        return true;
+    } catch (...) {
+        Log(L"theme file " + path + L" could not be read");
+        return false;
+    }
+}
+
+ThemeConfig Resolve(std::wstring_view id, bool& ok) {
+    ok = true;
+    if (id.empty()) return ThemeConfig{};
+    if (const Preset* preset = FindBuiltIn(id)) return preset->values;
+    ThemeConfig t;
+    if (ValidId(id) && LoadUserTheme(Directory() + L"\\" + std::wstring(id) + L".json", t, nullptr)) return t;
+    Log(L"theme \"" + std::wstring(id) + L"\" not found or invalid; using dark");
+    ok = false;
+    return FindBuiltIn(L"dark")->values;
+}
+
+void ReadFields(const json::JsonObject& o, ThemeConfig& t, uint32_t* maskOut) {
+    for (const FieldInfo& f : kFields) {
+        auto j = Find(o, f.key);
+        if (!j) continue;
+        bool read = false;
+        switch (f.kind) {
+            case Kind::Color: {
+                uint32_t argb = 0;
+                if (j.ValueType() == json::JsonValueType::String &&
+                    ParseArgbColor(std::wstring(j.GetString()), argb)) {
+                    At<uint32_t>(t, f) = argb;
+                    read = true;
+                }
+                break;
+            }
+            case Kind::Float:
+                if (j.ValueType() == json::JsonValueType::Number) {
+                    const double d = j.GetNumber();
+                    if (std::isfinite(d)) {
+                        At<float>(t, f) = std::clamp(static_cast<float>(d), f.min, f.max);
+                        read = true;
+                    }
+                }
+                break;
+            case Kind::Bool:
+                if (j.ValueType() == json::JsonValueType::Boolean) {
+                    At<bool>(t, f) = j.GetBoolean();
+                    read = true;
+                }
+                break;
+        }
+        if (read && maskOut) *maskOut |= Bit(f.field);
+    }
+}
+
+std::wstring WriteFields(const ThemeConfig& t, uint32_t mask, const wchar_t* indent) {
+    std::wstring o;
+    for (const FieldInfo& f : kFields) {
+        if (!(mask & Bit(f.field))) continue;
+        o += L",\n";
+        o += indent;
+        o += L"\"";
+        o += f.key;
+        o += L"\": ";
+        switch (f.kind) {
+            case Kind::Color: o += Quote(FormatArgbColor(At<uint32_t>(t, f))); break;
+            case Kind::Float: o += Num(At<float>(t, f)); break;
+            case Kind::Bool: o += JsonUtil::Bool(At<bool>(t, f)); break;
+        }
+    }
+    return o;
+}
+
+bool Export(const std::wstring& path, const ThemeConfig& t, const std::wstring& name) {
+    try {
+        const std::wstring o = L"{\n  \"name\": " + Quote(name) + WriteFields(t, kAllFields, L"  ") + L"\n}\n";
+        return WriteFileAtomic(path, WideToUtf8(o));
+    } catch (...) {
+        return false;
+    }
+}
+
+}  // namespace Theme

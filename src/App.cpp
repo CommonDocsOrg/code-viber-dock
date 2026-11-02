@@ -60,6 +60,7 @@ bool App::Initialize(HINSTANCE instance) {
         SeedDefaultPins();
         config_.Save();
     }
+    if (config_.AutoHideOn()) lastOnMode_ = config_.autoHide;
 
     // Crash recovery first, before anything else can fail: if a previous run died with the
     // taskbar hidden, put it back using the state saved in the marker.
@@ -354,9 +355,16 @@ void App::ShowItemMenu(int index, POINT pt) {
 void App::OnCommand(UINT cmd) {
     switch (cmd) {
         case ContextMenu::kAutoHide:
-            config_.autoHide = !config_.autoHide;
-            dock_.ApplyAutoHide();
-            RequestSave();
+            SetAutoHide(config_.AutoHideOn() ? AutoHideMode::Off : lastOnMode_);
+            break;
+        case ContextMenu::kAutoHideOff:
+            SetAutoHide(AutoHideMode::Off);
+            break;
+        case ContextMenu::kAutoHideAlways:
+            SetAutoHide(AutoHideMode::Always);
+            break;
+        case ContextMenu::kAutoHideIntelligent:
+            SetAutoHide(AutoHideMode::Intelligent);
             break;
         case ContextMenu::kHideTaskbar: {
             const bool hide = !taskbar_.Enabled();
@@ -394,6 +402,13 @@ void App::OnCommand(UINT cmd) {
     }
 }
 
+void App::SetAutoHide(AutoHideMode mode) {
+    if (mode != AutoHideMode::Off) lastOnMode_ = mode;
+    config_.autoHide = mode;
+    dock_.ApplyAutoHide();
+    RequestSave();
+}
+
 void App::ReloadConfig() {
     Config fresh;
     const Config::LoadResult result = fresh.LoadFile();
@@ -413,6 +428,9 @@ void App::ReloadConfig() {
     }
     fresh.renderer = config_.renderer;  // the device type is chosen at startup only
     config_ = std::move(fresh);
+    if (config_.AutoHideOn()) lastOnMode_ = config_.autoHide;
+    // Unknown preset or broken theme file: the dock uses dark (the config itself still applies).
+    if (config_.themeResolveFailed) MessageBeep(MB_ICONWARNING);
     dock_.ApplyConfig();
     dock_.ReloadPins();
     if (taskbar_.Enabled() != config_.hideTaskbar) taskbar_.SetEnabled(config_.hideTaskbar);
@@ -457,7 +475,9 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     }
     if (msgDockCommand_ && msg == msgDockCommand_) {
         const UINT cmd = static_cast<UINT>(wp);
-        const bool known = cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kReloadConfig;
+        // kOpenSettings is reserved until the settings window exists.
+        const bool known = cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand &&
+                           cmd != ContextMenu::kOpenSettings;
         result = known ? 1 : 0;
         if (known) OnCommand(cmd);  // after setting result: kQuit destroys the window
         return true;

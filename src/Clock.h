@@ -7,6 +7,7 @@
 
 #include <winrt/base.h>
 
+#include <cstdint>
 #include <ctime>
 #include <string>
 
@@ -15,6 +16,11 @@
 class Clock {
 public:
     void Configure(const std::wstring& format, bool showDate);
+    // ARGB colours of the time and date lines (theme.clockText / clockDateText).
+    void SetColors(uint32_t text, uint32_t date) {
+        textColor_ = text;
+        dateColor_ = date;
+    }
 
     // Starts/restarts the aligned one-shot timer on hwnd. Call again from WM_TIMER.
     void ScheduleNextTick(HWND hwnd, UINT_PTR timerId) const;
@@ -36,6 +42,8 @@ private:
 
     std::wstring format_ = L"%H:%M";
     bool showDate_ = false;
+    uint32_t textColor_ = 0xF2FFFFFF;
+    uint32_t dateColor_ = 0xB6FFFFFF;
     std::wstring timeText_;
     std::wstring dateText_;
 

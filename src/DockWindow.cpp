@@ -13,6 +13,7 @@
 #include "Activation.h"
 #include "AppIdentity.h"
 #include "Launcher.h"
+#include "Theme.h"
 
 namespace {
 
@@ -54,13 +55,6 @@ constexpr float kMarkerWidth = 2.0f;         // file-drop insertion marker, DIPs
 constexpr float kPreviewGap = 12.0f;         // stage top -> thumbnail popup bottom, DIPs
 constexpr UINT kPreviewLeaveMs = 300;        // grace period after leaving the item and the popup
 constexpr float kPi = 3.14159265358979f;
-
-D2D1_COLOR_F ArgbToColor(uint32_t argb) {
-    return D2D1::ColorF(static_cast<float>((argb >> 16) & 0xFF) / 255.0f,
-                        static_cast<float>((argb >> 8) & 0xFF) / 255.0f,
-                        static_cast<float>(argb & 0xFF) / 255.0f,
-                        static_cast<float>((argb >> 24) & 0xFF) / 255.0f);
-}
 
 BOOL CALLBACK CollectMonitor(HMONITOR mon, HDC, LPRECT, LPARAM lp) {
     reinterpret_cast<std::vector<HMONITOR>*>(lp)->push_back(mon);
@@ -201,6 +195,9 @@ void DockWindow::Destroy() {
 void DockWindow::ApplyConfig() {
     DismissPreview(false, false);  // previews / theme / sizes may have changed
     clock_.Configure(config_->clock.format, config_->clock.showDate);
+    clock_.SetColors(config_->theme.clockText, config_->theme.clockDateText);
+    // The drop marker is only redrawn when its size changes: force it (the accent may differ).
+    if (marker_.visual) renderer_.DrawLayer(marker_, 0, 0, {});
     for (DockItem& item : items_) {
         item.dirty = true;
         item.dotDirty = true;
@@ -503,7 +500,8 @@ HRESULT DockWindow::RenderBackground() {
     const Layout& l = layout_;
     const UINT w = static_cast<UINT>(l.bgSurfaceW);
     const UINT h = static_cast<UINT>(l.bar.bottom - l.bar.top);
-    const D2D1_COLOR_F fill = ArgbToColor(acrylic_ ? config_->theme.acrylicBackground : config_->theme.background);
+    const ThemeConfig& theme = config_->theme;
+    const D2D1_COLOR_F fill = Theme::ToColor(acrylic_ ? theme.acrylicBackground : theme.background);
     const float radius = std::min(l.cornerRadius, static_cast<float>(std::min(w, h)) / 2.0f);
     const float stroke = std::max(1.0f, std::round(l.scale));
     // The separator keeps its distance from the right end (it moves with the right half).
@@ -519,13 +517,13 @@ HRESULT DockWindow::RenderBackground() {
         const D2D1_ROUNDED_RECT edge{
             D2D1::RectF(inset, inset, static_cast<float>(w) - inset, static_cast<float>(h) - inset),
             std::max(0.0f, radius - inset), std::max(0.0f, radius - inset)};
-        brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.14f));
+        brush->SetColor(Theme::ToColor(theme.barBorder));
         dc->DrawRoundedRectangle(edge, brush.get(), stroke);
         // Separator between the app icons and the clock.
         if (separatorX >= 0.0f) {
             const float x = separatorX + stroke / 2.0f;
             const float vInset = std::round(static_cast<float>(h) * 0.22f);
-            brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.22f));
+            brush->SetColor(Theme::ToColor(theme.separator));
             dc->DrawLine(D2D1::Point2F(x, vInset), D2D1::Point2F(x, static_cast<float>(h) - vInset), brush.get(),
                          stroke);
         }
@@ -573,7 +571,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
         }
         // Placeholder: rounded square with the app's first letter.
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
-        if (FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(0.42f, 0.45f, 0.52f, 1.0f), brush.put()))) return;
+        if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(config_->theme.placeholderFill), brush.put()))) return;
         const float inset = std::round(size * 0.06f);
         const float r = size * 0.22f;
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, size - inset, size - inset), r, r),
@@ -587,7 +585,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
             letterFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             const std::wstring& name = item.displayName.empty() ? item.key.Source() : item.displayName;
             const wchar_t letter[2] = {name.empty() ? L'?' : static_cast<wchar_t>(std::towupper(name[0])), 0};
-            brush->SetColor(D2D1::ColorF(1, 1, 1, 0.95f));
+            brush->SetColor(Theme::ToColor(config_->theme.placeholderText));
             dc->DrawText(letter, 1, letterFormat.get(), D2D1::RectF(0, 0, size, size), brush.get());
         }
     };
@@ -614,16 +612,16 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
 HRESULT DockWindow::RenderDotSources() {
     const Layout& l = layout_;
     const float icon = l.iconPx;
-    static const D2D1_COLOR_F kColors[3] = {
-        {1.0f, 1.0f, 1.0f, 0.5f},     // running
-        {1.0f, 1.0f, 1.0f, 1.0f},     // active (owns the foreground window)
-        {1.0f, 0.62f, 0.15f, 1.0f},  // wants attention
+    const D2D1_COLOR_F colors[3] = {
+        Theme::ToColor(config_->theme.dotRunning),
+        Theme::ToColor(config_->theme.dotActive),     // owns the foreground window
+        Theme::ToColor(config_->theme.dotAttention),  // wants attention
     };
     for (int i = 0; i < 3; ++i) {
         HRESULT hr = renderer_.DrawLayer(dotSources_[i], static_cast<UINT>(icon), l.dotHeight,
                                          [&](ID2D1DeviceContext* dc) {
                                              winrt::com_ptr<ID2D1SolidColorBrush> brush;
-                                             if (FAILED(dc->CreateSolidColorBrush(kColors[i], brush.put()))) return;
+                                             if (FAILED(dc->CreateSolidColorBrush(colors[i], brush.put()))) return;
                                              dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(icon / 2.0f, l.dotCenterY),
                                                                            l.dotRadius, l.dotRadius),
                                                              brush.get());
@@ -687,10 +685,11 @@ HRESULT DockWindow::RenderLabel() {
     const float padY = std::round(4.0f * s);
     const UINT w = static_cast<UINT>(textW + 2.0f * padX);
     const UINT h = static_cast<UINT>(textH + 2.0f * padY);
-    const float radius = std::min(std::round(7.0f * s), static_cast<float>(h) / 2.0f);
+    const float radius = std::min(std::round(config_->theme.labelCornerRadius * s), static_cast<float>(h) / 2.0f);
     const float stroke = std::max(1.0f, std::round(s));
-    const D2D1_COLOR_F back = ArgbToColor(config_->theme.labelBackground);
-    const D2D1_COLOR_F fore = ArgbToColor(config_->theme.labelText);
+    const D2D1_COLOR_F back = Theme::ToColor(config_->theme.labelBackground);
+    const D2D1_COLOR_F fore = Theme::ToColor(config_->theme.labelText);
+    const D2D1_COLOR_F border = Theme::ToColor(config_->theme.labelBorder);
 
     HRESULT hr = renderer_.DrawLayer(label_, w, h, [&](ID2D1DeviceContext* dc) {
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
@@ -698,9 +697,9 @@ HRESULT DockWindow::RenderLabel() {
         const float fw = static_cast<float>(w), fh = static_cast<float>(h);
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, fw, fh), radius, radius), brush.get());
         const float inset = stroke / 2.0f;
-        brush->SetColor(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.12f));
-        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, fw - inset, fh - inset), radius - inset,
-                                                   radius - inset),
+        brush->SetColor(border);
+        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, fw - inset, fh - inset),
+                                                   std::max(0.0f, radius - inset), std::max(0.0f, radius - inset)),
                                  brush.get(), stroke);
         brush->SetColor(fore);
         dc->DrawTextLayout(D2D1::Point2F(padX, padY), textLayout.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
@@ -1241,9 +1240,14 @@ void DockWindow::ShowPreview(int index, bool keepAnchor) {
     PreviewPopup::Style style;
     style.scale = l.scale;
     style.acrylic = acrylic_;
-    style.tint = acrylic_ ? config_->theme.acrylicBackground : config_->theme.background;
-    style.text = config_->theme.labelText;
-    style.cornerRadiusDip = config_->theme.cornerRadius;
+    const ThemeConfig& theme = config_->theme;
+    style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
+    style.text = theme.labelText;
+    style.border = theme.barBorder;
+    style.hotBackground = theme.previewHotBackground;
+    style.hotBorder = theme.previewHotBorder;
+    style.closeHover = theme.closeHover;
+    style.cornerRadiusDip = theme.cornerRadius;
     style.monitor = l.monitor;
     if (!keepAnchor) {
         previewAnchorX_ = l.window.left + static_cast<int>(std::lround(item.targetX + l.iconPx / 2.0f));
@@ -1360,7 +1364,7 @@ void DockWindow::SyncBackdrop() {
 // remaining distance. All waits are one-shot SetTimers.
 
 void DockWindow::ScheduleHide() {
-    if (!hwnd_ || !config_->autoHide || Held() || hidePending_) return;
+    if (!hwnd_ || !config_->AutoHideOn() || Held() || hidePending_) return;
     if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) return;
     SetTimer(hwnd_, kHideTimerId, std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->hideDelayMs)),
              nullptr);
@@ -1376,7 +1380,7 @@ void DockWindow::CancelHide() {
 void DockWindow::OnHideTimer() {
     KillTimer(hwnd_, kHideTimerId);
     hidePending_ = false;
-    if (!config_->autoHide || Held()) return;
+    if (!config_->AutoHideOn() || Held()) return;
     if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) return;
     if (CursorInZone()) return;  // came back; its WM_MOUSEMOVE cancels the next attempt anyway
     StartHide();
@@ -1445,7 +1449,7 @@ void DockWindow::OnSlideTimer() {
 void DockWindow::OnRevealTimer() {
     KillTimer(hwnd_, kRevealTimerId);
     revealPending_ = false;
-    if (hideState_ != HideState::Hidden || !config_->autoHide || !CursorOnStrip()) return;
+    if (hideState_ != HideState::Hidden || !config_->AutoHideOn() || !CursorOnStrip()) return;
     QUERY_USER_NOTIFICATION_STATE quns{};
     if (SUCCEEDED(SHQueryUserNotificationState(&quns)) &&
         (quns == QUNS_RUNNING_D3D_FULL_SCREEN || quns == QUNS_PRESENTATION_MODE || quns == QUNS_BUSY)) {
@@ -1497,7 +1501,7 @@ void DockWindow::ArmMouseTracking() {
 
 void DockWindow::ApplyAutoHide() {
     if (!hwnd_) return;
-    if (!config_->autoHide) {
+    if (!config_->AutoHideOn()) {
         CancelHide();
         if (revealPending_) {
             KillTimer(hwnd_, kRevealTimerId);
@@ -2106,7 +2110,7 @@ HRESULT DockWindow::RenderMarker() {
     const UINT w = static_cast<UINT>(std::max(2.0f, std::round(kMarkerWidth * s)));
     const UINT h = static_cast<UINT>(layout_.iconPx);
     if (marker_.width == w && marker_.height == h) return S_OK;
-    const D2D1_COLOR_F color = ArgbToColor(config_->theme.accent);
+    const D2D1_COLOR_F color = Theme::ToColor(config_->theme.accent);
     return renderer_.DrawLayer(marker_, w, h, [&](ID2D1DeviceContext* dc) {
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
         if (FAILED(dc->CreateSolidColorBrush(color, brush.put()))) return;
@@ -2268,6 +2272,10 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return static_cast<LRESULT>(preview_.CardCount());
         case 13:
             return reinterpret_cast<LRESULT>(preview_.CardWindow(static_cast<size_t>(lp)));
+        case 14:
+            return static_cast<LRESULT>(config_->autoHide);  // 0 off, 1 always, 2 intelligent
+        case 20:
+            return config_->themeResolveFailed ? 1 : 0;
         default:
             return -1;
     }
@@ -2320,7 +2328,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (hideState_ == HideState::Hidden) {
                 // On the reveal strip.
-                if (revealArmed_ && config_->autoHide && !revealPending_) {
+                if (revealArmed_ && config_->AutoHideOn() && !revealPending_) {
                     SetTimer(hwnd_, kRevealTimerId,
                              std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->revealDelayMs)), nullptr);
                     revealPending_ = true;

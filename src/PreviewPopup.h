@@ -41,6 +41,10 @@ public:
         bool acrylic = false;
         uint32_t tint = 0xCC202020;   // ARGB background
         uint32_t text = 0xFFFFFFFF;
+        uint32_t border = 0x24FFFFFF;         // hairline around the popup
+        uint32_t hotBackground = 0x1AFFFFFF;  // hovered card (half alpha: the icon box of a card without thumbnail)
+        uint32_t hotBorder = 0x33FFFFFF;      // hovered card outline
+        uint32_t closeHover = 0xFFC42B1C;     // close button behind the hovered "x"
         float cornerRadiusDip = 8.0f; // without acrylic
         RECT monitor{};
     };

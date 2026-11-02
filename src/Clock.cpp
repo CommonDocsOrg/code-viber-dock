@@ -6,6 +6,8 @@
 #include <cwchar>
 #include <iterator>
 
+#include "Theme.h"
+
 namespace {
 
 constexpr wchar_t kDateFormat[] = L"%a %d %b";
@@ -161,10 +163,10 @@ D2D1_SIZE_U Clock::BuildLayout(IDWriteFactory* dwrite, float scale) {
 
 void Clock::Draw(ID2D1DeviceContext* dc, float x, float y) const {
     winrt::com_ptr<ID2D1SolidColorBrush> brush;
-    if (FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.95f), brush.put()))) return;
+    if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(textColor_), brush.put()))) return;
     if (timeLayout_) dc->DrawTextLayout(D2D1::Point2F(x, y), timeLayout_.get(), brush.get());
     if (dateLayout_) {
-        brush->SetOpacity(0.75f);
+        brush->SetColor(Theme::ToColor(dateColor_));
         dc->DrawTextLayout(D2D1::Point2F(x, y + timeHeight_), dateLayout_.get(), brush.get());
     }
 }

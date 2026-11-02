@@ -33,7 +33,8 @@ build\x64-release\WinDock.exe --restore-taskbar   :: bring the Explorer taskbar 
 
 Right-click the tray icon or an empty part of the dock for the menu:
 
-- **Auto-hide** (checkmark): toggles `autoHide` immediately and saves it.
+- **Auto-hide** submenu (radio items): **Off**, **Always**, **When a window overlaps**. Sets
+  `autoHide` (`"off"`, `"always"`, `"intelligent"`) immediately and saves it.
 - **Hide taskbar** (checkmark): hides or restores the Explorer taskbar immediately and saves
   `hideTaskbar`.
 - **Start with Windows** (checkmark): writes or deletes the `WinDock` value under
@@ -80,7 +81,7 @@ Right-click the tray icon or an empty part of the dock for the menu:
     same blurred backdrop as the bar (with the system's 8 DIP corners), otherwise
     `theme.background`. While it is open and the mouse is still, the dock does no work; DWM draws
     the thumbnails. Thumbnails are released as soon as the popup closes.
-- **Auto-hide** (`autoHide`, on by default): when the mouse leaves the dock, it waits
+- **Auto-hide** (`autoHide`, `"always"` by default): when the mouse leaves the dock, it waits
   `hideDelayMs`, then slides down and fades out (180 ms). The hidden dock is a 1 px tall
   invisible strip along the whole bottom edge of its monitor, so it no longer covers anything
   except that bottom row of pixels. Push the mouse against the bottom edge and keep it there for
@@ -91,8 +92,10 @@ Right-click the tray icon or an empty part of the dock for the menu:
   (`SHQueryUserNotificationState` reports busy, Direct3D fullscreen, or presentation mode).
 - A window that appears or flashes while the dock is hidden does not reveal it. A flashing app's
   dot is orange when you next reveal the dock.
-- With `autoHide: false` the dock stays visible. It still floats over windows and reserves no
+- With `"autoHide": "off"` the dock stays visible. It still floats over windows and reserves no
   screen space.
+- `"autoHide": "intelligent"` is meant to hide the dock only while the foreground window overlaps
+  it. The overlap test is not implemented yet: for now it behaves like `"always"`.
 - At rest the dock window covers exactly the drawn bar, so clicks just above or beside it reach
   the windows underneath. When the mouse enters the bar, the window grows to make room above it
   for magnified icons and the label and beside it for the bar to grow; the cursor is on the bar
@@ -171,9 +174,9 @@ auto-hide, `hideTaskbar` and `startWithWindows`. `renderer` needs a restart of t
 is malformed, Reload keeps the current settings (and beeps). Pinning, unpinning, and the menu
 toggles save the file within 300 ms. The write is atomic (a temp file
 replaced with `MoveFileEx`). The dock rewrites the whole file in its own layout. Top-level keys it
-does not know are kept, as compact JSON. Unknown keys inside `pinned` entries, `clock`, or
-`theme` are dropped. If the file is malformed, the dock starts with the defaults and leaves the file
-untouched.
+does not know are kept, as compact JSON. Unknown keys inside `pinned` entries, `clock`, `theme`
+or `animation` are dropped. If the file is malformed, the dock starts with the defaults and leaves
+the file untouched.
 
 ```json
 {
@@ -183,13 +186,15 @@ untouched.
     { "path": "C:\\Users\\me\\Desktop\\Paint.lnk" }
   ],
   "iconSize": 48, "magnification": 1.5, "magnifyRange": 2,
-  "autoHide": true, "hideDelayMs": 400, "revealDelayMs": 150,
+  "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
   "previews": true, "previewDelayMs": 600,
   "monitor": 0, "hideTaskbar": true, "startWithWindows": false, "renderer": "auto",
   "clock": { "show": true, "format": "%H:%M", "showDate": false },
-  "theme": { "background": "#CC202020", "cornerRadius": 16,
-             "acrylic": true, "acrylicBackground": "#66202020",
-             "labelBackground": "#E6303030", "labelText": "#FFFFFFFF", "accent": "#FF4CC2FF" }
+  "theme": { "preset": "dark",
+             "accent": "#FF4CC2FF" },
+  "animation": { "speed": 1, "hideStyle": "slide", "launchStyle": "bounce",
+                 "magnifyFalloff": "cosine", "easing": "easeOut", "labelFadeMs": 120,
+                 "reduceMotion": "system" }
 }
 ```
 
@@ -197,8 +202,11 @@ untouched.
 - `magnification`: size of the icon under the mouse relative to `iconSize`, 1.0 - 2.5. 1.0 turns
   magnification off. Icons are rendered at the magnified size, so they stay sharp.
 - `magnifyRange`: how many neighbouring slots the magnification spreads over, 1 - 4.
-- `autoHide`: hide the dock when the mouse leaves it (see above). `hideDelayMs` (default 400)
-  and `revealDelayMs` (default 150) are the delays before hiding and revealing.
+- `autoHide`: `"off"`, `"always"` (default; hide when the mouse leaves the dock, see above) or
+  `"intelligent"` (hide only while the foreground window overlaps the dock; for now the same as
+  `"always"`). The older `true` / `false` are still read (as `"always"` / `"off"`) and written
+  back as strings on the next save. `hideDelayMs` (default 400) and `revealDelayMs` (default 150)
+  are the delays before hiding and revealing.
 - `previews` (default `true`): the window-thumbnail popup for apps with two or more windows (see
   above). `previewDelayMs` (default 600, 0 - 10000) is how long the mouse must rest on the icon.
 
@@ -206,10 +214,7 @@ untouched.
   seconds tick every second; otherwise the clock wakes once a minute.
 - `pinned`: in dock order. Each entry is `{ "path": "<.lnk or .exe>" }` or
   `{ "aumid": "<AppUserModelID>" }`. Environment variables in paths are expanded.
-- `theme.background`, `theme.acrylicBackground`, `theme.labelBackground`, `theme.labelText` and
-  `theme.accent` are `#AARRGGBB` (or `#RRGGBB`). The label colours are used for the name label
-  above the hovered icon; `accent` is the insertion marker shown while files are dragged over the
-  dock.
+- `theme`: see Themes below.
 - `theme.acrylic` (default `true`): blur what is behind the bar, like the macOS dock. The blur is
   a Windows 11 system backdrop (acrylic) on a second, bar-sized window (class `WinDockBackdrop`)
   kept directly beneath the dock window; it follows the bar while it grows under magnification
@@ -234,6 +239,78 @@ untouched.
 - `renderer`: `"auto"` (default; GPU, falling back to software) or `"software"` (always WARP).
   Software rendering avoids the GPU driver's per-process memory; the dock redraws rarely, so it
   is cheap.
+- `animation`: see Animation below.
+
+### Themes
+
+`theme.preset` picks a theme; every theme key written next to it in `config.json` overrides that
+one value. The layers are: the preset -> a user theme file (if `preset` names one; the file has
+its own built-in `base`) -> the keys set inline in `config.json`. The dock saves only `preset`
+and the keys you set inline, so editing a theme file keeps affecting the dock. Inline values that
+equal the preset's value are dropped when the file is loaded. A config without `preset` (older
+versions) loads as `"dark"` with its theme keys as overrides; an untouched older config therefore
+becomes just `"theme": { "preset": "dark" }` on the next save. `"preset": ""` means no preset:
+the inline keys over the dark defaults.
+
+Built-in presets: `dark` (Dark, the default), `light` (Light), `glass` (Glass, a thinner
+acrylic tint), `solid` (Solid, opaque, no acrylic, 12 DIP corners) and `contrast` (High contrast,
+black with white borders, square corners). Ids are case-insensitive.
+
+User themes live in `%LocalAppData%\WinDock\themes\<id>.json`; the file name without `.json` is
+the id used in `preset` (case-insensitive). A file named like a built-in id is ignored.
+
+```json
+{ "name": "Nord", "base": "dark", "background": "#CC2E3440", "acrylic": false, "dotRunning": "#FF88C0D0" }
+```
+
+`name` is the display name, `base` a built-in id (default `dark`); the other keys are theme keys
+(unknown keys are ignored). If the preset is neither a built-in nor a readable, well-formed theme
+file, the dock uses `dark` for every key not set inline, keeps the name in the config so you can
+fix the file, and **Reload config** beeps once (the rest of the config still applies).
+
+Theme keys (colours are `#AARRGGBB` or `#RRGGBB`; defaults are the `dark` preset):
+
+| Key | Default | Used for |
+| --- | --- | --- |
+| `background` | `#CC202020` | bar fill without acrylic (also the preview popup) |
+| `cornerRadius` | `16` | bar corner radius in DIPs, 0 - 64 (snapped with acrylic, see `acrylic`) |
+| `acrylic` | `true` | blur behind the bar (see below) |
+| `acrylicBackground` | `#66202020` | bar tint over the blur while acrylic is active |
+| `labelBackground` | `#E6303030` | name label fill (above the hovered icon) |
+| `labelText` | `#FFFFFFFF` | name label text, preview card titles and close glyph |
+| `labelBorder` | `#1FFFFFFF` | name label hairline |
+| `labelCornerRadius` | `7` | name label corner radius in DIPs, 0 - 32 |
+| `accent` | `#FF4CC2FF` | insertion marker while files are dragged over the dock |
+| `barBorder` | `#24FFFFFF` | hairline around the bar and the preview popup |
+| `separator` | `#38FFFFFF` | line between the app icons and the clock |
+| `dotRunning` | `#80FFFFFF` | dot under a running app |
+| `dotActive` | `#FFFFFFFF` | dot under the app owning the foreground window |
+| `dotAttention` | `#FFFF9E26` | dot under an app flashing for attention |
+| `clockText` | `#F2FFFFFF` | clock time |
+| `clockDateText` | `#B6FFFFFF` | clock date line |
+| `placeholderFill` | `#FF6B7385` | placeholder icon (missing pin target) |
+| `placeholderText` | `#F2FFFFFF` | the placeholder's letter |
+| `previewHotBackground` | `#1AFFFFFF` | hovered preview card (half of it: icon box of a card without thumbnail) |
+| `previewHotBorder` | `#33FFFFFF` | hovered preview card outline |
+| `closeHover` | `#FFC42B1C` | preview close button while hovered |
+
+### Animation
+
+The `animation` object is always written. Its values are read and validated now; they take
+effect with the animation work that follows (until then the dock animates as described above,
+which matches the defaults except `labelFadeMs`, whose label fade is not implemented yet).
+
+- `speed` (default 1): durations are divided by it, 0.25 - 4. 0 turns animations off.
+- `hideStyle`: `"slide"` (default; slide + fade), `"slideOnly"`, `"fade"` or `"none"`.
+- `launchStyle`: `"bounce"` (default; repeats until a window appears), `"hop"` (one bounce),
+  `"pulse"` (opacity) or `"none"`.
+- `magnifyFalloff`: `"cosine"` (default) or `"linear"`.
+- `easing`: `"easeOut"` (default, cubic), `"linear"` or `"spring"` (slight overshoot).
+- `labelFadeMs` (default 120, 0 - 1000): name label fade in / out; 0 = instant.
+- `reduceMotion`: `"system"` (default; follows Settings > Accessibility > Visual effects >
+  Animation effects), `"on"` or `"off"`.
+
+Unknown values fall back to the default.
 
 ## Automation (for tests)
 
@@ -243,10 +320,11 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   Returns the screen point of the item's icon centre as `MAKELONG(x, y)`, or -1. The point is in
   the rest (unmagnified) layout of the shown dock, also while the dock is hidden. Because the
   magnified layout is anchored at the pointer, moving the pointer there hovers that item.
-- `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle, 101 Hide taskbar
-  toggle, 102 Start with Windows toggle, 103 Open config file, 104 Show taskbar until re-enabled,
-  105 Quit, 106 Reload config). Runs it as if it was chosen from the menu. Returns 1 for a known
-  command.
+- `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
+  last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
+  104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
+  always, 110 Auto-hide when a window overlaps). Runs it as if it was chosen from the menu.
+  Returns 1 for a known command. 107 (settings window) is reserved and returns 0 for now.
 - `WinDock.QueryState`: `wParam` selects the value. 0 = auto-hide state (0 Shown, 1 Hiding,
   2 Hidden, 3 Showing). 1 = current `SHQueryUserNotificationState` value. 2 = hovered item index
   (-1 for none). 3 = 1 if the name label is visible. 4 = 1 while magnified. 5 = number of pending
@@ -256,6 +334,8 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   of the current drag (-1 for none). 10 = 1 if the OLE drop target is registered. 11 = 1 while
   the window-preview popup is visible. 12 = number of cards in the popup (0 when hidden).
   13 = the window handle shown by popup card `lParam` (0-based; 0 if there is none).
+  14 = auto-hide mode (0 off, 1 always, 2 intelligent). 20 = 1 if the theme preset failed to
+  resolve on the last load (the dock uses `dark`).
 - `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle, 801 new window,
   802 open file location, 900 close all windows), `lParam` = item index or a window handle of
   the item. Returns 1 if the item was found.

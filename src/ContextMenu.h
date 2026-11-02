@@ -5,17 +5,25 @@
 #include <string>
 #include <vector>
 
+#include "Config.h"
+
 namespace ContextMenu {
 
+// Dock commands 100 - kLastDockCommand are stable automation ids (WinDock.DockCommand).
 enum Command : UINT {
     kNone = 0,
-    kAutoHide = 100,
+    kAutoHide = 100,  // toggles Off <-> the last on-mode (Always / Intelligent)
     kHideTaskbar,
     kStartWithWindows,
     kOpenConfig,
     kRestoreTaskbar,  // show the taskbar for this session (unchecks "Hide taskbar"; config unchanged)
     kQuit,
     kReloadConfig,
+    kOpenSettings = 107,  // reserved for the settings window (no menu item yet)
+    kAutoHideOff = 108,
+    kAutoHideAlways = 109,
+    kAutoHideIntelligent = 110,
+    kLastDockCommand = kAutoHideIntelligent,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock
     kNewWindow,            // per-item: launch (a new instance)
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -24,7 +32,7 @@ enum Command : UINT {
 };
 
 struct TrayMenuState {
-    bool autoHide = false;
+    AutoHideMode autoHide = AutoHideMode::Off;
     bool hideTaskbar = false;       // the taskbar controller is enabled (taskbar hidden by the dock)
     bool startWithWindows = false;  // the HKCU Run value exists
 };
