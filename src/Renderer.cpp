@@ -79,11 +79,16 @@ HRESULT Renderer::CreateDeviceResources() {
     RETURN_IF_FAILED(dcomp_->CreateTargetForHwnd(hwnd_, TRUE, target_.put()));
     RETURN_IF_FAILED(dcomp_->CreateVisual(root_.put()));
     RETURN_IF_FAILED(target_->SetRoot(root_.get()));
+    // Opacity (auto-hide fade) needs IDCompositionVisual3 (Windows 8.1+); without it the dock
+    // still slides, it just does not fade.
+    if (FAILED(root_->QueryInterface(IID_PPV_ARGS(root3_.put())))) root3_ = nullptr;
     return S_OK;
 }
 
 void Renderer::ReleaseDeviceResources() {
     if (target_) target_->SetRoot(nullptr);
+    resourceDc_ = nullptr;
+    root3_ = nullptr;
     root_ = nullptr;
     target_ = nullptr;
     dcomp_ = nullptr;
@@ -104,14 +109,83 @@ HRESULT Renderer::CheckDevice() const {
     return S_OK;
 }
 
-HRESULT Renderer::CreateLayer(Layer& layer) {
+HRESULT Renderer::CreateLayer(Layer& layer, Layer* parent) {
     layer.Reset();
     if (!dcomp_ || !root_) return E_UNEXPECTED;
+    IDCompositionVisual2* p = parent ? parent->visual.get() : root_.get();
+    if (!p) return E_UNEXPECTED;
     RETURN_IF_FAILED(dcomp_->CreateVisual(layer.visual.put()));
-    // Offsets are pixel-aligned, so unscaled content stays crisp; linear filtering only
-    // matters once visuals get scale transforms (magnification, later phases).
+    // Offsets are pixel-aligned, so unscaled content stays crisp; linear filtering matters
+    // for scaled (magnified) and animated visuals.
     layer.visual->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_LINEAR);
-    return root_->AddVisual(layer.visual.get(), TRUE, nullptr);
+    // With no reference visual, insertAbove = FALSE puts the new visual in front of all its
+    // siblings (TRUE would put it behind them).
+    RETURN_IF_FAILED(p->AddVisual(layer.visual.get(), FALSE, nullptr));
+    layer.parent.copy_from(p);
+    return S_OK;
+}
+
+HRESULT Renderer::ShareContent(Layer& dst, const Layer& src) {
+    if (!dst.visual) return E_UNEXPECTED;
+    return dst.visual->SetContent(src.surface.get());
+}
+
+void Renderer::SetStaticTransform(Layer& layer, const D2D1_MATRIX_3X2_F& m) {
+    if (layer.visual) layer.visual->SetTransform(m);
+}
+
+HRESULT Renderer::EnsurePlacement(Layer& layer, float cx, float cy) {
+    if (!layer.visual || !dcomp_) return E_UNEXPECTED;
+    if (!layer.scale || !layer.translate) {
+        winrt::com_ptr<IDCompositionScaleTransform> scale;
+        winrt::com_ptr<IDCompositionTranslateTransform> translate;
+        winrt::com_ptr<IDCompositionTransform> group;
+        RETURN_IF_FAILED(dcomp_->CreateScaleTransform(scale.put()));
+        RETURN_IF_FAILED(dcomp_->CreateTranslateTransform(translate.put()));
+        IDCompositionTransform* parts[] = {scale.get(), translate.get()};  // applied in order
+        RETURN_IF_FAILED(dcomp_->CreateTransformGroup(parts, 2, group.put()));
+        RETURN_IF_FAILED(layer.visual->SetTransform(group.get()));
+        layer.scale = std::move(scale);
+        layer.translate = std::move(translate);
+    }
+    layer.scale->SetCenterX(cx);
+    layer.scale->SetCenterY(cy);
+    return S_OK;
+}
+
+HRESULT Renderer::SetClip(Layer& layer, const D2D1_RECT_F& r) {
+    if (!layer.visual || !dcomp_) return E_UNEXPECTED;
+    if (!layer.clip) {
+        RETURN_IF_FAILED(dcomp_->CreateRectangleClip(layer.clip.put()));
+        RETURN_IF_FAILED(layer.visual->SetClip(layer.clip.get()));
+    }
+    layer.clip->SetLeft(r.left);
+    layer.clip->SetTop(r.top);
+    layer.clip->SetRight(r.right);
+    layer.clip->SetBottom(r.bottom);
+    return S_OK;
+}
+
+void Renderer::SetVisible(Layer& layer, bool visible) {
+    if (!layer.visual) return;
+    winrt::com_ptr<IDCompositionVisual3> v3;
+    if (SUCCEEDED(layer.visual->QueryInterface(IID_PPV_ARGS(v3.put())))) {
+        v3->SetVisible(visible ? TRUE : FALSE);
+    } else {
+        // No IDCompositionVisual3: park the visual far outside the window instead.
+        layer.visual->SetOffsetX(visible ? 0.0f : -100000.0f);
+    }
+}
+
+double Renderer::Now() {
+    static const double freq = [] {
+        LARGE_INTEGER f{};
+        QueryPerformanceFrequency(&f);
+        return static_cast<double>(f.QuadPart);
+    }();
+    LARGE_INTEGER c{};
+    QueryPerformanceCounter(&c);
+    return static_cast<double>(c.QuadPart) / freq;
 }
 
 HRESULT Renderer::DrawLayer(Layer& layer, UINT width, UINT height, const DrawFn& draw) {
@@ -153,6 +227,54 @@ void Renderer::SetOffset(Layer& layer, float x, float y) {
     if (!layer.visual) return;
     layer.visual->SetOffsetX(x);
     layer.visual->SetOffsetY(y);
+}
+
+winrt::com_ptr<IDCompositionAnimation> Renderer::CreateAnimation() {
+    winrt::com_ptr<IDCompositionAnimation> animation;
+    if (!dcomp_ || FAILED(dcomp_->CreateAnimation(animation.put()))) return nullptr;
+    return animation;
+}
+
+HRESULT Renderer::AnimateOffsetY(Layer& layer, IDCompositionAnimation* animation) {
+    if (!layer.visual || !animation) return E_INVALIDARG;
+    RETURN_IF_FAILED(layer.visual->SetOffsetY(animation));
+    layer.offsetYAnimation.copy_from(animation);
+    return S_OK;
+}
+
+void Renderer::StopOffsetYAnimation(Layer& layer, float value) {
+    layer.offsetYAnimation = nullptr;
+    if (layer.visual) layer.visual->SetOffsetY(value);  // replaces the animation
+}
+
+void Renderer::DestroyLayer(Layer& layer) {
+    if (layer.visual) {
+        if (layer.parent) {
+            layer.parent->RemoveVisual(layer.visual.get());
+        } else if (root_) {
+            root_->RemoveVisual(layer.visual.get());
+        }
+    }
+    layer.Reset();
+}
+
+HRESULT Renderer::CreateWindowTarget(HWND hwnd, winrt::com_ptr<IDCompositionTarget>& target, Layer& root) {
+    target = nullptr;
+    root.Reset();
+    if (!dcomp_) return E_UNEXPECTED;
+    RETURN_IF_FAILED(dcomp_->CreateTargetForHwnd(hwnd, TRUE, target.put()));
+    RETURN_IF_FAILED(dcomp_->CreateVisual(root.visual.put()));
+    root.visual->SetBitmapInterpolationMode(DCOMPOSITION_BITMAP_INTERPOLATION_MODE_LINEAR);
+    return target->SetRoot(root.visual.get());
+}
+
+ID2D1DeviceContext* Renderer::ResourceContext() {
+    if (!resourceDc_ && d2dDevice_) {
+        if (FAILED(d2dDevice_->CreateDeviceContext(D2D1_DEVICE_CONTEXT_OPTIONS_NONE, resourceDc_.put()))) {
+            resourceDc_ = nullptr;
+        }
+    }
+    return resourceDc_.get();
 }
 
 HRESULT Renderer::Commit() {

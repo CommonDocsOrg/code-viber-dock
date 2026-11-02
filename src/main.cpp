@@ -1,5 +1,6 @@
 #include <Unknwn.h>
 #include <windows.h>
+#include <ole2.h>
 #include <shellapi.h>
 
 #include <winrt/base.h>
@@ -99,6 +100,8 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     int exitCode = 0;
     try {
         winrt::init_apartment(winrt::apartment_type::single_threaded);
+        // OLE on top of the STA: RegisterDragDrop (file drops on the dock) requires it.
+        const HRESULT ole = OleInitialize(nullptr);
 
         App app;
         if (!app.Initialize(instance)) {
@@ -111,6 +114,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
             }
             exitCode = static_cast<int>(msg.wParam);
         }
+        if (SUCCEEDED(ole)) OleUninitialize();
     } catch (const winrt::hresult_error& e) {
         MessageBoxW(nullptr, e.message().c_str(), L"WinDock", MB_ICONERROR | MB_OK);
         exitCode = 1;

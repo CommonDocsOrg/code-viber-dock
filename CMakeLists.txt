@@ -18,10 +18,17 @@ add_executable(WinDock WIN32
   src/App.cpp
   src/Config.cpp
   src/DockWindow.cpp
+  src/Backdrop.cpp
+  src/PreviewPopup.cpp
   src/Renderer.cpp
   src/Clock.cpp
   src/TaskbarController.cpp
   src/ContextMenu.cpp
+  src/AppIdentity.cpp
+  src/WindowTracker.cpp
+  src/IconCache.cpp
+  src/Activation.cpp
+  src/Launcher.cpp
   res/app.rc
   res/app.manifest
 )
@@ -44,6 +51,6 @@ target_link_options(WinDock PRIVATE
 
 target_link_libraries(WinDock PRIVATE
   d3d11 dxgi d2d1 dcomp dwrite windowscodecs
-  shell32 ole32 shlwapi dwmapi propsys user32 gdi32
+  shell32 ole32 shlwapi dwmapi propsys user32 gdi32 version advapi32
   windowsapp
 )

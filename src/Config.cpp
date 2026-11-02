@@ -9,6 +9,7 @@
 
 #include <algorithm>
 #include <cwchar>
+#include <iterator>
 
 #include "Config.h"
 
@@ -158,10 +159,11 @@ std::wstring FormatArgbColor(uint32_t argb) {
 void Config::Sanitize() {
     iconSize = std::clamp(iconSize, 16, 256);
     if (!(magnification >= 1.0)) magnification = 1.0;  // also catches NaN
-    magnification = std::min(magnification, 3.0);
-    magnifyRange = std::clamp(magnifyRange, 0, 6);
+    magnification = std::min(magnification, 2.5);
+    magnifyRange = std::clamp(magnifyRange, 1, 4);
     hideDelayMs = std::clamp(hideDelayMs, 0, 10000);
     revealDelayMs = std::clamp(revealDelayMs, 0, 10000);
+    previewDelayMs = std::clamp(previewDelayMs, 0, 10000);
     monitor = std::max(monitor, 0);
     if (!(theme.cornerRadius >= 0.0f)) theme.cornerRadius = 0.0f;
     theme.cornerRadius = std::min(theme.cornerRadius, 64.0f);
@@ -169,21 +171,35 @@ void Config::Sanitize() {
     if (renderer != L"auto" && renderer != L"software") renderer = L"auto";
 }
 
-void Config::Load() {
+Config::LoadResult Config::LoadFile() {
     *this = Config{};
     const std::wstring path = FilePath();
 
     std::string bytes;
     if (!ReadFileUtf8(path, bytes)) {
-        if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) Save();  // first run
-        return;
+        // Missing (first run), or present but unreadable (treated like a malformed file).
+        return GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES ? LoadResult::Missing
+                                                                           : LoadResult::Malformed;
     }
 
     try {
         json::JsonObject root{nullptr};
         if (!json::JsonObject::TryParse(Utf8ToWide(bytes), root) || !root) {
             OutputDebugStringW(L"WinDock: config.json is malformed; using defaults\n");
-            return;
+            return LoadResult::Malformed;
+        }
+
+        static const wchar_t* const kKnown[] = {
+            L"pinned",        L"iconSize", L"magnification", L"magnifyRange",     L"autoHide", L"hideDelayMs",
+            L"revealDelayMs", L"monitor",  L"hideTaskbar",   L"startWithWindows", L"renderer", L"clock",
+            L"theme",         L"previews", L"previewDelayMs",
+        };
+        for (const auto& kv : root) {
+            const std::wstring key(kv.Key());
+            if (std::any_of(std::begin(kKnown), std::end(kKnown), [&](const wchar_t* k) { return key == k; })) {
+                continue;
+            }
+            extraFields.emplace_back(key, std::wstring(kv.Value().Stringify()));
         }
 
         if (auto p = Find(root, L"pinned"); p && p.ValueType() == json::JsonValueType::Array) {
@@ -203,6 +219,8 @@ void Config::Load() {
         ReadBool(root, L"autoHide", autoHide);
         ReadInt(root, L"hideDelayMs", hideDelayMs);
         ReadInt(root, L"revealDelayMs", revealDelayMs);
+        ReadBool(root, L"previews", previews);
+        ReadInt(root, L"previewDelayMs", previewDelayMs);
         ReadInt(root, L"monitor", monitor);
         ReadBool(root, L"hideTaskbar", hideTaskbar);
         ReadBool(root, L"startWithWindows", startWithWindows);
@@ -218,16 +236,30 @@ void Config::Load() {
             ReadString(t, L"background", bg);
             uint32_t argb = 0;
             if (!bg.empty() && ParseArgbColor(bg, argb)) theme.background = argb;
+            ReadBool(t, L"acrylic", theme.acrylic);
+            bg.clear();
+            ReadString(t, L"acrylicBackground", bg);
+            if (!bg.empty() && ParseArgbColor(bg, argb)) theme.acrylicBackground = argb;
             double radius = theme.cornerRadius;
             ReadNumber(t, L"cornerRadius", radius);
             theme.cornerRadius = static_cast<float>(radius);
+            std::wstring color;
+            ReadString(t, L"labelBackground", color);
+            if (!color.empty() && ParseArgbColor(color, argb)) theme.labelBackground = argb;
+            color.clear();
+            ReadString(t, L"labelText", color);
+            if (!color.empty() && ParseArgbColor(color, argb)) theme.labelText = argb;
+            color.clear();
+            ReadString(t, L"accent", color);
+            if (!color.empty() && ParseArgbColor(color, argb)) theme.accent = argb;
         }
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
         *this = Config{};
-        return;
+        return LoadResult::Malformed;
     }
     Sanitize();
+    return LoadResult::Ok;
 }
 
 bool Config::Save() const {
@@ -257,8 +289,14 @@ bool Config::Save() const {
         o += L"  \"clock\": { \"show\": " + Bool(clock.show) + L", \"format\": " + Quote(clock.format) +
              L", \"showDate\": " + Bool(clock.showDate) + L" },\n";
         o += L"  \"theme\": { \"background\": " + Quote(FormatArgbColor(theme.background)) +
-             L", \"cornerRadius\": " + Num(theme.cornerRadius) + L" }\n";
-        o += L"}\n";
+             L", \"cornerRadius\": " + Num(theme.cornerRadius) +
+             L",\n             \"acrylic\": " + Bool(theme.acrylic) +
+             L", \"acrylicBackground\": " + Quote(FormatArgbColor(theme.acrylicBackground)) +
+             L",\n             \"labelBackground\": " + Quote(FormatArgbColor(theme.labelBackground)) +
+             L", \"labelText\": " + Quote(FormatArgbColor(theme.labelText)) +
+             L", \"accent\": " + Quote(FormatArgbColor(theme.accent)) + L" }";
+        for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
+        o += L"\n}\n";
         return WriteFileAtomic(FilePath(), WideToUtf8(o));
     } catch (...) {
         return false;
