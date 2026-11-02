@@ -69,6 +69,8 @@ public:
     bool OnScreen() const { return state_ != State::Hidden; }
     size_t CardCount() const { return state_ == State::Hidden ? 0 : cards_.size(); }
     bool FadePending() const { return fadePending_; }
+    // Fade-in / fade-out duration (default 0.12 s; 0: none). Takes effect with the next fade.
+    void SetFadeSeconds(double seconds) { fadeS_ = seconds > 0.0 ? seconds : 0.0; }
     HWND CardWindow(size_t card) const {
         return state_ != State::Hidden && card < cards_.size() ? cards_[card].window : nullptr;
     }
@@ -130,6 +132,7 @@ private:
 
     Tween fade_;
     bool fadePending_ = false;
+    double fadeS_ = 0.12;
     float formatScale_ = 0.0f;
     winrt::com_ptr<IDWriteTextFormat> titleFormat_;
     winrt::com_ptr<IDWriteTextFormat> moreFormat_;

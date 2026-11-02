@@ -35,13 +35,10 @@ constexpr float kLabelGap = 6.0f;           // magnified icon top -> label botto
 constexpr float kLabelFontSize = 13.0f;
 constexpr float kLabelMaxWidth = 320.0f;
 constexpr float kBounceHeight = 0.35f;      // launch bounce height, fraction of the icon size
-constexpr float kBounceHalfS = 0.3f;        // rise (= fall) time of one bounce, seconds
+constexpr float kPulseOpacity = 0.45f;      // launchStyle "pulse": lowest opacity of a pulse
 constexpr ULONGLONG kBounceTimeoutMs = 5000; // stop bouncing if no window appeared by then
 
-// Interaction timing.
-constexpr double kMagnifyDurS = 0.08;        // retarget animation while the mouse moves
-constexpr double kRestDurS = 0.12;           // back to rest after the mouse leaves
-constexpr double kSlideDurS = 0.18;          // auto-hide slide + fade
+// Interaction timing (the animation durations are DockWindow::k*DurS, scaled by motion_).
 constexpr double kMagnifyIntervalS = 0.016;  // at most ~60 magnification updates per second
 constexpr UINT kLabelDelayMs = 250;
 // Dragging icons.
@@ -49,7 +46,6 @@ constexpr float kDragScale = 1.1f;           // the dragged icon, relative to re
 constexpr float kDragOpacity = 0.85f;
 constexpr float kRemoveOpacity = 0.4f;       // dragged far above the bar: "release to unpin"
 constexpr float kRemoveZoneBars = 1.5f;      // that zone starts this many bar heights above the bar
-constexpr double kRemoveFadeS = 0.15;        // fade-out of an icon dragged off the dock
 constexpr UINT kDragPollMs = 50;             // Escape polling while dragging (no keyboard focus)
 constexpr float kMarkerWidth = 2.0f;         // file-drop insertion marker, DIPs
 constexpr float kPreviewGap = 12.0f;         // stage top -> thumbnail popup bottom, DIPs
@@ -193,7 +189,9 @@ void DockWindow::Destroy() {
 }
 
 void DockWindow::ApplyConfig() {
+    RefreshMotion();
     DismissPreview(false, false);  // previews / theme / sizes may have changed
+    FinishLabelFade();             // its text / position may no longer match
     clock_.Configure(config_->clock.format, config_->clock.showDate);
     clock_.SetColors(config_->theme.clockText, config_->theme.clockDateText);
     // The drop marker is only redrawn when its size changes: force it (the accent may differ).
@@ -260,8 +258,8 @@ void DockWindow::ComputeLayout() {
     if (n && !c.clock.show) barW = lead + itemsW + lead;
     barW = std::round(std::max(barW, l.iconPx + 2.0f * l.padding));
 
-    // Magnified icons widen the run by sum((scale - 1) * iconPx). The cosine falloff sums to
-    // at most magnifyRange over all items (and each term is at most 1), which bounds the growth.
+    // Magnified icons widen the run by sum((scale - 1) * iconPx). Both falloffs (cosine, linear) sum
+    // to at most magnifyRange over all items (and each term is at most 1), which bounds the growth.
     l.growMax = 0.0f;
     if (n && l.magnification > 1.001f) {
         const float terms = static_cast<float>(std::min<size_t>(n, static_cast<size_t>(c.magnifyRange)));
@@ -301,8 +299,12 @@ void DockWindow::ComputeLayout() {
     // rounded left end and the separator / rounded right end) for every amount of growth.
     l.bgSurfaceW = barW + l.growMax;
     const float radius = std::ceil(std::min(l.cornerRadius, barH / 2.0f));
-    const float seamMin = radius + 2.0f;
-    const float seamMax = l.separatorX >= 0.0f ? l.separatorX - 2.0f : barW - radius - 2.0f;
+    // A spring settle overshoots: returning from growth g, the bar briefly gets narrower than at
+    // rest by up to kSpringOvershoot * g per side. Keep the seam that much further in.
+    const float undershoot =
+        motion_.easing == Easing::Spring ? std::ceil(static_cast<float>(Tween::kSpringOvershoot) * l.growMax) : 0.0f;
+    const float seamMin = radius + 2.0f + undershoot;
+    const float seamMax = (l.separatorX >= 0.0f ? l.separatorX - 2.0f : barW - radius - 2.0f) - undershoot;
     l.seamX = l.bar.left + (seamMin <= seamMax ? seamMin : std::floor(barW / 2.0f));
 
     l.slide = winH - l.bar.top + 2.0f;  // moves the bar just below the window's bottom edge
@@ -324,7 +326,13 @@ RECT DockWindow::DesiredRect() const {
     // the bottom margin, so the rect extends to the screen edge (the stage's bottom).
     const LONG left = l.window.left + static_cast<LONG>(l.bar.left);
     const LONG right = l.window.left + static_cast<LONG>(l.bar.right);
-    const LONG top = l.window.top + static_cast<LONG>(l.bar.top);
+    LONG top = l.window.top + static_cast<LONG>(l.bar.top);
+    if (hideState_ != HideState::Shown && motion_.easing == Easing::Spring &&
+        (motion_.hide == HideStyle::Slide || motion_.hide == HideStyle::SlideOnly)) {
+        // A spring slide-in overshoots above the resting bar: room for it.
+        top -= static_cast<LONG>(std::ceil(static_cast<float>(Tween::kSpringOvershoot) * l.slide)) + 1;
+        top = std::max(top, l.window.top);
+    }
     const LONG bottom =
         hideState_ == HideState::Shown ? l.window.top + static_cast<LONG>(l.bar.bottom) : l.window.bottom;
     return RECT{left, top, right, bottom};
@@ -372,10 +380,14 @@ void DockWindow::UpdateWindowRect() {
 }
 
 bool DockWindow::NeedsStage() const {
-    if (magnifying_ || hovered_ >= 0 || labelShown_ || labelPending_ || restPending_ || hold_) return true;
+    if (magnifying_ || hovered_ >= 0 || labelShown_ || labelPending_ || labelFading_ || restPending_ || hold_) {
+        return true;
+    }
     if (dragPhase_ != DragPhase::None || dropActive_) return true;
-    return std::any_of(items_.begin(), items_.end(),
-                       [](const DockItem& item) { return item.bounce != DockItem::Bounce::None; });
+    // A bounce / hop leaves the bar; a pulse stays inside it.
+    return std::any_of(items_.begin(), items_.end(), [](const DockItem& item) {
+        return item.bounce != DockItem::Bounce::None && item.bounceStyle != LaunchStyle::Pulse;
+    });
 }
 
 void DockWindow::TryCompact() {
@@ -441,6 +453,8 @@ void DockWindow::ResetLayers() {
     for (Layer& d : dotSources_) d.Reset();
     marker_.Reset();
     markerX_.valid = false;
+    label3_ = nullptr;
+    labelOpacity_.valid = false;
     label_.Reset();
     for (DockItem& item : items_) {
         item.layer.Reset();
@@ -466,7 +480,10 @@ HRESULT DockWindow::CreateLayers() {
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(marker_);
     if (SUCCEEDED(hr)) renderer_.SetVisible(marker_, false);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(label_);
-    if (SUCCEEDED(hr)) renderer_.SetVisible(label_, false);
+    if (SUCCEEDED(hr)) {
+        renderer_.SetVisible(label_, false);
+        if (FAILED(label_.visual->QueryInterface(IID_PPV_ARGS(label3_.put())))) label3_ = nullptr;  // no fade
+    }
     for (DockItem& item : items_) {  // item visuals are created by DrawFrame
         item.dirty = true;
         item.dotDirty = true;
@@ -736,7 +753,7 @@ HRESULT DockWindow::DrawFrame(bool all) {
     }
     if (!rootY_.valid) ApplyRootPose(0.0);
     ComputeTargets();
-    ApplyTargets(snap ? 0.0 : kMagnifyDurS);
+    ApplyTargets(snap ? 0.0 : motion_.magnify, true);
     return S_OK;
 }
 
@@ -793,13 +810,14 @@ void DockWindow::OnClockTick() {
 
 // --- Placement and magnification -------------------------------------------------------------
 // Scales come from the cursor's distance to each item's REST slot centre (no feedback from the
-// magnified layout): scale = 1 + (mag - 1) * f(d), f(d) = (1 + cos(pi d / R)) / 2 for d < R,
-// R = magnifyRange slots. Magnified slots are laid out left to right, and the run is anchored
-// so the point under the cursor stays under the cursor: the rest-layout offset u of the cursor
-// in the bar maps to M(u) in the magnified bar (lead padding unscaled, slots stretched, clock
-// area shifted by the whole growth), and the magnified bar starts at cursorX - M(u). So the
-// bar grows away from the cursor on both sides (macOS behaviour), the hovered icon stays
-// under the pointer, and hit-testing in rest coordinates always matches what is drawn.
+// magnified layout): scale = 1 + (mag - 1) * f(d), f(d) = (1 + cos(pi d / R)) / 2 (or, with
+// magnifyFalloff "linear", 1 - d / R) for d < R, R = magnifyRange slots. Magnified slots are laid
+// out left to right, and the run is anchored so the point under the cursor stays under the
+// cursor: the rest-layout offset u of the cursor in the bar maps to M(u) in the magnified bar
+// (lead padding unscaled, slots stretched, clock area shifted by the whole growth), and the
+// magnified bar starts at cursorX - M(u). So the bar grows away from the cursor on both sides
+// (macOS behaviour), the hovered icon stays under the pointer, and hit-testing in rest
+// coordinates always matches what is drawn.
 
 void DockWindow::ComputeTargets() {
     const Layout& l = layout_;
@@ -862,7 +880,11 @@ void DockWindow::ComputeTargets() {
         if (magnify) {
             const float centre = l.itemsLeft + (static_cast<float>(i) + 0.5f) * stride;
             const float d = std::fabs(cursorX_ - centre);
-            if (d < range) scale = 1.0f + (l.magnification - 1.0f) * 0.5f * (1.0f + std::cos(kPi * d / range));
+            if (d < range) {
+                const float f = motion_.falloff == Falloff::Linear ? 1.0f - d / range
+                                                                   : 0.5f * (1.0f + std::cos(kPi * d / range));
+                scale = 1.0f + (l.magnification - 1.0f) * f;
+            }
         }
         item.targetScale = scale;
         delta += l.iconPx * (scale - 1.0f);
@@ -913,14 +935,17 @@ void DockWindow::ComputeTargets() {
     }
 }
 
-void DockWindow::ApplyTargets(double duration) {
+void DockWindow::ApplyTargets(double duration, bool trackingMove) {
     const Layout& l = layout_;
     const double now = Renderer::Now();
     // While the mouse moves, skip retargets below a third of a pixel (fewer animations per
-    // commit); settling at rest uses exact targets so icons land pixel-aligned.
-    const bool tracking = duration > 0.0 && duration <= kMagnifyDurS;
+    // commit); settling at rest uses exact targets so icons land pixel-aligned. Tracking always
+    // eases out (a spring restarted at every mouse move would jitter); settling uses the
+    // configured easing.
+    const bool tracking = trackingMove && duration > 0.0;
     const float posEpsilon = tracking ? 0.35f : 0.01f;
     const float scaleEpsilon = tracking ? 0.003f : 0.0005f;
+    const std::optional<Easing> easing = tracking ? std::optional<Easing>(Easing::EaseOut) : std::nullopt;
 
     if (!bgLeftX_.valid) {
         // Static parts, re-applied after a snap (layout change) or a background redraw.
@@ -932,17 +957,18 @@ void DockWindow::ApplyTargets(double duration) {
     }
     if (bgLeft_.visual) {
         renderer_.Drive(
-            bgLeftX_, bgLeftTarget_, duration, now, [&](auto v) { return bgLeft_.visual->SetOffsetX(v); }, posEpsilon);
+            bgLeftX_, bgLeftTarget_, duration, now, [&](auto v) { return bgLeft_.visual->SetOffsetX(v); }, posEpsilon,
+            easing);
     }
     if (bgRight_.visual) {
         renderer_.Drive(
             bgRightX_, bgRightTarget_, duration, now, [&](auto v) { return bgRight_.visual->SetOffsetX(v); },
-            posEpsilon);
+            posEpsilon, easing);
     }
     if (clockLayer_.visual) {
         renderer_.Drive(
             clockX_, clockTarget_, duration, now, [&](auto v) { return clockLayer_.visual->SetOffsetX(v); },
-            posEpsilon);
+            posEpsilon, easing);
     }
 
     for (DockItem& item : items_) {
@@ -963,7 +989,7 @@ void DockWindow::ApplyTargets(double duration) {
                 if (SUCCEEDED(hr) && dot) hr = dot->SetOffsetX(v);
                 return hr;
             },
-            posEpsilon);
+            posEpsilon, easing);
         renderer_.Drive(
             item.ts, item.targetScale, duration, now,
             [&](auto v) {
@@ -971,7 +997,7 @@ void DockWindow::ApplyTargets(double duration) {
                 if (SUCCEEDED(hr)) hr = scale->SetScaleY(v);
                 return hr;
             },
-            scaleEpsilon);
+            scaleEpsilon, easing);
     }
 
     if (dropGap_ >= 0 && marker_.visual && marker_.width) {
@@ -980,12 +1006,17 @@ void DockWindow::ApplyTargets(double duration) {
         const float x = l.itemsLeft - std::floor(stride / 2.0f) + static_cast<float>(dropGap_) * stride +
                         std::floor(l.gap / 2.0f) + std::round((l.iconPx - static_cast<float>(marker_.width)) / 2.0f);
         if (!markerX_.valid) marker_.visual->SetOffsetY(l.itemTop);
-        renderer_.Drive(markerX_, x, duration, now, [&](auto v) { return marker_.visual->SetOffsetX(v); });
+        renderer_.Drive(
+            markerX_, x, duration, now, [&](auto v) { return marker_.visual->SetOffsetX(v); }, 0.01f, easing);
     }
 
     if (labelShown_ && label_.visual) {
-        renderer_.Drive(labelX_, labelXTarget_, duration, now, [&](auto v) { return label_.visual->SetOffsetX(v); });
-        renderer_.Drive(labelY_, labelYTarget_, duration, now, [&](auto v) { return label_.visual->SetOffsetY(v); });
+        renderer_.Drive(
+            labelX_, labelXTarget_, duration, now, [&](auto v) { return label_.visual->SetOffsetX(v); }, 0.01f,
+            easing);
+        renderer_.Drive(
+            labelY_, labelYTarget_, duration, now, [&](auto v) { return label_.visual->SetOffsetY(v); }, 0.01f,
+            easing);
     }
 }
 
@@ -1025,7 +1056,7 @@ void DockWindow::ApplyMagnify() {
         HRESULT hr = S_OK;
         if (labelShown_ && labelDirty_) hr = RenderLabel();
         ComputeTargets();
-        ApplyTargets(kMagnifyDurS);
+        ApplyTargets(motion_.magnify, true);
         return hr;
     });
 }
@@ -1055,12 +1086,12 @@ void DockWindow::LeaveZone() {
     if (wasActive) {
         RenderWithRecovery([this] {
             ComputeTargets();
-            ApplyTargets(kRestDurS);
+            ApplyTargets(motion_.rest);
             return S_OK;
         });
         // Once the icons have landed: swap back to the rest-size (crisper) icon surfaces and
         // shrink the window to the bar.
-        SetTimer(hwnd_, kRestTimerId, TimerMs(kRestDurS + 0.04), nullptr);
+        SetTimer(hwnd_, kRestTimerId, TimerMs(motion_.rest + 0.04), nullptr);
         restPending_ = true;
     }
     TryCompact();
@@ -1116,14 +1147,24 @@ void DockWindow::OnLabelTimer() {
         hideState_ == HideState::Hiding) {
         return;
     }
+    // Shown again while the previous label still fades out: fade in from where it is now.
+    const bool fadingOut = labelFading_;
+    if (labelFading_) {
+        KillTimer(hwnd_, kLabelFadeTimerId);
+        labelFading_ = false;
+    }
     labelShown_ = true;
     labelDirty_ = true;
     labelX_.valid = labelY_.valid = false;  // appear in place, then follow the icon
-    RenderWithRecovery([this] {
+    RenderWithRecovery([&] {
         HRESULT hr = RenderLabel();
         if (FAILED(hr)) return hr;
         ComputeTargets();
-        ApplyTargets(kMagnifyDurS);
+        ApplyTargets(motion_.magnify, true);
+        if (labelShown_) {
+            if (!fadingOut) DriveLabelOpacity(0.0f, 0.0);
+            DriveLabelOpacity(1.0f, motion_.labelFade);
+        }
         renderer_.SetVisible(label_, labelShown_);
         return S_OK;
     });
@@ -1135,9 +1176,43 @@ void DockWindow::HideLabel() {
         labelPending_ = false;
     }
     if (!labelShown_) return;
-    labelShown_ = false;
-    renderer_.SetVisible(label_, false);  // committed by the caller
+    labelShown_ = false;  // stops following the icon at once
     labelX_.valid = labelY_.valid = false;
+    if (label3_ && motion_.labelFade > 0.0 && hwnd_) {
+        DriveLabelOpacity(0.0f, motion_.labelFade);  // committed by the caller
+        SetTimer(hwnd_, kLabelFadeTimerId, TimerMs(motion_.labelFade + 0.02), nullptr);
+        labelFading_ = true;
+        return;
+    }
+    renderer_.SetVisible(label_, false);  // committed by the caller
+}
+
+void DockWindow::OnLabelFadeTimer() {
+    KillTimer(hwnd_, kLabelFadeTimerId);
+    if (!labelFading_) return;
+    labelFading_ = false;
+    if (!labelShown_) {
+        RenderWithRecovery([this] {
+            renderer_.SetVisible(label_, false);
+            return S_OK;
+        });
+    }
+    TryCompact();
+}
+
+void DockWindow::FinishLabelFade() {
+    if (!labelFading_) return;
+    if (hwnd_) KillTimer(hwnd_, kLabelFadeTimerId);
+    labelFading_ = false;
+    if (!labelShown_) renderer_.SetVisible(label_, false);
+}
+
+void DockWindow::DriveLabelOpacity(float to, double duration) {
+    if (!label3_) return;
+    IDCompositionVisual3* v3 = label3_.get();
+    renderer_.Drive(
+        labelOpacity_, to, duration, Renderer::Now(), [&](auto v) { return v3->SetOpacity(v); }, 0.001f,
+        renderer_.FadeEasing());
 }
 
 // --- Thumbnail popup -------------------------------------------------------------------------
@@ -1190,7 +1265,7 @@ void DockWindow::OnPreviewTimer() {
     previewPending_ = false;
     if (!PreviewEligible(hovered_) || !CursorInZone()) return;
     if (hideState_ == HideState::Showing) {  // a very short delay: wait for the slide to end
-        SetTimer(hwnd_, kPreviewTimerId, TimerMs(kSlideDurS), nullptr);
+        SetTimer(hwnd_, kPreviewTimerId, TimerMs(motion_.slide), nullptr);
         previewPending_ = true;
         return;
     }
@@ -1338,7 +1413,11 @@ void DockWindow::SyncBackdrop() {
         return t.Value(now);
     };
     RECT r{};  // empty: hidden
-    if (hideState_ != HideState::Hidden && IsWindowVisible(hwnd_)) {
+    // hideStyle "fade": the blur cannot fade, so it goes at the start of a hide and comes back at
+    // the end of a show.
+    const bool fadeHidden = motion_.hide == HideStyle::Fade &&
+                            (hideState_ == HideState::Hiding || hideState_ == HideState::Showing);
+    if (hideState_ != HideState::Hidden && !fadeHidden && IsWindowVisible(hwnd_)) {
         const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
         const float left = value(bgLeftX_, bgLeftTarget_);
         const float right = value(bgRightX_, bgRightTarget_) + l.bgSurfaceW;
@@ -1354,6 +1433,40 @@ void DockWindow::SyncBackdrop() {
         SetTimer(hwnd_, kBackdropTimerId, 16, nullptr);
         backdropPending_ = true;
     }
+}
+
+// --- Animation settings ----------------------------------------------------------------------
+// Every animation duration comes from motion_: the speed-1 constant divided by animation.speed.
+// speed 0 or reduce-motion make them 0 (instant: hide/show, return to rest, landing, label, popup
+// fade; no launch feedback). The magnification follow (input smoothing while the mouse moves)
+// keeps its 80 ms with reduce-motion and is only 0 with speed 0. End-of-animation timers use the
+// same scaled values (TimerMs floors them at USER_TIMER_MINIMUM).
+
+bool DockWindow::SystemReducesMotion() {
+    BOOL animations = TRUE;
+    if (!SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &animations, 0)) return false;
+    return animations == FALSE;
+}
+
+void DockWindow::RefreshMotion() {
+    const AnimationConfig& a = config_->animation;
+    Motion m;
+    m.reduce = a.reduceMotion == ReduceMotion::On || (a.reduceMotion == ReduceMotion::System && SystemReducesMotion());
+    m.scale = m.reduce || a.speed <= 0.0 ? 0.0 : 1.0 / a.speed;
+    m.hide = a.hideStyle;
+    m.launch = m.scale > 0.0 ? a.launchStyle : LaunchStyle::None;
+    m.falloff = a.magnifyFalloff;
+    m.easing = a.easing;
+    m.magnify = a.speed <= 0.0 ? 0.0 : kMagnifyDurS;
+    m.rest = kRestDurS * m.scale;
+    m.slide = a.hideStyle == HideStyle::None ? 0.0 : kSlideDurS * m.scale;
+    m.bounceHalf = kBounceHalfS * m.scale;
+    m.removeFade = kRemoveFadeS * m.scale;
+    m.labelFade = static_cast<double>(std::max(a.labelFadeMs, 0)) / 1000.0 * m.scale;
+    m.previewFade = kPreviewFadeS * m.scale;
+    motion_ = m;
+    renderer_.SetDefaultEasing(m.easing);
+    preview_.SetFadeSeconds(m.previewFade);
 }
 
 // --- Auto-hide -------------------------------------------------------------------------------
@@ -1400,8 +1513,8 @@ void DockWindow::StartHide() {
     double duration = 0.0;
     RenderWithRecovery([&] {
         ComputeTargets();
-        ApplyTargets(kRestDurS);  // normally already at rest
-        duration = ApplyRootPose(kSlideDurS);
+        ApplyTargets(motion_.rest);  // normally already at rest
+        duration = ApplyRootPose(motion_.slide);
         return S_OK;
     });
     SetTimer(hwnd_, kSlideTimerId, TimerMs(duration + 0.02), nullptr);
@@ -1419,7 +1532,7 @@ void DockWindow::StartShow() {
     UpdateWindowRect();  // strip -> bar column (the content is still transparent)
     double duration = 0.0;
     RenderWithRecovery([&] {
-        duration = ApplyRootPose(kSlideDurS);
+        duration = ApplyRootPose(motion_.slide);
         return S_OK;
     });
     SetTimer(hwnd_, kSlideTimerId, TimerMs(duration + 0.02), nullptr);
@@ -1430,6 +1543,12 @@ void DockWindow::OnSlideTimer() {
     if (hideState_ == HideState::Hiding) {
         hideState_ = HideState::Hidden;
         expanded_ = false;
+        // The hidden pose (slideOnly: the bar below the edge also becomes transparent, so nothing
+        // that rises out of it, like a launch bounce, shows in the strip).
+        RenderWithRecovery([this] {
+            ApplyRootPose(0.0);
+            return S_OK;
+        });
         UpdateWindowRect();  // shrink to the reveal strip
         SyncBackdrop();      // hide the blur
         // If the cursor already sits on the edge (e.g. it was below the dock), require it to
@@ -1442,6 +1561,7 @@ void DockWindow::OnSlideTimer() {
         const bool onDock = CursorInZone();  // tested against the bar column, before resizing
         if (onDock) expanded_ = true;
         UpdateWindowRect();  // bar column -> bar, or -> stage
+        SyncBackdrop();      // hideStyle "fade": the blur comes back now
         if (!onDock) LeaveZone();  // revealed but the mouse is not on the dock
     }
 }
@@ -1465,21 +1585,39 @@ double DockWindow::ApplyRootPose(double duration) {
     IDCompositionVisual2* root = renderer_.Root();
     if (!root) return 0.0;
     if (!rootY_.valid) ApplyStageTransform();  // a fresh root (device recovery)
+    const HideStyle style = motion_.hide;
+    if (style == HideStyle::None) duration = 0.0;
+    const bool moves = style != HideStyle::Fade;                             // slide, slideOnly, none
+    const bool fades = style == HideStyle::Slide || style == HideStyle::Fade;  // animated opacity
     const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
-    const float targetY = shown ? 0.0f : layout_.slide;
-    const float targetOpacity = shown ? 1.0f : 0.0f;
+    const float targetY = shown || !moves ? 0.0f : layout_.slide;
+    // slideOnly keeps full opacity while it slides and is transparent only once Hidden.
+    const float targetOpacity =
+        shown ? 1.0f : (fades || style == HideStyle::None || hideState_ == HideState::Hidden ? 0.0f : 1.0f);
     const double now = Renderer::Now();
-    if (duration > 0.0 && rootOpacity_.valid) {
-        // A reversal mid-slide only travels the remaining distance, at the same speed.
-        const float remaining = std::fabs(targetOpacity - rootOpacity_.Value(now));
-        duration = std::max(0.04, duration * static_cast<double>(remaining));
+    if (duration > 0.0) {
+        // A reversal mid-slide only travels the remaining distance, at the same speed. The
+        // fraction comes from the property that animates (the opacity when it does).
+        float remaining = 1.0f;
+        if (fades && rootOpacity_.valid) {
+            remaining = std::fabs(targetOpacity - rootOpacity_.Value(now));
+        } else if (!fades && rootY_.valid && layout_.slide > 0.0f) {
+            remaining = std::min(1.0f, std::fabs(targetY - rootY_.Value(now)) / layout_.slide);
+        }
+        if (fades ? rootOpacity_.valid : rootY_.valid) {
+            duration = std::max(std::min(0.04, duration), duration * static_cast<double>(remaining));
+        }
     }
-    renderer_.Drive(rootY_, targetY, duration, now, [&](auto v) { return root->SetOffsetY(v); });
+    const double durationY = moves ? duration : 0.0;
+    const double durationOpacity = fades ? duration : 0.0;
+    renderer_.Drive(rootY_, targetY, durationY, now, [&](auto v) { return root->SetOffsetY(v); });
     if (IDCompositionVisual3* root3 = renderer_.Root3()) {
-        renderer_.Drive(rootOpacity_, targetOpacity, duration, now, [&](auto v) { return root3->SetOpacity(v); },
-                        0.001f);
+        renderer_.Drive(
+            rootOpacity_, targetOpacity, durationOpacity, now, [&](auto v) { return root3->SetOpacity(v); }, 0.001f,
+            renderer_.FadeEasing());
     } else {
-        rootOpacity_ = Tween{rootOpacity_.Value(now), targetOpacity, now, duration, true};  // bookkeeping only
+        const float current = rootOpacity_.Value(now);  // bookkeeping only
+        rootOpacity_ = Tween{current, targetOpacity, now, durationOpacity, true, renderer_.FadeEasing()};
     }
     return duration;
 }
@@ -1622,6 +1760,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
         groupOf[index] = &g;
     }
 
+    bool landed = false;  // a launch feedback ended at once (a hop that was already over)
     for (size_t i = 0; i < next.size(); ++i) {
         DockItem& item = next[i];
         const WindowTracker::Group* g = groupOf[i];
@@ -1645,6 +1784,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
         // The launched app's window appeared: let the icon land.
         if (item.bounce == DockItem::Bounce::Bouncing && item.windows.size() > item.bounceWindowCount) {
             FinishBounce(item);
+            if (item.bounce == DockItem::Bounce::None) landed = true;
         }
     }
 
@@ -1679,12 +1819,13 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
         RenderWithRecovery([this] { return DrawFrame(false); });
     }
     if (abortDrag) {
-        KeepStage(kRestDurS + 0.04);
+        KeepStage(motion_.rest + 0.04);
         SetHold(false);
     }
     RefreshPreview();
     UpdateIconUsage();
     ScheduleBounceTimer();
+    if (landed && !CursorInZone()) TryCompact();  // no bounce timer left to do it
 }
 
 int DockWindow::IndexOfWindow(HWND hwnd) const {
@@ -1722,26 +1863,58 @@ bool DockWindow::LaunchItem(int index, bool newInstance) {
 }
 
 // --- Launch bounce ---------------------------------------------------------------------------
-// One bounce = rise for kBounceHalfS (ease out), fall for kBounceHalfS (ease in), repeated by
-// DWM until a new window of the app appears or kBounceTimeoutMs elapses; then the current bounce
-// is finished (no jump) and OffsetY returns to its static 0. Only one-shot timers at the
-// transitions; nothing runs in this process while the icon is in the air. The bounce drives the
-// item container's OffsetY, which is added after its placement (magnification) transform, and
-// the indicator dot (a separate layer) stays put.
+// launchStyle "bounce": one bounce = rise for bounceHalf (ease out), fall for bounceHalf (ease in),
+// repeated by DWM until a new window of the app appears or kBounceTimeoutMs elapses; then the
+// current bounce is finished (no jump) and OffsetY returns to its static 0. "hop": the same single
+// bounce without the repeat (the item still counts as launching until a window appears or the
+// timeout). "pulse": the icon's opacity goes 1 -> kPulseOpacity -> 1 every two bounceHalf,
+// repeated by DWM, and fades back to opaque at the end. Only one-shot timers at the transitions;
+// nothing runs in this process while the icon is in the air. The bounce drives the item
+// container's OffsetY, which is added after its placement (magnification) transform, and the
+// indicator dot (a separate layer) stays put.
 
 void DockWindow::StartBounce(DockItem& item, size_t windowsBeforeLaunch) {
+    const LaunchStyle style = motion_.launch;
+    if (style == LaunchStyle::None || motion_.bounceHalf <= 0.0) return;
     if (!item.layer.visual) return;
+    if (item.bounce != DockItem::Bounce::None) {
+        // Launched again (new instance) while the previous feedback runs: start over cleanly.
+        if (item.bounceStyle == LaunchStyle::Pulse) {
+            renderer_.StopOpacityAnimation(item.layer, 1.0f);
+            item.fade = Tween{1.0f, 1.0f, Renderer::Now(), 0.0, true};
+        } else {
+            renderer_.StopOffsetYAnimation(item.layer, 0.0f);
+        }
+        item.bounce = DockItem::Bounce::None;
+    }
     winrt::com_ptr<IDCompositionAnimation> anim = renderer_.CreateAnimation();
     if (!anim) return;
-    const float h = std::round(layout_.iconPx * kBounceHeight);
-    const float t = kBounceHalfS;
-    // Rise: y = -h * (2u - u^2), u = s / t.   Fall: y = -h * (1 - u^2).
-    anim->AddCubic(0.0, 0.0f, -2.0f * h / t, h / (t * t), 0.0f);
-    anim->AddCubic(t, -h, 0.0f, h / (t * t), 0.0f);
-    anim->AddRepeat(2.0 * t, 2.0 * t);
-    if (FAILED(renderer_.AnimateOffsetY(item.layer, anim.get()))) return;
+    const float t = static_cast<float>(motion_.bounceHalf);
+    HRESULT hr = S_OK;
+    if (style == LaunchStyle::Pulse) {
+        // Smoothstep down, smoothstep up: o = 1 - a (3u^2 - 2u^3), then kPulseOpacity + a (3u^2 - 2u^3).
+        const float a = 1.0f - kPulseOpacity;
+        anim->AddCubic(0.0, 1.0f, 0.0f, -3.0f * a / (t * t), 2.0f * a / (t * t * t));
+        anim->AddCubic(t, kPulseOpacity, 0.0f, 3.0f * a / (t * t), -2.0f * a / (t * t * t));
+        anim->AddRepeat(2.0 * t, 2.0 * t);
+        hr = renderer_.AnimateOpacity(item.layer, anim.get());
+    } else {
+        const float h = std::round(layout_.iconPx * kBounceHeight);
+        // Rise: y = -h * (2u - u^2), u = s / t.   Fall: y = -h * (1 - u^2).
+        anim->AddCubic(0.0, 0.0f, -2.0f * h / t, h / (t * t), 0.0f);
+        anim->AddCubic(t, -h, 0.0f, h / (t * t), 0.0f);
+        if (style == LaunchStyle::Hop) {
+            anim->End(2.0 * t, 0.0f);
+        } else {
+            anim->AddRepeat(2.0 * t, 2.0 * t);
+        }
+        hr = renderer_.AnimateOffsetY(item.layer, anim.get());
+    }
+    if (FAILED(hr)) return;
     const ULONGLONG now = GetTickCount64();
     item.bounce = DockItem::Bounce::Bouncing;
+    item.bounceStyle = style;
+    item.bounceHalf = t;
     item.bounceStart = now;
     item.bounceDeadline = now + kBounceTimeoutMs;
     item.bounceWindowCount = windowsBeforeLaunch;
@@ -1752,14 +1925,38 @@ void DockWindow::StartBounce(DockItem& item, size_t windowsBeforeLaunch) {
 void DockWindow::FinishBounce(DockItem& item) {
     if (item.bounce != DockItem::Bounce::Bouncing) return;
     const ULONGLONG now = GetTickCount64();
+    const float t = item.bounceHalf;
+    const float elapsed = static_cast<float>(now - item.bounceStart) / 1000.0f;
+
+    if (item.bounceStyle == LaunchStyle::Pulse) {
+        // Fade back to opaque from wherever the pulse is now.
+        const float a = 1.0f - kPulseOpacity;
+        const float phase = std::fmod(elapsed, 2.0f * t);
+        const float u = phase < t ? phase / t : (phase - t) / t;
+        const float step = a * u * u * (3.0f - 2.0f * u);
+        const float current = phase < t ? 1.0f - step : kPulseOpacity + step;
+        item.fade = Tween{current, current, Renderer::Now(), 0.0, true};  // the fade starts here
+        const double duration = motion_.rest;
+        SetItemOpacity(item, 1.0f, duration);
+        if (duration < 0.02 || !item.fade.Running(Renderer::Now())) {
+            renderer_.StopOpacityAnimation(item.layer, 1.0f);
+            item.fade = Tween{1.0f, 1.0f, Renderer::Now(), 0.0, true};
+            item.bounce = DockItem::Bounce::None;
+            return;
+        }
+        item.bounce = DockItem::Bounce::Finishing;
+        item.bounceDeadline = now + static_cast<ULONGLONG>(duration * 1000.0) + 30;
+        return;
+    }
+
     const float h = std::round(layout_.iconPx * kBounceHeight);
-    const float t = kBounceHalfS;
     const float c = h / (t * t);
-    const float phase = std::fmod(static_cast<float>(now - item.bounceStart) / 1000.0f, 2.0f * t);
+    // A hop is over after one bounce; a bounce repeats.
+    const float phase = item.bounceStyle == LaunchStyle::Hop ? elapsed : std::fmod(elapsed, 2.0f * t);
 
     // The rest of the current bounce: the same curves shifted by the elapsed part d
     // (p(s + d) expanded into polynomial coefficients), ending at 0.
-    winrt::com_ptr<IDCompositionAnimation> anim = renderer_.CreateAnimation();
+    winrt::com_ptr<IDCompositionAnimation> anim = phase < 2.0f * t ? renderer_.CreateAnimation() : nullptr;
     float remaining = 0.0f;
     if (anim) {
         if (phase < t) {
@@ -1790,7 +1987,11 @@ void DockWindow::OnBounceTimer() {
         if (item.bounce == DockItem::Bounce::Bouncing && now >= item.bounceDeadline) {
             FinishBounce(item);  // timed out: the app never showed a new window
         } else if (item.bounce == DockItem::Bounce::Finishing && now >= item.bounceDeadline) {
-            renderer_.StopOffsetYAnimation(item.layer, 0.0f);
+            if (item.bounceStyle == LaunchStyle::Pulse) {
+                SetItemOpacity(item, 1.0f, 0.0);  // normally already there
+            } else {
+                renderer_.StopOffsetYAnimation(item.layer, 0.0f);
+            }
             item.bounce = DockItem::Bounce::None;
         }
     }
@@ -1889,7 +2090,9 @@ void DockWindow::SetItemOpacity(DockItem& item, float to, double duration) {
     if (!item.layer.visual) return;
     winrt::com_ptr<IDCompositionVisual3> v3;
     if (FAILED(item.layer.visual->QueryInterface(IID_PPV_ARGS(v3.put())))) return;
-    renderer_.Drive(item.fade, to, duration, Renderer::Now(), [&](auto v) { return v3->SetOpacity(v); }, 0.001f);
+    renderer_.Drive(
+        item.fade, to, duration, Renderer::Now(), [&](auto v) { return v3->SetOpacity(v); }, 0.001f,
+        renderer_.FadeEasing());
 }
 
 void DockWindow::KeepStage(double seconds) {
@@ -1905,6 +2108,9 @@ void DockWindow::BeginDrag(POINT pt) {
     DockItem& item = items_[static_cast<size_t>(s)];
     if (!item.pinned && item.key.IsClassFallback()) return;  // could never be pinned: click only
     if (!item.layer.visual) return;
+    // A launch pulse animates the opacity the drag uses: end it first (it fades back to opaque,
+    // which the drag's dimming below replaces).
+    if (item.bounce == DockItem::Bounce::Bouncing && item.bounceStyle == LaunchStyle::Pulse) FinishBounce(item);
 
     dragPhase_ = DragPhase::Dragging;
     dragSource_ = s;
@@ -1957,7 +2163,7 @@ void DockWindow::UpdateDrag(POINT pt) {
     if (remove != dragRemove_) {
         dragRemove_ = remove;
         SetItemOpacity(items_[static_cast<size_t>(dragSource_)], remove ? kRemoveOpacity : kDragOpacity,
-                       kMagnifyDurS);
+                       motion_.magnify);
     }
     ScheduleMagnify();  // throttled ComputeTargets + ApplyTargets (80 ms)
 }
@@ -1985,10 +2191,10 @@ void DockWindow::EndDrag(bool commit) {
         // Fade out where it was dropped, then unpin (OnRemoveTimer).
         removeKey_ = dragKey_;
         RenderWithRecovery([&] {
-            SetItemOpacity(items_[static_cast<size_t>(s)], 0.0f, kRemoveFadeS);
+            SetItemOpacity(items_[static_cast<size_t>(s)], 0.0f, motion_.removeFade);
             return S_OK;
         });
-        SetTimer(hwnd_, kRemoveTimerId, TimerMs(kRemoveFadeS + 0.02), nullptr);
+        SetTimer(hwnd_, kRemoveTimerId, TimerMs(motion_.removeFade + 0.02), nullptr);
         removePending_ = true;
         return;
     }
@@ -2012,8 +2218,8 @@ void DockWindow::EndDrag(bool commit) {
     dragLanding_ = valid;
     RenderWithRecovery([&] {
         ComputeTargets();
-        ApplyTargets(kRestDurS);
-        if (valid) SetItemOpacity(items_[static_cast<size_t>(s)], 1.0f, kRestDurS);
+        ApplyTargets(motion_.rest);
+        if (valid) SetItemOpacity(items_[static_cast<size_t>(s)], 1.0f, motion_.rest);
         return S_OK;
     });
     dragLanding_ = false;
@@ -2021,7 +2227,7 @@ void DockWindow::EndDrag(bool commit) {
     dragInsert_ = -1;
     dragRemove_ = false;
 
-    KeepStage(kRestDurS + 0.04);  // the window stays at stage size until the icon has landed
+    KeepStage(motion_.rest + 0.04);  // the window stays at stage size until the icon has landed
     if (!order.empty() && pinRequests_.reorder) pinRequests_.reorder(order);
     SetHold(false);  // starts the hide delay if the mouse is no longer on the dock
     POINT cursor{};
@@ -2056,14 +2262,14 @@ void DockWindow::OnRemoveTimer() {
     if (pinRequests_.unpin) pinRequests_.unpin(key);  // rebuilds the items (the icon goes away)
     // Still on the dock (it started meanwhile, or nothing was unpinned): show it again.
     for (DockItem& item : items_) {
-        if (item.key == key) SetItemOpacity(item, 1.0f, kRestDurS);
+        if (item.key == key) SetItemOpacity(item, 1.0f, motion_.rest);
     }
     RenderWithRecovery([this] {
         ComputeTargets();
-        ApplyTargets(kRestDurS);
+        ApplyTargets(motion_.rest);
         return S_OK;
     });
-    KeepStage(kRestDurS + 0.04);
+    KeepStage(motion_.rest + 0.04);
     SetHold(false);
 }
 
@@ -2134,7 +2340,7 @@ void DockWindow::SetDropGap(int gap) {
             markerX_.valid = false;
         }
         ComputeTargets();
-        ApplyTargets(kMagnifyDurS);
+        ApplyTargets(motion_.magnify, true);
         if (gap >= 0 && !wasOpen) renderer_.SetVisible(marker_, true);
         return hr;
     });
@@ -2173,7 +2379,7 @@ void DockWindow::OnDragLeave() {
     if (!dropActive_) return;
     dropActive_ = false;
     SetDropGap(-1);
-    KeepStage(kMagnifyDurS + 0.04);
+    KeepStage(motion_.magnify + 0.04);
     SetHold(false);
 }
 
@@ -2192,10 +2398,10 @@ DWORD DockWindow::OnDrop(IDataObject* data, POINT screenPt, DWORD allowed) {
     // Nothing new was pinned (duplicates): close the gap.
     RenderWithRecovery([this] {
         ComputeTargets();
-        ApplyTargets(kRestDurS);
+        ApplyTargets(motion_.rest);
         return S_OK;
     });
-    KeepStage(kRestDurS + 0.04);
+    KeepStage(motion_.rest + 0.04);
     SetHold(false);
     return files.empty() ? DROPEFFECT_NONE : DropEffect(allowed);
 }
@@ -2252,7 +2458,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return magnifying_ ? 1 : 0;
         case 5:
             return (hidePending_ ? 1 : 0) + (revealPending_ ? 1 : 0) + (magnifyPending_ ? 1 : 0) +
-                   (labelPending_ ? 1 : 0) + (restPending_ ? 1 : 0) +
+                   (labelPending_ ? 1 : 0) + (labelFading_ ? 1 : 0) + (restPending_ ? 1 : 0) +
                    (hideState_ == HideState::Hiding || hideState_ == HideState::Showing ? 1 : 0) +
                    (backdropPending_ ? 1 : 0) + (dragPending_ ? 1 : 0) + (removePending_ ? 1 : 0) +
                    (previewPending_ ? 1 : 0) + (previewLeavePending_ ? 1 : 0) + (preview_.FadePending() ? 1 : 0);
@@ -2274,6 +2480,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return reinterpret_cast<LRESULT>(preview_.CardWindow(static_cast<size_t>(lp)));
         case 14:
             return static_cast<LRESULT>(config_->autoHide);  // 0 off, 1 always, 2 intelligent
+        case 17:
+            return motion_.reduce ? 1 : 0;
         case 20:
             return config_->themeResolveFailed ? 1 : 0;
         default:
@@ -2466,6 +2674,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 case kLabelTimerId:
                     OnLabelTimer();
                     return 0;
+                case kLabelFadeTimerId:
+                    OnLabelFadeTimer();
+                    return 0;
                 case kPreviewTimerId:
                     OnPreviewTimer();
                     return 0;
@@ -2529,6 +2740,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 Relayout();
             } else if (wp == SPI_SETWORKAREA || wp == SPI_SETNONCLIENTMETRICS) {
                 Relayout();
+            } else if (wp == SPI_SETCLIENTAREAANIMATION) {
+                // Animation effects toggled: reduceMotion "system" follows it from the next animation.
+                RefreshMotion();
             }
             return 0;
 
@@ -2551,11 +2765,13 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (GetCapture() == hwnd_) ReleaseCapture();
             for (UINT_PTR id : {kClockTimerId, kIconEvictTimerId, kBounceTimerId, kHideTimerId, kRevealTimerId,
                                 kSlideTimerId, kMagnifyTimerId, kLabelTimerId, kRestTimerId, kBackdropTimerId,
-                                kDragTimerId, kRemoveTimerId, kPreviewTimerId, kPreviewLeaveTimerId}) {
+                                kDragTimerId, kRemoveTimerId, kPreviewTimerId, kPreviewLeaveTimerId,
+                                kLabelFadeTimerId}) {
                 KillTimer(hwnd_, id);
             }
             dragPending_ = removePending_ = false;
             evictPending_ = hidePending_ = revealPending_ = magnifyPending_ = labelPending_ = restPending_ = false;
+            labelFading_ = false;
             backdropPending_ = false;
             previewPending_ = previewLeavePending_ = previewHold_ = false;
             preview_.Destroy();

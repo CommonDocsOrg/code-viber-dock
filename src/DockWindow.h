@@ -41,6 +41,8 @@ public:
     static constexpr UINT_PTR kRemoveTimerId = 15;   // end of the fade of an icon dragged off the dock
     static constexpr UINT_PTR kPreviewTimerId = 16;  // previewDelayMs hover delay before the thumbnail popup
     static constexpr UINT_PTR kPreviewLeaveTimerId = 17;  // grace period after leaving item and popup
+    // 18 is reserved (intelligent hide)
+    static constexpr UINT_PTR kLabelFadeTimerId = 19;     // end of the name label's fade-out
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -54,7 +56,10 @@ public:
     // 2 fading out an icon dragged off the dock, 3 a file drag is over the dock); 8: 1 while the
     // dock window has the mouse capture; 9: insertion index of the current drag (-1 none);
     // 10: 1 if the OLE drop target is registered; 11: 1 while the thumbnail popup is visible;
-    // 12: number of cards in the thumbnail popup; 13: the window shown by popup card lp (0 none).
+    // 12: number of cards in the thumbnail popup; 13: the window shown by popup card lp (0 none);
+    // 14: auto-hide mode (0 off, 1 always, 2 intelligent); 17: 1 while reduce-motion is in effect
+    // (animation.reduceMotion, or "system" and Windows' animation effects are off); 20: 1 if the
+    // theme preset failed to resolve on the last load.
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -207,8 +212,10 @@ private:
     // Computes every target position (items, background halves, clock, label) from the rest
     // layout and, while magnifying, the cursor x.
     void ComputeTargets();
-    // Drives all placement tweens to their targets (duration 0: static snap).
-    void ApplyTargets(double duration);
+    // Drives all placement tweens to their targets (duration 0: static snap). `trackingMove`: a
+    // retarget while the mouse moves (motion_.magnify; always ease-out, coarser epsilons);
+    // otherwise a settle animation (rest, landing; the configured easing, exact targets).
+    void ApplyTargets(double duration, bool trackingMove = false);
     void ResetPlacementTweens();
     void ScheduleMagnify();
     void ApplyMagnify();
@@ -222,7 +229,14 @@ private:
     // --- hover label ---
     void SetHover(int index);
     void OnLabelTimer();
+    // Hides the label: fades it out over motion_.labelFade (kLabelFadeTimerId hides the visual at
+    // the end) or at once. Committed by the caller.
     void HideLabel();
+    void OnLabelFadeTimer();
+    // Ends a running fade-out now (the visual is hidden). Committed by the caller.
+    void FinishLabelFade();
+    // Drives the label visual's opacity (no-op without IDCompositionVisual3).
+    void DriveLabelOpacity(float to, double duration);
 
     // --- thumbnail popup (multi-window items) ---
     // The hovered item can show the popup now (previews on, 2+ windows, dock shown, not held).
@@ -255,6 +269,14 @@ private:
     // running only while one of those tweens is still animating.
     void SyncBackdrop();
 
+    // --- animation settings ---
+    // Re-reads config->animation and the system's animation setting into motion_ (and the
+    // renderer's default easing, the popup's fade). Called by ApplyConfig and on
+    // WM_SETTINGCHANGE(SPI_SETCLIENTAREAANIMATION).
+    void RefreshMotion();
+    // Settings > Accessibility > Visual effects > Animation effects is off.
+    static bool SystemReducesMotion();
+
     // --- auto-hide ---
     void ScheduleHide();
     void CancelHide();
@@ -263,8 +285,9 @@ private:
     void OnSlideTimer();
     void StartHide();
     void StartShow();
-    // Drives the root visual's slide offset / opacity to the pose of hideState_.
-    // Returns the duration actually used (shorter for a partial reversal).
+    // Drives the root visual's slide offset / opacity to the pose of hideState_ for
+    // motion_.hide (slide: both; slideOnly: offset, the opacity snaps to 0 once Hidden; fade:
+    // opacity; none: instant). Returns the duration actually used (shorter for a partial reversal).
     double ApplyRootPose(double duration);
     bool CursorOnStrip() const;
     void ArmMouseTracking();
@@ -273,7 +296,8 @@ private:
     // Rebuilds items_: pins in config order, then running apps in first-seen order.
     void Rebuild(const WindowTracker::Snapshot& snap);
 
-    // Launch bounce (DirectComposition OffsetY animation; no timers while idle).
+    // Launch feedback per motion_.launch: bounce / hop (DirectComposition OffsetY animation) or
+    // pulse (opacity animation); no timers while idle.
     void StartBounce(DockItem& item, size_t windowsBeforeLaunch);
     void FinishBounce(DockItem& item);
     void OnBounceTimer();
@@ -316,11 +340,40 @@ private:
     void SetDropGap(int gap);
     static std::vector<std::wstring> PinnableFiles(IDataObject* data);
 
+    // Animation timing at speed 1 (seconds).
+    static constexpr double kMagnifyDurS = 0.08;  // retarget animation while the mouse moves
+    static constexpr double kRestDurS = 0.12;     // back to rest after the mouse leaves; landing
+    static constexpr double kSlideDurS = 0.18;    // auto-hide slide + fade
+    static constexpr double kBounceHalfS = 0.3;   // rise (= fall) time of one launch bounce
+    static constexpr double kRemoveFadeS = 0.15;  // fade-out of an icon dragged off the dock
+    static constexpr double kPreviewFadeS = 0.12; // thumbnail popup fade in / out
+
+    // config->animation resolved against the system setting (RefreshMotion). Durations are in
+    // seconds, already divided by animation.speed; 0 means instant.
+    struct Motion {
+        bool reduce = false;     // effective reduce-motion
+        double scale = 1.0;      // 1 / speed; 0 when speed == 0 or reduce-motion is in effect
+        HideStyle hide = HideStyle::Slide;
+        LaunchStyle launch = LaunchStyle::Bounce;  // None when scale == 0
+        Falloff falloff = Falloff::Cosine;
+        Easing easing = Easing::EaseOut;
+        // Input smoothing while the mouse moves: NOT scaled, kept with reduce-motion; 0 only
+        // when speed == 0.
+        double magnify = kMagnifyDurS;
+        double rest = kRestDurS;
+        double slide = kSlideDurS;  // 0 for hideStyle "none"
+        double bounceHalf = kBounceHalfS;
+        double removeFade = kRemoveFadeS;
+        double labelFade = 0.12;
+        double previewFade = kPreviewFadeS;
+    };
+
     HWND hwnd_ = nullptr;
     HINSTANCE instance_ = nullptr;
     const Config* config_ = nullptr;
     MessageHook hook_;
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
+    Motion motion_;
     bool inLayout_ = false;
     bool clockDirty_ = true;
     bool snapPending_ = true;
@@ -374,6 +427,9 @@ private:
     bool labelShown_ = false;
     bool labelDirty_ = true;
     bool labelPending_ = false;
+    bool labelFading_ = false;    // kLabelFadeTimerId running (fading out; the visual is still shown)
+    Tween labelOpacity_;
+    winrt::com_ptr<IDCompositionVisual3> label3_;  // label_'s opacity (null: no fade)
     int labelItem_ = -1;          // item the label surface was drawn for
     float labelScale_ = 0.0f;
     winrt::com_ptr<IDWriteTextFormat> labelFormat_;

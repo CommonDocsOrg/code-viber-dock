@@ -29,7 +29,6 @@ constexpr float kMoreFont = 13.0f;
 constexpr float kCardRadius = 6.0f;
 constexpr float kIconDip = 48.0f;     // app icon in a card without a thumbnail
 constexpr float kMonitorMargin = 8.0f;
-constexpr double kFadeS = 0.12;
 
 D2D1_RECT_F ToRectF(const RECT& r) {
     return D2D1::RectF(static_cast<float>(r.left), static_cast<float>(r.top), static_cast<float>(r.right),
@@ -385,8 +384,8 @@ bool PreviewPopup::Show(const Content& content, const Style& style, int anchorX,
         }
     }
     state_ = State::Shown;
+    StartFade(1.0f);  // first: with no fade (SetFadeSeconds(0)) the thumbnails start opaque
     UpdateThumbs(static_cast<BYTE>(std::lround(std::clamp(fade_.Value(now), 0.0f, 1.0f) * 255.0f)), true);
-    StartFade(1.0f);
     Commit();
     SetWindowPos(hwnd_, HWND_TOPMOST, rect_.left, rect_.top, size_.cx, size_.cy,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER | (wasHidden ? SWP_SHOWWINDOW : 0));
@@ -415,8 +414,12 @@ void PreviewPopup::StartFade(float to) {
     }
     const double now = Renderer::Now();
     const float remaining = std::fabs(to - fade_.Value(now));
-    renderer_->Drive(fade_, to, std::max(0.03, kFadeS * remaining), now,
-                     [&](auto v) { return root3->SetOpacity(v); }, 0.001f);
+    // A partial reversal takes the remaining fraction of the fade (at least 30 ms, or the whole
+    // fade when that is shorter); 0 s: no fade.
+    const double duration =
+        fadeS_ > 0.0 ? std::max(std::min(0.03, fadeS_), fadeS_ * static_cast<double>(remaining)) : 0.0;
+    renderer_->Drive(fade_, to, duration, now, [&](auto v) { return root3->SetOpacity(v); }, 0.001f,
+                     renderer_->FadeEasing());
     if (fade_.Running(now) && !fadePending_) {
         SetTimer(hwnd_, kFadeTimerId, 16, nullptr);
         fadePending_ = true;

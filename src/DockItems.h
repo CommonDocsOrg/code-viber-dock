@@ -70,10 +70,12 @@ struct DockItem {
     Tween ts;               // scale.ScaleX/Y
     Tween fade;             // layer opacity (dragging: dimmed; dragged off the dock: fading out)
 
-    // Launch feedback: the icon bounces until a new window appears (or a timeout), then
-    // finishes the current bounce.
+    // Launch feedback (animation.launchStyle): the icon bounces / hops / pulses until a new
+    // window appears (or a timeout), then finishes the current bounce (or fades back to opaque).
     enum class Bounce { None, Bouncing, Finishing };
     Bounce bounce = Bounce::None;
+    LaunchStyle bounceStyle = LaunchStyle::Bounce;  // the style it was started with
+    float bounceHalf = 0.3f;       // seconds: rise (= fall) of one bounce, half a pulse
     ULONGLONG bounceStart = 0;     // GetTickCount64 when the bounce animation was committed
     ULONGLONG bounceDeadline = 0;  // Bouncing: timeout; Finishing: when the last bounce lands
     size_t bounceWindowCount = 0;  // windows when the launch started; more = launched

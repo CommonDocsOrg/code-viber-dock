@@ -49,15 +49,19 @@ Right-click the tray icon or an empty part of the dock for the menu:
 ### Magnification, name label, auto-hide
 
 - **Magnification**: icons near the mouse grow, up to `magnification` times their size for the
-  icon under the pointer, falling off with a cosine curve over `magnifyRange` neighbouring slots.
+  icon under the pointer, falling off with a cosine curve (or a straight line with
+  `animation.magnifyFalloff: "linear"`) over `magnifyRange` neighbouring slots.
   Magnified icons grow upwards from their bottom edge and push their neighbours outwards. The
   layout is anchored at the pointer, so the icon under the pointer stays under it and the bar
   grows on both sides away from the pointer (like macOS). The bar's width animates with the icons.
   The running-indicator dots keep their size and follow their icons. Everything moves through
   DirectComposition animations (80 ms while the mouse moves, 120 ms back to rest), so no
-  surface is redrawn. Magnification updates are capped at about 60 per second.
-- **Name label**: the app name appears above the hovered icon after 250 ms, follows it while
-  you move along the dock, and disappears when the mouse leaves.
+  surface is redrawn. Magnification updates are capped at about 60 per second. The return to rest
+  (and every other duration in this section except the 80 ms follow and the delays) is divided by
+  `animation.speed`; see [Animation](#animation).
+- **Name label**: the app name fades in above the hovered icon after 250 ms, follows it while
+  you move along the dock, and fades out when the mouse leaves (`animation.labelFadeMs`, 120 ms;
+  0 = appears and disappears at once).
 - **Window previews** (`previews`, on by default): rest the mouse on an app with two or more
   windows for `previewDelayMs` (600 ms) and a popup opens above the dock, centred on the icon, with
   one card per window: the window title (shortened with an ellipsis), a live thumbnail rendered by
@@ -77,12 +81,14 @@ Right-click the tray icon or an empty part of the dock for the menu:
   - At most 6 cards (fewer if they would not fit on the monitor); further windows show as
     "+N more". Thumbnails keep the window's aspect ratio inside a 200 x 130 DIP box. A minimized
     window shows its last frame if DWM kept one, otherwise the app icon.
-  - The popup (class `WinDockPreview`) fades in and out over 120 ms. With acrylic on it uses the
-    same blurred backdrop as the bar (with the system's 8 DIP corners), otherwise
-    `theme.background`. While it is open and the mouse is still, the dock does no work; DWM draws
-    the thumbnails. Thumbnails are released as soon as the popup closes.
+  - The popup (class `WinDockPreview`) fades in and out over 120 ms (divided by
+    `animation.speed`). With acrylic on it uses the same blurred backdrop as the bar (with the
+    system's 8 DIP corners), otherwise `theme.background`. While it is open and the mouse is
+    still, the dock does no work; DWM draws the thumbnails. Thumbnails are released as soon as
+    the popup closes.
 - **Auto-hide** (`autoHide`, `"always"` by default): when the mouse leaves the dock, it waits
-  `hideDelayMs`, then slides down and fades out (180 ms). The hidden dock is a 1 px tall
+  `hideDelayMs`, then slides down and fades out (180 ms at `animation.speed` 1;
+  `animation.hideStyle` chooses slide only, fade only or instant). The hidden dock is a 1 px tall
   invisible strip along the whole bottom edge of its monitor, so it no longer covers anything
   except that bottom row of pixels. Push the mouse against the bottom edge and keep it there for
   `revealDelayMs` to bring the dock back. Leaving the edge sooner cancels the reveal. Moving
@@ -100,9 +106,10 @@ Right-click the tray icon or an empty part of the dock for the menu:
   the windows underneath. When the mouse enters the bar, the window grows to make room above it
   for magnified icons and the label and beside it for the bar to grow; the cursor is on the bar
   at that moment, so the larger transparent area does not get in the way. Once the mouse has
-  left, the label is gone and the icons are back at rest (about 160 ms), it shrinks back to the
-  bar. While sliding in or out it covers the bar's column down to the screen edge. The 8 px
-  margin below the resting bar belongs to the windows underneath too.
+  left, the label has faded out and the icons are back at rest (about 160 ms at speed 1), it
+  shrinks back to the bar. While sliding in or out it covers the bar's column down to the screen
+  edge (plus room above the bar for a `"spring"` overshoot). The 8 px margin below the resting
+  bar belongs to the windows underneath too.
 - If the mouse reveals the dock at the edge far to its side, the dock hides again after the
   delay, and stays hidden until the mouse leaves the edge and comes back.
 
@@ -117,7 +124,7 @@ the primary monitor.
 
 - Left click: launches the app if it has no windows; otherwise activates, minimizes, or cycles
   through its windows. While an app is launching its icon bounces, until a new window shows up or
-  5 s pass.
+  5 s pass (`animation.launchStyle` can make it a single hop, an opacity pulse, or nothing).
 - Middle click: starts a new instance (and bounces until its window appears).
 - Right click: Pin to dock / Unpin from dock, New window (shows as Open when the app is not
   running), Open file location (for path-based items), Close for each window, then the dock menu.
@@ -296,19 +303,39 @@ Theme keys (colours are `#AARRGGBB` or `#RRGGBB`; defaults are the `dark` preset
 
 ### Animation
 
-The `animation` object is always written. Its values are read and validated now; they take
-effect with the animation work that follows (until then the dock animates as described above,
-which matches the defaults except `labelFadeMs`, whose label fade is not implemented yet).
+All animations run in DWM (DirectComposition); the dock only sets one-shot timers to notice when
+one has ended, so the settings below cost nothing while the dock is idle. They apply on "Reload
+config" (the next animation uses them).
 
-- `speed` (default 1): durations are divided by it, 0.25 - 4. 0 turns animations off.
-- `hideStyle`: `"slide"` (default; slide + fade), `"slideOnly"`, `"fade"` or `"none"`.
-- `launchStyle`: `"bounce"` (default; repeats until a window appears), `"hop"` (one bounce),
-  `"pulse"` (opacity) or `"none"`.
-- `magnifyFalloff`: `"cosine"` (default) or `"linear"`.
-- `easing`: `"easeOut"` (default, cubic), `"linear"` or `"spring"` (slight overshoot).
-- `labelFadeMs` (default 120, 0 - 1000): name label fade in / out; 0 = instant.
-- `reduceMotion`: `"system"` (default; follows Settings > Accessibility > Visual effects >
-  Animation effects), `"on"` or `"off"`.
+- `speed` (default 1; 0 or 0.25 - 4): every animation duration is divided by it: the return to
+  rest (120 ms), the auto-hide slide (180 ms), a launch bounce (300 ms up, 300 ms down), the name
+  label fade, the window-preview fade (120 ms), the fade of an icon dragged off the dock (150 ms)
+  and an icon landing after a drag (120 ms). The delays (`hideDelayMs`, `revealDelayMs`,
+  `previewDelayMs`, the 250 ms label delay) and the 80 ms magnification follow are not scaled.
+  0 turns animations off: everything snaps, the magnification follow included, and launching
+  shows no feedback.
+- `hideStyle`: how auto-hide hides and reveals the dock. `"slide"` (default): slides down and
+  fades out. `"slideOnly"`: slides at full opacity. `"fade"`: fades in place; the acrylic blur
+  cannot fade, so it goes away when a hide starts and comes back when a reveal has finished.
+  `"none"`: hides and reveals at once. Reversing mid-way (the mouse comes back) always continues
+  from where the dock is.
+- `launchStyle`: feedback while a launched app has not shown a window yet (up to 5 s).
+  `"bounce"` (default): bounces repeatedly, then finishes the current bounce. `"hop"`: one bounce;
+  the app still counts as launching (a second click does not start another copy). `"pulse"`: the
+  icon's opacity pulses (1 -> 0.45 -> 1 every 600 ms), then fades back. `"none"`: no feedback.
+- `magnifyFalloff`: `"cosine"` (default) or `"linear"` (scale falls off as 1 - distance / range).
+- `easing`: the curve of the settle animations (return to rest, landing, auto-hide slide, label
+  position). `"easeOut"` (default, cubic), `"linear"`, or `"spring"`: overshoots by 12 % (60 % of
+  the duration), then settles; the bar's edges, the icons and the acrylic blur all spring
+  together. The magnification follow while the mouse moves always eases out, and fades
+  (opacity) never overshoot (`"spring"` fades ease out).
+- `labelFadeMs` (default 120, 0 - 1000): the name label's fade in / out, divided by `speed`;
+  0 = instant.
+- `reduceMotion`: `"system"` (default) follows Settings > Accessibility > Visual effects >
+  Animation effects, live (no restart needed); `"on"` always reduces motion; `"off"` never does.
+  Reduced motion makes hide / reveal, the return to rest, landings, the label and the popup
+  instant and turns launch feedback off, but keeps the 80 ms magnification follow so the icons
+  still track the mouse smoothly. `WinDock.QueryState` 17 reports whether it is in effect.
 
 Unknown values fall back to the default.
 
@@ -327,15 +354,17 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   Returns 1 for a known command. 107 (settings window) is reserved and returns 0 for now.
 - `WinDock.QueryState`: `wParam` selects the value. 0 = auto-hide state (0 Shown, 1 Hiding,
   2 Hidden, 3 Showing). 1 = current `SHQueryUserNotificationState` value. 2 = hovered item index
-  (-1 for none). 3 = 1 if the name label is visible. 4 = 1 while magnified. 5 = number of pending
-  interaction timers and running slides (0 when idle). 6 = 1 while the acrylic backdrop is active.
+  (-1 for none). 3 = 1 if the name label is shown (0 as soon as it starts fading out). 4 = 1
+  while magnified. 5 = number of pending interaction timers (the label fade-out included) and
+  running slides (0 when idle). 6 = 1 while the acrylic backdrop is active.
   7 = drag state (0 none, 1 dragging an icon, 2 fading out an icon dragged off the dock, 3 files
   dragged over the dock). 8 = 1 while the dock window has the mouse capture. 9 = insertion index
   of the current drag (-1 for none). 10 = 1 if the OLE drop target is registered. 11 = 1 while
   the window-preview popup is visible. 12 = number of cards in the popup (0 when hidden).
   13 = the window handle shown by popup card `lParam` (0-based; 0 if there is none).
-  14 = auto-hide mode (0 off, 1 always, 2 intelligent). 20 = 1 if the theme preset failed to
-  resolve on the last load (the dock uses `dark`).
+  14 = auto-hide mode (0 off, 1 always, 2 intelligent). 17 = 1 while reduce-motion is in effect
+  (`animation.reduceMotion` `"on"`, or `"system"` with Windows' animation effects off). 20 = 1 if
+  the theme preset failed to resolve on the last load (the dock uses `dark`).
 - `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle, 801 new window,
   802 open file location, 900 close all windows), `lParam` = item index or a window handle of
   the item. Returns 1 if the item was found.

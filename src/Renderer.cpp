@@ -247,6 +247,19 @@ void Renderer::StopOffsetYAnimation(Layer& layer, float value) {
     if (layer.visual) layer.visual->SetOffsetY(value);  // replaces the animation
 }
 
+HRESULT Renderer::AnimateOpacity(Layer& layer, IDCompositionAnimation* animation) {
+    if (!layer.visual || !animation) return E_INVALIDARG;
+    winrt::com_ptr<IDCompositionVisual3> v3;
+    RETURN_IF_FAILED(layer.visual->QueryInterface(IID_PPV_ARGS(v3.put())));
+    return v3->SetOpacity(animation);
+}
+
+void Renderer::StopOpacityAnimation(Layer& layer, float value) {
+    if (!layer.visual) return;
+    winrt::com_ptr<IDCompositionVisual3> v3;
+    if (SUCCEEDED(layer.visual->QueryInterface(IID_PPV_ARGS(v3.put())))) v3->SetOpacity(value);  // replaces it
+}
+
 void Renderer::DestroyLayer(Layer& layer) {
     if (layer.visual) {
         if (layer.parent) {
