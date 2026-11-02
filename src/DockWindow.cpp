@@ -236,11 +236,11 @@ void DockWindow::ApplyConfig() {
     weatherFormat_ = nullptr;  // the clock's font size may have changed (date on / off)
     weatherLayout_ = nullptr;
     weatherQuiet_ = true;  // the relayout below measures and draws the widget
-    weather_.Configure(config_->weather, hwnd_);
+    weather_.Configure(config_->weather, WeatherShown(), hwnd_);
     weatherQuiet_ = false;
     UpdateAcrylic();
     Relayout();
-    if (config_->clock.show) {
+    if (ClockShown()) {
         clock_.ScheduleNextTick(hwnd_, kClockTimerId);
     } else {
         Clock::Stop(hwnd_, kClockTimerId);
@@ -256,22 +256,24 @@ HMONITOR DockWindow::PickMonitor() const {
     HMONITOR primary = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
     std::erase(monitors, primary);
     monitors.insert(monitors.begin(), primary);
-    const size_t index = config_ ? static_cast<size_t>(std::max(config_->monitor, 0)) : 0;
+    const size_t index = config_ ? static_cast<size_t>(std::max(config_->Main().monitor, 0)) : 0;
     return index < monitors.size() ? monitors[index] : primary;
 }
 
 void DockWindow::ComputeLayout() {
     const Config& c = *config_;
+    const DockConfig& d = c.Main();
+    const bool clockShown = ClockShown();
     Layout l;
     l.scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
     const float s = l.scale;
 
-    l.iconPx = std::round(static_cast<float>(c.iconSize) * s);
+    l.iconPx = std::round(static_cast<float>(d.iconSize) * s);
     l.padding = std::round(kPadding * s);
     // With acrylic, DWM rounds the blur with its own radius; the tint matches it.
     l.cornerRadius = std::round((acrylic_ ? acrylicRadiusDip_ : c.theme.cornerRadius) * s);
-    l.magnification = static_cast<float>(c.magnification);
-    l.bitmapPx = static_cast<UINT>(std::lround(static_cast<double>(c.iconSize) * c.magnification * s));
+    l.magnification = static_cast<float>(d.magnification);
+    l.bitmapPx = static_cast<UINT>(std::lround(static_cast<double>(d.iconSize) * d.magnification * s));
 
     // Icon effects. The reflection surface is drawn at the bitmap size and shown at rest scale
     // under each icon: the bar grows by its height. The glow reaches glowPad beyond the icon box.
@@ -296,13 +298,13 @@ void DockWindow::ComputeLayout() {
     }
 
     // Clock text block and weather widget (already laid out at this scale).
-    const float clockW = c.clock.show ? static_cast<float>(clockSize_.width) : 0.0f;
-    const float clockH = c.clock.show ? static_cast<float>(clockSize_.height) : 0.0f;
-    const bool weatherShown = c.weather.show && weatherSize_.width > 0;
+    const float clockW = clockShown ? static_cast<float>(clockSize_.width) : 0.0f;
+    const float clockH = clockShown ? static_cast<float>(clockSize_.height) : 0.0f;
+    const bool weatherShown = WeatherShown() && weatherSize_.width > 0;
     const float weatherW = weatherShown ? static_cast<float>(weatherSize_.width) : 0.0f;
     const float weatherH = weatherShown ? static_cast<float>(weatherSize_.height) : 0.0f;
-    const float widgetGap = weatherShown && c.clock.show ? std::round(kWidgetGap * s) : 0.0f;
-    const bool widgets = c.clock.show || weatherShown;
+    const float widgetGap = weatherShown && clockShown ? std::round(kWidgetGap * s) : 0.0f;
+    const bool widgets = clockShown || weatherShown;
 
     // Bar: lead + N slots (iconPx + gap each, icon centred; separator items: a narrow slot) +
     // separator + weather + gap + clock + padding.
@@ -327,7 +329,7 @@ void DockWindow::ComputeLayout() {
     // to at most magnifyRange over all items (and each term is at most 1), which bounds the growth.
     l.growMax = 0.0f;
     if (n && l.magnification > 1.001f) {
-        const float terms = static_cast<float>(std::min<size_t>(n, static_cast<size_t>(c.magnifyRange)));
+        const float terms = static_cast<float>(std::min<size_t>(n, static_cast<size_t>(d.magnifyRange)));
         l.growMax = std::ceil((l.magnification - 1.0f) * l.iconPx * terms) + 2.0f;
     }
     // A file dragged over the dock opens a one-slot gap: the bar grows by half a slot per side.
@@ -501,7 +503,7 @@ void DockWindow::LayoutPass() {
         const UINT before = dpi_;
         const float scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
         if (clock_.UpdateText()) clockDirty_ = true;
-        clockSize_ = config_->clock.show ? clock_.BuildLayout(renderer_.DWrite(), scale) : D2D1_SIZE_U{};
+        clockSize_ = ClockShown() ? clock_.BuildLayout(renderer_.DWrite(), scale) : D2D1_SIZE_U{};
         const D2D1_SIZE_U weatherSize = MeasureWeather(scale);
         if (weatherSize.width != weatherSize_.width || weatherSize.height != weatherSize_.height) weatherDirty_ = true;
         weatherSize_ = weatherSize;
@@ -662,7 +664,7 @@ HRESULT DockWindow::RenderBackground() {
 }
 
 HRESULT DockWindow::RenderClock() {
-    if (!config_->clock.show) {
+    if (!ClockShown()) {
         clockDirty_ = false;
         return renderer_.DrawLayer(clockLayer_, 0, 0, {});
     }
@@ -674,13 +676,13 @@ HRESULT DockWindow::RenderClock() {
 }
 
 D2D1_SIZE_U DockWindow::MeasureWeather(float scale) {
-    if (!config_->weather.show) {
+    if (!WeatherShown()) {
         weatherText_.clear();
         weatherLayout_ = nullptr;
         return D2D1_SIZE_U{};
     }
     // The temperature in the clock's time font; unconfigured: the "set location" glyph alone.
-    const bool date = config_->clock.show && config_->clock.showDate;
+    const bool date = ClockShown() && config_->clock.showDate;
     const float glyph = std::round((date ? kWeatherGlyph - 2.0f : kWeatherGlyph) * scale);
     std::wstring text;
     if (config_->weather.Configured()) {
@@ -726,12 +728,12 @@ D2D1_SIZE_U DockWindow::MeasureWeather(float scale) {
 
 HRESULT DockWindow::RenderWeather() {
     weatherDirty_ = false;
-    if (!config_->weather.show || weatherSize_.width == 0 || weatherSize_.height == 0) {
+    if (!WeatherShown() || weatherSize_.width == 0 || weatherSize_.height == 0) {
         return renderer_.DrawLayer(weatherLayer_, 0, 0, {});
     }
     const ThemeConfig& theme = config_->theme;
     const float h = static_cast<float>(weatherSize_.height);
-    const bool date = config_->clock.show && config_->clock.showDate;
+    const bool date = ClockShown() && config_->clock.showDate;
     const float glyph = std::round((date ? kWeatherGlyph - 2.0f : kWeatherGlyph) * layout_.scale);
     const WeatherService::Forecast& data = weather_.Data();
     const bool configured = config_->weather.Configured();
@@ -776,9 +778,9 @@ void DockWindow::OnWeatherChanged() {
 }
 
 void DockWindow::ApplyWeather() {
-    if (!config_->weather.show) DismissWeatherPopup(false, true);
+    if (!WeatherShown()) DismissWeatherPopup(false, true);
     weatherQuiet_ = true;
-    weather_.Configure(config_->weather, hwnd_);
+    weather_.Configure(config_->weather, WeatherShown(), hwnd_);
     weatherQuiet_ = false;
     OnWeatherChanged();  // redraw (relayout if the widget's size changed); once, whatever changed
 }
@@ -1212,7 +1214,7 @@ bool DockWindow::RecoverDevice() {
 }
 
 void DockWindow::OnClockTick() {
-    if (!config_->clock.show) return;
+    if (!ClockShown()) return;
     if (!clock_.UpdateText()) return;
     const float scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
     const D2D1_SIZE_U size = clock_.BuildLayout(renderer_.DWrite(), scale);
@@ -1240,7 +1242,7 @@ void DockWindow::ComputeTargets() {
     const float stride = l.iconPx + l.gap;  // an icon's slot
     const float half = std::floor(l.gap / 2.0f);
     const bool magnify = magnifying_ && l.magnification > 1.001f && n > 0;
-    const float range = static_cast<float>(config_->magnifyRange) * stride;
+    const float range = static_cast<float>(config_->Main().magnifyRange) * stride;
 
     for (DockItem& item : items_) {
         item.x = item.slotX + BoxInset(item);
@@ -1681,7 +1683,7 @@ void DockWindow::DriveLabelOpacity(float to, double duration) {
 // hiding dismiss it. All timers are one-shot; none runs once the popup is hidden.
 
 bool DockWindow::PreviewEligible(int index) const {
-    if (!config_->previews || index < 0 || index >= static_cast<int>(items_.size())) return false;
+    if (!config_->Main().previews || index < 0 || index >= static_cast<int>(items_.size())) return false;
     const DockItem& item = items_[static_cast<size_t>(index)];
     if (item.kind != DockItem::Kind::App || item.windows.size() < 2) return false;
     // Showing counts: the hover usually starts while the dock slides in (OnPreviewTimer requires
@@ -1713,7 +1715,7 @@ void DockWindow::UpdatePreviewHover() {
     }
     if (hovered_ >= 0 && !previewSuppressed_ && PreviewEligible(hovered_) && hwnd_) {
         SetTimer(hwnd_, kPreviewTimerId,
-                 std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->previewDelayMs)), nullptr);
+                 std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->Main().previewDelayMs)), nullptr);
         previewPending_ = true;
     }
 }
@@ -1925,7 +1927,7 @@ void DockWindow::RefreshFolderPopup() {
 
 bool DockWindow::HitWeather(POINT pt) const {
     const Layout& l = layout_;
-    if (!config_->weather.show || l.weather.right <= l.weather.left || !InZone(pt)) return false;
+    if (!WeatherShown() || l.weather.right <= l.weather.left || !InZone(pt)) return false;
     // The rest layout: with the cursor right of the icons the bar grows to the left only, so the
     // widget does not move under it. Half the gap to the clock on each side counts.
     const float slack = std::round(kWidgetGap * l.scale / 2.0f);
@@ -1935,7 +1937,7 @@ bool DockWindow::HitWeather(POINT pt) const {
 
 bool DockWindow::HitClock(POINT pt) const {
     const Layout& l = layout_;
-    if (!config_->clock.show || l.clock.right <= l.clock.left || !InZone(pt)) return false;
+    if (!ClockShown() || l.clock.right <= l.clock.left || !InZone(pt)) return false;
     const float slack = std::round(kWidgetGap * l.scale / 2.0f);
     const float x = static_cast<float>(pt.x);
     return x >= l.clock.left - slack && x < std::min(l.clock.right + slack, l.bar.right);
@@ -1969,7 +1971,7 @@ void DockWindow::ToggleWeatherPopup() {
 }
 
 void DockWindow::ShowWeatherPopup() {
-    if (!config_->weather.show || hideState_ == HideState::Hidden) return;
+    if (!WeatherShown() || hideState_ == HideState::Hidden) return;
     DismissPreview(false, false);
     DismissFolderPopup(false, false);
     DismissCalendarPopup(false, false);
@@ -2000,7 +2002,7 @@ void DockWindow::ToggleCalendarPopup() {
 }
 
 void DockWindow::ShowCalendarPopup() {
-    if (!config_->clock.show || hideState_ == HideState::Hidden) return;
+    if (!ClockShown() || hideState_ == HideState::Hidden) return;
     DismissPreview(false, false);
     DismissFolderPopup(false, false);
     DismissWeatherPopup(false, false);
@@ -2209,15 +2211,15 @@ void DockWindow::RefreshMotion() {
 // remaining distance. All waits are one-shot SetTimers.
 
 void DockWindow::ScheduleHide() {
-    if (!hwnd_ || !config_->AutoHideOn() || Held() || hidePending_) return;
+    if (!hwnd_ || !config_->Main().AutoHideOn() || Held() || hidePending_) return;
     // Intelligent: re-test now (cheap; this runs on a mouse leave, not while idle) rather than
     // trusting overlapped_, which may be stale after a suppressed show (see OnOverlapCheck).
-    if (config_->autoHide == AutoHideMode::Intelligent) {
+    if (config_->Main().autoHide == AutoHideMode::Intelligent) {
         overlapped_ = ForegroundOverlaps();
         if (!overlapped_) return;
     }
     if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) return;
-    SetTimer(hwnd_, kHideTimerId, std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->hideDelayMs)),
+    SetTimer(hwnd_, kHideTimerId, std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->Main().hideDelayMs)),
              nullptr);
     hidePending_ = true;
 }
@@ -2231,8 +2233,8 @@ void DockWindow::CancelHide() {
 void DockWindow::OnHideTimer() {
     KillTimer(hwnd_, kHideTimerId);
     hidePending_ = false;
-    if (!config_->AutoHideOn() || Held()) return;
-    if (config_->autoHide == AutoHideMode::Intelligent) {
+    if (!config_->Main().AutoHideOn() || Held()) return;
+    if (config_->Main().autoHide == AutoHideMode::Intelligent) {
         overlapped_ = ForegroundOverlaps();
         if (!overlapped_) return;
     }
@@ -2313,7 +2315,7 @@ void DockWindow::OnSlideTimer() {
 void DockWindow::OnRevealTimer() {
     KillTimer(hwnd_, kRevealTimerId);
     revealPending_ = false;
-    if (hideState_ != HideState::Hidden || !config_->AutoHideOn() || !CursorOnStrip()) return;
+    if (hideState_ != HideState::Hidden || !config_->Main().AutoHideOn() || !CursorOnStrip()) return;
     if (RevealSuppressed()) return;  // a fullscreen app / presentation: stay hidden
     StartShow();
 }
@@ -2356,7 +2358,7 @@ bool DockWindow::ForegroundOverlaps() const {
 }
 
 void DockWindow::OnOverlapCheck(bool force) {
-    if (!hwnd_ || config_->autoHide != AutoHideMode::Intelligent) return;
+    if (!hwnd_ || config_->Main().autoHide != AutoHideMode::Intelligent) return;
     const bool overlapped = ForegroundOverlaps();
     if (overlapped == overlapped_ && !force) return;
     const bool hidden = hideState_ == HideState::Hidden || hideState_ == HideState::Hiding;
@@ -2447,11 +2449,11 @@ void DockWindow::ArmMouseTracking() {
 
 void DockWindow::ApplyAutoHide() {
     if (!hwnd_) return;
-    if (config_->autoHide != AutoHideMode::Intelligent) {
+    if (config_->Main().autoHide != AutoHideMode::Intelligent) {
         watch_.Stop();  // off / always: no hooks at all
         overlapped_ = false;
     }
-    if (!config_->AutoHideOn()) {
+    if (!config_->Main().AutoHideOn()) {
         CancelHide();
         if (revealPending_) {
             KillTimer(hwnd_, kRevealTimerId);
@@ -2460,7 +2462,7 @@ void DockWindow::ApplyAutoHide() {
         if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) StartShow();
         return;
     }
-    if (config_->autoHide == AutoHideMode::Intelligent) {
+    if (config_->Main().autoHide == AutoHideMode::Intelligent) {
         watch_.Start(hwnd_, [this] { OnOverlapCheck(); });
         OnOverlapCheck(true);  // hide if overlapped now, show if hidden and not
         return;
@@ -2509,14 +2511,21 @@ void DockWindow::SetHold(bool hold) {
 void DockWindow::ResolvePins() {
     std::vector<AppIdentity::ResolvedPin> pins;
     std::unordered_map<std::wstring, AppIdentity::ResolvedPin> cache;
-    pins.reserve(config_->pinned.size());
+    const std::vector<DockItemEntry>& entries = config_->Main().items;
+    pins.reserve(entries.size());
     size_t separators = 0;
-    for (const PinnedEntry& e : config_->pinned) {
+    // Phase 1a: only the pin kinds (app / folder / separator / recycleBin) are taken from the item
+    // list, in order; they make up the pinned section. Where the `running`, `weather` and `clock`
+    // items stand in the list is recorded in the config but NOT honoured yet: the dock still
+    // draws pins, then the running apps, then the weather widget, then the clock (Phase 1b lays
+    // the items out in list order). A missing `running` item still shows the running apps.
+    for (const DockItemEntry& e : entries) {
+        const ItemKind kind = e.Kind();
+        if (!IsPinKind(kind)) continue;
         // Separators and the Recycle Bin resolve without any file access: not cached (a
         // separator's key depends on its position among the separators).
-        if (SpecialPinOf(e.kind) != SpecialPin::None) {
-            const bool separator = SpecialPinOf(e.kind) == SpecialPin::Separator;
-            pins.push_back(AppIdentity::ResolvePin(e, separator ? separators++ : 0));
+        if (kind == ItemKind::Separator || kind == ItemKind::RecycleBin) {
+            pins.push_back(AppIdentity::ResolvePin(e, kind == ItemKind::Separator ? separators++ : 0));
             continue;
         }
         // The icon and kind are part of the id: editing either re-resolves the entry.
@@ -2931,7 +2940,7 @@ size_t DockWindow::PinnedCount() const {
 }
 
 size_t DockWindow::ConfigIndexOfItem(size_t itemIndex) const {
-    const size_t end = config_->pinned.size();
+    const size_t end = config_->Main().PinCount();
     if (itemIndex >= items_.size() || !items_[itemIndex].pinned) return end;
     const AppKey& key = items_[itemIndex].key;
     for (size_t i = 0; i < pins_.size() && i < end; ++i) {
@@ -3512,7 +3521,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 13:
             return reinterpret_cast<LRESULT>(preview_.CardWindow(static_cast<size_t>(lp)));
         case 14:
-            return static_cast<LRESULT>(config_->autoHide);  // 0 off, 1 always, 2 intelligent
+            return static_cast<LRESULT>(config_->Main().autoHide);  // 0 off, 1 always, 2 intelligent
         case 15:
             return overlapped_ ? 1 : 0;
         case 17:
@@ -3621,9 +3630,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (hideState_ == HideState::Hidden) {
                 // On the reveal strip.
-                if (revealArmed_ && config_->AutoHideOn() && !revealPending_) {
+                if (revealArmed_ && config_->Main().AutoHideOn() && !revealPending_) {
                     SetTimer(hwnd_, kRevealTimerId,
-                             std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->revealDelayMs)), nullptr);
+                             std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->Main().revealDelayMs)), nullptr);
                     revealPending_ = true;
                 }
                 return 0;
@@ -3771,7 +3780,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 case kClockTimerId:
                     KillTimer(hwnd_, kClockTimerId);  // one-shot; rescheduled on the next boundary
                     OnClockTick();
-                    if (config_->clock.show) clock_.ScheduleNextTick(hwnd_, kClockTimerId);
+                    if (ClockShown()) clock_.ScheduleNextTick(hwnd_, kClockTimerId);
                     return 0;
                 case kBounceTimerId:
                     KillTimer(hwnd_, kBounceTimerId);  // one-shot; rescheduled while bounces run
@@ -3850,13 +3859,13 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_TIMECHANGE:
             OnClockTick();
-            if (config_->clock.show) clock_.ScheduleNextTick(hwnd_, kClockTimerId);
+            if (ClockShown()) clock_.ScheduleNextTick(hwnd_, kClockTimerId);
             return 0;
 
         case WM_POWERBROADCAST:
             if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND) {
                 OnClockTick();
-                if (config_->clock.show) clock_.ScheduleNextTick(hwnd_, kClockTimerId);
+                if (ClockShown()) clock_.ScheduleNextTick(hwnd_, kClockTimerId);
             }
             return TRUE;
 

@@ -82,7 +82,7 @@ public:
     // Applies the config (the window receives kResultMessage and the timer). Starts, stops or
     // restarts as needed: a new place or units drop the data, load the cache and fetch now; turning
     // the widget on fetches now; a new interval reschedules.
-    void Configure(const WeatherConfig& cfg, HWND hwnd);
+    void Configure(const WeatherConfig& cfg, bool shown, HWND hwnd);
     // Stops the timer and ignores a fetch in flight (keeps the data).
     void Stop();
     // Fetches now (unless one is in flight). No-op while off / unconfigured.
@@ -93,7 +93,7 @@ public:
     void SetChangedCallback(std::function<void()> cb) { changed_ = std::move(cb); }
 
     // Shown on the dock and has a location.
-    bool Active() const { return hwnd_ && cfg_.show && cfg_.Configured(); }
+    bool Active() const { return hwnd_ && shown_ && cfg_.Configured(); }
     Status State() const { return Active() ? status_ : Status::None; }
     const Forecast& Data() const { return data_; }
     const WeatherConfig& Settings() const { return cfg_; }
@@ -136,6 +136,7 @@ private:
 
     HWND hwnd_ = nullptr;
     WeatherConfig cfg_;
+    bool shown_ = false;  // the dock has a weather item
     bool configured_ = false;  // Configure ran once
     Forecast data_;
     Status status_ = Status::None;

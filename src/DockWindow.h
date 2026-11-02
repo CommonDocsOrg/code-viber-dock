@@ -99,7 +99,7 @@ public:
     // the message, with the LRESULT in `result`.
     using MessageHook = std::function<bool(HWND, UINT, WPARAM, LPARAM, LRESULT& result)>;
 
-    // Changes to config->pinned the dock asks for (the dock only reads the config; the owner
+    // Changes to the pins (config->Main().items) the dock asks for (the dock only reads the config; the owner
     // edits it, calls ReloadPins and saves).
     struct PinRequests {
         // New order of the pinned section as item keys. A key that is not pinned yet (a running
@@ -107,7 +107,7 @@ public:
         std::function<void(const std::vector<AppKey>& order)> reorder;
         // Remove every pin of this app (an icon dragged off the dock).
         std::function<void(const AppKey& key)> unpin;
-        // Pin .lnk / .exe files (dropped on the dock) before config->pinned[at] (at == size: append).
+        // Pin .lnk / .exe files (dropped on the dock) as pin `at` onwards (at == pin count: append).
         std::function<void(const std::vector<std::wstring>& paths, size_t at)> pinFiles;
     };
 
@@ -131,7 +131,7 @@ public:
     // Re-reads every setting from the config (sizes, theme, clock, monitor, auto-hide) and
     // redraws. Pins are separate: ReloadPins().
     void ApplyConfig();
-    // Applies config->autoHide: off shows the dock and keeps it shown; always hides it once the
+    // Applies config->Main().autoHide: off shows the dock and keeps it shown; always hides it once the
     // mouse is away; intelligent does too, but only while the foreground window overlaps the dock
     // (and shows it again when it no longer does). Only intelligent installs the WinEvent hooks.
     void ApplyAutoHide();
@@ -158,10 +158,10 @@ public:
     int IndexOfWindow(HWND hwnd) const;
     const std::vector<DockItem>& Items() const { return items_; }
 
-    // Re-resolves config->pinned (cached per entry) and rebuilds the item list. Call after
+    // Re-resolves the pins of config->Main() (cached per entry) and rebuilds the item list. Call after
     // changing the pinned list.
     void ReloadPins();
-    // Resolved pins, parallel to config->pinned.
+    // Resolved pins, parallel to the pin items of config->Main() (DockConfig::PinIndexes()).
     const std::vector<AppIdentity::ResolvedPin>& Pins() const { return pins_; }
 
     // Starts the item's app (newInstance: even if it already has windows) and bounces its icon
@@ -483,7 +483,7 @@ private:
     bool DragInRemoveZone(POINT stagePt) const;
     bool DragRemovable() const;
     size_t PinnedCount() const;
-    // The config->pinned index of the item at `itemIndex` (config->pinned.size() past the pins).
+    // The pin index (DockConfig::PinIndexes()) of the item at `itemIndex` (the pin count past the pins).
     size_t ConfigIndexOfItem(size_t itemIndex) const;
     void SetItemOpacity(DockItem& item, float to, double duration);
     // Keeps the HWND at stage size until an animation of `seconds` has ended.
@@ -541,6 +541,9 @@ private:
     HWND hwnd_ = nullptr;
     HINSTANCE instance_ = nullptr;
     const Config* config_ = nullptr;
+    // The widgets are shown when the dock's item list has them (config->Main().items).
+    bool ClockShown() const { return config_->Main().Has(ItemKind::Clock); }
+    bool WeatherShown() const { return config_->Main().Has(ItemKind::Weather); }
     MessageHook hook_;
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
     Motion motion_;
@@ -588,7 +591,7 @@ private:
     IconCache icons_;
     std::vector<DockItem> items_;
     bool evictPending_ = false;
-    std::vector<AppIdentity::ResolvedPin> pins_;                       // parallel to config_->pinned
+    std::vector<AppIdentity::ResolvedPin> pins_;                       // parallel to the pin items
     // Keyed by kind + icon + "p:"+path / "a:"+aumid (the special kinds are not cached).
     std::unordered_map<std::wstring, AppIdentity::ResolvedPin> pinCache_;
 

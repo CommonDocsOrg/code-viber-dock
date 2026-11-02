@@ -83,8 +83,10 @@ bool App::Initialize(HINSTANCE instance) {
         // First run: no config file yet. Seed the default pins and write the file.
         SeedDefaultPins();
         config_.Save();
+    } else if (config_.migrated) {
+        config_.Save();  // a legacy file (pinned[], top-level dock keys): rewrite it as docks[] once
     }
-    if (config_.AutoHideOn()) lastOnMode_ = config_.autoHide;
+    if (config_.Main().AutoHideOn()) lastOnMode_ = config_.Main().autoHide;
 
     // Crash recovery first, before anything else can fail: if a previous run died with the
     // taskbar hidden, put it back using the state saved in the marker.
@@ -125,15 +127,15 @@ bool App::Initialize(HINSTANCE instance) {
 void App::SeedDefaultPins() {
     wchar_t windir[MAX_PATH]{};
     const UINT n = GetWindowsDirectoryW(windir, MAX_PATH);
-    PinnedEntry explorer;
+    DockItemEntry explorer;
     explorer.path = (n > 0 && n < MAX_PATH ? std::wstring(windir) : std::wstring(L"C:\\Windows")) + L"\\explorer.exe";
-    config_.pinned.push_back(std::move(explorer));
+    config_.Main().InsertPin(SIZE_MAX, std::move(explorer));  // before the default running / clock items
 
     static constexpr wchar_t kTerminal[] = L"Microsoft.WindowsTerminal_8wekyb3d8bbwe!App";
     if (AppIdentity::AumidInstalled(kTerminal)) {
-        PinnedEntry terminal;
+        DockItemEntry terminal;
         terminal.aumid = kTerminal;
-        config_.pinned.push_back(std::move(terminal));
+        config_.Main().InsertPin(SIZE_MAX, std::move(terminal));
     }
 }
 
@@ -170,15 +172,16 @@ void App::TogglePin(const AppKey& key) {
     if (item.pinned) {
         // Unpin: drop every config entry that resolves to this app. The item stays while the
         // app has windows (as a running item) and disappears when they close.
-        const auto& pins = dock_.Pins();
-        for (size_t i = std::min(pins.size(), config_.pinned.size()); i-- > 0;) {
-            if (pins[i].key == key) config_.pinned.erase(config_.pinned.begin() + static_cast<ptrdiff_t>(i));
+        const auto& pins = dock_.Pins();  // parallel to the pin items of Main()
+        DockConfig& dock = config_.Main();
+        for (size_t i = std::min(pins.size(), dock.PinCount()); i-- > 0;) {
+            if (pins[i].key == key) dock.ErasePin(i);
         }
     } else {
         // Pinning appends to the end of the pinned list; the item moves to that slot.
-        std::optional<PinnedEntry> e = EntryForItem(item);
+        std::optional<DockItemEntry> e = EntryForItem(item);
         if (!e) return;  // nothing we could launch
-        config_.pinned.push_back(std::move(*e));
+        config_.Main().InsertPin(SIZE_MAX, std::move(*e));
     }
     dock_.ReloadPins();
     RequestSave();
@@ -186,13 +189,16 @@ void App::TogglePin(const AppKey& key) {
 }
 
 bool App::SetPinIcon(const AppKey& key, const std::wstring& icon) {
-    const auto& pins = dock_.Pins();  // parallel to config_.pinned
+    const auto& pins = dock_.Pins();  // parallel to the pin items of Main()
+    DockConfig& dock = config_.Main();
+    const std::vector<size_t> idx = dock.PinIndexes();
     bool found = false, changed = false;
-    for (size_t i = 0; i < pins.size() && i < config_.pinned.size(); ++i) {
+    for (size_t i = 0; i < pins.size() && i < idx.size(); ++i) {
         if (pins[i].key != key || pins[i].kind == AppIdentity::PinKind::Separator) continue;
         found = true;
-        if (config_.pinned[i].icon == icon) continue;
-        config_.pinned[i].icon = icon;  // stored as given (relative / %VAR% paths stay as written)
+        DockItemEntry& e = dock.items[idx[i]];
+        if (e.icon == icon) continue;
+        e.icon = icon;  // stored as given (relative / %VAR% paths stay as written)
         changed = true;
     }
     if (!changed) return found;
@@ -232,9 +238,10 @@ void App::ChooseItemIcon(UINT cmd, const AppKey& key) {
     if (ok && !shutDown_) SetPinIcon(key, spec);
 }
 
-std::optional<PinnedEntry> App::EntryForItem(const DockItem& item) {
+std::optional<DockItemEntry> App::EntryForItem(const DockItem& item) {
     if (item.key.IsClassFallback()) return std::nullopt;
-    PinnedEntry e;
+    DockItemEntry e;
+    if (item.kind == DockItem::Kind::Folder) e.kind = ToString(ItemKind::Folder);
     if (item.launchPath && !item.launchPath->empty()) {
         e.path = *item.launchPath;
     } else if (item.key.isAumid) {
@@ -246,16 +253,17 @@ std::optional<PinnedEntry> App::EntryForItem(const DockItem& item) {
 }
 
 void App::ApplyPinOrder(const std::vector<AppKey>& order) {
-    const auto& pins = dock_.Pins();  // parallel to config_.pinned
-    std::vector<bool> used(config_.pinned.size(), false);
-    std::vector<PinnedEntry> next;
-    next.reserve(config_.pinned.size() + 1);
+    const auto& pins = dock_.Pins();  // parallel to the pin items of Main()
+    const std::vector<DockItemEntry> current = config_.Main().Pins();
+    std::vector<bool> used(current.size(), false);
+    std::vector<DockItemEntry> next;
+    next.reserve(current.size() + 1);
     for (const AppKey& key : order) {
         bool found = false;
         // Every entry resolving to this app moves along (duplicates stay together).
-        for (size_t i = 0; i < config_.pinned.size() && i < pins.size(); ++i) {
+        for (size_t i = 0; i < current.size() && i < pins.size(); ++i) {
             if (!used[i] && pins[i].key == key) {
-                next.push_back(config_.pinned[i]);
+                next.push_back(current[i]);
                 used[i] = true;
                 found = true;
             }
@@ -263,14 +271,14 @@ void App::ApplyPinOrder(const std::vector<AppKey>& order) {
         if (found) continue;
         const int index = IndexOfKey(key);  // a running item dragged into the pinned section
         if (index < 0) continue;
-        if (std::optional<PinnedEntry> e = EntryForItem(dock_.Items()[static_cast<size_t>(index)])) {
+        if (std::optional<DockItemEntry> e = EntryForItem(dock_.Items()[static_cast<size_t>(index)])) {
             next.push_back(std::move(*e));
         }
     }
-    for (size_t i = 0; i < config_.pinned.size(); ++i) {
-        if (!used[i]) next.push_back(config_.pinned[i]);  // not in `order`: keep, after the others
+    for (size_t i = 0; i < current.size(); ++i) {
+        if (!used[i]) next.push_back(current[i]);  // not in `order`: keep, after the others
     }
-    config_.pinned = std::move(next);
+    config_.Main().SetPins(std::move(next));
     dock_.ReloadPins();
     RequestSave();
     RefreshSettings();
@@ -280,17 +288,19 @@ void App::PinFiles(const std::vector<std::wstring>& paths, size_t at) {
     // Already pinned apps (by key) are skipped, also among the dropped files themselves.
     std::vector<AppKey> keys;
     for (const auto& existing : dock_.Pins()) keys.push_back(existing.key);
-    at = std::min(at, config_.pinned.size());
+    DockConfig& dock = config_.Main();
+    at = std::min(at, dock.PinCount());
     bool changed = false;
     for (const std::wstring& path : paths) {
-        PinnedEntry entry;
+        DockItemEntry entry;
         entry.path = path;
         const AppIdentity::ResolvedPin pin = AppIdentity::ResolvePin(entry);
         if (std::find(keys.begin(), keys.end(), pin.key) != keys.end()) continue;
         keys.push_back(pin.key);
-        PinnedEntry e;
+        DockItemEntry e;
         e.path = pin.launchPath.empty() ? path : pin.launchPath;
-        config_.pinned.insert(config_.pinned.begin() + static_cast<ptrdiff_t>(at++), std::move(e));
+        if (pin.kind == AppIdentity::PinKind::Folder) e.kind = ToString(ItemKind::Folder);
+        dock.InsertPin(at++, std::move(e));
         changed = true;
     }
     if (!changed) return;
@@ -419,10 +429,10 @@ void App::RemoveTrayIcon() {
 
 ContextMenu::TrayMenuState App::MenuState() const {
     ContextMenu::TrayMenuState state;
-    state.autoHide = config_.autoHide;
+    state.autoHide = config_.Main().autoHide;
     state.hideTaskbar = taskbar_.Enabled();
     state.startWithWindows = AutostartEnabled();
-    state.weatherShown = config_.weather.show;
+    state.weatherShown = config_.Main().Has(ItemKind::Weather);
     state.weatherConfigured = config_.weather.Configured();
     return state;
 }
@@ -457,8 +467,10 @@ void App::ShowItemMenu(int index, POINT pt) {
     if (item.pinned) {
         // Reset icon follows the config entry, so an `icon` whose file is gone can be cleared too.
         const auto& pins = dock_.Pins();
-        for (size_t i = 0; i < pins.size() && i < config_.pinned.size(); ++i) {
-            if (pins[i].key == key && !config_.pinned[i].icon.empty()) itemState.hasIcon = true;
+        const DockConfig& dock = config_.Main();
+        const std::vector<size_t> idx = dock.PinIndexes();
+        for (size_t i = 0; i < pins.size() && i < idx.size(); ++i) {
+            if (pins[i].key == key && !dock.items[idx[i]].icon.empty()) itemState.hasIcon = true;
         }
     }
     itemState.canPin = !key.IsClassFallback();
@@ -485,7 +497,7 @@ void App::ShowItemMenu(int index, POINT pt) {
 void App::OnCommand(UINT cmd) {
     switch (cmd) {
         case ContextMenu::kAutoHide:
-            SetAutoHide(config_.AutoHideOn() ? AutoHideMode::Off : lastOnMode_);
+            SetAutoHide(config_.Main().AutoHideOn() ? AutoHideMode::Off : lastOnMode_);
             RefreshSettings();
             break;
         case ContextMenu::kAutoHideOff:
@@ -535,9 +547,9 @@ void App::OnCommand(UINT cmd) {
             dock_.ToggleWeatherPopup();
             break;
         case ContextMenu::kAddSeparator: {
-            PinnedEntry separator;
-            separator.kind = L"separator";
-            config_.pinned.push_back(std::move(separator));
+            DockItemEntry separator;
+            separator.kind = ToString(ItemKind::Separator);
+            config_.Main().InsertPin(SIZE_MAX, std::move(separator));  // after the last pin
             dock_.ReloadPins();
             RequestSave();
             RefreshSettings();
@@ -565,7 +577,7 @@ void App::OnCommand(UINT cmd) {
 
 void App::SetAutoHide(AutoHideMode mode) {
     if (mode != AutoHideMode::Off) lastOnMode_ = mode;
-    config_.autoHide = mode;
+    config_.Main().autoHide = mode;
     dock_.ApplyAutoHide();
     RequestSave();
 }
@@ -589,7 +601,8 @@ void App::ReloadConfig() {
     }
     fresh.renderer = config_.renderer;  // the device type is chosen at startup only
     config_ = std::move(fresh);
-    if (config_.AutoHideOn()) lastOnMode_ = config_.autoHide;
+    if (config_.migrated) RequestSave();  // a legacy file was loaded: rewrite it as docks[]
+    if (config_.Main().AutoHideOn()) lastOnMode_ = config_.Main().autoHide;
     // Unknown preset or broken theme file: the dock uses dark (the config itself still applies).
     if (config_.themeResolveFailed) MessageBeep(MB_ICONWARNING);
     dock_.ApplyConfig();
@@ -614,7 +627,7 @@ void App::OpenSettings(int page) {
     host.config = &config_;
     host.changed = [this](SettingsScope scope) { OnSettingsChanged(scope); };
     host.pins = [this]() -> const std::vector<AppIdentity::ResolvedPin>& { return dock_.Pins(); };
-    host.pinFiles = [this](const std::vector<std::wstring>& paths) { PinFiles(paths, config_.pinned.size()); };
+    host.pinFiles = [this](const std::vector<std::wstring>& paths) { PinFiles(paths, SIZE_MAX); };
     host.command = [this](UINT cmd) { OnCommand(cmd); };
     host.usingWarp = [this] { return dock_.UsingWarp(); };
     host.dockMonitor = [this] { return dock_.MonitorRect(); };
@@ -652,7 +665,7 @@ void App::OnSettingsChanged(SettingsScope scope) {
             dock_.ApplyConfig();
             break;
         case SettingsScope::AutoHide:
-            SetAutoHide(config_.autoHide);  // keeps lastOnMode_ in step; saves
+            SetAutoHide(config_.Main().autoHide);  // keeps lastOnMode_ in step; saves
             return;
         case SettingsScope::Pins:
             dock_.ReloadPins();

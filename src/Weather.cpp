@@ -300,13 +300,14 @@ std::wstring WeatherService::ForecastPath() const {
     return p;
 }
 
-void WeatherService::Configure(const WeatherConfig& cfg, HWND hwnd) {
+void WeatherService::Configure(const WeatherConfig& cfg, bool shown, HWND hwnd) {
     const bool place = !configured_ || hwnd != hwnd_ || cfg.latitude != cfg_.latitude ||
                        cfg.longitude != cfg_.longitude || cfg.units != cfg_.units;
     const bool interval = cfg.refreshMinutes != cfg_.refreshMinutes;
     const bool wasActive = Active();
     hwnd_ = hwnd;
     cfg_ = cfg;
+    shown_ = shown;
     configured_ = true;
     if (!Active()) {
         Stop();
@@ -486,7 +487,7 @@ std::wstring WeatherService::FormatTime(int64_t unixSeconds) {
 
 std::wstring WeatherService::StatusText() const {
     if (!cfg_.Configured()) return L"Not configured";
-    if (!cfg_.show) return L"Not shown on the dock";
+    if (!shown_) return L"Not shown on the dock";
     std::wstring s;
     if (data_.valid) {
         s = L"Updated " + FormatTime(data_.fetchedAt);

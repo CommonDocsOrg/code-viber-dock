@@ -79,18 +79,19 @@ private:
     // for the pin `key`, then SetPinIcon.
     void ChooseItemIcon(UINT cmd, const AppKey& key);
     // The config entry that pins this item (nullopt: nothing launchable to pin).
-    static std::optional<PinnedEntry> EntryForItem(const DockItem& item);
-    // Reorders config_.pinned to the given key order (drag to reorder); a key that is not pinned
+    static std::optional<DockItemEntry> EntryForItem(const DockItem& item);
+    // Reorders the pins of config_.Main() to the given key order (drag to reorder); a key that is not pinned
     // yet (a running item dragged into the pinned section) is pinned at its position.
     void ApplyPinOrder(const std::vector<AppKey>& order);
-    // Inserts .lnk / .exe files before config_.pinned[at], skipping apps that are already pinned.
+    // Inserts .lnk / .exe files (and folders) so the first becomes pin `at` of config_.Main() (past the
+    // last pin: after it), skipping apps that are already pinned.
     void PinFiles(const std::vector<std::wstring>& paths, size_t at);
     void SeedDefaultPins();
     int IndexOfKey(const AppKey& key) const;
     void RequestSave();
     void FlushSave();
     void OnCommand(UINT cmd);
-    // Sets config_.autoHide, applies it to the dock and saves; remembers on-modes for kAutoHide.
+    // Sets config_.Main().autoHide, applies it to the dock and saves; remembers on-modes for kAutoHide.
     void SetAutoHide(AutoHideMode mode);
     ContextMenu::TrayMenuState MenuState() const;
     // Runs a modal menu with the dock held shown (no auto-hide while it is open).

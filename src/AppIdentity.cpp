@@ -498,21 +498,21 @@ void ApplyCustomIcon(const std::wstring& spec, ResolvedPin& pin) {
 
 }  // namespace
 
-ResolvedPin ResolvePin(const PinnedEntry& entry, size_t ordinal) {
+ResolvedPin ResolvePin(const DockItemEntry& entry, size_t ordinal) {
     ResolvedPin pin;
-    switch (SpecialPinOf(entry.kind)) {
-        case SpecialPin::Separator:
+    switch (entry.Kind()) {
+        case ItemKind::Separator:
             pin.kind = PinKind::Separator;
             pin.key = SyntheticKey(L"kind:separator#" + std::to_wstring(ordinal));
             pin.displayName = L"Separator";
             return pin;
-        case SpecialPin::RecycleBin:
+        case ItemKind::RecycleBin:
             pin.kind = PinKind::RecycleBin;
             pin.key = SyntheticKey(L"kind:recyclebin");
             pin.displayName = L"Recycle Bin";
             ApplyCustomIcon(entry.icon, pin);
             return pin;
-        case SpecialPin::None:
+        default:  // app, folder (detected from the path below)
             break;
     }
 

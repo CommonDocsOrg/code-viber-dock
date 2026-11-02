@@ -6,27 +6,82 @@
 #include <utility>
 #include <vector>
 
-// A pinned dock entry. Exactly one of path / aumid is normally set; the special kinds
-// ("separator", "recycleBin") set neither.
-struct PinnedEntry {
-    std::wstring path;   // .lnk, .exe or a folder (folders are detected from the path, no `kind`)
+// docks[].items[].kind values this version knows (case-insensitive); Unknown for anything else.
+enum class ItemKind { Unknown, App, Folder, Separator, RecycleBin, Running, Clock, Weather };
+ItemKind ItemKindOf(std::wstring_view kind);
+const wchar_t* ToString(ItemKind v);  // the canonical JSON name ("" for Unknown)
+// The kinds that are "pins" (the pinned section of the dock): app, folder, separator, recycleBin.
+inline bool IsPinKind(ItemKind k) {
+    return k == ItemKind::App || k == ItemKind::Folder || k == ItemKind::Separator || k == ItemKind::RecycleBin;
+}
+
+// One element of a dock, in dock order. App / folder entries set path (or aumid); the other
+// kinds set neither.
+struct DockItemEntry {
+    // "app", "folder", "separator", "recycleBin", "running" (the unpinned running apps), "clock",
+    // "weather". Kept verbatim, so a kind this version does not know survives a save (such an
+    // item is not shown).
+    std::wstring kind = L"app";
+    std::wstring path;   // .lnk, .exe or a folder (a folder is also detected from a .lnk's target)
     std::wstring aumid;  // AppUserModelID for packaged apps
     // Custom icon: an image (.png .jpg .jpeg .bmp .gif), an .ico, or "file.exe,3" / "file.dll,-120"
     // (icon index, negative = resource id). Environment variables are expanded. Empty: the
     // default icon; a file that does not exist also keeps the default (the entry is kept as is).
     std::wstring icon;
-    // "" (an app or folder, from the path), "separator" or "recycleBin" (case-insensitive). Kept
-    // verbatim, so a kind this version does not know survives a save.
-    std::wstring kind;
+
+    ItemKind Kind() const { return ItemKindOf(kind); }
+    bool IsPin() const { return IsPinKind(Kind()); }
 };
 
-// pinned[].kind values with a meaning of their own (case-insensitive); None for "" and for
-// text this version does not know.
-enum class SpecialPin { None, Separator, RecycleBin };
-SpecialPin SpecialPinOf(std::wstring_view kind);
+// "off": always shown. "always": hides when the mouse leaves. "intelligent": hides only while
+// the foreground window overlaps the dock.
+enum class AutoHideMode { Off, Always, Intelligent };
+
+// One dock: its contents and the settings that are per dock. Config::docks always holds at least
+// one (docks[0], Config::Main()).
+struct DockConfig {
+    std::wstring id = L"main";
+    // Defaults (first run, a malformed file, a dock object without "items"): the running apps and
+    // the clock. The first run also seeds pins in front of them.
+    std::vector<DockItemEntry> items = {DockItemEntry{L"running"}, DockItemEntry{L"clock"}};
+    std::wstring edge = L"bottom";  // read and written; only "bottom" is implemented (Phase 2)
+    bool locked = false;            // read and written; not used yet (Phase 1c)
+    int iconSize = 48;
+    double magnification = 1.5;  // hovered icon scale; 1.0 disables magnification (1.0 - 2.5)
+    int magnifyRange = 2;        // falloff radius in icon slots (1 - 4)
+    AutoHideMode autoHide = AutoHideMode::Always;
+    int hideDelayMs = 400;
+    int revealDelayMs = 150;
+    // Hover popup with live window thumbnails for apps with two or more windows.
+    bool previews = true;
+    int previewDelayMs = 600;
+    int monitor = 0;
+
+    bool AutoHideOn() const { return autoHide != AutoHideMode::Off; }
+    // An item of this kind is in `items` (the clock / weather widget is shown).
+    bool Has(ItemKind kind) const;
+    // Adds an item of `kind` at the end when there is none (on), or removes every item of that
+    // kind (off). Returns true if `items` changed.
+    bool Show(ItemKind kind, bool on);
+
+    // The pins (IsPin() items) in order, and their indexes into `items`. A "pin index" k below
+    // is the position among the pins, which is what the dock's pinned section and its resolved
+    // pins (DockWindow::Pins()) are parallel to.
+    std::vector<size_t> PinIndexes() const;
+    size_t PinCount() const;
+    std::vector<DockItemEntry> Pins() const;
+    DockItemEntry& PinAt(size_t k);  // k < PinCount()
+    // Inserts `e` so it becomes pin k (k >= PinCount(): after the last pin; without any pin,
+    // before the first `running` item, else at the end).
+    void InsertPin(size_t k, DockItemEntry e);
+    void ErasePin(size_t k);
+    // Replaces the pins with `pins`: pin slots are refilled in order, missing ones are removed,
+    // extra pins go after the last pin (as InsertPin does). The other items keep their places.
+    void SetPins(std::vector<DockItemEntry> pins);
+};
 
 struct ClockConfig {
-    bool show = true;
+    // Shown when the dock has a "clock" item (DockConfig::Has(ItemKind::Clock)).
     std::wstring format = L"%H:%M";
     bool showDate = false;
     bool calendarPopup = true;  // a click on the clock opens the month calendar
@@ -37,8 +92,8 @@ enum class Units { Metric, Imperial };
 
 // The weather widget (Open-Meteo, no API key). Unconfigured (latitude and longitude both 0) it
 // shows a "set location" glyph instead of the conditions.
+// Shown when the dock has a "weather" item (DockConfig::Has(ItemKind::Weather)).
 struct WeatherConfig {
-    bool show = false;
     double latitude = 0.0;   // -90 - 90
     double longitude = 0.0;  // -180 - 180
     std::wstring location;   // display name (header of the popup); not used to look anything up
@@ -49,9 +104,6 @@ struct WeatherConfig {
 // The user's locale measurement system (LOCALE_IMEASURE: 1 = U.S.) as Units.
 Units LocaleUnits();
 
-// "off": always shown. "always": hides when the mouse leaves. "intelligent": hides only while
-// the foreground window overlaps the dock.
-enum class AutoHideMode { Off, Always, Intelligent };
 // How the dock hides: "slide" (slide + fade), "slideOnly", "fade", "none" (instant).
 enum class HideStyle { Slide, SlideOnly, Fade, None };
 // Feedback while an app launches: "bounce" (repeating), "hop" (one bounce), "pulse" (opacity), "none".
@@ -146,17 +198,8 @@ inline GlowMode GlowOf(const ThemeConfig& t) {
 }
 
 struct Config {
-    std::vector<PinnedEntry> pinned;
-    int iconSize = 48;
-    double magnification = 1.5;  // hovered icon scale; 1.0 disables magnification (1.0 - 2.5)
-    int magnifyRange = 2;        // falloff radius in icon slots (1 - 4)
-    AutoHideMode autoHide = AutoHideMode::Always;
-    int hideDelayMs = 400;
-    int revealDelayMs = 150;
-    // Hover popup with live window thumbnails for apps with two or more windows.
-    bool previews = true;
-    int previewDelayMs = 600;
-    int monitor = 0;
+    // At least one dock after LoadFile / Sanitize. Only docks[0] is shown (multiple docks: Phase 3).
+    std::vector<DockConfig> docks = std::vector<DockConfig>(1);
     bool hideTaskbar = true;
     bool startWithWindows = false;
     // "auto": hardware D3D11 device, WARP if that fails. "software": WARP only, which avoids the
@@ -173,11 +216,15 @@ struct Config {
     bool themeResolveFailed = false;  // the last ResolveTheme() fell back to dark (not saved)
     AnimationConfig animation;
     // Top-level keys this version does not know, kept verbatim (compact JSON) so a save does not
-    // drop them. Unknown keys inside known objects (pinned entries, clock, theme, animation, weather) are
-    // not kept.
+    // drop them. Unknown keys inside known objects (docks, items, clock, theme, animation, weather)
+    // are not kept, nor are the legacy pre-`docks` keys.
     std::vector<std::pair<std::wstring, std::wstring>> extraFields;
+    // The last LoadFile() built `docks` from the legacy keys (pinned, iconSize, clock.show ...):
+    // the caller saves, so the file is rewritten in the current format. Not saved.
+    bool migrated = false;
 
-    bool AutoHideOn() const { return autoHide != AutoHideMode::Off; }
+    DockConfig& Main() { return docks.front(); }
+    const DockConfig& Main() const { return docks.front(); }
 
     // Re-bases `theme` on `themePreset` for every field whose override bit is clear. Returns
     // false (and uses dark for those fields, keeping `themePreset` so the user can fix it) when

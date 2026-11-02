@@ -41,7 +41,39 @@ const wchar_t* const kFalloffNames[] = {L"cosine", L"linear"};
 const wchar_t* const kEasingNames[] = {L"easeOut", L"linear", L"spring"};
 const wchar_t* const kReduceMotionNames[] = {L"system", L"on", L"off"};
 const wchar_t* const kUnitsNames[] = {L"metric", L"imperial"};
-const wchar_t* const kSpecialPinNames[] = {L"", L"separator", L"recycleBin"};
+const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
+                                         L"recycleBin", L"running", L"clock", L"weather"};
+
+// The keys of a dock object; before `docks` existed (legacy files) they were top-level keys.
+void ReadDockFields(const json::JsonObject& o, DockConfig& d) {
+    ReadInt(o, L"iconSize", d.iconSize);
+    ReadNumber(o, L"magnification", d.magnification);
+    ReadInt(o, L"magnifyRange", d.magnifyRange);
+    // Older versions wrote a bool (true = "always").
+    if (auto a = Find(o, L"autoHide")) {
+        if (a.ValueType() == json::JsonValueType::Boolean) {
+            d.autoHide = a.GetBoolean() ? AutoHideMode::Always : AutoHideMode::Off;
+        } else if (a.ValueType() == json::JsonValueType::String) {
+            if (!FromString(std::wstring(a.GetString()), d.autoHide)) d.autoHide = AutoHideMode::Always;
+        }
+    }
+    ReadInt(o, L"hideDelayMs", d.hideDelayMs);
+    ReadInt(o, L"revealDelayMs", d.revealDelayMs);
+    ReadBool(o, L"previews", d.previews);
+    ReadInt(o, L"previewDelayMs", d.previewDelayMs);
+    ReadInt(o, L"monitor", d.monitor);
+}
+
+// The path names a directory (environment variables expanded). A .lnk to a folder is not one:
+// it stays an "app" item (the resolver still shows it as a folder).
+bool IsDirectoryPath(const std::wstring& path) {
+    if (path.empty()) return false;
+    wchar_t buf[MAX_PATH * 2];
+    const DWORD n = ExpandEnvironmentStringsW(path.c_str(), buf, static_cast<DWORD>(std::size(buf)));
+    const std::wstring expanded = n > 0 && n <= std::size(buf) ? std::wstring(buf) : path;
+    const DWORD attr = GetFileAttributesW(expanded.c_str());
+    return attr != INVALID_FILE_ATTRIBUTES && (attr & FILE_ATTRIBUTE_DIRECTORY);
+}
 
 // Latitude / longitude: 4 decimals (~11 m), no exponent, trailing zeros dropped.
 std::wstring Coord(double v) {
@@ -88,10 +120,83 @@ Units LocaleUnits() {
     return Units::Metric;
 }
 
-SpecialPin SpecialPinOf(std::wstring_view kind) {
-    SpecialPin v = SpecialPin::None;
-    EnumFromString(kind, v, kSpecialPinNames);  // unknown text: None
+ItemKind ItemKindOf(std::wstring_view kind) {
+    ItemKind v = ItemKind::Unknown;
+    if (!kind.empty()) EnumFromString(kind, v, kItemKindNames);  // unknown text: Unknown
     return v;
+}
+
+const wchar_t* ToString(ItemKind v) { return EnumToString(v, kItemKindNames); }
+
+bool DockConfig::Has(ItemKind kind) const {
+    return std::any_of(items.begin(), items.end(), [&](const DockItemEntry& e) { return e.Kind() == kind; });
+}
+
+bool DockConfig::Show(ItemKind kind, bool on) {
+    if (!on) return std::erase_if(items, [&](const DockItemEntry& e) { return e.Kind() == kind; }) > 0;
+    if (Has(kind)) return false;
+    DockItemEntry e;
+    e.kind = ToString(kind);
+    // The weather widget goes before an existing clock (where the dock has always drawn it).
+    auto at = items.end();
+    if (kind == ItemKind::Weather) {
+        at = std::find_if(items.begin(), items.end(), [](const DockItemEntry& i) { return i.Kind() == ItemKind::Clock; });
+    }
+    items.insert(at, std::move(e));
+    return true;
+}
+
+std::vector<size_t> DockConfig::PinIndexes() const {
+    std::vector<size_t> idx;
+    for (size_t i = 0; i < items.size(); ++i) {
+        if (items[i].IsPin()) idx.push_back(i);
+    }
+    return idx;
+}
+
+size_t DockConfig::PinCount() const {
+    return static_cast<size_t>(std::count_if(items.begin(), items.end(), [](const DockItemEntry& e) { return e.IsPin(); }));
+}
+
+std::vector<DockItemEntry> DockConfig::Pins() const {
+    std::vector<DockItemEntry> pins;
+    for (const DockItemEntry& e : items) {
+        if (e.IsPin()) pins.push_back(e);
+    }
+    return pins;
+}
+
+DockItemEntry& DockConfig::PinAt(size_t k) { return items[PinIndexes().at(k)]; }
+
+void DockConfig::InsertPin(size_t k, DockItemEntry e) {
+    const std::vector<size_t> idx = PinIndexes();
+    size_t pos = items.size();
+    if (k < idx.size()) {
+        pos = idx[k];
+    } else if (!idx.empty()) {
+        pos = idx.back() + 1;
+    } else {
+        for (size_t i = 0; i < items.size(); ++i) {
+            if (items[i].Kind() == ItemKind::Running) {
+                pos = i;
+                break;
+            }
+        }
+    }
+    items.insert(items.begin() + static_cast<ptrdiff_t>(pos), std::move(e));
+}
+
+void DockConfig::ErasePin(size_t k) {
+    const std::vector<size_t> idx = PinIndexes();
+    if (k < idx.size()) items.erase(items.begin() + static_cast<ptrdiff_t>(idx[k]));
+}
+
+void DockConfig::SetPins(std::vector<DockItemEntry> pins) {
+    const std::vector<size_t> idx = PinIndexes();
+    const size_t n = std::min(idx.size(), pins.size());
+    for (size_t i = 0; i < n; ++i) items[idx[i]] = std::move(pins[i]);
+    for (size_t i = idx.size(); i-- > n;) items.erase(items.begin() + static_cast<ptrdiff_t>(idx[i]));
+    for (size_t i = n; i < pins.size(); ++i) InsertPin(SIZE_MAX, std::move(pins[i]));
 }
 
 std::wstring Config::Directory() {
@@ -148,14 +253,20 @@ bool Config::ResolveTheme() {
 }
 
 void Config::Sanitize() {
-    iconSize = std::clamp(iconSize, 16, 256);
-    if (!(magnification >= 1.0)) magnification = 1.0;  // also catches NaN
-    magnification = std::min(magnification, 2.5);
-    magnifyRange = std::clamp(magnifyRange, 1, 4);
-    hideDelayMs = std::clamp(hideDelayMs, 0, 10000);
-    revealDelayMs = std::clamp(revealDelayMs, 0, 10000);
-    previewDelayMs = std::clamp(previewDelayMs, 0, 10000);
-    monitor = std::max(monitor, 0);
+    if (docks.empty()) docks.emplace_back();
+    for (DockConfig& d : docks) {
+        if (d.id.empty()) d.id = L"main";
+        if (d.id.size() > 64) d.id.resize(64);
+        if (d.edge.empty()) d.edge = L"bottom";
+        d.iconSize = std::clamp(d.iconSize, 16, 256);
+        if (!(d.magnification >= 1.0)) d.magnification = 1.0;  // also catches NaN
+        d.magnification = std::min(d.magnification, 2.5);
+        d.magnifyRange = std::clamp(d.magnifyRange, 1, 4);
+        d.hideDelayMs = std::clamp(d.hideDelayMs, 0, 10000);
+        d.revealDelayMs = std::clamp(d.revealDelayMs, 0, 10000);
+        d.previewDelayMs = std::clamp(d.previewDelayMs, 0, 10000);
+        d.monitor = std::max(d.monitor, 0);
+    }
     if (!(theme.cornerRadius >= 0.0f)) theme.cornerRadius = 0.0f;
     theme.cornerRadius = std::min(theme.cornerRadius, 64.0f);
     if (!(theme.labelCornerRadius >= 0.0f)) theme.labelCornerRadius = 0.0f;
@@ -211,10 +322,13 @@ Config::LoadResult Config::LoadFile() {
             return LoadResult::Malformed;
         }
 
+        // The legacy (pre-`docks`) keys are known too: in a current file they are ignored and
+        // dropped on the next save; in a legacy file they are migrated below.
         static const wchar_t* const kKnown[] = {
-            L"pinned",        L"iconSize", L"magnification", L"magnifyRange",     L"autoHide", L"hideDelayMs",
-            L"revealDelayMs", L"monitor",  L"hideTaskbar",   L"startWithWindows", L"renderer", L"clock",
-            L"theme",         L"previews", L"previewDelayMs", L"animation",        L"weather",
+            L"docks",         L"hideTaskbar", L"startWithWindows", L"renderer",       L"clock",
+            L"theme",         L"animation",   L"weather",          L"pinned",         L"iconSize",
+            L"magnification", L"magnifyRange", L"autoHide",        L"hideDelayMs",    L"revealDelayMs",
+            L"previews",      L"previewDelayMs", L"monitor",
         };
         for (const auto& kv : root) {
             const std::wstring key(kv.Key());
@@ -224,50 +338,90 @@ Config::LoadResult Config::LoadFile() {
             extraFields.emplace_back(key, std::wstring(kv.Value().Stringify()));
         }
 
-        if (auto p = ReadArray(root, L"pinned")) {
-            for (const auto& item : p) {
-                if (item.ValueType() != json::JsonValueType::Object) continue;
-                PinnedEntry e;
-                auto obj = item.GetObject();
-                ReadString(obj, L"path", e.path);
-                ReadString(obj, L"aumid", e.aumid);
-                ReadString(obj, L"icon", e.icon);
-                ReadString(obj, L"kind", e.kind);
-                // The special kinds need neither a path nor an AUMID; any other entry does.
-                if (!e.path.empty() || !e.aumid.empty() || SpecialPinOf(e.kind) != SpecialPin::None) {
-                    pinned.push_back(std::move(e));
-                }
-            }
-        }
-
-        ReadInt(root, L"iconSize", iconSize);
-        ReadNumber(root, L"magnification", magnification);
-        ReadInt(root, L"magnifyRange", magnifyRange);
-        // Older versions wrote a bool (true = "always").
-        if (auto a = Find(root, L"autoHide")) {
-            if (a.ValueType() == json::JsonValueType::Boolean) {
-                autoHide = a.GetBoolean() ? AutoHideMode::Always : AutoHideMode::Off;
-            } else if (a.ValueType() == json::JsonValueType::String) {
-                if (!FromString(std::wstring(a.GetString()), autoHide)) autoHide = AutoHideMode::Always;
-            }
-        }
-        ReadInt(root, L"hideDelayMs", hideDelayMs);
-        ReadInt(root, L"revealDelayMs", revealDelayMs);
-        ReadBool(root, L"previews", previews);
-        ReadInt(root, L"previewDelayMs", previewDelayMs);
-        ReadInt(root, L"monitor", monitor);
         ReadBool(root, L"hideTaskbar", hideTaskbar);
         ReadBool(root, L"startWithWindows", startWithWindows);
         ReadString(root, L"renderer", renderer);
 
-        if (auto c = ReadObject(root, L"clock")) {
-            ReadBool(c, L"show", clock.show);
-            ReadString(c, L"format", clock.format);
-            ReadBool(c, L"showDate", clock.showDate);
-            ReadBool(c, L"calendarPopup", clock.calendarPopup);
+        const json::JsonObject clockObj = ReadObject(root, L"clock");
+        if (clockObj) {
+            ReadString(clockObj, L"format", clock.format);
+            ReadBool(clockObj, L"showDate", clock.showDate);
+            ReadBool(clockObj, L"calendarPopup", clock.calendarPopup);
         }
-        if (auto w = ReadObject(root, L"weather")) {
-            ReadBool(w, L"show", weather.show);
+        const json::JsonObject weatherObj = ReadObject(root, L"weather");
+
+        if (root.HasKey(L"docks")) {
+            docks.clear();
+            if (auto arr = ReadArray(root, L"docks")) {
+                for (const auto& dv : arr) {
+                    if (dv.ValueType() != json::JsonValueType::Object) continue;
+                    const json::JsonObject obj = dv.GetObject();
+                    DockConfig d;
+                    ReadString(obj, L"id", d.id);
+                    ReadString(obj, L"edge", d.edge);
+                    ReadBool(obj, L"locked", d.locked);
+                    ReadDockFields(obj, d);
+                    if (auto items = ReadArray(obj, L"items")) {
+                        d.items.clear();
+                        for (const auto& iv : items) {
+                            if (iv.ValueType() != json::JsonValueType::Object) continue;
+                            const json::JsonObject io = iv.GetObject();
+                            DockItemEntry e;
+                            e.kind.clear();
+                            ReadString(io, L"kind", e.kind);
+                            ReadString(io, L"path", e.path);
+                            ReadString(io, L"aumid", e.aumid);
+                            ReadString(io, L"icon", e.icon);
+                            const bool target = !e.path.empty() || !e.aumid.empty();
+                            if (e.kind.empty()) {
+                                if (!target) continue;
+                                e.kind = L"app";  // a hand-written entry without a kind
+                            }
+                            const ItemKind k = e.Kind();
+                            if ((k == ItemKind::App || k == ItemKind::Folder) && !target) continue;  // nothing to show
+                            d.items.push_back(std::move(e));
+                        }
+                    }
+                    docks.push_back(std::move(d));
+                }
+            }
+        } else {
+            // Legacy file (before docks[] / items[]): build docks[0] from the top-level keys, once.
+            // The caller saves, which writes the current format and drops the legacy keys.
+            migrated = true;
+            DockConfig& d = Main();
+            d.items.clear();
+            ReadDockFields(root, d);
+            if (auto p = ReadArray(root, L"pinned")) {
+                for (const auto& item : p) {
+                    if (item.ValueType() != json::JsonValueType::Object) continue;
+                    DockItemEntry e;
+                    std::wstring kind;
+                    auto obj = item.GetObject();
+                    ReadString(obj, L"path", e.path);
+                    ReadString(obj, L"aumid", e.aumid);
+                    ReadString(obj, L"icon", e.icon);
+                    ReadString(obj, L"kind", kind);
+                    const ItemKind k = ItemKindOf(kind);
+                    if (k == ItemKind::Separator || k == ItemKind::RecycleBin) {
+                        e.kind = kind;  // these need neither a path nor an AUMID
+                    } else if (e.path.empty() && e.aumid.empty()) {
+                        continue;  // nothing to show (skipped by older versions too)
+                    } else {
+                        e.kind = e.aumid.empty() && IsDirectoryPath(e.path) ? L"folder" : L"app";
+                    }
+                    d.items.push_back(std::move(e));
+                }
+            }
+            bool clockShown = true, weatherShown = false;  // the legacy defaults
+            if (clockObj) ReadBool(clockObj, L"show", clockShown);
+            if (weatherObj) ReadBool(weatherObj, L"show", weatherShown);
+            d.items.push_back(DockItemEntry{L"running"});
+            if (weatherShown) d.items.push_back(DockItemEntry{L"weather"});
+            if (clockShown) d.items.push_back(DockItemEntry{L"clock"});
+        }
+
+        if (auto w = weatherObj) {
             ReadNumber(w, L"latitude", weather.latitude);
             ReadNumber(w, L"longitude", weather.longitude);
             ReadString(w, L"location", weather.location);
@@ -317,37 +471,40 @@ bool Config::Save() const {
         CreateDirectoryW(dir.c_str(), nullptr);
 
         std::wstring o;
-        o += L"{\n  \"pinned\": [";
-        for (size_t i = 0; i < pinned.size(); ++i) {
-            const auto& e = pinned[i];
-            o += i ? L",\n    " : L"\n    ";
-            // icon / kind only when set, so a plain app pin keeps its one-key form.
-            std::wstring fields;
-            auto add = [&](const wchar_t* key, const std::wstring& value) {
-                fields += (fields.empty() ? L"" : L", ") + Quote(key) + L": " + Quote(value);
-            };
-            if (!e.aumid.empty()) add(L"aumid", e.aumid);
-            else if (!e.path.empty() || e.kind.empty()) add(L"path", e.path);
-            if (!e.icon.empty()) add(L"icon", e.icon);
-            if (!e.kind.empty()) add(L"kind", e.kind);
-            o += L"{ " + fields + L" }";
+        o += L"{\n  \"docks\": [";
+        for (size_t di = 0; di < docks.size(); ++di) {
+            const DockConfig& d = docks[di];
+            o += di ? L",\n    {\n" : L"\n    {\n";
+            o += L"      \"id\": " + Quote(d.id) + L",\n      \"items\": [";
+            for (size_t i = 0; i < d.items.size(); ++i) {
+                const DockItemEntry& e = d.items[i];
+                o += i ? L",\n        " : L"\n        ";
+                // kind first; then the target and the icon only when set.
+                std::wstring fields = Quote(L"kind") + L": " + Quote(e.kind);
+                auto add = [&](const wchar_t* key, const std::wstring& value) {
+                    fields += L", " + Quote(key) + L": " + Quote(value);
+                };
+                if (!e.aumid.empty()) add(L"aumid", e.aumid);
+                else if (!e.path.empty()) add(L"path", e.path);
+                if (!e.icon.empty()) add(L"icon", e.icon);
+                o += L"{ " + fields + L" }";
+            }
+            o += d.items.empty() ? L"],\n" : L"\n      ],\n";
+            o += L"      \"edge\": " + Quote(d.edge) + L", \"locked\": " + Bool(d.locked) + L",\n";
+            o += L"      \"iconSize\": " + Num(d.iconSize) + L", \"magnification\": " + Num(d.magnification) +
+                 L", \"magnifyRange\": " + Num(d.magnifyRange) + L",\n";
+            o += L"      \"autoHide\": " + Quote(ToString(d.autoHide)) + L", \"hideDelayMs\": " + Num(d.hideDelayMs) +
+                 L", \"revealDelayMs\": " + Num(d.revealDelayMs) + L",\n";
+            o += L"      \"previews\": " + Bool(d.previews) + L", \"previewDelayMs\": " + Num(d.previewDelayMs) +
+                 L",\n";
+            o += L"      \"monitor\": " + Num(d.monitor) + L"\n    }";
         }
-        o += pinned.empty() ? L"],\n" : L"\n  ],\n";
-        o += L"  \"iconSize\": " + Num(iconSize) + L",\n";
-        o += L"  \"magnification\": " + Num(magnification) + L",\n";
-        o += L"  \"magnifyRange\": " + Num(magnifyRange) + L",\n";
-        o += L"  \"autoHide\": " + Quote(ToString(autoHide)) + L",\n";
-        o += L"  \"hideDelayMs\": " + Num(hideDelayMs) + L",\n";
-        o += L"  \"revealDelayMs\": " + Num(revealDelayMs) + L",\n";
-        o += L"  \"previews\": " + Bool(previews) + L",\n";
-        o += L"  \"previewDelayMs\": " + Num(previewDelayMs) + L",\n";
-        o += L"  \"monitor\": " + Num(monitor) + L",\n";
+        o += docks.empty() ? L"],\n" : L"\n  ],\n";
         o += L"  \"hideTaskbar\": " + Bool(hideTaskbar) + L",\n";
         o += L"  \"startWithWindows\": " + Bool(startWithWindows) + L",\n";
         o += L"  \"renderer\": " + Quote(renderer) + L",\n";
-        o += L"  \"clock\": { \"show\": " + Bool(clock.show) + L", \"format\": " + Quote(clock.format) +
-             L", \"showDate\": " + Bool(clock.showDate) + L", \"calendarPopup\": " + Bool(clock.calendarPopup) +
-             L" },\n";
+        o += L"  \"clock\": { \"format\": " + Quote(clock.format) + L", \"showDate\": " + Bool(clock.showDate) +
+             L", \"calendarPopup\": " + Bool(clock.calendarPopup) + L" },\n";
         // Only the preset and the fields set inline: editing the theme file keeps affecting the dock.
         o += L"  \"theme\": { \"preset\": " + Quote(themePreset) +
              Theme::WriteFields(theme, themeOverrides, L"             ") + L" },\n";
@@ -358,7 +515,7 @@ bool Config::Save() const {
              L", \"easing\": " + Quote(ToString(animation.easing)) +
              L", \"labelFadeMs\": " + Num(animation.labelFadeMs) +
              L",\n                 \"reduceMotion\": " + Quote(ToString(animation.reduceMotion)) + L" },\n";
-        o += L"  \"weather\": { \"show\": " + Bool(weather.show) + L", \"latitude\": " + Coord(weather.latitude) +
+        o += L"  \"weather\": { \"latitude\": " + Coord(weather.latitude) +
              L", \"longitude\": " + Coord(weather.longitude) + L",\n               \"location\": " +
              Quote(weather.location) + L", \"units\": " + Quote(ToString(weather.units)) +
              L", \"refreshMinutes\": " + Num(weather.refreshMinutes) + L" }";

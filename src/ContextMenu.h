@@ -47,7 +47,7 @@ struct TrayMenuState {
     AutoHideMode autoHide = AutoHideMode::Off;
     bool hideTaskbar = false;       // the taskbar controller is enabled (taskbar hidden by the dock)
     bool startWithWindows = false;  // the HKCU Run value exists
-    bool weatherShown = false;      // config weather.show: Refresh weather / Weather settings… entries
+    bool weatherShown = false;      // the dock has a weather item: Refresh weather / Weather settings… entries
     bool weatherConfigured = false; // ... and a location is set (Refresh weather enabled)
 };
 

@@ -84,14 +84,14 @@ protected:
         Label(kIconSizeLabel, L"Icon size");
         Trackbar(kIconSizeTrack, kColX - 6, 212, 16, kMaxTrackIconSize, 8);
         IntSpin(kIconSizeEdit, kIconSizeSpin, kColX + 216, 72, 16, 256, 4,
-                [](Config& c) -> int& { return c.iconSize; }, SettingsScope::Appearance);
+                [](Config& c) -> int& { return c.Main().iconSize; }, SettingsScope::Appearance);
         NextRow();
         Label(kMagnifyLabel, L"Magnification");
         Trackbar(kMagnifyTrack, kColX - 6, 212, 20, 50, 2);
         Text(kMagnifyValue, CtlKind::Value, L"", kColX + 216, 72);
         NextRow();
         Label(kRangeLabel, L"Magnification range (icons)");
-        IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config& c) -> int& { return c.magnifyRange; },
+        IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config& c) -> int& { return c.Main().magnifyRange; },
                 SettingsScope::Appearance);
         NextRow();
         Label(kMonitorLabel, L"Display");
@@ -132,17 +132,17 @@ protected:
     void Load() override {
         const Config& c = Cfg();
         LoadInts();
-        SetTrack(kIconSizeTrack, std::min(c.iconSize, kMaxTrackIconSize));
-        const int mag = static_cast<int>(std::lround(c.magnification * 20.0));
+        SetTrack(kIconSizeTrack, std::min(c.Main().iconSize, kMaxTrackIconSize));
+        const int mag = static_cast<int>(std::lround(c.Main().magnification * 20.0));
         SetTrack(kMagnifyTrack, mag);
         SetText(kMagnifyValue, FormatMagnification(mag));
         FillMonitors();
-        SetCheck(kClockShow, c.clock.show);
+        SetCheck(kClockShow, c.Main().Has(ItemKind::Clock));
         SetText(kClockFormatCombo, c.clock.format);
         SetText(kClockPreview, ClockPreview(c.clock.format));
         SetCheck(kClockDate, c.clock.showDate);
         SetCheck(kClockCalendar, c.clock.calendarPopup);
-        EnableClock(c.clock.show);
+        EnableClock(c.Main().Has(ItemKind::Clock));
         SetCheck(kStartWithWindows, Host().autostartEnabled ? Host().autostartEnabled() : c.startWithWindows);
         SetCheck(kHideTaskbar, Host().taskbarHidden ? Host().taskbarHidden() : c.hideTaskbar);
         SetComboSel(kRendererCombo, c.renderer == L"software" ? 1 : 0);
@@ -161,15 +161,15 @@ protected:
         Config& c = Cfg();
         if (id == kIconSizeTrack) {
             SetSpin(kIconSizeSpin, pos);  // follows the thumb; applied on release
-            if (released && c.iconSize != pos) {
-                c.iconSize = pos;
+            if (released && c.Main().iconSize != pos) {
+                c.Main().iconSize = pos;
                 Changed(SettingsScope::Appearance);
             }
         } else if (id == kMagnifyTrack) {
             SetText(kMagnifyValue, FormatMagnification(pos));
             const double mag = pos / 20.0;
-            if (released && std::fabs(c.magnification - mag) > 1e-9) {
-                c.magnification = mag;
+            if (released && std::fabs(c.Main().magnification - mag) > 1e-9) {
+                c.Main().magnification = mag;
                 Changed(SettingsScope::Appearance);
             }
         }
@@ -181,16 +181,17 @@ protected:
             case kMonitorCombo:
                 if (code == CBN_SELCHANGE) {
                     const int sel = ComboSel(id);
-                    if (sel >= 0 && sel != c.monitor) {
-                        c.monitor = sel;
+                    if (sel >= 0 && sel != c.Main().monitor) {
+                        c.Main().monitor = sel;
                         Changed(SettingsScope::Appearance);
                     }
                 }
                 break;
             case kClockShow:
                 if (code == BN_CLICKED) {
-                    c.clock.show = GetCheck(id);
-                    EnableClock(c.clock.show);
+                    // The clock is shown by a "clock" item: added at the end / every one removed.
+                    c.Main().Show(ItemKind::Clock, GetCheck(id));
+                    EnableClock(c.Main().Has(ItemKind::Clock));
                     Changed(SettingsScope::Appearance);
                 }
                 break;
@@ -267,7 +268,7 @@ private:
         HWND combo = Item(kMonitorCombo);
         if (!combo) return;
         std::vector<std::wstring> names = MonitorNames();
-        const int want = std::max(Cfg().monitor, 0);
+        const int want = std::max(Cfg().Main().monitor, 0);
         // A configured display that is not connected: the dock uses the primary meanwhile.
         for (int i = static_cast<int>(names.size()); i <= want; ++i) {
             names.push_back(L"Display " + std::to_wstring(i + 1) + L" (not connected)");
@@ -295,13 +296,13 @@ protected:
             {kAutoHideIntelligent, kAutoHideIntelligentCaption, L"When a window overlaps the dock"},
         });
         Label(kHideDelayLabel, L"Hide delay");
-        IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50, [](Config& c) -> int& { return c.hideDelayMs; },
+        IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50, [](Config& c) -> int& { return c.Main().hideDelayMs; },
                 SettingsScope::SaveOnly);
         Text(kHideDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
         Label(kRevealDelayLabel, L"Reveal delay");
         IntSpin(kRevealDelayEdit, kRevealDelaySpin, kColX, 90, 0, 10000, 50,
-                [](Config& c) -> int& { return c.revealDelayMs; }, SettingsScope::SaveOnly);
+                [](Config& c) -> int& { return c.Main().revealDelayMs; }, SettingsScope::SaveOnly);
         Text(kRevealDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow(kRowH);
         Text(kAutoHideNote, CtlKind::Note, L"The dock stays shown while this window is active.", kMargin, right - kMargin, 20);
@@ -312,7 +313,7 @@ protected:
         NextRow();
         Label(kPreviewDelayLabel, L"Preview delay");
         IntSpin(kPreviewDelayEdit, kPreviewDelaySpin, kColX, 90, 0, 10000, 50,
-                [](Config& c) -> int& { return c.previewDelayMs; }, SettingsScope::SaveOnly);
+                [](Config& c) -> int& { return c.Main().previewDelayMs; }, SettingsScope::SaveOnly);
         Text(kPreviewDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
     }
@@ -320,10 +321,10 @@ protected:
     void Load() override {
         const Config& c = Cfg();
         LoadInts();
-        SetCheck(kAutoHideOff, c.autoHide == AutoHideMode::Off);
-        SetCheck(kAutoHideAlways, c.autoHide == AutoHideMode::Always);
-        SetCheck(kAutoHideIntelligent, c.autoHide == AutoHideMode::Intelligent);
-        SetCheck(kPreviews, c.previews);
+        SetCheck(kAutoHideOff, c.Main().autoHide == AutoHideMode::Off);
+        SetCheck(kAutoHideAlways, c.Main().autoHide == AutoHideMode::Always);
+        SetCheck(kAutoHideIntelligent, c.Main().autoHide == AutoHideMode::Intelligent);
+        SetCheck(kPreviews, c.Main().previews);
         EnableDependents();
     }
 
@@ -337,14 +338,14 @@ protected:
                 const AutoHideMode mode = id == kAutoHideOff      ? AutoHideMode::Off
                                           : id == kAutoHideAlways ? AutoHideMode::Always
                                                                   : AutoHideMode::Intelligent;
-                if (!GetCheck(id) || mode == c.autoHide) break;
-                c.autoHide = mode;
+                if (!GetCheck(id) || mode == c.Main().autoHide) break;
+                c.Main().autoHide = mode;
                 EnableDependents();
                 Changed(SettingsScope::AutoHide);
                 break;
             }
             case kPreviews:
-                c.previews = GetCheck(id);
+                c.Main().previews = GetCheck(id);
                 EnableDependents();
                 Changed(SettingsScope::SaveOnly);
                 break;
@@ -356,9 +357,9 @@ protected:
 private:
     void EnableDependents() {
         const Config& c = Cfg();
-        Enable(kHideDelayEdit, c.AutoHideOn());
-        Enable(kRevealDelayEdit, c.AutoHideOn());
-        Enable(kPreviewDelayEdit, c.previews);
+        Enable(kHideDelayEdit, c.Main().AutoHideOn());
+        Enable(kRevealDelayEdit, c.Main().AutoHideOn());
+        Enable(kPreviewDelayEdit, c.Main().previews);
     }
 };
 

@@ -70,6 +70,6 @@ struct ResolvedPin {
 //   aumid (no path): the AUMID key.
 // `icon` ("file", "file,index"; environment variables expanded) replaces the icon when the file
 // exists (customIcon); otherwise the default icon is kept.
-ResolvedPin ResolvePin(const PinnedEntry& entry, size_t ordinal = 0);
+ResolvedPin ResolvePin(const DockItemEntry& entry, size_t ordinal = 0);
 
 }  // namespace AppIdentity

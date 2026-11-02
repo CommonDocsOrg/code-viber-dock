@@ -219,13 +219,13 @@ the primary monitor.
     not auto-hide.
   - Middle click on the icon opens the folder in Explorer. Right click: the name, Unpin from
     dock, the icon entries, Open in Explorer, then the dock menu.
-- **Recycle Bin** (`{ "kind": "recycleBin" }` in `pinned`, or **Add Recycle Bin** on the Pinned
+- **Recycle Bin** (`{ "kind": "recycleBin" }` in the dock's `items`, or **Add Recycle Bin** on the Pinned
   apps page): shows the bin's empty or full icon, which follows the bin (the dock asks the shell to
   tell it when the bin changes; nothing polls). Its name label reads "Recycle Bin (12 items,
   3.4 MB)", or "Recycle Bin (empty)". A click opens the Recycle Bin; files dropped on it are
   recycled. Right click: **Open**, **Empty Recycle Bin** (the shell's own confirmation; greyed when
   the bin is empty), **Unpin from dock**, the icon entries, then the dock menu.
-- **Separators** (`{ "kind": "separator" }` in `pinned`, any number; **Add separator** in the dock
+- **Separators** (`{ "kind": "separator" }` in the dock's `items`, any number; **Add separator** in the dock
   menu or on the Pinned apps page): a thin vertical line in `theme.separator` in a narrow slot
   (12 DIPs). It has no name label and no dot, is never magnified (its neighbours are) and does not
   react to clicks. It can be dragged to another place or off the dock like any pin; right click
@@ -393,38 +393,105 @@ preview's Direct2D objects included); nothing of it runs while it is closed.
 ## Configuration
 
 `%LocalAppData%\WinDock\config.json` is created on first run. It starts with File Explorer
-pinned, plus Windows Terminal when it is installed. After editing it by hand, choose **Reload
-config** in the dock menu. That applies pins, sizes, magnification, theme, clock, monitor,
-auto-hide, `hideTaskbar` and `startWithWindows`. `renderer` needs a restart of the dock. If the file
-is malformed, Reload keeps the current settings (and beeps). Pinning, unpinning, and the menu
-toggles save the file within 300 ms. The write is atomic (a temp file
-replaced with `MoveFileEx`). The dock rewrites the whole file in its own layout. Top-level keys it
-does not know are kept, as compact JSON. Unknown keys inside `pinned` entries, `clock`, `theme`,
-`animation` or `weather` are dropped. If the file is malformed, the dock starts with the defaults and leaves
-the file untouched.
+pinned, plus Windows Terminal when it is installed, then the running apps and the clock. After
+editing it by hand, choose **Reload config** in the dock menu. That applies the dock items, sizes,
+magnification, theme, clock, monitor, auto-hide, `hideTaskbar` and `startWithWindows`. `renderer`
+needs a restart of the dock. If the file is malformed, Reload keeps the current settings (and
+beeps). Pinning, unpinning, and the menu toggles save the file within 300 ms. The write is atomic
+(a temp file replaced with `MoveFileEx`). The dock rewrites the whole file in its own layout.
+Top-level keys it does not know are kept, as compact JSON. Unknown keys inside a dock, an item,
+`clock`, `theme`, `animation` or `weather` are dropped. If the file is malformed, the dock starts
+with the defaults and leaves the file untouched.
 
 ```json
 {
-  "pinned": [
-    { "path": "C:\\Windows\\explorer.exe" },
-    { "aumid": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App" },
-    { "path": "C:\\Users\\me\\Desktop\\Paint.lnk" }
+  "docks": [
+    {
+      "id": "main",
+      "items": [
+        { "kind": "app", "path": "C:\\Windows\\explorer.exe" },
+        { "kind": "app", "aumid": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App" },
+        { "kind": "app", "path": "C:\\Users\\me\\Desktop\\Paint.lnk" },
+        { "kind": "running" },
+        { "kind": "weather" },
+        { "kind": "clock" }
+      ],
+      "edge": "bottom", "locked": false,
+      "iconSize": 48, "magnification": 1.5, "magnifyRange": 2,
+      "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
+      "previews": true, "previewDelayMs": 600,
+      "monitor": 0
+    }
   ],
-  "iconSize": 48, "magnification": 1.5, "magnifyRange": 2,
-  "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
-  "previews": true, "previewDelayMs": 600,
-  "monitor": 0, "hideTaskbar": true, "startWithWindows": false, "renderer": "auto",
-  "clock": { "show": true, "format": "%H:%M", "showDate": false, "calendarPopup": true },
+  "hideTaskbar": true,
+  "startWithWindows": false,
+  "renderer": "auto",
+  "clock": { "format": "%H:%M", "showDate": false, "calendarPopup": true },
   "theme": { "preset": "dark",
              "accent": "#FF4CC2FF" },
   "animation": { "speed": 1, "hideStyle": "slide", "launchStyle": "bounce",
                  "magnifyFalloff": "cosine", "easing": "easeOut", "labelFadeMs": 120,
                  "reduceMotion": "system" },
-  "weather": { "show": true, "latitude": 47.6062, "longitude": -122.3321,
+  "weather": { "latitude": 47.6062, "longitude": -122.3321,
                "location": "Seattle", "units": "metric", "refreshMinutes": 30 }
 }
 ```
 
+**Older files** (with a top-level `pinned` list and the dock settings at the top level) are
+migrated once when they are loaded, and the file is rewritten in the format above right away:
+the `pinned` entries become `items` in the same order (`separator` / `recycleBin` entries keep
+their kind, a path that is a folder becomes `"folder"`, everything else `"app"`), followed by
+`running`, then `weather` if `weather.show` was `true`, then `clock` if `clock.show` was `true`
+(its default). `iconSize`, `magnification`, `magnifyRange`, `autoHide`, `hideDelayMs`,
+`revealDelayMs`, `previews`, `previewDelayMs` and `monitor` move into `docks[0]`. A file that has
+`docks` is never migrated: legacy keys in it are ignored and dropped on the next save.
+
+- `docks`: the docks. Only the first one is shown in this version (multiple docks come later); a
+  file without any gets one with the defaults. Per dock:
+  - `id` (default `"main"`).
+  - `items`: everything on the dock, in order. Each item has a `kind`:
+    - `"app"`: `{ "kind": "app", "path": "<.lnk or .exe>" }` or
+      `{ "kind": "app", "aumid": "<AppUserModelID>" }`. Environment variables in paths are
+      expanded. A shortcut to a folder works too (it is shown as a folder).
+    - `"folder"`: `{ "kind": "folder", "path": "<folder>" }`, a folder stack (see Dock items).
+    - `"separator"` (any number) and `"recycleBin"`: need no `path`.
+    - `"running"`: where the running apps that are not pinned go.
+    - `"clock"` / `"weather"`: the clock and the weather widget. The widget is shown when its item
+      is present; the settings toggles add the item (at the end; the weather goes before the
+      clock) or remove it.
+
+    App, folder and Recycle Bin items take an optional `icon` (written back only when set): a
+    custom icon. An image (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`; scaled to the icon size), an
+    `.ico`, or an icon resource as `"file,index"`, for example
+    `"%WINDIR%\\system32\\shell32.dll,3"` (a negative index is a resource id, as in shortcuts).
+    Environment variables are expanded. If the file does not exist, the default icon is used and
+    the item is kept unchanged. The value is kept exactly as written (a `%VAR%` path stays
+    unexpanded in the file); **Choose icon…** / **Choose image…** store the absolute path the
+    dialog returned, and **Reset icon** removes the key.
+
+    Kinds are case-insensitive. An item without a `kind` but with a `path` / `aumid` is read as
+    `"app"`; an app / folder item without either is ignored. A kind this version does not know is
+    kept as written (and not shown). The app, folder, separator and Recycle Bin items form the
+    pinned section. **In this version the dock still draws the pinned items (in item order), then
+    the running apps, then the weather widget, then the clock, wherever the `running`, `weather`
+    and `clock` items stand in the list** (a dock without a `running` item still shows the running
+    apps); the order of those three is kept in the file for the coming element layout.
+  - `edge` (default `"bottom"`, the only edge implemented) and `locked` (default `false`, not used
+    yet): read and written for later versions.
+  - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
+    `hideDelayMs`, `revealDelayMs`, `previews`, `previewDelayMs`, `monitor`.
+
+  ```json
+  "items": [
+    { "kind": "folder", "path": "C:\\Users\\me\\Downloads" },
+    { "kind": "separator" },
+    { "kind": "app", "path": "C:\\Windows\\explorer.exe", "icon": "%WINDIR%\\system32\\shell32.dll,3" },
+    { "kind": "app", "aumid": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App", "icon": "C:\\Icons\\terminal.png" },
+    { "kind": "recycleBin" },
+    { "kind": "running" },
+    { "kind": "clock" }
+  ]
+  ```
 - `iconSize`: icon size at rest, in DIPs (16 - 256).
 - `magnification`: size of the icon under the mouse relative to `iconSize`, 1.0 - 2.5. 1.0 turns
   magnification off. Icons are rendered at the magnified size, so they stay sharp.
@@ -440,36 +507,12 @@ the file untouched.
 - `clock.format` uses `strftime` specifiers (`%H:%M`, `%I:%M %p`, `%H:%M:%S`, ...). Formats with
   seconds tick every second; otherwise the clock wakes once a minute. `clock.calendarPopup`
   (default `true`): a click on the clock opens the month calendar (see Weather and calendar).
-- `weather`: the weather widget (see Weather and calendar). `show` (default `false`);
+- `weather`: the weather widget (see Weather and calendar; shown by a `weather` item);
   `latitude` (-90 - 90) and `longitude` (-180 - 180), in degrees, saved with 4 decimals (both 0:
   no location yet); `location`, the name shown in the popup (it is not looked up); `units`,
   `"metric"` or `"imperial"` (when the key is missing: from the Windows region's measurement
   system); `refreshMinutes`, 5 - 360 (default 30). **Reload config** applies a changed place or
   units at once (the data is fetched again).
-- `pinned`: in dock order. Each entry is `{ "path": "<.lnk, .exe or folder>" }` or
-  `{ "aumid": "<AppUserModelID>" }`. Environment variables in paths are expanded. Folders need
-  no `kind`: they are detected from the path (or from a shortcut's target). Optional keys, written
-  back only when set:
-  - `icon`: a custom icon. An image (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`; scaled to the icon
-    size), an `.ico`, or an icon resource as `"file,index"`, for example
-    `"%WINDIR%\\system32\\shell32.dll,3"` (a negative index is a resource id, as in shortcuts).
-    Environment variables are expanded. If the file does not exist, the default icon is used and
-    the entry is kept unchanged. The value is kept exactly as written (a `%VAR%` path stays
-    unexpanded in the file); **Choose icon…** / **Choose image…** store the absolute path the
-    dialog returned, and **Reset icon** removes the key.
-  - `kind`: `"separator"` or `"recycleBin"` (case-insensitive); these entries need no `path`. A
-    kind this version does not know is kept as written (an entry with an unknown kind and no
-    `path` / `aumid` is ignored).
-
-  ```json
-  "pinned": [
-    { "path": "C:\\Users\\me\\Downloads" },
-    { "kind": "separator" },
-    { "path": "C:\\Windows\\explorer.exe", "icon": "%WINDIR%\\system32\\shell32.dll,3" },
-    { "aumid": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App", "icon": "C:\\Icons\\terminal.png" },
-    { "kind": "recycleBin" }
-  ]
-  ```
 - `theme`: see Themes below.
 - `theme.acrylic` (default `true`): blur what is behind the bar, like the macOS dock. The blur is
   a Windows 11 system backdrop (acrylic) on a second, bar-sized window (class `WinDockBackdrop`)

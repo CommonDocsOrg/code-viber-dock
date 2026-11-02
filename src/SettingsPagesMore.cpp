@@ -279,9 +279,11 @@ protected:
 
     void OnCommand(int id, int code, HWND) override {
         if (code != BN_CLICKED) return;
-        auto& pinned = Cfg().pinned;
+        // Rows are the pin items of the dock (app / folder / separator / recycleBin), in order.
+        DockConfig& dock = Cfg().Main();
+        const std::vector<size_t> idx = dock.PinIndexes();
         const int sel = Selected();
-        const int n = static_cast<int>(pinned.size());
+        const int n = static_cast<int>(idx.size());
         switch (id) {
             case kPinAdd:
                 AddFiles();
@@ -292,11 +294,11 @@ protected:
             case kPinAddSeparator:
             case kPinAddRecycleBin: {
                 if (id == kPinAddRecycleBin && HasRecycleBin()) return;
-                PinnedEntry entry;
-                entry.kind = id == kPinAddSeparator ? L"separator" : L"recycleBin";
-                pinned.push_back(std::move(entry));
+                DockItemEntry entry;
+                entry.kind = ToString(id == kPinAddSeparator ? ItemKind::Separator : ItemKind::RecycleBin);
+                dock.InsertPin(SIZE_MAX, std::move(entry));  // after the last pin
                 Changed(SettingsScope::Pins);
-                FillList(static_cast<int>(pinned.size()) - 1);
+                FillList(static_cast<int>(dock.PinCount()) - 1);
                 break;
             }
             case kPinChooseIcon:
@@ -304,14 +306,14 @@ protected:
                 ChooseIcon(sel, id == kPinChooseImage);
                 break;
             case kPinResetIcon:
-                if (sel < 0 || sel >= n || pinned[static_cast<size_t>(sel)].icon.empty()) return;
-                pinned[static_cast<size_t>(sel)].icon.clear();
+                if (sel < 0 || sel >= n || dock.items[idx[static_cast<size_t>(sel)]].icon.empty()) return;
+                dock.items[idx[static_cast<size_t>(sel)]].icon.clear();
                 Changed(SettingsScope::Pins);
                 FillList(sel);
                 break;
             case kPinRemove:
                 if (sel < 0 || sel >= n) return;
-                pinned.erase(pinned.begin() + sel);
+                dock.ErasePin(static_cast<size_t>(sel));
                 Changed(SettingsScope::Pins);
                 FillList(std::min(sel, n - 2));
                 break;
@@ -319,7 +321,7 @@ protected:
             case kPinDown: {
                 const int to = id == kPinUp ? sel - 1 : sel + 1;
                 if (sel < 0 || sel >= n || to < 0 || to >= n) return;
-                std::swap(pinned[static_cast<size_t>(sel)], pinned[static_cast<size_t>(to)]);
+                std::swap(dock.items[idx[static_cast<size_t>(sel)]], dock.items[idx[static_cast<size_t>(to)]]);
                 Changed(SettingsScope::Pins);
                 FillList(to);
                 break;
@@ -337,13 +339,14 @@ private:
 
     void UpdateButtons() {
         const int sel = Selected();
-        const int n = static_cast<int>(Cfg().pinned.size());
+        const std::vector<size_t> idx = Cfg().Main().PinIndexes();
+        const int n = static_cast<int>(idx.size());
         Enable(kPinRemove, sel >= 0);
         Enable(kPinUp, sel > 0);
         Enable(kPinDown, sel >= 0 && sel < n - 1);
         Enable(kPinAddRecycleBin, !HasRecycleBin());
-        const PinnedEntry* e = sel >= 0 && sel < n ? &Cfg().pinned[static_cast<size_t>(sel)] : nullptr;
-        const bool iconable = e && SpecialPinOf(e->kind) != SpecialPin::Separator;
+        const DockItemEntry* e = sel >= 0 && sel < n ? &Cfg().Main().items[idx[static_cast<size_t>(sel)]] : nullptr;
+        const bool iconable = e && e->Kind() != ItemKind::Separator;
         Enable(kPinChooseIcon, iconable);
         Enable(kPinChooseImage, iconable);
         Enable(kPinResetIcon, iconable && !e->icon.empty());
@@ -351,16 +354,12 @@ private:
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kPinnedList));
     }
 
-    bool HasRecycleBin() {
-        const auto& pinned = Cfg().pinned;
-        return std::any_of(pinned.begin(), pinned.end(),
-                           [](const PinnedEntry& e) { return SpecialPinOf(e.kind) == SpecialPin::RecycleBin; });
-    }
+    bool HasRecycleBin() { return Cfg().Main().Has(ItemKind::RecycleBin); }
 
-    int AddIcon(const AppIdentity::ResolvedPin* pin, const PinnedEntry& e) {
+    int AddIcon(const AppIdentity::ResolvedPin* pin, const DockItemEntry& e) {
         if (!images_) return -1;
-        const SpecialPin special = SpecialPinOf(e.kind);
-        if (special == SpecialPin::Separator) return -1;  // no icon: the name says "Separator"
+        const ItemKind special = e.Kind();
+        if (special == ItemKind::Separator) return -1;  // no icon: the name says "Separator"
         HICON icon = nullptr;
         // The custom icon (or a shortcut's icon location) first: an image, else an icon resource.
         if (pin && !pin->iconFile.empty()) {
@@ -371,7 +370,7 @@ private:
                                   MAKELONG(iconPx_, iconPx_));
             }
         }
-        if (!icon && special == SpecialPin::RecycleBin) {
+        if (!icon && special == ItemKind::RecycleBin) {
             PIDLIST_ABSOLUTE pidl = nullptr;
             SHFILEINFOW sfi{};
             if (SUCCEEDED(SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, nullptr, &pidl)) && pidl) {
@@ -409,18 +408,19 @@ private:
         return index;
     }
 
-    // config.pinned (with host.pins(), its resolved twin) -> the list; selects `select` (clamped).
+    // The pins of config.Main() (with host.pins(), their resolved twin) -> the list; selects
+    // `select` (clamped).
     void FillList(int select) {
         HWND list = Item(kPinnedList);
         if (!list) return;
         static const std::vector<AppIdentity::ResolvedPin> kNone;
         const auto& pins = Host().pins ? Host().pins() : kNone;
-        const auto& pinned = Cfg().pinned;
+        const std::vector<DockItemEntry> pinned = Cfg().Main().Pins();
         SendMessageW(list, WM_SETREDRAW, FALSE, 0);
         ListView_DeleteAllItems(list);
         if (images_) ImageList_RemoveAll(images_);
         for (size_t i = 0; i < pinned.size(); ++i) {
-            const PinnedEntry& e = pinned[i];
+            const DockItemEntry& e = pinned[i];
             const AppIdentity::ResolvedPin* pin = i < pins.size() ? &pins[i] : nullptr;
             std::wstring name = pin ? pin->displayName : std::wstring();
             if (name.empty()) name = !e.path.empty() ? StemOf(e.path) : e.aumid;
@@ -479,10 +479,11 @@ private:
             }
         }
         if (paths.empty() || !Host().pinFiles) return;
-        const size_t before = Cfg().pinned.size();
+        const size_t before = Cfg().Main().PinCount();
         Host().pinFiles(paths);  // skips apps that are already pinned; reloads the dock and saves
         Window().ConfigApplied();
-        FillList(Cfg().pinned.size() > before ? static_cast<int>(Cfg().pinned.size()) - 1 : Selected());
+        const size_t after = Cfg().Main().PinCount();
+        FillList(after > before ? static_cast<int>(after) - 1 : Selected());
     }
 
     void AddFolder() {
@@ -504,18 +505,19 @@ private:
         std::vector<std::wstring> paths{std::wstring(raw)};
         CoTaskMemFree(raw);
         if (!Host().pinFiles) return;
-        const size_t before = Cfg().pinned.size();
+        const size_t before = Cfg().Main().PinCount();
         Host().pinFiles(paths);  // skips a folder that is already pinned; reloads the dock and saves
         Window().ConfigApplied();
-        FillList(Cfg().pinned.size() > before ? static_cast<int>(Cfg().pinned.size()) - 1 : Selected());
+        const size_t after = Cfg().Main().PinCount();
+        FillList(after > before ? static_cast<int>(after) - 1 : Selected());
     }
 
     // Choose icon… / Choose image… for the entry at `sel` (not separators).
     void ChooseIcon(int sel, bool image) {
-        const auto& pinned = Cfg().pinned;
+        const std::vector<DockItemEntry> pinned = Cfg().Main().Pins();
         if (sel < 0 || sel >= static_cast<int>(pinned.size())) return;
-        const PinnedEntry before = pinned[static_cast<size_t>(sel)];
-        if (SpecialPinOf(before.kind) == SpecialPin::Separator) return;
+        const DockItemEntry before = pinned[static_cast<size_t>(sel)];
+        if (before.Kind() == ItemKind::Separator) return;
         std::wstring file, startImage;
         int index = 0;
         if (Host().pins) {
@@ -531,9 +533,9 @@ private:
         if (!ok) return;
         // The list may have changed while the dialog was open (a drag on the dock): only the
         // same entry at the same place gets the icon.
-        auto& now = Cfg().pinned;
-        if (sel >= static_cast<int>(now.size())) return;
-        PinnedEntry& e = now[static_cast<size_t>(sel)];
+        DockConfig& now = Cfg().Main();
+        if (sel >= static_cast<int>(now.PinCount())) return;
+        DockItemEntry& e = now.PinAt(static_cast<size_t>(sel));
         if (e.path != before.path || e.aumid != before.aumid || e.kind != before.kind) {
             MessageBeep(MB_ICONWARNING);
             return;

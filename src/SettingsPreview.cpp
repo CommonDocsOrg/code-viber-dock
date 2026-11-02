@@ -257,7 +257,8 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     };
 
     // --- geometry (pixels) ---
-    const float mag = static_cast<float>(std::clamp(c.magnification, 1.0, 2.5));
+    const bool clockShown = c.Main().Has(ItemKind::Clock), weatherShown = c.Main().Has(ItemKind::Weather);
+    const float mag = static_cast<float>(std::clamp(c.Main().magnification, 1.0, 2.5));
     const float wallH = (wall.bottom - wall.top) / s;
     const float reflFrac = t.reflection ? t.reflectionHeight : 0.0f;  // the bar grows by the reflections
     const float b = std::clamp((wallH - kBarBottom - kTopRoom - kLabelGap - kLabelH) / (11.0f + 48.0f * (mag + reflFrac)),
@@ -275,7 +276,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const float itemsW = static_cast<float>(kAppCount) * stride;
 
     D2D1_SIZE_U clockSize{};
-    if (c.clock.show && dwrite_) {
+    if (clockShown && dwrite_) {
         if (!clockConfigured_ || clockFormat_ != c.clock.format || clockDate_ != c.clock.showDate) {
             clock_.Configure(c.clock.format, c.clock.showDate);
             clockFormat_ = c.clock.format;
@@ -288,9 +289,9 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     }
     const float clockW = static_cast<float>(clockSize.width), clockH = static_cast<float>(clockSize.height);
     // The weather widget: a sun glyph standing in for it (no data here), left of the clock.
-    const float weatherW = c.weather.show ? std::round(22.0f * u) : 0.0f;
-    const float widgetGap = c.weather.show && c.clock.show ? std::round(10.0f * u) : 0.0f;
-    const bool widgets = c.clock.show || c.weather.show;
+    const float weatherW = weatherShown ? std::round(22.0f * u) : 0.0f;
+    const float widgetGap = weatherShown && clockShown ? std::round(10.0f * u) : 0.0f;
+    const bool widgets = clockShown || weatherShown;
     const float sepW = widgets ? std::round(17.0f * u) : 0.0f;
     float barW = widgets ? lead + itemsW + sepW + weatherW + widgetGap + clockW + padding : lead + itemsW + lead;
     barW = std::round(barW);
@@ -308,7 +309,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     // Magnification about the focus (the cursor, else the default app), as DockWindow::ComputeTargets.
     const float focusX = mouseX_ >= 0 ? static_cast<float>(mouseX_)
                                       : itemsLeft + (static_cast<float>(kDefaultFocus) + 0.5f) * stride;
-    const float range = static_cast<float>(c.magnifyRange) * stride;
+    const float range = static_cast<float>(c.Main().magnifyRange) * stride;
     float scales[kAppCount];
     float delta = 0.0f;
     for (int i = 0; i < kAppCount; ++i) {
@@ -366,10 +367,10 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
             dc->DrawLine(D2D1::Point2F(x, barTop + vInset), D2D1::Point2F(x, barTop + rowH - vInset), brush.get(),
                          stroke);
         }
-        if (c.clock.show) {
+        if (clockShown) {
             clock_.Draw(dc, barLeft + barW - padding - clockW + growRight, std::round(barTop + (rowH - clockH) / 2.0f));
         }
-        if (c.weather.show) {
+        if (weatherShown) {
             const float x = barLeft + barW - padding - clockW - widgetGap - weatherW + growRight;
             const float y = std::round(barTop + (rowH - weatherW) / 2.0f);
             WeatherGlyphs::Colors colors;

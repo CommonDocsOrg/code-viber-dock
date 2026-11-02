@@ -115,7 +115,7 @@ protected:
     void Load() override {
         const WeatherConfig& w = Cfg().weather;
         LoadInts();
-        SetCheck(kWeatherShow, w.show);
+        SetCheck(kWeatherShow, Cfg().Main().Has(ItemKind::Weather));
         SetText(kWeatherLocationEdit, w.location);
         SetText(kWeatherLatEdit, FormatCoord(w.latitude));
         SetText(kWeatherLonEdit, FormatCoord(w.longitude));
@@ -130,7 +130,8 @@ protected:
         switch (id) {
             case kWeatherShow:
                 if (code == BN_CLICKED) {
-                    w.show = GetCheck(id);
+                    // Shown by a "weather" item: added (before the clock) / every one removed.
+                    Cfg().Main().Show(ItemKind::Weather, GetCheck(id));
                     Changed(SettingsScope::Weather);
                     UpdateStatus();
                 }
