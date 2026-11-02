@@ -121,3 +121,4 @@ std::unique_ptr<SettingsPage> MakeAnimationPage(SettingsWindow& window);   // Se
 std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window);      // SettingsPagesMore.cpp ("Dock contents")
 std::unique_ptr<SettingsPage> MakeWeatherPage(SettingsWindow& window);     // SettingsPagesWeather.cpp
 std::unique_ptr<SettingsPage> MakeDocksPage(SettingsWindow& window);       // SettingsPagesDocks.cpp
+std::unique_ptr<SettingsPage> MakeLayoutPage(SettingsWindow& window);      // SettingsPagesLayout.cpp

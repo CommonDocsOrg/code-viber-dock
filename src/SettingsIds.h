@@ -20,7 +20,8 @@ inline constexpr int kPageDockContents = kPagePinned;
 inline constexpr int kPageAbout = 5;
 inline constexpr int kPageWeather = 6;  // appended after About (pages are shown in index order)
 inline constexpr int kPageDocks = 7;    // round 4 phase 3: the list of docks; picks the dock the other pages edit
-inline constexpr int kPageCount = 8;
+inline constexpr int kPageLayout = 8;   // round 4 phase 3b: the monitor canvas (drag the docks)
+inline constexpr int kPageCount = 9;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -97,6 +98,9 @@ inline constexpr int kPositionNote2 = 2161;
 // Round 4 phase 3.
 inline constexpr int kRunningMonitorOnly = 2162;        // check box: docks[].runningFilter "monitor" (+ caption 2163)
 inline constexpr int kRunningMonitorOnlyCaption = 2163;
+// Round 4 phase 3b: docks[].layer.
+inline constexpr int kLayerLabel = 2164;
+inline constexpr int kLayerCombo = 2165;  // 0 normal (above windows), 1 desktop only
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;
@@ -274,5 +278,10 @@ inline constexpr int kDocksNote = 2804;
 inline constexpr int kDockEditing = 2805;     // "The other pages edit: <id>"
 inline constexpr int kLockAllDocks = 2806;    // "Lock all docks" (= DockCommand 124)
 inline constexpr int kUnlockAllDocks = 2807;  // "Unlock all docks" (= DockCommand 125)
+
+// Layout (2900 - 2999; round 4 phase 3b)
+inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation)
+inline constexpr int kLayoutNote = 2901;
+inline constexpr int kLayoutSelected = 2902;  // the selected dock and where a drop would put it
 
 }  // namespace SettingsIds

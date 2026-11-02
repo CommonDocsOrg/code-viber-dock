@@ -882,6 +882,17 @@ void App::OpenSettings(int page) {
         docks_.ForConfig(index, [&](DockWindow&) { ++n; });
         return n;
     };
+    host.dockRects = [this] {
+        std::vector<SettingsDockRect> rects;
+        for (const DockManager::Instance& i : docks_.Instances()) {
+            SettingsDockRect r;
+            r.cfg = i.cfg;
+            r.monitor = i.window ? i.monitorIndex : -1;
+            if (i.window) r.bar = i.window->RestBarRect();
+            rects.push_back(r);
+        }
+        return rects;
+    };
     settings_ = std::make_unique<SettingsWindow>(std::move(host));
     if (!settings_->Create(instance_)) {
         settings_.reset();

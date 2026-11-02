@@ -148,9 +148,26 @@ popup knowing which.
 
 ## Phase 3: multiple docks and monitors (foundation)
 
-Status: 3a done (2026-11-02): DockManager, N docks, monitors / "each" / parking, running filter,
-per-dock theme preset, lock all, dock-indexed automation, Docks page, reserve space on every dock;
-see STATUS.md. 3b (desktop-only layer, settings canvas) follows.
+Status: done (2026-11-02) as 3a (DockManager, N docks, monitors / "each" / parking, running
+filter, per-dock theme preset, lock all, dock-indexed automation, Docks page, reserve space on
+every dock) and 3b (desktop-only layer, Settings > Layout canvas); see STATUS.md.
+
+Desktop-layer spike (3b, Windows 11 build 26300; harness in the session scratchpad
+`p3\spike\spike.cpp`): Progman now has two children, `SHELLDLL_DefView` (the icons, on top) and
+`WorkerW` (the 24H2 layout: there is no top-level WorkerW any more, `0x052C` creates none).
+(a) A DirectComposition window made a child of that WorkerW renders (`PrintWindow` with
+`PW_RENDERFULLCONTENT` of WorkerW and of Progman shows it), but `SHELLDLL_DefView` covers the whole
+monitor above it, so it never gets the mouse. (a') As a child of Progman above `SHELLDLL_DefView`
+it renders and is hit-tested (`ChildWindowFromPointEx`), and stays on the desktop under every
+window. (b) A top-level, non-topmost window placed directly above Progman (inserted after the
+window that precedes Progman) renders like any dock window and stays directly above Progman when
+the desktop takes the foreground. Chosen: (b), in its own class `DesktopLayer` (shown only while
+the desktop, or one of WinDock's windows, is the foreground, via the shared ForegroundWatch; placed
+above Progman, never topmost): the dock stays a top-level window, so its screen-coordinate
+placement, input, popups and drag and drop are unchanged, and it matches "shown only while the
+desktop is visible". (a') is the candidate for Phase 12's folder windows if they must stay on the
+desktop while windows are open: it needs Progman-relative placement, no topmost handling and no
+separate acrylic window.
 
 Goal: N docks, each on a monitor or on every monitor, with filters and a lock.
 

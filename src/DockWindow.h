@@ -170,7 +170,7 @@ public:
     void SetMonitor(HMONITOR monitor);
     // DockManager: the tracker's snapshot changed / the foreground watch fired / the weather changed.
     void OnSnapshot(const WindowTracker::Snapshot& snap);
-    void OnWatchEvent() { OnOverlapCheck(); }
+    void OnWatchEvent();
     // The weather service's data or status changed: the weather elements redraw (DockEvent), the
     // popup updates.
     void OnWeatherChanged();
@@ -577,6 +577,11 @@ private:
     // Puts the (hidden) dock back on top of the z-order: a monitor-sized window that was just
     // activated can be placed above a topmost window and would bury the reveal strip.
     void AssertTopmost();
+    // docks[].layer "desktop" (DesktopLayer.h): shown only while the desktop is the foreground,
+    // directly above the desktop window, never topmost.
+    bool DesktopLayered() const { return DockCfg().layer == DockLayer::Desktop; }
+    // Shows / hides a desktop dock per the foreground (and shows a normal one that was hidden).
+    void UpdateDesktopShown();
     // Subscribes to / leaves the shared foreground watch.
     void SetWatchingForeground(bool on) {
         if (on == watching_ || !shared_) return;
@@ -828,7 +833,8 @@ private:
     bool hidePending_ = false;
     bool revealPending_ = false;
     bool revealArmed_ = true;     // false until the cursor leaves the strip (no reveal loops)
-    bool watching_ = false;       // subscribed to the shared foreground watch (autoHide "intelligent")
+    bool watching_ = false;       // subscribed to the shared foreground watch (intelligent / desktop layer)
+    bool desktopHidden_ = false;  // a desktop-layer dock hidden because the desktop is not the foreground
     bool overlapped_ = false;     // intelligent: the foreground window overlaps the dock
 
     PinRequests pinRequests_;

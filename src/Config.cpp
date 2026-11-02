@@ -105,6 +105,9 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadString(o, L"runningFilter", s);
     if (!s.empty()) FromString(s, d.runningFilter);  // unknown text: all
     ReadString(o, L"themePreset", d.themePreset);
+    s.clear();
+    ReadString(o, L"layer", s);
+    if (!s.empty()) FromString(s, d.layer);  // unknown text: normal
 }
 
 // docks[].monitor as JSON: the index, or "primary" / "each".
@@ -660,7 +663,8 @@ bool Config::Save() const {
             o += L"      \"middleClick\": " + Quote(ToString(d.middleClick)) + L", \"wheel\": " + Quote(ToString(d.wheel)) +
                  L",\n";
             o += L"      \"monitor\": " + MonitorJson(d.monitor) + L", \"runningFilter\": " +
-                 Quote(ToString(d.runningFilter)) + L", \"themePreset\": " + Quote(d.themePreset) + L"\n    }";
+                 Quote(ToString(d.runningFilter)) + L", \"themePreset\": " + Quote(d.themePreset) + L", \"layer\": " +
+                 Quote(ToString(d.layer)) + L"\n    }";
         }
         o += docks.empty() ? L"],\n" : L"\n  ],\n";
         o += L"  \"hideTaskbar\": " + Bool(hideTaskbar) + L",\n";

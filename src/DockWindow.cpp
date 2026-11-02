@@ -16,6 +16,7 @@
 
 #include "Activation.h"
 #include "AppIdentity.h"
+#include "DesktopLayer.h"
 #include "IconEffects.h"
 #include "Launcher.h"
 #include "Theme.h"
@@ -221,7 +222,10 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
     msgQueryState_ = RegisterWindowMessageW(kQueryStateMessage);
     // Resolves the pins and builds the elements (SyncElements) before the first layout.
     ApplyConfig();
-    ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+    // A desktop-layer dock starts hidden unless the desktop is the foreground (UpdateDesktopShown).
+    desktopHidden_ = DesktopLayered() && !DesktopLayer::DesktopForeground();
+    if (!desktopHidden_) ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+    if (DesktopLayered()) DesktopLayer::PlaceAboveDesktop(hwnd_);
     // The shared tracker's current window list then builds and lays out the items with their windows.
     tracking_ = true;
     RebuildFrom(shared_->Tracker().Current());
@@ -296,6 +300,7 @@ void DockWindow::ApplyConfig() {
     UpdateAcrylic();
     Relayout();
     ApplyAutoHide();
+    UpdateDesktopShown();  // the layer may have changed
 }
 
 HMONITOR DockWindow::PickMonitor() const {
@@ -678,6 +683,13 @@ void DockWindow::ApplyWindowPos() {
     // While a fullscreen app runs (an app bar's ABN_FULLSCREENAPP) the dock stays where it was
     // put, below it.
     const UINT keepOrder = IsWindowEnabled(hwnd_) && !fullscreenApp_ ? 0 : SWP_NOZORDER;
+    if (DesktopLayered()) {
+        // The desktop layer: directly above the desktop window, never topmost.
+        SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                     SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER);
+        if (!keepOrder) DesktopLayer::PlaceAboveDesktop(hwnd_);
+        return;
+    }
     SetWindowPos(hwnd_, HWND_TOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER | keepOrder);
 }
@@ -2427,7 +2439,9 @@ std::wstring DockWindow::RecycleBinLabel() {
 
 void DockWindow::UpdateAcrylic() {
     // The blur window is a flat rectangle: not with the glass shelf or the perspective tilt.
-    const bool want = DockTheme().acrylic && !DockTheme().shelf && !DockTheme().perspective &&
+    // Nor on the desktop layer (the blur window would have to follow the dock's z-order and
+    // visibility there; the bar uses its plain fill).
+    const bool want = DockTheme().acrylic && !DockTheme().shelf && !DockTheme().perspective && !DesktopLayered() &&
                       Backdrop::SystemAllowsTransparency();
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
@@ -2720,7 +2734,37 @@ void DockWindow::AssertTopmost() {
     // Re-asserting the z-order is cheap and only happens on hide transitions. Not while a modal
     // dialog owned by the dock is open (see ApplyWindowPos).
     if (!hwnd_ || !IsWindowEnabled(hwnd_) || fullscreenApp_) return;
+    if (DesktopLayered()) {
+        DesktopLayer::PlaceAboveDesktop(hwnd_);
+        return;
+    }
     SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+}
+
+void DockWindow::OnWatchEvent() {
+    if (DesktopLayered()) UpdateDesktopShown();
+    if (DockCfg().autoHide == AutoHideMode::Intelligent) OnOverlapCheck();
+}
+
+void DockWindow::UpdateDesktopShown() {
+    if (!hwnd_) return;
+    const bool hide = DesktopLayered() && !DesktopLayer::DesktopForeground();
+    if (hide == desktopHidden_) return;
+    desktopHidden_ = hide;
+    if (hide) {
+        // Another window came to the foreground: the dock leaves with its popups and hover state.
+        DismissPreview(false, false);
+        DismissClickPopups(false, false);
+        if (dragPhase_ == DragPhase::Dragging) EndDrag(false);
+        if (dockDrag_) EndDockDrag(false);
+        ShowWindow(hwnd_, SW_HIDE);
+        LeaveZone();
+        return;
+    }
+    // The desktop is the foreground again (or the dock left the desktop layer): back, above the
+    // desktop window (or topmost).
+    ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
+    AssertTopmost();
 }
 
 double DockWindow::ApplyRootPose(double duration) {
@@ -2789,8 +2833,11 @@ void DockWindow::ArmMouseTracking() {
 void DockWindow::ApplyAutoHide() {
     if (!hwnd_) return;
     UpdateAppBar();  // only a dock that does not auto-hide reserves space
+    // A desktop-layer dock follows the foreground too (shown only while it is the desktop).
+    if (DesktopLayered()) SetWatchingForeground(true);
     if (DockCfg().autoHide != AutoHideMode::Intelligent) {
-        SetWatchingForeground(false);  // off / always: no hooks (unless another dock needs them)
+        // Off / always: no hooks (unless the desktop layer or another dock needs them).
+        if (!DesktopLayered()) SetWatchingForeground(false);
         overlapped_ = false;
     }
     if (!DockCfg().AutoHideOn()) {
@@ -4052,7 +4099,8 @@ RECT DockWindow::AppBarRect() const {
 void DockWindow::UpdateAppBar() {
     const DockConfig& d = DockCfg();
     // Any edge, full width or not; only a dock that does not auto-hide reserves space.
-    const bool wanted = hwnd_ && appBarAllowed_ && d.reserveSpace && !d.AutoHideOn();
+    // (Not on the desktop layer: that dock is only shown when no window is in the way.)
+    const bool wanted = hwnd_ && appBarAllowed_ && d.reserveSpace && !d.AutoHideOn() && d.layer == DockLayer::Normal;
     if (!wanted) {
         RemoveAppBar();
         return;
@@ -4439,6 +4487,11 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return titleLayout_ && title_.width > 0 ? 1 : 0;
         case 46:
             return !dockDrag_ ? 0 : dockZone_ == DockCfg().edge ? 1 : 2;
+        case 52:
+            return static_cast<LRESULT>(DockCfg().layer);  // 0 normal, 1 desktop
+        case 53:
+            // A desktop-layer dock: 1 while shown (the desktop is the foreground), 0 hidden; -1 normal.
+            return DesktopLayered() ? (IsWindowVisible(hwnd_) ? 1 : 0) : -1;
         case 37:
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             return static_cast<LRESULT>(items_[static_cast<size_t>(lp)].element);

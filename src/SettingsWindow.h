@@ -28,6 +28,13 @@ enum class SettingsScope {
 // Docks page edits of config.docks (SettingsHost::editDocks).
 enum class SettingsDockEdit { Add, Duplicate, Remove };
 
+// One dock window for the Layout page (SettingsHost::dockRects).
+struct SettingsDockRect {
+    size_t cfg = 0;    // index into config.docks
+    int monitor = -1;  // monitor index (DockManager order: primary first); -1 parked
+    RECT bar{};        // the bar at rest, screen px (empty when parked)
+};
+
 // Everything the settings window may use of the app, so it never sees App internals. "The dock"
 // below is config.Edit() (config.editDock, chosen on the Docks page): its first window.
 struct SettingsHost {
@@ -57,6 +64,8 @@ struct SettingsHost {
     std::function<bool(SettingsDockEdit, size_t index)> editDocks;
     // The dock windows of docks[index] (0: parked, its monitor is not connected).
     std::function<int(size_t index)> dockWindows;
+    // Layout page: every dock instance (an "each" dock once per monitor) and where its bar is.
+    std::function<std::vector<SettingsDockRect>()> dockRects;
 };
 
 class SettingsWindow;
@@ -80,6 +89,7 @@ enum class CtlKind {
     Link,      // SysLink
     Swatch,    // owner-drawn push button (BS_OWNERDRAW): the page paints it in OnDrawItem
     List,      // SysListView32 (report view): dark items view theme, palette colours
+    Custom,    // a window class of the page's own (it paints itself in the palette colours)
 };
 
 // One row of a page's layout table. Rects are in DIPs, page coordinates (unscrolled); the window

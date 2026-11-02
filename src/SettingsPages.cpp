@@ -102,6 +102,9 @@ protected:
         NextRow();
         Check(kRunningMonitorOnly, kRunningMonitorOnlyCaption, L"Show only the windows on this dock's display");
         NextRow();
+        Label(kLayerLabel, L"Layer");
+        Combo(kLayerCombo, kColX, right - kColX, false);
+        NextRow();
 
         Section(kSectionPosition, L"Position");
         Label(kEdgeLabel, L"Screen edge");
@@ -181,6 +184,8 @@ protected:
         ComboAdd(kClockClickCombo, L"The app or URL below");
         ComboAdd(kClockClickCombo, L"Nothing");
         for (const wchar_t* e : {L"Bottom", L"Top", L"Left", L"Right"}) ComboAdd(kEdgeCombo, e);  // DockEdge order
+        ComboAdd(kLayerCombo, L"Above windows");  // DockLayer order
+        ComboAdd(kLayerCombo, L"Desktop only (shown while the desktop is visible)");
         for (const wchar_t* a : {L"Centre", L"Start (left / top)", L"End (right / bottom)"}) ComboAdd(kAlignCombo, a);
         ComboAdd(kRendererCombo, L"Automatic (GPU, software if that fails)");
         ComboAdd(kRendererCombo, L"Software (WARP, less memory)");
@@ -195,6 +200,7 @@ protected:
         SetText(kMagnifyValue, FormatMagnification(mag));
         FillMonitors();
         SetCheck(kRunningMonitorOnly, c.Edit().runningFilter == RunningFilter::Monitor);
+        SetComboSel(kLayerCombo, static_cast<int>(c.Edit().layer));
         SetComboSel(kEdgeCombo, static_cast<int>(c.Edit().edge));
         SetComboSel(kAlignCombo, static_cast<int>(c.Edit().align));
         SetCheck(kFullWidth, c.Edit().fullWidth);
@@ -253,6 +259,15 @@ protected:
                     if (sel >= 0 && value != c.Edit().monitor &&
                         !(sel == 0 && c.Edit().monitor == DockConfig::kMonitorPrimary)) {
                         c.Edit().monitor = value;
+                        Changed(SettingsScope::Appearance);
+                    }
+                }
+                break;
+            case kLayerCombo:
+                if (code == CBN_SELCHANGE) {
+                    const int sel = ComboSel(id);
+                    if (sel >= 0 && sel <= 1 && static_cast<DockLayer>(sel) != c.Edit().layer) {
+                        c.Edit().layer = static_cast<DockLayer>(sel);
                         Changed(SettingsScope::Appearance);
                     }
                 }
@@ -691,5 +706,6 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
     pages.push_back(std::make_unique<AboutPage>(window));  // kPageAbout
     pages.push_back(MakeWeatherPage(window));  // kPageWeather (after About: the nav shows pages in index order)
     pages.push_back(MakeDocksPage(window));    // kPageDocks
+    pages.push_back(MakeLayoutPage(window));   // kPageLayout
     return pages;
 }

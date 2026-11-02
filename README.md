@@ -184,7 +184,26 @@ icon cache and popups). Per dock:
 - `themePreset`: a theme preset (built-in id or theme file) for this dock only; empty (default) =
   the global `theme.preset`. The global inline theme fields still apply on top of it.
 
-Docks on the same edge of one monitor overlap; move one (Position, Ctrl+drag). Settings > Docks
+- `layer`: `"normal"` (default: topmost, above windows) or `"desktop"`: the dock is shown only
+  while the desktop is the foreground (after Win+D or a click on the wallpaper; also while one of
+  WinDock's own windows, such as its popups or the settings window, is in front) and hides as soon
+  as another window comes to the foreground; while shown it sits at the bottom of the z-order,
+  directly above the desktop window (never topmost), so every window stays above it. It follows
+  the same WinEvent hooks as intelligent auto-hide (no polling). A desktop dock reserves no
+  screen space and draws its bar without the acrylic blur. `WinDock.QueryState` 52 / 53.
+
+Docks on the same edge of one monitor overlap; move one (Position, Ctrl+drag, or Settings >
+Layout).
+
+**Settings > Layout** draws every monitor to scale (its work area shaded) with every dock on its
+edge at its alignment / offset (full width across the edge), labelled with its id (and title).
+Click a dock to make it the dock the other pages edit; drag it along its edge (it snaps to the
+start, centre or end within 24 DIP, like Ctrl+drag on the dock; otherwise the nearest alignment
+plus the offset), onto another edge (the edge nearest to the dragged dock's centre) or onto another
+monitor (its `monitor` index; an `"each"` dock stays on every monitor, `"primary"` stays
+`"primary"`). An outline shows where it will go; the dock moves and the config is saved when the
+button is released (Escape or a lost capture cancels). A full-width dock only changes edge /
+monitor. Settings > Docks
 lists the docks (id, edge, display, whether it is shown or parked), adds one (`id` `"dock"`,
 `"dock2"` ..., bottom of the primary monitor, the running apps and the clock), duplicates or removes
 the selected one (never the last), and **the selected dock is the one the other pages edit**
@@ -600,7 +619,7 @@ with the defaults and leaves the file untouched.
       "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
       "previews": true, "previewsSingleWindow": false, "previewDelayMs": 600,
       "middleClick": "newInstance", "wheel": "none",
-      "monitor": 0, "runningFilter": "all", "themePreset": ""
+      "monitor": 0, "runningFilter": "all", "themePreset": "", "layer": "normal"
     }
   ],
   "hideTaskbar": true,
@@ -631,7 +650,8 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   one with the defaults. Per dock:
   - `id` (default `"main"`; unique: a repeated id gets a number appended on load).
   - `monitor` (default `0` = primary; an index, `"primary"` or `"each"`), `runningFilter`
-    (`"all"` / `"monitor"`), `themePreset` (default `""`): see Multiple docks and monitors.
+    (`"all"` / `"monitor"`), `themePreset` (default `""`), `layer` (`"normal"` / `"desktop"`):
+    see Multiple docks and monitors.
   - `items`: everything on the dock, in order. Each item has a `kind`:
     - `"app"`: `{ "kind": "app", "path": "<.lnk or .exe>" }` or
       `{ "kind": "app", "aumid": "<AppUserModelID>" }`. Environment variables in paths are
@@ -977,7 +997,9 @@ always there, also when every dock is parked) handle these registered messages:
   47 = the number of docks (parked ones included). 48 = the dock's monitor index (0 primary, as
   in `docks[].monitor`; -1 parked; -2 no such dock). 49 = 1 if the dock is parked (its monitor is
   not connected: no window), 0 if shown, -1 no such dock. 50 = its index in `docks[]`. 51 = its
-  window handle (0 parked). Per dock: 14 / 36 / 39 / 40 / 42 and 37 refer to that dock's own
+  window handle (0 parked). 52 = `docks[].layer` (0 normal, 1 desktop). 53 = a desktop-layer
+  dock's window is shown (1) or hidden because another window is in the foreground (0); -1 for a
+  normal dock. Per dock: 14 / 36 / 39 / 40 / 42 and 37 refer to that dock's own
   config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
@@ -985,7 +1007,7 @@ always there, also when every dock is parked) handle these registered messages:
 - Settings window (class `WinDock.Settings`, title "WinDock Settings"): the page list is the child
   `WinDock.SettingsNav` (control id 100; its window text is the selected page's name); the pages
   are `WinDock.SettingsPage` children with ids 200 + page index (0 General, 1 Appearance,
-  2 Behaviour, 3 Animation, 4 Dock contents, 5 About, 6 Weather, 7 Docks), and every control on them has the stable id
+  2 Behaviour, 3 Animation, 4 Dock contents, 5 About, 6 Weather, 7 Docks, 8 Layout), and every control on them has the stable id
   listed in `src/SettingsIds.h` (the Dock contents page kept the Pinned apps ids 2600 - 2611 and
   added 2612 Add widget, 2613 Settings…, 2614 Lock the dock; its list 2600 has one row per config
   item, columns Name, Kind, Details; General 2130 / 2131 are retired, replaced by 2132 Show
@@ -997,7 +1019,11 @@ always there, also when every dock is parked) handle these registered messages:
   "Every display" (`"each"`), Appearance 2420 "This dock's theme" (0 = same as all docks, then the
   theme list), Docks page 2800 list (Dock, Edge, Display, Windows; selecting a row makes it the dock
   the other pages edit), 2801 Add dock, 2802 Duplicate, 2803 Remove, 2805 "The other pages edit:
-  (id)", 2806 Lock all docks, 2807 Unlock all docks). "Add widget ▾" opens a popup menu
+  (id)", 2806 Lock all docks, 2807 Unlock all docks; phase 3b: General 2165 Layer (0 above
+  windows, 1 desktop only), Layout page 2900 the canvas (class `WinDock.LayoutCanvas`; its window
+  text lists every dock instance as `index:config index:monitor:left,top,right,bottom;` in canvas
+  client pixels, `-` for a parked one), 2902 the selected dock / where a drag would drop it).
+  "Add widget ▾" opens a popup menu
   (items 1 Clock, 2 Weather, 3 Running apps), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
   field rows use `3000 + 10 * field index + part` (ids 3000 - 3399; field index in

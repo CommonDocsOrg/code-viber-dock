@@ -20,6 +20,7 @@ add_executable(WinDock WIN32
   src/Theme.cpp
   src/DockWindow.cpp
   src/DockManager.cpp
+  src/DesktopLayer.cpp
   src/DockElement.cpp
   src/WidgetElements.cpp
   src/Backdrop.cpp
@@ -50,6 +51,7 @@ add_executable(WinDock WIN32
   src/SettingsPagesMore.cpp
   src/SettingsPagesWeather.cpp
   src/SettingsPagesDocks.cpp
+  src/SettingsPagesLayout.cpp
   src/SettingsPreview.cpp
   res/app.rc
   res/app.manifest
@@ -74,6 +76,6 @@ target_link_options(WinDock PRIVATE
 target_link_libraries(WinDock PRIVATE
   d3d11 dxgi d2d1 dxguid dcomp dwrite windowscodecs
   shell32 ole32 shlwapi dwmapi propsys user32 gdi32 version advapi32
-  comctl32 uxtheme comdlg32 winhttp
+  comctl32 uxtheme comdlg32 winhttp shcore
   windowsapp
 )
