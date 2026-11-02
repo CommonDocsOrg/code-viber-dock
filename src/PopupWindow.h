@@ -22,6 +22,10 @@
 //    dismisses it (hover callback: the mouse entered / left the popup).
 //  - Click: activatable. Shown in the foreground; losing activation (WM_ACTIVATE WA_INACTIVE)
 //    or Escape hides it and fires the closed callback. The owner dismisses it on its own events.
+//    While it is shown, an out-of-context WinEvent hook (EVENT_SYSTEM_FOREGROUND) also closes it
+//    when a window of another process comes to the foreground: the popup may not have been
+//    allowed to take the foreground itself (opened by automation, not by a click), and then it
+//    never sees WM_ACTIVATE. The hook exists only while a click popup is on screen.
 //
 // Subclasses lay out in Measure(), draw in Paint(), and hit-test in HitAt(); the base tracks the
 // mouse, the hot item / part and clicks (OnClick). The window class is the subclass's
@@ -155,6 +159,9 @@ private:
     // Click popups: hides (fading) and tells the owner.
     void CloseSelf();
     void CancelTracking();
+    void HookForeground(bool on);
+    static void CALLBACK OnForegroundEvent(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG idObject, LONG idChild,
+                                           DWORD thread, DWORD time);
 
     const wchar_t* className_;
     const wchar_t* title_;
@@ -179,6 +186,7 @@ private:
     int pressedPart_[3] = {0, 0, 0};
     bool tracking_ = false;
     bool inside_ = false;
+    HWINEVENTHOOK foregroundHook_ = nullptr;  // click popups, while on screen
 
     Tween fade_;
     bool fadePending_ = false;

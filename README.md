@@ -155,6 +155,8 @@ the primary monitor.
 - Middle click: starts a new instance (and bounces until its window appears).
 - Right click: Pin to dock / Unpin from dock, New window (shows as Open when the app is not
   running), Open file location (for path-based items), Close for each window, then the dock menu.
+  Folders, separators and the Recycle Bin have their own short menus (below). The dock menu has
+  **Add separator** (appends a separator to the pinned items).
 - Drag an icon to reorder: press on it and move past the system drag threshold. The icon follows
   the pointer (slightly enlarged and translucent), magnification and the name label pause, the
   dock does not auto-hide, and the other icons slide apart to open a gap where it would land (the
@@ -170,10 +172,21 @@ the primary monitor.
     to unpin it: the icon dims while it is in that zone and fades out when released. This only
     applies to pinned apps with no open windows; a running pinned app dropped there just goes back
     to its slot (use the menu's Unpin for those).
-- Drag `.lnk` or `.exe` files onto the dock to pin them. While the files are over the dock, the
-  icons open a gap at the insertion point with a thin accent-coloured marker in it (between the
-  two icons whose centres the pointer is between, within the pinned section); dropping pins the
-  files there. Files whose app is already pinned are skipped. Other file types are not accepted.
+- Drag files onto the dock. What a drop does depends on where the pointer is:
+  - Over the middle 70 % of an app's slot: the icon grows a little (no marker) and dropping opens
+    the files with that app. When the app is registered for the file type (the first file's
+    extension), the files are handed to it the way Explorer's **Open with** does; otherwise the
+    app is started with the quoted file paths as arguments (a shortcut pin: its target with the
+    shortcut's own arguments first; a Store app: its app execution alias, or the activation
+    manager with arguments).
+  - Over the middle 70 % of the Recycle Bin: the bin grows the same way and dropping moves the
+    files to the Recycle Bin (with undo, and the shell's progress window for a large delete).
+  - Anywhere else (between icons, over a folder or a separator): `.lnk`, `.exe` files and folders
+    are pinned. The icons open a gap at the insertion point with a thin accent-coloured marker in
+    it (between the two icons whose centres the pointer is between, within the pinned section);
+    dropping pins them there. Files whose app is already pinned are skipped; other file types do
+    nothing there.
+
   Dragging files to the bottom screen edge reveals a hidden dock immediately. File drops use OLE
   drag and drop, so they work from Explorer and any other drag source running at the same
   integrity level (not from an elevated app).
@@ -182,16 +195,35 @@ the primary monitor.
   running section in first-seen order, as on macOS.
 - When a pinned file no longer exists, its entry stays in the config and the dock shows a
   placeholder icon. The dock never deletes pins silently.
-- **Folders**: a pin whose path is a folder, or a shortcut to a folder, is a folder item. It shows
-  the folder's own icon (custom `desktop.ini` icons included) and the folder's name (`C:` for a
-  drive root). A click (or middle click) opens the folder in Explorer; there is no launch
-  bounce and no running dot, because Explorer's windows belong to File Explorer. A folder and a
-  shortcut to it are the same item (shown once). For now folders are pinned in config.json only.
-- **Recycle Bin** (`{ "kind": "recycleBin" }` in `pinned`): shows the bin's icon (empty or full,
-  as it was when the icon was loaded) and opens the Recycle Bin on click.
-- **Separators** (`{ "kind": "separator" }` in `pinned`, any number): a spacer between items. For
-  now a separator takes a normal slot and is drawn as a placeholder tile without a name label;
-  it can be reordered and dragged off the dock like any pin.
+- **Folders** ("stacks"): a pin whose path is a folder, or a shortcut to a folder, is a folder
+  item. It shows the folder's own icon (custom `desktop.ini` icons included) and the folder's name
+  (`C:` for a drive root); there is no launch bounce and no running dot, because Explorer's
+  windows belong to File Explorer. A folder and a shortcut to it are the same item (shown once).
+  Pin one by dropping it (or a shortcut to it) on the dock, with **Add folder…** on the Pinned
+  apps page, or in config.json.
+  - A left click opens the folder's contents in a popup above the icon; clicking the icon again
+    closes it. The popup shows the folder's name, an **Open in Explorer** button and a grid of its
+    entries: sub-folders first, then files, in Explorer's name order ("file2" before "file10"),
+    hidden and system entries left out, with the shell's icons and two-line names. Up to 48
+    entries are shown (fewer on a small monitor); a **+N more** line opens the folder in Explorer.
+  - In the popup, click a file to open it (the popup closes), click a sub-folder to show its
+    contents in place, the back arrow or Backspace to go up again (never above the pinned folder),
+    middle-click a sub-folder to open it in Explorer. Escape, clicking anywhere else (another
+    window, the dock), a menu, a drag or the dock hiding close it. While it is open the dock does
+    not auto-hide.
+  - Middle click on the icon opens the folder in Explorer. Right click: the name, Unpin from
+    dock, Open in Explorer, then the dock menu.
+- **Recycle Bin** (`{ "kind": "recycleBin" }` in `pinned`, or **Add Recycle Bin** on the Pinned
+  apps page): shows the bin's empty or full icon, which follows the bin (the dock asks the shell to
+  tell it when the bin changes; nothing polls). Its name label reads "Recycle Bin (12 items,
+  3.4 MB)", or "Recycle Bin (empty)". A click opens the Recycle Bin; files dropped on it are
+  recycled. Right click: **Open**, **Empty Recycle Bin** (the shell's own confirmation; greyed when
+  the bin is empty), **Unpin from dock**, then the dock menu.
+- **Separators** (`{ "kind": "separator" }` in `pinned`, any number; **Add separator** in the dock
+  menu or on the Pinned apps page): a thin vertical line in `theme.separator` in a narrow slot
+  (12 DIPs). It has no name label and no dot, is never magnified (its neighbours are) and does not
+  react to clicks. It can be dragged to another place or off the dock like any pin; right click
+  shows **Remove**, then the dock menu.
 - **Custom icons**: any pin can name its own icon with `"icon"` (see Configuration). Changing it
   and choosing **Reload config** redraws the icon at once.
 
@@ -243,9 +275,11 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   (0-1000 ms) and reduce motion (follow Windows, on, off; the page shows whether Windows'
   animation effects are on). See [Animation](#animation).
 - **Pinned apps**: the pinned list in dock order (name and target; "(missing)" when the file is
-  gone), **Add…** (pick one or more `.lnk` / `.exe` files; a shortcut is pinned as the shortcut,
-  apps that are already pinned are skipped), **Remove**, **Move up**, **Move down**. Changes from
-  the dock itself (drag to reorder, drop to pin, drag off to unpin) show up in the list at once.
+  gone; separators show as "Separator"), **Add…** (pick one or more `.lnk` / `.exe` files; a
+  shortcut is pinned as the shortcut, apps that are already pinned are skipped), **Remove**,
+  **Move up**, **Move down**, **Add folder…** (a folder picker), **Add separator** (appends one)
+  and **Add Recycle Bin** (greyed while the bin is pinned). Changes from the dock itself (drag to
+  reorder, drop to pin, drag off to unpin) show up in the list at once.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
 
@@ -420,7 +454,7 @@ Theme keys (colours are `#AARRGGBB` or `#RRGGBB`; defaults are the `dark` preset
 | `labelCornerRadius` | `7` | name label corner radius in DIPs, 0 - 32 |
 | `accent` | `#FF4CC2FF` | insertion marker while files are dragged over the dock |
 | `barBorder` | `#24FFFFFF` | hairline around the bar and the preview popup |
-| `separator` | `#38FFFFFF` | line between the app icons and the clock |
+| `separator` | `#38FFFFFF` | line between the app icons and the clock, and separator items |
 | `dotRunning` | `#80FFFFFF` | dot under a running app |
 | `dotActive` | `#FFFFFFFF` | dot under the app owning the foreground window |
 | `dotAttention` | `#FFFF9E26` | dot under an app flashing for attention |
@@ -484,8 +518,9 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
-  always, 110 Auto-hide when a window overlaps, 107 open or activate the settings window). Runs it
-  as if it was chosen from the menu. Returns 1 for a known command.
+  always, 110 Auto-hide when a window overlaps, 107 open or activate the settings window,
+  112 Add separator; 111 is reserved and returns 0). Runs it as if it was chosen from the menu.
+  Returns 1 for a known command.
 - `WinDock.QueryState`: `wParam` selects the value. 0 = auto-hide state (0 Shown, 1 Hiding,
   2 Hidden, 3 Showing). 1 = current `SHQueryUserNotificationState` value. 2 = hovered item index
   (-1 for none). 3 = 1 if the name label is shown (0 as soon as it starts fading out). 4 = 1
@@ -506,7 +541,10 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   the last load (the dock uses `dark`). 21 = number of callbacks those hooks delivered, the
   filtered ones (cursor, caret, child windows) included. 24 = kind of item `lParam` (0 app,
   1 folder, 2 separator, 3 Recycle Bin; -1 if there is no such item). 25 = 1 if item `lParam`
-  has a custom icon from its `icon` key (0 if not, -1 if there is no such item). 35 = the
+  has a custom icon from its `icon` key (0 if not, -1 if there is no such item). 22 = 1 while the
+  folder popup is visible. 23 = number of entries (cells) shown in the folder popup (0 when it is
+  hidden). 26 = drop mode while files are dragged over the dock (0 none, 1 insertion marker,
+  2 open with the app under the pointer, 3 recycle on the Recycle Bin). 35 = the
   dominant colour of item `lParam`'s icon as `0xAARRGGBB` (a saturation- and alpha-weighted
   average, computed once per icon load; 0 when unknown, -1 if there is no such item).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
@@ -520,6 +558,13 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   field rows use `3000 + 10 * field index + part` (field index in `Theme::Fields()` order; part 0
   label, 1 swatch / check box, 2 hex box / check box caption, 3 alpha or value box, 4 its up-down,
   5 Reset, 6 unit). The preview strip is the child `WinDock.SettingsPreview` (control id 101).
-- `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle, 801 new window,
-  802 open file location, 900 close all windows), `lParam` = item index or a window handle of
-  the item. Returns 1 if the item was found.
+- `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle (a separator's
+  Remove), 801 new window (the Recycle Bin's Open), 802 open file location, 803 open a folder in
+  Explorer, 806 show / hide a folder's popup, 807 empty the Recycle Bin (the shell's confirmation
+  appears; it runs on a thread of its own, so the call returns at once), 900 close all windows),
+  `lParam` = item index or a window handle of the item. Returns 1 if the item was found. A folder
+  popup opened this way usually cannot take the foreground (the dock did not get the click), so
+  Escape does not reach it; it still closes when another window comes to the foreground, on a dock
+  click, or with 806 again.
+- Popup windows: the window-preview popup is class `WinDockPreview`, the folder popup
+  `WinDockFolder`.

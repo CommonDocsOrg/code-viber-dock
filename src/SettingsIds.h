@@ -170,5 +170,8 @@ inline constexpr int kPinRemove = 2602;
 inline constexpr int kPinUp = 2603;
 inline constexpr int kPinDown = 2604;
 inline constexpr int kPinnedNote = 2605;
+inline constexpr int kPinAddFolder = 2606;        // "Add folder…" (folder picker)
+inline constexpr int kPinAddSeparator = 2607;     // appends { "kind": "separator" }
+inline constexpr int kPinAddRecycleBin = 2608;    // appends { "kind": "recycleBin" }; disabled while one is pinned
 
 }  // namespace SettingsIds

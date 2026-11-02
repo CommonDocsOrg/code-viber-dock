@@ -3,6 +3,8 @@
 #include <dwmapi.h>
 #include <ole2.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <shlwapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -31,6 +33,7 @@ constexpr float kIconTop = 5.0f;            // bar top -> icon top
 constexpr float kDotFromBottom = 5.0f;      // bar bottom -> indicator dot centre
 constexpr float kDotRadius = 2.0f;          // 4 px dot at 100 %
 constexpr float kSeparatorWidth = 17.0f;    // space between the last icon slot and the clock
+constexpr float kSeparatorSlot = 12.0f;     // a separator item's slot (its hairline is centred in it)
 constexpr float kMinSideSlack = 24.0f;      // window space beside the bar (labels of edge icons)
 constexpr float kLabelGap = 6.0f;           // magnified icon top -> label bottom
 constexpr float kLabelFontSize = 13.0f;
@@ -51,6 +54,9 @@ constexpr UINT kDragPollMs = 50;             // Escape polling while dragging (n
 constexpr float kMarkerWidth = 2.0f;         // file-drop insertion marker, DIPs
 constexpr float kPreviewGap = 12.0f;         // stage top -> thumbnail popup bottom, DIPs
 constexpr UINT kPreviewLeaveMs = 300;        // grace period after leaving the item and the popup
+constexpr float kDropScale = 1.15f;          // an app / the bin under a file drag (open with / recycle)
+constexpr float kDropEdge = 0.15f;           // slot fraction per side that still means "between items"
+constexpr UINT kRecycleBinCoalesceMs = 200;  // bursts of bin change notifications -> one redraw
 constexpr float kPi = 3.14159265358979f;
 
 BOOL CALLBACK CollectMonitor(HMONITOR mon, HDC, LPRECT, LPARAM lp) {
@@ -164,6 +170,11 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, MessageHook
                       },
                       [this](bool inside) { OnPreviewHover(inside); },
                   });
+    folder_.Init(instance, &renderer_, &icons_,
+                 FolderPopup::Callbacks{
+                     [this] { DismissFolderPopup(true); },
+                     [this] { OnFolderPopupClosed(); },
+                 });
 
     // File drops (OLE: needs OleInitialize on this thread, see main.cpp).
     dropTarget_ = new DropTarget(this);
@@ -192,6 +203,7 @@ void DockWindow::Destroy() {
 void DockWindow::ApplyConfig() {
     RefreshMotion();
     DismissPreview(false, false);  // previews / theme / sizes may have changed
+    DismissFolderPopup(false, false);
     FinishLabelFade();             // its text / position may no longer match
     clock_.Configure(config_->clock.format, config_->clock.showDate);
     clock_.SetColors(config_->theme.clockText, config_->theme.clockDateText);
@@ -247,13 +259,20 @@ void DockWindow::ComputeLayout() {
     const float clockW = c.clock.show ? static_cast<float>(clockSize_.width) : 0.0f;
     const float clockH = c.clock.show ? static_cast<float>(clockSize_.height) : 0.0f;
 
-    // Bar: lead + N slots (iconPx + gap each, icon centred) + separator + clock + padding.
+    // Bar: lead + N slots (iconPx + gap each, icon centred; separator items: a narrow slot) +
+    // separator + clock + padding.
     const size_t n = items_.size();
     l.gap = std::round(kGap * s);
     const float half = std::floor(l.gap / 2.0f);
     const float stride = l.iconPx + l.gap;
     const float lead = n ? l.padding - half : l.padding;
-    const float itemsW = static_cast<float>(n) * stride;
+    l.separatorSlot = std::max(2.0f, std::round(kSeparatorSlot * s));
+    float itemsW = 0.0f;
+    for (DockItem& item : items_) {
+        item.slotW = item.kind == DockItem::Kind::Separator ? l.separatorSlot : stride;
+        itemsW += item.slotW;
+    }
+    l.itemsW = itemsW;
     const float sepW = (n && c.clock.show) ? std::round(kSeparatorWidth * s) : 0.0f;
     float barW = lead + itemsW + sepW + clockW + l.padding;
     if (n && !c.clock.show) barW = lead + itemsW + lead;
@@ -285,6 +304,11 @@ void DockWindow::ComputeLayout() {
     l.clock = D2D1::RectF(clockX, clockY, clockX + clockW, clockY + clockH);
 
     l.itemsLeft = l.bar.left + lead;
+    float slotX = l.itemsLeft;
+    for (DockItem& item : items_) {
+        item.slotX = slotX;
+        slotX += item.slotW;
+    }
     l.itemTop = l.bar.top + std::round(kIconTop * s);
     l.itemHeight = l.bar.bottom - l.itemTop;
     l.magTop = l.itemTop + l.iconPx - l.iconPx * l.magnification;
@@ -438,7 +462,8 @@ void DockWindow::LayoutPass() {
     const Layout& l = layout_;
     if (!EqualRect(&old.window, &l.window) || old.scale != l.scale || old.bar.left != l.bar.left ||
         old.bar.top != l.bar.top || old.bar.right != l.bar.right || old.bar.bottom != l.bar.bottom ||
-        old.itemsLeft != l.itemsLeft || old.iconPx != l.iconPx || old.gap != l.gap || old.growMax != l.growMax) {
+        old.itemsLeft != l.itemsLeft || old.iconPx != l.iconPx || old.gap != l.gap || old.growMax != l.growMax ||
+        old.itemsW != l.itemsW) {
         snapPending_ = true;
         watch_.Poke();  // the bar's column moved: re-test the overlap (no-op unless intelligent)
     }
@@ -507,7 +532,7 @@ HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
     item.dot.Reset();
     HRESULT hr = renderer_.CreateLayer(item.dot, &itemsGroup_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.layer, &itemsGroup_);
-    if (SUCCEEDED(hr)) hr = renderer_.EnsurePlacement(item.layer, layout_.iconPx / 2.0f, layout_.iconPx);
+    if (SUCCEEDED(hr)) hr = renderer_.EnsurePlacement(item.layer, BoxW(item) / 2.0f, layout_.iconPx);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.icon, &item.layer);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.iconBig, &item.layer);
     item.dirty = true;
@@ -570,7 +595,35 @@ HRESULT DockWindow::RenderClock() {
     return S_OK;
 }
 
+HRESULT DockWindow::RenderSeparator(DockItem& item) {
+    // A vertical hairline in theme.separator, centred in the slot, as long as the one before the
+    // clock. Never magnified, so there is no magnified-size surface.
+    const Layout& l = layout_;
+    const UINT w = static_cast<UINT>(std::max(1.0f, item.slotW));
+    const UINT h = static_cast<UINT>(l.iconPx);
+    const float stroke = std::max(1.0f, std::round(l.scale));
+    const float barH = l.bar.bottom - l.bar.top;
+    const float vInset = std::round(barH * 0.22f);
+    const float boxTop = l.itemTop - l.bar.top;  // the icon box inside the bar
+    const float top = std::clamp(vInset - boxTop, 0.0f, static_cast<float>(h));
+    const float bottom = std::clamp(barH - vInset - boxTop, top, static_cast<float>(h));
+    const D2D1_COLOR_F color = Theme::ToColor(config_->theme.separator);
+    HRESULT hr = renderer_.DrawLayer(item.icon, w, h, [&](ID2D1DeviceContext* dc) {
+        winrt::com_ptr<ID2D1SolidColorBrush> brush;
+        if (FAILED(dc->CreateSolidColorBrush(color, brush.put()))) return;
+        const float x = std::floor(static_cast<float>(w) / 2.0f) + stroke / 2.0f;
+        dc->DrawLine(D2D1::Point2F(x, top), D2D1::Point2F(x, bottom), brush.get(), stroke);
+    });
+    if (SUCCEEDED(hr)) hr = renderer_.DrawLayer(item.iconBig, 0, 0, {});
+    if (FAILED(hr)) return hr;
+    item.dirty = false;
+    renderer_.SetVisible(item.icon, true);
+    renderer_.SetVisible(item.iconBig, false);
+    return S_OK;
+}
+
 HRESULT DockWindow::RenderItem(DockItem& item) {
+    if (item.kind == DockItem::Kind::Separator) return RenderSeparator(item);
     const Layout& l = layout_;
     const float icon = l.iconPx;
     const UINT smallPx = static_cast<UINT>(icon);
@@ -578,8 +631,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
     HWND sample = item.windows.empty() ? nullptr : item.windows.front();
     // May be slow (shell icon extraction) the first time per app; cached afterwards.
     // A pinned file that no longer exists shows the placeholder (unless the app is running).
-    // Separators have no icon: the placeholder for now (their own look comes with their layout).
-    ID2D1Bitmap* bmp = (item.missing && item.windows.empty()) || item.kind == DockItem::Kind::Separator
+    ID2D1Bitmap* bmp = item.missing && item.windows.empty()
                            ? nullptr
                            : icons_.Get(item.key, sample, l.bitmapPx, renderer_.ResourceContext(), item.iconFile,
                                         item.iconIndex);
@@ -678,7 +730,9 @@ HRESULT DockWindow::RenderLabel() {
     if (!labelDirty_ && labelItem_ == hovered_ && label_.width) return S_OK;
 
     const DockItem& item = items_[static_cast<size_t>(hovered_)];
-    const std::wstring text = item.displayName.empty() ? item.key.Source() : item.displayName;
+    const std::wstring text = item.kind == DockItem::Kind::RecycleBin ? RecycleBinLabel()
+                              : item.displayName.empty()             ? item.key.Source()
+                                                                     : item.displayName;
     const float s = layout_.scale;
     IDWriteFactory* dw = renderer_.DWrite();
     if (!labelFormat_ || labelScale_ != s) {
@@ -788,7 +842,9 @@ bool DockWindow::RecoverDevice() {
     // Device removed/reset: rebuild the whole chain and every surface. Retry a few times
     // because a driver update can keep the adapter unavailable for a moment.
     DismissPreview(false, false);
+    DismissFolderPopup(false, false);
     preview_.Destroy();  // its composition target belongs to the lost device; recreated on demand
+    folder_.Destroy();
     for (int attempt = 0; attempt < 3; ++attempt) {
         ResetLayers();
         icons_.Clear();  // the bitmaps belong to the lost device
@@ -831,14 +887,20 @@ void DockWindow::OnClockTick() {
 void DockWindow::ComputeTargets() {
     const Layout& l = layout_;
     const size_t n = items_.size();
-    const float stride = l.iconPx + l.gap;
+    const float stride = l.iconPx + l.gap;  // an icon's slot
     const float half = std::floor(l.gap / 2.0f);
     const bool magnify = magnifying_ && l.magnification > 1.001f && n > 0;
     const float range = static_cast<float>(config_->magnifyRange) * stride;
 
+    for (DockItem& item : items_) {
+        item.x = item.slotX + BoxInset(item);
+        item.y = l.itemTop;
+    }
+
     // Dragging an icon: no magnification; the others make room at the insertion slot and the
     // dragged icon follows the cursor. A file dragged over the dock opens a gap (the bar grows by
-    // one slot, half on each side).
+    // one slot, half on each side). Slots keep their own widths (separators are narrow), so the
+    // targets come from walking the new order.
     const int src = dragSource_;
     const bool dragLayout = (dragPhase_ != DragPhase::None || dragLanding_) && src >= 0 &&
                             src < static_cast<int>(n) && items_[static_cast<size_t>(src)].key == dragKey_ &&
@@ -847,32 +909,39 @@ void DockWindow::ComputeTargets() {
     if (dragLayout || gapLayout) {
         const float shiftLeft = gapLayout ? std::floor(stride / 2.0f) : 0.0f;
         const float shiftRight = gapLayout ? stride - shiftLeft : 0.0f;
-        const float base = l.itemsLeft - shiftLeft;
+        constexpr int kGapSlot = -1;
+        std::vector<int> order;  // item indices in display order (kGapSlot: the drop gap)
+        order.reserve(n + 1);
         for (size_t i = 0; i < n; ++i) {
-            DockItem& item = items_[i];
-            item.x = l.itemsLeft + static_cast<float>(i) * stride + half;
-            item.y = l.itemTop;
-            size_t slot = i;
-            if (dragLayout) {
-                const size_t s = static_cast<size_t>(src);
-                if (i == s) {
-                    if (dragPhase_ == DragPhase::Removing) continue;  // fades out where it was dropped
-                    if (dragPhase_ == DragPhase::Dragging) {
-                        const float winW = static_cast<float>(l.window.right - l.window.left);
-                        item.targetScale = kDragScale;
-                        item.targetX = std::clamp(cursorX_ - dragGrabDx_, 0.0f, std::max(0.0f, winW - l.iconPx));
-                        continue;
-                    }
-                    slot = static_cast<size_t>(dragInsert_);  // landing
-                } else {
-                    const size_t j = i < s ? i : i - 1;
-                    slot = j < static_cast<size_t>(dragInsert_) ? j : j + 1;
+            if (dragLayout && static_cast<int>(i) == src) continue;
+            if (gapLayout && static_cast<int>(i) == dropGap_) order.push_back(kGapSlot);
+            order.push_back(static_cast<int>(i));
+        }
+        if (gapLayout && dropGap_ >= static_cast<int>(n)) order.push_back(kGapSlot);
+        if (dragLayout) {
+            order.insert(order.begin() + std::min<ptrdiff_t>(dragInsert_, static_cast<ptrdiff_t>(order.size())), src);
+        }
+        float slotLeft = l.itemsLeft - shiftLeft;
+        for (const int i : order) {
+            if (i == kGapSlot) {
+                slotLeft += stride;
+                continue;
+            }
+            DockItem& item = items_[static_cast<size_t>(i)];
+            const float left = slotLeft;
+            slotLeft += item.slotW;
+            if (dragLayout && i == src) {
+                if (dragPhase_ == DragPhase::Removing) continue;  // fades out where it was dropped
+                if (dragPhase_ == DragPhase::Dragging) {
+                    const float winW = static_cast<float>(l.window.right - l.window.left);
+                    item.targetScale = kDragScale;
+                    item.targetX = std::clamp(cursorX_ - dragGrabDx_, 0.0f, std::max(0.0f, winW - BoxW(item)));
+                    continue;
                 }
-            } else if (i >= static_cast<size_t>(dropGap_)) {
-                slot = i + 1;
+                // landing: into its slot like the others
             }
             item.targetScale = 1.0f;
-            item.targetX = base + static_cast<float>(slot) * stride + half;
+            item.targetX = left + BoxInset(item);
         }
         bgLeftTarget_ = l.bar.left - shiftLeft;
         bgRightTarget_ = l.bar.right + shiftRight - l.bgSurfaceW;
@@ -881,13 +950,10 @@ void DockWindow::ComputeTargets() {
     }
 
     float delta = 0.0f;  // total growth of the run
-    for (size_t i = 0; i < n; ++i) {
-        DockItem& item = items_[i];
-        item.x = l.itemsLeft + static_cast<float>(i) * stride + half;
-        item.y = l.itemTop;
+    for (DockItem& item : items_) {
         float scale = 1.0f;
-        if (magnify) {
-            const float centre = l.itemsLeft + (static_cast<float>(i) + 0.5f) * stride;
+        if (magnify && item.kind != DockItem::Kind::Separator) {  // separators never magnify
+            const float centre = item.slotX + item.slotW / 2.0f;
             const float d = std::fabs(cursorX_ - centre);
             if (d < range) {
                 const float f = motion_.falloff == Falloff::Linear ? 1.0f - d / range
@@ -898,23 +964,28 @@ void DockWindow::ComputeTargets() {
         item.targetScale = scale;
         delta += l.iconPx * (scale - 1.0f);
     }
+    // Width of an item's slot in the magnified layout.
+    auto magnifiedW = [&](const DockItem& item) {
+        return item.kind == DockItem::Kind::Separator ? item.slotW : l.iconPx * item.targetScale + l.gap;
+    };
 
     float growLeft = 0.0f;
     if (magnify) {
         const float u = cursorX_ - l.bar.left;
         const float lead = l.itemsLeft - l.bar.left;
-        const float runW = static_cast<float>(n) * stride;
         float mapped;
         if (u <= lead) {
             mapped = u;
-        } else if (u >= lead + runW) {
+        } else if (u >= lead + l.itemsW) {
             mapped = u + delta;
         } else {
-            const size_t k = std::min(n - 1, static_cast<size_t>((u - lead) / stride));
-            const float frac = (u - lead - static_cast<float>(k) * stride) / stride;
+            const int slot = SlotAt(cursorX_);
+            const size_t k = slot >= 0 ? static_cast<size_t>(slot) : n - 1;
+            const DockItem& under = items_[k];
+            const float frac = std::clamp((cursorX_ - under.slotX) / std::max(1.0f, under.slotW), 0.0f, 1.0f);
             mapped = lead;
-            for (size_t j = 0; j < k; ++j) mapped += l.iconPx * items_[j].targetScale + l.gap;
-            mapped += frac * (l.iconPx * items_[k].targetScale + l.gap);
+            for (size_t j = 0; j < k; ++j) mapped += magnifiedW(items_[j]);
+            mapped += frac * magnifiedW(under);
         }
         growLeft = std::clamp(mapped - u, 0.0f, delta);
     }
@@ -922,11 +993,20 @@ void DockWindow::ComputeTargets() {
 
     float slotLeft = l.itemsLeft - growLeft;
     for (DockItem& item : items_) {
-        const float w = l.iconPx * item.targetScale;
-        // The icon box keeps its rest size and is scaled about its bottom centre, so its left
-        // edge sits half an icon left of the magnified icon's centre.
-        item.targetX = slotLeft + half + w / 2.0f - l.iconPx / 2.0f;
-        slotLeft += w + l.gap;
+        if (item.kind == DockItem::Kind::Separator) {
+            item.targetX = slotLeft;
+        } else {
+            // The icon box keeps its rest size and is scaled about its bottom centre, so its left
+            // edge sits half an icon left of the magnified icon's centre.
+            const float w = l.iconPx * item.targetScale;
+            item.targetX = slotLeft + half + w / 2.0f - l.iconPx / 2.0f;
+        }
+        slotLeft += magnifiedW(item);
+    }
+    // A file dragged onto an app (open with) or the bin (recycle): that icon grows in place.
+    if (dropItem_ >= 0 && dropItem_ < static_cast<int>(n) &&
+        (dropMode_ == DropMode::OpenWith || dropMode_ == DropMode::Recycle)) {
+        items_[static_cast<size_t>(dropItem_)].targetScale = kDropScale;
     }
 
     bgLeftTarget_ = l.bar.left - growLeft;
@@ -983,7 +1063,7 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
     for (DockItem& item : items_) {
         if (!item.layer.visual || !item.layer.translate || !item.layer.scale) continue;
         if (!item.tx.valid) {
-            renderer_.EnsurePlacement(item.layer, l.iconPx / 2.0f, l.iconPx);
+            renderer_.EnsurePlacement(item.layer, BoxW(item) / 2.0f, l.iconPx);
             item.layer.translate->SetOffsetY(item.y);
             if (item.dot.visual) item.dot.visual->SetOffsetY(l.dotTop);
         }
@@ -1010,10 +1090,13 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
     }
 
     if (dropGap_ >= 0 && marker_.visual && marker_.width) {
-        // Centred in the gap (the gap layout starts half a slot left of the rest layout).
+        // Centred in the gap (the gap layout starts half a slot left of the rest layout; the gap is
+        // an icon slot wide).
         const float stride = l.iconPx + l.gap;
-        const float x = l.itemsLeft - std::floor(stride / 2.0f) + static_cast<float>(dropGap_) * stride +
-                        std::floor(l.gap / 2.0f) + std::round((l.iconPx - static_cast<float>(marker_.width)) / 2.0f);
+        float gapLeft = l.itemsLeft - std::floor(stride / 2.0f);
+        for (size_t i = 0; i < items_.size() && static_cast<int>(i) < dropGap_; ++i) gapLeft += items_[i].slotW;
+        const float x =
+            gapLeft + std::floor(l.gap / 2.0f) + std::round((l.iconPx - static_cast<float>(marker_.width)) / 2.0f);
         if (!markerX_.valid) marker_.visual->SetOffsetY(l.itemTop);
         renderer_.Drive(
             markerX_, x, duration, now, [&](auto v) { return marker_.visual->SetOffsetX(v); }, 0.01f, easing);
@@ -1240,7 +1323,7 @@ bool DockWindow::PreviewEligible(int index) const {
     // Showing counts: the hover usually starts while the dock slides in (OnPreviewTimer requires
     // Shown).
     return (hideState_ == HideState::Shown || hideState_ == HideState::Showing) && !hold_ &&
-           dragPhase_ == DragPhase::None && !dropActive_;
+           dragPhase_ == DragPhase::None && !dropActive_ && !folder_.OnScreen();
 }
 
 void DockWindow::UpdatePreviewHover() {
@@ -1398,6 +1481,137 @@ void DockWindow::RefreshPreview() {
     ShowPreview(index, true);  // cards follow the windows (a closed one disappears)
 }
 
+// --- Folder popup ----------------------------------------------------------------------------
+// A left click on a folder item toggles FolderPopup (a click popup: it takes the foreground and
+// closes itself when it loses it or on Escape) above the icon, anchored like the thumbnail popup.
+// While it is open it holds the dock shown (kHoldFolder). The dock's own button-down, a drag, a
+// menu, a hide and any relayout dismiss it. Opening an entry from it dismisses it too.
+
+void DockWindow::ToggleFolderPopup(int index) {
+    if (index < 0 || index >= static_cast<int>(items_.size())) return;
+    const DockItem& item = items_[static_cast<size_t>(index)];
+    if (item.kind != DockItem::Kind::Folder) return;
+    if (folder_.Visible() && item.key == folderKey_) {
+        DismissFolderPopup(true);
+        return;
+    }
+    ShowFolderPopup(index);
+}
+
+void DockWindow::ShowFolderPopup(int index) {
+    if (index < 0 || index >= static_cast<int>(items_.size())) return;
+    const DockItem& item = items_[static_cast<size_t>(index)];
+    if (item.kind != DockItem::Kind::Folder) return;
+    DismissPreview(false, false);
+    const Layout& l = layout_;
+    FolderPopup::Style style;
+    style.scale = l.scale;
+    style.acrylic = acrylic_;
+    const ThemeConfig& theme = config_->theme;
+    style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
+    style.text = theme.labelText;
+    style.border = theme.barBorder;
+    style.hotBackground = theme.previewHotBackground;
+    style.hotBorder = theme.previewHotBorder;
+    style.cornerRadiusDip = theme.cornerRadius;
+    style.monitor = l.monitor;
+    const int anchorX = l.window.left + static_cast<int>(std::lround(item.targetX + l.iconPx / 2.0f));
+    const int bottom = l.window.top - static_cast<int>(std::lround(kPreviewGap * l.scale));
+    const std::wstring path = !item.targetPath.empty() ? item.targetPath : item.launchPath.value_or(item.key.Source());
+    const AppKey key = item.key;
+    if (!folder_.Show(path, item.displayName, style, anchorX, bottom)) {
+        DismissFolderPopup(false);
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    folderKey_ = key;
+    TakePopupHold(kHoldFolder);
+    HideLabel();
+    RenderWithRecovery([] { return S_OK; });  // commit the label hide
+}
+
+void DockWindow::DismissFolderPopup(bool animate, bool leaveCheck) {
+    folder_.Hide(animate);
+    folderKey_ = AppKey{};
+    ReleasePopupHold(kHoldFolder, leaveCheck);
+}
+
+void DockWindow::OnFolderPopupClosed() {
+    // Hidden already (fading out): only the dock's side.
+    folderKey_ = AppKey{};
+    ReleasePopupHold(kHoldFolder, true);
+}
+
+void DockWindow::RefreshFolderPopup() {
+    if (!folder_.OnScreen() || folderKey_.id.empty()) return;
+    const bool present = std::any_of(items_.begin(), items_.end(), [&](const DockItem& item) {
+        return item.key == folderKey_ && item.kind == DockItem::Kind::Folder;
+    });
+    if (!present) DismissFolderPopup(true);  // unpinned while open
+}
+
+// --- Recycle Bin item --------------------------------------------------------------------------
+// While a Recycle Bin item is on the dock, the shell notifies the dock window of changes to the
+// bin (SHChangeNotifyRegister, shell-level events, new delivery). A burst of them (a large delete
+// or an empty) is coalesced by a 200 ms one-shot timer into one icon reload; the icon cache entry
+// is dropped so the next draw asks the shell for the empty / full icon again. Nothing polls.
+
+void DockWindow::UpdateRecycleBinWatch() {
+    if (!hwnd_) return;
+    const bool want = std::any_of(items_.begin(), items_.end(),
+                                  [](const DockItem& item) { return item.kind == DockItem::Kind::RecycleBin; });
+    if (want == (binNotify_ != 0)) return;
+    if (!want) {
+        SHChangeNotifyDeregister(binNotify_);
+        binNotify_ = 0;
+        if (binPending_) {
+            KillTimer(hwnd_, kRecycleBinTimerId);
+            binPending_ = false;
+        }
+        return;
+    }
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    if (FAILED(SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, nullptr, &pidl)) || !pidl) return;
+    // Recursive: recycling and restoring show up as creates / deletes of the files the bin keeps
+    // in each drive's $Recycle.Bin, which the shell reports under the bin's PIDL; emptying also
+    // updates the bin itself.
+    SHChangeNotifyEntry entry{pidl, TRUE};
+    binNotify_ = SHChangeNotifyRegister(hwnd_, SHCNRF_ShellLevel | SHCNRF_NewDelivery,
+                                        SHCNE_CREATE | SHCNE_DELETE | SHCNE_MKDIR | SHCNE_RMDIR | SHCNE_RENAMEITEM |
+                                            SHCNE_RENAMEFOLDER | SHCNE_UPDATEDIR | SHCNE_UPDATEITEM,
+                                        kRecycleBinChangedMessage, 1, &entry);
+    CoTaskMemFree(pidl);
+    if (!binNotify_) OutputDebugStringW(L"WinDock: SHChangeNotifyRegister (Recycle Bin) failed\n");
+}
+
+void DockWindow::OnRecycleBinChanged() {
+    for (DockItem& item : items_) {
+        if (item.kind != DockItem::Kind::RecycleBin) continue;
+        icons_.Evict(item.key);
+        item.dirty = true;
+    }
+    if (hovered_ >= 0 && hovered_ < static_cast<int>(items_.size()) &&
+        items_[static_cast<size_t>(hovered_)].kind == DockItem::Kind::RecycleBin) {
+        labelDirty_ = true;  // the item count / size in its name
+    }
+    RenderWithRecovery([this] { return DrawFrame(false); });
+}
+
+std::wstring DockWindow::RecycleBinLabel() {
+    SHQUERYRBINFO info{sizeof(info)};
+    if (FAILED(SHQueryRecycleBinW(nullptr, &info))) return L"Recycle Bin";
+    if (info.i64NumItems <= 0) return L"Recycle Bin (empty)";
+    wchar_t size[32]{};
+    if (FAILED(StrFormatByteSizeEx(static_cast<ULONGLONG>(std::max<__int64>(info.i64Size, 0)),
+                                   SFBS_FLAGS_ROUND_TO_NEAREST_DISPLAYED_DIGIT, size, static_cast<UINT>(std::size(size))))) {
+        size[0] = 0;
+    }
+    std::wstring text = L"Recycle Bin (" + std::to_wstring(info.i64NumItems) +
+                        (info.i64NumItems == 1 ? L" item" : L" items");
+    if (size[0]) text += std::wstring(L", ") + size;
+    return text + L")";
+}
+
 // --- Acrylic backdrop ------------------------------------------------------------------------
 // The blur is a separate window (Backdrop) beneath the dock window. DirectComposition animations
 // cannot move a window, so while the bar's edges or the slide offset animate, a one-shot 16 ms
@@ -1486,6 +1700,7 @@ void DockWindow::RefreshMotion() {
     motion_ = m;
     renderer_.SetDefaultEasing(m.easing);
     preview_.SetFadeSeconds(m.previewFade);
+    folder_.SetFadeSeconds(m.previewFade);
 }
 
 // --- Auto-hide -------------------------------------------------------------------------------
@@ -1534,6 +1749,7 @@ void DockWindow::OnHideTimer() {
 void DockWindow::StartHide() {
     CancelHide();
     DismissPreview(false, false);
+    DismissFolderPopup(false, false);
     if (magnifyPending_) {
         KillTimer(hwnd_, kMagnifyTimerId);
         magnifyPending_ = false;
@@ -1781,6 +1997,7 @@ void DockWindow::SetHold(bool hold) {
     if (hold) {
         CancelHide();
         SuppressPreview();  // a menu opens or a drag starts
+        DismissFolderPopup(true, false);
         HideLabel();
         RenderWithRecovery([] { return S_OK; });  // commit the label hide
         return;
@@ -1982,6 +2199,8 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
         SetHold(false);
     }
     RefreshPreview();
+    RefreshFolderPopup();
+    UpdateRecycleBinWatch();
     UpdateIconUsage();
     ScheduleBounceTimer();
     if (landed && !CursorInZone()) TryCompact();  // no bounce timer left to do it
@@ -2225,8 +2444,8 @@ int DockWindow::DragInsertIndex(float stageX) const {
     const int n = static_cast<int>(items_.size());
     const int s = dragSource_;
     if (s < 0 || s >= n) return -1;
-    const float stride = layout_.iconPx + layout_.gap;
-    const int raw = std::clamp(static_cast<int>(std::floor((stageX - layout_.itemsLeft) / stride)), 0, n - 1);
+    const int slot = SlotAt(stageX);
+    const int raw = slot >= 0 ? slot : stageX < layout_.itemsLeft ? 0 : n - 1;
     const int pinned = static_cast<int>(PinnedCount());
     const DockItem& item = items_[static_cast<size_t>(s)];
     if (item.pinned) return std::min(raw, pinned - 1);
@@ -2237,10 +2456,13 @@ int DockWindow::DragInsertIndex(float stageX) const {
 }
 
 int DockWindow::DropGapIndex(float stageX) const {
-    const float stride = layout_.iconPx + layout_.gap;
     const int pinned = static_cast<int>(PinnedCount());
-    // Between items i-1 and i when the cursor is between their centres.
-    const int gap = static_cast<int>(std::floor((stageX - layout_.itemsLeft) / stride + 0.5f));
+    // Between items i-1 and i when the cursor is between their (rest) centres.
+    int gap = 0;
+    for (const DockItem& item : items_) {
+        if (item.slotX + item.slotW / 2.0f > stageX) break;
+        ++gap;
+    }
     return std::clamp(gap, 0, pinned);
 }
 
@@ -2285,9 +2507,9 @@ void DockWindow::BeginDrag(POINT pt) {
     dragKey_ = item.key;
     dragRemove_ = false;
     // Keep the grab point: the icon box's left edge stays this far left of the cursor.
-    const float centre = item.targetX + layout_.iconPx / 2.0f;
-    dragGrabDx_ = layout_.iconPx / 2.0f +
-                  std::clamp(static_cast<float>(pressPt_.x) - centre, -layout_.iconPx / 2.0f, layout_.iconPx / 2.0f);
+    const float boxW = BoxW(item);
+    const float centre = item.targetX + boxW / 2.0f;
+    dragGrabDx_ = boxW / 2.0f + std::clamp(static_cast<float>(pressPt_.x) - centre, -boxW / 2.0f, boxW / 2.0f);
     GetAsyncKeyState(VK_ESCAPE);  // clears the "pressed since the last call" bit
     SetCapture(hwnd_);
 
@@ -2453,12 +2675,18 @@ void DockWindow::OnRemoveTimer() {
 }
 
 // --- External file drops -------------------------------------------------------------------------
-// The dock HWND is an OLE drop target. A drag carrying .lnk / .exe files opens a gap at the
-// insertion slot (same slot-midpoint rule, limited to the pinned section) with a thin accent
-// marker in it; dropping pins the files there. Dragged onto the hidden dock's 1 px strip, the dock
-// reveals itself right away.
+// The dock HWND is an OLE drop target for file drags (CF_HDROP). Where the pointer is decides
+// what a drop does (dropMode_, QueryState 26):
+//  - over the central 70 % of an app's slot: open the files with that app (the icon grows to
+//    kDropScale, no marker);
+//  - over the central 70 % of the Recycle Bin's slot: recycle them (the bin grows the same way);
+//  - anywhere else (between icons, over folders / separators): pin the .lnk / .exe / folder files
+//    among them, with a gap at the insertion slot (same slot-midpoint rule, limited to the pinned
+//    section) and a thin accent marker in it; without pinnable files nothing happens there.
+// Dragged onto the hidden dock's 1 px strip, the dock reveals itself right away. Open-with and
+// recycle run from a posted message once Drop has returned (the drag source is not kept waiting).
 
-std::vector<std::wstring> DockWindow::PinnableFiles(IDataObject* data) {
+std::vector<std::wstring> DockWindow::DroppedFiles(IDataObject* data) {
     std::vector<std::wstring> files;
     if (!data) return files;
     FORMATETC fe{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
@@ -2472,9 +2700,7 @@ std::vector<std::wstring> DockWindow::PinnableFiles(IDataObject* data) {
             std::wstring path(len + 1, L'\0');
             DragQueryFileW(drop, i, path.data(), len + 1);
             path.resize(len);
-            const size_t dot = path.rfind(L'.');
-            const std::wstring ext = dot == std::wstring::npos ? L"" : AppIdentity::Normalize(path.substr(dot));
-            if (ext == L".lnk" || ext == L".exe") files.push_back(std::move(path));  // only these can be pinned
+            files.push_back(std::move(path));
         }
         GlobalUnlock(medium.hGlobal);
     }
@@ -2482,11 +2708,34 @@ std::vector<std::wstring> DockWindow::PinnableFiles(IDataObject* data) {
     return files;
 }
 
+std::vector<std::wstring> DockWindow::PinnableFiles(const std::vector<std::wstring>& files) {
+    std::vector<std::wstring> pinnable;
+    for (const std::wstring& path : files) {
+        const size_t dot = path.rfind(L'.');
+        const std::wstring ext = dot == std::wstring::npos ? L"" : AppIdentity::Normalize(path.substr(dot));
+        const DWORD attrs = GetFileAttributesW(path.c_str());
+        const bool folder = attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+        if (folder || ext == L".lnk" || ext == L".exe") pinnable.push_back(path);  // only these can be pinned
+    }
+    return pinnable;
+}
+
 namespace {
 DWORD DropEffect(DWORD allowed) {
     if (allowed & DROPEFFECT_LINK) return DROPEFFECT_LINK;
     if (allowed & DROPEFFECT_COPY) return DROPEFFECT_COPY;
     return DROPEFFECT_NONE;
+}
+// Open with: the files are handed to the app (a copy from the source's point of view).
+DWORD OpenEffect(DWORD allowed) {
+    if (allowed & DROPEFFECT_COPY) return DROPEFFECT_COPY;
+    if (allowed & DROPEFFECT_LINK) return DROPEFFECT_LINK;
+    return DROPEFFECT_NONE;
+}
+// Recycle: shown as a move while dragging (the drop itself reports none, see OnDrop).
+DWORD RecycleEffect(DWORD allowed) {
+    if (allowed & DROPEFFECT_MOVE) return DROPEFFECT_MOVE;
+    return OpenEffect(allowed);
 }
 }  // namespace
 
@@ -2505,10 +2754,37 @@ HRESULT DockWindow::RenderMarker() {
     });
 }
 
-void DockWindow::SetDropGap(int gap) {
+DockWindow::DropMode DockWindow::DropModeAt(float stageX, int* item, int* gap) const {
+    *item = -1;
+    *gap = -1;
+    const int slot = SlotAt(stageX);
+    if (slot >= 0) {
+        const DockItem& it = items_[static_cast<size_t>(slot)];
+        const float edge = it.slotW * kDropEdge;
+        const bool central = stageX >= it.slotX + edge && stageX < it.slotX + it.slotW - edge;
+        // An app needs something to start (not a bare window-class fallback).
+        const bool openable =
+            it.kind == DockItem::Kind::App && (!it.key.IsClassFallback() || it.launchPath.has_value());
+        if (central && openable) {
+            *item = slot;
+            return DropMode::OpenWith;
+        }
+        if (central && it.kind == DockItem::Kind::RecycleBin) {
+            *item = slot;
+            return DropMode::Recycle;
+        }
+    }
+    if (!dropPinnable_ || items_.empty()) return DropMode::None;
+    *gap = DropGapIndex(stageX);
+    return DropMode::Insert;
+}
+
+void DockWindow::SetDropTarget(DropMode mode, int item, int gap) {
     if (items_.empty()) gap = -1;  // nothing to make room between
-    if (gap == dropGap_) return;
-    const bool wasOpen = dropGap_ >= 0;
+    if (mode == dropMode_ && item == dropItem_ && gap == dropGap_) return;
+    const bool markerWasShown = dropGap_ >= 0;
+    dropMode_ = mode;
+    dropItem_ = item;
     dropGap_ = gap;
     RenderWithRecovery([&] {
         HRESULT hr = S_OK;
@@ -2518,17 +2794,22 @@ void DockWindow::SetDropGap(int gap) {
             renderer_.SetVisible(marker_, false);
             markerX_.valid = false;
         }
+        if (item >= 0) SetBigIcons(true);  // the target icon is shown above its rest size
         ComputeTargets();
         ApplyTargets(motion_.magnify, true);
-        if (gap >= 0 && !wasOpen) renderer_.SetVisible(marker_, true);
+        if (gap >= 0 && !markerWasShown) renderer_.SetVisible(marker_, true);
         return hr;
     });
 }
 
 DWORD DockWindow::OnDragEnter(IDataObject* data, POINT screenPt, DWORD allowed) {
-    dropAccept_ = !PinnableFiles(data).empty() && dragPhase_ == DragPhase::None;
-    if (!dropAccept_ || DropEffect(allowed) == DROPEFFECT_NONE) return DROPEFFECT_NONE;
+    const std::vector<std::wstring> files = DroppedFiles(data);
+    dropAccept_ = !files.empty() && dragPhase_ == DragPhase::None;
+    dropPinnable_ = dropAccept_ && !PinnableFiles(files).empty();
+    if (!dropAccept_ || allowed == DROPEFFECT_NONE) return DROPEFFECT_NONE;
     dropActive_ = true;
+    dropMode_ = DropMode::None;
+    dropItem_ = -1;
     SetHold(true);  // no auto-hide or label while the file is over the dock
     if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) {
         // A file dragged to the screen edge: reveal right away (no reveal delay).
@@ -2550,31 +2831,62 @@ DWORD DockWindow::OnDragEnter(IDataObject* data, POINT screenPt, DWORD allowed) 
 DWORD DockWindow::OnDragOver(POINT screenPt, DWORD allowed) {
     if (!dropActive_) return DROPEFFECT_NONE;
     const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
-    SetDropGap(shown ? DropGapIndex(static_cast<float>(screenPt.x - layout_.window.left)) : -1);
-    return DropEffect(allowed);
+    int item = -1, gap = -1;
+    const DropMode mode =
+        shown ? DropModeAt(static_cast<float>(screenPt.x - layout_.window.left), &item, &gap) : DropMode::None;
+    SetDropTarget(mode, item, gap);
+    switch (mode) {
+        case DropMode::Insert:
+            return DropEffect(allowed);
+        case DropMode::OpenWith:
+            return OpenEffect(allowed);
+        case DropMode::Recycle:
+            return RecycleEffect(allowed);
+        default:
+            return DROPEFFECT_NONE;
+    }
 }
 
 void DockWindow::OnDragLeave() {
     if (!dropActive_) return;
+    SetDropTarget(DropMode::None, -1, -1);
     dropActive_ = false;
-    SetDropGap(-1);
     KeepStage(motion_.magnify + 0.04);
     SetHold(false);
 }
 
 DWORD DockWindow::OnDrop(IDataObject* data, POINT screenPt, DWORD allowed) {
     if (!dropActive_) return DROPEFFECT_NONE;
-    dropActive_ = false;
-    const std::vector<std::wstring> files = PinnableFiles(data);
-    const int gap = DropGapIndex(static_cast<float>(screenPt.x - layout_.window.left));
-    const size_t at = ConfigIndexOfItem(static_cast<size_t>(gap));
-    // The gap closes as the new icon takes its slot: no closing animation, the rebuilt layout
-    // (one slot wider, re-centred) puts everything where the gap layout had it.
-    dropGap_ = -1;
-    renderer_.SetVisible(marker_, false);
-    markerX_.valid = false;
-    if (!files.empty() && pinRequests_.pinFiles) pinRequests_.pinFiles(files, at);
-    // Nothing new was pinned (duplicates): close the gap.
+    const std::vector<std::wstring> files = DroppedFiles(data);
+    int item = -1, gap = -1;
+    const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
+    const DropMode mode =
+        shown ? DropModeAt(static_cast<float>(screenPt.x - layout_.window.left), &item, &gap) : DropMode::None;
+    DWORD effect = DROPEFFECT_NONE;
+    if (mode == DropMode::Insert) {
+        const std::vector<std::wstring> pinnable = PinnableFiles(files);
+        const size_t at = ConfigIndexOfItem(static_cast<size_t>(std::max(gap, 0)));
+        // The gap closes as the new icon takes its slot: no closing animation, the rebuilt layout
+        // (one slot wider, re-centred) puts everything where the gap layout had it.
+        dropActive_ = false;
+        dropMode_ = DropMode::None;
+        dropGap_ = -1;
+        renderer_.SetVisible(marker_, false);
+        markerX_.valid = false;
+        if (!pinnable.empty() && pinRequests_.pinFiles) pinRequests_.pinFiles(pinnable, at);
+        effect = pinnable.empty() ? DROPEFFECT_NONE : DropEffect(allowed);
+    } else {
+        if ((mode == DropMode::OpenWith || mode == DropMode::Recycle) && !files.empty() && item >= 0 && hwnd_) {
+            dropAction_ = DropAction{mode, items_[static_cast<size_t>(item)].key, files};
+            PostMessageW(hwnd_, kDropActionMessage, 0, 0);
+            // A recycle is done by us (the files are deleted, not moved by the source): report no
+            // effect so the source does not try to delete them itself.
+            effect = mode == DropMode::OpenWith ? OpenEffect(allowed) : DROPEFFECT_NONE;
+        }
+        SetDropTarget(DropMode::None, -1, -1);  // the icon shrinks back
+        dropActive_ = false;
+    }
+    // Nothing new was pinned (duplicates) or the target shrinks back: settle.
     RenderWithRecovery([this] {
         ComputeTargets();
         ApplyTargets(motion_.rest);
@@ -2582,18 +2894,58 @@ DWORD DockWindow::OnDrop(IDataObject* data, POINT screenPt, DWORD allowed) {
     });
     KeepStage(motion_.rest + 0.04);
     SetHold(false);
-    return files.empty() ? DROPEFFECT_NONE : DropEffect(allowed);
+    return effect;
+}
+
+void DockWindow::OnDropAction() {
+    DropAction action = std::move(dropAction_);
+    dropAction_ = DropAction{};
+    if (action.files.empty()) return;
+    if (action.mode == DropMode::Recycle) {
+        if (!Launcher::Recycle(action.files, hwnd_)) MessageBeep(MB_ICONWARNING);
+        return;  // the bin's change notification redraws its icon
+    }
+    if (action.mode != DropMode::OpenWith) return;
+    int index = -1;
+    for (size_t i = 0; i < items_.size() && index < 0; ++i) {
+        if (items_[i].key == action.key && items_[i].kind == DockItem::Kind::App) index = static_cast<int>(i);
+    }
+    if (index < 0) return;
+    // OpenWith may pump messages (and so rebuild items_): from a copy, then find the item again.
+    const DockItem& target = items_[static_cast<size_t>(index)];
+    DockItem copy;
+    copy.key = target.key;
+    copy.kind = target.kind;
+    copy.launchPath = target.launchPath;
+    copy.workingDir = target.workingDir;
+    copy.targetPath = target.targetPath;
+    const size_t windowsBefore = target.windows.size();
+    if (!Launcher::OpenWith(copy, action.files)) {
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    // A running app usually opens the file in a window it already has: bounce only when it starts.
+    if (windowsBefore > 0) return;
+    for (DockItem& item : items_) {
+        if (item.key != copy.key) continue;
+        if (item.windows.empty() && item.bounce == DockItem::Bounce::None) StartBounce(item, 0);
+        break;
+    }
 }
 
 int DockWindow::HitTest(POINT pt) const {  // stage coordinates
     // Rest-slot hit-testing inside the active zone. The magnified layout is anchored at the
     // cursor, so the rest slot under the cursor is also the icon drawn under it.
     if (items_.empty() || !InZone(pt)) return -1;
-    const float x = static_cast<float>(pt.x);
-    const float stride = layout_.iconPx + layout_.gap;
-    if (x < layout_.itemsLeft || stride <= 0.0f) return -1;
-    const int index = static_cast<int>((x - layout_.itemsLeft) / stride);
-    return index < static_cast<int>(items_.size()) ? index : -1;
+    return SlotAt(static_cast<float>(pt.x));
+}
+
+int DockWindow::SlotAt(float x) const {
+    if (items_.empty() || x < layout_.itemsLeft) return -1;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (x < items_[i].slotX + items_[i].slotW) return static_cast<int>(i);
+    }
+    return -1;
 }
 
 const DockItem* DockWindow::ItemAt(POINT clientPt) const {
@@ -2616,7 +2968,7 @@ LRESULT DockWindow::QueryItemPoint(WPARAM wp, LPARAM lp) const {
     if (index < 0) return -1;
     const DockItem& item = items_[static_cast<size_t>(index)];
     // Rest layout, relative to the shown window position (also while hidden).
-    POINT pt{layout_.window.left + static_cast<LONG>(item.x + layout_.iconPx / 2.0f),
+    POINT pt{layout_.window.left + static_cast<LONG>(item.x + BoxW(item) / 2.0f),
              layout_.window.top + static_cast<LONG>(item.y + layout_.iconPx / 2.0f)};
     return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(pt.x), static_cast<WORD>(pt.y)));
 }
@@ -2641,7 +2993,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                    (hideState_ == HideState::Hiding || hideState_ == HideState::Showing ? 1 : 0) +
                    (backdropPending_ ? 1 : 0) + (dragPending_ ? 1 : 0) + (removePending_ ? 1 : 0) +
                    (previewPending_ ? 1 : 0) + (previewLeavePending_ ? 1 : 0) + (preview_.FadePending() ? 1 : 0) +
-                   (watch_.Pending() ? 1 : 0);
+                   (folder_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (watch_.Pending() ? 1 : 0);
         case 6:
             return acrylic_ ? 1 : 0;
         case 7:
@@ -2670,6 +3022,12 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return config_->themeResolveFailed ? 1 : 0;
         case 21:
             return static_cast<LRESULT>(watch_.DeliveredEvents());
+        case 22:
+            return folder_.Visible() ? 1 : 0;
+        case 23:
+            return static_cast<LRESULT>(folder_.EntryCount());
+        case 26:
+            return dropActive_ ? static_cast<LRESULT>(dropMode_) : 0;
         case 24:
         case 25:
         case 35: {
@@ -2775,6 +3133,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             SuppressPreview();  // the click cycles / starts a drag: no popup over it
             pressPt_ = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
             pressed_ = dragPhase_ == DragPhase::None ? HitTest(pressPt_) : -1;
+            // A press on the dock closes the folder popup; on its own folder icon the release then
+            // does not open it again (the click toggles).
+            folderPressClosed_ = folder_.Visible() && pressed_ >= 0 &&
+                                 items_[static_cast<size_t>(pressed_)].key == folderKey_;
+            if (folder_.OnScreen()) DismissFolderPopup(true, false);
             return 0;
 
         case WM_LBUTTONUP: {
@@ -2785,7 +3148,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             const int index = HitTest(ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)}));
             const bool clicked = index >= 0 && index == pressed_;
             pressed_ = -1;
-            if (clicked) {
+            const bool pressClosed = folderPressClosed_;
+            folderPressClosed_ = false;
+            if (clicked && items_[static_cast<size_t>(index)].kind == DockItem::Kind::Folder) {
+                if (!pressClosed) ShowFolderPopup(index);  // middle click opens it in Explorer
+            } else if (clicked) {
                 const std::vector<HWND> windows = items_[static_cast<size_t>(index)].windows;  // copy
                 if (windows.empty()) {
                     LaunchItem(index, false);
@@ -2798,6 +3165,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_MBUTTONDOWN:
             SuppressPreview();
+            if (folder_.OnScreen()) DismissFolderPopup(true, false);
             pressedMiddle_ = HitTest(ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)}));
             return 0;
 
@@ -2808,6 +3176,25 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (clicked) LaunchItem(index, true);
             return 0;
         }
+
+        case kRecycleBinChangedMessage: {
+            // New delivery: the notification's data must be locked and released.
+            PIDLIST_ABSOLUTE* pidls = nullptr;
+            LONG event = 0;
+            if (HANDLE lock = SHChangeNotification_Lock(reinterpret_cast<HANDLE>(wp), static_cast<DWORD>(lp), &pidls,
+                                                        &event)) {
+                SHChangeNotification_Unlock(lock);
+            }
+            if (binNotify_ && !binPending_) {
+                SetTimer(hwnd_, kRecycleBinTimerId, kRecycleBinCoalesceMs, nullptr);
+                binPending_ = true;
+            }
+            return 0;
+        }
+
+        case kDropActionMessage:
+            OnDropAction();
+            return 0;
 
         case WM_CAPTURECHANGED:
             // Someone else took the mouse (a menu, Alt+Tab...): cancel the drag.
@@ -2878,6 +3265,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 case kPreviewLeaveTimerId:
                     OnPreviewLeaveTimer();
                     return 0;
+                case kRecycleBinTimerId:
+                    KillTimer(hwnd_, kRecycleBinTimerId);  // one-shot; re-armed by the next notification
+                    binPending_ = false;
+                    OnRecycleBinChanged();
+                    return 0;
                 case kBackdropTimerId:
                     KillTimer(hwnd_, kBackdropTimerId);  // one-shot; re-armed while the bar animates
                     backdropPending_ = false;
@@ -2918,11 +3310,13 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             dpi_ = HIWORD(wp);
             labelDirty_ = true;
             DismissPreview(false, false);
+            DismissFolderPopup(false, false);
             Relayout();
             return 0;
 
         case WM_DISPLAYCHANGE:
             DismissPreview(false, false);
+            DismissFolderPopup(false, false);
             Relayout();  // re-picks the monitor (falls back to the primary) and re-centres
             return 0;
 
@@ -2963,9 +3357,14 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             for (UINT_PTR id : {kClockTimerId, kIconEvictTimerId, kBounceTimerId, kHideTimerId, kRevealTimerId,
                                 kSlideTimerId, kMagnifyTimerId, kLabelTimerId, kRestTimerId, kBackdropTimerId,
                                 kDragTimerId, kRemoveTimerId, kPreviewTimerId, kPreviewLeaveTimerId,
-                                kLabelFadeTimerId}) {
+                                kLabelFadeTimerId, kRecycleBinTimerId}) {
                 KillTimer(hwnd_, id);
             }
+            if (binNotify_) {
+                SHChangeNotifyDeregister(binNotify_);
+                binNotify_ = 0;
+            }
+            binPending_ = false;
             dragPending_ = removePending_ = false;
             evictPending_ = hidePending_ = revealPending_ = magnifyPending_ = labelPending_ = restPending_ = false;
             labelFading_ = false;
@@ -2973,6 +3372,8 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             previewPending_ = previewLeavePending_ = false;
             popupHolds_ = 0;
             preview_.Destroy();
+            folder_.Destroy();
+            folderKey_ = AppKey{};
             acrylic_ = false;
             backdrop_.Destroy();
             labelFormat_ = nullptr;

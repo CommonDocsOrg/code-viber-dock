@@ -6,6 +6,7 @@
 #include <algorithm>
 #include <cmath>
 #include <iterator>
+#include <vector>
 
 #include "Theme.h"
 
@@ -19,6 +20,13 @@ constexpr float kKeepCursorDip = 20.0f; // a shrinking popup keeps this much of 
 constexpr float kMaxPlainRadiusDip = 12.0f;
 
 LONG Px(float dip, float scale) { return static_cast<LONG>(std::lround(dip * scale)); }
+
+// Click popups with a foreground hook (WinEvent callbacks carry no context; there is at most a
+// handful of popups, all on this thread).
+std::vector<PopupWindow*>& HookedPopups() {
+    static std::vector<PopupWindow*> popups;
+    return popups;
+}
 
 }  // namespace
 
@@ -55,6 +63,7 @@ bool PopupWindow::EnsureWindow() {
 void PopupWindow::Destroy() {
     if (fadePending_ && hwnd_) KillTimer(hwnd_, kFadeTimerId);
     fadePending_ = false;
+    HookForeground(false);
     OnDestroying();
     content_.Reset();
     root_.Reset();
@@ -127,9 +136,10 @@ bool PopupWindow::ShowAt(const Frame& frame, int anchorX, int bottom) {
     const LONG margin = Px(kMonitorMargin, frame_.scale);
     LONG x = anchorX - size_.cx / 2;
     // Shrunk while the mouse is in it (e.g. a window closed): keep the cursor inside instead of
-    // re-centring away from it, so a hover popup does not dismiss itself under a still mouse.
+    // re-centring away from it, so a hover popup does not dismiss itself under a still mouse. A
+    // click popup keeps its anchor (it does not close when the mouse leaves it).
     POINT cursor{};
-    if (inside_ && !wasHidden && GetCursorPos(&cursor)) {
+    if (mode_ == Mode::Hover && inside_ && !wasHidden && GetCursorPos(&cursor)) {
         const LONG keep = Px(kKeepCursorDip, frame_.scale);
         if (cursor.x >= x + size_.cx) x = cursor.x - size_.cx + keep;
         if (cursor.x < x) x = cursor.x - keep;
@@ -154,10 +164,14 @@ bool PopupWindow::ShowAt(const Frame& frame, int anchorX, int bottom) {
     Commit();
     // A click popup takes the foreground when it appears (the dock just got the click, so this
     // process may set it); a hover popup never activates.
-    const bool activate = mode_ == Mode::Click && wasHidden;
+    // Shown again while fading out (or not allowed to take the foreground before): try again.
+    const bool activate = mode_ == Mode::Click && (wasHidden || GetForegroundWindow() != hwnd_);
     SetWindowPos(hwnd_, HWND_TOPMOST, rect_.left, rect_.top, size_.cx, size_.cy,
                  (activate ? 0 : SWP_NOACTIVATE) | SWP_NOOWNERZORDER | (wasHidden ? SWP_SHOWWINDOW : 0));
-    if (activate) SetForegroundWindow(hwnd_);
+    if (activate) {
+        SetForegroundWindow(hwnd_);
+        HookForeground(true);
+    }
     if (frame_.acrylic) backdrop_.Place(hwnd_, rect_);
 
     // Resized away from under the cursor: that is a leave (no WM_MOUSELEAVE may come).
@@ -235,6 +249,7 @@ void PopupWindow::CancelTracking() {
 void PopupWindow::FinishHide() {
     if (fadePending_) KillTimer(hwnd_, kFadeTimerId);
     fadePending_ = false;
+    HookForeground(false);
     state_ = State::Hidden;  // first: hiding an active click popup sends WM_ACTIVATE (ignored now)
     OnHidden();
     hot_ = -1;
@@ -258,6 +273,35 @@ void PopupWindow::CloseSelf() {
     if (state_ != State::Shown) return;
     Hide(true);
     if (closedCallback_) closedCallback_();
+}
+
+void PopupWindow::HookForeground(bool on) {
+    auto& popups = HookedPopups();
+    if (!on) {
+        if (foregroundHook_) UnhookWinEvent(foregroundHook_);
+        foregroundHook_ = nullptr;
+        std::erase(popups, this);
+        return;
+    }
+    if (foregroundHook_ || mode_ != Mode::Click) return;
+    // Out of context: the callback runs on this thread from its message loop, no DLL injection.
+    foregroundHook_ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr,
+                                      &PopupWindow::OnForegroundEvent, 0, 0,
+                                      WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    if (foregroundHook_) popups.push_back(this);
+}
+
+void CALLBACK PopupWindow::OnForegroundEvent(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG idObject, LONG,
+                                             DWORD, DWORD) {
+    if (event != EVENT_SYSTEM_FOREGROUND || idObject != OBJID_WINDOW || !hwnd) return;
+    // WINEVENT_SKIPOWNPROCESS: this is another process's window (the settings window or a menu
+    // of the dock never close the popup this way; deactivation does that when it was active).
+    for (PopupWindow* p : HookedPopups()) {
+        if (p->foregroundHook_ == hook) {
+            p->CloseSelf();
+            return;
+        }
+    }
 }
 
 bool PopupWindow::ContainsCursor() const {

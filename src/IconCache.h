@@ -45,6 +45,10 @@ public:
     // HICON -> D2D bitmap (the icon is not destroyed). Null on failure.
     winrt::com_ptr<ID2D1Bitmap> FromHicon(HICON icon, ID2D1DeviceContext* dc);
 
+    // Forgets the key's icon (the next Get loads it again, e.g. the Recycle Bin after it filled
+    // or was emptied).
+    void Evict(const AppKey& key) { entries_.erase(key); }
+
     // Marks which keys are on the dock right now; the others start their eviction countdown.
     void SetInUse(const std::vector<AppKey>& keys);
     // Drops entries unused for at least kEvictAfterMs. Returns true if unused entries remain.

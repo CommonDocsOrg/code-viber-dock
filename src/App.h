@@ -22,8 +22,9 @@ inline constexpr wchar_t kQuitMessage[] = L"WinDock.Quit";
 inline constexpr wchar_t kRestoreTaskbarMessage[] = L"WinDock.RestoreTaskbar";
 // Automation: SendMessage(dock, RegisterWindowMessage(kItemCommandMessage), cmd, target) runs a
 // per-item menu command (ContextMenu::kTogglePin / kNewWindow / kOpenFileLocation /
-// kCloseAllWindows) on the item at index `target`, or on the item owning window `target` when it
-// is a window handle. Returns 1 if the item was found.
+// kOpenInExplorer / kToggleFolderPopup / kEmptyRecycleBin / kCloseAllWindows) on the item at
+// index `target`, or on the item owning window `target` when it is a window handle. Returns 1 if
+// the item was found.
 inline constexpr wchar_t kItemCommandMessage[] = L"WinDock.ItemCommand";
 // Automation: SendMessage(dock, RegisterWindowMessage(kDockCommandMessage), cmd, 0) runs a dock /
 // tray menu command (ContextMenu::kAutoHide ... kLastDockCommand, kOpenSettings included),

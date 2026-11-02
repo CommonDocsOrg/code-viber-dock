@@ -73,6 +73,11 @@ struct DockItem {
     bool dotDirty = true;   // dot content must be re-assigned
     float x = 0.0f;         // rest position of the icon box (client pixels)
     float y = 0.0f;
+    // Rest slot (set by the layout): left edge (stage px) and width. An app / folder / bin slot is
+    // iconPx + gap with the icon box centred in it; a separator's slot is narrow and its box (the
+    // hairline surface) fills it.
+    float slotX = 0.0f;
+    float slotW = 0.0f;
     float targetX = 0.0f;   // current target of the icon box's left edge (magnified layout)
     float targetScale = 1.0f;
     Tween tx;               // translate.OffsetX (and the dot's OffsetX)

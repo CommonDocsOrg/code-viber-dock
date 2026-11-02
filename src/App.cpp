@@ -1,5 +1,6 @@
 #include "App.h"
 
+#include <shellapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -41,6 +42,15 @@ bool SetAutostart(bool enable) {
     const std::wstring value = L"\"" + path + L"\"";
     return RegSetKeyValueW(HKEY_CURRENT_USER, kRunKey, kRunValue, REG_SZ, value.c_str(),
                            static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+}
+
+// Empties the Recycle Bin with the shell's confirmation and progress UI, on a thread of its own
+// so the dock keeps running while the dialog is up (the dock watches the bin for the result).
+DWORD WINAPI EmptyRecycleBinThread(LPVOID) {
+    const HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    SHEmptyRecycleBinW(nullptr, nullptr, 0);
+    if (SUCCEEDED(co)) CoUninitialize();
+    return 0;
 }
 
 }  // namespace
@@ -242,6 +252,27 @@ void App::RunItemCommand(UINT cmd, const AppKey& key, const std::vector<HWND>& w
         case ContextMenu::kNewWindow:
             dock_.LaunchItem(IndexOfKey(key), true);
             return;
+        case ContextMenu::kOpenInExplorer: {
+            const int index = IndexOfKey(key);
+            if (index >= 0 && dock_.Items()[static_cast<size_t>(index)].kind == DockItem::Kind::Folder) {
+                dock_.LaunchItem(index, false);  // a folder opens in Explorer
+            }
+            return;
+        }
+        case ContextMenu::kToggleFolderPopup:
+            dock_.ToggleFolderPopup(IndexOfKey(key));
+            return;
+        case ContextMenu::kEmptyRecycleBin: {
+            const int index = IndexOfKey(key);
+            if (index < 0 || dock_.Items()[static_cast<size_t>(index)].kind != DockItem::Kind::RecycleBin) return;
+            AllowSetForegroundWindow(ASFW_ANY);
+            if (HANDLE thread = CreateThread(nullptr, 0, &EmptyRecycleBinThread, nullptr, 0, nullptr)) {
+                CloseHandle(thread);
+            } else {
+                MessageBeep(MB_ICONWARNING);
+            }
+            return;
+        }
         case ContextMenu::kOpenFileLocation: {
             const int index = IndexOfKey(key);
             if (index < 0) return;
@@ -342,7 +373,12 @@ void App::ShowItemMenu(int index, POINT pt) {
     const std::vector<HWND> windows = item.windows;
     const std::wstring name = item.displayName;
     ContextMenu::ItemMenuState itemState;
+    itemState.kind = item.kind;
     itemState.pinned = item.pinned;
+    if (item.kind == DockItem::Kind::RecycleBin) {
+        SHQUERYRBINFO info{sizeof(info)};
+        itemState.binEmpty = SUCCEEDED(SHQueryRecycleBinW(nullptr, &info)) && info.i64NumItems == 0;
+    }
     itemState.canPin = !key.IsClassFallback();
     itemState.canLaunch = item.kind != DockItem::Kind::Separator &&
                           (!key.IsClassFallback() || item.launchPath.has_value());
@@ -404,6 +440,15 @@ void App::OnCommand(UINT cmd) {
         case ContextMenu::kOpenSettings:
             OpenSettings();
             break;
+        case ContextMenu::kAddSeparator: {
+            PinnedEntry separator;
+            separator.kind = L"separator";
+            config_.pinned.push_back(std::move(separator));
+            dock_.ReloadPins();
+            RequestSave();
+            RefreshSettings();
+            break;
+        }
         case ContextMenu::kOpenConfig:
             OpenConfigFile();
             break;
@@ -574,7 +619,8 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     }
     if (msgDockCommand_ && msg == msgDockCommand_) {
         const UINT cmd = static_cast<UINT>(wp);
-        const bool known = cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand;
+        const bool known = cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand &&
+                           cmd != ContextMenu::kReservedRefreshWeather;
         result = known ? 1 : 0;
         if (known) OnCommand(cmd);  // after setting result: kQuit destroys the window
         return true;

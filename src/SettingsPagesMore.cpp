@@ -218,9 +218,13 @@ protected:
         Button(kPinUp, L"Move up", kMargin + 216, 100);
         Button(kPinDown, L"Move down", kMargin + 324, 100);
         NextRow(kRowH + 4);
+        Button(kPinAddFolder, L"Add folder…", kMargin, 124);
+        Button(kPinAddSeparator, L"Add separator", kMargin + 132, 124);
+        Button(kPinAddRecycleBin, L"Add Recycle Bin", kMargin + 264, 124);
+        NextRow(kRowH + 4);
         Text(kPinnedNote, CtlKind::Note,
              L"Changes apply to the dock at once. On the dock itself you can also drag icons to reorder them, "
-             L"drop shortcuts onto it to pin them, or drag a pinned icon away to unpin it.",
+             L"drop shortcuts or folders onto it to pin them, or drag a pinned icon away to unpin it.",
              kMargin, right - kMargin, 36);
         NextRow(36);
     }
@@ -277,6 +281,19 @@ protected:
             case kPinAdd:
                 AddFiles();
                 break;
+            case kPinAddFolder:
+                AddFolder();
+                break;
+            case kPinAddSeparator:
+            case kPinAddRecycleBin: {
+                if (id == kPinAddRecycleBin && HasRecycleBin()) return;
+                PinnedEntry entry;
+                entry.kind = id == kPinAddSeparator ? L"separator" : L"recycleBin";
+                pinned.push_back(std::move(entry));
+                Changed(SettingsScope::Pins);
+                FillList(static_cast<int>(pinned.size()) - 1);
+                break;
+            }
             case kPinRemove:
                 if (sel < 0 || sel >= n) return;
                 pinned.erase(pinned.begin() + sel);
@@ -309,13 +326,37 @@ private:
         Enable(kPinRemove, sel >= 0);
         Enable(kPinUp, sel > 0);
         Enable(kPinDown, sel >= 0 && sel < n - 1);
+        Enable(kPinAddRecycleBin, !HasRecycleBin());
         // A button that just got disabled must not keep the keyboard focus.
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kPinnedList));
     }
 
+    bool HasRecycleBin() {
+        const auto& pinned = Cfg().pinned;
+        return std::any_of(pinned.begin(), pinned.end(),
+                           [](const PinnedEntry& e) { return SpecialPinOf(e.kind) == SpecialPin::RecycleBin; });
+    }
+
     int AddIcon(const AppIdentity::ResolvedPin* pin, const PinnedEntry& e) {
         if (!images_) return -1;
+        const SpecialPin special = SpecialPinOf(e.kind);
+        if (special == SpecialPin::Separator) return -1;  // no icon: the name says "Separator"
         HICON icon = nullptr;
+        if (special == SpecialPin::RecycleBin) {
+            PIDLIST_ABSOLUTE pidl = nullptr;
+            SHFILEINFOW sfi{};
+            if (SUCCEEDED(SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, nullptr, &pidl)) && pidl) {
+                if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi, sizeof(sfi),
+                                   SHGFI_PIDL | SHGFI_ICON | SHGFI_SMALLICON)) {
+                    icon = sfi.hIcon;
+                }
+                CoTaskMemFree(pidl);
+            }
+            if (!icon) return -1;
+            const int index = ImageList_AddIcon(images_, icon);
+            DestroyIcon(icon);
+            return index;
+        }
         if (pin && !pin->iconFile.empty()) {
             SHDefExtractIconW(pin->iconFile.c_str(), pin->iconIndex, 0, &icon, nullptr,
                               MAKELONG(iconPx_, iconPx_));
@@ -418,6 +459,31 @@ private:
         if (paths.empty() || !Host().pinFiles) return;
         const size_t before = Cfg().pinned.size();
         Host().pinFiles(paths);  // skips apps that are already pinned; reloads the dock and saves
+        Window().ConfigApplied();
+        FillList(Cfg().pinned.size() > before ? static_cast<int>(Cfg().pinned.size()) - 1 : Selected());
+    }
+
+    void AddFolder() {
+        winrt::com_ptr<IFileOpenDialog> dialog;
+        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
+            MessageBeep(MB_ICONERROR);
+            return;
+        }
+        dialog->SetTitle(L"Pin a folder to the dock");
+        FILEOPENDIALOGOPTIONS options = 0;
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
+        if (FAILED(dialog->Show(Owner()))) return;  // cancelled
+        winrt::com_ptr<IShellItem> item;
+        PWSTR raw = nullptr;
+        if (FAILED(dialog->GetResult(item.put())) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw) {
+            return;
+        }
+        std::vector<std::wstring> paths{std::wstring(raw)};
+        CoTaskMemFree(raw);
+        if (!Host().pinFiles) return;
+        const size_t before = Cfg().pinned.size();
+        Host().pinFiles(paths);  // skips a folder that is already pinned; reloads the dock and saves
         Window().ConfigApplied();
         FillList(Cfg().pinned.size() > before ? static_cast<int>(Cfg().pinned.size()) - 1 : Selected());
     }

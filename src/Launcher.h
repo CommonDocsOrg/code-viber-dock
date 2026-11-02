@@ -1,5 +1,10 @@
 #pragma once
 
+#include <windows.h>
+
+#include <string>
+#include <vector>
+
 #include "DockItems.h"
 
 // Starts dock items with ShellExecuteEx (no UI on failure: an error dialog would block the dock).
@@ -15,5 +20,20 @@ bool Launch(const DockItem& item);
 
 // Same as Launch: most apps open a new window when started again (middle click, "New window").
 bool LaunchNewInstance(const DockItem& item);
+
+// Opens files with an app item (files dropped on its icon):
+//   the app is a registered handler of the first file's type (SHAssocEnumHandlers; packaged
+//               apps matched by AUMID, desktop apps by exe path): IAssocHandler::Invoke, as
+//               Explorer's "Open with" does;
+//   otherwise   AUMID keys: the app execution alias (an .exe pin) or ActivateApplication with
+//               the quoted files as arguments; .lnk pins: the shortcut's target with its own
+//               arguments, then the quoted files, in its working directory; .exe: the exe with
+//               the quoted files as parameters, in its folder.
+bool OpenWith(const DockItem& item, const std::vector<std::wstring>& files);
+
+// Moves files to the Recycle Bin (IFileOperation::DeleteItems with FOF_ALLOWUNDO |
+// FOFX_RECYCLEONDELETE; the shell's progress / confirmation UI owned by `owner`). Runs a modal
+// loop while it works.
+bool Recycle(const std::vector<std::wstring>& files, HWND owner);
 
 }  // namespace Launcher

@@ -13,6 +13,7 @@ void Append(HMENU menu, UINT id, const wchar_t* text, bool enabled, bool checked
 
 void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
     Append(menu, kOpenSettings, L"Settings…", true);
+    Append(menu, kAddSeparator, L"Add separator", true);
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     if (HMENU sub = CreatePopupMenu()) {  // destroyed with its parent
         Append(sub, kAutoHideOff, L"Off", true);
@@ -74,6 +75,34 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
                   const ItemMenuState& item, const TrayMenuState& state) {
     HMENU menu = CreatePopupMenu();
     if (!menu) return kNone;
+    // The special kinds: their own few entries, then the dock menu.
+    if (item.kind != DockItem::Kind::App) {
+        switch (item.kind) {
+            case DockItem::Kind::Folder:
+                if (!appName.empty()) {
+                    Append(menu, kNone, MenuText(appName).c_str(), false);
+                    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                }
+                Append(menu, kTogglePin, L"Unpin from dock", item.pinned);
+                Append(menu, kOpenInExplorer, L"Open in Explorer", true);
+                break;
+            case DockItem::Kind::Separator:
+                Append(menu, kTogglePin, L"Remove", item.pinned);
+                break;
+            case DockItem::Kind::RecycleBin:
+                Append(menu, kNewWindow, L"Open", true);
+                Append(menu, kEmptyRecycleBin, L"Empty Recycle Bin", !item.binEmpty);
+                Append(menu, kTogglePin, L"Unpin from dock", item.pinned);
+                break;
+            default:
+                break;
+        }
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendDockEntries(menu, state);
+        const UINT cmd = Track(owner, menu, pt);
+        DestroyMenu(menu);
+        return cmd;
+    }
     if (!appName.empty()) {
         Append(menu, kNone, MenuText(appName).c_str(), false);
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cmath>
 #include <cstdint>
 #include <functional>
 #include <string>
@@ -13,6 +14,7 @@
 #include "Clock.h"
 #include "Config.h"
 #include "DockItems.h"
+#include "FolderPopup.h"
 #include "ForegroundWatch.h"
 #include "IconCache.h"
 #include "PreviewPopup.h"
@@ -45,6 +47,12 @@ public:
     static constexpr UINT_PTR kPreviewLeaveTimerId = 17;  // grace period after leaving item and popup
     // 18 = ForegroundWatch::kTimerId (intelligent hide)
     static constexpr UINT_PTR kLabelFadeTimerId = 19;     // end of the name label's fade-out
+    // 20 is reserved (weather refresh)
+    static constexpr UINT_PTR kRecycleBinTimerId = 21;    // coalesces Recycle Bin change notifications
+    // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);
+    // a dropped file's open-with / recycle action (run after the OLE Drop call has returned).
+    static constexpr UINT kRecycleBinChangedMessage = WM_APP + 21;
+    static constexpr UINT kDropActionMessage = WM_APP + 22;
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -67,8 +75,10 @@ public:
     // theme preset failed to resolve on the last load; 21: number of foreground-watch callbacks
     // delivered so far, filtered ones included; 24: kind of item lp (0 app, 1 folder,
     // 2 separator, 3 Recycle Bin; -1 no such item); 25: 1 if item lp has a custom icon (0 no,
-    // -1 no such item); 35: the dominant colour of item lp's icon as 0xAARRGGBB (0 unknown,
-    // -1 no such item).
+    // -1 no such item); 22: 1 while the folder popup is visible; 23: number of entries (cells)
+    // shown in the folder popup; 26: drop mode of a file drag over the dock (0 none, 1 insertion
+    // marker, 2 open with the app under the pointer, 3 recycle on the Recycle Bin); 35: the
+    // dominant colour of item lp's icon as 0xAARRGGBB (0 unknown, -1 no such item).
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -143,8 +153,11 @@ public:
     const std::vector<AppIdentity::ResolvedPin>& Pins() const { return pins_; }
 
     // Starts the item's app (newInstance: even if it already has windows) and bounces its icon
-    // until a new window appears. Returns false if the launch failed.
+    // until a new window appears. Returns false if the launch failed. Folders and the Recycle Bin
+    // open in Explorer (no bounce).
     bool LaunchItem(int index, bool newInstance);
+    // Shows the folder popup of the folder item at `index`, or hides it if it is showing that item.
+    void ToggleFolderPopup(int index);
 
 private:
     class DropTarget;
@@ -167,7 +180,9 @@ private:
         float magnification = 1.0f;
         float padding = 0.0f;
         float gap = 0.0f;      // between icons
-        float itemsLeft = 0.0f;  // left edge of slot 0 (a slot is iconPx + gap wide)
+        float itemsLeft = 0.0f;  // left edge of slot 0 (a slot is iconPx + gap wide; separators: separatorSlot)
+        float itemsW = 0.0f;     // all slots
+        float separatorSlot = 0.0f;  // a separator item's slot width
         float itemTop = 0.0f;    // top of the icon box
         float itemHeight = 0.0f; // icon top -> bar bottom
         float magTop = 0.0f;     // top of a fully magnified icon
@@ -218,6 +233,7 @@ private:
     HRESULT RenderBackground();
     HRESULT RenderClock();
     HRESULT RenderItem(DockItem& item);
+    HRESULT RenderSeparator(DockItem& item);
     HRESULT RenderDotSources();
     HRESULT RenderDot(DockItem& item);
     HRESULT RenderLabel();
@@ -280,9 +296,26 @@ private:
     void RefreshPreview();
     void OnPreviewHover(bool inside);
 
+    // --- folder popup (folder items) ---
+    // Shows the popup for items_[index] (a folder), anchored over its icon; takes kHoldFolder.
+    void ShowFolderPopup(int index);
+    // Hides the popup and releases its hold (leaveCheck: see ReleasePopupHold).
+    void DismissFolderPopup(bool animate, bool leaveCheck = true);
+    // The popup closed by itself (deactivated, Escape).
+    void OnFolderPopupClosed();
+    // The item list changed: dismiss the popup if its folder item is gone.
+    void RefreshFolderPopup();
+
+    // --- Recycle Bin item ---
+    // Registers for the bin's shell change notifications while a Recycle Bin item exists.
+    void UpdateRecycleBinWatch();
+    void OnRecycleBinChanged();
+    // "Recycle Bin (N items, 12.3 MB)" / "Recycle Bin (empty)".
+    static std::wstring RecycleBinLabel();
+
     // --- popup holds ---
     // An open popup keeps the dock shown (part of Held()): one bit per popup in popupHolds_.
-    enum PopupHold : uint32_t { kHoldPreview = 1u << 0 };
+    enum PopupHold : uint32_t { kHoldPreview = 1u << 0, kHoldFolder = 1u << 1 };
     // Takes the hold for `bit` (cancels a pending hide).
     void TakePopupHold(uint32_t bit);
     // Releases it. With `leaveCheck`, once no hold remains a cursor outside the dock counts as
@@ -347,6 +380,16 @@ private:
     void ScheduleBounceTimer();
     void UpdateIconUsage();
     int HitTest(POINT stagePt) const;
+    // Index of the rest slot containing stage x (-1 left of the first / right of the last slot).
+    int SlotAt(float stageX) const;
+    // Width of an item's icon box: the icon, or a separator's whole (narrow) slot.
+    float BoxW(const DockItem& item) const {
+        return item.kind == DockItem::Kind::Separator ? item.slotW : layout_.iconPx;
+    }
+    // Rest slot left edge -> icon box left edge.
+    float BoxInset(const DockItem& item) const {
+        return item.kind == DockItem::Kind::Separator ? 0.0f : std::floor(layout_.gap / 2.0f);
+    }
     LRESULT QueryItemPoint(WPARAM wp, LPARAM lp) const;
     LRESULT QueryState(WPARAM wp, LPARAM lp) const;
 
@@ -375,13 +418,25 @@ private:
     void KeepStage(double seconds);
 
     // --- external file drops (OLE IDropTarget on the dock HWND) ---
+    // What a drop at the pointer would do (QueryState 26): pin pinnable files at an insertion
+    // marker, open the files with the app item under the pointer, or recycle them on the bin.
+    enum class DropMode { None = 0, Insert = 1, OpenWith = 2, Recycle = 3 };
     HRESULT RenderMarker();
     DWORD OnDragEnter(IDataObject* data, POINT screenPt, DWORD allowed);
     DWORD OnDragOver(POINT screenPt, DWORD allowed);
     void OnDragLeave();
     DWORD OnDrop(IDataObject* data, POINT screenPt, DWORD allowed);
-    void SetDropGap(int gap);
-    static std::vector<std::wstring> PinnableFiles(IDataObject* data);
+    // The mode, target item (OpenWith / Recycle) and gap (Insert) for a drop at stage x.
+    DropMode DropModeAt(float stageX, int* item, int* gap) const;
+    // Switches the drop feedback: the marker in a gap (Insert), the target icon scaled up
+    // (OpenWith / Recycle), or nothing.
+    void SetDropTarget(DropMode mode, int item, int gap);
+    // The dropped files' open-with / recycle action (kDropActionMessage).
+    void OnDropAction();
+    // Every file of a CF_HDROP drag.
+    static std::vector<std::wstring> DroppedFiles(IDataObject* data);
+    // The ones that can be pinned: .lnk, .exe and folders.
+    static std::vector<std::wstring> PinnableFiles(const std::vector<std::wstring>& files);
 
     // Animation timing at speed 1 (seconds).
     static constexpr double kMagnifyDurS = 0.08;  // retarget animation while the mouse moves
@@ -527,10 +582,31 @@ private:
     bool previewSuppressed_ = false;
     AppKey previewSuppressKey_;
 
+    // Folder popup
+    FolderPopup folder_;
+    AppKey folderKey_;            // the folder item the popup shows (empty: none)
+    // The left press that started the current click closed the popup of the pressed item: the
+    // release must not open it again (a click on the folder icon toggles).
+    bool folderPressClosed_ = false;
+
+    // Recycle Bin item
+    ULONG binNotify_ = 0;         // SHChangeNotifyRegister id (0: not registered)
+    bool binPending_ = false;     // kRecycleBinTimerId running
+
     // External drops
     DropTarget* dropTarget_ = nullptr;     // the registered IDropTarget (one reference held)
-    bool dropActive_ = false;     // a drag with pinnable files is over the dock
-    bool dropAccept_ = false;     // the current drag carries pinnable files
+    bool dropActive_ = false;     // a file drag is over the dock
+    bool dropAccept_ = false;     // the current drag carries files
+    bool dropPinnable_ = false;   // ... and some of them can be pinned (Insert mode)
+    DropMode dropMode_ = DropMode::None;
+    int dropItem_ = -1;           // OpenWith / Recycle: the target item (scaled up)
+    // A drop on an item, run once Drop has returned (kDropActionMessage).
+    struct DropAction {
+        DropMode mode = DropMode::None;
+        AppKey key;
+        std::vector<std::wstring> files;
+    };
+    DropAction dropAction_;
     int dropGap_ = -1;            // slot the gap is open at (-1: none)
     Layer marker_;                // insertion marker
     Tween markerX_;
