@@ -1,11 +1,15 @@
 #include "IconCache.h"
 
 #include <appmodel.h>
+#include <commctrl.h>
+#include <commoncontrols.h>
+#include <shellapi.h>
 #include <shlobj.h>
 #include <shobjidl_core.h>
 
 #include <algorithm>
 #include <climits>
+#include <cmath>
 #include <cwctype>
 #include <string>
 #include <vector>
@@ -131,6 +135,41 @@ bool HasAnyAlpha(HBITMAP bmp) {
     return false;
 }
 
+bool IsImageFile(const std::wstring& file) {
+    const size_t dot = file.rfind(L'.');
+    if (dot == std::wstring::npos || file.find_first_of(L"\\/", dot) != std::wstring::npos) return false;
+    const std::wstring ext = Lower(file.substr(dot));
+    return ext == L".png" || ext == L".jpg" || ext == L".jpeg" || ext == L".bmp" || ext == L".gif";
+}
+
+bool IsDirectory(const std::wstring& path) {
+    if (path.empty()) return false;
+    const DWORD attrs = GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
+// SHIL_JUMBO renders an icon that has no 256 px image at its largest size in the top-left corner
+// of a transparent 256 x 256 canvas. True when nothing outside that corner (`edge` px) is
+// visible, i.e. the smaller list should be used instead.
+bool OnlyInCorner(IWICBitmap* bitmap, UINT edge) {
+    UINT w = 0, h = 0;
+    if (FAILED(bitmap->GetSize(&w, &h)) || w <= edge || h <= edge) return false;
+    winrt::com_ptr<IWICBitmapLock> lock;
+    const WICRect all{0, 0, static_cast<INT>(w), static_cast<INT>(h)};
+    if (FAILED(bitmap->Lock(&all, WICBitmapLockRead, lock.put()))) return false;
+    UINT stride = 0, size = 0;
+    BYTE* data = nullptr;
+    if (FAILED(lock->GetStride(&stride)) || FAILED(lock->GetDataPointer(&size, &data)) || !data) return false;
+    if (static_cast<size_t>(stride) * h > size || stride < w * 4) return false;
+    for (UINT y = 0; y < h; ++y) {
+        const BYTE* row = data + static_cast<size_t>(y) * stride;
+        for (UINT x = y < edge ? edge : 0; x < w; ++x) {
+            if (row[static_cast<size_t>(x) * 4 + 3] != 0) return false;
+        }
+    }
+    return true;
+}
+
 }  // namespace
 
 IWICImagingFactory* IconCache::Wic() {
@@ -158,8 +197,56 @@ winrt::com_ptr<ID2D1Bitmap> IconCache::FromWic(IWICBitmapSource* source, ID2D1De
     return bitmap.as<ID2D1Bitmap>();
 }
 
+winrt::com_ptr<ID2D1Bitmap> IconCache::FromWicScaled(IWICBitmapSource* source, UINT px, ID2D1DeviceContext* dc) {
+    IWICImagingFactory* wic = Wic();
+    if (!wic || !source || px == 0) return nullptr;
+    UINT w = 0, h = 0;
+    if (FAILED(source->GetSize(&w, &h)) || w == 0 || h == 0) return nullptr;
+    if (w <= px && h <= px) return FromWic(source, dc);
+    // Premultiply first, then scale: scaling straight alpha bleeds the colour of transparent
+    // pixels into the edges.
+    winrt::com_ptr<IWICFormatConverter> converter;
+    if (FAILED(wic->CreateFormatConverter(converter.put())) ||
+        FAILED(converter->Initialize(source, GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                                     WICBitmapPaletteTypeCustom))) {
+        return nullptr;
+    }
+    const double fit = static_cast<double>(px) / static_cast<double>(std::max(w, h));
+    const UINT sw = std::max(1u, static_cast<UINT>(std::lround(w * fit)));
+    const UINT sh = std::max(1u, static_cast<UINT>(std::lround(h * fit)));
+    winrt::com_ptr<IWICBitmapScaler> scaler;
+    if (FAILED(wic->CreateBitmapScaler(scaler.put())) ||
+        FAILED(scaler->Initialize(converter.get(), sw, sh, WICBitmapInterpolationModeHighQualityCubic))) {
+        return nullptr;
+    }
+    return FromWic(scaler.get(), dc);
+}
+
+winrt::com_ptr<ID2D1Bitmap> IconCache::FromHicon(HICON icon, ID2D1DeviceContext* dc) {
+    IWICImagingFactory* wic = Wic();
+    if (!wic || !icon || !dc) return nullptr;
+    winrt::com_ptr<IWICBitmap> wicBitmap;
+    if (FAILED(wic->CreateBitmapFromHICON(icon, wicBitmap.put()))) return nullptr;
+    return FromWic(wicBitmap.get(), dc);
+}
+
+winrt::com_ptr<ID2D1Bitmap> IconCache::LoadImageFile(const std::wstring& file, UINT px, ID2D1DeviceContext* dc) {
+    IWICImagingFactory* wic = Wic();
+    if (!wic) return nullptr;
+    winrt::com_ptr<IWICBitmapDecoder> decoder;
+    if (FAILED(wic->CreateDecoderFromFilename(file.c_str(), nullptr, GENERIC_READ, WICDecodeMetadataCacheOnDemand,
+                                              decoder.put()))) {
+        return nullptr;
+    }
+    winrt::com_ptr<IWICBitmapFrameDecode> frame;
+    if (FAILED(decoder->GetFrame(0, frame.put()))) return nullptr;  // a GIF: its first frame
+    // Scaled to the bitmap size: a large photo would otherwise sit in video memory at full size.
+    return FromWicScaled(frame.get(), px, dc);
+}
+
 winrt::com_ptr<ID2D1Bitmap> IconCache::LoadFileIcon(const std::wstring& file, int index, UINT px,
                                                     ID2D1DeviceContext* dc) {
+    if (IsImageFile(file)) return LoadImageFile(file, px, dc);
     // Reads the icon resource straight from the exe at the requested size. Much lighter than
     // the shell namespace (IShellItemImageFactory costs ~15 MB of private bytes in caches).
     HICON icon = nullptr;
@@ -167,13 +254,87 @@ winrt::com_ptr<ID2D1Bitmap> IconCache::LoadFileIcon(const std::wstring& file, in
     if (FAILED(SHDefExtractIconW(file.c_str(), index, 0, &icon, nullptr, MAKELONG(size, 0))) || !icon) {
         return nullptr;
     }
-    winrt::com_ptr<ID2D1Bitmap> result;
-    if (IWICImagingFactory* wic = Wic()) {
-        winrt::com_ptr<IWICBitmap> wicBitmap;
-        if (SUCCEEDED(wic->CreateBitmapFromHICON(icon, wicBitmap.put()))) result = FromWic(wicBitmap.get(), dc);
-    }
+    winrt::com_ptr<ID2D1Bitmap> result = FromHicon(icon, dc);
     DestroyIcon(icon);
     return result;
+}
+
+winrt::com_ptr<ID2D1Bitmap> IconCache::LoadFolderIcon(const wchar_t* path, PCIDLIST_ABSOLUTE pidl, UINT px,
+                                                      ID2D1DeviceContext* dc) {
+    IWICImagingFactory* wic = Wic();
+    if (!wic || (!path && !pidl)) return nullptr;
+    // The system image list index (it reflects desktop.ini icons and the Recycle Bin's
+    // empty / full state). The image list is the shell's own: never destroyed.
+    SHFILEINFOW sfi{};
+    const DWORD_PTR ok = pidl ? SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi, sizeof(sfi),
+                                               SHGFI_PIDL | SHGFI_SYSICONINDEX)
+                              : SHGetFileInfoW(path, 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX);
+    if (!ok) return nullptr;
+    // 48 px (SHIL_EXTRALARGE) is enough for small icons; otherwise the 256 px list, scaled down
+    // (falling back to 48 px for an icon without a 256 px image).
+    const int lists[2] = {px > 48 ? SHIL_JUMBO : SHIL_EXTRALARGE, SHIL_EXTRALARGE};
+    for (const int list : lists) {
+        winrt::com_ptr<IImageList> images;
+        if (FAILED(SHGetImageList(list, IID_PPV_ARGS(images.put())))) continue;
+        HICON icon = nullptr;
+        if (FAILED(images->GetIcon(sfi.iIcon, ILD_TRANSPARENT, &icon)) || !icon) continue;
+        winrt::com_ptr<IWICBitmap> wicBitmap;
+        const HRESULT hr = wic->CreateBitmapFromHICON(icon, wicBitmap.put());
+        DestroyIcon(icon);
+        if (FAILED(hr)) continue;
+        if (list == SHIL_JUMBO && OnlyInCorner(wicBitmap.get(), 48)) continue;
+        return FromWicScaled(wicBitmap.get(), px, dc);
+    }
+    return nullptr;
+}
+
+winrt::com_ptr<ID2D1Bitmap> IconCache::LoadRecycleBinIcon(UINT px, ID2D1DeviceContext* dc) {
+    PIDLIST_ABSOLUTE pidl = nullptr;
+    if (FAILED(SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, nullptr, &pidl)) || !pidl) {
+        return nullptr;
+    }
+    winrt::com_ptr<ID2D1Bitmap> result = LoadFolderIcon(nullptr, pidl, px, dc);
+    CoTaskMemFree(pidl);
+    return result;
+}
+
+uint32_t IconCache::ComputeDominantColor(ID2D1Bitmap* bitmap, ID2D1DeviceContext* dc) {
+    // Read back through a CPU-readable copy (a bitmap that can be drawn cannot be mapped). Done
+    // once per load; the copy is released at once.
+    if (!bitmap || !dc) return 0;
+    const D2D1_SIZE_U size = bitmap->GetPixelSize();
+    if (size.width == 0 || size.height == 0) return 0;
+    winrt::com_ptr<ID2D1Bitmap1> cpu;
+    const D2D1_BITMAP_PROPERTIES1 props =
+        D2D1::BitmapProperties1(D2D1_BITMAP_OPTIONS_CPU_READ | D2D1_BITMAP_OPTIONS_CANNOT_DRAW,
+                                D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+    if (FAILED(dc->CreateBitmap(size, nullptr, 0, &props, cpu.put()))) return 0;
+    if (FAILED(cpu->CopyFromBitmap(nullptr, bitmap, nullptr))) return 0;
+    D2D1_MAPPED_RECT mapped{};
+    if (FAILED(cpu->Map(D2D1_MAP_OPTIONS_READ, &mapped)) || !mapped.bits) return 0;
+    // Weight = alpha x (a little + saturation): vivid, opaque pixels decide the colour; grey
+    // outlines, shadows and anti-aliased edges count for little.
+    double r = 0.0, g = 0.0, b = 0.0, total = 0.0;
+    for (UINT y = 0; y < size.height; ++y) {
+        const BYTE* row = mapped.bits + static_cast<size_t>(y) * mapped.pitch;
+        for (UINT x = 0; x < size.width; ++x) {
+            const BYTE* p = row + static_cast<size_t>(x) * 4;  // B G R A, premultiplied
+            const int a = p[3];
+            if (a < 16) continue;
+            const double pb = p[0] * 255.0 / a, pg = p[1] * 255.0 / a, pr = p[2] * 255.0 / a;
+            const double hi = std::max({pr, pg, pb}), lo = std::min({pr, pg, pb});
+            const double saturation = hi > 0.0 ? (hi - lo) / hi : 0.0;
+            const double w = (a / 255.0) * (0.05 + saturation);
+            r += pr * w;
+            g += pg * w;
+            b += pb * w;
+            total += w;
+        }
+    }
+    cpu->Unmap();
+    if (total <= 0.0) return 0;
+    auto channel = [&](double v) { return static_cast<uint32_t>(std::clamp(std::lround(v / total), 0L, 255L)); };
+    return 0xFF000000u | (channel(r) << 16) | (channel(g) << 8) | channel(b);
 }
 
 winrt::com_ptr<ID2D1Bitmap> IconCache::LoadPackageLogo(const AppKey& key, UINT px, ID2D1DeviceContext* dc) {
@@ -249,18 +410,15 @@ winrt::com_ptr<ID2D1Bitmap> IconCache::LoadWindowIcon(HWND hwnd, ID2D1DeviceCont
         icon = static_cast<DWORD_PTR>(GetClassLongPtrW(hwnd, GCLP_HICON));
     }
     if (!icon) return nullptr;
-    IWICImagingFactory* wic = Wic();
-    if (!wic) return nullptr;
     // The icon belongs to the other process / its class: don't destroy it.
-    winrt::com_ptr<IWICBitmap> wicBitmap;
-    if (FAILED(wic->CreateBitmapFromHICON(reinterpret_cast<HICON>(icon), wicBitmap.put()))) return nullptr;
-    return FromWic(wicBitmap.get(), dc);
+    return FromHicon(reinterpret_cast<HICON>(icon), dc);
 }
 
 ID2D1Bitmap* IconCache::Get(const AppKey& key, HWND sampleWindow, UINT pixelSize, ID2D1DeviceContext* dc,
                             const std::wstring& iconFile, int iconIndex) {
     auto it = entries_.find(key);
-    if (it != entries_.end() && it->second.pixelSize == pixelSize) {
+    if (it != entries_.end() && it->second.pixelSize == pixelSize && it->second.iconFile == iconFile &&
+        it->second.iconIndex == iconIndex) {
         it->second.inUse = true;
         return it->second.bitmap.get();
     }
@@ -268,18 +426,31 @@ ID2D1Bitmap* IconCache::Get(const AppKey& key, HWND sampleWindow, UINT pixelSize
 
     Entry e;
     e.pixelSize = pixelSize;
+    e.iconFile = iconFile;
+    e.iconIndex = iconIndex;
     // Cheapest source first; the shell (exact but memory hungry) only when those fail.
     if (!iconFile.empty()) e.bitmap = LoadFileIcon(iconFile, iconIndex, pixelSize, dc);
-    if (!e.bitmap && key.isAumid) {
-        e.bitmap = LoadPackageLogo(key, pixelSize, dc);
-    } else if (!e.bitmap && !key.IsClassFallback()) {
-        e.bitmap = LoadFileIcon(key.Source(), 0, pixelSize, dc);
+    if (!e.bitmap) {
+        if (key.IsSynthetic()) {
+            if (key.id == L"kind:recyclebin") e.bitmap = LoadRecycleBinIcon(pixelSize, dc);
+        } else if (key.isAumid) {
+            e.bitmap = LoadPackageLogo(key, pixelSize, dc);
+        } else if (!key.IsClassFallback()) {
+            e.bitmap = IsDirectory(key.Source()) ? LoadFolderIcon(key.Source().c_str(), nullptr, pixelSize, dc)
+                                                 : LoadFileIcon(key.Source(), 0, pixelSize, dc);
+        }
     }
-    if (!e.bitmap) e.bitmap = LoadShellImage(key, pixelSize, dc);
+    if (!e.bitmap && !key.IsSynthetic()) e.bitmap = LoadShellImage(key, pixelSize, dc);
     if (!e.bitmap) e.bitmap = LoadWindowIcon(sampleWindow, dc);
+    e.dominant = ComputeDominantColor(e.bitmap.get(), dc);
     ID2D1Bitmap* raw = e.bitmap.get();
     entries_[key] = std::move(e);
     return raw;
+}
+
+uint32_t IconCache::DominantColor(const AppKey& key) const {
+    const auto it = entries_.find(key);
+    return it != entries_.end() ? it->second.dominant : 0;
 }
 
 void IconCache::SetInUse(const std::vector<AppKey>& keys) {

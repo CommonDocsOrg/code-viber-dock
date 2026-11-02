@@ -31,6 +31,8 @@ bool Execute(const std::wstring& file, const std::wstring& directory) {
 }  // namespace
 
 bool Launch(const DockItem& item) {
+    if (item.kind == DockItem::Kind::Separator) return false;
+    if (item.kind == DockItem::Kind::RecycleBin) return Execute(L"shell:RecycleBinFolder", {});
     if (item.launchPath && !item.launchPath->empty()) {
         const std::wstring dir = item.workingDir.empty() ? DirectoryOf(*item.launchPath) : item.workingDir;
         return Execute(*item.launchPath, dir);

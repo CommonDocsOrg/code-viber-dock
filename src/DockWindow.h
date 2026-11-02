@@ -2,6 +2,7 @@
 
 #include <windows.h>
 
+#include <cstdint>
 #include <functional>
 #include <string>
 #include <unordered_map>
@@ -64,7 +65,10 @@ public:
     // (animation.reduceMotion, or "system" and Windows' animation effects are off); 19: number of
     // foreground-watch events accepted so far (they only arrive in intelligent mode); 20: 1 if the
     // theme preset failed to resolve on the last load; 21: number of foreground-watch callbacks
-    // delivered so far, filtered ones included.
+    // delivered so far, filtered ones included; 24: kind of item lp (0 app, 1 folder,
+    // 2 separator, 3 Recycle Bin; -1 no such item); 25: 1 if item lp has a custom icon (0 no,
+    // -1 no such item); 35: the dominant colour of item lp's icon as 0xAARRGGBB (0 unknown,
+    // -1 no such item).
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -275,7 +279,16 @@ private:
     // The item list changed: follow the popup's app (its windows) or dismiss it.
     void RefreshPreview();
     void OnPreviewHover(bool inside);
-    bool Held() const { return hold_ || previewHold_ || keepShown_; }
+
+    // --- popup holds ---
+    // An open popup keeps the dock shown (part of Held()): one bit per popup in popupHolds_.
+    enum PopupHold : uint32_t { kHoldPreview = 1u << 0 };
+    // Takes the hold for `bit` (cancels a pending hide).
+    void TakePopupHold(uint32_t bit);
+    // Releases it. With `leaveCheck`, once no hold remains a cursor outside the dock counts as
+    // having left it (return to rest, compact, start the hide delay).
+    void ReleasePopupHold(uint32_t bit, bool leaveCheck);
+    bool Held() const { return hold_ || popupHolds_ != 0 || keepShown_; }
 
     // --- acrylic backdrop ---
     // Creates / destroys the backdrop window per config and system settings (call before a
@@ -438,7 +451,8 @@ private:
     std::vector<DockItem> items_;
     bool evictPending_ = false;
     std::vector<AppIdentity::ResolvedPin> pins_;                       // parallel to config_->pinned
-    std::unordered_map<std::wstring, AppIdentity::ResolvedPin> pinCache_;  // "p:"+path / "a:"+aumid
+    // Keyed by kind + icon + "p:"+path / "a:"+aumid (the special kinds are not cached).
+    std::unordered_map<std::wstring, AppIdentity::ResolvedPin> pinCache_;
 
     int hovered_ = -1;
     int pressed_ = -1;
@@ -476,6 +490,7 @@ private:
     Tween rootY_, rootOpacity_;
     bool hold_ = false;
     bool keepShown_ = false;      // SetKeepShown: part of Held(), not of NeedsStage()
+    uint32_t popupHolds_ = 0;     // PopupHold bits of the popups that keep the dock shown
     bool hidePending_ = false;
     bool revealPending_ = false;
     bool revealArmed_ = true;     // false until the cursor leaves the strip (no reveal loops)
@@ -504,7 +519,6 @@ private:
     PreviewPopup preview_;
     bool previewPending_ = false;       // kPreviewTimerId running
     bool previewLeavePending_ = false;  // kPreviewLeaveTimerId running
-    bool previewHold_ = false;          // the popup keeps the dock shown
     int previewItem_ = -1;              // item the popup shows
     AppKey previewKey_;
     int previewAnchorX_ = 0;            // screen x the popup is centred on

@@ -11,8 +11,9 @@
 #include "Renderer.h"
 
 // Identity of an application. `id` is normalized (lowercase): an AppUserModelID when
-// `isAumid`, otherwise a full exe path, or "class:<window class>" when the process could not
-// be queried. Equality and hashing use only (id, isAumid).
+// `isAumid`, otherwise a full exe path (a folder path for folder pins), "class:<window class>"
+// when the process could not be queried, or a synthetic "kind:..." id for the special pins
+// (separators, the Recycle Bin). Equality and hashing use only (id, isAumid).
 struct AppKey {
     std::wstring id;
     bool isAumid = false;
@@ -24,6 +25,8 @@ struct AppKey {
     bool operator!=(const AppKey& o) const { return !(*this == o); }
 
     bool IsClassFallback() const { return !isAumid && id.rfind(L"class:", 0) == 0; }
+    // "kind:separator#<n>" / "kind:recyclebin": no file behind the id.
+    bool IsSynthetic() const { return !isAumid && id.rfind(L"kind:", 0) == 0; }
     // The string to use for parsing names / display: original case when known.
     const std::wstring& Source() const { return original.empty() ? id : original; }
 };
@@ -37,13 +40,19 @@ struct AppKeyHash {
 // One dock entry: a pinned app (Phase 4) and/or a running app with its windows.
 // Dock order = pinned items in config order, then running apps in first-seen order.
 struct DockItem {
+    // App: a pinned and / or running app. The other kinds are pins only and never get windows:
+    // Folder (a directory, opened in Explorer), Separator (a spacer between items), RecycleBin.
+    enum class Kind { App, Folder, Separator, RecycleBin };
+
     AppKey key;
+    Kind kind = Kind::App;
     std::wstring displayName;
     std::optional<std::wstring> launchPath;  // .lnk/.exe for pinned entries (keeps args / working dir)
     std::wstring workingDir;                 // launch directory (the link's, else the target's folder)
     std::wstring targetPath;                 // resolved file for "Open file location" (empty: none)
     std::wstring iconFile;                   // explicit icon resource (a link's icon location), optional
     int iconIndex = 0;
+    bool customIcon = false;                 // iconFile comes from the pin's "icon" (config.json)
     bool missing = false;                    // pinned file no longer exists: placeholder icon
     bool pinned = false;
     std::vector<HWND> windows;               // running windows, first-seen order

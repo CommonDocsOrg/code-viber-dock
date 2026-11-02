@@ -1,0 +1,405 @@
+#include "PopupWindow.h"
+
+#include <dwmapi.h>
+#include <windowsx.h>
+
+#include <algorithm>
+#include <cmath>
+#include <iterator>
+
+#include "Theme.h"
+
+namespace {
+
+constexpr DWORD kStyle = WS_POPUP;
+constexpr DWORD kHoverExStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
+constexpr DWORD kClickExStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
+constexpr float kMonitorMargin = 8.0f;  // DIPs between the popup and the monitor edge
+constexpr float kKeepCursorDip = 20.0f; // a shrinking popup keeps this much of itself under the cursor
+constexpr float kMaxPlainRadiusDip = 12.0f;
+
+LONG Px(float dip, float scale) { return static_cast<LONG>(std::lround(dip * scale)); }
+
+}  // namespace
+
+bool PopupWindow::EnsureWindow() {
+    if (hwnd_ && target_ && content_.visual) return true;
+    if (!renderer_ || !instance_) return false;
+    if (!hwnd_) {
+        WNDCLASSEXW wc{sizeof(wc)};
+        wc.lpfnWndProc = &PopupWindow::WndProcThunk;
+        wc.hInstance = instance_;
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.lpszClassName = className_;
+        if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+        hwnd_ = CreateWindowExW(mode_ == Mode::Hover ? kHoverExStyle : kClickExStyle, className_, title_, kStyle, 0, 0,
+                                1, 1, nullptr, nullptr, instance_, this);
+        if (!hwnd_) return false;
+        // Shown and hidden instantly; the fade is ours.
+        const BOOL off = TRUE;
+        DwmSetWindowAttribute(hwnd_, DWMWA_TRANSITIONS_FORCEDISABLED, &off, sizeof(off));
+    }
+    HRESULT hr = renderer_->CreateWindowTarget(hwnd_, target_, root_);
+    if (SUCCEEDED(hr)) hr = renderer_->CreateLayer(content_, &root_);
+    if (FAILED(hr)) {
+        wchar_t buf[128];
+        swprintf_s(buf, L"WinDock: popup target failed (%s, 0x%08X)\n", className_, static_cast<unsigned>(hr));
+        OutputDebugStringW(buf);
+        Destroy();
+        return false;
+    }
+    fade_.valid = false;
+    return true;
+}
+
+void PopupWindow::Destroy() {
+    if (fadePending_ && hwnd_) KillTimer(hwnd_, kFadeTimerId);
+    fadePending_ = false;
+    OnDestroying();
+    content_.Reset();
+    root_.Reset();
+    if (target_) target_->SetRoot(nullptr);
+    target_ = nullptr;
+    backdrop_.Destroy();
+    state_ = State::Hidden;
+    hot_ = -1;
+    hotPart_ = 0;
+    std::fill(std::begin(pressed_), std::end(pressed_), -1);
+    tracking_ = inside_ = false;
+    if (hwnd_) {
+        HWND h = hwnd_;
+        hwnd_ = nullptr;
+        DestroyWindow(h);
+    }
+}
+
+void PopupWindow::Commit() {
+    if (!renderer_) return;
+    const HRESULT hr = renderer_->Commit();
+    if (FAILED(hr)) {
+        wchar_t buf[96];
+        swprintf_s(buf, L"WinDock: popup commit failed (0x%08X)\n", static_cast<unsigned>(hr));
+        OutputDebugStringW(buf);
+    }
+}
+
+HRESULT PopupWindow::Redraw() {
+    if (!content_.visual || !renderer_ || size_.cx <= 0 || size_.cy <= 0) return E_UNEXPECTED;
+    return renderer_->DrawLayer(content_, static_cast<UINT>(size_.cx), static_cast<UINT>(size_.cy),
+                                [&](ID2D1DeviceContext* dc) { Paint(dc); });
+}
+
+float PopupWindow::CornerRadiusPx() const {
+    const float dip = frame_.acrylic ? frame_.cornerRadiusDip : std::min(frame_.cornerRadiusDip, kMaxPlainRadiusDip);
+    return std::round(dip * frame_.scale);
+}
+
+void PopupWindow::PaintPanel(ID2D1DeviceContext* dc, uint32_t tint, uint32_t border) const {
+    winrt::com_ptr<ID2D1SolidColorBrush> brush;
+    if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(tint), brush.put()))) return;
+    const float radius = CornerRadiusPx();
+    const float stroke = std::max(1.0f, std::round(frame_.scale));
+    const float fw = static_cast<float>(size_.cx), fh = static_cast<float>(size_.cy);
+    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, fw, fh), radius, radius), brush.get());
+    const float inset = stroke / 2.0f;
+    brush->SetColor(Theme::ToColor(border));
+    dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, fw - inset, fh - inset),
+                                               std::max(0.0f, radius - inset), std::max(0.0f, radius - inset)),
+                             brush.get(), stroke);
+}
+
+bool PopupWindow::ShowAt(const Frame& frame, int anchorX, int bottom) {
+    if (!EnsureWindow()) return false;
+    const bool wasHidden = state_ == State::Hidden;
+    frame_ = frame;
+    if (frame_.acrylic && !backdrop_.Exists() && !backdrop_.Create(instance_)) frame_.acrylic = false;
+    if (frame_.acrylic) {
+        frame_.cornerRadiusDip = backdrop_.SetCornerRadius(8.0f);
+    } else {
+        backdrop_.Destroy();
+    }
+    const SIZE size = Measure();
+    if (size.cx <= 0 || size.cy <= 0) return false;
+    size_ = size;
+    if (FAILED(Redraw())) return false;
+
+    const RECT& m = frame_.monitor;
+    const LONG margin = Px(kMonitorMargin, frame_.scale);
+    LONG x = anchorX - size_.cx / 2;
+    // Shrunk while the mouse is in it (e.g. a window closed): keep the cursor inside instead of
+    // re-centring away from it, so a hover popup does not dismiss itself under a still mouse.
+    POINT cursor{};
+    if (inside_ && !wasHidden && GetCursorPos(&cursor)) {
+        const LONG keep = Px(kKeepCursorDip, frame_.scale);
+        if (cursor.x >= x + size_.cx) x = cursor.x - size_.cx + keep;
+        if (cursor.x < x) x = cursor.x - keep;
+    }
+    x = std::clamp(x, m.left + margin, std::max(m.left + margin, m.right - margin - size_.cx));
+    LONG y = std::max(bottom - size_.cy, m.top + margin);
+    rect_ = RECT{x, y, x + size_.cx, y + size_.cy};
+
+    const double now = Renderer::Now();
+    if (wasHidden) {
+        fade_ = Tween{0.0f, 0.0f, now, 0.0, true};
+        winrt::com_ptr<IDCompositionVisual3> root3;
+        if (root_.visual && SUCCEEDED(root_.visual->QueryInterface(IID_PPV_ARGS(root3.put())))) {
+            root3->SetOpacity(0.0f);
+        } else {
+            fade_ = Tween{1.0f, 1.0f, now, 0.0, true};  // no opacity support: no fade
+        }
+    }
+    state_ = State::Shown;
+    StartFade(1.0f);  // first: with no fade (SetFadeSeconds(0)) OnFade starts opaque
+    OnFade(static_cast<BYTE>(std::lround(std::clamp(fade_.Value(now), 0.0f, 1.0f) * 255.0f)), true);
+    Commit();
+    // A click popup takes the foreground when it appears (the dock just got the click, so this
+    // process may set it); a hover popup never activates.
+    const bool activate = mode_ == Mode::Click && wasHidden;
+    SetWindowPos(hwnd_, HWND_TOPMOST, rect_.left, rect_.top, size_.cx, size_.cy,
+                 (activate ? 0 : SWP_NOACTIVATE) | SWP_NOOWNERZORDER | (wasHidden ? SWP_SHOWWINDOW : 0));
+    if (activate) SetForegroundWindow(hwnd_);
+    if (frame_.acrylic) backdrop_.Place(hwnd_, rect_);
+
+    // Resized away from under the cursor: that is a leave (no WM_MOUSELEAVE may come).
+    if (inside_ && !ContainsCursor()) {
+        CancelTracking();
+        inside_ = false;
+        hot_ = -1;
+        hotPart_ = 0;
+        if (hoverCallback_) hoverCallback_(false);
+    }
+    return true;
+}
+
+void PopupWindow::StartFade(float to) {
+    if (!root_.visual || !renderer_) return;
+    winrt::com_ptr<IDCompositionVisual3> root3;
+    if (FAILED(root_.visual->QueryInterface(IID_PPV_ARGS(root3.put())))) {
+        fade_ = Tween{to, to, Renderer::Now(), 0.0, true};
+        return;
+    }
+    const double now = Renderer::Now();
+    const float remaining = std::fabs(to - fade_.Value(now));
+    // A partial reversal takes the remaining fraction of the fade (at least 30 ms, or the whole
+    // fade when that is shorter); 0 s: no fade.
+    const double duration =
+        fadeS_ > 0.0 ? std::max(std::min(0.03, fadeS_), fadeS_ * static_cast<double>(remaining)) : 0.0;
+    renderer_->Drive(fade_, to, duration, now, [&](auto v) { return root3->SetOpacity(v); }, 0.001f,
+                     renderer_->FadeEasing());
+    if (fade_.Running(now) && !fadePending_) {
+        SetTimer(hwnd_, kFadeTimerId, 16, nullptr);
+        fadePending_ = true;
+    }
+}
+
+void PopupWindow::OnFadeTimer() {
+    KillTimer(hwnd_, kFadeTimerId);
+    fadePending_ = false;
+    const double now = Renderer::Now();
+    const float v = std::clamp(fade_.Value(now), 0.0f, 1.0f);
+    if (fade_.Running(now)) {
+        OnFade(static_cast<BYTE>(std::lround(v * 255.0f)), false);
+        SetTimer(hwnd_, kFadeTimerId, 16, nullptr);
+        fadePending_ = true;
+        return;
+    }
+    if (state_ == State::FadingOut) {
+        FinishHide();
+        return;
+    }
+    OnFade(static_cast<BYTE>(std::lround(v * 255.0f)), false);
+}
+
+void PopupWindow::Hide(bool animate) {
+    if (state_ == State::Hidden || !hwnd_) return;
+    if (!animate) {
+        FinishHide();
+        return;
+    }
+    if (state_ == State::FadingOut) return;
+    state_ = State::FadingOut;
+    std::fill(std::begin(pressed_), std::end(pressed_), -1);
+    StartFade(0.0f);
+    Commit();
+    if (!fadePending_) FinishHide();  // nothing to animate
+}
+
+void PopupWindow::CancelTracking() {
+    if (tracking_ && hwnd_) {
+        TRACKMOUSEEVENT cancel{sizeof(cancel), TME_LEAVE | TME_CANCEL, hwnd_, 0};
+        TrackMouseEvent(&cancel);
+    }
+    tracking_ = false;
+}
+
+void PopupWindow::FinishHide() {
+    if (fadePending_) KillTimer(hwnd_, kFadeTimerId);
+    fadePending_ = false;
+    state_ = State::Hidden;  // first: hiding an active click popup sends WM_ACTIVATE (ignored now)
+    OnHidden();
+    hot_ = -1;
+    hotPart_ = 0;
+    std::fill(std::begin(pressed_), std::end(pressed_), -1);
+    CancelTracking();
+    inside_ = false;
+    if (hwnd_) {
+        SetWindowPos(hwnd_, nullptr, 0, 0, 0, 0,
+                     SWP_HIDEWINDOW | SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOMOVE | SWP_NOSIZE);
+    }
+    backdrop_.Hide();
+    if (renderer_ && content_.visual) {
+        renderer_->DrawLayer(content_, 0, 0, {});  // frees the surface
+        Commit();
+    }
+    fade_.valid = false;
+}
+
+void PopupWindow::CloseSelf() {
+    if (state_ != State::Shown) return;
+    Hide(true);
+    if (closedCallback_) closedCallback_();
+}
+
+bool PopupWindow::ContainsCursor() const {
+    if (state_ == State::Hidden) return false;
+    POINT pt{};
+    return GetCursorPos(&pt) && PtInRect(&rect_, pt);
+}
+
+void PopupWindow::SetHot(int index, int part) {
+    if (index < 0) part = 0;
+    if (index == hot_ && part == hotPart_) return;
+    hot_ = index;
+    hotPart_ = part;
+    if (state_ == State::Hidden) return;
+    OnHotChanged();
+}
+
+void PopupWindow::OnHotChanged() {
+    if (SUCCEEDED(Redraw())) Commit();
+}
+
+void PopupWindow::ButtonDown(Button button, POINT pt) {
+    const size_t b = static_cast<size_t>(button);
+    int part = 0;
+    pressed_[b] = state_ == State::Shown ? HitAt(pt, &part) : -1;
+    pressedPart_[b] = part;
+}
+
+void PopupWindow::ButtonUp(Button button, POINT pt) {
+    const size_t b = static_cast<size_t>(button);
+    int part = 0;
+    const int index = HitAt(pt, &part);
+    // Middle click acts on the item as a whole; left / right need the same part as the press.
+    const bool clicked = state_ == State::Shown && index >= 0 && index == pressed_[b] &&
+                         (button == Button::Middle || part == pressedPart_[b]);
+    if (button == Button::Middle) part = pressedPart_[b];
+    pressed_[b] = -1;
+    if (clicked) OnClick(index, part, button);  // may hide the popup
+}
+
+LRESULT CALLBACK PopupWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    PopupWindow* self = nullptr;
+    if (msg == WM_NCCREATE) {
+        self = static_cast<PopupWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+    } else {
+        self = reinterpret_cast<PopupWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    }
+    if (!self || !self->hwnd_ || self->hwnd_ != hwnd) return DefWindowProcW(hwnd, msg, wp, lp);
+    return self->WndProc(msg, wp, lp);
+}
+
+LRESULT PopupWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
+    {
+        LRESULT result = 0;
+        if (OnMessage(msg, wp, lp, result)) return result;
+    }
+    const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+    switch (msg) {
+        case WM_MOUSEACTIVATE:
+            return mode_ == Mode::Hover ? MA_NOACTIVATE : MA_ACTIVATE;
+
+        case WM_ACTIVATE:
+            // A click popup closes when another window takes the foreground.
+            if (mode_ == Mode::Click && LOWORD(wp) == WA_INACTIVE) CloseSelf();
+            break;  // DefWindowProc gives the window the keyboard focus on activation
+
+        case WM_KEYDOWN:
+            if (mode_ == Mode::Click && wp == VK_ESCAPE) {
+                CloseSelf();
+                return 0;
+            }
+            break;
+
+        case WM_MOUSEMOVE: {
+            if (state_ != State::Shown) return 0;
+            if (!tracking_) {
+                TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd_, 0};
+                tracking_ = TrackMouseEvent(&tme) != FALSE;
+            }
+            if (!inside_) {
+                inside_ = true;
+                if (hoverCallback_) hoverCallback_(true);
+            }
+            int part = 0;
+            const int index = HitAt(pt, &part);
+            SetHot(index, part);
+            return 0;
+        }
+
+        case WM_MOUSELEAVE:
+            tracking_ = false;
+            std::fill(std::begin(pressed_), std::end(pressed_), -1);
+            SetHot(-1, 0);
+            if (inside_) {
+                inside_ = false;
+                if (hoverCallback_) hoverCallback_(false);
+            }
+            return 0;
+
+        case WM_LBUTTONDOWN:
+            ButtonDown(Button::Left, pt);
+            return 0;
+        case WM_LBUTTONUP:
+            ButtonUp(Button::Left, pt);
+            return 0;
+        case WM_MBUTTONDOWN:
+            ButtonDown(Button::Middle, pt);
+            return 0;
+        case WM_MBUTTONUP:
+            ButtonUp(Button::Middle, pt);
+            return 0;
+        case WM_RBUTTONDOWN:
+            ButtonDown(Button::Right, pt);
+            return 0;
+        case WM_RBUTTONUP:
+            ButtonUp(Button::Right, pt);
+            return 0;
+
+        case WM_TIMER:
+            if (wp == kFadeTimerId) {
+                OnFadeTimer();
+                return 0;
+            }
+            break;
+
+        case WM_WINDOWPOSCHANGED:
+            if (!(reinterpret_cast<const WINDOWPOS*>(lp)->flags & SWP_NOZORDER)) backdrop_.Restack(hwnd_);
+            break;
+
+        case WM_DPICHANGED:
+            return 0;  // the dock places and scales the popup
+
+        case WM_ERASEBKGND:
+            return 1;
+
+        case WM_PAINT:
+            ValidateRect(hwnd_, nullptr);
+            return 0;
+
+        default:
+            break;
+    }
+    return DefWindowProcW(hwnd_, msg, wp, lp);
+}

@@ -10,7 +10,9 @@
 
 #include <winrt/base.h>
 
+#include <cwctype>
 #include <iterator>
+#include <string>
 #include <vector>
 #include <winioctl.h>
 
@@ -311,6 +313,12 @@ bool FileExists(const std::wstring& path) {
     return !path.empty() && GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
+bool IsDirectory(const std::wstring& path) {
+    if (path.empty()) return false;
+    const DWORD attrs = GetFileAttributesW(path.c_str());
+    return attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY);
+}
+
 // Absolute, long-form path (environment variables expanded, no 8.3 names or relative parts).
 std::wstring FullPath(const std::wstring& path) {
     const std::wstring expanded = Expand(path);
@@ -423,15 +431,105 @@ bool AumidInstalled(const std::wstring& aumid) {
     return (rc == ERROR_SUCCESS || rc == ERROR_INSUFFICIENT_BUFFER) && count > 0;
 }
 
-ResolvedPin ResolvePin(const std::wstring& path, const std::wstring& aumid) {
+namespace {
+
+AppKey SyntheticKey(const std::wstring& id) {
+    AppKey k;
+    k.id = id;  // already lowercase
+    k.original = id;
+    k.isAumid = false;
+    return k;
+}
+
+// The directory as one canonical path: full, long form, no trailing separator except for a
+// drive root ("C:\").
+std::wstring CanonicalDirectory(const std::wstring& dir) {
+    std::wstring d = FullPath(dir);
+    while (d.size() > 3 && (d.back() == L'\\' || d.back() == L'/')) d.pop_back();
+    return d;
+}
+
+void MakeFolder(const std::wstring& dir, ResolvedPin& pin) {
+    const std::wstring d = CanonicalDirectory(dir);
+    pin.kind = PinKind::Folder;
+    pin.key = MakePathKey(d);
+    pin.launchPath = d;
+    pin.targetPath = d;
+    pin.workingDir = d;
+    pin.missing = false;
+    // "C:\" -> "C:"; otherwise the last component.
+    if (d.size() <= 3 && d.size() >= 2 && d[1] == L':') {
+        pin.displayName = d.substr(0, 2);
+    } else {
+        const size_t slash = d.find_last_of(L"\\/");
+        pin.displayName = slash == std::wstring::npos ? d : d.substr(slash + 1);
+    }
+}
+
+// "file", "file,3", "file,-120" (a negative index is a resource id, as in shortcuts and the
+// registry). Only an index made of an optional '-' and digits is split off, so a path with a
+// comma in it still works. Applied only when the file exists.
+void ApplyCustomIcon(const std::wstring& spec, ResolvedPin& pin) {
+    if (spec.empty()) return;
+    std::wstring file = spec;
+    int index = 0;
+    if (const size_t comma = spec.rfind(L','); comma != std::wstring::npos) {
+        size_t b = comma + 1, e = spec.size();
+        while (b < e && iswspace(spec[b])) ++b;
+        while (e > b && iswspace(spec[e - 1])) --e;
+        const size_t digits = b < e && spec[b] == L'-' ? b + 1 : b;
+        bool numeric = digits < e && e - digits <= 9;
+        for (size_t i = digits; numeric && i < e; ++i) numeric = iswdigit(spec[i]) != 0;
+        if (numeric) {
+            index = _wtoi(spec.substr(b, e - b).c_str());
+            file = spec.substr(0, comma);
+        }
+    }
+    while (!file.empty() && iswspace(file.back())) file.pop_back();
+    while (!file.empty() && iswspace(file.front())) file.erase(0, 1);
+    if (file.size() >= 2 && file.front() == L'"' && file.back() == L'"') file = file.substr(1, file.size() - 2);
+    if (file.empty()) return;
+    file = FullPath(file);  // expands environment variables
+    if (!FileExists(file) || IsDirectory(file)) return;  // keep the default icon
+    pin.iconFile = file;
+    pin.iconIndex = index;
+    pin.customIcon = true;
+}
+
+}  // namespace
+
+ResolvedPin ResolvePin(const PinnedEntry& entry, size_t ordinal) {
     ResolvedPin pin;
+    switch (SpecialPinOf(entry.kind)) {
+        case SpecialPin::Separator:
+            pin.kind = PinKind::Separator;
+            pin.key = SyntheticKey(L"kind:separator#" + std::to_wstring(ordinal));
+            pin.displayName = L"Separator";
+            return pin;
+        case SpecialPin::RecycleBin:
+            pin.kind = PinKind::RecycleBin;
+            pin.key = SyntheticKey(L"kind:recyclebin");
+            pin.displayName = L"Recycle Bin";
+            ApplyCustomIcon(entry.icon, pin);
+            return pin;
+        case SpecialPin::None:
+            break;
+    }
+
+    const std::wstring& path = entry.path;
     if (path.empty()) {
-        pin.key = Canonicalize(MakeAumidKey(aumid));
+        pin.key = Canonicalize(MakeAumidKey(entry.aumid));
         pin.displayName = DisplayNameFor(pin.key);
+        ApplyCustomIcon(entry.icon, pin);
         return pin;
     }
 
     const std::wstring full = FullPath(path);
+    if (IsDirectory(full)) {
+        MakeFolder(full, pin);
+        ApplyCustomIcon(entry.icon, pin);
+        return pin;
+    }
     pin.launchPath = full;
     pin.workingDir = DirectoryOf(full);
     pin.key = Canonicalize(MakePathKey(full));  // fallback: unreadable link / link without a target
@@ -439,6 +537,17 @@ ResolvedPin ResolvePin(const std::wstring& path, const std::wstring& aumid) {
     if (HasExtension(full, L".lnk")) {
         pin.displayName = FileStem(full);
         ResolveShortcut(full, pin);
+        if (IsDirectory(pin.targetPath)) {
+            // A shortcut to a folder is that folder: same key, name and launch as a folder pin.
+            // Its own icon location (if any) is kept as the icon.
+            const std::wstring linkIcon = pin.iconFile;
+            const int linkIndex = pin.iconIndex;
+            MakeFolder(pin.targetPath, pin);
+            pin.iconFile = linkIcon;
+            pin.iconIndex = linkIndex;
+            ApplyCustomIcon(entry.icon, pin);
+            return pin;
+        }
     } else {
         pin.key = KeyForExe(full);
         pin.targetPath = full;
@@ -447,6 +556,7 @@ ResolvedPin ResolvePin(const std::wstring& path, const std::wstring& aumid) {
     if (!FileExists(full)) pin.missing = true;
     if (pin.missing) pin.iconFile.clear();
     if (pin.displayName.empty()) pin.displayName = FileStem(full);
+    ApplyCustomIcon(entry.icon, pin);
     return pin;
 }
 

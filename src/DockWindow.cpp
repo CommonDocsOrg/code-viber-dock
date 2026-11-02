@@ -578,7 +578,8 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
     HWND sample = item.windows.empty() ? nullptr : item.windows.front();
     // May be slow (shell icon extraction) the first time per app; cached afterwards.
     // A pinned file that no longer exists shows the placeholder (unless the app is running).
-    ID2D1Bitmap* bmp = item.missing && item.windows.empty()
+    // Separators have no icon: the placeholder for now (their own look comes with their layout).
+    ID2D1Bitmap* bmp = (item.missing && item.windows.empty()) || item.kind == DockItem::Kind::Separator
                            ? nullptr
                            : icons_.Get(item.key, sample, l.bitmapPx, renderer_.ResourceContext(), item.iconFile,
                                         item.iconIndex);
@@ -1134,7 +1135,8 @@ void DockWindow::SetHover(int index) {
     const int previous = hovered_;
     hovered_ = index;
     UpdatePreviewHover();
-    if (index < 0) {
+    // A separator has no name to show.
+    if (index < 0 || items_[static_cast<size_t>(index)].kind == DockItem::Kind::Separator) {
         HideLabel();
         return;
     }
@@ -1152,7 +1154,7 @@ void DockWindow::OnLabelTimer() {
     KillTimer(hwnd_, kLabelTimerId);
     labelPending_ = false;
     if (hovered_ < 0 || hold_ || preview_.Visible() || hideState_ == HideState::Hidden ||
-        hideState_ == HideState::Hiding) {
+        hideState_ == HideState::Hiding || items_[static_cast<size_t>(hovered_)].kind == DockItem::Kind::Separator) {
         return;
     }
     // Shown again while the previous label still fades out: fade in from where it is now.
@@ -1226,14 +1228,15 @@ void DockWindow::DriveLabelOpacity(float to, double duration) {
 // --- Thumbnail popup -------------------------------------------------------------------------
 // Resting on an item with two or more windows for previewDelayMs shows PreviewPopup above the
 // dock (centred on the item's magnified position, kPreviewGap above the stage). While it is on
-// screen it holds the dock shown (previewHold_) and the name label stays hidden. Moving to another
+// screen it holds the dock shown (kHoldPreview) and the name label stays hidden. Moving to another
 // multi-window item switches the popup; to a single-window item dismisses it. Leaving both the
 // item and the popup starts a kPreviewLeaveMs grace timer. Menus, drags, dock clicks and the dock
 // hiding dismiss it. All timers are one-shot; none runs once the popup is hidden.
 
 bool DockWindow::PreviewEligible(int index) const {
     if (!config_->previews || index < 0 || index >= static_cast<int>(items_.size())) return false;
-    if (items_[static_cast<size_t>(index)].windows.size() < 2) return false;
+    const DockItem& item = items_[static_cast<size_t>(index)];
+    if (item.kind != DockItem::Kind::App || item.windows.size() < 2) return false;
     // Showing counts: the hover usually starts while the dock slides in (OnPreviewTimer requires
     // Shown).
     return (hideState_ == HideState::Shown || hideState_ == HideState::Showing) && !hold_ &&
@@ -1343,10 +1346,7 @@ void DockWindow::ShowPreview(int index, bool keepAnchor) {
     }
     previewItem_ = index;
     previewKey_ = key;
-    if (!previewHold_) {
-        previewHold_ = true;
-        CancelHide();
-    }
+    TakePopupHold(kHoldPreview);
     HideLabel();
     RenderWithRecovery([] { return S_OK; });  // commit the label hide
 }
@@ -1360,9 +1360,20 @@ void DockWindow::DismissPreview(bool animate, bool leaveCheck) {
     preview_.Hide(animate);
     previewItem_ = -1;
     previewKey_ = AppKey{};
-    if (!previewHold_) return;
-    previewHold_ = false;
-    if (!hwnd_ || !leaveCheck || hold_ || hideState_ == HideState::Hidden) return;
+    ReleasePopupHold(kHoldPreview, leaveCheck);
+}
+
+void DockWindow::TakePopupHold(uint32_t bit) {
+    if (popupHolds_ & bit) return;
+    popupHolds_ |= bit;
+    CancelHide();
+}
+
+void DockWindow::ReleasePopupHold(uint32_t bit, bool leaveCheck) {
+    if (!(popupHolds_ & bit)) return;
+    popupHolds_ &= ~bit;
+    // Another popup (or a menu / drag) still holds the dock: it does the leave check when it ends.
+    if (!hwnd_ || !leaveCheck || hold_ || popupHolds_ || hideState_ == HideState::Hidden) return;
     if (!CursorInZone()) LeaveZone();  // return to rest, compact, start the hide delay
 }
 
@@ -1613,7 +1624,8 @@ bool DockWindow::ForegroundOverlaps() const {
     if (!fg || !hwnd_) return false;
     DWORD pid = 0;
     GetWindowThreadProcessId(fg, &pid);
-    if (pid == GetCurrentProcessId()) return false;  // the dock's own windows (a settings window)
+    // The dock's own windows (the settings window, an activated click popup) never overlap it.
+    if (pid == GetCurrentProcessId()) return false;
     if (IsIconic(fg) || !IsWindowVisible(fg)) return false;
     DWORD cloaked = 0;
     if (SUCCEEDED(DwmGetWindowAttribute(fg, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return false;
@@ -1785,12 +1797,20 @@ void DockWindow::ResolvePins() {
     std::vector<AppIdentity::ResolvedPin> pins;
     std::unordered_map<std::wstring, AppIdentity::ResolvedPin> cache;
     pins.reserve(config_->pinned.size());
+    size_t separators = 0;
     for (const PinnedEntry& e : config_->pinned) {
-        const std::wstring id = e.path.empty() ? L"a:" + e.aumid : L"p:" + e.path;
+        // Separators and the Recycle Bin resolve without any file access: not cached (a
+        // separator's key depends on its position among the separators).
+        if (SpecialPinOf(e.kind) != SpecialPin::None) {
+            const bool separator = SpecialPinOf(e.kind) == SpecialPin::Separator;
+            pins.push_back(AppIdentity::ResolvePin(e, separator ? separators++ : 0));
+            continue;
+        }
+        // The icon and kind are part of the id: editing either re-resolves the entry.
+        std::wstring id = e.kind + L"|" + e.icon + L"|" + (e.path.empty() ? L"a:" + e.aumid : L"p:" + e.path);
         auto it = pinCache_.find(id);
-        AppIdentity::ResolvedPin pin =
-            it != pinCache_.end() ? it->second : AppIdentity::ResolvePin(e.path, e.path.empty() ? e.aumid : L"");
-        cache[id] = pin;
+        AppIdentity::ResolvedPin pin = it != pinCache_.end() ? it->second : AppIdentity::ResolvePin(e);
+        cache[std::move(id)] = pin;
         pins.push_back(std::move(pin));
     }
     pins_ = std::move(pins);
@@ -1831,10 +1851,12 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
             item.key = pin.key;
         }
         if (!item.pinned || item.iconFile != pin.iconFile || item.iconIndex != pin.iconIndex ||
-            item.missing != pin.missing) {
+            item.missing != pin.missing || item.kind != pin.kind || item.customIcon != pin.customIcon) {
             item.dirty = true;
         }
         item.pinned = true;
+        item.kind = pin.kind;
+        item.customIcon = pin.customIcon;
         item.displayName = pin.displayName;
         item.launchPath = pin.launchPath.empty() ? std::nullopt : std::optional<std::wstring>(pin.launchPath);
         item.workingDir = pin.workingDir;
@@ -1847,12 +1869,13 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     const size_t pinnedCount = next.size();
 
     // 2. Running apps in first-seen order (the tracker keeps that order). A running app whose
-    //    key matches a pin merges into the pinned item. Unpinned items keep their state.
+    //    key matches a pinned app merges into it (folders, separators and the Recycle Bin never
+    //    take windows). Unpinned items keep their state.
     std::vector<const WindowTracker::Group*> groupOf(pinnedCount, nullptr);
     for (const WindowTracker::Group& g : snap.groups) {
         size_t index = SIZE_MAX;
         for (size_t p = 0; p < pinnedCount && index == SIZE_MAX; ++p) {
-            if (next[p].key == g.key) index = p;
+            if (next[p].kind == DockItem::Kind::App && next[p].key == g.key) index = p;
         }
         if (index == SIZE_MAX) {
             if (DockItem* old = takeOld(g.key)) {
@@ -1980,10 +2003,12 @@ bool DockWindow::LaunchItem(int index, bool newInstance) {
     if (!newInstance && target.bounce == DockItem::Bounce::Bouncing) {
         return true;  // already launching: do not start a second copy
     }
+    if (target.kind == DockItem::Kind::Separator) return true;  // nothing to launch
     // ShellExecuteEx may pump messages (and so rebuild items_): launch from a copy of the
     // launch data, then find the item again by key.
     DockItem copy;
     copy.key = target.key;
+    copy.kind = target.kind;
     copy.launchPath = target.launchPath;
     copy.workingDir = target.workingDir;
     const size_t windowsBefore = target.windows.size();
@@ -1991,6 +2016,9 @@ bool DockWindow::LaunchItem(int index, bool newInstance) {
         MessageBeep(MB_ICONWARNING);
         return false;
     }
+    // Folders and the Recycle Bin open in Explorer, whose windows belong to explorer.exe: no
+    // window of this item will ever appear, so there is no launch feedback.
+    if (copy.kind != DockItem::Kind::App) return true;
     for (DockItem& item : items_) {
         if (item.key != copy.key) continue;
         if (item.windows.size() <= windowsBefore) StartBounce(item, windowsBefore);
@@ -2642,6 +2670,14 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return config_->themeResolveFailed ? 1 : 0;
         case 21:
             return static_cast<LRESULT>(watch_.DeliveredEvents());
+        case 24:
+        case 25:
+        case 35: {
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            const DockItem& item = items_[static_cast<size_t>(lp)];
+            if (wp == 35) return static_cast<LRESULT>(icons_.DominantColor(item.key));
+            return wp == 24 ? static_cast<LRESULT>(item.kind) : (item.customIcon ? 1 : 0);
+        }
         default:
             return -1;
     }
@@ -2934,7 +2970,8 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             evictPending_ = hidePending_ = revealPending_ = magnifyPending_ = labelPending_ = restPending_ = false;
             labelFading_ = false;
             backdropPending_ = false;
-            previewPending_ = previewLeavePending_ = previewHold_ = false;
+            previewPending_ = previewLeavePending_ = false;
+            popupHolds_ = 0;
             preview_.Destroy();
             acrylic_ = false;
             backdrop_.Destroy();

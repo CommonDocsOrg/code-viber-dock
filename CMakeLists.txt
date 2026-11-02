@@ -20,6 +20,7 @@ add_executable(WinDock WIN32
   src/Theme.cpp
   src/DockWindow.cpp
   src/Backdrop.cpp
+  src/PopupWindow.cpp
   src/PreviewPopup.cpp
   src/Renderer.cpp
   src/Clock.cpp

@@ -6,11 +6,24 @@
 #include <utility>
 #include <vector>
 
-// A pinned dock entry. Exactly one of path / aumid is normally set.
+// A pinned dock entry. Exactly one of path / aumid is normally set; the special kinds
+// ("separator", "recycleBin") set neither.
 struct PinnedEntry {
-    std::wstring path;   // .lnk or .exe
+    std::wstring path;   // .lnk, .exe or a folder (folders are detected from the path, no `kind`)
     std::wstring aumid;  // AppUserModelID for packaged apps
+    // Custom icon: an image (.png .jpg .jpeg .bmp .gif), an .ico, or "file.exe,3" / "file.dll,-120"
+    // (icon index, negative = resource id). Environment variables are expanded. Empty: the
+    // default icon; a file that does not exist also keeps the default (the entry is kept as is).
+    std::wstring icon;
+    // "" (an app or folder, from the path), "separator" or "recycleBin" (case-insensitive). Kept
+    // verbatim, so a kind this version does not know survives a save.
+    std::wstring kind;
 };
+
+// pinned[].kind values with a meaning of their own (case-insensitive); None for "" and for
+// text this version does not know.
+enum class SpecialPin { None, Separator, RecycleBin };
+SpecialPin SpecialPinOf(std::wstring_view kind);
 
 struct ClockConfig {
     bool show = true;

@@ -182,6 +182,18 @@ the primary monitor.
   running section in first-seen order, as on macOS.
 - When a pinned file no longer exists, its entry stays in the config and the dock shows a
   placeholder icon. The dock never deletes pins silently.
+- **Folders**: a pin whose path is a folder, or a shortcut to a folder, is a folder item. It shows
+  the folder's own icon (custom `desktop.ini` icons included) and the folder's name (`C:` for a
+  drive root). A click (or middle click) opens the folder in Explorer; there is no launch
+  bounce and no running dot, because Explorer's windows belong to File Explorer. A folder and a
+  shortcut to it are the same item (shown once). For now folders are pinned in config.json only.
+- **Recycle Bin** (`{ "kind": "recycleBin" }` in `pinned`): shows the bin's icon (empty or full,
+  as it was when the icon was loaded) and opens the Recycle Bin on click.
+- **Separators** (`{ "kind": "separator" }` in `pinned`, any number): a spacer between items. For
+  now a separator takes a normal slot and is drawn as a placeholder tile without a name label;
+  it can be reordered and dragged off the dock like any pin.
+- **Custom icons**: any pin can name its own icon with `"icon"` (see Configuration). Changing it
+  and choosing **Reload config** redraws the icon at once.
 
 How a pin is matched with running windows:
 
@@ -317,8 +329,28 @@ the file untouched.
 
 - `clock.format` uses `strftime` specifiers (`%H:%M`, `%I:%M %p`, `%H:%M:%S`, ...). Formats with
   seconds tick every second; otherwise the clock wakes once a minute.
-- `pinned`: in dock order. Each entry is `{ "path": "<.lnk or .exe>" }` or
-  `{ "aumid": "<AppUserModelID>" }`. Environment variables in paths are expanded.
+- `pinned`: in dock order. Each entry is `{ "path": "<.lnk, .exe or folder>" }` or
+  `{ "aumid": "<AppUserModelID>" }`. Environment variables in paths are expanded. Folders need
+  no `kind`: they are detected from the path (or from a shortcut's target). Optional keys, written
+  back only when set:
+  - `icon`: a custom icon. An image (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`; scaled to the icon
+    size), an `.ico`, or an icon resource as `"file,index"`, for example
+    `"%WINDIR%\\system32\\shell32.dll,3"` (a negative index is a resource id, as in shortcuts).
+    Environment variables are expanded. If the file does not exist, the default icon is used and
+    the entry is kept unchanged.
+  - `kind`: `"separator"` or `"recycleBin"` (case-insensitive); these entries need no `path`. A
+    kind this version does not know is kept as written (an entry with an unknown kind and no
+    `path` / `aumid` is ignored).
+
+  ```json
+  "pinned": [
+    { "path": "C:\\Users\\me\\Downloads" },
+    { "kind": "separator" },
+    { "path": "C:\\Windows\\explorer.exe", "icon": "%WINDIR%\\system32\\shell32.dll,3" },
+    { "aumid": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App", "icon": "C:\\Icons\\terminal.png" },
+    { "kind": "recycleBin" }
+  ]
+  ```
 - `theme`: see Themes below.
 - `theme.acrylic` (default `true`): blur what is behind the bar, like the macOS dock. The blur is
   a Windows 11 system backdrop (acrylic) on a second, bar-sized window (class `WinDockBackdrop`)
@@ -472,7 +504,11 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   since the dock started (foreground changes, moves, minimize / restore of the foreground
   window; it stops counting in the other modes). 20 = 1 if the theme preset failed to resolve on
   the last load (the dock uses `dark`). 21 = number of callbacks those hooks delivered, the
-  filtered ones (cursor, caret, child windows) included.
+  filtered ones (cursor, caret, child windows) included. 24 = kind of item `lParam` (0 app,
+  1 folder, 2 separator, 3 Recycle Bin; -1 if there is no such item). 25 = 1 if item `lParam`
+  has a custom icon from its `icon` key (0 if not, -1 if there is no such item). 35 = the
+  dominant colour of item `lParam`'s icon as `0xAARRGGBB` (a saturation- and alpha-weighted
+  average, computed once per icon load; 0 when unknown, -1 if there is no such item).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
   what `WinDock.exe --settings` sends to a running dock.
 - Settings window (class `WinDock.Settings`, title "WinDock Settings"): the page list is the child

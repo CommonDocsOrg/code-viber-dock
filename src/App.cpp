@@ -208,7 +208,9 @@ void App::PinFiles(const std::vector<std::wstring>& paths, size_t at) {
     at = std::min(at, config_.pinned.size());
     bool changed = false;
     for (const std::wstring& path : paths) {
-        const AppIdentity::ResolvedPin pin = AppIdentity::ResolvePin(path, {});
+        PinnedEntry entry;
+        entry.path = path;
+        const AppIdentity::ResolvedPin pin = AppIdentity::ResolvePin(entry);
         if (std::find(keys.begin(), keys.end(), pin.key) != keys.end()) continue;
         keys.push_back(pin.key);
         PinnedEntry e;
@@ -245,7 +247,7 @@ void App::RunItemCommand(UINT cmd, const AppKey& key, const std::vector<HWND>& w
             if (index < 0) return;
             const DockItem& item = dock_.Items()[static_cast<size_t>(index)];
             std::wstring target = item.targetPath;
-            if (target.empty() && !key.isAumid && !key.IsClassFallback()) target = key.Source();
+            if (target.empty() && !key.isAumid && !key.IsClassFallback() && !key.IsSynthetic()) target = key.Source();
             if (target.empty()) return;
             const std::wstring args = L"/select,\"" + target + L"\"";
             AllowSetForegroundWindow(ASFW_ANY);
@@ -342,9 +344,12 @@ void App::ShowItemMenu(int index, POINT pt) {
     ContextMenu::ItemMenuState itemState;
     itemState.pinned = item.pinned;
     itemState.canPin = !key.IsClassFallback();
-    itemState.canLaunch = !key.IsClassFallback() || item.launchPath.has_value();
+    itemState.canLaunch = item.kind != DockItem::Kind::Separator &&
+                          (!key.IsClassFallback() || item.launchPath.has_value());
     itemState.running = !windows.empty();
-    itemState.canOpenLocation = !item.targetPath.empty() || (!key.isAumid && !key.IsClassFallback());
+    // The special kinds have no file behind their synthetic key.
+    itemState.canOpenLocation =
+        !item.targetPath.empty() || (!key.isAumid && !key.IsClassFallback() && !key.IsSynthetic());
 
     std::vector<std::wstring> titles;
     titles.reserve(windows.size());

@@ -13,7 +13,9 @@
 #include <winrt/Windows.Data.Json.h>
 
 #include <cwchar>
+#include <limits>
 #include <string>
+#include <vector>
 
 namespace JsonUtil {
 
@@ -116,6 +118,44 @@ inline json::JsonObject ReadObject(const json::JsonObject& o, const wchar_t* key
     auto j = Find(o, key);
     if (j && j.ValueType() == json::JsonValueType::Object) return j.GetObject();
     return nullptr;
+}
+
+// Null when the key is missing or not an array.
+inline json::JsonArray ReadArray(const json::JsonObject& o, const wchar_t* key) {
+    auto j = Find(o, key);
+    if (j && j.ValueType() == json::JsonValueType::Array) return j.GetArray();
+    return nullptr;
+}
+
+// An array of numbers -> `v` (replaced). Elements that are not numbers (e.g. null for a missing
+// sample) become NaN, so indices stay aligned with sibling arrays. Missing key or not an array:
+// `v` is left unchanged and the result is false.
+inline bool ReadNumbers(const json::JsonObject& o, const wchar_t* key, std::vector<double>& v) {
+    const json::JsonArray a = ReadArray(o, key);
+    if (!a) return false;
+    std::vector<double> out;
+    out.reserve(a.Size());
+    for (const auto& item : a) {
+        out.push_back(item.ValueType() == json::JsonValueType::Number ? item.GetNumber()
+                                                                       : std::numeric_limits<double>::quiet_NaN());
+    }
+    v = std::move(out);
+    return true;
+}
+
+// An array of strings -> `v` (replaced); non-string elements become "". Missing key or not an
+// array: `v` is left unchanged and the result is false.
+inline bool ReadStrings(const json::JsonObject& o, const wchar_t* key, std::vector<std::wstring>& v) {
+    const json::JsonArray a = ReadArray(o, key);
+    if (!a) return false;
+    std::vector<std::wstring> out;
+    out.reserve(a.Size());
+    for (const auto& item : a) {
+        out.push_back(item.ValueType() == json::JsonValueType::String ? std::wstring(item.GetString())
+                                                                       : std::wstring());
+    }
+    v = std::move(out);
+    return true;
 }
 
 // --- writer (deterministic key order, human-friendly indentation) ---

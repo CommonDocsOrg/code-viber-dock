@@ -40,6 +40,7 @@ const wchar_t* const kLaunchStyleNames[] = {L"bounce", L"hop", L"pulse", L"none"
 const wchar_t* const kFalloffNames[] = {L"cosine", L"linear"};
 const wchar_t* const kEasingNames[] = {L"easeOut", L"linear", L"spring"};
 const wchar_t* const kReduceMotionNames[] = {L"system", L"on", L"off"};
+const wchar_t* const kSpecialPinNames[] = {L"", L"separator", L"recycleBin"};
 
 template <typename E>
 void ReadEnum(const json::JsonObject& o, const wchar_t* key, E& v) {
@@ -62,6 +63,12 @@ bool FromString(std::wstring_view s, LaunchStyle& v) { return EnumFromString(s, 
 bool FromString(std::wstring_view s, Falloff& v) { return EnumFromString(s, v, kFalloffNames); }
 bool FromString(std::wstring_view s, Easing& v) { return EnumFromString(s, v, kEasingNames); }
 bool FromString(std::wstring_view s, ReduceMotion& v) { return EnumFromString(s, v, kReduceMotionNames); }
+
+SpecialPin SpecialPinOf(std::wstring_view kind) {
+    SpecialPin v = SpecialPin::None;
+    EnumFromString(kind, v, kSpecialPinNames);  // unknown text: None
+    return v;
+}
 
 std::wstring Config::Directory() {
     PWSTR base = nullptr;
@@ -176,14 +183,19 @@ Config::LoadResult Config::LoadFile() {
             extraFields.emplace_back(key, std::wstring(kv.Value().Stringify()));
         }
 
-        if (auto p = Find(root, L"pinned"); p && p.ValueType() == json::JsonValueType::Array) {
-            for (const auto& item : p.GetArray()) {
+        if (auto p = ReadArray(root, L"pinned")) {
+            for (const auto& item : p) {
                 if (item.ValueType() != json::JsonValueType::Object) continue;
                 PinnedEntry e;
                 auto obj = item.GetObject();
                 ReadString(obj, L"path", e.path);
                 ReadString(obj, L"aumid", e.aumid);
-                if (!e.path.empty() || !e.aumid.empty()) pinned.push_back(std::move(e));
+                ReadString(obj, L"icon", e.icon);
+                ReadString(obj, L"kind", e.kind);
+                // The special kinds need neither a path nor an AUMID; any other entry does.
+                if (!e.path.empty() || !e.aumid.empty() || SpecialPinOf(e.kind) != SpecialPin::None) {
+                    pinned.push_back(std::move(e));
+                }
             }
         }
 
@@ -258,8 +270,16 @@ bool Config::Save() const {
         for (size_t i = 0; i < pinned.size(); ++i) {
             const auto& e = pinned[i];
             o += i ? L",\n    " : L"\n    ";
-            if (!e.aumid.empty()) o += L"{ \"aumid\": " + Quote(e.aumid) + L" }";
-            else o += L"{ \"path\": " + Quote(e.path) + L" }";
+            // icon / kind only when set, so a plain app pin keeps its one-key form.
+            std::wstring fields;
+            auto add = [&](const wchar_t* key, const std::wstring& value) {
+                fields += (fields.empty() ? L"" : L", ") + Quote(key) + L": " + Quote(value);
+            };
+            if (!e.aumid.empty()) add(L"aumid", e.aumid);
+            else if (!e.path.empty() || e.kind.empty()) add(L"path", e.path);
+            if (!e.icon.empty()) add(L"icon", e.icon);
+            if (!e.kind.empty()) add(L"kind", e.kind);
+            o += L"{ " + fields + L" }";
         }
         o += pinned.empty() ? L"],\n" : L"\n  ],\n";
         o += L"  \"iconSize\": " + Num(iconSize) + L",\n";

@@ -5,6 +5,8 @@
 // Starts dock items with ShellExecuteEx (no UI on failure: an error dialog would block the dock).
 //   pinned .lnk / .exe: the original file (keeps the shortcut's arguments), working directory =
 //                       the shortcut's (else the target's folder);
+//   folders:            the directory (Explorer opens it);
+//   the Recycle Bin:    shell:RecycleBinFolder; separators: nothing (false);
 //   AUMID keys:         shell:AppsFolder\<AUMID>;
 //   other path keys:    the exe itself, in its own folder.
 namespace Launcher {
