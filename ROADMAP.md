@@ -164,8 +164,31 @@ Goal: N docks, each on a monitor or on every monitor, with filters and a lock.
 Goal: a widget is a folder, loads without compiling, draws through a canvas API, keeps its own
 settings and data, and can be hot-reloaded.
 
-- Engine: behind a `ScriptEngine` interface so the implementation can be swapped (see
-  questions). One JS context per widget instance on the UI thread, with an execution-time
+- Engine: QuickJS-ng behind a `ScriptEngine` interface so the implementation can be swapped.
+  Spike done 2026-11-02 with v0.18.0 (harness: scratchpad `quickjs-spike\harness\main.cpp`):
+  - Builds with MSVC 18, no patches; four sources (`quickjs.c dtoa.c libregexp.c
+    libunicode.c`), `quickjs-libc.c` not needed. Add them as our own static-library target
+    compiled `/W0` (1,500 warnings at /W4) with upstream's defines; do NOT `add_subdirectory`
+    the upstream CMake (its `cmake_minimum_required(3.10)` leaves CMP0091 off, so the runtime
+    library silently stays /MD and fails to link against the dock's /MT).
+  - Cost: +1.1 MB exe at /O2 (about a third less at /O1), ~150 KB per runtime + context,
+    ~70 KB per extra context, 0.25 ms to create one, ~6 µs per typical draw call.
+  - Verified: `JS_SetInterruptHandler` watchdog (stops `for(;;)`, catastrophic regex, async
+    loops within 50 ms; context stays usable), `JS_SetMemoryLimit` per runtime (an exhausted
+    heap can throw `null` rather than an Error), C functions / objects / native classes with
+    finalizers, custom module loader (dynamic `import()` goes through it too), ES2020+
+    features, async via `JS_ExecutePendingJob` pumped by the host. Error stacks carry
+    file:line:col.
+  - Must do: link with `/STACK:8388608` and call `JS_SetMaxStackSize` with ~512 KB headroom,
+    otherwise deep recursion crashes the process (MSVC frames are ~4.8 KB per JS call; the
+    default 1 MB thread stack equals QuickJS's default limit). One runtime per thread; call
+    `JS_UpdateStackTop` if a runtime ever moves threads. Every native callback is `noexcept`
+    with a try/catch converted to a JS throw (a C++ exception crossing QuickJS frames kills the
+    process). The module resolver does not sandbox: reject `..`, drive letters, leading
+    slashes, and verify the canonical path is inside the widget folder. Provide `setTimeout`,
+    `console`, `Intl`-free formatting and local time from the host (QuickJS's Windows
+    `getTimezoneOffset` misapplies DST across transitions). Ship widgets as source, never
+    bytecode (unsafe for untrusted input). One JS context per widget instance on the UI thread, with an execution-time
   watchdog (a widget that loops is suspended and shows an error tile).
 - Widget package: `%LocalAppData%\WinDock\widgets\<id>\widget.json` (name, version, size hints
   per axis, settings schema, refresh interval, permissions such as `http` and `shell`),
