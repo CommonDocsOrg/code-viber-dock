@@ -31,6 +31,7 @@ add_executable(WinDock WIN32
   src/WindowTracker.cpp
   src/ForegroundWatch.cpp
   src/IconCache.cpp
+  src/IconUtil.cpp
   src/Activation.cpp
   src/Launcher.cpp
   src/DarkMode.cpp

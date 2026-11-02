@@ -14,6 +14,8 @@
 #include <string>
 #include <vector>
 
+#include "IconUtil.h"
+
 namespace {
 
 std::wstring Lower(std::wstring s) {
@@ -135,13 +137,6 @@ bool HasAnyAlpha(HBITMAP bmp) {
     return false;
 }
 
-bool IsImageFile(const std::wstring& file) {
-    const size_t dot = file.rfind(L'.');
-    if (dot == std::wstring::npos || file.find_first_of(L"\\/", dot) != std::wstring::npos) return false;
-    const std::wstring ext = Lower(file.substr(dot));
-    return ext == L".png" || ext == L".jpg" || ext == L".jpeg" || ext == L".bmp" || ext == L".gif";
-}
-
 bool IsDirectory(const std::wstring& path) {
     if (path.empty()) return false;
     const DWORD attrs = GetFileAttributesW(path.c_str());
@@ -246,7 +241,7 @@ winrt::com_ptr<ID2D1Bitmap> IconCache::LoadImageFile(const std::wstring& file, U
 
 winrt::com_ptr<ID2D1Bitmap> IconCache::LoadFileIcon(const std::wstring& file, int index, UINT px,
                                                     ID2D1DeviceContext* dc) {
-    if (IsImageFile(file)) return LoadImageFile(file, px, dc);
+    if (IconUtil::IsImageFile(file)) return LoadImageFile(file, px, dc);
     // Reads the icon resource straight from the exe at the requested size. Much lighter than
     // the shell namespace (IShellItemImageFactory costs ~15 MB of private bytes in caches).
     HICON icon = nullptr;

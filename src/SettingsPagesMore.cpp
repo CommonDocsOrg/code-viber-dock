@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 
+#include "IconUtil.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
 
@@ -222,6 +223,10 @@ protected:
         Button(kPinAddSeparator, L"Add separator", kMargin + 132, 124);
         Button(kPinAddRecycleBin, L"Add Recycle Bin", kMargin + 264, 124);
         NextRow(kRowH + 4);
+        Button(kPinChooseIcon, L"Choose icon…", kMargin, 124);
+        Button(kPinChooseImage, L"Choose image…", kMargin + 132, 124);
+        Button(kPinResetIcon, L"Reset icon", kMargin + 264, 124);
+        NextRow(kRowH + 4);
         Text(kPinnedNote, CtlKind::Note,
              L"Changes apply to the dock at once. On the dock itself you can also drag icons to reorder them, "
              L"drop shortcuts or folders onto it to pin them, or drag a pinned icon away to unpin it.",
@@ -294,6 +299,16 @@ protected:
                 FillList(static_cast<int>(pinned.size()) - 1);
                 break;
             }
+            case kPinChooseIcon:
+            case kPinChooseImage:
+                ChooseIcon(sel, id == kPinChooseImage);
+                break;
+            case kPinResetIcon:
+                if (sel < 0 || sel >= n || pinned[static_cast<size_t>(sel)].icon.empty()) return;
+                pinned[static_cast<size_t>(sel)].icon.clear();
+                Changed(SettingsScope::Pins);
+                FillList(sel);
+                break;
             case kPinRemove:
                 if (sel < 0 || sel >= n) return;
                 pinned.erase(pinned.begin() + sel);
@@ -327,6 +342,11 @@ private:
         Enable(kPinUp, sel > 0);
         Enable(kPinDown, sel >= 0 && sel < n - 1);
         Enable(kPinAddRecycleBin, !HasRecycleBin());
+        const PinnedEntry* e = sel >= 0 && sel < n ? &Cfg().pinned[static_cast<size_t>(sel)] : nullptr;
+        const bool iconable = e && SpecialPinOf(e->kind) != SpecialPin::Separator;
+        Enable(kPinChooseIcon, iconable);
+        Enable(kPinChooseImage, iconable);
+        Enable(kPinResetIcon, iconable && !e->icon.empty());
         // A button that just got disabled must not keep the keyboard focus.
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kPinnedList));
     }
@@ -342,7 +362,16 @@ private:
         const SpecialPin special = SpecialPinOf(e.kind);
         if (special == SpecialPin::Separator) return -1;  // no icon: the name says "Separator"
         HICON icon = nullptr;
-        if (special == SpecialPin::RecycleBin) {
+        // The custom icon (or a shortcut's icon location) first: an image, else an icon resource.
+        if (pin && !pin->iconFile.empty()) {
+            if (IconUtil::IsImageFile(pin->iconFile)) {
+                icon = IconUtil::HiconFromImageFile(pin->iconFile, iconPx_);
+            } else {
+                SHDefExtractIconW(pin->iconFile.c_str(), pin->iconIndex, 0, &icon, nullptr,
+                                  MAKELONG(iconPx_, iconPx_));
+            }
+        }
+        if (!icon && special == SpecialPin::RecycleBin) {
             PIDLIST_ABSOLUTE pidl = nullptr;
             SHFILEINFOW sfi{};
             if (SUCCEEDED(SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, nullptr, &pidl)) && pidl) {
@@ -353,13 +382,6 @@ private:
                 CoTaskMemFree(pidl);
             }
             if (!icon) return -1;
-            const int index = ImageList_AddIcon(images_, icon);
-            DestroyIcon(icon);
-            return index;
-        }
-        if (pin && !pin->iconFile.empty()) {
-            SHDefExtractIconW(pin->iconFile.c_str(), pin->iconIndex, 0, &icon, nullptr,
-                              MAKELONG(iconPx_, iconPx_));
         }
         SHFILEINFOW sfi{};
         if (!icon && !e.path.empty()) {
@@ -486,6 +508,39 @@ private:
         Host().pinFiles(paths);  // skips a folder that is already pinned; reloads the dock and saves
         Window().ConfigApplied();
         FillList(Cfg().pinned.size() > before ? static_cast<int>(Cfg().pinned.size()) - 1 : Selected());
+    }
+
+    // Choose icon… / Choose image… for the entry at `sel` (not separators).
+    void ChooseIcon(int sel, bool image) {
+        const auto& pinned = Cfg().pinned;
+        if (sel < 0 || sel >= static_cast<int>(pinned.size())) return;
+        const PinnedEntry before = pinned[static_cast<size_t>(sel)];
+        if (SpecialPinOf(before.kind) == SpecialPin::Separator) return;
+        std::wstring file, startImage;
+        int index = 0;
+        if (Host().pins) {
+            const auto& pins = Host().pins();
+            if (static_cast<size_t>(sel) < pins.size()) {
+                IconUtil::StartIconFor(pins[static_cast<size_t>(sel)], file, index);
+                startImage = IconUtil::StartImageFor(pins[static_cast<size_t>(sel)]);
+            }
+        }
+        std::wstring spec;
+        const bool ok = image ? IconUtil::ChooseIconFile(Owner(), startImage, spec)
+                              : IconUtil::ChooseIconResource(Owner(), file, index, spec);
+        if (!ok) return;
+        // The list may have changed while the dialog was open (a drag on the dock): only the
+        // same entry at the same place gets the icon.
+        auto& now = Cfg().pinned;
+        if (sel >= static_cast<int>(now.size())) return;
+        PinnedEntry& e = now[static_cast<size_t>(sel)];
+        if (e.path != before.path || e.aumid != before.aumid || e.kind != before.kind) {
+            MessageBeep(MB_ICONWARNING);
+            return;
+        }
+        e.icon = spec;  // the absolute path the dialog returned
+        Changed(SettingsScope::Pins);
+        FillList(sel);
     }
 
     HIMAGELIST images_ = nullptr;

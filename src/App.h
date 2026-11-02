@@ -22,9 +22,11 @@ inline constexpr wchar_t kQuitMessage[] = L"WinDock.Quit";
 inline constexpr wchar_t kRestoreTaskbarMessage[] = L"WinDock.RestoreTaskbar";
 // Automation: SendMessage(dock, RegisterWindowMessage(kItemCommandMessage), cmd, target) runs a
 // per-item menu command (ContextMenu::kTogglePin / kNewWindow / kOpenFileLocation /
-// kOpenInExplorer / kToggleFolderPopup / kEmptyRecycleBin / kCloseAllWindows) on the item at
-// index `target`, or on the item owning window `target` when it is a window handle. Returns 1 if
-// the item was found.
+// kOpenInExplorer / kChooseIcon / kResetIcon / kToggleFolderPopup / kEmptyRecycleBin /
+// kChooseImage / kCloseAllWindows) on the item at index `target`, or on the item owning window
+// `target` when it is a window handle. Returns 1 if the item was found. The two pickers are
+// modal: a sent kChooseIcon / kChooseImage is posted back to the dock and runs after the call
+// returned.
 inline constexpr wchar_t kItemCommandMessage[] = L"WinDock.ItemCommand";
 // Automation: SendMessage(dock, RegisterWindowMessage(kDockCommandMessage), cmd, 0) runs a dock /
 // tray menu command (ContextMenu::kAutoHide ... kLastDockCommand, kOpenSettings included),
@@ -55,6 +57,7 @@ private:
     static constexpr UINT kTrayCallback = WM_APP + 1;
     static constexpr UINT kTrayId = 1;
     static constexpr UINT kSettingsClosed = WM_APP + 2;  // posted: delete the destroyed settings window
+    static constexpr UINT kDialogActivated = WM_APP + 3;  // posted (wParam = window): ChooseItemIcon's focus fix
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
 
@@ -67,6 +70,13 @@ private:
     // changed while a menu was open). `windows` are the windows the menu listed.
     void RunItemCommand(UINT cmd, const AppKey& key, const std::vector<HWND>& windows);
     void TogglePin(const AppKey& key);
+    // Sets (an empty `icon`: clears) the `icon` of every pinned entry that resolves to `key`
+    // (apps, folders, the Recycle Bin; not separators), then reloads the pins, saves and
+    // refreshes the settings window. Returns false if no such pin exists.
+    bool SetPinIcon(const AppKey& key, const std::wstring& icon);
+    // kChooseIcon / kChooseImage: runs the picker (owned by the dock, with the dock held shown)
+    // for the pin `key`, then SetPinIcon.
+    void ChooseItemIcon(UINT cmd, const AppKey& key);
     // The config entry that pins this item (nullopt: nothing launchable to pin).
     static std::optional<PinnedEntry> EntryForItem(const DockItem& item);
     // Reorders config_.pinned to the given key order (drag to reorder); a key that is not pinned

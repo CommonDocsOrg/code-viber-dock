@@ -173,5 +173,8 @@ inline constexpr int kPinnedNote = 2605;
 inline constexpr int kPinAddFolder = 2606;        // "Add folder…" (folder picker)
 inline constexpr int kPinAddSeparator = 2607;     // appends { "kind": "separator" }
 inline constexpr int kPinAddRecycleBin = 2608;    // appends { "kind": "recycleBin" }; disabled while one is pinned
+inline constexpr int kPinChooseIcon = 2609;       // "Choose icon…" (the Change Icon dialog); disabled for separators
+inline constexpr int kPinChooseImage = 2610;      // "Choose image…" (open dialog: images, .ico / .exe / .dll)
+inline constexpr int kPinResetIcon = 2611;        // "Reset icon": clears `icon`; enabled when the entry has one
 
 }  // namespace SettingsIds

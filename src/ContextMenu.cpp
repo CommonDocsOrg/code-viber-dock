@@ -60,6 +60,14 @@ std::wstring MenuText(const std::wstring& s) {
     return out;
 }
 
+// Choose icon… / Choose image… / Reset icon, for pinned items (not separators).
+void AppendIconEntries(HMENU menu, const ItemMenuState& item) {
+    if (!item.pinned || item.kind == DockItem::Kind::Separator) return;
+    Append(menu, kChooseIcon, L"Choose icon…", true);
+    Append(menu, kChooseImage, L"Choose image…", true);
+    Append(menu, kResetIcon, L"Reset icon", item.hasIcon);
+}
+
 }  // namespace
 
 UINT ShowTrayMenu(HWND owner, POINT pt, const TrayMenuState& state) {
@@ -84,6 +92,7 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
                     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
                 }
                 Append(menu, kTogglePin, L"Unpin from dock", item.pinned);
+                AppendIconEntries(menu, item);
                 Append(menu, kOpenInExplorer, L"Open in Explorer", true);
                 break;
             case DockItem::Kind::Separator:
@@ -93,6 +102,7 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
                 Append(menu, kNewWindow, L"Open", true);
                 Append(menu, kEmptyRecycleBin, L"Empty Recycle Bin", !item.binEmpty);
                 Append(menu, kTogglePin, L"Unpin from dock", item.pinned);
+                AppendIconEntries(menu, item);
                 break;
             default:
                 break;
@@ -108,6 +118,7 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     }
     Append(menu, kTogglePin, item.pinned ? L"Unpin from dock" : L"Pin to dock", item.pinned || item.canPin);
+    AppendIconEntries(menu, item);
     Append(menu, kNewWindow, item.running ? L"New window" : L"Open", item.canLaunch);
     if (item.canOpenLocation) Append(menu, kOpenFileLocation, L"Open file location", true);
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

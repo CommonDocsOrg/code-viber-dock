@@ -377,8 +377,11 @@ void DockWindow::ApplyWindowPos() {
     const RECT r = DesiredRect();
     winRect_ = r;
     ApplyStageTransform();
+    // While a modal dialog owned by the dock is open (an icon picker; it disables the dock), the
+    // z-order stays: HWND_TOPMOST with SWP_NOOWNERZORDER would put the dock above its own dialog.
+    const UINT keepOrder = IsWindowEnabled(hwnd_) ? 0 : SWP_NOZORDER;
     SetWindowPos(hwnd_, HWND_TOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top,
-                 SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+                 SWP_NOACTIVATE | SWP_NOOWNERZORDER | keepOrder);
 }
 
 void DockWindow::UpdateWindowRect() {
@@ -1888,8 +1891,9 @@ void DockWindow::OnOverlapCheck(bool force) {
 void DockWindow::AssertTopmost() {
     // A newly activated window that covers its whole monitor (maximized with the taskbar hidden,
     // borderless fullscreen) can end up above the topmost dock, burying the 1 px reveal strip.
-    // Re-asserting the z-order is cheap and only happens on hide transitions.
-    if (!hwnd_) return;
+    // Re-asserting the z-order is cheap and only happens on hide transitions. Not while a modal
+    // dialog owned by the dock is open (see ApplyWindowPos).
+    if (!hwnd_ || !IsWindowEnabled(hwnd_)) return;
     SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 }
 

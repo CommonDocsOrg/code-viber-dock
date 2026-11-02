@@ -153,8 +153,9 @@ the primary monitor.
   through its windows. While an app is launching its icon bounces, until a new window shows up or
   5 s pass (`animation.launchStyle` can make it a single hop, an opacity pulse, or nothing).
 - Middle click: starts a new instance (and bounces until its window appears).
-- Right click: Pin to dock / Unpin from dock, New window (shows as Open when the app is not
-  running), Open file location (for path-based items), Close for each window, then the dock menu.
+- Right click: Pin to dock / Unpin from dock, the icon entries for a pinned app (see **Custom
+  icons** below), New window (shows as Open when the app is not running), Open file location (for
+  path-based items), Close for each window, then the dock menu.
   Folders, separators and the Recycle Bin have their own short menus (below). The dock menu has
   **Add separator** (appends a separator to the pinned items).
 - Drag an icon to reorder: press on it and move past the system drag threshold. The icon follows
@@ -212,20 +213,33 @@ the primary monitor.
     window, the dock), a menu, a drag or the dock hiding close it. While it is open the dock does
     not auto-hide.
   - Middle click on the icon opens the folder in Explorer. Right click: the name, Unpin from
-    dock, Open in Explorer, then the dock menu.
+    dock, the icon entries, Open in Explorer, then the dock menu.
 - **Recycle Bin** (`{ "kind": "recycleBin" }` in `pinned`, or **Add Recycle Bin** on the Pinned
   apps page): shows the bin's empty or full icon, which follows the bin (the dock asks the shell to
   tell it when the bin changes; nothing polls). Its name label reads "Recycle Bin (12 items,
   3.4 MB)", or "Recycle Bin (empty)". A click opens the Recycle Bin; files dropped on it are
   recycled. Right click: **Open**, **Empty Recycle Bin** (the shell's own confirmation; greyed when
-  the bin is empty), **Unpin from dock**, then the dock menu.
+  the bin is empty), **Unpin from dock**, the icon entries, then the dock menu.
 - **Separators** (`{ "kind": "separator" }` in `pinned`, any number; **Add separator** in the dock
   menu or on the Pinned apps page): a thin vertical line in `theme.separator` in a narrow slot
   (12 DIPs). It has no name label and no dot, is never magnified (its neighbours are) and does not
   react to clicks. It can be dragged to another place or off the dock like any pin; right click
   shows **Remove**, then the dock menu.
-- **Custom icons**: any pin can name its own icon with `"icon"` (see Configuration). Changing it
-  and choosing **Reload config** redraws the icon at once.
+- **Custom icons**: any pin (app, folder, Recycle Bin; not separators) can have its own icon,
+  stored as the entry's `"icon"` (see Configuration). The right-click menu of a pinned item has:
+  - **Choose icon…**: the Windows Change Icon dialog, opened on the item's current icon (a custom
+    icon, a shortcut's own icon, else the app's exe; shell32.dll's folder / Recycle Bin icon for
+    those kinds). Browse to any `.exe`, `.dll` or `.ico` and pick an icon.
+  - **Choose image…**: an open-file dialog for images and icon files (`.png .jpg .jpeg .bmp .gif
+    .ico .exe .dll`). An image or `.ico` is used as it is; for an `.exe` or `.dll` the Change Icon
+    dialog follows to pick which icon.
+  - **Reset icon** (greyed when the entry has no `icon`): back to the default icon.
+
+  Both dialogs belong to the dock: they open in front of it, and the dock does not auto-hide
+  while one is open. What the dialog returned is stored as an absolute path (`"file,index"` for
+  an icon in an `.exe` / `.dll`), saved within 300 ms and drawn at once; the Pinned apps page in
+  Settings has the same three buttons. Editing `"icon"` by hand and choosing **Reload config**
+  also redraws the icon at once.
 
 How a pin is matched with running windows:
 
@@ -277,9 +291,12 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 - **Pinned apps**: the pinned list in dock order (name and target; "(missing)" when the file is
   gone; separators show as "Separator"), **Add…** (pick one or more `.lnk` / `.exe` files; a
   shortcut is pinned as the shortcut, apps that are already pinned are skipped), **Remove**,
-  **Move up**, **Move down**, **Add folder…** (a folder picker), **Add separator** (appends one)
-  and **Add Recycle Bin** (greyed while the bin is pinned). Changes from the dock itself (drag to
-  reorder, drop to pin, drag off to unpin) show up in the list at once.
+  **Move up**, **Move down**, **Add folder…** (a folder picker), **Add separator** (appends one),
+  **Add Recycle Bin** (greyed while the bin is pinned), and for the selected entry **Choose
+  icon…**, **Choose image…** and **Reset icon** (as in the dock's menu, see Custom icons; greyed
+  for a separator, Reset only when the entry has an `icon`). The list shows custom icons, images
+  included. Changes from the dock itself (drag to reorder, drop to pin, drag off to unpin, the
+  icon entries) show up in the list at once.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
 
@@ -371,7 +388,9 @@ the file untouched.
     size), an `.ico`, or an icon resource as `"file,index"`, for example
     `"%WINDIR%\\system32\\shell32.dll,3"` (a negative index is a resource id, as in shortcuts).
     Environment variables are expanded. If the file does not exist, the default icon is used and
-    the entry is kept unchanged.
+    the entry is kept unchanged. The value is kept exactly as written (a `%VAR%` path stays
+    unexpanded in the file); **Choose icon…** / **Choose image…** store the absolute path the
+    dialog returned, and **Reset icon** removes the key.
   - `kind`: `"separator"` or `"recycleBin"` (case-insensitive); these entries need no `path`. A
     kind this version does not know is kept as written (an entry with an unknown kind and no
     `path` / `aumid` is ignored).
@@ -560,8 +579,11 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   5 Reset, 6 unit). The preview strip is the child `WinDock.SettingsPreview` (control id 101).
 - `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle (a separator's
   Remove), 801 new window (the Recycle Bin's Open), 802 open file location, 803 open a folder in
-  Explorer, 806 show / hide a folder's popup, 807 empty the Recycle Bin (the shell's confirmation
-  appears; it runs on a thread of its own, so the call returns at once), 900 close all windows),
+  Explorer, 804 Choose icon… and 808 Choose image… (they open their dialog; sent rather than
+  posted, the command is posted back to the dock so the call returns at once), 805 Reset icon
+  (removes the pin's `icon`; scriptable), 806 show / hide a folder's popup, 807 empty the Recycle
+  Bin (the shell's confirmation appears; it runs on a thread of its own, so the call returns at
+  once), 900 close all windows),
   `lParam` = item index or a window handle of the item. Returns 1 if the item was found. A folder
   popup opened this way usually cannot take the foreground (the dock did not get the click), so
   Escape does not reach it; it still closes when another window comes to the foreground, on a dock

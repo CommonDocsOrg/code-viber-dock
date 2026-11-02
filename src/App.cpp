@@ -9,6 +9,7 @@
 
 #include "AppIdentity.h"
 #include "ContextMenu.h"
+#include "IconUtil.h"
 #include "resource.h"
 
 namespace {
@@ -51,6 +52,16 @@ DWORD WINAPI EmptyRecycleBinThread(LPVOID) {
     SHEmptyRecycleBinW(nullptr, nullptr, 0);
     if (SUCCEEDED(co)) CoUninitialize();
     return 0;
+}
+
+// ChooseItemIcon: while its dialog is open, a thread-local CBT hook posts every activation on the
+// UI thread (wParam = the window) to g_activateTarget as g_activateMessage.
+HWND g_activateTarget = nullptr;
+UINT g_activateMessage = 0;
+
+LRESULT CALLBACK ActivateHook(int code, WPARAM wp, LPARAM lp) {
+    if (code == HCBT_ACTIVATE && g_activateTarget) PostMessageW(g_activateTarget, g_activateMessage, wp, 0);
+    return CallNextHookEx(nullptr, code, wp, lp);
 }
 
 }  // namespace
@@ -167,6 +178,53 @@ void App::TogglePin(const AppKey& key) {
     RefreshSettings();  // the Pinned apps page
 }
 
+bool App::SetPinIcon(const AppKey& key, const std::wstring& icon) {
+    const auto& pins = dock_.Pins();  // parallel to config_.pinned
+    bool found = false, changed = false;
+    for (size_t i = 0; i < pins.size() && i < config_.pinned.size(); ++i) {
+        if (pins[i].key != key || pins[i].kind == AppIdentity::PinKind::Separator) continue;
+        found = true;
+        if (config_.pinned[i].icon == icon) continue;
+        config_.pinned[i].icon = icon;  // stored as given (relative / %VAR% paths stay as written)
+        changed = true;
+    }
+    if (!changed) return found;
+    dock_.ReloadPins();
+    RequestSave();
+    RefreshSettings();  // the Pinned apps page
+    return true;
+}
+
+void App::ChooseItemIcon(UINT cmd, const AppKey& key) {
+    std::wstring file, image;  // copied: the pins are rebuilt while the dialog is open
+    int index = 0;
+    {
+        const auto& pins = dock_.Pins();
+        const auto it = std::find_if(pins.begin(), pins.end(), [&](const AppIdentity::ResolvedPin& p) {
+            return p.key == key && p.kind != AppIdentity::PinKind::Separator;
+        });
+        if (it == pins.end()) return;  // not pinned: nothing to store the icon in
+        IconUtil::StartIconFor(*it, file, index);
+        image = IconUtil::StartImageFor(*it);
+    }
+    // Owned by the (topmost) dock window, so the dialog is in front of it; the hold keeps the
+    // dock shown while the mouse is over the dialog. The pin list may change meanwhile (the
+    // settings window): SetPinIcon looks the key up again.
+    std::wstring spec;
+    dock_.SetHold(true);
+    // Activations on this thread while the dialog is open are reported to OnMessage
+    // (kDialogActivated), which gives the dialog the keyboard focus if it has none.
+    g_activateTarget = dock_.Hwnd();
+    g_activateMessage = kDialogActivated;
+    HHOOK hook = SetWindowsHookExW(WH_CBT, &ActivateHook, nullptr, GetCurrentThreadId());
+    const bool ok = cmd == ContextMenu::kChooseIcon ? IconUtil::ChooseIconResource(dock_.Hwnd(), file, index, spec)
+                                                    : IconUtil::ChooseIconFile(dock_.Hwnd(), image, spec);
+    if (hook) UnhookWindowsHookEx(hook);
+    g_activateTarget = nullptr;
+    dock_.SetHold(false);
+    if (ok && !shutDown_) SetPinIcon(key, spec);
+}
+
 std::optional<PinnedEntry> App::EntryForItem(const DockItem& item) {
     if (item.key.IsClassFallback()) return std::nullopt;
     PinnedEntry e;
@@ -261,6 +319,13 @@ void App::RunItemCommand(UINT cmd, const AppKey& key, const std::vector<HWND>& w
         }
         case ContextMenu::kToggleFolderPopup:
             dock_.ToggleFolderPopup(IndexOfKey(key));
+            return;
+        case ContextMenu::kChooseIcon:
+        case ContextMenu::kChooseImage:
+            ChooseItemIcon(cmd, key);
+            return;
+        case ContextMenu::kResetIcon:
+            SetPinIcon(key, {});
             return;
         case ContextMenu::kEmptyRecycleBin: {
             const int index = IndexOfKey(key);
@@ -378,6 +443,13 @@ void App::ShowItemMenu(int index, POINT pt) {
     if (item.kind == DockItem::Kind::RecycleBin) {
         SHQUERYRBINFO info{sizeof(info)};
         itemState.binEmpty = SUCCEEDED(SHQueryRecycleBinW(nullptr, &info)) && info.i64NumItems == 0;
+    }
+    if (item.pinned) {
+        // Reset icon follows the config entry, so an `icon` whose file is gone can be cleared too.
+        const auto& pins = dock_.Pins();
+        for (size_t i = 0; i < pins.size() && i < config_.pinned.size(); ++i) {
+            if (pins[i].key == key && !config_.pinned[i].icon.empty()) itemState.hasIcon = true;
+        }
     }
     itemState.canPin = !key.IsClassFallback();
     itemState.canLaunch = item.kind != DockItem::Kind::Separator &&
@@ -608,6 +680,21 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         OpenSettings();
         return true;
     }
+    if (msg == kDialogActivated) {
+        // An icon picker owned by the dock was activated (posted by the CBT hook, so this runs
+        // once the activation is complete). After the item menu the dock was the active window:
+        // the dialog then comes up active but without a focus window, and no key (Escape, Enter,
+        // arrows) reaches it. Give it the focus its first control would have had.
+        HWND dialog = reinterpret_cast<HWND>(wp);
+        if (IsWindow(dialog) && GetActiveWindow() == dialog && !GetFocus()) {
+            if (HWND first = GetNextDlgTabItem(dialog, nullptr, FALSE)) {
+                SendMessageW(dialog, WM_NEXTDLGCTL, reinterpret_cast<WPARAM>(first), TRUE);
+            } else {
+                SetFocus(dialog);
+            }
+        }
+        return true;
+    }
     if (msg == kSettingsClosed) {
         // The window is gone (its WM_NCDESTROY posted this); a newly opened one is kept.
         if (settings_ && !settings_->Hwnd()) settings_.reset();
@@ -633,11 +720,15 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         } else if (lp >= 0 && lp < static_cast<LPARAM>(dock_.Items().size())) {
             index = static_cast<int>(lp);
         }
-        if (index >= 0) {
+        const UINT cmd = static_cast<UINT>(wp);
+        if (index >= 0 && (cmd == ContextMenu::kChooseIcon || cmd == ContextMenu::kChooseImage) && InSendMessage()) {
+            // A modal dialog would block the sender until it closes: run it after the call.
+            PostMessageW(dock_.Hwnd(), msgItemCommand_, wp, static_cast<LPARAM>(index));
+        } else if (index >= 0) {
             const DockItem& item = dock_.Items()[static_cast<size_t>(index)];
             const AppKey key = item.key;
             const std::vector<HWND> windows = item.windows;
-            RunItemCommand(static_cast<UINT>(wp), key, windows);
+            RunItemCommand(cmd, key, windows);
         }
         result = index >= 0 ? 1 : 0;
         return true;

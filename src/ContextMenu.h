@@ -32,9 +32,11 @@ enum Command : UINT {
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
     kOpenInExplorer = 803,      // folders: open the folder in Explorer
-    // 804 / 805 are reserved (choose / reset a custom icon)
+    kChooseIcon = 804,          // pins: the Change Icon dialog (an icon from an .exe / .dll / .ico)
+    kResetIcon = 805,           // pins: drop the custom icon (the entry's `icon`)
     kToggleFolderPopup = 806,   // folders: show / hide the contents popup
     kEmptyRecycleBin = 807,     // the Recycle Bin: empty it (the shell's confirmation)
+    kChooseImage = 808,         // pins: an open-file dialog for an image / icon file
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
@@ -56,12 +58,15 @@ struct ItemMenuState {
     bool running = false;          // "New window" vs "Open"
     bool canOpenLocation = false;  // path-based items
     bool binEmpty = false;         // the Recycle Bin has nothing in it (Empty is greyed)
+    bool hasIcon = false;          // the pin's config entry names an `icon` (Reset icon is greyed otherwise)
 };
 
-// Per-item menu, then the dock menu. Apps: the app name (disabled header), Pin/Unpin, New window
-// (Open when not running), Open file location, one "Close <title>" entry per window
-// (kCloseWindowBase + index), "Close all windows" when there are several. Folders: the name,
-// Unpin, Open in Explorer. Separators: Remove. The Recycle Bin: Open, Empty Recycle Bin, Unpin.
+// Per-item menu, then the dock menu. Apps: the app name (disabled header), Pin/Unpin, the icon
+// entries (pinned apps only), New window (Open when not running), Open file location, one
+// "Close <title>" entry per window (kCloseWindowBase + index), "Close all windows" when there
+// are several. Folders: the name, Unpin, the icon entries, Open in Explorer. Separators: Remove.
+// The Recycle Bin: Open, Empty Recycle Bin, Unpin, the icon entries. The icon entries: Choose
+// icon…, Choose image…, Reset icon.
 UINT ShowItemMenu(HWND owner, POINT screenPt, const std::wstring& appName, const std::vector<std::wstring>& windowTitles,
                   const ItemMenuState& item, const TrayMenuState& state);
 
