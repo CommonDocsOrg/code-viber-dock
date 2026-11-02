@@ -230,6 +230,8 @@ public:
 
     HRESULT Commit();
 
+    // The DirectComposition device (3D transform effects); null before Initialize.
+    IDCompositionDesktopDevice* DComp() const { return dcomp_.get(); }
     IDWriteFactory* DWrite() const { return dwrite_.get(); }
     ID2D1Factory1* D2DFactory() const { return d2dFactory_.get(); }
     bool UsingWarp() const { return usingWarp_; }

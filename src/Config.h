@@ -122,7 +122,28 @@ struct ThemeConfig {
     bool shelf = false;
     float shelfSlant = 14.0f;               // DIPs, 0 - 64
     uint32_t shelfEdge = 0xE6A0CDBE;
+    // Icon effects, baked into each icon's surfaces when it is drawn (magnification, bounce and
+    // drags only move them). Glow: a soft halo behind the icon (GlowMode as int: off / hover /
+    // active app / always).
+    int glow = 0;
+    uint32_t glowColor = 0x00000000;        // alpha 0: the icon's dominant colour
+    float glowRadius = 14.0f;               // DIPs, 4 - 32 (blur radius)
+    float glowStrength = 0.6f;              // 0 - 1, halo opacity
+    // A mirrored, fading copy of each icon under it (the bar grows by its height).
+    bool reflection = false;
+    float reflectionHeight = 0.5f;          // 0.2 - 1, fraction of the icon height
+    float reflectionOpacity = 0.35f;        // 0 - 1, at the icon's foot (fading to 0)
+    // The icon row and the bar tilted back about the bar's bottom edge (cosmetic: hit-testing uses
+    // the untilted layout). Acrylic is not used with it.
+    bool perspective = false;
+    float perspectiveAngle = 18.0f;         // degrees, 0 - 35
 };
+
+// ThemeConfig::glow (the "glow" key: "off", "hover", "active", "always").
+enum class GlowMode { Off = 0, Hover = 1, Active = 2, Always = 3 };
+inline GlowMode GlowOf(const ThemeConfig& t) {
+    return t.glow >= 0 && t.glow <= 3 ? static_cast<GlowMode>(t.glow) : GlowMode::Off;
+}
 
 struct Config {
     std::vector<PinnedEntry> pinned;
@@ -147,7 +168,7 @@ struct Config {
     // built-in `base`) -> fields set inline in config.json. `themePreset` is a built-in id or a
     // user theme file stem; "" means none (inline fields over the dark defaults).
     std::wstring themePreset = L"dark";
-    uint32_t themeOverrides = 0;  // one bit per Theme::Field set inline (only those are saved)
+    uint64_t themeOverrides = 0;  // one bit per Theme::Field set inline (only those are saved)
     ThemeConfig theme;            // RESOLVED values: what the dock draws with
     bool themeResolveFailed = false;  // the last ResolveTheme() fell back to dark (not saved)
     AnimationConfig animation;

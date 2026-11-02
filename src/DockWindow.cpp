@@ -15,6 +15,7 @@
 
 #include "Activation.h"
 #include "AppIdentity.h"
+#include "IconEffects.h"
 #include "Launcher.h"
 #include "Theme.h"
 
@@ -270,11 +271,29 @@ void DockWindow::ComputeLayout() {
     // With acrylic, DWM rounds the blur with its own radius; the tint matches it.
     l.cornerRadius = std::round((acrylic_ ? acrylicRadiusDip_ : c.theme.cornerRadius) * s);
     l.magnification = static_cast<float>(c.magnification);
+    l.bitmapPx = static_cast<UINT>(std::lround(static_cast<double>(c.iconSize) * c.magnification * s));
 
-    const float barH = std::round(l.iconPx + kBarExtraHeight * s);
+    // Icon effects. The reflection surface is drawn at the bitmap size and shown at rest scale
+    // under each icon: the bar grows by its height. The glow reaches glowPad beyond the icon box.
+    const ThemeConfig& t = c.theme;
+    const UINT reflSurface = t.reflection ? IconEffects::ReflectionHeight(l.bitmapPx, t.reflectionHeight) : 0;
+    l.reflH = reflSurface && l.bitmapPx ? std::ceil(static_cast<float>(reflSurface) * l.iconPx /
+                                                    static_cast<float>(l.bitmapPx))
+                                        : 0.0f;
+    const GlowMode glow = GlowOf(t);
+    l.glowPad = glow != GlowMode::Off ? std::ceil(t.glowRadius * s) + 1.0f : 0.0f;
+
+    const float iconBarH = std::round(l.iconPx + kBarExtraHeight * s);  // the bar without reflections
+    const float barH = iconBarH + l.reflH;
     const float margin = std::round(kBottomMargin * s);
-    float winH = std::round(l.iconPx * l.magnification + kWindowExtraHeight * s);
+    float winH = std::round(l.iconPx * l.magnification + kWindowExtraHeight * s) + l.reflH;
     winH = std::max(winH, barH + margin);
+    if (l.glowPad > 0.0f) {
+        // Room above a fully magnified icon for its halo.
+        const float magTopRel =
+            winH - margin - barH + std::round(kIconTop * s) + l.iconPx - l.iconPx * l.magnification;
+        winH += std::max(0.0f, std::ceil(l.glowPad * l.magnification) - magTopRel);
+    }
 
     // Clock text block and weather widget (already laid out at this scale).
     const float clockW = c.clock.show ? static_cast<float>(clockSize_.width) : 0.0f;
@@ -326,10 +345,11 @@ void DockWindow::ComputeLayout() {
 
     l.bar = D2D1::RectF(slack, winH - margin - barH, slack + barW, winH - margin);
     const float clockX = l.bar.right - l.padding - clockW;
-    const float clockY = std::round(l.bar.top + (barH - clockH) / 2.0f);
+    // The clock and the weather widget are centred on the icon row (above any reflections).
+    const float clockY = std::round(l.bar.top + (iconBarH - clockH) / 2.0f);
     l.clock = D2D1::RectF(clockX, clockY, clockX + clockW, clockY + clockH);
     const float weatherX = clockX - widgetGap - weatherW;
-    const float weatherY = std::round(l.bar.top + (barH - weatherH) / 2.0f);
+    const float weatherY = std::round(l.bar.top + (iconBarH - weatherH) / 2.0f);
     l.weather = D2D1::RectF(weatherX, weatherY, weatherX + weatherW, weatherY + weatherH);
 
     l.itemsLeft = l.bar.left + lead;
@@ -343,11 +363,17 @@ void DockWindow::ComputeLayout() {
     l.magTop = l.itemTop + l.iconPx - l.iconPx * l.magnification;
     l.dotRadius = std::max(1.5f, kDotRadius * s);
     l.dotHeight = static_cast<UINT>(std::ceil(2.0f * l.dotRadius + 2.0f));
-    const float dotCenter = l.bar.bottom - std::round(kDotFromBottom * s);
+    // With reflections the dot sits at the icon's foot, on the reflection.
+    const float dotCenter = l.reflH > 0.0f ? l.itemTop + l.iconPx + std::round(kDotFromBottom * s)
+                                           : l.bar.bottom - std::round(kDotFromBottom * s);
     l.dotTop = std::round(dotCenter - static_cast<float>(l.dotHeight) / 2.0f);
     l.dotCenterY = dotCenter - l.dotTop;
-    l.bitmapPx = static_cast<UINT>(std::lround(static_cast<double>(c.iconSize) * c.magnification * s));
     l.separatorX = sepW > 0.0f ? std::round(lead + itemsW + sepW / 2.0f) : -1.0f;
+    // A glow that shows at rest (always / the active app) reaches above the bar: the resting HWND
+    // grows by that much so it is not cut off (only that band; the bar stays the active zone).
+    l.restTopExtra = (glow == GlowMode::Always || glow == GlowMode::Active)
+                         ? std::max(0.0f, l.glowPad - std::round(kIconTop * s))
+                         : 0.0f;
 
     // Background halves: the seam must sit where both halves show plain fill (between the
     // rounded left end and the separator / rounded right end) for every amount of growth.
@@ -362,7 +388,8 @@ void DockWindow::ComputeLayout() {
     const float seamMax = (l.separatorX >= 0.0f ? l.separatorX - 2.0f : barW - radius - 2.0f) - undershoot;
     l.seamX = l.bar.left + (seamMin <= seamMax ? seamMin : std::floor(barW / 2.0f));
 
-    l.slide = winH - l.bar.top + 2.0f;  // moves the bar just below the window's bottom edge
+    // Moves the bar (and a glow shown above it at rest) just below the window's bottom edge.
+    l.slide = winH - (l.bar.top - l.restTopExtra) + 2.0f;
 
     layout_ = l;
 }
@@ -381,7 +408,7 @@ RECT DockWindow::DesiredRect() const {
     // the bottom margin, so the rect extends to the screen edge (the stage's bottom).
     const LONG left = l.window.left + static_cast<LONG>(l.bar.left);
     const LONG right = l.window.left + static_cast<LONG>(l.bar.right);
-    LONG top = l.window.top + static_cast<LONG>(l.bar.top);
+    LONG top = l.window.top + static_cast<LONG>(l.bar.top - l.restTopExtra);
     if (hideState_ != HideState::Shown && motion_.easing == Easing::Spring &&
         (motion_.hide == HideStyle::Slide || motion_.hide == HideStyle::SlideOnly)) {
         // A spring slide-in overshoots above the resting bar: room for it.
@@ -512,9 +539,11 @@ void DockWindow::ResetLayers() {
     bgLeft_.Reset();
     bgRightClip_.Reset();
     bgRight_.Reset();
+    widgetsGroup_.Reset();
     clockLayer_.Reset();
     weatherLayer_.Reset();
     weatherAppliedY_ = -1.0f;
+    perspectiveApplied_ = false;
     itemsGroup_.Reset();
     for (Layer& d : dotSources_) d.Reset();
     marker_.Reset();
@@ -524,6 +553,8 @@ void DockWindow::ResetLayers() {
     label_.Reset();
     for (DockItem& item : items_) {
         item.layer.Reset();
+        item.glow.Reset();
+        item.reflection.Reset();
         item.icon.Reset();
         item.iconBig.Reset();
         item.dot.Reset();
@@ -531,14 +562,16 @@ void DockWindow::ResetLayers() {
 }
 
 HRESULT DockWindow::CreateLayers() {
-    // Z-order (back to front): background halves, clock, weather, items, label.
+    // Z-order (back to front): background halves, clock, weather, items, label. The clock and the
+    // weather widget sit in a container at the stage origin (it carries the perspective tilt).
     ResetLayers();
     HRESULT hr = renderer_.CreateLayer(bgLeftClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgLeft_, &bgLeftClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRightClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRight_, &bgRightClip_);
-    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(clockLayer_);
-    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(weatherLayer_);
+    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(widgetsGroup_);
+    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(clockLayer_, &widgetsGroup_);
+    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(weatherLayer_, &widgetsGroup_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(itemsGroup_);
     for (Layer& d : dotSources_) {
         if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(d, &itemsGroup_);
@@ -567,17 +600,22 @@ HRESULT DockWindow::CreateLayers() {
 
 HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
     item.layer.Reset();
+    item.glow.Reset();
+    item.reflection.Reset();
     item.icon.Reset();
     item.iconBig.Reset();
     item.dot.Reset();
-    HRESULT hr = renderer_.CreateLayer(item.dot, &itemsGroup_);
-    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.layer, &itemsGroup_);
+    // The dot goes in front of its icon container: with reflections it sits on the reflection.
+    HRESULT hr = renderer_.CreateLayer(item.layer, &itemsGroup_);
     if (SUCCEEDED(hr)) hr = renderer_.EnsurePlacement(item.layer, BoxW(item) / 2.0f, layout_.iconPx);
+    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.glow, &item.layer);
+    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.reflection, &item.layer);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.icon, &item.layer);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.iconBig, &item.layer);
+    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.dot, &itemsGroup_);
     item.dirty = true;
     item.dotDirty = true;
-    item.tx.valid = item.ts.valid = item.fade.valid = false;
+    item.tx.valid = item.ts.valid = item.fade.valid = item.glowOpacity.valid = false;
     return hr;
 }
 
@@ -591,11 +629,12 @@ HRESULT DockWindow::RenderBackground() {
     const float stroke = std::max(1.0f, std::round(l.scale));
     // The separator keeps its distance from the right end (it moves with the right half).
     const float separatorX = l.separatorX >= 0.0f ? l.separatorX + l.growMax : -1.0f;
+    const float rowH = static_cast<float>(h) - l.reflH;  // the icon row, above any reflections
 
     HRESULT hr = renderer_.DrawLayer(bgLeft_, w, h, [&](ID2D1DeviceContext* dc) {
         if (theme.shelf) {
             Theme::DrawShelf(dc, D2D1::RectF(0, 0, static_cast<float>(w), static_cast<float>(h)), theme, l.scale,
-                             stroke, separatorX);
+                             stroke, separatorX, l.reflH);
             return;
         }
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
@@ -612,10 +651,9 @@ HRESULT DockWindow::RenderBackground() {
         // Separator between the app icons and the clock.
         if (separatorX >= 0.0f) {
             const float x = separatorX + stroke / 2.0f;
-            const float vInset = std::round(static_cast<float>(h) * 0.22f);
+            const float vInset = std::round(rowH * 0.22f);
             brush->SetColor(Theme::ToColor(theme.separator));
-            dc->DrawLine(D2D1::Point2F(x, vInset), D2D1::Point2F(x, static_cast<float>(h) - vInset), brush.get(),
-                         stroke);
+            dc->DrawLine(D2D1::Point2F(x, vInset), D2D1::Point2F(x, rowH - vInset), brush.get(), stroke);
         }
     });
     if (FAILED(hr)) return hr;
@@ -752,7 +790,7 @@ HRESULT DockWindow::RenderSeparator(DockItem& item) {
     const UINT w = static_cast<UINT>(std::max(1.0f, item.slotW));
     const UINT h = static_cast<UINT>(l.iconPx);
     const float stroke = std::max(1.0f, std::round(l.scale));
-    const float barH = l.bar.bottom - l.bar.top;
+    const float barH = l.bar.bottom - l.bar.top - l.reflH;  // the icon row
     const float vInset = std::round(barH * 0.22f);
     const float boxTop = l.itemTop - l.bar.top;  // the icon box inside the bar
     const float top = std::clamp(vInset - boxTop, 0.0f, static_cast<float>(h));
@@ -765,7 +803,11 @@ HRESULT DockWindow::RenderSeparator(DockItem& item) {
         dc->DrawLine(D2D1::Point2F(x, top), D2D1::Point2F(x, bottom), brush.get(), stroke);
     });
     if (SUCCEEDED(hr)) hr = renderer_.DrawLayer(item.iconBig, 0, 0, {});
+    // No glow, no reflection.
+    if (SUCCEEDED(hr)) hr = renderer_.DrawLayer(item.glow, 0, 0, {});
+    if (SUCCEEDED(hr)) hr = renderer_.DrawLayer(item.reflection, 0, 0, {});
     if (FAILED(hr)) return hr;
+    item.glowOpacity.valid = false;
     item.dirty = false;
     renderer_.SetVisible(item.icon, true);
     renderer_.SetVisible(item.iconBig, false);
@@ -827,6 +869,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
             hr = renderer_.DrawLayer(item.iconBig, 0, 0, {});
         }
     }
+    if (SUCCEEDED(hr)) hr = RenderEffects(item, drawIcon);
     if (FAILED(hr)) return hr;
     item.dirty = false;
     // The magnified-size surface is drawn at bitmapPx and shown at iconPx * scale.
@@ -835,6 +878,159 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
     renderer_.SetVisible(item.icon, !big);
     renderer_.SetVisible(item.iconBig, big);
     return S_OK;
+}
+
+HRESULT DockWindow::RenderEffects(DockItem& item, const std::function<void(ID2D1DeviceContext*, float)>& drawIcon) {
+    // Drawn here, once per icon draw; nothing in them changes with magnification, bounces or
+    // drags (the static scale maps the bitmap size to the rest size, the layer transform does the rest).
+    const Layout& l = layout_;
+    const ThemeConfig& t = config_->theme;
+    const UINT bitmapPx = l.bitmapPx;
+    const float k = bitmapPx ? l.iconPx / static_cast<float>(bitmapPx) : 1.0f;
+    const bool wantGlow = GlowOf(t) != GlowMode::Off && t.glowStrength > 0.0f && bitmapPx;
+    const UINT reflH = t.reflection && bitmapPx ? IconEffects::ReflectionHeight(bitmapPx, t.reflectionHeight) : 0;
+    winrt::com_ptr<ID2D1CommandList> icon;
+    if ((wantGlow || reflH) && renderer_.ResourceContext()) {
+        icon = IconEffects::Record(renderer_.ResourceContext(), static_cast<float>(bitmapPx), drawIcon);
+    }
+
+    HRESULT hr = S_OK;
+    if (wantGlow && icon) {
+        const float radiusPx = t.glowRadius * l.scale / k;  // DIPs -> bitmap pixels
+        const UINT pad = IconEffects::GlowPad(radiusPx);
+        const uint32_t color = IconEffects::GlowColor(t, icons_.DominantColor(item.key), t.accent);
+        const float fpad = static_cast<float>(pad);
+        bool drawn = false;
+        hr = renderer_.DrawLayer(item.glow, bitmapPx + 2 * pad, bitmapPx + 2 * pad, [&](ID2D1DeviceContext* dc) {
+            drawn = IconEffects::DrawGlow(dc, icon.get(), radiusPx, color, t.glowStrength, D2D1::Point2F(fpad, fpad));
+        });
+        if (SUCCEEDED(hr) && !drawn) {
+            Log(L"glow effect", E_FAIL);
+            hr = renderer_.DrawLayer(item.glow, 0, 0, {});
+        }
+        if (SUCCEEDED(hr) && drawn) {
+            renderer_.SetStaticTransform(item.glow,
+                                         D2D1::Matrix3x2F::Translation(-fpad, -fpad) * D2D1::Matrix3x2F::Scale(k, k));
+        }
+    } else {
+        hr = renderer_.DrawLayer(item.glow, 0, 0, {});
+    }
+    if (FAILED(hr)) return hr;
+    item.glowOpacity.valid = false;  // a new surface: set its opacity statically
+    DriveGlow(item, 0.0);
+
+    if (reflH && icon) {
+        const float size = static_cast<float>(bitmapPx);
+        hr = renderer_.DrawLayer(item.reflection, bitmapPx, reflH, [&](ID2D1DeviceContext* dc) {
+            IconEffects::DrawReflection(dc, icon.get(), size, static_cast<float>(reflH), t.reflectionOpacity);
+        });
+        // One pixel below the icon's foot, inside the container: it scales with the icon about the
+        // foot, so it grows downward while magnified.
+        if (SUCCEEDED(hr)) {
+            renderer_.SetStaticTransform(item.reflection, D2D1::Matrix3x2F::Scale(k, k) *
+                                                              D2D1::Matrix3x2F::Translation(0.0f, l.iconPx + 1.0f));
+        }
+    } else {
+        hr = renderer_.DrawLayer(item.reflection, 0, 0, {});
+    }
+    return hr;
+}
+
+float DockWindow::GlowTarget(const DockItem& item) const {
+    if (!item.glow.width) return 0.0f;
+    switch (GlowOf(config_->theme)) {
+        case GlowMode::Always: return 1.0f;
+        case GlowMode::Active: return item.active ? 1.0f : 0.0f;
+        case GlowMode::Hover:
+            return hovered_ >= 0 && hovered_ < static_cast<int>(items_.size()) &&
+                           &items_[static_cast<size_t>(hovered_)] == &item
+                       ? 1.0f
+                       : 0.0f;
+        case GlowMode::Off:
+        default: return 0.0f;
+    }
+}
+
+void DockWindow::DriveGlow(DockItem& item, double duration) {
+    if (!item.glow.visual) return;
+    winrt::com_ptr<IDCompositionVisual3> v3 = item.glow.visual.try_as<IDCompositionVisual3>();
+    if (!v3) return;  // no opacity: the halo shows whenever it has a surface
+    renderer_.Drive(
+        item.glowOpacity, GlowTarget(item), duration, Renderer::Now(), [&](auto v) { return v3->SetOpacity(v); },
+        0.001f, renderer_.FadeEasing());
+}
+
+void DockWindow::UpdateGlows(double duration) {
+    if (GlowOf(config_->theme) == GlowMode::Off) return;
+    for (DockItem& item : items_) DriveGlow(item, duration);
+}
+
+void DockWindow::ApplyPerspective() {
+    // One static 3D effect shared by the background halves' clips, the clock / weather container
+    // and the items group (all at the stage origin): a rotation about the X axis through the bar's
+    // bottom edge, then a perspective projection centred on the same point. The children's 2D
+    // placement animations keep running inside it; nothing is redrawn.
+    Layer* targets[] = {&bgLeftClip_, &bgRightClip_, &widgetsGroup_, &itemsGroup_};
+    const ThemeConfig& t = config_->theme;
+    IDCompositionDesktopDevice* dcomp = renderer_.DComp();
+    const bool want = t.perspective && t.perspectiveAngle > 0.0f && dcomp;
+    if (!want) {
+        if (perspectiveApplied_) {
+            for (Layer* layer : targets) {
+                if (layer->visual) layer->visual->SetEffect(nullptr);
+            }
+        }
+        perspectiveApplied_ = false;
+        return;
+    }
+    const Layout& l = layout_;
+    const float stageW = static_cast<float>(l.window.right - l.window.left);
+    const float cx = stageW / 2.0f;
+    const float cy = l.bar.bottom;
+    // Viewer distance: one stage width. (Four stage widths, as first planned, made the convergence
+    // ~0.5 % at the default 18 degrees: only the vertical squash was visible.)
+    const float d = std::max(stageW, 1.0f);
+    winrt::com_ptr<IDCompositionRotateTransform3D> rotate;
+    winrt::com_ptr<IDCompositionMatrixTransform3D> project;
+    winrt::com_ptr<IDCompositionTransform3D> group;
+    HRESULT hr = dcomp->CreateRotateTransform3D(rotate.put());
+    if (SUCCEEDED(hr)) {
+        rotate->SetAxisX(1.0f);
+        rotate->SetAxisY(0.0f);
+        rotate->SetAxisZ(0.0f);
+        // Positive: the top edge recedes (the bar leans back, its top narrower), as measured.
+        rotate->SetAngle(t.perspectiveAngle);
+        rotate->SetCenterX(cx);
+        rotate->SetCenterY(cy);
+        rotate->SetCenterZ(0.0f);
+        hr = dcomp->CreateMatrixTransform3D(project.put());
+    }
+    if (SUCCEEDED(hr)) {
+        // Translate(-c) x Perspective(_34 = -1/d) x Translate(c), row vectors: the vanishing point
+        // is straight above the centre of the bar's bottom edge.
+        D3DMATRIX m{};
+        m._11 = m._22 = m._33 = m._44 = 1.0f;
+        m._31 = -cx / d;
+        m._32 = -cy / d;
+        m._34 = -1.0f / d;
+        hr = project->SetMatrix(m);
+    }
+    if (SUCCEEDED(hr)) {
+        IDCompositionTransform3D* parts[] = {rotate.get(), project.get()};  // applied in order
+        hr = dcomp->CreateTransform3DGroup(parts, 2, group.put());
+    }
+    for (Layer* layer : targets) {
+        if (SUCCEEDED(hr) && layer->visual) hr = layer->visual->SetEffect(group.get());
+    }
+    if (FAILED(hr)) {
+        Log(L"perspective effect", hr);
+        for (Layer* layer : targets) {
+            if (layer->visual) layer->visual->SetEffect(nullptr);
+        }
+        perspectiveApplied_ = false;
+        return;
+    }
+    perspectiveApplied_ = true;
 }
 
 HRESULT DockWindow::RenderDotSources() {
@@ -964,6 +1160,7 @@ HRESULT DockWindow::DrawFrame(bool all) {
     if (snap) {
         snapPending_ = false;
         ResetPlacementTweens();
+        ApplyPerspective();  // its centre follows the stage size and the bar
     }
     if (!rootY_.valid) ApplyRootPose(0.0);
     ComputeTargets();
@@ -1382,6 +1579,8 @@ void DockWindow::SetHover(int index) {
     if (index == hovered_) return;
     const int previous = hovered_;
     hovered_ = index;
+    // Hover glow: fades with the label's duration (committed by the caller).
+    if (GlowOf(config_->theme) == GlowMode::Hover) UpdateGlows(motion_.labelFade);
     UpdatePreviewHover();
     // A separator has no name to show.
     if (index < 0 || items_[static_cast<size_t>(index)].kind == DockItem::Kind::Separator) {
@@ -1913,7 +2112,9 @@ std::wstring DockWindow::RecycleBinLabel() {
 // visibly lose its blur at the start of every hide.
 
 void DockWindow::UpdateAcrylic() {
-    const bool want = config_->theme.acrylic && !config_->theme.shelf && Backdrop::SystemAllowsTransparency();
+    // The blur window is a flat rectangle: not with the glass shelf or the perspective tilt.
+    const bool want = config_->theme.acrylic && !config_->theme.shelf && !config_->theme.perspective &&
+                      Backdrop::SystemAllowsTransparency();
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
     if (acrylic_) {
@@ -2464,6 +2665,8 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
         if (taken[i]) continue;
         renderer_.DestroyLayer(items_[i].dot);
         renderer_.DestroyLayer(items_[i].layer);
+        items_[i].glow.Reset();
+        items_[i].reflection.Reset();
         items_[i].icon.Reset();
         items_[i].iconBig.Reset();
     }
@@ -2472,6 +2675,8 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     for (size_t i = 0; !structural && i < next.size(); ++i) structural = next[i].key != oldKeys[i];
 
     items_ = std::move(next);
+    // Active-app glow follows the foreground (committed by the redraw below).
+    if (GlowOf(config_->theme) == GlowMode::Active) UpdateGlows(motion_.labelFade);
     // Indices changed under a drag: drop it (no animation; the icons settle in the new layout).
     const bool abortDrag = structural && dragPhase_ == DragPhase::Dragging;
     if (abortDrag) AbortDrag();
@@ -3337,12 +3542,29 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return weather_.Active() ? static_cast<LRESULT>(weather_.Age()) : -1;
         case 31:
             return calendar_.Visible() ? 1 : 0;
+        case 32: {
+            LRESULT mask = 0;
+            const bool glow = std::any_of(items_.begin(), items_.end(), [](const DockItem& i) { return i.glow.width > 0; });
+            const bool reflection =
+                std::any_of(items_.begin(), items_.end(), [](const DockItem& i) { return i.reflection.width > 0; });
+            if (glow && GlowOf(config_->theme) != GlowMode::Off) mask |= 1;
+            if (reflection && layout_.reflH > 0.0f) mask |= 2;
+            if (perspectiveApplied_) mask |= 4;
+            return mask;
+        }
         case 24:
         case 25:
+        case 33:
+        case 34:
         case 35: {
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             const DockItem& item = items_[static_cast<size_t>(lp)];
             if (wp == 35) return static_cast<LRESULT>(icons_.DominantColor(item.key));
+            if (wp == 33) {
+                return item.glow.width && item.glowOpacity.valid ? static_cast<LRESULT>(std::lround(item.glowOpacity.to * 100.0f))
+                                                                 : 0;
+            }
+            if (wp == 34) return static_cast<LRESULT>(item.reflection.height);
             return wp == 24 ? static_cast<LRESULT>(item.kind) : (item.customIcon ? 1 : 0);
         }
         default:

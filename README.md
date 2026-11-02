@@ -23,7 +23,8 @@ cmake --build --preset x64-release
 
 Output: `build\x64-release\WinDock.exe`. Use the `x64-debug` preset for a debug build. It links
 only Windows SDK libraries (Direct3D 11, Direct2D, DirectComposition, DirectWrite, WIC, the shell,
-DWM, common controls, `windowsapp` for the JSON parser, and `winhttp` for the weather widget).
+DWM, common controls, `windowsapp` for the JSON parser, `winhttp` for the weather widget, and
+`dxguid` for the Direct2D effect ids of the icon glow).
 
 ## Run
 
@@ -320,11 +321,16 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 - **Appearance**: the theme (the built-in presets, then your theme files from the themes folder by
   name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
   **Open themes folder**, **Reset all to preset**, and one row per theme field (see
-  [Themes](#themes)) grouped as Bar, Name label, Indicator dots, Clock, Placeholder icon and Window
-  previews. A colour row has a swatch (click it for the Windows colour picker; it replaces the
-  colour and keeps the alpha), the `#AARRGGBB` value (applied on Enter or when the box loses the
-  focus; an invalid value beeps and goes back) and the alpha 0-255. Acrylic blur is a check box,
-  the two corner radii are number boxes (DIPs).
+  [Themes](#themes)) grouped as Bar, Name label, Indicator dots, Clock, Placeholder icon, Window
+  previews and Icon effects. A colour row has a swatch (click it for the Windows colour picker; it
+  replaces the colour and keeps the alpha), the `#AARRGGBB` value (applied on Enter or when the
+  box loses the focus; an invalid value beeps and goes back) and the alpha 0-255. On / off keys
+  are check boxes, numbers are number boxes with their unit (DIPs; percent for the 0 - 1 values
+  such as the glow strength; degrees for the perspective angle), and the glow mode is a drop-down
+  (Off, While hovered, Active app, Always). **Icon effects** holds the glow (mode, colour, radius,
+  strength), the reflection (on / off, height, opacity) and the 3D perspective (on / off, angle);
+  see [Icon effects](#icon-effects). The preview strip under every page shows them on its
+  placeholder icons (the perspective as the shelf's trapezoid with the icons a little shorter).
 - **Behaviour**: auto-hide Off / Always / When a window overlaps the dock, hide and reveal delays,
   window previews on / off and their delay.
 - **Animation**: speed (Off, then 0.25× to 4× on a logarithmic slider), hide style (slide and
@@ -369,7 +375,7 @@ mouse moves over it (no timers).
 you change on the Appearance page becomes an override: it is saved inline in config.json next to
 `"preset"` (only overridden fields are saved) and its **Reset** button appears; Reset copies the
 preset's value back and removes the field from config.json. **Reset all to preset** does that for
-every field. **Export current theme…** saves all 21 resolved values plus a `name` (the file name)
+every field. **Export current theme…** saves all 33 resolved values plus a `name` (the file name)
 as a theme file, by default into the themes folder (created on demand); a file saved there becomes
 the preset at once, with no overrides left. A theme file named after a built-in id (`dark.json`,
 ...) is ignored, so for a built-in preset the suggested name is `my-<id>`.
@@ -504,8 +510,9 @@ the inline keys over the dark defaults.
 
 Built-in presets: `dark` (Dark, the default), `light` (Light), `glass` (Glass, a thinner
 acrylic tint), `solid` (Solid, opaque, no acrylic, 12 DIP corners), `shelf` (Glass shelf, a pale
-sea-green glass shelf in perspective with angled sides, see `shelf`) and `contrast` (High contrast,
-black with white borders, square corners). Ids are case-insensitive.
+sea-green glass shelf in perspective with angled sides, see `shelf`), `leopard` (3D shelf: a cool
+grey glass shelf with icon reflections, a glow on the hovered icon and the 3D perspective tilt) and
+`contrast` (High contrast, black with white borders, square corners). Ids are case-insensitive.
 
 User themes live in `%LocalAppData%\WinDock\themes\<id>.json`; the file name without `.json` is
 the id used in `preset` (case-insensitive). A file named like a built-in id is ignored.
@@ -547,6 +554,41 @@ Theme keys (colours are `#AARRGGBB` or `#RRGGBB`; defaults are the `dark` preset
 | `shelf` | `false` | draw the bar as a glass shelf under the icons instead of a panel: `background` is its top surface, `barBorder` its highlights, `cornerRadius` rounds the lip's bottom corners; acrylic is not used |
 | `shelfSlant` | `14` | how far the shelf's sides angle in at the back, DIPs, 0 - 64 |
 | `shelfEdge` | `#E6A0CDBE` | the shelf's front lip |
+| `glow` | `"off"` | when a soft halo shows behind an icon: `"off"`, `"hover"` (the hovered icon; it fades in and out with the label's fade time), `"active"` (the app owning the foreground window), `"always"`; case-insensitive, an unknown value keeps the preset's |
+| `glowColor` | `#00000000` | halo colour; alpha 0 = each icon's own dominant colour (the accent for placeholder icons); the colour's alpha scales the strength |
+| `glowRadius` | `14` | halo blur radius in DIPs, 4 - 32 |
+| `glowStrength` | `0.6` | halo opacity, 0 - 1 |
+| `reflection` | `false` | a mirrored copy of each icon under it, fading out downwards (the bar grows by its height) |
+| `reflectionHeight` | `0.5` | reflection height as a fraction of the icon, 0.2 - 1 |
+| `reflectionOpacity` | `0.35` | reflection opacity at the icon's foot (fading to 0), 0 - 1 |
+| `perspective` | `false` | tilt the bar, the icons and the clock back about the bar's bottom edge (3D); acrylic is not used |
+| `perspectiveAngle` | `18` | tilt in degrees, 0 - 35 |
+
+#### Icon effects
+
+The glow and the reflection are drawn once into extra surfaces of each icon (at the magnified
+bitmap size, like the magnified icon), whenever the icon itself is drawn: magnification, launch
+bounces and drags only move and scale them, so they cost nothing per frame and the dock stays idle.
+The glow is a Direct2D Gaussian blur of the icon (sigma = radius / 3) whose coverage is boosted
+(x 3, clamped) and recoloured; the effects exist only while the icon is drawn. Separators get
+neither. With reflections the bar grows by the reflection height, the running dots move to the
+icons' feet, the clock stays centred on the icon row and the glass shelf deepens so the
+reflections lie on it. A glow that shows at rest (`"active"`, `"always"`) reaches above the bar:
+the dock window at rest is that much taller (the band above the bar takes clicks but does
+nothing).
+
+The perspective is a DirectComposition 3D transform (a rotation about the bar's bottom edge plus
+a perspective projection, viewer distance one dock-stage width) on the bar, the icons and the
+clock / weather widget; it is static and does not redraw anything. It is cosmetic: clicks, hover
+and drops still use the flat layout, which matches the tilted icons closely because the tilt
+pivots on the bar's bottom edge. Acrylic is turned off while it is on (the blur window is a flat
+rectangle), like with `shelf`. If DirectComposition refuses the transform the dock stays flat
+(`WinDock.QueryState` 32 tells which effects are actually applied).
+
+Memory (measured, 13 items): with the hardware renderer the effects add about 3 MB (reflection)
+to 7 MB (`leopard` with an always-on glow) of private bytes; with `"renderer": "software"` (WARP)
+the effect and layer pipeline adds about 12 - 14 MB (reflection) to 18 - 22 MB (`leopard` with an
+always-on glow) on top of ~24 MB.
 
 ### Animation
 
@@ -630,7 +672,12 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   last refresh failed; 2 fresh; 3 error: the fetch failed and there is no data). 28 = the current
   temperature x 10 in the configured units (`INT_MIN` without data). 29 = 1 while the weather
   popup is visible. 30 = seconds since the weather data was fetched (-1 without data; cached data
-  counts from when it was fetched). 31 = 1 while the calendar popup is visible. 35 = the
+  counts from when it was fetched). 31 = 1 while the calendar popup is visible. 32 = the icon
+  effects actually applied, a bit mask: 1 glow (some icon has a glow surface), 2 reflections, 4 the
+  perspective tilt. 33 = the glow opacity target x 100 of item `lParam` (100 while its halo shows,
+  0 when hidden or without a glow surface, -1 if there is no such item). 34 = the height in pixels
+  of item `lParam`'s reflection surface (at the magnified bitmap size; 0 when reflections are off
+  and for separators, -1 if there is no such item). 35 = the
   dominant colour of item `lParam`'s icon as `0xAARRGGBB` (a saturation- and alpha-weighted
   average, computed once per icon load; 0 when unknown, -1 if there is no such item).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
@@ -641,9 +688,9 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   2 Behaviour, 3 Animation, 4 Pinned apps, 5 About, 6 Weather), and every control on them has the stable id
   listed in `src/SettingsIds.h`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
-  field rows use `3000 + 10 * field index + part` (field index in `Theme::Fields()` order; part 0
-  label, 1 swatch / check box, 2 hex box / check box caption, 3 alpha or value box, 4 its up-down,
-  5 Reset, 6 unit). The preview strip is the child `WinDock.SettingsPreview` (control id 101).
+  field rows use `3000 + 10 * field index + part` (ids 3000 - 3399; field index in
+  `Theme::Fields()` order; part 0 label, 1 swatch / check box, 2 hex box / check box caption,
+  3 alpha or value box (the glow mode's drop-down), 4 its up-down, 5 Reset, 6 unit). The preview strip is the child `WinDock.SettingsPreview` (control id 101).
 - `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle (a separator's
   Remove), 801 new window (the Recycle Bin's Open), 802 open file location, 803 open a folder in
   Explorer, 804 Choose icon… and 808 Choose image… (they open their dialog; sent rather than

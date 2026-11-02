@@ -15,6 +15,23 @@ namespace {
 
 #define WD_FIELD(f, member, label, kind, mn, mx) \
     FieldInfo { Field::f, L"" #member, label, Kind::kind, offsetof(ThemeConfig, member), mn, mx }
+// A Float shown as round(value * scale) `unit` in the settings UI.
+#define WD_FLOAT(f, member, label, mn, mx, unitText, unitScale)                                                 \
+    FieldInfo {                                                                                                  \
+        Field::f, L"" #member, label, Kind::Float, offsetof(ThemeConfig, member), mn, mx, nullptr, nullptr, 0,   \
+            unitText, unitScale                                                                                  \
+    }
+// An Enum over the arrays `names` (JSON) and `choices` (UI); the index range is 0 - count - 1.
+#define WD_ENUM(f, member, label, names, choices)                                             \
+    FieldInfo {                                                                                \
+        Field::f, L"" #member, label, Kind::Enum, offsetof(ThemeConfig, member), 0.0f,         \
+            static_cast<float>(std::size(names) - 1), names, choices, std::size(names)         \
+    }
+
+// GlowMode order.
+const wchar_t* const kGlowNames[] = {L"off", L"hover", L"active", L"always"};
+const wchar_t* const kGlowChoices[] = {L"Off", L"While hovered", L"Active app", L"Always"};
+static_assert(std::size(kGlowNames) == std::size(kGlowChoices), "one UI choice per name");
 
 const FieldInfo kFields[] = {
     WD_FIELD(Background, background, L"Background", Color, 0.0f, 0.0f),
@@ -41,9 +58,20 @@ const FieldInfo kFields[] = {
     WD_FIELD(Shelf, shelf, L"Glass shelf", Bool, 0.0f, 0.0f),
     WD_FIELD(ShelfSlant, shelfSlant, L"Shelf slant", Float, 0.0f, 64.0f),
     WD_FIELD(ShelfEdge, shelfEdge, L"Shelf front edge", Color, 0.0f, 0.0f),
+    WD_ENUM(Glow, glow, L"Glow", kGlowNames, kGlowChoices),
+    WD_FIELD(GlowColor, glowColor, L"Glow colour", Color, 0.0f, 0.0f),
+    WD_FLOAT(GlowRadius, glowRadius, L"Glow radius", 4.0f, 32.0f, L"DIPs", 1.0f),
+    WD_FLOAT(GlowStrength, glowStrength, L"Glow strength", 0.0f, 1.0f, L"%", 100.0f),
+    WD_FIELD(Reflection, reflection, L"Reflection", Bool, 0.0f, 0.0f),
+    WD_FLOAT(ReflectionHeight, reflectionHeight, L"Reflection height", 0.2f, 1.0f, L"% of icon", 100.0f),
+    WD_FLOAT(ReflectionOpacity, reflectionOpacity, L"Reflection opacity", 0.0f, 1.0f, L"%", 100.0f),
+    WD_FIELD(Perspective, perspective, L"3D perspective", Bool, 0.0f, 0.0f),
+    WD_FLOAT(PerspectiveAngle, perspectiveAngle, L"Perspective angle", 0.0f, 35.0f, L"degrees", 1.0f),
 };
 
 #undef WD_FIELD
+#undef WD_FLOAT
+#undef WD_ENUM
 
 static_assert(std::size(kFields) == static_cast<size_t>(Field::Count), "one table entry per field");
 
@@ -141,6 +169,27 @@ ThemeConfig MakeShelf() {  // fields not set here are dark's
     return t;
 }
 
+ThemeConfig MakeLeopard() {  // "3D shelf": the glass shelf with reflections, a hover glow and a tilt
+    ThemeConfig t = MakeShelf();
+    t.background = 0x8CC8D2DC;  // cool grey glass: the coloured reflections read on it
+    t.shelfEdge = 0xE6AAB4C3;
+    t.barBorder = 0xCCFFFFFF;
+    t.separator = 0x73FFFFFF;
+    t.dotRunning = 0xCCFFFFFF;
+    t.dotActive = 0xFFFFFFFF;
+    t.shelfSlant = 18.0f;
+    t.reflection = true;
+    t.reflectionHeight = 0.5f;
+    t.reflectionOpacity = 0.35f;
+    t.glow = static_cast<int>(GlowMode::Hover);
+    t.glowColor = 0x00000000;  // each icon's own colour
+    t.glowRadius = 14.0f;
+    t.glowStrength = 0.6f;
+    t.perspective = true;
+    t.perspectiveAngle = 18.0f;
+    return t;
+}
+
 ThemeConfig MakeContrast() {
     ThemeConfig t;
     t.background = 0xFF000000;
@@ -179,6 +228,7 @@ void CopyField(const FieldInfo& f, const ThemeConfig& from, ThemeConfig& to) {
         case Kind::Color: At<uint32_t>(to, f) = At<uint32_t>(from, f); break;
         case Kind::Float: At<float>(to, f) = At<float>(from, f); break;
         case Kind::Bool: At<bool>(to, f) = At<bool>(from, f); break;
+        case Kind::Enum: At<int>(to, f) = At<int>(from, f); break;
     }
 }
 
@@ -187,6 +237,7 @@ bool FieldEquals(const FieldInfo& f, const ThemeConfig& a, const ThemeConfig& b)
         case Kind::Color: return At<uint32_t>(a, f) == At<uint32_t>(b, f);
         case Kind::Float: return At<float>(a, f) == At<float>(b, f);
         case Kind::Bool: return At<bool>(a, f) == At<bool>(b, f);
+        case Kind::Enum: return At<int>(a, f) == At<int>(b, f);
     }
     return false;
 }
@@ -203,6 +254,10 @@ bool GetBool(const ThemeConfig& t, const FieldInfo& f) { return f.kind == Kind::
 void SetBool(ThemeConfig& t, const FieldInfo& f, bool v) {
     if (f.kind == Kind::Bool) At<bool>(t, f) = v;
 }
+int GetInt(const ThemeConfig& t, const FieldInfo& f) { return f.kind == Kind::Enum ? At<int>(t, f) : 0; }
+void SetInt(ThemeConfig& t, const FieldInfo& f, int v) {
+    if (f.kind == Kind::Enum) At<int>(t, f) = std::clamp(v, static_cast<int>(f.min), static_cast<int>(f.max));
+}
 
 const Preset* BuiltIns(size_t& count) {
     static const Preset kPresets[] = {
@@ -211,6 +266,7 @@ const Preset* BuiltIns(size_t& count) {
         {L"glass", L"Glass", MakeGlass()},
         {L"solid", L"Solid", MakeSolid()},
         {L"shelf", L"Glass shelf", MakeShelf()},
+        {L"leopard", L"3D shelf", MakeLeopard()},
         {L"contrast", L"High contrast", MakeContrast()},
     };
     count = std::size(kPresets);
@@ -308,7 +364,7 @@ ThemeConfig Resolve(std::wstring_view id, bool& ok) {
     return FindBuiltIn(L"dark")->values;
 }
 
-void ReadFields(const json::JsonObject& o, ThemeConfig& t, uint32_t* maskOut) {
+void ReadFields(const json::JsonObject& o, ThemeConfig& t, uint64_t* maskOut) {
     for (const FieldInfo& f : kFields) {
         auto j = Find(o, f.key);
         if (!j) continue;
@@ -338,12 +394,24 @@ void ReadFields(const json::JsonObject& o, ThemeConfig& t, uint32_t* maskOut) {
                     read = true;
                 }
                 break;
+            case Kind::Enum:
+                if (j.ValueType() == json::JsonValueType::String) {
+                    const std::wstring text(j.GetString());
+                    for (size_t i = 0; i < f.count && !read; ++i) {
+                        if (EqualsNoCase(text, f.names[i])) {
+                            At<int>(t, f) = static_cast<int>(i);
+                            read = true;
+                        }
+                    }
+                    if (!read) Log(L"theme key \"" + std::wstring(f.key) + L"\": unknown value \"" + text + L"\"");
+                }
+                break;
         }
         if (read && maskOut) *maskOut |= Bit(f.field);
     }
 }
 
-std::wstring WriteFields(const ThemeConfig& t, uint32_t mask, const wchar_t* indent) {
+std::wstring WriteFields(const ThemeConfig& t, uint64_t mask, const wchar_t* indent) {
     std::wstring o;
     for (const FieldInfo& f : kFields) {
         if (!(mask & Bit(f.field))) continue;
@@ -356,18 +424,25 @@ std::wstring WriteFields(const ThemeConfig& t, uint32_t mask, const wchar_t* ind
             case Kind::Color: o += Quote(FormatArgbColor(At<uint32_t>(t, f))); break;
             case Kind::Float: o += Num(At<float>(t, f)); break;
             case Kind::Bool: o += JsonUtil::Bool(At<bool>(t, f)); break;
+            case Kind::Enum: {
+                const int v = At<int>(t, f);
+                o += Quote(f.names[v >= 0 && static_cast<size_t>(v) < f.count ? static_cast<size_t>(v) : 0]);
+                break;
+            }
         }
     }
     return o;
 }
 
 void DrawShelf(ID2D1DeviceContext* dc, const D2D1_RECT_F& r, const ThemeConfig& t, float unit, float stroke,
-               float separatorX) {
+               float separatorX, float reflectionPx) {
     const float w = r.right - r.left, h = r.bottom - r.top;
     if (w <= 2.0f || h <= 2.0f) return;
-    // The shelf fills the lower part of the bar; the icons stand on its top surface.
-    const float shelfH = std::round(h * 0.45f);
-    const float lip = std::max(2.0f, std::round(shelfH * 0.28f));
+    // The shelf fills the lower part of the bar; the icons stand on its top surface. With
+    // reflections it is at least as deep as they are plus its lip, so they lie on the glass.
+    const float baseH = std::round(h * 0.45f);
+    const float lip = std::max(2.0f, std::round(baseH * 0.28f));
+    const float shelfH = std::min(h, std::max(baseH, std::round(reflectionPx) + lip));
     const float top = r.bottom - shelfH;
     const float front = r.bottom - lip;
     const float slant = std::clamp(std::round(t.shelfSlant * unit), 0.0f, std::floor(w / 2.0f) - 1.0f);

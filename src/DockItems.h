@@ -64,10 +64,18 @@ struct DockItem {
     // children are the icon drawn at rest size (crisp at rest) and, when magnification is on,
     // the icon drawn at the magnified size (crisp while magnified); one of them is visible.
     // The running-indicator dot is a separate, unscaled layer that follows the icon's x.
+    // Icon effects (theme glow / reflection) are two more children, drawn at the magnified bitmap
+    // size with a static scale down to the rest size (like iconBig), so magnification, bounces and
+    // drags never redraw them: `glow` behind the icon (its opacity driven by glowOpacity) and
+    // `reflection` under the icon's foot. Both have no surface while their effect is off, and
+    // separators never get them. Z-order in `layer`: glow, reflection, icon, iconBig.
     Layer layer;
+    Layer glow;
+    Layer reflection;
     Layer icon;
     Layer iconBig;
     Layer dot;
+    Tween glowOpacity;
     bool active = false;    // owns the foreground window
     bool dirty = true;      // icon surfaces must be redrawn
     bool dotDirty = true;   // dot content must be re-assigned

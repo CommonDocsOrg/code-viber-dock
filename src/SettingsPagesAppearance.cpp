@@ -30,6 +30,8 @@ struct FieldGroup {
     int sectionId;
     const wchar_t* title;
     std::vector<Field> fields;
+    int noteId = 0;                  // optional note under the rows
+    const wchar_t* note = nullptr;
 };
 
 // Rows in this order; a field missing here lands in "Other" (the table stays the source of truth).
@@ -45,6 +47,12 @@ std::vector<FieldGroup> FieldGroups() {
         {kSectionFieldsIcons, L"Placeholder icon", {Field::PlaceholderFill, Field::PlaceholderText}},
         {kSectionFieldsPreviews, L"Window previews",
          {Field::PreviewHotBackground, Field::PreviewHotBorder, Field::CloseHover}},
+        {kSectionFieldsEffects, L"Icon effects",
+         {Field::Glow, Field::GlowColor, Field::GlowRadius, Field::GlowStrength, Field::Reflection,
+          Field::ReflectionHeight, Field::ReflectionOpacity, Field::Perspective, Field::PerspectiveAngle},
+         kEffectsNote,
+         L"A clear glow colour (alpha 0) uses each icon's own colour. The perspective tilt is cosmetic (clicks "
+         L"use the flat layout) and turns acrylic off, like the glass shelf."},
     };
     FieldGroup other{kSectionFieldsOther, L"Other", {}};
     for (size_t i = 0; i < Theme::FieldCount(); ++i) {
@@ -122,6 +130,10 @@ protected:
         for (const FieldGroup& g : FieldGroups()) {
             Section(g.sectionId, g.title);
             for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
+            if (g.note) {
+                Text(g.noteId, CtlKind::Note, g.note, kMargin, right - kMargin, 36);
+                NextRow(36);
+            }
         }
     }
 
@@ -132,6 +144,11 @@ protected:
     }
 
     void OnCommand(int id, int code, HWND) override {
+        if (int field = 0, part = 0; code == CBN_SELCHANGE && SplitId(id, field, part) && part == kFieldValue &&
+                                     Theme::Fields()[field].kind == Theme::Kind::Enum) {
+            SetChoice(field, ComboSel(id));
+            return;
+        }
         if (id == kThemeCombo) {
             if (code == CBN_DROPDOWN) {
                 FillThemes();  // theme files may have been added / renamed meanwhile
@@ -189,6 +206,7 @@ protected:
         int field = 0, part = 0;
         if (!SplitId(id, field, part)) return;
         const Theme::FieldInfo& info = Theme::Fields()[field];
+        if (info.kind == Theme::Kind::Enum) return;  // the combo applies on selection
         if (part == kFieldHex && info.kind == Theme::Kind::Color) {
             std::wstring text = Trim(GetText(id));
             if (!text.empty() && text[0] != L'#') text.insert(0, 1, L'#');
@@ -200,8 +218,8 @@ protected:
             }
             SetColor(field, argb);
         } else if (part == kFieldValue) {
-            const int lo = info.kind == Theme::Kind::Color ? 0 : static_cast<int>(info.min);
-            const int hi = info.kind == Theme::Kind::Color ? 255 : static_cast<int>(info.max);
+            const int lo = info.kind == Theme::Kind::Color ? 0 : FloatToUi(info, info.min);
+            const int hi = info.kind == Theme::Kind::Color ? 255 : FloatToUi(info, info.max);
             int value = 0;
             if (!ReadInt(id, lo, hi, value)) {
                 MessageBeep(MB_OK);
@@ -249,6 +267,9 @@ protected:
     }
 
 private:
+    // A Float field's value as the settings UI shows it (value x scale, rounded).
+    static int FloatToUi(const Theme::FieldInfo& info, float v) { return static_cast<int>(std::lround(v * info.scale)); }
+
     static bool SplitId(int id, int& field, int& part) {
         const int rel = id - kFieldRowBase;
         if (rel < 0 || rel >= static_cast<int>(Theme::FieldCount()) * kFieldRowStride) return false;
@@ -276,12 +297,16 @@ private:
             }
             case Theme::Kind::Float:
                 Label(FieldRow(field, kFieldLabel), info.label);
-                Spin(FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), kColX, 72, static_cast<int>(info.min),
-                     static_cast<int>(info.max), 1);
-                Text(FieldRow(field, kFieldUnit), CtlKind::Note, L"DIPs", kColX + 80, 48);
+                Spin(FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), kColX, 72, FloatToUi(info, info.min),
+                     FloatToUi(info, info.max), info.scale > 1.0f ? 5 : 1);
+                Text(FieldRow(field, kFieldUnit), CtlKind::Note, info.unit, kColX + 80, 96);
                 break;
             case Theme::Kind::Bool:
                 Check(FieldRow(field, kFieldSwatch), FieldRow(field, kFieldHex), info.label);
+                break;
+            case Theme::Kind::Enum:
+                Label(FieldRow(field, kFieldLabel), info.label);
+                Combo(FieldRow(field, kFieldValue), kColX, 168, false);
                 break;
         }
         Button(FieldRow(field, kFieldReset), L"Reset", right - kResetW, kResetW);
@@ -301,11 +326,19 @@ private:
                 break;
             }
             case Theme::Kind::Float:
-                SetSpin(FieldRow(field, kFieldSpin), static_cast<int>(std::lround(Theme::GetFloat(c.theme, info))));
+                SetSpin(FieldRow(field, kFieldSpin), FloatToUi(info, Theme::GetFloat(c.theme, info)));
                 break;
             case Theme::Kind::Bool:
                 SetCheck(FieldRow(field, kFieldSwatch), Theme::GetBool(c.theme, info));
                 break;
+            case Theme::Kind::Enum: {
+                const int id = FieldRow(field, kFieldValue);
+                if (HWND combo = Item(id); combo && SendMessageW(combo, CB_GETCOUNT, 0, 0) == 0) {
+                    for (size_t i = 0; i < info.count; ++i) ComboAdd(id, info.choices[i]);
+                }
+                SetComboSel(id, Theme::GetInt(c.theme, info));
+                break;
+            }
         }
         Show(FieldRow(field, kFieldReset), (c.themeOverrides & Theme::Bit(info.field)) != 0);
     }
@@ -336,7 +369,7 @@ private:
             const uint32_t argb = Theme::GetColor(Cfg().theme, info);
             SetColor(field, (static_cast<uint32_t>(std::clamp(value, 0, 255)) << 24) | (argb & 0x00FFFFFFu));
         } else if (info.kind == Theme::Kind::Float) {
-            const float v = std::clamp(static_cast<float>(value), info.min, info.max);
+            const float v = std::clamp(static_cast<float>(value) / info.scale, info.min, info.max);
             if (Theme::GetFloat(Cfg().theme, info) == v) {
                 UpdateRow(field);
                 return;
@@ -346,9 +379,20 @@ private:
         }
     }
 
+    // An Enum row's combo selection.
+    void SetChoice(int field, int index) {
+        const Theme::FieldInfo& info = Theme::Fields()[field];
+        if (index < 0 || static_cast<size_t>(index) >= info.count || Theme::GetInt(Cfg().theme, info) == index) {
+            UpdateRow(field);
+            return;
+        }
+        Theme::SetInt(Cfg().theme, info, index);
+        Override(field);
+    }
+
     void ResetField(int field) {
         Config& c = Cfg();
-        const uint32_t bit = Theme::Bit(Theme::Fields()[field].field);
+        const uint64_t bit = Theme::Bit(Theme::Fields()[field].field);
         if (!(c.themeOverrides & bit)) return;
         c.themeOverrides &= ~bit;
         c.ResolveTheme();  // copies the preset's value back (and only into fields without overrides)
@@ -358,7 +402,8 @@ private:
         Enable(kResetAllTheme, c.themeOverrides != 0);
         if (hadFocus) {
             // The keyboard focus stays on the row: its swatch / check box, or a float's number box.
-            const int first = Theme::Fields()[field].kind == Theme::Kind::Float ? kFieldValue : kFieldSwatch;
+            const Theme::Kind kind = Theme::Fields()[field].kind;
+            const int first = kind == Theme::Kind::Float || kind == Theme::Kind::Enum ? kFieldValue : kFieldSwatch;
             if (HWND h = Item(FieldRow(field, first))) SetFocus(h);
         }
     }

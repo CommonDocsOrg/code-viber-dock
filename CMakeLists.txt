@@ -36,6 +36,7 @@ add_executable(WinDock WIN32
   src/ForegroundWatch.cpp
   src/IconCache.cpp
   src/IconUtil.cpp
+  src/IconEffects.cpp
   src/Activation.cpp
   src/Launcher.cpp
   src/DarkMode.cpp
@@ -67,7 +68,7 @@ target_link_options(WinDock PRIVATE
 )
 
 target_link_libraries(WinDock PRIVATE
-  d3d11 dxgi d2d1 dcomp dwrite windowscodecs
+  d3d11 dxgi d2d1 dxguid dcomp dwrite windowscodecs
   shell32 ole32 shlwapi dwmapi propsys user32 gdi32 version advapi32
   comctl32 uxtheme comdlg32 winhttp
   windowsapp

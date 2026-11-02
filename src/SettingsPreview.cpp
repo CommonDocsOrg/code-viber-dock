@@ -8,6 +8,7 @@
 #include <iterator>
 
 #include "Backdrop.h"
+#include "IconEffects.h"
 #include "Theme.h"
 #include "WeatherGlyphs.h"
 
@@ -236,7 +237,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
         dc->FillRectangle(wall, glowBrush.get());
     }
 
-    const bool acrylic = t.acrylic && !t.shelf && Backdrop::SystemAllowsTransparency();
+    const bool acrylic = t.acrylic && !t.shelf && !t.perspective && Backdrop::SystemAllowsTransparency();
     const D2D1_COLOR_F frost = D2D1::ColorF(0x6E6A8E, 0.85f);  // the blurred wallpaper under acrylic
     auto fillPanel = [&](const D2D1_ROUNDED_RECT& shape) {
         if (acrylic) {
@@ -258,14 +259,17 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     // --- geometry (pixels) ---
     const float mag = static_cast<float>(std::clamp(c.magnification, 1.0, 2.5));
     const float wallH = (wall.bottom - wall.top) / s;
-    const float b = std::clamp((wallH - kBarBottom - kTopRoom - kLabelGap - kLabelH) / (11.0f + 48.0f * mag), kMinUnit,
-                               kMaxUnit);
+    const float reflFrac = t.reflection ? t.reflectionHeight : 0.0f;  // the bar grows by the reflections
+    const float b = std::clamp((wallH - kBarBottom - kTopRoom - kLabelGap - kLabelH) / (11.0f + 48.0f * (mag + reflFrac)),
+                               kMinUnit, kMaxUnit);
     const float u = b * s;  // dock DIP -> preview pixel
     const float iconPx = std::round(48.0f * u);
     const float gap = std::max(2.0f, std::round(8.0f * u));
     const float half = std::floor(gap / 2.0f);
     const float padding = std::round(12.0f * u);
-    const float barH = std::round(iconPx + 16.0f * u);
+    const float reflH = t.reflection ? std::ceil(iconPx * t.reflectionHeight) : 0.0f;
+    const float rowH = std::round(iconPx + 16.0f * u);  // the icon row (the bar without reflections)
+    const float barH = rowH + reflH;
     const float stride = iconPx + gap;
     const float lead = padding - half;
     const float itemsW = static_cast<float>(kAppCount) * stride;
@@ -347,24 +351,27 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const float radiusDip = acrylic ? SnapAcrylicRadius(t.cornerRadius) : t.cornerRadius;
     const D2D1_RECT_F bar = D2D1::RectF(barLeft - growLeft, barTop, barLeft + barW + growRight, barBottom);
     const float separatorX = std::round(barLeft + lead + itemsW + sepW / 2.0f) + growRight;
-    if (t.shelf) {
-        Theme::DrawShelf(dc, bar, t, u, stroke, widgets ? separatorX : -1.0f);
+    // The perspective tilt is shown as the shelf's trapezoid (with icons a little shorter).
+    const bool shelf = t.shelf || t.perspective;
+    if (shelf) {
+        Theme::DrawShelf(dc, bar, t, u, stroke, widgets ? separatorX : -1.0f, reflH);
     } else {
         fillPanel(Rounded(bar, std::round(radiusDip * u)));
     }
     if (widgets) {
-        if (!t.shelf) {
+        if (!shelf) {
             const float x = separatorX + stroke / 2.0f;
-            const float vInset = std::round(barH * 0.22f);
+            const float vInset = std::round(rowH * 0.22f);
             brush->SetColor(Theme::ToColor(t.separator));
-            dc->DrawLine(D2D1::Point2F(x, barTop + vInset), D2D1::Point2F(x, barBottom - vInset), brush.get(), stroke);
+            dc->DrawLine(D2D1::Point2F(x, barTop + vInset), D2D1::Point2F(x, barTop + rowH - vInset), brush.get(),
+                         stroke);
         }
         if (c.clock.show) {
-            clock_.Draw(dc, barLeft + barW - padding - clockW + growRight, std::round(barTop + (barH - clockH) / 2.0f));
+            clock_.Draw(dc, barLeft + barW - padding - clockW + growRight, std::round(barTop + (rowH - clockH) / 2.0f));
         }
         if (c.weather.show) {
             const float x = barLeft + barW - padding - clockW - widgetGap - weatherW + growRight;
-            const float y = std::round(barTop + (barH - weatherW) / 2.0f);
+            const float y = std::round(barTop + (rowH - weatherW) / 2.0f);
             WeatherGlyphs::Colors colors;
             colors.ink = t.clockText;
             colors.water = t.accent;
@@ -383,7 +390,12 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const D2D1_COLOR_F dotColors[3] = {Theme::ToColor(t.dotRunning), Theme::ToColor(t.dotActive),
                                        Theme::ToColor(t.dotAttention)};
     const float dotR = std::max(1.5f, 2.0f * u);
-    const float dotY = barBottom - std::round(5.0f * u);
+    const float dotY = reflH > 0.0f ? itemTop + iconPx + std::round(5.0f * u) : barBottom - std::round(5.0f * u);
+    // Icon effects, as the dock bakes them into its icon surfaces (here at rest size, every paint).
+    const GlowMode glowMode = GlowOf(t);
+    const float glowRadius = t.glowRadius * u;
+    const uint32_t glowColor = IconEffects::GlowColor(t, 0, t.accent);  // placeholders: like the dock's
+    const float squash = t.perspective ? 0.9f : 1.0f;
     float slotLeft = itemsLeft - growLeft;
     float hoveredCx = 0.0f, hoveredTop = 0.0f;
     for (int i = 0; i < kAppCount; ++i) {
@@ -397,18 +409,36 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
         }
         // Drawn at rest size, scaled about the bottom centre (as the dock's layer transform).
         const float left = cx - iconPx / 2.0f, top = itemTop;
-        dc->SetTransform(D2D1::Matrix3x2F::Scale(scales[i], scales[i], D2D1::Point2F(cx, bottom)));
-        const float inset = std::round(iconPx * 0.06f);
-        const float r = iconPx * 0.22f;
-        brush->SetColor(Theme::ToColor(t.placeholderFill));
-        dc->FillRoundedRectangle(
-            D2D1::RoundedRect(D2D1::RectF(left + inset, top + inset, left + iconPx - inset, top + iconPx - inset), r, r),
-            brush.get());
-        if (letter) {
-            const wchar_t ch[2] = {static_cast<wchar_t>(std::towupper(kApps[i].name[0])), 0};
-            brush->SetColor(Theme::ToColor(t.placeholderText));
-            dc->DrawText(ch, 1, letter, D2D1::RectF(left, top, left + iconPx, top + iconPx), brush.get());
+        dc->SetTransform(D2D1::Matrix3x2F::Scale(scales[i], scales[i] * squash, D2D1::Point2F(cx, bottom)));
+        const wchar_t ch[2] = {static_cast<wchar_t>(std::towupper(kApps[i].name[0])), 0};
+        // The placeholder square at (0, 0) - (size, size) of whatever context draws it.
+        auto drawIcon = [&](ID2D1DeviceContext* target, float size) {
+            winrt::com_ptr<ID2D1SolidColorBrush> fill;
+            if (FAILED(target->CreateSolidColorBrush(Theme::ToColor(t.placeholderFill), fill.put()))) return;
+            const float inset = std::round(size * 0.06f);
+            const float r = size * 0.22f;
+            target->FillRoundedRectangle(
+                D2D1::RoundedRect(D2D1::RectF(inset, inset, size - inset, size - inset), r, r), fill.get());
+            if (letter) {
+                fill->SetColor(Theme::ToColor(t.placeholderText));
+                target->DrawText(ch, 1, letter, D2D1::RectF(0, 0, size, size), fill.get());
+            }
+        };
+        const bool glowShown = glowMode == GlowMode::Always || (glowMode == GlowMode::Hover && i == hovered) ||
+                               (glowMode == GlowMode::Active && kApps[i].dot == Dot::Active);
+        winrt::com_ptr<ID2D1CommandList> recorded;
+        if ((glowShown && t.glowStrength > 0.0f) || reflH > 0.0f) recorded = IconEffects::Record(dc, iconPx, drawIcon);
+        if (recorded && glowShown) {
+            IconEffects::DrawGlow(dc, recorded.get(), glowRadius, glowColor, t.glowStrength, D2D1::Point2F(left, top));
         }
+        if (recorded && reflH > 0.0f) {
+            IconEffects::DrawReflection(dc, recorded.get(), iconPx, reflH, t.reflectionOpacity,
+                                        D2D1::Point2F(left, top + iconPx + 1.0f));
+        }
+        const D2D1_MATRIX_3X2_F placed = D2D1::Matrix3x2F::Translation(left, top) *
+                                         D2D1::Matrix3x2F::Scale(scales[i], scales[i] * squash, D2D1::Point2F(cx, bottom));
+        dc->SetTransform(placed);
+        drawIcon(dc, iconPx);
         dc->SetTransform(D2D1::Matrix3x2F::Identity());
         if (kApps[i].dot != Dot::None) {
             brush->SetColor(dotColors[static_cast<int>(kApps[i].dot) - 1]);

@@ -86,8 +86,11 @@ public:
     // state (0 none: off, unconfigured or no data yet; 1 stale; 2 fresh; 3 error); 28: current
     // temperature x 10 in the configured units (INT_MIN without data); 29: 1 while the weather
     // popup is visible; 30: seconds since the weather data was fetched (-1 none); 31: 1 while
-    // the calendar popup is visible; 35: the dominant colour of item lp's icon as 0xAARRGGBB
-    // (0 unknown, -1 no such item).
+    // the calendar popup is visible; 32: icon effects actually applied (bit 0 glow surfaces,
+    // bit 1 reflections, bit 2 the perspective tilt); 33: glow opacity target x 100 of item lp
+    // (0 without a glow surface, -1 no such item); 34: height in pixels of item lp's reflection
+    // surface (0 when off); 35: the dominant colour of item lp's icon as 0xAARRGGBB (0 unknown,
+    // -1 no such item).
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -222,6 +225,9 @@ private:
         float bgSurfaceW = 0.0f;  // background surface width (bar width + growMax)
         float seamX = 0.0f;       // where the two background halves meet (fixed)
         float slide = 0.0f;       // auto-hide slide distance
+        float reflH = 0.0f;       // icon reflections under the icon row (the bar's extra height)
+        float glowPad = 0.0f;     // how far the glow reaches beyond the icon box (0: no glow)
+        float restTopExtra = 0.0f; // the resting HWND reaches this far above the bar (a glow shown at rest)
     };
 
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
@@ -267,6 +273,17 @@ private:
     // changed), update the popup, tell the owner.
     void OnWeatherChanged();
     HRESULT RenderItem(DockItem& item);
+    // The item's glow and reflection surfaces (theme icon effects; empty when off), from the icon
+    // as `drawIcon` draws it at a size.
+    HRESULT RenderEffects(DockItem& item, const std::function<void(ID2D1DeviceContext*, float)>& drawIcon);
+    // The glow opacity the item should show now (glow mode, hover, active app; 0 without a surface).
+    float GlowTarget(const DockItem& item) const;
+    // Drives the item's glow opacity to GlowTarget over `duration` (0: static). Committed by the caller.
+    void DriveGlow(DockItem& item, double duration);
+    void UpdateGlows(double duration);
+    // Sets / removes the theme's perspective tilt (a static DirectComposition 3D transform) on the
+    // background, the widgets and the items. Called after every layout snap.
+    void ApplyPerspective();
     HRESULT RenderSeparator(DockItem& item);
     HRESULT RenderDotSources();
     HRESULT RenderDot(DockItem& item);
@@ -544,8 +561,10 @@ private:
     Layer bgLeft_;
     Layer bgRightClip_;
     Layer bgRight_;
+    Layer widgetsGroup_;  // container of the clock and the weather widget (stage origin)
     Layer clockLayer_;
     Layer itemsGroup_;
+    bool perspectiveApplied_ = false;  // the 3D tilt is set on the groups (QueryState 32 bit 2)
     // The three indicator-dot looks (inactive, active, attention), drawn once and shared by every
     // item's dot visual (each DComp surface has a sizeable fixed cost). The source visuals are hidden.
     Layer dotSources_[3];

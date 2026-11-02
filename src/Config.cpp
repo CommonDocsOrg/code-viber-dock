@@ -162,6 +162,16 @@ void Config::Sanitize() {
     theme.labelCornerRadius = std::min(theme.labelCornerRadius, 32.0f);
     if (!(theme.shelfSlant >= 0.0f)) theme.shelfSlant = 0.0f;
     theme.shelfSlant = std::min(theme.shelfSlant, 64.0f);
+    // The icon effects (Theme::ReadFields clamps what it reads; this also covers values set in code).
+    auto clampf = [](float& v, float lo, float hi, float fallback) {
+        v = std::isfinite(v) ? std::clamp(v, lo, hi) : fallback;
+    };
+    if (theme.glow < 0 || theme.glow > 3) theme.glow = 0;
+    clampf(theme.glowRadius, 4.0f, 32.0f, 14.0f);
+    clampf(theme.glowStrength, 0.0f, 1.0f, 0.6f);
+    clampf(theme.reflectionHeight, 0.2f, 1.0f, 0.5f);
+    clampf(theme.reflectionOpacity, 0.0f, 1.0f, 0.35f);
+    clampf(theme.perspectiveAngle, 0.0f, 35.0f, 18.0f);
     // The preset names a file stem inside the themes folder: no paths.
     if (themePreset.size() > 64 ||
         themePreset.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos || themePreset == L"." ||
@@ -293,7 +303,7 @@ Config::LoadResult Config::LoadFile() {
     const ThemeConfig base = Theme::Resolve(themePreset, ok);
     for (size_t i = 0; i < Theme::FieldCount(); ++i) {
         const Theme::FieldInfo& f = Theme::Fields()[i];
-        const uint32_t bit = Theme::Bit(f.field);
+        const uint64_t bit = Theme::Bit(f.field);
         if (ok && (themeOverrides & bit) && Theme::FieldEquals(f, theme, base)) themeOverrides &= ~bit;
         if (!(themeOverrides & bit)) Theme::CopyField(f, base, theme);
     }

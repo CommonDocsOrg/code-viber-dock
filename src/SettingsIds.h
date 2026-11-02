@@ -99,7 +99,7 @@ inline constexpr int kAboutNote = 2309;
 // Frame: the dock preview strip under every page (WinDock.SettingsPreview, child of the window).
 inline constexpr int kPreview = 101;
 
-// Appearance (2400 - 2499; the theme field rows: 3000 - 3299, see FieldRow)
+// Appearance (2400 - 2499; the theme field rows: 3000 - 3399, see FieldRow)
 inline constexpr int kSectionTheme = 2400;
 inline constexpr int kThemeLabel = 2401;
 inline constexpr int kThemeCombo = 2402;          // built-ins, then user theme files by name
@@ -115,18 +115,21 @@ inline constexpr int kSectionFieldsClock = 2413;
 inline constexpr int kSectionFieldsIcons = 2414;
 inline constexpr int kSectionFieldsPreviews = 2415;
 inline constexpr int kSectionFieldsOther = 2416;
+inline constexpr int kSectionFieldsEffects = 2417;  // "Icon effects": glow, reflection, perspective
+inline constexpr int kEffectsNote = 2418;
 
 // One row per Theme::Field (Theme::Fields() order): id = FieldRow(field index, part).
 inline constexpr int kFieldRowBase = 3000;
 inline constexpr int kFieldRowStride = 10;
-inline constexpr int kFieldLabel = 0;    // row label (static; Color / Float rows)
+inline constexpr int kFieldLabel = 0;    // row label (static; Color / Float / Enum rows)
 inline constexpr int kFieldSwatch = 1;   // Color: owner-drawn button (ChooseColor); Bool: the check box
 inline constexpr int kFieldHex = 2;      // Color: "#AARRGGBB" edit (applied on Enter / focus loss); Bool: caption
-inline constexpr int kFieldValue = 3;    // Color: alpha edit 0 - 255; Float: value edit
+inline constexpr int kFieldValue = 3;    // Color: alpha edit 0 - 255; Float: value edit (x FieldInfo::scale); Enum: combo
 inline constexpr int kFieldSpin = 4;     // up-down of kFieldValue
 inline constexpr int kFieldReset = 5;    // "Reset" button, shown only while the field is overridden
-inline constexpr int kFieldUnit = 6;     // Float: the unit note ("DIPs")
+inline constexpr int kFieldUnit = 6;     // Float: the unit note (FieldInfo::unit: "DIPs", "%", ...)
 constexpr int FieldRow(int field, int part) { return kFieldRowBase + field * kFieldRowStride + part; }
+// 40 rows fit 3000 - 3399.
 
 // Animation (2500 - 2599)
 inline constexpr int kSectionSpeed = 2500;
