@@ -7,8 +7,10 @@ Status: Phase 5. A translucent bar with a live clock at the bottom-center of the
 monitor, plus a tray icon. Icons magnify under the mouse (macOS style), the hovered app's name
 shows above it, and the dock auto-hides into the bottom screen edge. The Explorer taskbar is hidden while the dock runs and restored on
 exit, crash recovery, or `--restore-taskbar`. Running apps appear on the dock (grouped per app,
-with a dot under each). Pinned apps come first, in config order, followed by unpinned running apps
-in the order they were first seen. A running app that matches a pin merges into the pinned item.
+with a dot under each). Everything is laid out in the order of the dock's `items` in config.json
+(pinned apps, folders, separators, the Recycle Bin, the clock, the weather widget, and a `running`
+item where the unpinned running apps go, in the order they were first seen). A running app that
+matches a pin merges into the pinned item.
 
 ## Build
 
@@ -265,10 +267,11 @@ menu still opens with the Win key while the taskbar is hidden.
 
 ### Weather and calendar
 
-**Weather widget** (`weather.show`, off by default; Settings > Weather): left of the clock, after
-the separator, the current conditions as a small glyph (sun or moon, partly cloudy, overcast,
-fog, drizzle, rain, snow, thunder; drawn as vector shapes, so they stay sharp at any DPI) and the
-temperature in the clock's font. It moves with the clock while the bar grows under the mouse.
+**Weather widget** (a `weather` item, off by default; Settings > Weather): where its item stands
+in the dock's list (by default left of the clock, after the separator), the current conditions as
+a small glyph (sun or moon, partly cloudy, overcast, fog, drizzle, rain, snow, thunder; drawn as
+vector shapes, so they stay sharp at any DPI) and the temperature in the clock's font. At an end
+of the dock it moves with that end of the bar while the bar grows under the mouse.
 Without a location it shows a map-pin glyph, and a click on it opens Settings on the Weather page.
 
 - A click on the widget opens the **forecast popup** above it (click again, Escape, or clicking
@@ -455,7 +458,9 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
       expanded. A shortcut to a folder works too (it is shown as a folder).
     - `"folder"`: `{ "kind": "folder", "path": "<folder>" }`, a folder stack (see Dock items).
     - `"separator"` (any number) and `"recycleBin"`: need no `path`.
-    - `"running"`: where the running apps that are not pinned go.
+    - `"running"`: where the running apps that are not pinned go (one icon each). **Without a
+      `running` item, running apps that are not pinned are not shown**; pinned apps still show
+      their windows (dot, click to switch, previews). Only the first `running` item is used.
     - `"clock"` / `"weather"`: the clock and the weather widget. The widget is shown when its item
       is present; the settings toggles add the item (at the end; the weather goes before the
       clock) or remove it.
@@ -471,11 +476,19 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
 
     Kinds are case-insensitive. An item without a `kind` but with a `path` / `aumid` is read as
     `"app"`; an app / folder item without either is ignored. A kind this version does not know is
-    kept as written (and not shown). The app, folder, separator and Recycle Bin items form the
-    pinned section. **In this version the dock still draws the pinned items (in item order), then
-    the running apps, then the weather widget, then the clock, wherever the `running`, `weather`
-    and `clock` items stand in the list** (a dock without a `running` item still shows the running
-    apps); the order of those three is kept in the file for the coming element layout.
+    kept as written (and not shown). The app, folder, separator and Recycle Bin items are the
+    pins.
+
+    **The dock shows the items in list order**, left to right: `[clock, app, app, running]` puts
+    the clock at the left end. Between an icon and a widget there is a 17 DIP gap, with a hairline
+    when the widgets are at an end of the dock (before the widgets at the right end, after the
+    ones at the left end; a widget between icons gets the gap but no line); between two widgets a
+    10 DIP gap. Widgets never magnify; at an end of the dock they move with that end of the bar
+    while icons magnify. Dragging an icon reorders the pins among the pins' places in the list
+    (pin k always takes the place of the k-th pin item, so a pin can move past a widget) and the
+    running apps among themselves; the clock and the weather widget cannot be dragged yet (moving
+    them: edit the list, or the coming edit mode). A file dropped on the dock is pinned before a
+    pin, after the last pin, or (no pins) before the running apps, whichever place is nearest.
   - `edge` (default `"bottom"`, the only edge implemented) and `locked` (default `false`, not used
     yet): read and written for later versions.
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
@@ -583,7 +596,7 @@ Theme keys (colours are `#AARRGGBB` or `#RRGGBB`; defaults are the `dark` preset
 | `labelCornerRadius` | `7` | name label corner radius in DIPs, 0 - 32 |
 | `accent` | `#FF4CC2FF` | insertion marker while files are dragged over the dock |
 | `barBorder` | `#24FFFFFF` | hairline around the bar and the preview popup |
-| `separator` | `#38FFFFFF` | line between the app icons and the clock, and separator items |
+| `separator` | `#38FFFFFF` | line between the app icons and the widgets, and separator items |
 | `dotRunning` | `#80FFFFFF` | dot under a running app |
 | `dotActive` | `#FFFFFFFF` | dot under the app owning the foreground window |
 | `dotAttention` | `#FFFF9E26` | dot under an app flashing for attention |
@@ -675,10 +688,17 @@ Unknown values fall back to the default.
 
 The dock window (class `WinDock.DockWindow`) handles these registered messages:
 
+- **Item indexes** (`QueryItemPoint`, `ItemCommand`, `QueryState` 2 / 9 / 24 / 25 / 33 / 34 / 35)
+  count every slot of the dock in its order: icons, separators and the clock / weather widgets
+  (one slot each; the `running` item one slot per unpinned running app). Before 1b the widgets
+  were not items; with the default order (`[pins..., running, weather, clock]`) the indexes of
+  the pins and running apps are unchanged because the widgets come last.
 - `WinDock.QueryItemPoint`: `wParam` = a top-level HWND, or 0 with `lParam` = item index.
-  Returns the screen point of the item's icon centre as `MAKELONG(x, y)`, or -1. The point is in
-  the rest (unmagnified) layout of the shown dock, also while the dock is hidden. Because the
-  magnified layout is anchored at the pointer, moving the pointer there hovers that item.
+  Returns the screen point of the item's icon centre (a widget: the centre of its box) as
+  `MAKELONG(x, y)`, or -1. The point is in the rest (unmagnified) layout of the shown dock, also
+  while the dock is hidden. Because the magnified layout is anchored at the pointer, moving the
+  pointer there hovers that item (a widget is not "hovered": `QueryState` 2 stays -1 over it).
+  `ItemCommand` on a widget's index does nothing (it is not a pin and has nothing to launch).
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
@@ -706,7 +726,7 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   window; it stops counting in the other modes). 20 = 1 if the theme preset failed to resolve on
   the last load (the dock uses `dark`). 21 = number of callbacks those hooks delivered, the
   filtered ones (cursor, caret, child windows) included. 24 = kind of item `lParam` (0 app,
-  1 folder, 2 separator, 3 Recycle Bin; -1 if there is no such item). 25 = 1 if item `lParam`
+  1 folder, 2 separator, 3 Recycle Bin, 4 clock, 5 weather; -1 if there is no such item). 25 = 1 if item `lParam`
   has a custom icon from its `icon` key (0 if not, -1 if there is no such item). 22 = 1 while the
   folder popup is visible. 23 = number of entries (cells) shown in the folder popup (0 when it is
   hidden). 26 = drop mode while files are dragged over the dock (0 none, 1 insertion marker,

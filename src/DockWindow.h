@@ -5,6 +5,7 @@
 #include <cmath>
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <string>
 #include <unordered_map>
 #include <vector>
@@ -12,8 +13,8 @@
 #include "AppIdentity.h"
 #include "Backdrop.h"
 #include "CalendarPopup.h"
-#include "Clock.h"
 #include "Config.h"
+#include "DockElement.h"
 #include "DockItems.h"
 #include "FolderPopup.h"
 #include "ForegroundWatch.h"
@@ -27,11 +28,12 @@
 struct IDataObject;
 
 // The dock HWND: placement, DPI, layout, input, magnification, hover label, auto-hide, and the
-// composition layers drawn into it.
-class DockWindow {
+// composition layers drawn into it. What it shows comes from its elements (DockElement.h, one per
+// config item, in config order); it lays out and animates the flat list of slots they contribute.
+class DockWindow : private ElementHost {
 public:
     static constexpr wchar_t kClassName[] = L"WinDock.DockWindow";
-    static constexpr UINT_PTR kClockTimerId = 1;
+    static constexpr UINT_PTR kClockTimerId = ElementHost::kClockTimerId;  // a clock element's tick
     // 3 = WindowTracker::kCoalesceTimerId
     static constexpr UINT_PTR kIconEvictTimerId = 4;
     // 5 = App::kSaveTimerId
@@ -61,7 +63,8 @@ public:
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
-    // matching item's icon centre (rest layout) as MAKELONG(x, y), or -1 if there is no such item.
+    // matching item's icon centre (rest layout; a widget: its box centre) as MAKELONG(x, y), or -1
+    // if there is no such item. Item indexes count every slot in dock order (widgets included).
     static constexpr wchar_t kQueryItemMessage[] = L"WinDock.QueryItemPoint";
     // Diagnostics: SendMessage(dock, RegisterWindowMessage(kQueryStateMessage), what, 0):
     // what = 0: auto-hide state (0 Shown, 1 Hiding, 2 Hidden, 3 Showing); 1: the current
@@ -79,8 +82,8 @@ public:
     // foreground-watch events accepted so far (they only arrive in intelligent mode); 20: 1 if the
     // theme preset failed to resolve on the last load; 21: number of foreground-watch callbacks
     // delivered so far, filtered ones included; 24: kind of item lp (0 app, 1 folder,
-    // 2 separator, 3 Recycle Bin; -1 no such item); 25: 1 if item lp has a custom icon (0 no,
-    // -1 no such item); 22: 1 while the folder popup is visible; 23: number of entries (cells)
+    // 2 separator, 3 Recycle Bin, 4 clock, 5 weather; -1 no such item); 25: 1 if item lp has a
+    // custom icon (0 no, -1 no such item); 22: 1 while the folder popup is visible; 23: number of entries (cells)
     // shown in the folder popup; 26: drop mode of a file drag over the dock (0 none, 1 insertion
     // marker, 2 open with the app under the pointer, 3 recycle on the Recycle Bin); 27: weather
     // state (0 none: off, unconfigured or no data yet; 1 stale; 2 fresh; 3 error); 28: current
@@ -120,7 +123,7 @@ public:
     // if the composition stack can't be created.
     HRESULT Create(HINSTANCE instance, const Config* config, MessageHook hook);
     void Destroy();
-    HWND Hwnd() const { return hwnd_; }
+    HWND Hwnd() const override { return hwnd_; }
     void SetPinRequests(PinRequests requests) { pinRequests_ = std::move(requests); }
     // An icon is being dragged (or fading out after being dragged off the dock).
     bool InDrag() const { return dragPhase_ != DragPhase::None; }
@@ -154,12 +157,15 @@ public:
     const DockItem* ItemAt(POINT clientPt) const;
     // Index of the item under a client-area point (relative to the current window rect), or -1.
     int IndexAt(POINT clientPt) const { return HitTest(ToStage(clientPt)); }
+    // A right click at a client-area point: the index of the item whose item menu opens, or -1
+    // for the dock menu (no item there, or a widget).
+    int MenuIndexAt(POINT clientPt) const;
     // Index of the item owning a tracked top-level window, or -1.
     int IndexOfWindow(HWND hwnd) const;
     const std::vector<DockItem>& Items() const { return items_; }
 
-    // Re-resolves the pins of config->Main() (cached per entry) and rebuilds the item list. Call after
-    // changing the pinned list.
+    // Re-resolves the pins of config->Main() (cached per entry), rebuilds the elements from its
+    // items and the item list. Call after changing the item list.
     void ReloadPins();
     // Resolved pins, parallel to the pin items of config->Main() (DockConfig::PinIndexes()).
     const std::vector<AppIdentity::ResolvedPin>& Pins() const { return pins_; }
@@ -171,17 +177,16 @@ public:
     // Shows the folder popup of the folder item at `index`, or hides it if it is showing that item.
     void ToggleFolderPopup(int index);
 
-    // --- weather widget and calendar ---
+    // --- the weather service (the weather elements' data) and widget popups ---
     // Re-reads config->weather (start / stop / restart the service) and relayouts if the widget's
     // size changed. Also part of ApplyConfig.
     void ApplyWeather();
     // Fetches the weather now (DockCommand 111; no-op while off / unconfigured).
     void RefreshWeather() { weather_.RefreshNow(); }
-    // Shows / hides the forecast popup over the widget (no-op while the widget is off).
-    void ToggleWeatherPopup();
-    // Shows / hides the month calendar over the clock (no-op while the clock is off).
-    void ToggleCalendarPopup();
-    const WeatherService& Weather() const { return weather_; }
+    // Shows / hides the click popup of the first item of `kind`: the forecast over the weather
+    // widget, the month calendar over the clock (no-op without such an item).
+    void TogglePopup(ItemKind kind);
+    const WeatherService& Weather() const override { return weather_; }
     struct WeatherCallbacks {
         std::function<void()> openSettings;  // the unconfigured widget was clicked: Settings > Weather
         std::function<void()> changed;       // the weather data / status changed
@@ -202,17 +207,16 @@ private:
         RECT monitor{};        // screen coordinates
         RECT window{};         // screen coordinates: the stage
         D2D1_RECT_F bar{};     // drawn background at rest
-        D2D1_RECT_F clock{};   // clock text block at rest
-        D2D1_RECT_F weather{}; // weather widget at rest (left of the clock; empty when off)
         float cornerRadius = 0.0f;
         float iconPx = 0.0f;   // unmagnified icon size
         UINT bitmapPx = 0;     // icon bitmap size (iconPx * magnification, for crisp magnification)
         float magnification = 1.0f;
         float padding = 0.0f;
         float gap = 0.0f;      // between icons
-        float itemsLeft = 0.0f;  // left edge of slot 0 (a slot is iconPx + gap wide; separators: separatorSlot)
-        float itemsW = 0.0f;     // all slots
-        float separatorSlot = 0.0f;  // a separator item's slot width
+        float itemsLeft = 0.0f;  // left edge of slot 0 (a slot is iconPx + gap wide; separators, widgets: their box)
+        float itemsW = 0.0f;     // all slots and the spacers between them
+        int firstMag = -1;       // first / last slot that magnifies (-1: none); the slots before /
+        int lastMag = -1;        // after them move with the bar's left / right end
         float itemTop = 0.0f;    // top of the icon box
         float itemHeight = 0.0f; // icon top -> bar bottom
         float magTop = 0.0f;     // top of a fully magnified icon
@@ -220,7 +224,11 @@ private:
         UINT dotHeight = 0;
         float dotCenterY = 0.0f; // dot-layer-local
         float dotRadius = 0.0f;
-        float separatorX = -1.0f; // bar-local; < 0 when there is no separator
+        // Hairlines between the icons and the widgets, drawn into the background (bar-local; < 0:
+        // none): before the widgets at the end of the dock (moves with the right half) and after
+        // the widgets at its start (left half). Widgets between icons get no hairline.
+        float separatorX = -1.0f;
+        float leftSeparatorX = -1.0f;
         float growMax = 0.0f;     // most the bar can grow while magnified
         float bgSurfaceW = 0.0f;  // background surface width (bar width + growMax)
         float seamX = 0.0f;       // where the two background halves meet (fixed)
@@ -264,15 +272,12 @@ private:
     HRESULT CreateItemVisuals(DockItem& item);
     void ResetLayers();
     HRESULT RenderBackground();
-    HRESULT RenderClock();
-    HRESULT RenderWeather();
-    // Lays out the weather widget's text for the current data at `scale`; returns its size (0x0
-    // while the widget is off).
-    D2D1_SIZE_U MeasureWeather(float scale);
-    // The weather service's data or status changed: redraw the widget (relayout if its size
-    // changed), update the popup, tell the owner.
+    // The weather service's data or status changed: the weather elements redraw (DockEvent), the
+    // popup updates, the owner is told.
     void OnWeatherChanged();
     HRESULT RenderItem(DockItem& item);
+    // A widget slot: its element draws the content into the slot's icon surface.
+    HRESULT RenderWidget(DockItem& item);
     // The item's glow and reflection surfaces (theme icon effects; empty when off), from the icon
     // as `drawIcon` draws it at a size.
     HRESULT RenderEffects(DockItem& item, const std::function<void(ID2D1DeviceContext*, float)>& drawIcon);
@@ -291,13 +296,15 @@ private:
     // Redraws every layer (all) or only dirty ones, and positions everything.
     HRESULT DrawFrame(bool all);
     void RenderAll();
-    void OnClockTick();
+    // Hands `e` to every element; the ones whose content changed are re-measured and only their
+    // slots redrawn (a new size relays the dock out).
+    void DispatchEvent(DockEvent e);
     // Runs `step`, then commits. On device loss, rebuilds devices and redraws everything.
     void RenderWithRecovery(const std::function<HRESULT()>& step);
     bool RecoverDevice();
 
     // --- placement / magnification ---
-    // Computes every target position (items, background halves, clock, label) from the rest
+    // Computes every target position (slots, background halves, label) from the rest
     // layout and, while magnifying, the cursor x.
     void ComputeTargets();
     // Drives all placement tweens to their targets (duration 0: static snap). `trackingMove`: a
@@ -348,8 +355,8 @@ private:
     void OnPreviewHover(bool inside);
 
     // --- folder popup (folder items) ---
-    // Shows the popup for items_[index] (a folder), anchored over its icon; takes kHoldFolder.
-    void ShowFolderPopup(int index);
+    // Shows the popup for items_[index] (a folder), centred on stage x `anchor`; takes kHoldFolder.
+    void ShowFolderPopup(int index, float anchor);
     // Hides the popup and releases its hold (leaveCheck: see ReleasePopupHold).
     void DismissFolderPopup(bool animate, bool leaveCheck = true);
     // The popup closed by itself (deactivated, Escape).
@@ -357,13 +364,10 @@ private:
     // The item list changed: dismiss the popup if its folder item is gone.
     void RefreshFolderPopup();
 
-    // --- weather / calendar popups ---
-    // The widget under a stage point (rest layout, inside the active zone).
-    bool HitWeather(POINT stagePt) const;
-    bool HitClock(POINT stagePt) const;
-    void ShowWeatherPopup();
+    // --- weather / calendar popups (centred on stage x `anchor`) ---
+    void ShowWeatherPopup(float anchor);
     void DismissWeatherPopup(bool animate, bool leaveCheck = true);
-    void ShowCalendarPopup();
+    void ShowCalendarPopup(float anchor);
     void DismissCalendarPopup(bool animate, bool leaveCheck = true);
     // Every click popup (folder, weather, calendar).
     void DismissClickPopups(bool animate, bool leaveCheck = true);
@@ -441,8 +445,28 @@ private:
     void AssertTopmost();
 
     void ResolvePins();
-    // Rebuilds items_: pins in config order, then running apps in first-seen order.
+    // Recreates elements_ from config->Main().items (call ResolvePins first; Rebuild after).
+    void BuildElements();
+    // ApplyConfig / ApplyWeather: the item list may have changed (the clock / weather toggles).
+    // If it did (or with `force`), re-resolves the pins, rebuilds the elements and the item list;
+    // otherwise every element re-reads the config. Either way the elements' timers restart.
+    void SyncElements(bool force = false);
+    // Rebuilds items_: every element's slots in config order (the running element expands into
+    // the unpinned running apps).
     void Rebuild(const WindowTracker::Snapshot& snap);
+    // The element that contributes slot `index`.
+    DockElement& ElementOf(size_t index) const { return *elements_[items_[index].element]; }
+    LayoutContext Context() const;
+
+    // --- ElementHost (what elements ask of the dock; Hwnd and Weather are public) ---
+    const Config& Cfg() const override { return *config_; }
+    void ActivateOrLaunch(int slot) override;
+    void LaunchSlot(int slot, bool newInstance) override { LaunchItem(slot, newInstance); }
+    bool PopupShownFor(int slot) const override;
+    void ShowClickPopup(int slot) override;
+    void OpenWeatherSettings() override {
+        if (weatherCallbacks_.openSettings) weatherCallbacks_.openSettings();
+    }
 
     // Launch feedback per motion_.launch: bounce / hop (DirectComposition OffsetY animation) or
     // pulse (opacity animation); no timers while idle.
@@ -451,17 +475,17 @@ private:
     void OnBounceTimer();
     void ScheduleBounceTimer();
     void UpdateIconUsage();
+    // The slot under a stage point (rest layout, inside the active zone; widgets with their hit
+    // slack), or -1.
     int HitTest(POINT stagePt) const;
-    // Index of the rest slot containing stage x (-1 left of the first / right of the last slot).
+    // Index of the rest slot containing stage x (-1 outside every slot: beyond the ends, in a spacer).
     int SlotAt(float stageX) const;
-    // Width of an item's icon box: the icon, or a separator's whole (narrow) slot.
-    float BoxW(const DockItem& item) const {
-        return item.kind == DockItem::Kind::Separator ? item.slotW : layout_.iconPx;
-    }
+    // Width of an item's box: the icon, or a separator's / widget's whole slot.
+    float BoxW(const DockItem& item) const { return item.Magnifies() ? layout_.iconPx : item.slotW; }
+    // Height (cross axis) of an item's box: the icon, or a widget's content.
+    float BoxCross(const DockItem& item) const { return item.IsWidget() ? item.boxCross : layout_.iconPx; }
     // Rest slot left edge -> icon box left edge.
-    float BoxInset(const DockItem& item) const {
-        return item.kind == DockItem::Kind::Separator ? 0.0f : std::floor(layout_.gap / 2.0f);
-    }
+    float BoxInset(const DockItem& item) const { return item.Magnifies() ? std::floor(layout_.gap / 2.0f) : 0.0f; }
     LRESULT QueryItemPoint(WPARAM wp, LPARAM lp) const;
     LRESULT QueryState(WPARAM wp, LPARAM lp) const;
 
@@ -476,13 +500,19 @@ private:
     // Abandons a drag without animation (the item list changed under it).
     void AbortDrag();
     void OnRemoveTimer();
-    // Insertion slot for an internal drag at stage x (see DockWindow.cpp).
-    int DragInsertIndex(float stageX) const;
-    // Gap slot (0..pinned count) for an external drop at stage x.
+    // Where an internal drag at stage x would put the dragged item (see DockWindow.cpp): sets
+    // dragToPins_, dragPins_ / dragRunning_ (the new orders), dragOrder_ (the slots in the order
+    // they would be shown) and dragInsert_ (the dragged item's index in it).
+    void UpdateDragTarget(float stageX);
+    // The dragged item back in its own place (dragOrder_ = the rest order).
+    void ResetDragOrder();
+    // An item a drag can be dropped on (a pin or an unpinned running app; not a widget).
+    bool Droppable(size_t index) const { return !items_[index].IsWidget(); }
+    // Gap slot (an index into items_, at most items_.size()) for an external drop at stage x: before
+    // a pin, after the last pin, or (no pins) before the first running app; -1 if there is none.
     int DropGapIndex(float stageX) const;
     bool DragInRemoveZone(POINT stagePt) const;
     bool DragRemovable() const;
-    size_t PinnedCount() const;
     // The pin index (DockConfig::PinIndexes()) of the item at `itemIndex` (the pin count past the pins).
     size_t ConfigIndexOfItem(size_t itemIndex) const;
     void SetItemOpacity(DockItem& item, float to, double duration);
@@ -541,14 +571,10 @@ private:
     HWND hwnd_ = nullptr;
     HINSTANCE instance_ = nullptr;
     const Config* config_ = nullptr;
-    // The widgets are shown when the dock's item list has them (config->Main().items).
-    bool ClockShown() const { return config_->Main().Has(ItemKind::Clock); }
-    bool WeatherShown() const { return config_->Main().Has(ItemKind::Weather); }
     MessageHook hook_;
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
     Motion motion_;
     bool inLayout_ = false;
-    bool clockDirty_ = true;
     bool snapPending_ = true;
     UINT msgQueryItem_ = 0;
     UINT msgQueryState_ = 0;
@@ -556,7 +582,6 @@ private:
     bool expanded_ = false;   // the HWND covers the whole stage (mouse on the dock)
 
     Renderer renderer_;
-    Clock clock_;
     // Background: one surface (bar width + growMax wide) shown by two visuals, each inside a
     // container clipped at a fixed seam: the left half moves with the bar's left edge and the
     // right half with its right edge, so the bar grows/shrinks without redrawing.
@@ -564,39 +589,35 @@ private:
     Layer bgLeft_;
     Layer bgRightClip_;
     Layer bgRight_;
-    Layer widgetsGroup_;  // container of the clock and the weather widget (stage origin)
-    Layer clockLayer_;
-    Layer itemsGroup_;
+    float bgSeparators_[2] = {-2.0f, -2.0f};  // the hairlines the background was drawn with (layout_ values)
+    Layer widgetsGroup_;  // container of the widget slots' visuals (stage origin), behind the icons
+    Layer itemsGroup_;    // container of the icon / separator slots' visuals
     bool perspectiveApplied_ = false;  // the 3D tilt is set on the groups (QueryState 32 bit 2)
     // The three indicator-dot looks (inactive, active, attention), drawn once and shared by every
     // item's dot visual (each DComp surface has a sizeable fixed cost). The source visuals are hidden.
     Layer dotSources_[3];
     Layer label_;
     Layout layout_;
-    D2D1_SIZE_U clockSize_{};
-    // Weather widget: one surface left of the clock, moved like it (weatherX_).
-    Layer weatherLayer_;
-    D2D1_SIZE_U weatherSize_{};
-    bool weatherDirty_ = true;
-    float weatherAppliedY_ = -1.0f;  // the layer's OffsetY as last set (< 0: not yet)
-    std::wstring weatherText_;       // "12°" (empty: glyph only)
-    float weatherTextScale_ = 0.0f;
-    winrt::com_ptr<IDWriteTextFormat> weatherFormat_;
-    winrt::com_ptr<IDWriteTextLayout> weatherLayout_;
-    Tween bgLeftX_, bgRightX_, clockX_, weatherX_, labelX_, labelY_;
-    float bgLeftTarget_ = 0.0f, bgRightTarget_ = 0.0f, clockTarget_ = 0.0f, weatherTarget_ = 0.0f;
+    Tween bgLeftX_, bgRightX_, labelX_, labelY_;
+    float bgLeftTarget_ = 0.0f, bgRightTarget_ = 0.0f;
     float labelXTarget_ = 0.0f, labelYTarget_ = 0.0f;
 
     WindowTracker tracker_;
+    bool tracking_ = false;  // tracker_ started (Create): item rebuilds wait for its first snapshot
     IconCache icons_;
-    std::vector<DockItem> items_;
+    // One per config item of config->Main() (an unknown kind: null), in config order.
+    std::vector<std::unique_ptr<DockElement>> elements_;
+    std::vector<DockItem> items_;  // the slots, in dock order
     bool evictPending_ = false;
     std::vector<AppIdentity::ResolvedPin> pins_;                       // parallel to the pin items
     // Keyed by kind + icon + "p:"+path / "a:"+aumid (the special kinds are not cached).
     std::unordered_map<std::wstring, AppIdentity::ResolvedPin> pinCache_;
 
-    int hovered_ = -1;
-    int pressed_ = -1;
+    int hovered_ = -1;            // never a widget slot (no label, no preview)
+    int pressed_ = -1;            // the slot the current left press started on
+    // That press was on the slot whose click popup was open (DockElement::OnPress): the release
+    // must not open it again (a click on a folder / the clock / the weather toggles).
+    bool pressClosedPopup_ = false;
     int pressedMiddle_ = -1;
     bool trackingMouse_ = false;
 
@@ -647,6 +668,10 @@ private:
     AppKey dragKey_;
     float dragGrabDx_ = 0.0f;     // cursor x - icon box left edge when the drag started
     int dragInsert_ = -1;         // final item index of the dragged icon if dropped now
+    bool dragToPins_ = false;     // dropped now, the new order is the pins' (else the running apps')
+    std::vector<size_t> dragPins_;     // pin slots (item indexes) in their new order
+    std::vector<size_t> dragRunning_;  // unpinned running slots in their new order
+    std::vector<size_t> dragOrder_;    // every slot in the order the drag layout shows them
     bool dragRemove_ = false;     // released now, the pin would be removed
     bool dragLanding_ = false;    // targets for the dropped icon landing in its slot
     bool dragPending_ = false;    // kDragTimerId running
@@ -671,20 +696,12 @@ private:
     // Folder popup
     FolderPopup folder_;
     AppKey folderKey_;            // the folder item the popup shows (empty: none)
-    // The left press that started the current click closed the popup of the pressed item: the
-    // release must not open it again (a click on the folder icon toggles).
-    bool folderPressClosed_ = false;
 
-    // Weather and calendar
+    // The weather service (data of the weather elements), the forecast and calendar popups
     WeatherService weather_;
     WeatherPopup weatherPopup_;
     CalendarPopup calendar_;
     WeatherCallbacks weatherCallbacks_;
-    // The widget the current left press started on, and whether that press closed its popup (the
-    // release then does not open it again: a click on the widget toggles).
-    enum class Widget { None, Weather, Clock };
-    Widget pressedWidget_ = Widget::None;
-    bool widgetPressClosed_ = false;
     bool weatherQuiet_ = false;   // Configure is running inside ApplyConfig / ApplyWeather
 
     // Recycle Bin item

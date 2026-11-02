@@ -37,15 +37,25 @@ struct AppKeyHash {
     }
 };
 
-// One dock entry: a pinned app (Phase 4) and/or a running app with its windows.
-// Dock order = pinned items in config order, then running apps in first-seen order.
+// One slot of the dock's icon row: a pinned app and/or a running app with its windows, a folder,
+// a separator, the Recycle Bin, or a widget (the clock, the weather). Slots come from the dock's
+// elements (DockElement.h) in config order (docks[].items[]); the `running` element contributes
+// one slot per unpinned running app.
 struct DockItem {
-    // App: a pinned and / or running app. The other kinds are pins only and never get windows:
-    // Folder (a directory, opened in Explorer), Separator (a spacer between items), RecycleBin.
-    enum class Kind { App, Folder, Separator, RecycleBin };
+    // App: a pinned and / or running app. Folder (a directory, opened in Explorer), Separator (a
+    // spacer between items) and RecycleBin are pins only and never get windows. Clock and Weather
+    // are widget slots: their content is drawn by their element, they never magnify, are never
+    // dragged and have no name label (QueryState 24 reports the kind as its number).
+    enum class Kind { App, Folder, Separator, RecycleBin, Clock, Weather };
 
     AppKey key;
     Kind kind = Kind::App;
+    size_t element = 0;  // index of the element that contributes this slot (DockWindow::elements_)
+
+    // An icon that magnifies (apps, folders, the Recycle Bin).
+    bool Magnifies() const { return kind == Kind::App || kind == Kind::Folder || kind == Kind::RecycleBin; }
+    // A widget slot (content drawn by its element; not dragged, no label).
+    bool IsWidget() const { return kind == Kind::Clock || kind == Kind::Weather; }
     std::wstring displayName;
     std::optional<std::wstring> launchPath;  // .lnk/.exe for pinned entries (keeps args / working dir)
     std::wstring workingDir;                 // launch directory (the link's, else the target's folder)
@@ -69,6 +79,8 @@ struct DockItem {
     // drags never redraw them: `glow` behind the icon (its opacity driven by glowOpacity) and
     // `reflection` under the icon's foot. Both have no surface while their effect is off, and
     // separators never get them. Z-order in `layer`: glow, reflection, icon, iconBig.
+    // A widget slot has only `layer`: one plain visual (no placement transform, no children) that
+    // shows its element's content and is moved with its own offsets.
     Layer layer;
     Layer glow;
     Layer reflection;
@@ -83,9 +95,15 @@ struct DockItem {
     float y = 0.0f;
     // Rest slot (set by the layout): left edge (stage px) and width. An app / folder / bin slot is
     // iconPx + gap with the icon box centred in it; a separator's slot is narrow and its box (the
-    // hairline surface) fills it.
+    // hairline surface) fills it; a widget's slot is its content box (Measure's main length).
     float slotX = 0.0f;
     float slotW = 0.0f;
+    // Spacer before the slot at rest (between an icon and a widget, or two widgets; 0 between
+    // icons). It never scales: magnification and drags keep it.
+    float lead = 0.0f;
+    float boxCross = 0.0f;  // a widget's content length on the cross axis (icons: the icon size)
+    float hitSlack = 0.0f;  // a widget also takes clicks this far beyond its box on the main axis
+    float appliedY = -1.0f; // a widget: its visual's OffsetY as last set (< 0: not yet)
     float targetX = 0.0f;   // current target of the icon box's left edge (magnified layout)
     float targetScale = 1.0f;
     Tween tx;               // translate.OffsetX (and the dot's OffsetX)

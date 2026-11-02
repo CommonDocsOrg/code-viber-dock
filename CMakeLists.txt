@@ -19,6 +19,8 @@ add_executable(WinDock WIN32
   src/Config.cpp
   src/Theme.cpp
   src/DockWindow.cpp
+  src/DockElement.cpp
+  src/WidgetElements.cpp
   src/Backdrop.cpp
   src/PopupWindow.cpp
   src/PreviewPopup.cpp

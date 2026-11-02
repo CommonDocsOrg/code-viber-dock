@@ -33,12 +33,8 @@ constexpr float kGap = 8.0f;                // between icons
 constexpr float kIconTop = 5.0f;            // bar top -> icon top
 constexpr float kDotFromBottom = 5.0f;      // bar bottom -> indicator dot centre
 constexpr float kDotRadius = 2.0f;          // 4 px dot at 100 %
-constexpr float kSeparatorWidth = 17.0f;    // space between the last icon slot and the clock
-constexpr float kWidgetGap = 10.0f;         // between the weather widget and the clock
-constexpr float kWeatherGlyph = 26.0f;      // weather widget glyph (24 with the date under the time)
-constexpr float kWeatherTextGap = 3.0f;     // glyph -> temperature
-constexpr float kWeatherStaleAlpha = 0.6f;  // stale / missing weather data
-constexpr float kSeparatorSlot = 12.0f;     // a separator item's slot (its hairline is centred in it)
+constexpr float kSeparatorWidth = 17.0f;    // spacer between an icon slot and a widget (hairline in it)
+constexpr float kWidgetGap = 10.0f;         // spacer between two widgets (the weather and the clock)
 constexpr float kMinSideSlack = 24.0f;      // window space beside the bar (labels of edge icons)
 constexpr float kLabelGap = 6.0f;           // magnified icon top -> label bottom
 constexpr float kLabelFontSize = 13.0f;
@@ -203,10 +199,11 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, MessageHook
 
     msgQueryItem_ = RegisterWindowMessageW(kQueryItemMessage);
     msgQueryState_ = RegisterWindowMessageW(kQueryStateMessage);
+    // Resolves the pins and builds the elements (SyncElements) before the first layout.
     ApplyConfig();
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-    // Pins first; the initial enumeration (synchronous) then builds and lays out the items.
-    ResolvePins();
+    // The initial enumeration (synchronous) then builds and lays out the items with their windows.
+    tracking_ = true;
     tracker_.Start(hwnd_, [this](const WindowTracker::Snapshot& snap) { Rebuild(snap); });
     ApplyAutoHide();  // hides after hideDelayMs unless the mouse is on the dock
     return S_OK;
@@ -221,8 +218,7 @@ void DockWindow::ApplyConfig() {
     DismissPreview(false, false);  // previews / theme / sizes may have changed
     DismissClickPopups(false, false);
     FinishLabelFade();             // its text / position may no longer match
-    clock_.Configure(config_->clock.format, config_->clock.showDate);
-    clock_.SetColors(config_->theme.clockText, config_->theme.clockDateText);
+    SyncElements();                // the clock may have been turned on / off; config re-read, timers
     // The drop marker is only redrawn when its size changes: force it (the accent may differ).
     if (marker_.visual) renderer_.DrawLayer(marker_, 0, 0, {});
     for (DockItem& item : items_) {
@@ -232,19 +228,11 @@ void DockWindow::ApplyConfig() {
     labelDirty_ = true;
     labelFormat_ = nullptr;  // theme / size may have changed
     labelEllipsis_ = nullptr;
-    weatherDirty_ = true;
-    weatherFormat_ = nullptr;  // the clock's font size may have changed (date on / off)
-    weatherLayout_ = nullptr;
     weatherQuiet_ = true;  // the relayout below measures and draws the widget
-    weather_.Configure(config_->weather, WeatherShown(), hwnd_);
+    weather_.Configure(config_->weather, config_->Main().Has(ItemKind::Weather), hwnd_);
     weatherQuiet_ = false;
     UpdateAcrylic();
     Relayout();
-    if (ClockShown()) {
-        clock_.ScheduleNextTick(hwnd_, kClockTimerId);
-    } else {
-        Clock::Stop(hwnd_, kClockTimerId);
-    }
     ApplyAutoHide();
 }
 
@@ -263,7 +251,6 @@ HMONITOR DockWindow::PickMonitor() const {
 void DockWindow::ComputeLayout() {
     const Config& c = *config_;
     const DockConfig& d = c.Main();
-    const bool clockShown = ClockShown();
     Layout l;
     l.scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
     const float s = l.scale;
@@ -297,32 +284,59 @@ void DockWindow::ComputeLayout() {
         winH += std::max(0.0f, std::ceil(l.glowPad * l.magnification) - magTopRel);
     }
 
-    // Clock text block and weather widget (already laid out at this scale).
-    const float clockW = clockShown ? static_cast<float>(clockSize_.width) : 0.0f;
-    const float clockH = clockShown ? static_cast<float>(clockSize_.height) : 0.0f;
-    const bool weatherShown = WeatherShown() && weatherSize_.width > 0;
-    const float weatherW = weatherShown ? static_cast<float>(weatherSize_.width) : 0.0f;
-    const float weatherH = weatherShown ? static_cast<float>(weatherSize_.height) : 0.0f;
-    const float widgetGap = weatherShown && clockShown ? std::round(kWidgetGap * s) : 0.0f;
-    const bool widgets = clockShown || weatherShown;
-
-    // Bar: lead + N slots (iconPx + gap each, icon centred; separator items: a narrow slot) +
-    // separator + weather + gap + clock + padding.
-    const size_t n = items_.size();
+    // Slots, in dock order, as their elements measure them: an icon slot is iconPx + gap (the icon
+    // centred), a separator a narrow slot, a widget its content box. Spacers (`lead`, never
+    // scaled) separate icons from widgets (with a hairline when the widgets are at an end of the
+    // dock) and widgets from each other; the bar adds padding at both ends (half a gap less beside
+    // an icon slot, whose slot already holds half a gap on each side).
     l.gap = std::round(kGap * s);
     const float half = std::floor(l.gap / 2.0f);
     const float stride = l.iconPx + l.gap;
-    const float lead = n ? l.padding - half : l.padding;
-    l.separatorSlot = std::max(2.0f, std::round(kSeparatorSlot * s));
+    const float sepW = std::round(kSeparatorWidth * s);
+    const float widgetGap = std::round(kWidgetGap * s);
+    const LayoutContext ctx{DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite()};
+    enum class Run { None, Icon, Widget };
+    Run first = Run::None, prev = Run::None;
+    size_t icons = 0;  // icon and separator slots (they make up the "items" of the bar)
     float itemsW = 0.0f;
-    for (DockItem& item : items_) {
-        item.slotW = item.kind == DockItem::Kind::Separator ? l.separatorSlot : stride;
-        itemsW += item.slotW;
+    l.firstMag = l.lastMag = -1;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        DockItem& item = items_[i];
+        DockElement& element = ElementOf(i);
+        Run run = Run::Icon;
+        if (item.IsWidget()) {
+            if (element.Update()) item.dirty = true;  // the clock's text changed
+            const ElementSize box = element.Measure(ctx);
+            if (box.main != item.slotW || box.cross != item.boxCross) item.dirty = true;
+            item.slotW = box.main;
+            item.boxCross = box.cross;
+            item.hitSlack = element.HitSlack(ctx);
+            run = box.main > 0.0f ? Run::Widget : Run::None;  // nothing to show: takes no room
+        } else {
+            const ElementSize box = element.Measure(ctx);
+            item.slotW = item.Magnifies() ? box.main + l.gap : box.main;
+            item.boxCross = l.iconPx;
+            item.hitSlack = 0.0f;
+            ++icons;
+            if (item.Magnifies()) {
+                if (l.firstMag < 0) l.firstMag = static_cast<int>(i);
+                l.lastMag = static_cast<int>(i);
+            }
+        }
+        item.lead = 0.0f;
+        if (run == Run::None) continue;
+        if (prev != Run::None && (prev != Run::Icon || run != Run::Icon)) {
+            item.lead = prev == Run::Widget && run == Run::Widget ? widgetGap : sepW;
+        }
+        if (first == Run::None) first = run;
+        prev = run;
+        itemsW += item.lead + item.slotW;
     }
     l.itemsW = itemsW;
-    const float sepW = (n && widgets) ? std::round(kSeparatorWidth * s) : 0.0f;
-    float barW = lead + itemsW + sepW + weatherW + widgetGap + clockW + l.padding;
-    if (n && !widgets) barW = lead + itemsW + lead;
+    const float lead = first == Run::Icon ? l.padding - half : l.padding;
+    const float trail = prev == Run::Icon ? l.padding - half : l.padding;
+    const size_t n = icons;
+    float barW = lead + itemsW + trail;
     barW = std::round(std::max(barW, l.iconPx + 2.0f * l.padding));
 
     // Magnified icons widen the run by sum((scale - 1) * iconPx). Both falloffs (cosine, linear) sum
@@ -346,21 +360,33 @@ void DockWindow::ComputeLayout() {
     l.window = RECT{left, m.bottom - static_cast<LONG>(winH), left + static_cast<LONG>(winW), m.bottom};
 
     l.bar = D2D1::RectF(slack, winH - margin - barH, slack + barW, winH - margin);
-    const float clockX = l.bar.right - l.padding - clockW;
-    // The clock and the weather widget are centred on the icon row (above any reflections).
-    const float clockY = std::round(l.bar.top + (iconBarH - clockH) / 2.0f);
-    l.clock = D2D1::RectF(clockX, clockY, clockX + clockW, clockY + clockH);
-    const float weatherX = clockX - widgetGap - weatherW;
-    const float weatherY = std::round(l.bar.top + (iconBarH - weatherH) / 2.0f);
-    l.weather = D2D1::RectF(weatherX, weatherY, weatherX + weatherW, weatherY + weatherH);
+    l.itemTop = l.bar.top + std::round(kIconTop * s);
 
+    // Hairlines in the icon -> widget spacers at the ends: before the trailing widgets, after the
+    // leading ones (bar-local; both exist only when the dock also has icons).
+    int firstIcon = -1, lastIcon = -1;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (items_[i].IsWidget()) continue;
+        if (firstIcon < 0) firstIcon = static_cast<int>(i);
+        lastIcon = static_cast<int>(i);
+    }
+    l.separatorX = l.leftSeparatorX = -1.0f;
     l.itemsLeft = l.bar.left + lead;
     float slotX = l.itemsLeft;
-    for (DockItem& item : items_) {
+    for (size_t i = 0; i < items_.size(); ++i) {
+        DockItem& item = items_[i];
+        const float spacerLeft = slotX - l.bar.left;  // bar-local
+        slotX += item.lead;
         item.slotX = slotX;
         slotX += item.slotW;
+        item.x = item.slotX + BoxInset(item);
+        // Icons stand on the icon row; widgets are centred on it (above any reflections).
+        item.y = item.IsWidget() ? std::round(l.bar.top + (iconBarH - item.boxCross) / 2.0f) : l.itemTop;
+        if (item.lead <= 0.0f || firstIcon < 0) continue;
+        const int k = static_cast<int>(i);
+        if (k > lastIcon && l.separatorX < 0.0f) l.separatorX = std::round(spacerLeft + item.lead / 2.0f);
+        if (k == firstIcon) l.leftSeparatorX = std::round(spacerLeft + item.lead / 2.0f);
     }
-    l.itemTop = l.bar.top + std::round(kIconTop * s);
     l.itemHeight = l.bar.bottom - l.itemTop;
     l.magTop = l.itemTop + l.iconPx - l.iconPx * l.magnification;
     l.dotRadius = std::max(1.5f, kDotRadius * s);
@@ -370,7 +396,6 @@ void DockWindow::ComputeLayout() {
                                            : l.bar.bottom - std::round(kDotFromBottom * s);
     l.dotTop = std::round(dotCenter - static_cast<float>(l.dotHeight) / 2.0f);
     l.dotCenterY = dotCenter - l.dotTop;
-    l.separatorX = sepW > 0.0f ? std::round(lead + itemsW + sepW / 2.0f) : -1.0f;
     // A glow that shows at rest (always / the active app) reaches above the bar: the resting HWND
     // grows by that much so it is not cut off (only that band; the bar stays the active zone).
     l.restTopExtra = (glow == GlowMode::Always || glow == GlowMode::Active)
@@ -378,7 +403,8 @@ void DockWindow::ComputeLayout() {
                          : 0.0f;
 
     // Background halves: the seam must sit where both halves show plain fill (between the
-    // rounded left end and the separator / rounded right end) for every amount of growth.
+    // rounded left end / left hairline and the hairline / rounded right end) for every amount of
+    // growth.
     l.bgSurfaceW = barW + l.growMax;
     float radius = std::ceil(std::min(l.cornerRadius, barH / 2.0f));
     if (c.theme.shelf) radius = std::max(radius, std::ceil(c.theme.shelfSlant * s));  // the angled ends
@@ -386,7 +412,8 @@ void DockWindow::ComputeLayout() {
     // rest by up to kSpringOvershoot * g per side. Keep the seam that much further in.
     const float undershoot =
         motion_.easing == Easing::Spring ? std::ceil(static_cast<float>(Tween::kSpringOvershoot) * l.growMax) : 0.0f;
-    const float seamMin = radius + 2.0f + undershoot;
+    const float stroke = std::max(1.0f, std::round(s));  // the hairlines' width (RenderBackground)
+    const float seamMin = std::max(radius, l.leftSeparatorX >= 0.0f ? l.leftSeparatorX + stroke : 0.0f) + 2.0f + undershoot;
     const float seamMax = (l.separatorX >= 0.0f ? l.separatorX - 2.0f : barW - radius - 2.0f) - undershoot;
     l.seamX = l.bar.left + (seamMin <= seamMax ? seamMin : std::floor(barW / 2.0f));
 
@@ -501,21 +528,13 @@ void DockWindow::LayoutPass() {
 
     for (int pass = 0; pass < 2; ++pass) {
         const UINT before = dpi_;
-        const float scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
-        if (clock_.UpdateText()) clockDirty_ = true;
-        clockSize_ = ClockShown() ? clock_.BuildLayout(renderer_.DWrite(), scale) : D2D1_SIZE_U{};
-        const D2D1_SIZE_U weatherSize = MeasureWeather(scale);
-        if (weatherSize.width != weatherSize_.width || weatherSize.height != weatherSize_.height) weatherDirty_ = true;
-        weatherSize_ = weatherSize;
-        ComputeLayout();
+        ComputeLayout();  // measures the elements (widget content) at the current scale
         ApplyWindowPos();
         // Moving to another monitor may change our DPI (WM_DPICHANGED arrives re-entrantly
         // during SetWindowPos); lay out once more if it did.
         const UINT now = GetDpiForWindow(hwnd_);
         dpi_ = now;
         if (now == before) break;
-        clockDirty_ = true;
-        weatherDirty_ = true;
         labelDirty_ = true;
         for (DockItem& item : items_) {
             item.dirty = true;
@@ -542,9 +561,6 @@ void DockWindow::ResetLayers() {
     bgRightClip_.Reset();
     bgRight_.Reset();
     widgetsGroup_.Reset();
-    clockLayer_.Reset();
-    weatherLayer_.Reset();
-    weatherAppliedY_ = -1.0f;
     perspectiveApplied_ = false;
     itemsGroup_.Reset();
     for (Layer& d : dotSources_) d.Reset();
@@ -564,16 +580,14 @@ void DockWindow::ResetLayers() {
 }
 
 HRESULT DockWindow::CreateLayers() {
-    // Z-order (back to front): background halves, clock, weather, items, label. The clock and the
-    // weather widget sit in a container at the stage origin (it carries the perspective tilt).
+    // Z-order (back to front): background halves, widgets, items, label. The widget slots and the
+    // icon slots sit in two containers at the stage origin (both carry the perspective tilt).
     ResetLayers();
     HRESULT hr = renderer_.CreateLayer(bgLeftClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgLeft_, &bgLeftClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRightClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRight_, &bgRightClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(widgetsGroup_);
-    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(clockLayer_, &widgetsGroup_);
-    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(weatherLayer_, &widgetsGroup_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(itemsGroup_);
     for (Layer& d : dotSources_) {
         if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(d, &itemsGroup_);
@@ -592,8 +606,6 @@ HRESULT DockWindow::CreateLayers() {
     }
     labelShown_ = false;
     labelDirty_ = true;
-    clockDirty_ = true;
-    weatherDirty_ = true;
     snapPending_ = true;
     rootY_.valid = false;
     rootOpacity_.valid = false;
@@ -607,6 +619,16 @@ HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
     item.icon.Reset();
     item.iconBig.Reset();
     item.dot.Reset();
+    // A widget is one plain visual in widgetsGroup_ (behind the icons): its content is drawn into
+    // `layer` itself and it is placed with the visual's offsets (it never scales or bounces).
+    if (item.IsWidget()) {
+        const HRESULT hr = renderer_.CreateLayer(item.layer, &widgetsGroup_);
+        item.dirty = true;
+        item.dotDirty = false;
+        item.appliedY = -1.0f;
+        item.tx.valid = item.ts.valid = item.fade.valid = item.glowOpacity.valid = false;
+        return hr;
+    }
     // The dot goes in front of its icon container: with reflections it sits on the reflection.
     HRESULT hr = renderer_.CreateLayer(item.layer, &itemsGroup_);
     if (SUCCEEDED(hr)) hr = renderer_.EnsurePlacement(item.layer, BoxW(item) / 2.0f, layout_.iconPx);
@@ -617,6 +639,7 @@ HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.dot, &itemsGroup_);
     item.dirty = true;
     item.dotDirty = true;
+    item.appliedY = -1.0f;
     item.tx.valid = item.ts.valid = item.fade.valid = item.glowOpacity.valid = false;
     return hr;
 }
@@ -629,14 +652,16 @@ HRESULT DockWindow::RenderBackground() {
     const D2D1_COLOR_F fill = Theme::ToColor(acrylic_ ? theme.acrylicBackground : theme.background);
     const float radius = std::min(l.cornerRadius, static_cast<float>(std::min(w, h)) / 2.0f);
     const float stroke = std::max(1.0f, std::round(l.scale));
-    // The separator keeps its distance from the right end (it moves with the right half).
+    // The hairline before trailing widgets keeps its distance from the right end (it moves with
+    // the right half); the one after leading widgets from the left end (left half).
     const float separatorX = l.separatorX >= 0.0f ? l.separatorX + l.growMax : -1.0f;
+    const float leftSeparatorX = l.leftSeparatorX;
     const float rowH = static_cast<float>(h) - l.reflH;  // the icon row, above any reflections
 
     HRESULT hr = renderer_.DrawLayer(bgLeft_, w, h, [&](ID2D1DeviceContext* dc) {
         if (theme.shelf) {
             Theme::DrawShelf(dc, D2D1::RectF(0, 0, static_cast<float>(w), static_cast<float>(h)), theme, l.scale,
-                             stroke, separatorX, l.reflH);
+                             stroke, separatorX, l.reflH, leftSeparatorX);
             return;
         }
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
@@ -650,137 +675,37 @@ HRESULT DockWindow::RenderBackground() {
             std::max(0.0f, radius - inset), std::max(0.0f, radius - inset)};
         brush->SetColor(Theme::ToColor(theme.barBorder));
         dc->DrawRoundedRectangle(edge, brush.get(), stroke);
-        // Separator between the app icons and the clock.
-        if (separatorX >= 0.0f) {
-            const float x = separatorX + stroke / 2.0f;
-            const float vInset = std::round(rowH * 0.22f);
-            brush->SetColor(Theme::ToColor(theme.separator));
+        // Hairlines between the app icons and the widgets.
+        const float vInset = std::round(rowH * 0.22f);
+        brush->SetColor(Theme::ToColor(theme.separator));
+        for (const float sx : {separatorX, leftSeparatorX}) {
+            if (sx < 0.0f) continue;
+            const float x = sx + stroke / 2.0f;
             dc->DrawLine(D2D1::Point2F(x, vInset), D2D1::Point2F(x, rowH - vInset), brush.get(), stroke);
         }
     });
     if (FAILED(hr)) return hr;
+    bgSeparators_[0] = l.separatorX;
+    bgSeparators_[1] = l.leftSeparatorX;
     bgLeftX_.valid = false;  // re-apply clips / offsets (the seam may have moved)
     return renderer_.ShareContent(bgRight_, bgLeft_);
 }
 
-HRESULT DockWindow::RenderClock() {
-    if (!ClockShown()) {
-        clockDirty_ = false;
-        return renderer_.DrawLayer(clockLayer_, 0, 0, {});
-    }
-    HRESULT hr = renderer_.DrawLayer(clockLayer_, clockSize_.width, clockSize_.height,
-                                     [&](ID2D1DeviceContext* dc) { clock_.Draw(dc, 0.0f, 0.0f); });
-    if (FAILED(hr)) return hr;
-    clockDirty_ = false;
-    return S_OK;
-}
-
-D2D1_SIZE_U DockWindow::MeasureWeather(float scale) {
-    if (!WeatherShown()) {
-        weatherText_.clear();
-        weatherLayout_ = nullptr;
-        return D2D1_SIZE_U{};
-    }
-    // The temperature in the clock's time font; unconfigured: the "set location" glyph alone.
-    const bool date = ClockShown() && config_->clock.showDate;
-    const float glyph = std::round((date ? kWeatherGlyph - 2.0f : kWeatherGlyph) * scale);
-    std::wstring text;
-    if (config_->weather.Configured()) {
-        const WeatherService::Forecast& data = weather_.Data();
-        if (data.valid && std::isfinite(data.temp)) {
-            long t = std::lround(data.temp);
-            if (t == 0) t = 0;
-            text = std::to_wstring(t) + L"°";
-        } else {
-            text = L"--°";
-        }
-    }
-    IDWriteFactory* dw = renderer_.DWrite();
-    if (scale != weatherTextScale_) {
-        weatherFormat_ = nullptr;
-        weatherLayout_ = nullptr;
-    }
-    if (!weatherFormat_ && dw &&
-        FAILED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-                                    DWRITE_FONT_STRETCH_NORMAL, (date ? 14.0f : 16.0f) * scale, L"",
-                                    weatherFormat_.put()))) {
-        weatherFormat_ = nullptr;
-    }
-    weatherTextScale_ = scale;
-    if (text != weatherText_) weatherLayout_ = nullptr;
-    weatherText_ = text;
-    float textW = 0.0f, textH = 0.0f;
-    if (!text.empty() && weatherFormat_ && dw) {
-        if (!weatherLayout_ &&
-            FAILED(dw->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), weatherFormat_.get(), 4096.0f,
-                                        4096.0f, weatherLayout_.put()))) {
-            weatherLayout_ = nullptr;
-        }
-        DWRITE_TEXT_METRICS m{};
-        if (weatherLayout_ && SUCCEEDED(weatherLayout_->GetMetrics(&m))) {
-            textW = std::ceil(m.widthIncludingTrailingWhitespace);
-            textH = std::ceil(m.height);
-        }
-    }
-    const float gap = textW > 0.0f ? std::round(kWeatherTextGap * scale) : 0.0f;
-    return D2D1::SizeU(static_cast<UINT32>(glyph + gap + textW), static_cast<UINT32>(std::max(glyph, textH)));
-}
-
-HRESULT DockWindow::RenderWeather() {
-    weatherDirty_ = false;
-    if (!WeatherShown() || weatherSize_.width == 0 || weatherSize_.height == 0) {
-        return renderer_.DrawLayer(weatherLayer_, 0, 0, {});
-    }
-    const ThemeConfig& theme = config_->theme;
-    const float h = static_cast<float>(weatherSize_.height);
-    const bool date = ClockShown() && config_->clock.showDate;
-    const float glyph = std::round((date ? kWeatherGlyph - 2.0f : kWeatherGlyph) * layout_.scale);
-    const WeatherService::Forecast& data = weather_.Data();
-    const bool configured = config_->weather.Configured();
-    // Stale data (and none yet) are drawn dimmed.
-    const bool dim = configured && (!data.valid || weather_.State() != WeatherService::Status::Fresh);
-    WeatherGlyphs::Colors colors;
-    colors.ink = theme.clockText;
-    colors.water = theme.accent;
-    colors.opacity = dim ? kWeatherStaleAlpha : 1.0f;
-    const WeatherGlyphs::Glyph g = !configured     ? WeatherGlyphs::Glyph::SetLocation
-                                   : data.valid    ? WeatherGlyphs::FromWmo(data.code)
-                                                   : WeatherGlyphs::Glyph::Overcast;
-    const bool isDay = !data.valid || data.isDay;
-    return renderer_.DrawLayer(weatherLayer_, weatherSize_.width, weatherSize_.height, [&](ID2D1DeviceContext* dc) {
-        const float top = std::round((h - glyph) / 2.0f);
-        WeatherGlyphs::Draw(dc, g, isDay, D2D1::RectF(0.0f, top, glyph, top + glyph), colors);
-        if (!weatherLayout_) return;
-        winrt::com_ptr<ID2D1SolidColorBrush> brush;
-        if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(theme.clockText, colors.opacity), brush.put()))) return;
-        DWRITE_TEXT_METRICS m{};
-        weatherLayout_->GetMetrics(&m);
-        const float x = glyph + std::round(kWeatherTextGap * layout_.scale);
-        dc->DrawTextLayout(D2D1::Point2F(x, std::round((h - m.height) / 2.0f)), weatherLayout_.get(), brush.get());
-    });
-}
-
 void DockWindow::OnWeatherChanged() {
     if (!hwnd_) return;
-    if (inLayout_ || weatherQuiet_) {  // ApplyConfig: its relayout measures and draws the widget
-        if (weatherCallbacks_.changed) weatherCallbacks_.changed();
-        return;
-    }
-    const float scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
-    const D2D1_SIZE_U size = MeasureWeather(scale);
-    if (size.width != weatherSize_.width || size.height != weatherSize_.height) {
-        Relayout();  // the bar width depends on the widget
-    } else {
-        RenderWithRecovery([this] { return RenderWeather(); });
-    }
-    weatherPopup_.Update();
+    // The weather elements redraw (relayout if their size changed); ApplyConfig: its relayout
+    // measures and draws them (DispatchEvent only marks them dirty while weatherQuiet_).
+    DispatchEvent(DockEvent::WeatherData);
+    if (!inLayout_ && !weatherQuiet_) weatherPopup_.Update();
     if (weatherCallbacks_.changed) weatherCallbacks_.changed();
 }
 
 void DockWindow::ApplyWeather() {
-    if (!WeatherShown()) DismissWeatherPopup(false, true);
+    // The weather item may have been added / removed (Settings > Weather "Show").
+    SyncElements();
+    if (!config_->Main().Has(ItemKind::Weather)) DismissWeatherPopup(false, true);
     weatherQuiet_ = true;
-    weather_.Configure(config_->weather, WeatherShown(), hwnd_);
+    weather_.Configure(config_->weather, config_->Main().Has(ItemKind::Weather), hwnd_);
     weatherQuiet_ = false;
     OnWeatherChanged();  // redraw (relayout if the widget's size changed); once, whatever changed
 }
@@ -816,7 +741,16 @@ HRESULT DockWindow::RenderSeparator(DockItem& item) {
     return S_OK;
 }
 
+HRESULT DockWindow::RenderWidget(DockItem& item) {
+    // The element draws its content at its measured size into the slot's one visual.
+    const HRESULT hr = elements_[item.element]->Render(renderer_, item.layer, Context());
+    if (FAILED(hr)) return hr;
+    item.dirty = false;
+    return S_OK;
+}
+
 HRESULT DockWindow::RenderItem(DockItem& item) {
+    if (item.IsWidget()) return RenderWidget(item);
     if (item.kind == DockItem::Kind::Separator) return RenderSeparator(item);
     const Layout& l = layout_;
     const float icon = l.iconPx;
@@ -1143,9 +1077,10 @@ HRESULT DockWindow::DrawFrame(bool all) {
     const bool snap = all || snapPending_;
     const UINT bgW = static_cast<UINT>(layout_.bgSurfaceW);
     const UINT barH = static_cast<UINT>(layout_.bar.bottom - layout_.bar.top);
-    if (all || bgLeft_.width != bgW || bgLeft_.height != barH) hr = RenderBackground();
-    if (SUCCEEDED(hr) && (all || clockDirty_)) hr = RenderClock();
-    if (SUCCEEDED(hr) && (all || weatherDirty_)) hr = RenderWeather();
+    if (all || bgLeft_.width != bgW || bgLeft_.height != barH || bgSeparators_[0] != layout_.separatorX ||
+        bgSeparators_[1] != layout_.leftSeparatorX) {
+        hr = RenderBackground();
+    }
     if (SUCCEEDED(hr) && (all || dotSources_[0].width != static_cast<UINT>(layout_.iconPx) ||
                           dotSources_[0].height != layout_.dotHeight)) {
         hr = RenderDotSources();
@@ -1154,7 +1089,7 @@ HRESULT DockWindow::DrawFrame(bool all) {
         if (FAILED(hr)) break;
         if (!item.layer.visual) hr = CreateItemVisuals(item);
         if (SUCCEEDED(hr) && (all || item.dirty)) hr = RenderItem(item);
-        if (SUCCEEDED(hr) && (all || item.dotDirty)) hr = RenderDot(item);
+        if (SUCCEEDED(hr) && (all || item.dotDirty) && !item.IsWidget()) hr = RenderDot(item);  // widgets: no dot
     }
     if (SUCCEEDED(hr) && labelShown_ && (all || labelDirty_)) hr = RenderLabel();
     if (FAILED(hr)) return hr;
@@ -1213,16 +1148,37 @@ bool DockWindow::RecoverDevice() {
     return false;
 }
 
-void DockWindow::OnClockTick() {
-    if (!ClockShown()) return;
-    if (!clock_.UpdateText()) return;
-    const float scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
-    const D2D1_SIZE_U size = clock_.BuildLayout(renderer_.DWrite(), scale);
-    if (size.width != clockSize_.width || size.height != clockSize_.height) {
-        Relayout();  // the bar width depends on the clock width
-    } else {
-        RenderWithRecovery([this] { return RenderClock(); });
+void DockWindow::DispatchEvent(DockEvent e) {
+    for (size_t i = 0; i < elements_.size(); ++i) {
+        if (!elements_[i] || !elements_[i]->OnEvent(e)) continue;
+        for (DockItem& item : items_) {
+            if (item.element == i) item.dirty = true;
+        }
     }
+    // ApplyConfig / ApplyWeather: their relayout measures and draws the dirty slots.
+    if (!hwnd_ || inLayout_ || weatherQuiet_) return;
+    // Re-measure the changed widgets: a new size needs a relayout (the bar width depends on it),
+    // otherwise only their slots are redrawn.
+    const LayoutContext ctx = Context();
+    bool resized = false, any = false;
+    for (DockItem& item : items_) {
+        if (!item.dirty || !item.IsWidget()) continue;
+        any = true;
+        const ElementSize box = elements_[item.element]->Measure(ctx);
+        if (box.main != item.slotW || box.cross != item.boxCross) resized = true;
+    }
+    if (!any) return;
+    if (resized) {
+        Relayout();
+        return;
+    }
+    RenderWithRecovery([this] {
+        HRESULT hr = S_OK;
+        for (DockItem& item : items_) {
+            if (SUCCEEDED(hr) && item.dirty && item.IsWidget() && item.layer.visual) hr = RenderWidget(item);
+        }
+        return hr;
+    });
 }
 
 // --- Placement and magnification -------------------------------------------------------------
@@ -1231,10 +1187,11 @@ void DockWindow::OnClockTick() {
 // magnifyFalloff "linear", 1 - d / R) for d < R, R = magnifyRange slots. Magnified slots are laid
 // out left to right, and the run is anchored so the point under the cursor stays under the
 // cursor: the rest-layout offset u of the cursor in the bar maps to M(u) in the magnified bar
-// (lead padding unscaled, slots stretched, clock area shifted by the whole growth), and the
-// magnified bar starts at cursorX - M(u). So the bar grows away from the cursor on both sides
-// (macOS behaviour), the hovered icon stays under the pointer, and hit-testing in rest
-// coordinates always matches what is drawn.
+// (lead padding and spacers unscaled, icon slots stretched, separators and widgets moved by the
+// growth before them), and the magnified bar starts at cursorX - M(u). So the bar grows away from
+// the cursor on both sides (macOS behaviour), the hovered icon stays under the pointer, and
+// hit-testing in rest coordinates always matches what is drawn. Widgets before the first / after
+// the last icon move with the bar's left / right end.
 
 void DockWindow::ComputeTargets() {
     const Layout& l = layout_;
@@ -1244,68 +1201,63 @@ void DockWindow::ComputeTargets() {
     const bool magnify = magnifying_ && l.magnification > 1.001f && n > 0;
     const float range = static_cast<float>(config_->Main().magnifyRange) * stride;
 
-    for (DockItem& item : items_) {
-        item.x = item.slotX + BoxInset(item);
-        item.y = l.itemTop;
-    }
-
     // Dragging an icon: no magnification; the others make room at the insertion slot and the
     // dragged icon follows the cursor. A file dragged over the dock opens a gap (the bar grows by
-    // one slot, half on each side). Slots keep their own widths (separators are narrow), so the
-    // targets come from walking the new order.
+    // one slot, half on each side). Slots keep their own widths (separators are narrow, widgets
+    // their content), so the targets come from walking the new order.
     const int src = dragSource_;
     const bool dragLayout = (dragPhase_ != DragPhase::None || dragLanding_) && src >= 0 &&
                             src < static_cast<int>(n) && items_[static_cast<size_t>(src)].key == dragKey_ &&
-                            dragInsert_ >= 0;
+                            dragInsert_ >= 0 && dragOrder_.size() == n;
     const bool gapLayout = !dragLayout && dropGap_ >= 0 && n > 0;
     if (dragLayout || gapLayout) {
         const float shiftLeft = gapLayout ? std::floor(stride / 2.0f) : 0.0f;
         const float shiftRight = gapLayout ? stride - shiftLeft : 0.0f;
-        constexpr int kGapSlot = -1;
-        std::vector<int> order;  // item indices in display order (kGapSlot: the drop gap)
-        order.reserve(n + 1);
-        for (size_t i = 0; i < n; ++i) {
-            if (dragLayout && static_cast<int>(i) == src) continue;
-            if (gapLayout && static_cast<int>(i) == dropGap_) order.push_back(kGapSlot);
-            order.push_back(static_cast<int>(i));
-        }
-        if (gapLayout && dropGap_ >= static_cast<int>(n)) order.push_back(kGapSlot);
-        if (dragLayout) {
-            order.insert(order.begin() + std::min<ptrdiff_t>(dragInsert_, static_cast<ptrdiff_t>(order.size())), src);
-        }
         float slotLeft = l.itemsLeft - shiftLeft;
-        for (const int i : order) {
-            if (i == kGapSlot) {
-                slotLeft += stride;
-                continue;
-            }
-            DockItem& item = items_[static_cast<size_t>(i)];
+        auto place = [&](size_t i, float lead) {
+            DockItem& item = items_[i];
+            slotLeft += lead;
             const float left = slotLeft;
             slotLeft += item.slotW;
-            if (dragLayout && i == src) {
-                if (dragPhase_ == DragPhase::Removing) continue;  // fades out where it was dropped
+            if (dragLayout && static_cast<int>(i) == src) {
+                if (dragPhase_ == DragPhase::Removing) return;  // fades out where it was dropped
                 if (dragPhase_ == DragPhase::Dragging) {
                     const float winW = static_cast<float>(l.window.right - l.window.left);
                     item.targetScale = kDragScale;
                     item.targetX = std::clamp(cursorX_ - dragGrabDx_, 0.0f, std::max(0.0f, winW - BoxW(item)));
-                    continue;
+                    return;
                 }
                 // landing: into its slot like the others
             }
             item.targetScale = 1.0f;
             item.targetX = left + BoxInset(item);
+        };
+        if (dragLayout) {
+            // Slots trade places; every place keeps its rest spacer (the drag only reorders pins
+            // among pin places and running apps among running places, widgets stay put).
+            for (size_t k = 0; k < n; ++k) place(dragOrder_[k], items_[k].lead);
+        } else {
+            for (size_t i = 0; i <= n; ++i) {
+                float lead = i < n ? items_[i].lead : 0.0f;
+                if (static_cast<int>(i) == dropGap_) {
+                    // The gap is an icon slot: before an icon it takes that icon's spacer (none
+                    // between icons); a widget after it keeps its own.
+                    const bool icon = i < n && !items_[i].IsWidget();
+                    slotLeft += (icon ? lead : 0.0f) + stride;
+                    if (icon) lead = 0.0f;
+                }
+                if (i < n) place(i, lead);
+            }
         }
         bgLeftTarget_ = l.bar.left - shiftLeft;
         bgRightTarget_ = l.bar.right + shiftRight - l.bgSurfaceW;
-        clockTarget_ = l.clock.left + shiftRight;
-        weatherTarget_ = l.weather.left + shiftRight;
         return;
     }
 
     float delta = 0.0f;  // total growth of the run
     for (DockItem& item : items_) {
         float scale = 1.0f;
-        if (magnify && item.kind != DockItem::Kind::Separator) {  // separators never magnify
+        if (magnify && item.Magnifies()) {  // separators and widgets never magnify
             const float centre = item.slotX + item.slotW / 2.0f;
             const float d = std::fabs(cursorX_ - centre);
             if (d < range) {
@@ -1319,40 +1271,54 @@ void DockWindow::ComputeTargets() {
     }
     // Width of an item's slot in the magnified layout.
     auto magnifiedW = [&](const DockItem& item) {
-        return item.kind == DockItem::Kind::Separator ? item.slotW : l.iconPx * item.targetScale + l.gap;
+        return item.Magnifies() ? l.iconPx * item.targetScale + l.gap : item.slotW;
     };
 
     float growLeft = 0.0f;
     if (magnify) {
         const float u = cursorX_ - l.bar.left;
         const float lead = l.itemsLeft - l.bar.left;
-        float mapped;
+        float mapped = u + delta;  // right of every icon: the whole growth is left of the cursor
         if (u <= lead) {
             mapped = u;
-        } else if (u >= lead + l.itemsW) {
-            mapped = u + delta;
-        } else {
-            const int slot = SlotAt(cursorX_);
-            const size_t k = slot >= 0 ? static_cast<size_t>(slot) : n - 1;
-            const DockItem& under = items_[k];
-            const float frac = std::clamp((cursorX_ - under.slotX) / std::max(1.0f, under.slotW), 0.0f, 1.0f);
-            mapped = lead;
-            for (size_t j = 0; j < k; ++j) mapped += magnifiedW(items_[j]);
-            mapped += frac * magnifiedW(under);
+        } else if (u < lead + l.itemsW) {
+            float at = lead;  // bar-local left edge of slot j in the magnified layout
+            for (size_t j = 0; j < n; ++j) {
+                const DockItem& it = items_[j];
+                if (static_cast<int>(j) > l.lastMag && it.IsWidget()) break;  // nothing scales from here on
+                at += it.lead;
+                if (cursorX_ < it.slotX) {  // in the (unscaled) spacer before it
+                    mapped = at - (it.slotX - cursorX_);
+                    break;
+                }
+                if (cursorX_ < it.slotX + it.slotW) {
+                    const float frac = std::clamp((cursorX_ - it.slotX) / std::max(1.0f, it.slotW), 0.0f, 1.0f);
+                    mapped = at + frac * magnifiedW(it);
+                    break;
+                }
+                at += magnifiedW(it);
+            }
         }
         growLeft = std::clamp(mapped - u, 0.0f, delta);
     }
     const float growRight = delta - growLeft;
 
     float slotLeft = l.itemsLeft - growLeft;
-    for (DockItem& item : items_) {
-        if (item.kind == DockItem::Kind::Separator) {
-            item.targetX = slotLeft;
-        } else {
+    for (size_t i = 0; i < n; ++i) {
+        DockItem& item = items_[i];
+        const int k = static_cast<int>(i);
+        slotLeft += item.lead;
+        if (item.Magnifies()) {
             // The icon box keeps its rest size and is scaled about its bottom centre, so its left
             // edge sits half an icon left of the magnified icon's centre.
             const float w = l.iconPx * item.targetScale;
             item.targetX = slotLeft + half + w / 2.0f - l.iconPx / 2.0f;
+        } else if (item.IsWidget() && k > l.lastMag) {
+            item.targetX = item.x + growRight;  // moves with the bar's right end
+        } else if (item.IsWidget() && k < l.firstMag) {
+            item.targetX = item.x - growLeft;   // moves with the bar's left end
+        } else {
+            item.targetX = slotLeft;  // separators, widgets between icons
         }
         slotLeft += magnifiedW(item);
     }
@@ -1364,8 +1330,6 @@ void DockWindow::ComputeTargets() {
 
     bgLeftTarget_ = l.bar.left - growLeft;
     bgRightTarget_ = l.bar.right + growRight - l.bgSurfaceW;
-    clockTarget_ = l.clock.left + growRight;
-    weatherTarget_ = l.weather.left + growRight;
 
     if (labelShown_ && hovered_ >= 0 && hovered_ < static_cast<int>(n) && label_.width) {
         const DockItem& h = items_[static_cast<size_t>(hovered_)];
@@ -1396,7 +1360,6 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
         renderer_.SetClip(bgRightClip_, D2D1::RectF(l.seamX, -1e5f, 1e5f, 1e5f));
         if (bgLeft_.visual) bgLeft_.visual->SetOffsetY(l.bar.top);
         if (bgRight_.visual) bgRight_.visual->SetOffsetY(l.bar.top);
-        if (clockLayer_.visual) clockLayer_.visual->SetOffsetY(l.clock.top);
     }
     if (bgLeft_.visual) {
         renderer_.Drive(
@@ -1408,23 +1371,20 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
             bgRightX_, bgRightTarget_, duration, now, [&](auto v) { return bgRight_.visual->SetOffsetX(v); },
             posEpsilon, easing);
     }
-    if (clockLayer_.visual) {
-        renderer_.Drive(
-            clockX_, clockTarget_, duration, now, [&](auto v) { return clockLayer_.visual->SetOffsetX(v); },
-            posEpsilon, easing);
-    }
-    if (weatherLayer_.visual) {
-        // Its height can change without a snap (the first data arriving): follow it here.
-        if (weatherAppliedY_ != l.weather.top) {
-            weatherLayer_.visual->SetOffsetY(l.weather.top);
-            weatherAppliedY_ = l.weather.top;
-        }
-        renderer_.Drive(
-            weatherX_, weatherTarget_, duration, now, [&](auto v) { return weatherLayer_.visual->SetOffsetX(v); },
-            posEpsilon, easing);
-    }
-
     for (DockItem& item : items_) {
+        if (item.IsWidget() && item.layer.visual) {
+            // A widget: the visual's own offsets. Its height can change without a snap (the first
+            // weather data arriving): follow it here.
+            IDCompositionVisual2* visual = item.layer.visual.get();
+            if (item.appliedY != item.y) {
+                visual->SetOffsetY(item.y);
+                item.appliedY = item.y;
+            }
+            renderer_.Drive(
+                item.tx, item.targetX, duration, now, [&](auto v) { return visual->SetOffsetX(v); }, posEpsilon,
+                easing);
+            continue;
+        }
         if (!item.layer.visual || !item.layer.translate || !item.layer.scale) continue;
         if (!item.tx.valid) {
             renderer_.EnsurePlacement(item.layer, BoxW(item) / 2.0f, l.iconPx);
@@ -1455,10 +1415,12 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
 
     if (dropGap_ >= 0 && marker_.visual && marker_.width) {
         // Centred in the gap (the gap layout starts half a slot left of the rest layout; the gap is
-        // an icon slot wide).
+        // an icon slot wide and, before an icon, comes after that icon's spacer: ComputeTargets).
         const float stride = l.iconPx + l.gap;
         float gapLeft = l.itemsLeft - std::floor(stride / 2.0f);
-        for (size_t i = 0; i < items_.size() && static_cast<int>(i) < dropGap_; ++i) gapLeft += items_[i].slotW;
+        const size_t gap = static_cast<size_t>(dropGap_);
+        for (size_t i = 0; i < items_.size() && i < gap; ++i) gapLeft += items_[i].lead + items_[i].slotW;
+        if (gap < items_.size() && !items_[gap].IsWidget()) gapLeft += items_[gap].lead;
         const float x =
             gapLeft + std::floor(l.gap / 2.0f) + std::round((l.iconPx - static_cast<float>(marker_.width)) / 2.0f);
         if (!markerX_.valid) marker_.visual->SetOffsetY(l.itemTop);
@@ -1477,7 +1439,7 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
 }
 
 void DockWindow::ResetPlacementTweens() {
-    bgLeftX_.valid = bgRightX_.valid = clockX_.valid = weatherX_.valid = false;
+    bgLeftX_.valid = bgRightX_.valid = false;
     labelX_.valid = labelY_.valid = false;
     markerX_.valid = false;
     for (DockItem& item : items_) item.tx.valid = item.ts.valid = false;
@@ -1861,10 +1823,10 @@ void DockWindow::ToggleFolderPopup(int index) {
         DismissFolderPopup(true);
         return;
     }
-    ShowFolderPopup(index);
+    ShowClickPopup(index);
 }
 
-void DockWindow::ShowFolderPopup(int index) {
+void DockWindow::ShowFolderPopup(int index, float anchor) {
     if (index < 0 || index >= static_cast<int>(items_.size())) return;
     const DockItem& item = items_[static_cast<size_t>(index)];
     if (item.kind != DockItem::Kind::Folder) return;
@@ -1883,7 +1845,7 @@ void DockWindow::ShowFolderPopup(int index) {
     style.hotBorder = theme.previewHotBorder;
     style.cornerRadiusDip = theme.cornerRadius;
     style.monitor = l.monitor;
-    const int anchorX = l.window.left + static_cast<int>(std::lround(item.targetX + l.iconPx / 2.0f));
+    const int anchorX = l.window.left + static_cast<int>(std::lround(anchor));
     const int bottom = l.window.top - static_cast<int>(std::lround(kPreviewGap * l.scale));
     const std::wstring path = !item.targetPath.empty() ? item.targetPath : item.launchPath.value_or(item.key.Source());
     const AppKey key = item.key;
@@ -1918,29 +1880,48 @@ void DockWindow::RefreshFolderPopup() {
     if (!present) DismissFolderPopup(true);  // unpinned while open
 }
 
-// --- Weather and calendar popups -------------------------------------------------------------
+// --- Click popups ----------------------------------------------------------------------------
 // A left click on the weather widget toggles WeatherPopup (unconfigured: opens Settings > Weather
-// instead); on the clock, CalendarPopup (clock.calendarPopup). Both are click popups like the
-// folder popup: anchored over their widget, they hold the dock shown (kHoldWeather /
-// kHoldCalendar) and are dismissed by the dock's own button-down, a drag, a menu, a hide and any
-// relayout. At most one click popup is open at a time.
+// instead); on the clock, CalendarPopup (clock.calendarPopup); on a folder, FolderPopup. The
+// elements decide (DockElement::OnClick, Popup, PopupAnchor); the dock hosts the popups: they are
+// anchored over their slot, hold the dock shown (kHoldFolder / kHoldWeather / kHoldCalendar) and
+// are dismissed by the dock's own button-down, a drag, a menu, a hide and any relayout. At most
+// one click popup is open at a time.
 
-bool DockWindow::HitWeather(POINT pt) const {
-    const Layout& l = layout_;
-    if (!WeatherShown() || l.weather.right <= l.weather.left || !InZone(pt)) return false;
-    // The rest layout: with the cursor right of the icons the bar grows to the left only, so the
-    // widget does not move under it. Half the gap to the clock on each side counts.
-    const float slack = std::round(kWidgetGap * l.scale / 2.0f);
-    const float x = static_cast<float>(pt.x);
-    return x >= l.weather.left - slack && x < l.weather.right + slack;
+bool DockWindow::PopupShownFor(int slot) const {
+    if (slot < 0 || slot >= static_cast<int>(items_.size())) return false;
+    switch (ElementOf(static_cast<size_t>(slot)).Popup()) {
+        case ClickPopup::Folder: return folder_.Visible() && items_[static_cast<size_t>(slot)].key == folderKey_;
+        case ClickPopup::Weather: return weatherPopup_.Visible();
+        case ClickPopup::Calendar: return calendar_.Visible();
+        case ClickPopup::None:
+        default: return false;
+    }
 }
 
-bool DockWindow::HitClock(POINT pt) const {
-    const Layout& l = layout_;
-    if (!ClockShown() || l.clock.right <= l.clock.left || !InZone(pt)) return false;
-    const float slack = std::round(kWidgetGap * l.scale / 2.0f);
-    const float x = static_cast<float>(pt.x);
-    return x >= l.clock.left - slack && x < std::min(l.clock.right + slack, l.bar.right);
+void DockWindow::ShowClickPopup(int slot) {
+    if (slot < 0 || slot >= static_cast<int>(items_.size())) return;
+    const DockElement& element = ElementOf(static_cast<size_t>(slot));
+    const float anchor = element.PopupAnchor(items_[static_cast<size_t>(slot)], Context());
+    switch (element.Popup()) {
+        case ClickPopup::Folder: ShowFolderPopup(slot, anchor); return;
+        case ClickPopup::Weather: ShowWeatherPopup(anchor); return;
+        case ClickPopup::Calendar: ShowCalendarPopup(anchor); return;
+        case ClickPopup::None:
+        default: return;
+    }
+}
+
+void DockWindow::TogglePopup(ItemKind kind) {
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (!elements_[items_[i].element] || ElementOf(i).Kind() != kind) continue;
+        if (PopupShownFor(static_cast<int>(i))) {
+            DismissClickPopups(true);
+        } else {
+            ShowClickPopup(static_cast<int>(i));
+        }
+        return;
+    }
 }
 
 WeatherPopup::Style DockWindow::WeatherPopupStyle() const {
@@ -1962,21 +1943,13 @@ WeatherPopup::Style DockWindow::WeatherPopupStyle() const {
     return style;
 }
 
-void DockWindow::ToggleWeatherPopup() {
-    if (weatherPopup_.Visible()) {
-        DismissWeatherPopup(true);
-        return;
-    }
-    ShowWeatherPopup();
-}
-
-void DockWindow::ShowWeatherPopup() {
-    if (!WeatherShown() || hideState_ == HideState::Hidden) return;
+void DockWindow::ShowWeatherPopup(float anchor) {
+    if (hideState_ == HideState::Hidden) return;
     DismissPreview(false, false);
     DismissFolderPopup(false, false);
     DismissCalendarPopup(false, false);
     const Layout& l = layout_;
-    const int anchorX = l.window.left + static_cast<int>(std::lround((l.weather.left + l.weather.right) / 2.0f));
+    const int anchorX = l.window.left + static_cast<int>(std::lround(anchor));
     const int bottom = l.window.top - static_cast<int>(std::lround(kPreviewGap * l.scale));
     if (!weatherPopup_.Show(WeatherPopupStyle(), anchorX, bottom)) {
         DismissWeatherPopup(false);
@@ -1993,16 +1966,8 @@ void DockWindow::DismissWeatherPopup(bool animate, bool leaveCheck) {
     ReleasePopupHold(kHoldWeather, leaveCheck);
 }
 
-void DockWindow::ToggleCalendarPopup() {
-    if (calendar_.Visible()) {
-        DismissCalendarPopup(true);
-        return;
-    }
-    ShowCalendarPopup();
-}
-
-void DockWindow::ShowCalendarPopup() {
-    if (!ClockShown() || hideState_ == HideState::Hidden) return;
+void DockWindow::ShowCalendarPopup(float anchor) {
+    if (hideState_ == HideState::Hidden) return;
     DismissPreview(false, false);
     DismissFolderPopup(false, false);
     DismissWeatherPopup(false, false);
@@ -2020,7 +1985,7 @@ void DockWindow::ShowCalendarPopup() {
     style.accent = theme.accent;
     style.cornerRadiusDip = theme.cornerRadius;
     style.monitor = l.monitor;
-    const int anchorX = l.window.left + static_cast<int>(std::lround((l.clock.left + l.clock.right) / 2.0f));
+    const int anchorX = l.window.left + static_cast<int>(std::lround(anchor));
     const int bottom = l.window.top - static_cast<int>(std::lround(kPreviewGap * l.scale));
     if (!calendar_.Show(style, anchorX, bottom)) {
         DismissCalendarPopup(false);
@@ -2514,11 +2479,8 @@ void DockWindow::ResolvePins() {
     const std::vector<DockItemEntry>& entries = config_->Main().items;
     pins.reserve(entries.size());
     size_t separators = 0;
-    // Phase 1a: only the pin kinds (app / folder / separator / recycleBin) are taken from the item
-    // list, in order; they make up the pinned section. Where the `running`, `weather` and `clock`
-    // items stand in the list is recorded in the config but NOT honoured yet: the dock still
-    // draws pins, then the running apps, then the weather widget, then the clock (Phase 1b lays
-    // the items out in list order). A missing `running` item still shows the running apps.
+    // The pin kinds (app / folder / separator / recycleBin), in item order: pins_ is parallel to
+    // DockConfig::PinIndexes(), and each pin element shows pins_[its pin index].
     for (const DockItemEntry& e : entries) {
         const ItemKind kind = e.Kind();
         if (!IsPinKind(kind)) continue;
@@ -2539,9 +2501,53 @@ void DockWindow::ResolvePins() {
     pinCache_ = std::move(cache);  // drops entries that are no longer pinned
 }
 
-void DockWindow::ReloadPins() {
-    ResolvePins();
-    Rebuild(tracker_.Current());
+void DockWindow::BuildElements() {
+    // One element per item, in order (an unknown kind gets none and is not shown). The elements
+    // hold no visuals: the slots (items_) keep them across a rebuild, matched by key.
+    std::vector<std::unique_ptr<DockElement>> elements;
+    const std::vector<DockItemEntry>& entries = config_->Main().items;
+    elements.reserve(entries.size());
+    size_t pinIndex = 0;
+    size_t clocks = 0, weathers = 0;
+    for (const DockItemEntry& e : entries) {
+        const ItemKind kind = e.Kind();
+        const size_t ordinal = kind == ItemKind::Clock ? clocks++ : kind == ItemKind::Weather ? weathers++ : 0;
+        elements.push_back(MakeElement(*this, e, pinIndex, ordinal));
+        if (IsPinKind(kind)) ++pinIndex;
+    }
+    elements_ = std::move(elements);
+}
+
+void DockWindow::SyncElements(bool force) {
+    const std::vector<DockItemEntry>& entries = config_->Main().items;
+    bool same = !force && entries.size() == elements_.size();
+    for (size_t i = 0; same && i < entries.size(); ++i) {
+        const DockItemEntry& a = entries[i];
+        const DockItemEntry* b = elements_[i] ? &elements_[i]->Entry() : nullptr;
+        same = b ? a.kind == b->kind && a.path == b->path && a.aumid == b->aumid && a.icon == b->icon
+                 : a.Kind() == ItemKind::Unknown;
+    }
+    if (!same) {
+        ResolvePins();
+        BuildElements();  // configured from the config as they are made
+    } else {
+        for (auto& e : elements_) {
+            if (e) e->Configure();
+        }
+    }
+    // Every element's timers restart (the clock's tick: none once the clock is gone).
+    if (hwnd_) KillTimer(hwnd_, kClockTimerId);
+    for (auto& e : elements_) {
+        if (e) e->Start();
+    }
+    // Create: the tracker's first enumeration builds the items (with their windows) right after.
+    if (!same && tracking_) Rebuild(tracker_.Current());
+}
+
+void DockWindow::ReloadPins() { SyncElements(true); }
+
+LayoutContext DockWindow::Context() const {
+    return LayoutContext{DockAxis::Horizontal, layout_.scale, layout_.iconPx, renderer_.DWrite()};
 }
 
 void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
@@ -2549,102 +2555,32 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     oldKeys.reserve(items_.size());
     for (const DockItem& it : items_) oldKeys.push_back(it.key);
 
-    std::vector<bool> taken(items_.size(), false);
-    auto takeOld = [&](const AppKey& key) -> DockItem* {
-        for (size_t i = 0; i < items_.size(); ++i) {
-            if (!taken[i] && items_[i].key == key) {
-                taken[i] = true;
-                return &items_[i];
-            }
-        }
-        return nullptr;
-    };
-
+    // 1. Every element's slots, in config order: a pin's slot (entries that resolve to the same
+    //    app show once), the unpinned running apps for the `running` element (first-seen order, or
+    //    the order the user dragged them into), one slot per widget. Previous slots are reused by
+    //    key (visuals, animation state, windows).
     std::vector<DockItem> next;
-    next.reserve(pins_.size() + snap.groups.size());
-
-    // 1. Pinned items in config order. Entries that resolve to the same app show once.
-    for (const AppIdentity::ResolvedPin& pin : pins_) {
-        if (std::any_of(next.begin(), next.end(), [&](const DockItem& i) { return i.key == pin.key; })) continue;
-        DockItem item;
-        if (DockItem* old = takeOld(pin.key)) {
-            item = std::move(*old);
-        } else {
-            item.key = pin.key;
-        }
-        if (!item.pinned || item.iconFile != pin.iconFile || item.iconIndex != pin.iconIndex ||
-            item.missing != pin.missing || item.kind != pin.kind || item.customIcon != pin.customIcon) {
-            item.dirty = true;
-        }
-        item.pinned = true;
-        item.kind = pin.kind;
-        item.customIcon = pin.customIcon;
-        item.displayName = pin.displayName;
-        item.launchPath = pin.launchPath.empty() ? std::nullopt : std::optional<std::wstring>(pin.launchPath);
-        item.workingDir = pin.workingDir;
-        item.targetPath = pin.targetPath;
-        item.iconFile = pin.iconFile;
-        item.iconIndex = pin.iconIndex;
-        item.missing = pin.missing;
-        next.push_back(std::move(item));
-    }
-    const size_t pinnedCount = next.size();
-
-    // 2. Running apps in first-seen order (the tracker keeps that order). A running app whose
-    //    key matches a pinned app merges into it (folders, separators and the Recycle Bin never
-    //    take windows). Unpinned items keep their state.
-    std::vector<const WindowTracker::Group*> groupOf(pinnedCount, nullptr);
-    for (const WindowTracker::Group& g : snap.groups) {
-        size_t index = SIZE_MAX;
-        for (size_t p = 0; p < pinnedCount && index == SIZE_MAX; ++p) {
-            if (next[p].kind == DockItem::Kind::App && next[p].key == g.key) index = p;
-        }
-        if (index == SIZE_MAX) {
-            if (DockItem* old = takeOld(g.key)) {
-                next.push_back(std::move(*old));
-                next.back().pinned = false;  // was unpinned while running
-            } else {
-                DockItem fresh;
-                fresh.key = g.key;
-                fresh.displayName = AppIdentity::DisplayNameFor(g.key);
-                next.push_back(std::move(fresh));
-            }
-            index = next.size() - 1;
-            groupOf.push_back(nullptr);
-        }
-        groupOf[index] = &g;
+    next.reserve(pins_.size() + snap.groups.size() + elements_.size());
+    SlotBuilder builder(snap, pins_, runningOrder_, items_, next);
+    for (size_t i = 0; i < elements_.size(); ++i) {
+        if (!elements_[i]) continue;
+        builder.SetElement(i);
+        elements_[i]->AppendSlots(builder);
     }
 
-    // 3. After the user reordered the running section: that order, apps not in it at the end.
-    if (!runningOrder_.empty() && next.size() > pinnedCount) {
-        auto rank = [&](const AppKey& key) {
-            const auto it = std::find(runningOrder_.begin(), runningOrder_.end(), key);
-            return static_cast<size_t>(it - runningOrder_.begin());
-        };
-        std::vector<size_t> perm(next.size() - pinnedCount);
-        for (size_t k = 0; k < perm.size(); ++k) perm[k] = pinnedCount + k;
-        std::stable_sort(perm.begin(), perm.end(),
-                         [&](size_t a, size_t b) { return rank(next[a].key) < rank(next[b].key); });
-        std::vector<DockItem> tail;
-        std::vector<const WindowTracker::Group*> tailGroups;
-        tail.reserve(perm.size());
-        tailGroups.reserve(perm.size());
-        for (size_t i : perm) {
-            tail.push_back(std::move(next[i]));
-            tailGroups.push_back(groupOf[i]);
-        }
-        runningOrder_.clear();  // keeps only apps that are still running
-        for (size_t k = 0; k < tail.size(); ++k) {
-            runningOrder_.push_back(tail[k].key);
-            next[pinnedCount + k] = std::move(tail[k]);
-            groupOf[pinnedCount + k] = tailGroups[k];
-        }
-    }
-
+    // 2. Windows: a running app's group goes to the app slot with its key (a pinned app or its
+    //    running slot; folders, separators, the Recycle Bin and widgets never take windows).
     bool landed = false;  // a launch feedback ended at once (a hop that was already over)
-    for (size_t i = 0; i < next.size(); ++i) {
-        DockItem& item = next[i];
-        const WindowTracker::Group* g = groupOf[i];
+    for (DockItem& item : next) {
+        const WindowTracker::Group* g = nullptr;
+        if (item.kind == DockItem::Kind::App) {
+            for (const WindowTracker::Group& group : snap.groups) {
+                if (group.key == item.key) {
+                    g = &group;
+                    break;
+                }
+            }
+        }
         std::vector<HWND> windows = g ? g->windows : std::vector<HWND>{};
         if (item.windows.empty() != windows.empty()) {
             item.dotDirty = true;           // indicator dot
@@ -2671,7 +2607,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
 
     // Items that went away: remove their visuals (the container takes its icon children along).
     for (size_t i = 0; i < items_.size(); ++i) {
-        if (taken[i]) continue;
+        if (builder.Taken(i)) continue;
         renderer_.DestroyLayer(items_[i].dot);
         renderer_.DestroyLayer(items_[i].layer);
         items_[i].glow.Reset();
@@ -2731,7 +2667,7 @@ bool DockWindow::LaunchItem(int index, bool newInstance) {
     if (!newInstance && target.bounce == DockItem::Bounce::Bouncing) {
         return true;  // already launching: do not start a second copy
     }
-    if (target.kind == DockItem::Kind::Separator) return true;  // nothing to launch
+    if (target.kind == DockItem::Kind::Separator || target.IsWidget()) return true;  // nothing to launch
     // ShellExecuteEx may pump messages (and so rebuild items_): launch from a copy of the
     // launch data, then find the item again by key.
     DockItem copy;
@@ -2753,6 +2689,16 @@ bool DockWindow::LaunchItem(int index, bool newInstance) {
         break;
     }
     return true;
+}
+
+void DockWindow::ActivateOrLaunch(int slot) {
+    if (slot < 0 || slot >= static_cast<int>(items_.size())) return;
+    const std::vector<HWND> windows = items_[static_cast<size_t>(slot)].windows;  // copy
+    if (windows.empty()) {
+        LaunchItem(slot, false);
+    } else {
+        Activation::ActivateItem(windows);
+    }
 }
 
 // --- Launch bounce ---------------------------------------------------------------------------
@@ -2924,20 +2870,17 @@ void DockWindow::UpdateIconUsage() {
 // takes the mouse capture and holds itself shown (no auto-hide, no label), magnification stops,
 // the dragged icon follows the cursor (slightly enlarged and translucent) and the other icons
 // make room at the insertion slot (80 ms retargets through the usual placement tweens; nothing is
-// redrawn). The insertion slot is the rest slot under the cursor; pinned icons stay in the pinned
-// section, running ones move anywhere (a pinned slot pins them).
+// redrawn). The insertion slot is the rest slot under the cursor (over a widget or a spacer: the
+// nearest pin / running app on the cursor's side; widgets are never dragged and never drop
+// places); pinned icons stay among the pins, running ones move anywhere (a pinned slot pins them).
+// The pins keep their places in the item list (pin k always shows at the place of the k-th pin
+// item), so the drag layout shows the pins and the running apps refilled into their places.
 // Release: the icon lands in its slot (120 ms) and the new pinned order goes to the config (or,
-// within the running section, to runningOrder_ for this session). The
+// among the running apps, to runningOrder_ for this session). The
 // layout keeps its geometry, so the landing animation keeps running through the item rebuild.
 // Released more than 1.5 bar heights above the bar, a pinned app without windows is unpinned (the
 // icon fades out first). Escape (polled: the dock never has keyboard focus) or losing the capture
 // cancels: everything slides back.
-
-size_t DockWindow::PinnedCount() const {
-    size_t n = 0;
-    while (n < items_.size() && items_[n].pinned) ++n;
-    return n;
-}
 
 size_t DockWindow::ConfigIndexOfItem(size_t itemIndex) const {
     const size_t end = config_->Main().PinCount();
@@ -2949,30 +2892,144 @@ size_t DockWindow::ConfigIndexOfItem(size_t itemIndex) const {
     return end;
 }
 
-int DockWindow::DragInsertIndex(float stageX) const {
-    const int n = static_cast<int>(items_.size());
+void DockWindow::ResetDragOrder() {
+    dragOrder_.clear();
+    for (size_t i = 0; i < items_.size(); ++i) dragOrder_.push_back(i);
+}
+
+void DockWindow::UpdateDragTarget(float stageX) {
+    const size_t n = items_.size();
     const int s = dragSource_;
-    if (s < 0 || s >= n) return -1;
-    const int slot = SlotAt(stageX);
-    const int raw = slot >= 0 ? slot : stageX < layout_.itemsLeft ? 0 : n - 1;
-    const int pinned = static_cast<int>(PinnedCount());
-    const DockItem& item = items_[static_cast<size_t>(s)];
-    if (item.pinned) return std::min(raw, pinned - 1);
-    // A running (unpinned) item: dropped on a pinned slot (0..pinned-1), it is pinned there;
-    // anywhere in the running section it just moves there (for this session). An item without a
-    // pinnable identity stays in the running section.
-    return item.key.IsClassFallback() ? std::max(raw, pinned) : raw;
+    dragInsert_ = -1;
+    if (s < 0 || static_cast<size_t>(s) >= n) return;
+    const size_t src = static_cast<size_t>(s);
+
+    // The droppable slot under the cursor (rest layout). Beyond the ends: the first / last one;
+    // over a widget (or the spacer before a slot) the nearest one on the cursor's side of it.
+    auto search = [&](int from, int step) {
+        for (int i = from; i >= 0 && i < static_cast<int>(n); i += step) {
+            if (Droppable(static_cast<size_t>(i))) return i;
+        }
+        return -1;
+    };
+    int raw = -1;
+    if (stageX < layout_.itemsLeft) {
+        raw = search(0, 1);
+    } else {
+        int cell = -1;  // the slot whose spacer + box holds x
+        for (size_t i = 0; i < n && cell < 0; ++i) {
+            if (stageX < items_[i].slotX + items_[i].slotW) cell = static_cast<int>(i);
+        }
+        if (cell < 0) {
+            raw = search(static_cast<int>(n) - 1, -1);
+        } else {
+            const DockItem& c = items_[static_cast<size_t>(cell)];
+            const bool inBox = stageX >= c.slotX;
+            if (inBox && Droppable(static_cast<size_t>(cell))) {
+                raw = cell;
+            } else {
+                const float mid = inBox ? c.slotX + c.slotW / 2.0f : c.slotX - c.lead / 2.0f;
+                if (stageX < mid) {
+                    raw = search(cell - 1, -1);
+                    if (raw < 0) raw = search(cell, 1);
+                } else {
+                    raw = search(cell, 1);
+                    if (raw < 0) raw = search(cell - 1, -1);
+                }
+            }
+        }
+    }
+    if (raw < 0) return;
+
+    // Pin places and running places, and the rank of the cursor's slot among its kind (the
+    // dragged item counted where it is now).
+    size_t pinPlaces = 0, rank = 0;
+    const bool rawPinned = items_[static_cast<size_t>(raw)].pinned;
+    for (size_t i = 0; i < n; ++i) {
+        if (items_[i].pinned) ++pinPlaces;
+        if (static_cast<int>(i) < raw && !items_[i].IsWidget() && items_[i].pinned == rawPinned) ++rank;
+    }
+    const DockItem& item = items_[src];
+    bool toPins = rawPinned;
+    if (item.pinned && !toPins) {
+        rank = pinPlaces - 1;  // a pin stays among the pins: beyond them, it becomes the last one
+        toPins = true;
+    } else if (!item.pinned && toPins && item.key.IsClassFallback()) {
+        rank = 0;  // no pinnable identity: it stays among the running apps (the first of them)
+        toPins = false;
+    }
+    // A running (unpinned) item dropped on a pin's place is pinned there; among the running apps
+    // it just moves (for this session).
+
+    dragToPins_ = toPins;
+    dragPins_.clear();
+    dragRunning_.clear();
+    for (size_t i = 0; i < n; ++i) {
+        if (i == src || items_[i].IsWidget()) continue;
+        (items_[i].pinned ? dragPins_ : dragRunning_).push_back(i);
+    }
+    std::vector<size_t>& list = toPins ? dragPins_ : dragRunning_;
+    list.insert(list.begin() + static_cast<ptrdiff_t>(std::min(rank, list.size())), src);
+
+    // The order the drop would show: pins refilled into the pin places (a newly pinned one right
+    // after the last pin place), the running apps into theirs, the widgets where they are.
+    dragOrder_.clear();
+    size_t pi = 0, ri = 0, pinSeen = 0;
+    auto flushPins = [&] {
+        while (pi < dragPins_.size()) dragOrder_.push_back(dragPins_[pi++]);
+    };
+    for (size_t i = 0; i < n; ++i) {
+        if (items_[i].pinned) {
+            if (pi < dragPins_.size()) dragOrder_.push_back(dragPins_[pi++]);
+            if (++pinSeen == pinPlaces) flushPins();
+        } else if (!items_[i].IsWidget()) {
+            if (ri < dragRunning_.size()) dragOrder_.push_back(dragRunning_[ri++]);
+        } else {
+            dragOrder_.push_back(i);
+        }
+    }
+    flushPins();
+    while (ri < dragRunning_.size()) dragOrder_.push_back(dragRunning_[ri++]);
+    for (size_t k = 0; k < dragOrder_.size(); ++k) {
+        if (dragOrder_[k] == src) dragInsert_ = static_cast<int>(k);
+    }
 }
 
 int DockWindow::DropGapIndex(float stageX) const {
-    const int pinned = static_cast<int>(PinnedCount());
-    // Between items i-1 and i when the cursor is between their (rest) centres.
-    int gap = 0;
-    for (const DockItem& item : items_) {
-        if (item.slotX + item.slotW / 2.0f > stageX) break;
-        ++gap;
+    // A pinnable file is inserted as a pin: before a pin, after the last pin, or (no pins) before
+    // the first running app. Of those places, the one whose (rest) boundary is nearest to the
+    // cursor; between two icons that is the slot-midpoint rule (ties: the later place).
+    const int n = static_cast<int>(items_.size());
+    auto boundary = [&](int p) {
+        if (p < n && !items_[static_cast<size_t>(p)].IsWidget()) return items_[static_cast<size_t>(p)].slotX;
+        if (p > 0) return items_[static_cast<size_t>(p - 1)].slotX + items_[static_cast<size_t>(p - 1)].slotW;
+        return layout_.itemsLeft;
+    };
+    int best = -1;
+    float bestD = 0.0f;
+    auto consider = [&](int p) {
+        const float d = std::fabs(stageX - boundary(p));
+        if (best < 0 || d <= bestD) {
+            best = p;
+            bestD = d;
+        }
+    };
+    int lastPin = -1, firstRunning = -1;
+    for (int i = 0; i < n; ++i) {
+        const DockItem& item = items_[static_cast<size_t>(i)];
+        if (item.pinned) {
+            consider(i);
+            lastPin = i;
+        } else if (!item.IsWidget() && firstRunning < 0) {
+            firstRunning = i;
+        }
     }
-    return std::clamp(gap, 0, pinned);
+    if (lastPin >= 0) {
+        consider(lastPin + 1);
+    } else if (firstRunning >= 0) {
+        consider(firstRunning);
+    }
+    return best;
 }
 
 bool DockWindow::DragInRemoveZone(POINT pt) const {
@@ -3006,7 +3063,7 @@ void DockWindow::BeginDrag(POINT pt) {
     pressed_ = -1;
     if (s < 0 || s >= static_cast<int>(items_.size())) return;
     DockItem& item = items_[static_cast<size_t>(s)];
-    if (!item.layer.visual) return;
+    if (!item.layer.visual || !Droppable(static_cast<size_t>(s))) return;  // widgets are not dragged (Phase 1c)
     // A launch pulse animates the opacity the drag uses: end it first (it fades back to opaque,
     // which the drag's dimming below replaces).
     if (item.bounce == DockItem::Bounce::Bouncing && item.bounceStyle == LaunchStyle::Pulse) FinishBounce(item);
@@ -3057,7 +3114,7 @@ void DockWindow::UpdateDrag(POINT pt) {
         return;
     }
     cursorX_ = static_cast<float>(pt.x);
-    dragInsert_ = DragInsertIndex(cursorX_);
+    UpdateDragTarget(cursorX_);
     const bool remove = DragRemovable() && DragInRemoveZone(pt);
     if (remove != dragRemove_) {
         dragRemove_ = remove;
@@ -3098,26 +3155,20 @@ void DockWindow::EndDrag(bool commit) {
         return;
     }
 
-    // The new pinned order, or the new running-section order, if either changed.
+    // The new pinned order, or the new order of the running apps, if either changed.
     std::vector<AppKey> order;
     std::vector<AppKey> running;
-    if (valid && commit && dragInsert_ >= 0 && dragInsert_ != s) {
-        std::vector<size_t> seq;
-        seq.reserve(items_.size());
-        for (size_t i = 0; i < items_.size(); ++i) {
-            if (static_cast<int>(i) != s) seq.push_back(i);
-        }
-        seq.insert(seq.begin() + dragInsert_, static_cast<size_t>(s));
-        const bool wasPinned = items_[static_cast<size_t>(s)].pinned;
-        const bool pins = wasPinned || static_cast<size_t>(dragInsert_) < PinnedCount();
-        const size_t pinned = PinnedCount() + (pins && !wasPinned ? 1 : 0);
-        if (pins) {
-            for (size_t k = 0; k < pinned && k < seq.size(); ++k) order.push_back(items_[seq[k]].key);
-        } else {
-            for (size_t k = pinned; k < seq.size(); ++k) running.push_back(items_[seq[k]].key);
+    bool moved = false;
+    for (size_t k = 0; k < dragOrder_.size(); ++k) moved = moved || dragOrder_[k] != k;
+    if (valid && commit && dragInsert_ >= 0 && moved && dragOrder_.size() == items_.size()) {
+        for (const size_t i : dragToPins_ ? dragPins_ : dragRunning_) {
+            (dragToPins_ ? order : running).push_back(items_[i].key);
         }
     }
-    if (order.empty() && running.empty()) dragInsert_ = s;  // cancelled / unchanged: back to its own slot
+    if (order.empty() && running.empty()) {  // cancelled / unchanged: back to its own slot
+        dragInsert_ = s;
+        ResetDragOrder();
+    }
 
     // Land: the dragged icon slides into its slot (120 ms) and becomes opaque. With a new order
     // these are exactly its targets in the rebuilt list, so the rebuild leaves the animation alone.
@@ -3285,7 +3336,7 @@ DockWindow::DropMode DockWindow::DropModeAt(float stageX, int* item, int* gap) c
     }
     if (!dropPinnable_ || items_.empty()) return DropMode::None;
     *gap = DropGapIndex(stageX);
-    return DropMode::Insert;
+    return *gap >= 0 ? DropMode::Insert : DropMode::None;  // no pin and no running app: nowhere to insert
 }
 
 void DockWindow::SetDropTarget(DropMode mode, int item, int gap) {
@@ -3446,13 +3497,26 @@ int DockWindow::HitTest(POINT pt) const {  // stage coordinates
     // Rest-slot hit-testing inside the active zone. The magnified layout is anchored at the
     // cursor, so the rest slot under the cursor is also the icon drawn under it.
     if (items_.empty() || !InZone(pt)) return -1;
-    return SlotAt(static_cast<float>(pt.x));
+    const float x = static_cast<float>(pt.x);
+    const int slot = SlotAt(x);
+    if (slot >= 0) return slot;
+    // Beside a widget: its hit slack (half the gap to a neighbouring widget) still counts.
+    for (size_t i = 0; i < items_.size(); ++i) {
+        const DockItem& item = items_[i];
+        if (item.hitSlack > 0.0f && item.slotW > 0.0f && x >= item.slotX - item.hitSlack &&
+            x < item.slotX + item.slotW + item.hitSlack) {
+            return static_cast<int>(i);
+        }
+    }
+    return -1;
 }
 
 int DockWindow::SlotAt(float x) const {
     if (items_.empty() || x < layout_.itemsLeft) return -1;
     for (size_t i = 0; i < items_.size(); ++i) {
-        if (x < items_[i].slotX + items_[i].slotW) return static_cast<int>(i);
+        const DockItem& item = items_[i];
+        if (x < item.slotX) return -1;  // in the spacer before it
+        if (x < item.slotX + item.slotW) return static_cast<int>(i);
     }
     return -1;
 }
@@ -3460,6 +3524,12 @@ int DockWindow::SlotAt(float x) const {
 const DockItem* DockWindow::ItemAt(POINT clientPt) const {
     const int i = HitTest(ToStage(clientPt));
     return i >= 0 ? &items_[static_cast<size_t>(i)] : nullptr;
+}
+
+int DockWindow::MenuIndexAt(POINT clientPt) const {
+    const int i = HitTest(ToStage(clientPt));
+    if (i < 0) return -1;
+    return ElementOf(static_cast<size_t>(i)).OnRightClick(i) == RightClickAction::ItemMenu ? i : -1;
 }
 
 LRESULT DockWindow::QueryItemPoint(WPARAM wp, LPARAM lp) const {
@@ -3478,7 +3548,7 @@ LRESULT DockWindow::QueryItemPoint(WPARAM wp, LPARAM lp) const {
     const DockItem& item = items_[static_cast<size_t>(index)];
     // Rest layout, relative to the shown window position (also while hidden).
     POINT pt{layout_.window.left + static_cast<LONG>(item.x + BoxW(item) / 2.0f),
-             layout_.window.top + static_cast<LONG>(item.y + layout_.iconPx / 2.0f)};
+             layout_.window.top + static_cast<LONG>(item.y + BoxCross(item) / 2.0f)};
     return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(pt.x), static_cast<WORD>(pt.y)));
 }
 
@@ -3622,7 +3692,8 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if (dragPhase_ == DragPhase::Removing) return 0;
-            if (pressed_ >= 0 && (wp & MK_LBUTTON) && hideState_ != HideState::Hidden &&
+            if (pressed_ >= 0 && Droppable(static_cast<size_t>(pressed_)) && (wp & MK_LBUTTON) &&
+                hideState_ != HideState::Hidden &&
                 (std::abs(pt.x - pressPt_.x) > GetSystemMetricsForDpi(SM_CXDRAG, dpi_) ||
                  std::abs(pt.y - pressPt_.y) > GetSystemMetricsForDpi(SM_CYDRAG, dpi_))) {
                 BeginDrag(pt);
@@ -3651,7 +3722,10 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (hideState_ == HideState::Hiding) StartShow();  // came back mid-slide: reverse
             magnifying_ = true;
             cursorX_ = static_cast<float>(pt.x);
-            SetHover(HitTest(pt));
+            {
+                const int hit = HitTest(pt);  // a widget is not hovered: no label, no preview
+                SetHover(hit >= 0 && items_[static_cast<size_t>(hit)].IsWidget() ? -1 : hit);
+            }
             ScheduleMagnify();
             return 0;
         }
@@ -3674,18 +3748,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             SuppressPreview();  // the click cycles / starts a drag: no popup over it
             pressPt_ = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
             pressed_ = dragPhase_ == DragPhase::None ? HitTest(pressPt_) : -1;
-            // A press on the dock closes the folder popup; on its own folder icon the release then
-            // does not open it again (the click toggles).
-            folderPressClosed_ = folder_.Visible() && pressed_ >= 0 &&
-                                 items_[static_cast<size_t>(pressed_)].key == folderKey_;
-            // The same for the weather widget and the clock.
-            pressedWidget_ = Widget::None;
-            if (pressed_ < 0 && dragPhase_ == DragPhase::None) {
-                if (HitWeather(pressPt_)) pressedWidget_ = Widget::Weather;
-                else if (HitClock(pressPt_)) pressedWidget_ = Widget::Clock;
-            }
-            widgetPressClosed_ = (pressedWidget_ == Widget::Weather && weatherPopup_.Visible()) ||
-                                 (pressedWidget_ == Widget::Clock && calendar_.Visible());
+            // A press on the dock closes the click popup; on the slot whose popup it is (a folder,
+            // the clock, the weather) the release then does not open it again (the click toggles).
+            pressClosedPopup_ = pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).OnPress(pressed_);
             if (ClickPopupOnScreen()) DismissClickPopups(true, false);
             return 0;
 
@@ -3698,34 +3763,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             const int index = HitTest(upPt);
             const bool clicked = index >= 0 && index == pressed_;
             pressed_ = -1;
-            const bool pressClosed = folderPressClosed_;
-            folderPressClosed_ = false;
-            const Widget widget = pressedWidget_;
-            const bool widgetClosed = widgetPressClosed_;
-            pressedWidget_ = Widget::None;
-            widgetPressClosed_ = false;
-            if (widget == Widget::Weather && HitWeather(upPt) && !widgetClosed) {
-                if (config_->weather.Configured()) {
-                    ShowWeatherPopup();
-                } else if (weatherCallbacks_.openSettings) {
-                    weatherCallbacks_.openSettings();  // nothing to show yet: choose a place
-                }
-                return 0;
-            }
-            if (widget == Widget::Clock && HitClock(upPt) && !widgetClosed && config_->clock.calendarPopup) {
-                ShowCalendarPopup();
-                return 0;
-            }
-            if (clicked && items_[static_cast<size_t>(index)].kind == DockItem::Kind::Folder) {
-                if (!pressClosed) ShowFolderPopup(index);  // middle click opens it in Explorer
-            } else if (clicked) {
-                const std::vector<HWND> windows = items_[static_cast<size_t>(index)].windows;  // copy
-                if (windows.empty()) {
-                    LaunchItem(index, false);
-                } else {
-                    Activation::ActivateItem(windows);
-                }
-            }
+            const bool pressClosed = pressClosedPopup_;
+            pressClosedPopup_ = false;
+            if (clicked) ElementOf(static_cast<size_t>(index)).OnClick(index, pressClosed);
             return 0;
         }
 
@@ -3739,8 +3779,21 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             const int index = HitTest(ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)}));
             const bool clicked = index >= 0 && index == pressedMiddle_;
             pressedMiddle_ = -1;
-            if (clicked) LaunchItem(index, true);
+            if (clicked) ElementOf(static_cast<size_t>(index)).OnMiddleClick(index);  // apps: a new instance
             return 0;
+        }
+
+        case WM_MOUSEWHEEL:
+        case WM_MOUSEHWHEEL: {
+            // Routed to the element under the pointer (none consumes it yet: Phase 0 / widgets).
+            POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};  // screen coordinates
+            ScreenToClient(hwnd_, &pt);
+            const int index = HitTest(ToStage(pt));
+            if (index >= 0 && ElementOf(static_cast<size_t>(index))
+                                  .OnWheel(index, GET_WHEEL_DELTA_WPARAM(wp), msg == WM_MOUSEHWHEEL)) {
+                return 0;
+            }
+            break;
         }
 
         case kRecycleBinChangedMessage: {
@@ -3778,9 +3831,8 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_TIMER:
             switch (wp) {
                 case kClockTimerId:
-                    KillTimer(hwnd_, kClockTimerId);  // one-shot; rescheduled on the next boundary
-                    OnClockTick();
-                    if (ClockShown()) clock_.ScheduleNextTick(hwnd_, kClockTimerId);
+                    KillTimer(hwnd_, kClockTimerId);  // one-shot; the clock reschedules it (next boundary)
+                    DispatchEvent(DockEvent::ClockTick);
                     return 0;
                 case kBounceTimerId:
                     KillTimer(hwnd_, kBounceTimerId);  // one-shot; rescheduled while bounces run
@@ -3858,15 +3910,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             break;
 
         case WM_TIMECHANGE:
-            OnClockTick();
-            if (ClockShown()) clock_.ScheduleNextTick(hwnd_, kClockTimerId);
+            DispatchEvent(DockEvent::TimeChanged);
             return 0;
 
         case WM_POWERBROADCAST:
-            if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND) {
-                OnClockTick();
-                if (ClockShown()) clock_.ScheduleNextTick(hwnd_, kClockTimerId);
-            }
+            if (wp == PBT_APMRESUMEAUTOMATIC || wp == PBT_APMRESUMESUSPEND) DispatchEvent(DockEvent::TimeChanged);
             return TRUE;
 
         case WM_DPICHANGED:
@@ -3943,16 +3991,14 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             folderKey_ = AppKey{};
             weatherPopup_.Destroy();
             calendar_.Destroy();
-            weatherFormat_ = nullptr;
-            weatherLayout_ = nullptr;
             acrylic_ = false;
             backdrop_.Destroy();
             labelFormat_ = nullptr;
             labelEllipsis_ = nullptr;
             ResetLayers();
             items_.clear();
+            elements_.clear();  // their text layouts (the clock's, the weather's)
             icons_.Shutdown();
-            clock_.ReleaseLayout();
             renderer_.Shutdown();
             PostQuitMessage(0);
             return 0;

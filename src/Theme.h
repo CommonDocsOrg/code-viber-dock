@@ -113,8 +113,9 @@ bool Export(const std::wstring& path, const ThemeConfig& t, const std::wstring& 
 // and the separator at `separatorX` (same coordinates as `bar`; < 0 = none). `unit` maps DIPs
 // to pixels. `reflectionPx`: the height of the icon reflections at the bottom of the bar (the
 // shelf is made at least that tall plus its lip, so the reflections lie on the glass).
+// `separatorX2`: a second separator (< 0 = none), e.g. after widgets at the start of the dock.
 void DrawShelf(ID2D1DeviceContext* dc, const D2D1_RECT_F& bar, const ThemeConfig& t, float unit, float stroke,
-               float separatorX, float reflectionPx = 0.0f);
+               float separatorX, float reflectionPx = 0.0f, float separatorX2 = -1.0f);
 
 inline D2D1_COLOR_F ToColor(uint32_t argb, float alphaScale = 1.0f) {
     return D2D1::ColorF(static_cast<float>((argb >> 16) & 0xFF) / 255.0f,

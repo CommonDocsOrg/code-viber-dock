@@ -239,7 +239,8 @@ void App::ChooseItemIcon(UINT cmd, const AppKey& key) {
 }
 
 std::optional<DockItemEntry> App::EntryForItem(const DockItem& item) {
-    if (item.key.IsClassFallback()) return std::nullopt;
+    // Widgets (the clock, the weather) are items of their own kind, not pins.
+    if (item.key.IsClassFallback() || item.IsWidget()) return std::nullopt;
     DockItemEntry e;
     if (item.kind == DockItem::Kind::Folder) e.kind = ToString(ItemKind::Folder);
     if (item.launchPath && !item.launchPath->empty()) {
@@ -541,10 +542,10 @@ void App::OnCommand(UINT cmd) {
             OpenSettings(SettingsIds::kPageWeather);
             break;
         case ContextMenu::kToggleCalendar:
-            dock_.ToggleCalendarPopup();
+            dock_.TogglePopup(ItemKind::Clock);
             break;
         case ContextMenu::kToggleWeatherPopup:
-            dock_.ToggleWeatherPopup();
+            dock_.TogglePopup(ItemKind::Weather);
             break;
         case ContextMenu::kAddSeparator: {
             DockItemEntry separator;
@@ -810,7 +811,8 @@ bool App::OnMessage(HWND, UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
             const POINT client{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
             POINT pt = client;
             ClientToScreen(dock_.Hwnd(), &pt);
-            if (const int index = dock_.IndexAt(client); index >= 0) {
+            // An item's own menu, or the dock menu (no item there, or a widget).
+            if (const int index = dock_.MenuIndexAt(client); index >= 0) {
                 ShowItemMenu(index, pt);
             } else {
                 ShowMenu(pt);

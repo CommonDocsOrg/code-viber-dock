@@ -435,7 +435,7 @@ std::wstring WriteFields(const ThemeConfig& t, uint64_t mask, const wchar_t* ind
 }
 
 void DrawShelf(ID2D1DeviceContext* dc, const D2D1_RECT_F& r, const ThemeConfig& t, float unit, float stroke,
-               float separatorX, float reflectionPx) {
+               float separatorX, float reflectionPx, float separatorX2) {
     const float w = r.right - r.left, h = r.bottom - r.top;
     if (w <= 2.0f || h <= 2.0f) return;
     // The shelf fills the lower part of the bar; the icons stand on its top surface. With
@@ -499,9 +499,10 @@ void DrawShelf(ID2D1DeviceContext* dc, const D2D1_RECT_F& r, const ThemeConfig& 
                  stroke);
     dc->DrawLine(D2D1::Point2F(r.left, front + half), D2D1::Point2F(r.right, front + half), brush.get(), stroke);
 
-    if (separatorX >= 0.0f) {
-        const float x = separatorX + half;
-        brush->SetColor(ToColor(t.separator));
+    brush->SetColor(ToColor(t.separator));
+    for (const float sx : {separatorX, separatorX2}) {
+        if (sx < 0.0f) continue;
+        const float x = sx + half;
         dc->DrawLine(D2D1::Point2F(x, top + 2.0f * stroke), D2D1::Point2F(x, front - stroke), brush.get(), stroke);
     }
 }
