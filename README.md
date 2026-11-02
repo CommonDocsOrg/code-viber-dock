@@ -358,7 +358,8 @@ becomes just `"theme": { "preset": "dark" }` on the next save. `"preset": ""` me
 the inline keys over the dark defaults.
 
 Built-in presets: `dark` (Dark, the default), `light` (Light), `glass` (Glass, a thinner
-acrylic tint), `solid` (Solid, opaque, no acrylic, 12 DIP corners) and `contrast` (High contrast,
+acrylic tint), `solid` (Solid, opaque, no acrylic, 12 DIP corners), `shelf` (Glass shelf, a pale
+sea-green glass shelf in perspective with angled sides, see `shelf`) and `contrast` (High contrast,
 black with white borders, square corners). Ids are case-insensitive.
 
 User themes live in `%LocalAppData%\WinDock\themes\<id>.json`; the file name without `.json` is
@@ -398,6 +399,9 @@ Theme keys (colours are `#AARRGGBB` or `#RRGGBB`; defaults are the `dark` preset
 | `previewHotBackground` | `#1AFFFFFF` | hovered preview card (half of it: icon box of a card without thumbnail) |
 | `previewHotBorder` | `#33FFFFFF` | hovered preview card outline |
 | `closeHover` | `#FFC42B1C` | preview close button while hovered |
+| `shelf` | `false` | draw the bar as a glass shelf under the icons instead of a panel: `background` is its top surface, `barBorder` its highlights, `cornerRadius` rounds the lip's bottom corners; acrylic is not used |
+| `shelfSlant` | `14` | how far the shelf's sides angle in at the back, DIPs, 0 - 64 |
+| `shelfEdge` | `#E6A0CDBE` | the shelf's front lip |
 
 ### Animation
 

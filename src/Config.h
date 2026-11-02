@@ -83,6 +83,12 @@ struct ThemeConfig {
     uint32_t previewHotBackground = 0x1AFFFFFF;  // hovered preview card (half alpha: icon-only box)
     uint32_t previewHotBorder = 0x33FFFFFF;
     uint32_t closeHover = 0xFFC42B1C;       // preview card close button while hovered
+    // Glass shelf: instead of a panel, the bar is drawn as a shelf in perspective under the icons
+    // (top surface in `background`, sides angled in by `shelfSlant`, a front lip in `shelfEdge`,
+    // highlights in `barBorder`). Acrylic is not used with it: the blur window is a rectangle.
+    bool shelf = false;
+    float shelfSlant = 14.0f;               // DIPs, 0 - 64
+    uint32_t shelfEdge = 0xE6A0CDBE;
 };
 
 struct Config {

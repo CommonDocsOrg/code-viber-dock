@@ -299,7 +299,8 @@ void DockWindow::ComputeLayout() {
     // Background halves: the seam must sit where both halves show plain fill (between the
     // rounded left end and the separator / rounded right end) for every amount of growth.
     l.bgSurfaceW = barW + l.growMax;
-    const float radius = std::ceil(std::min(l.cornerRadius, barH / 2.0f));
+    float radius = std::ceil(std::min(l.cornerRadius, barH / 2.0f));
+    if (c.theme.shelf) radius = std::max(radius, std::ceil(c.theme.shelfSlant * s));  // the angled ends
     // A spring settle overshoots: returning from growth g, the bar briefly gets narrower than at
     // rest by up to kSpringOvershoot * g per side. Keep the seam that much further in.
     const float undershoot =
@@ -527,6 +528,11 @@ HRESULT DockWindow::RenderBackground() {
     const float separatorX = l.separatorX >= 0.0f ? l.separatorX + l.growMax : -1.0f;
 
     HRESULT hr = renderer_.DrawLayer(bgLeft_, w, h, [&](ID2D1DeviceContext* dc) {
+        if (theme.shelf) {
+            Theme::DrawShelf(dc, D2D1::RectF(0, 0, static_cast<float>(w), static_cast<float>(h)), theme, l.scale,
+                             stroke, separatorX);
+            return;
+        }
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
         if (FAILED(dc->CreateSolidColorBrush(fill, brush.put()))) return;
         const D2D1_ROUNDED_RECT rr{D2D1::RectF(0, 0, static_cast<float>(w), static_cast<float>(h)), radius, radius};
@@ -1390,7 +1396,7 @@ void DockWindow::RefreshPreview() {
 // visibly lose its blur at the start of every hide.
 
 void DockWindow::UpdateAcrylic() {
-    const bool want = config_->theme.acrylic && Backdrop::SystemAllowsTransparency();
+    const bool want = config_->theme.acrylic && !config_->theme.shelf && Backdrop::SystemAllowsTransparency();
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
     if (acrylic_) {

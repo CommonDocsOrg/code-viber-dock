@@ -235,7 +235,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
         dc->FillRectangle(wall, glowBrush.get());
     }
 
-    const bool acrylic = t.acrylic && Backdrop::SystemAllowsTransparency();
+    const bool acrylic = t.acrylic && !t.shelf && Backdrop::SystemAllowsTransparency();
     const D2D1_COLOR_F frost = D2D1::ColorF(0x6E6A8E, 0.85f);  // the blurred wallpaper under acrylic
     auto fillPanel = [&](const D2D1_ROUNDED_RECT& shape) {
         if (acrylic) {
@@ -341,12 +341,19 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     // --- bar ---
     const float radiusDip = acrylic ? SnapAcrylicRadius(t.cornerRadius) : t.cornerRadius;
     const D2D1_RECT_F bar = D2D1::RectF(barLeft - growLeft, barTop, barLeft + barW + growRight, barBottom);
-    fillPanel(Rounded(bar, std::round(radiusDip * u)));
+    const float separatorX = std::round(barLeft + lead + itemsW + sepW / 2.0f) + growRight;
+    if (t.shelf) {
+        Theme::DrawShelf(dc, bar, t, u, stroke, c.clock.show ? separatorX : -1.0f);
+    } else {
+        fillPanel(Rounded(bar, std::round(radiusDip * u)));
+    }
     if (c.clock.show) {
-        const float x = std::round(barLeft + lead + itemsW + sepW / 2.0f) + growRight + stroke / 2.0f;
-        const float vInset = std::round(barH * 0.22f);
-        brush->SetColor(Theme::ToColor(t.separator));
-        dc->DrawLine(D2D1::Point2F(x, barTop + vInset), D2D1::Point2F(x, barBottom - vInset), brush.get(), stroke);
+        if (!t.shelf) {
+            const float x = separatorX + stroke / 2.0f;
+            const float vInset = std::round(barH * 0.22f);
+            brush->SetColor(Theme::ToColor(t.separator));
+            dc->DrawLine(D2D1::Point2F(x, barTop + vInset), D2D1::Point2F(x, barBottom - vInset), brush.get(), stroke);
+        }
         clock_.Draw(dc, barLeft + barW - padding - clockW + growRight, std::round(barTop + (barH - clockH) / 2.0f));
     }
 

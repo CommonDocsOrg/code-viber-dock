@@ -129,6 +129,8 @@ void Config::Sanitize() {
     theme.cornerRadius = std::min(theme.cornerRadius, 64.0f);
     if (!(theme.labelCornerRadius >= 0.0f)) theme.labelCornerRadius = 0.0f;
     theme.labelCornerRadius = std::min(theme.labelCornerRadius, 32.0f);
+    if (!(theme.shelfSlant >= 0.0f)) theme.shelfSlant = 0.0f;
+    theme.shelfSlant = std::min(theme.shelfSlant, 64.0f);
     // The preset names a file stem inside the themes folder: no paths.
     if (themePreset.size() > 64 ||
         themePreset.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos || themePreset == L"." ||

@@ -38,6 +38,9 @@ const FieldInfo kFields[] = {
     WD_FIELD(PreviewHotBackground, previewHotBackground, L"Preview hover background", Color, 0.0f, 0.0f),
     WD_FIELD(PreviewHotBorder, previewHotBorder, L"Preview hover border", Color, 0.0f, 0.0f),
     WD_FIELD(CloseHover, closeHover, L"Close button hover", Color, 0.0f, 0.0f),
+    WD_FIELD(Shelf, shelf, L"Glass shelf", Bool, 0.0f, 0.0f),
+    WD_FIELD(ShelfSlant, shelfSlant, L"Shelf slant", Float, 0.0f, 64.0f),
+    WD_FIELD(ShelfEdge, shelfEdge, L"Shelf front edge", Color, 0.0f, 0.0f),
 };
 
 #undef WD_FIELD
@@ -123,6 +126,21 @@ ThemeConfig MakeSolid() {  // fields not set here are dark's
     return t;
 }
 
+ThemeConfig MakeShelf() {  // fields not set here are dark's
+    ThemeConfig t;
+    t.shelf = true;
+    t.shelfSlant = 14.0f;
+    t.background = 0x99BEE1D7;  // the shelf's top surface: pale sea-green glass
+    t.shelfEdge = 0xE6A0CDBE;
+    t.barBorder = 0xB3FFFFFF;   // light catching the back edge and the lip
+    t.acrylic = false;
+    t.cornerRadius = 3.0f;
+    t.separator = 0x66FFFFFF;
+    t.dotRunning = 0xB3FFFFFF;
+    t.accent = 0xFF4CC2FF;
+    return t;
+}
+
 ThemeConfig MakeContrast() {
     ThemeConfig t;
     t.background = 0xFF000000;
@@ -192,6 +210,7 @@ const Preset* BuiltIns(size_t& count) {
         {L"light", L"Light", MakeLight()},
         {L"glass", L"Glass", MakeGlass()},
         {L"solid", L"Solid", MakeSolid()},
+        {L"shelf", L"Glass shelf", MakeShelf()},
         {L"contrast", L"High contrast", MakeContrast()},
     };
     count = std::size(kPresets);
@@ -340,6 +359,76 @@ std::wstring WriteFields(const ThemeConfig& t, uint32_t mask, const wchar_t* ind
         }
     }
     return o;
+}
+
+void DrawShelf(ID2D1DeviceContext* dc, const D2D1_RECT_F& r, const ThemeConfig& t, float unit, float stroke,
+               float separatorX) {
+    const float w = r.right - r.left, h = r.bottom - r.top;
+    if (w <= 2.0f || h <= 2.0f) return;
+    // The shelf fills the lower part of the bar; the icons stand on its top surface.
+    const float shelfH = std::round(h * 0.45f);
+    const float lip = std::max(2.0f, std::round(shelfH * 0.28f));
+    const float top = r.bottom - shelfH;
+    const float front = r.bottom - lip;
+    const float slant = std::clamp(std::round(t.shelfSlant * unit), 0.0f, std::floor(w / 2.0f) - 1.0f);
+    const float radius = std::clamp(std::round(t.cornerRadius * unit), 0.0f, std::floor(lip / 2.0f));
+
+    winrt::com_ptr<ID2D1Factory> factory;
+    dc->GetFactory(factory.put());
+    // Top surface: a trapezoid, narrower at the back (perspective).
+    winrt::com_ptr<ID2D1PathGeometry> surface;
+    winrt::com_ptr<ID2D1GeometrySink> sink;
+    if (FAILED(factory->CreatePathGeometry(surface.put())) || FAILED(surface->Open(sink.put()))) return;
+    sink->BeginFigure(D2D1::Point2F(r.left + slant, top), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(r.right - slant, top));
+    sink->AddLine(D2D1::Point2F(r.right, front));
+    sink->AddLine(D2D1::Point2F(r.left, front));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    if (FAILED(sink->Close())) return;
+    // Front lip: square where it meets the surface, rounded at the bottom.
+    winrt::com_ptr<ID2D1PathGeometry> edge;
+    sink = nullptr;
+    if (FAILED(factory->CreatePathGeometry(edge.put())) || FAILED(edge->Open(sink.put()))) return;
+    sink->BeginFigure(D2D1::Point2F(r.left, front), D2D1_FIGURE_BEGIN_FILLED);
+    sink->AddLine(D2D1::Point2F(r.right, front));
+    sink->AddLine(D2D1::Point2F(r.right, r.bottom - radius));
+    sink->AddArc(D2D1::ArcSegment(D2D1::Point2F(r.right - radius, r.bottom), D2D1::SizeF(radius, radius), 0.0f,
+                                  D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    sink->AddLine(D2D1::Point2F(r.left + radius, r.bottom));
+    sink->AddArc(D2D1::ArcSegment(D2D1::Point2F(r.left, r.bottom - radius), D2D1::SizeF(radius, radius), 0.0f,
+                                  D2D1_SWEEP_DIRECTION_CLOCKWISE, D2D1_ARC_SIZE_SMALL));
+    sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+    if (FAILED(sink->Close())) return;
+
+    // The surface fades towards the back, like glass seen at a low angle.
+    const D2D1_GRADIENT_STOP stops[] = {{0.0f, ToColor(t.background, 0.55f)}, {1.0f, ToColor(t.background)}};
+    winrt::com_ptr<ID2D1GradientStopCollection> stopCollection;
+    winrt::com_ptr<ID2D1LinearGradientBrush> gradient;
+    if (FAILED(dc->CreateGradientStopCollection(stops, 2, stopCollection.put())) ||
+        FAILED(dc->CreateLinearGradientBrush(
+            D2D1::LinearGradientBrushProperties(D2D1::Point2F(r.left, top), D2D1::Point2F(r.left, front)),
+            stopCollection.get(), gradient.put()))) {
+        return;
+    }
+    dc->FillGeometry(surface.get(), gradient.get());
+    winrt::com_ptr<ID2D1SolidColorBrush> brush;
+    if (FAILED(dc->CreateSolidColorBrush(ToColor(t.shelfEdge), brush.put()))) return;
+    dc->FillGeometry(edge.get(), brush.get());
+
+    // Light catches the angled outline faintly, the back edge and the top of the lip fully.
+    const float half = stroke / 2.0f;
+    brush->SetColor(ToColor(t.barBorder, 0.5f));
+    dc->DrawGeometry(surface.get(), brush.get(), stroke);
+    brush->SetColor(ToColor(t.barBorder));
+    dc->DrawLine(D2D1::Point2F(r.left + slant, top + half), D2D1::Point2F(r.right - slant, top + half), brush.get(),
+                 stroke);
+    dc->DrawLine(D2D1::Point2F(r.left, front + half), D2D1::Point2F(r.right, front + half), brush.get(), stroke);
+
+    if (separatorX >= 0.0f) {
+        const float x = separatorX + half;
+        brush->SetColor(ToColor(t.separator));
+        dc->DrawLine(D2D1::Point2F(x, top + 2.0f * stroke), D2D1::Point2F(x, front - stroke), brush.get(), stroke);
+    }
 }
 
 bool Export(const std::wstring& path, const ThemeConfig& t, const std::wstring& name) {

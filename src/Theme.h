@@ -27,6 +27,7 @@ enum class Field : uint32_t {
     Background, CornerRadius, Acrylic, AcrylicBackground, LabelBackground, LabelText, LabelBorder,
     LabelCornerRadius, Accent, BarBorder, Separator, DotRunning, DotActive, DotAttention, ClockText,
     ClockDateText, PlaceholderFill, PlaceholderText, PreviewHotBackground, PreviewHotBorder, CloseHover,
+    Shelf, ShelfSlant, ShelfEdge,
     Count
 };
 static_assert(static_cast<uint32_t>(Field::Count) <= 32, "one override bit per field");
@@ -92,6 +93,12 @@ void ReadFields(const json::JsonObject& o, ThemeConfig& t, uint32_t* maskOut);
 std::wstring WriteFields(const ThemeConfig& t, uint32_t mask, const wchar_t* indent);
 // Writes { "name", every field } atomically (a portable theme file).
 bool Export(const std::wstring& path, const ThemeConfig& t, const std::wstring& name);
+
+// Draws the glass shelf (t.shelf) in `bar`: the surface trapezoid, the front lip and highlights,
+// and the separator at `separatorX` (same coordinates as `bar`; < 0 = none). `unit` maps DIPs
+// to pixels.
+void DrawShelf(ID2D1DeviceContext* dc, const D2D1_RECT_F& bar, const ThemeConfig& t, float unit, float stroke,
+               float separatorX);
 
 inline D2D1_COLOR_F ToColor(uint32_t argb, float alphaScale = 1.0f) {
     return D2D1::ColorF(static_cast<float>((argb >> 16) & 0xFF) / 255.0f,

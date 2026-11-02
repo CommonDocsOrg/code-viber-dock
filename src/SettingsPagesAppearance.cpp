@@ -37,7 +37,7 @@ std::vector<FieldGroup> FieldGroups() {
     std::vector<FieldGroup> groups = {
         {kSectionFieldsBar, L"Bar",
          {Field::Background, Field::Acrylic, Field::AcrylicBackground, Field::CornerRadius, Field::BarBorder,
-          Field::Separator, Field::Accent}},
+          Field::Separator, Field::Accent, Field::Shelf, Field::ShelfSlant, Field::ShelfEdge}},
         {kSectionFieldsLabel, L"Name label",
          {Field::LabelBackground, Field::LabelText, Field::LabelBorder, Field::LabelCornerRadius}},
         {kSectionFieldsDots, L"Indicator dots", {Field::DotRunning, Field::DotActive, Field::DotAttention}},
