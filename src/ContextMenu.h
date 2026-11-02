@@ -29,7 +29,7 @@ enum Command : UINT {
     kWeatherSettings = 113,     // opens the settings window on the Weather page
     kToggleCalendar = 114,      // shows / hides the month calendar over the clock
     kToggleWeatherPopup = 115,  // shows / hides the forecast popup over the weather widget
-    kLockDock = 116,            // toggles docks[0].locked
+    kLockDock = 116,            // toggles docks[].locked of the dock the menu / message is for
     kAddClock = 117,            // Add widget > Clock (DockConfig::AddWidget; not while locked)
     kAddWeather = 118,          // Add widget > Weather
     kAddRunning = 119,          // Add widget > Running apps (only when the dock has none)
@@ -37,7 +37,9 @@ enum Command : UINT {
     kEdgeTop = 121,
     kEdgeLeft = 122,
     kEdgeRight = 123,
-    kLastDockCommand = kEdgeRight,
+    kLockAllDocks = 124,        // sets docks[].locked on every dock
+    kUnlockAllDocks = 125,      // clears it on every dock
+    kLastDockCommand = kUnlockAllDocks,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -60,6 +62,9 @@ struct TrayMenuState {
     bool locked = false;            // the dock is locked: Lock dock checked, Add separator / widget greyed
     bool hasRunning = false;        // the dock has a running item (Add widget > Running apps greyed)
     DockEdge edge = DockEdge::Bottom;  // Position > (radio)
+    int dockCount = 1;              // config docks: Lock all / Unlock all docks with more than one
+    bool anyLocked = false;         // some dock is locked (Unlock all docks enabled)
+    bool anyUnlocked = false;       // some dock is not (Lock all docks enabled)
 };
 
 // Shows the dock/tray menu at a screen point and returns the chosen Command (kNone if dismissed).

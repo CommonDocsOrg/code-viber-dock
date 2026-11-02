@@ -14,6 +14,10 @@ void Append(HMENU menu, UINT id, const wchar_t* text, bool enabled, bool checked
 void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
     Append(menu, kOpenSettings, L"Settings…", true);
     Append(menu, kLockDock, L"Lock dock", true, state.locked);
+    if (state.dockCount > 1) {
+        Append(menu, kLockAllDocks, L"Lock all docks", state.anyUnlocked);
+        Append(menu, kUnlockAllDocks, L"Unlock all docks", state.anyLocked);
+    }
     Append(menu, kAddSeparator, L"Add separator", !state.locked);
     if (HMENU sub = CreatePopupMenu()) {  // destroyed with its parent
         Append(sub, kAddClock, L"Clock", true);

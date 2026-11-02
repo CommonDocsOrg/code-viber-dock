@@ -71,6 +71,8 @@ public:
     virtual const Config& Cfg() const = 0;
     // This dock's own settings (the per-dock keys: middle click, wheel, previews ...).
     virtual const DockConfig& DockCfg() const = 0;
+    // The theme this dock draws with (its own themePreset, or the global theme).
+    virtual const ThemeConfig& DockTheme() const = 0;
     virtual const WeatherService& Weather() const = 0;
     // Brings the slot's app to the front (cycles / minimizes its windows), or starts it.
     virtual void ActivateOrLaunch(int slot) = 0;

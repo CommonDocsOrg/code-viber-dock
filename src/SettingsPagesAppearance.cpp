@@ -119,6 +119,9 @@ protected:
         Label(kThemeLabel, L"Theme");
         Combo(kThemeCombo, kColX, right - kColX, false);
         NextRow();
+        Label(kDockThemeLabel, L"This dock's theme");
+        Combo(kDockThemeCombo, kColX, right - kColX, false);
+        NextRow();
         Button(kExportTheme, L"Export current theme…", kColX, 176);
         Link(kThemesFolderLink, L"<a>Open themes folder</a>", kColX + 188, right - kColX - 188);
         NextRow();
@@ -126,9 +129,10 @@ protected:
         NextRow(kRowH + 2);
         Text(kThemeNote, CtlKind::Note,
              L"A change below overrides the theme (saved in config.json); Reset brings back the theme's value. "
-             L"Colours are #AARRGGBB, the number next to them is the alpha (0 clear, 255 opaque).",
-             kMargin, right - kMargin, 36);
-        NextRow(36);
+             L"Colours are #AARRGGBB, the number next to them is the alpha (0 clear, 255 opaque). A dock with a theme "
+             L"of its own (Docks page: the dock selected there) uses it under these changes, which apply to every dock.",
+             kMargin, right - kMargin, 54);
+        NextRow(54);
 
         for (const FieldGroup& g : FieldGroups()) {
             Section(g.sectionId, g.title);
@@ -150,6 +154,17 @@ protected:
         if (int field = 0, part = 0; code == CBN_SELCHANGE && SplitId(id, field, part) && part == kFieldValue &&
                                      Theme::Fields()[field].kind == Theme::Kind::Enum) {
             SetChoice(field, ComboSel(id));
+            return;
+        }
+        if (id == kDockThemeCombo) {
+            if (code == CBN_DROPDOWN) {
+                FillThemes();
+            } else if (code == CBN_SELCHANGE) {
+                const int sel = ComboSel(id);
+                if (sel >= 0 && sel <= static_cast<int>(themeIds_.size())) {
+                    SelectDockPreset(sel == 0 ? std::wstring() : themeIds_[static_cast<size_t>(sel - 1)]);
+                }
+            }
             return;
         }
         if (id == kThemeCombo) {
@@ -478,6 +493,36 @@ private:
         SetComboSel(kThemeCombo, sel);
         SendMessageW(combo, WM_SETREDRAW, TRUE, 0);
         InvalidateRect(combo, nullptr, TRUE);
+
+        // This dock's theme: "Same as all docks", then the same list (an unknown id: "(missing)").
+        HWND dock = Item(kDockThemeCombo);
+        if (!dock) return;
+        const std::wstring& own = Cfg().Edit().themePreset;
+        int dockSel = 0;
+        for (size_t i = 0; i < themeIds_.size() && !own.empty(); ++i) {
+            if (EqualsNoCase(themeIds_[i], own)) {
+                dockSel = static_cast<int>(i) + 1;
+                break;
+            }
+        }
+        if (!own.empty() && dockSel == 0) {
+            themeIds_.push_back(own);
+            names.push_back(own + L" (missing)");
+            dockSel = static_cast<int>(themeIds_.size());
+        }
+        SendMessageW(dock, CB_RESETCONTENT, 0, 0);
+        ComboAdd(kDockThemeCombo, L"Same as all docks");
+        for (const std::wstring& n : names) ComboAdd(kDockThemeCombo, n.c_str());
+        SetComboSel(kDockThemeCombo, dockSel);
+    }
+
+    // The edited dock's own preset (docks[].themePreset; "" = the global theme).
+    void SelectDockPreset(const std::wstring& id) {
+        Config& c = Cfg();
+        if (id == c.Edit().themePreset) return;
+        c.Edit().themePreset = id;
+        c.ResolveDockThemes();
+        Changed(SettingsScope::Appearance);
     }
 
     void Export() {

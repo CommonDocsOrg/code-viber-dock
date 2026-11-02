@@ -17,15 +17,19 @@
 // What a settings change affects; the host applies it to the dock, then saves (debounced).
 enum class SettingsScope {
     Appearance,  // sizes, magnification, theme, clock, monitor: DockWindow::ApplyConfig
-    AutoHide,    // config.Main().autoHide: DockWindow::ApplyAutoHide
-    Pins,        // the items of config.Main() (Dock contents): DockWindow::ReloadPins
+    AutoHide,    // config.Edit().autoHide: DockWindow::ApplyAutoHide
+    Pins,        // the items of config.Edit() (Dock contents): DockWindow::ReloadPins
     Taskbar,     // config.hideTaskbar: TaskbarController::SetEnabled
     Autostart,   // config.startWithWindows: the HKCU Run value
     Weather,     // config.weather: DockWindow::ApplyWeather
     SaveOnly,    // read from the config when used (delays, renderer): just save
 };
 
-// Everything the settings window may use of the app, so it never sees App internals.
+// Docks page edits of config.docks (SettingsHost::editDocks).
+enum class SettingsDockEdit { Add, Duplicate, Remove };
+
+// Everything the settings window may use of the app, so it never sees App internals. "The dock"
+// below is config.Edit() (config.editDock, chosen on the Docks page): its first window.
 struct SettingsHost {
     Config* config = nullptr;                              // &App::config_, edited in place (stable address)
     std::function<void(SettingsScope)> changed;
@@ -48,6 +52,11 @@ struct SettingsHost {
     std::function<bool(const std::wstring& query,
                        std::function<void(const std::vector<WeatherService::Place>&, const std::wstring& error)> done)>
         geocode;
+    // Docks page. Adds a dock (index ignored), duplicates / removes docks[index] (never the last
+    // one); the app re-syncs the dock windows and saves. False if refused.
+    std::function<bool(SettingsDockEdit, size_t index)> editDocks;
+    // The dock windows of docks[index] (0: parked, its monitor is not connected).
+    std::function<int(size_t index)> dockWindows;
 };
 
 class SettingsWindow;

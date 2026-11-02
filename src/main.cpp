@@ -38,7 +38,9 @@ Options ParseCommandLine() {
 // Posts a registered message to the running dock. If `waitForExit`, waits (bounded) for it to
 // exit. `allowForeground`: the dock may take the foreground (it is about to show a window).
 bool SignalRunningInstance(const wchar_t* messageName, bool waitForExit, bool allowForeground = false) {
-    HWND hwnd = FindWindowW(DockWindow::kClassName, nullptr);
+    // The app window (always there, even when every dock is parked); an older build: its dock.
+    HWND hwnd = FindWindowW(AppIpc::kAppWindowClass, nullptr);
+    if (!hwnd) hwnd = FindWindowW(DockWindow::kClassName, nullptr);
     if (!hwnd) return false;
 
     DWORD pid = 0;

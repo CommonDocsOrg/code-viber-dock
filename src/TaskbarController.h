@@ -42,11 +42,10 @@ public:
     void OnTaskbarCreated();
     // WM_SETTINGCHANGE(SPI_SETWORKAREA) arrived: re-check the work area while hidden.
     void OnWorkAreaChanged();
-    // The dock reserves part of `monitor` as an app bar (docks[].reserveSpace): while hidden, the
-    // work area of that monitor is expected to be `work`, not the full monitor. Clear when the
-    // dock no longer reserves anything.
-    void SetReservedWorkArea(const RECT& monitor, const RECT& work);
-    void ClearReservedWorkArea() { reserved_ = false; }
+    // Docks reserve part of these monitors as app bars (docks[].reserveSpace): while hidden, the
+    // shell keeps those monitors' work areas, the controller does not force them to the full
+    // monitor. An empty list: nothing is reserved.
+    void SetReservedMonitors(const RECT* monitors, int count);
 
     // Startup crash recovery: if a crash marker exists, restore from the state it holds. The
     // recovered original state is carried into the next Hide() so it is not re-captured from
@@ -111,9 +110,8 @@ private:
     UINT_PTR verifyTimer_ = 0;
     int verifyStep_ = 0;
     int workAreaFixes_ = 0;      // bounded so we can never ping-pong with Explorer
-    bool reserved_ = false;      // SetReservedWorkArea
-    RECT reservedMonitor_{};
-    RECT reservedWork_{};
+    int reservedCount_ = 0;      // SetReservedMonitors
+    RECT reservedMonitors_[kMaxMonitors]{};
     std::atomic<bool> restoring_{false};
     wchar_t markerPath_[MAX_PATH]{};
 };

@@ -19,6 +19,9 @@ public:
     struct Group {
         AppKey key;
         std::vector<HWND> windows;  // first-seen order
+        // Parallel to `windows`: the monitor each window's centre is on (its restored rect while
+        // minimized). A window moving to another monitor changes the snapshot (HSHELL_MONITORCHANGED).
+        std::vector<HMONITOR> monitors;
         bool wantsAttention = false;
         bool operator==(const Group&) const = default;
     };

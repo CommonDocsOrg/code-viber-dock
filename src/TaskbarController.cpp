@@ -246,10 +246,9 @@ void TaskbarController::OnWorkAreaChanged() {
     if (active_) VerifyWorkArea();
 }
 
-void TaskbarController::SetReservedWorkArea(const RECT& monitor, const RECT& work) {
-    reserved_ = true;
-    reservedMonitor_ = monitor;
-    reservedWork_ = work;
+void TaskbarController::SetReservedMonitors(const RECT* monitors, int count) {
+    reservedCount_ = 0;
+    for (int i = 0; i < count && reservedCount_ < kMaxMonitors; ++i) reservedMonitors_[reservedCount_++] = monitors[i];
 }
 
 bool TaskbarController::RecoverFromMarker() {
@@ -337,9 +336,11 @@ void TaskbarController::VerifyWorkArea() {
     for (int i = 0; i < n; ++i) {
         MONITORINFO mi{sizeof(mi)};
         if (!GetMonitorInfoW(targets[i], &mi)) continue;
-        // The dock's own app bar (reserveSpace) leaves a smaller work area on its monitor; the
-        // shell keeps that one up to date itself.
-        if (reserved_ && SameRect(mi.rcMonitor, reservedMonitor_)) continue;
+        // The docks' own app bars (reserveSpace) leave a smaller work area on their monitors; the
+        // shell keeps those up to date itself.
+        bool reserved = false;
+        for (int r = 0; r < reservedCount_ && !reserved; ++r) reserved = SameRect(mi.rcMonitor, reservedMonitors_[r]);
+        if (reserved) continue;
         if (SameRect(mi.rcWork, mi.rcMonitor)) continue;
         if (workAreaFixes_ >= kMaxWorkAreaFixes) {
             Trace(L"WinDock: work area still reserved after %d fixes; giving up\n", workAreaFixes_);

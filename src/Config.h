@@ -47,6 +47,71 @@ enum class DockAlign { Center, Start, End };
 enum class MiddleClickAction { NewInstance, Minimize, Close, None };
 // The mouse wheel over an app: "none", "cycle" (bring its next / previous window to the front).
 enum class WheelAction { None, Cycle };
+// Which windows a dock shows (its running apps, and the dots / window lists of its pinned apps):
+// "all" (default), or "monitor": only windows whose centre is on the dock's monitor.
+enum class RunningFilter { All, Monitor };
+// Where a dock lives in the z-order: "normal" (topmost, default), or "desktop": shown only while
+// the desktop is visible (no window in the foreground), at the bottom of the z-order.
+enum class DockLayer { Normal, Desktop };
+
+// Every field is listed in Theme::Fields() (Theme.h), which drives reading, writing and the UI.
+// The defaults are the built-in "dark" preset.
+struct ThemeConfig {
+    uint32_t background = 0xCC202020;       // ARGB; the bar fill without acrylic
+    float cornerRadius = 16.0f;             // DIPs (with acrylic: snapped to a system radius, 0/4/8)
+    // Real blur behind the bar (a DWM system backdrop on a second, bar-sized window). Falls back
+    // to `background` when unsupported or when Windows has transparency effects turned off.
+    bool acrylic = true;
+    uint32_t acrylicBackground = 0x66202020;  // tint drawn over the blur while acrylic is active
+    uint32_t labelBackground = 0xE6303030;  // hover name label
+    uint32_t labelText = 0xFFFFFFFF;
+    uint32_t labelBorder = 0x1FFFFFFF;
+    float labelCornerRadius = 7.0f;         // DIPs, 0 - 32
+    uint32_t accent = 0xFF4CC2FF;           // insertion marker while a file is dragged onto the dock
+    uint32_t barBorder = 0x24FFFFFF;        // hairline around the bar and the preview popup
+    uint32_t separator = 0x38FFFFFF;        // between the app icons and the clock
+    uint32_t dotRunning = 0x80FFFFFF;       // indicator dots
+    uint32_t dotActive = 0xFFFFFFFF;        // the app owns the foreground window
+    uint32_t dotAttention = 0xFFFF9E26;     // the app flashes for attention
+    uint32_t clockText = 0xF2FFFFFF;
+    uint32_t clockDateText = 0xB6FFFFFF;    // = clockText alpha 0.95 x 0.75, as drawn before
+    uint32_t placeholderFill = 0xFF6B7385;  // icon placeholder (missing file / no icon)
+    uint32_t placeholderText = 0xF2FFFFFF;
+    uint32_t previewHotBackground = 0x1AFFFFFF;  // hovered preview card (half alpha: icon-only box)
+    uint32_t previewHotBorder = 0x33FFFFFF;
+    uint32_t closeHover = 0xFFC42B1C;       // preview card close button while hovered
+    // Glass shelf: instead of a panel, the bar is drawn as a shelf in perspective under the icons
+    // (top surface in `background`, sides angled in by `shelfSlant`, a front lip in `shelfEdge`,
+    // highlights in `barBorder`). Acrylic is not used with it: the blur window is a rectangle.
+    bool shelf = false;
+    float shelfSlant = 14.0f;               // DIPs, 0 - 64
+    uint32_t shelfEdge = 0xE6A0CDBE;
+    // Icon effects, baked into each icon's surfaces when it is drawn (magnification, bounce and
+    // drags only move them). Glow: a soft halo behind the icon (GlowMode as int: off / hover /
+    // active app / always).
+    int glow = 0;
+    uint32_t glowColor = 0x00000000;        // alpha 0: the icon's dominant colour
+    float glowRadius = 14.0f;               // DIPs, 4 - 32 (blur radius)
+    float glowStrength = 0.6f;              // 0 - 1, halo opacity
+    // A mirrored, fading copy of each icon under it (the bar grows by its height).
+    bool reflection = false;
+    float reflectionHeight = 0.5f;          // 0.2 - 1, fraction of the icon height
+    float reflectionOpacity = 0.35f;        // 0 - 1, at the icon's foot (fading to 0)
+    // The reflection is cut at the bar's edge instead of growing the bar: the dock keeps its height
+    // and shows the part of the reflection that fits between the icons and the bar's edge.
+    bool reflectionClip = false;
+    // The icon row and the bar tilted back about the bar's bottom edge (cosmetic: hit-testing uses
+    // the untilted layout). Acrylic is not used with it.
+    bool perspective = false;
+    float perspectiveAngle = 18.0f;         // degrees, 0 - 35
+};
+
+// ThemeConfig::glow (the "glow" key: "off", "hover", "active", "always").
+enum class GlowMode { Off = 0, Hover = 1, Active = 2, Always = 3 };
+inline GlowMode GlowOf(const ThemeConfig& t) {
+    return t.glow >= 0 && t.glow <= 3 ? static_cast<GlowMode>(t.glow) : GlowMode::Off;
+}
+
 
 // One dock: its contents and the settings that are per dock. Config::docks always holds at least
 // one (docks[0], Config::Main()).
@@ -63,8 +128,10 @@ struct DockConfig {
     // The bar spans the whole edge of the monitor (flush with the screen edge, square corners);
     // the items sit in it per `align` / `offset`.
     bool fullWidth = false;
-    // With fullWidth (ignored otherwise) and autoHide "off": the dock registers as an app bar so
-    // maximized windows stop at it. Auto-hide docks reserve nothing (like an auto-hide taskbar).
+    // With autoHide "off" (any edge, full width or not): the dock registers as an app bar so
+    // maximized windows stop at its resting bar. The band spans the whole edge of the monitor (an
+    // app bar cannot reserve part of an edge). Auto-hide docks reserve nothing (like an auto-hide
+    // taskbar).
     bool reserveSpace = true;
     // Hidden by auto-hide: peekPx DIPs of the bar stay visible at peekOpacity (0: the invisible
     // 1 px reveal strip). Hovering the visible part reveals the dock.
@@ -86,11 +153,27 @@ struct DockConfig {
     bool previews = true;
     bool previewSingle = false;  // "previewsSingleWindow"
     int previewDelayMs = 600;
+    // The monitor: an index (0 = the primary, 1.. = the others in enumeration order; a monitor
+    // that is not connected parks the dock until it is), kMonitorPrimary ("primary" in JSON) or
+    // kMonitorEach ("each": one dock per monitor, all from this config).
+    static constexpr int kMonitorPrimary = -1;
+    static constexpr int kMonitorEach = -2;
     int monitor = 0;
     MiddleClickAction middleClick = MiddleClickAction::NewInstance;
     WheelAction wheel = WheelAction::None;
+    RunningFilter runningFilter = RunningFilter::All;
+    // A theme preset for this dock only ("" = the global theme.preset). The global inline theme
+    // fields still apply on top of it.
+    std::wstring themePreset;
+    DockLayer layer = DockLayer::Normal;
+
+    // Not saved: `themePreset` resolved (Config::ResolveDockThemes); ownTheme false = use the
+    // global theme.
+    bool ownTheme = false;
+    ThemeConfig theme;
 
     bool AutoHideOn() const { return autoHide != AutoHideMode::Off; }
+    bool Each() const { return monitor == kMonitorEach; }
     // An item of this kind is in `items` (the clock / weather widget is shown).
     bool Has(ItemKind kind) const;
     // Adds an item of `kind` at the end when there is none (on), or removes every item of that
@@ -181,6 +264,10 @@ const wchar_t* ToString(WheelAction v);
 const wchar_t* ToString(ClockClick v);
 const wchar_t* ToString(DockEdge v);
 const wchar_t* ToString(DockAlign v);
+const wchar_t* ToString(RunningFilter v);
+const wchar_t* ToString(DockLayer v);
+bool FromString(std::wstring_view s, RunningFilter& v);
+bool FromString(std::wstring_view s, DockLayer& v);
 bool FromString(std::wstring_view s, DockEdge& v);
 bool FromString(std::wstring_view s, DockAlign& v);
 bool FromString(std::wstring_view s, MiddleClickAction& v);
@@ -204,67 +291,12 @@ struct AnimationConfig {
     ReduceMotion reduceMotion = ReduceMotion::System;
 };
 
-// Every field is listed in Theme::Fields() (Theme.h), which drives reading, writing and the UI.
-// The defaults are the built-in "dark" preset.
-struct ThemeConfig {
-    uint32_t background = 0xCC202020;       // ARGB; the bar fill without acrylic
-    float cornerRadius = 16.0f;             // DIPs (with acrylic: snapped to a system radius, 0/4/8)
-    // Real blur behind the bar (a DWM system backdrop on a second, bar-sized window). Falls back
-    // to `background` when unsupported or when Windows has transparency effects turned off.
-    bool acrylic = true;
-    uint32_t acrylicBackground = 0x66202020;  // tint drawn over the blur while acrylic is active
-    uint32_t labelBackground = 0xE6303030;  // hover name label
-    uint32_t labelText = 0xFFFFFFFF;
-    uint32_t labelBorder = 0x1FFFFFFF;
-    float labelCornerRadius = 7.0f;         // DIPs, 0 - 32
-    uint32_t accent = 0xFF4CC2FF;           // insertion marker while a file is dragged onto the dock
-    uint32_t barBorder = 0x24FFFFFF;        // hairline around the bar and the preview popup
-    uint32_t separator = 0x38FFFFFF;        // between the app icons and the clock
-    uint32_t dotRunning = 0x80FFFFFF;       // indicator dots
-    uint32_t dotActive = 0xFFFFFFFF;        // the app owns the foreground window
-    uint32_t dotAttention = 0xFFFF9E26;     // the app flashes for attention
-    uint32_t clockText = 0xF2FFFFFF;
-    uint32_t clockDateText = 0xB6FFFFFF;    // = clockText alpha 0.95 x 0.75, as drawn before
-    uint32_t placeholderFill = 0xFF6B7385;  // icon placeholder (missing file / no icon)
-    uint32_t placeholderText = 0xF2FFFFFF;
-    uint32_t previewHotBackground = 0x1AFFFFFF;  // hovered preview card (half alpha: icon-only box)
-    uint32_t previewHotBorder = 0x33FFFFFF;
-    uint32_t closeHover = 0xFFC42B1C;       // preview card close button while hovered
-    // Glass shelf: instead of a panel, the bar is drawn as a shelf in perspective under the icons
-    // (top surface in `background`, sides angled in by `shelfSlant`, a front lip in `shelfEdge`,
-    // highlights in `barBorder`). Acrylic is not used with it: the blur window is a rectangle.
-    bool shelf = false;
-    float shelfSlant = 14.0f;               // DIPs, 0 - 64
-    uint32_t shelfEdge = 0xE6A0CDBE;
-    // Icon effects, baked into each icon's surfaces when it is drawn (magnification, bounce and
-    // drags only move them). Glow: a soft halo behind the icon (GlowMode as int: off / hover /
-    // active app / always).
-    int glow = 0;
-    uint32_t glowColor = 0x00000000;        // alpha 0: the icon's dominant colour
-    float glowRadius = 14.0f;               // DIPs, 4 - 32 (blur radius)
-    float glowStrength = 0.6f;              // 0 - 1, halo opacity
-    // A mirrored, fading copy of each icon under it (the bar grows by its height).
-    bool reflection = false;
-    float reflectionHeight = 0.5f;          // 0.2 - 1, fraction of the icon height
-    float reflectionOpacity = 0.35f;        // 0 - 1, at the icon's foot (fading to 0)
-    // The reflection is cut at the bar's edge instead of growing the bar: the dock keeps its height
-    // and shows the part of the reflection that fits between the icons and the bar's edge.
-    bool reflectionClip = false;
-    // The icon row and the bar tilted back about the bar's bottom edge (cosmetic: hit-testing uses
-    // the untilted layout). Acrylic is not used with it.
-    bool perspective = false;
-    float perspectiveAngle = 18.0f;         // degrees, 0 - 35
-};
-
-// ThemeConfig::glow (the "glow" key: "off", "hover", "active", "always").
-enum class GlowMode { Off = 0, Hover = 1, Active = 2, Always = 3 };
-inline GlowMode GlowOf(const ThemeConfig& t) {
-    return t.glow >= 0 && t.glow <= 3 ? static_cast<GlowMode>(t.glow) : GlowMode::Off;
-}
-
 struct Config {
-    // At least one dock after LoadFile / Sanitize. Only docks[0] is shown (multiple docks: Phase 3).
+    // At least one dock after LoadFile / Sanitize; ids are unique (Sanitize). Every dock is shown
+    // (DockManager), docks[].monitor "each" once per monitor.
     std::vector<DockConfig> docks = std::vector<DockConfig>(1);
+    // Not saved: the dock the settings window edits (its Docks page selects it; Edit()).
+    size_t editDock = 0;
     bool hideTaskbar = true;
     bool startWithWindows = false;
     // "auto": hardware D3D11 device, WARP if that fails. "software": WARP only, which avoids the
@@ -290,11 +322,20 @@ struct Config {
 
     DockConfig& Main() { return docks.front(); }
     const DockConfig& Main() const { return docks.front(); }
+    DockConfig& Edit() { return docks[editDock < docks.size() ? editDock : 0]; }
+    const DockConfig& Edit() const { return docks[editDock < docks.size() ? editDock : 0]; }
+    // The theme a dock draws with: its own preset's (DockConfig::ownTheme), else the global one.
+    const ThemeConfig& ThemeOf(const DockConfig& d) const { return d.ownTheme ? d.theme : theme; }
+    // A dock id that no dock has yet: `base`, else base2, base3 ...
+    std::wstring UniqueDockId(const std::wstring& base) const;
 
     // Re-bases `theme` on `themePreset` for every field whose override bit is clear. Returns
     // false (and uses dark for those fields, keeping `themePreset` so the user can fix it) when
-    // the preset is unknown or its theme file is unreadable / malformed.
+    // the preset is unknown or its theme file is unreadable / malformed. Also ResolveDockThemes.
     bool ResolveTheme();
+    // Every dock with its own themePreset: that preset with the global inline fields
+    // (themeOverrides) on top. An unknown preset falls back to the global theme (ownTheme false).
+    void ResolveDockThemes();
 
     // %LocalAppData%\WinDock
     static std::wstring Directory();

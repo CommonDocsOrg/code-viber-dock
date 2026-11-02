@@ -191,7 +191,7 @@ void SettingsPreview::Paint() {
 
 void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const Config& c = *config_;
-    const ThemeConfig& t = c.theme;
+    const ThemeConfig& t = c.ThemeOf(c.Edit());  // the edited dock's theme
     const float s = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
     auto px = [s](float dip) { return std::round(dip * s); };
     RECT rc{};
@@ -257,8 +257,8 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     };
 
     // --- geometry (pixels) ---
-    const bool clockShown = c.Main().Has(ItemKind::Clock), weatherShown = c.Main().Has(ItemKind::Weather);
-    const float mag = static_cast<float>(std::clamp(c.Main().magnification, 1.0, 2.5));
+    const bool clockShown = c.Edit().Has(ItemKind::Clock), weatherShown = c.Edit().Has(ItemKind::Weather);
+    const float mag = static_cast<float>(std::clamp(c.Edit().magnification, 1.0, 2.5));
     const float wallH = (wall.bottom - wall.top) / s;
     const float reflFrac = t.reflection ? t.reflectionHeight : 0.0f;  // the bar grows by the reflections
     const float b = std::clamp((wallH - kBarBottom - kTopRoom - kLabelGap - kLabelH) / (11.0f + 48.0f * (mag + reflFrac)),
@@ -310,7 +310,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     // Magnification about the focus (the cursor, else the default app), as DockWindow::ComputeTargets.
     const float focusX = mouseX_ >= 0 ? static_cast<float>(mouseX_)
                                       : itemsLeft + (static_cast<float>(kDefaultFocus) + 0.5f) * stride;
-    const float range = static_cast<float>(c.Main().magnifyRange) * stride;
+    const float range = static_cast<float>(c.Edit().magnifyRange) * stride;
     float scales[kAppCount];
     float delta = 0.0f;
     for (int i = 0; i < kAppCount; ++i) {

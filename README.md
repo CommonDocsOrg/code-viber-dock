@@ -160,8 +160,38 @@ screen, and auto-hide slides the dock off its own edge.
 
 The dock follows DPI changes: it redraws every icon at the new pixel size and lays itself out
 again. On display changes (resolution, monitors added or removed, work area changes) it moves
-back to its place on its edge of the configured monitor (see Position). If that monitor no longer exists, it uses
-the primary monitor.
+back to its place on its edge of its monitor (see Position and Multiple docks).
+
+### Multiple docks and monitors
+
+`docks[]` may hold any number of docks; every one is shown, each with its own items, edge,
+position, auto-hide, lock and the other per-dock keys (they all run in the one WinDock process and
+share the window list, the weather data and the foreground watch; each has its own window, renderer,
+icon cache and popups). Per dock:
+
+- `monitor`: `0` (default) = the primary monitor, `1`, `2` ... = the other monitors in
+  `EnumDisplayMonitors` order (Settings > General > Display lists them), `"primary"` (the same as
+  `0`, spelled out), or `"each"`: one copy of the dock on every connected monitor, all showing the
+  same config (a change on one copy, such as a pin or a move, changes them all; state that is not
+  saved, such as the order of the running apps after a drag, is per copy). A dock whose monitor is
+  not connected is **parked**: it keeps its place in `docks[]` and in the automation numbering but
+  has no window until the monitor is back. Display changes (`WM_DISPLAYCHANGE`,
+  `WM_DEVICECHANGE`, a dock's `WM_DPICHANGED`) re-enumerate the monitors and park / unpark docks
+  and add / remove the copies of an `"each"` dock (deferred while a dock menu or dialog is open).
+- `runningFilter`: `"all"` (default) or `"monitor"`: the dock shows only the windows whose centre is
+  on its monitor (a minimized window counts where it was restored); this applies to the running
+  apps and to the dots and window lists of pinned apps. (A virtual-desktop filter is not planned.)
+- `themePreset`: a theme preset (built-in id or theme file) for this dock only; empty (default) =
+  the global `theme.preset`. The global inline theme fields still apply on top of it.
+
+Docks on the same edge of one monitor overlap; move one (Position, Ctrl+drag). Settings > Docks
+lists the docks (id, edge, display, whether it is shown or parked), adds one (`id` `"dock"`,
+`"dock2"` ..., bottom of the primary monitor, the running apps and the clock), duplicates or removes
+the selected one (never the last), and **the selected dock is the one the other pages edit**
+(General, Behaviour, Dock contents, the "This dock's theme" combo on Appearance). The dock menu
+of each dock (and the tray menu, for the first dock) acts on that dock; with more than one dock
+it also has **Lock all docks** / **Unlock all docks** (`WinDock.DockCommand` 124 / 125; Settings >
+Docks has the same buttons).
 
 ### Position: edge, alignment, offset
 
@@ -220,10 +250,15 @@ monitor's ends. Magnification grows the run of items inside the bar (the bar's o
 the monitor's, where the window cuts them off, so the bar always looks full); auto-hide works as
 usual (the whole bar slides off the edge).
 
-**Reserve screen space** (`reserveSpace`, default `true`, only used with `fullWidth`): the dock
+**Reserve screen space** (`reserveSpace`, default `true`; any edge, full width or not): the dock
 registers its window as an app bar (`SHAppBarMessage` `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS`)
-so the shell takes the bar's band out of the work area: maximized windows stop at the dock and
-popups / the settings window stay clear of it. **Only a dock with `autoHide` `"off"` reserves
+so the shell takes the resting bar's band (from the screen edge to the bar's far side, its margin
+included) out of the work area: maximized windows stop at the dock and popups / the settings
+window stay clear of it, while the dock stays completely visible. An app bar always spans the
+whole edge, so a dock that is not full width still reserves a strip along the whole edge of its
+monitor. The band does not grow while icons magnify: magnified icons, the label and popups
+overlap windows as before. Each dock reserves its own band on its own monitor (two docks on one
+edge stack, like two app bars do). **Only a dock with `autoHide` `"off"` reserves
 space**; with `"always"` or `"intelligent"` nothing is reserved (like Explorer's auto-hide
 taskbar: an intelligent dock would otherwise never be overlapped, so it would never hide). The
 registration follows the bar (edge, monitor, DPI), answers `ABN_POSCHANGED`, and steps out of the
@@ -565,7 +600,7 @@ with the defaults and leaves the file untouched.
       "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
       "previews": true, "previewsSingleWindow": false, "previewDelayMs": 600,
       "middleClick": "newInstance", "wheel": "none",
-      "monitor": 0
+      "monitor": 0, "runningFilter": "all", "themePreset": ""
     }
   ],
   "hideTaskbar": true,
@@ -592,9 +627,11 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
 `revealDelayMs`, `previews`, `previewDelayMs` and `monitor` move into `docks[0]`. A file that has
 `docks` is never migrated: legacy keys in it are ignored and dropped on the next save.
 
-- `docks`: the docks. Only the first one is shown in this version (multiple docks come later); a
-  file without any gets one with the defaults. Per dock:
-  - `id` (default `"main"`).
+- `docks`: the docks, every one shown (see Multiple docks and monitors); a file without any gets
+  one with the defaults. Per dock:
+  - `id` (default `"main"`; unique: a repeated id gets a number appended on load).
+  - `monitor` (default `0` = primary; an index, `"primary"` or `"each"`), `runningFilter`
+    (`"all"` / `"monitor"`), `themePreset` (default `""`): see Multiple docks and monitors.
   - `items`: everything on the dock, in order. Each item has a `kind`:
     - `"app"`: `{ "kind": "app", "path": "<.lnk or .exe>" }` or
       `{ "kind": "app", "aumid": "<AppUserModelID>" }`. Environment variables in paths are
@@ -636,8 +673,8 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   - `edge` (default `"bottom"`; `"top"`, `"left"`, `"right"`), `align` (default `"center"`;
     `"start"`, `"end"`) and `offset` (DIPs, default 0): where the dock sits, see
     [Position](#position-edge-alignment-offset). Unknown text reads as the default.
-  - `fullWidth` (default `false`), `reserveSpace` (default `true`, used with `fullWidth` and
-    `autoHide` `"off"` only), `peekPx` (default 0), `peekOpacity` (default 0.5), `title`
+  - `fullWidth` (default `false`), `reserveSpace` (default `true`, used with `autoHide`
+    `"off"` only, on any edge), `peekPx` (default 0), `peekOpacity` (default 0.5), `title`
     (default `""`): see Position.
   - `locked` (default `false`): no dragging, no pinning by dropping files, no Add separator / Add
     widget from the dock menu (see Dock items).
@@ -706,8 +743,9 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     suspend transparency without changing that setting; Windows then shows a solid colour in place
     of the blur.) Builds without system backdrops (before Windows 11 22H2) always use the
     plain bar.
-- `monitor`: 0 is the primary monitor, 1..n are the others in enumeration order. An index that no
-  longer exists falls back to the primary monitor.
+- `monitor`: 0 is the primary monitor, 1..n are the others in enumeration order, `"primary"`, or
+  `"each"` (a copy on every monitor). A dock whose monitor is not connected is parked (no window)
+  until it is.
 - `hideTaskbar`: hide the Explorer taskbar while the dock runs.
 - `startWithWindows`: mirrors the Run-key value. It is applied on Reload config and changed by
   the menu toggle. It is not applied at startup.
@@ -856,8 +894,19 @@ Unknown values fall back to the default.
 
 ## Automation (for tests)
 
-The dock window (class `WinDock.DockWindow`) handles these registered messages:
+The dock windows (class `WinDock.DockWindow`) and the app's hidden window (class `WinDock.App`,
+always there, also when every dock is parked) handle these registered messages:
 
+- **Which dock**: every dock-level message (`QueryItemPoint`, `QueryState`, `DockCommand`,
+  `ItemCommand`) takes the dock in the **high word of `lParam`** (bits 16 - 31) and what `lParam`
+  carried before (an item index, a popup card) in its low word. Dock 0 is the first dock, so an
+  `lParam` below 0x10000 (every script written for one dock) keeps its meaning; a negative
+  `lParam` also means dock 0. It does not matter which dock window (or the app window) receives
+  the message. Docks are numbered in `docks[]` order, a `"monitor": "each"` dock once per monitor
+  (in monitor order); a parked dock keeps its number (`QueryState` 49 = 1; the per-dock values
+  return -1 for it, `DockCommand` still applies config commands such as 116 Lock dock or 120 - 123
+  to it). `ItemCommand` with a window handle in `lParam` acts on the first dock that shows that
+  window (`QueryItemPoint` with an HWND in `wParam` looks in dock `HIWORD(lParam)`).
 - **Item indexes** (`QueryItemPoint`, `ItemCommand`, `QueryState` 2 / 9 / 24 / 25 / 33 / 34 / 35)
   count every slot of the dock in its order: icons, separators and the clock / weather widgets
   (one slot each; the `running` item one slot per unpinned running app). Before 1b the widgets
@@ -876,7 +925,8 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   111 Refresh weather, 112 Add separator, 113 Weather settings… (the settings window on the
   Weather page), 114 show / hide the calendar popup, 115 show / hide the weather popup, 116 Lock
   dock toggle, 117 Add widget > Clock, 118 Add widget > Weather, 119 Add widget > Running apps,
-  120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right; saved like the menu).
+  120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right, 124 Lock all docks,
+  125 Unlock all docks; saved like the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -923,21 +973,31 @@ The dock window (class `WinDock.DockWindow`) handles these registered messages:
   `docks[0].align` (0 center, 1 start, 2 end). 40 = `docks[0].offset` (DIPs). 41 = 1 while laid out
   full width. 42 = `docks[0].reserveSpace`. 43 = 1 while the dock is registered as an app bar
   (reserving screen space). 44 = the peek strip's height in px (0 when off). 45 = 1 while a title
-  is drawn. 46 = dock drag (0 none, 1 moving it along its edge, 2 over another edge's zone). `QueryItemPoint`
+  is drawn. 46 = dock drag (0 none, 1 moving it along its edge, 2 over another edge's zone).
+  47 = the number of docks (parked ones included). 48 = the dock's monitor index (0 primary, as
+  in `docks[].monitor`; -1 parked; -2 no such dock). 49 = 1 if the dock is parked (its monitor is
+  not connected: no window), 0 if shown, -1 no such dock. 50 = its index in `docks[]`. 51 = its
+  window handle (0 parked). Per dock: 14 / 36 / 39 / 40 / 42 and 37 refer to that dock's own
+  config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
   what `WinDock.exe --settings` sends to a running dock.
 - Settings window (class `WinDock.Settings`, title "WinDock Settings"): the page list is the child
   `WinDock.SettingsNav` (control id 100; its window text is the selected page's name); the pages
   are `WinDock.SettingsPage` children with ids 200 + page index (0 General, 1 Appearance,
-  2 Behaviour, 3 Animation, 4 Dock contents, 5 About, 6 Weather), and every control on them has the stable id
+  2 Behaviour, 3 Animation, 4 Dock contents, 5 About, 6 Weather, 7 Docks), and every control on them has the stable id
   listed in `src/SettingsIds.h` (the Dock contents page kept the Pinned apps ids 2600 - 2611 and
   added 2612 Add widget, 2613 Settings…, 2614 Lock the dock; its list 2600 has one row per config
   item, columns Name, Kind, Details; General 2130 / 2131 are retired, replaced by 2132 Show
   seconds, 2135 Clicking the clock opens, 2137 App or URL, 2138 Browse…; Position 2140 - 2148: 2142 screen edge and 2144 alignment drop-downs in DockEdge /
   DockAlign order, 2146 / 2147 offset box and up-down, 2149 Full width, 2151 Reserve screen space,
   2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied on Enter / focus loss); Behaviour added 2223
-  single-window previews, 2227 middle click, 2229 mouse wheel). "Add widget ▾" opens a popup menu
+  single-window previews, 2227 middle click, 2229 mouse wheel; phase 3: General 2162 "Show only
+  the windows on this dock's display" (`runningFilter`), the Display drop-down 2111 ends with
+  "Every display" (`"each"`), Appearance 2420 "This dock's theme" (0 = same as all docks, then the
+  theme list), Docks page 2800 list (Dock, Edge, Display, Windows; selecting a row makes it the dock
+  the other pages edit), 2801 Add dock, 2802 Duplicate, 2803 Remove, 2805 "The other pages edit:
+  (id)", 2806 Lock all docks, 2807 Unlock all docks). "Add widget ▾" opens a popup menu
   (items 1 Clock, 2 Weather, 3 Running apps), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
   field rows use `3000 + 10 * field index + part` (ids 3000 - 3399; field index in

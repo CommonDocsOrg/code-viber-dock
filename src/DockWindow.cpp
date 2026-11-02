@@ -65,11 +65,6 @@ constexpr UINT kRecycleBinCoalesceMs = 200;  // bursts of bin change notificatio
 constexpr float kDockSnapDip = 24.0f;        // a dragged dock snaps to the centre / an end this close
 constexpr float kPi = 3.14159265358979f;
 
-BOOL CALLBACK CollectMonitor(HMONITOR mon, HDC, LPRECT, LPARAM lp) {
-    reinterpret_cast<std::vector<HMONITOR>*>(lp)->push_back(mon);
-    return TRUE;
-}
-
 void Log(const wchar_t* what, HRESULT hr) {
     wchar_t buf[160];
     swprintf_s(buf, L"WinDock: %s failed (0x%08X)\n", what, static_cast<unsigned>(hr));
@@ -144,8 +139,12 @@ private:
 
 DockWindow::~DockWindow() { Destroy(); }
 
-HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, MessageHook hook) {
+HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dockIndex, HMONITOR monitor,
+                           DockShared* shared, MessageHook hook) {
     config_ = config;
+    dockIndex_ = dockIndex;
+    monitor_ = monitor;
+    shared_ = shared;
     instance_ = instance;
     hook_ = std::move(hook);
 
@@ -192,9 +191,9 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, MessageHook
                      [this] { DismissFolderPopup(true); },
                      [this] { OnFolderPopupClosed(); },
                  });
-    weatherPopup_.Init(instance, &renderer_, &weather_,
+    weatherPopup_.Init(instance, &renderer_, &shared_->WeatherData(),
                        WeatherPopup::Callbacks{
-                           [this] { weather_.RefreshNow(); },
+                           [this] { shared_->WeatherData().RefreshNow(); },
                            [this] {
                                DismissWeatherPopup(true);
                                if (weatherCallbacks_.openSettings) weatherCallbacks_.openSettings();
@@ -208,7 +207,6 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, MessageHook
             DismissCalendarPopup(true);
             OpenTarget(target);
         });
-    weather_.SetChangedCallback([this] { OnWeatherChanged(); });
 
     // File drops (OLE: needs OleInitialize on this thread, see main.cpp).
     dropTarget_ = new DropTarget(this);
@@ -224,15 +222,57 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, MessageHook
     // Resolves the pins and builds the elements (SyncElements) before the first layout.
     ApplyConfig();
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
-    // The initial enumeration (synchronous) then builds and lays out the items with their windows.
+    // The shared tracker's current window list then builds and lays out the items with their windows.
     tracking_ = true;
-    tracker_.Start(hwnd_, [this](const WindowTracker::Snapshot& snap) { Rebuild(snap); });
+    RebuildFrom(shared_->Tracker().Current());
     ApplyAutoHide();  // hides after hideDelayMs unless the mouse is on the dock
     return S_OK;
 }
 
 void DockWindow::Destroy() {
     if (hwnd_) DestroyWindow(hwnd_);
+}
+
+void DockWindow::SetMonitor(HMONITOR monitor) {
+    if (monitor == monitor_) return;
+    monitor_ = monitor;
+    if (!hwnd_) return;
+    // A new monitor: its size / work area (and maybe DPI: WM_DPICHANGED follows the move), and a
+    // monitor filter shows other windows.
+    if (DockCfg().runningFilter == RunningFilter::Monitor) RebuildFrom(shared_->Tracker().Current());
+    ApplyConfig();
+}
+
+void DockWindow::OnSnapshot(const WindowTracker::Snapshot& snap) {
+    if (tracking_ && hwnd_) RebuildFrom(snap);
+}
+
+void DockWindow::RebuildFrom(const WindowTracker::Snapshot& snap) {
+    if (DockCfg().runningFilter != RunningFilter::Monitor) {
+        Rebuild(snap);
+        return;
+    }
+    // Only the windows whose centre is on this dock's monitor.
+    const HMONITOR mine = PickMonitor();
+    WindowTracker::Snapshot filtered;
+    filtered.foreground = snap.foreground;
+    for (const WindowTracker::Group& g : snap.groups) {
+        WindowTracker::Group f;
+        f.key = g.key;
+        f.wantsAttention = g.wantsAttention;  // per app (the tracker does not say which window flashes)
+        for (size_t i = 0; i < g.windows.size(); ++i) {
+            if (i < g.monitors.size() && g.monitors[i] != mine) continue;
+            f.windows.push_back(g.windows[i]);
+            f.monitors.push_back(i < g.monitors.size() ? g.monitors[i] : mine);
+        }
+        if (!f.windows.empty()) filtered.groups.push_back(std::move(f));
+    }
+    if (filtered.foreground && std::none_of(filtered.groups.begin(), filtered.groups.end(), [&](const auto& g) {
+            return std::find(g.windows.begin(), g.windows.end(), filtered.foreground) != g.windows.end();
+        })) {
+        filtered.foreground = nullptr;
+    }
+    Rebuild(filtered);
 }
 
 void DockWindow::ApplyConfig() {
@@ -251,7 +291,7 @@ void DockWindow::ApplyConfig() {
     labelFormat_ = nullptr;  // theme / size may have changed
     labelEllipsis_ = nullptr;
     weatherQuiet_ = true;  // the relayout below measures and draws the widget
-    weather_.Configure(config_->weather, config_->Main().Has(ItemKind::Weather), hwnd_);
+    shared_->ConfigureWeather();
     weatherQuiet_ = false;
     UpdateAcrylic();
     Relayout();
@@ -259,19 +299,16 @@ void DockWindow::ApplyConfig() {
 }
 
 HMONITOR DockWindow::PickMonitor() const {
-    // Index 0 = primary; 1..n = the other monitors in enumeration order. An index that no
-    // longer exists (monitor unplugged) falls back to the primary monitor.
-    std::vector<HMONITOR> monitors;
-    EnumDisplayMonitors(nullptr, nullptr, CollectMonitor, reinterpret_cast<LPARAM>(&monitors));
-    HMONITOR primary = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
-    std::erase(monitors, primary);
-    monitors.insert(monitors.begin(), primary);
-    const size_t index = config_ ? static_cast<size_t>(std::max(config_->Main().monitor, 0)) : 0;
-    return index < monitors.size() ? monitors[index] : primary;
+    // The manager picks the monitor (docks[].monitor: an index, "primary", one per monitor for
+    // "each"; a dock whose monitor is not connected is parked, so it has no window). A handle that
+    // went stale (displays changing; the manager re-assigns it shortly) reads as the primary.
+    MONITORINFO mi{sizeof(mi)};
+    if (monitor_ && GetMonitorInfoW(monitor_, &mi)) return monitor_;
+    return MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
 }
 
 void DockWindow::MonitorRects(RECT& monitor, RECT& work) const {
-    // The one place the dock's monitor comes from (Phase 3 hands each dock its own).
+    // The one place the dock's monitor comes from.
     MONITORINFO mi{sizeof(mi)};
     GetMonitorInfoW(PickMonitor(), &mi);
     monitor = mi.rcMonitor;  // the taskbar is hidden, so the dock uses the full monitor
@@ -279,8 +316,7 @@ void DockWindow::MonitorRects(RECT& monitor, RECT& work) const {
 }
 
 void DockWindow::ComputeLayout() {
-    const Config& c = *config_;
-    const DockConfig& d = c.Main();
+    const DockConfig& d = DockCfg();
     Layout l;
     l.scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
     const float s = l.scale;
@@ -292,14 +328,14 @@ void DockWindow::ComputeLayout() {
     l.iconPx = std::round(static_cast<float>(d.iconSize) * s);
     l.padding = std::round(kPadding * s);
     // With acrylic, DWM rounds the blur with its own radius; the tint matches it.
-    l.cornerRadius = l.fullWidth ? 0.0f : std::round((acrylic_ ? acrylicRadiusDip_ : c.theme.cornerRadius) * s);
+    l.cornerRadius = l.fullWidth ? 0.0f : std::round((acrylic_ ? acrylicRadiusDip_ : DockTheme().cornerRadius) * s);
     l.magnification = static_cast<float>(d.magnification);
     l.bitmapPx = static_cast<UINT>(std::lround(static_cast<double>(d.iconSize) * d.magnification * s));
 
     // Icon effects. The reflection surface is drawn at the bitmap size and shown at rest scale
     // under each icon: the bar grows by its height. The glow reaches glowPad beyond the icon box.
     // Vertical docks have no reflections.
-    const ThemeConfig& t = c.theme;
+    const ThemeConfig& t = DockTheme();
     const bool reflect = t.reflection && !l.vertical;
     const UINT reflSurface = reflect ? IconEffects::ReflectionHeight(l.bitmapPx, t.reflectionHeight) : 0;
     l.reflH = reflSurface && l.bitmapPx ? std::ceil(static_cast<float>(reflSurface) * l.iconPx /
@@ -530,7 +566,7 @@ void DockWindow::ComputeLayout() {
     // growth.
     l.bgSurfaceW = barW + l.growMax;
     float radius = std::ceil(std::min(l.cornerRadius, barH / 2.0f));
-    if (c.theme.shelf) radius = std::max(radius, std::ceil(c.theme.shelfSlant * s));  // the angled ends
+    if (DockTheme().shelf) radius = std::max(radius, std::ceil(DockTheme().shelfSlant * s));  // the angled ends
     // A spring settle overshoots: returning from growth g, the bar briefly gets narrower than at
     // rest by up to kSpringOvershoot * g per side. Keep the seam that much further in.
     const float undershoot =
@@ -740,7 +776,7 @@ void DockWindow::LayoutPass() {
         old.itemsLeft != l.itemsLeft || old.iconPx != l.iconPx || old.gap != l.gap || old.growMax != l.growMax ||
         old.itemsW != l.itemsW) {
         snapPending_ = true;
-        watch_.Poke();  // the bar's column moved: re-test the overlap (no-op unless intelligent)
+        if (watching_) shared_->Watch().Poke();  // the bar's column moved: re-test the overlap (no-op unless intelligent)
     }
 
     inLayout_ = false;
@@ -842,7 +878,7 @@ HRESULT DockWindow::RenderBackground() {
     const Layout& l = layout_;
     const UINT w = static_cast<UINT>(l.bgSurfaceW);
     const UINT h = static_cast<UINT>(l.bar.bottom - l.bar.top);
-    const ThemeConfig& theme = config_->theme;
+    const ThemeConfig& theme = DockTheme();
     const D2D1_COLOR_F fill = Theme::ToColor(acrylic_ ? theme.acrylicBackground : theme.background);
     const float radius = std::min(l.cornerRadius, static_cast<float>(std::min(w, h)) / 2.0f);
     const float stroke = std::max(1.0f, std::round(l.scale));
@@ -892,15 +928,14 @@ void DockWindow::OnWeatherChanged() {
     // measures and draws them (DispatchEvent only marks them dirty while weatherQuiet_).
     DispatchEvent(DockEvent::WeatherData);
     if (!inLayout_ && !weatherQuiet_) weatherPopup_.Update();
-    if (weatherCallbacks_.changed) weatherCallbacks_.changed();
 }
 
 void DockWindow::ApplyWeather() {
     // The weather item may have been added / removed (Settings > Weather "Show").
     SyncElements();
-    if (!config_->Main().Has(ItemKind::Weather)) DismissWeatherPopup(false, true);
+    if (!DockCfg().Has(ItemKind::Weather)) DismissWeatherPopup(false, true);
     weatherQuiet_ = true;
-    weather_.Configure(config_->weather, config_->Main().Has(ItemKind::Weather), hwnd_);
+    shared_->ConfigureWeather();
     weatherQuiet_ = false;
     OnWeatherChanged();  // redraw (relayout if the widget's size changed); once, whatever changed
 }
@@ -917,7 +952,7 @@ HRESULT DockWindow::RenderSeparator(DockItem& item) {
     const float boxTop = l.itemTop - l.bar.top;  // the icon box inside the bar
     const float top = std::clamp(vInset - boxTop, 0.0f, static_cast<float>(h));
     const float bottom = std::clamp(barH - vInset - boxTop, top, static_cast<float>(h));
-    const D2D1_COLOR_F color = Theme::ToColor(config_->theme.separator);
+    const D2D1_COLOR_F color = Theme::ToColor(DockTheme().separator);
     HRESULT hr = DrawCanonical(item.icon, static_cast<float>(w), static_cast<float>(h), [&](ID2D1DeviceContext* dc) {
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
         if (FAILED(dc->CreateSolidColorBrush(color, brush.put()))) return;
@@ -972,7 +1007,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
         }
         // Placeholder: rounded square with the app's first letter.
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
-        if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(config_->theme.placeholderFill), brush.put()))) return;
+        if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(DockTheme().placeholderFill), brush.put()))) return;
         const float inset = std::round(size * 0.06f);
         const float r = size * 0.22f;
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, size - inset, size - inset), r, r),
@@ -986,7 +1021,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
             letterFormat->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
             const std::wstring& name = item.displayName.empty() ? item.key.Source() : item.displayName;
             const wchar_t letter[2] = {name.empty() ? L'?' : static_cast<wchar_t>(std::towupper(name[0])), 0};
-            brush->SetColor(Theme::ToColor(config_->theme.placeholderText));
+            brush->SetColor(Theme::ToColor(DockTheme().placeholderText));
             dc->DrawText(letter, 1, letterFormat.get(), D2D1::RectF(0, 0, size, size), brush.get());
         }
     };
@@ -1015,7 +1050,7 @@ HRESULT DockWindow::RenderEffects(DockItem& item, const std::function<void(ID2D1
     // Drawn here, once per icon draw; nothing in them changes with magnification, bounces or
     // drags (the static scale maps the bitmap size to the rest size, the layer transform does the rest).
     const Layout& l = layout_;
-    const ThemeConfig& t = config_->theme;
+    const ThemeConfig& t = DockTheme();
     const UINT bitmapPx = l.bitmapPx;
     const float k = bitmapPx ? l.iconPx / static_cast<float>(bitmapPx) : 1.0f;
     const bool wantGlow = GlowOf(t) != GlowMode::Off && t.glowStrength > 0.0f && bitmapPx;
@@ -1090,7 +1125,7 @@ HRESULT DockWindow::RenderEffects(DockItem& item, const std::function<void(ID2D1
 
 float DockWindow::GlowTarget(const DockItem& item) const {
     if (!item.glow.width) return 0.0f;
-    switch (GlowOf(config_->theme)) {
+    switch (GlowOf(DockTheme())) {
         case GlowMode::Always: return 1.0f;
         case GlowMode::Active: return item.active ? 1.0f : 0.0f;
         case GlowMode::Hover:
@@ -1113,7 +1148,7 @@ void DockWindow::DriveGlow(DockItem& item, double duration) {
 }
 
 void DockWindow::UpdateGlows(double duration) {
-    if (GlowOf(config_->theme) == GlowMode::Off) return;
+    if (GlowOf(DockTheme()) == GlowMode::Off) return;
     for (DockItem& item : items_) DriveGlow(item, duration);
 }
 
@@ -1123,7 +1158,7 @@ void DockWindow::ApplyPerspective() {
     // bottom edge, then a perspective projection centred on the same point. The children's 2D
     // placement animations keep running inside it; nothing is redrawn.
     Layer* targets[] = {&bgLeftClip_, &bgRightClip_, &widgetsGroup_, &itemsGroup_};
-    const ThemeConfig& t = config_->theme;
+    const ThemeConfig& t = DockTheme();
     IDCompositionDesktopDevice* dcomp = renderer_.DComp();
     const bool want = t.perspective && t.perspectiveAngle > 0.0f && dcomp;
     if (!want) {
@@ -1194,9 +1229,9 @@ HRESULT DockWindow::RenderDotSources() {
     const Layout& l = layout_;
     const float icon = l.iconPx;
     const D2D1_COLOR_F colors[3] = {
-        Theme::ToColor(config_->theme.dotRunning),
-        Theme::ToColor(config_->theme.dotActive),     // owns the foreground window
-        Theme::ToColor(config_->theme.dotAttention),  // wants attention
+        Theme::ToColor(DockTheme().dotRunning),
+        Theme::ToColor(DockTheme().dotActive),     // owns the foreground window
+        Theme::ToColor(DockTheme().dotAttention),  // wants attention
     };
     for (int i = 0; i < 3; ++i) {
         HRESULT hr = DrawCanonical(dotSources_[i], icon, static_cast<float>(l.dotHeight),
@@ -1254,11 +1289,11 @@ HRESULT DockWindow::RenderLabel() {
     const float padY = std::round(4.0f * s);
     const UINT w = static_cast<UINT>(textW + 2.0f * padX);
     const UINT h = static_cast<UINT>(textH + 2.0f * padY);
-    const float radius = std::min(std::round(config_->theme.labelCornerRadius * s), static_cast<float>(h) / 2.0f);
+    const float radius = std::min(std::round(DockTheme().labelCornerRadius * s), static_cast<float>(h) / 2.0f);
     const float stroke = std::max(1.0f, std::round(s));
-    const D2D1_COLOR_F back = Theme::ToColor(config_->theme.labelBackground);
-    const D2D1_COLOR_F fore = Theme::ToColor(config_->theme.labelText);
-    const D2D1_COLOR_F border = Theme::ToColor(config_->theme.labelBorder);
+    const D2D1_COLOR_F back = Theme::ToColor(DockTheme().labelBackground);
+    const D2D1_COLOR_F fore = Theme::ToColor(DockTheme().labelText);
+    const D2D1_COLOR_F border = Theme::ToColor(DockTheme().labelBorder);
 
     HRESULT hr = renderer_.DrawLayer(label_, w, h, [&](ID2D1DeviceContext* dc) {
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
@@ -1308,9 +1343,9 @@ HRESULT DockWindow::RenderTitle() {
     if (!titleLayout_ || !w || !h) return renderer_.DrawLayer(title_, 0, 0, {});
     const float s = l.scale;
     const float padX = std::round(10.0f * s), padY = std::round(4.0f * s);
-    const float radius = std::min(std::round(config_->theme.labelCornerRadius * s), static_cast<float>(h) / 2.0f);
+    const float radius = std::min(std::round(DockTheme().labelCornerRadius * s), static_cast<float>(h) / 2.0f);
     const float stroke = std::max(1.0f, std::round(s));
-    const ThemeConfig& t = config_->theme;
+    const ThemeConfig& t = DockTheme();
     return renderer_.DrawLayer(title_, w, h, [&](ID2D1DeviceContext* dc) {
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
         if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(t.labelBackground), brush.put()))) return;
@@ -1476,7 +1511,7 @@ void DockWindow::ComputeTargets() {
     const float stride = l.iconPx + l.gap;  // an icon's slot
     const float half = std::floor(l.gap / 2.0f);
     const bool magnify = magnifying_ && l.magnification > 1.001f && n > 0;
-    const float range = static_cast<float>(config_->Main().magnifyRange) * stride;
+    const float range = static_cast<float>(DockCfg().magnifyRange) * stride;
 
     // Dragging an icon: no magnification; the others make room at the insertion slot and the
     // dragged icon follows the cursor. A file dragged over the dock opens a gap (the bar grows by
@@ -1859,7 +1894,7 @@ void DockWindow::SetHover(int index) {
     const int previous = hovered_;
     hovered_ = index;
     // Hover glow: fades with the label's duration (committed by the caller).
-    if (GlowOf(config_->theme) == GlowMode::Hover) UpdateGlows(motion_.labelFade);
+    if (GlowOf(DockTheme()) == GlowMode::Hover) UpdateGlows(motion_.labelFade);
     UpdatePreviewHover();
     // A separator has no name to show.
     if (index < 0 || items_[static_cast<size_t>(index)].kind == DockItem::Kind::Separator) {
@@ -1960,9 +1995,9 @@ void DockWindow::DriveLabelOpacity(float to, double duration) {
 // hiding dismiss it. All timers are one-shot; none runs once the popup is hidden.
 
 bool DockWindow::PreviewEligible(int index) const {
-    if (!config_->Main().previews || index < 0 || index >= static_cast<int>(items_.size())) return false;
+    if (!DockCfg().previews || index < 0 || index >= static_cast<int>(items_.size())) return false;
     const DockItem& item = items_[static_cast<size_t>(index)];
-    const size_t minWindows = config_->Main().previewSingle ? 1 : 2;
+    const size_t minWindows = DockCfg().previewSingle ? 1 : 2;
     if (item.kind != DockItem::Kind::App || item.windows.size() < minWindows) return false;
     // Showing counts: the hover usually starts while the dock slides in (OnPreviewTimer requires
     // Shown).
@@ -1993,7 +2028,7 @@ void DockWindow::UpdatePreviewHover() {
     }
     if (hovered_ >= 0 && !previewSuppressed_ && PreviewEligible(hovered_) && hwnd_) {
         SetTimer(hwnd_, kPreviewTimerId,
-                 std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->Main().previewDelayMs)), nullptr);
+                 std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(DockCfg().previewDelayMs)), nullptr);
         previewPending_ = true;
     }
 }
@@ -2053,7 +2088,7 @@ void DockWindow::ShowPreview(int index, bool keepAnchor) {
     PreviewPopup::Style style;
     style.scale = l.scale;
     style.acrylic = acrylic_;
-    const ThemeConfig& theme = config_->theme;
+    const ThemeConfig& theme = DockTheme();
     style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
     style.text = theme.labelText;
     style.border = theme.barBorder;
@@ -2152,7 +2187,7 @@ void DockWindow::ShowFolderPopup(int index, float anchor) {
     FolderPopup::Style style;
     style.scale = l.scale;
     style.acrylic = acrylic_;
-    const ThemeConfig& theme = config_->theme;
+    const ThemeConfig& theme = DockTheme();
     style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
     style.text = theme.labelText;
     style.border = theme.barBorder;
@@ -2239,7 +2274,7 @@ void DockWindow::TogglePopup(ItemKind kind) {
 
 WeatherPopup::Style DockWindow::WeatherPopupStyle() const {
     const Layout& l = layout_;
-    const ThemeConfig& theme = config_->theme;
+    const ThemeConfig& theme = DockTheme();
     WeatherPopup::Style style;
     style.scale = l.scale;
     style.acrylic = acrylic_;
@@ -2282,7 +2317,7 @@ void DockWindow::ShowCalendarPopup(float anchor) {
     DismissFolderPopup(false, false);
     DismissWeatherPopup(false, false);
     const Layout& l = layout_;
-    const ThemeConfig& theme = config_->theme;
+    const ThemeConfig& theme = DockTheme();
     CalendarPopup::Style style;
     style.scale = l.scale;
     style.acrylic = acrylic_;
@@ -2392,12 +2427,12 @@ std::wstring DockWindow::RecycleBinLabel() {
 
 void DockWindow::UpdateAcrylic() {
     // The blur window is a flat rectangle: not with the glass shelf or the perspective tilt.
-    const bool want = config_->theme.acrylic && !config_->theme.shelf && !config_->theme.perspective &&
+    const bool want = DockTheme().acrylic && !DockTheme().shelf && !DockTheme().perspective &&
                       Backdrop::SystemAllowsTransparency();
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
     if (acrylic_) {
-        acrylicRadiusDip_ = backdrop_.SetCornerRadius(config_->Main().fullWidth ? 0.0f : config_->theme.cornerRadius);
+        acrylicRadiusDip_ = backdrop_.SetCornerRadius(DockCfg().fullWidth ? 0.0f : DockTheme().cornerRadius);
         return;
     }
     if (backdropPending_) {
@@ -2510,15 +2545,15 @@ void DockWindow::RefreshMotion() {
 // remaining distance. All waits are one-shot SetTimers.
 
 void DockWindow::ScheduleHide() {
-    if (!hwnd_ || !config_->Main().AutoHideOn() || Held() || hidePending_) return;
+    if (!hwnd_ || !DockCfg().AutoHideOn() || Held() || hidePending_) return;
     // Intelligent: re-test now (cheap; this runs on a mouse leave, not while idle) rather than
     // trusting overlapped_, which may be stale after a suppressed show (see OnOverlapCheck).
-    if (config_->Main().autoHide == AutoHideMode::Intelligent) {
+    if (DockCfg().autoHide == AutoHideMode::Intelligent) {
         overlapped_ = ForegroundOverlaps();
         if (!overlapped_) return;
     }
     if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) return;
-    SetTimer(hwnd_, kHideTimerId, std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->Main().hideDelayMs)),
+    SetTimer(hwnd_, kHideTimerId, std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(DockCfg().hideDelayMs)),
              nullptr);
     hidePending_ = true;
 }
@@ -2532,8 +2567,8 @@ void DockWindow::CancelHide() {
 void DockWindow::OnHideTimer() {
     KillTimer(hwnd_, kHideTimerId);
     hidePending_ = false;
-    if (!config_->Main().AutoHideOn() || Held()) return;
-    if (config_->Main().autoHide == AutoHideMode::Intelligent) {
+    if (!DockCfg().AutoHideOn() || Held()) return;
+    if (DockCfg().autoHide == AutoHideMode::Intelligent) {
         overlapped_ = ForegroundOverlaps();
         if (!overlapped_) return;
     }
@@ -2614,7 +2649,7 @@ void DockWindow::OnSlideTimer() {
 void DockWindow::OnRevealTimer() {
     KillTimer(hwnd_, kRevealTimerId);
     revealPending_ = false;
-    if (hideState_ != HideState::Hidden || !config_->Main().AutoHideOn() || !CursorOnStrip()) return;
+    if (hideState_ != HideState::Hidden || !DockCfg().AutoHideOn() || !CursorOnStrip()) return;
     if (RevealSuppressed()) return;  // a fullscreen app / presentation: stay hidden
     StartShow();
 }
@@ -2655,7 +2690,7 @@ bool DockWindow::ForegroundOverlaps() const {
 }
 
 void DockWindow::OnOverlapCheck(bool force) {
-    if (!hwnd_ || config_->Main().autoHide != AutoHideMode::Intelligent) return;
+    if (!hwnd_ || DockCfg().autoHide != AutoHideMode::Intelligent) return;
     const bool overlapped = ForegroundOverlaps();
     if (overlapped == overlapped_ && !force) return;
     const bool hidden = hideState_ == HideState::Hidden || hideState_ == HideState::Hiding;
@@ -2705,7 +2740,7 @@ double DockWindow::ApplyRootPose(double duration) {
     const float targetY = shown || !moves ? 0.0f : DockGeometry::OutwardSign(layout_.edge) * travel;
     // slideOnly keeps full opacity while it slides and is transparent (or at peekOpacity) only once
     // Hidden.
-    const float hiddenOpacity = peek ? static_cast<float>(config_->Main().peekOpacity) : 0.0f;
+    const float hiddenOpacity = peek ? static_cast<float>(DockCfg().peekOpacity) : 0.0f;
     const float targetOpacity =
         shown ? 1.0f : (fades || style == HideStyle::None || hideState_ == HideState::Hidden ? hiddenOpacity : 1.0f);
     const double now = Renderer::Now();
@@ -2754,11 +2789,11 @@ void DockWindow::ArmMouseTracking() {
 void DockWindow::ApplyAutoHide() {
     if (!hwnd_) return;
     UpdateAppBar();  // only a dock that does not auto-hide reserves space
-    if (config_->Main().autoHide != AutoHideMode::Intelligent) {
-        watch_.Stop();  // off / always: no hooks at all
+    if (DockCfg().autoHide != AutoHideMode::Intelligent) {
+        SetWatchingForeground(false);  // off / always: no hooks (unless another dock needs them)
         overlapped_ = false;
     }
-    if (!config_->Main().AutoHideOn()) {
+    if (!DockCfg().AutoHideOn()) {
         CancelHide();
         if (revealPending_) {
             KillTimer(hwnd_, kRevealTimerId);
@@ -2767,8 +2802,8 @@ void DockWindow::ApplyAutoHide() {
         if (hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) StartShow();
         return;
     }
-    if (config_->Main().autoHide == AutoHideMode::Intelligent) {
-        watch_.Start(hwnd_, [this] { OnOverlapCheck(); });
+    if (DockCfg().autoHide == AutoHideMode::Intelligent) {
+        SetWatchingForeground(true);
         OnOverlapCheck(true);  // hide if overlapped now, show if hidden and not
         return;
     }
@@ -2815,7 +2850,7 @@ void DockWindow::SetHold(bool hold) {
 void DockWindow::ResolvePins() {
     std::vector<AppIdentity::ResolvedPin> pins;
     std::unordered_map<std::wstring, AppIdentity::ResolvedPin> cache;
-    const std::vector<DockItemEntry>& entries = config_->Main().items;
+    const std::vector<DockItemEntry>& entries = DockCfg().items;
     pins.reserve(entries.size());
     size_t separators = 0;
     // The pin kinds (app / folder / separator / recycleBin), in item order: pins_ is parallel to
@@ -2844,7 +2879,7 @@ void DockWindow::BuildElements() {
     // One element per item, in order (an unknown kind gets none and is not shown). The elements
     // hold no visuals: the slots (items_) keep them across a rebuild, matched by key.
     std::vector<std::unique_ptr<DockElement>> elements;
-    const std::vector<DockItemEntry>& entries = config_->Main().items;
+    const std::vector<DockItemEntry>& entries = DockCfg().items;
     elements.reserve(entries.size());
     size_t pinIndex = 0;
     size_t clocks = 0, weathers = 0;
@@ -2858,7 +2893,7 @@ void DockWindow::BuildElements() {
 }
 
 void DockWindow::SyncElements(bool force) {
-    const std::vector<DockItemEntry>& entries = config_->Main().items;
+    const std::vector<DockItemEntry>& entries = DockCfg().items;
     bool same = !force && entries.size() == elements_.size();
     for (size_t i = 0; same && i < entries.size(); ++i) {
         const DockItemEntry& a = entries[i];
@@ -2880,19 +2915,20 @@ void DockWindow::SyncElements(bool force) {
         if (e) e->Start();
     }
     // Create: the tracker's first enumeration builds the items (with their windows) right after.
-    if (!same && tracking_) Rebuild(tracker_.Current());
+    if (!same && tracking_) RebuildFrom(shared_->Tracker().Current());
 }
 
 void DockWindow::ReloadPins() {
     SyncElements(true);
     // A clock / weather item added or removed (the dock menu's Add widget, Settings > Dock
     // contents): their popups and the weather service follow.
-    const DockConfig& d = config_->Main();
+    const DockConfig& d = DockCfg();
     if (!d.Has(ItemKind::Clock)) DismissCalendarPopup(false, true);
-    if (weather_.Shown() != d.Has(ItemKind::Weather)) {
-        if (!d.Has(ItemKind::Weather)) DismissWeatherPopup(false, true);
+    if (!d.Has(ItemKind::Weather)) DismissWeatherPopup(false, true);
+    // The service runs while any dock has a weather item.
+    if (shared_->WeatherData().Shown() != shared_->AnyWeatherItem()) {
         weatherQuiet_ = true;
-        weather_.Configure(config_->weather, d.Has(ItemKind::Weather), hwnd_);
+        shared_->ConfigureWeather();
         weatherQuiet_ = false;
         OnWeatherChanged();
     }
@@ -2997,7 +3033,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
 
     items_ = std::move(next);
     // Active-app glow follows the foreground (committed by the redraw below).
-    if (GlowOf(config_->theme) == GlowMode::Active) UpdateGlows(motion_.labelFade);
+    if (GlowOf(DockTheme()) == GlowMode::Active) UpdateGlows(motion_.labelFade);
     // Indices changed under a drag: drop it (no animation; the icons settle in the new layout).
     const bool abortDrag = structural && dragPhase_ == DragPhase::Dragging;
     if (abortDrag) AbortDrag();
@@ -3025,7 +3061,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     UpdateIconUsage();
     ScheduleBounceTimer();
     if (landed && !CursorInZone()) TryCompact();  // no bounce timer left to do it
-    watch_.Poke();  // windows came or went: the foreground one may have changed
+    if (watching_) shared_->Watch().Poke();  // windows came or went: the foreground one may have changed
 }
 
 int DockWindow::IndexOfWindow(HWND hwnd) const {
@@ -3265,7 +3301,7 @@ void DockWindow::UpdateIconUsage() {
 // cancels: everything slides back.
 
 size_t DockWindow::ConfigIndexOfItem(size_t itemIndex) const {
-    const size_t end = config_->Main().PinCount();
+    const size_t end = DockCfg().PinCount();
     if (itemIndex >= items_.size() || !items_[itemIndex].pinned) return end;
     const AppKey& key = items_[itemIndex].key;
     for (size_t i = 0; i < pins_.size() && i < end; ++i) {
@@ -3640,7 +3676,7 @@ void DockWindow::EndDrag(bool commit) {
     if (moveFrom != SIZE_MAX && pinRequests_.moveItem) pinRequests_.moveItem(moveFrom, moveTo);
     if (!running.empty()) {
         runningOrder_ = std::move(running);
-        Rebuild(tracker_.Current());
+        RebuildFrom(shared_->Tracker().Current());
     }
     SetHold(false);  // starts the hide delay if the mouse is no longer on the dock
     POINT cursor{};
@@ -3760,7 +3796,7 @@ HRESULT DockWindow::RenderMarker() {
     const UINT h = static_cast<UINT>(layout_.iconPx);
     const D2D1_SIZE_F size = layout_.PhysSize(static_cast<float>(w), static_cast<float>(h));
     if (marker_.width == static_cast<UINT>(size.width) && marker_.height == static_cast<UINT>(size.height)) return S_OK;
-    const D2D1_COLOR_F color = Theme::ToColor(config_->theme.accent);
+    const D2D1_COLOR_F color = Theme::ToColor(DockTheme().accent);
     return DrawCanonical(marker_, static_cast<float>(w), static_cast<float>(h), [&](ID2D1DeviceContext* dc) {
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
         if (FAILED(dc->CreateSolidColorBrush(color, brush.put()))) return;
@@ -3791,7 +3827,7 @@ DockWindow::DropMode DockWindow::DropModeAt(float stageX, int* item, int* gap) c
         }
     }
     // A locked dock pins nothing (open with / recycle still work): the no-drop cursor.
-    if (!dropPinnable_ || items_.empty() || config_->Main().locked) return DropMode::None;
+    if (!dropPinnable_ || items_.empty() || DockCfg().locked) return DropMode::None;
     *gap = DropGapIndex(stageX);
     return *gap >= 0 ? DropMode::Insert : DropMode::None;  // no pin and no running app: nowhere to insert
 }
@@ -3960,15 +3996,33 @@ void DockWindow::OnDropAction() {
 // taskbar is restored, and the crash filter (EmergencyRemoveAppBar).
 
 namespace {
-std::atomic<HWND> g_appBarHwnd{nullptr};  // the registered dock window (crash path)
+// The registered dock windows (crash path; one slot per reserving dock).
+constexpr size_t kMaxAppBars = 32;
+std::atomic<HWND> g_appBarHwnds[kMaxAppBars]{};
+
+void RememberAppBar(HWND hwnd) {
+    for (auto& slot : g_appBarHwnds) {
+        HWND expected = nullptr;
+        if (slot.compare_exchange_strong(expected, hwnd)) return;
+    }
+}
+
+void ForgetAppBar(HWND hwnd) {
+    for (auto& slot : g_appBarHwnds) {
+        HWND expected = hwnd;
+        if (slot.compare_exchange_strong(expected, nullptr)) return;
+    }
+}
 }  // namespace
 
 void DockWindow::EmergencyRemoveAppBar() {
-    HWND h = g_appBarHwnd.exchange(nullptr);
-    if (!h) return;
-    APPBARDATA abd{sizeof(abd)};
-    abd.hWnd = h;
-    SHAppBarMessage(ABM_REMOVE, &abd);
+    for (auto& slot : g_appBarHwnds) {
+        HWND h = slot.exchange(nullptr);
+        if (!h) continue;
+        APPBARDATA abd{sizeof(abd)};
+        abd.hWnd = h;
+        SHAppBarMessage(ABM_REMOVE, &abd);
+    }
 }
 
 void DockWindow::AllowAppBar(bool allow) {
@@ -3981,34 +4035,43 @@ void DockWindow::AllowAppBar(bool allow) {
 }
 
 RECT DockWindow::AppBarRect() const {
-    // The bar's band from the screen edge (full-width bars have no margin).
+    // The resting bar's band from the screen edge (its margin included: full-width bars have
+    // none), along the whole edge of the monitor (an app bar reserves whole edges anyway).
     const Layout& l = layout_;
-    return StageToScreen(l.bar.left, l.bar.top, l.bar.right, l.stageCross, true);
+    RECT r = StageToScreen(l.bar.left, l.bar.top, l.bar.right, l.stageCross, true);
+    if (l.vertical) {
+        r.top = l.monitor.top;
+        r.bottom = l.monitor.bottom;
+    } else {
+        r.left = l.monitor.left;
+        r.right = l.monitor.right;
+    }
+    return r;
 }
 
 void DockWindow::UpdateAppBar() {
-    const DockConfig& d = config_->Main();
-    const bool wanted = hwnd_ && appBarAllowed_ && d.fullWidth && d.reserveSpace && !d.AutoHideOn();
+    const DockConfig& d = DockCfg();
+    // Any edge, full width or not; only a dock that does not auto-hide reserves space.
+    const bool wanted = hwnd_ && appBarAllowed_ && d.reserveSpace && !d.AutoHideOn();
     if (!wanted) {
         RemoveAppBar();
         return;
     }
-    static bool busy = false;  // ABM_SETPOS broadcasts WM_SETTINGCHANGE, which relayouts (re-enters)
-    if (busy) return;
+    if (appBarBusy_) return;  // ABM_SETPOS broadcasts WM_SETTINGCHANGE, which relayouts (re-enters)
     const RECT rect = AppBarRect();
     if (appBar_ && EqualRect(&rect, &appBarRect_)) return;
-    busy = true;
+    appBarBusy_ = true;
     APPBARDATA abd{sizeof(abd)};
     abd.hWnd = hwnd_;
     if (!appBar_) {
         abd.uCallbackMessage = kAppBarMessage;
         if (!SHAppBarMessage(ABM_NEW, &abd)) {
             Log(L"ABM_NEW", E_FAIL);
-            busy = false;
+            appBarBusy_ = false;
             return;
         }
         appBar_ = true;
-        g_appBarHwnd = hwnd_;
+        RememberAppBar(hwnd_);
     }
     static const UINT kEdges[] = {ABE_BOTTOM, ABE_TOP, ABE_LEFT, ABE_RIGHT};
     const Layout& l = layout_;
@@ -4037,7 +4100,7 @@ void DockWindow::UpdateAppBar() {
     appBarRect_ = rect;
     if (appBarChanged_) appBarChanged_(true, l.monitor, work);
     SHAppBarMessage(ABM_SETPOS, &abd);
-    busy = false;
+    appBarBusy_ = false;
 }
 
 void DockWindow::RemoveAppBar() {
@@ -4048,7 +4111,7 @@ void DockWindow::RemoveAppBar() {
     APPBARDATA abd{sizeof(abd)};
     abd.hWnd = hwnd_;
     SHAppBarMessage(ABM_REMOVE, &abd);
-    g_appBarHwnd = nullptr;
+    ForgetAppBar(hwnd_);
     if (fullscreenApp_) {
         fullscreenApp_ = false;
         AssertTopmost();
@@ -4187,7 +4250,7 @@ void DockWindow::EndDockDrag(bool commit) {
         }
         return S_OK;
     });
-    const DockConfig& d = config_->Main();
+    const DockConfig& d = DockCfg();
     POINT pt{};
     if (!commit || !pinRequests_.moveDock || !GetCursorPos(&pt)) {
         Relayout();  // back to where it was
@@ -4307,7 +4370,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                    (backdropPending_ ? 1 : 0) + (dragPending_ ? 1 : 0) + (removePending_ ? 1 : 0) +
                    (previewPending_ ? 1 : 0) + (previewLeavePending_ ? 1 : 0) + (preview_.FadePending() ? 1 : 0) +
                    (folder_.FadePending() ? 1 : 0) + (weatherPopup_.FadePending() ? 1 : 0) +
-                   (calendar_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (watch_.Pending() ? 1 : 0);
+                   (calendar_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (watching_ && shared_->Watch().Pending() ? 1 : 0);
         case 6:
             return acrylic_ ? 1 : 0;
         case 7:
@@ -4325,17 +4388,17 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 13:
             return reinterpret_cast<LRESULT>(preview_.CardWindow(static_cast<size_t>(lp)));
         case 14:
-            return static_cast<LRESULT>(config_->Main().autoHide);  // 0 off, 1 always, 2 intelligent
+            return static_cast<LRESULT>(DockCfg().autoHide);  // 0 off, 1 always, 2 intelligent
         case 15:
             return overlapped_ ? 1 : 0;
         case 17:
             return motion_.reduce ? 1 : 0;
         case 19:
-            return static_cast<LRESULT>(watch_.AcceptedEvents());
+            return static_cast<LRESULT>(shared_->Watch().AcceptedEvents());
         case 20:
             return config_->themeResolveFailed ? 1 : 0;
         case 21:
-            return static_cast<LRESULT>(watch_.DeliveredEvents());
+            return static_cast<LRESULT>(shared_->Watch().DeliveredEvents());
         case 22:
             return folder_.Visible() ? 1 : 0;
         case 23:
@@ -4343,30 +4406,31 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 26:
             return dropActive_ ? static_cast<LRESULT>(dropMode_) : 0;
         case 27:
-            return static_cast<LRESULT>(weather_.State());
+            return static_cast<LRESULT>(Weather().State());
         case 28: {
-            const WeatherService::Forecast& data = weather_.Data();
-            if (!weather_.Active() || !data.valid || !std::isfinite(data.temp)) return INT_MIN;
+            const WeatherService& weather = Weather();
+            const WeatherService::Forecast& data = weather.Data();
+            if (!weather.Active() || !data.valid || !std::isfinite(data.temp)) return INT_MIN;
             return static_cast<LRESULT>(std::lround(data.temp * 10.0));
         }
         case 29:
             return weatherPopup_.Visible() ? 1 : 0;
         case 30:
-            return weather_.Active() ? static_cast<LRESULT>(weather_.Age()) : -1;
+            return Weather().Active() ? static_cast<LRESULT>(Weather().Age()) : -1;
         case 31:
             return calendar_.Visible() ? 1 : 0;
         case 36:
-            return config_->Main().locked ? 1 : 0;
+            return DockCfg().locked ? 1 : 0;
         case 38:
             return static_cast<LRESULT>(layout_.edge);  // the edge laid out (0 bottom, 1 top, 2 left, 3 right)
         case 39:
-            return static_cast<LRESULT>(config_->Main().align);  // 0 center, 1 start, 2 end
+            return static_cast<LRESULT>(DockCfg().align);  // 0 center, 1 start, 2 end
         case 40:
-            return static_cast<LRESULT>(config_->Main().offset);  // DIPs
+            return static_cast<LRESULT>(DockCfg().offset);  // DIPs
         case 41:
             return layout_.fullWidth ? 1 : 0;
         case 42:
-            return config_->Main().reserveSpace ? 1 : 0;
+            return DockCfg().reserveSpace ? 1 : 0;
         case 43:
             return appBar_ ? 1 : 0;
         case 44:
@@ -4374,7 +4438,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 45:
             return titleLayout_ && title_.width > 0 ? 1 : 0;
         case 46:
-            return !dockDrag_ ? 0 : dockZone_ == config_->Main().edge ? 1 : 2;
+            return !dockDrag_ ? 0 : dockZone_ == DockCfg().edge ? 1 : 2;
         case 37:
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             return static_cast<LRESULT>(items_[static_cast<size_t>(lp)].element);
@@ -4383,7 +4447,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const bool glow = std::any_of(items_.begin(), items_.end(), [](const DockItem& i) { return i.glow.width > 0; });
             const bool reflection =
                 std::any_of(items_.begin(), items_.end(), [](const DockItem& i) { return i.reflection.width > 0; });
-            if (glow && GlowOf(config_->theme) != GlowMode::Off) mask |= 1;
+            if (glow && GlowOf(DockTheme()) != GlowMode::Off) mask |= 1;
             if (reflection && (layout_.reflH > 0.0f || layout_.reflClip)) mask |= 2;
             if (perspectiveApplied_) mask |= 4;
             return mask;
@@ -4431,9 +4495,6 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         LRESULT result = 0;
         if (hook_(hwnd_, msg, wp, lp, result)) return result;
     }
-    if (tracker_.HandleMessage(msg, wp, lp)) return 0;
-    if (watch_.HandleMessage(msg, wp, lp)) return 0;
-    if (weather_.HandleMessage(msg, wp, lp)) return 0;  // fetch results, the refresh timer
     if (msgQueryItem_ && msg == msgQueryItem_) return QueryItemPoint(wp, lp);
     if (msgQueryState_ && msg == msgQueryState_) return QueryState(wp, lp);
 
@@ -4471,9 +4532,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (hideState_ == HideState::Hidden) {
                 // On the reveal strip.
-                if (revealArmed_ && config_->Main().AutoHideOn() && !revealPending_) {
+                if (revealArmed_ && DockCfg().AutoHideOn() && !revealPending_) {
                     SetTimer(hwnd_, kRevealTimerId,
-                             std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(config_->Main().revealDelayMs)), nullptr);
+                             std::max<UINT>(USER_TIMER_MINIMUM, static_cast<UINT>(DockCfg().revealDelayMs)), nullptr);
                     revealPending_ = true;
                 }
                 return 0;
@@ -4519,7 +4580,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             pressPt_ = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
             pressed_ = dragPhase_ == DragPhase::None ? HitTest(pressPt_) : -1;
             // Ctrl + press on the bar of an unlocked dock: moving on drags the whole dock.
-            dockPress_ = (wp & MK_CONTROL) && !config_->Main().locked && dragPhase_ == DragPhase::None &&
+            dockPress_ = (wp & MK_CONTROL) && !DockCfg().locked && dragPhase_ == DragPhase::None &&
                          hideState_ == HideState::Shown && InZone(pressPt_) && GetCursorPos(&dockPressScreen_);
             // The capture from the press on: a quick first move may already leave the dock.
             if (dockPress_) SetCapture(hwnd_);
@@ -4761,9 +4822,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DESTROY:
             RemoveAppBar();  // never leave a registration behind
             appBarAllowed_ = false;
-            tracker_.Stop();
-            watch_.Stop();
-            weather_.Stop();  // a fetch still in flight posts to a window that is gone (and frees it)
+            SetWatchingForeground(false);
             overlapped_ = false;
             if (dropTarget_) {
                 RevokeDragDrop(hwnd_);
@@ -4806,7 +4865,6 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             elements_.clear();  // their text layouts (the clock's, the weather's)
             icons_.Shutdown();
             renderer_.Shutdown();
-            PostQuitMessage(0);
             return 0;
 
         default:

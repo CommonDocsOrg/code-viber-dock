@@ -64,7 +64,7 @@ public:
     void Configure() override {
         const Config& c = host_.Cfg();
         clock_.Configure(Clock::EffectiveFormat(c.clock.format, c.clock.showSeconds), c.clock.showDate);
-        clock_.SetColors(c.theme.clockText, c.theme.clockDateText);
+        clock_.SetColors(host_.DockTheme().clockText, host_.DockTheme().clockDateText);
     }
     void Start() override {
         if (host_.Hwnd()) clock_.ScheduleNextTick(host_.Hwnd(), ElementHost::kClockTimerId);
@@ -177,7 +177,7 @@ public:
     HRESULT Render(Renderer& r, Layer& content, const LayoutContext& ctx) override {
         if (size_.width == 0 || size_.height == 0) return r.DrawLayer(content, 0, 0, {});
         const Config& c = host_.Cfg();
-        const ThemeConfig& theme = c.theme;
+        const ThemeConfig& theme = host_.DockTheme();
         const float h = static_cast<float>(size_.height);
         const float glyph = std::round((DateShown() ? kWeatherGlyph - 2.0f : kWeatherGlyph) * ctx.scale);
         const WeatherService& weather = host_.Weather();
@@ -236,7 +236,7 @@ private:
     // The clock shows its date under the time: the widget uses the smaller glyph and font.
     bool DateShown() const {
         const Config& c = host_.Cfg();
-        return c.Main().Has(ItemKind::Clock) && c.clock.showDate;
+        return host_.DockCfg().Has(ItemKind::Clock) && c.clock.showDate;
     }
 
     bool vertical_ = false;  // measured for a vertical dock: the glyph above the temperature

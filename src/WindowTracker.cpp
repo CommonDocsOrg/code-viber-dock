@@ -37,6 +37,19 @@ BOOL CALLBACK CollectTopLevel(HWND hwnd, LPARAM lp) {
     return TRUE;
 }
 
+// The monitor a window's centre is on (a minimized window: its restored rect's centre).
+HMONITOR MonitorOfWindow(HWND hwnd) {
+    RECT r{};
+    if (IsIconic(hwnd)) {
+        WINDOWPLACEMENT wp{sizeof(wp)};
+        if (GetWindowPlacement(hwnd, &wp)) r = wp.rcNormalPosition;  // workspace coordinates: close enough
+    } else {
+        GetWindowRect(hwnd, &r);
+    }
+    return MonitorFromPoint(POINT{r.left + (r.right - r.left) / 2, r.top + (r.bottom - r.top) / 2},
+                            MONITOR_DEFAULTTONEAREST);
+}
+
 }  // namespace
 
 void WindowTracker::Start(HWND owner, ChangeFn onChange) {
@@ -205,6 +218,7 @@ void WindowTracker::Reconcile() {
         for (const Tracked& t : windows_) {
             if (t.key != k) continue;
             g.windows.push_back(t.hwnd);
+            g.monitors.push_back(MonitorOfWindow(t.hwnd));
             if (flashing_.contains(t.hwnd)) g.wantsAttention = true;
         }
         snap.groups.push_back(std::move(g));

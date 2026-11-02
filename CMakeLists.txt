@@ -19,6 +19,7 @@ add_executable(WinDock WIN32
   src/Config.cpp
   src/Theme.cpp
   src/DockWindow.cpp
+  src/DockManager.cpp
   src/DockElement.cpp
   src/WidgetElements.cpp
   src/Backdrop.cpp
@@ -48,6 +49,7 @@ add_executable(WinDock WIN32
   src/SettingsPagesAppearance.cpp
   src/SettingsPagesMore.cpp
   src/SettingsPagesWeather.cpp
+  src/SettingsPagesDocks.cpp
   src/SettingsPreview.cpp
   res/app.rc
   res/app.manifest

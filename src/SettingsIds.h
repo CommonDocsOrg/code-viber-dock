@@ -19,7 +19,8 @@ inline constexpr int kPagePinned = 4;   // "Dock contents" (was "Pinned apps")
 inline constexpr int kPageDockContents = kPagePinned;
 inline constexpr int kPageAbout = 5;
 inline constexpr int kPageWeather = 6;  // appended after About (pages are shown in index order)
-inline constexpr int kPageCount = 7;
+inline constexpr int kPageDocks = 7;    // round 4 phase 3: the list of docks; picks the dock the other pages edit
+inline constexpr int kPageCount = 8;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -93,6 +94,9 @@ inline constexpr int kPeekOpacitySpin = 2158;
 inline constexpr int kTitleLabel = 2159;
 inline constexpr int kTitleEdit = 2160;        // docks[].title; applied on Enter / focus loss
 inline constexpr int kPositionNote2 = 2161;
+// Round 4 phase 3.
+inline constexpr int kRunningMonitorOnly = 2162;        // check box: docks[].runningFilter "monitor" (+ caption 2163)
+inline constexpr int kRunningMonitorOnlyCaption = 2163;
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;
@@ -159,6 +163,9 @@ inline constexpr int kSectionFieldsPreviews = 2415;
 inline constexpr int kSectionFieldsOther = 2416;
 inline constexpr int kSectionFieldsEffects = 2417;  // "Icon effects": glow, reflection, perspective
 inline constexpr int kEffectsNote = 2418;
+// Round 4 phase 3: the edited dock's own theme preset (docks[].themePreset).
+inline constexpr int kDockThemeLabel = 2419;
+inline constexpr int kDockThemeCombo = 2420;     // 0 "Same as all docks" (""), then the presets / theme files of kThemeCombo
 
 // One row per Theme::Field (Theme::Fields() order): id = FieldRow(field index, part).
 inline constexpr int kFieldRowBase = 3000;
@@ -257,5 +264,15 @@ inline constexpr int kWeatherRefreshNow = 2723;    // "Refresh now" (= DockComma
 inline constexpr int kWeatherStatusLabel = 2724;
 inline constexpr int kWeatherStatus = 2725;        // "Updated 10:15", "(stale)", "Not configured", "Error: …"
 inline constexpr int kWeatherCredit = 2726;        // SysLink: Open-Meteo (CC BY 4.0)
+
+// Docks (2800 - 2899; round 4 phase 3)
+inline constexpr int kDocksList = 2800;       // SysListView32 (report): Id, Edge, Display, Windows; one row per docks[]; the selected row is the dock the other pages edit
+inline constexpr int kDockAdd = 2801;         // "Add dock" (bottom, primary display, running apps + clock)
+inline constexpr int kDockDuplicate = 2802;   // copies the selected dock (new id)
+inline constexpr int kDockRemove = 2803;      // removes the selected dock (disabled for the last one)
+inline constexpr int kDocksNote = 2804;
+inline constexpr int kDockEditing = 2805;     // "The other pages edit: <id>"
+inline constexpr int kLockAllDocks = 2806;    // "Lock all docks" (= DockCommand 124)
+inline constexpr int kUnlockAllDocks = 2807;  // "Unlock all docks" (= DockCommand 125)
 
 }  // namespace SettingsIds

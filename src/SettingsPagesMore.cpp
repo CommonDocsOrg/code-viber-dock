@@ -301,7 +301,7 @@ protected:
     }
 
     void Load() override {
-        SetCheck(kLockDock, Cfg().Main().locked);
+        SetCheck(kLockDock, Cfg().Edit().locked);
         FillList(Selected());
     }
 
@@ -312,7 +312,7 @@ protected:
 
     void OnCommand(int id, int code, HWND) override {
         if (code != BN_CLICKED) return;
-        DockConfig& dock = Cfg().Main();
+        DockConfig& dock = Cfg().Edit();
         const int sel = Selected();
         const int n = static_cast<int>(dock.items.size());
         const bool valid = sel >= 0 && sel < n;
@@ -338,7 +338,7 @@ protected:
                 break;
             case kPinChooseIcon:
             case kPinChooseImage:
-                if (valid && Cfg().Main().items[static_cast<size_t>(sel)].IsPin()) ChooseIcon(sel, id == kPinChooseImage);
+                if (valid && Cfg().Edit().items[static_cast<size_t>(sel)].IsPin()) ChooseIcon(sel, id == kPinChooseImage);
                 break;
             case kPinResetIcon:
                 if (!valid || !dock.items[static_cast<size_t>(sel)].IsPin() || dock.items[static_cast<size_t>(sel)].icon.empty()) {
@@ -387,12 +387,12 @@ private:
 
     // The row of pin k (DockConfig::PinIndexes), or -1.
     int RowOfPin(size_t k) {
-        const std::vector<size_t> idx = Cfg().Main().PinIndexes();
+        const std::vector<size_t> idx = Cfg().Edit().PinIndexes();
         return k < idx.size() ? static_cast<int>(idx[k]) : -1;
     }
     // The pin index of row `row` (a pin kind), or SIZE_MAX.
     size_t PinOfRow(int row) {
-        const std::vector<size_t> idx = Cfg().Main().PinIndexes();
+        const std::vector<size_t> idx = Cfg().Edit().PinIndexes();
         for (size_t k = 0; k < idx.size(); ++k) {
             if (static_cast<int>(idx[k]) == row) return k;
         }
@@ -422,7 +422,7 @@ private:
 
     void UpdateButtons() {
         const int sel = Selected();
-        const DockConfig& dock = Cfg().Main();
+        const DockConfig& dock = Cfg().Edit();
         const int n = static_cast<int>(dock.items.size());
         const DockItemEntry* e = sel >= 0 && sel < n ? &dock.items[static_cast<size_t>(sel)] : nullptr;
         const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
@@ -442,7 +442,7 @@ private:
     // Settings… of a row: the clock -> General, the weather -> Weather, the running apps ->
     // Behaviour (previews, middle click, wheel), an app / folder / the Recycle Bin -> Choose icon….
     void OpenItemSettings(int row) {
-        switch (Cfg().Main().items[static_cast<size_t>(row)].Kind()) {
+        switch (Cfg().Edit().items[static_cast<size_t>(row)].Kind()) {
             case ItemKind::Clock: Window().ShowPage(kPageGeneral); break;
             case ItemKind::Weather: Window().ShowPage(kPageWeather); break;
             case ItemKind::Running: Window().ShowPage(kPageBehaviour); break;
@@ -461,7 +461,7 @@ private:
         constexpr UINT kClock = 1, kWeather = 2, kRunning = 3;
         AppendMenuW(menu, MF_STRING, kClock, L"Clock");
         AppendMenuW(menu, MF_STRING, kWeather, L"Weather");
-        AppendMenuW(menu, MF_STRING | (Cfg().Main().Has(ItemKind::Running) ? MF_GRAYED : 0), kRunning, L"Running apps");
+        AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Running) ? MF_GRAYED : 0), kRunning, L"Running apps");
         RECT r{};
         GetWindowRect(button, &r);
         const UINT cmd = static_cast<UINT>(
@@ -469,7 +469,7 @@ private:
         DestroyMenu(menu);
         if (cmd == 0) return;
         const ItemKind kind = cmd == kClock ? ItemKind::Clock : cmd == kWeather ? ItemKind::Weather : ItemKind::Running;
-        const size_t at = Cfg().Main().AddWidget(kind);
+        const size_t at = Cfg().Edit().AddWidget(kind);
         if (at == SIZE_MAX) {
             MessageBeep(MB_ICONWARNING);
             return;
@@ -577,7 +577,7 @@ private:
         if (!list) return;
         static const std::vector<AppIdentity::ResolvedPin> kNone;
         const auto& pins = Host().pins ? Host().pins() : kNone;
-        const std::vector<DockItemEntry>& items = Cfg().Main().items;
+        const std::vector<DockItemEntry>& items = Cfg().Edit().items;
         SendMessageW(list, WM_SETREDRAW, FALSE, 0);
         ListView_DeleteAllItems(list);
         if (images_) ImageList_RemoveAll(images_);
@@ -681,17 +681,17 @@ private:
     // Pins the paths after the last pin (skipping apps already pinned) and selects the last new one.
     void PinPaths(const std::vector<std::wstring>& paths) {
         if (paths.empty() || !Host().pinFiles) return;
-        const size_t before = Cfg().Main().PinCount();
+        const size_t before = Cfg().Edit().PinCount();
         Host().pinFiles(paths);  // reloads the dock and saves
         Window().ConfigApplied();
-        const size_t after = Cfg().Main().PinCount();
+        const size_t after = Cfg().Edit().PinCount();
         FillList(after > before ? RowOfPin(after - 1) : Selected());
     }
 
     // Choose icon… / Choose image… for the pin in row `row` (not separators).
     void ChooseIcon(int row, bool image) {
         const size_t k = PinOfRow(row);
-        const std::vector<DockItemEntry> pinned = Cfg().Main().Pins();
+        const std::vector<DockItemEntry> pinned = Cfg().Edit().Pins();
         if (k >= pinned.size()) return;
         const DockItemEntry before = pinned[k];
         if (before.Kind() == ItemKind::Separator) return;
@@ -710,7 +710,7 @@ private:
         if (!ok) return;
         // The list may have changed while the dialog was open (a drag on the dock): only the
         // same entry at the same place gets the icon.
-        DockConfig& now = Cfg().Main();
+        DockConfig& now = Cfg().Edit();
         if (k >= now.PinCount()) return;
         DockItemEntry& e = now.PinAt(k);
         if (e.path != before.path || e.aumid != before.aumid || e.kind != before.kind) {

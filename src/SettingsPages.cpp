@@ -87,18 +87,20 @@ protected:
         Label(kIconSizeLabel, L"Icon size");
         Trackbar(kIconSizeTrack, kColX - 6, 212, 16, kMaxTrackIconSize, 8);
         IntSpin(kIconSizeEdit, kIconSizeSpin, kColX + 216, 72, 16, 256, 4,
-                [](Config& c) -> int& { return c.Main().iconSize; }, SettingsScope::Appearance);
+                [](Config& c) -> int& { return c.Edit().iconSize; }, SettingsScope::Appearance);
         NextRow();
         Label(kMagnifyLabel, L"Magnification");
         Trackbar(kMagnifyTrack, kColX - 6, 212, 20, 50, 2);
         Text(kMagnifyValue, CtlKind::Value, L"", kColX + 216, 72);
         NextRow();
         Label(kRangeLabel, L"Magnification range (icons)");
-        IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config& c) -> int& { return c.Main().magnifyRange; },
+        IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config& c) -> int& { return c.Edit().magnifyRange; },
                 SettingsScope::Appearance);
         NextRow();
         Label(kMonitorLabel, L"Display");
         Combo(kMonitorCombo, kColX, right - kColX, false);
+        NextRow();
+        Check(kRunningMonitorOnly, kRunningMonitorOnlyCaption, L"Show only the windows on this dock's display");
         NextRow();
 
         Section(kSectionPosition, L"Position");
@@ -110,7 +112,7 @@ protected:
         NextRow();
         Label(kOffsetLabel, L"Offset (pixels)");
         IntSpin(kOffsetEdit, kOffsetSpin, kColX, 88, -16000, 16000, 10,
-                [](Config& c) -> int& { return c.Main().offset; }, SettingsScope::Appearance);
+                [](Config& c) -> int& { return c.Edit().offset; }, SettingsScope::Appearance);
         NextRow(kRowH);
         Text(kPositionNote, CtlKind::Note,
              L"Moves the dock along its edge from the aligned place (right / down). Ctrl+drag the dock to move it "
@@ -119,11 +121,10 @@ protected:
         NextRow(56);
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
         NextRow();
-        Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)",
-              kMargin + 24);
+        Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
         NextRow();
         Label(kPeekLabel, L"Peek when hidden (pixels)");
-        IntSpin(kPeekEdit, kPeekSpin, kColX, 72, 0, 64, 2, [](Config& c) -> int& { return c.Main().peekPx; },
+        IntSpin(kPeekEdit, kPeekSpin, kColX, 72, 0, 64, 2, [](Config& c) -> int& { return c.Edit().peekPx; },
                 SettingsScope::Appearance);
         NextRow();
         Label(kPeekOpacityLabel, L"Peek opacity (%)");
@@ -133,10 +134,11 @@ protected:
         EditBox(kTitleEdit, kColX, right - kColX, 128);
         NextRow(kRowH);
         Text(kPositionNote2, CtlKind::Note,
-             L"Space is reserved only by a full-width dock with auto-hide off. Peek keeps that much of the hidden "
-             L"dock on screen (0: off). The title is drawn beside the bar, toward the middle of the screen.",
-             kColX, right - kColX, 70);
-        NextRow(72);
+             L"Reserve screen space keeps maximized windows off the dock; reserves a strip along the whole edge "
+             L"(auto-hide off only). Peek keeps that much of the hidden dock on screen (0: off). The title is drawn "
+             L"beside the bar, toward the middle of the screen.",
+             kColX, right - kColX, 104);
+        NextRow(106);
 
         Section(kSectionClock, L"Clock");
         Check(kClockShow, kClockShowCaption, L"Show the clock");
@@ -187,26 +189,26 @@ protected:
     void Load() override {
         const Config& c = Cfg();
         LoadInts();
-        SetTrack(kIconSizeTrack, std::min(c.Main().iconSize, kMaxTrackIconSize));
-        const int mag = static_cast<int>(std::lround(c.Main().magnification * 20.0));
+        SetTrack(kIconSizeTrack, std::min(c.Edit().iconSize, kMaxTrackIconSize));
+        const int mag = static_cast<int>(std::lround(c.Edit().magnification * 20.0));
         SetTrack(kMagnifyTrack, mag);
         SetText(kMagnifyValue, FormatMagnification(mag));
         FillMonitors();
-        SetComboSel(kEdgeCombo, static_cast<int>(c.Main().edge));
-        SetComboSel(kAlignCombo, static_cast<int>(c.Main().align));
-        SetCheck(kFullWidth, c.Main().fullWidth);
-        SetCheck(kReserveSpace, c.Main().reserveSpace);
-        Enable(kReserveSpace, c.Main().fullWidth);
-        SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(c.Main().peekOpacity * 100.0)));
-        SetText(kTitleEdit, c.Main().title);
-        SetCheck(kClockShow, c.Main().Has(ItemKind::Clock));
+        SetCheck(kRunningMonitorOnly, c.Edit().runningFilter == RunningFilter::Monitor);
+        SetComboSel(kEdgeCombo, static_cast<int>(c.Edit().edge));
+        SetComboSel(kAlignCombo, static_cast<int>(c.Edit().align));
+        SetCheck(kFullWidth, c.Edit().fullWidth);
+        SetCheck(kReserveSpace, c.Edit().reserveSpace);
+        SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(c.Edit().peekOpacity * 100.0)));
+        SetText(kTitleEdit, c.Edit().title);
+        SetCheck(kClockShow, c.Edit().Has(ItemKind::Clock));
         SetText(kClockFormatCombo, c.clock.format);
         SetText(kClockPreview, ClockPreview(c.clock.format, c.clock.showSeconds));
         SetCheck(kClockSeconds, c.clock.showSeconds);
         SetCheck(kClockDate, c.clock.showDate);
         SetComboSel(kClockClickCombo, static_cast<int>(c.clock.click));
         SetText(kClockTargetEdit, c.clock.clickTarget);
-        EnableClock(c.Main().Has(ItemKind::Clock));
+        EnableClock(c.Edit().Has(ItemKind::Clock));
         SetCheck(kStartWithWindows, Host().autostartEnabled ? Host().autostartEnabled() : c.startWithWindows);
         SetCheck(kHideTaskbar, Host().taskbarHidden ? Host().taskbarHidden() : c.hideTaskbar);
         SetComboSel(kRendererCombo, c.renderer == L"software" ? 1 : 0);
@@ -225,15 +227,15 @@ protected:
         Config& c = Cfg();
         if (id == kIconSizeTrack) {
             SetSpin(kIconSizeSpin, pos);  // follows the thumb; applied on release
-            if (released && c.Main().iconSize != pos) {
-                c.Main().iconSize = pos;
+            if (released && c.Edit().iconSize != pos) {
+                c.Edit().iconSize = pos;
                 Changed(SettingsScope::Appearance);
             }
         } else if (id == kMagnifyTrack) {
             SetText(kMagnifyValue, FormatMagnification(pos));
             const double mag = pos / 20.0;
-            if (released && std::fabs(c.Main().magnification - mag) > 1e-9) {
-                c.Main().magnification = mag;
+            if (released && std::fabs(c.Edit().magnification - mag) > 1e-9) {
+                c.Edit().magnification = mag;
                 Changed(SettingsScope::Appearance);
             }
         }
@@ -244,40 +246,49 @@ protected:
         switch (id) {
             case kMonitorCombo:
                 if (code == CBN_SELCHANGE) {
+                    // The displays, then "Every display" (monitor "each").
                     const int sel = ComboSel(id);
-                    if (sel >= 0 && sel != c.Main().monitor) {
-                        c.Main().monitor = sel;
+                    const int count = static_cast<int>(SendMessageW(Item(id), CB_GETCOUNT, 0, 0));
+                    const int value = sel == count - 1 ? DockConfig::kMonitorEach : sel;
+                    if (sel >= 0 && value != c.Edit().monitor &&
+                        !(sel == 0 && c.Edit().monitor == DockConfig::kMonitorPrimary)) {
+                        c.Edit().monitor = value;
                         Changed(SettingsScope::Appearance);
                     }
+                }
+                break;
+            case kRunningMonitorOnly:
+                if (code == BN_CLICKED) {
+                    c.Edit().runningFilter = GetCheck(id) ? RunningFilter::Monitor : RunningFilter::All;
+                    Changed(SettingsScope::Pins);  // the dock rebuilds its items from the window list
                 }
                 break;
             case kEdgeCombo:
                 if (code == CBN_SELCHANGE) {
                     const int sel = ComboSel(id);
-                    if (sel >= 0 && sel <= 3 && static_cast<DockEdge>(sel) != c.Main().edge) {
-                        c.Main().edge = static_cast<DockEdge>(sel);
+                    if (sel >= 0 && sel <= 3 && static_cast<DockEdge>(sel) != c.Edit().edge) {
+                        c.Edit().edge = static_cast<DockEdge>(sel);
                         Changed(SettingsScope::Appearance);
                     }
                 }
                 break;
             case kFullWidth:
                 if (code == BN_CLICKED) {
-                    c.Main().fullWidth = GetCheck(id);
-                    Enable(kReserveSpace, c.Main().fullWidth);
-                    Changed(SettingsScope::Appearance);
+                    c.Edit().fullWidth = GetCheck(id);
+                                Changed(SettingsScope::Appearance);
                 }
                 break;
             case kReserveSpace:
                 if (code == BN_CLICKED) {
-                    c.Main().reserveSpace = GetCheck(id);
+                    c.Edit().reserveSpace = GetCheck(id);
                     Changed(SettingsScope::Appearance);
                 }
                 break;
             case kAlignCombo:
                 if (code == CBN_SELCHANGE) {
                     const int sel = ComboSel(id);
-                    if (sel >= 0 && sel <= 2 && static_cast<DockAlign>(sel) != c.Main().align) {
-                        c.Main().align = static_cast<DockAlign>(sel);
+                    if (sel >= 0 && sel <= 2 && static_cast<DockAlign>(sel) != c.Edit().align) {
+                        c.Edit().align = static_cast<DockAlign>(sel);
                         Changed(SettingsScope::Appearance);
                     }
                 }
@@ -285,8 +296,8 @@ protected:
             case kClockShow:
                 if (code == BN_CLICKED) {
                     // The clock is shown by a "clock" item: added at the end / every one removed.
-                    c.Main().Show(ItemKind::Clock, GetCheck(id));
-                    EnableClock(c.Main().Has(ItemKind::Clock));
+                    c.Edit().Show(ItemKind::Clock, GetCheck(id));
+                    EnableClock(c.Edit().Has(ItemKind::Clock));
                     Changed(SettingsScope::Appearance);
                 }
                 break;
@@ -356,8 +367,8 @@ protected:
         if (id == kTitleEdit) {
             std::wstring title = GetText(id);
             if (title.size() > 128) title.resize(128);
-            if (title != Cfg().Main().title) {
-                Cfg().Main().title = title;
+            if (title != Cfg().Edit().title) {
+                Cfg().Edit().title = title;
                 Changed(SettingsScope::Appearance);
             }
         }
@@ -366,7 +377,7 @@ protected:
             if (ReadInt(id, 5, 100, v)) {
                 SetPeekOpacity(v);
             } else {
-                SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(Cfg().Main().peekOpacity * 100.0)));
+                SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(Cfg().Edit().peekOpacity * 100.0)));
             }
         }
     }
@@ -379,8 +390,8 @@ protected:
         percent = std::clamp(percent, 5, 100);
         SetSpin(kPeekOpacitySpin, percent);
         const double v = percent / 100.0;
-        if (std::fabs(Cfg().Main().peekOpacity - v) < 1e-9) return;
-        Cfg().Main().peekOpacity = v;
+        if (std::fabs(Cfg().Edit().peekOpacity - v) < 1e-9) return;
+        Cfg().Edit().peekOpacity = v;
         Changed(SettingsScope::Appearance);
     }
 
@@ -442,14 +453,16 @@ private:
         HWND combo = Item(kMonitorCombo);
         if (!combo) return;
         std::vector<std::wstring> names = MonitorNames();
-        const int want = std::max(Cfg().Main().monitor, 0);
-        // A configured display that is not connected: the dock uses the primary meanwhile.
+        const int monitor = Cfg().Edit().monitor;
+        const int want = std::max(monitor, 0);  // "primary": the first entry
+        // A configured display that is not connected: the dock is parked until it is.
         for (int i = static_cast<int>(names.size()); i <= want; ++i) {
             names.push_back(L"Display " + std::to_wstring(i + 1) + L" (not connected)");
         }
+        names.push_back(L"Every display (one dock on each)");
         SendMessageW(combo, CB_RESETCONTENT, 0, 0);
         for (const std::wstring& n : names) ComboAdd(kMonitorCombo, n.c_str());
-        SetComboSel(kMonitorCombo, want);
+        SetComboSel(kMonitorCombo, monitor == DockConfig::kMonitorEach ? static_cast<int>(names.size()) - 1 : want);
     }
 };
 
@@ -470,13 +483,13 @@ protected:
             {kAutoHideIntelligent, kAutoHideIntelligentCaption, L"When a window overlaps the dock"},
         });
         Label(kHideDelayLabel, L"Hide delay");
-        IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50, [](Config& c) -> int& { return c.Main().hideDelayMs; },
+        IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50, [](Config& c) -> int& { return c.Edit().hideDelayMs; },
                 SettingsScope::SaveOnly);
         Text(kHideDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
         Label(kRevealDelayLabel, L"Reveal delay");
         IntSpin(kRevealDelayEdit, kRevealDelaySpin, kColX, 90, 0, 10000, 50,
-                [](Config& c) -> int& { return c.Main().revealDelayMs; }, SettingsScope::SaveOnly);
+                [](Config& c) -> int& { return c.Edit().revealDelayMs; }, SettingsScope::SaveOnly);
         Text(kRevealDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow(kRowH);
         Text(kAutoHideNote, CtlKind::Note, L"The dock stays shown while this window is active.", kMargin, right - kMargin, 20);
@@ -490,7 +503,7 @@ protected:
         NextRow();
         Label(kPreviewDelayLabel, L"Preview delay");
         IntSpin(kPreviewDelayEdit, kPreviewDelaySpin, kColX, 90, 0, 10000, 50,
-                [](Config& c) -> int& { return c.Main().previewDelayMs; }, SettingsScope::SaveOnly);
+                [](Config& c) -> int& { return c.Edit().previewDelayMs; }, SettingsScope::SaveOnly);
         Text(kPreviewDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
 
@@ -515,13 +528,13 @@ protected:
     void Load() override {
         const Config& c = Cfg();
         LoadInts();
-        SetCheck(kAutoHideOff, c.Main().autoHide == AutoHideMode::Off);
-        SetCheck(kAutoHideAlways, c.Main().autoHide == AutoHideMode::Always);
-        SetCheck(kAutoHideIntelligent, c.Main().autoHide == AutoHideMode::Intelligent);
-        SetCheck(kPreviews, c.Main().previews);
-        SetCheck(kPreviewSingle, c.Main().previewSingle);
-        SetComboSel(kMiddleClickCombo, static_cast<int>(c.Main().middleClick));
-        SetComboSel(kWheelCombo, static_cast<int>(c.Main().wheel));
+        SetCheck(kAutoHideOff, c.Edit().autoHide == AutoHideMode::Off);
+        SetCheck(kAutoHideAlways, c.Edit().autoHide == AutoHideMode::Always);
+        SetCheck(kAutoHideIntelligent, c.Edit().autoHide == AutoHideMode::Intelligent);
+        SetCheck(kPreviews, c.Edit().previews);
+        SetCheck(kPreviewSingle, c.Edit().previewSingle);
+        SetComboSel(kMiddleClickCombo, static_cast<int>(c.Edit().middleClick));
+        SetComboSel(kWheelCombo, static_cast<int>(c.Edit().wheel));
         EnableDependents();
     }
 
@@ -530,11 +543,11 @@ protected:
         if (code == CBN_SELCHANGE) {
             // Read by the dock at click / wheel time.
             const int sel = ComboSel(id);
-            if (id == kMiddleClickCombo && sel >= 0 && sel <= 3 && static_cast<MiddleClickAction>(sel) != c.Main().middleClick) {
-                c.Main().middleClick = static_cast<MiddleClickAction>(sel);
+            if (id == kMiddleClickCombo && sel >= 0 && sel <= 3 && static_cast<MiddleClickAction>(sel) != c.Edit().middleClick) {
+                c.Edit().middleClick = static_cast<MiddleClickAction>(sel);
                 Changed(SettingsScope::SaveOnly);
-            } else if (id == kWheelCombo && sel >= 0 && sel <= 1 && static_cast<WheelAction>(sel) != c.Main().wheel) {
-                c.Main().wheel = static_cast<WheelAction>(sel);
+            } else if (id == kWheelCombo && sel >= 0 && sel <= 1 && static_cast<WheelAction>(sel) != c.Edit().wheel) {
+                c.Edit().wheel = static_cast<WheelAction>(sel);
                 Changed(SettingsScope::SaveOnly);
             }
             return;
@@ -547,19 +560,19 @@ protected:
                 const AutoHideMode mode = id == kAutoHideOff      ? AutoHideMode::Off
                                           : id == kAutoHideAlways ? AutoHideMode::Always
                                                                   : AutoHideMode::Intelligent;
-                if (!GetCheck(id) || mode == c.Main().autoHide) break;
-                c.Main().autoHide = mode;
+                if (!GetCheck(id) || mode == c.Edit().autoHide) break;
+                c.Edit().autoHide = mode;
                 EnableDependents();
                 Changed(SettingsScope::AutoHide);
                 break;
             }
             case kPreviews:
-                c.Main().previews = GetCheck(id);
+                c.Edit().previews = GetCheck(id);
                 EnableDependents();
                 Changed(SettingsScope::SaveOnly);
                 break;
             case kPreviewSingle:
-                c.Main().previewSingle = GetCheck(id);  // read when the mouse rests on an app
+                c.Edit().previewSingle = GetCheck(id);  // read when the mouse rests on an app
                 Changed(SettingsScope::SaveOnly);
                 break;
             default:
@@ -570,10 +583,10 @@ protected:
 private:
     void EnableDependents() {
         const Config& c = Cfg();
-        Enable(kHideDelayEdit, c.Main().AutoHideOn());
-        Enable(kRevealDelayEdit, c.Main().AutoHideOn());
-        Enable(kPreviewDelayEdit, c.Main().previews);
-        Enable(kPreviewSingle, c.Main().previews);
+        Enable(kHideDelayEdit, c.Edit().AutoHideOn());
+        Enable(kRevealDelayEdit, c.Edit().AutoHideOn());
+        Enable(kPreviewDelayEdit, c.Edit().previews);
+        Enable(kPreviewSingle, c.Edit().previews);
     }
 };
 
@@ -677,5 +690,6 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
     pages.push_back(MakePinnedPage(window));  // kPagePinned
     pages.push_back(std::make_unique<AboutPage>(window));  // kPageAbout
     pages.push_back(MakeWeatherPage(window));  // kPageWeather (after About: the nav shows pages in index order)
+    pages.push_back(MakeDocksPage(window));    // kPageDocks
     return pages;
 }

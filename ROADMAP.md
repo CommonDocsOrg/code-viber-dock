@@ -59,6 +59,12 @@ Rules that keep us from redoing work:
 - Multi-monitor: no second display yet; Phase 3 is verified single-monitor (plus a mirrored
   "each" dock) and real two-display checks wait until one is plugged in.
 - Full-width mode: "Reserve screen space" is a user setting, default on.
+- Reserve screen space on every dock (2026-11-02): `reserveSpace` (default on) applies to any dock
+  on any edge with auto-hide "off", full width or not (auto-hide "always" / "intelligent" reserve
+  nothing, as in 2b). The band is the resting bar's cross extent and spans the whole edge (an app
+  bar cannot reserve part of one); magnification, labels and popups may still overlap windows.
+  Each dock instance reserves on its own monitor's edge and releases it when parked, switched to
+  auto-hide, removed, on quit and on the crash path.
 - Vertical docks: reflection is off on left / right edges, glow and tilt stay. New theme option
   `reflectionClip` (Phase 2): clip the reflection to the bar's normal height instead of growing
   the bar, so part of it stays visible without changing the dock's height.
@@ -141,6 +147,10 @@ popup knowing which.
   drag, drop, popup and preview scripts (parametrised by edge).
 
 ## Phase 3: multiple docks and monitors (foundation)
+
+Status: 3a done (2026-11-02): DockManager, N docks, monitors / "each" / parking, running filter,
+per-dock theme preset, lock all, dock-indexed automation, Docks page, reserve space on every dock;
+see STATUS.md. 3b (desktop-only layer, settings canvas) follows.
 
 Goal: N docks, each on a monitor or on every monitor, with filters and a lock.
 

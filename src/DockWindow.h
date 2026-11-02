@@ -27,6 +27,25 @@
 #include "WindowTracker.h"
 
 struct IDataObject;
+class DockWindow;
+
+// The services every dock shares (one per process, owned by DockManager): the window list, the
+// weather data, the foreground watch of intelligent auto-hide.
+class DockShared {
+public:
+    virtual WindowTracker& Tracker() = 0;
+    virtual WeatherService& WeatherData() = 0;
+    // Re-applies config.weather to the service; it runs while any dock has a weather item.
+    virtual void ConfigureWeather() = 0;
+    virtual bool AnyWeatherItem() const = 0;
+    virtual ForegroundWatch& Watch() = 0;
+    // A dock starts / stops needing the foreground watch (autoHide "intelligent"): the hooks run
+    // while at least one does, and every watching dock gets its overlap re-checked on an event.
+    virtual void SetWatching(DockWindow* dock, bool on) = 0;
+
+protected:
+    ~DockShared() = default;
+};
 
 // The dock HWND: placement, DPI, layout, input, magnification, hover label, auto-hide, and the
 // composition layers drawn into it. What it shows comes from its elements (DockElement.h, one per
@@ -103,7 +122,9 @@ public:
     // docks[0].reserveSpace; 43: 1 while registered as an app bar (reserving screen space); 44: the
     // peek strip's height in px (0: off; used while auto-hide hides the dock); 45: 1 while a title is drawn; 46: dock
     // drag (0 none, 1 moving the dock along its edge, 2 over another edge's zone: dropping there
-    // moves it to that edge).
+    // moves it to that edge). "docks[0]" above means this dock's own config entry. App answers 16
+    // and 47 - 51 (dock count, monitor index, parked, config index, window) and routes the others
+    // to the dock in HIWORD(lParam) (AppIpc in App.h).
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };
@@ -134,11 +155,28 @@ public:
     DockWindow& operator=(const DockWindow&) = delete;
     ~DockWindow();
 
-    // Creates the window, devices and visuals and shows the dock. Returns a failure HRESULT
-    // if the composition stack can't be created.
-    HRESULT Create(HINSTANCE instance, const Config* config, MessageHook hook);
+    // Creates the window, devices and visuals and shows the dock for config->docks[dockIndex] on
+    // `monitor`. Returns a failure HRESULT if the composition stack can't be created.
+    HRESULT Create(HINSTANCE instance, const Config* config, size_t dockIndex, HMONITOR monitor, DockShared* shared,
+                   MessageHook hook);
     void Destroy();
     HWND Hwnd() const override { return hwnd_; }
+    // The config dock this window shows (an index into config->docks; the manager re-points it
+    // when docks are added / removed).
+    size_t ConfigIndex() const { return dockIndex_; }
+    void SetConfigIndex(size_t index) { dockIndex_ = index; }
+    // The monitor the dock is laid out on. A new one relayouts (ApplyConfig).
+    HMONITOR Monitor() const { return monitor_; }
+    void SetMonitor(HMONITOR monitor);
+    // DockManager: the tracker's snapshot changed / the foreground watch fired / the weather changed.
+    void OnSnapshot(const WindowTracker::Snapshot& snap);
+    void OnWatchEvent() { OnOverlapCheck(); }
+    // The weather service's data or status changed: the weather elements redraw (DockEvent), the
+    // popup updates.
+    void OnWeatherChanged();
+    // Automation (WinDock.QueryItemPoint / WinDock.QueryState for this dock).
+    LRESULT QueryItemPoint(WPARAM wp, LPARAM lp) const;
+    LRESULT QueryState(WPARAM wp, LPARAM lp) const;
     void SetPinRequests(PinRequests requests) { pinRequests_ = std::move(requests); }
     // An icon is being dragged (or fading out after being dragged off the dock), or the dock itself.
     bool InDrag() const { return dragPhase_ != DragPhase::None || dockDrag_; }
@@ -212,15 +250,12 @@ public:
     // Re-reads config->weather (start / stop / restart the service) and relayouts if the widget's
     // size changed. Also part of ApplyConfig.
     void ApplyWeather();
-    // Fetches the weather now (DockCommand 111; no-op while off / unconfigured).
-    void RefreshWeather() { weather_.RefreshNow(); }
     // Shows / hides the click popup of the first item of `kind`: the forecast over the weather
     // widget, the month calendar over the clock (no-op without such an item).
     void TogglePopup(ItemKind kind);
-    const WeatherService& Weather() const override { return weather_; }
+    const WeatherService& Weather() const override { return shared_->WeatherData(); }
     struct WeatherCallbacks {
         std::function<void()> openSettings;  // the unconfigured widget was clicked: Settings > Weather
-        std::function<void()> changed;       // the weather data / status changed
     };
     void SetWeatherCallbacks(WeatherCallbacks callbacks) { weatherCallbacks_ = std::move(callbacks); }
 
@@ -374,9 +409,6 @@ private:
     HRESULT CreateItemVisuals(DockItem& item);
     void ResetLayers();
     HRESULT RenderBackground();
-    // The weather service's data or status changed: the weather elements redraw (DockEvent), the
-    // popup updates, the owner is told.
-    void OnWeatherChanged();
     HRESULT RenderItem(DockItem& item);
     // A widget slot: its element draws the content into the slot's icon surface.
     HRESULT RenderWidget(DockItem& item);
@@ -545,8 +577,17 @@ private:
     // Puts the (hidden) dock back on top of the z-order: a monitor-sized window that was just
     // activated can be placed above a topmost window and would bury the reveal strip.
     void AssertTopmost();
+    // Subscribes to / leaves the shared foreground watch.
+    void SetWatchingForeground(bool on) {
+        if (on == watching_ || !shared_) return;
+        watching_ = on;
+        shared_->SetWatching(this, on);
+    }
 
     void ResolvePins();
+    // The shared snapshot as this dock shows it (runningFilter "monitor": only the windows on its
+    // monitor), then Rebuild.
+    void RebuildFrom(const WindowTracker::Snapshot& snap);
     // Recreates elements_ from config->Main().items (call ResolvePins first; Rebuild after).
     void BuildElements();
     // ApplyConfig / ApplyWeather: the item list may have changed (the clock / weather toggles).
@@ -562,7 +603,10 @@ private:
 
     // --- ElementHost (what elements ask of the dock; Hwnd and Weather are public) ---
     const Config& Cfg() const override { return *config_; }
-    const DockConfig& DockCfg() const override { return config_->Main(); }
+    const DockConfig& DockCfg() const override {
+        return config_->docks[dockIndex_ < config_->docks.size() ? dockIndex_ : 0];
+    }
+    const ThemeConfig& DockTheme() const override { return config_->ThemeOf(DockCfg()); }
     void SlotWindows(int slot, WindowsCommand cmd) override;
     void OpenTarget(const std::wstring& target) override;
     void ActivateOrLaunch(int slot) override;
@@ -595,8 +639,6 @@ private:
     }
     // Rest slot left edge -> icon box left edge.
     float BoxInset(const DockItem& item) const { return item.Magnifies() ? std::floor(layout_.gap / 2.0f) : 0.0f; }
-    LRESULT QueryItemPoint(WPARAM wp, LPARAM lp) const;
-    LRESULT QueryState(WPARAM wp, LPARAM lp) const;
 
     // --- drag to reorder (Goal: macOS-style icon dragging) ---
     // Press on an item and move past the system drag threshold: the icon follows the cursor,
@@ -622,7 +664,7 @@ private:
     // widget).
     bool Droppable(size_t index) const { return !items_[index].IsWidget(); }
     // A press on slot `index` may start a drag: every slot, unless the dock is locked.
-    bool Draggable(size_t index) const { return index < items_.size() && !config_->Main().locked; }
+    bool Draggable(size_t index) const { return index < items_.size() && !DockCfg().locked; }
     // Gap slot (an index into items_, at most items_.size()) for an external drop at stage x: before
     // a pin, after the last pin, or (no pins) before the first running app; -1 if there is none.
     int DropGapIndex(float stageX) const;
@@ -729,8 +771,11 @@ private:
     float bgLeftTarget_ = 0.0f, bgRightTarget_ = 0.0f;
     float labelXTarget_ = 0.0f, labelYTarget_ = 0.0f;
 
-    WindowTracker tracker_;
-    bool tracking_ = false;  // tracker_ started (Create): item rebuilds wait for its first snapshot
+    size_t dockIndex_ = 0;          // config_->docks[dockIndex_] (DockCfg)
+    HMONITOR monitor_ = nullptr;    // the dock's monitor (null: the primary)
+    DockShared* shared_ = nullptr;  // the manager's shared services
+    bool tracking_ = false;  // Create has taken the tracker's first snapshot: item rebuilds wait for it
+    // Per dock (not shared): the bitmaps are resources of this dock's own D2D device.
     IconCache icons_;
     // One per config item of config->Main() (an unknown kind: null), in config order.
     std::vector<std::unique_ptr<DockElement>> elements_;
@@ -783,7 +828,7 @@ private:
     bool hidePending_ = false;
     bool revealPending_ = false;
     bool revealArmed_ = true;     // false until the cursor leaves the strip (no reveal loops)
-    ForegroundWatch watch_;       // running only with autoHide "intelligent"
+    bool watching_ = false;       // subscribed to the shared foreground watch (autoHide "intelligent")
     bool overlapped_ = false;     // intelligent: the foreground window overlaps the dock
 
     PinRequests pinRequests_;
@@ -791,6 +836,7 @@ private:
     // App bar
     bool appBarAllowed_ = false;  // AllowAppBar
     bool appBar_ = false;         // registered (ABM_NEW)
+    bool appBarBusy_ = false;     // inside UpdateAppBar (ABM_SETPOS broadcasts a relayout)
     RECT appBarRect_{};           // the rect last set (ABM_SETPOS)
     bool fullscreenApp_ = false;  // ABN_FULLSCREENAPP: a fullscreen app is open, the dock is not topmost
     std::function<void(bool, const RECT&, const RECT&)> appBarChanged_;
@@ -840,8 +886,7 @@ private:
     FolderPopup folder_;
     AppKey folderKey_;            // the folder item the popup shows (empty: none)
 
-    // The weather service (data of the weather elements), the forecast and calendar popups
-    WeatherService weather_;
+    // The forecast and calendar popups (the weather data is shared_->WeatherData())
     WeatherPopup weatherPopup_;
     CalendarPopup calendar_;
     WeatherCallbacks weatherCallbacks_;

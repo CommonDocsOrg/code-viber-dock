@@ -46,6 +46,8 @@ const wchar_t* const kWheelNames[] = {L"none", L"cycle"};
 const wchar_t* const kClockClickNames[] = {L"calendar", L"launch", L"none"};
 const wchar_t* const kEdgeNames[] = {L"bottom", L"top", L"left", L"right"};
 const wchar_t* const kAlignNames[] = {L"center", L"start", L"end"};
+const wchar_t* const kRunningFilterNames[] = {L"all", L"monitor"};
+const wchar_t* const kLayerNames[] = {L"normal", L"desktop"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather"};
 
@@ -90,6 +92,26 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadInt(o, L"peekPx", d.peekPx);
     ReadNumber(o, L"peekOpacity", d.peekOpacity);
     ReadString(o, L"title", d.title);
+    // "monitor": a number (ReadDockFields), or "primary" / "each".
+    if (auto m = Find(o, L"monitor"); m && m.ValueType() == json::JsonValueType::String) {
+        const std::wstring v(m.GetString());
+        if (CompareStringOrdinal(v.c_str(), -1, L"each", -1, TRUE) == CSTR_EQUAL) {
+            d.monitor = DockConfig::kMonitorEach;
+        } else if (CompareStringOrdinal(v.c_str(), -1, L"primary", -1, TRUE) == CSTR_EQUAL) {
+            d.monitor = DockConfig::kMonitorPrimary;
+        }
+    }
+    s.clear();
+    ReadString(o, L"runningFilter", s);
+    if (!s.empty()) FromString(s, d.runningFilter);  // unknown text: all
+    ReadString(o, L"themePreset", d.themePreset);
+}
+
+// docks[].monitor as JSON: the index, or "primary" / "each".
+std::wstring MonitorJson(int monitor) {
+    if (monitor == DockConfig::kMonitorEach) return L"\"each\"";
+    if (monitor == DockConfig::kMonitorPrimary) return L"\"primary\"";
+    return std::to_wstring(monitor);
 }
 
 // The path names a directory (environment variables expanded). A .lnk to a folder is not one:
@@ -135,6 +157,10 @@ const wchar_t* ToString(WheelAction v) { return EnumToString(v, kWheelNames); }
 const wchar_t* ToString(ClockClick v) { return EnumToString(v, kClockClickNames); }
 const wchar_t* ToString(DockEdge v) { return EnumToString(v, kEdgeNames); }
 const wchar_t* ToString(DockAlign v) { return EnumToString(v, kAlignNames); }
+const wchar_t* ToString(RunningFilter v) { return EnumToString(v, kRunningFilterNames); }
+const wchar_t* ToString(DockLayer v) { return EnumToString(v, kLayerNames); }
+bool FromString(std::wstring_view s, RunningFilter& v) { return EnumFromString(s, v, kRunningFilterNames); }
+bool FromString(std::wstring_view s, DockLayer& v) { return EnumFromString(s, v, kLayerNames); }
 bool FromString(std::wstring_view s, DockEdge& v) { return EnumFromString(s, v, kEdgeNames); }
 bool FromString(std::wstring_view s, DockAlign& v) { return EnumFromString(s, v, kAlignNames); }
 bool FromString(std::wstring_view s, MiddleClickAction& v) { return EnumFromString(s, v, kMiddleClickNames); }
@@ -316,7 +342,35 @@ bool Config::ResolveTheme() {
         if (!(themeOverrides & Theme::Bit(f.field))) Theme::CopyField(f, base, theme);
     }
     themeResolveFailed = !ok;
+    ResolveDockThemes();
     return ok;
+}
+
+void Config::ResolveDockThemes() {
+    for (DockConfig& d : docks) {
+        d.ownTheme = false;
+        if (d.themePreset.empty() || d.themePreset == themePreset) continue;
+        bool ok = true;
+        ThemeConfig t = Theme::Resolve(d.themePreset, ok);
+        if (!ok) continue;  // unknown preset / broken file: the global theme
+        for (size_t i = 0; i < Theme::FieldCount(); ++i) {
+            const Theme::FieldInfo& f = Theme::Fields()[i];
+            if (themeOverrides & Theme::Bit(f.field)) Theme::CopyField(f, theme, t);
+        }
+        d.theme = t;
+        d.ownTheme = true;
+    }
+}
+
+std::wstring Config::UniqueDockId(const std::wstring& base) const {
+    auto taken = [&](const std::wstring& id) {
+        return std::any_of(docks.begin(), docks.end(), [&](const DockConfig& d) { return d.id == id; });
+    };
+    if (!taken(base)) return base;
+    for (int n = 2;; ++n) {
+        std::wstring id = base + std::to_wstring(n);
+        if (!taken(id)) return id;
+    }
 }
 
 void Config::Sanitize() {
@@ -338,8 +392,25 @@ void Config::Sanitize() {
         d.hideDelayMs = std::clamp(d.hideDelayMs, 0, 10000);
         d.revealDelayMs = std::clamp(d.revealDelayMs, 0, 10000);
         d.previewDelayMs = std::clamp(d.previewDelayMs, 0, 10000);
-        d.monitor = std::max(d.monitor, 0);
+        if (d.monitor < DockConfig::kMonitorEach) d.monitor = 0;
+        if (static_cast<unsigned>(d.runningFilter) > static_cast<unsigned>(RunningFilter::Monitor)) {
+            d.runningFilter = RunningFilter::All;
+        }
+        if (static_cast<unsigned>(d.layer) > static_cast<unsigned>(DockLayer::Desktop)) d.layer = DockLayer::Normal;
+        // A file stem inside the themes folder, like theme.preset: no paths.
+        if (d.themePreset.size() > 64 || d.themePreset.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos ||
+            d.themePreset == L"." || d.themePreset == L"..") {
+            d.themePreset.clear();
+        }
     }
+    // Unique ids (the docks are matched by id when the config is re-applied): a repeated id gets a
+    // number appended.
+    for (size_t i = 1; i < docks.size(); ++i) {
+        const bool repeated = std::any_of(docks.begin(), docks.begin() + static_cast<ptrdiff_t>(i),
+                                          [&](const DockConfig& d) { return d.id == docks[i].id; });
+        if (repeated) docks[i].id = UniqueDockId(docks[i].id);
+    }
+    if (editDock >= docks.size()) editDock = 0;
     if (!(theme.cornerRadius >= 0.0f)) theme.cornerRadius = 0.0f;
     theme.cornerRadius = std::min(theme.cornerRadius, 64.0f);
     if (!(theme.labelCornerRadius >= 0.0f)) theme.labelCornerRadius = 0.0f;
@@ -546,6 +617,7 @@ Config::LoadResult Config::LoadFile() {
         if (!(themeOverrides & bit)) Theme::CopyField(f, base, theme);
     }
     themeResolveFailed = !ok;
+    ResolveDockThemes();
     return LoadResult::Ok;
 }
 
@@ -587,7 +659,8 @@ bool Config::Save() const {
                  L", \"previewDelayMs\": " + Num(d.previewDelayMs) + L",\n";
             o += L"      \"middleClick\": " + Quote(ToString(d.middleClick)) + L", \"wheel\": " + Quote(ToString(d.wheel)) +
                  L",\n";
-            o += L"      \"monitor\": " + Num(d.monitor) + L"\n    }";
+            o += L"      \"monitor\": " + MonitorJson(d.monitor) + L", \"runningFilter\": " +
+                 Quote(ToString(d.runningFilter)) + L", \"themePreset\": " + Quote(d.themePreset) + L"\n    }";
         }
         o += docks.empty() ? L"],\n" : L"\n  ],\n";
         o += L"  \"hideTaskbar\": " + Bool(hideTaskbar) + L",\n";
