@@ -1344,6 +1344,5 @@ private:
     bool regionSet_ = false;
     bool ringShown_ = false;    // the background shows a ring (its right half is hidden)
     bool bgRing_ = false;       // the background surface was drawn as a ring
-    RECT backdropRegion_{};     // the blur window's rect its ring region was made for
     LONG dockShiftY_ = 0;  // a circle dragged (Ctrl + drag): the vertical part of its move
 };

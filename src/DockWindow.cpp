@@ -4586,13 +4586,15 @@ std::wstring DockWindow::RecycleBinLabel() {
 void DockWindow::UpdateAcrylic() {
     // The blur window is a flat rectangle: not with the glass shelf or the perspective tilt.
     // Nor on the desktop layer (the blur window would have to follow the dock's z-order and
-    // visibility there; the bar uses its plain fill).
+    // visibility there; the bar uses its plain fill). Nor on a ring: DWM draws a system backdrop
+    // over the blur window's whole rectangle and ignores its window region (a grey box around the
+    // ring on screen, seen in the 2026-11-03 verification), so a ring uses its plain fill too.
     const bool want = DockTheme().acrylic && !DockTheme().shelf && !DockTheme().perspective && !DesktopLayered() &&
-                      Backdrop::SystemAllowsTransparency();
+                      !DockCfg().Polar() && Backdrop::SystemAllowsTransparency();
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
     if (acrylic_) {
-        acrylicRadiusDip_ = backdrop_.SetCornerRadius(DockCfg().fullWidth || DockCfg().Polar() ? 0.0f : DockTheme().cornerRadius);
+        acrylicRadiusDip_ = backdrop_.SetCornerRadius(DockCfg().fullWidth ? 0.0f : DockTheme().cornerRadius);
         return;
     }
     if (backdropPending_) {
@@ -4649,31 +4651,6 @@ void DockWindow::SyncBackdrop() {
         r.top = std::max(r.top, l.monitor.top);
         r.bottom = std::min(r.bottom, l.monitor.bottom);
         if (r.right <= r.left || r.bottom <= r.top) r = RECT{};
-    }
-    if (l.polar.on) {
-        // A ring: the blur window is the ring's box (an arc sliding with it into its edge; a circle
-        // without blur while it shrinks to its hub), cut to the band by a window region.
-        r = RECT{};
-        const bool still = hideState_ == HideState::Shown || (l.shape == DockShape::Arc && hideState_ != HideState::Hidden);
-        if (still && IsWindowVisible(hwnd_)) {
-            r = RingScreenRect();
-            const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
-            const LONG d = std::lround(value(rootY_, shown ? 0.0f : DockGeometry::OutwardSign(l.edge) * l.hiddenSlide));
-            if (IsVertical(l.edge)) OffsetRect(&r, d, 0); else OffsetRect(&r, 0, d);
-            RECT cut{};
-            if (!IntersectRect(&cut, &r, &l.monitor)) cut = RECT{};
-            if (!EqualRect(&cut, &backdropRegion_) && backdrop_.Hwnd()) {
-                backdropRegion_ = cut;
-                HRGN rgn = RingRegion(l.polar, l.bar.right, l.ringIn, l.ringOut,
-                                      static_cast<float>(l.window.left - cut.left), static_cast<float>(l.window.top - cut.top + (IsVertical(l.edge) ? 0 : d)));
-                if (IsVertical(l.edge) && rgn) OffsetRgn(rgn, d, 0);
-                if (rgn && !SetWindowRgn(backdrop_.Hwnd(), rgn, TRUE)) DeleteObject(rgn);
-            }
-            r = cut;
-        }
-    } else if (backdropRegion_.right > backdropRegion_.left && backdrop_.Hwnd()) {
-        SetWindowRgn(backdrop_.Hwnd(), nullptr, TRUE);  // a bar again
-        backdropRegion_ = RECT{};
     }
     backdrop_.Place(hwnd_, r);
     if (animating && !backdropPending_) {

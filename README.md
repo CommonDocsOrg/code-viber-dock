@@ -394,7 +394,8 @@ Settings > General > Position > **When the icons do not fit**. The key is writte
   `"shrink"`: a ring grows instead of shrinking its icons; the slots fade out at the ends, there is
   no thumb), `"clip"` lets them run on past the ring's end.
 - **Look**: the ring / half ring in the theme's fill with its edges as the hairlines (the glass
-  shelf is not drawn); acrylic is the ring's box cut to the band by a window region; no
+  shelf is not drawn); no acrylic blur (Windows draws a system backdrop over the whole window
+  rectangle and ignores a window region, so a ring uses the theme's plain `background`); no
   reflections, no perspective tilt, no titles under the icons, no peek strip. The hover label
   opens outside the ring at the icon's angle; the title (`title`) sits in the middle of a circle and
   outside the middle of an arc. Popups open outward from the slot: on the side the outward
