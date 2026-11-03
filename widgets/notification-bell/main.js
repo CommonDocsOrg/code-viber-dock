@@ -1,8 +1,9 @@
-// Notifications: a bell with the unread count (the `notifications` provider, round 4 phase 9) that
-// opens a notification centre: Windows' (Win+N, shell.sendKeys) or WinDock's own popup
-// (notifications.openCentre()). With "Show the unread count" off the provider is never called, so
-// WinDock does not read notifications for this widget (the fixed badge number shows instead).
-// Idle: nothing runs; a change of the list calls onChange, which redraws.
+// Notification bell: a scriptable bell that behaves like the built-in notification centre by
+// default: the unread count (the `notifications` provider, round 4 phase 9) in a badge, and a
+// click that opens WinDock's centre (notifications.openCentre()). Its settings make it a plain
+// button instead: Windows' centre (Win+N, shell.sendKeys) and, with "Show the unread count" off,
+// the provider is never called, so WinDock does not read notifications for this widget (the fixed
+// badge number shows instead). Idle: nothing runs; a change of the list calls onChange, which redraws.
 
 let hovered = false;
 let warned = false;
@@ -87,7 +88,7 @@ export function onHover(e) {
 }
 
 export function onClick() {
-  if (settings.click === 'centre') {
+  if (settings.click !== 'windows') {
     try {
       notifications.openCentre();
       return;

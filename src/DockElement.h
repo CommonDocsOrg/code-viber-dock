@@ -146,12 +146,16 @@ public:
     std::vector<AppKey>& RunningOrder() { return runningOrder_; }
     // A pinned app (kind app, not a folder / separator / bin) has this key: its windows show on its pin.
     bool IsPinnedApp(const AppKey& key) const;
-    // The new list has an app-level slot (not a window slot) with this key.
+    // The new list has an app-level slot (a pin, or an app slot that is not a window slot) with
+    // this key.
     bool Has(const AppKey& key) const;
     // Appends a slot for `key` (owned by the current element): the previous slot of that key (and
     // window) moved over, or a fresh one (*fresh = true). `window`: a window slot (docks[].windows
-    // "unstacked") for that one window of the app. The reference is valid until the next Add.
-    DockItem& Add(const AppKey& key, bool* fresh = nullptr, HWND window = nullptr);
+    // "unstacked") for that one window of the app. `pin`: the slot is the app's pin; it also takes
+    // over the previous pin of that key whatever window it held (unstacked: the pin slot is the
+    // app's first window, which changes as windows come and go). The reference is valid until the
+    // next Add.
+    DockItem& Add(const AppKey& key, bool* fresh = nullptr, HWND window = nullptr, bool pin = false);
     // docks[].windows is "unstacked": one slot per window.
     bool unstacked = false;
     // The `running` element that expands into the unpinned running apps (the first one) is done.

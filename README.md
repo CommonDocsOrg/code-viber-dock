@@ -832,9 +832,10 @@ write and edit without compiling anything. The full reference (every call, every
   over the whole face, middle-click for a popup; the wheel changes the volume with the same volume
   bar (a setting)), **Start**
   (`start`: the Windows logo or your icon, opens Start), **Search** (`search`: opens Windows Search)
-  and **Notifications** (`notification-bell`: a bell that opens Windows' notification centre (Win+N)
-  or, with its "A click opens" setting, WinDock's own centre; with its "Show the unread count"
-  setting on (off by default: nothing polls) the badge is the number of unread notifications), and
+  and **Notification bell** (`notification-bell`: a scriptable bell that behaves like the
+  notification centre by default, the unread count in a badge and a click that opens WinDock's
+  centre; its settings make it open Windows' notification centre (Win+N) instead, and with "Show
+  the unread count" off nothing polls and a fixed badge number shows), and
   **Agenda** (`agenda`: the next event of the calendar feeds, "In 25 min" / "Now" / its time over
   its title with the feed's colour; a click shows the next events in a popup, the month calendar or
   an app / address; it wakes only when its text changes: at an event's start and end, each minute
@@ -1010,9 +1011,9 @@ Off by default (round 4 phase 9). The dock reads Windows' notification centre th
 unpackaged app to read it without a prompt as long as Settings > Privacy & security >
 Notifications ("Let apps access your notifications") is on; the access is checked on every poll.
 
-- **The notification centre** (`{ "kind": "notifications" }`, one per dock; dock menu Add widget >
-  Notification centre, **Show the notification centre on this dock** on the dock window's
-  Behaviour tab, or the widget drawer of Dock settings > Contents): a bell with the
+- **The notification centre** (`{ "kind": "notifications" }`, one per dock; a widget: drag it onto
+  the dock from the widget drawer of Dock settings > Contents, or dock menu Add widget >
+  Notification centre; it works as soon as it is on the dock, nothing else turns it on): a bell with the
   unread count in a bubble (theme `badgeFill` / `badgeText` / `badgeSize`; dimmed while access is
   denied). A click opens the centre above the bell (beside a vertical dock): one row per
   notification, newest first, with the app's icon, the title, two lines of text and the relative
@@ -1067,8 +1068,9 @@ Notifications ("Let apps access your notifications") is on; the access is checke
 - **Widgets**: the `notifications` provider (permission `"notifications"`, docs/widgets.md) and
   the Notifications widget's unread count.
 - **Settings**: a dock's own window, **Behaviour** tab, section Notifications: **Notification badges
-  on app icons** (`docks[].badges`) and **Show the notification centre on this dock** (adds /
-  removes its `notifications` item). **Global settings > Notifications** (every dock): Show tray
+  on app icons** (`docks[].badges`); the centre itself is added and removed on the Contents tab like
+  any widget (the "Show the notification centre on this dock" check box went in round 5 phase E).
+  **Global settings > Notifications** (every dock): Show tray
   balloons in the centre instead of Windows toasts, Clear an app's badge when it is opened from the
   dock, the poll interval (seconds), the access status with **Open Windows settings**, and **Badges
   per app**: the apps of every dock and every app with a notification now, with a check box each
@@ -1279,8 +1281,8 @@ take the dock's colour (Windows 11). Tabs:
   magnification range (1-4 icons), auto-hide Off / Always / When a window overlaps the dock, hide
   and reveal delays, window previews on / off, **Show window previews for apps with a single
   window**, the preview delay, what a middle click on an app does and what the mouse wheel over an
-  app does, and (round 5 phase D) **Notification badges on app icons** (`badges`) and **Show the
-  notification centre on this dock** (see Notifications and badges).
+  app does, and (round 5 phase D) **Notification badges on app icons** (`badges`; see Notifications
+  and badges).
 - **Running apps**: **Windows** (Stacked / One slot per window), **Show only the windows on this
   dock's display**, **Titles under icons** (Off / One line / Two lines), **Titles on vertical
   docks** (Off / Beside the icon), **Window thumbnails** (Off / Live (GPU capture) / Snapshots
@@ -1865,9 +1867,10 @@ always there, also when every dock is parked) handle these registered messages:
   it as `WM_KEYDOWN`). Settings: the Global window's page 5 Notifications: 4204 the note, 4205
   balloons, 4208 clear on activate, 4211 / 4212 poll interval, 4217 the status text, 4218 Open
   Windows settings, 4221 the app list (check boxes; column 2 is the app key; every dock's apps); a
-  Dock window's Behaviour tab (page 2; round 5 phase D, moved from 4200 / 4202): 2254 Notification
-  badges on app icons, 2256 Show the notification centre on this dock (4200 - 4203 and 4223 are
-  retired). Test hooks (environment of the dock process, read when
+  Dock window's Behaviour tab (page 2; round 5 phase D, moved from 4200): 2254 Notification
+  badges on app icons (4200 - 4203, 4223 and, since round 5 phase E, 2256 Show the notification
+  centre on this dock are retired: the centre is added from the Contents tab's drawer like any
+  widget). Test hooks (environment of the dock process, read when
   the service starts): `WINDOCK_NOTIFY_FILTER=text;text` lists only toasts whose AUMID (balloons:
   whose exe path) contains one of the parts, so tests never touch other notifications;
   `WINDOCK_NOTIFY_DENIED=1` behaves as if access were denied.

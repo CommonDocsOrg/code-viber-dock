@@ -193,8 +193,8 @@ inline constexpr int kThumbSizeUnit = 2252;
 inline constexpr int kSectionDockNotifications = 2253;
 inline constexpr int kBadges = 2254;               // check box: docks[].badges (+ caption 2255; was 4200)
 inline constexpr int kBadgesCaption = 2255;
-inline constexpr int kDockCentre = 2256;           // check box: the dock has a "notifications" item (+ caption 2257; was 4202)
-inline constexpr int kDockCentreCaption = 2257;
+// 2256 / 2257 ("Show the notification centre on this dock", was 4202) are retired since round 5
+// phase E: the centre is a widget of the Contents tab's drawer, nothing else adds it.
 inline constexpr int kDockNotificationsNote = 2258;
 
 // About (2300 - 2399)
@@ -431,8 +431,9 @@ inline constexpr int kTrayGlobalNote = 4125;    // Global: where each tray item'
 inline constexpr int kTrayOwnDockStatus = 4126; // Global: the last Put the tray in its own dock result
 
 // Notifications (4200 - 4299; round 4 phase 9): config.notifications. 4200 - 4203 (the edited
-// dock's badges / centre) moved to the Dock window's Behaviour tab in round 5 phase D (2254 -
-// 2257); 4223 (which dock) is retired; 4204 stays: the note on the centre.
+// dock's badges / centre) moved to the Dock window's Behaviour tab in round 5 phase D (2254 /
+// 2255; the centre check box 2256 / 2257 went in phase E: the centre is a drawer widget); 4223
+// (which dock) is retired; 4204 stays: the note on the centre.
 inline constexpr int kNotifCentreNote = 4204;
 inline constexpr int kNotifBalloons = 4205;        // check box: notifications.balloons (+ caption 4206)
 inline constexpr int kNotifBalloonsCaption = 4206;

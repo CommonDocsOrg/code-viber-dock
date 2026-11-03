@@ -1,8 +1,8 @@
 {
-  "name": "Notifications",
-  "version": "0.2.0",
+  "name": "Notification bell",
+  "version": "0.3.0",
   "author": "WinDock",
-  "description": "A bell with the unread notification count (WinDock's notifications provider) that opens the notification centre: Windows' (Win+N, sent with SendInput) or WinDock's own popup. With \"Show the unread count\" off nothing polls; the fixed badge number is then shown instead.",
+  "description": "A scriptable bell that behaves like the notification centre: the unread count in a badge and a click that opens WinDock's notification centre. Settings turn it into a plain button that opens Windows' notification centre (Win+N) with a fixed badge number, a badge colour or your own image.",
   "api": 1,
   "size": {
     "horizontal": { "main": 48, "cross": 48 },
@@ -10,11 +10,11 @@
   },
   "permissions": ["shell", "notifications"],
   "settings": [
-    { "key": "unread", "type": "bool", "label": "Show the unread count", "default": false,
-      "description": "Reads Windows' notifications (WinDock then polls the notification list every few seconds). Off: the fixed number below." },
-    { "key": "click", "type": "choice", "label": "A click opens", "default": "windows",
-      "choices": [ { "value": "windows", "label": "Windows' notification centre (Win+N)" },
-                   { "value": "centre", "label": "WinDock's notification centre" } ] },
+    { "key": "unread", "type": "bool", "label": "Show the unread count", "default": true,
+      "description": "Reads Windows' notifications (WinDock polls the notification list every few seconds). Off: nothing polls and the fixed number below shows." },
+    { "key": "click", "type": "choice", "label": "A click opens", "default": "centre",
+      "choices": [ { "value": "centre", "label": "WinDock's notification centre" },
+                   { "value": "windows", "label": "Windows' notification centre (Win+N)" } ] },
     { "key": "badge", "visibleIf": { "unread": false }, "type": "int", "label": "Fixed badge (0: none)", "min": 0, "max": 99, "default": 0,
       "description": "Shown while the unread count is off." },
     { "key": "badgeColor", "type": "colour", "label": "Badge colour", "default": "#FFE0453A" },

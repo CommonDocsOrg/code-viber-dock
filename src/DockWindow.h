@@ -1010,11 +1010,12 @@ private:
     // An item a pin / running-app drag can be dropped on (a pin or an unpinned running app; not a
     // widget).
     bool Droppable(size_t index) const { return !items_[index].IsWidget(); }
-    // A press on slot `index` may start a drag: every slot but a window slot (unstacked docks
-    // keep their app order), unless the dock is locked.
+    // A press on slot `index` may start a drag: every slot but an unpinned window slot (unstacked
+    // docks keep their app order; a pin slot holding the app's first window drags the pin),
+    // unless the dock is locked.
     bool Draggable(size_t index) const {
         // A pinned tray icon's press drags the icon itself (DragTrayIcon); reorder it in Settings.
-        return index < items_.size() && !DockCfg().locked && !items_[index].window &&
+        return index < items_.size() && !DockCfg().locked && (items_[index].pinned || !items_[index].window) &&
                items_[index].kind != DockItem::Kind::TrayApp;
     }
     // Gap slot (an index into items_, at most items_.size()) for an external drop at stage x: before

@@ -56,7 +56,17 @@ public:
         const AppIdentity::ResolvedPin& pin = out.Pins()[pinIndex_];
         resolved_ = pin.kind;  // an "app" entry may turn out to be a folder (path or .lnk target)
         if (out.Has(pin.key)) return;  // entries that resolve to the same app show once
-        DockItem& item = out.Add(pin.key);
+        // Unstacked: the pin slot is the app's first window (its title, dot, preview and click are
+        // that window's) and every other window follows it as a slot of its own, in the app's
+        // first-seen window order. Without windows the pin slot is the plain pin (click launches).
+        const WindowTracker::Group* group = nullptr;
+        if (out.unstacked && pin.kind == DockItem::Kind::App) {
+            for (const WindowTracker::Group& g : out.Snapshot().groups) {
+                if (g.key == pin.key) group = &g;
+            }
+        }
+        const HWND first = group && !group->windows.empty() ? group->windows.front() : nullptr;
+        DockItem& item = out.Add(pin.key, nullptr, first, true);
         if (!item.pinned || item.iconFile != pin.iconFile || item.iconIndex != pin.iconIndex ||
             item.missing != pin.missing || item.kind != pin.kind || item.customIcon != pin.customIcon) {
             item.dirty = true;
@@ -85,17 +95,9 @@ public:
         } else if (!item.members.empty()) {
             item.members.clear();
         }
-        // Unstacked: the pin slot stays as it is (its click launches / activates the app, its
-        // dot and preview are the app's) and every window of the app follows it as a slot of
-        // its own, in the app's first-seen window order.
-        if (!out.unstacked || pin.kind != DockItem::Kind::App) return;
-        const WindowTracker::Group* group = nullptr;
-        for (const WindowTracker::Group& g : out.Snapshot().groups) {
-            if (g.key == pin.key) group = &g;
-        }
         if (!group) return;
-        for (HWND w : group->windows) {
-            DockItem& slot = out.Add(pin.key, nullptr, w);
+        for (size_t k = 1; k < group->windows.size(); ++k) {
+            DockItem& slot = out.Add(pin.key, nullptr, group->windows[k]);
             CopyAppData(pin, slot);
         }
     }
@@ -231,26 +233,27 @@ bool SlotBuilder::IsPinnedApp(const AppKey& key) const {
 }
 
 bool SlotBuilder::Has(const AppKey& key) const {
-    return std::any_of(next_.begin(), next_.end(), [&](const DockItem& i) { return !i.window && i.key == key; });
+    return std::any_of(next_.begin(), next_.end(),
+                       [&](const DockItem& i) { return (i.pinned || !i.window) && i.key == key; });
 }
 
-DockItem& SlotBuilder::Add(const AppKey& key, bool* fresh, HWND window) {
+DockItem& SlotBuilder::Add(const AppKey& key, bool* fresh, HWND window, bool pin) {
     bool reused = false;
     for (size_t i = 0; i < previous_.size(); ++i) {
-        if (!taken_[i] && previous_[i].window == window && previous_[i].key == key) {
-            taken_[i] = true;
-            next_.push_back(std::move(previous_[i]));
-            reused = true;
-            break;
-        }
+        if (taken_[i] || previous_[i].key != key) continue;
+        if (previous_[i].window != window && !(pin && previous_[i].pinned)) continue;
+        taken_[i] = true;
+        next_.push_back(std::move(previous_[i]));
+        reused = true;
+        break;
     }
     if (!reused) {
         next_.emplace_back();
         next_.back().key = key;
-        next_.back().window = window;
     }
     if (fresh) *fresh = !reused;
     DockItem& item = next_.back();
+    item.window = window;
     item.element = element_;
     return item;
 }

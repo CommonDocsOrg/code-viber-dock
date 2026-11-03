@@ -2034,7 +2034,7 @@ bool DockWindow::UpdateBadges() {
         DockItem& item = items_[i];
         int n = 0;
         if (on && item.kind == DockItem::Kind::App) {
-            if (!item.window) {
+            if (item.pinned || !item.window) {
                 n = countFor(item.key);
             } else {
                 // Unstacked: the badge sits on the app's pin slot; an app without one shows it on
@@ -2042,7 +2042,7 @@ bool DockWindow::UpdateBadges() {
                 bool shown = false;
                 for (size_t j = 0; j < items_.size() && !shown; ++j) {
                     if (j == i || items_[j].key != item.key || items_[j].kind != DockItem::Kind::App) continue;
-                    shown = !items_[j].window || j < i;
+                    shown = items_[j].pinned || !items_[j].window || j < i;
                 }
                 if (!shown) n = countFor(item.key);
             }
@@ -2148,7 +2148,7 @@ bool DockWindow::ActivateKey(const AppKey& key) {
     for (size_t i = 0; i < items_.size(); ++i) {
         const DockItem& item = items_[i];
         if (item.kind != DockItem::Kind::App || item.key != key) continue;
-        if (!item.window) {
+        if (item.pinned || !item.window) {
             slot = static_cast<int>(i);
             break;
         }
@@ -6273,14 +6273,14 @@ int DockWindow::GroupCandidateAt(POINT pt) const {
     const int n = static_cast<int>(items_.size());
     if (dragPhase_ != DragPhase::Dragging || dragWidget_ || dragSource_ < 0 || dragSource_ >= n) return -1;
     const DockItem& src = items_[static_cast<size_t>(dragSource_)];
-    if (src.window || (src.kind != DockItem::Kind::App && src.kind != DockItem::Kind::Folder)) return -1;
+    if ((src.window && !src.pinned) || (src.kind != DockItem::Kind::App && src.kind != DockItem::Kind::Folder)) return -1;
     if (!src.pinned && src.key.IsClassFallback()) return -1;  // nothing a group could keep
     const D2D1_POINT_2F c = layout_.Canon(pt);
     if (c.y < layout_.itemTop - layout_.iconPx * 0.5f) return -1;  // well above the icons (the unpin zone)
     const int slot = SlotAt(c.x);
     if (slot < 0 || slot == dragSource_) return -1;
     const DockItem& t = items_[static_cast<size_t>(slot)];
-    const bool pin = t.pinned && !t.window && (t.kind == DockItem::Kind::App || t.kind == DockItem::Kind::Folder);
+    const bool pin = t.pinned && (t.kind == DockItem::Kind::App || t.kind == DockItem::Kind::Folder);
     if (!pin && t.kind != DockItem::Kind::Group) return -1;
     const float quarter = t.slotW * 0.25f;
     if (c.x < t.slotX + quarter || c.x >= t.slotX + t.slotW - quarter) return -1;

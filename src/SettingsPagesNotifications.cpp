@@ -31,10 +31,10 @@ protected:
         const int right = Width() - kMargin;
         Title(L"Notifications");
         Text(kNotifCentreNote, CtlKind::Note,
-             L"A dock's notification badges and its notification centre (a bell with the unread count; a click opens "
-             L"the list: click a notification to open its app, the cross or Delete dismisses it, Clear all dismisses "
-             L"every one) are on that dock's own window, Behaviour tab; the centre is also in the widget drawer. The "
-             L"Notifications widget can open the same list (its \"A click opens\" setting).",
+             L"The notification centre is a widget (a bell with the unread count; a click opens the list: click a "
+             L"notification to open its app, the cross or Delete dismisses it, Clear all dismisses every one): drag it "
+             L"onto a dock from the Contents tab of that dock's own window, where the Behaviour tab has its badges. "
+             L"The scriptable Notification bell widget opens the same list (its \"A click opens\" setting).",
              kMargin, right - kMargin, 58);
         NextRow(62);
         Check(kNotifBalloons, kNotifBalloonsCaption, L"Show tray balloons in the centre instead of Windows toasts");

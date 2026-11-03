@@ -875,10 +875,11 @@ built-ins are worked examples too:
   `showHigh`, `showLow`, `compact`, `clickOpens` (`popup`, `settings`, `none`), `days`, `hours`.
   Test hook: `"debugStore": true` stores what the slot and the popup drew. Permissions `weather`,
   `shell`.
-- `widgets/notification-bell` ("Notifications"): a bell; `unread` (default off: then nothing polls
-  and the fixed `badge` number shows) draws `notifications.count()` and redraws on
-  `notifications.onChange`; `click` `windows` (default: `shell.sendKeys('win+n')`) or `centre`
-  (`notifications.openCentre()`); `badgeColor`, `image`. Permissions `shell`, `notifications`.
+- `widgets/notification-bell` ("Notification bell"): a scriptable bell that behaves like the
+  built-in notification centre by default; `unread` (default on; off: nothing polls and the fixed
+  `badge` number shows) draws `notifications.count()` and redraws on `notifications.onChange`;
+  `click` `centre` (default: `notifications.openCentre()`) or `windows`
+  (`shell.sendKeys('win+n')`); `badgeColor`, `image`. Permissions `shell`, `notifications`.
 
 A minimal widget:
 

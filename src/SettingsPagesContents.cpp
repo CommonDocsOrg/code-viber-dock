@@ -1390,7 +1390,7 @@ private:
             builtIn(ItemKind::Clock, L"Clock", L"Any number, each with its own format and zone", false);
             builtIn(ItemKind::Weather, L"Weather", L"Any number, each with its own place", false);
             builtIn(ItemKind::Tray, L"System tray", L"The notification area icons as a grid", true);
-            builtIn(ItemKind::Notifications, L"Notifications", L"A bell with the unread count", true);
+            builtIn(ItemKind::Notifications, L"Notification centre", L"A bell with the unread count; a click lists the notifications", true);
             builtIn(ItemKind::RecycleBin, L"Recycle Bin", L"Drop files on it to recycle them", true);
             builtIn(ItemKind::Separator, L"Separator", L"A thin line between groups of icons", false);
         }
@@ -1744,7 +1744,8 @@ private:
     // Enter / a double click on a tile, "Open settings in its own window": an item with settings
     // -> its own Item window (round 5 phase B; the tray too since phase D); a pinned tray icon ->
     // the dock's tray item's window (none: Global > Tray icons); the running apps -> the Running
-    // apps tab; the notification centre -> the Behaviour tab (this dock's badges and centre).
+    // apps tab; the notification centre -> Global > Notifications (balloons, polling, access, the
+    // apps that may badge: the centre has nothing of its own per dock).
     void OpenItemSettings(int item) {
         const DockConfig& d = Dock();
         if (item < 0 || item >= static_cast<int>(d.items.size())) return;
@@ -1759,7 +1760,9 @@ private:
                 }
                 return;
             }
-            case ItemKind::Notifications: Window().ShowPage(kTabBehaviour); return;
+            case ItemKind::Notifications:
+                if (Host().openGlobal) Host().openGlobal(kPageNotifications);
+                return;
             default: break;
         }
         if (HasSettings(static_cast<size_t>(item)) && Host().openItem && DockIndex() != SIZE_MAX) {

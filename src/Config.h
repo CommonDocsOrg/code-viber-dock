@@ -89,8 +89,8 @@ enum class RunningFilter { All, Monitor };
 // the desktop is visible (no window in the foreground), at the bottom of the z-order.
 enum class DockLayer { Normal, Desktop };
 // How a dock shows running windows: "stacked" (default: one slot per app, its windows behind it)
-// or "unstacked" (one slot per window, grouped by app; a pinned app keeps its pin slot and its
-// windows follow it as extra slots).
+// or "unstacked" (one slot per window, grouped by app; a pinned app's pin slot is its first window
+// and its other windows follow it as extra slots).
 enum class WindowsMode { Stacked, Unstacked };
 // Text under each icon: "off" (default), "one" (one line) or "two" (two lines), ellipsized; the
 // window title for a window slot, else the app / item name.
