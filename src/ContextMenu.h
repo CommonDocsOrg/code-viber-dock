@@ -71,6 +71,10 @@ enum Command : UINT {
     kRemoveMember = 821,        // group slot lParam: member HIWORD(wParam) is removed
     kTrayClick = 822,           // tray slot lParam: left click on its drawer's icon HIWORD(wParam) (forwarded to the app)
     kTrayRightClick = 823,      // ... a right click (the app's menu)
+    kTrayPin = 824,             // tray slot lParam: its drawer's icon HIWORD(wParam) pinned as a trayApp item
+    kTrayUnpin = 825,           // trayApp slot lParam: unpinned (back in the grid)
+    kTrayHide = 826,            // tray slot lParam: drawer icon HIWORD(wParam) hidden from / shown in the grid (toggle)
+    kTrayMove = 827,            // tray slot lParam: drawer icon (wParam bits 16-23) moved before drawer icon (bits 24-31; 255 = to the end)
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

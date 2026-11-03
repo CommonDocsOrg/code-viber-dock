@@ -112,6 +112,10 @@ public:
     virtual TrayHost* Tray() = 0;
     // A notify icon's picture as a bitmap of the dock's device (cached by its imageSerial).
     virtual ID2D1Bitmap* TrayBitmap(const TrayIcon& icon) = 0;
+    // The tray's own menu for icon `key` at the pointer (Ctrl + right click on a grid cell or a
+    // pinned tray icon): Hide / Show in the grid, Pin to the dock / Unpin, Tray settings….
+    // `pinnedSlot`: slot `slot` is a trayApp item.
+    virtual void ShowTrayMenu(int slot, const std::wstring& key, bool pinnedSlot) = 0;
 
 protected:
     ~ElementHost() = default;
@@ -214,6 +218,9 @@ public:
     // Tray automation: icons drawn in the grid (-1: not a tray), whether the overflow button shows.
     virtual int TrayCells() const { return -1; }
     virtual bool TrayOverflow() const { return false; }
+    // Tray: the key of the icon under screen point `screen` (a grid cell, a pinned tray icon;
+    // empty: none). Pressed and dragged, the dock starts the icon's drag (pin it, reorder the grid).
+    virtual std::wstring TrayKeyAt(int /*slot*/, POINT /*screen*/) const { return {}; }
 
     // --- popups ---
     // The click popup this element opens (the dock hosts it).
@@ -251,6 +258,7 @@ std::unique_ptr<DockElement> MakeClockElement(ElementHost& host, const DockItemE
 std::unique_ptr<DockElement> MakeWeatherElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
 // TrayElements.cpp: the tray grid (`tray` item) and a pinned notify icon (`trayApp`, 8b).
 std::unique_ptr<DockElement> MakeTrayElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
+std::unique_ptr<DockElement> MakeTrayAppElement(ElementHost& host, const DockItemEntry& entry);
 // Every notify icon a dock's tray drawer lists, in the tray item's order (`order` keys first, then
 // registration order): the icons TrayIcon::Shown(); the grid leaves out `hidden` ones and those
 // pinned as trayApp items. `inGrid`: only those the grid shows.

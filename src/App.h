@@ -138,6 +138,14 @@ private:
     void MoveItem(size_t cfg, size_t from, size_t to);
     // Add widget > Clock / Weather / Running apps (DockConfig::AddWidget's placement).
     void AddWidget(size_t cfg, ItemKind kind);
+    // --- the tray (8b): edits of config dock `cfg` (each reloads, saves, refreshes Settings) ---
+    // Icon `key` moves right before icon `before` in the grid of tray item `item` (empty: to the
+    // end; the whole grid order is written to the item's `order`) and is no longer hidden.
+    void TrayOrder(size_t cfg, size_t item, const std::wstring& key, const std::wstring& before);
+    // Icon `key` becomes a trayApp item at pin index `at` (SIZE_MAX: after the last pin); one per icon.
+    void PinTray(size_t cfg, const std::wstring& key, size_t at);
+    void UnpinTray(size_t cfg, const std::wstring& key);
+    void TrayHide(size_t cfg, size_t item, const std::wstring& key, bool hide);
     // Every window of config dock `cfg` re-reads its items (DockWindow::ReloadPins).
     void ReloadPins(size_t cfg);
     void SeedDefaultPins();

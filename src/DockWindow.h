@@ -175,6 +175,17 @@ public:
         std::function<void(const AppKey& group, size_t member, size_t at)> memberOut;
         // Member `member` of `group` is removed.
         std::function<void(const AppKey& group, size_t member)> removeMember;
+        // The tray (8b). Icon `key` dropped on tray item `item` (an index into this dock's items):
+        // it moves right before icon `before` in the grid (empty: to the end) and is shown there.
+        std::function<void(size_t item, const std::wstring& key, const std::wstring& before)> trayOrder;
+        // Icon `key` becomes a trayApp item at pin index `at` (as InsertPin places it).
+        std::function<void(const std::wstring& key, size_t at)> pinTray;
+        // Its trayApp items go (it is shown in the grid again).
+        std::function<void(const std::wstring& key)> unpinTray;
+        // Icon `key` hidden from / shown in the grid of tray item `item`.
+        std::function<void(size_t item, const std::wstring& key, bool hide)> trayHide;
+        // Settings > Tray.
+        std::function<void()> traySettings;
     };
 
     DockWindow() = default;
@@ -747,6 +758,17 @@ private:
     void SetHoverCell(int slot, int cell, std::wstring label, float centre);
     // --- the tray drawer (the group popup in tray mode) ---
     void ShowTrayDrawer(int index, float anchor);
+    void ShowTrayMenu(int slot, const std::wstring& key, bool pinnedSlot) override;
+    // An in-process OLE drag of tray icon `key` (private format): a dock of this process takes it
+    // as a trayApp pin at its insertion marker, a tray grid as a new place in its order.
+    void DragTrayIcon(const std::wstring& key);
+    // The key of a tray icon drag of this process (empty: not one).
+    static std::wstring ReadTrayDrag(IDataObject* data);
+    // A trayApp slot's picture at the icon bitmap size (the HICON scaled; the app's own larger
+    // icon resource when the handle still knows it). Null: its app does not run (placeholder).
+    ID2D1Bitmap* TrayAppBitmap(const DockItem& item);
+    std::unordered_map<uint64_t, winrt::com_ptr<ID2D1Bitmap>> trayBigBitmaps_;
+    std::unordered_map<std::wstring, uint64_t> trayAppSerials_;  // slot key -> the picture last drawn
     bool Magnifying() const override { return magnifying_; }
     bool ReducedMotion() const override { return motion_.reduce; }
     // --- WidgetInstance::Client ---
@@ -813,7 +835,9 @@ private:
     // A press on slot `index` may start a drag: every slot but a window slot (unstacked docks
     // keep their app order), unless the dock is locked.
     bool Draggable(size_t index) const {
-        return index < items_.size() && !DockCfg().locked && !items_[index].window;
+        // A pinned tray icon's press drags the icon itself (DragTrayIcon); reorder it in Settings.
+        return index < items_.size() && !DockCfg().locked && !items_[index].window &&
+               items_[index].kind != DockItem::Kind::TrayApp;
     }
     // Gap slot (an index into items_, at most items_.size()) for an external drop at stage x: before
     // a pin, after the last pin, or (no pins) before the first running app; -1 if there is none.
@@ -834,7 +858,7 @@ private:
     // marker, open the files with the app item under the pointer, or recycle them on the bin.
     // Widget: onto a script widget that takes files (onDrop + the "shell" permission).
     // Group: onto a group's icon (pinnable files become members).
-    enum class DropMode { None = 0, Insert = 1, OpenWith = 2, Recycle = 3, Widget = 4, Group = 5 };
+    enum class DropMode { None = 0, Insert = 1, OpenWith = 2, Recycle = 3, Widget = 4, Group = 5, TrayOrder = 6 };
     HRESULT RenderMarker();
     DWORD OnDragEnter(IDataObject* data, POINT screenPt, DWORD allowed);
     DWORD OnDragOver(POINT screenPt, DWORD allowed);
@@ -1088,6 +1112,10 @@ private:
     // A group member dragged out of the popup (OLE, from any dock of this process) is over the dock.
     AppKey memberDragGroup_;
     size_t memberDragIndex_ = SIZE_MAX;
+    // A tray icon dragged (DragTrayIcon, from a grid cell, a trayApp slot or the drawer): its key
+    // while it is over this dock; the key under the press that may start one.
+    std::wstring trayDragKey_;
+    std::wstring pressTrayKey_;
 
     // The forecast and calendar popups (the weather data is shared_->WeatherData())
     WeatherPopup weatherPopup_;

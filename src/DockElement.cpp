@@ -274,6 +274,8 @@ std::unique_ptr<DockElement> MakeElement(ElementHost& host, const DockItemEntry&
             return MakeScriptWidgetElement(host, entry, ordinal);
         case ItemKind::Tray:
             return MakeTrayElement(host, entry, ordinal);
+        case ItemKind::TrayApp:
+            return MakeTrayAppElement(host, entry);
         case ItemKind::Unknown:
         default:
             return nullptr;

@@ -687,13 +687,32 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   cell is a chevron; a click opens the drawer (the folder / group popup in tray mode, titled
   "Notification area") with every icon, scrolling past eight rows. Its cells behave like the
   grid's.
+- **Arranging** (8b): drag an icon within the grid to move it there (the grid's order is saved as
+  the item's `order`; a hidden icon dragged from the drawer into the grid is shown again); drag
+  it out of the grid or the drawer onto the dock's icon row to pin it there as a **`trayApp`**
+  item at the insertion marker. **Ctrl + right click** on an icon (plain right click is its app's)
+  opens the tray menu: Hide from / Show in the tray grid, Pin to the dock / Unpin from the dock,
+  Tray settings…. Settings > Tray lists every icon with a Show check box too.
+- **Pinned tray icons** (`{ "kind": "trayApp", "id": "<icon key>" }`): one icon as a full-size dock
+  icon that magnifies like an app (its picture drawn at the icon size: the icon's own resource at
+  that size when Windows still knows it, else the app's handle scaled). Its tooltip is the label;
+  clicks go to the app like the grid's (no hover popups for version 4 icons here); Ctrl + right
+  click > Unpin from the dock puts it back into the grid. While it is pinned the grid leaves the
+  icon out (the drawer still lists it). When its app is not running the slot keeps its place
+  with the placeholder icon and comes back to life when the app registers the same key again.
+  It is not dragged on the dock (Settings > Dock contents moves it).
+- **A dock of its own** (8b): Settings > Tray > **Put the tray in its own dock** makes a new dock
+  (id `tray`) at the bottom right of the same display holding only this dock's tray item (with its
+  rows, columns, hidden icons and order), with the same theme, always shown and reserving no
+  screen space; the Docks page moves or removes it (`docks[]` like any other).
 - **Input** goes to the icon's app exactly as Explorer delivers it (`uVersion` 3 / 4 semantics:
   version 4 gets the anchor point in `wParam` and `MAKELPARAM(event, uID)`): a left click sends
   button down / up and `NIN_SELECT`, a double click `WM_LBUTTONDBLCLK`, a right click button down
   / up and `WM_CONTEXTMENU` (the app's menu opens at the pointer), a middle click
   `WM_MBUTTONDOWN` / `UP`, moving over an icon `WM_MOUSEMOVE` (at most every 100 ms); the app may
-  take the foreground (`AllowSetForegroundWindow`). **Ctrl + right click** opens the dock's menu
-  instead. The hover label shows the icon's tooltip; a version 4 icon without `NIF_SHOWTIP` draws
+  take the foreground (`AllowSetForegroundWindow`). **Ctrl + right click** on an icon opens the
+  tray menu (below) instead; on the chevron or beside the cells a right click is the dock's menu.
+  The hover label shows the icon's tooltip; a version 4 icon without `NIF_SHOWTIP` draws
   its own popup instead: it gets `NIN_POPUPOPEN` when the pointer rests on it (the label delay)
   and `NIN_POPUPCLOSE` when it leaves.
 - **Where the icon is**: `Shell_NotifyIconGetRect` (apps place their windows by it) answers the
@@ -928,6 +947,8 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
       key is the icon's GUID in braces, lower case (`"{7820ae78-23e3-4229-82c1-e41cb67d5b9c}"`), or
       `"<exe file name>:<uID>"` lower case (`"steam.exe:1"`). Shows nothing while `tray.enabled`
       is off. Older builds skip the item.
+    - `"trayApp"`: one notify icon pinned as a dock icon, `{ "kind": "trayApp", "id": "<icon
+      key>" }` (see System tray); an item without an `id` is dropped on load. Older builds skip it.
 
     App, folder and Recycle Bin items take an optional `icon` (written back only when set): a
     custom icon. An image (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`; scaled to the icon size), an
@@ -1221,14 +1242,21 @@ always there, also when every dock is parked) handle these registered messages:
   dock's `Shell_TrayWnd` was raised above Explorer's again, 105 = balloons captured, 106 / 107 =
   the owner window (as a number) / `uID` of the first tray slot's drawer icon `lParam` (0 / -1
   none), 108 = icons in that drawer (-1 no tray slot), 109 = `TaskbarCreated` broadcasts repeated
-  after such a raise; 24 reports 8 for a tray slot, 93 reports 3 while the folder popup is the
-  tray drawer. `DockCommand` 128 Add widget > Tray (also turns `tray.enabled` on), 129 tray on,
+  after such a raise, 110 / 111 = the `order` / `hidden` keys of tray slot `lParam`'s item (-1 not
+  a tray slot), 112 = trayApp slot `lParam`: 1 its icon is registered, 0 the placeholder (-1 not
+  a trayApp slot); 24 reports 8 for a tray slot and 9 for a trayApp slot, 93 reports 3 while the
+  folder popup is the tray drawer. `DockCommand` 128 Add widget > Tray (also turns `tray.enabled` on), 129 tray on,
   130 tray off (the icons go back to Explorer). `ItemCommand` 822 / 823 = a left / right click on
   tray slot `lParam`'s drawer icon `HIWORD(wParam)` (the drawer's order, 106 / 107 tell which is
-  which), forwarded as if clicked at the icon's place; returns 1 if it was delivered. Settings page
+  which), forwarded as if clicked at the icon's place; returns 1 if it was delivered; 8b: 824 pins
+  that drawer icon as a trayApp item (after the last pin), 825 unpins trayApp slot `lParam`, 826
+  hides / shows that drawer icon in the grid (a toggle), 827 moves drawer icon `wParam` bits 16 -
+  23 right before drawer icon bits 24 - 31 in the grid order (255: to the end). Settings page
   12 Tray: 4100 the takeover check box, 4104 / 4105 rows, 4107 / 4108 columns, 4110 icon size (0 =
   16, 1 = 20, 2 = 24 px), 4112 the icon list (check boxes: shown in the grid), 4113 Reset to
-  Explorer, 4116 Add a tray to this dock.
+  Explorer, 4114 Put the tray in its own dock (8b), 4116 Add a tray to this dock. The tray menu
+  (Ctrl + right click) is a `#32768` of the WinDock process with the ids 1 Hide / Show, 2 Pin, 3
+  Unpin, 4 Tray settings….
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide

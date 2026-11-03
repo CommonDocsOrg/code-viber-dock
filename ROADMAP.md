@@ -332,6 +332,10 @@ rename, ungroup, the Settings group editor); see STATUS.md and README "Dock item
 
 ## Phase 8: system tray
 
+Status: done (2026-11-02) as 8a (TrayHost takeover, the `tray` grid element, the drawer, Settings >
+Tray) and 8b (`trayApp` pins, grid order by drag, the Ctrl + right click tray menu, a separate
+tray dock); see STATUS.md and README "System tray".
+
 Tray takeover spike (2026-11-02, Windows 11 build 26300, dock not running, Explorer's taskbar
 shown; harness in the session scratchpad `p8\spike\spike.cpp` + `run1.ps1`: `spike host` = our
 `Shell_TrayWnd`, `spike app` = a test tray app with a GUID icon and a uID icon, both version 4).

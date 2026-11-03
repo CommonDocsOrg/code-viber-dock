@@ -183,6 +183,13 @@ void App::SetUpDock(DockWindow& dock) {
     };
     requests.memberOut = [this, d](const AppKey& group, size_t member, size_t at) { MemberOut(*d, group, member, at); };
     requests.removeMember = [this, d](const AppKey& group, size_t member) { RemoveMember(*d, group, member); };
+    requests.trayOrder = [this, d](size_t item, const std::wstring& key, const std::wstring& before) {
+        TrayOrder(d->ConfigIndex(), item, key, before);
+    };
+    requests.pinTray = [this, d](const std::wstring& key, size_t at) { PinTray(d->ConfigIndex(), key, at); };
+    requests.unpinTray = [this, d](const std::wstring& key) { UnpinTray(d->ConfigIndex(), key); };
+    requests.trayHide = [this, d](size_t item, const std::wstring& key, bool hide) { TrayHide(d->ConfigIndex(), item, key, hide); };
+    requests.traySettings = [this] { OpenSettings(SettingsIds::kPageTray); };
     requests.moveDock = [this, d](DockEdge edge, DockAlign align, int offset) {
         const size_t cfg = d->ConfigIndex();
         DockConfig& c = config_.docks[cfg];
@@ -327,6 +334,65 @@ void App::ItemsChanged(size_t cfg) {
     ReloadPins(cfg);
     RequestSave();
     RefreshSettings();  // the Dock contents page
+}
+
+void App::TrayOrder(size_t cfg, size_t item, const std::wstring& key, const std::wstring& before) {
+    if (cfg >= config_.docks.size() || key.empty()) return;
+    DockConfig& d = config_.docks[cfg];
+    if (item >= d.items.size() || d.items[item].Kind() != ItemKind::Tray || d.locked) return;
+    DockItemEntry& tray = d.items[item];
+    std::erase(tray.hidden, key);  // dropped into the grid: shown there
+    // The grid as it is (the icons running now), with the key moved; keys of icons that do not run
+    // now keep their place after them.
+    std::vector<std::wstring> keys;
+    if (docks_.TrayService().Running()) {
+        for (const TrayIcon* t : TrayIconsFor(docks_.TrayService(), d, tray, true)) keys.push_back(t->key);
+    }
+    std::erase(keys, key);
+    auto at = before.empty() ? keys.end() : std::find(keys.begin(), keys.end(), before);
+    keys.insert(at, key);
+    for (const std::wstring& k : tray.order) {
+        if (std::find(keys.begin(), keys.end(), k) == keys.end()) keys.push_back(k);
+    }
+    tray.order = std::move(keys);
+    ItemsChanged(cfg);
+}
+
+void App::PinTray(size_t cfg, const std::wstring& key, size_t at) {
+    if (cfg >= config_.docks.size() || key.empty()) return;
+    DockConfig& d = config_.docks[cfg];
+    if (d.locked) return;
+    const bool pinned = std::any_of(d.items.begin(), d.items.end(),
+                                    [&](const DockItemEntry& e) { return e.Kind() == ItemKind::TrayApp && e.id == key; });
+    if (pinned) return;
+    DockItemEntry e;
+    e.kind = ToString(ItemKind::TrayApp);
+    e.id = key;
+    d.InsertPin(at, std::move(e));  // where pin `at` would go (a trayApp is not a pin itself)
+    ItemsChanged(cfg);
+}
+
+void App::UnpinTray(size_t cfg, const std::wstring& key) {
+    if (cfg >= config_.docks.size()) return;
+    DockConfig& d = config_.docks[cfg];
+    if (d.locked) return;
+    if (std::erase_if(d.items, [&](const DockItemEntry& e) { return e.Kind() == ItemKind::TrayApp && e.id == key; }) == 0) return;
+    ItemsChanged(cfg);
+}
+
+void App::TrayHide(size_t cfg, size_t item, const std::wstring& key, bool hide) {
+    if (cfg >= config_.docks.size() || key.empty()) return;
+    DockConfig& d = config_.docks[cfg];
+    if (item >= d.items.size() || d.items[item].Kind() != ItemKind::Tray || d.locked) return;
+    std::vector<std::wstring>& hidden = d.items[item].hidden;
+    const bool is = std::find(hidden.begin(), hidden.end(), key) != hidden.end();
+    if (is == hide) return;
+    if (hide) {
+        hidden.push_back(key);
+    } else {
+        std::erase(hidden, key);
+    }
+    ItemsChanged(cfg);
 }
 
 DockItemEntry* App::PinEntryOf(DockWindow& dock, const AppKey& key, size_t* pinIndex) {
@@ -1159,6 +1225,34 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             config_.editDock = index + 1;
             break;
         }
+        case SettingsDockEdit::TrayDock: {
+            if (index >= list.size()) return false;
+            // Bottom right of the same display, the same theme, always shown, reserving nothing
+            // (the dock beside it may reserve the edge already).
+            DockConfig d;
+            d.id = config_.UniqueDockId(L"tray");
+            d.monitor = list[index].Each() ? DockConfig::kMonitorPrimary : list[index].monitor;
+            d.edge = DockEdge::Bottom;
+            d.align = DockAlign::End;
+            d.autoHide = AutoHideMode::Off;
+            d.reserveSpace = false;
+            d.themePreset = list[index].themePreset;
+            DockItemEntry tray{ToString(ItemKind::Tray)};
+            auto& from = list[index].items;
+            if (auto it = std::find_if(from.begin(), from.end(), [](const DockItemEntry& e) { return e.Kind() == ItemKind::Tray; });
+                it != from.end()) {
+                tray = *it;  // its rows, columns, hidden icons and order come along
+                from.erase(it);
+            }
+            d.items = {std::move(tray)};
+            config_.tray.enabled = true;
+            list.push_back(std::move(d));
+            config_.editDock = list.size() - 1;
+            SyncDocks();        // the new dock's window
+            ReloadPins(index);  // the source dock without its tray (Sync does not reload items)
+            RequestSave();
+            return true;
+        }
         case SettingsDockEdit::Remove:
             if (index >= list.size() || list.size() <= 1) return false;  // never the last dock
             list.erase(list.begin() + static_cast<ptrdiff_t>(index));
@@ -1352,6 +1446,32 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
             PostMessageW(dock->Hwnd(), msgItemCommand_, wp, static_cast<LPARAM>((dockIndex << 16) | static_cast<size_t>(index)));
         } else if (index >= 0 && (cmd == ContextMenu::kTrayClick || cmd == ContextMenu::kTrayRightClick)) {
             result = dock->ClickTrayIcon(index, arg, cmd == ContextMenu::kTrayRightClick) ? 1 : 0;
+            return true;
+        } else if (index >= 0 && cmd >= ContextMenu::kTrayPin && cmd <= ContextMenu::kTrayMove) {
+            // The tray (8b): the drawer's icons of tray slot `index` by position.
+            const DockItem& slot = dock->Items()[static_cast<size_t>(index)];
+            const size_t cfg = dock->ConfigIndex();
+            const std::vector<const TrayIcon*> icons = dock->TrayDrawerIcons(index);
+            const size_t icon = cmd == ContextMenu::kTrayMove ? (arg & 0xFF) : arg;
+            result = 0;
+            if (cmd == ContextMenu::kTrayUnpin) {
+                if (slot.kind == DockItem::Kind::TrayApp && slot.element < config_.docks[cfg].items.size()) {
+                    UnpinTray(cfg, config_.docks[cfg].items[slot.element].id);
+                    result = 1;
+                }
+            } else if (icon < icons.size()) {
+                const std::wstring key = icons[icon]->key;
+                if (cmd == ContextMenu::kTrayPin) {
+                    PinTray(cfg, key, SIZE_MAX);
+                } else if (cmd == ContextMenu::kTrayHide) {
+                    const std::vector<std::wstring>& hidden = config_.docks[cfg].items[slot.element].hidden;
+                    TrayHide(cfg, slot.element, key, std::find(hidden.begin(), hidden.end(), key) == hidden.end());
+                } else {
+                    const size_t before = (arg >> 8) & 0xFF;
+                    TrayOrder(cfg, slot.element, key, before < icons.size() ? icons[before]->key : std::wstring());
+                }
+                result = 1;
+            }
             return true;
         } else if (index >= 0 && cmd == ContextMenu::kClickSlot) {
             // By slot, not by key: an unstacked app has one slot per window.

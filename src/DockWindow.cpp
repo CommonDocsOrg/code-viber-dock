@@ -1173,8 +1173,9 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
     const bool composed = item.kind == DockItem::Kind::Group && !item.customIcon;
     // May be slow (shell icon extraction) the first time per app; cached afterwards.
     // A pinned file that no longer exists shows the placeholder (unless the app is running).
-    ID2D1Bitmap* bmp = composed || (item.missing && item.windows.empty())
-                           ? nullptr
+    ID2D1Bitmap* bmp = composed || (item.missing && item.windows.empty()) ? nullptr
+                       : item.kind == DockItem::Kind::TrayApp
+                           ? TrayAppBitmap(item)
                            : icons_.Get(item.key, sample, l.bitmapPx, renderer_.ResourceContext(), item.iconFile,
                                         item.iconIndex);
     if (item.thumbWindow) return RenderTile(item, bmp);
@@ -1892,6 +1893,7 @@ bool DockWindow::RecoverDevice() {
         ResetLayers();
         icons_.Clear();  // the bitmaps belong to the lost device
         trayBitmaps_.clear();
+        trayBigBitmaps_.clear();
         labelFormat_ = nullptr;
         labelEllipsis_ = nullptr;
         HRESULT hr = renderer_.RecreateDevice();
@@ -4950,6 +4952,18 @@ HRESULT DockWindow::RenderMarker() {
 DockWindow::DropMode DockWindow::DropModeAt(float stageX, int* item, int* gap) const {
     *item = -1;
     *gap = -1;
+    if (!trayDragKey_.empty()) {
+        // A tray icon: onto a tray grid it takes the place under the pointer; elsewhere on the
+        // icon row it becomes a trayApp pin at the insertion marker.
+        if (items_.empty() || DockCfg().locked) return DropMode::None;
+        const int slot = SlotAt(stageX);
+        if (slot >= 0 && items_[static_cast<size_t>(slot)].kind == DockItem::Kind::Tray) {
+            *item = slot;
+            return DropMode::TrayOrder;
+        }
+        *gap = DropGapIndex(stageX);
+        return *gap >= 0 ? DropMode::Insert : DropMode::None;
+    }
     if (!memberDragGroup_.id.empty()) {
         // A group member pulled out of its popup: it becomes a pin at the insertion marker.
         if (items_.empty() || DockCfg().locked) return DropMode::None;
@@ -5018,10 +5032,17 @@ void DockWindow::SetDropTarget(DropMode mode, int item, int gap) {
 DWORD DockWindow::OnDragEnter(IDataObject* data, POINT screenPt, DWORD allowed) {
     memberDragGroup_ = AppKey{};
     memberDragIndex_ = SIZE_MAX;
+    trayDragKey_ = ReadTrayDrag(data);
     MemberDragData member;
-    const bool memberDrag = ReadMemberDrag(data, member);
-    const std::vector<std::wstring> files = memberDrag ? std::vector<std::wstring>{} : DroppedFiles(data);
-    if (memberDrag) {
+    const bool memberDrag = trayDragKey_.empty() && ReadMemberDrag(data, member);
+    const std::vector<std::wstring> files =
+        memberDrag || !trayDragKey_.empty() ? std::vector<std::wstring>{} : DroppedFiles(data);
+    if (!trayDragKey_.empty()) {
+        // Any dock of this process takes a tray icon (each has its own grid / pins).
+        dropAccept_ = dragPhase_ == DragPhase::None && !DockCfg().locked;
+        dropPinnable_ = dropAccept_;
+        if (!dropAccept_) trayDragKey_.clear();
+    } else if (memberDrag) {
         // Only the dock that owns the group takes its member (groups are per dock).
         dropAccept_ = member.dock == reinterpret_cast<UINT64>(hwnd_) && dragPhase_ == DragPhase::None;
         dropPinnable_ = dropAccept_;
@@ -5063,8 +5084,10 @@ DWORD DockWindow::OnDragOver(POINT screenPt, DWORD allowed) {
     SetDropTarget(mode, item, gap);
     switch (mode) {
         case DropMode::Insert:
-            if (!memberDragGroup_.id.empty()) return allowed & DROPEFFECT_MOVE;
+            if (!memberDragGroup_.id.empty() || !trayDragKey_.empty()) return allowed & DROPEFFECT_MOVE;
             return DropEffect(allowed);
+        case DropMode::TrayOrder:
+            return allowed & DROPEFFECT_MOVE;
         case DropMode::Group:
             return DropEffect(allowed);
         case DropMode::OpenWith:
@@ -5080,6 +5103,7 @@ DWORD DockWindow::OnDragOver(POINT screenPt, DWORD allowed) {
 void DockWindow::OnDragLeave() {
     memberDragGroup_ = AppKey{};
     memberDragIndex_ = SIZE_MAX;
+    trayDragKey_.clear();
     if (!dropActive_) return;
     SetDropTarget(DropMode::None, -1, -1);
     dropActive_ = false;
@@ -5096,9 +5120,28 @@ DWORD DockWindow::OnDrop(IDataObject* data, POINT screenPt, DWORD allowed) {
     DWORD effect = DROPEFFECT_NONE;
     const AppKey memberGroup = memberDragGroup_;
     const size_t memberIndex = memberDragIndex_;
+    const std::wstring trayKey = std::move(trayDragKey_);
     memberDragGroup_ = AppKey{};
     memberDragIndex_ = SIZE_MAX;
-    if (mode == DropMode::Insert && !memberGroup.id.empty()) {
+    trayDragKey_.clear();
+    if (!trayKey.empty() && (mode == DropMode::Insert || mode == DropMode::TrayOrder)) {
+        // A tray icon: a new place in the grid under the pointer, or a trayApp pin at the marker.
+        const size_t at = ConfigIndexOfItem(static_cast<size_t>(std::max(gap, 0)));
+        const size_t trayItem = item >= 0 ? items_[static_cast<size_t>(item)].element : SIZE_MAX;
+        const std::wstring before =
+            mode == DropMode::TrayOrder && item >= 0 ? ElementOf(static_cast<size_t>(item)).TrayKeyAt(item, screenPt) : std::wstring();
+        dropActive_ = false;
+        dropMode_ = DropMode::None;
+        dropGap_ = -1;
+        renderer_.SetVisible(marker_, false);
+        markerX_.valid = false;
+        if (mode == DropMode::TrayOrder) {
+            if (before != trayKey && pinRequests_.trayOrder) pinRequests_.trayOrder(trayItem, trayKey, before);
+        } else if (pinRequests_.pinTray) {
+            pinRequests_.pinTray(trayKey, at);
+        }
+        effect = allowed & DROPEFFECT_MOVE;
+    } else if (mode == DropMode::Insert && !memberGroup.id.empty()) {
         // A member pulled out of its group: a pin at the marker.
         const size_t at = ConfigIndexOfItem(static_cast<size_t>(std::max(gap, 0)));
         dropActive_ = false;
@@ -5637,6 +5680,23 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return shared_ ? static_cast<LRESULT>(shared_->TrayService().RectQueries()) : 0;
         case 104:  // times our Shell_TrayWnd was raised above Explorer's again
             return shared_ ? static_cast<LRESULT>(shared_->TrayService().Raises()) : 0;
+        case 110:  // the `order` keys of tray slot lp's item (-1: not a tray slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size()) || items_[static_cast<size_t>(lp)].kind != DockItem::Kind::Tray ||
+                !elements_[items_[static_cast<size_t>(lp)].element]) {
+                return -1;
+            }
+            return static_cast<LRESULT>(ElementOf(static_cast<size_t>(lp)).Entry().order.size());
+        case 111:  // hidden keys of tray slot lp's item (-1: not a tray slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size()) || items_[static_cast<size_t>(lp)].kind != DockItem::Kind::Tray ||
+                !elements_[items_[static_cast<size_t>(lp)].element]) {
+                return -1;
+            }
+            return static_cast<LRESULT>(ElementOf(static_cast<size_t>(lp)).Entry().hidden.size());
+        case 112:  // trayApp slot lp: 1 its icon is registered, 0 the placeholder (not running), -1 not a trayApp slot
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size()) || items_[static_cast<size_t>(lp)].kind != DockItem::Kind::TrayApp) {
+                return -1;
+            }
+            return items_[static_cast<size_t>(lp)].missing ? 0 : 1;
         case 109:  // TaskbarCreated broadcasts repeated after Explorer raised its tray above ours
             return shared_ ? static_cast<LRESULT>(shared_->TrayService().Rebroadcasts()) : 0;
         case 105:  // balloons (NIF_INFO) captured so far
@@ -5904,6 +5964,17 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if (dragPhase_ == DragPhase::Removing) return 0;
+            if (!pressTrayKey_.empty() && (wp & MK_LBUTTON) && hideState_ != HideState::Hidden && !DockCfg().locked &&
+                (std::abs(pt.x - pressPt_.x) > GetSystemMetricsForDpi(SM_CXDRAG, dpi_) ||
+                 std::abs(pt.y - pressPt_.y) > GetSystemMetricsForDpi(SM_CYDRAG, dpi_))) {
+                // A tray icon pressed and moved: the icon's own drag (pin it, reorder the grid).
+                const std::wstring key = std::move(pressTrayKey_);
+                pressTrayKey_.clear();
+                pressed_ = -1;
+                HideLabel();
+                DragTrayIcon(key);
+                return 0;
+            }
             if (pressed_ >= 0 && Draggable(static_cast<size_t>(pressed_)) && (wp & MK_LBUTTON) &&
                 hideState_ != HideState::Hidden &&
                 (std::abs(pt.x - pressPt_.x) > GetSystemMetricsForDpi(SM_CXDRAG, dpi_) ||
@@ -5974,6 +6045,12 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             SuppressPreview();  // the click cycles / starts a drag: no popup over it
             pressPt_ = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
             pressed_ = dragPhase_ == DragPhase::None ? HitTest(pressPt_) : -1;
+            pressTrayKey_.clear();
+            if (pressed_ >= 0 && !(wp & MK_CONTROL) && elements_[items_[static_cast<size_t>(pressed_)].element]) {
+                POINT screen{};
+                GetCursorPos(&screen);
+                pressTrayKey_ = ElementOf(static_cast<size_t>(pressed_)).TrayKeyAt(pressed_, screen);
+            }
             // Ctrl + press on the bar of an unlocked dock: moving on drags the whole dock.
             dockPress_ = (wp & MK_CONTROL) && !DockCfg().locked && dragPhase_ == DragPhase::None &&
                          hideState_ == HideState::Shown && InZone(pressPt_) && GetCursorPos(&dockPressScreen_);
@@ -5998,6 +6075,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 EndDrag(true);
                 return 0;
             }
+            pressTrayKey_.clear();
             const POINT upPt = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
             const int index = HitTest(upPt);
             const bool clicked = index >= 0 && index == pressed_;

@@ -26,7 +26,9 @@ enum class SettingsScope {
 };
 
 // Docks page edits of config.docks (SettingsHost::editDocks).
-enum class SettingsDockEdit { Add, Duplicate, Remove };
+// TrayDock (8b): a new dock holding only a tray item at the bottom right (the edited dock's tray
+// item moves into it), the takeover turned on.
+enum class SettingsDockEdit { Add, Duplicate, Remove, TrayDock };
 
 // One dock window for the Layout page (SettingsHost::dockRects).
 struct SettingsDockRect {

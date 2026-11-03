@@ -66,9 +66,16 @@ protected:
         NextRow(kListH + 8);
         Text(kTrayIconsNote, CtlKind::Note,
              L"Unchecked icons are only in the drawer. Icons of apps that are not running are listed while they are "
-             L"hidden.",
+             L"hidden. Drag an icon within the grid to move it, out of the grid or the drawer onto the dock to pin it "
+             L"there (Ctrl + right click on it: Hide / Pin / Unpin).",
              kMargin, right - kMargin, 40);
         NextRow(44);
+        Button(kTrayOwnDock, L"Put the tray in its own dock", kMargin, kButtonW);
+        Text(kTrayOwnDockNote, CtlKind::Note,
+             L"A new dock at the bottom right holding only this dock's tray (with its settings), always shown. The "
+             L"Docks page moves or removes it.",
+             kMargin + kButtonW + 12, right - kMargin - kButtonW - 12, 40);
+        NextRow(kRowH + 16);
         Button(kTrayReset, L"Reset to Explorer", kMargin, kButtonW);
         Text(kTrayResetNote, CtlKind::Note, L"Hands the icons back to Explorer and turns the takeover off.",
              kMargin + kButtonW + 12, right - kMargin - kButtonW - 12, 40);
@@ -129,6 +136,15 @@ protected:
         }
         if (id == kTrayReset && code == BN_CLICKED) {
             if (Host().command) Host().command(ContextMenu::kTrayDisable);
+            return;
+        }
+        if (id == kTrayOwnDock && code == BN_CLICKED) {
+            if (!Host().editDocks || !Host().editDocks(SettingsDockEdit::TrayDock, Cfg().editDock)) {
+                MessageBeep(MB_ICONWARNING);
+                return;
+            }
+            Window().Refresh();  // every page now edits the new tray dock
+            Window().ConfigApplied();
             return;
         }
         if (id == kTrayAddItem && code == BN_CLICKED) {

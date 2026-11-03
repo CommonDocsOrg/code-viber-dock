@@ -2,7 +2,13 @@
 // non-magnifying widget slot (like the clock). Input on a cell is forwarded to the icon's owner
 // with the icon's version semantics (TrayHost::Forward); the last cell becomes an overflow button
 // that opens the drawer (the dock's group popup in tray mode: every icon) when there are more icons
-// than cells or some are hidden from the grid.
+// than cells or some are hidden from the grid. A cell pressed and dragged is the icon's drag (the
+// dock: onto the icon row it becomes a `trayApp` pin, onto the grid it moves there); Ctrl + right
+// click on a cell opens the tray menu (8b).
+//
+// `trayApp` (8b): one notify icon as a full-size, magnifying icon slot (the dock draws its picture
+// at the icon size; a placeholder while its app does not run); clicks go to the app like the
+// grid's, Ctrl + right click opens the tray menu (Unpin).
 
 #include <algorithm>
 #include <cmath>
@@ -233,16 +239,26 @@ public:
         }
     }
 
-    // A right click on an icon is the app's (its menu); elsewhere (overflow button, between
-    // cells) and Ctrl + right click: the dock's.
+    // A right click on an icon is the app's (its menu); Ctrl + right click on an icon the tray
+    // menu (hide it, pin it); elsewhere (overflow button, between cells): the dock's menu.
     bool OnRightClickAt(int slot, bool ctrl) override {
-        if (ctrl) return false;
         const POINT pt = MessagePoint();
         const int cell = CellAt(slot, pt, nullptr, nullptr);
         TrayHost* tray = host_.Tray();
         if (!tray || cell < 0 || static_cast<size_t>(cell) >= shown_.size()) return false;
+        if (ctrl) {
+            if (const TrayIcon* icon = tray->ById(shown_[static_cast<size_t>(cell)])) host_.ShowTrayMenu(slot, icon->key, false);
+            return true;
+        }
         tray->Forward(shown_[static_cast<size_t>(cell)], TrayHost::Click::Right, pt);
         return true;
+    }
+    std::wstring TrayKeyAt(int slot, POINT screen) const override {
+        const int cell = CellAt(slot, screen, nullptr, nullptr);
+        const TrayHost* tray = host_.Tray();
+        if (!tray || cell < 0 || static_cast<size_t>(cell) >= shown_.size()) return {};
+        const TrayIcon* icon = tray->ById(shown_[static_cast<size_t>(cell)]);
+        return icon ? icon->key : std::wstring();
     }
     RightClickAction OnRightClick(int) const override { return RightClickAction::DockMenu; }
 
@@ -299,6 +315,75 @@ private:
     int pressCell_ = -1;
 };
 
+// trayApp: one notify icon pinned as a dock icon. The slot's key is "kind:trayapp:<icon key>";
+// the dock draws the picture (DockWindow::RenderItem) and keeps `missing` / the label in step with
+// TrayHost (DockWindow::OnTrayChanged).
+class TrayAppElement final : public DockElement {
+public:
+    TrayAppElement(ElementHost& host, const DockItemEntry& entry) : DockElement(host, entry) {
+        key_.id = L"kind:trayapp:" + entry.id;
+    }
+
+    void AppendSlots(SlotBuilder& out) override {
+        bool fresh = false;
+        DockItem& item = out.Add(key_, &fresh);
+        if (item.kind != DockItem::Kind::TrayApp) {
+            item.kind = DockItem::Kind::TrayApp;
+            item.dirty = true;
+        }
+        item.pinned = true;
+        const TrayIcon* icon = Icon();
+        const bool missing = icon == nullptr;
+        if (missing != item.missing) item.dirty = true;
+        item.missing = missing;
+        item.displayName = icon ? icon->Title() : Entry().id + L" (not running)";
+    }
+    ElementSize Measure(const LayoutContext& ctx) override { return {ctx.iconPx, ctx.iconPx}; }
+
+    void OnClick(int slot, bool) override { Forward(slot, TrayHost::Click::Left); }
+    void OnMiddleClick(int slot) override { Forward(slot, TrayHost::Click::Middle); }
+    bool OnRightClickAt(int slot, bool ctrl) override {
+        if (ctrl || !Icon()) {
+            host_.ShowTrayMenu(slot, Entry().id, true);  // Unpin (also while its app is not running)
+            return true;
+        }
+        Forward(slot, TrayHost::Click::Right);
+        return true;
+    }
+    bool TrayIconRect(int slot, uint64_t id, RECT& screen) const override {
+        const TrayIcon* icon = Icon();
+        if (!icon || icon->id != id) return false;
+        const D2D1_RECT_F box = host_.SlotScreenBox(slot);
+        screen = RECT{static_cast<LONG>(box.left), static_cast<LONG>(box.top), static_cast<LONG>(box.right),
+                      static_cast<LONG>(box.bottom)};
+        return true;
+    }
+    std::wstring TrayKeyAt(int, POINT) const override { return Entry().id; }
+
+private:
+    const TrayIcon* Icon() const {
+        const TrayHost* tray = host_.Tray();
+        const TrayIcon* icon = tray ? tray->ByKey(Entry().id) : nullptr;
+        return icon && icon->Shown() ? icon : nullptr;
+    }
+    void Forward(int slot, TrayHost::Click click) {
+        TrayHost* tray = host_.Tray();
+        const TrayIcon* icon = Icon();
+        if (!tray || !icon) {
+            MessageBeep(MB_ICONINFORMATION);  // its app does not run
+            return;
+        }
+        (void)slot;
+        tray->Forward(icon->id, click, MessagePoint());
+    }
+    static POINT MessagePoint() {
+        const DWORD pos = GetMessagePos();
+        return POINT{static_cast<short>(LOWORD(pos)), static_cast<short>(HIWORD(pos))};
+    }
+
+    AppKey key_;
+};
+
 }  // namespace
 
 std::vector<const TrayIcon*> TrayIconsFor(const TrayHost& host, const DockConfig& dock, const DockItemEntry& tray,
@@ -327,4 +412,8 @@ std::vector<const TrayIcon*> TrayIconsFor(const TrayHost& host, const DockConfig
 
 std::unique_ptr<DockElement> MakeTrayElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal) {
     return std::make_unique<TrayElement>(host, entry, ordinal);
+}
+
+std::unique_ptr<DockElement> MakeTrayAppElement(ElementHost& host, const DockItemEntry& entry) {
+    return std::make_unique<TrayAppElement>(host, entry);
 }
