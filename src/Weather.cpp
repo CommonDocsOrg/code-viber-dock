@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <ctime>
+#include <iterator>
 #include <limits>
 #include <memory>
 #include <new>
@@ -239,6 +240,17 @@ bool ParseBody(const std::string& body, json::JsonObject& root) {
 
 int64_t UnixNow() { return static_cast<int64_t>(_time64(nullptr)); }
 
+// The forecast host: WINDOCK_WEATHER_HOST when set (tests: an address that refuses connections
+// gives the offline / error path without touching the network settings), else Open-Meteo's.
+const std::wstring& ForecastHost() {
+    static const std::wstring host = [] {
+        wchar_t buf[256]{};
+        const DWORD n = GetEnvironmentVariableW(L"WINDOCK_WEATHER_HOST", buf, static_cast<DWORD>(std::size(buf)));
+        return n > 0 && n < std::size(buf) ? std::wstring(buf, n) : std::wstring(kForecastHost);
+    }();
+    return host;
+}
+
 }  // namespace
 
 std::wstring WeatherService::Place::Label() const {
@@ -295,7 +307,15 @@ void WeatherService::Configure(const WeatherConfig& cfg, bool shown, HWND hwnd) 
     }
     if (!wasActive) {
         failures_ = 0;
-        Fetch();
+        // Shown again (the item came back, a widget reloaded): data fetched within the interval
+        // is kept and the next fetch keeps its time, so a reload never costs an extra request.
+        const int64_t age = Age();
+        const int64_t period = static_cast<int64_t>(cfg_.refreshMinutes) * 60;
+        if (status_ == Status::Fresh && age >= 0 && age < period) {
+            Schedule(static_cast<UINT>(std::max<int64_t>(period - age, 1)) * 1000u);
+        } else {
+            Fetch();
+        }
         Notify();
         return;
     }
@@ -333,12 +353,13 @@ void WeatherService::Schedule(UINT ms) {
 void WeatherService::Fetch() {
     CancelTimer();
     if (!Active() || Busy()) return;  // one request at a time
-    if (!StartFetch(hwnd_, kResultMessage, generation_, kForecastHost, ForecastPath())) {
+    if (!StartFetch(hwnd_, kResultMessage, generation_, ForecastHost().c_str(), ForecastPath())) {
         OnFailure(L"could not start the request");
         return;
     }
     inFlight_ = true;
     inFlightGen_ = generation_;
+    ++fetches_;
 }
 
 bool WeatherService::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {

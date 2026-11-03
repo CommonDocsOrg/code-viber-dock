@@ -16,6 +16,7 @@
 
 class NotificationService;
 class CalendarService;
+class WeatherService;
 
 class WidgetInstance;
 
@@ -128,6 +129,26 @@ public:
     size_t CalendarUsers() const { return calendarUsers_.size(); }
     void NotifyCalendar() { NotifyProvider(calendarUsers_, "calendar"); }
     void NotifyReminder(const std::string& eventJson) { NotifyProvider(calendarUsers_, "calendarReminder", eventJson); }
+    // `weather` (phase 14): DockManager's one WeatherService (the native element's too). It runs
+    // while a shown dock has a weather item or some widget uses the provider: `request` (posted by
+    // the manager, never inside a script call) re-checks that when the first user comes / the last
+    // goes, and carries weather.refresh().
+    enum class WeatherAction { Sync, Refresh };
+    void SetWeather(WeatherService* service, std::function<void(WeatherAction)> request) {
+        weather_ = service;
+        weatherRequest_ = std::move(request);
+    }
+    WeatherService* UseWeather(WidgetInstance* w);
+    size_t WeatherUsers() const { return weatherUsers_.size(); }
+    void WeatherRequest(WeatherAction a) {
+        if (weatherRequest_) weatherRequest_(a);
+    }
+    // The forecast or its status changed: the widgets that used the provider hear onChange.
+    void NotifyWeather() {
+        weatherNotices_ += weatherUsers_.size();
+        NotifyProvider(weatherUsers_, "weather");
+    }
+    uint64_t WeatherNotices() const { return weatherNotices_; }  // onChange deliveries (QueryState 215)
 
 private:
     struct Entry {
@@ -179,8 +200,11 @@ private:
     std::function<void()> changedListener_;
     AudioService audio_;
     MediaService media_;
-    std::set<WidgetInstance*> audioUsers_, mediaUsers_, notificationUsers_, calendarUsers_;
+    std::set<WidgetInstance*> audioUsers_, mediaUsers_, notificationUsers_, calendarUsers_, weatherUsers_;
     CalendarService* calendar_ = nullptr;
+    WeatherService* weather_ = nullptr;
+    std::function<void(WeatherAction)> weatherRequest_;
+    uint64_t weatherNotices_ = 0;
     NotificationService* notifications_ = nullptr;
     std::function<void()> notificationsDemand_;
     void NotifyProvider(std::set<WidgetInstance*>& users, const char* channel, const std::string& payload = {});

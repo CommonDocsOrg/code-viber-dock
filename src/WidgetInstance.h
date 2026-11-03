@@ -19,6 +19,7 @@
 #include "WidgetPackage.h"
 
 class WidgetRuntime;
+class WeatherService;
 
 // One script widget on one dock (a `{ "kind": "widget", "id": ... }` item): its package, its own
 // script runtime (QuickJS: one runtime per instance, so a widget's heap limit, watchdog and garbage
@@ -56,7 +57,7 @@ public:
 
     // What the widget asked of its popup (popup.open / close / redraw / folder / previews).
     struct PopupRequest {
-        enum class Kind { None, Open, Close, Redraw, Folder, Previews, Calendar };
+        enum class Kind { None, Open, Close, Redraw, Folder, Previews, Calendar, WeatherSettings };
         Kind kind = Kind::None;
         float width = 0, height = 0;  // Open: DIPs
         std::wstring arg;             // Folder: the path; Previews: the app
@@ -148,6 +149,9 @@ public:
     // WidgetRuntime: timer `id` (0: the refresh tick) is due.
     void OnTimer(int id);
 
+    // weather.get()'s object (docs/widgets.md "weather"), UTF-8 JSON.
+    static std::string WeatherJson(const WeatherService& weather);
+
     // Diagnostics (QueryState, the Console).
     size_t HeapBytes() const { return engine_ ? engine_->HeapBytes() : 0; }
     uint64_t DrawCount() const { return draws_; }
@@ -193,6 +197,7 @@ private:
     bool PopupPreviews(const std::wstring& app, std::wstring& error) override;
     bool PopupCalendar(int64_t day, std::wstring& error) override;
     bool CalendarCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) override;
+    bool WeatherCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) override;
     std::vector<std::string> PackageFiles() override;
     void RequestPopup(PopupRequest r);
     bool HostAllowed(const std::wstring& host) const;

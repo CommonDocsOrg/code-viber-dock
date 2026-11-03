@@ -59,6 +59,7 @@ struct Manifest {
     bool media = false;       // permission "media"
     bool notifications = false;  // permission "notifications" (round 4 phase 9)
     bool calendar = false;       // permission "calendar" (round 4 phase 13)
+    bool weather = false;        // permission "weather" (round 4 phase 14)
     std::vector<std::wstring> httpHosts;  // lowercase; "*.example.com" matches sub-domains
     std::vector<SettingField> settings;
     std::vector<std::wstring> warnings;  // what was ignored while reading it

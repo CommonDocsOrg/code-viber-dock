@@ -1,0 +1,27 @@
+{
+  "name": "Weather (script)",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "The weather widget and its forecast popup written on the widget runtime: the dock's own forecast service (Open-Meteo, Settings > Weather) through the weather provider, the condition glyph and the temperature in the slot.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 56, "cross": 26 },
+    "vertical": { "main": 48, "cross": 40 }
+  },
+  "permissions": ["weather", "shell"],
+  "settings": [
+    { "key": "showPlace", "type": "bool", "label": "Show the place under the temperature", "default": false },
+    { "key": "showHigh", "type": "bool", "label": "Show today's high", "default": false },
+    { "key": "showLow", "type": "bool", "label": "Show today's low", "default": false },
+    { "key": "compact", "type": "bool", "label": "Compact (the glyph only)", "default": false,
+      "description": "The temperature is left out; the popup still shows everything." },
+    { "key": "clickOpens", "type": "choice", "label": "Clicking the widget opens", "default": "popup",
+      "choices": [
+        { "value": "popup", "label": "The forecast popup" },
+        { "value": "settings", "label": "Settings > Weather" },
+        { "value": "none", "label": "Nothing" }
+      ] },
+    { "key": "days", "type": "int", "label": "Days in the popup", "min": 3, "max": 7, "step": 1, "default": 7 },
+    { "key": "hours", "type": "int", "label": "Hours in the popup's strip", "min": 12, "max": 24, "step": 2, "default": 24 }
+  ]
+}

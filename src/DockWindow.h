@@ -46,8 +46,10 @@ public:
     // The calendar feeds (round 4 phase 13). Active() only while some feed is enabled.
     virtual CalendarService& Calendar() = 0;
     virtual WeatherService& WeatherData() = 0;
-    // Re-applies config.weather to the service; it runs while any dock has a weather item.
+    // Re-applies config.weather to the service; it runs while any dock has a weather item or a
+    // script widget uses the weather provider (phase 14).
     virtual void ConfigureWeather() = 0;
+    // The service is wanted: a shown dock has a weather item, or a widget uses the provider.
     virtual bool AnyWeatherItem() const = 0;
     virtual ForegroundWatch& Watch() = 0;
     // A dock starts / stops needing the foreground watch (autoHide "intelligent"): the hooks run

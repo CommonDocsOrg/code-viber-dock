@@ -14,6 +14,8 @@
 #include "CalendarService.h"
 #include "JsonUtil.h"
 #include "NotificationService.h"
+#include "Weather.h"
+#include "WeatherGlyphs.h"
 #include "WidgetRuntime.h"
 
 namespace {
@@ -589,6 +591,7 @@ bool WidgetInstance::Permitted(Permission p) const {
         case Permission::Media: return package_->manifest.media;
         case Permission::Notifications: return package_->manifest.notifications;
         case Permission::Calendar: return package_->manifest.calendar;
+        case Permission::Weather: return package_->manifest.weather;
         case Permission::Http:
         default: return package_->manifest.http;
     }
@@ -1160,5 +1163,182 @@ bool WidgetInstance::CalendarCall(const std::string& what, const std::string& ar
         return true;
     }
     error = L"calendar: unknown call";
+    return false;
+}
+
+// --- weather (round 4 phase 14) ----------------------------------------------------------------
+
+namespace {
+
+std::string NumOrNull(double v) {
+    if (!std::isfinite(v)) return "null";
+    return JsonUtil::WideToUtf8(JsonUtil::Num(std::round(v * 100.0) / 100.0));
+}
+
+const char* GlyphName(WeatherGlyphs::Glyph g) {
+    using G = WeatherGlyphs::Glyph;
+    switch (g) {
+        case G::Clear: return "clear";
+        case G::PartlyCloudy: return "partly-cloudy";
+        case G::Overcast: return "overcast";
+        case G::Fog: return "fog";
+        case G::Drizzle: return "drizzle";
+        case G::Rain: return "rain";
+        case G::Snow: return "snow";
+        case G::Thunder: return "thunder";
+        case G::SetLocation: return "set-location";
+        default: return "overcast";
+    }
+}
+
+// Days since 1970-01-01 -> "YYYY-MM-DD" (H. Hinnant's civil_from_days).
+std::string DayText(int64_t days) {
+    days += 719468;
+    const int64_t era = (days >= 0 ? days : days - 146096) / 146097;
+    const int64_t doe = days - era * 146097;
+    const int64_t yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    const int64_t doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    const int64_t mp = (5 * doy + 2) / 153;
+    const int d = static_cast<int>(doy - (153 * mp + 2) / 5 + 1);
+    const int m = static_cast<int>(mp < 10 ? mp + 3 : mp - 9);
+    const int64_t y = yoe + era * 400 + (m <= 2 ? 1 : 0);
+    char buf[24];
+    snprintf(buf, sizeof buf, "%04lld-%02d-%02d", static_cast<long long>(y), m, d);
+    return buf;
+}
+
+const char* StateName(WeatherService::Status s) {
+    switch (s) {
+        case WeatherService::Status::Stale: return "stale";
+        case WeatherService::Status::Fresh: return "fresh";
+        case WeatherService::Status::Error: return "error";
+        case WeatherService::Status::None:
+        default: return "none";
+    }
+}
+
+}  // namespace
+
+std::string WidgetInstance::WeatherJson(const WeatherService& w) {
+    const WeatherConfig& cfg = w.Settings();
+    const WeatherService::Forecast& f = w.Data();
+    const bool imperial = cfg.units == Units::Imperial;
+    std::string o = "{\"state\":\"" + std::string(StateName(w.State())) + "\"";
+    o += ",\"configured\":" + std::string(Bool(cfg.Configured()));
+    o += ",\"place\":" + J(cfg.location);
+    o += ",\"latitude\":" + NumOrNull(cfg.latitude) + ",\"longitude\":" + NumOrNull(cfg.longitude);
+    o += std::string(",\"units\":\"") + (imperial ? "imperial" : "metric") + "\"";
+    o += std::string(",\"temperatureUnit\":\"") + (imperial ? "F" : "C") + "\"";
+    o += std::string(",\"windUnit\":\"") + (imperial ? "mph" : "km/h") + "\"";
+    o += ",\"refreshMinutes\":" + std::to_string(cfg.refreshMinutes);
+    o += ",\"busy\":" + std::string(Bool(w.Busy()));
+    o += ",\"error\":" + J(w.LastError());
+    o += ",\"status\":" + J(w.StatusText());
+    o += ",\"age\":" + std::to_string(w.Active() ? w.Age() : -1);
+    o += ",\"fetchedAt\":" + (f.valid && f.fetchedAt > 0 ? std::to_string(f.fetchedAt * 1000) : std::string("0"));
+    o += ",\"updated\":" + J(f.valid && f.fetchedAt > 0 ? WeatherService::FormatTime(f.fetchedAt) : std::wstring());
+    if (f.valid) {
+        o += ",\"current\":{\"temp\":" + NumOrNull(f.temp) + ",\"code\":" + std::to_string(f.code) +
+             ",\"isDay\":" + Bool(f.isDay) + ",\"description\":" + J(WeatherGlyphs::Describe(f.code)) +
+             ",\"glyph\":\"" + GlyphName(WeatherGlyphs::FromWmo(f.code)) + "\",\"wind\":" + NumOrNull(f.wind) +
+             ",\"humidity\":" + NumOrNull(f.humidity) + "}";
+    } else {
+        o += ",\"current\":null";
+    }
+    o += ",\"hourly\":[";
+    const std::vector<WeatherService::Hour> hours = w.HourlyWindow(48);
+    for (size_t i = 0; i < hours.size(); ++i) {
+        const WeatherService::Hour& h = hours[i];
+        const int64_t utcMs = (h.key * 60 - f.utcOffset) * 1000;
+        o += (i ? ",{" : "{") + std::string("\"time\":") + std::to_string(utcMs) + ",\"hour\":" + std::to_string(h.hour) +
+             ",\"temp\":" + NumOrNull(h.temp) + ",\"code\":" + std::to_string(h.code) + ",\"isDay\":" + Bool(h.isDay) +
+             ",\"precip\":" + NumOrNull(h.precip) + "}";
+    }
+    o += "],\"daily\":[";
+    const std::vector<WeatherService::Day> days = w.DailyWindow(7);
+    for (size_t i = 0; i < days.size(); ++i) {
+        const WeatherService::Day& d = days[i];
+        o += (i ? ",{" : "{") + std::string("\"day\":\"") + DayText(d.day) + "\",\"weekday\":" +
+             std::to_string((d.weekday + 1) % 7) + ",\"code\":" + std::to_string(d.code) +
+             ",\"description\":" + J(WeatherGlyphs::Describe(d.code)) + ",\"min\":" + NumOrNull(d.tmin) +
+             ",\"max\":" + NumOrNull(d.tmax) + "}";
+    }
+    o += "]}";
+    return o;
+}
+
+bool WidgetInstance::WeatherCall(const std::string& what, const std::string& args, std::string& out, std::wstring& error) {
+    if (!Permitted(Permission::Weather)) {
+        error = L"weather needs the \"weather\" permission";
+        return false;
+    }
+    WeatherService* w = runtime_.UseWeather(this);
+    if (!w) {
+        error = L"weather: the weather service is not available";
+        return false;
+    }
+    if (what == "get") {
+        out = WeatherJson(*w);
+        return true;
+    }
+    if (what == "refresh") {
+        runtime_.WeatherRequest(WidgetRuntime::WeatherAction::Refresh);  // posted: never inside this call
+        out = "null";
+        return true;
+    }
+    if (what == "openSettings") {
+        RequestPopup(PopupRequest{PopupRequest::Kind::WeatherSettings});  // the dock opens Settings > Weather
+        out = "null";
+        return true;
+    }
+    if (what == "icon") {
+        json::JsonObject o{nullptr};
+        try {
+            if (!json::JsonObject::TryParse(JsonUtil::Utf8ToWide(args), o) || !o) o = json::JsonObject();
+        } catch (...) {
+            o = json::JsonObject();
+        }
+        std::wstring name, ink, water;
+        double code = -1.0;
+        bool isDay = true;
+        const json::IJsonValue c = JsonUtil::Find(o, L"code");
+        if (c && c.ValueType() == json::JsonValueType::String) {
+            name = c.GetString();
+        } else {
+            JsonUtil::ReadNumber(o, L"code", code);
+        }
+        JsonUtil::ReadBool(o, L"isDay", isDay);
+        JsonUtil::ReadString(o, L"ink", ink);
+        JsonUtil::ReadString(o, L"water", water);
+        uint32_t inkArgb = 0xF2FFFFFF, waterArgb = 0xFF4CC2FF;
+        if (!ink.empty() && !ParseArgbColor(ink, inkArgb)) {
+            error = L"weather.icon: ink must be a colour (\"#AARRGGBB\")";
+            return false;
+        }
+        if (!water.empty() && !ParseArgbColor(water, waterArgb)) {
+            error = L"weather.icon: water must be a colour (\"#AARRGGBB\")";
+            return false;
+        }
+        char colours[40];
+        snprintf(colours, sizeof colours, "/%08X/%08X", inkArgb, waterArgb);
+        if (name == L"refresh") {
+            char one[24];
+            snprintf(one, sizeof one, "/%08X", inkArgb);
+            out = std::string("\"weather:refresh") + one + "\"";
+            return true;
+        }
+        std::string glyph;
+        if (name == L"setLocation" || name == L"set-location") {
+            glyph = "set-location";
+        } else if (!name.empty()) {
+            error = L"weather.icon: the code must be a WMO weather code, \"setLocation\" or \"refresh\"";
+            return false;
+        } else {
+            glyph = GlyphName(WeatherGlyphs::FromWmo(std::isfinite(code) ? static_cast<int>(code) : -1));
+        }
+        out = "\"weather:icon/" + glyph + (isDay ? "/d" : "/n") + colours + "\"";
+        return true;
+    }
+    error = L"weather: unknown call";
     return false;
 }

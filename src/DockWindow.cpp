@@ -4471,6 +4471,10 @@ void DockWindow::OnWidgetPopupRequests() {
                 if (calendar_.Visible()) calendarOpener_ = key;
                 break;
             }
+            case Kind::WeatherSettings:  // weather.openSettings(): Settings > Weather
+                if (popupWidget_ == key) DismissWidgetPopup(true);
+                OpenWeatherSettings();
+                break;
             case Kind::Previews: {
                 if (slot < 0 || hideState_ != HideState::Shown) break;
                 // The app's slot on this dock (exe path or AppUserModelID, any case).

@@ -9,7 +9,7 @@ thread. This file is the full reference; README.md has the short version.
 - [widget.json](#widgetjson): the manifest
 - [main.js](#mainjs): the module and its exports, when they are called
 - [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`,
-  `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `popup`, `widget`
+  `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `weather`, `popup`, `widget`
 - [Animation](#animation): frames with timers, `dock.visible`, `dock.reduceMotion`, the cost rules
 - [Analog clock faces](#analog-clock-faces): the `faces/*.json` format
 - [Limits and errors](#limits-and-errors): the watchdog, memory, the error tile, reloading
@@ -30,7 +30,7 @@ thread. This file is the full reference; README.md has the short version.
 ```
 
 Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
-`start`, `search`, `notification-bell`, `agenda`) are compiled into the
+`start`, `search`, `notification-bell`, `agenda`, `weather`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Widgets are always loaded as source; bytecode is never loaded.
@@ -67,7 +67,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time. |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `settings` | [] | The widget's settings schema, see below. |
 
@@ -191,6 +191,7 @@ Read-only, always current:
 | `locked` | The dock is locked. |
 | `visible` | The dock is on screen: shown or sliding in, not auto-hidden or hiding, not a desktop dock hidden behind another window. `onVisibilityChange` reports changes. |
 | `id`, `widgetId` | The dock's id (`docks[].id`), the widget's id. |
+| `clockDate` | The dock has the built-in clock and it shows its date (`clock.showDate`): the dock's own widgets then use their smaller size (the weather element: a 24 instead of 26 DIP glyph, 14 instead of 16 DIP text). |
 | `theme` | The dock's theme colours as `"#AARRGGBB"`: `text`, `dateText`, `accent`, `background`, `labelBackground`, `labelText`, `separator`, `border`. |
 | `requestRedraw()` | Same as the global. |
 
@@ -385,6 +386,29 @@ alarm in minutes before the start (-1 none; informational, the dock's reminders 
 setting). Format days with these fields rather than `new Date(start)`: QuickJS's local `Date`
 applies today's daylight-saving offset to every date on Windows.
 
+### weather
+
+Needs `"weather"` in `permissions`. The dock's own forecast (README "Weather and calendar",
+Settings > Weather: [Open-Meteo](https://open-meteo.com), the place, units and refresh interval
+set there). There is **one** WeatherService per dock process: the built-in `weather` item and every
+widget using this provider read the same data, and a refresh is one request whatever shows it. The
+service runs while a shown dock has a weather item or some widget has called the provider (the
+first call starts it, shortly after the call returns: `onChange` follows); it fetches every
+`refreshMinutes` and after a failure 1, 2, 4 ... minutes later. Nothing polls; calls answer from the
+service's data at once.
+
+| Call | |
+|---|---|
+| `weather.get()` | `{ state, configured, place, latitude, longitude, units, temperatureUnit, windUnit, refreshMinutes, busy, error, status, age, fetchedAt, updated, current, hourly, daily }`: `state` `"none"` (no data yet / not configured / not running), `"stale"` (the cached or last data; a fetch failed or has not finished), `"fresh"` or `"error"` (no data and the last fetch failed: `error` says why, e.g. `"cannot connect"`); `configured` false while no place is set; `place` the name shown (Settings > Weather); `units` `"metric"` / `"imperial"`, `temperatureUnit` `"C"` / `"F"`, `windUnit` `"km/h"` / `"mph"`; `busy` a fetch is in flight; `status` the Settings page's status line; `age` seconds since the data was fetched (-1 none); `fetchedAt` ms since 1970 (0 none); `updated` its local short time (`"10:15"`); `current` `{ temp, code, isDay, description, glyph, wind, humidity }` or `null` (`code` the WMO weather code, `description` "Partly cloudy", `glyph` the glyph's name); `hourly` up to 48 hours from the current one: `[{ time (ms since 1970), hour (0 - 23, the place's local time), temp, code, isDay, precip (% chance) }]`; `daily` up to 7 days from today: `[{ day ("YYYY-MM-DD"), weekday (0 = Sunday), code, description, min, max }]`. Missing numbers are `null`. |
+| `weather.refresh()` | Fetches now (the one service: the native item and every widget get the result). After the call returns. |
+| `weather.openSettings()` | Opens Settings on the Weather page (after the call returns; the widget's popup closes). |
+| `weather.icon(code, isDay, colours)` | An image token for `canvas.image(token, x, y, w, h, opacity)`: the dock's own vector condition glyph for a WMO `code` (sun / moon with `isDay` false, partly cloudy, overcast, fog, drizzle, rain, snow, thunder), `"setLocation"` (the map pin) or `"refresh"` (the circular arrow). `colours`: `{ ink, water }` (default `dock.theme.text` and `dock.theme.accent`; `refresh` uses `ink`). Drawn as geometry at any size (crisp at any scale; `w` / `h` omitted: 24 DIPs); `opacity` dims it as the native element does for stale data (0.6). |
+| `weather.onChange(fn)` | `fn(state)` (the `get()` object) whenever the data or the status changes: a fetch started, finished or failed, the place or units changed. Returns a remover. |
+
+The built-in `weather` widget ("Weather (script)", `widgets/weather`) is the worked example: its
+slot draws what the native element draws (pixel for pixel at 100 %), its popup the native
+forecast popup's layout.
+
 ### popup
 
 A widget can open one popup at a time, anchored on its slot beside the dock (above a bottom dock,
@@ -564,7 +588,7 @@ draws file icons, opens the folder popup, receives file drops and presses the `s
 allow-list; `"audio"` reads and changes the system volume / mutes / the default output; `"media"`
 reads the current media session and controls its playback; `"notifications"` reads Windows'
 notifications and dismisses them; `"calendar"` reads the dock's calendar feeds (and asks them to
-refresh). Modules and images are read
+refresh); `"weather"` reads the dock's forecast (and asks it to refresh). Modules and images are read
 only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
 - `import` / `import()` specifiers are package paths: `"./x.js"` and `"../x.js"` relative to the
@@ -660,6 +684,17 @@ The built-ins are the examples:
   (the event's start or end, each minute of the last hour before it, the next event entering the
   look-ahead, local midnight); `calendar.onChange` redraws. Test hook: an item setting
   `"debugStore": true` appends each text it shows to its storage (`shown`). Permissions `calendar`,
+  `shell`.
+- `widgets/weather` ("Weather (script)"): the native weather element and its popup on the
+  [weather](#weather) provider. `measure()` reproduces the element's box (`dock.clockDate` picks
+  the smaller size), `draw()` the glyph (`weather.icon` + `canvas.image`, dimmed with the opacity
+  argument) and the temperature; `weather.onChange` redraws the slot and the open popup; the popup
+  (`drawPopup` with hit rectangles for `onPopupClick`) draws the place, the current conditions,
+  "Updated N min ago" (one `setTimeout` per minute while it is open), the hourly strip with a
+  temperature line (`canvas.path`) and the daily rows with gradient range bars; its buttons call
+  `weather.refresh()` / `weather.openSettings()`, the credit `shell.open`. Settings `showPlace`,
+  `showHigh`, `showLow`, `compact`, `clickOpens` (`popup`, `settings`, `none`), `days`, `hours`.
+  Test hook: `"debugStore": true` stores what the slot and the popup drew. Permissions `weather`,
   `shell`.
 - `widgets/notification-bell` ("Notifications"): a bell; `unread` (default off: then nothing polls
   and the fixed `badge` number shows) draws `notifications.count()` and redraws on

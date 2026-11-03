@@ -68,6 +68,8 @@ protected:
         Section(kSectionWeather, L"Weather widget");
         Check(kWeatherShow, kWeatherShowCaption, L"Show the weather next to the clock");
         NextRow();
+        Text(kWeatherWhich, CtlKind::Note, L"", kColX, right - kColX, 54);
+        NextRow(56);
 
         Section(kSectionWeatherPlace, L"Location");
         Label(kWeatherSearchLabel, L"Find a place");
@@ -116,6 +118,7 @@ protected:
         const WeatherConfig& w = Cfg().weather;
         LoadInts();
         SetCheck(kWeatherShow, Cfg().Edit().Has(ItemKind::Weather));
+        SetText(kWeatherWhich, WhichText());
         SetText(kWeatherLocationEdit, w.location);
         SetText(kWeatherLatEdit, FormatCoord(w.latitude));
         SetText(kWeatherLonEdit, FormatCoord(w.longitude));
@@ -124,6 +127,23 @@ protected:
     }
 
     void OnWeatherChanged() override { UpdateStatus(); }
+
+    // Which of the two weather widgets the edited dock shows: the native "weather" item (this check
+    // box) and / or the "Weather (script)" widget (round 4 phase 14). Both draw the same forecast
+    // from the one service these settings configure.
+    std::wstring WhichText() {
+        bool native = false, script = false;
+        for (const DockItemEntry& e : Cfg().Edit().items) {
+            if (e.Kind() == ItemKind::Weather) native = true;
+            if (e.Kind() == ItemKind::Widget && e.id == L"weather") script = true;
+        }
+        std::wstring s = native && script ? L"This dock shows both: the Weather item and the Weather (script) widget."
+                         : native        ? L"This dock shows the Weather item (built in)."
+                         : script        ? L"This dock shows the Weather (script) widget."
+                                         : L"This dock shows no weather.";
+        return s + L" Weather (script) is the same forecast drawn by a widget script (Dock contents > Add widget); "
+                   L"both use the settings below and one shared update.";
+    }
 
     void OnCommand(int id, int code, HWND) override {
         WeatherConfig& w = Cfg().weather;
@@ -134,6 +154,7 @@ protected:
                     Cfg().Edit().Show(ItemKind::Weather, GetCheck(id));
                     Changed(SettingsScope::Weather);
                     UpdateStatus();
+                    SetText(kWeatherWhich, WhichText());
                 }
                 break;
             case kWeatherSearch:

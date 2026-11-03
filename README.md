@@ -654,6 +654,17 @@ Without a location it shows a map-pin glyph, and a click on it opens Settings on
 - **Settings > Weather** finds places by name (Open-Meteo's geocoding service, 10 results, as
   "Name, Region, Country"); picking one fills in the latitude, longitude and the name shown.
 - Right-click the dock (the widget included) for **Refresh weather** and **Weather settings…**.
+- **Weather (script)** (round 4 phase 14): the same widget and popup written as a script widget
+  (`widgets/weather`, id `weather`, the Widgets section below) on the `weather` provider. It shows
+  the same data from the same service (one fetch per refresh whatever shows it), the same glyph and
+  temperature in the slot, and a popup laid out like the built-in one with "Updated N min ago" and
+  settings / refresh buttons; its own settings add today's high / low or the place under the
+  temperature, a glyph-only compact mode, what a click opens, and the popup's days and hours. The
+  native `weather` item stays as it is (the fallback). **Migration**: to use the script version,
+  open Settings > Dock contents, select the Weather row and **Remove** it, then **Add widget ▾ >
+  Weather (script)** (or replace `{ "kind": "weather" }` with `{ "kind": "widget", "id": "weather" }`
+  in config.json). Settings > Weather says which of the two the dock shows; both use its place,
+  units and interval.
 
 **Calendar**: a click on the clock opens a month calendar above it: today's date in the locale's
 long format, the month and year with previous / next arrows (also Left / Right and Page Up / Page
@@ -756,7 +767,9 @@ write and edit without compiling anything. The full reference (every call, every
   **Agenda** (`agenda`: the next event of the calendar feeds, "In 25 min" / "Now" / its time over
   its title with the feed's colour; a click shows the next events in a popup, the month calendar or
   an app / address; it wakes only when its text changes: at an event's start and end, each minute
-  of the last hour before one, at midnight, and when the feeds change). A folder with a built-in's id replaces the built-in; your own clock faces
+  of the last hour before one, at midnight, and when the feeds change), and **Weather (script)**
+  (`weather`: the weather item and its forecast popup on the `weather` provider, see Weather and
+  calendar above). A folder with a built-in's id replaces the built-in; your own clock faces
   go into an exported `analog-clock\faces` folder.
 - **Adding one**: Settings > Dock contents > **Add widget ▾** lists the installed widgets after
   Clock / Weather / Running apps, or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
@@ -790,12 +803,15 @@ write and edit without compiling anything. The full reference (every call, every
   Windows shortcuts: Start, Search, the notification centre ...), `audio` (the default output's
   level / mute, the microphone's mute, the outputs, switching the default output, change events),
   `media` (the current media session: title, artist, album, state, art, play / pause / next /
-  previous, change events), `popup` (a popup the widget
+  previous, change events), `notifications`, `calendar`, `weather` (the dock's forecast: current
+  conditions, hourly and daily arrays, place, units, state and age; `refresh()`, `onChange`,
+  `openSettings()`, `icon(code, isDay)` for the dock's own condition glyphs), `popup` (a popup the widget
   draws, or the dock's folder / window-preview / month calendar popups, anchored on the widget),
   `widget` (the widget's own package files: `files(glob)`, `read`, `readJson`).
 - **Permissions** (`"permissions"` in widget.json): `{ "http": ["api.example.com"] }` for
   requests to those hosts, `"shell"` for opening files / URLs, listing folders, file icons, the
-  folder popup, file drops and `sendKeys`, `"audio"` and `"media"` for the providers. Without them
+  folder popup, file drops and `sendKeys`, `"audio"`, `"media"`, `"notifications"`, `"calendar"`
+  and `"weather"` for the providers. Without them
   those calls throw. The audio and media providers run only while a widget uses them and never
   poll (Core Audio and media-session events).
 - **Settings**: Settings > **Widget settings** is generated from each widget item's schema (pick
@@ -1730,6 +1746,18 @@ always there, also when every dock is parked) handle these registered messages:
   hidden, 4418 single click, 4420 collapsed, 4424 / 4425 opacity %, 4428 title colour, 4431 lines
   (0 one, 1 two), 4432 hide title, 4434 transparent background, 4436 roll up on hover, 4440 rules,
   4441 move automatically, 4443 Sort desktop now; Docks 2809 Folder window settings….
+- **Weather provider** (round 4 phase 14; any `lParam`): `QueryState` 213 = script widgets using
+  the `weather` provider (the service runs while this or a shown dock's weather item says so), 214 =
+  forecast requests started since the dock started (one per refresh, whatever shows the weather:
+  the native item and every script widget share the one WeatherService), 215 = weather `onChange`
+  deliveries to widgets. The script Weather widget's own state: the widget QueryStates (54 state, 58
+  draws, 59 wake-ups, 61 / 62 its box, 65 / 66 its popup) and, with the item setting `"debugStore":
+  true`, its storage (`widget-data\weather.json`: `slot` = { state, temp, code, dim, text, w, h } of
+  its last draw, `popup` = { hours, days, state, updated, width, height, temp, unit } or { message }
+  of its last popup draw). Settings > Weather 2727 = the note on which weather widget the dock
+  shows. Test hook: the environment variable `WINDOCK_WEATHER_HOST` of the dock process replaces
+  the forecast host (`api.open-meteo.com`; tests use an address that refuses connections for the
+  offline / error path).
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide

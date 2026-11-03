@@ -1530,6 +1530,12 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return static_cast<LRESULT>(docks_.RulesMoved());  // files moved by Desktop rules this session
         case 208:
             return docks_.DesktopWatched() ? 1 : 0;  // the Desktop is watched (rules with autoSort)
+        case 213:
+            return static_cast<LRESULT>(docks_.Widgets().WeatherUsers());  // widgets using the weather provider
+        case 214:
+            return static_cast<LRESULT>(docks_.WeatherData().FetchCount());  // forecast requests started
+        case 215:
+            return static_cast<LRESULT>(docks_.Widgets().WeatherNotices());  // weather onChange deliveries
         case 202:
             if (inst && inst->folder) break;  // the window's own answer
             return static_cast<LRESULT>(DesktopLayer::Count());

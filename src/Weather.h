@@ -81,7 +81,9 @@ public:
 
     // Applies the config (the window receives kResultMessage and the timer). Starts, stops or
     // restarts as needed: a new place or units drop the data, load the cache and fetch now; turning
-    // the widget on fetches now; a new interval reschedules.
+    // the widget on fetches now unless the data is from within the refresh interval (then the
+    // next fetch keeps its time); a new interval reschedules. `shown`: a shown dock has a weather
+    // item or a script widget uses the provider.
     void Configure(const WeatherConfig& cfg, bool shown, HWND hwnd);
     // Stops the timer and ignores a fetch in flight (keeps the data).
     void Stop();
@@ -101,6 +103,8 @@ public:
     const WeatherConfig& Settings() const { return cfg_; }
     bool Busy() const { return inFlight_ && inFlightGen_ == generation_; }
     const std::wstring& LastError() const { return error_; }
+    // Forecast requests started since the dock started (QueryState 214).
+    uint64_t FetchCount() const { return fetches_; }
     // Seconds since the data was fetched (-1: no data).
     int64_t Age() const;
     // "Updated 10:15", "Updated 10:15 (stale)", "Updating…", "Not configured", "Error: …".
@@ -148,5 +152,6 @@ private:
     bool inFlight_ = false;
     UINT_PTR inFlightGen_ = 0;
     bool timerPending_ = false;
+    uint64_t fetches_ = 0;
     std::function<void()> changed_;
 };

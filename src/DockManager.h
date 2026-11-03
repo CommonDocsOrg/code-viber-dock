@@ -183,6 +183,7 @@ private:
     static constexpr UINT kFolderDeviceLost = WM_APP + 52;  // posted to the owner window
     static constexpr UINT kDesktopChange = WM_APP + 53;     // SHChangeNotify on the Desktop (rules)
     static constexpr UINT kRulesJobDone = WM_APP + 54;      // a rules move finished
+    static constexpr UINT kWeatherRequest = WM_APP + 55;    // wParam: WidgetRuntime::WeatherAction
     static constexpr UINT_PTR kDesktopTimer = 43;           // owner timer: coalesces Desktop changes
     // Closes the window now (DestroyWindow) and keeps the object until Reap / the destructor.
     void Close(std::unique_ptr<DockWindow> window);

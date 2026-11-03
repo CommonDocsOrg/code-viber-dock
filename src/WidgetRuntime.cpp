@@ -138,6 +138,7 @@ void WidgetRuntime::Shutdown() {
     notificationUsers_.clear();
     calendarUsers_.clear();
     notificationsDemand_ = nullptr;
+    weatherRequest_ = nullptr;
     audio_.Stop();
     media_.Stop();
     FlushStorage();
@@ -546,8 +547,15 @@ CalendarService* WidgetRuntime::UseCalendar(WidgetInstance* w) {
     return calendar_;
 }
 
+WeatherService* WidgetRuntime::UseWeather(WidgetInstance* w) {
+    if (!weather_) return nullptr;
+    if (weatherUsers_.insert(w).second && weatherUsers_.size() == 1) WeatherRequest(WeatherAction::Sync);
+    return weather_;
+}
+
 void WidgetRuntime::ReleaseProviders(WidgetInstance* w) {
     calendarUsers_.erase(w);
+    if (weatherUsers_.erase(w) && weatherUsers_.empty()) WeatherRequest(WeatherAction::Sync);
     if (audioUsers_.erase(w) && audioUsers_.empty()) audio_.Stop();
     if (mediaUsers_.erase(w) && mediaUsers_.empty()) media_.Stop();
     if (notificationUsers_.erase(w) && notificationUsers_.empty() && notificationsDemand_) notificationsDemand_();

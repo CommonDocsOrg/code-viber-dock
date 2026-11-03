@@ -311,6 +311,7 @@ inline constexpr int kWeatherRefreshNow = 2723;    // "Refresh now" (= DockComma
 inline constexpr int kWeatherStatusLabel = 2724;
 inline constexpr int kWeatherStatus = 2725;        // "Updated 10:15", "(stale)", "Not configured", "Error: …"
 inline constexpr int kWeatherCredit = 2726;        // SysLink: Open-Meteo (CC BY 4.0)
+inline constexpr int kWeatherWhich = 2727;         // note: which weather widget the dock shows (native item / script widget)
 
 // Docks (2800 - 2899; round 4 phase 3)
 inline constexpr int kDocksList = 2800;       // SysListView32 (report): Id, Edge, Display, Windows; one row per docks[]; the selected row is the dock the other pages edit

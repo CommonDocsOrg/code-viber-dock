@@ -238,7 +238,7 @@ constexpr char kPrelude[] = R"JS(
     },
   });
   // Providers: onChange listeners kept here; the host calls the returned emit(channel).
-  const listeners = { audio: [], media: [], notifications: [], calendar: [], calendarReminder: [] };
+  const listeners = { audio: [], media: [], notifications: [], calendar: [], calendarReminder: [], weather: [] };
   const onChange = (ch) => (cb) => {
     if (typeof cb !== 'function') throw new TypeError(ch + '.onChange: the argument must be a function');
     listeners[ch].push(cb);
@@ -294,11 +294,24 @@ constexpr char kPrelude[] = R"JS(
     onChange: onChange('calendar'),
     onReminder: onChange('calendarReminder'),
   });
+  // weather (phase 14): the dock's own forecast service (one fetcher for the native element and
+  // every widget). icon(code, isDay, colours): an image token for canvas.image.
+  const wx = (what, a) => p.weather(what, JSON.stringify(a ?? {}));
+  g.weather = Object.freeze({
+    get: () => wx('get'),
+    refresh: () => wx('refresh'),
+    openSettings: () => wx('openSettings'),
+    icon: (code, isDay, o) => wx('icon', {
+      code: typeof code === 'string' ? code : Number(code ?? -1), isDay: isDay !== false,
+      ink: String(o?.ink ?? g.dock.theme.text), water: String(o?.water ?? g.dock.theme.accent),
+    }),
+    onChange: onChange('weather'),
+  });
   return (ch, data) => {
     const l = listeners[ch];
     if (!l || !l.length) return;
     const state = ch === 'audio' ? p.audioGet() : ch === 'media' ? p.mediaGet() : ch === 'calendar' ? cal('feeds')
-      : ch === 'calendarReminder' ? JSON.parse(data) : p.notifGet().items;
+      : ch === 'calendarReminder' ? JSON.parse(data) : ch === 'weather' ? wx('get') : p.notifGet().items;
     for (const cb of l.slice()) cb(state);
   };
 })(globalThis, globalThis.__windock);
@@ -1067,6 +1080,10 @@ bool AssetPath(JSContext* ctx, const std::wstring& given, std::string& path) {
         path = WideToUtf8(given);
         return true;
     }
+    if (given.rfind(L"weather:", 0) == 0) {  // weather.icon(): the dock's vector glyphs (no data in them)
+        path = WideToUtf8(given);
+        return true;
+    }
     if (!Widgets::ResolvePath("", WideToUtf8(given), path)) {
         JS_ThrowTypeError(ctx, "image: '%s' is not a path inside the widget folder", WideToUtf8(given).c_str());
         return false;
@@ -1223,6 +1240,7 @@ JSValue DockGet(JSContext* ctx, JSValueConst, int magic) {
         case 12: return NewString(ctx, d.dockId);
         case 13: return NewString(ctx, d.widgetId);
         case 14: return JS_NewBool(ctx, d.visible);
+        case 15: return JS_NewBool(ctx, d.clockDate);
         default: return JS_UNDEFINED;
     }
 }
@@ -1409,6 +1427,7 @@ const JSCFunctionListEntry kDockFuncs[] = {
     JS_CGETSET_MAGIC_DEF("id", GuardGet<DockGet>, nullptr, 12),
     JS_CGETSET_MAGIC_DEF("widgetId", GuardGet<DockGet>, nullptr, 13),
     JS_CGETSET_MAGIC_DEF("visible", GuardGet<DockGet>, nullptr, 14),
+    JS_CGETSET_MAGIC_DEF("clockDate", GuardGet<DockGet>, nullptr, 15),
     JS_CFUNC_DEF("requestRedraw", 0, Guard<RequestRedrawFn>),
 };
 
@@ -1615,6 +1634,18 @@ JSValue CalFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     return JsonResult(ctx, ok, json, error, "<calendar>");
 }
 
+// weather(what, argsJson): the weather provider (permission "weather").
+JSValue WeatherFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string what = WideToUtf8(a.S(0));
+    const std::string args = a.Has(1) ? WideToUtf8(a.S(1)) : std::string("{}");
+    if (a.failed) return JS_EXCEPTION;
+    std::string json;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.WeatherCall(what, args, json, error);
+    return JsonResult(ctx, ok, json, error, "<weather>");
+}
+
 // canvas.fileIcon(path, x, y, size): the shell's icon of a file or folder (permission "shell").
 JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     CANVAS_OR_THROW();
@@ -1734,6 +1765,7 @@ const JSCFunctionListEntry kProviderFuncs[] = {
     JS_CFUNC_DEF("notifGet", 0, Guard<NotifGetFn>),
     JS_CFUNC_DEF("notifCmd", 2, Guard<NotifCmdFn>),
     JS_CFUNC_DEF("cal", 2, Guard<CalFn>),
+    JS_CFUNC_DEF("weather", 2, Guard<WeatherFn>),
 };
 
 const JSCFunctionListEntry kPopupFuncs[] = {

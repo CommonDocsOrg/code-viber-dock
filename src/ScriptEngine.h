@@ -30,6 +30,7 @@ struct ScriptDockInfo {
     bool locked = false;
     bool visible = true;          // the dock is on screen (not auto-hidden, not a hidden desktop dock)
     bool metric = true;           // config weather.units (system.units)
+    bool clockDate = false;       // the dock's native clock shows its date (dock.clockDate)
     // Theme colours, 0xAARRGGBB (dock.theme.*, as "#AARRGGBB").
     uint32_t text = 0, dateText = 0, accent = 0, background = 0, labelBackground = 0, labelText = 0,
              separator = 0, border = 0;
@@ -58,7 +59,7 @@ public:
     virtual void SetRefresh(uint32_t ms) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar };
+    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -103,6 +104,11 @@ public:
     // `what`: "feeds", "events" ({from, to}), "eventsOn" ({date}), "next" ({n}), "refresh",
     // "openPopup" ({date}); `args` a JSON object. The result as JSON (docs/widgets.md).
     virtual bool CalendarCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) = 0;
+
+    // --- weather (permission "weather", round 4 phase 14): the dock's WeatherService ---
+    // `what`: "get" (the forecast, docs/widgets.md), "refresh", "openSettings", "icon" ({code,
+    // isDay, ink, water}: an image token for canvas.image); `args` a JSON object.
+    virtual bool WeatherCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) = 0;
 
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs.
@@ -183,7 +189,7 @@ public:
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).
     virtual size_t HeapBytes() = 0;
-    // A provider changed ("audio", "media", "notifications", "calendar"): its onChange listeners
+    // A provider changed ("audio", "media", "notifications", "calendar", "weather"): its onChange listeners
     // run with its new state. "calendarReminder": the onReminder listeners get `payload` (JSON).
     virtual ScriptResult Emit(const std::string& channel, const std::string& payload = {}) = 0;
 };

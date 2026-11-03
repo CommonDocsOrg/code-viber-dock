@@ -37,7 +37,13 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     widgets_.Initialize(owner_);
     weather_.SetChangedCallback([this] {
         ForEach([](DockWindow& w) { w.OnWeatherChanged(); });
+        widgets_.NotifyWeather();  // the widgets using the provider (never inside a script call)
         if (callbacks_.weatherChanged) callbacks_.weatherChanged();
+    });
+    // Script widgets share this one service (phase 14): their first / last use and refresh() are
+    // posted here, so the service starts, stops or fetches outside the script's call.
+    widgets_.SetWeather(&weather_, [this](WidgetRuntime::WeatherAction a) {
+        if (owner_) PostMessageW(owner_, kWeatherRequest, static_cast<WPARAM>(a), 0);
     });
     // The window list for every dock (the initial enumeration runs now, before any dock exists).
     tracker_.SetTitleCallback([this](const std::vector<HWND>& windows) {
@@ -121,6 +127,7 @@ void DockManager::Shutdown() {
     watchers_.clear();
     watch_.Stop();
     tracker_.Stop();
+    widgets_.SetWeather(nullptr, nullptr);
     weather_.Stop();  // a fetch still in flight posts to a window that is gone (and frees it)
     calendar_.SetChanged(nullptr);
     calendar_.SetReminderCallback(nullptr);
@@ -354,6 +361,14 @@ bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (notifications_.HandleMessage(msg, wp, lp)) return true;
     if (calendar_.HandleMessage(msg, wp, lp)) return true;  // feed results, file changes, the refresh timer
     if (msg == WM_TIMECHANGE) calendar_.TimeChanged();     // (not consumed)
+    if (msg == kWeatherRequest) {
+        if (static_cast<WidgetRuntime::WeatherAction>(wp) == WidgetRuntime::WeatherAction::Refresh) {
+            weather_.RefreshNow();
+        } else if (weather_.Shown() != AnyWeatherItem()) {
+            ConfigureWeather();
+        }
+        return true;
+    }
     return weather_.HandleMessage(msg, wp, lp);  // fetch results, the refresh timer
 }
 
@@ -532,6 +547,7 @@ std::vector<RECT> DockManager::ReservedMonitors() const {
 
 bool DockManager::AnyWeatherItem() const {
     if (!config_) return false;
+    if (widgets_.WeatherUsers() > 0) return true;  // a script widget uses the weather provider (phase 14)
     for (const DockConfig& d : config_->docks) {
         if (!d.Has(ItemKind::Weather)) continue;
         if (d.Each() || MonitorIndexFor(d) >= 0) return true;  // shown (not parked)

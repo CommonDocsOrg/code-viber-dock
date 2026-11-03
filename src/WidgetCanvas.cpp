@@ -6,9 +6,13 @@
 #include <cctype>
 #include <cmath>
 #include <cstdlib>
+#include <cstring>
+#include <iterator>
 #include <numbers>
+#include <utility>
 
 #include "JsonUtil.h"
+#include "WeatherGlyphs.h"
 
 namespace {
 
@@ -556,6 +560,10 @@ WidgetCanvas::ImageEntry* WidgetCanvas::FindImage(const std::string& path, std::
 }
 
 bool WidgetCanvas::ImageSize(const std::string& path, float& w, float& h, std::wstring& error) {
+    if (path.rfind("weather:", 0) == 0) {  // weather.icon(): vector glyphs, 24 DIPs nominal
+        w = h = 24.0f;
+        return true;
+    }
     ImageEntry* img = FindImage(path, error);
     if (!img) return false;
     w = static_cast<float>(img->w);
@@ -563,8 +571,68 @@ bool WidgetCanvas::ImageSize(const std::string& path, float& w, float& h, std::w
     return true;
 }
 
+namespace {
+
+constexpr char kWeatherToken[] = "weather:";
+
+// A weather.icon() token: "weather:icon/<glyph>/<d|n>/<ink ARGB hex>/<water ARGB hex>" or
+// "weather:refresh/<ARGB hex>". The dock's own vector glyphs (WeatherGlyphs), drawn into the rect.
+bool DrawWeatherToken(ID2D1DeviceContext* dc, const std::string& token, const D2D1_RECT_F& box, float opacity,
+                      std::wstring& error) {
+    std::vector<std::string> parts;
+    size_t start = std::strlen(kWeatherToken);
+    while (start <= token.size()) {
+        size_t slash = token.find('/', start);
+        if (slash == std::string::npos) slash = token.size();
+        parts.push_back(token.substr(start, slash - start));
+        start = slash + 1;
+    }
+    auto hex = [](const std::string& s, uint32_t& v) {
+        if (s.size() != 8) return false;
+        char* end = nullptr;
+        v = static_cast<uint32_t>(std::strtoul(s.c_str(), &end, 16));
+        return end && *end == 0;
+    };
+    if (parts.size() == 2 && parts[0] == "refresh") {
+        uint32_t c = 0;
+        if (!hex(parts[1], c)) {
+            error = L"not a weather.icon() token";
+            return false;
+        }
+        const uint32_t a = static_cast<uint32_t>(std::lround(((c >> 24) & 0xFF) * std::clamp(opacity, 0.0f, 1.0f)));
+        if (dc) WeatherGlyphs::DrawRefresh(dc, box, (c & 0x00FFFFFFu) | (a << 24));
+        return true;
+    }
+    using G = WeatherGlyphs::Glyph;
+    static constexpr std::pair<const char*, G> kNames[] = {
+        {"clear", G::Clear}, {"partly-cloudy", G::PartlyCloudy}, {"overcast", G::Overcast}, {"fog", G::Fog},
+        {"drizzle", G::Drizzle}, {"rain", G::Rain}, {"snow", G::Snow}, {"thunder", G::Thunder},
+        {"set-location", G::SetLocation}};
+    WeatherGlyphs::Colors colors;
+    const auto* name = parts.size() == 5 && parts[0] == "icon"
+                           ? std::find_if(std::begin(kNames), std::end(kNames), [&](const auto& n) { return parts[1] == n.first; })
+                           : std::end(kNames);
+    if (name == std::end(kNames) || (parts[2] != "d" && parts[2] != "n") || !hex(parts[3], colors.ink) ||
+        !hex(parts[4], colors.water)) {
+        error = L"not a weather.icon() token";
+        return false;
+    }
+    colors.opacity = std::clamp(opacity, 0.0f, 1.0f);
+    if (dc) WeatherGlyphs::Draw(dc, name->second, parts[2] == "d", box, colors);
+    return true;
+}
+
+}  // namespace
+
 bool WidgetCanvas::Image(const std::string& path, float x, float y, float w, float h, float opacity,
                          std::wstring& error) {
+    if (path.rfind(kWeatherToken, 0) == 0) {
+        // Vector glyphs: no size of their own (0 / omitted: 24 DIPs square).
+        if (w <= 0.0f || h <= 0.0f) w = h = 24.0f;
+        if (!Finite(x + y + w + h)) return true;
+        if (dc_) Apply();
+        return DrawWeatherToken(dc_, path, D2D1::RectF(x, y, x + w, y + h), opacity * cur_.alpha, error);
+    }
     ImageEntry* img = FindImage(path, error);
     if (!img) return false;
     if (!dc_) return true;

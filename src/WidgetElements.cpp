@@ -375,6 +375,7 @@ ScriptDockInfo WidgetDockInfo(const ElementHost& host) {
     info.locked = d.locked;
     info.reduceMotion = host.ReducedMotion();
     info.metric = host.Cfg().weather.units == Units::Metric;
+    info.clockDate = d.Has(ItemKind::Clock) && host.Cfg().clock.showDate;  // the weather element's smaller size
     info.text = t.clockText;
     info.dateText = t.clockDateText;
     info.accent = t.accent;
