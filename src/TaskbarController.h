@@ -80,6 +80,8 @@ private:
     static TaskbarList FindTaskbars();
     static bool IsTaskbarClass(HWND hwnd);
     static HWND PrimaryTaskbar();
+    // The monitor edge (ABE_*) the taskbar window `bar` sits on, -1 when unknown.
+    static int TaskbarEdge(HWND bar, const RECT& monitor);
     static void CaptureState(SavedState& s);
     static void SetAppBarState(UINT state);
 

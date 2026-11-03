@@ -356,17 +356,52 @@ void TaskbarController::VerifyWorkArea() {
         for (int r = 0; r < reservedCount_ && !reserved; ++r) reserved = SameRect(mi.rcMonitor, reservedMonitors_[r]);
         if (reserved) continue;
         if (SameRect(mi.rcWork, mi.rcMonitor)) continue;
+        // Only the edges a (hidden) taskbar of this monitor sits on are given back: another app's
+        // app bar on another edge keeps its space. Forcing the whole monitor fought such app bars:
+        // the shell re-reserved their space at once, and every try is a WM_SETTINGCHANGE broadcast
+        // that blocks this thread until every window answered (seconds with one slow window; found
+        // by the 2026-11-03 verification with a test app bar on the right edge).
+        RECT want = mi.rcWork;
+        bool edgeKnown = false;
+        for (int b = 0; b < bars.count; ++b) {
+            if (MonitorFromWindow(bars.hwnd[b], MONITOR_DEFAULTTONEAREST) != targets[i]) continue;
+            switch (TaskbarEdge(bars.hwnd[b], mi.rcMonitor)) {
+                case ABE_LEFT: want.left = mi.rcMonitor.left; edgeKnown = true; break;
+                case ABE_TOP: want.top = mi.rcMonitor.top; edgeKnown = true; break;
+                case ABE_RIGHT: want.right = mi.rcMonitor.right; edgeKnown = true; break;
+                case ABE_BOTTOM: want.bottom = mi.rcMonitor.bottom; edgeKnown = true; break;
+                default: break;
+            }
+        }
+        if (!edgeKnown) want = mi.rcMonitor;  // no taskbar found on it: the whole monitor, as before
+        if (SameRect(want, mi.rcWork)) continue;
         if (workAreaFixes_ >= kMaxWorkAreaFixes) {
             Trace(L"WinDock: work area still reserved after %d fixes; giving up\n", workAreaFixes_);
             return;
         }
         ++workAreaFixes_;
-        Trace(L"WinDock: work area (%ld,%ld,%ld,%ld) != monitor; forcing full monitor\n", mi.rcWork.left,
-              mi.rcWork.top, mi.rcWork.right, mi.rcWork.bottom);
-        RECT full = mi.rcMonitor;
+        Trace(L"WinDock: work area (%ld,%ld,%ld,%ld) keeps the taskbar's space; setting (%ld,%ld,%ld,%ld)\n",
+              mi.rcWork.left, mi.rcWork.top, mi.rcWork.right, mi.rcWork.bottom, want.left, want.top, want.right,
+              want.bottom);
         // Broadcasts WM_SETTINGCHANGE, which re-enters OnWorkAreaChanged(); by then it matches.
-        SystemParametersInfoW(SPI_SETWORKAREA, 0, &full, SPIF_SENDCHANGE);
+        SystemParametersInfoW(SPI_SETWORKAREA, 0, &want, SPIF_SENDCHANGE);
     }
+}
+
+int TaskbarController::TaskbarEdge(HWND bar, const RECT& monitor) {
+    if (bar == PrimaryTaskbar()) {
+        APPBARDATA abd{sizeof(abd)};
+        abd.hWnd = bar;
+        if (SHAppBarMessage(ABM_GETTASKBARPOS, &abd)) return static_cast<int>(abd.uEdge);
+    }
+    // A secondary taskbar: the edge its window rect is nearest to (it stays at its edge while
+    // auto-hidden, slid out but for a sliver).
+    RECT r{};
+    if (!GetWindowRect(bar, &r) || r.right <= r.left || r.bottom <= r.top) return -1;
+    const LONG dx = (r.left + r.right) / 2 - (monitor.left + monitor.right) / 2;
+    const LONG dy = (r.top + r.bottom) / 2 - (monitor.top + monitor.bottom) / 2;
+    if (r.right - r.left >= r.bottom - r.top) return dy > 0 ? ABE_BOTTOM : ABE_TOP;
+    return dx > 0 ? ABE_RIGHT : ABE_LEFT;
 }
 
 void TaskbarController::InstallHook() {
