@@ -622,7 +622,7 @@ void ItemGridView::MouseMove(POINT pt) {
     if (!moved) return;
     // An entry pressed in a view whose entries can be dragged out: that drag. Otherwise a vertical
     // drag scrolls the content.
-    if (callbacks_.beginDrag && press_.item >= 0) {
+    if (dragOut_ && callbacks_.beginDrag && press_.item >= 0) {
         const size_t index = static_cast<size_t>(press_.item);
         press_ = Press{};
         if (host_ && GetCapture() == host_) ReleaseCapture();

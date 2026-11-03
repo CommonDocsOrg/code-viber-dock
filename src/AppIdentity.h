@@ -52,6 +52,8 @@ struct ResolvedPin {
     int iconIndex = 0;
     bool customIcon = false;  // iconFile / iconIndex come from the entry's `icon`
     bool missing = false;     // the .lnk / .exe (or the link's target) does not exist
+    // A group (kind Group): its members resolved, in order (left empty by ResolvePin).
+    std::vector<ResolvedPin> members;
 };
 
 // Resolves a pinned entry. `ordinal` numbers separators (0 for the first separator entry, 1 for
@@ -59,6 +61,8 @@ struct ResolvedPin {
 //   kind "separator": key "kind:separator#<ordinal>", name "Separator", nothing to launch.
 //   kind "recycleBin": key "kind:recyclebin", name "Recycle Bin", nothing to launch (the dock
 //         opens shell:RecycleBinFolder).
+//   kind "group": key "kind:group#<ordinal>" (`ordinal` numbers the groups), name = its name
+//         ("Group" when empty), nothing to launch; `members` is left for the caller.
 //   folder (the path, or a .lnk's target, is a directory): kind Folder, key = the directory's
 //         full path (so a shortcut to a folder and the folder itself are one item), name = its
 //         last component ("C:" for a drive root), launchPath = targetPath = the directory.

@@ -1,5 +1,7 @@
 #include "App.h"
 
+#include "InputDialog.h"
+
 #include <dbt.h>
 #include <shellapi.h>
 #include <windowsx.h>
@@ -172,6 +174,12 @@ void App::SetUpDock(DockWindow& dock) {
         PinFiles(d->ConfigIndex(), d->Pins(), paths, at);
     };
     requests.moveItem = [this, d](size_t from, size_t to) { MoveItem(d->ConfigIndex(), from, to); };
+    requests.group = [this, d](const AppKey& source, const AppKey& target) { GroupWith(*d, source, target); };
+    requests.addToGroup = [this, d](const AppKey& group, const std::vector<std::wstring>& paths) {
+        AddToGroup(*d, group, paths);
+    };
+    requests.memberOut = [this, d](const AppKey& group, size_t member, size_t at) { MemberOut(*d, group, member, at); };
+    requests.removeMember = [this, d](const AppKey& group, size_t member) { RemoveMember(*d, group, member); };
     requests.moveDock = [this, d](DockEdge edge, DockAlign align, int offset) {
         const size_t cfg = d->ConfigIndex();
         DockConfig& c = config_.docks[cfg];
@@ -296,7 +304,10 @@ void App::SetItemView(DockWindow& dock, const AppKey& key, ItemView view) {
     const std::vector<size_t> idx = dc.PinIndexes();
     bool changed = false;
     for (size_t i = 0; i < pins.size() && i < idx.size(); ++i) {
-        if (pins[i].key != key || pins[i].kind != AppIdentity::PinKind::Folder) continue;
+        if (pins[i].key != key ||
+            (pins[i].kind != AppIdentity::PinKind::Folder && pins[i].kind != AppIdentity::PinKind::Group)) {
+            continue;
+        }
         DockItemEntry& e = dc.items[idx[i]];
         if (e.view == view) continue;
         e.view = view;
@@ -306,6 +317,159 @@ void App::SetItemView(DockWindow& dock, const AppKey& key, ItemView view) {
     ReloadPins(dock.ConfigIndex());
     RequestSave();
     RefreshSettings();
+}
+
+void App::ItemsChanged(size_t cfg) {
+    ReloadPins(cfg);
+    RequestSave();
+    RefreshSettings();  // the Dock contents page
+}
+
+DockItemEntry* App::PinEntryOf(DockWindow& dock, const AppKey& key, size_t* pinIndex) {
+    const auto& pins = dock.Pins();  // parallel to the pin items of the dock's config
+    DockConfig& dc = config_.docks[dock.ConfigIndex()];
+    const std::vector<size_t> idx = dc.PinIndexes();
+    for (size_t i = 0; i < pins.size() && i < idx.size(); ++i) {
+        if (pins[i].key != key) continue;
+        if (pinIndex) *pinIndex = i;
+        return &dc.items[idx[i]];
+    }
+    return nullptr;
+}
+
+namespace {
+// A member entry: the target and its custom icon (no view, no members).
+DockItemEntry MemberEntry(const DockItemEntry& e) {
+    DockItemEntry m;
+    m.kind = e.Kind() == ItemKind::Folder ? ToString(ItemKind::Folder) : ToString(ItemKind::App);
+    m.path = e.path;
+    m.aumid = e.aumid;
+    m.icon = e.icon;
+    return m;
+}
+}  // namespace
+
+void App::GroupWith(DockWindow& dock, const AppKey& source, const AppKey& target) {
+    if (source == target) return;
+    const size_t cfg = dock.ConfigIndex();
+    DockConfig& dc = config_.docks[cfg];
+    if (dc.locked) return;
+    size_t ti = 0, si = SIZE_MAX;
+    DockItemEntry* t = PinEntryOf(dock, target, &ti);
+    if (!t || (t->Kind() != ItemKind::App && t->Kind() != ItemKind::Folder && t->Kind() != ItemKind::Group)) return;
+    // The source: its pin entry (it leaves the pins), or a running app's entry.
+    std::optional<DockItemEntry> s;
+    if (DockItemEntry* pinned = PinEntryOf(dock, source, &si)) {
+        if (pinned->Kind() != ItemKind::App && pinned->Kind() != ItemKind::Folder) return;  // not a group / separator / bin
+        s = MemberEntry(*pinned);
+    } else {
+        const int index = IndexOfKey(dock, source);
+        if (index < 0) return;
+        s = EntryForItem(dock.Items()[static_cast<size_t>(index)]);
+        if (!s) return;
+        s = MemberEntry(*s);
+    }
+    if (t->Kind() == ItemKind::Group) {
+        // Already a member: only the pin goes (it is in the group anyway).
+        const AppIdentity::ResolvedPin* g = dock.GroupPin(target);
+        const bool member = g && std::any_of(g->members.begin(), g->members.end(),
+                                             [&](const AppIdentity::ResolvedPin& m) { return m.key == source; });
+        if (!member) t->members.push_back(std::move(*s));
+    } else {
+        DockItemEntry group;
+        group.kind = ToString(ItemKind::Group);
+        group.members.push_back(MemberEntry(*t));
+        group.members.push_back(std::move(*s));
+        *t = std::move(group);  // at the target's place
+    }
+    if (si != SIZE_MAX) dc.ErasePin(si);
+    ItemsChanged(cfg);
+}
+
+void App::AddToGroup(DockWindow& dock, const AppKey& group, const std::vector<std::wstring>& paths) {
+    DockItemEntry* g = PinEntryOf(dock, group);
+    if (!g || g->Kind() != ItemKind::Group || config_.docks[dock.ConfigIndex()].locked) return;
+    std::vector<AppKey> keys;
+    if (const AppIdentity::ResolvedPin* rp = dock.GroupPin(group)) {
+        for (const AppIdentity::ResolvedPin& m : rp->members) keys.push_back(m.key);
+    }
+    bool changed = false;
+    for (const std::wstring& path : paths) {
+        DockItemEntry entry;
+        entry.path = path;
+        const AppIdentity::ResolvedPin pin = AppIdentity::ResolvePin(entry);
+        if (pin.kind != AppIdentity::PinKind::App && pin.kind != AppIdentity::PinKind::Folder) continue;
+        if (std::find(keys.begin(), keys.end(), pin.key) != keys.end()) continue;  // already a member
+        keys.push_back(pin.key);
+        DockItemEntry m;
+        m.kind = pin.kind == AppIdentity::PinKind::Folder ? ToString(ItemKind::Folder) : ToString(ItemKind::App);
+        m.path = pin.launchPath.empty() ? path : pin.launchPath;
+        g->members.push_back(std::move(m));
+        changed = true;
+    }
+    if (changed) ItemsChanged(dock.ConfigIndex());
+}
+
+void App::MemberOut(DockWindow& dock, const AppKey& group, size_t member, size_t at) {
+    size_t gi = 0;
+    DockItemEntry* g = PinEntryOf(dock, group, &gi);
+    if (!g || g->Kind() != ItemKind::Group || member >= g->members.size()) return;
+    DockConfig& dc = config_.docks[dock.ConfigIndex()];
+    DockItemEntry m = std::move(g->members[member]);
+    g->members.erase(g->members.begin() + static_cast<ptrdiff_t>(member));
+    if (at == SIZE_MAX) at = gi + 1;
+    if (g->members.empty()) {
+        dc.ErasePin(gi);  // the last member out: the group goes
+        if (at > gi) --at;
+    }
+    dc.InsertPin(at, std::move(m));
+    ItemsChanged(dock.ConfigIndex());
+}
+
+void App::RemoveMember(DockWindow& dock, const AppKey& group, size_t member) {
+    size_t gi = 0;
+    DockItemEntry* g = PinEntryOf(dock, group, &gi);
+    if (!g || g->Kind() != ItemKind::Group || member >= g->members.size()) return;
+    g->members.erase(g->members.begin() + static_cast<ptrdiff_t>(member));
+    if (g->members.empty()) config_.docks[dock.ConfigIndex()].ErasePin(gi);
+    ItemsChanged(dock.ConfigIndex());
+}
+
+void App::Ungroup(DockWindow& dock, const AppKey& group) {
+    size_t gi = 0;
+    DockItemEntry* g = PinEntryOf(dock, group, &gi);
+    if (!g || g->Kind() != ItemKind::Group) return;
+    DockConfig& dc = config_.docks[dock.ConfigIndex()];
+    std::vector<DockItemEntry> members = std::move(g->members);
+    dc.ErasePin(gi);
+    for (size_t k = 0; k < members.size(); ++k) dc.InsertPin(gi + k, std::move(members[k]));
+    ItemsChanged(dock.ConfigIndex());
+}
+
+void App::RenameGroup(DockWindow& dock, const AppKey& group) {
+    const DockItemEntry* g = PinEntryOf(dock, group);
+    if (!g || g->Kind() != ItemKind::Group) return;
+    std::wstring name = g->name.empty() ? std::wstring(L"Group") : g->name;
+    const HWND owner = dock.Hwnd();
+    dock.SetHold(true);
+    ++modalDepth_;
+    g_activateTarget = hwnd_;  // the dialog gets the keyboard focus (see ChooseItemIcon)
+    g_activateMessage = kDialogActivated;
+    HHOOK hook = SetWindowsHookExW(WH_CBT, &ActivateHook, nullptr, GetCurrentThreadId());
+    const bool ok = InputDialog::Ask(owner, L"Rename group", L"Name:", name);
+    if (hook) UnhookWindowsHookEx(hook);
+    g_activateTarget = nullptr;
+    DockWindow* again = shutDown_ ? nullptr : docks_.ByHwnd(owner);
+    if (again) again->SetHold(false);
+    EndModal();
+    if (!ok || !again) return;
+    // The items may have changed while the dialog was open: look the group up again.
+    DockItemEntry* now = PinEntryOf(*again, group);
+    if (!now || now->Kind() != ItemKind::Group) return;
+    const std::wstring stored = name == L"Group" ? std::wstring() : name;
+    if (now->name == stored) return;
+    now->name = stored;
+    ItemsChanged(again->ConfigIndex());
 }
 
 void App::ChooseItemIcon(DockWindow& dock, UINT cmd, const AppKey& key) {
@@ -480,6 +644,12 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
         case ContextMenu::kViewList:
             SetItemView(dock, key, static_cast<ItemView>(cmd - ContextMenu::kViewAuto));
             return;
+        case ContextMenu::kRenameGroup:
+            RenameGroup(dock, key);
+            return;
+        case ContextMenu::kUngroup:
+            Ungroup(dock, key);
+            return;
         case ContextMenu::kReloadWidget:
             dock.ReloadWidget(IndexOfKey(dock, key));
             return;
@@ -636,6 +806,7 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
             if (pins[i].key != key) continue;
             if (!dc.items[idx[i]].icon.empty()) itemState.hasIcon = true;
             itemState.view = dc.items[idx[i]].view;
+            itemState.members = dc.items[idx[i]].members.size();
         }
     }
     itemState.canPin = !key.IsClassFallback();
@@ -1130,8 +1301,24 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
             const LPARAM item = ArgOfParam(lp);
             if (dock && item >= 0 && item < static_cast<LPARAM>(dock->Items().size())) index = static_cast<int>(item);
         }
-        const UINT cmd = static_cast<UINT>(wp);
-        if (index >= 0 && (cmd == ContextMenu::kChooseIcon || cmd == ContextMenu::kChooseImage) && InSendMessage()) {
+        // The low word is the command; the group commands carry an argument in the high word.
+        const UINT cmd = static_cast<UINT>(wp & 0xFFFF);
+        const size_t arg = static_cast<size_t>((wp >> 16) & 0xFFFF);
+        const bool modal = cmd == ContextMenu::kChooseIcon || cmd == ContextMenu::kChooseImage || cmd == ContextMenu::kRenameGroup;
+        if (index >= 0 && (cmd == ContextMenu::kGroupWith || cmd == ContextMenu::kMemberOut || cmd == ContextMenu::kRemoveMember)) {
+            const auto& items = dock->Items();
+            const AppKey key = items[static_cast<size_t>(index)].key;
+            if (cmd == ContextMenu::kGroupWith) {
+                if (arg < items.size()) GroupWith(*dock, key, items[arg].key);
+            } else if (cmd == ContextMenu::kMemberOut) {
+                MemberOut(*dock, key, arg, SIZE_MAX);
+            } else {
+                RemoveMember(*dock, key, arg);
+            }
+            result = 1;
+            return true;
+        }
+        if (index >= 0 && modal && InSendMessage()) {
             // A modal dialog would block the sender until it closes: run it after the call.
             PostMessageW(dock->Hwnd(), msgItemCommand_, wp, static_cast<LPARAM>((dockIndex << 16) | static_cast<size_t>(index)));
         } else if (index >= 0 && cmd == ContextMenu::kClickSlot) {

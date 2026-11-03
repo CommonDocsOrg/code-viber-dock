@@ -78,8 +78,8 @@ public:
         std::function<void(size_t index, Button button)> activate;
         // Right click / Apps key on an entry (-1: on the background), at a screen point.
         std::function<void(int index, POINT screen)> contextMenu;
-        // A press on an entry dragged sideways or out of the view (null: entries are not dragged
-        // out; a vertical drag always scrolls). The view has released the mouse.
+        // A press on an entry that moved past the drag threshold while SetDragOut(true) (the
+        // button is still down: the host may start an OLE drag). The view has released the mouse.
         std::function<void(size_t index, POINT screen)> beginDrag;
     };
 
@@ -109,6 +109,9 @@ public:
     Mode GetMode() const { return mode_; }
     // Grid: entries per row (at least 1). List: always 1.
     void SetColumns(size_t columns);
+    // Entries may be dragged out (the beginDrag callback): a press on an entry that moves starts
+    // that drag; only the background (and the scrollbar) drag-scrolls. Off: every drag scrolls.
+    void SetDragOut(bool on) { dragOut_ = on; }
     size_t Columns() const { return mode_ == Mode::List ? 1 : columns_; }
     // The viewport in the host's client px (the parent layer's coordinates).
     void SetBounds(const RECT& bounds);
@@ -234,6 +237,7 @@ private:
     bool animTimer_ = false;
     bool fadeTimer_ = false;
     bool thumbShown_ = false;
+    bool dragOut_ = false;
 
     int hot_ = -1;
     int selected_ = -1;

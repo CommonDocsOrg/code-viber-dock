@@ -341,6 +341,16 @@ inline constexpr int kItemViewNote = 4004;
 inline constexpr int kItemChooseIcon = 4005;   // "Choose icon…" (the Change Icon dialog)
 inline constexpr int kItemChooseImage = 4006;  // "Choose image…"
 inline constexpr int kItemResetIcon = 4007;    // "Reset icon" (enabled when the item has an `icon`)
-inline constexpr int kItemNote = 4008;         // the folder's path / "no folder" note
+inline constexpr int kItemNote = 4008;         // the folder's path / the group's member count / "none" note
+// Groups only (hidden for a folder):
+inline constexpr int kGroupNameLabel = 4009;
+inline constexpr int kGroupNameEdit = 4010;    // the group's name (committed on Enter / focus loss; "Group" = default)
+inline constexpr int kGroupMembersLabel = 4011;
+inline constexpr int kGroupMembers = 4012;     // SysListView32 (report): Name, Target; one row per member
+inline constexpr int kGroupAdd = 4013;         // "Add app…" (open dialog, .lnk / .exe, multi-select)
+inline constexpr int kGroupAddFolder = 4014;   // "Add folder…"
+inline constexpr int kGroupRemove = 4015;
+inline constexpr int kGroupUp = 4016;          // "Move up"
+inline constexpr int kGroupDown = 4017;        // "Move down"
 
 }  // namespace SettingsIds

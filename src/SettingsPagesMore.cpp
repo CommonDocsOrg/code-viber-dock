@@ -217,6 +217,7 @@ const wchar_t* KindLabel(ItemKind k) {
         case ItemKind::Clock: return L"Clock";
         case ItemKind::Weather: return L"Weather";
         case ItemKind::Widget: return L"Widget";
+        case ItemKind::Group: return L"Group";
         case ItemKind::Unknown:
         default: return L"";
     }
@@ -450,7 +451,8 @@ private:
             case ItemKind::Weather: Window().ShowPage(kPageWeather); break;
             case ItemKind::Running: Window().ShowPage(kPageBehaviour); break;
             case ItemKind::Widget: Window().ShowWidgetSettings(row); break;
-            case ItemKind::Folder: Window().ShowItemSettings(row); break;
+            case ItemKind::Folder:
+            case ItemKind::Group: Window().ShowItemSettings(row); break;
             case ItemKind::App: {
                 // A shortcut to a folder is a folder item too (its popup's layout); an app: Choose icon….
                 static const std::vector<AppIdentity::ResolvedPin> kNone;
@@ -512,6 +514,7 @@ private:
         if (!images_) return -1;
         const ItemKind special = e.Kind();
         if (special == ItemKind::Separator) return -1;  // no icon: the name says "Separator"
+        if (special == ItemKind::Group && (!pin || pin->iconFile.empty())) return -1;  // the dock composes its icon
         HICON icon = nullptr;
         // The custom icon (or a shortcut's icon location) first: an image, else an icon resource.
         if (pin && !pin->iconFile.empty()) {
@@ -578,6 +581,17 @@ private:
             case ItemKind::RecycleBin:
                 name = pin && !pin->displayName.empty() ? pin->displayName : L"Recycle Bin";
                 break;
+            case ItemKind::Group: {
+                name = e.name.empty() ? std::wstring(L"Group") : e.name;
+                details = std::to_wstring(e.members.size()) + (e.members.size() == 1 ? L" shortcut" : L" shortcuts");
+                for (size_t i = 0; i < e.members.size() && i < 6; ++i) {
+                    std::wstring m = pin && i < pin->members.size() ? pin->members[i].displayName : std::wstring();
+                    if (m.empty()) m = !e.members[i].path.empty() ? StemOf(e.members[i].path) : e.members[i].aumid;
+                    details += (i == 0 ? L": " : L", ") + m;
+                }
+                if (e.members.size() > 6) details += L", …";
+                break;
+            }
             case ItemKind::Running:
                 name = L"Running apps";
                 details = firstRunning ? L"Open apps that are not pinned"

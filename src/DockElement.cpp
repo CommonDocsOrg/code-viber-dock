@@ -71,6 +71,20 @@ public:
         item.iconFile = pin.iconFile;
         item.iconIndex = pin.iconIndex;
         item.missing = pin.missing;
+        if (pin.kind == DockItem::Kind::Group) {
+            // What the composed icon shows (and the popup lists): the members.
+            std::vector<DockItem::Member> members;
+            members.reserve(pin.members.size());
+            for (const AppIdentity::ResolvedPin& m : pin.members) {
+                members.push_back(DockItem::Member{m.key, m.displayName, m.iconFile, m.iconIndex, m.missing});
+            }
+            if (members != item.members) {
+                item.members = std::move(members);
+                item.dirty = true;
+            }
+        } else if (!item.members.empty()) {
+            item.members.clear();
+        }
         // Unstacked: the pin slot stays as it is (its click launches / activates the app, its
         // dot and preview are the app's) and every window of the app follows it as a slot of
         // its own, in the app's first-seen window order.
@@ -113,7 +127,7 @@ public:
     }
 
     void OnClick(int slot, bool pressClosedPopup) override {
-        if (resolved_ == DockItem::Kind::Folder) {
+        if (resolved_ == DockItem::Kind::Folder || resolved_ == DockItem::Kind::Group) {
             // The folder popup; a middle click opens the folder in Explorer.
             if (!pressClosedPopup) host_.ShowClickPopup(slot);
             return;
@@ -124,7 +138,7 @@ public:
     void OnMiddleClick(int slot) override {
         if (resolved_ == DockItem::Kind::App) {
             AppMiddleClick(host_, slot);
-        } else {
+        } else if (resolved_ != DockItem::Kind::Group) {  // a group: nothing
             host_.LaunchSlot(slot, true);  // a separator does nothing
         }
     }
@@ -132,7 +146,9 @@ public:
         return resolved_ == DockItem::Kind::App && wheel_.OnWheel(host_, slot, delta, horizontal);
     }
     ClickPopup Popup() const override {
-        return resolved_ == DockItem::Kind::Folder ? ClickPopup::Folder : ClickPopup::None;
+        return resolved_ == DockItem::Kind::Folder  ? ClickPopup::Folder
+               : resolved_ == DockItem::Kind::Group ? ClickPopup::Group
+                                                     : ClickPopup::None;
     }
 
 private:
@@ -246,6 +262,7 @@ std::unique_ptr<DockElement> MakeElement(ElementHost& host, const DockItemEntry&
         case ItemKind::Folder:
         case ItemKind::Separator:
         case ItemKind::RecycleBin:
+        case ItemKind::Group:
             return std::make_unique<PinElement>(host, entry, pinIndex);
         case ItemKind::Running:
             return std::make_unique<RunningElement>(host, entry);

@@ -80,6 +80,8 @@ public:
     static constexpr UINT_PTR kLabelFadeTimerId = 19;     // end of the name label's fade-out
     // 20 = WeatherService::kTimerId (the next weather refresh, one-shot)
     static constexpr UINT_PTR kRecycleBinTimerId = 21;    // coalesces Recycle Bin change notifications
+    // 22 = Thumbnails::kTimerId
+    static constexpr UINT_PTR kGroupHoldTimerId = 23;     // a dragged icon held over a pin: make a group
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);
     // a dropped file's open-with / recycle action (run after the OLE Drop call has returned).
     // WM_APP + 20 = WeatherService::kResultMessage (a forecast fetch finished; handled here) and
@@ -161,6 +163,15 @@ public:
         std::function<void(size_t from, size_t to)> moveItem;
         // The dock was dragged (Ctrl + drag): put it on `edge` at `align` + `offset` DIPs.
         std::function<void(DockEdge edge, DockAlign align, int offset)> moveDock;
+        // Shortcut groups. `source` (a pin or a running app) held over `target`: a group of the two
+        // at the target's place, or `source` added to `target` when that is a group.
+        std::function<void(const AppKey& source, const AppKey& target)> group;
+        // .lnk / .exe / folder files dropped on a group (its icon or its popup): new members.
+        std::function<void(const AppKey& group, const std::vector<std::wstring>& paths)> addToGroup;
+        // Member `member` of `group` becomes a pin at pin index `at` (SIZE_MAX: right after the group).
+        std::function<void(const AppKey& group, size_t member, size_t at)> memberOut;
+        // Member `member` of `group` is removed.
+        std::function<void(const AppKey& group, size_t member)> removeMember;
     };
 
     DockWindow() = default;
@@ -267,6 +278,10 @@ public:
     void ToggleFolderPopup(int index);
     // Automation (ItemCommand 814 - 816) on the open folder popup: select / scroll to / open.
     FolderPopup& Folder() { return folder_; }
+    // The resolved group pin behind a group slot's key (null: no such group).
+    const AppIdentity::ResolvedPin* GroupPin(const AppKey& key) const;
+    // Opens / activates member `member` of the group `group` (as a click in its popup does).
+    void OpenGroupMember(const AppKey& group, size_t member);
 
     // --- the weather service (the weather elements' data) and widget popups ---
     // Re-reads config->weather (start / stop / restart the service) and relayouts if the widget's
@@ -554,8 +569,18 @@ private:
     void DismissFolderPopup(bool animate, bool leaveCheck = true);
     // The popup closed by itself (deactivated, Escape).
     void OnFolderPopupClosed();
-    // The item list changed: dismiss the popup if its folder item is gone.
+    // The item list changed: dismiss the popup if its folder item is gone (a group's popup
+    // follows its members).
     void RefreshFolderPopup();
+    // --- group popup (group items: the same popup window) ---
+    void ShowGroupPopup(int index, float anchor);
+    // The members as the popup shows them (icons from the dock's cache).
+    std::vector<FolderPopup::GroupEntry> GroupEntries(const AppIdentity::ResolvedPin& group);
+    // Name + member keys / names: the popup is refreshed when this changes.
+    static std::wstring GroupSignature(const AppIdentity::ResolvedPin& group);
+    FolderPopup::Style PopupStyle() const;
+    // A member dragged out of the popup: an OLE drag the dock (any dock) takes as "pull it out".
+    void DragGroupMember(const AppKey& group, size_t member);
 
     // --- weather / calendar popups (centred on stage x `anchor`) ---
     void ShowWeatherPopup(float anchor);
@@ -738,6 +763,12 @@ private:
     void EndDrag(bool commit);
     // Abandons a drag without animation (the item list changed under it).
     void AbortDrag();
+    // Hold-to-group: the slot a drag at stage point `pt` would group with (-1: none). A pin (app /
+    // folder) or a group whose rest slot's middle half is under the pointer, on the icon row;
+    // the dragged item must be an app or folder (not a group, a widget or a window slot).
+    int GroupCandidateAt(POINT stagePt) const;
+    void OnGroupHoldTimer();
+    void ResetGroupTarget();
     void OnRemoveTimer();
     // Where an internal drag at stage x would put the dragged item (see DockWindow.cpp): sets
     // dragToPins_, dragPins_ / dragRunning_ (the new orders), dragOrder_ (the slots in the order
@@ -774,7 +805,8 @@ private:
     // What a drop at the pointer would do (QueryState 26): pin pinnable files at an insertion
     // marker, open the files with the app item under the pointer, or recycle them on the bin.
     // Widget: onto a script widget that takes files (onDrop + the "shell" permission).
-    enum class DropMode { None = 0, Insert = 1, OpenWith = 2, Recycle = 3, Widget = 4 };
+    // Group: onto a group's icon (pinnable files become members).
+    enum class DropMode { None = 0, Insert = 1, OpenWith = 2, Recycle = 3, Widget = 4, Group = 5 };
     HRESULT RenderMarker();
     DWORD OnDragEnter(IDataObject* data, POINT screenPt, DWORD allowed);
     DWORD OnDragOver(POINT screenPt, DWORD allowed);
@@ -1006,9 +1038,18 @@ private:
     AppKey previewSuppressKey_;
     HWND previewSuppressWindow_ = nullptr;
 
-    // Folder popup
+    // Folder popup (also a group's)
     FolderPopup folder_;
-    AppKey folderKey_;            // the folder item the popup shows (empty: none)
+    AppKey folderKey_;            // the folder / group item the popup shows (empty: none)
+    std::wstring groupSignature_; // the group popup's GroupSignature when it was filled
+
+    // Hold-to-group (a pin dragged onto another pin and held)
+    int groupCandidate_ = -1;     // the slot under the dragged icon that it may group with
+    int groupTarget_ = -1;        // ... armed (held long enough, or a group): a drop groups
+    bool groupHoldPending_ = false;  // kGroupHoldTimerId running
+    // A group member dragged out of the popup (OLE, from any dock of this process) is over the dock.
+    AppKey memberDragGroup_;
+    size_t memberDragIndex_ = SIZE_MAX;
 
     // The forecast and calendar popups (the weather data is shared_->WeatherData())
     WeatherPopup weatherPopup_;

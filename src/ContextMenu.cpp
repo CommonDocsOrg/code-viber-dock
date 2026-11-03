@@ -145,6 +145,23 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
             case DockItem::Kind::Separator:
                 Append(menu, kTogglePin, L"Remove", item.pinned);
                 break;
+            case DockItem::Kind::Group: {
+                if (!appName.empty()) {
+                    Append(menu, kNone, MenuText(appName).c_str(), false);
+                    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+                }
+                Append(menu, kToggleFolderPopup, L"Show contents", true);
+                Append(menu, kRenameGroup, L"Rename…", true);
+                Append(menu, kUngroup, L"Ungroup (its shortcuts become pins)", item.members > 0);
+                const std::wstring unpin = item.members == 0 ? std::wstring(L"Unpin group")
+                                           : item.members == 1
+                                               ? std::wstring(L"Unpin group and its shortcut")
+                                               : L"Unpin group and its " + std::to_wstring(item.members) + L" shortcuts";
+                Append(menu, kTogglePin, unpin.c_str(), item.pinned);
+                AppendIconEntries(menu, item);
+                AppendViewMenu(menu, item);
+                break;
+            }
             case DockItem::Kind::RecycleBin:
                 Append(menu, kNewWindow, L"Open", true);
                 Append(menu, kEmptyRecycleBin, L"Empty Recycle Bin", !item.binEmpty);

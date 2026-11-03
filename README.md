@@ -415,6 +415,32 @@ band. `WinDock.QueryState` 45.
     entries. Dropping onto the folder's icon on the dock still pins the files (below).
   - Middle click on the icon opens the folder in Explorer. Right click: the name, Unpin from
     dock, the icon entries, Open in Explorer, View (Automatic / Grid / List), then the dock menu.
+- **Shortcut groups** (`{ "kind": "group", "name": "Tools", "items": [ ...apps / folders... ] }`):
+  one slot for several shortcuts, like a folder on a phone's home screen. Its icon is a rounded
+  tile with the first four members' icons in a 2 x 2 grid (or a custom icon: Choose icon… /
+  Choose image…); its label is its name ("Group" when it has none).
+  - Make one by dragging an icon onto another pinned app or folder and **holding it there for
+    0.6 s**: while the pointer is over the middle half of that icon the others stop making room,
+    after the hold the target grows a little, and releasing makes a group of the two at the
+    target's place (a running app that is not pinned can be dragged in too). Drag an icon onto a
+    group to add it (no hold needed); release before the hold time or outside the middle and it is
+    an ordinary reorder.
+  - A click opens its popup (the folder popup's look: grid or list per its `view`, scrolling,
+    keyboard, type-to-select): click a member to start it, or bring its windows to the front when
+    it runs. Right click a member: **Open**, **Remove from group**, **Move to dock** (a pin right
+    after the group). Drag a member out of the popup onto the dock to make it a pin there (the
+    insertion marker shows where). Drop `.lnk` / `.exe` files or folders onto the group's icon or
+    its popup to add them; other files get the no-drop cursor. The last member removed removes
+    the group. Middle click on a group does nothing.
+  - Running members: the group shows a dot while any member runs (bright while one of them is
+    the active app, orange when one wants attention). The running apps themselves also appear as
+    usual with the dock's `running` item (they are not pins); the group has no window previews.
+  - Right click the group: **Show contents**, **Rename…** (a small dialog), **Ungroup** (the
+    members become pins at its place), **Unpin group and its N shortcuts**, the icon entries and
+    **View**. Settings > Folders and groups edits the name, the view and the members (Add app…,
+    Add folder…, Remove, Move up / down); Dock contents shows a group as "Group" with its members.
+  - Older versions (before round 4 phase 7) do not show a group; they keep its `kind` and `icon`
+    but drop its name and members if they save the file.
 - **Recycle Bin** (`{ "kind": "recycleBin" }` in the dock's `items`, or **Add Recycle Bin** on the Dock
   contents page): shows the bin's empty or full icon, which follows the bin (the dock asks the shell to
   tell it when the bin changes; nothing polls). Its name label reads "Recycle Bin (12 items,
@@ -685,7 +711,7 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   animation effects are on). See [Animation](#animation).
 - **Dock contents** (was "Pinned apps"): every item of the dock in its order, one row each: the
   name (with the icon for apps, folders and the Recycle Bin; "(missing)" when the file is gone),
-  the kind (App, Folder, Separator, Recycle Bin, Running apps, Clock, Weather) and details (the
+  the kind (App, Folder, Group, Separator, Recycle Bin, Running apps, Clock, Weather) and details (the
   target; the clock's format; the weather's place; a second running apps item reads "Not shown:
   only the first running apps item is used"; a kind this version does not know is listed as
   written). Buttons: **Add app…** (pick one or more `.lnk` / `.exe` files; a shortcut is pinned as
@@ -696,7 +722,7 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   **Remove** (any item; without a running apps item, running apps that are not pinned are not
   shown, add it back with Add widget > Running apps), **Settings…** for the selected item (the
   clock: the General page; the weather: the Weather page; the running apps: the Behaviour page;
-  a folder (or a shortcut to one): the Folders and groups page; an app or the Recycle Bin:
+  a folder (or a shortcut to one) or a group: the Folders and groups page; an app or the Recycle Bin:
   Choose icon…; greyed for a separator), **Choose icon…**,
   **Choose image…**, **Reset icon** (as in the dock's menu, see Custom icons; for apps, folders
   and the Recycle Bin, Reset only when the entry has an `icon`), **Add Recycle Bin** (greyed
@@ -716,10 +742,11 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 - **Widget settings**: the settings of one widget item of the dock, generated from its widget.json
   schema (a drop-down at the top picks the item; **Settings…** on a widget row of Dock contents
   opens it), with **Reset to defaults**.
-- **Folders and groups**: one folder item of the dock (a drop-down picks it; **Settings…** on a
-  folder row of Dock contents opens it): **Show the contents as** Automatic (a grid up to 48
-  entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose image…, Reset
-  icon).
+- **Folders and groups**: one folder or shortcut group of the dock (a drop-down picks it;
+  **Settings…** on its row of Dock contents opens it): **Show the contents as** Automatic (a grid
+  up to 48 entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose
+  image…, Reset icon); for a group also its **Name** and its shortcuts (Add app…, Add folder…,
+  Remove, Move up / down).
 
 Every change applies to the dock at once (sliders when you release them, number boxes on each
 arrow step, on Enter or when the box loses the focus) and is saved within 300 ms, exactly like the
@@ -829,6 +856,10 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     - `"folder"`: `{ "kind": "folder", "path": "<folder>", "view": "auto" }`, a folder stack (see
       Dock items). `view` is `"auto"` (default; not written), `"grid"` or `"list"`.
     - `"separator"` (any number) and `"recycleBin"`: need no `path`.
+    - `"group"`: `{ "kind": "group", "name": "<name>", "icon": "<optional>", "view": "auto",
+      "items": [ { "kind": "app", "path": "..." }, { "kind": "folder", "path": "..." } ] }`, a
+      shortcut group (see Dock items). `items` holds app / folder entries only (`path` or
+      `aumid`, optional `icon`); `name` "" shows as "Group".
     - `"running"`: where the running apps that are not pinned go (one icon each). **Without a
       `running` item, running apps that are not pinned are not shown**; pinned apps still show
       their windows (dot, click to switch, previews). Only the first `running` item is used.
@@ -1154,7 +1185,7 @@ always there, also when every dock is parked) handle these registered messages:
   window; it stops counting in the other modes). 20 = 1 if the theme preset failed to resolve on
   the last load (the dock uses `dark`). 21 = number of callbacks those hooks delivered, the
   filtered ones (cursor, caret, child windows) included. 24 = kind of item `lParam` (0 app,
-  1 folder, 2 separator, 3 Recycle Bin, 4 clock, 5 weather, 6 script widget; -1 if there is no such item). 25 = 1 if item `lParam`
+  1 folder, 2 separator, 3 Recycle Bin, 4 clock, 5 weather, 6 script widget, 7 shortcut group; -1 if there is no such item). 25 = 1 if item `lParam`
   has a custom icon from its `icon` key (0 if not, -1 if there is no such item). 22 = 1 while the
   folder popup is visible. 23 = number of entries of the folder the popup shows (all of them,
   scrolled into view or not; 0 when it is hidden). 26 = drop mode while files are dragged over the dock (0 none, 1 insertion marker,
@@ -1206,7 +1237,7 @@ always there, also when every dock is parked) handle these registered messages:
   title (-1 no such card). 76 = how many live title changes this dock has applied (slot titles,
   the label, preview cards). 77 = the length of slot `lParam`'s title under the icon (0: none).
   78 = slot `lParam`'s dot (0 none, also for a minimized window slot; 1 running, 2 the active
-  window / app, 3 wants attention). Thumbnails: 79 = `thumbnails` (0 off, 1 live, 2 snapshots).
+  window / app, 3 wants attention; a group: its members'). Thumbnails: 79 = `thumbnails` (0 off, 1 live, 2 snapshots).
   80 = slot `lParam` is not a thumbnail tile (0), a tile without a picture yet (1) or with one (2;
   -1 no such slot). 81 = live frames this dock received. 82 = `PrintWindow` calls of every dock.
   83 = live capture sessions running now. 84 = snapshot rounds this dock started. 85 = the window
@@ -1215,7 +1246,11 @@ always there, also when every dock is parked) handle these registered messages:
   88 = rows that have a visual (surface) now (a screenful; both ends' rows during an animated
   scroll), 89 = scroll offset in px, 90 = the selected entry (-1 none), 91 = characters in the
   path of the folder it shows (grows when navigating into a sub-folder; 0 hidden), 92 = its
-  columns (1 in a list; 0 hidden). 5 counts the popup's scroll / scrollbar timers. 26 reports 4
+  columns (1 in a list; 0 hidden). 5 counts the popup's scroll / scrollbar timers. Phase 7b:
+  93 = what the popup shows (0 hidden, 1 a folder, 2 a group), 94 = the slot a dragged icon
+  would group with if released now (-1 none; armed after the 0.6 s hold, at once for a group),
+  95 = members of group slot `lParam` (-1 not a group), 96 = the slot the dragged icon is held
+  over (the hold is running or done; -1 none). 5 also counts the hold timer. 26 reports 4
   while files are dragged over a script widget that takes them (`onDrop`). Per dock: 14 / 36 /
   39 / 40 / 42 and 37 refer to that dock's own config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
@@ -1255,7 +1290,9 @@ always there, also when every dock is parked) handle these registered messages:
   phase 7: page 11 Folders and groups (4001 the item drop-down: the edited dock's folder items,
   shortcuts to folders included; 4003 Show the contents as: 0 Automatic, 1 Grid, 2 List; 4005
   Choose icon…, 4006 Choose image…, 4007 Reset icon; 4008 the folder's path); Dock contents 2613
-  Settings… on a folder row opens page 11 for it.
+  Settings… on a folder row opens page 11 for it; phase 7b: groups on page 11 too (4010 the name,
+  committed on `EN_KILLFOCUS`; 4012 the members list (Name, Target); 4013 Add app…, 4014 Add
+  folder…, 4015 Remove, 4016 Move up, 4017 Move down; hidden for a folder).
   "Add widget ▾" opens a popup menu
   (items 1 Clock, 2 Weather, 3 Running apps, then the installed widgets 100 + n), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
@@ -1271,8 +1308,13 @@ always there, also when every dock is parked) handle these registered messages:
   once), 809 reload a script widget (its package and script; nothing for other slots), 810 what a
   left click on the slot does (activates / minimizes a window slot's window, activates / launches
   an app, opens a folder's or widget's popup; by slot index, so it reaches each window slot of an
-  unstacked app), 811 / 812 / 813 a folder's popup layout automatic / grid / list (saved as its
-  `view`), 900 close all windows),
+  unstacked app), 811 / 812 / 813 a folder's or group's popup layout automatic / grid / list
+  (saved as its `view`), 817 Rename… a group (a dialog: sent, it is posted back like 804; the
+  dialog is a `#32770` of the WinDock process with the edit box 100, OK = `IDOK`), 818 Ungroup,
+  819 / 820 / 821 with an argument in the high word of `wParam` (the low word is the command):
+  819 slot `lParam` onto slot `HIWORD(wParam)` (a group of the two, or added to that group), 820
+  group slot `lParam`'s member `HIWORD(wParam)` out (a pin right after the group), 821 that member
+  removed; 800 on a group unpins it with its members, 806 shows / hides its popup, 900 close all windows),
   `lParam` = item index or a window handle of the item. Returns 1 if the item was found. A folder
   popup opened this way usually cannot take the foreground (the dock did not get the click), so
   Escape does not reach it; it still closes when another window comes to the foreground, on a dock

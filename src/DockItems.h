@@ -49,14 +49,18 @@ struct DockItem {
     // are widget slots: their content is drawn by their element, they never magnify, are never
     // dragged and have no name label (QueryState 24 reports the kind as its number).
     // Widget: a script widget (docs/widgets.md), drawn by its element like the clock.
-    enum class Kind { App, Folder, Separator, RecycleBin, Clock, Weather, Widget };
+    // Group: a shortcut group (one slot; its members open in a popup, the icon shows up to four
+    // of theirs unless the item has a custom icon).
+    enum class Kind { App, Folder, Separator, RecycleBin, Clock, Weather, Widget, Group };
 
     AppKey key;
     Kind kind = Kind::App;
     size_t element = 0;  // index of the element that contributes this slot (DockWindow::elements_)
 
     // An icon that magnifies (apps, folders, the Recycle Bin).
-    bool Magnifies() const { return kind == Kind::App || kind == Kind::Folder || kind == Kind::RecycleBin; }
+    bool Magnifies() const {
+        return kind == Kind::App || kind == Kind::Folder || kind == Kind::RecycleBin || kind == Kind::Group;
+    }
     // A widget slot (content drawn by its element; not dragged, no label).
     bool IsWidget() const { return kind == Kind::Clock || kind == Kind::Weather || kind == Kind::Widget; }
     std::wstring displayName;
@@ -69,6 +73,18 @@ struct DockItem {
     bool missing = false;                    // pinned file no longer exists: placeholder icon
     bool pinned = false;
     std::vector<HWND> windows;               // running windows, first-seen order
+    // A group: its members (what the composed icon shows) and whether any of them runs (its dot;
+    // `active` / `wantsAttention` then follow the members' windows). A group never has `windows`.
+    struct Member {
+        AppKey key;
+        std::wstring displayName;
+        std::wstring iconFile;
+        int iconIndex = 0;
+        bool missing = false;
+        bool operator==(const Member&) const = default;
+    };
+    std::vector<Member> members;
+    bool groupRunning = false;
     bool wantsAttention = false;             // a window flashed (HSHELL_FLASH) and is not active
     // A window slot (docks[].windows "unstacked"): the one window this slot shows (`windows` is
     // {window} while it exists); null for every other slot. Slots are matched by key + window.

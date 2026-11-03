@@ -7,15 +7,17 @@
 #include <vector>
 
 // docks[].items[].kind values this version knows (case-insensitive); Unknown for anything else.
-enum class ItemKind { Unknown, App, Folder, Separator, RecycleBin, Running, Clock, Weather, Widget };
+enum class ItemKind { Unknown, App, Folder, Separator, RecycleBin, Running, Clock, Weather, Widget, Group };
 ItemKind ItemKindOf(std::wstring_view kind);
 const wchar_t* ToString(ItemKind v);  // the canonical JSON name ("" for Unknown)
-// The kinds that are "pins" (the pinned section of the dock): app, folder, separator, recycleBin.
+// The kinds that are "pins" (the pinned section of the dock): app, folder, separator, recycleBin,
+// group (a shortcut group holds pins of its own).
 inline bool IsPinKind(ItemKind k) {
-    return k == ItemKind::App || k == ItemKind::Folder || k == ItemKind::Separator || k == ItemKind::RecycleBin;
+    return k == ItemKind::App || k == ItemKind::Folder || k == ItemKind::Separator || k == ItemKind::RecycleBin ||
+           k == ItemKind::Group;
 }
 
-// How a folder item's popup shows its entries: "auto" (default: a grid up to
+// How a folder / group item's popup shows its entries: "auto" (default: a grid up to
 // FolderPopup::kAutoGridMax = 48 entries, a list above), "grid" or "list".
 enum class ItemView { Auto, Grid, List };
 
@@ -36,11 +38,17 @@ struct DockItemEntry {
     // built-in) and its settings object, kept as compact JSON text ("" = none: the defaults).
     std::wstring id;
     std::wstring settings;
-    // "folder" items: the popup's layout ("view"; saved only when not auto).
+    // "folder" / "group" items: the popup's layout ("view"; saved only when not auto).
     ItemView view = ItemView::Auto;
+    // "group" items (a shortcut group: one slot, its members in a popup): the name ("" = "Group")
+    // and the members, app / folder entries saved as the group's own "items" array. Older
+    // versions keep a group's kind and icon only (its name and members are lost if they save).
+    std::wstring name;
+    std::vector<DockItemEntry> members;
 
     ItemKind Kind() const { return ItemKindOf(kind); }
     bool IsPin() const { return IsPinKind(Kind()); }
+    bool operator==(const DockItemEntry&) const = default;
 };
 
 // "off": always shown. "always": hides when the mouse leaves. "intelligent": hides only while

@@ -34,6 +34,11 @@ class FolderDropTarget;
 // sub-folder under the pointer) like Explorer does (same volume: move, else copy; Ctrl copies,
 // Shift moves), by IFileOperation on a worker thread. Icons come from the system image list
 // (48 px), loaded as rows scroll into view and released when the popup hides.
+//
+// The same popup shows a shortcut group (ShowGroup): the group's name, its members (icons from
+// the dock), a click opens / activates one (the owner does it), right click Open / Remove from
+// group / Move to dock, a member dragged out starts the owner's drag, files dropped are offered
+// to the owner (added as members). No Explorer button, no navigation.
 class FolderPopup : public PopupWindow {
 public:
     static constexpr wchar_t kClassName[] = L"WinDockFolder";
@@ -45,6 +50,19 @@ public:
     struct Callbacks {
         std::function<void()> dismiss;  // an entry was opened: the owner hides the popup
         std::function<void()> closed;   // closed by itself (deactivated, Escape)
+    };
+    // A member's right-click menu commands (GroupCallbacks::command).
+    enum MemberCommand : UINT { kMemberOpen = 1, kMemberRemove = 2, kMemberToDock = 3 };
+    struct GroupEntry {
+        std::wstring label;
+        winrt::com_ptr<ID2D1Bitmap> icon;
+    };
+    struct GroupCallbacks {
+        std::function<void(size_t member)> open;                  // a click / Enter on a member
+        std::function<void(size_t member, UINT command)> command; // its menu (MemberCommand)
+        std::function<void(size_t member, POINT screen)> drag;    // dragged out (the button is still down)
+        std::function<bool(const std::vector<std::wstring>& files)> accepts;  // a file drag: can these be added?
+        std::function<void(const std::vector<std::wstring>& files)> drop;     // ... they were dropped
     };
     struct Style {
         float scale = 1.0f;
@@ -69,9 +87,16 @@ public:
     // edge) in `view`. Returns false if it could not be shown.
     bool Show(const std::wstring& folder, const std::wstring& name, ItemView view, const Style& style,
               const PopupAnchor& anchor);
+    // Shows a shortcut group's members (titled `name`) at `anchor`.
+    bool ShowGroup(const std::wstring& name, std::vector<GroupEntry> members, ItemView view, const Style& style,
+                   const PopupAnchor& anchor, GroupCallbacks callbacks);
+    // The group shown got other members / another name: shown again in place (same anchor).
+    void UpdateGroup(const std::wstring& name, std::vector<GroupEntry> members);
+    // 0 hidden, 1 a folder, 2 a group.
+    int Kind() const { return !OnScreen() ? 0 : group_ ? 2 : 1; }
 
-    // Entries of the folder shown (0 while hidden).
-    size_t EntryCount() const { return OnScreen() ? entries_.size() : 0; }
+    // Entries of the folder (members of the group) shown (0 while hidden).
+    size_t EntryCount() const { return OnScreen() ? view_.Count() : 0; }
     // The pinned folder the popup was opened for (empty while hidden).
     const std::wstring& Root() const { return root_; }
     // --- automation ---
@@ -147,6 +172,11 @@ private:
     Frame frame_;
     PopupAnchor anchor_;
     ItemView viewSetting_ = ItemView::Auto;
+    bool group_ = false;              // showing a group (members_), not a folder
+    GroupCallbacks groupCallbacks_;
+    std::vector<GroupEntry> members_;
+    // Loads members_ into the view.
+    void LoadGroup();
     ItemGridView view_;
     bool viewReady_ = false;  // view_.Init ran (needs the window)
 

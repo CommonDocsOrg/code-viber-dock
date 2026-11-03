@@ -512,6 +512,13 @@ ResolvedPin ResolvePin(const DockItemEntry& entry, size_t ordinal) {
             pin.displayName = L"Recycle Bin";
             ApplyCustomIcon(entry.icon, pin);
             return pin;
+        case ItemKind::Group:
+            // The members are resolved by the caller (ResolvedPin::members; they are cached).
+            pin.kind = PinKind::Group;
+            pin.key = SyntheticKey(L"kind:group#" + std::to_wstring(ordinal));
+            pin.displayName = entry.name.empty() ? std::wstring(L"Group") : entry.name;
+            ApplyCustomIcon(entry.icon, pin);
+            return pin;
         default:  // app, folder (detected from the path below)
             break;
     }

@@ -60,6 +60,12 @@ enum Command : UINT {
     kPopupSelect = 814,         // select entry n (scrolled into view)
     kPopupScroll = 815,         // scroll to n px (animated unless reduce motion)
     kPopupOpen = 816,           // open entry n as a left click does
+    kRenameGroup = 817,         // groups: Rename… (a small dialog; sent: posted back, like 804)
+    kUngroup = 818,             // groups: the members become pins at the group's place
+    // Groups, with an argument in the HIGH word of wParam (the low word is the command):
+    kGroupWith = 819,           // slot lParam onto slot HIWORD(wParam): a group of the two (or added to that group)
+    kMemberOut = 820,           // group slot lParam: member HIWORD(wParam) becomes a pin right after the group
+    kRemoveMember = 821,        // group slot lParam: member HIWORD(wParam) is removed
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
@@ -91,14 +97,16 @@ struct ItemMenuState {
     bool canOpenLocation = false;  // path-based items
     bool binEmpty = false;         // the Recycle Bin has nothing in it (Empty is greyed)
     bool hasIcon = false;          // the pin's config entry names an `icon` (Reset icon is greyed otherwise)
-    ItemView view = ItemView::Auto;  // folders: the popup's layout (View submenu)
+    ItemView view = ItemView::Auto;  // folders / groups: the popup's layout (View submenu)
+    size_t members = 0;              // groups: how many members (Unpin group's text)
 };
 
 // Per-item menu, then the dock menu. Apps: the app name (disabled header), Pin/Unpin, the icon
 // entries (pinned apps only), New window (Open when not running), Open file location, one
 // "Close <title>" entry per window (kCloseWindowBase + index), "Close all windows" when there
 // are several. Folders: the name, Unpin, the icon entries, Open in Explorer, View (Automatic /
-// Grid / List). Separators: Remove.
+// Grid / List). Groups: the name, Show contents, Rename…, Ungroup, Unpin group (with its members),
+// the icon entries, View. Separators: Remove.
 // The Recycle Bin: Open, Empty Recycle Bin, Unpin, the icon entries. The icon entries: Choose
 // icon…, Choose image…, Reset icon.
 UINT ShowItemMenu(HWND owner, POINT screenPt, const std::wstring& appName, const std::vector<std::wstring>& windowTitles,

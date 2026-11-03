@@ -61,6 +61,8 @@ constexpr float kMarkerWidth = 2.0f;         // file-drop insertion marker, DIPs
 constexpr float kPreviewGap = 12.0f;         // stage top -> thumbnail popup bottom, DIPs
 constexpr UINT kPreviewLeaveMs = 300;        // grace period after leaving the item and the popup
 constexpr float kDropScale = 1.15f;          // an app / the bin under a file drag (open with / recycle)
+constexpr float kGroupScale = 1.2f;          // a pin / group a dragged icon would group with
+constexpr UINT kGroupHoldMs = 600;           // hold a dragged icon over a pin this long: a group
 constexpr float kDropEdge = 0.15f;           // slot fraction per side that still means "between items"
 constexpr UINT kRecycleBinCoalesceMs = 200;  // bursts of bin change notifications -> one redraw
 constexpr float kDockSnapDip = 24.0f;        // a dragged dock snaps to the centre / an end this close
@@ -93,6 +95,73 @@ float SpacerBetween(Run prev, Run run, float iconToWidget, float widgetGap) {
     if (prev == Run::None || run == Run::None || (prev == Run::Icon && run == Run::Icon)) return 0.0f;
     return prev == Run::Widget && run == Run::Widget ? widgetGap : iconToWidget;
 }
+
+}  // namespace
+
+namespace {
+
+// A group member dragged out of the group popup (DockWindow::DragGroupMember): a private
+// clipboard format, so only a dock of this process (the one that owns the group) takes it.
+struct MemberDragData {
+    DWORD pid = 0;
+    UINT64 dock = 0;  // the HWND of the dock whose group it is
+    UINT32 member = 0;
+    wchar_t group[96]{};
+};
+
+CLIPFORMAT MemberFormat() {
+    static const CLIPFORMAT format = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(L"WinDock.GroupMember"));
+    return format;
+}
+
+bool ReadMemberDrag(IDataObject* data, MemberDragData& out) {
+    if (!data || !MemberFormat()) return false;
+    FORMATETC fmt{MemberFormat(), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium{};
+    if (FAILED(data->GetData(&fmt, &medium))) return false;
+    bool ok = false;
+    if (medium.hGlobal && GlobalSize(medium.hGlobal) >= sizeof(MemberDragData)) {
+        if (const void* p = GlobalLock(medium.hGlobal)) {
+            memcpy(&out, p, sizeof(out));
+            out.group[std::size(out.group) - 1] = 0;
+            GlobalUnlock(medium.hGlobal);
+            ok = out.pid == GetCurrentProcessId();
+        }
+    }
+    ReleaseStgMedium(&medium);
+    return ok;
+}
+
+// The drag source of a member drag: the left button up drops, Escape cancels.
+class MemberDropSource final : public IDropSource {
+public:
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(IDropSource)) {
+            *ppv = static_cast<IDropSource*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return static_cast<ULONG>(InterlockedIncrement(&refs_)); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        const LONG n = InterlockedDecrement(&refs_);
+        if (n == 0) delete this;
+        return static_cast<ULONG>(n);
+    }
+    HRESULT STDMETHODCALLTYPE QueryContinueDrag(BOOL escape, DWORD keys) override {
+        if (escape) return DRAGDROP_S_CANCEL;
+        if (!(keys & MK_LBUTTON)) return DRAGDROP_S_DROP;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE GiveFeedback(DWORD) override { return DRAGDROP_S_USEDEFAULTCURSORS; }
+
+private:
+    ~MemberDropSource() = default;
+    LONG refs_ = 1;
+};
 
 }  // namespace
 
@@ -1100,15 +1169,61 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
     const UINT smallPx = static_cast<UINT>(icon);
     const UINT bigPx = l.bitmapPx > smallPx ? l.bitmapPx : 0;
     HWND sample = item.windows.empty() ? nullptr : item.windows.front();
+    // A group without a custom icon: a tile with up to four of its members' icons.
+    const bool composed = item.kind == DockItem::Kind::Group && !item.customIcon;
     // May be slow (shell icon extraction) the first time per app; cached afterwards.
     // A pinned file that no longer exists shows the placeholder (unless the app is running).
-    ID2D1Bitmap* bmp = item.missing && item.windows.empty()
+    ID2D1Bitmap* bmp = composed || (item.missing && item.windows.empty())
                            ? nullptr
                            : icons_.Get(item.key, sample, l.bitmapPx, renderer_.ResourceContext(), item.iconFile,
                                         item.iconIndex);
     if (item.thumbWindow) return RenderTile(item, bmp);
+    std::vector<ID2D1Bitmap*> minis;
+    if (composed) {
+        for (size_t k = 0; k < item.members.size() && minis.size() < 4; ++k) {
+            const DockItem::Member& m = item.members[k];
+            minis.push_back(m.missing ? nullptr
+                                      : icons_.Get(m.key, nullptr, l.bitmapPx, renderer_.ResourceContext(), m.iconFile,
+                                                   m.iconIndex));
+        }
+    }
 
     auto drawIcon = [&](ID2D1DeviceContext* dc, float size) {
+        if (composed) {
+            // A translucent rounded tile in the label text colour, a hairline, a 2 x 2 grid.
+            const ThemeConfig& t = DockTheme();
+            winrt::com_ptr<ID2D1SolidColorBrush> brush;
+            if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(t.labelText, 0.22f), brush.put()))) return;
+            const float inset = std::round(size * 0.06f);
+            const float r = size * 0.22f;
+            const D2D1_RECT_F tile = D2D1::RectF(inset, inset, size - inset, size - inset);
+            dc->FillRoundedRectangle(D2D1::RoundedRect(tile, r, r), brush.get());
+            const float stroke = std::max(1.0f, std::round(size / 48.0f));
+            brush->SetColor(Theme::ToColor(t.barBorder));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(tile.left + stroke / 2.0f, tile.top + stroke / 2.0f,
+                                                                   tile.right - stroke / 2.0f, tile.bottom - stroke / 2.0f),
+                                                       r - stroke / 2.0f, r - stroke / 2.0f),
+                                     brush.get(), stroke);
+            const float pad = size * 0.19f, gap = size * 0.06f;
+            const float mini = (size - 2.0f * pad - gap) / 2.0f;
+            for (size_t k = 0; k < minis.size(); ++k) {
+                const float x = pad + static_cast<float>(k % 2) * (mini + gap);
+                const float y = pad + static_cast<float>(k / 2) * (mini + gap);
+                if (ID2D1Bitmap* b = minis[k]) {
+                    const D2D1_SIZE_F bs = b->GetSize();
+                    const float fit = std::min(mini / std::max(bs.width, 1.0f), mini / std::max(bs.height, 1.0f));
+                    const float dw = bs.width * fit, dh = bs.height * fit;
+                    const D2D1_RECT_F dst =
+                        D2D1::RectF(x + (mini - dw) / 2.0f, y + (mini - dh) / 2.0f, x + (mini + dw) / 2.0f, y + (mini + dh) / 2.0f);
+                    dc->DrawBitmap(b, &dst, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+                } else {
+                    brush->SetColor(Theme::ToColor(t.placeholderFill));
+                    const float mr = mini * 0.22f;
+                    dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(x, y, x + mini, y + mini), mr, mr), brush.get());
+                }
+            }
+            return;
+        }
         if (bmp) {
             const D2D1_SIZE_F bs = bmp->GetSize();
             const float fit = std::min(size / std::max(bs.width, 1.0f), size / std::max(bs.height, 1.0f));
@@ -1436,7 +1551,9 @@ HRESULT DockWindow::RenderDotSources() {
 HRESULT DockWindow::RenderDot(DockItem& item) {
     const Layer none{};  // no surface: no dot
     // A window slot's minimized window has no dot (it stays on the dock: minimize to dock).
-    const Layer& source = item.windows.empty() || (item.window && item.minimized) ? none
+    // A group: while one of its members runs.
+    const bool running = item.kind == DockItem::Kind::Group ? item.groupRunning : !item.windows.empty();
+    const Layer& source = !running || (item.window && item.minimized) ? none
                           : item.wantsAttention ? dotSources_[2]
                           : item.active         ? dotSources_[1]
                                                 : dotSources_[0];
@@ -1982,8 +2099,12 @@ void DockWindow::ComputeTargets() {
     }
     // A file dragged onto an app (open with) or the bin (recycle): that icon grows in place.
     if (dropItem_ >= 0 && dropItem_ < static_cast<int>(n) &&
-        (dropMode_ == DropMode::OpenWith || dropMode_ == DropMode::Recycle)) {
+        (dropMode_ == DropMode::OpenWith || dropMode_ == DropMode::Recycle || dropMode_ == DropMode::Group)) {
         items_[static_cast<size_t>(dropItem_)].targetScale = kDropScale;
+    }
+    // A dragged icon held over a pin / a group: the target grows (a release groups them).
+    if (dragPhase_ == DragPhase::Dragging && groupTarget_ >= 0 && groupTarget_ < static_cast<int>(n)) {
+        items_[static_cast<size_t>(groupTarget_)].targetScale = kGroupScale;
     }
 
     bgLeftTarget_ = l.bar.left - growLeft;
@@ -2515,7 +2636,7 @@ void DockWindow::RefreshPreview() {
 void DockWindow::ToggleFolderPopup(int index) {
     if (index < 0 || index >= static_cast<int>(items_.size())) return;
     const DockItem& item = items_[static_cast<size_t>(index)];
-    if (item.kind != DockItem::Kind::Folder) return;
+    if (item.kind != DockItem::Kind::Folder && item.kind != DockItem::Kind::Group) return;
     if (folder_.Visible() && item.key == folderKey_) {
         DismissFolderPopup(true);
         return;
@@ -2537,6 +2658,18 @@ void DockWindow::ShowFolderPopupAt(const std::wstring& path, const std::wstring&
     DismissPreview(false, false);
     DismissWeatherPopup(false, false);
     DismissCalendarPopup(false, false);
+    if (!folder_.Show(path, name, view, PopupStyle(), PopupAnchorAt(anchor))) {
+        DismissFolderPopup(false);
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    folderKey_ = key;
+    TakePopupHold(kHoldFolder);
+    HideLabel();
+    RenderWithRecovery([] { return S_OK; });  // commit the label hide
+}
+
+FolderPopup::Style DockWindow::PopupStyle() const {
     const Layout& l = layout_;
     FolderPopup::Style style;
     style.scale = l.scale;
@@ -2552,7 +2685,73 @@ void DockWindow::ShowFolderPopupAt(const std::wstring& path, const std::wstring&
     style.cornerRadiusDip = theme.cornerRadius;
     style.reduceMotion = motion_.reduce;
     style.monitor = l.work;
-    if (!folder_.Show(path, name, view, style, PopupAnchorAt(anchor))) {
+    return style;
+}
+
+const AppIdentity::ResolvedPin* DockWindow::GroupPin(const AppKey& key) const {
+    for (const AppIdentity::ResolvedPin& p : pins_) {
+        if (p.kind == DockItem::Kind::Group && p.key == key) return &p;
+    }
+    return nullptr;
+}
+
+std::vector<FolderPopup::GroupEntry> DockWindow::GroupEntries(const AppIdentity::ResolvedPin& group) {
+    std::vector<FolderPopup::GroupEntry> entries;
+    entries.reserve(group.members.size());
+    for (const AppIdentity::ResolvedPin& m : group.members) {
+        FolderPopup::GroupEntry e;
+        e.label = m.displayName;
+        if (!m.missing) {
+            e.icon.copy_from(icons_.Get(m.key, nullptr, layout_.bitmapPx, renderer_.ResourceContext(), m.iconFile, m.iconIndex));
+        }
+        entries.push_back(std::move(e));
+    }
+    return entries;
+}
+
+std::wstring DockWindow::GroupSignature(const AppIdentity::ResolvedPin& group) {
+    std::wstring s = group.displayName;
+    for (const AppIdentity::ResolvedPin& m : group.members) s += L"|" + m.key.id + L"/" + m.displayName + L"/" + m.iconFile;
+    return s;
+}
+
+// A click on a group toggles its popup: the members (icons, names) in the folder popup's window;
+// clicking one opens / activates it, right click Open / Remove from group / Move to dock, a member
+// dragged out onto the dock becomes a pin there, files dropped on it become members.
+void DockWindow::ShowGroupPopup(int index, float anchor) {
+    if (index < 0 || index >= static_cast<int>(items_.size())) return;
+    const DockItem& item = items_[static_cast<size_t>(index)];
+    const AppIdentity::ResolvedPin* group = item.kind == DockItem::Kind::Group ? GroupPin(item.key) : nullptr;
+    if (!group) return;
+    DismissWidgetPopup(false, false);
+    DismissPreview(false, false);
+    DismissWeatherPopup(false, false);
+    DismissCalendarPopup(false, false);
+    const AppKey key = item.key;
+    const ItemView view = ElementOf(static_cast<size_t>(index)).Entry().view;
+    FolderPopup::GroupCallbacks cb;
+    cb.open = [this, key](size_t member) { OpenGroupMember(key, member); };
+    cb.command = [this, key](size_t member, UINT command) {
+        switch (command) {
+            case FolderPopup::kMemberOpen: OpenGroupMember(key, member); break;
+            case FolderPopup::kMemberRemove:
+                if (pinRequests_.removeMember) pinRequests_.removeMember(key, member);
+                break;
+            case FolderPopup::kMemberToDock:
+                if (pinRequests_.memberOut) pinRequests_.memberOut(key, member, SIZE_MAX);
+                break;
+            default: break;
+        }
+    };
+    if (!DockCfg().locked) {
+        cb.drag = [this, key](size_t member, POINT) { DragGroupMember(key, member); };
+        cb.accepts = [](const std::vector<std::wstring>& files) { return !PinnableFiles(files).empty(); };
+        cb.drop = [this, key](const std::vector<std::wstring>& files) {
+            if (pinRequests_.addToGroup) pinRequests_.addToGroup(key, PinnableFiles(files));
+        };
+    }
+    groupSignature_ = GroupSignature(*group);
+    if (!folder_.ShowGroup(group->displayName, GroupEntries(*group), view, PopupStyle(), PopupAnchorAt(anchor), std::move(cb))) {
         DismissFolderPopup(false);
         MessageBeep(MB_ICONWARNING);
         return;
@@ -2561,6 +2760,53 @@ void DockWindow::ShowFolderPopupAt(const std::wstring& path, const std::wstring&
     TakePopupHold(kHoldFolder);
     HideLabel();
     RenderWithRecovery([] { return S_OK; });  // commit the label hide
+}
+
+void DockWindow::OpenGroupMember(const AppKey& groupKey, size_t member) {
+    const AppIdentity::ResolvedPin* group = GroupPin(groupKey);
+    if (!group || member >= group->members.size()) return;
+    const AppIdentity::ResolvedPin m = group->members[member];  // a copy: the popup closes first
+    DismissFolderPopup(true);
+    // Running: its windows come to the front (as a click on its own slot would), else it starts.
+    for (const WindowTracker::Group& g : shared_->Tracker().Current().groups) {
+        if (g.key == m.key && !g.windows.empty()) {
+            Activation::ActivateItem(g.windows);
+            return;
+        }
+    }
+    DockItem copy;
+    copy.key = m.key;
+    copy.kind = m.kind;
+    copy.launchPath = m.launchPath.empty() ? std::nullopt : std::optional<std::wstring>(m.launchPath);
+    copy.workingDir = m.workingDir;
+    AllowSetForegroundWindow(ASFW_ANY);
+    if (!Launcher::Launch(copy)) MessageBeep(MB_ICONWARNING);
+}
+
+void DockWindow::DragGroupMember(const AppKey& group, size_t member) {
+    winrt::com_ptr<IDataObject> data;
+    if (!MemberFormat() || FAILED(SHCreateDataObject(nullptr, 0, nullptr, nullptr, IID_PPV_ARGS(data.put())))) return;
+    HGLOBAL h = GlobalAlloc(GMEM_MOVEABLE | GMEM_ZEROINIT, sizeof(MemberDragData));
+    if (!h) return;
+    if (auto* p = static_cast<MemberDragData*>(GlobalLock(h))) {
+        p->pid = GetCurrentProcessId();
+        p->dock = reinterpret_cast<UINT64>(hwnd_);
+        p->member = static_cast<UINT32>(member);
+        wcsncpy_s(p->group, group.id.c_str(), _TRUNCATE);
+        GlobalUnlock(h);
+    }
+    FORMATETC fmt{MemberFormat(), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium{};
+    medium.tymed = TYMED_HGLOBAL;
+    medium.hGlobal = h;
+    if (FAILED(data->SetData(&fmt, &medium, TRUE))) {
+        GlobalFree(h);
+        return;
+    }
+    MemberDropSource* source = new MemberDropSource();
+    DWORD effect = DROPEFFECT_NONE;
+    DoDragDrop(data.get(), source, DROPEFFECT_MOVE, &effect);  // modal; our own drop target handles a drop on the dock
+    source->Release();
 }
 
 void DockWindow::DismissFolderPopup(bool animate, bool leaveCheck) {
@@ -2577,6 +2823,20 @@ void DockWindow::OnFolderPopupClosed() {
 
 void DockWindow::RefreshFolderPopup() {
     if (!folder_.OnScreen() || folderKey_.id.empty()) return;
+    if (folder_.Kind() == 2) {
+        // A group: gone (unpinned, ungrouped) -> dismissed; other members / name -> shown again.
+        const AppIdentity::ResolvedPin* group = GroupPin(folderKey_);
+        if (!group) {
+            DismissFolderPopup(true);
+            return;
+        }
+        const std::wstring signature = GroupSignature(*group);
+        if (signature != groupSignature_) {
+            groupSignature_ = signature;
+            folder_.UpdateGroup(group->displayName, GroupEntries(*group));
+        }
+        return;
+    }
     const bool present = std::any_of(items_.begin(), items_.end(), [&](const DockItem& item) {
         // A folder item, or the script widget that opened it (popup.folder).
         return item.key == folderKey_ && (item.kind == DockItem::Kind::Folder || item.kind == DockItem::Kind::Widget);
@@ -2595,7 +2855,8 @@ void DockWindow::RefreshFolderPopup() {
 bool DockWindow::PopupShownFor(int slot) const {
     if (slot < 0 || slot >= static_cast<int>(items_.size())) return false;
     switch (ElementOf(static_cast<size_t>(slot)).Popup()) {
-        case ClickPopup::Folder: return folder_.Visible() && items_[static_cast<size_t>(slot)].key == folderKey_;
+        case ClickPopup::Folder:
+        case ClickPopup::Group: return folder_.Visible() && items_[static_cast<size_t>(slot)].key == folderKey_;
         case ClickPopup::Weather: return weatherPopup_.Visible();
         case ClickPopup::Calendar: return calendar_.Visible();
         case ClickPopup::None:
@@ -2609,6 +2870,7 @@ void DockWindow::ShowClickPopup(int slot) {
     const float anchor = element.PopupAnchor(items_[static_cast<size_t>(slot)], Context());
     switch (element.Popup()) {
         case ClickPopup::Folder: ShowFolderPopup(slot, anchor); return;
+        case ClickPopup::Group: ShowGroupPopup(slot, anchor); return;
         case ClickPopup::Weather: ShowWeatherPopup(anchor); return;
         case ClickPopup::Calendar: ShowCalendarPopup(anchor); return;
         case ClickPopup::None:
@@ -3431,7 +3693,16 @@ void DockWindow::ResolvePins() {
     std::unordered_map<std::wstring, AppIdentity::ResolvedPin> cache;
     const std::vector<DockItemEntry>& entries = DockCfg().items;
     pins.reserve(entries.size());
-    size_t separators = 0;
+    size_t separators = 0, groups = 0;
+    // An app / folder entry (a pin, or a group's member), from the cache when it is unchanged.
+    auto resolve = [&](const DockItemEntry& e) {
+        // The icon and kind are part of the id: editing either re-resolves the entry.
+        std::wstring id = e.kind + L"|" + e.icon + L"|" + (e.path.empty() ? L"a:" + e.aumid : L"p:" + e.path);
+        auto it = pinCache_.find(id);
+        AppIdentity::ResolvedPin pin = it != pinCache_.end() ? it->second : AppIdentity::ResolvePin(e);
+        cache[std::move(id)] = pin;
+        return pin;
+    };
     // The pin kinds (app / folder / separator / recycleBin), in item order: pins_ is parallel to
     // DockConfig::PinIndexes(), and each pin element shows pins_[its pin index].
     for (const DockItemEntry& e : entries) {
@@ -3443,12 +3714,14 @@ void DockWindow::ResolvePins() {
             pins.push_back(AppIdentity::ResolvePin(e, kind == ItemKind::Separator ? separators++ : 0));
             continue;
         }
-        // The icon and kind are part of the id: editing either re-resolves the entry.
-        std::wstring id = e.kind + L"|" + e.icon + L"|" + (e.path.empty() ? L"a:" + e.aumid : L"p:" + e.path);
-        auto it = pinCache_.find(id);
-        AppIdentity::ResolvedPin pin = it != pinCache_.end() ? it->second : AppIdentity::ResolvePin(e);
-        cache[std::move(id)] = pin;
-        pins.push_back(std::move(pin));
+        if (kind == ItemKind::Group) {
+            AppIdentity::ResolvedPin group = AppIdentity::ResolvePin(e, groups++);
+            group.members.reserve(e.members.size());
+            for (const DockItemEntry& m : e.members) group.members.push_back(resolve(m));
+            pins.push_back(std::move(group));
+            continue;
+        }
+        pins.push_back(resolve(e));
     }
     pins_ = std::move(pins);
     pinCache_ = std::move(cache);  // drops entries that are no longer pinned
@@ -3556,9 +3829,7 @@ void DockWindow::SyncElements(bool force) {
     for (size_t i = 0; same && i < entries.size(); ++i) {
         const DockItemEntry& a = entries[i];
         const DockItemEntry* b = elements_[i] ? &elements_[i]->Entry() : nullptr;
-        same = b ? a.kind == b->kind && a.path == b->path && a.aumid == b->aumid && a.icon == b->icon &&
-                       a.id == b->id && a.settings == b->settings && a.view == b->view
-                 : a.Kind() == ItemKind::Unknown;
+        same = b ? a == *b : a.Kind() == ItemKind::Unknown;
     }
     if (!same) {
         ResolvePins();
@@ -3653,6 +3924,29 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     builtThumbnails_ = thumbsOn;
     bool tilesChanged = false;  // a slot became a thumbnail tile or an icon again (another width)
     for (DockItem& item : next) {
+        if (item.kind == DockItem::Kind::Group) {
+            // The dot follows the members: running, active (one owns the foreground), attention.
+            bool running = false, attention = false, active = false;
+            for (const DockItem::Member& m : item.members) {
+                for (const WindowTracker::Group& group : snap.groups) {
+                    if (group.key != m.key) continue;
+                    running = true;
+                    attention = attention || group.wantsAttention;
+                    if (snap.foreground && std::find(group.windows.begin(), group.windows.end(), snap.foreground) !=
+                                               group.windows.end()) {
+                        active = true;
+                    }
+                }
+            }
+            if (running != item.groupRunning || attention != item.wantsAttention || active != item.active) item.dotDirty = true;
+            item.groupRunning = running;
+            item.wantsAttention = attention;
+            item.active = active;
+            item.windows.clear();
+            item.thumbWindow = nullptr;
+            if (layout_.captionLines > 0 && CaptionFor(item) != item.captionText) item.captionDirty = true;
+            continue;
+        }
         const WindowTracker::Group* g = nullptr;
         if (item.kind == DockItem::Kind::App) {
             for (const WindowTracker::Group& group : snap.groups) {
@@ -3806,7 +4100,9 @@ bool DockWindow::LaunchItem(int index, bool newInstance) {
     if (!newInstance && target.bounce == DockItem::Bounce::Bouncing) {
         return true;  // already launching: do not start a second copy
     }
-    if (target.kind == DockItem::Kind::Separator || target.IsWidget()) return true;  // nothing to launch
+    if (target.kind == DockItem::Kind::Separator || target.kind == DockItem::Kind::Group || target.IsWidget()) {
+        return true;  // nothing to launch
+    }
     // ShellExecuteEx may pump messages (and so rebuild items_): launch from a copy of the
     // launch data, then find the item again by key.
     DockItem copy;
@@ -4012,7 +4308,10 @@ void DockWindow::ScheduleBounceTimer() {
 void DockWindow::UpdateIconUsage() {
     std::vector<AppKey> keys;
     keys.reserve(items_.size());
-    for (const DockItem& item : items_) keys.push_back(item.key);
+    for (const DockItem& item : items_) {
+        keys.push_back(item.key);
+        for (const DockItem::Member& m : item.members) keys.push_back(m.key);  // a group's composed icon
+    }
     icons_.SetInUse(keys);
     if (icons_.HasUnused() && !evictPending_ && hwnd_) {
         SetTimer(hwnd_, kIconEvictTimerId, static_cast<UINT>(IconCache::kEvictAfterMs), nullptr);
@@ -4327,7 +4626,25 @@ void DockWindow::UpdateDrag(POINT pt) {
         return;
     }
     cursorX_ = layout_.Canon(pt).x;
-    UpdateDragTarget(cursorX_);
+    // Over the middle of a pin: held there it makes a group (a group takes it at once). Meanwhile
+    // the others stay where they are (no gap), so the target stays under the pointer.
+    const int candidate = GroupCandidateAt(pt);
+    if (candidate != groupCandidate_) {
+        ResetGroupTarget();
+        groupCandidate_ = candidate;
+        if (candidate >= 0 && items_[static_cast<size_t>(candidate)].kind == DockItem::Kind::Group) {
+            groupTarget_ = candidate;
+            SetBigIcons(true);
+        } else if (candidate >= 0) {
+            groupHoldPending_ = SetTimer(hwnd_, kGroupHoldTimerId, kGroupHoldMs, nullptr) != 0;
+        }
+    }
+    if (groupCandidate_ >= 0) {
+        dragInsert_ = dragSource_;
+        ResetDragOrder();
+    } else {
+        UpdateDragTarget(cursorX_);
+    }
     const bool remove = DragRemovable() && DragInRemoveZone(pt);
     if (remove != dragRemove_) {
         dragRemove_ = remove;
@@ -4335,6 +4652,44 @@ void DockWindow::UpdateDrag(POINT pt) {
                        motion_.magnify);
     }
     ScheduleMagnify();  // throttled ComputeTargets + ApplyTargets (80 ms)
+}
+
+int DockWindow::GroupCandidateAt(POINT pt) const {
+    const int n = static_cast<int>(items_.size());
+    if (dragPhase_ != DragPhase::Dragging || dragWidget_ || dragSource_ < 0 || dragSource_ >= n) return -1;
+    const DockItem& src = items_[static_cast<size_t>(dragSource_)];
+    if (src.window || (src.kind != DockItem::Kind::App && src.kind != DockItem::Kind::Folder)) return -1;
+    if (!src.pinned && src.key.IsClassFallback()) return -1;  // nothing a group could keep
+    const D2D1_POINT_2F c = layout_.Canon(pt);
+    if (c.y < layout_.itemTop - layout_.iconPx * 0.5f) return -1;  // well above the icons (the unpin zone)
+    const int slot = SlotAt(c.x);
+    if (slot < 0 || slot == dragSource_) return -1;
+    const DockItem& t = items_[static_cast<size_t>(slot)];
+    const bool pin = t.pinned && !t.window && (t.kind == DockItem::Kind::App || t.kind == DockItem::Kind::Folder);
+    if (!pin && t.kind != DockItem::Kind::Group) return -1;
+    const float quarter = t.slotW * 0.25f;
+    if (c.x < t.slotX + quarter || c.x >= t.slotX + t.slotW - quarter) return -1;
+    return slot;
+}
+
+void DockWindow::OnGroupHoldTimer() {
+    KillTimer(hwnd_, kGroupHoldTimerId);
+    groupHoldPending_ = false;
+    if (dragPhase_ != DragPhase::Dragging || groupCandidate_ < 0) return;
+    groupTarget_ = groupCandidate_;
+    RenderWithRecovery([this] {
+        SetBigIcons(true);  // the target grows: crisp from the magnified-size surface
+        ComputeTargets();
+        ApplyTargets(motion_.magnify, true);
+        return S_OK;
+    });
+}
+
+void DockWindow::ResetGroupTarget() {
+    if (groupHoldPending_ && hwnd_) KillTimer(hwnd_, kGroupHoldTimerId);
+    groupHoldPending_ = false;
+    groupCandidate_ = -1;
+    groupTarget_ = -1;
 }
 
 void DockWindow::EndDrag(bool commit) {
@@ -4351,6 +4706,12 @@ void DockWindow::EndDrag(bool commit) {
     const int s = dragSource_;
     const bool valid = s >= 0 && s < static_cast<int>(items_.size()) && items_[static_cast<size_t>(s)].key == dragKey_;
     const bool remove = valid && commit && dragRemove_ && DragRemovable();
+    // Released over a pin it was held on (or a group): the two make a group.
+    AppKey groupWith;
+    if (valid && commit && !remove && groupTarget_ >= 0 && groupTarget_ < static_cast<int>(items_.size())) {
+        groupWith = items_[static_cast<size_t>(groupTarget_)].key;
+    }
+    ResetGroupTarget();
 
     // Leave the drag state before releasing the capture (WM_CAPTURECHANGED arrives synchronously).
     dragPhase_ = remove ? DragPhase::Removing : DragPhase::None;
@@ -4412,6 +4773,7 @@ void DockWindow::EndDrag(bool commit) {
 
     KeepStage(motion_.rest + 0.04);  // the window stays at stage size until the icon has landed
     if (!order.empty() && pinRequests_.reorder) pinRequests_.reorder(order);
+    if (!groupWith.id.empty() && pinRequests_.group) pinRequests_.group(dragKey_, groupWith);
     // A widget's new place usually changes the dock's width (the spacers move with it): the
     // rebuilt layout then snaps instead of finishing the landing.
     if (moveFrom != SIZE_MAX && pinRequests_.moveItem) pinRequests_.moveItem(moveFrom, moveTo);
@@ -4426,6 +4788,7 @@ void DockWindow::EndDrag(bool commit) {
 
 void DockWindow::AbortDrag() {
     if (dragPhase_ != DragPhase::Dragging) return;
+    ResetGroupTarget();
     if (dragPending_) {
         KillTimer(hwnd_, kDragTimerId);
         dragPending_ = false;
@@ -4550,6 +4913,12 @@ HRESULT DockWindow::RenderMarker() {
 DockWindow::DropMode DockWindow::DropModeAt(float stageX, int* item, int* gap) const {
     *item = -1;
     *gap = -1;
+    if (!memberDragGroup_.id.empty()) {
+        // A group member pulled out of its popup: it becomes a pin at the insertion marker.
+        if (items_.empty() || DockCfg().locked) return DropMode::None;
+        *gap = DropGapIndex(stageX);
+        return *gap >= 0 ? DropMode::Insert : DropMode::None;
+    }
     const int slot = SlotAt(stageX);
     if (slot >= 0) {
         const DockItem& it = items_[static_cast<size_t>(slot)];
@@ -4565,6 +4934,12 @@ DockWindow::DropMode DockWindow::DropModeAt(float stageX, int* item, int* gap) c
         if (central && it.kind == DockItem::Kind::RecycleBin) {
             *item = slot;
             return DropMode::Recycle;
+        }
+        // A group takes pinnable files as members (other files: the no-drop cursor below, as on
+        // the dock between icons when nothing can be pinned).
+        if (central && it.kind == DockItem::Kind::Group && dropPinnable_ && !DockCfg().locked) {
+            *item = slot;
+            return DropMode::Group;
         }
         // A script widget that takes files: the whole slot.
         if (it.kind == DockItem::Kind::Widget) {
@@ -4604,9 +4979,23 @@ void DockWindow::SetDropTarget(DropMode mode, int item, int gap) {
 }
 
 DWORD DockWindow::OnDragEnter(IDataObject* data, POINT screenPt, DWORD allowed) {
-    const std::vector<std::wstring> files = DroppedFiles(data);
-    dropAccept_ = !files.empty() && dragPhase_ == DragPhase::None;
-    dropPinnable_ = dropAccept_ && !PinnableFiles(files).empty();
+    memberDragGroup_ = AppKey{};
+    memberDragIndex_ = SIZE_MAX;
+    MemberDragData member;
+    const bool memberDrag = ReadMemberDrag(data, member);
+    const std::vector<std::wstring> files = memberDrag ? std::vector<std::wstring>{} : DroppedFiles(data);
+    if (memberDrag) {
+        // Only the dock that owns the group takes its member (groups are per dock).
+        dropAccept_ = member.dock == reinterpret_cast<UINT64>(hwnd_) && dragPhase_ == DragPhase::None;
+        dropPinnable_ = dropAccept_;
+        if (dropAccept_) {
+            memberDragGroup_.id = member.group;
+            memberDragIndex_ = member.member;
+        }
+    } else {
+        dropAccept_ = !files.empty() && dragPhase_ == DragPhase::None;
+        dropPinnable_ = dropAccept_ && !PinnableFiles(files).empty();
+    }
     if (!dropAccept_ || allowed == DROPEFFECT_NONE) return DROPEFFECT_NONE;
     dropActive_ = true;
     dropMode_ = DropMode::None;
@@ -4637,6 +5026,9 @@ DWORD DockWindow::OnDragOver(POINT screenPt, DWORD allowed) {
     SetDropTarget(mode, item, gap);
     switch (mode) {
         case DropMode::Insert:
+            if (!memberDragGroup_.id.empty()) return allowed & DROPEFFECT_MOVE;
+            return DropEffect(allowed);
+        case DropMode::Group:
             return DropEffect(allowed);
         case DropMode::OpenWith:
         case DropMode::Widget:
@@ -4649,6 +5041,8 @@ DWORD DockWindow::OnDragOver(POINT screenPt, DWORD allowed) {
 }
 
 void DockWindow::OnDragLeave() {
+    memberDragGroup_ = AppKey{};
+    memberDragIndex_ = SIZE_MAX;
     if (!dropActive_) return;
     SetDropTarget(DropMode::None, -1, -1);
     dropActive_ = false;
@@ -4663,7 +5057,28 @@ DWORD DockWindow::OnDrop(IDataObject* data, POINT screenPt, DWORD allowed) {
     const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
     const DropMode mode = shown ? DropModeAt(DropMainAt(screenPt), &item, &gap) : DropMode::None;
     DWORD effect = DROPEFFECT_NONE;
-    if (mode == DropMode::Insert) {
+    const AppKey memberGroup = memberDragGroup_;
+    const size_t memberIndex = memberDragIndex_;
+    memberDragGroup_ = AppKey{};
+    memberDragIndex_ = SIZE_MAX;
+    if (mode == DropMode::Insert && !memberGroup.id.empty()) {
+        // A member pulled out of its group: a pin at the marker.
+        const size_t at = ConfigIndexOfItem(static_cast<size_t>(std::max(gap, 0)));
+        dropActive_ = false;
+        dropMode_ = DropMode::None;
+        dropGap_ = -1;
+        renderer_.SetVisible(marker_, false);
+        markerX_.valid = false;
+        if (pinRequests_.memberOut) pinRequests_.memberOut(memberGroup, memberIndex, at);
+        effect = allowed & DROPEFFECT_MOVE;
+    } else if (mode == DropMode::Group) {
+        const std::vector<std::wstring> pinnable = PinnableFiles(files);
+        const AppKey group = item >= 0 ? items_[static_cast<size_t>(item)].key : AppKey{};
+        SetDropTarget(DropMode::None, -1, -1);
+        dropActive_ = false;
+        if (!pinnable.empty() && !group.id.empty() && pinRequests_.addToGroup) pinRequests_.addToGroup(group, pinnable);
+        effect = pinnable.empty() ? DROPEFFECT_NONE : DropEffect(allowed);
+    } else if (mode == DropMode::Insert) {
         const std::vector<std::wstring> pinnable = PinnableFiles(files);
         const size_t at = ConfigIndexOfItem(static_cast<size_t>(std::max(gap, 0)));
         // The gap closes as the new icon takes its slot: no closing animation, the rebuilt layout
@@ -5130,7 +5545,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                    (previewPending_ ? 1 : 0) + (previewLeavePending_ ? 1 : 0) + (preview_.FadePending() ? 1 : 0) +
                    (folder_.FadePending() ? 1 : 0) + (folder_.ViewTimerPending() ? 1 : 0) +
                    (weatherPopup_.FadePending() ? 1 : 0) +
-                   (calendar_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (watching_ && shared_->Watch().Pending() ? 1 : 0);
+                   (calendar_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (groupHoldPending_ ? 1 : 0) +
+                   (watching_ && shared_->Watch().Pending() ? 1 : 0);
         case 6:
             return acrylic_ ? 1 : 0;
         case 7:
@@ -5175,6 +5591,17 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return static_cast<LRESULT>(folder_.PathLength());
         case 92:  // its columns (grid; 1 in a list; 0 hidden)
             return static_cast<LRESULT>(folder_.Columns());
+        case 93:  // what the folder popup shows: 0 hidden, 1 a folder, 2 a group
+            return folder_.Kind();
+        case 94:  // a dragged icon would group with this slot on release (-1 none)
+            return groupTarget_;
+        case 95:  // members of group slot lp (-1: not a group)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return items_[static_cast<size_t>(lp)].kind == DockItem::Kind::Group
+                       ? static_cast<LRESULT>(items_[static_cast<size_t>(lp)].members.size())
+                       : -1;
+        case 96:  // the slot a dragged icon is held over (the group target to be; -1 none)
+            return groupCandidate_;
         case 26:
             return dropActive_ ? static_cast<LRESULT>(dropMode_) : 0;
         case 27:
@@ -5264,6 +5691,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 78: {  // slot lp's dot: 0 none, 1 running, 2 active, 3 attention (-1 no such slot)
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             const DockItem& item = items_[static_cast<size_t>(lp)];
+            if (item.kind == DockItem::Kind::Group) return !item.groupRunning ? 0 : item.wantsAttention ? 3 : item.active ? 2 : 1;
             if (item.IsWidget() || item.windows.empty() || (item.window && item.minimized)) return 0;
             return item.wantsAttention ? 3 : item.active ? 2 : 1;
         }
@@ -5620,6 +6048,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case kRemoveTimerId:
                     OnRemoveTimer();
+                    return 0;
+                case kGroupHoldTimerId:
+                    OnGroupHoldTimer();
                     return 0;
                 case kLabelTimerId:
                     OnLabelTimer();

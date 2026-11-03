@@ -318,6 +318,11 @@ All on the `running` / `app` elements.
 
 ## Phase 7: folders and groups
 
+Status: done (2026-11-02) as 7a (`ItemGridView`: a reusable scrolling grid / list control with
+virtualised rows; folder popups rebuilt on it with grid / list / auto views, sub-folder navigation
+and file drops) and 7b (shortcut groups: hold-to-group, the group popup, members dragged out,
+rename, ungroup, the Settings group editor); see STATUS.md and README "Dock items".
+
 - Shortcut groups: element kind `group` (a label plus its own `items[]` of pins), opened like a
   folder; drag a pin onto a pin to create a group; rename from the menu.
 - The folder / group view becomes a reusable control (`ItemGridView`): grid or list mode,

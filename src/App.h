@@ -102,9 +102,25 @@ private:
     // resolves to `key` (apps, folders, the Recycle Bin; not separators), then reloads the pins,
     // saves and refreshes the settings window. Returns false if no such pin exists.
     bool SetPinIcon(DockWindow& dock, const AppKey& key, const std::wstring& icon);
-    // Sets the `view` of every folder entry of the dock's config that resolves to `key`, then
-    // reloads, saves and refreshes the settings window.
+    // Sets the `view` of every folder / group entry of the dock's config that resolves to `key`,
+    // then reloads, saves and refreshes the settings window.
     void SetItemView(DockWindow& dock, const AppKey& key, ItemView view);
+    // --- shortcut groups (the dock's PinRequests, the item menu, automation) ---
+    // The config entry of the pin `key` of `dock` and its pin index (null: none).
+    DockItemEntry* PinEntryOf(DockWindow& dock, const AppKey& key, size_t* pinIndex = nullptr);
+    // `source` (a pin or a running app) onto the pin `target`: a group of the two at the target's
+    // place, or `source` added to `target` when that is a group. A pinned source leaves the pins.
+    void GroupWith(DockWindow& dock, const AppKey& source, const AppKey& target);
+    void AddToGroup(DockWindow& dock, const AppKey& group, const std::vector<std::wstring>& paths);
+    // Member -> a pin at pin index `at` (SIZE_MAX: right after the group). The last member out
+    // removes the group (as does removing it).
+    void MemberOut(DockWindow& dock, const AppKey& group, size_t member, size_t at);
+    void RemoveMember(DockWindow& dock, const AppKey& group, size_t member);
+    void Ungroup(DockWindow& dock, const AppKey& group);
+    // Rename…: the dialog (owned by the dock, held shown), then the new name.
+    void RenameGroup(DockWindow& dock, const AppKey& group);
+    // The dock's items changed: reload its windows, save, refresh the settings window.
+    void ItemsChanged(size_t cfg);
     // kChooseIcon / kChooseImage: runs the picker (owned by the dock, with the dock held shown)
     // for the pin `key`, then SetPinIcon.
     void ChooseItemIcon(DockWindow& dock, UINT cmd, const AppKey& key);

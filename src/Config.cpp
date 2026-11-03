@@ -54,7 +54,7 @@ const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
 const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
-                                         L"recycleBin", L"running", L"clock", L"weather", L"widget"};
+                                         L"recycleBin", L"running", L"clock", L"weather", L"widget", L"group"};
 
 // The keys of a dock object; before `docks` existed (legacy files) they were top-level keys.
 void ReadDockFields(const json::JsonObject& o, DockConfig& d) {
@@ -585,6 +585,28 @@ Config::LoadResult Config::LoadFile() {
                             ReadString(io, L"id", e.id);
                             if (auto so = ReadObject(io, L"settings")) e.settings = std::wstring(so.Stringify());
                             ReadEnum(io, L"view", e.view);
+                            if (e.Kind() == ItemKind::Group) {
+                                ReadString(io, L"name", e.name);
+                                if (auto members = ReadArray(io, L"items")) {
+                                    for (const auto& mv : members) {
+                                        if (mv.ValueType() != json::JsonValueType::Object) continue;
+                                        const json::JsonObject mo = mv.GetObject();
+                                        DockItemEntry m;
+                                        m.kind.clear();
+                                        ReadString(mo, L"kind", m.kind);
+                                        ReadString(mo, L"path", m.path);
+                                        ReadString(mo, L"aumid", m.aumid);
+                                        ReadString(mo, L"icon", m.icon);
+                                        if (m.kind.empty()) m.kind = L"app";
+                                        const ItemKind mk = m.Kind();
+                                        // Members are shortcuts: apps and folders with a target.
+                                        if ((mk != ItemKind::App && mk != ItemKind::Folder) || (m.path.empty() && m.aumid.empty())) {
+                                            continue;
+                                        }
+                                        e.members.push_back(std::move(m));
+                                    }
+                                }
+                            }
                             const bool target = !e.path.empty() || !e.aumid.empty();
                             if (e.kind.empty()) {
                                 if (!target) continue;
@@ -705,6 +727,19 @@ bool Config::Save() const {
                 if (!e.id.empty()) add(L"id", e.id);
                 if (!e.settings.empty()) fields += L", " + Quote(L"settings") + L": " + e.settings;
                 if (e.view != ItemView::Auto) add(L"view", ToString(e.view));
+                if (e.Kind() == ItemKind::Group) {
+                    add(L"name", e.name);
+                    std::wstring members;
+                    for (size_t m = 0; m < e.members.size(); ++m) {
+                        const DockItemEntry& me = e.members[m];
+                        std::wstring mf = Quote(L"kind") + L": " + Quote(me.kind);
+                        if (!me.aumid.empty()) mf += L", " + Quote(L"aumid") + L": " + Quote(me.aumid);
+                        else if (!me.path.empty()) mf += L", " + Quote(L"path") + L": " + Quote(me.path);
+                        if (!me.icon.empty()) mf += L", " + Quote(L"icon") + L": " + Quote(me.icon);
+                        members += (m ? L",\n            { " : L"\n            { ") + mf + L" }";
+                    }
+                    fields += L", " + Quote(L"items") + L": [" + members + (e.members.empty() ? L"]" : L"\n          ]");
+                }
                 o += L"{ " + fields + L" }";
             }
             o += d.items.empty() ? L"],\n" : L"\n      ],\n";

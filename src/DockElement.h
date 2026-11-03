@@ -56,7 +56,7 @@ enum class DockEvent {
 };
 
 // The click popups the dock hosts (one at a time; each holds the dock shown while open).
-enum class ClickPopup { None, Folder, Weather, Calendar };
+enum class ClickPopup { None, Folder, Weather, Calendar, Group };
 
 // What a right click on a slot opens.
 enum class RightClickAction { ItemMenu, DockMenu };

@@ -237,6 +237,9 @@ void FolderPopup::Release() {
     entries_.clear();
     entries_.shrink_to_fit();
     iconByIndex_.clear();
+    members_.clear();
+    group_ = false;
+    groupCallbacks_ = GroupCallbacks{};
     root_.clear();
     rootName_.clear();
     current_.clear();
@@ -273,6 +276,9 @@ bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, Ite
     frame_.monitor = style.monitor;
     anchor_ = anchor;
     viewSetting_ = view;
+    group_ = false;
+    members_.clear();
+    groupCallbacks_ = GroupCallbacks{};
     root_ = Normalize(folder);
     rootName_ = name.empty() ? LastComponent(root_) : name;
     Load(root_);
@@ -281,6 +287,60 @@ bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, Ite
         return false;
     }
     return true;
+}
+
+bool FolderPopup::ShowGroup(const std::wstring& name, std::vector<GroupEntry> members, ItemView view,
+                            const Style& style, const PopupAnchor& anchor, GroupCallbacks callbacks) {
+    style_ = style;
+    frame_ = Frame{};
+    frame_.scale = style.scale;
+    frame_.acrylic = style.acrylic;
+    frame_.cornerRadiusDip = style.cornerRadiusDip;
+    frame_.monitor = style.monitor;
+    anchor_ = anchor;
+    viewSetting_ = view;
+    group_ = true;
+    groupCallbacks_ = std::move(callbacks);
+    entries_.clear();
+    root_.clear();
+    current_.clear();
+    rootName_ = name.empty() ? std::wstring(L"Group") : name;
+    members_ = std::move(members);
+    LoadGroup();
+    if (!ShowAt(frame_, anchor_)) {
+        if (!OnScreen()) Release();
+        return false;
+    }
+    return true;
+}
+
+void FolderPopup::UpdateGroup(const std::wstring& name, std::vector<GroupEntry> members) {
+    if (!OnScreen() || !group_) return;
+    rootName_ = name.empty() ? std::wstring(L"Group") : name;
+    members_ = std::move(members);
+    const LONG scroll = view_.ScrollOffset();
+    LoadGroup();
+    if (ShowAt(frame_, anchor_)) view_.ScrollTo(static_cast<float>(scroll), false);
+}
+
+void FolderPopup::LoadGroup() {
+    readable_ = true;
+    ClearHot();
+    std::vector<GridItem> items;
+    items.reserve(members_.size());
+    for (size_t i = 0; i < members_.size(); ++i) {
+        GridItem item;
+        item.label = members_[i].label;
+        item.icon = members_[i].icon;
+        item.id = i;
+        item.resolved = true;
+        items.push_back(std::move(item));
+    }
+    const bool list = viewSetting_ == ItemView::List || (viewSetting_ == ItemView::Auto && members_.size() > kAutoGridMax);
+    view_.SetItems(std::move(items));
+    view_.SetMode(list ? ItemGridView::Mode::List : ItemGridView::Mode::Grid);
+    view_.SetDragOut(groupCallbacks_.drag != nullptr);
+    pendingSelect_ = -1;
 }
 
 void FolderPopup::Load(const std::wstring& folder) {
@@ -329,6 +389,7 @@ void FolderPopup::Load(const std::wstring& folder) {
     }
     view_.SetItems(std::move(items));
     view_.SetMode(list ? ItemGridView::Mode::List : ItemGridView::Mode::Grid);
+    view_.SetDragOut(false);  // a drag on an entry scrolls
     pendingSelect_ = -1;
     if (!selectAfterLoad_.empty()) {
         // Back from a sub-folder: it is selected and scrolled into view (Measure).
@@ -433,6 +494,13 @@ void FolderPopup::Open(std::wstring path, bool explorer) {
 }
 
 void FolderPopup::Activate(size_t index, ItemGridView::Button button) {
+    if (group_) {
+        // The owner opens / activates the member (and dismisses the popup).
+        if (button == ItemGridView::Button::Left && index < members_.size() && groupCallbacks_.open) {
+            groupCallbacks_.open(index);
+        }
+        return;
+    }
     if (index >= entries_.size()) return;
     const Entry e = entries_[index];  // a copy: Navigate replaces the entries
     if (e.folder && button == ItemGridView::Button::Left) {
@@ -444,6 +512,20 @@ void FolderPopup::Activate(size_t index, ItemGridView::Button button) {
 }
 
 void FolderPopup::ContextMenu(int index, POINT screen) {
+    if (group_) {
+        if (index < 0 || static_cast<size_t>(index) >= members_.size() || !groupCallbacks_.command) return;
+        HMENU menu = CreatePopupMenu();
+        if (!menu) return;
+        AppendMenuW(menu, MF_STRING, kMemberOpen, L"Open");
+        AppendMenuW(menu, MF_STRING, kMemberRemove, L"Remove from group");
+        AppendMenuW(menu, MF_STRING, kMemberToDock, L"Move to dock");
+        SetMenuDefaultItem(menu, kMemberOpen, FALSE);
+        const UINT cmd = static_cast<UINT>(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+                                                            screen.x, screen.y, Window(), nullptr));
+        DestroyMenu(menu);
+        if (cmd != 0 && OnScreen() && group_ && groupCallbacks_.command) groupCallbacks_.command(static_cast<size_t>(index), cmd);
+        return;
+    }
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
     constexpr UINT kOpen = 1, kExplorer = 2, kShowIn = 3;
@@ -545,7 +627,9 @@ SIZE FolderPopup::Measure() {
                        [this](size_t i, GridItem& item) { ResolveItem(i, item); },
                        [this](size_t i, ItemGridView::Button b) { Activate(i, b); },
                        [this](int i, POINT screen) { ContextMenu(i, screen); },
-                       nullptr,
+                       [this](size_t i, POINT screen) {
+                           if (group_ && groupCallbacks_.drag) groupCallbacks_.drag(i, screen);
+                       },
                    });
         viewReady_ = true;
     }
@@ -555,11 +639,12 @@ SIZE FolderPopup::Measure() {
     const float s = style_.scale;
     const LONG pad = Px(kPad, s), headerH = Px(kHeaderH, s), cellW = Px(kCellW, s), cellH = Px(kCellH, s);
     const LONG rowH = Px(kListRowH, s);
-    const LONG buttonW = static_cast<LONG>(std::ceil(explorerTextW_)) + 2 * Px(kButtonPadX, s);
+    // A group has no "Open in Explorer".
+    const LONG buttonW = group_ ? 0 : static_cast<LONG>(std::ceil(explorerTextW_)) + 2 * Px(kButtonPadX, s);
     const LONG buttonH = Px(kButtonH, s), back = Px(kBackSize, s), margin = Px(kMonitorMargin, s);
-    const bool navigated = !SamePath(current_, root_);
+    const bool navigated = !group_ && !SamePath(current_, root_);
+    const size_t n = view_.Count();
     const bool list = view_.GetMode() == ItemGridView::Mode::List;
-    const size_t n = entries_.size();
 
     // The room beside the dock: above a bottom dock (below a top one), the monitor's height beside
     // a vertical one; the width the monitor's (beside a vertical dock: the room on its side).
@@ -606,7 +691,8 @@ SIZE FolderPopup::Measure() {
     LONG y = pad;
     headerRect_ = RECT{pad, y, w - pad, y + headerH};
     backRect_ = navigated ? RECT{pad, y + (headerH - back) / 2, pad + back, y + (headerH - back) / 2 + back} : RECT{};
-    explorerRect_ = RECT{w - pad - buttonW, y + (headerH - buttonH) / 2, w - pad, y + (headerH - buttonH) / 2 + buttonH};
+    explorerRect_ = group_ ? RECT{}
+                           : RECT{w - pad - buttonW, y + (headerH - buttonH) / 2, w - pad, y + (headerH - buttonH) / 2 + buttonH};
     y += headerH + Px(kHeaderGap, s);
 
     if (n == 0) {
@@ -672,7 +758,8 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
     {
         const float left = static_cast<float>(Empty(backRect_) ? headerRect_.left + Px(4.0f, s)
                                                                : backRect_.right + Px(6.0f, s));
-        const float right = static_cast<float>(explorerRect_.left - Px(8.0f, s));
+        const float right =
+            static_cast<float>(group_ ? headerRect_.right - Px(4.0f, s) : explorerRect_.left - Px(8.0f, s));
         const std::wstring title = Title(right - left);
         winrt::com_ptr<IDWriteTextLayout> layout;
         if (dw && titleFormat_ && !title.empty() && right > left &&
@@ -684,8 +771,8 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
                                D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
     }
-    hotBox(explorerRect_, hot == kHitExplorer ? 1.0f : 0.6f, hot == kHitExplorer);
-    if (buttonFormat_) {
+    if (!Empty(explorerRect_)) hotBox(explorerRect_, hot == kHitExplorer ? 1.0f : 0.6f, hot == kHitExplorer);
+    if (buttonFormat_ && !Empty(explorerRect_)) {
         brush->SetColor(Theme::ToColor(style_.text, hot == kHitExplorer ? 1.0f : 0.85f));
         dc->DrawText(kExplorerText, static_cast<UINT32>(wcslen(kExplorerText)), buttonFormat_.get(),
                      ToRectF(explorerRect_), brush.get());
@@ -699,7 +786,9 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
     }
     // The entries are the view's own layers, in front of this surface.
     if (!Empty(messageRect_) && buttonFormat_) {
-        const wchar_t* text = readable_ ? L"This folder is empty" : L"Cannot open this folder";
+        const wchar_t* text = group_      ? L"This group is empty"
+                              : readable_ ? L"This folder is empty"
+                                          : L"Cannot open this folder";
         brush->SetColor(Theme::ToColor(style_.text, 0.6f));
         dc->DrawText(text, static_cast<UINT32>(wcslen(text)), buttonFormat_.get(), ToRectF(messageRect_), brush.get());
     }
@@ -708,7 +797,7 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
 int FolderPopup::HitAt(POINT pt, int* part) const {
     if (part) *part = 0;
     if (!Empty(backRect_) && PtInRect(&backRect_, pt)) return kHitBack;
-    if (PtInRect(&explorerRect_, pt)) return kHitExplorer;
+    if (!Empty(explorerRect_) && PtInRect(&explorerRect_, pt)) return kHitExplorer;
     return -1;  // the entries are the view's
 }
 
@@ -727,7 +816,7 @@ void FolderPopup::OnClick(int index, int, Button button) {
 }
 
 bool FolderPopup::SelectEntry(int index) {
-    if (!OnScreen() || index < 0 || static_cast<size_t>(index) >= entries_.size()) return false;
+    if (!OnScreen() || index < 0 || static_cast<size_t>(index) >= view_.Count()) return false;
     view_.Select(index, true);
     return true;
 }
@@ -739,7 +828,7 @@ bool FolderPopup::ScrollTo(int px) {
 }
 
 bool FolderPopup::OpenEntry(int index) {
-    if (!OnScreen() || index < 0 || static_cast<size_t>(index) >= entries_.size()) return false;
+    if (!OnScreen() || index < 0 || static_cast<size_t>(index) >= view_.Count()) return false;
     Activate(static_cast<size_t>(index), ItemGridView::Button::Left);
     return true;
 }
@@ -865,11 +954,15 @@ DWORD FolderPopup::EffectFor(const std::wstring& dest, DWORD keys, DWORD allowed
 
 DWORD FolderPopup::DragEnter(IDataObject* data, POINT screen, DWORD keys, DWORD allowed) {
     dragFiles_ = Visible() ? FilesOf(data) : std::vector<std::wstring>{};
+    if (group_ && !dragFiles_.empty() && !(groupCallbacks_.accepts && groupCallbacks_.accepts(dragFiles_))) {
+        dragFiles_.clear();  // nothing that can become a member: the no-drop cursor
+    }
     return DragOver(screen, keys, allowed);
 }
 
 DWORD FolderPopup::DragOver(POINT screen, DWORD keys, DWORD allowed) {
     if (dragFiles_.empty() || !Visible()) return DROPEFFECT_NONE;
+    if (group_) return (allowed & DROPEFFECT_LINK) ? DROPEFFECT_LINK : (allowed & DROPEFFECT_COPY);
     int entry = -1;
     const std::wstring dest = DropFolderAt(screen, &entry);
     const DWORD effect = EffectFor(dest, keys, allowed);
@@ -884,6 +977,16 @@ void FolderPopup::DragLeave() {
 
 DWORD FolderPopup::Drop(IDataObject* data, POINT screen, DWORD keys, DWORD allowed) {
     dragFiles_ = Visible() ? FilesOf(data) : std::vector<std::wstring>{};
+    if (group_) {
+        // Shortcuts / apps / folders become members (the owner decides); the files stay where they are.
+        std::vector<std::wstring> files = std::move(dragFiles_);
+        dragFiles_.clear();
+        if (files.empty() || !groupCallbacks_.accepts || !groupCallbacks_.accepts(files) || !groupCallbacks_.drop) {
+            return DROPEFFECT_NONE;
+        }
+        groupCallbacks_.drop(files);
+        return (allowed & DROPEFFECT_LINK) ? DROPEFFECT_LINK : (allowed & DROPEFFECT_COPY);
+    }
     int entry = -1;
     const std::wstring dest = DropFolderAt(screen, &entry);
     const DWORD effect = EffectFor(dest, keys, allowed);
