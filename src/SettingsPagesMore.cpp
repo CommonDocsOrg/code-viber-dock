@@ -1,25 +1,22 @@
-// The Animation and Dock contents pages.
+// The Animation page, and the icon of a dock item as the settings windows show it (round 5 phase
+// C: the Dock contents list that lived here became the Contents tab, SettingsPagesContents.cpp).
 
 #include <windows.h>
 #include <commctrl.h>
+#include <commoncontrols.h>
 #include <shellapi.h>
 #include <shlobj.h>
-#include <shobjidl.h>
 
 #include <winrt/base.h>
 
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
-#include <iterator>
 #include <string>
-#include <vector>
 
-#include "Clock.h"
 #include "IconUtil.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
-#include "WidgetPackage.h"
 
 namespace {
 
@@ -188,603 +185,35 @@ private:
     }
 };
 
-// --- Dock contents ---------------------------------------------------------------------------
-// One row per docks[0].items[] entry, in dock order: apps, folders, separators, the Recycle Bin,
-// the running apps, the clock, the weather. Every change applies to the dock at once
-// (SettingsScope::Pins: DockWindow::ReloadPins) and is saved.
-
-constexpr int kListH = 236;
-constexpr int kNameColDip = 180;
-constexpr int kKindColDip = 100;
-constexpr int kButtonW = 122;
-constexpr int kButtonStep = 130;
-
-std::wstring StemOf(const std::wstring& path) {
-    const size_t slash = path.find_last_of(L"\\/");
-    std::wstring name = slash == std::wstring::npos ? path : path.substr(slash + 1);
-    const size_t dot = name.rfind(L'.');
-    if (dot != std::wstring::npos && dot > 0) name.resize(dot);
-    return name;
-}
-
-const wchar_t* KindLabel(ItemKind k) {
-    switch (k) {
-        case ItemKind::App: return L"App";
-        case ItemKind::Folder: return L"Folder";
-        case ItemKind::Separator: return L"Separator";
-        case ItemKind::RecycleBin: return L"Recycle Bin";
-        case ItemKind::Running: return L"Running apps";
-        case ItemKind::Clock: return L"Clock";
-        case ItemKind::Weather: return L"Weather";
-        case ItemKind::Widget: return L"Widget";
-        case ItemKind::Group: return L"Group";
-        case ItemKind::Tray: return L"Tray";
-        case ItemKind::TrayApp: return L"Tray icon";
-        case ItemKind::Notifications: return L"Notification centre";
-        case ItemKind::Unknown:
-        default: return L"";
-    }
-}
-
-class DockContentsPage : public FormPage {
-public:
-    explicit DockContentsPage(SettingsWindow& w) : FormPage(w, L"Contents", L'\xE718') {}
-    ~DockContentsPage() override {
-        if (images_) ImageList_Destroy(images_);  // LVS_SHAREIMAGELISTS: the list never frees it
-    }
-
-protected:
-    void Build() override {
-        const int right = Width() - kMargin;
-        Title(L"Dock contents");
-        Add(kPinnedList, CtlKind::List, WC_LISTVIEWW, L"Dock contents",
-            WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | LVS_SHAREIMAGELISTS,
-            RECT{kMargin, y_, right, y_ + kListH});
-        NextRow(kListH + 8);
-        Button(kPinAdd, L"Add app…", kMargin, kButtonW);
-        Button(kPinAddFolder, L"Add folder…", kMargin + kButtonStep, kButtonW);
-        Button(kPinAddSeparator, L"Add separator", kMargin + 2 * kButtonStep, kButtonW);
-        Button(kPinAddWidget, L"Add widget ▾", kMargin + 3 * kButtonStep, kButtonW);
-        NextRow(kRowH + 4);
-        Button(kPinUp, L"Move up", kMargin, kButtonW);
-        Button(kPinDown, L"Move down", kMargin + kButtonStep, kButtonW);
-        Button(kPinRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW);
-        Button(kPinSettings, L"Settings…", kMargin + 3 * kButtonStep, kButtonW);
-        NextRow(kRowH + 4);
-        Button(kPinChooseIcon, L"Choose icon…", kMargin, kButtonW);
-        Button(kPinChooseImage, L"Choose image…", kMargin + kButtonStep, kButtonW);
-        Button(kPinResetIcon, L"Reset icon", kMargin + 2 * kButtonStep, kButtonW);
-        Button(kPinAddRecycleBin, L"Add Recycle Bin", kMargin + 3 * kButtonStep, kButtonW);
-        NextRow(kRowH + 4);
-        Check(kLockDock, kLockDockCaption, L"Lock the dock (no dragging, no pinning by dropping files)");
-        NextRow();
-        Text(kPinnedNote, CtlKind::Note,
-             L"Changes apply to the dock at once. On the dock itself you can also drag icons and widgets to "
-             L"reorder them, drop shortcuts or folders onto it to pin them, or drag a pinned icon away to unpin it.",
-             kMargin, right - kMargin, 36);
-        NextRow(36);
-    }
-
-    void Created() override {
-        HWND list = Item(kPinnedList);
-        if (!list) return;
-        LVCOLUMNW col{};
-        col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
-        col.pszText = const_cast<wchar_t*>(L"Name");
-        col.cx = 100;
-        col.iSubItem = 0;
-        ListView_InsertColumn(list, 0, &col);
-        col.pszText = const_cast<wchar_t*>(L"Kind");
-        col.iSubItem = 1;
-        ListView_InsertColumn(list, 1, &col);
-        col.pszText = const_cast<wchar_t*>(L"Details");
-        col.iSubItem = 2;
-        ListView_InsertColumn(list, 2, &col);
-    }
-
-    void OnStyleChanged() override {
-        HWND list = Item(kPinnedList);
-        if (!list) return;
-        // Column widths and the small icons at the current DPI.
-        const Ctl* c = Find(kPinnedList);
-        const int scrollBar = GetSystemMetricsForDpi(SM_CXVSCROLL, Window().Dpi());
-        const int total = Window().Px(c->dip.right - c->dip.left) - scrollBar - 4;
-        const int name = Window().Px(kNameColDip);
-        const int kind = Window().Px(kKindColDip);
-        ListView_SetColumnWidth(list, 0, name);
-        ListView_SetColumnWidth(list, 1, kind);
-        ListView_SetColumnWidth(list, 2, std::max(Window().Px(80), total - name - kind));
-        const int px = GetSystemMetricsForDpi(SM_CXSMICON, Window().Dpi());
-        if (images_ && px == iconPx_) return;
-        HIMAGELIST old = images_;
-        iconPx_ = px;
-        images_ = ImageList_Create(px, px, ILC_COLOR32 | ILC_MASK, 8, 8);
-        ListView_SetImageList(list, images_, LVSIL_SMALL);
-        if (old) {
-            ImageList_Destroy(old);
-            FillList(Selected());  // the icons again, at the new size
-        }
-    }
-
-    void Load() override {
-        SetCheck(kLockDock, Dock().locked);
-        FillList(Selected());
-    }
-
-    LRESULT OnNotify(const NMHDR& nm) override {
-        if (static_cast<int>(nm.idFrom) == kPinnedList && nm.code == LVN_ITEMCHANGED) UpdateButtons();
-        return 0;
-    }
-
-    void OnCommand(int id, int code, HWND) override {
-        if (code != BN_CLICKED) return;
-        DockConfig& dock = Dock();
-        const int sel = Selected();
-        const int n = static_cast<int>(dock.items.size());
-        const bool valid = sel >= 0 && sel < n;
-        switch (id) {
-            case kPinAdd:
-                AddFiles();
-                break;
-            case kPinAddFolder:
-                AddFolder();
-                break;
-            case kPinAddSeparator:
-            case kPinAddRecycleBin: {
-                if (id == kPinAddRecycleBin && dock.Has(ItemKind::RecycleBin)) return;
-                DockItemEntry entry;
-                entry.kind = ToString(id == kPinAddSeparator ? ItemKind::Separator : ItemKind::RecycleBin);
-                dock.InsertPin(SIZE_MAX, std::move(entry));  // after the last pin
-                Changed(SettingsScope::Pins);
-                FillList(RowOfPin(dock.PinCount() - 1));
-                break;
-            }
-            case kPinAddWidget:
-                AddWidget();
-                break;
-            case kPinChooseIcon:
-            case kPinChooseImage:
-                if (valid && Dock().items[static_cast<size_t>(sel)].IsPin()) ChooseIcon(sel, id == kPinChooseImage);
-                break;
-            case kPinResetIcon:
-                if (!valid || !dock.items[static_cast<size_t>(sel)].IsPin() || dock.items[static_cast<size_t>(sel)].icon.empty()) {
-                    return;
-                }
-                dock.items[static_cast<size_t>(sel)].icon.clear();
-                Changed(SettingsScope::Pins);
-                FillList(sel);
-                break;
-            case kPinRemove: {
-                if (!valid) return;
-                const bool widget = IsWidgetKind(dock.items[static_cast<size_t>(sel)].Kind());
-                dock.items.erase(dock.items.begin() + sel);
-                Changed(SettingsScope::Pins);
-                AfterChange(widget, std::min(sel, n - 2));
-                break;
-            }
-            case kPinUp:
-            case kPinDown: {
-                const int to = id == kPinUp ? sel - 1 : sel + 1;
-                if (!valid || to < 0 || to >= n) return;
-                std::swap(dock.items[static_cast<size_t>(sel)], dock.items[static_cast<size_t>(to)]);
-                Changed(SettingsScope::Pins);
-                FillList(to);
-                break;
-            }
-            case kPinSettings:
-                if (valid) OpenItemSettings(sel);
-                break;
-            case kLockDock:
-                dock.locked = GetCheck(id);  // read by the dock when a drag / drop / menu starts
-                Changed(SettingsScope::SaveOnly);
-                break;
-            default:
-                break;
-        }
-    }
-
-private:
-    static bool IsWidgetKind(ItemKind k) {
-        return k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Tray || k == ItemKind::Notifications;
-    }
-
-    int Selected() const {
-        HWND list = Item(kPinnedList);
-        return list ? ListView_GetNextItem(list, -1, LVNI_SELECTED) : -1;
-    }
-
-    // The row of pin k (DockConfig::PinIndexes), or -1.
-    int RowOfPin(size_t k) {
-        const std::vector<size_t> idx = Dock().PinIndexes();
-        return k < idx.size() ? static_cast<int>(idx[k]) : -1;
-    }
-    // The pin index of row `row` (a pin kind), or SIZE_MAX.
-    size_t PinOfRow(int row) {
-        const std::vector<size_t> idx = Dock().PinIndexes();
-        for (size_t k = 0; k < idx.size(); ++k) {
-            if (static_cast<int>(idx[k]) == row) return k;
-        }
-        return SIZE_MAX;
-    }
-
-    // A clock / weather item came or went: the General and Weather pages show that too.
-    void AfterChange(bool widget, int select) {
-        if (widget) {
-            Window().Refresh();  // every page, this list included (keeps the selection)
-            SelectRow(select);
-        } else {
-            FillList(select);
-        }
-    }
-
-    void SelectRow(int row) {
-        HWND list = Item(kPinnedList);
-        const int n = list ? ListView_GetItemCount(list) : 0;
-        if (n <= 0) return;
-        const int sel = std::clamp(row, 0, n - 1);
-        ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
-        ListView_SetItemState(list, sel, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-        ListView_EnsureVisible(list, sel, FALSE);
-        UpdateButtons();
-    }
-
-    void UpdateButtons() {
-        const int sel = Selected();
-        const DockConfig& dock = Dock();
-        const int n = static_cast<int>(dock.items.size());
-        const DockItemEntry* e = sel >= 0 && sel < n ? &dock.items[static_cast<size_t>(sel)] : nullptr;
-        const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
-        Enable(kPinRemove, e != nullptr);
-        Enable(kPinUp, e && sel > 0);
-        Enable(kPinDown, e && sel < n - 1);
-        Enable(kPinAddRecycleBin, !dock.Has(ItemKind::RecycleBin));
-        const bool iconable = e && e->IsPin() && k != ItemKind::Separator;
-        Enable(kPinChooseIcon, iconable);
-        Enable(kPinChooseImage, iconable);
-        Enable(kPinResetIcon, iconable && !e->icon.empty());
-        Enable(kPinSettings, e && k != ItemKind::Separator && k != ItemKind::Unknown);
-        // A button that just got disabled must not keep the keyboard focus.
-        if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kPinnedList));
-    }
-
-    // Settings… of a row: a clock / weather / script widget / folder / group -> its own Item window
-    // (round 5 phase B), the running apps -> the Running apps tab, the tray / notification centre
-    // -> their Global pages, an app / the Recycle Bin -> Choose icon….
-    void OpenItemSettings(int row) {
-        auto openItem = [&] {
-            if (Host().openItem && DockIndex() != SIZE_MAX) Host().openItem(DockIndex(), static_cast<size_t>(row));
-        };
-        switch (Dock().items[static_cast<size_t>(row)].Kind()) {
-            case ItemKind::Clock:
-            case ItemKind::Weather:
-            case ItemKind::Widget:
-            case ItemKind::Folder:
-            case ItemKind::Group: openItem(); break;
-            case ItemKind::Running: Window().ShowPage(kTabRunning); break;
-            case ItemKind::Tray:
-            case ItemKind::TrayApp:
-                if (Host().openGlobal) Host().openGlobal(kPageTray);
-                break;
-            case ItemKind::Notifications:
-                if (Host().openGlobal) Host().openGlobal(kPageNotifications);
-                break;
-            case ItemKind::App: {
-                // A shortcut to a folder is a folder item too (its popup's layout); an app: Choose icon….
-                static const std::vector<AppIdentity::ResolvedPin> kNone;
-                const auto& pins = Host().pins ? Host().pins() : kNone;
-                const size_t k = PinOfRow(row);
-                if (k < pins.size() && pins[k].kind == AppIdentity::PinKind::Folder) {
-                    openItem();
-                } else {
-                    ChooseIcon(row, false);
-                }
-                break;
-            }
-            case ItemKind::RecycleBin: ChooseIcon(row, false); break;
-            default: break;
-        }
-    }
-
-    // "Add widget ▾": a menu under the button (Clock, Weather, Running apps; DockConfig::AddWidget),
-    // then the installed script widgets (built-in and folder, Widgets::Catalog), ids 100 + n.
-    void AddWidget() {
-        HWND button = Item(kPinAddWidget);
-        HMENU menu = CreatePopupMenu();
-        if (!button || !menu) return;
-        constexpr UINT kClock = 1, kWeather = 2, kRunning = 3, kTray = 4, kBell = 5, kScript = 100;
-        AppendMenuW(menu, MF_STRING, kClock, L"Clock");
-        AppendMenuW(menu, MF_STRING, kWeather, L"Weather");
-        AppendMenuW(menu, MF_STRING | (Dock().Has(ItemKind::Running) ? MF_GRAYED : 0), kRunning, L"Running apps");
-        AppendMenuW(menu, MF_STRING | (Dock().Has(ItemKind::Tray) ? MF_GRAYED : 0), kTray, L"Tray (notify icons)");
-        AppendMenuW(menu, MF_STRING | (Dock().Has(ItemKind::Notifications) ? MF_GRAYED : 0), kBell, L"Notification centre");
-        const std::vector<Widgets::CatalogEntry> installed = Widgets::Catalog();
-        if (!installed.empty()) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        for (size_t i = 0; i < installed.size() && i < 200; ++i) {
-            const Widgets::CatalogEntry& w = installed[i];
-            const std::wstring text =
-                w.name + L"\t" + (w.source == Widgets::Package::Source::Folder ? L"folder" : L"built-in");
-            AppendMenuW(menu, MF_STRING, kScript + static_cast<UINT>(i), text.c_str());
-        }
-        RECT r{};
-        GetWindowRect(button, &r);
-        const UINT cmd = static_cast<UINT>(
-            TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, r.left, r.bottom, Owner(), nullptr));
-        DestroyMenu(menu);
-        if (cmd == 0) return;
-        if (cmd >= kScript && cmd - kScript < installed.size()) {
-            const size_t at = Dock().AddScriptWidget(installed[cmd - kScript].id);
-            Changed(SettingsScope::Pins);
-            FillList(static_cast<int>(at));
-            return;
-        }
-        const ItemKind kind = cmd == kClock     ? ItemKind::Clock
-                              : cmd == kWeather ? ItemKind::Weather
-                              : cmd == kTray    ? ItemKind::Tray
-                              : cmd == kBell    ? ItemKind::Notifications
-                                                : ItemKind::Running;
-        if (kind == ItemKind::Tray) Cfg().tray.enabled = true;  // as the dock menu's Add widget > Tray
-        const size_t at = Dock().AddWidget(kind);
-        if (at == SIZE_MAX) {
-            MessageBeep(MB_ICONWARNING);
-            return;
-        }
-        Changed(SettingsScope::Pins);  // also starts the weather service for a weather item
-        AfterChange(IsWidgetKind(kind), static_cast<int>(at));
-    }
-
-    int AddIcon(const AppIdentity::ResolvedPin* pin, const DockItemEntry& e) {
-        if (!images_) return -1;
-        HICON icon = SettingsItemIcon(pin, e, iconPx_);
-        if (!icon) return -1;
-        const int index = ImageList_AddIcon(images_, icon);  // scaled to the list's size if needed
-        DestroyIcon(icon);
-        return index;
-    }
-
-    // Name and details of a row (pin: its resolved twin from host.pins, or null).
-    void Describe(const DockItemEntry& e, const AppIdentity::ResolvedPin* pin, bool firstRunning, std::wstring& name,
-                  std::wstring& details) {
-        const Config& c = Cfg();
-        switch (e.Kind()) {
-            case ItemKind::App:
-            case ItemKind::Folder:
-                name = pin ? pin->displayName : std::wstring();
-                if (name.empty()) name = !e.path.empty() ? StemOf(e.path) : e.aumid;
-                if (pin && pin->missing) name += L" (missing)";
-                details = pin && !pin->targetPath.empty() ? pin->targetPath : !e.path.empty() ? e.path : e.aumid;
-                break;
-            case ItemKind::Separator:
-                name = L"Separator";
-                break;
-            case ItemKind::RecycleBin:
-                name = pin && !pin->displayName.empty() ? pin->displayName : L"Recycle Bin";
-                break;
-            case ItemKind::Group: {
-                name = e.name.empty() ? std::wstring(L"Group") : e.name;
-                details = std::to_wstring(e.members.size()) + (e.members.size() == 1 ? L" shortcut" : L" shortcuts");
-                for (size_t i = 0; i < e.members.size() && i < 6; ++i) {
-                    std::wstring m = pin && i < pin->members.size() ? pin->members[i].displayName : std::wstring();
-                    if (m.empty()) m = !e.members[i].path.empty() ? StemOf(e.members[i].path) : e.members[i].aumid;
-                    details += (i == 0 ? L": " : L", ") + m;
-                }
-                if (e.members.size() > 6) details += L", …";
-                break;
-            }
-            case ItemKind::Running:
-                name = L"Running apps";
-                details = firstRunning ? L"Open apps that are not pinned"
-                                       : L"Not shown: only the first running apps item is used";
-                break;
-            case ItemKind::Clock:
-                name = L"Clock";
-                details = ClockDetail(ClockOf(c, e));
-                break;
-            case ItemKind::Weather:
-                name = L"Weather";
-                details = WeatherDetail(WeatherOf(c, e));
-                break;
-            case ItemKind::Widget: {
-                name = Widgets::DisplayName(e.id);
-                std::wstring error;
-                const auto pkg = Widgets::Load(e.id, error);
-                details = !pkg ? L"Not installed: " + e.id
-                               : e.id + (pkg->source == Widgets::Package::Source::BuiltIn ? L" (built-in)"
-                                                                                         : L" (" + pkg->folder + L")");
-                break;
-            }
-            case ItemKind::Tray: {
-                name = L"Tray";
-                details = std::to_wstring(e.rows) + (e.rows == 1 ? L" row, " : L" rows, ") + std::to_wstring(e.columns) +
-                          L" columns, " + std::to_wstring(e.trayIconSize) + L" px" +
-                          (c.tray.enabled ? std::wstring() : std::wstring(L" (the tray is off: Settings > Tray)"));
-                if (!e.hidden.empty()) details += L", " + std::to_wstring(e.hidden.size()) + L" hidden";
-                break;
-            }
-            case ItemKind::TrayApp:
-                name = L"Tray icon";
-                details = e.id;
-                break;
-            case ItemKind::Notifications:
-                name = L"Notification centre";
-                details = L"A bell with the unread count; a click lists the notifications";
-                break;
-            case ItemKind::Unknown:
-            default:
-                name = e.kind.empty() ? L"(no kind)" : e.kind;
-                details = L"Not supported by this version (kept in the file)";
-                break;
-        }
-    }
-
-    // docks[0].items[] (with host.pins(), the pins' resolved twins) -> the list; selects `select`
-    // (clamped).
-    void FillList(int select) {
-        HWND list = Item(kPinnedList);
-        if (!list) return;
-        static const std::vector<AppIdentity::ResolvedPin> kNone;
-        const auto& pins = Host().pins ? Host().pins() : kNone;
-        const std::vector<DockItemEntry>& items = Dock().items;
-        SendMessageW(list, WM_SETREDRAW, FALSE, 0);
-        ListView_DeleteAllItems(list);
-        if (images_) ImageList_RemoveAll(images_);
-        size_t pinIndex = 0;
-        bool runningSeen = false;
-        for (size_t i = 0; i < items.size(); ++i) {
-            const DockItemEntry& e = items[i];
-            const ItemKind kind = e.Kind();
-            const AppIdentity::ResolvedPin* pin = nullptr;
-            if (e.IsPin()) {
-                pin = pinIndex < pins.size() ? &pins[pinIndex] : nullptr;
-                ++pinIndex;
-            }
-            const bool firstRunning = kind == ItemKind::Running && !runningSeen;
-            if (kind == ItemKind::Running) runningSeen = true;
-            std::wstring name, details;
-            Describe(e, pin, firstRunning, name, details);
-            std::wstring kindText = KindLabel(kind);
-            if (kind == ItemKind::Folder || (kind == ItemKind::App && pin && pin->kind == AppIdentity::PinKind::Folder)) {
-                kindText = L"Folder";  // a shortcut to a folder
-            }
-            LVITEMW item{};
-            item.mask = LVIF_TEXT | LVIF_IMAGE;
-            item.iItem = static_cast<int>(i);
-            item.pszText = name.data();
-            item.iImage = e.IsPin() ? AddIcon(pin, e) : -1;
-            const int at = ListView_InsertItem(list, &item);
-            if (at >= 0) {
-                ListView_SetItemText(list, at, 1, kindText.data());
-                ListView_SetItemText(list, at, 2, details.data());
-            }
-        }
-        const int n = static_cast<int>(items.size());
-        if (n > 0) {
-            const int sel = std::clamp(select, 0, n - 1);
-            ListView_SetItemState(list, sel, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
-            ListView_EnsureVisible(list, sel, FALSE);
-        }
-        SendMessageW(list, WM_SETREDRAW, TRUE, 0);
-        InvalidateRect(list, nullptr, TRUE);
-        UpdateButtons();
-    }
-
-    void AddFiles() {
-        winrt::com_ptr<IFileOpenDialog> dialog;
-        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
-            MessageBeep(MB_ICONERROR);
-            return;
-        }
-        const COMDLG_FILTERSPEC filters[] = {{L"Apps and shortcuts (*.lnk;*.exe)", L"*.lnk;*.exe"},
-                                             {L"All files", L"*.*"}};
-        dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
-        dialog->SetTitle(L"Pin apps to the dock");
-        FILEOPENDIALOGOPTIONS options = 0;
-        dialog->GetOptions(&options);
-        // NODEREFERENCELINKS: a chosen shortcut is pinned as the shortcut (keeps its arguments).
-        dialog->SetOptions(options | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM |
-                           FOS_NODEREFERENCELINKS | FOS_NOCHANGEDIR);
-        winrt::com_ptr<IShellItem> programs;
-        if (SUCCEEDED(SHGetKnownFolderItem(FOLDERID_Programs, KF_FLAG_DEFAULT, nullptr, IID_PPV_ARGS(programs.put())))) {
-            dialog->SetDefaultFolder(programs.get());
-        }
-        if (FAILED(dialog->Show(Owner()))) return;  // cancelled
-        winrt::com_ptr<IShellItemArray> items;
-        DWORD count = 0;
-        if (FAILED(dialog->GetResults(items.put())) || FAILED(items->GetCount(&count))) return;
-        std::vector<std::wstring> paths;
-        for (DWORD i = 0; i < count; ++i) {
-            winrt::com_ptr<IShellItem> item;
-            PWSTR raw = nullptr;
-            if (SUCCEEDED(items->GetItemAt(i, item.put())) &&
-                SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) && raw) {
-                paths.emplace_back(raw);
-                CoTaskMemFree(raw);
-            }
-        }
-        PinPaths(paths);
-    }
-
-    void AddFolder() {
-        winrt::com_ptr<IFileOpenDialog> dialog;
-        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
-            MessageBeep(MB_ICONERROR);
-            return;
-        }
-        dialog->SetTitle(L"Pin a folder to the dock");
-        FILEOPENDIALOGOPTIONS options = 0;
-        dialog->GetOptions(&options);
-        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
-        if (FAILED(dialog->Show(Owner()))) return;  // cancelled
-        winrt::com_ptr<IShellItem> item;
-        PWSTR raw = nullptr;
-        if (FAILED(dialog->GetResult(item.put())) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw) {
-            return;
-        }
-        std::vector<std::wstring> paths{std::wstring(raw)};
-        CoTaskMemFree(raw);
-        PinPaths(paths);
-    }
-
-    // Pins the paths after the last pin (skipping apps already pinned) and selects the last new one.
-    void PinPaths(const std::vector<std::wstring>& paths) {
-        if (paths.empty() || !Host().pinFiles) return;
-        const size_t before = Dock().PinCount();
-        Host().pinFiles(paths);  // reloads the dock and saves
-        Window().ConfigApplied();
-        const size_t after = Dock().PinCount();
-        FillList(after > before ? RowOfPin(after - 1) : Selected());
-    }
-
-    // Choose icon… / Choose image… for the pin in row `row` (not separators).
-    void ChooseIcon(int row, bool image) {
-        const size_t k = PinOfRow(row);
-        const std::vector<DockItemEntry> pinned = Dock().Pins();
-        if (k >= pinned.size()) return;
-        const DockItemEntry before = pinned[k];
-        if (before.Kind() == ItemKind::Separator) return;
-        std::wstring file, startImage;
-        int index = 0;
-        if (Host().pins) {
-            const auto& pins = Host().pins();
-            if (k < pins.size()) {
-                IconUtil::StartIconFor(pins[k], file, index);
-                startImage = IconUtil::StartImageFor(pins[k]);
-            }
-        }
-        std::wstring spec;
-        const bool ok = image ? IconUtil::ChooseIconFile(Owner(), startImage, spec)
-                              : IconUtil::ChooseIconResource(Owner(), file, index, spec);
-        if (!ok) return;
-        // The list may have changed while the dialog was open (a drag on the dock): only the
-        // same entry at the same place gets the icon.
-        DockConfig& now = Dock();
-        if (k >= now.PinCount()) return;
-        DockItemEntry& e = now.PinAt(k);
-        if (e.path != before.path || e.aumid != before.aumid || e.kind != before.kind) {
-            MessageBeep(MB_ICONWARNING);
-            return;
-        }
-        e.icon = spec;  // the absolute path the dialog returned
-        Changed(SettingsScope::Pins);
-        FillList(RowOfPin(k));
-    }
-
-    HIMAGELIST images_ = nullptr;
-    int iconPx_ = 0;
-};
-
 }  // namespace
 
 std::unique_ptr<SettingsPage> MakeAnimationPage(SettingsWindow& window) {
     return std::make_unique<AnimationPage>(window);
 }
 
-std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window) {
-    return std::make_unique<DockContentsPage>(window);
+namespace {
+
+// SHGetFileInfoW's icon of `path` (a PIDL with SHGFI_PIDL in `flags`) at about `px`: the small /
+// large shell icon up to 32 px, above that the system image list's 48 px icon (SHIL_EXTRALARGE),
+// which DrawIconEx scales down without the blur of a 32 px icon scaled up.
+HICON ShellIcon(LPCWSTR path, DWORD attributes, UINT flags, int px) {
+    SHFILEINFOW sfi{};
+    if (px <= 32) {
+        const UINT size = px > GetSystemMetrics(SM_CXSMICON) ? SHGFI_LARGEICON : SHGFI_SMALLICON;
+        return SHGetFileInfoW(path, attributes, &sfi, sizeof(sfi), flags | SHGFI_ICON | size) ? sfi.hIcon : nullptr;
+    }
+    if (!SHGetFileInfoW(path, attributes, &sfi, sizeof(sfi), flags | SHGFI_SYSICONINDEX)) return nullptr;
+    winrt::com_ptr<IImageList> list;
+    HICON icon = nullptr;
+    if (SUCCEEDED(SHGetImageList(SHIL_EXTRALARGE, IID_PPV_ARGS(list.put())))) list->GetIcon(sfi.iIcon, ILD_TRANSPARENT, &icon);
+    if (icon) return icon;
+    return SHGetFileInfoW(path, attributes, &sfi, sizeof(sfi), flags | SHGFI_ICON | SHGFI_LARGEICON) ? sfi.hIcon : nullptr;
 }
 
-// The icon of a pin entry as the Dock contents list (and an Item window's header) shows it.
+}  // namespace
+
+// The icon of a pin entry as the Contents tab's strip (and an Item window's header) shows it.
 HICON SettingsItemIcon(const AppIdentity::ResolvedPin* pin, const DockItemEntry& e, int px) {
-    const UINT iconSize = px > GetSystemMetrics(SM_CXSMICON) ? SHGFI_LARGEICON : SHGFI_SMALLICON;
     const ItemKind special = e.Kind();
     if (special == ItemKind::Separator) return nullptr;  // no icon: the name says "Separator"
     if (special == ItemKind::Group && (!pin || pin->iconFile.empty())) return nullptr;  // the dock composes its icon
@@ -800,36 +229,23 @@ HICON SettingsItemIcon(const AppIdentity::ResolvedPin* pin, const DockItemEntry&
     }
     if (!icon && special == ItemKind::RecycleBin) {
         PIDLIST_ABSOLUTE pidl = nullptr;
-        SHFILEINFOW sfi{};
         if (SUCCEEDED(SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, nullptr, &pidl)) && pidl) {
-            if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi, sizeof(sfi),
-                               SHGFI_PIDL | SHGFI_ICON | iconSize)) {
-                icon = sfi.hIcon;
-            }
+            icon = ShellIcon(reinterpret_cast<LPCWSTR>(pidl), 0, SHGFI_PIDL, px);
             CoTaskMemFree(pidl);
         }
         if (!icon) return nullptr;
     }
-    SHFILEINFOW sfi{};
     if (!icon && !e.path.empty()) {
-        UINT flags = SHGFI_ICON | iconSize;
-        if (pin && pin->missing) flags |= SHGFI_USEFILEATTRIBUTES;  // the generic icon of its type
-        if (SHGetFileInfoW(e.path.c_str(), FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi), flags)) icon = sfi.hIcon;
+        // A missing file: the generic icon of its type.
+        icon = ShellIcon(e.path.c_str(), FILE_ATTRIBUTE_NORMAL, pin && pin->missing ? SHGFI_USEFILEATTRIBUTES : 0, px);
     }
     if (!icon && !e.aumid.empty()) {
         PIDLIST_ABSOLUTE pidl = nullptr;
         if (SUCCEEDED(SHParseDisplayName((L"shell:AppsFolder\\" + e.aumid).c_str(), nullptr, &pidl, 0, nullptr))) {
-            if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi, sizeof(sfi),
-                               SHGFI_PIDL | SHGFI_ICON | iconSize)) {
-                icon = sfi.hIcon;
-            }
+            icon = ShellIcon(reinterpret_cast<LPCWSTR>(pidl), 0, SHGFI_PIDL, px);
             CoTaskMemFree(pidl);
         }
     }
-    if (!icon && SHGetFileInfoW(L".exe", FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi),
-                                SHGFI_USEFILEATTRIBUTES | SHGFI_ICON | iconSize)) {
-        icon = sfi.hIcon;
-    }
-    if (!icon) return nullptr;
+    if (!icon) icon = ShellIcon(L".exe", FILE_ATTRIBUTE_NORMAL, SHGFI_USEFILEATTRIBUTES, px);
     return icon;
 }

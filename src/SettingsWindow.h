@@ -227,6 +227,12 @@ protected:
     // An Item window's page: the item (an index into the window's dock's items) it shows; called
     // before the first Build and when App re-points the window (the item moved).
     virtual void SelectItem(int /*item*/) {}
+    // Paints on the page's background after it was filled (WM_ERASEBKGND / WM_PRINTCLIENT; page
+    // client px, scrolled by ScrollPx()): frames and separators around controls (round 5 phase C).
+    virtual void PaintBackground(HDC /*dc*/) {}
+    // Automation (SettingsWindow::QueryPages): answer `code` into `out` and return true if the
+    // page knows it.
+    virtual bool Query(int /*code*/, LPARAM /*arg*/, LRESULT& /*out*/) { return false; }
 
     // --- layout table builders (DIPs; the cursor y_ moves down row by row) ---
     static constexpr int kMargin = 24;
@@ -280,6 +286,11 @@ protected:
     int GetTrack(int id) const;
     void Enable(int id, bool enable);
     void Show(int id, bool show);
+    // Moves control `id` to `dip` (page DIPs) in the table; Relayout() then applies the table to
+    // the windows (and repaints the page's background).
+    void MoveCtl(int id, RECT dip);
+    void Relayout();
+    int ScrollPx() const { return scrollPx_; }
     // The top-level settings window (owner for dialogs).
     HWND Owner() const;
     // Parses the edit's integer, clamps it to [lo, hi] and writes the clamped text back.
@@ -342,6 +353,8 @@ public:
     // A page whose controls depend on the config (the generated widget settings page) builds its
     // table again: posted, so a page may ask from inside its own notification.
     void RequestRebuild(const SettingsPage& page);
+    // Automation: the first page that answers QueryState `code` (SettingsPage::Query).
+    bool QueryPages(int code, LPARAM arg, LRESULT& out);
 
     // --- the target ---
     SettingsKind Kind() const { return kind_; }
@@ -396,7 +409,8 @@ private:
     static constexpr int kAboveBarDip = 24;    // gap between the window and the dock's bar
     static constexpr int kItemOffsetDip = 40;  // an Item window from its dock's window
     // The dock preview strip (SettingsPreview) under the Global Themes / Animation pages and every
-    // tab of a Dock window, content-pane wide.
+    // tab of a Dock window but Contents (round 5 phase C: its item strip shows the items), content-
+    // pane wide.
     static constexpr int kFooterDip = 96;
     static constexpr int kSubtitleDip = 34;     // Global: the subtitle band over the pages
     static constexpr int kDockHeaderDip = 128;  // Dock: the identity header
@@ -475,7 +489,7 @@ private:
     std::vector<std::wstring> HeaderChips();
     std::wstring WindowTitle();
     std::wstring ItemName();
-    // The item's icon for the header (the same source as the Dock contents list; null: a letter tile).
+    // The item's icon for the header (the same source as the Contents tab's strip; null: a letter tile).
     void UpdateItemIcon();
     // Page colours
     LRESULT CtlColor(UINT msg, HDC hdc, HWND control, const SettingsPage& page);

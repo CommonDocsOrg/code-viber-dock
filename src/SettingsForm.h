@@ -120,7 +120,7 @@ private:
 std::unique_ptr<SettingsPage> MakeAppearancePage(SettingsWindow& window);  // SettingsPagesAppearance.cpp (Global > Themes)
 std::unique_ptr<SettingsPage> MakeDockThemePage(SettingsWindow& window);   // SettingsPagesAppearance.cpp (Dock > Theme)
 std::unique_ptr<SettingsPage> MakeAnimationPage(SettingsWindow& window);   // SettingsPagesMore.cpp
-std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window);      // SettingsPagesMore.cpp (Dock > Contents)
+std::unique_ptr<SettingsPage> MakeContentsPage(SettingsWindow& window);    // SettingsPagesContents.cpp (Dock > Contents)
 std::unique_ptr<SettingsPage> MakeLayoutPage(SettingsWindow& window);      // SettingsPagesLayout.cpp (Global > Docks and displays)
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window);     // SettingsPagesWidgets.cpp
 std::unique_ptr<SettingsPage> MakeWidgetSettingsPage(SettingsWindow& window);  // SettingsPagesWidgets.cpp
@@ -130,12 +130,13 @@ std::unique_ptr<SettingsPage> MakeItemSettingsPage(SettingsWindow& window);    /
 std::unique_ptr<SettingsPage> MakeCalendarPage(SettingsWindow& window);        // SettingsPagesCalendar.cpp
 std::unique_ptr<SettingsPage> MakeFolderWindowPage(SettingsWindow& window);    // SettingsPagesFolderWindow.cpp
 
-// One line about a clock / weather item (Dock contents' Details, the generated page's item list;
+// One line about a clock / weather item (the Contents tab's details, the generated page's item list;
 // SettingsPagesWidgets.cpp): "%H:%M, date, Tokyo Standard Time, “Tokyo”" / "Seattle, °C".
 std::wstring ClockDetail(const ClockConfig& c);
 std::wstring WeatherDetail(const WeatherConfig& w);
 
-// The icon of a pin entry as the Dock contents list shows it (its custom icon, a shortcut's icon,
-// the file's / app's icon, the Recycle Bin's), `px` square; null for kinds without one (separators,
-// a group without an icon of its own). The caller destroys it (SettingsPagesMore.cpp).
+// The icon of a pin entry as the Contents tab's item strip shows it (its custom icon, a shortcut's
+// icon, the file's / app's icon, the Recycle Bin's), `px` square (above 32 px from the system's
+// 48 px image list); null for kinds without one (separators, a group without an icon of its own).
+// The caller destroys it (SettingsPagesMore.cpp).
 HICON SettingsItemIcon(const AppIdentity::ResolvedPin* pin, const DockItemEntry& e, int px);

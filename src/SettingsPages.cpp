@@ -774,7 +774,7 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
                 pages.push_back(MakeFolderWindowPage(window));  // kTabFolderWindow
                 break;
             }
-            pages.push_back(MakePinnedPage(window));                                                      // kTabContents
+            pages.push_back(MakeContentsPage(window));                                                    // kTabContents
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Position));   // kTabPosition
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Behaviour));  // kTabBehaviour
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Running));    // kTabRunning

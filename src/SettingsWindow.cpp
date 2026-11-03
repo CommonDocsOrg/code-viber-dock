@@ -255,6 +255,18 @@ void SettingsPage::Show(int id, bool show) {
     ShowWindow(h, show ? SW_SHOWNA : SW_HIDE);
 }
 
+void SettingsPage::MoveCtl(int id, RECT dip) {
+    for (Ctl& c : table_) {
+        if (c.id == id) c.dip = dip;
+    }
+}
+
+void SettingsPage::Relayout() {
+    if (!hwnd_) return;
+    window_.LayoutPage(*this);
+    RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
+}
+
 HWND SettingsPage::Owner() const { return GetAncestor(hwnd_, GA_ROOT); }
 
 bool SettingsPage::ReadInt(int editId, int lo, int hi, int& value) {
@@ -352,7 +364,7 @@ SIZE SettingsWindow::ClientDip() const {
 bool SettingsWindow::PreviewOn(int index) const {
     switch (kind_) {
         case SettingsKind::Global: return index == SettingsIds::kPageThemes || index == SettingsIds::kPageAnimation;
-        case SettingsKind::Dock: return !IsFolderWindow();
+        case SettingsKind::Dock: return !IsFolderWindow() && index != SettingsIds::kTabContents;
         case SettingsKind::Item:
         default: return false;
     }
@@ -519,7 +531,7 @@ bool SettingsWindow::Create(HINSTANCE instance) {
             return false;
         }
     }
-    if (kind_ == SettingsKind::Global || PreviewOn(0)) {
+    if (kind_ == SettingsKind::Global || (kind_ == SettingsKind::Dock && !IsFolderWindow())) {
         preview_ = std::make_unique<SettingsPreview>();
         if (preview_->Create(instance, hwnd_, SettingsIds::kPreview, host_.config, dpi_)) {
             // Global: the global theme (on the selected dock's items); a Dock window: its dock.
@@ -1120,6 +1132,14 @@ void SettingsWindow::RequestRebuild(const SettingsPage& page) {
     }
 }
 
+bool SettingsWindow::QueryPages(int code, LPARAM arg, LRESULT& out) {
+    if (!hwnd_) return false;
+    for (auto& page : pages_) {
+        if (page->hwnd_ && page->Query(code, arg, out)) return true;
+    }
+    return false;
+}
+
 void SettingsWindow::RebuildPage(int index) {
     if (!hwnd_ || index < 0 || index >= static_cast<int>(pages_.size())) return;
     SettingsPage& page = *pages_[static_cast<size_t>(index)];
@@ -1484,12 +1504,14 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
             RECT rc{};
             GetClientRect(hwnd, &rc);
             FillRect(reinterpret_cast<HDC>(wp), &rc, layerBrush_);
+            page.PaintBackground(reinterpret_cast<HDC>(wp));
             return 1;
         }
         case WM_PRINTCLIENT: {
             RECT rc{};
             GetClientRect(hwnd, &rc);
             FillRect(reinterpret_cast<HDC>(wp), &rc, layerBrush_);
+            page.PaintBackground(reinterpret_cast<HDC>(wp));
             return 0;
         }
         default:

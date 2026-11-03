@@ -706,8 +706,8 @@ shows any more is stopped and dropped at once.
   temperature, a glyph-only compact mode, what a click opens, and the popup's days and hours.
   Without a place of its own it shows the place of its dock's first `weather` item (else the
   defaults). The native `weather` item stays as it is (the fallback). **Migration**: to use the
-  script version, open Dock settings > Contents, select the Weather row and **Remove** it, then
-  **Add widget ▾ > Weather (script)** (or replace `{ "kind": "weather" }` with
+  script version, open Dock settings > Contents, select the Weather tile and **Remove from dock**,
+  then drag **Weather (script)** from the widget drawer onto the strip (or replace `{ "kind": "weather" }` with
   `{ "kind": "widget", "id": "weather" }` in config.json, moving its settings along).
 
 **Clocks per item** (round 5): every clock item has its own format, seconds, date, face, click
@@ -837,8 +837,8 @@ write and edit without compiling anything. The full reference (every call, every
   (`weather`: the weather item and its forecast popup on the `weather` provider, see Weather and
   calendar above). A folder with a built-in's id replaces the built-in; your own clock faces
   go into an exported `analog-clock\faces` folder.
-- **Adding one**: Dock settings > Contents > **Add widget ▾** lists the installed widgets after
-  Clock / Weather / Running apps, or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
+- **Adding one**: the widget drawer of Dock settings > Contents lists the installed widgets under
+  the built-in kinds (drag one onto the strip, or **Add**), or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
   (with an optional `"settings": { ... }` object). A widget can be dragged on the dock like the
   clock; a right click opens the dock menu, which then has **Reload widgets**.
 - **widget.json**: `name`, `version`, `author`, `description`, `size` (the box per axis in DIPs:
@@ -988,7 +988,8 @@ unpackaged app to read it without a prompt as long as Settings > Privacy & secur
 Notifications ("Let apps access your notifications") is on; the access is checked on every poll.
 
 - **The notification centre** (`{ "kind": "notifications" }`, one per dock; dock menu Add widget >
-  Notification centre, Global settings > Notifications or Dock contents > Add widget): a bell with the
+  Notification centre, Global settings > Notifications or the widget drawer of Dock settings >
+  Contents): a bell with the
   unread count in a bubble (theme `badgeFill` / `badgeText` / `badgeSize`; dimmed while access is
   denied). A click opens the centre above the bell (beside a vertical dock): one row per
   notification, newest first, with the app's icon, the title, two lines of text and the relative
@@ -1130,7 +1131,8 @@ but the configuration, and opening one that is already open brings it to the fro
   window settings**) with only its Folder window page.
 - **Item settings** (one per item; any number open): one widget, clock, weather, folder or group
   item. **Settings…** in a folder's / group's menu, **<name> settings…** at the top of the dock menu
-  opened over a widget, clock or weather item, **Settings…** on the dock window's Contents tab, the
+  opened over a widget, clock or weather item, **Open settings in its own window** on the dock
+  window's Contents tab, the
   weather item's map pin, a widget's `weather.openSettings()`, `WinDock.DockCommand` 113 / 142 and
   `WinDock.ItemCommand` 854 open it.
 
@@ -1202,22 +1204,39 @@ border pulses in its colour for about 1.5 s), **Lock dock** / **Unlock dock** an
 settings** link; the title bar ("main · Dock settings · Bottom · Primary") and the window border
 take the dock's colour (Windows 11). Tabs:
 
-- **Contents** (the Dock contents page of earlier versions): every item of the dock in its order,
-  one row each: the name (with the icon for apps, folders and the Recycle Bin; "(missing)" when
-  the file is gone), the kind (App, Folder, Group, Separator, Recycle Bin, Running apps, Clock,
-  Weather, Widget, Tray, Notification centre) and details (the target; the clock's format; the
-  weather's place; a second running apps item reads "Not shown: only the first running apps item
-  is used"; a kind this version does not know is listed as written). Buttons: **Add app…** (pick
-  one or more `.lnk` / `.exe` files; a shortcut is pinned as the shortcut, apps that are already
-  pinned are skipped), **Add folder…**, **Add separator** (after the last pin), **Add widget ▾**
-  (Clock, Weather, Running apps, Tray, Notification centre and the installed script widgets,
-  placed as the dock menu's Add widget does), **Move up** / **Move down**, **Remove**,
-  **Settings…** for the selected item (a clock, weather, script widget, folder (or a shortcut to
-  one) or group: its Item window; the running apps: the Running apps tab; the tray / notification
-  centre: their Global pages; an app or the Recycle Bin: Choose icon…; greyed for a separator),
-  **Choose icon…**, **Choose image…**, **Reset icon** (as in the dock's menu, see Custom icons),
-  **Add Recycle Bin** and **Lock the dock**. Changes from the dock itself (drags, drops, the menus)
-  show up in the list at once.
+- **Contents** ("Items on the dock"; round 5 phase C, it replaces the Dock contents list of
+  earlier versions):
+  - **The item strip**: every item of the dock as a tile, in dock order from left to right
+    whatever the dock's edge: apps, folders and the Recycle Bin with their icons (the custom icon
+    if set), clocks, weather items, script widgets, the tray and the notification centre as a
+    coloured letter tile, a separator as a narrow slot with a thin bar, the running apps as a wide
+    tile of three dashed boxes; the name under each tile (a clock's / weather item's label or
+    place: "Clock · Tokyo"). Click a tile to select it; **drag** a tile to another place (an
+    insertion mark in the dock's colour shows where it goes; Esc cancels); a long dock scrolls
+    (the scroll bar or the mouse wheel). Keyboard: Left / Right / Home / End select, **Ctrl+Left**
+    / **Ctrl+Right** move the selected item, **Delete** removes it, Enter (or a double click)
+    opens its settings. Changes from the dock itself (drags, drops, the menus) show up at once.
+  - **The inspector** under it: the selected item's icon, name, kind and details (the target; the
+    clock's format; the weather's place; a second running apps item reads "Not shown: only the
+    first running apps item is used"; a kind this version does not know is listed as written),
+    **◀ Move left** / **Move right ▶**, **Open settings in its own window** (a clock, weather,
+    script widget, folder (or a shortcut to one) or group: its Item window; the tray: Global >
+    Tray icons), **Choose icon…** / **Choose image…** / **Reset icon** for apps, folders, groups
+    and the Recycle Bin (as in the dock's menu, see Custom icons) and **Remove from dock**.
+  - Buttons under the strip: **Add app…** (pick one or more `.lnk` / `.exe` files; a shortcut is
+    pinned as the shortcut, apps that are already pinned are skipped), **Add folder…**, **Add
+    separator** (after the selected item; nothing selected: at the end), **Add Recycle Bin**
+    (greyed while the dock has one), **Lock the dock** and **Hide widget drawer** / **Show widget
+    drawer** (remembered until WinDock quits).
+  - **The widget drawer** on the right: a search box (name, note or id), **Built in** (Running
+    apps, Clock, Weather, System tray, Notifications, Recycle Bin, Separator) and **Script
+    widgets** (every installed widget with the first line of its description and its version).
+    Drag a row onto the strip to put a new item there (a clock or weather item starts from the
+    defaults, see Configuration), or press its **Add** (or Enter on the focused row) to add it
+    where the dock menu's Add widget puts it (a separator / the Recycle Bin after the last pin).
+    The running apps, the tray, the notification centre and the Recycle Bin are greyed ("Already
+    on the dock") while the dock has one. **Manage installed widgets in Global > Widget library**
+    opens that page.
 - **Position**: display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the dock's order, or
   Every display), layer, screen edge, alignment and offset (pixels at 100 % scale), Full width,
   Reserve screen space, Peek when hidden (pixels), Peek opacity (%), Title (see Position), the
@@ -1238,7 +1257,8 @@ take the dock's colour (Windows 11). Tabs:
   link to Global > Themes, where the theme's fields are (they apply to every dock, on top of a
   dock's own preset).
 
-The preview strip under the tabs draws this dock (its theme, sizes and items).
+The preview strip under the tabs (all but Contents, whose item strip shows the items) draws this
+dock (its theme, sizes and items).
 
 **A folder window's window** has the same header (its colour, id, display, Shown / Parked) and its
 one page, **Folder window** (round 4 phase 12b): its folder (Browse…), title, view, icon size,
@@ -2080,7 +2100,17 @@ always there, also when every dock is parked) handle these registered messages:
   handle of the Item window of item `LOWORD(lParam)` (its index in `docks[].items`) of dock
   `HIWORD(lParam)` (0 none; it follows its item when the items move); 226 = Flash steps left on the
   dock (0 not flashing; QueryState 5 counts a running flash); 228 = 1 while the dock is kept shown
-  by its own Dock / Item window being the active window (never by the Global one).
+  by its own Dock / Item window being the active window (never by the Global one). The Contents
+  tab of dock `HIWORD(lParam)`'s Dock window (round 5 phase C; each answers -2 while that window
+  is not open): 229 = the centre of the strip tile of item `LOWORD(lParam)` (its index in
+  `docks[].items`) in screen pixels, packed like `QueryItemPoint` (`MAKELONG(x, y)`; -1: no such
+  item or the tab is not shown; the point lies outside the strip while it is scrolled away: the
+  selected tile is always scrolled into view); 230 = the centre of the drawer row of entry
+  `LOWORD(lParam)` (0 Running apps, 1 Clock, 2 Weather, 3 System tray, 4 Notifications, 5 Recycle
+  Bin, 6 Separator, 7 + n the installed widgets in the Widget library's order; -1: filtered out by
+  the search or the drawer hidden; rows scrolled away lie outside the drawer); 231 = the strip's
+  selected item (-1 none); 232 = 1 while the drawer is shown; 233 = the insertion slot a drop
+  would land in while a tile or a drawer row is dragged over the strip (the marker; -1 none).
   `DockCommand` 107 / 143 / 142 open them, `ItemCommand` 854 an item's from its slot. The frame's
   children: 100 the Global page list (`WinDock.SettingsNav`; its window text is the selected
   page's name), 102 the header band (`WinDock.SettingsBand`; its window text is the header's
@@ -2098,9 +2128,21 @@ always there, also when every dock is parked) handle these registered messages:
   window 0 Contents, 1 Position, 2 Behaviour, 3 Running apps, 4 Theme (`kTab*`; a folder window's
   window: 0 Folder window); an Item window 0 its page (the generated one or Folders and groups).
   Every control on them has the stable id listed in `src/SettingsIds.h`; pages that moved kept
-  their ids: Contents = the Dock contents page (Pinned apps ids 2600 - 2611, 2612 Add widget, 2613
-  Settings…, 2614 Lock the dock; its list 2600 has one row per config item, columns Name, Kind,
-  Details); Position = the General page's dock controls (2111 Display, ending with "Every display"
+  their ids: Contents (round 5 phase C; the Dock contents list 2600, its note 2605 and Add widget
+  2612 are retired) = 2616 the item strip (class `WinDock.SettingsStrip`; one tile per config item
+  in order; its window text is its accessible name: "Items on the dock: <name>, <kind>, item k of
+  n"), 2617 the note, 2618 the inspector's identity line (the same class; window text "<name>,
+  <kind> · <details>"), 2603 ◀ Move left, 2604 Move right ▶, 2613 Open settings in its own window
+  (shown for items with settings), 2609 Choose icon…, 2610 Choose image…, 2611 Reset icon (shown
+  for apps, folders, groups and the Recycle Bin), 2602 Remove from dock, 2601 Add app…, 2606 Add
+  folder…, 2607 Add separator (after the selection), 2608 Add Recycle Bin, 2614 Lock the dock,
+  2619 Hide / Show widget drawer, the drawer: 2620 / 2621 its title, 2622 the search box (send
+  `WM_SETTEXT`, then `WM_COMMAND(2622, EN_CHANGE)` to the page), 2623 the drawer list (the same
+  class; window text "Widget drawer: <name>, <note>" of the focused row), 2624 the Widget library
+  link. The strip and the drawer take real mouse input (`SendInput`: press on a tile's / row's
+  centre from `QueryState` 229 / 230, glide, release; Esc during the drag cancels) and real keys
+  while the window is the foreground (Left / Right / Home / End, Ctrl+Left / Ctrl+Right, Delete,
+  Enter; the drawer Up / Down / Enter). Position = the General page's dock controls (2111 Display, ending with "Every display"
   (`"each"`), 2165 Layer (0 above windows, 1 desktop only), 2142 screen edge and 2144 alignment
   drop-downs in DockEdge / DockAlign order, 2146 / 2147 offset box and up-down, 2149 Full width,
   2151 Reserve screen space, 2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied
@@ -2136,9 +2178,7 @@ always there, also when every dock is parked) handle these registered messages:
   contents as: 0 Automatic, 1 Grid, 2 List; 4005 Choose icon…, 4006 Choose image…, 4007 Reset
   icon; 4008 the folder's path; groups: 4010 the name, committed on `EN_KILLFOCUS`; 4012 the
   members list (Name, Target); 4013 Add app…, 4014 Add folder…, 4015 Remove, 4016 Move up, 4017
-  Move down; hidden for a folder; the picker 4001 is gone).
-  "Add widget ▾" opens a popup menu
-  (items 1 Clock, 2 Weather, 3 Running apps, then the installed widgets 100 + n), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
+  Move down; hidden for a folder; the picker 4001 is gone). Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Themes page's theme
   field rows use `3000 + 10 * field index + part` (ids 3000 - 3399; field index in
   `Theme::Fields()` order; part 0 label, 1 swatch / check box, 2 hex box / check box caption,

@@ -62,7 +62,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 
 | Key | Default | Meaning |
 |---|---|---|
-| `name` | the id | Shown in Settings (Dock contents, Add widget). |
+| `name` | the id | Shown in Settings (the Contents tab's strip and widget drawer, the Widget library). |
 | `api` | 1 | The widget API version it was written for (informational; 1 is the only one so far). |
 | `version`, `author`, `description` | "" | Informational. |
 | `main` | `"main.js"` | The module to load, a path inside the package. |
@@ -116,8 +116,8 @@ The values live in the dock item's `settings` object in config.json. The script 
 defaults overridden by the item's values (a value of the wrong type or out of range falls back to
 the default; ints are rounded, numbers clamped); keys the schema does not name are passed through
 unchanged. Settings > **Widget settings** is generated from the schema for each widget item of
-the dock the settings window edits (a drop-down picks the item; Dock contents > Settings… on a
-widget row opens it): a check box per `bool`, an up-down (stepper, `step` per click, `min` - `max`)
+the dock the settings window edits (each item has its own window: Dock settings > Contents >
+**Open settings in its own window** on a widget's tile opens it): a check box per `bool`, an up-down (stepper, `step` per click, `min` - `max`)
 per `int`, a drop-down per `choice`, an edit box for the others (`colour` as `#AARRGGBB`), each
 field's `description` under it, and **Reset to defaults** (removes the item's `settings`). A change
 is saved and reaches the widget at once (`onSettingsChanged`).
@@ -662,7 +662,7 @@ theme: `"theme:text"` (the clock's text), `"theme:dateText"`, `"theme:accent"`, 
 `"theme:labelText"`, `"theme:labelBackground"`, `"theme:separator"`, `"theme:border"`; the defaults
 are `theme:text` for the time, the seconds and the suffix, `theme:dateText` for the date. Every key
 is optional; a value of the wrong kind makes the whole file unreadable (the page shows the field).
-An analog clock on the dock is the Analog clock widget (Dock contents > Add widget), not a face.
+An analog clock on the dock is the Analog clock widget (Dock settings > Contents, the widget drawer), not a face.
 
 ## Limits and errors
 
@@ -767,10 +767,11 @@ go to the Console only.
 
 ## Adding a widget to a dock
 
-Settings > Dock contents > **Add widget ▾** lists the installed widgets (built-in and from the
-widgets folder) after Clock, Weather and Running apps (Settings > Widgets has **Add to dock**
-too); the widget is added before a clock that ends the dock (else at the end) and can then be
-moved like any item; the row's **Settings…** opens its Widget settings page. In config.json:
+The widget drawer of Dock settings > Contents lists the installed widgets (built-in and from the
+widgets folder) under the built-in kinds (Global settings > Widget library has **Add to dock**
+too): drag a widget onto the item strip to put it there, or press its **Add** to add it before a
+clock that ends the dock (else at the end); it can then be moved like any item, and **Open
+settings in its own window** opens its settings. In config.json:
 
 ```json
 { "kind": "widget", "id": "digital-clock", "settings": { "showSeconds": true, "showDate": true } }

@@ -281,23 +281,34 @@ inline constexpr int kReduceMotionCombo = 2533;   // 0 system, 1 on, 2 off
 inline constexpr int kReduceMotionNote = 2534;    // "Windows animation effects: on / off"
 inline constexpr int kSpeedNote = 2535;
 
-// Dock contents (2600 - 2699; "Pinned apps" until 1c, the ids are kept)
-inline constexpr int kPinnedList = 2600;          // SysListView32 (report): Name, Kind, Details; one row per docks[0].items[] entry
+// Dock contents: the Dock window's Contents tab (2600 - 2699; "Pinned apps" until 1c, "Dock
+// contents" list until round 5 phase C: the item strip, the widget drawer and the inspector since).
+// 2600: the list (SysListView32) until round 5 phase C; reserved (the strip is kContentsStrip).
 inline constexpr int kPinAdd = 2601;              // "Add app…" (open dialog, .lnk / .exe, multi-select)
-inline constexpr int kPinRemove = 2602;
-inline constexpr int kPinUp = 2603;
-inline constexpr int kPinDown = 2604;
-inline constexpr int kPinnedNote = 2605;
+inline constexpr int kPinRemove = 2602;           // inspector: "Remove from dock" (the selected item)
+inline constexpr int kPinUp = 2603;               // inspector: "◀ Move left" (was Move up)
+inline constexpr int kPinDown = 2604;             // inspector: "Move right ▶" (was Move down)
+// 2605: the list's note until round 5 phase C; reserved (kContentsNote).
 inline constexpr int kPinAddFolder = 2606;        // "Add folder…" (folder picker)
-inline constexpr int kPinAddSeparator = 2607;     // appends { "kind": "separator" }
-inline constexpr int kPinAddRecycleBin = 2608;    // appends { "kind": "recycleBin" }; disabled while one is pinned
-inline constexpr int kPinChooseIcon = 2609;       // "Choose icon…" (the Change Icon dialog); disabled for separators
-inline constexpr int kPinChooseImage = 2610;      // "Choose image…" (open dialog: images, .ico / .exe / .dll)
-inline constexpr int kPinResetIcon = 2611;        // "Reset icon": clears `icon`; enabled when the entry has one
-inline constexpr int kPinAddWidget = 2612;        // "Add widget" (menu: Clock, Weather, Running apps)
-inline constexpr int kPinSettings = 2613;         // "Settings…" of the selected item (see the page)
-inline constexpr int kLockDock = 2614;            // check box: docks[0].locked (+ caption 2615)
+inline constexpr int kPinAddSeparator = 2607;     // a separator after the selected item (none selected: at the end)
+inline constexpr int kPinAddRecycleBin = 2608;    // a { "kind": "recycleBin" } after the last pin; disabled while one is pinned
+inline constexpr int kPinChooseIcon = 2609;       // inspector: "Choose icon…" (the Change Icon dialog); shown for apps, folders, groups, the bin
+inline constexpr int kPinChooseImage = 2610;      // inspector: "Choose image…" (open dialog: images, .ico / .exe / .dll)
+inline constexpr int kPinResetIcon = 2611;        // inspector: "Reset icon": clears `icon`; enabled when the entry has one
+// 2612: "Add widget ▾" until round 5 phase C (the widget drawer); reserved.
+inline constexpr int kPinSettings = 2613;         // inspector: "Open settings in its own window" (shown for items with settings)
+inline constexpr int kLockDock = 2614;            // check box: docks[].locked (+ caption 2615)
 inline constexpr int kLockDockCaption = 2615;
+// Round 5 phase C.
+inline constexpr int kContentsStrip = 2616;       // WinDock.SettingsStrip: the item strip (tiles in dock order; window text = its accessible name)
+inline constexpr int kContentsNote = 2617;        // "Drag to reorder. …"
+inline constexpr int kContentsInfo = 2618;        // WinDock.SettingsStrip (info mode): the selected item's icon, name, kind · details
+inline constexpr int kContentsDrawerToggle = 2619;  // "Hide widget drawer" / "Show widget drawer" (session state)
+inline constexpr int kDrawerTitle = 2620;         // "Widget drawer"
+inline constexpr int kDrawerHint = 2621;          // "drag onto the strip"
+inline constexpr int kDrawerSearch = 2622;        // edit: filters the drawer by name / note / id
+inline constexpr int kDrawerList = 2623;          // WinDock.SettingsStrip (drawer mode): Built in, Script widgets
+inline constexpr int kDrawerLibraryLink = 2624;   // SysLink: opens Global > Widget library
 
 // Weather (2700 - 2799): the Weather page until round 5 phase A (retired: each weather item's place
 // is a Place field of the generated page, 3610 - 3629); reserved.

@@ -321,7 +321,7 @@ void App::TogglePin(DockWindow& dock, const AppKey& key) {
     }
     ReloadPins(cfg);
     RequestSave();
-    RefreshSettings();  // the Dock contents page
+    RefreshSettings();  // the Contents tab's strip
 }
 
 bool App::SetPinIcon(DockWindow& dock, const AppKey& key, const std::wstring& icon) {
@@ -341,7 +341,7 @@ bool App::SetPinIcon(DockWindow& dock, const AppKey& key, const std::wstring& ic
     if (!changed) return found;
     ReloadPins(cfg);
     RequestSave();
-    RefreshSettings();  // the Dock contents page
+    RefreshSettings();  // the Contents tab's strip
     return true;
 }
 
@@ -369,7 +369,7 @@ void App::SetItemView(DockWindow& dock, const AppKey& key, ItemView view) {
 void App::ItemsChanged(size_t cfg) {
     ReloadPins(cfg);
     RequestSave();
-    RefreshSettings();  // the Dock contents page
+    RefreshSettings();  // the Contents tab's strip
 }
 
 void App::TrayOrder(size_t cfg, size_t item, const std::wstring& key, const std::wstring& before) {
@@ -697,7 +697,7 @@ void App::MoveItem(size_t cfg, size_t from, size_t to) {
     if (cfg >= config_.docks.size() || !config_.docks[cfg].MoveItem(from, to)) return;
     ReloadPins(cfg);
     RequestSave();
-    RefreshSettings();  // the Dock contents page
+    RefreshSettings();  // the Contents tab's strip
 }
 
 void App::AddWidget(size_t cfg, ItemKind kind) {
@@ -1105,7 +1105,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kAddClock:
         case ContextMenu::kAddWeather:
         case ContextMenu::kAddRunning:
-            if (d.locked) break;  // greyed in the menu; Settings > Dock contents still adds
+            if (d.locked) break;  // greyed in the menu; the dock window's Contents tab still adds
             AddWidget(cfg, cmd == ContextMenu::kAddClock     ? ItemKind::Clock
                            : cmd == ContextMenu::kAddWeather ? ItemKind::Weather
                                                              : ItemKind::Running);
@@ -1812,6 +1812,16 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
             if (!w) return 0;
             return arg == 1 ? reinterpret_cast<LRESULT>(w->Hwnd()) : 1;
+        }
+        case 229:    // round 5 phase C, the Dock window's Contents tab: a strip tile's centre (item LOWORD(lParam))
+        case 230:    // a drawer row's centre (entry LOWORD(lParam))
+        case 231:    // the strip's selected item
+        case 232:    // the drawer is shown
+        case 233: {  // the strip's insertion marker (-1 none); -2 for each: no Dock window of that dock
+            SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
+            LRESULT out = -2;
+            if (w && !w->QueryPages(static_cast<int>(wp), arg, out)) out = -2;
+            return out;
         }
         case 227: {  // the HWND of the Item window of item LOWORD(lParam) of dock HIWORD(lParam) (0: none open)
             SettingsWindow* w = inst && inst->cfg < config_.docks.size() && arg >= 0
