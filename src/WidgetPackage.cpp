@@ -33,6 +33,15 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"hello", "main.js", IDR_WIDGET_HELLO_MAIN},
     {L"digital-clock", "widget.json", IDR_WIDGET_CLOCK_JSON},
     {L"digital-clock", "main.js", IDR_WIDGET_CLOCK_MAIN},
+    {L"analog-clock", "widget.json", IDR_WIDGET_ANALOG_JSON},
+    {L"analog-clock", "main.js", IDR_WIDGET_ANALOG_MAIN},
+    {L"analog-clock", "faces/classic.json", IDR_WIDGET_ANALOG_FACE_CLASSIC},
+    {L"analog-clock", "faces/minimal.json", IDR_WIDGET_ANALOG_FACE_MINIMAL},
+    {L"analog-clock", "faces/modern-dark.json", IDR_WIDGET_ANALOG_FACE_MODERN_DARK},
+    {L"analog-clock", "faces/roman.json", IDR_WIDGET_ANALOG_FACE_ROMAN},
+    {L"analog-clock", "faces/station.json", IDR_WIDGET_ANALOG_FACE_STATION},
+    {L"analog-date", "widget.json", IDR_WIDGET_DATE_JSON},
+    {L"analog-date", "main.js", IDR_WIDGET_DATE_MAIN},
 };
 
 bool IsBuiltIn(const std::wstring& id) {
@@ -185,6 +194,13 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
         JsonUtil::ReadString(o, L"label", f.label);
         if (f.label.empty()) f.label = f.key;
         JsonUtil::ReadString(o, L"description", f.description);
+        if (f.type == SettingField::Type::Choice) {
+            JsonUtil::ReadString(o, L"choiceFrom", f.choiceFrom);
+            if (!f.choiceFrom.empty() && f.choiceFrom.find_first_of(L":\\") != std::wstring::npos) {
+                m.warnings.push_back(L"settings." + f.key + L": choiceFrom \"" + f.choiceFrom + L"\" is not a package glob");
+                f.choiceFrom.clear();
+            }
+        }
         JsonUtil::ReadNumber(o, L"min", f.min);
         JsonUtil::ReadNumber(o, L"max", f.max);
         JsonUtil::ReadNumber(o, L"step", f.step);
@@ -343,6 +359,28 @@ bool ResolvePath(std::string_view base, std::string_view spec, std::string& out)
     return true;
 }
 
+bool GlobMatch(std::string_view pattern, std::string_view path) {
+    // Iterative matcher with one backtrack point per '*' (which never crosses a '/').
+    size_t p = 0, s = 0, starP = std::string_view::npos, starS = 0;
+    auto lower = [](char c) { return c >= 'A' && c <= 'Z' ? static_cast<char>(c - 'A' + 'a') : c; };
+    while (s < path.size()) {
+        if (p < pattern.size() && pattern[p] == '*') {
+            starP = p++;
+            starS = s;
+        } else if (p < pattern.size() && (pattern[p] == '?' ? path[s] != '/' : lower(pattern[p]) == lower(path[s]))) {
+            ++p;
+            ++s;
+        } else if (starP != std::string_view::npos && path[starS] != '/') {
+            p = starP + 1;
+            s = ++starS;
+        } else {
+            return false;
+        }
+    }
+    while (p < pattern.size() && pattern[p] == '*') ++p;
+    return p == pattern.size();
+}
+
 bool Package::Read(const std::string& path, std::string& out, std::wstring& error) const {
     out.clear();
     std::string normalized;
@@ -431,6 +469,9 @@ std::vector<std::string> Package::Files() const {
     return files;
 }
 
+// choiceFrom: the choices from the package's files (below).
+void ExpandChoices(Package& pkg);
+
 std::shared_ptr<const Package> Load(const std::wstring& id, std::wstring& error) {
     error.clear();
     if (!ValidId(id)) {
@@ -461,7 +502,59 @@ std::shared_ptr<const Package> Load(const std::wstring& id, std::wstring& error)
         return nullptr;
     }
     if (!ParseManifest(bytes, id, pkg->manifest, error)) return nullptr;
+    ExpandChoices(*pkg);
     return pkg;
+}
+
+void ExpandChoices(Package& pkg) {
+    std::vector<std::string> files;
+    bool listed = false;
+    for (SettingField& f : pkg.manifest.settings) {
+        if (f.type != SettingField::Type::Choice || f.choiceFrom.empty()) continue;
+        if (!listed) {
+            files = pkg.Files();
+            listed = true;
+        }
+        const std::string pattern = WideToUtf8(f.choiceFrom);
+        for (const std::string& file : files) {
+            if (!GlobMatch(pattern, file)) continue;
+            std::string stem = file.substr(file.find_last_of('/') == std::string::npos ? 0 : file.find_last_of('/') + 1);
+            if (const size_t dot = stem.find_last_of('.'); dot != std::string::npos && dot > 0) stem.resize(dot);
+            const std::wstring value = Utf8ToWide(stem);
+            if (value.empty() ||
+                std::any_of(f.choices.begin(), f.choices.end(), [&](const auto& c) { return c.first == value; })) {
+                continue;
+            }
+            std::wstring label = value;
+            std::string text;
+            std::wstring readError;
+            if (pkg.Read(file, text, readError)) {
+                try {
+                    json::JsonObject o{nullptr};
+                    if (json::JsonObject::TryParse(Utf8ToWide(text), o) && o) {
+                        std::wstring name;
+                        JsonUtil::ReadString(o, L"name", name);
+                        if (!name.empty()) label = name;
+                    } else {
+                        pkg.manifest.warnings.push_back(Utf8ToWide(file) + L" is not a JSON object");
+                    }
+                } catch (...) {
+                }
+            }
+            f.choices.emplace_back(value, label);
+        }
+        // The default must be one of them (a face file that went away: the first one).
+        std::wstring def;
+        try {
+            const json::IJsonValue d = json::JsonValue::Parse(f.defaultJson);
+            if (d.ValueType() == json::JsonValueType::String) def = d.GetString();
+        } catch (...) {
+        }
+        if (!f.choices.empty() &&
+            std::none_of(f.choices.begin(), f.choices.end(), [&](const auto& c) { return c.first == def; })) {
+            f.defaultJson = JsonUtil::Quote(f.choices.front().first);
+        }
+    }
 }
 
 std::vector<CatalogEntry> Catalog() {

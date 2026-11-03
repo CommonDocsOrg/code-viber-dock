@@ -34,6 +34,10 @@ struct SettingField {
     std::wstring defaultJson;  // the default as JSON text (always present after parsing)
     double min = -1e9, max = 1e9, step = 1.0;  // Int / Number
     std::vector<std::pair<std::wstring, std::wstring>> choices;  // Choice: value, label
+    // Choice: more choices from the package's files matching this glob ("faces/*.json"), added by
+    // Load: the value is the file name without folder and extension, the label the file's JSON
+    // "name" (else the value).
+    std::wstring choiceFrom;
 };
 
 struct Manifest {
@@ -79,6 +83,9 @@ public:
 // "C:..."), URLs or anything with ':', backslashes, empty segments, and a ".." that would leave
 // the package. `out`: "dir/file.js".
 bool ResolvePath(std::string_view base, std::string_view spec, std::string& out);
+// A package path against a glob: '*' is any run of characters and '?' any one character, neither
+// crossing a '/'; case-insensitive (ASCII). "faces/*.json" matches "faces/classic.json".
+bool GlobMatch(std::string_view pattern, std::string_view path);
 
 // Loads the package with this id (folder first, then the built-ins). Null with `error` if there is
 // none or its manifest is unreadable.

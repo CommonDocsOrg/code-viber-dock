@@ -85,11 +85,9 @@ add_executable(WinDock WIN32
 target_include_directories(WinDock PRIVATE src)
 
 # The built-in widgets are RCDATA in app.rc: rebuild the resources when one of them changes.
-set(WINDOCK_BUILTIN_WIDGETS
-  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/hello/widget.json
-  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/hello/main.js
-  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/digital-clock/widget.json
-  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/digital-clock/main.js
+file(GLOB_RECURSE WINDOCK_BUILTIN_WIDGETS CONFIGURE_DEPENDS
+  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/*.json
+  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/*.js
 )
 set_source_files_properties(res/app.rc PROPERTIES OBJECT_DEPENDS "${WINDOCK_BUILTIN_WIDGETS}")
 

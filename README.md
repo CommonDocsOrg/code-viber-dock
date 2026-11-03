@@ -490,11 +490,16 @@ write and edit without compiling anything. The full reference (every call, every
 [docs/widgets.md](docs/widgets.md); the short version:
 
 - **Where**: `%LocalAppData%\WinDock\widgets\<id>\` with `widget.json` (the manifest), `main.js`
-  (an ES module), more modules and an `assets` folder if it needs them. Two widgets are built in
-  (their sources are in this repository's `widgets\` folder): **Hello** (`hello`: a label and a
-  click counter) and **Digital clock (script)** (`digital-clock`: a scripted copy of the dock's own
-  clock, with the same format, seconds and date options as its settings). A folder with a
-  built-in's id replaces the built-in.
+  (an ES module), more modules and an `assets` folder if it needs them. Built in (their sources
+  are in this repository's `widgets\` folder): **Hello** (`hello`: a label and a click counter),
+  **Digital clock (script)** (`digital-clock`: a scripted copy of the dock's own clock, with the
+  same format, seconds and date options as its settings), **Analog clock** (`analog-clock`: five
+  faces as data files, `faces/*.json`: Classic, Minimal, Modern dark, Roman, Station; an optional
+  second hand that ticks or sweeps smoothly, the date on the face, the time under the dial, a
+  sweep-in animation) and **Calendar page** (`analog-date`: today's date as a flip-calendar or flat
+  page with the month or weekday in a coloured header; a click opens the month calendar; it wakes
+  once a day, at midnight). A folder with a built-in's id replaces the built-in; your own clock faces
+  go into an exported `analog-clock\faces` folder.
 - **Adding one**: Settings > Dock contents > **Add widget ▾** lists the installed widgets after
   Clock / Weather / Running apps, or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
   (with an optional `"settings": { ... }` object). A widget can be dragged on the dock like the
@@ -503,26 +508,29 @@ write and edit without compiling anything. The full reference (every call, every
   `{ "horizontal": { "main": 64, "cross": 40 }, "vertical": { "main": 44, "cross": 48 } }`),
   `refreshMs` (call `tick()` every so often, aligned to the clock), `timeLimitMs` (watchdog, default
   50 ms), `memoryLimitMB` (default 32), `permissions`, `watch`, and `settings` (a schema: bool,
-  int, number, string, choice, colour, font, with defaults; the values live in the item's
-  `settings` object).
+  int, number, string, choice (also `choiceFrom`: one choice per package file matching a glob),
+  colour, font, with defaults; the values live in the item's `settings` object).
 - **main.js** exports `draw(canvas, dock)` (required) and optionally `measure(canvas, dock)`
   (returns `{ main, cross }`), `tick(dock)`, `onPress(e)`, `onClick(e)`, `onMiddleClick(e)`,
   `onWheel(e)` (return `true` to use the wheel), `onHover(e)`, `onDrop(e)` (files dropped on it;
   needs the shell permission), `onSettingsChanged(settings)`, and for its popup `drawPopup(canvas,
-  dock)`, `onPopupClick(e)`, `onPopupClose()`. Nothing is drawn per frame: the dock calls `draw()`
-  when the widget asks for it (`requestRedraw()`), when a tick redraws it, and when the dock lays
-  it out again.
+  dock)`, `onPopupClick(e)`, `onPopupClose()`, and `onVisibilityChange(e)` (the dock was hidden /
+  shown). Nothing is drawn per frame: the dock calls `draw()` when the widget asks for it
+  (`requestRedraw()`), when a tick redraws it, and when the dock lays it out again; an animation
+  asks for frames with a timer only while it runs and only while the dock is visible (docs:
+  "Animation").
 - **API**: `canvas` (rectangles, rounded rectangles, ellipses, lines, paths with arcs and Béziers,
   solid colours and linear / radial gradients, DirectWrite text and `measureText`, images from the
   widget's folder, clip, opacity, transforms, save / restore; DIPs, upright on every edge, drawn
   with Direct2D straight into the slot), `dock` (axis, edge, box size, scale, icon size, theme
-  colours, hovered / magnified, reduce motion), `timer` (`setTimeout`, `setInterval`, `clear`,
+  colours, hovered / magnified, reduce motion, visible), `timer` (`setTimeout`, `setInterval`, `clear`,
   `setRefresh`, `requestRedraw`), `console` (log / warn / error to the widget's log), `system`
   (local date and time computed by Windows, strftime formatting, locale names, 12 / 24 h, units),
   `settings`, `storage` (a JSON store per widget in `%LocalAppData%\WinDock\widget-data\<id>.json`,
   written a second after a change), `http` (GET / POST ... to the hosts its manifest lists, as
   promises), `shell` (open files and URLs, list folders, file icons), `popup` (a popup the widget
-  draws, or the dock's folder / window-preview popups, anchored on the widget).
+  draws, or the dock's folder / window-preview / month calendar popups, anchored on the widget),
+  `widget` (the widget's own package files: `files(glob)`, `read`, `readJson`).
 - **Permissions** (`"permissions"` in widget.json): `{ "http": ["api.example.com"] }` for
   requests to those hosts, `"shell"` for opening files / URLs, listing folders, file icons, the
   folder popup and file drops. Without them those calls throw.

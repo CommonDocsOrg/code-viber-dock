@@ -1,0 +1,33 @@
+{
+  "name": "Calendar page",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "Today's date as a skeuomorphic calendar page: a coloured header with the month (or weekday) over a big day number, as a flip calendar or a flat page. Turns over at local midnight (one timer, nothing in between).",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 48, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "permissions": ["shell"],
+  "settings": [
+    { "key": "style", "type": "choice", "label": "Style", "default": "flip",
+      "choices": [
+        { "value": "flip", "label": "Flip calendar (split page, stacked pages, page curl)" },
+        { "value": "flat", "label": "Flat page" }
+      ] },
+    { "key": "showMonth", "type": "bool", "label": "Show the month in the header", "default": true },
+    { "key": "showWeekday", "type": "bool", "label": "Show the weekday", "default": true,
+      "description": "In the header when the month is off, else under the day." },
+    { "key": "showYear", "type": "bool", "label": "Show the year", "default": false },
+    { "key": "accent", "type": "colour", "label": "Header colour", "default": "#FFE0453A" },
+    { "key": "click", "type": "choice", "label": "Clicking the page opens", "default": "calendar",
+      "choices": [
+        { "value": "calendar", "label": "The month calendar" },
+        { "value": "target", "label": "The app or URL below" },
+        { "value": "none", "label": "Nothing" }
+      ] },
+    { "key": "clickTarget", "type": "string", "label": "App or URL", "default": "outlookcal:",
+      "description": "Opened by a click when \"Clicking the page opens\" is the app or URL (needs the widget's shell permission)." },
+    { "key": "size", "type": "int", "label": "Size in DIPs (0: the dock's icon size)", "min": 0, "max": 128, "default": 0 }
+  ]
+}

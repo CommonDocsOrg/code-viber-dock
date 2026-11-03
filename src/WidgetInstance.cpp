@@ -31,6 +31,7 @@ const char* FnName(ScriptEngine::Fn fn) {
         case ScriptEngine::Fn::DrawPopup: return "drawPopup()";
         case ScriptEngine::Fn::OnPopupClick: return "onPopupClick()";
         case ScriptEngine::Fn::OnPopupClose: return "onPopupClose()";
+        case ScriptEngine::Fn::OnVisibilityChange: return "onVisibilityChange()";
         default: return "a call";
     }
 }
@@ -38,7 +39,8 @@ const char* FnName(ScriptEngine::Fn fn) {
 }  // namespace
 
 WidgetInstance::WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Factory1* d2d, IDWriteFactory* dwrite,
-                               std::wstring id, std::wstring key, std::wstring itemSettings)
+                               std::wstring id, std::wstring key, std::wstring itemSettings,
+                               const ScriptDockInfo& dock)
     : runtime_(runtime),
       client_(client),
       id_(std::move(id)),
@@ -46,7 +48,8 @@ WidgetInstance::WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Fact
       itemSettings_(std::move(itemSettings)),
       canvas_(d2d, dwrite, [this](const std::string& path, std::string& bytes, std::wstring& error) {
           return ReadFile(path, bytes, error);
-      }) {
+      }),
+      dock_(dock) {
     dock_.widgetId = JsonUtil::WideToUtf8(id_);
     runtime_.Add(this);
     Reload();
@@ -129,13 +132,29 @@ void WidgetInstance::SetSettings(const std::wstring& itemSettings) {
     client_.WidgetChanged(*this);
 }
 
+void WidgetInstance::SetVisible(bool visible) {
+    if (dock_.visible == visible) return;
+    dock_.visible = visible;
+    if (state_ != State::Ok || !engine_) return;
+    Check(engine_->Call(ScriptEngine::Fn::OnVisibilityChange,
+                        std::string("{\"visible\":") + (visible ? "true" : "false") + "}"),
+          FnName(ScriptEngine::Fn::OnVisibilityChange));
+}
+
+void WidgetInstance::TimeChanged() {
+    if (state_ != State::Ok || !engine_ || refreshMs_ == 0) return;
+    ScheduleRefresh();  // aligned to the new local time
+    OnTimer(0);         // and up to date now
+}
+
 void WidgetInstance::SetDock(const ScriptDockInfo& info) {
-    const bool hovered = dock_.hovered, magnified = dock_.magnified;
+    const bool hovered = dock_.hovered, magnified = dock_.magnified, visible = dock_.visible;
     const float w = dock_.width, h = dock_.height, mn = dock_.main, cr = dock_.cross;
     dock_ = info;
     dock_.widgetId = JsonUtil::WideToUtf8(id_);
     dock_.hovered = hovered;
     dock_.magnified = magnified;
+    dock_.visible = visible;
     dock_.width = w;
     dock_.height = h;
     dock_.main = mn;
@@ -492,6 +511,15 @@ bool WidgetInstance::PopupPreviews(const std::wstring& app, std::wstring& error)
     r.arg = app;
     RequestPopup(std::move(r));
     return true;
+}
+
+bool WidgetInstance::PopupCalendar(std::wstring&) {
+    RequestPopup(PopupRequest{PopupRequest::Kind::Calendar});
+    return true;
+}
+
+std::vector<std::string> WidgetInstance::PackageFiles() {
+    return package_ ? package_->Files() : std::vector<std::string>{};
 }
 
 void WidgetInstance::RenderPopup(ID2D1DeviceContext* dc, float w, float h, float scale) {

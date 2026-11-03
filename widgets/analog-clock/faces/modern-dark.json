@@ -1,0 +1,24 @@
+{
+  "name": "Modern dark",
+  "description": "Dark graphite dial, 12 / 3 / 6 / 9, dotted minutes, white hands, a cyan second hand.",
+  "format": 1,
+  "dial": {
+    "fill": { "radial": [[0, "#FF343944"], [1, "#FF14161B"]], "focusY": -0.35 },
+    "rim": { "width": 0.05, "color": { "linear": [[0, "#FF5A606C"], [1, "#FF1C1F25"]], "angle": 90 } },
+    "shadow": { "color": "#88000000", "size": 0.08, "offsetY": 0.04 },
+    "gloss": "#14FFFFFF"
+  },
+  "ticks": {
+    "major": { "count": 12, "length": 0.1, "width": 0.04, "color": "#FFE8EAED", "inset": 0.06, "shape": "line" },
+    "minor": { "count": 60, "length": 0.02, "width": 0.022, "color": "#80E8EAED", "inset": 0.07, "shape": "dot" }
+  },
+  "numerals": { "style": "cardinal", "font": "Segoe UI", "size": 0.24, "weight": 300, "color": "#FFE8EAED", "radius": 0.64 },
+  "hands": {
+    "hour": { "length": 0.48, "width": 0.085, "tail": 0.08, "color": "#FFF2F3F5", "shape": "taper" },
+    "minute": { "length": 0.76, "width": 0.065, "tail": 0.1, "color": "#FFF2F3F5", "shape": "taper" },
+    "second": { "length": 0.86, "width": 0.02, "tail": 0.18, "color": "#FF3CC8F0", "shape": "line" },
+    "cap": { "radius": 0.05, "color": "#FF3CC8F0", "ring": "#FF14161B", "ringWidth": 0.015 },
+    "shadow": "#66000000"
+  },
+  "date": { "fill": "#FF0E1014", "border": "#FF3A3F48", "color": "#FFE8EAED", "font": "Segoe UI", "weight": 600, "size": 0.17, "radius": 0.52 }
+}

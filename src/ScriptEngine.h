@@ -28,6 +28,7 @@ struct ScriptDockInfo {
     bool magnified = false;       // the dock is magnifying (the pointer is on it)
     bool reduceMotion = false;
     bool locked = false;
+    bool visible = true;          // the dock is on screen (not auto-hidden, not a hidden desktop dock)
     bool metric = true;           // config weather.units (system.units)
     // Theme colours, 0xAARRGGBB (dock.theme.*, as "#AARRGGBB").
     uint32_t text = 0, dateText = 0, accent = 0, background = 0, labelBackground = 0, labelText = 0,
@@ -86,6 +87,12 @@ public:
     // AppUserModelID) that the dock shows.
     virtual bool PopupFolder(const std::wstring& path, std::wstring& error) = 0;
     virtual bool PopupPreviews(const std::wstring& app, std::wstring& error) = 0;
+    // The dock's own month calendar (the clock's CalendarPopup), anchored on the widget.
+    virtual bool PopupCalendar(std::wstring& error) = 0;
+
+    // --- the widget's own package (no permission: modules and images come from it anyway) ---
+    // Its files ("main.js", "faces/classic.json" ...), sorted.
+    virtual std::vector<std::string> PackageFiles() = 0;
 
 protected:
     ~ScriptHost() = default;
@@ -129,6 +136,7 @@ public:
         DrawPopup,      // (canvas, dock): the script popup's content
         OnPopupClick,   // (event, dock)
         OnPopupClose,   // (event, dock): the popup closed (by itself or popup.close())
+        OnVisibilityChange,  // ({ visible }, dock): the dock was hidden / shown
         Count
     };
 

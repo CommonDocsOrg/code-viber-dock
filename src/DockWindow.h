@@ -606,6 +606,9 @@ private:
     bool DesktopLayered() const { return DockCfg().layer == DockLayer::Desktop; }
     // Shows / hides a desktop dock per the foreground (and shows a normal one that was hidden).
     void UpdateDesktopShown();
+    // Tells every script widget whether the dock is on screen (dock.visible, onVisibilityChange):
+    // shown or showing, and not a hidden desktop dock.
+    void SyncWidgetVisibility();
     // Subscribes to / leaves the shared foreground watch.
     void SetWatchingForeground(bool on) {
         if (on == watching_ || !shared_) return;
@@ -828,6 +831,7 @@ private:
     ScriptPopup widgetPopup_;                   // the script popup (one at a time)
     std::wstring popupWidget_;                  // the instance key it belongs to ("" none)
     std::wstring previewOpener_;                // the widget that opened the preview popup (popup.previews)
+    std::wstring calendarOpener_;               // the widget that opened the calendar popup (popup.calendar)
     std::vector<std::wstring> popupRequests_;   // instance keys with a pending popup request
     bool popupRequestPosted_ = false;           // kWidgetPopupMessage is posted
     std::vector<DockItem> items_;  // the slots, in dock order

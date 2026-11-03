@@ -1,0 +1,34 @@
+{
+  "name": "Analog clock",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "An analog clock drawn from a face file (faces/*.json: dial, ticks, numerals, hands, date window). Optional second hand (ticking or smooth), the date on the face and the time under the dial.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 48, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "settings": [
+    { "key": "face", "type": "choice", "label": "Face", "choiceFrom": "faces/*.json", "default": "classic",
+      "description": "Every faces/*.json of the widget. Export the widget (Settings > Widgets) and add your own face files to its faces folder." },
+    { "key": "seconds", "type": "bool", "label": "Second hand", "default": false },
+    { "key": "secondsMotion", "type": "choice", "label": "Second hand motion", "default": "ticking",
+      "choices": [
+        { "value": "ticking", "label": "Ticking (wakes once a second)" },
+        { "value": "smooth", "label": "Smooth (30 frames a second while the dock is on screen)" }
+      ],
+      "description": "Smooth costs about 30 wake-ups and redraws a second while the dock is shown; none while it is hidden. With reduce motion it ticks." },
+    { "key": "dateOnFace", "type": "choice", "label": "Date on the face", "default": "none",
+      "choices": [
+        { "value": "none", "label": "None" },
+        { "value": "day", "label": "Day of the month (window at 3)" },
+        { "value": "month-day", "label": "Month and day (at 6)" },
+        { "value": "year", "label": "Year (at 6)" },
+        { "value": "full", "label": "Weekday and day (at 12), month and year (at 6)" }
+      ] },
+    { "key": "showDigital", "type": "bool", "label": "Digital time under the dial", "default": false },
+    { "key": "sweep", "type": "bool", "label": "Sweep the hands in when the clock appears or its face changes", "default": true,
+      "description": "A short animation (about 0.7 s); never with reduce motion." },
+    { "key": "size", "type": "int", "label": "Size in DIPs (0: the dock's icon size)", "min": 0, "max": 128, "default": 0 }
+  ]
+}

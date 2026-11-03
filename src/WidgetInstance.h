@@ -52,7 +52,7 @@ public:
 
     // What the widget asked of its popup (popup.open / close / redraw / folder / previews).
     struct PopupRequest {
-        enum class Kind { None, Open, Close, Redraw, Folder, Previews };
+        enum class Kind { None, Open, Close, Redraw, Folder, Previews, Calendar };
         Kind kind = Kind::None;
         float width = 0, height = 0;  // Open: DIPs
         std::wstring arg;             // Folder: the path; Previews: the app
@@ -64,8 +64,9 @@ public:
         std::wstring text;
     };
 
+    // `dock`: what the script sees as `dock` while its module loads (SetDock updates it later).
     WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Factory1* d2d, IDWriteFactory* dwrite,
-                   std::wstring id, std::wstring key, std::wstring itemSettings);
+                   std::wstring id, std::wstring key, std::wstring itemSettings, const ScriptDockInfo& dock);
     ~WidgetInstance();
     WidgetInstance(const WidgetInstance&) = delete;
     WidgetInstance& operator=(const WidgetInstance&) = delete;
@@ -85,6 +86,12 @@ public:
     // The dock's view of the widget (axis, edge, theme, scale ...), before measuring and drawing.
     void SetDock(const ScriptDockInfo& info);
     void SetMagnified(bool magnified) { dock_.magnified = magnified; }
+    // The dock went off / came back on screen (auto-hide, a desktop dock): dock.visible and
+    // onVisibilityChange({ visible }) when it changed.
+    void SetVisible(bool visible);
+    // The system time / time zone changed or the machine resumed: aligned refreshes are re-aligned
+    // and a refreshing widget ticks at once.
+    void TimeChanged();
 
     // The box in physical px (main along the dock, cross across it): measure(), else the
     // manifest's size hint for the axis. Cached until the widget asks for a redraw.
@@ -168,6 +175,8 @@ private:
     void PopupRedraw() override;
     bool PopupFolder(const std::wstring& path, std::wstring& error) override;
     bool PopupPreviews(const std::wstring& app, std::wstring& error) override;
+    bool PopupCalendar(std::wstring& error) override;
+    std::vector<std::string> PackageFiles() override;
     void RequestPopup(PopupRequest r);
     bool HostAllowed(const std::wstring& host) const;
 

@@ -1,0 +1,21 @@
+{
+  "name": "Minimal",
+  "description": "White dial, twelve bars, thin hands, an orange second hand.",
+  "format": 1,
+  "dial": {
+    "fill": "#FFFAFAFA",
+    "border": { "width": 0.025, "color": "#26000000" },
+    "shadow": { "color": "#44000000", "size": 0.06, "offsetY": 0.03 }
+  },
+  "ticks": {
+    "major": { "count": 12, "length": 0.12, "width": 0.035, "color": "#FF303030", "inset": 0.07, "shape": "block" }
+  },
+  "numerals": { "style": "none" },
+  "hands": {
+    "hour": { "length": 0.5, "width": 0.06, "tail": 0.0, "color": "#FF202020", "shape": "line" },
+    "minute": { "length": 0.78, "width": 0.045, "tail": 0.0, "color": "#FF202020", "shape": "line" },
+    "second": { "length": 0.84, "width": 0.02, "tail": 0.16, "color": "#FFFF7A1A", "shape": "line" },
+    "cap": { "radius": 0.045, "color": "#FFFF7A1A" }
+  },
+  "date": { "fill": "#FFF0F0F0", "border": "#00000000", "color": "#FF303030", "font": "Segoe UI", "weight": 600, "size": 0.17, "radius": 0.5 }
+}

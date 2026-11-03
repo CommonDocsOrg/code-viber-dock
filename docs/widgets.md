@@ -9,7 +9,9 @@ thread. This file is the full reference; README.md has the short version.
 - [widget.json](#widgetjson): the manifest
 - [main.js](#mainjs): the module and its exports, when they are called
 - [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`,
-  `storage`, `http`, `shell`, `popup`
+  `storage`, `http`, `shell`, `popup`, `widget`
+- [Animation](#animation): frames with timers, `dock.visible`, `dock.reduceMotion`, the cost rules
+- [Analog clock faces](#analog-clock-faces): the `faces/*.json` format
 - [Limits and errors](#limits-and-errors): the watchdog, memory, the error tile, reloading
 - [Sandbox](#sandbox): what a widget can and cannot reach, permissions
 - [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages
@@ -27,8 +29,8 @@ thread. This file is the full reference; README.md has the short version.
     assets\icon.png     images for canvas.image()
 ```
 
-Built-in widgets (`hello`, `digital-clock`) are compiled into the exe as resources (their sources
-are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
+Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`) are compiled into the
+exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Widgets are always loaded as source; bytecode is never loaded.
 
@@ -78,9 +80,16 @@ Each entry: `key` (required), `type`, `label`, `description`, `default`, and per
 | `int` | a whole number | `min`, `max`, `step` |
 | `number` | a number | `min`, `max`, `step` |
 | `string` | text | |
-| `choice` | one of `choices` | `choices`: `["a", "b"]` or `[{ "value": "a", "label": "A" }]` |
+| `choice` | one of `choices` | `choices`: `["a", "b"]` or `[{ "value": "a", "label": "A" }]`; `choiceFrom`: a glob of package files (below) |
 | `colour` (`color`) | `"#AARRGGBB"` / `"#RRGGBB"` | |
 | `font` | a font family name | |
+
+`choiceFrom` (choice fields): `"faces/*.json"` adds one choice per package file matching the glob
+(`*` and `?` stay inside one folder level), after any fixed `choices`: the value is the file name
+without its folder and extension (`classic`), the label the file's JSON `"name"` (else the value).
+The list is read whenever the package is loaded (a widget reload, opening its settings page), so a
+file added to an exported widget's folder shows up after **Reload widgets**. A default that names no
+file falls back to the first one.
 
 The values live in the dock item's `settings` object in config.json. The script sees the schema's
 defaults overridden by the item's values (a value of the wrong type or out of range falls back to
@@ -112,6 +121,7 @@ available), then calls its exports:
 | `drawPopup(canvas, dock)` | The widget's popup (`popup.open`) is shown or redrawn (`popup.redraw()`). The canvas is the popup's (`canvas.width` / `height`: its size in DIPs), over the theme's panel. | the canvas, the dock | |
 | `onPopupClick(e)` | A click in the popup. | `{ x, y, button }`: DIPs from the popup's top-left; `button` `"left"`, `"middle"`, `"right"` | |
 | `onPopupClose(e)` | The popup closed (Escape, another window came forward, a click on the dock, `popup.close()`, a reload). | `{}` | |
+| `onVisibilityChange(e)` | The dock went off screen (auto-hide hid it, a desktop dock lost the desktop) or came back. Stop animations while hidden (see [Animation](#animation)). | `{ visible }` | |
 
 Every export also gets `dock` as its last argument; it is the same object as the global `dock`.
 Nothing redraws by itself after an event: call `requestRedraw()` when the content changed. A right
@@ -155,7 +165,7 @@ Stroke (`stroke` below): a width in DIPs (default 1), or `{ width, cap: "butt" |
 | `imageSize(path)` | `{ width, height }` in pixels. |
 | `fileIcon(path, x, y, size)` | The shell's icon of a file or folder (an absolute path; `%VAR%` expanded), `size` DIPs square. Needs the `shell` permission. Cached like images. |
 | `save()`, `restore()` | The transform, opacity and clips (up to 64 levels). Whatever is left pushed at the end of `draw()` is popped. |
-| `translate(x, y)`, `rotate(radians, cx, cy)`, `scale(sx, sy)` | Change the transform of what follows. |
+| `translate(x, y)`, `rotate(radians, cx, cy)`, `scaleBy(sx, sy)` | Change the transform of what follows (`rotate`: clockwise for positive angles, about (cx, cy)). The scale call is `scaleBy` because `canvas.scale` is the DPI property (before 5a the method was listed as `scale(sx, sy)`, which the property shadowed). |
 | `opacity(a)` | Multiplies the opacity of everything drawn from now on (0 - 1). |
 | `clip(x, y, w, h)` | Clips to a rectangle (in the current transform; rotated: its bounds). |
 | `clipPath(path)` | Clips to a path (anti-aliased). |
@@ -178,6 +188,7 @@ Read-only, always current:
 | `magnified` | The dock is magnifying (the pointer is on the dock). |
 | `reduceMotion` | Reduce motion is in effect (`animation.reduceMotion`, or Windows' animation effects are off). |
 | `locked` | The dock is locked. |
+| `visible` | The dock is on screen: shown or sliding in, not auto-hidden or hiding, not a desktop dock hidden behind another window. `onVisibilityChange` reports changes. |
 | `id`, `widgetId` | The dock's id (`docks[].id`), the widget's id. |
 | `theme` | The dock's theme colours as `"#AARRGGBB"`: `text`, `dateText`, `accent`, `background`, `labelBackground`, `labelText`, `separator`, `border`. |
 | `requestRedraw()` | Same as the global. |
@@ -189,7 +200,7 @@ Read-only, always current:
 | `requestRedraw()` (also `timer.requestRedraw()`, `dock.requestRedraw()`) | Redraw (and re-measure) the widget soon: once, after the current call returns, however often it is called. |
 | `setTimeout(fn, ms)`, `setInterval(fn, ms)` (also `timer.setTimeout` / `timer.setInterval`) | Returns an id. One shared host scheduler runs every widget's timers (one Windows timer for the earliest deadline; none while nothing waits). Intervals are at least 16 ms. At most 64 timers per widget (more throws a RangeError). No extra arguments are passed to `fn`. |
 | `clearTimeout(id)`, `clearInterval(id)`, `timer.clear(id)` | |
-| `timer.setRefresh(ms)` | `tick()` every `ms` (at least 100) aligned to local time, replacing the manifest's `refreshMs`; 0 stops it. A clock that shows seconds calls `timer.setRefresh(1000)`, one without `60000`. |
+| `timer.setRefresh(ms)` | `tick()` every `ms` (at least 100, at most 86400000) aligned to local time, replacing the manifest's `refreshMs`; 0 stops it. A clock that shows seconds calls `timer.setRefresh(1000)`, one without `60000`; `86400000` wakes at local midnight. When the system time or time zone changes, or the machine resumes from sleep, the refresh is re-aligned to the new local time and `tick()` runs at once. |
 
 Prefer `setRefresh` / `refreshMs` for anything tied to the clock (it wakes at the boundary itself)
 and redraw only what changed: a widget that does nothing costs no CPU at all.
@@ -282,9 +293,140 @@ widget reloads.
 | `popup.close()` | |
 | `popup.isOpen` | The widget's popup (of any kind) is on screen. |
 | `popup.folder(path)` | The dock's own folder popup (the folder's contents, navigation, Open in Explorer) for that folder, anchored on the widget. Needs `"shell"`. |
+| `popup.calendar()` | The dock's own month calendar (the clock's popup: locale weekday names, first day of the week, today marked), anchored on the widget. A second call while it is open does nothing; a click on the widget closes it (`closedPopup`). |
 | `popup.previews(app)` | The window previews of an app the dock shows (its exe path, e.g. `"C:\\Windows\\explorer.exe"`, or its AppUserModelID; any case), anchored on the widget; nothing (a log line) when the app has no window on the dock. |
 
 The calls are carried out right after the current call returns.
+
+### widget
+
+The widget's own package files (no permission needed: modules and images come from the package
+anyway). Paths are package paths as for `import` (`"faces/classic.json"`).
+
+| Call | |
+|---|---|
+| `widget.files(pattern)` | The package's files, sorted (`"main.js"`, `"faces/classic.json"` ...), only those matching the glob when one is given (`"faces/*.json"`; `*` and `?` stay inside one folder level, case-insensitive). A folder widget lists up to 512 files. |
+| `widget.read(path)` | A file as text (UTF-8, at most 8 MB). Throws if it is not in the package. |
+| `widget.readJson(path)` | The same, parsed (a SyntaxError names the file). |
+
+## Animation
+
+Nothing on the dock animates by itself and nothing redraws per frame: a widget animates by asking
+for frames with a timer and drawing the state for the current time in `draw()`. The analog clock
+(`widgets/analog-clock/main.js`) is the worked example: its smooth second hand and the sweep of its
+hands from 12 o'clock to the time when it appears or its face changes.
+
+```js
+let anim = null;      // { start, last } while it runs
+let frames = 0;       // the setInterval of the frames
+
+function startAnimation() {
+  if (dock.reduceMotion || !dock.visible) return;  // never with reduce motion, never off screen
+  anim = { start: 0, last: 0 };
+  frames = setInterval(frame, 16);                  // ~60 frames a second, only while it runs
+}
+function frame() {
+  const now = Date.now();
+  if (!anim.start) anim.start = now;                // the clock starts with the first frame ...
+  else if (now - anim.last > 50) anim.start += now - anim.last - 16;  // ... and pauses on a stall
+  anim.last = now;
+  if (now - anim.start >= 700) { anim = null; clearInterval(frames); frames = 0; }
+  requestRedraw();
+}
+export function draw(canvas) {
+  const p = anim && anim.start ? Math.min(1, (Date.now() - anim.start) / 700) : 1;
+  const eased = 1 - Math.pow(1 - p, 3);             // ease-out cubic
+  // ... draw with `eased` ...
+}
+export function onVisibilityChange(e) {
+  // Off screen: stop every frame timer (and refreshes nobody sees); back: redraw once.
+}
+```
+
+The rules (the dock's "efficiency first" budget):
+
+- **An idle widget costs nothing**: no timer, no wake-up, no draw. Use `timer.setRefresh` for
+  anything tied to the clock (it wakes at the boundary itself, aligned to local time) and
+  `setTimeout` for one-off delays; never poll.
+- **Frames only while something moves**: start a `setInterval` (16 ms ≈ 60 frames a second, 33 ms
+  ≈ 30) when an animation starts and clear it when it ends. Each frame is one wake-up of the dock
+  and one `draw()` of the widget (QueryState 59 / 58 count them).
+- **Frames only while visible**: `dock.visible` is false while the dock is auto-hidden (or a
+  desktop dock is behind another window); `onVisibilityChange({ visible })` tells the widget, which
+  stops its frame timers then (the analog clock also stops its minute / second refresh while
+  hidden and redraws once when it comes back).
+- **Reduce motion**: `dock.reduceMotion` (the dock's `animation.reduceMotion`, or Windows' "Animation
+  effects" off) means no decorative animation: jump to the end state (the clock's smooth second
+  hand ticks instead, its sweep is skipped).
+- **Short and bounded**: a transition should end by itself (the clock's sweep takes 0.7 s, the
+  calendar page's flip 0.45 s); measure the time with `Date.now()` and draw the state for "now",
+  so a late frame jumps ahead instead of slowing the animation down. The dock's UI thread can be
+  busy for a moment (loading icons at startup): pausing the animation's clock across such a stall
+  (the `anim.last` check above) keeps it from being skipped.
+
+Measured (5a, this machine, user config): the analog clock with a ticking second hand wakes 10
+times in 10 s; with the smooth second hand ~300 times in 10 s while the dock is shown and 0 while
+it is auto-hidden; without a second hand 0 in 10 s (once a minute); the sweep is ~45 frames.
+
+## Analog clock faces
+
+The analog clock widget draws a face file: `faces/<name>.json` in its package (the built-ins:
+`classic`, `minimal`, `modern-dark`, `roman`, `station`). To add one, export the widget (Settings >
+Widgets > **Export built-in to folder**), put a new `.json` next to the others in
+`%LocalAppData%\WinDock\widgets\analog-clock\faces\`, and press **Reload widgets**: the Face
+drop-down lists it (`choiceFrom`). A face only needs the keys it changes; everything else has a
+default. The same format is meant for other clock faces later (the native clock's custom faces).
+
+All lengths and widths are **fractions of the dial's radius** (inside the rim), so a face scales to
+any size. Colours are `"#AARRGGBB"` / `"#RRGGBB"` (as in config.json). A *paint* is a colour or a
+gradient: `{ "radial": [[0, "#FFFFFFFF"], [1, "#FFDDDDDD"]], "focusX": 0, "focusY": -0.3 }` (centred
+on the dial, the focus moved by fractions of the radius) or `{ "linear": [[0, "#..."], [1, "#..."]],
+"angle": 90 }` (degrees; 90 = top to bottom).
+
+```jsonc
+{
+  "name": "Classic",                       // shown in the Face drop-down
+  "description": "...",
+  "format": 1,
+  "dial": {
+    "fill": paint,                          // the face
+    "radius": 1,                            // of the half box (room for the shadow is kept)
+    "rim": { "width": 0.08, "color": paint, "highlight": "#50FFFFFF" },   // a case ring
+    "border": { "width": 0.02, "color": "#26000000" },                    // a line inside it
+    "shadow": { "color": "#66000000", "size": 0.08, "offsetY": 0.04 },    // a soft drop shadow
+    "gloss": "#14FFFFFF"                    // a highlight over the top half
+  },
+  "ticks": {
+    "major": { "count": 12, "length": 0.13, "width": 0.045, "color": "#FF2B241C", "inset": 0.05, "shape": "line" },
+    "minor": { "count": 60, "length": 0.05, "width": 0.016, "color": "#FF6B5E4E", "inset": 0.05, "shape": "line" }
+  },                                        // shape: line | block (square ends) | dot; a minor tick under a major one is skipped
+  "numerals": { "style": "arabic", "font": "Georgia", "size": 0.2, "weight": 600, "color": "#FF2B241C", "radius": 0.66 },
+                                            // style: none | arabic | roman | cardinal (12, 3, 6, 9);
+                                            // on a dial under 26 DIPs of radius arabic / roman show 12, 3, 6, 9 only
+  "hands": {
+    "hour":   { "length": 0.5,  "width": 0.11, "tail": 0.1,  "color": "#FF1C1814", "shape": "leaf" },
+    "minute": { "length": 0.76, "width": 0.08, "tail": 0.12, "color": "#FF1C1814", "shape": "leaf" },
+    "second": { "length": 0.84, "width": 0.018, "tail": 0.2, "color": "#FFB3261E", "shape": "line",
+                "counterweight": 0.055, "tipDot": 0 },
+                                            // shape: taper | line | block | leaf; counterweight: a disc on
+                                            // the tail; tipDot: a disc at the tip (station clocks)
+    "cap": { "radius": 0.055, "color": "#FF1C1814", "ring": "#FFB3261E", "ringWidth": 0.02 },
+    "shadow": "#38000000"                   // a shadow under every hand (omit: none)
+  },
+  "date": { "fill": "#FFFFFFFF", "border": "#FF9A8A70", "color": "#FF2B241C", "font": "Segoe UI",
+            "weight": 600, "size": 0.17, "radius": 0.52 },
+                                            // the date windows (widget setting dateOnFace): at 3 o'clock
+                                            // (day), 6 (month and day, year, month and year) and 12
+                                            // (weekday and day); radius: their distance from the centre;
+                                            // the numerals they cover are left out
+  "text": { "value": "QUARTZ", "font": "Segoe UI", "size": 0.08, "weight": 600, "color": "#FF666666", "y": -0.35 }
+                                            // optional: a line of text on the dial (y: from the centre)
+}
+```
+
+(The comments are for this page only: face files are plain JSON.) A face that cannot be read is
+logged (Console) and the default face is drawn; a face named in the settings that does not exist
+falls back to the first file.
 
 ## Limits and errors
 
@@ -369,6 +511,20 @@ The built-ins are the examples:
   the same settings). `measure()` sizes the box from `canvas.measureText`, `timer.setRefresh`
   wakes it once a minute (or once a second with seconds), `system.format` formats the time, and on
   a vertical dock every space breaks the line.
+- `widgets/analog-clock`: faces as data (`faces/*.json`, [the format](#analog-clock-faces)) listed
+  by a `choiceFrom` setting and read with `widget.readJson`; settings `face`, `seconds` (second
+  hand), `secondsMotion` (`ticking`: one wake-up a second; `smooth`: 30 frames a second while the
+  dock is visible), `dateOnFace` (`none`, `day`, `month-day`, `year`, `full`), `showDigital` (the
+  time under the dial), `sweep` (the hands sweep in when it appears or its face changes), `size`
+  (DIPs, 0 = the dock's icon size; the box is square). The [Animation](#animation) example.
+- `widgets/analog-date` ("Calendar page"): today's date as a page with a coloured header (the
+  month, or the weekday) over a big day number; `style` `flip` (split page, stacked pages, a curled
+  corner, the page flips over when the date changes) or `flat`; `showMonth`, `showWeekday`,
+  `showYear`, `accent` (header colour), `click` (`calendar`: `popup.calendar()`, `target`:
+  `shell.open(clickTarget)`, `none`), `size`. One wake-up a day: `timer.setRefresh(86400000)`
+  wakes it at local midnight. Test hook: an item setting `"debugNow": "2026-12-31T23:59:57"`
+  runs it on a fake clock starting at that local time (the midnight timer becomes a `setTimeout`
+  to the fake midnight) and writes each date it shows to its storage (`debugShown`).
 
 A minimal widget:
 

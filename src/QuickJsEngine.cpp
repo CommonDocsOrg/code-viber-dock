@@ -227,6 +227,16 @@ constexpr char kPrelude[] = R"JS(
     post: (url, body, o) => send('POST', url, body, o),
     request: (o) => send(o?.method ?? 'GET', o?.url, o?.body, o),
   });
+  // widget: the package's own files (faces, data, translations).
+  const w = n.widget;
+  g.widget = Object.freeze({
+    files: (pattern) => w.files(pattern),
+    read: (path) => w.read(path),
+    readJson: (path) => {
+      const text = w.read(path);
+      try { return JSON.parse(text); } catch (e) { throw new SyntaxError(String(path) + ': ' + e.message); }
+    },
+  });
 })(globalThis, globalThis.__windock);
 delete globalThis.__windock;
 )JS";
@@ -315,7 +325,7 @@ public:
         static const char* const kNames[] = {"draw",      "measure",      "tick",         "onClick",
                                              "onMiddleClick", "onWheel", "onHover",     "onSettingsChanged",
                                              "onPress",   "onDrop",       "drawPopup",    "onPopupClick",
-                                             "onPopupClose"};
+                                             "onPopupClose", "onVisibilityChange"};
         static_assert(std::size(kNames) == static_cast<size_t>(Fn::Count));
         for (size_t i = 0; i < std::size(kNames); ++i) {
             JSValue f = JS_GetPropertyStr(ctx_, ns_, kNames[i]);
@@ -1129,6 +1139,7 @@ JSValue DockGet(JSContext* ctx, JSValueConst, int magic) {
         case 11: return JS_NewBool(ctx, d.locked);
         case 12: return NewString(ctx, d.dockId);
         case 13: return NewString(ctx, d.widgetId);
+        case 14: return JS_NewBool(ctx, d.visible);
         default: return JS_UNDEFINED;
     }
 }
@@ -1266,7 +1277,8 @@ const JSCFunctionListEntry kCanvasFuncs[] = {
     JS_CFUNC_DEF("restore", 0, Guard<RestoreFn>),
     JS_CFUNC_DEF("translate", 2, Guard<TranslateFn>),
     JS_CFUNC_DEF("rotate", 3, Guard<RotateFn>),
-    JS_CFUNC_DEF("scale", 2, Guard<ScaleFn>),
+    // "scale" is the DPI property below (a method of that name would be shadowed by it).
+    JS_CFUNC_DEF("scaleBy", 2, Guard<ScaleFn>),
     JS_CFUNC_DEF("opacity", 1, Guard<OpacityFn>),
     JS_CFUNC_DEF("clip", 4, Guard<ClipFn>),
     JS_CFUNC_DEF("clipPath", 1, Guard<ClipPathFn>),
@@ -1313,6 +1325,7 @@ const JSCFunctionListEntry kDockFuncs[] = {
     JS_CGETSET_MAGIC_DEF("locked", GuardGet<DockGet>, nullptr, 11),
     JS_CGETSET_MAGIC_DEF("id", GuardGet<DockGet>, nullptr, 12),
     JS_CGETSET_MAGIC_DEF("widgetId", GuardGet<DockGet>, nullptr, 13),
+    JS_CGETSET_MAGIC_DEF("visible", GuardGet<DockGet>, nullptr, 14),
     JS_CFUNC_DEF("requestRedraw", 0, Guard<RequestRedrawFn>),
 };
 
@@ -1493,7 +1506,44 @@ JSValue PopupPreviewsFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* ar
     if (!Self(ctx)->host_.PopupPreviews(app, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
     return JS_UNDEFINED;
 }
+JSValue PopupCalendarFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    std::wstring error;
+    if (!Self(ctx)->host_.PopupCalendar(error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
 JSValue PopupGet(JSContext* ctx, JSValueConst, int) { return JS_NewBool(ctx, Self(ctx)->host_.PopupShown()); }
+
+// --- widget: the widget's own package files --------------------------------------------------------
+
+// widget.files(pattern): the package's files matching a glob ("faces/*.json"; '*' and '?' stay
+// inside one folder level), all of them without a pattern.
+JSValue WidgetFilesFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string pattern = a.Has(0) ? WideToUtf8(a.S(0)) : std::string();
+    if (a.failed) return JS_EXCEPTION;
+    JSValue arr = JS_NewArray(ctx);
+    uint32_t n = 0;
+    for (const std::string& f : Self(ctx)->host_.PackageFiles()) {
+        if (pattern.empty() || Widgets::GlobMatch(pattern, f)) JS_SetPropertyUint32(ctx, arr, n++, NewString(ctx, f));
+    }
+    return arr;
+}
+// widget.read(path): a package file as text (UTF-8).
+JSValue WidgetReadFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring given = a.S(0);
+    if (a.failed) return JS_EXCEPTION;
+    std::string path;
+    if (!Widgets::ResolvePath("", WideToUtf8(given), path)) {
+        return JS_ThrowTypeError(ctx, "widget.read: '%s' is not a path inside the widget folder", WideToUtf8(given).c_str());
+    }
+    std::string bytes;
+    std::wstring error;
+    if (!Self(ctx)->host_.ReadFile(path, bytes, error)) {
+        return JS_ThrowTypeError(ctx, "widget.read: %s", WideToUtf8(error).c_str());
+    }
+    return NewString(ctx, bytes);
+}
 
 const JSCFunctionListEntry kStorageFuncs[] = {
     JS_CFUNC_DEF("get", 2, Guard<StorageGetFn>),
@@ -1514,7 +1564,13 @@ const JSCFunctionListEntry kPopupFuncs[] = {
     JS_CFUNC_DEF("redraw", 0, Guard<PopupRedrawFn>),
     JS_CFUNC_DEF("folder", 1, Guard<PopupFolderFn>),
     JS_CFUNC_DEF("previews", 1, Guard<PopupPreviewsFn>),
+    JS_CFUNC_DEF("calendar", 0, Guard<PopupCalendarFn>),
     JS_CGETSET_MAGIC_DEF("isOpen", GuardGet<PopupGet>, nullptr, 0),
+};
+
+const JSCFunctionListEntry kWidgetFuncs[] = {
+    JS_CFUNC_DEF("files", 1, Guard<WidgetFilesFn>),
+    JS_CFUNC_DEF("read", 1, Guard<WidgetReadFn>),
 };
 
 const JSCFunctionListEntry kNativeFuncs[] = {
@@ -1550,6 +1606,7 @@ bool QuickJsEngine::InstallApi() {
     JS_SetPropertyStr(ctx_, global, "settings", JS_DupValue(ctx_, settings_));
     JSValue native = object(kNativeFuncs, std::size(kNativeFuncs));
     JS_SetPropertyStr(ctx_, native, "canvas", JS_DupValue(ctx_, canvas_));
+    JS_SetPropertyStr(ctx_, native, "widget", object(kWidgetFuncs, std::size(kWidgetFuncs)));
     JS_SetPropertyStr(ctx_, global, "__windock", native);
     JS_FreeValue(ctx_, global);
 

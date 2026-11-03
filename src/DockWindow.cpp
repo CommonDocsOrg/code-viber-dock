@@ -2351,6 +2351,7 @@ void DockWindow::DismissWeatherPopup(bool animate, bool leaveCheck) {
 
 void DockWindow::ShowCalendarPopup(float anchor) {
     if (hideState_ == HideState::Hidden) return;
+    calendarOpener_.clear();  // the clock's (popup.calendar sets it after this)
     DismissPreview(false, false);
     DismissFolderPopup(false, false);
     DismissWeatherPopup(false, false);
@@ -2385,6 +2386,7 @@ void DockWindow::ShowCalendarPopup(float anchor) {
 
 void DockWindow::DismissCalendarPopup(bool animate, bool leaveCheck) {
     calendar_.Hide(animate);
+    calendarOpener_.clear();
     ReleasePopupHold(kHoldCalendar, leaveCheck);
 }
 
@@ -2422,6 +2424,7 @@ void DockWindow::WidgetPopupRequest(WidgetInstance& w) {
 bool DockWindow::WidgetPopupShown(const WidgetInstance& w) const {
     if (widgetPopup_.Visible() && popupWidget_ == w.Key()) return true;
     if (previewOpener_ == w.Key() && preview_.Visible()) return true;
+    if (calendarOpener_ == w.Key() && calendar_.Visible()) return true;
     const int slot = SlotOfWidget(w);
     return slot >= 0 && folder_.Visible() && folderKey_ == items_[static_cast<size_t>(slot)].key;
 }
@@ -2441,6 +2444,7 @@ void DockWindow::OnWidgetPopupRequests() {
                 if (popupWidget_ == key) DismissWidgetPopup(true);
                 if (previewOpener_ == key) DismissPreview(true);
                 if (slot >= 0 && folderKey_ == items_[static_cast<size_t>(slot)].key) DismissFolderPopup(true);
+                if (calendarOpener_ == key) DismissCalendarPopup(true);
                 break;
             case Kind::Redraw:
                 if (popupWidget_ == key && widgetPopup_.OnScreen()) widgetPopup_.Repaint();
@@ -2478,6 +2482,13 @@ void DockWindow::OnWidgetPopupRequests() {
                 const size_t cut = name.find_last_of(L"\\/");
                 if (cut != std::wstring::npos && cut + 1 < name.size()) name = name.substr(cut + 1);
                 ShowFolderPopupAt(r.arg, name, item.x + item.slotW / 2.0f, item.key);
+                break;
+            }
+            case Kind::Calendar: {
+                if (slot < 0 || hideState_ != HideState::Shown) break;
+                const DockItem& item = items_[static_cast<size_t>(slot)];
+                ShowCalendarPopup(item.x + item.slotW / 2.0f);
+                if (calendar_.Visible()) calendarOpener_ = key;
                 break;
             }
             case Kind::Previews: {
@@ -2753,6 +2764,7 @@ void DockWindow::StartHide() {
     magnifying_ = false;
     SetHover(-1);
     hideState_ = HideState::Hiding;
+    SyncWidgetVisibility();
     UpdateWindowRect();  // bar -> bar column down to the screen edge (room for the slide)
     double duration = 0.0;
     RenderWithRecovery([&] {
@@ -2773,6 +2785,7 @@ void DockWindow::StartShow() {
     const bool wasHidden = hideState_ == HideState::Hidden;
     hideState_ = HideState::Showing;
     if (wasHidden) expanded_ = false;
+    SyncWidgetVisibility();
     UpdateWindowRect();  // strip -> bar column (the content is still transparent)
     double duration = 0.0;
     RenderWithRecovery([&] {
@@ -2910,12 +2923,19 @@ void DockWindow::UpdateDesktopShown() {
         if (dockDrag_) EndDockDrag(false);
         ShowWindow(hwnd_, SW_HIDE);
         LeaveZone();
+        SyncWidgetVisibility();
         return;
     }
     // The desktop is the foreground again (or the dock left the desktop layer): back, above the
     // desktop window (or topmost).
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     AssertTopmost();
+    SyncWidgetVisibility();
+}
+
+void DockWindow::SyncWidgetVisibility() {
+    const bool visible = !desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
+    for (auto& [key, w] : widgets_) w->SetVisible(visible);
 }
 
 double DockWindow::ApplyRootPose(double duration) {
@@ -3109,8 +3129,11 @@ WidgetInstance* DockWindow::AcquireWidget(const DockItemEntry& entry, size_t ord
         it->second->SetSettings(entry.settings);
         return it->second.get();
     }
-    auto widget = std::make_unique<WidgetInstance>(shared_->Widgets(), static_cast<WidgetInstance::Client&>(*this), renderer_.D2DFactory(), renderer_.DWrite(),
-                                                   entry.id, key, entry.settings);
+    ScriptDockInfo info = WidgetDockInfo(*this);
+    info.visible = !desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
+    auto widget = std::make_unique<WidgetInstance>(shared_->Widgets(), static_cast<WidgetInstance::Client&>(*this),
+                                                   renderer_.D2DFactory(), renderer_.DWrite(), entry.id, key,
+                                                   entry.settings, info);
     WidgetInstance* raw = widget.get();
     widgets_.emplace(key, std::move(widget));
     return raw;

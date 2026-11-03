@@ -1,0 +1,24 @@
+{
+  "name": "Classic",
+  "description": "Cream dial, Arabic numerals, black leaf hands, red second hand.",
+  "format": 1,
+  "dial": {
+    "fill": { "radial": [[0, "#FFFFFDF6"], [0.75, "#FFF6EFDF"], [1, "#FFE6DAC0"]] },
+    "rim": { "width": 0.08, "color": { "linear": [[0, "#FF9C7A4A"], [0.5, "#FF5E4426"], [1, "#FF3A2914"]], "angle": 90 },
+             "highlight": "#50FFFFFF" },
+    "shadow": { "color": "#66000000", "size": 0.08, "offsetY": 0.04 }
+  },
+  "ticks": {
+    "major": { "count": 12, "length": 0.13, "width": 0.045, "color": "#FF2B241C", "inset": 0.05, "shape": "line" },
+    "minor": { "count": 60, "length": 0.05, "width": 0.016, "color": "#FF6B5E4E", "inset": 0.05, "shape": "line" }
+  },
+  "numerals": { "style": "arabic", "font": "Georgia", "size": 0.2, "weight": 600, "color": "#FF2B241C", "radius": 0.66 },
+  "hands": {
+    "hour": { "length": 0.5, "width": 0.11, "tail": 0.1, "color": "#FF1C1814", "shape": "leaf" },
+    "minute": { "length": 0.76, "width": 0.08, "tail": 0.12, "color": "#FF1C1814", "shape": "leaf" },
+    "second": { "length": 0.84, "width": 0.018, "tail": 0.2, "color": "#FFB3261E", "shape": "line", "counterweight": 0.055 },
+    "cap": { "radius": 0.055, "color": "#FF1C1814", "ring": "#FFB3261E", "ringWidth": 0.02 },
+    "shadow": "#38000000"
+  },
+  "date": { "fill": "#FFFFFFFF", "border": "#FF9A8A70", "color": "#FF2B241C", "font": "Segoe UI", "weight": 600, "size": 0.17, "radius": 0.52 }
+}

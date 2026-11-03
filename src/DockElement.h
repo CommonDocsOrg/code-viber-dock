@@ -220,3 +220,6 @@ std::unique_ptr<DockElement> MakeClockElement(ElementHost& host, const DockItemE
 std::unique_ptr<DockElement> MakeWeatherElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
 // A script widget (`widget` item, docs/widgets.md); `ordinal`: among the items with its id.
 std::unique_ptr<DockElement> MakeScriptWidgetElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
+// What a script widget on this dock sees as `dock` (edge, axis, theme colours, reduce motion ...;
+// the box and the hover / visible state are the instance's own).
+struct ScriptDockInfo WidgetDockInfo(const ElementHost& host);

@@ -262,7 +262,7 @@ public:
     }
 
     void Configure() override {
-        if (widget_) widget_->SetDock(Info());
+        if (widget_) widget_->SetDock(WidgetDockInfo(host_));
     }
     ElementSize Measure(const LayoutContext& ctx) override { return widget_ ? widget_->Measure(ctx) : ElementSize{}; }
     HRESULT Render(Renderer& r, Layer& content, const LayoutContext& ctx) override {
@@ -270,7 +270,14 @@ public:
         widget_->SetMagnified(host_.Magnifying());
         return widget_->Render(r, content, ctx);
     }
-    bool OnEvent(DockEvent e) override { return e == DockEvent::WidgetRedraw && widget_ && widget_->TakeChanged(); }
+    bool OnEvent(DockEvent e) override {
+        if (!widget_) return false;
+        if (e == DockEvent::TimeChanged) {
+            widget_->TimeChanged();  // asks for its own redraw (posted)
+            return false;
+        }
+        return e == DockEvent::WidgetRedraw && widget_->TakeChanged();
+    }
     WidgetInstance* Widget() const override { return widget_; }
 
     // A press: onPress; on a widget whose popup is open the dock closes it and the click that
@@ -303,26 +310,6 @@ public:
     }
 
 private:
-    ScriptDockInfo Info() const {
-        const DockConfig& d = host_.DockCfg();
-        const ThemeConfig& t = host_.DockTheme();
-        ScriptDockInfo info;
-        info.edge = JsonUtil::WideToUtf8(ToString(d.edge));
-        info.axis = IsVertical(d.edge) ? "vertical" : "horizontal";
-        info.dockId = JsonUtil::WideToUtf8(d.id);
-        info.locked = d.locked;
-        info.reduceMotion = host_.ReducedMotion();
-        info.metric = host_.Cfg().weather.units == Units::Metric;
-        info.text = t.clockText;
-        info.dateText = t.clockDateText;
-        info.accent = t.accent;
-        info.background = t.background;
-        info.labelBackground = t.labelBackground;
-        info.labelText = t.labelText;
-        info.separator = t.separator;
-        info.border = t.barBorder;
-        return info;
-    }
     // The pointer (of the message being handled) in DIPs from the box's top-left.
     bool Local(int slot, float& x, float& y) const {
         const D2D1_RECT_F box = host_.SlotScreenBox(slot);
@@ -341,6 +328,28 @@ private:
 };
 
 }  // namespace
+
+ScriptDockInfo WidgetDockInfo(const ElementHost& host) {
+    const DockConfig& d = host.DockCfg();
+    const ThemeConfig& t = host.DockTheme();
+    ScriptDockInfo info;
+    info.edge = JsonUtil::WideToUtf8(ToString(d.edge));
+    info.axis = IsVertical(d.edge) ? "vertical" : "horizontal";
+    info.dockId = JsonUtil::WideToUtf8(d.id);
+    info.locked = d.locked;
+    info.reduceMotion = host.ReducedMotion();
+    info.metric = host.Cfg().weather.units == Units::Metric;
+    info.text = t.clockText;
+    info.dateText = t.clockDateText;
+    info.accent = t.accent;
+    info.background = t.background;
+    info.labelBackground = t.labelBackground;
+    info.labelText = t.labelText;
+    info.separator = t.separator;
+    info.border = t.barBorder;
+    info.iconSize = static_cast<float>(d.iconSize);
+    return info;
+}
 
 std::unique_ptr<DockElement> MakeScriptWidgetElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal) {
     return std::make_unique<ScriptWidgetElement>(host, entry, ordinal);

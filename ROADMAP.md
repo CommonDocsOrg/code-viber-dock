@@ -247,9 +247,13 @@ settings and data, and can be hot-reloaded.
 
 Each is one small phase; order by the user's priority.
 
+Status: 5a done (2026-11-02): `analog-clock` (five faces in `faces/*.json`, the format in
+docs/widgets.md "Analog clock faces", reused by Phase 14) and `analog-date` (the calendar page);
+see STATUS.md.
+
 - 5a **Analog clock**: faces as data (`faces/*.json`: hands, ticks, numerals, colours), several
-  shipped; `face` setting; seconds hand optional. **Analog date** (meaning to confirm: a date
-  dial / flip calendar).
+  shipped; `face` setting; seconds hand optional. **Analog date** (confirmed: a calendar page
+  with the date, skeuomorphic, flip-calendar style; plus the date on the analog face).
 - 5b **Volume**: provider `audio` (Core Audio `IAudioEndpointVolume` on the default render and
   capture endpoints, change notifications). Widget shows the level, wheel over it changes
   volume, click opens a popup with slider, mute, mic mute, output picker, "Sound settings".

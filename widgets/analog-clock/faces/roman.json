@@ -1,0 +1,25 @@
+{
+  "name": "Roman",
+  "description": "Ivory dial in a gold case, Roman numerals, blued steel hands.",
+  "format": 1,
+  "dial": {
+    "fill": { "radial": [[0, "#FFFFFEF8"], [1, "#FFF1EADA"]] },
+    "rim": { "width": 0.1, "color": { "linear": [[0, "#FFF6DA8A"], [0.45, "#FFC9A042"], [1, "#FF7E5E1A"]], "angle": 90 },
+             "highlight": "#70FFFFFF" },
+    "border": { "width": 0.012, "color": "#FF8C6F2A" },
+    "shadow": { "color": "#66000000", "size": 0.08, "offsetY": 0.04 }
+  },
+  "ticks": {
+    "minor": { "count": 60, "length": 0.045, "width": 0.012, "color": "#FF3A3226", "inset": 0.04, "shape": "line" },
+    "major": { "count": 12, "length": 0.045, "width": 0.03, "color": "#FF3A3226", "inset": 0.04, "shape": "line" }
+  },
+  "numerals": { "style": "roman", "font": "Times New Roman", "size": 0.19, "weight": 400, "color": "#FF2A2219", "radius": 0.7 },
+  "hands": {
+    "hour": { "length": 0.48, "width": 0.1, "tail": 0.08, "color": "#FF1F3A70", "shape": "leaf" },
+    "minute": { "length": 0.74, "width": 0.075, "tail": 0.1, "color": "#FF1F3A70", "shape": "leaf" },
+    "second": { "length": 0.82, "width": 0.014, "tail": 0.18, "color": "#FF1F3A70", "shape": "line", "counterweight": 0.04 },
+    "cap": { "radius": 0.05, "color": "#FFC9A042", "ring": "#FF1F3A70", "ringWidth": 0.015 },
+    "shadow": "#30000000"
+  },
+  "date": { "fill": "#FFFFFFFF", "border": "#FFC9A042", "color": "#FF2A2219", "font": "Times New Roman", "weight": 700, "size": 0.18, "radius": 0.5 }
+}
