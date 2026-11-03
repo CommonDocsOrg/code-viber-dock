@@ -36,8 +36,11 @@ drive here:
   `WM_DPICHANGED` across monitors of different DPI, the monitor running filter with windows on two
   monitors, reserve space on a second monitor, a canvas drag onto another display (3a, 3b, 11b).
 - **A real DPI change** (any phase: widgets, popups, titles, effects, thumbnails, faces).
-- **Unlocked-session input** (the session was locked during phases 9 - 14, so input was sent
-  messages and pixels PrintWindow pictures): real hover / magnification on scrolling and ring docks,
+- **Unlocked-session input**: verified on 2026-11-03 by real input except the drag of a group
+  member / tray icon with auto-scroll, an OLE drag out of a folder window to Explorer, the Open
+  faces folder button and URL clicks (STATUS.md "Unlocked-session verification"; two bugs fixed,
+  open follow-ups listed there). Originally (the session was locked during phases 9 - 14, so input
+  was sent messages and pixels PrintWindow pictures): real hover / magnification on scrolling and ring docks,
   the strip / hub reveal by hovering, OLE file drags and drops onto scrolling / ring docks, folder
   windows (drag out to Explorer, drops from Explorer, real keyboard focus), the clipboard (12b:
   `OpenClipboard` is refused while locked), the reminder banner and agenda popup by a real click,
