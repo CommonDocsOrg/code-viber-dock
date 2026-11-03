@@ -24,6 +24,7 @@
 #include "Renderer.h"
 #include "ScriptPopup.h"
 #include "Thumbnails.h"
+#include "TrayHost.h"
 #include "Weather.h"
 #include "WeatherPopup.h"
 #include "WidgetInstance.h"
@@ -48,6 +49,8 @@ public:
     virtual void SetWatching(DockWindow* dock, bool on) = 0;
     // The widget runtime: the scheduler of every script widget's timers, the live instances.
     virtual WidgetRuntime& Widgets() = 0;
+    // The tray takeover (shared: one Shell_TrayWnd per process). Running() only while enabled.
+    virtual TrayHost& TrayService() = 0;
 
 protected:
     ~DockShared() = default;
@@ -303,6 +306,22 @@ public:
     bool ReloadWidget(int index);
     size_t WidgetCount() const { return widgets_.size(); }
 
+    // --- the tray (round 4 phase 8) ---
+    // TrayHost's icons changed (or it started / stopped): the tray elements re-measure and redraw,
+    // an open drawer follows.
+    void OnTrayChanged();
+    // Where this dock shows notify icon `id` (a grid cell, the overflow button, the drawer's cell),
+    // in screen px. False: not on this dock.
+    bool TrayIconRect(uint64_t id, RECT& screen) const;
+    // A right click at a client point that an element handles itself (a tray icon: forwarded to
+    // its app). False: the dock / item menu as before.
+    bool RightClickAt(POINT clientPt, bool ctrl);
+    // Automation (ItemCommand 822 / 823): a left / right click on the drawer's icon `icon` of the
+    // tray slot `slot`, forwarded as if clicked there. False without such a slot / icon.
+    bool ClickTrayIcon(int slot, size_t icon, bool right);
+    // The drawer's icons of the tray slot `slot` (empty: not a tray slot / the tray is off).
+    std::vector<const TrayIcon*> TrayDrawerIcons(int slot) const;
+
 private:
     class DropTarget;
     friend class DropTarget;
@@ -507,6 +526,8 @@ private:
     // Hands `e` to every element; the ones whose content changed are re-measured and only their
     // slots redrawn (a new size relays the dock out).
     void DispatchEvent(DockEvent e);
+    // Re-measures the dirty widget slots: relays the dock out when a size changed, else redraws them.
+    void RefreshDirtyWidgets();
     // Runs `step`, then commits. On device loss, rebuilds devices and redraws everything.
     void RenderWithRecovery(const std::function<HRESULT()>& step);
     bool RecoverDevice();
@@ -719,6 +740,13 @@ private:
     }
     WidgetInstance* AcquireWidget(const DockItemEntry& entry, size_t ordinal) override;
     D2D1_RECT_F SlotScreenBox(int slot) const override;
+    TrayHost* Tray() override;
+    ID2D1Bitmap* TrayBitmap(const TrayIcon& icon) override;
+    // The pointer over a slot's cell (DockElement::CellAt; -1: none): the hover label shows the
+    // cell's label, centred on it; the element hears Enter / Move / Leave.
+    void SetHoverCell(int slot, int cell, std::wstring label, float centre);
+    // --- the tray drawer (the group popup in tray mode) ---
+    void ShowTrayDrawer(int index, float anchor);
     bool Magnifying() const override { return magnifying_; }
     bool ReducedMotion() const override { return motion_.reduce; }
     // --- WidgetInstance::Client ---
@@ -1041,6 +1069,16 @@ private:
     // Folder popup (also a group's)
     FolderPopup folder_;
     AppKey folderKey_;            // the folder / group item the popup shows (empty: none)
+    std::vector<uint64_t> drawerIds_;  // the tray drawer's members (icon ids), when it shows the drawer
+    std::wstring drawerSignature_;     // ... their ids + picture serials + labels when it was filled
+    // Hover cells (a tray slot): the slot and cell under the pointer (-1: none), its label, its
+    // centre along the bar from the slot box's start (px).
+    int hoverCellSlot_ = -1;
+    int hoverCell_ = -1;
+    std::wstring hoverCellLabel_;
+    float hoverCellCentre_ = 0.0f;
+    // Notify icon pictures on this dock's device, keyed by TrayIcon::imageSerial.
+    std::unordered_map<uint64_t, winrt::com_ptr<ID2D1Bitmap>> trayBitmaps_;
     std::wstring groupSignature_; // the group popup's GroupSignature when it was filled
 
     // Hold-to-group (a pin dragged onto another pin and held)

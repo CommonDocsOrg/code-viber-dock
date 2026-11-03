@@ -51,7 +51,9 @@ struct DockItem {
     // Widget: a script widget (docs/widgets.md), drawn by its element like the clock.
     // Group: a shortcut group (one slot; its members open in a popup, the icon shows up to four
     // of theirs unless the item has a custom icon).
-    enum class Kind { App, Folder, Separator, RecycleBin, Clock, Weather, Widget, Group };
+    // Tray: the notify icons as a grid (a widget slot, drawn by its element; TrayHost). TrayApp: one
+    // notify icon pinned as a full-size, magnifying icon slot (round 4 phase 8b).
+    enum class Kind { App, Folder, Separator, RecycleBin, Clock, Weather, Widget, Group, Tray, TrayApp };
 
     AppKey key;
     Kind kind = Kind::App;
@@ -59,10 +61,13 @@ struct DockItem {
 
     // An icon that magnifies (apps, folders, the Recycle Bin).
     bool Magnifies() const {
-        return kind == Kind::App || kind == Kind::Folder || kind == Kind::RecycleBin || kind == Kind::Group;
+        return kind == Kind::App || kind == Kind::Folder || kind == Kind::RecycleBin || kind == Kind::Group ||
+               kind == Kind::TrayApp;
     }
     // A widget slot (content drawn by its element; not dragged, no label).
-    bool IsWidget() const { return kind == Kind::Clock || kind == Kind::Weather || kind == Kind::Widget; }
+    bool IsWidget() const {
+        return kind == Kind::Clock || kind == Kind::Weather || kind == Kind::Widget || kind == Kind::Tray;
+    }
     std::wstring displayName;
     std::optional<std::wstring> launchPath;  // .lnk/.exe for pinned entries (keeps args / working dir)
     std::wstring workingDir;                 // launch directory (the link's, else the target's folder)

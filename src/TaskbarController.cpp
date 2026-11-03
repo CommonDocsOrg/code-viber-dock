@@ -109,6 +109,10 @@ TaskbarController::~TaskbarController() {
 // Discovery and system state
 
 bool TaskbarController::IsTaskbarClass(HWND hwnd) {
+    // The dock's own Shell_TrayWnd (TrayHost, the tray takeover) is not a taskbar.
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    if (pid == GetCurrentProcessId()) return false;
     wchar_t cls[32];
     const int n = GetClassNameW(hwnd, cls, static_cast<int>(std::size(cls)));
     if (n <= 0) return false;
@@ -127,7 +131,17 @@ TaskbarController::TaskbarList TaskbarController::FindTaskbars() {
     return list;
 }
 
-HWND TaskbarController::PrimaryTaskbar() { return FindWindowW(kTrayClass, nullptr); }
+HWND TaskbarController::PrimaryTaskbar() {
+    // Explorer's, not the dock's own (TrayHost): FindWindow may return either. No allocation.
+    const DWORD self = GetCurrentProcessId();
+    for (HWND h = FindWindowExW(nullptr, nullptr, kTrayClass, nullptr); h;
+         h = FindWindowExW(nullptr, h, kTrayClass, nullptr)) {
+        DWORD pid = 0;
+        GetWindowThreadProcessId(h, &pid);
+        if (pid != self) return h;
+    }
+    return nullptr;
+}
 
 void TaskbarController::CaptureState(SavedState& s) {
     s = SavedState{};

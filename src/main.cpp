@@ -63,6 +63,7 @@ LONG g_crashRestoreDone = 0;
 
 void CrashRestoreTaskbar() {
     if (InterlockedExchange(&g_crashRestoreDone, 1) == 0) {
+        TrayHost::EmergencyRelease();  // the notify icons back to Explorer (our Shell_TrayWnd gone)
         DockWindow::EmergencyRemoveAppBar();  // the dock's reserved band first (best effort)
         TaskbarController::EmergencyRestore();
     }

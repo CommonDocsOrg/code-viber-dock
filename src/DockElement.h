@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <memory>
+#include <string>
 #include <vector>
 
 #include "AppIdentity.h"
@@ -14,8 +15,10 @@
 #include "Renderer.h"
 #include "WindowTracker.h"
 
+class TrayHost;
 class WeatherService;
 class WidgetInstance;
+struct TrayIcon;
 
 // The dock's contents. Every docks[].items[] entry becomes one DockElement, and the dock lays the
 // elements out in config order. An element contributes 0..n slots (DockItem: the icon row's unit
@@ -53,13 +56,18 @@ enum class DockEvent {
     TimeChanged,  // WM_TIMECHANGE, resume from sleep
     WeatherData,  // the weather service's data or status changed
     WidgetRedraw, // a script widget asked to be redrawn (WidgetInstance::TakeChanged)
+    TrayChanged,  // TrayHost's icons came, went or changed (or it started / stopped)
 };
 
 // The click popups the dock hosts (one at a time; each holds the dock shown while open).
-enum class ClickPopup { None, Folder, Weather, Calendar, Group };
+enum class ClickPopup { None, Folder, Weather, Calendar, Group, Tray };
 
 // What a right click on a slot opens.
 enum class RightClickAction { ItemMenu, DockMenu };
+
+// The pointer and a slot's cells (DockElement::CellAt): it entered a cell, moved within it,
+// rested on it for the label delay, or left the cells.
+enum class CellEvent { Enter, Move, Dwell, Leave };
 
 // Something to do with the windows of a slot's app (ElementHost::WindowsCommand).
 enum class WindowsCommand { Minimize, Close, Next, Previous };
@@ -100,6 +108,10 @@ public:
     virtual bool Magnifying() const = 0;
     // Reduce-motion is in effect (animation.reduceMotion, or the system setting).
     virtual bool ReducedMotion() const = 0;
+    // The tray takeover (null: not running: config tray.enabled off, or it could not start).
+    virtual TrayHost* Tray() = 0;
+    // A notify icon's picture as a bitmap of the dock's device (cached by its imageSerial).
+    virtual ID2D1Bitmap* TrayBitmap(const TrayIcon& icon) = 0;
 
 protected:
     ~ElementHost() = default;
@@ -187,6 +199,22 @@ public:
     // A script widget element's instance (null for every other kind).
     virtual WidgetInstance* Widget() const { return nullptr; }
 
+    // --- cells (a widget slot with several targets of its own: the tray grid) ---
+    // The cell of slot `slot` under screen point `screen` (-1: none), its hover label (empty: the
+    // dock shows none, the rest still counts as a dwell) and the cell's centre along the bar,
+    // relative to the start of the slot's box (px).
+    virtual int CellAt(int /*slot*/, POINT /*screen*/, std::wstring* /*label*/, float* /*centre*/) const { return -1; }
+    // The pointer and cell `cell` of the slot (Leave: `cell` is the one it left).
+    virtual void OnCellHover(int /*slot*/, int /*cell*/, CellEvent) {}
+    // A right click on the slot (`ctrl`: with Ctrl held). True: handled (the dock opens no menu).
+    virtual bool OnRightClickAt(int /*slot*/, bool /*ctrl*/) { return false; }
+    // Tray: where notify icon `id` is shown by this element (its cell, or the overflow button when
+    // it is not in the grid), in screen px. False: this element does not show it.
+    virtual bool TrayIconRect(int /*slot*/, uint64_t /*id*/, RECT& /*screen*/) const { return false; }
+    // Tray automation: icons drawn in the grid (-1: not a tray), whether the overflow button shows.
+    virtual int TrayCells() const { return -1; }
+    virtual bool TrayOverflow() const { return false; }
+
     // --- popups ---
     // The click popup this element opens (the dock hosts it).
     virtual ClickPopup Popup() const { return ClickPopup::None; }
@@ -221,6 +249,13 @@ std::unique_ptr<DockElement> MakeElement(ElementHost& host, const DockItemEntry&
 // WidgetElements.cpp
 std::unique_ptr<DockElement> MakeClockElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
 std::unique_ptr<DockElement> MakeWeatherElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
+// TrayElements.cpp: the tray grid (`tray` item) and a pinned notify icon (`trayApp`, 8b).
+std::unique_ptr<DockElement> MakeTrayElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
+// Every notify icon a dock's tray drawer lists, in the tray item's order (`order` keys first, then
+// registration order): the icons TrayIcon::Shown(); the grid leaves out `hidden` ones and those
+// pinned as trayApp items. `inGrid`: only those the grid shows.
+std::vector<const TrayIcon*> TrayIconsFor(const TrayHost& host, const DockConfig& dock, const DockItemEntry& tray,
+                                          bool inGrid);
 // A script widget (`widget` item, docs/widgets.md); `ordinal`: among the items with its id.
 std::unique_ptr<DockElement> MakeScriptWidgetElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
 // What a script widget on this dock sees as `dock` (edge, axis, theme colours, reduce motion ...;

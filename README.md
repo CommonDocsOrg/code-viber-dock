@@ -661,6 +661,57 @@ write and edit without compiling anything. The full reference (every call, every
   dock's thread and cost nothing while they do not redraw (each widget's runtime is about 130 KB
   of script heap, about 400 KB of private memory with its surface).
 
+### System tray (notify icons)
+
+Off by default. **Settings > Tray > Show the notification area icons in the dock** (or the dock
+menu's **Add widget > Tray**, which also turns it on) makes the dock take over the notification
+area: it owns a hidden window of class `Shell_TrayWnd` above Explorer's, so every app's
+`Shell_NotifyIcon` (and `Shell_NotifyIconGetRect`, `SHAppBarMessage`) reaches the dock first; a
+`TaskbarCreated` broadcast makes the running apps register their icons again. Every message is
+passed on to Explorer too, so Explorer keeps every icon: quitting, a crash or turning the tray off
+loses nothing (the dock destroys its window and broadcasts `TaskbarCreated` again; after a crash
+a marker file `tray-hosted` makes the next start ask the apps once more). App bar messages and the
+taskbar's private messages go on to Explorer and are answered by it. Explorer's own items
+(network, battery, input language, its clock and volume) are not notify icons and stay with
+Explorer, whose taskbar the dock hides anyway; the volume, media and date widgets cover them.
+
+- **The `tray` item** (`{ "kind": "tray", "rows": 1, "columns": 8, "iconSize": 20 }`, one per
+  dock; Add widget > Tray, Settings > Dock contents > Add widget): the icons as a grid in one
+  widget slot (it does not magnify, like the clock), in registration order (`order`: icon keys
+  shown first; 8b lets the grid be reordered by dragging). Columns run along the dock and rows
+  across it: on a left / right dock the grid is `rows` wide and `columns` tall. Cells are the icon
+  plus 3 DIPs on each side; two rows of large icons shrink to fit the icon row. Icons an app hid
+  (`NIS_HIDDEN`), without a picture or without a callback message (they cannot be clicked) are
+  not shown; neither are the dock's own tray icon and the keys in `hidden`.
+- **Overflow and the drawer**: with more icons than cells, or icons hidden from the grid, the last
+  cell is a chevron; a click opens the drawer (the folder / group popup in tray mode, titled
+  "Notification area") with every icon, scrolling past eight rows. Its cells behave like the
+  grid's.
+- **Input** goes to the icon's app exactly as Explorer delivers it (`uVersion` 3 / 4 semantics:
+  version 4 gets the anchor point in `wParam` and `MAKELPARAM(event, uID)`): a left click sends
+  button down / up and `NIN_SELECT`, a double click `WM_LBUTTONDBLCLK`, a right click button down
+  / up and `WM_CONTEXTMENU` (the app's menu opens at the pointer), a middle click
+  `WM_MBUTTONDOWN` / `UP`, moving over an icon `WM_MOUSEMOVE` (at most every 100 ms); the app may
+  take the foreground (`AllowSetForegroundWindow`). **Ctrl + right click** opens the dock's menu
+  instead. The hover label shows the icon's tooltip; a version 4 icon without `NIF_SHOWTIP` draws
+  its own popup instead: it gets `NIN_POPUPOPEN` when the pointer rests on it (the label delay)
+  and `NIN_POPUPCLOSE` when it leaves.
+- **Where the icon is**: `Shell_NotifyIconGetRect` (apps place their windows by it) answers the
+  icon's cell, the drawer's cell while the drawer shows it, or the chevron when it is only in the
+  drawer.
+- **Balloons** (`NIF_INFO`) are captured (the last 32, for the notification centre of round 4
+  phase 9); Explorer, which gets every message too, still shows them as toasts.
+- **Icon owners that quit** without removing their icons: each owner process is waited on (a
+  thread-pool wait, no polling) and its icons go when it exits; a click that cannot be delivered
+  removes the icon as well.
+- Cost: nothing runs while the icons do not change. An app that re-sends the same icon (Logitech
+  G HUB does every second) wakes the dock briefly (the picture is compared, nothing redraws).
+- Limits: an elevated app's icon shows, but a dock that is not elevated cannot click it (Windows
+  blocks the message; Explorer's tray has the same restriction for elevated apps, which allow
+  it explicitly). Explorer may raise its hidden taskbar above the dock's window (seen once right
+  after it is hidden): the dock raises its own again and repeats the broadcast 1.5 s later (at most
+  three times a minute), so for a moment some apps may talk to Explorer only.
+
 ## Settings
 
 **Settings…** in the tray / dock menu, `WinDock.exe --settings` (asks the running dock to open it,
@@ -869,6 +920,14 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     - `"widget"`: a script widget, `{ "kind": "widget", "id": "<widget id>", "settings": { ... } }`
       (see **Widgets** above and docs/widgets.md). An item without an `id` is dropped on load;
       `settings` is optional and written back as it is.
+    - `"tray"`: the notify icons as a grid (see **System tray** above), `{ "kind": "tray",
+      "rows": 1, "columns": 8, "iconSize": 20, "hidden": ["<icon key>", ...], "order": [...] }`;
+      `rows` 1 - 2, `columns` 1 - 20, `iconSize` 16 / 20 / 24 DIPs (other values snap to the
+      nearest), `hidden` icon keys never shown in the grid (still in the drawer), `order` icon
+      keys shown first in that order. Each key is written only when it is not the default. An icon
+      key is the icon's GUID in braces, lower case (`"{7820ae78-23e3-4229-82c1-e41cb67d5b9c}"`), or
+      `"<exe file name>:<uID>"` lower case (`"steam.exe:1"`). Shows nothing while `tray.enabled`
+      is off. Older builds skip the item.
 
     App, folder and Recycle Bin items take an optional `icon` (written back only when set): a
     custom icon. An image (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`; scaled to the icon size), an
@@ -985,6 +1044,8 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   Software rendering avoids the GPU driver's per-process memory; the dock redraws rarely, so it
   is cheap.
 - `animation`: see Animation below.
+- `tray`: `{ "enabled": false }` (default; the key is written only while on): the notification
+  area takeover (see System tray). It runs while `enabled` is on and some dock has a `tray` item.
 
 ### Themes
 
@@ -1152,6 +1213,22 @@ always there, also when every dock is parked) handle these registered messages:
   while the dock is hidden. Because the magnified layout is anchored at the pointer, moving the
   pointer there hovers that item (a widget is not "hovered": `QueryState` 2 stays -1 over it).
   `ItemCommand` on a widget's index does nothing (it is not a pin and has nothing to launch).
+- **Tray** (round 4 phase 8): `QueryState` 97 = 1 while the takeover runs (the dock owns
+  `Shell_TrayWnd`), 98 = notify icons registered (every app's), 99 = icons drawn in tray slot
+  `lParam`'s grid (-1 not a tray slot), 100 = 1 while this dock's tray drawer is open, 101 = 1
+  when tray slot `lParam` shows the overflow chevron (-1 not a tray slot), 102 = the tray cell
+  under the pointer (-1 none), 103 = `Shell_NotifyIconGetRect` queries answered, 104 = times the
+  dock's `Shell_TrayWnd` was raised above Explorer's again, 105 = balloons captured, 106 / 107 =
+  the owner window (as a number) / `uID` of the first tray slot's drawer icon `lParam` (0 / -1
+  none), 108 = icons in that drawer (-1 no tray slot), 109 = `TaskbarCreated` broadcasts repeated
+  after such a raise; 24 reports 8 for a tray slot, 93 reports 3 while the folder popup is the
+  tray drawer. `DockCommand` 128 Add widget > Tray (also turns `tray.enabled` on), 129 tray on,
+  130 tray off (the icons go back to Explorer). `ItemCommand` 822 / 823 = a left / right click on
+  tray slot `lParam`'s drawer icon `HIWORD(wParam)` (the drawer's order, 106 / 107 tell which is
+  which), forwarded as if clicked at the icon's place; returns 1 if it was delivered. Settings page
+  12 Tray: 4100 the takeover check box, 4104 / 4105 rows, 4107 / 4108 columns, 4110 icon size (0 =
+  16, 1 = 20, 2 = 24 px), 4112 the icon list (check boxes: shown in the grid), 4113 Reset to
+  Explorer, 4116 Add a tray to this dock.
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide

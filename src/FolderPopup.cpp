@@ -498,6 +498,8 @@ void FolderPopup::Activate(size_t index, ItemGridView::Button button) {
         // The owner opens / activates the member (and dismisses the popup).
         if (button == ItemGridView::Button::Left && index < members_.size() && groupCallbacks_.open) {
             groupCallbacks_.open(index);
+        } else if (button == ItemGridView::Button::Middle && index < members_.size() && groupCallbacks_.middle) {
+            groupCallbacks_.middle(index);
         }
         return;
     }
@@ -511,7 +513,21 @@ void FolderPopup::Activate(size_t index, ItemGridView::Button button) {
     Open(e.path, e.folder);
 }
 
+bool FolderPopup::MemberScreenRect(size_t index, RECT& screen) const {
+    if (!OnScreen() || index >= view_.Count()) return false;
+    const RECT r = view_.ItemRect(index);
+    const RECT b = view_.Bounds();
+    if (r.bottom <= b.top || r.top >= b.bottom) return false;
+    const RECT win = ScreenRect();
+    screen = RECT{win.left + r.left, win.top + std::max(r.top, b.top), win.left + r.right, win.top + std::min(r.bottom, b.bottom)};
+    return true;
+}
+
 void FolderPopup::ContextMenu(int index, POINT screen) {
+    if (group_ && groupCallbacks_.menu) {
+        if (index >= 0 && static_cast<size_t>(index) < members_.size()) groupCallbacks_.menu(static_cast<size_t>(index), screen);
+        return;
+    }
     if (group_) {
         if (index < 0 || static_cast<size_t>(index) >= members_.size() || !groupCallbacks_.command) return;
         HMENU menu = CreatePopupMenu();

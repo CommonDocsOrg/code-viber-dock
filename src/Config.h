@@ -7,7 +7,7 @@
 #include <vector>
 
 // docks[].items[].kind values this version knows (case-insensitive); Unknown for anything else.
-enum class ItemKind { Unknown, App, Folder, Separator, RecycleBin, Running, Clock, Weather, Widget, Group };
+enum class ItemKind { Unknown, App, Folder, Separator, RecycleBin, Running, Clock, Weather, Widget, Group, Tray, TrayApp };
 ItemKind ItemKindOf(std::wstring_view kind);
 const wchar_t* ToString(ItemKind v);  // the canonical JSON name ("" for Unknown)
 // The kinds that are "pins" (the pinned section of the dock): app, folder, separator, recycleBin,
@@ -45,6 +45,17 @@ struct DockItemEntry {
     // versions keep a group's kind and icon only (its name and members are lost if they save).
     std::wstring name;
     std::vector<DockItemEntry> members;
+    // "tray" items (the notify icons of TrayHost as a grid, round 4 phase 8): rows across the bar
+    // (1 - 2), columns along it (1 - 20; on a vertical dock the grid is `rows` wide and `columns`
+    // tall), the icon size in DIPs (16 / 20 / 24), the icon keys never shown in the grid (they are
+    // still in the drawer) and the user's order of icon keys (8b; icons not listed follow in
+    // registration order). Saved only when not the default. "trayApp" items use `id` (the icon key:
+    // "{guid}" or "exe-name.exe:uID").
+    int rows = 1;
+    int columns = 8;
+    int trayIconSize = 20;
+    std::vector<std::wstring> hidden;
+    std::vector<std::wstring> order;
 
     ItemKind Kind() const { return ItemKindOf(kind); }
     bool IsPin() const { return IsPinKind(Kind()); }
@@ -346,6 +357,13 @@ struct AnimationConfig {
     ReduceMotion reduceMotion = ReduceMotion::System;
 };
 
+// The system tray takeover (TrayHost, round 4 phase 8): off by default. When on and a dock has a
+// "tray" or "trayApp" item, the dock owns Shell_TrayWnd: every app's notify icon registers with
+// it (and is mirrored to Explorer). Saved only when on.
+struct TrayConfig {
+    bool enabled = false;
+};
+
 struct Config {
     // At least one dock after LoadFile / Sanitize; ids are unique (Sanitize). Every dock is shown
     // (DockManager), docks[].monitor "each" once per monitor.
@@ -367,6 +385,7 @@ struct Config {
     ThemeConfig theme;            // RESOLVED values: what the dock draws with
     bool themeResolveFailed = false;  // the last ResolveTheme() fell back to dark (not saved)
     AnimationConfig animation;
+    TrayConfig tray;
     // Top-level keys this version does not know, kept verbatim (compact JSON) so a save does not
     // drop them. Unknown keys inside known objects (docks, items, clock, theme, animation, weather)
     // are not kept, nor are the legacy pre-`docks` keys.

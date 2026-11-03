@@ -218,6 +218,8 @@ const wchar_t* KindLabel(ItemKind k) {
         case ItemKind::Weather: return L"Weather";
         case ItemKind::Widget: return L"Widget";
         case ItemKind::Group: return L"Group";
+        case ItemKind::Tray: return L"Tray";
+        case ItemKind::TrayApp: return L"Tray icon";
         case ItemKind::Unknown:
         default: return L"";
     }
@@ -381,7 +383,7 @@ protected:
     }
 
 private:
-    static bool IsWidgetKind(ItemKind k) { return k == ItemKind::Clock || k == ItemKind::Weather; }
+    static bool IsWidgetKind(ItemKind k) { return k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Tray; }
 
     int Selected() const {
         HWND list = Item(kPinnedList);
@@ -451,6 +453,8 @@ private:
             case ItemKind::Weather: Window().ShowPage(kPageWeather); break;
             case ItemKind::Running: Window().ShowPage(kPageBehaviour); break;
             case ItemKind::Widget: Window().ShowWidgetSettings(row); break;
+            case ItemKind::Tray:
+            case ItemKind::TrayApp: Window().ShowPage(kPageTray); break;
             case ItemKind::Folder:
             case ItemKind::Group: Window().ShowItemSettings(row); break;
             case ItemKind::App: {
@@ -476,10 +480,11 @@ private:
         HWND button = Item(kPinAddWidget);
         HMENU menu = CreatePopupMenu();
         if (!button || !menu) return;
-        constexpr UINT kClock = 1, kWeather = 2, kRunning = 3, kScript = 100;
+        constexpr UINT kClock = 1, kWeather = 2, kRunning = 3, kTray = 4, kScript = 100;
         AppendMenuW(menu, MF_STRING, kClock, L"Clock");
         AppendMenuW(menu, MF_STRING, kWeather, L"Weather");
         AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Running) ? MF_GRAYED : 0), kRunning, L"Running apps");
+        AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Tray) ? MF_GRAYED : 0), kTray, L"Tray (notify icons)");
         const std::vector<Widgets::CatalogEntry> installed = Widgets::Catalog();
         if (!installed.empty()) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         for (size_t i = 0; i < installed.size() && i < 200; ++i) {
@@ -500,7 +505,11 @@ private:
             FillList(static_cast<int>(at));
             return;
         }
-        const ItemKind kind = cmd == kClock ? ItemKind::Clock : cmd == kWeather ? ItemKind::Weather : ItemKind::Running;
+        const ItemKind kind = cmd == kClock     ? ItemKind::Clock
+                              : cmd == kWeather ? ItemKind::Weather
+                              : cmd == kTray    ? ItemKind::Tray
+                                                : ItemKind::Running;
+        if (kind == ItemKind::Tray) Cfg().tray.enabled = true;  // as the dock menu's Add widget > Tray
         const size_t at = Cfg().Edit().AddWidget(kind);
         if (at == SIZE_MAX) {
             MessageBeep(MB_ICONWARNING);
@@ -615,6 +624,18 @@ private:
                                                                                          : L" (" + pkg->folder + L")");
                 break;
             }
+            case ItemKind::Tray: {
+                name = L"Tray";
+                details = std::to_wstring(e.rows) + (e.rows == 1 ? L" row, " : L" rows, ") + std::to_wstring(e.columns) +
+                          L" columns, " + std::to_wstring(e.trayIconSize) + L" px" +
+                          (c.tray.enabled ? std::wstring() : std::wstring(L" (the tray is off: Settings > Tray)"));
+                if (!e.hidden.empty()) details += L", " + std::to_wstring(e.hidden.size()) + L" hidden";
+                break;
+            }
+            case ItemKind::TrayApp:
+                name = L"Tray icon";
+                details = e.id;
+                break;
             case ItemKind::Unknown:
             default:
                 name = e.kind.empty() ? L"(no kind)" : e.kind;

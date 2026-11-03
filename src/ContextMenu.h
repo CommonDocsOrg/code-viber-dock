@@ -41,7 +41,10 @@ enum Command : UINT {
     kUnlockAllDocks = 125,      // clears it on every dock
     kReloadWidgets = 126,       // every script widget (every dock) reloads its package and script
     kWidgetConsole = 127,       // opens (or activates) the widget Console
-    kLastDockCommand = kWidgetConsole,
+    kAddTray = 128,             // Add widget > Tray (a "tray" item; also turns tray.enabled on)
+    kTrayEnable = 129,          // tray.enabled on: the dock takes the notify icons over (with a tray item)
+    kTrayDisable = 130,         // tray.enabled off: the icons go back to Explorer ("Reset to Explorer")
+    kLastDockCommand = kTrayDisable,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -66,6 +69,8 @@ enum Command : UINT {
     kGroupWith = 819,           // slot lParam onto slot HIWORD(wParam): a group of the two (or added to that group)
     kMemberOut = 820,           // group slot lParam: member HIWORD(wParam) becomes a pin right after the group
     kRemoveMember = 821,        // group slot lParam: member HIWORD(wParam) is removed
+    kTrayClick = 822,           // tray slot lParam: left click on its drawer's icon HIWORD(wParam) (forwarded to the app)
+    kTrayRightClick = 823,      // ... a right click (the app's menu)
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
@@ -83,6 +88,7 @@ struct TrayMenuState {
     bool anyLocked = false;         // some dock is locked (Unlock all docks enabled)
     bool anyUnlocked = false;       // some dock is not (Lock all docks enabled)
     bool hasWidgets = false;        // some dock shows a script widget: Reload widgets
+    bool hasTray = false;           // the dock has a tray item (Add widget > Tray greyed)
 };
 
 // Shows the dock/tray menu at a screen point and returns the chosen Command (kNone if dismissed).

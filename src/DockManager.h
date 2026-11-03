@@ -10,6 +10,7 @@
 #include "Config.h"
 #include "DockWindow.h"
 #include "ForegroundWatch.h"
+#include "TrayHost.h"
 #include "Weather.h"
 #include "WindowTracker.h"
 
@@ -109,6 +110,15 @@ public:
     ForegroundWatch& Watch() override { return watch_; }
     void SetWatching(DockWindow* dock, bool on) override;
     WidgetRuntime& Widgets() override { return widgets_; }
+    TrayHost& TrayService() override { return tray_; }
+
+    // The tray takeover runs while config tray.enabled is on and any dock has a "tray" or
+    // "trayApp" item (Sync and every item change call it). Starting is posted (kTrayStartMessage):
+    // the apps answer the TaskbarCreated broadcast at once and their Shell_NotifyIcon calls must
+    // find this thread pumping messages, not busy starting up (they fail on a timeout otherwise).
+    // Stopping is immediate. Returns whether the takeover is wanted.
+    bool SyncTray();
+    static constexpr UINT kTrayStartMessage = WM_APP + 45;  // posted to the owner window
 
 private:
     HRESULT CreateWindowFor(Instance& inst);
@@ -126,9 +136,11 @@ private:
     std::vector<std::unique_ptr<DockWindow>> graveyard_;  // closed windows, freed by Reap
     bool appBarAllowed_ = false;
     bool syncing_ = false;
+    bool trayStartPosted_ = false;
 
     WindowTracker tracker_;
     WeatherService weather_;
+    TrayHost tray_;
     ForegroundWatch watch_;
     std::vector<DockWindow*> watchers_;  // docks subscribed to watch_ (autoHide "intelligent")
 };

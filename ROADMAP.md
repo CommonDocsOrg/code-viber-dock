@@ -332,6 +332,108 @@ rename, ungroup, the Settings group editor); see STATUS.md and README "Dock item
 
 ## Phase 8: system tray
 
+Tray takeover spike (2026-11-02, Windows 11 build 26300, dock not running, Explorer's taskbar
+shown; harness in the session scratchpad `p8\spike\spike.cpp` + `run1.ps1`: `spike host` = our
+`Shell_TrayWnd`, `spike app` = a test tray app with a GUID icon and a uID icon, both version 4).
+Verdict: **viable**.
+
+- A top-level `WS_POPUP` window of class `Shell_TrayWnd` (`WS_EX_TOOLWINDOW | WS_EX_TOPMOST`,
+  never shown, a `TrayNotifyWnd` child; nobody looked into the child) created while Explorer's
+  exists is found first by `FindWindow(L"Shell_TrayWnd")` (the newest topmost window is at the top
+  of the z-order; `SetWindowPos(HWND_TOPMOST)` makes sure). `ChangeWindowMessageFilterEx(WM_COPYDATA)`
+  for elevated senders. `SendNotifyMessage(HWND_BROADCAST, RegisterWindowMessage("TaskbarCreated"))`
+  returns at once; within 125 ms ~35 real apps re-registered (Teams, OneDrive, PowerToys, Discord,
+  Chrome, Steam, Phone Link, Windows Security, NordVPN, Explorer itself ...), the last ones (Steam,
+  Epic) after ~1.2 s. Many apps send `NIM_DELETE` first, some `NIM_MODIFY` (fails: unknown) and
+  then `NIM_ADD`; no app needed an implicit add.
+- `Shell_NotifyIcon` = `WM_COPYDATA`, `dwData` 1, `wParam` = the sender, `cbData` **1484** for
+  every app (shell32 normalises): `{DWORD dwSignature 0x34753423; DWORD dwMessage (NIM_*);
+  NOTIFYICONDATA32}` where the 32-bit-compatible NOTIFYICONDATA is `cbSize (956), DWORD hWnd, uID,
+  uFlags, uCallbackMessage, DWORD hIcon, WCHAR szTip[128], dwState, dwStateMask, WCHAR szInfo[256],
+  uTimeout/uVersion, WCHAR szInfoTitle[64], dwInfoFlags, GUID guidItem, DWORD hBalloonIcon` (packed,
+  956 bytes; the 520 bytes after it are unused). Handles are 32-bit values (sign-extend). The
+  return value is the call's result. GUID icons are addressed by the GUID alone: WhatsApp sends
+  `NIM_DELETE` / `NIM_SETVERSION` / `NIM_MODIFY` with `hWnd` 0, so a GUID icon matches on the GUID
+  and an `hWnd` 0 must not overwrite its owner. `NIM_SETVERSION` arrives as its own message
+  (`uVersion` 4 for most apps here, 0 for the rest).
+- `Shell_NotifyIconGetRect` = `WM_COPYDATA` `dwData` 3, `cbData` 40: `{DWORD dwMagic 0x34753423;
+  DWORD dwMessage; DWORD cbSize (32); DWORD padding; DWORD hWnd; UINT uID; GUID guidItem}`, sent
+  twice per call: `dwMessage` 2 then 1; the answer is `MAKELONG(left, top)` for 1 and
+  **`MAKELONG(width, height)`** for 2 (not right / bottom: the app got `left + width`). GUID queries
+  carry `hWnd` 0. 0 = unknown icon (the call fails).
+- App bar messages (`SHAppBarMessage`) = `dwData` 0; none came during the spike (no app bar was
+  registered), forwarded verbatim they work (the shared-memory handle and the source process id
+  are inside the payload, so Explorer can answer through them).
+- Other messages to our window: `TaskbarCreated` itself, `WM_DEVICECHANGE`, and once 0x4EF
+  (WM_USER + 239, sent while a forwarded menu opened). Forward unknown messages to Explorer's tray.
+- Clicks: `PostMessage(owner, uCallbackMessage, ...)`; version 4: `wParam = MAKEWPARAM(x, y)` (the
+  anchor in screen pixels, used by the app to place its menu), `lParam = MAKELPARAM(event, uID)`
+  (uID 0 for GUID icons); version < 4: `wParam = uID`, `lParam = event`. Left click =
+  `WM_LBUTTONDOWN`, `WM_LBUTTONUP`, then `NIN_SELECT` (0x400, version >= 3); right click =
+  `WM_RBUTTONDOWN`, `WM_RBUTTONUP`, then `WM_CONTEXTMENU` (version >= 3); hover = `WM_MOUSEMOVE` and
+  for version 4 `NIN_POPUPOPEN` (0x406) / `NIN_POPUPCLOSE` (0x407). With
+  `AllowSetForegroundWindow(owner pid)` first, the test app's `SetForegroundWindow` succeeded and
+  its `TrackPopupMenu` menu opened at the anchor. All arrived with the right semantics.
+- Icons: `CopyIcon` of the sender's handle at once works (16 to 256 px icons seen: Chrome sends
+  256 x 256); the test app destroying its icon right after `NIM_MODIFY` leaves our copy valid.
+  `NIM_MODIFY` icon swaps arrive. One real app (Logitech G HUB) sends `NIM_MODIFY` with the same
+  icon handle and tip **every second**: the host must compare and not redraw when nothing changed.
+- Balloons (`NIF_INFO`) arrive in `NIM_ADD` / `NIM_MODIFY` (`szInfo`, `szInfoTitle`, `dwInfoFlags`,
+  `uTimeout`). Explorer is not running the icons any more, but **every message is mirrored to
+  Explorer** (`SendMessageTimeout(WM_COPYDATA)` with the same `COPYDATASTRUCT`, the result
+  ignored; Explorer answers 0 for a duplicate `NIM_ADD`): Explorer stays in sync (its hidden tray
+  has every icon, deletions and changes included), so it showed the balloon as a toast and sent
+  `NIN_BALLOONSHOW` / `NIN_BALLOONTIMEOUT` to the app itself. While the mirror is in flight other
+  apps' sends are dispatched (re-entrancy: never hold a reference into the registry across it).
+- Z-order: Explorer did not fight back or re-broadcast in 2 x 40 s. Raising Explorer's tray with
+  `SetWindowPos(HWND_TOPMOST)` makes `FindWindow` return Explorer's again (apps' messages then go
+  to Explorer only) until ours is raised again; every top-level z-order change raises
+  `EVENT_OBJECT_REORDER` (hwnd = the desktop window, `OBJID_CLIENT`) in the process that made it,
+  so a WinEvent hook scoped to Explorer's process tells when to re-raise ours (no polling).
+- Hand-back: `DestroyWindow` + `TaskbarCreated` broadcast: `FindWindow` returns Explorer's at once,
+  apps re-send `NIM_ADD` to Explorer (answered 0: Explorer already has them, thanks to the
+  mirror), the test app's `Shell_NotifyIconGetRect` succeeds against Explorer afterwards.
+- Explorer itself registers notify icons with whoever owns `Shell_TrayWnd`: Safely Remove Hardware
+  (GUID 7820AE78-..., with a callback), a "Speakers (USB): Muted" volume icon (GUID 7820AE73-...,
+  no callback message) and one more with callback 0x403. Icons without a callback message cannot
+  be clicked; the grid skips them.
+- Not seen / not tested in the spike: elevated tray apps (none ran elevated; a medium-integrity
+  dock cannot post clicks into an elevated app either, Explorer's limitation too), app bar
+  messages (first exercised by the dock's own reserve-space app bar in 8a).
+
+Design consequences for 8a: TrayHost mirrors every `dwData` 1 message to Explorer and forwards
+app bar (0) and unknown messages to it, answers `dwData` 3 itself, keeps its window above
+Explorer's through an `EVENT_OBJECT_REORDER` hook on Explorer's process, and the
+TaskbarController / every other `FindWindow(L"Shell_TrayWnd")` in the dock skips windows of its
+own process.
+
+Learned while building 8a (same build):
+
+- **Mirror after answering, not inside the call.** Mirrored synchronously, an app's
+  `Shell_NotifyIcon` waited for Explorer's answer too; right after the dock hid the taskbar
+  Explorer is slow, the apps' calls timed out and a third of the icons never arrived (and those
+  apps did not retry). The app gets our answer at once; the messages are copied and sent to
+  Explorer from the message loop in order (`FlushMirrors`; also before Stop).
+- **Start from the message loop.** The takeover is posted after startup: apps answer the
+  broadcast at once and must find the UI thread pumping (an app whose call hit the dock's busy
+  startup failed and gave up).
+- **Explorer raises its hidden tray** above ours once, ~0.1 - 1 s after the dock hid the taskbar
+  (`EVENT_OBJECT_REORDER` from Explorer, then `FindWindow` returns Explorer's for a moment): apps
+  answering then registered with Explorer only. The reorder hook re-raises our window and repeats
+  the broadcast 1.5 s later (at most 3 times a minute); the takeover broadcast itself is sent to
+  every top-level window except ours and Explorer's taskbars. Measured: 40 / 40 icons in 4 runs.
+- **App bars from our own process need their shared block re-made.** `SHAppBarMessage` makes its
+  shared block (`SHAllocShared`) for the process owning the `Shell_TrayWnd` it found and names
+  that process in the payload. `APPBARMSGDATAV3` for 64-bit callers: the 40-byte 32-bit-compatible
+  APPBARDATA, `dwMessage` at 40, `hSharedMemory` (8 bytes) at 48, `dwSourceProcessId` at 56,
+  `cbData` 64. From another process the block is a handle in our process (relayed as it is, Explorer
+  maps it: a third-party app bar works through the relay). From our own process shell32 passes the
+  block's address instead (a 16-byte header `{size, 0xBAFF1AFF, pid, pid}` and the APPBARDATA),
+  which Explorer cannot map: ABM_QUERYPOS / SETPOS of the docks' reserve-space app bars silently
+  did nothing. TrayHost copies the data into a block made for Explorer's process, relays, and
+  copies the answer back. (`wParam` and the payload's `hWnd` are not the app bar window for every
+  ABM_*; `InSendMessage` reports the outer message.)
+
 - Spike (1 day): create a `Shell_TrayWnd`-class window, broadcast `TaskbarCreated`, confirm
   `Shell_NotifyIcon` `WM_COPYDATA` messages arrive and that clicks forwarded to the icon's owner
   open its menu; confirm Explorer re-collects the icons after we broadcast again on quit.

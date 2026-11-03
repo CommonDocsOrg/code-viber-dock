@@ -24,7 +24,8 @@ inline constexpr int kPageLayout = 8;   // round 4 phase 3b: the monitor canvas 
 inline constexpr int kPageWidgets = 9;  // round 4 phase 4b: installed widgets, Console, export
 inline constexpr int kPageWidgetSettings = 10;  // phase 4b: one widget item's settings, generated from its schema
 inline constexpr int kPageItemSettings = 11;   // round 4 phase 7: a folder / group item's settings
-inline constexpr int kPageCount = 12;
+inline constexpr int kPageTray = 12;           // round 4 phase 8: the notify icons (tray.enabled, the dock's tray item)
+inline constexpr int kPageCount = 13;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -352,5 +353,29 @@ inline constexpr int kGroupAddFolder = 4014;   // "Add folder…"
 inline constexpr int kGroupRemove = 4015;
 inline constexpr int kGroupUp = 4016;          // "Move up"
 inline constexpr int kGroupDown = 4017;        // "Move down"
+
+// Tray (4100 - 4199; round 4 phase 8): tray.enabled and the edited dock's first "tray" item.
+inline constexpr int kTrayEnabled = 4100;       // check box: tray.enabled (DockCommand 129 / 130)
+inline constexpr int kTrayEnabledCaption = 4101;
+inline constexpr int kTrayEnabledNote = 4102;
+inline constexpr int kTrayRowsLabel = 4103;
+inline constexpr int kTrayRowsEdit = 4104;      // 1 - 2 (the item's rows)
+inline constexpr int kTrayRowsSpin = 4105;
+inline constexpr int kTrayColumnsLabel = 4106;
+inline constexpr int kTrayColumnsEdit = 4107;   // 1 - 20 (columns)
+inline constexpr int kTrayColumnsSpin = 4108;
+inline constexpr int kTrayIconSizeLabel = 4109;
+inline constexpr int kTrayIconSizeCombo = 4110; // 0 = 16, 1 = 20, 2 = 24 px (iconSize)
+inline constexpr int kTrayIconsLabel = 4111;
+inline constexpr int kTrayIconList = 4112;      // SysListView32 (report, check boxes): Icon, App, Key; checked = shown in the grid (unchecked: in `hidden`)
+inline constexpr int kTrayReset = 4113;         // "Reset to Explorer" (= DockCommand 130)
+inline constexpr int kTrayOwnDock = 4114;       // 8b: "Put the tray in its own dock"
+inline constexpr int kTrayOwnDockNote = 4115;
+inline constexpr int kTrayAddItem = 4116;       // "Add a tray to this dock" (enabled without a tray item)
+inline constexpr int kTrayNoItem = 4117;        // "This dock has (no) tray."
+inline constexpr int kTrayGridSection = 4118;
+inline constexpr int kTrayGridNote = 4119;
+inline constexpr int kTrayIconsNote = 4120;
+inline constexpr int kTrayResetNote = 4121;
 
 }  // namespace SettingsIds

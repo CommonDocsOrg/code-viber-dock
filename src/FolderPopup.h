@@ -63,6 +63,10 @@ public:
         std::function<void(size_t member, POINT screen)> drag;    // dragged out (the button is still down)
         std::function<bool(const std::vector<std::wstring>& files)> accepts;  // a file drag: can these be added?
         std::function<void(const std::vector<std::wstring>& files)> drop;     // ... they were dropped
+        // The tray drawer (round 4 phase 8): set, a right click (or the Apps key) on a member calls
+        // it instead of the member menu, a middle click calls `middle`, and Kind() reports 3.
+        std::function<void(size_t member, POINT screen)> menu;
+        std::function<void(size_t member)> middle;
     };
     struct Style {
         float scale = 1.0f;
@@ -92,8 +96,10 @@ public:
                    const PopupAnchor& anchor, GroupCallbacks callbacks);
     // The group shown got other members / another name: shown again in place (same anchor).
     void UpdateGroup(const std::wstring& name, std::vector<GroupEntry> members);
-    // 0 hidden, 1 a folder, 2 a group.
-    int Kind() const { return !OnScreen() ? 0 : group_ ? 2 : 1; }
+    // 0 hidden, 1 a folder, 2 a group, 3 the tray drawer.
+    int Kind() const { return !OnScreen() ? 0 : group_ ? (groupCallbacks_.menu ? 3 : 2) : 1; }
+    // Member `index`'s cell on screen (px; false while hidden, or the member is scrolled away).
+    bool MemberScreenRect(size_t index, RECT& screen) const;
 
     // Entries of the folder (members of the group) shown (0 while hidden).
     size_t EntryCount() const { return OnScreen() ? view_.Count() : 0; }

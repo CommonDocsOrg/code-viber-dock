@@ -35,6 +35,13 @@ struct SettingsDockRect {
     RECT bar{};        // the bar at rest, screen px (empty when parked)
 };
 
+// A notify icon for the Tray page (SettingsHost::trayIcons).
+struct SettingsTrayIcon {
+    std::wstring key;    // TrayIcon::key (the item's `hidden` / `order` entries)
+    std::wstring title;  // its tooltip's first line (or the exe)
+    std::wstring app;    // the owner's exe file name
+};
+
 // Everything the settings window may use of the app, so it never sees App internals. "The dock"
 // below is config.Edit() (config.editDock, chosen on the Docks page): its first window.
 struct SettingsHost {
@@ -66,6 +73,8 @@ struct SettingsHost {
     std::function<int(size_t index)> dockWindows;
     // Layout page: every dock instance (an "each" dock once per monitor) and where its bar is.
     std::function<std::vector<SettingsDockRect>()> dockRects;
+    // Tray page: the notify icons the tray host has now (empty while it is off).
+    std::function<std::vector<SettingsTrayIcon>()> trayIcons;
 };
 
 class SettingsWindow;

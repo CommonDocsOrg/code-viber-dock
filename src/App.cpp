@@ -153,6 +153,9 @@ bool App::Initialize(HINSTANCE instance) {
         return false;
     }
 
+    // A previous run died while it owned the notify icons: when the takeover starts again (posted
+    // by Sync) its own broadcast asks the apps to register; otherwise ask them now, for Explorer.
+    if (!docks_.SyncTray()) TrayHost::RecoverFromMarker();
     AddTrayIcon();
     taskbar_.SetEnabled(config_.hideTaskbar);
     // Only now: the controller has saved the original work area (without our reservations).
@@ -250,6 +253,7 @@ int App::IndexOfKey(const DockWindow& dock, const AppKey& key) {
 
 void App::ReloadPins(size_t cfg) {
     docks_.ForConfig(cfg, [](DockWindow& w) { w.ReloadPins(); });
+    docks_.SyncTray();  // a tray item came or went
 }
 
 void App::TogglePin(DockWindow& dock, const AppKey& key) {
@@ -744,6 +748,7 @@ ContextMenu::TrayMenuState App::MenuState(size_t cfg) const {
     state.hideTaskbar = taskbar_.Enabled();
     state.startWithWindows = AutostartEnabled();
     state.weatherShown = d.Has(ItemKind::Weather);
+    state.hasTray = d.Has(ItemKind::Tray);
     state.weatherConfigured = config_.weather.Configured();
     state.locked = d.locked;
     state.hasRunning = d.Has(ItemKind::Running);
@@ -894,6 +899,19 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kLockAllDocks:
         case ContextMenu::kUnlockAllDocks:
             for (DockConfig& o : config_.docks) o.locked = cmd == ContextMenu::kLockAllDocks;
+            RequestSave();
+            RefreshSettings();
+            break;
+        case ContextMenu::kAddTray:
+            // One tray per dock; adding it is asking for the notify icons: the takeover goes on.
+            if (d.locked || d.Has(ItemKind::Tray)) break;
+            config_.tray.enabled = true;
+            AddWidget(cfg, ItemKind::Tray);  // reloads (SyncTray starts the host) and saves
+            break;
+        case ContextMenu::kTrayEnable:
+        case ContextMenu::kTrayDisable:
+            config_.tray.enabled = cmd == ContextMenu::kTrayEnable;
+            docks_.SyncTray();
             RequestSave();
             RefreshSettings();
             break;
@@ -1099,6 +1117,17 @@ void App::OpenSettings(int page) {
             rects.push_back(r);
         }
         return rects;
+    };
+    host.trayIcons = [this] {
+        std::vector<SettingsTrayIcon> icons;
+        const TrayHost& tray = docks_.TrayService();
+        if (!tray.Running()) return icons;
+        for (const TrayIcon& t : tray.Icons()) {
+            if (!t.Shown()) continue;
+            const size_t slash = t.exe.find_last_of(L"\\/");
+            icons.push_back(SettingsTrayIcon{t.key, t.Title(), slash == std::wstring::npos ? t.exe : t.exe.substr(slash + 1)});
+        }
+        return icons;
     };
     settings_ = std::make_unique<SettingsWindow>(std::move(host));
     if (!settings_->Create(instance_)) {
@@ -1321,6 +1350,9 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         if (index >= 0 && modal && InSendMessage()) {
             // A modal dialog would block the sender until it closes: run it after the call.
             PostMessageW(dock->Hwnd(), msgItemCommand_, wp, static_cast<LPARAM>((dockIndex << 16) | static_cast<size_t>(index)));
+        } else if (index >= 0 && (cmd == ContextMenu::kTrayClick || cmd == ContextMenu::kTrayRightClick)) {
+            result = dock->ClickTrayIcon(index, arg, cmd == ContextMenu::kTrayRightClick) ? 1 : 0;
+            return true;
         } else if (index >= 0 && cmd == ContextMenu::kClickSlot) {
             // By slot, not by key: an unstacked app has one slot per window.
             dock->ClickSlot(index);
@@ -1347,6 +1379,8 @@ bool App::OnDockMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT& resu
             const POINT client{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
             POINT pt = client;
             ClientToScreen(hwnd, &pt);
+            // A tray icon's menu is its app's (forwarded); Ctrl + right click is the dock's.
+            if (dock->RightClickAt(client, (wp & MK_CONTROL) != 0)) return true;
             // An item's own menu, or the dock menu (no item there, or a widget).
             if (const int index = dock->MenuIndexAt(client); index >= 0) {
                 ShowItemMenu(*dock, index, pt);
@@ -1432,6 +1466,9 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     if (msgTaskbarCreated_ && msg == msgTaskbarCreated_) {
+        // Our own tray host's broadcast (taking the icons over or handing them back): nothing
+        // changed for us (our tray icon stays with Explorer, which gets every message mirrored).
+        if (docks_.TrayService().Broadcasting()) return 0;
         // Explorer restarted: the tray icon is gone and the new taskbar must be re-hidden.
         trayAdded_ = false;
         AddTrayIcon();
@@ -1439,6 +1476,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         docks_.AllowAppBar(false);
         taskbar_.OnTaskbarCreated();
         docks_.AllowAppBar(!shutDown_);
+        docks_.TrayService().OnExplorerRestarted();  // the apps registered with the new Explorer first
         return 0;
     }
 

@@ -1637,6 +1637,10 @@ bool DockWindow::EnsureLabelFormat(float s) {
 }
 
 std::wstring DockWindow::SlotTitle(const DockItem& item) const {
+    if (hoverCell_ >= 0 && hoverCellSlot_ >= 0 && hoverCellSlot_ < static_cast<int>(items_.size()) &&
+        &items_[static_cast<size_t>(hoverCellSlot_)] == &item) {
+        return hoverCellLabel_;
+    }
     if (item.kind == DockItem::Kind::RecycleBin) return RecycleBinLabel();
     if (item.window && !item.windowTitle.empty()) return item.windowTitle;
     return item.displayName.empty() ? item.key.Source() : item.displayName;
@@ -1887,6 +1891,7 @@ bool DockWindow::RecoverDevice() {
     for (int attempt = 0; attempt < 3; ++attempt) {
         ResetLayers();
         icons_.Clear();  // the bitmaps belong to the lost device
+        trayBitmaps_.clear();
         labelFormat_ = nullptr;
         labelEllipsis_ = nullptr;
         HRESULT hr = renderer_.RecreateDevice();
@@ -1910,6 +1915,10 @@ void DockWindow::DispatchEvent(DockEvent e) {
             if (item.element == i) item.dirty = true;
         }
     }
+    RefreshDirtyWidgets();
+}
+
+void DockWindow::RefreshDirtyWidgets() {
     // ApplyConfig / ApplyWeather: their relayout measures and draws the dirty slots.
     if (!hwnd_ || inLayout_ || weatherQuiet_) return;
     // Re-measure the changed widgets: a new size needs a relayout (the bar width depends on it),
@@ -2118,7 +2127,8 @@ void DockWindow::ComputeTargets() {
         const float winW = l.stageMain;
         const float lw = static_cast<float>(l.vertical ? label_.height : label_.width);
         const float lh = static_cast<float>(l.vertical ? label_.width : label_.height);
-        const float centre = h.targetX + BoxW(h) / 2.0f;
+        const bool cell = hoverCell_ >= 0 && hoverCellSlot_ == hovered_;
+        const float centre = h.targetX + (cell ? hoverCellCentre_ : BoxW(h) / 2.0f);
         const float iconTop = l.itemTop + l.iconPx * (1.0f - h.targetScale);
         const float u = std::round(std::clamp(centre - lw / 2.0f, 0.0f, std::max(0.0f, winW - lw)));
         const float v = std::round(std::max(0.0f, iconTop - std::round(kLabelGap * l.scale) - lh));
@@ -2351,6 +2361,7 @@ bool DockWindow::CursorInZone() const {
 // --- Hover label -----------------------------------------------------------------------------
 
 void DockWindow::SetHover(int index) {
+    if (index != hoverCellSlot_ && hoverCellSlot_ >= 0) SetHoverCell(-1, -1, {}, 0.0f);
     if (index == hovered_) return;
     const int previous = hovered_;
     hovered_ = index;
@@ -2378,6 +2389,12 @@ void DockWindow::OnLabelTimer() {
     if (hovered_ < 0 || hold_ || preview_.Visible() || hideState_ == HideState::Hidden ||
         hideState_ == HideState::Hiding || items_[static_cast<size_t>(hovered_)].kind == DockItem::Kind::Separator) {
         return;
+    }
+    if (hoverCell_ >= 0 && hoverCellSlot_ == hovered_) {
+        // A cell: the pointer rested on it (version 4 tray icons open their own popup), and a cell
+        // without a label shows none.
+        ElementOf(static_cast<size_t>(hovered_)).OnCellHover(hovered_, hoverCell_, CellEvent::Dwell);
+        if (hoverCellLabel_.empty()) return;
     }
     // Shown again while the previous label still fades out: fade in from where it is now.
     const bool fadingOut = labelFading_;
@@ -2823,6 +2840,14 @@ void DockWindow::OnFolderPopupClosed() {
 
 void DockWindow::RefreshFolderPopup() {
     if (!folder_.OnScreen() || folderKey_.id.empty()) return;
+    if (folder_.Kind() == 3) {
+        // The tray drawer: gone with its tray slot; otherwise it follows the icons (OnTrayChanged).
+        const bool present = std::any_of(items_.begin(), items_.end(), [&](const DockItem& item) {
+            return item.key == folderKey_ && item.kind == DockItem::Kind::Tray;
+        });
+        if (!present || !Tray()) DismissFolderPopup(true);
+        return;
+    }
     if (folder_.Kind() == 2) {
         // A group: gone (unpinned, ungrouped) -> dismissed; other members / name -> shown again.
         const AppIdentity::ResolvedPin* group = GroupPin(folderKey_);
@@ -2856,7 +2881,8 @@ bool DockWindow::PopupShownFor(int slot) const {
     if (slot < 0 || slot >= static_cast<int>(items_.size())) return false;
     switch (ElementOf(static_cast<size_t>(slot)).Popup()) {
         case ClickPopup::Folder:
-        case ClickPopup::Group: return folder_.Visible() && items_[static_cast<size_t>(slot)].key == folderKey_;
+        case ClickPopup::Group:
+        case ClickPopup::Tray: return folder_.Visible() && items_[static_cast<size_t>(slot)].key == folderKey_;
         case ClickPopup::Weather: return weatherPopup_.Visible();
         case ClickPopup::Calendar: return calendar_.Visible();
         case ClickPopup::None:
@@ -2871,6 +2897,7 @@ void DockWindow::ShowClickPopup(int slot) {
     switch (element.Popup()) {
         case ClickPopup::Folder: ShowFolderPopup(slot, anchor); return;
         case ClickPopup::Group: ShowGroupPopup(slot, anchor); return;
+        case ClickPopup::Tray: ShowTrayDrawer(slot, anchor); return;
         case ClickPopup::Weather: ShowWeatherPopup(anchor); return;
         case ClickPopup::Calendar: ShowCalendarPopup(anchor); return;
         case ClickPopup::None:
@@ -3734,7 +3761,7 @@ void DockWindow::BuildElements() {
     const std::vector<DockItemEntry>& entries = DockCfg().items;
     elements.reserve(entries.size());
     size_t pinIndex = 0;
-    size_t clocks = 0, weathers = 0;
+    size_t clocks = 0, weathers = 0, trays = 0;
     std::unordered_map<std::wstring, size_t> widgetIds;  // script widgets: ordinal per id
     widgetsClaimed_.clear();
     for (const DockItemEntry& e : entries) {
@@ -3742,6 +3769,7 @@ void DockWindow::BuildElements() {
         const size_t ordinal = kind == ItemKind::Clock     ? clocks++
                                : kind == ItemKind::Weather ? weathers++
                                : kind == ItemKind::Widget  ? widgetIds[e.id]++
+                               : kind == ItemKind::Tray    ? trays++
                                                            : 0;
         elements.push_back(MakeElement(*this, e, pinIndex, ordinal));
         if (IsPinKind(kind)) ++pinIndex;
@@ -3845,7 +3873,16 @@ void DockWindow::SyncElements(bool force) {
         if (e) e->Start();
     }
     // Create: the tracker's first enumeration builds the items (with their windows) right after.
-    if (!same && tracking_) RebuildFrom(shared_->Tracker().Current());
+    if (!same && tracking_) {
+        RebuildFrom(shared_->Tracker().Current());
+        // New elements keep their slots (same keys): a rebuild that is not structural lays
+        // nothing out, so the new widget elements are measured here (their content, the tray's
+        // cells) and drawn; a new size relays the dock out.
+        for (DockItem& item : items_) {
+            if (item.IsWidget()) item.dirty = true;
+        }
+        RefreshDirtyWidgets();
+    }
 }
 
 void DockWindow::ReloadPins() {
@@ -5579,6 +5616,52 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return folder_.Visible() ? 1 : 0;
         case 23:
             return static_cast<LRESULT>(folder_.EntryCount());
+        case 97:  // the tray takeover runs (TrayHost owns Shell_TrayWnd)
+            return shared_ && shared_->TrayService().Running() ? 1 : 0;
+        case 98:  // notify icons registered with it (every app's, hidden ones included)
+            return shared_ && shared_->TrayService().Running() ? static_cast<LRESULT>(shared_->TrayService().Icons().size()) : 0;
+        case 99:   // icons drawn in tray slot lp's grid (-1: not a tray slot)
+        case 101: {  // tray slot lp: 1 with the overflow button (-1: not a tray slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size()) || !elements_[items_[static_cast<size_t>(lp)].element]) {
+                return -1;
+            }
+            const DockElement& e = ElementOf(static_cast<size_t>(lp));
+            if (e.TrayCells() < 0) return -1;
+            return wp == 99 ? e.TrayCells() : (e.TrayOverflow() ? 1 : 0);
+        }
+        case 100:  // the tray drawer is open on this dock
+            return folder_.Kind() == 3 ? 1 : 0;
+        case 102:  // the cell of a tray slot under the pointer (-1: none)
+            return hoverCell_;
+        case 103:  // Shell_NotifyIconGetRect queries answered so far
+            return shared_ ? static_cast<LRESULT>(shared_->TrayService().RectQueries()) : 0;
+        case 104:  // times our Shell_TrayWnd was raised above Explorer's again
+            return shared_ ? static_cast<LRESULT>(shared_->TrayService().Raises()) : 0;
+        case 109:  // TaskbarCreated broadcasts repeated after Explorer raised its tray above ours
+            return shared_ ? static_cast<LRESULT>(shared_->TrayService().Rebroadcasts()) : 0;
+        case 105:  // balloons (NIF_INFO) captured so far
+            return shared_ ? static_cast<LRESULT>(shared_->TrayService().BalloonCount()) : 0;
+        case 106: {  // the owner HWND of the drawer's icon lp of the first tray slot (0: none)
+            for (size_t i = 0; i < items_.size(); ++i) {
+                if (items_[i].kind != DockItem::Kind::Tray) continue;
+                const auto icons = TrayDrawerIcons(static_cast<int>(i));
+                return lp >= 0 && lp < static_cast<LPARAM>(icons.size()) ? reinterpret_cast<LRESULT>(icons[static_cast<size_t>(lp)]->owner) : 0;
+            }
+            return 0;
+        }
+        case 107: {  // the uID of the drawer's icon lp of the first tray slot (-1: none)
+            for (size_t i = 0; i < items_.size(); ++i) {
+                if (items_[i].kind != DockItem::Kind::Tray) continue;
+                const auto icons = TrayDrawerIcons(static_cast<int>(i));
+                return lp >= 0 && lp < static_cast<LPARAM>(icons.size()) ? static_cast<LRESULT>(icons[static_cast<size_t>(lp)]->uid) : -1;
+            }
+            return -1;
+        }
+        case 108:  // icons in the drawer of the first tray slot (-1: no tray slot)
+            for (size_t i = 0; i < items_.size(); ++i) {
+                if (items_[i].kind == DockItem::Kind::Tray) return static_cast<LRESULT>(TrayDrawerIcons(static_cast<int>(i)).size());
+            }
+            return -1;
         case 87:  // the folder popup's layout: 0 grid, 1 list (-1 hidden)
             return folder_.ViewMode();
         case 88:  // its rows that have a visual (surface) now
@@ -5854,7 +5937,19 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             {
                 const int hit = HitTest(pt);  // a widget is not hovered: no label, no preview
                 const bool widget = hit >= 0 && items_[static_cast<size_t>(hit)].IsWidget();
-                SetHover(widget ? -1 : hit);
+                // ... unless it has cells (the tray grid): the label shows the cell's label.
+                std::wstring cellLabel;
+                float cellCentre = 0.0f;
+                POINT screen{};
+                GetCursorPos(&screen);
+                const int cell =
+                    widget ? ElementOf(static_cast<size_t>(hit)).CellAt(hit, screen, &cellLabel, &cellCentre) : -1;
+                if (cell >= 0) {
+                    SetHoverCell(hit, cell, std::move(cellLabel), cellCentre);
+                } else {
+                    SetHoverCell(-1, -1, {}, 0.0f);
+                    SetHover(widget ? -1 : hit);
+                }
                 UpdateWidgetHover(widget ? hit : -1);  // script widgets: onHover
             }
             ScheduleMagnify();

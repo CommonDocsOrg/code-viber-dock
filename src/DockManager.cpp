@@ -39,10 +39,37 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     tracker_.Start(owner_, [this](const WindowTracker::Snapshot& snap) {
         ForEach([&](DockWindow& w) { w.OnSnapshot(snap); });
     });
+    // The tray: icon changes reach every dock (posted and coalesced by TrayHost); an app asking
+    // where its icon is gets the first dock that shows it.
+    tray_.SetChangedCallback([this] { ForEach([](DockWindow& w) { w.OnTrayChanged(); }); });
+    tray_.SetRectResolver([this](const TrayIcon& icon, RECT& r) {
+        for (Instance& i : instances_) {
+            if (i.window && i.window->TrayIconRect(icon.id, r)) return true;
+        }
+        return false;
+    });
+}
+
+bool DockManager::SyncTray() {
+    bool wanted = config_ && config_->tray.enabled;
+    if (wanted) {
+        wanted = std::any_of(config_->docks.begin(), config_->docks.end(), [](const DockConfig& d) {
+            return d.Has(ItemKind::Tray) || d.Has(ItemKind::TrayApp);
+        });
+    }
+    if (wanted && !tray_.Running() && !trayStartPosted_) {
+        trayStartPosted_ = PostMessageW(owner_, kTrayStartMessage, 0, 0) != FALSE;
+    } else if (!wanted && tray_.Running()) {
+        tray_.Stop();  // tells the docks (their grids empty)
+    }
+    return wanted;
 }
 
 void DockManager::Shutdown() {
     if (!config_) return;
+    // The icons go back to Explorer first (no dock redraws for it).
+    tray_.SetChangedCallback(nullptr);
+    tray_.Stop();
     for (Instance& i : instances_) {
         if (i.window) Close(std::move(i.window));
     }
@@ -57,6 +84,19 @@ void DockManager::Shutdown() {
 }
 
 bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == kTrayStartMessage) {
+        trayStartPosted_ = false;
+        // Still wanted (the config may have changed meanwhile)?
+        const bool wanted = config_ && config_->tray.enabled &&
+                            std::any_of(config_->docks.begin(), config_->docks.end(), [](const DockConfig& d) {
+                                return d.Has(ItemKind::Tray) || d.Has(ItemKind::TrayApp);
+                            });
+        if (wanted && !tray_.Running()) {
+            if (!tray_.Start(instance_)) OutputDebugStringW(L"WinDock: the tray host could not start\n");
+            ForEach([](DockWindow& w) { w.OnTrayChanged(); });
+        }
+        return true;
+    }
     if (tracker_.HandleMessage(msg, wp, lp)) return true;
     if (watch_.HandleMessage(msg, wp, lp)) return true;
     if (widgets_.HandleMessage(msg, wp, lp)) return true;  // the widget timers
@@ -149,6 +189,7 @@ HRESULT DockManager::Sync() {
     // The weather service follows the docks that are shown (a parked weather dock does not fetch).
     ConfigureWeather();
     syncing_ = false;
+    SyncTray();
     return first;
 }
 

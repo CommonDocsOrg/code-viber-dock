@@ -54,7 +54,8 @@ const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
 const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
-                                         L"recycleBin", L"running", L"clock", L"weather", L"widget", L"group"};
+                                         L"recycleBin", L"running", L"clock", L"weather", L"widget", L"group",
+                                         L"tray",    L"trayApp"};
 
 // The keys of a dock object; before `docks` existed (legacy files) they were top-level keys.
 void ReadDockFields(const json::JsonObject& o, DockConfig& d) {
@@ -245,10 +246,12 @@ bool DockConfig::Show(ItemKind kind, bool on) {
 }
 
 size_t DockConfig::AddWidget(ItemKind kind) {
-    if (kind != ItemKind::Clock && kind != ItemKind::Weather && kind != ItemKind::Running) return SIZE_MAX;
+    if (kind != ItemKind::Clock && kind != ItemKind::Weather && kind != ItemKind::Running && kind != ItemKind::Tray) {
+        return SIZE_MAX;
+    }
     if (kind == ItemKind::Running && Has(ItemKind::Running)) return SIZE_MAX;  // only the first one expands
     size_t at = items.size();
-    if (kind == ItemKind::Weather && !items.empty() && items.back().Kind() == ItemKind::Clock) {
+    if ((kind == ItemKind::Weather || kind == ItemKind::Tray) && !items.empty() && items.back().Kind() == ItemKind::Clock) {
         at = items.size() - 1;
     } else if (kind == ItemKind::Running) {
         at = 0;
@@ -452,6 +455,12 @@ void Config::Sanitize() {
         d.thumbnailIntervalS = std::clamp(d.thumbnailIntervalS, 1, 3600);
         d.thumbnailSize = d.thumbnailSize <= 0 ? 0 : std::clamp(d.thumbnailSize, 16, 512);
         d.thumbnailFps = std::clamp(d.thumbnailFps, 1, 60);
+        for (DockItemEntry& e : d.items) {
+            if (e.Kind() != ItemKind::Tray) continue;
+            e.rows = std::clamp(e.rows, 1, 2);
+            e.columns = std::clamp(e.columns, 1, 20);
+            e.trayIconSize = e.trayIconSize <= 18 ? 16 : e.trayIconSize <= 22 ? 20 : 24;
+        }
         // A file stem inside the themes folder, like theme.preset: no paths.
         if (d.themePreset.size() > 64 || d.themePreset.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos ||
             d.themePreset == L"." || d.themePreset == L"..") {
@@ -528,7 +537,7 @@ Config::LoadResult Config::LoadFile() {
             L"docks",         L"hideTaskbar", L"startWithWindows", L"renderer",       L"clock",
             L"theme",         L"animation",   L"weather",          L"pinned",         L"iconSize",
             L"magnification", L"magnifyRange", L"autoHide",        L"hideDelayMs",    L"revealDelayMs",
-            L"previews",      L"previewDelayMs", L"monitor",
+            L"previews",      L"previewDelayMs", L"monitor",       L"tray",
         };
         for (const auto& kv : root) {
             const std::wstring key(kv.Key());
@@ -585,6 +594,13 @@ Config::LoadResult Config::LoadFile() {
                             ReadString(io, L"id", e.id);
                             if (auto so = ReadObject(io, L"settings")) e.settings = std::wstring(so.Stringify());
                             ReadEnum(io, L"view", e.view);
+                            if (e.Kind() == ItemKind::Tray) {
+                                ReadInt(io, L"rows", e.rows);
+                                ReadInt(io, L"columns", e.columns);
+                                ReadInt(io, L"iconSize", e.trayIconSize);
+                                ReadStrings(io, L"hidden", e.hidden);
+                                ReadStrings(io, L"order", e.order);
+                            }
                             if (e.Kind() == ItemKind::Group) {
                                 ReadString(io, L"name", e.name);
                                 if (auto members = ReadArray(io, L"items")) {
@@ -614,7 +630,7 @@ Config::LoadResult Config::LoadFile() {
                             }
                             const ItemKind k = e.Kind();
                             if ((k == ItemKind::App || k == ItemKind::Folder) && !target) continue;  // nothing to show
-                            if (k == ItemKind::Widget && e.id.empty()) continue;  // which widget?
+                            if ((k == ItemKind::Widget || k == ItemKind::TrayApp) && e.id.empty()) continue;  // which one?
                             d.items.push_back(std::move(e));
                         }
                     }
@@ -678,6 +694,7 @@ Config::LoadResult Config::LoadFile() {
             ReadInt(a, L"labelFadeMs", animation.labelFadeMs);
             ReadEnum(a, L"reduceMotion", animation.reduceMotion);
         }
+        if (auto t = ReadObject(root, L"tray")) ReadBool(t, L"enabled", tray.enabled);
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
         *this = Config{};
@@ -727,6 +744,20 @@ bool Config::Save() const {
                 if (!e.id.empty()) add(L"id", e.id);
                 if (!e.settings.empty()) fields += L", " + Quote(L"settings") + L": " + e.settings;
                 if (e.view != ItemView::Auto) add(L"view", ToString(e.view));
+                if (e.Kind() == ItemKind::Tray) {
+                    const DockItemEntry defaults{L"tray"};
+                    if (e.rows != defaults.rows) fields += L", " + Quote(L"rows") + L": " + Num(e.rows);
+                    if (e.columns != defaults.columns) fields += L", " + Quote(L"columns") + L": " + Num(e.columns);
+                    if (e.trayIconSize != defaults.trayIconSize) fields += L", " + Quote(L"iconSize") + L": " + Num(e.trayIconSize);
+                    auto list = [&](const wchar_t* key, const std::vector<std::wstring>& v) {
+                        if (v.empty()) return;
+                        std::wstring a;
+                        for (size_t k = 0; k < v.size(); ++k) a += (k ? L", " : L"") + Quote(v[k]);
+                        fields += L", " + Quote(key) + L": [" + a + L"]";
+                    };
+                    list(L"hidden", e.hidden);
+                    list(L"order", e.order);
+                }
                 if (e.Kind() == ItemKind::Group) {
                     add(L"name", e.name);
                     std::wstring members;
@@ -786,6 +817,7 @@ bool Config::Save() const {
              L", \"longitude\": " + Coord(weather.longitude) + L",\n               \"location\": " +
              Quote(weather.location) + L", \"units\": " + Quote(ToString(weather.units)) +
              L", \"refreshMinutes\": " + Num(weather.refreshMinutes) + L" }";
+        if (tray.enabled) o += L",\n  \"tray\": { \"enabled\": true }";
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";
         return WriteFileAtomic(FilePath(), WideToUtf8(o));

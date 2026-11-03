@@ -35,6 +35,9 @@ add_executable(WinDock WIN32
   src/Config.cpp
   src/Theme.cpp
   src/DockWindow.cpp
+  src/DockWindowTray.cpp
+  src/TrayHost.cpp
+  src/TrayElements.cpp
   src/DockManager.cpp
   src/DesktopLayer.cpp
   src/DockElement.cpp
@@ -70,6 +73,7 @@ add_executable(WinDock WIN32
   src/SettingsPagesWeather.cpp
   src/SettingsPagesDocks.cpp
   src/SettingsPagesLayout.cpp
+  src/SettingsPagesTray.cpp
   src/SettingsPreview.cpp
   src/QuickJsEngine.cpp
   src/WidgetCanvas.cpp
