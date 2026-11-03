@@ -1,8 +1,13 @@
 #include "WidgetInstance.h"
 
+#include <shellapi.h>
+#include <winhttp.h>
+#include <shlwapi.h>
+
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cwctype>
 
 #include "JsonUtil.h"
 #include "WidgetRuntime.h"
@@ -21,6 +26,11 @@ const char* FnName(ScriptEngine::Fn fn) {
         case ScriptEngine::Fn::OnWheel: return "onWheel()";
         case ScriptEngine::Fn::OnHover: return "onHover()";
         case ScriptEngine::Fn::OnSettingsChanged: return "onSettingsChanged()";
+        case ScriptEngine::Fn::OnPress: return "onPress()";
+        case ScriptEngine::Fn::OnDrop: return "onDrop()";
+        case ScriptEngine::Fn::DrawPopup: return "drawPopup()";
+        case ScriptEngine::Fn::OnPopupClick: return "onPopupClick()";
+        case ScriptEngine::Fn::OnPopupClose: return "onPopupClose()";
         default: return "a call";
     }
 }
@@ -54,6 +64,7 @@ std::wstring WidgetInstance::Name() const {
 
 void WidgetInstance::Reload() {
     runtime_.CancelAll(this);
+    if (PopupShown()) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
     engine_.reset();
     canvas_.ReleaseImages();
     state_ = State::Ok;
@@ -62,6 +73,15 @@ void WidgetInstance::Reload() {
     refreshSet_ = false;
     measured_ = false;
     changed_ = true;
+    ++generation_;  // results of the old script's requests are dropped
+    requests_ = 0;
+    struct Synced {  // whatever happens below, the watcher and the Console follow
+        WidgetRuntime& rt;
+        ~Synced() {
+            rt.SyncWatch();
+            rt.NotifyChanged();
+        }
+    } synced{runtime_};
 
     std::wstring error;
     package_ = Widgets::Load(id_, error);
@@ -259,9 +279,11 @@ std::string WidgetInstance::EventJson(float x, float y) {
     return buf;
 }
 
-void WidgetInstance::Click(float x, float y) {
+void WidgetInstance::Click(float x, float y, bool closedPopup) {
     if (state_ != State::Ok || !engine_) return;
-    Check(engine_->Call(ScriptEngine::Fn::OnClick, EventJson(x, y) + ",\"button\":\"left\"}"), FnName(ScriptEngine::Fn::OnClick));
+    Check(engine_->Call(ScriptEngine::Fn::OnClick, EventJson(x, y) + ",\"button\":\"left\",\"closedPopup\":" +
+                                                      (closedPopup ? "true" : "false") + "}"),
+          FnName(ScriptEngine::Fn::OnClick));
 }
 
 void WidgetInstance::MiddleClick(float x, float y) {
@@ -330,6 +352,10 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
     // Never called again until a reload: give its heap back now (Fail only runs after a call into
     // the script has returned).
     engine_.reset();
+    ++generation_;
+    requests_ = 0;
+    if (PopupShown()) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
+    runtime_.NotifyChanged();
     Log(ScriptLogLevel::Error, (state == State::Suspended ? L"suspended: " : L"error: ") + message);
     measured_ = false;
     changed_ = true;
@@ -353,6 +379,7 @@ void WidgetInstance::Log(ScriptLogLevel level, const std::wstring& line) {
     log_.push_back(std::move(l));
     ++logTotal_;
     while (log_.size() > kMaxLogLines) log_.pop_front();
+    runtime_.NotifyLog(this);  // the Console (posts itself an update)
 }
 
 bool WidgetInstance::ReadFile(const std::string& path, std::string& bytes, std::wstring& error) {
@@ -385,4 +412,288 @@ void WidgetInstance::SetRefresh(uint32_t ms) {
     refreshSet_ = true;
     refreshMs_ = ms == 0 ? 0 : std::clamp<uint32_t>(ms, 100u, 86400000u);
     ScheduleRefresh();
+}
+
+// --- 4b: press, drop, popups -------------------------------------------------------------------
+
+void WidgetInstance::Press(float x, float y) {
+    if (state_ != State::Ok || !engine_ || !engine_->Has(ScriptEngine::Fn::OnPress)) return;
+    Check(engine_->Call(ScriptEngine::Fn::OnPress, EventJson(x, y) + ",\"button\":\"left\"}"),
+          FnName(ScriptEngine::Fn::OnPress));
+}
+
+bool WidgetInstance::AcceptsDrops() const {
+    return state_ == State::Ok && engine_ && engine_->Has(ScriptEngine::Fn::OnDrop) && Permitted(Permission::Shell);
+}
+
+void WidgetInstance::Drop(const std::vector<std::wstring>& files, float x, float y) {
+    if (!AcceptsDrops()) return;
+    std::wstring list;
+    for (size_t i = 0; i < files.size() && i < 256; ++i) list += (i ? L"," : L"") + JsonUtil::Quote(files[i]);
+    Check(engine_->Call(ScriptEngine::Fn::OnDrop, EventJson(x, y) + ",\"files\":[" + JsonUtil::WideToUtf8(list) + "]}"),
+          FnName(ScriptEngine::Fn::OnDrop));
+}
+
+void WidgetInstance::RequestPopup(PopupRequest r) {
+    popupRequest_ = std::move(r);
+    client_.WidgetPopupRequest(*this);
+}
+
+bool WidgetInstance::PopupOpen(float w, float h, std::wstring& error) {
+    if (!engine_ || !engine_->Has(ScriptEngine::Fn::DrawPopup)) {
+        error = L"popup.open: the module does not export drawPopup(canvas, dock)";
+        return false;
+    }
+    if (!std::isfinite(w) || !std::isfinite(h) || w < 16.0f || h < 16.0f || w > 1600.0f || h > 1200.0f) {
+        error = L"popup.open: width and height must be 16 - 1600 x 16 - 1200 DIPs";
+        return false;
+    }
+    PopupRequest r;
+    r.kind = PopupRequest::Kind::Open;
+    r.width = w;
+    r.height = h;
+    RequestPopup(std::move(r));
+    return true;
+}
+
+void WidgetInstance::PopupClose() { RequestPopup(PopupRequest{PopupRequest::Kind::Close}); }
+
+void WidgetInstance::PopupRedraw() {
+    if (popupRequest_.kind == PopupRequest::Kind::Open) return;  // it draws when it opens
+    RequestPopup(PopupRequest{PopupRequest::Kind::Redraw});
+}
+
+bool WidgetInstance::PopupFolder(const std::wstring& path, std::wstring& error) {
+    if (!Permitted(Permission::Shell)) {
+        error = L"popup.folder needs the \"shell\" permission";
+        return false;
+    }
+    wchar_t expanded[MAX_PATH * 2]{};
+    ExpandEnvironmentStringsW(path.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
+    const DWORD attrs = GetFileAttributesW(expanded);
+    if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
+        error = L"popup.folder: not a folder: " + path;
+        return false;
+    }
+    PopupRequest r;
+    r.kind = PopupRequest::Kind::Folder;
+    r.arg = expanded;
+    RequestPopup(std::move(r));
+    return true;
+}
+
+bool WidgetInstance::PopupPreviews(const std::wstring& app, std::wstring& error) {
+    if (app.empty()) {
+        error = L"popup.previews: an app (exe path or AppUserModelID) is needed";
+        return false;
+    }
+    PopupRequest r;
+    r.kind = PopupRequest::Kind::Previews;
+    r.arg = app;
+    RequestPopup(std::move(r));
+    return true;
+}
+
+void WidgetInstance::RenderPopup(ID2D1DeviceContext* dc, float w, float h, float scale) {
+    if (state_ != State::Ok || !engine_) return;
+    canvas_.Begin(dc, scale, w, h);
+    inCanvas_ = true;
+    const ScriptResult r = engine_->Call(ScriptEngine::Fn::DrawPopup, {});
+    inCanvas_ = false;
+    canvas_.End();
+    Check(r, FnName(ScriptEngine::Fn::DrawPopup));
+}
+
+void WidgetInstance::PopupClick(float x, float y, int button) {
+    if (state_ != State::Ok || !engine_) return;
+    const char* b = button == 1 ? "middle" : button == 2 ? "right" : "left";
+    Check(engine_->Call(ScriptEngine::Fn::OnPopupClick, EventJson(x, y) + ",\"button\":\"" + b + "\"}"),
+          FnName(ScriptEngine::Fn::OnPopupClick));
+}
+
+void WidgetInstance::PopupClosed() {
+    if (state_ != State::Ok || !engine_) return;
+    Check(engine_->Call(ScriptEngine::Fn::OnPopupClose, "{}"), FnName(ScriptEngine::Fn::OnPopupClose));
+}
+
+bool WidgetInstance::WatchFolder(std::wstring& id, std::wstring& folder) const {
+    if (!package_ || package_->source != Widgets::Package::Source::Folder || !package_->manifest.watch) return false;
+    id = id_;
+    folder = package_->folder;
+    return true;
+}
+
+// --- 4b: permissions, storage, http, shell -------------------------------------------------------
+
+bool WidgetInstance::Permitted(Permission p) const {
+    if (!package_) return false;
+    return p == Permission::Shell ? package_->manifest.shell : package_->manifest.http;
+}
+
+bool WidgetInstance::StorageGet(const std::string& key, std::string& json) {
+    return runtime_.StorageGet(id_, key, json);
+}
+
+bool WidgetInstance::StorageSet(const std::string& key, const std::string& json, std::wstring& error) {
+    if (key.empty() || key.size() > 256) {
+        error = L"storage keys are 1 - 256 characters";
+        return false;
+    }
+    return runtime_.StorageSet(id_, key, json, error);
+}
+
+void WidgetInstance::StorageRemove(const std::string& key) { runtime_.StorageRemove(id_, key); }
+
+std::vector<std::string> WidgetInstance::StorageKeys() { return runtime_.StorageKeys(id_); }
+
+bool WidgetInstance::HostAllowed(const std::wstring& host) const {
+    if (!package_) return false;
+    std::wstring h = host;
+    for (wchar_t& c : h) c = static_cast<wchar_t>(std::towlower(c));
+    for (const std::wstring& allowed : package_->manifest.httpHosts) {
+        if (allowed == h) return true;
+        // "*.example.com": any sub-domain (not example.com itself).
+        if (allowed.size() > 2 && allowed.rfind(L"*.", 0) == 0) {
+            const std::wstring suffix = allowed.substr(1);  // ".example.com"
+            if (h.size() > suffix.size() && h.compare(h.size() - suffix.size(), suffix.size(), suffix) == 0) return true;
+        }
+    }
+    return false;
+}
+
+int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& url, const std::wstring& headers,
+                              const std::string& body, uint32_t timeoutMs, std::wstring& error) {
+    if (!Permitted(Permission::Http)) {
+        error = L"http needs the \"http\" permission with the hosts it may reach (widget.json)";
+        return 0;
+    }
+    bool secure = true;
+    std::wstring host, path;
+    unsigned short port = 0;
+    if (!Http::SplitUrl(url, secure, host, port, path)) {
+        error = L"not an http(s) URL: " + url;
+        return 0;
+    }
+    if (!HostAllowed(host)) {
+        error = L"host \"" + host + L"\" is not in the widget's http permission";
+        return 0;
+    }
+    if (requests_ >= WidgetRuntime::kMaxRequests) {
+        error = L"too many requests in flight (4 per widget)";
+        return 0;
+    }
+    Http::Request rq;
+    rq.method = method;
+    rq.url = url;
+    rq.headers = headers;
+    rq.body = body;
+    rq.timeoutMs = std::clamp<uint32_t>(timeoutMs ? timeoutMs : 10000u, 1000u, 30000u);
+    rq.maxBody = 2u << 20;
+    const int id = nextRequest_;
+    nextRequest_ = nextRequest_ >= 0x3FFFFFFF ? 1 : nextRequest_ + 1;
+    if (!runtime_.StartHttp(this, generation_, id, std::move(rq))) {
+        error = L"the request could not be started";
+        return 0;
+    }
+    ++requests_;
+    return id;
+}
+
+void WidgetInstance::OnHttpResult(uint64_t generation, int id, const Http::Result& result) {
+    if (generation != generation_) return;  // the script was reloaded (or failed) since
+    if (requests_ > 0) --requests_;
+    if (state_ != State::Ok || !engine_) return;
+    std::string json;
+    bool ok = result.error == 0;
+    if (ok) {
+        json = "{\"status\":" + std::to_string(result.status) +
+               ",\"ok\":" + (result.status >= 200 && result.status < 300 ? "true" : "false") +
+               ",\"contentType\":" + JsonUtil::WideToUtf8(JsonUtil::Quote(result.contentType)) +
+               ",\"text\":" + JsonUtil::WideToUtf8(JsonUtil::Quote(JsonUtil::Utf8ToWide(result.body))) + "}";
+    } else {
+        wchar_t msg[160];
+        if (result.error == ERROR_FILE_TOO_LARGE) {
+            swprintf_s(msg, L"http: the response is larger than 2 MB");
+        } else if (result.error == ERROR_WINHTTP_TIMEOUT) {
+            swprintf_s(msg, L"http: timed out");
+        } else {
+            swprintf_s(msg, L"http: the request failed (error %lu)", result.error);
+        }
+        json = JsonUtil::WideToUtf8(JsonUtil::Quote(msg));
+    }
+    Check(engine_->Resolve(id, ok, json), "an http callback");
+}
+
+bool WidgetInstance::ShellOpen(const std::wstring& target, const std::wstring& args, std::wstring& error) {
+    if (!Permitted(Permission::Shell)) {
+        error = L"shell.open needs the \"shell\" permission";
+        return false;
+    }
+    if (target.empty() || target.size() > 2048) {
+        error = L"shell.open: a file, folder or URL is needed";
+        return false;
+    }
+    wchar_t expanded[MAX_PATH * 4]{};
+    ExpandEnvironmentStringsW(target.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
+    AllowSetForegroundWindow(ASFW_ANY);
+    const auto rc = reinterpret_cast<INT_PTR>(
+        ShellExecuteW(nullptr, nullptr, expanded, args.empty() ? nullptr : args.c_str(), nullptr, SW_SHOWNORMAL));
+    if (rc <= 32) {
+        error = L"shell.open: could not open " + target + L" (" + std::to_wstring(rc) + L")";
+        return false;
+    }
+    Log(ScriptLogLevel::Info, L"shell.open " + target);
+    return true;
+}
+
+bool WidgetInstance::ShellList(const std::wstring& folder, std::string& json, std::wstring& error) {
+    if (!Permitted(Permission::Shell)) {
+        error = L"shell.list needs the \"shell\" permission";
+        return false;
+    }
+    wchar_t expanded[MAX_PATH * 2]{};
+    ExpandEnvironmentStringsW(folder.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
+    std::wstring dir = expanded;
+    while (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
+    struct Entry {
+        std::wstring name;
+        bool folder;
+        uint64_t size;
+        uint64_t modified;  // ms since 1970 (UTC)
+    };
+    std::vector<Entry> entries;
+    WIN32_FIND_DATAW fd{};
+    HANDLE f = FindFirstFileExW((dir + L"\\*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr,
+                                FIND_FIRST_EX_LARGE_FETCH);
+    if (f == INVALID_HANDLE_VALUE) {
+        error = L"shell.list: cannot list " + folder;
+        return false;
+    }
+    do {
+        const std::wstring name = fd.cFileName;
+        if (name == L"." || name == L"..") continue;
+        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;  // as Explorer
+        ULARGE_INTEGER t{};
+        t.LowPart = fd.ftLastWriteTime.dwLowDateTime;
+        t.HighPart = fd.ftLastWriteTime.dwHighDateTime;
+        const uint64_t ms = t.QuadPart >= 116444736000000000ull ? (t.QuadPart - 116444736000000000ull) / 10000ull : 0;
+        entries.push_back(Entry{name, (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0,
+                                (static_cast<uint64_t>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow, ms});
+    } while (entries.size() < 1000 && FindNextFileW(f, &fd));
+    FindClose(f);
+    // Folders first, then Explorer's name order ("file2" before "file10").
+    std::sort(entries.begin(), entries.end(), [](const Entry& a, const Entry& b) {
+        if (a.folder != b.folder) return a.folder;
+        return StrCmpLogicalW(a.name.c_str(), b.name.c_str()) < 0;
+    });
+    std::wstring out = L"[";
+    for (size_t i = 0; i < entries.size(); ++i) {
+        const Entry& e = entries[i];
+        out += (i ? L"," : L"") + std::wstring(L"{\"name\":") + JsonUtil::Quote(e.name) + L",\"path\":" +
+               JsonUtil::Quote(dir + L"\\" + e.name) + L",\"folder\":" + (e.folder ? L"true" : L"false") +
+               L",\"size\":" + std::to_wstring(e.size) + L",\"modified\":" + std::to_wstring(e.modified) + L"}";
+    }
+    out += L"]";
+    json = JsonUtil::WideToUtf8(out);
+    return true;
 }

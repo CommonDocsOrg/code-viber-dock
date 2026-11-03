@@ -21,7 +21,9 @@ inline constexpr int kPageAbout = 5;
 inline constexpr int kPageWeather = 6;  // appended after About (pages are shown in index order)
 inline constexpr int kPageDocks = 7;    // round 4 phase 3: the list of docks; picks the dock the other pages edit
 inline constexpr int kPageLayout = 8;   // round 4 phase 3b: the monitor canvas (drag the docks)
-inline constexpr int kPageCount = 9;
+inline constexpr int kPageWidgets = 9;  // round 4 phase 4b: installed widgets, Console, export
+inline constexpr int kPageWidgetSettings = 10;  // phase 4b: one widget item's settings, generated from its schema
+inline constexpr int kPageCount = 11;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -283,5 +285,26 @@ inline constexpr int kUnlockAllDocks = 2807;  // "Unlock all docks" (= DockComma
 inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation)
 inline constexpr int kLayoutNote = 2901;
 inline constexpr int kLayoutSelected = 2902;  // the selected dock and where a drop would put it
+
+// Widgets (3500 - 3599; round 4 phase 4b)
+inline constexpr int kWidgetsList = 3500;      // SysListView32 (report): Name, Id, Source, Version; one row per installed widget
+inline constexpr int kWidgetsAddFolder = 3501; // "Add from folder…" (copies a folder with a widget.json into the widgets folder)
+inline constexpr int kWidgetsExport = 3502;    // "Export built-in to folder" (the selected built-in -> widgets\<id>)
+inline constexpr int kWidgetsReload = 3503;    // "Reload widgets" (= DockCommand 126)
+inline constexpr int kWidgetsOpenFolder = 3504;  // "Open widgets folder" (created if missing)
+inline constexpr int kWidgetsConsole = 3505;   // "Console…" (= DockCommand 127)
+inline constexpr int kWidgetsAddToDock = 3506; // "Add to dock" (the selected widget, on the dock the pages edit)
+inline constexpr int kWidgetsNote = 3507;
+inline constexpr int kWidgetsStatus = 3508;    // the last action's result ("Exported to …", errors)
+
+// Widget settings (3600 - 3999; phase 4b). The fixed controls, then per schema field k
+// (widget.json "settings" order) 3700 + 10 * k + part: 0 label, 1 the control (check box, edit,
+// drop-down), 2 its caption (check box) or up-down (int), 3 the field's note.
+inline constexpr int kWidgetPickLabel = 3600;
+inline constexpr int kWidgetPick = 3601;       // drop-down: the dock's widget items ("Name (item n)")
+inline constexpr int kWidgetSettingsNote = 3602;
+inline constexpr int kWidgetReset = 3603;      // "Reset to defaults" (removes the item's settings)
+inline constexpr int kWidgetFieldBase = 3700;
+inline constexpr int kWidgetFieldMax = 30;     // fields shown per widget
 
 }  // namespace SettingsIds

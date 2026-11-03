@@ -493,6 +493,7 @@ void App::Shutdown() {
     if (shutDown_) return;
     // First: closing it may commit a pending edit (focus loss), which must still be saved.
     settings_.reset();
+    console_.reset();  // before the docks: it listens to the widget runtime
     geocodeDone_ = nullptr;
     shutDown_ = true;
     FlushSave();
@@ -740,6 +741,9 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kReloadWidgets:
             docks_.Widgets().ReloadAll();
             break;
+        case ContextMenu::kWidgetConsole:
+            OpenConsole();
+            break;
         case ContextMenu::kRestoreTaskbar:
             // For this session only: the controller is disabled (so "Hide taskbar" shows
             // unchecked and Explorer restarts do not re-hide), config.hideTaskbar is untouched.
@@ -979,6 +983,18 @@ void App::OnSettingsChanged(SettingsScope scope) {
     RequestSave();
 }
 
+void App::OpenConsole() {
+    if (console_ && console_->Hwnd()) {
+        console_->Activate();
+        return;
+    }
+    console_ = std::make_unique<WidgetConsole>(docks_.Widgets(), [this] { PostMessageW(hwnd_, kConsoleClosed, 0, 0); });
+    if (!console_->Create(instance_)) {
+        console_.reset();
+        MessageBeep(MB_ICONWARNING);
+    }
+}
+
 void App::OpenConfigFile() {
     const std::wstring path = Config::FilePath();
     if (GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES) config_.Save();
@@ -1008,6 +1024,11 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return inst ? static_cast<LRESULT>(inst->cfg) : -1;  // its index in docks[]
         case 51:
             return inst && inst->window ? reinterpret_cast<LRESULT>(inst->window->Hwnd()) : 0;  // its window
+        case 63:  // the widget Console is open (1) / its window (lParam 1)
+            if (!console_ || !console_->Hwnd()) return 0;
+            return arg == 1 ? reinterpret_cast<LRESULT>(console_->Hwnd()) : 1;
+        case 64:  // log lines the Console shows now
+            return console_ && console_->Hwnd() ? console_->ShownLines() : -1;
         default:
             break;
     }
@@ -1144,6 +1165,10 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
                 SetFocus(dialog);
             }
         }
+        return 0;
+    }
+    if (msg == kConsoleClosed) {
+        if (console_ && !console_->Hwnd()) console_.reset();
         return 0;
     }
     if (msg == kSettingsClosed) {

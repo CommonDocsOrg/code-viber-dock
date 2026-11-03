@@ -8,9 +8,11 @@ thread. This file is the full reference; README.md has the short version.
 - [Packages](#packages): where widgets live, the folder layout
 - [widget.json](#widgetjson): the manifest
 - [main.js](#mainjs): the module and its exports, when they are called
-- [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`
+- [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`,
+  `storage`, `http`, `shell`, `popup`
 - [Limits and errors](#limits-and-errors): the watchdog, memory, the error tile, reloading
-- [Sandbox](#sandbox): what a widget can and cannot reach
+- [Sandbox](#sandbox): what a widget can and cannot reach, permissions
+- [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages
 - [Adding a widget to a dock](#adding-a-widget-to-a-dock)
 - [Examples](#examples)
 
@@ -62,8 +64,8 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time. |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing: `"shell"`, `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`). Unknown entries are logged and ignored. (The `http` and `shell` APIs are part of the next step of the runtime.) |
-| `watch` | false | Reload when a file of the widget's folder changes (next step of the runtime). |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
+| `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `settings` | [] | The widget's settings schema, see below. |
 
 ### Settings schema
@@ -83,7 +85,12 @@ Each entry: `key` (required), `type`, `label`, `description`, `default`, and per
 The values live in the dock item's `settings` object in config.json. The script sees the schema's
 defaults overridden by the item's values (a value of the wrong type or out of range falls back to
 the default; ints are rounded, numbers clamped); keys the schema does not name are passed through
-unchanged.
+unchanged. Settings > **Widget settings** is generated from the schema for each widget item of
+the dock the settings window edits (a drop-down picks the item; Dock contents > Settings… on a
+widget row opens it): a check box per `bool`, an up-down per `int`, a drop-down per `choice`, an
+edit box for the others (`colour` as `#AARRGGBB`), each field's `description` under it, and
+**Reset to defaults** (removes the item's `settings`). A change is saved and reaches the widget at
+once (`onSettingsChanged`).
 
 ## main.js
 
@@ -95,11 +102,16 @@ available), then calls its exports:
 | `draw(canvas, dock)` | **required.** When the widget asked for a redraw (`requestRedraw()`, a tick), when its settings changed, and when the dock lays it out again (its size, scale, theme or edge changed). Never per frame while idle. | the canvas, the dock | |
 | `measure(canvas, dock)` | Before the dock lays the widget out (and after every redraw request). Only `canvas.measureText` works here. | | `{ main, cross }` in DIPs; without this export the manifest's size hint for the dock's axis is used |
 | `tick(dock)` | Every `refreshMs` (see the manifest, `timer.setRefresh`). | the dock | `false` to skip the redraw that follows |
-| `onClick(e)` | A left click on the widget (press and release on it). | `{ x, y, button }`: DIPs from the box's top-left | |
+| `onPress(e)` | The left button went down on the widget. | `{ x, y, button }`: DIPs from the box's top-left | |
+| `onClick(e)` | A left click on the widget (press and release on it). | `{ x, y, button, closedPopup }`: `closedPopup` is true when that press closed this widget's popup (so a click toggles it: `if (!e.closedPopup) popup.open(...)`) | |
 | `onMiddleClick(e)` | A middle click. | `{ x, y, button }` | |
 | `onWheel(e)` | The mouse wheel over the widget. | `{ x, y, delta, notches, horizontal }`: `delta` in WHEEL_DELTA units (120 per notch; positive: away from the user) | `true` if the widget used it |
 | `onHover(e)` | The pointer entered / left the widget. | `{ x, y, inside }` | |
+| `onDrop(e)` | Files were dropped on the widget (only with the `shell` permission and this export; the dock then shows the drop as allowed over the whole widget instead of pinning). | `{ x, y, files: [paths] }` | |
 | `onSettingsChanged(settings)` | The item's settings changed (Settings, config.json reload). The global `settings` is the new object already. | the settings | |
+| `drawPopup(canvas, dock)` | The widget's popup (`popup.open`) is shown or redrawn (`popup.redraw()`). The canvas is the popup's (`canvas.width` / `height`: its size in DIPs), over the theme's panel. | the canvas, the dock | |
+| `onPopupClick(e)` | A click in the popup. | `{ x, y, button }`: DIPs from the popup's top-left; `button` `"left"`, `"middle"`, `"right"` | |
+| `onPopupClose(e)` | The popup closed (Escape, another window came forward, a click on the dock, `popup.close()`, a reload). | `{}` | |
 
 Every export also gets `dock` as its last argument; it is the same object as the global `dock`.
 Nothing redraws by itself after an event: call `requestRedraw()` when the content changed. A right
@@ -141,6 +153,7 @@ Stroke (`stroke` below): a width in DIPs (default 1), or `{ width, cap: "butt" |
 | `measureText(str, style)` | `{ width, height, baseline, lines }` in DIPs (also in `measure()`). |
 | `image(path, x, y, w, h, opacity)` | An image file of the package (`"assets/icon.png"`; PNG, JPEG, BMP, GIF, ICO, TIFF via WIC; up to 8 MB and 4096 x 4096). `w` / `h` omitted or 0: its pixel size in DIPs. Decoded once and cached. Throws if it cannot be read. |
 | `imageSize(path)` | `{ width, height }` in pixels. |
+| `fileIcon(path, x, y, size)` | The shell's icon of a file or folder (an absolute path; `%VAR%` expanded), `size` DIPs square. Needs the `shell` permission. Cached like images. |
 | `save()`, `restore()` | The transform, opacity and clips (up to 64 levels). Whatever is left pushed at the end of `draw()` is popped. |
 | `translate(x, y)`, `rotate(radians, cx, cy)`, `scale(sx, sy)` | Change the transform of what follows. |
 | `opacity(a)` | Multiplies the opacity of everything drawn from now on (0 - 1). |
@@ -209,6 +222,70 @@ offset to every date on Windows: use these for local time).
 The global `settings` is the merged settings object (see [Settings schema](#settings-schema)). It
 is replaced (and `onSettingsChanged` called) when the item's settings change.
 
+### storage
+
+A small persistent JSON store per widget **id** (every item with that id shares it), in
+`%LocalAppData%\WinDock\widget-data\<id>.json` (outside the widget's folder, so exporting,
+replacing or deleting the folder keeps the data, and `watch` does not see the writes). Changes are
+written one second after the last change (and when the dock quits); nothing is written while
+nothing changes. At most 1 MB per widget.
+
+| Call | |
+|---|---|
+| `storage.get(key, fallback)` | The stored value (any JSON value), or `fallback` (default `undefined`). |
+| `storage.set(key, value)` | Stores `JSON.stringify(value)`; `undefined` removes the key. Keys are 1 - 256 characters. Throws a RangeError when the store would pass 1 MB. |
+| `storage.remove(key)`, `storage.keys()`, `storage.clear()` | |
+
+### http
+
+Needs `{ "http": [hosts] }` in `permissions`; any other host, or no permission, throws a
+TypeError at the call. Requests run on a worker thread (WinHTTP, the system's proxy settings) and
+come back as a promise resolved on the dock's thread.
+
+| Call | |
+|---|---|
+| `http.get(url, options)` | `options`: `{ headers: { name: value }, timeout: ms (1000 - 30000, default 10000), type: "json" \| "text" }`. |
+| `http.post(url, body, options)` | A string body is sent as text (`Content-Type: text/plain; charset=utf-8`), anything else as JSON (`application/json`), unless `headers` names a content type. |
+| `http.request({ method, url, body, headers, timeout, type })` | `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`. |
+
+The promise resolves to `{ status, ok, contentType, text, json }` for every HTTP response (`ok`:
+status 200 - 299; `json`: the parsed body when `type: "json"` was asked for or the content type is
+JSON). It rejects with an Error on a network failure, a timeout, a body over 2 MB, or (with
+`type: "json"`) a body that is not JSON. At most 4 requests per widget are in flight; a reload
+drops the answers of the old script.
+
+```js
+const r = await http.get('https://api.open-meteo.com/v1/forecast?latitude=52.5&longitude=13.4&current=temperature_2m', { type: 'json' });
+if (r.ok) temperature = r.json.current.temperature_2m;
+```
+
+### shell
+
+Needs `"shell"` in `permissions` (else every call throws).
+
+| Call | |
+|---|---|
+| `shell.open(target, args)` | Opens a file, folder, app or URL the way Explorer does (ShellExecute; `%VAR%` expanded). |
+| `shell.list(folder)` | The folder's entries, folders first, in Explorer's name order, hidden and system entries left out (up to 1000): `[{ name, path, folder, size, modified }]` (`modified`: ms since 1970, UTC). Draw their icons with `canvas.fileIcon`. |
+
+### popup
+
+A widget can open one popup at a time, anchored on its slot beside the dock (above a bottom dock,
+right of a left dock ...), like the dock's own popups. It holds the dock shown while it is open
+and closes on Escape, when another window comes forward, on a click on the dock, and when the
+widget reloads.
+
+| Call | |
+|---|---|
+| `popup.open(width, height)` (or `popup.open({ width, height })`) | A popup of that size in DIPs (16 - 1600 x 16 - 1200) that the module draws in `drawPopup(canvas, dock)` over the theme's panel; clicks in it go to `onPopupClick`. Opening it again resizes and redraws it. |
+| `popup.redraw()` | Calls `drawPopup` again. |
+| `popup.close()` | |
+| `popup.isOpen` | The widget's popup (of any kind) is on screen. |
+| `popup.folder(path)` | The dock's own folder popup (the folder's contents, navigation, Open in Explorer) for that folder, anchored on the widget. Needs `"shell"`. |
+| `popup.previews(app)` | The window previews of an app the dock shows (its exe path, e.g. `"C:\\Windows\\explorer.exe"`, or its AppUserModelID; any case), anchored on the widget; nothing (a log line) when the app has no window on the dock. |
+
+The calls are carried out right after the current call returns.
+
 ## Limits and errors
 
 - **Watchdog.** Every call into the script (an export, a timer callback, the jobs it queues such as
@@ -224,17 +301,19 @@ is replaced (and `onSettingsChanged` called) when the item's settings change.
 - **Memory.** Each widget has its own runtime with a `memoryLimitMB` heap limit; running out is an
   error. Deep recursion throws a `RangeError` (the script's stack is limited well inside the dock's
   own).
-- **Reload.** **Reload widgets** in the dock menu (shown when a dock has a widget) or
-  `WinDock.DockCommand` 126 reloads every widget; `WinDock.ItemCommand` 809 reloads one slot.
-  Reloading reads the package again (the folder version if there is one) and starts the script
-  over. Editing config.json and **Reload config** also re-creates widgets whose items changed.
+- **Reload.** **Reload widgets** in the dock menu (shown when a dock has a widget), Settings >
+  Widgets, the Console or `WinDock.DockCommand` 126 reloads every widget; the Console's Reload or
+  `WinDock.ItemCommand` 809 reloads one. Reloading reads the package again (the folder version if
+  there is one) and starts the script over (its storage stays). Editing config.json and **Reload
+  config** also re-creates widgets whose items changed.
 
 ## Sandbox
 
-A widget sees only the host API above. There is no file system, process or network access
-(`http` and `shell` come with permissions in the next step of the runtime), no `eval` of other
-widgets' code: each widget has its own runtime. Modules and images are read only from the
-widget's own package:
+A widget sees only the host API above; each widget has its own runtime and cannot reach another
+widget's globals. Without permissions there is no file system, process or network access at all.
+`"http"` opens requests to the listed hosts only; `"shell"` opens files and URLs, lists folders,
+draws file icons, opens the folder popup and receives file drops. Modules and images are read
+only from the widget's own package:
 
 - `import` / `import()` specifiers are package paths: `"./x.js"` and `"../x.js"` relative to the
   importing module, anything else relative to the package root (`"lib/x.js"`).
@@ -243,11 +322,34 @@ widget's own package:
 - For folder widgets the file actually opened must be inside the widget's folder (a junction or
   symbolic link pointing elsewhere is refused), and every file is at most 8 MB.
 
+## Developing a widget
+
+- **Export a built-in** to start from it: Settings > **Widgets** lists every installed widget (name,
+  id, source: built-in, folder, or folder replacing a built-in; version). **Export built-in to
+  folder** writes its files to `widgets\<id>\` (refused if that folder exists); the copy then
+  replaces the built-in. **Add from folder…** copies a folder that holds a widget.json into the
+  widgets folder (its name, lowercased, becomes the id). **Add to dock** adds the selected widget
+  to the dock the settings window edits; **Reload widgets**, **Open widgets folder** and
+  **Console…** do what they say.
+- **`"watch": true`** in widget.json (folder widgets): every change in the widget's folder (any
+  file, sub-folders included) reloads it a quarter of a second after the first change (a burst of
+  writes by an editor is one reload). One
+  thread waits in `ReadDirectoryChangesW` on every watched folder while any watched widget is on a
+  dock; nothing polls, and it costs nothing while the files do not change.
+- **The Console** (Settings > Widgets > Console…, the dock menu's **Widget console…**,
+  `WinDock.DockCommand` 127): every widget instance of every dock with its state (ok, error,
+  stopped), the selected one's log (console output, errors with their stacks, the host's own
+  lines: loading, reloads, file changes, shell.open), **Reload**, **Open folder** (the widget's
+  folder, or the widgets folder for a built-in) and **Clear** (the view; the log is kept). It
+  updates as lines arrive.
+- **Errors** show on the widget's tile ("Error" / "Stopped" and the first line of the message).
+
 ## Adding a widget to a dock
 
 Settings > Dock contents > **Add widget ▾** lists the installed widgets (built-in and from the
-widgets folder) after Clock, Weather and Running apps; the widget is added before a clock that ends
-the dock (else at the end) and can then be moved like any item. In config.json:
+widgets folder) after Clock, Weather and Running apps (Settings > Widgets has **Add to dock**
+too); the widget is added before a clock that ends the dock (else at the end) and can then be
+moved like any item; the row's **Settings…** opens its Widget settings page. In config.json:
 
 ```json
 { "kind": "widget", "id": "digital-clock", "settings": { "showSeconds": true, "showDate": true } }

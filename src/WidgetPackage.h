@@ -96,6 +96,14 @@ std::vector<CatalogEntry> Catalog();
 // The display name of widget `id` (its manifest name, else the id).
 std::wstring DisplayName(const std::wstring& id);
 
+// Writes built-in widget `id`'s files to Directory()\<id>\ (refused if that folder exists).
+// `folder`: where it went. The folder copy then replaces the built-in.
+bool ExportBuiltIn(const std::wstring& id, std::wstring& folder, std::wstring& error);
+// Copies a widget folder (it must hold a widget.json; up to 512 files, 8 MB each, no links
+// followed) to Directory()\<its folder name> (lowercased; must be a valid id, refused if taken).
+// `id`: the installed id.
+bool InstallFolder(const std::wstring& source, std::wstring& id, std::wstring& error);
+
 // The settings a script sees: the schema's defaults, overridden by the item's `settings` object
 // (`itemJson`, may be empty) where the value has the right type (ints / numbers clamped to the
 // range, choices checked); keys the schema does not know are passed through. UTF-8 JSON object.

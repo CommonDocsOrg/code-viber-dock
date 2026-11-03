@@ -9,6 +9,7 @@
 #include <memory>
 #include <new>
 
+#include "HttpClient.h"
 #include "JsonUtil.h"
 
 using namespace JsonUtil;
@@ -17,7 +18,6 @@ namespace {
 
 constexpr wchar_t kForecastHost[] = L"api.open-meteo.com";
 constexpr wchar_t kGeocodeHost[] = L"geocoding-api.open-meteo.com";
-constexpr wchar_t kUserAgent[] = L"WinDock/0.1";
 constexpr int kTimeoutMs = 5000;  // resolve, connect, send and receive, each
 constexpr UINT kMinuteMs = 60u * 1000u;
 constexpr double kNaN = std::numeric_limits<double>::quiet_NaN();
@@ -30,56 +30,18 @@ struct FetchJob {
     std::wstring path;
 };
 
-// One synchronous HTTPS GET. Runs on the worker thread: WinHTTP only.
+// One synchronous HTTPS GET (Http::Perform, shared with the widgets' http API). Runs on the worker
+// thread.
 void HttpGet(const std::wstring& host, const std::wstring& path, WeatherService::Response& r) {
-    HINTERNET session = WinHttpOpen(kUserAgent, WINHTTP_ACCESS_TYPE_AUTOMATIC_PROXY, WINHTTP_NO_PROXY_NAME,
-                                    WINHTTP_NO_PROXY_BYPASS, 0);
-    if (!session) {
-        r.error = GetLastError();
-        return;
-    }
-    WinHttpSetTimeouts(session, kTimeoutMs, kTimeoutMs, kTimeoutMs, kTimeoutMs);
-    // No WINHTTP_OPTION_DECOMPRESSION: on Windows 11 build 26300 it makes WinHttpQueryDataAvailable
-    // fail with E_ABORT in synchronous mode (the responses are a few KB anyway).
-    HINTERNET connect = WinHttpConnect(session, host.c_str(), INTERNET_DEFAULT_HTTPS_PORT, 0);
-    HINTERNET request = connect ? WinHttpOpenRequest(connect, L"GET", path.c_str(), nullptr, WINHTTP_NO_REFERER,
-                                                     WINHTTP_DEFAULT_ACCEPT_TYPES, WINHTTP_FLAG_SECURE)
-                                : nullptr;
-    bool ok = request && WinHttpSendRequest(request, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0,
-                                            0) &&
-              WinHttpReceiveResponse(request, nullptr);
-    if (ok) {
-        DWORD status = 0, size = sizeof(status);
-        ok = WinHttpQueryHeaders(request, WINHTTP_QUERY_STATUS_CODE | WINHTTP_QUERY_FLAG_NUMBER,
-                                 WINHTTP_HEADER_NAME_BY_INDEX, &status, &size, WINHTTP_NO_HEADER_INDEX) != FALSE;
-        r.status = status;
-    }
-    while (ok) {
-        DWORD available = 0;
-        if (!WinHttpQueryDataAvailable(request, &available)) {
-            ok = false;
-            break;
-        }
-        if (available == 0) break;
-        if (r.body.size() + available > WeatherService::kMaxBody) {
-            r.error = ERROR_FILE_TOO_LARGE;
-            r.body.clear();
-            break;
-        }
-        const size_t at = r.body.size();
-        r.body.resize(at + available);
-        DWORD read = 0;
-        if (!WinHttpReadData(request, r.body.data() + at, available, &read)) {
-            ok = false;
-            break;
-        }
-        r.body.resize(at + read);
-    }
-    if (!ok && !r.error) r.error = GetLastError() ? GetLastError() : ERROR_GEN_FAILURE;
-    if (r.error) r.body.clear();
-    if (request) WinHttpCloseHandle(request);
-    if (connect) WinHttpCloseHandle(connect);
-    WinHttpCloseHandle(session);
+    Http::Request rq;
+    rq.url = L"https://" + host + path;
+    rq.timeoutMs = kTimeoutMs;
+    rq.maxBody = WeatherService::kMaxBody;
+    Http::Result result;
+    Http::Perform(rq, result);
+    r.error = result.error;
+    r.status = result.status;
+    r.body = std::move(result.body);
 }
 
 DWORD WINAPI FetchThread(LPVOID param) {

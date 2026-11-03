@@ -273,9 +273,18 @@ public:
     bool OnEvent(DockEvent e) override { return e == DockEvent::WidgetRedraw && widget_ && widget_->TakeChanged(); }
     WidgetInstance* Widget() const override { return widget_; }
 
-    void OnClick(int slot, bool) override {
+    // A press: onPress; on a widget whose popup is open the dock closes it and the click that
+    // follows says so (closedPopup), so a click toggles the popup.
+    bool OnPress(int slot) override {
+        if (!widget_) return false;
+        const bool open = widget_->PopupShownNow();
         float x = 0, y = 0;
-        if (widget_ && Local(slot, x, y)) widget_->Click(x, y);
+        if (Local(slot, x, y)) widget_->Press(x, y);
+        return open;
+    }
+    void OnClick(int slot, bool pressClosedPopup) override {
+        float x = 0, y = 0;
+        if (widget_ && Local(slot, x, y)) widget_->Click(x, y, pressClosedPopup);
     }
     void OnMiddleClick(int slot) override {
         float x = 0, y = 0;

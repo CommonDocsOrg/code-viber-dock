@@ -15,6 +15,7 @@
 #include "DockWindow.h"
 #include "SettingsWindow.h"
 #include "TaskbarController.h"
+#include "WidgetConsole.h"
 
 // Names shared between the running instance and command-line invocations.
 namespace AppIpc {
@@ -73,6 +74,7 @@ private:
     static constexpr UINT kSettingsClosed = WM_APP + 2;  // posted: delete the destroyed settings window
     static constexpr UINT kDialogActivated = WM_APP + 3;  // posted (wParam = window): ChooseItemIcon's focus fix
     static constexpr UINT kDisplaySync = WM_APP + 4;      // posted: re-enumerate the monitors (coalesced)
+    static constexpr UINT kConsoleClosed = WM_APP + 6;    // posted: delete the destroyed widget Console (WM_APP + 5: kReapMessage)
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
 
@@ -142,6 +144,8 @@ private:
     void UpdateReservedMonitors();
     void ReloadConfig();
     void OpenConfigFile();
+    // The widget Console (DockCommand 127, Settings > Widgets): opens or activates it.
+    void OpenConsole();
     // A setting was changed in the settings window: apply it to the docks, then save (debounced).
     void OnSettingsChanged(SettingsScope scope);
     // Docks page: add / duplicate / remove a config dock (refused while a menu or dialog is open).
@@ -174,6 +178,7 @@ private:
     bool syncPending_ = false;    // a display sync is posted or waits for the modal loop to end
     bool keepShown_ = false;      // the settings window keeps the docks shown (new docks too)
     std::unique_ptr<SettingsWindow> settings_;  // null (nothing allocated) while closed
+    std::unique_ptr<WidgetConsole> console_;    // null while closed
     // The settings window's place search in flight (host.geocode): its tag and where its result
     // goes (cleared when the window closes, so a late result is dropped).
     WPARAM geocodeTag_ = 0;

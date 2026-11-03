@@ -400,6 +400,12 @@ bool SettingsWindow::CreatePage(SettingsPage& page, int index) {
                     &page);
     if (!page.hwnd_) return false;
     page.Build();
+    CreateControls(page);
+    page.Created();
+    return true;
+}
+
+void SettingsWindow::CreateControls(SettingsPage& page) {
     for (Ctl& c : page.table_) {
         c.hwnd = CreateWindowExW(c.exStyle, c.cls, c.text.c_str(), WS_CHILD | WS_VISIBLE | c.style, 0, 0, 0, 0,
                                  page.hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(c.id)), instance_, nullptr);
@@ -439,8 +445,6 @@ bool SettingsWindow::CreatePage(SettingsPage& page, int index) {
                 break;
         }
     }
-    page.Created();
-    return true;
 }
 
 void SettingsWindow::Activate() {
@@ -886,8 +890,75 @@ LRESULT CALLBACK SettingsWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LP
     return self->WndProc(msg, wp, lp);
 }
 
+void SettingsWindow::RequestRebuild(const SettingsPage& page) {
+    for (size_t i = 0; i < pages_.size(); ++i) {
+        if (pages_[i].get() == &page && hwnd_) PostMessageW(hwnd_, kRebuildMessage, i, 0);
+    }
+}
+
+void SettingsWindow::ShowWidgetSettings(int item) {
+    if (!hwnd_ || SettingsIds::kPageWidgetSettings >= static_cast<int>(pages_.size())) return;
+    pages_[SettingsIds::kPageWidgetSettings]->SelectItem(item);
+    RebuildPage(SettingsIds::kPageWidgetSettings);
+    SelectPage(SettingsIds::kPageWidgetSettings);
+}
+
+void SettingsWindow::RebuildPage(int index) {
+    if (!hwnd_ || index < 0 || index >= static_cast<int>(pages_.size())) return;
+    SettingsPage& page = *pages_[static_cast<size_t>(index)];
+    if (!page.hwnd_) return;
+    if (HWND f = GetFocus(); f && IsChild(page.hwnd_, f)) SetFocus(nav_);
+    if (lastFocus_ && IsChild(page.hwnd_, lastFocus_)) lastFocus_ = nullptr;
+    for (Ctl& c : page.table_) {
+        if (c.hwnd) DestroyWindow(c.hwnd);
+    }
+    page.table_.clear();
+    page.y_ = 0;
+    page.scrollPx_ = 0;
+    page.Build();
+    CreateControls(page);
+    page.Created();
+    const bool dark = palette_.dark;
+    DarkMode::ThemeScrollBars(page.hwnd_, dark);
+    for (const Ctl& c : page.table_) {
+        if (!c.hwnd) continue;
+        HFONT f = c.kind == CtlKind::Title ? fontTitle_ : c.kind == CtlKind::Section ? fontSemibold_ : font_;
+        SendMessageW(c.hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(f), FALSE);
+        switch (c.kind) {
+            case CtlKind::Button:
+            case CtlKind::Check:
+            case CtlKind::Radio:
+            case CtlKind::Edit:
+            case CtlKind::Spin:
+            case CtlKind::Combo:
+            case CtlKind::Link:
+                DarkMode::ThemeControl(c.hwnd, dark);
+                break;
+            case CtlKind::Trackbar:
+                SetWindowTheme(c.hwnd, nullptr, nullptr);
+                break;
+            case CtlKind::List:
+                ThemeList(c.hwnd);
+                break;
+            default:
+                break;
+        }
+    }
+    LayoutPage(page);
+    loading_ = true;
+    page.Load();
+    loading_ = false;
+    page.OnStyleChanged();
+    RedrawWindow(page.hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    InvalidateRect(nav_, nullptr, TRUE);  // a page name may have changed
+}
+
 LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
     HWND hwnd = hwnd_;
+    if (msg == kRebuildMessage) {
+        RebuildPage(static_cast<int>(wp));
+        return 0;
+    }
     switch (msg) {
         case WM_ACTIVATE:
             if (LOWORD(wp) == WA_INACTIVE) {

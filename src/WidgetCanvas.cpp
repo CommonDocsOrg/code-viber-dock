@@ -1,5 +1,7 @@
 #include "WidgetCanvas.h"
 
+#include <shobjidl.h>
+
 #include <algorithm>
 #include <cctype>
 #include <cmath>
@@ -584,6 +586,66 @@ bool WidgetCanvas::Image(const std::string& path, float x, float y, float w, flo
     Apply();
     const D2D1_RECT_F dst = D2D1::RectF(x, y, x + w, y + h);
     dc_->DrawBitmap(img->bitmap.get(), &dst, std::clamp(opacity * cur_.alpha, 0.0f, 1.0f),
+                    D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+    return true;
+}
+
+bool WidgetCanvas::FileIcon(const std::wstring& path, float x, float y, float size, std::wstring& error) {
+    if (!dc_) return true;
+    if (!Finite(x + y + size) || size <= 0.0f) return true;
+    const UINT px = static_cast<UINT>(std::clamp(std::lround(size * scale_), 8L, 256L));
+    const std::string key = "icon|" + JsonUtil::WideToUtf8(path) + "|" + std::to_string(px);
+    ImageEntry* img = nullptr;
+    if (auto it = images_.find(key); it != images_.end()) img = &it->second;
+    if (!img) {
+        winrt::com_ptr<IShellItemImageFactory> factory;
+        if (path.empty() || FAILED(SHCreateItemFromParsingName(path.c_str(), nullptr, IID_PPV_ARGS(factory.put())))) {
+            error = L"no such file or folder: " + path;
+            return false;
+        }
+        HBITMAP hbm = nullptr;
+        if (FAILED(factory->GetImage(SIZE{static_cast<LONG>(px), static_cast<LONG>(px)},
+                                     SIIGBF_ICONONLY | SIIGBF_BIGGERSIZEOK, &hbm)) ||
+            !hbm) {
+            error = L"no icon for " + path;
+            return false;
+        }
+        IWICImagingFactory* wic = Wic();
+        winrt::com_ptr<IWICBitmap> bitmap;
+        const bool ok =
+            wic && SUCCEEDED(wic->CreateBitmapFromHBITMAP(hbm, nullptr, WICBitmapUsePremultipliedAlpha, bitmap.put()));
+        DeleteObject(hbm);
+        winrt::com_ptr<IWICFormatConverter> converter;
+        if (!ok || FAILED(wic->CreateFormatConverter(converter.put())) ||
+            FAILED(converter->Initialize(bitmap.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr,
+                                         0.0, WICBitmapPaletteTypeCustom))) {
+            error = L"cannot convert the icon of " + path;
+            return false;
+        }
+        winrt::com_ptr<IWICBitmap> converted;
+        if (FAILED(wic->CreateBitmapFromSource(converter.get(), WICBitmapCacheOnLoad, converted.put()))) {
+            error = L"cannot convert the icon of " + path;
+            return false;
+        }
+        if (images_.size() >= kMaxImages) images_.clear();
+        ImageEntry entry;
+        entry.source = converted;
+        converted->GetSize(&entry.w, &entry.h);
+        img = &images_.emplace(key, std::move(entry)).first->second;
+    }
+    winrt::com_ptr<ID2D1Device> device;
+    dc_->GetDevice(device.put());
+    if (!img->bitmap || img->device != device.get()) {
+        img->bitmap = nullptr;
+        if (FAILED(dc_->CreateBitmapFromWicBitmap(img->source.get(), nullptr, img->bitmap.put()))) {
+            error = L"cannot create the icon bitmap";
+            return false;
+        }
+        img->device = device.get();
+    }
+    Apply();
+    const D2D1_RECT_F dst = D2D1::RectF(x, y, x + size, y + size);
+    dc_->DrawBitmap(img->bitmap.get(), &dst, std::clamp(cur_.alpha, 0.0f, 1.0f),
                     D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
     return true;
 }

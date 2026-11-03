@@ -40,7 +40,8 @@ enum Command : UINT {
     kLockAllDocks = 124,        // sets docks[].locked on every dock
     kUnlockAllDocks = 125,      // clears it on every dock
     kReloadWidgets = 126,       // every script widget (every dock) reloads its package and script
-    kLastDockCommand = kReloadWidgets,
+    kWidgetConsole = 127,       // opens (or activates) the widget Console
+    kLastDockCommand = kWidgetConsole,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>

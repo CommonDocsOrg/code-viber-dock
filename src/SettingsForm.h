@@ -122,3 +122,5 @@ std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window);      // Se
 std::unique_ptr<SettingsPage> MakeWeatherPage(SettingsWindow& window);     // SettingsPagesWeather.cpp
 std::unique_ptr<SettingsPage> MakeDocksPage(SettingsWindow& window);       // SettingsPagesDocks.cpp
 std::unique_ptr<SettingsPage> MakeLayoutPage(SettingsWindow& window);      // SettingsPagesLayout.cpp
+std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window);     // SettingsPagesWidgets.cpp
+std::unique_ptr<SettingsPage> MakeWidgetSettingsPage(SettingsWindow& window);  // SettingsPagesWidgets.cpp

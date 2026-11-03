@@ -22,6 +22,7 @@
 #include "IconCache.h"
 #include "PreviewPopup.h"
 #include "Renderer.h"
+#include "ScriptPopup.h"
 #include "Weather.h"
 #include "WeatherPopup.h"
 #include "WidgetInstance.h"
@@ -88,6 +89,8 @@ public:
     static constexpr UINT kAppBarMessage = WM_APP + 24;
     // Posted (coalesced): a script widget asked to be redrawn (WidgetInstance::Client).
     static constexpr UINT kWidgetRedrawMessage = WM_APP + 25;
+    // Posted (coalesced): script widgets asked for their popups (DockWindow::OnWidgetPopupRequests).
+    static constexpr UINT kWidgetPopupMessage = WM_APP + 26;
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -519,8 +522,15 @@ private:
     // Every click popup (folder, weather, calendar).
     void DismissClickPopups(bool animate, bool leaveCheck = true);
     bool ClickPopupOnScreen() const {
-        return folder_.OnScreen() || weatherPopup_.OnScreen() || calendar_.OnScreen();
+        return folder_.OnScreen() || weatherPopup_.OnScreen() || calendar_.OnScreen() || widgetPopup_.OnScreen();
     }
+    // --- script widget popups (posted requests, see DockWindow.cpp) ---
+    void OnWidgetPopupRequests();
+    void DismissWidgetPopup(bool animate, bool leaveCheck = true);
+    void ShowFolderPopupAt(const std::wstring& path, const std::wstring& name, float anchor, const AppKey& key);
+    // The slot that shows widget `w` (-1: none) / the instance with this key (null: none).
+    int SlotOfWidget(const WidgetInstance& w) const;
+    WidgetInstance* WidgetByKey(const std::wstring& key) const;
     // Popup chrome from the theme (scale, acrylic, tint, colours, monitor).
     WeatherPopup::Style WeatherPopupStyle() const;
 
@@ -538,6 +548,7 @@ private:
         kHoldFolder = 1u << 1,
         kHoldWeather = 1u << 2,
         kHoldCalendar = 1u << 3,
+        kHoldWidget = 1u << 4,  // a script widget's popup
     };
     // Takes the hold for `bit` (cancels a pending hide).
     void TakePopupHold(uint32_t bit);
@@ -640,6 +651,8 @@ private:
     bool ReducedMotion() const override { return motion_.reduce; }
     // --- WidgetInstance::Client ---
     void WidgetChanged(WidgetInstance& widget) override;
+    void WidgetPopupRequest(WidgetInstance& widget) override;
+    bool WidgetPopupShown(const WidgetInstance& widget) const override;
     // The pointer is over widget slot `index` now (-1: none): onHover leave / enter.
     void UpdateWidgetHover(int index);
 
@@ -708,7 +721,8 @@ private:
     // --- external file drops (OLE IDropTarget on the dock HWND) ---
     // What a drop at the pointer would do (QueryState 26): pin pinnable files at an insertion
     // marker, open the files with the app item under the pointer, or recycle them on the bin.
-    enum class DropMode { None = 0, Insert = 1, OpenWith = 2, Recycle = 3 };
+    // Widget: onto a script widget that takes files (onDrop + the "shell" permission).
+    enum class DropMode { None = 0, Insert = 1, OpenWith = 2, Recycle = 3, Widget = 4 };
     HRESULT RenderMarker();
     DWORD OnDragEnter(IDataObject* data, POINT screenPt, DWORD allowed);
     DWORD OnDragOver(POINT screenPt, DWORD allowed);
@@ -811,6 +825,11 @@ private:
     std::vector<std::wstring> widgetsClaimed_;  // keys AcquireWidget handed out during BuildElements
     bool widgetRedrawPosted_ = false;           // kWidgetRedrawMessage is posted
     AppKey hoverWidget_;                        // the widget slot under the pointer (empty: none)
+    ScriptPopup widgetPopup_;                   // the script popup (one at a time)
+    std::wstring popupWidget_;                  // the instance key it belongs to ("" none)
+    std::wstring previewOpener_;                // the widget that opened the preview popup (popup.previews)
+    std::vector<std::wstring> popupRequests_;   // instance keys with a pending popup request
+    bool popupRequestPosted_ = false;           // kWidgetPopupMessage is posted
     std::vector<DockItem> items_;  // the slots, in dock order
     bool evictPending_ = false;
     std::vector<AppIdentity::ResolvedPin> pins_;                       // parallel to the pin items
@@ -941,6 +960,7 @@ private:
         DropMode mode = DropMode::None;
         AppKey key;
         std::vector<std::wstring> files;
+        POINT screen{};  // where it was dropped (a widget gets box-local coordinates)
     };
     DropAction dropAction_;
     int dropGap_ = -1;            // slot the gap is open at (-1: none)

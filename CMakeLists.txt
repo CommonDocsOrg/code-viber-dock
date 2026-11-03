@@ -74,6 +74,10 @@ add_executable(WinDock WIN32
   src/WidgetPackage.cpp
   src/WidgetInstance.cpp
   src/WidgetRuntime.cpp
+  src/HttpClient.cpp
+  src/ScriptPopup.cpp
+  src/WidgetConsole.cpp
+  src/SettingsPagesWidgets.cpp
   res/app.rc
   res/app.manifest
 )

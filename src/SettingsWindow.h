@@ -151,6 +151,8 @@ class SettingsPreview;
     virtual void OnStyleChanged() {}
     // The dock's weather data / status changed (SettingsWindow::WeatherChanged).
     virtual void OnWeatherChanged() {}
+    // SettingsWindow::ShowWidgetSettings: the item (of the edited dock) the page is about to show.
+    virtual void SelectItem(int /*item*/) {}
 
     // --- layout table builders (DIPs; the cursor y_ moves down row by row) ---
     static constexpr int kMargin = 24;
@@ -243,6 +245,11 @@ public:
     void ShowPage(int index);
     // The dock's weather data / status changed: pages update what shows it (no config reload).
     void WeatherChanged();
+    // Settings > Widget settings for item `item` of the edited dock (a `widget` item).
+    void ShowWidgetSettings(int item);
+    // A page whose controls depend on the config (the generated widget settings page) builds its
+    // table again: posted, so a page may ask from inside its own notification.
+    void RequestRebuild(const SettingsPage& page);
 
     // --- for pages ---
     SettingsHost& Host() { return host_; }
@@ -281,6 +288,10 @@ private:
     RECT InitialRect() const;
     SIZE WindowSizeFor(UINT dpi) const;
     bool CreatePage(SettingsPage& page, int index);
+    void CreateControls(SettingsPage& page);
+    // Destroys the page's controls, builds its table again, creates, styles, lays out and loads them.
+    void RebuildPage(int index);
+    static constexpr UINT kRebuildMessage = WM_APP + 40;  // posted: wParam = page index
     void CreateFonts();
     void DestroyFonts();
     void CreateBrushes();

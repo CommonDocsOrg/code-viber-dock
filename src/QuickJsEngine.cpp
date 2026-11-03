@@ -196,6 +196,37 @@ constexpr char kPrelude[] = R"JS(
   c.radialGradient = (cx, cy, rx, ry, stops, fx, fy) =>
     Object.freeze({ type: 'radial', cx, cy, rx, ry: ry ?? rx, stops, fx: fx ?? 0, fy: fy ?? 0 });
   Object.freeze(c);
+  // http: headers as an object, a string body as text, any other body as JSON.
+  const headerText = (h) => {
+    let s = '';
+    for (const [k, v] of Object.entries(h ?? {})) {
+      const name = String(k), value = String(v);
+      if (!/^[A-Za-z0-9!#$%&'*+.^_`|~-]+$/.test(name) || /[\r\n]/.test(value)) throw new TypeError('http: bad header ' + name);
+      s += name + ': ' + value + '\r\n';
+    }
+    return s;
+  };
+  const send = (method, url, body, o) => {
+    o = o ?? {};
+    const headers = Object.assign({}, o.headers);
+    const typed = Object.keys(headers).some((k) => k.toLowerCase() === 'content-type');
+    let data = '';
+    if (body !== undefined && body !== null) {
+      if (typeof body === 'string') {
+        data = body;
+        if (!typed) headers['Content-Type'] = 'text/plain; charset=utf-8';
+      } else {
+        data = JSON.stringify(body);
+        if (!typed) headers['Content-Type'] = 'application/json';
+      }
+    }
+    return n.http(String(method).toUpperCase(), String(url), headerText(headers), data, Number(o.timeout ?? 10000), o.type === 'json');
+  };
+  g.http = Object.freeze({
+    get: (url, o) => send('GET', url, undefined, o),
+    post: (url, body, o) => send('POST', url, body, o),
+    request: (o) => send(o?.method ?? 'GET', o?.url, o?.body, o),
+  });
 })(globalThis, globalThis.__windock);
 delete globalThis.__windock;
 )JS";
@@ -211,6 +242,11 @@ public:
         }
         for (auto& [id, t] : timers_) JS_FreeValue(ctx_, t.fn);
         timers_.clear();
+        for (auto& [id, p] : pending_) {
+            JS_FreeValue(ctx_, p.resolve);
+            JS_FreeValue(ctx_, p.reject);
+        }
+        pending_.clear();
         for (JSValue& f : fns_) JS_FreeValue(ctx_, f);
         JS_FreeValue(ctx_, ns_);
         JS_FreeValue(ctx_, canvas_);
@@ -276,8 +312,10 @@ public:
             return res;
         }
         ns_ = value;  // the module namespace
-        static const char* const kNames[] = {"draw",    "measure",     "tick",  "onClick", "onMiddleClick",
-                                             "onWheel", "onHover", "onSettingsChanged"};
+        static const char* const kNames[] = {"draw",      "measure",      "tick",         "onClick",
+                                             "onMiddleClick", "onWheel", "onHover",     "onSettingsChanged",
+                                             "onPress",   "onDrop",       "drawPopup",    "onPopupClick",
+                                             "onPopupClose"};
         static_assert(std::size(kNames) == static_cast<size_t>(Fn::Count));
         for (size_t i = 0; i < std::size(kNames); ++i) {
             JSValue f = JS_GetPropertyStr(ctx_, ns_, kNames[i]);
@@ -307,7 +345,8 @@ public:
         JSValue args[2] = {JS_UNDEFINED, JS_DupValue(ctx_, dock_)};
         switch (fn) {
             case Fn::Draw:
-            case Fn::Measure: args[0] = JS_DupValue(ctx_, canvas_); break;
+            case Fn::Measure:
+            case Fn::DrawPopup: args[0] = JS_DupValue(ctx_, canvas_); break;
             case Fn::OnSettingsChanged: args[0] = JS_DupValue(ctx_, settings_); break;
             case Fn::Tick: args[0] = JS_DupValue(ctx_, dock_); break;
             default:
@@ -336,6 +375,54 @@ public:
         }
         res = Invoke(fn, 0, nullptr);
         JS_FreeValue(ctx_, fn);
+        return res;
+    }
+
+    ScriptResult Resolve(int id, bool ok, const std::string& json) override {
+        ScriptResult res;
+        auto it = pending_.find(id);
+        if (it == pending_.end()) return res;
+        const Pending p = it->second;
+        pending_.erase(it);
+        JSValue arg = JS_UNDEFINED;
+        bool fulfil = ok;
+        if (ok) {
+            arg = JS_ParseJSON(ctx_, json.data(), json.size(), "<http>");
+            if (JS_IsException(arg)) {
+                JS_FreeValue(ctx_, JS_GetException(ctx_));
+                arg = JS_NewObject(ctx_);
+            }
+            // The body as JSON: asked for (type: "json"), or a JSON content type (then optional).
+            std::string type;
+            PropS(ctx_, arg, "contentType", type);
+            const bool jsonType = type.find("json") != std::string::npos;
+            if (p.wantJson || jsonType) {
+                std::string text;
+                PropS(ctx_, arg, "text", text);
+                JSValue parsed = JS_ParseJSON(ctx_, text.data(), text.size(), "<http body>");
+                if (JS_IsException(parsed)) {
+                    JS_FreeValue(ctx_, JS_GetException(ctx_));
+                    if (p.wantJson) {
+                        JS_FreeValue(ctx_, arg);
+                        arg = MakeError("http: the response is not JSON");
+                        fulfil = false;
+                    }
+                } else {
+                    JS_SetPropertyStr(ctx_, arg, "json", parsed);
+                }
+            }
+        } else {
+            std::string message = "http: the request failed";
+            JSValue m = JS_ParseJSON(ctx_, json.data(), json.size(), "<http error>");
+            if (JS_IsString(m)) message = ToStd(ctx_, m);
+            if (JS_IsException(m)) JS_FreeValue(ctx_, JS_GetException(ctx_));
+            JS_FreeValue(ctx_, m);
+            arg = MakeError(message);
+        }
+        res = Invoke(fulfil ? p.resolve : p.reject, 1, &arg);
+        JS_FreeValue(ctx_, arg);
+        JS_FreeValue(ctx_, p.resolve);
+        JS_FreeValue(ctx_, p.reject);
         return res;
     }
 
@@ -376,6 +463,19 @@ public:
         }
         timers_.emplace(id, t);
         return JS_NewInt32(ctx_, id);
+    }
+    // http: the promise of request `id` (resolved / rejected by Resolve).
+    JSValue AddRequest(int id, bool wantJson) {
+        JSValue funcs[2] = {JS_UNDEFINED, JS_UNDEFINED};
+        JSValue promise = JS_NewPromiseCapability(ctx_, funcs);
+        if (JS_IsException(promise)) return promise;
+        pending_[id] = Pending{funcs[0], funcs[1], wantJson};
+        return promise;
+    }
+    JSValue MakeError(const std::string& message) {
+        JSValue e = JS_NewError(ctx_);
+        JS_SetPropertyStr(ctx_, e, "message", NewString(ctx_, message));
+        return e;
     }
     void ClearTimer(int id) {
         auto it = timers_.find(id);
@@ -584,6 +684,12 @@ private:
     bool armed_ = false;
     bool interrupted_ = false;
     std::map<const void*, std::wstring> rejections_;
+    struct Pending {
+        JSValue resolve = JS_UNDEFINED;
+        JSValue reject = JS_UNDEFINED;
+        bool wantJson = false;
+    };
+    std::unordered_map<int, Pending> pending_;  // http requests in flight
 };
 
 // --- canvas ------------------------------------------------------------------------------------
@@ -591,8 +697,9 @@ private:
 WidgetCanvas* CanvasOf(JSContext* ctx) { return Self(ctx)->host_.Canvas(); }
 
 JSValue NoCanvas(JSContext* ctx) {
-    return JS_ThrowTypeError(ctx, "the canvas can only be used inside draw() or measure()");
+    return JS_ThrowTypeError(ctx, "the canvas can only be used inside draw(), measure() or drawPopup()");
 }
+JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv);  // below (shell)
 
 // A colour (string / 0xAARRGGBB number) or a gradient object; undefined: `fallback`.
 bool ReadPaint(JSContext* ctx, JSValueConst v, uint32_t fallback, CanvasPaint& p) {
@@ -1163,6 +1270,7 @@ const JSCFunctionListEntry kCanvasFuncs[] = {
     JS_CFUNC_DEF("opacity", 1, Guard<OpacityFn>),
     JS_CFUNC_DEF("clip", 4, Guard<ClipFn>),
     JS_CFUNC_DEF("clipPath", 1, Guard<ClipPathFn>),
+    JS_CFUNC_DEF("fileIcon", 4, Guard<FileIconFn>),
     JS_CGETSET_MAGIC_DEF("width", GuardGet<CanvasGet>, nullptr, 0),
     JS_CGETSET_MAGIC_DEF("height", GuardGet<CanvasGet>, nullptr, 1),
     JS_CGETSET_MAGIC_DEF("scale", GuardGet<CanvasGet>, nullptr, 2),
@@ -1240,8 +1348,178 @@ const JSCFunctionListEntry kSystemFuncs[] = {
     JS_CGETSET_MAGIC_DEF("shortMonthNames", GuardGet<SystemGet>, nullptr, 8),
 };
 
+// --- storage ---------------------------------------------------------------------------------------
+
+JSValue StorageGetFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string key = WideToUtf8(a.S(0));
+    if (a.failed) return JS_EXCEPTION;
+    std::string json;
+    if (!Self(ctx)->host_.StorageGet(key, json)) return a.Has(1) ? JS_DupValue(ctx, argv[1]) : JS_UNDEFINED;
+    JSValue v = JS_ParseJSON(ctx, json.data(), json.size(), "<storage>");
+    if (JS_IsException(v)) {
+        JS_FreeValue(ctx, JS_GetException(ctx));
+        return JS_UNDEFINED;
+    }
+    return v;
+}
+JSValue StorageSetFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string key = WideToUtf8(a.S(0));
+    if (a.failed) return JS_EXCEPTION;
+    JSValue s = JS_JSONStringify(ctx, a.At(1), JS_UNDEFINED, JS_UNDEFINED);
+    if (JS_IsException(s)) return s;
+    if (JS_IsUndefined(s)) {  // undefined, a function: nothing to keep
+        Self(ctx)->host_.StorageRemove(key);
+        return JS_UNDEFINED;
+    }
+    const std::string json = ToStd(ctx, s);
+    JS_FreeValue(ctx, s);
+    std::wstring error;
+    if (!Self(ctx)->host_.StorageSet(key, json, error)) return JS_ThrowRangeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
+JSValue StorageRemoveFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string key = WideToUtf8(a.S(0));
+    if (a.failed) return JS_EXCEPTION;
+    Self(ctx)->host_.StorageRemove(key);
+    return JS_UNDEFINED;
+}
+JSValue StorageKeysFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    const std::vector<std::string> keys = Self(ctx)->host_.StorageKeys();
+    JSValue arr = JS_NewArray(ctx);
+    for (size_t i = 0; i < keys.size(); ++i) JS_SetPropertyUint32(ctx, arr, static_cast<uint32_t>(i), NewString(ctx, keys[i]));
+    return arr;
+}
+JSValue StorageClearFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    ScriptHost& h = Self(ctx)->host_;
+    for (const std::string& k : h.StorageKeys()) h.StorageRemove(k);
+    return JS_UNDEFINED;
+}
+
+// --- http (native half; http.get / post / request are in the prelude) ---------------------------
+
+JSValue HttpFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring method = a.S(0), url = a.S(1), headers = a.S(2);
+    const std::string body = a.Has(3) ? ToStd(ctx, argv[3]) : std::string();
+    const float timeout = a.F(4, 10000.0f);
+    const bool wantJson = a.B(5);
+    if (a.failed) return JS_EXCEPTION;
+    if (method != L"GET" && method != L"POST" && method != L"PUT" && method != L"DELETE" && method != L"PATCH" &&
+        method != L"HEAD") {
+        return JS_ThrowTypeError(ctx, "http: method %s is not supported", WideToUtf8(method).c_str());
+    }
+    std::wstring error;
+    const int id = Self(ctx)->host_.HttpStart(method, url, headers, body,
+                                              static_cast<uint32_t>(std::clamp(timeout, 0.0f, 60000.0f)), error);
+    if (!id) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return Self(ctx)->AddRequest(id, wantJson);
+}
+
+// --- shell -----------------------------------------------------------------------------------------
+
+JSValue ShellOpenFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring target = a.S(0), args = a.S(1);
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    if (!Self(ctx)->host_.ShellOpen(target, args, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_TRUE;
+}
+JSValue ShellListFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring folder = a.S(0);
+    if (a.failed) return JS_EXCEPTION;
+    std::string json;
+    std::wstring error;
+    if (!Self(ctx)->host_.ShellList(folder, json, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_ParseJSON(ctx, json.data(), json.size(), "<shell.list>");
+}
+// canvas.fileIcon(path, x, y, size): the shell's icon of a file or folder (permission "shell").
+JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    CANVAS_OR_THROW();
+    if (!Self(ctx)->host_.Permitted(ScriptHost::Permission::Shell)) {
+        return JS_ThrowTypeError(ctx, "canvas.fileIcon needs the \"shell\" permission");
+    }
+    const std::wstring path = a.S(0);
+    const float x = a.F(1), y = a.F(2), size = a.F(3, 32.0f);
+    if (a.failed) return JS_EXCEPTION;
+    wchar_t expanded[MAX_PATH * 2]{};
+    ExpandEnvironmentStringsW(path.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
+    std::wstring error;
+    if (!c->FileIcon(expanded, x, y, size, error)) return JS_ThrowTypeError(ctx, "fileIcon: %s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
+
+// --- popup -----------------------------------------------------------------------------------------
+
+JSValue PopupOpenFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    float w = 0, h = 0;
+    if (JS_IsObject(a.At(0))) {
+        if (!PropF(ctx, a.At(0), "width", w) || !PropF(ctx, a.At(0), "height", h)) return JS_EXCEPTION;
+    } else {
+        w = a.F(0);
+        h = a.F(1);
+        if (a.failed) return JS_EXCEPTION;
+    }
+    std::wstring error;
+    if (!Self(ctx)->host_.PopupOpen(w, h, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
+JSValue PopupCloseFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    Self(ctx)->host_.PopupClose();
+    return JS_UNDEFINED;
+}
+JSValue PopupRedrawFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    Self(ctx)->host_.PopupRedraw();
+    return JS_UNDEFINED;
+}
+JSValue PopupFolderFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring path = a.S(0);
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    if (!Self(ctx)->host_.PopupFolder(path, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
+JSValue PopupPreviewsFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring app = a.S(0);
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    if (!Self(ctx)->host_.PopupPreviews(app, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
+JSValue PopupGet(JSContext* ctx, JSValueConst, int) { return JS_NewBool(ctx, Self(ctx)->host_.PopupShown()); }
+
+const JSCFunctionListEntry kStorageFuncs[] = {
+    JS_CFUNC_DEF("get", 2, Guard<StorageGetFn>),
+    JS_CFUNC_DEF("set", 2, Guard<StorageSetFn>),
+    JS_CFUNC_DEF("remove", 1, Guard<StorageRemoveFn>),
+    JS_CFUNC_DEF("keys", 0, Guard<StorageKeysFn>),
+    JS_CFUNC_DEF("clear", 0, Guard<StorageClearFn>),
+};
+
+const JSCFunctionListEntry kShellFuncs[] = {
+    JS_CFUNC_DEF("open", 2, Guard<ShellOpenFn>),
+    JS_CFUNC_DEF("list", 1, Guard<ShellListFn>),
+};
+
+const JSCFunctionListEntry kPopupFuncs[] = {
+    JS_CFUNC_DEF("open", 2, Guard<PopupOpenFn>),
+    JS_CFUNC_DEF("close", 0, Guard<PopupCloseFn>),
+    JS_CFUNC_DEF("redraw", 0, Guard<PopupRedrawFn>),
+    JS_CFUNC_DEF("folder", 1, Guard<PopupFolderFn>),
+    JS_CFUNC_DEF("previews", 1, Guard<PopupPreviewsFn>),
+    JS_CGETSET_MAGIC_DEF("isOpen", GuardGet<PopupGet>, nullptr, 0),
+};
+
 const JSCFunctionListEntry kNativeFuncs[] = {
     JS_CFUNC_DEF("log", 2, Guard<LogFn>),
+    JS_CFUNC_DEF("http", 6, Guard<HttpFn>),
 };
 
 bool QuickJsEngine::InstallApi() {
@@ -1264,6 +1542,9 @@ bool QuickJsEngine::InstallApi() {
     JS_SetPropertyFunctionList(ctx_, global, kGlobalFuncs, static_cast<int>(std::size(kGlobalFuncs)));
     JS_SetPropertyStr(ctx_, global, "timer", object(kTimerFuncs, std::size(kTimerFuncs)));
     JS_SetPropertyStr(ctx_, global, "system", object(kSystemFuncs, std::size(kSystemFuncs)));
+    JS_SetPropertyStr(ctx_, global, "storage", object(kStorageFuncs, std::size(kStorageFuncs)));
+    JS_SetPropertyStr(ctx_, global, "shell", object(kShellFuncs, std::size(kShellFuncs)));
+    JS_SetPropertyStr(ctx_, global, "popup", object(kPopupFuncs, std::size(kPopupFuncs)));
     JS_SetPropertyStr(ctx_, global, "dock", JS_DupValue(ctx_, dock_));
     JS_SetPropertyStr(ctx_, global, "canvas", JS_DupValue(ctx_, canvas_));
     JS_SetPropertyStr(ctx_, global, "settings", JS_DupValue(ctx_, settings_));

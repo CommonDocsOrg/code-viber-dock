@@ -209,6 +209,23 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
             OpenTarget(target);
         });
 
+    widgetPopup_.Init(instance, &renderer_,
+                      ScriptPopup::Callbacks{
+                          [this](ID2D1DeviceContext* dc, float w, float h, float scale) {
+                              if (WidgetInstance* widget = WidgetByKey(popupWidget_)) widget->RenderPopup(dc, w, h, scale);
+                          },
+                          [this](float x, float y, int button) {
+                              if (WidgetInstance* widget = WidgetByKey(popupWidget_)) widget->PopupClick(x, y, button);
+                          },
+                          [this] {
+                              // Closed by itself (Escape, another window came forward): hidden already.
+                              const std::wstring key = std::move(popupWidget_);
+                              popupWidget_.clear();
+                              ReleasePopupHold(kHoldWidget, true);
+                              if (WidgetInstance* widget = WidgetByKey(key)) widget->PopupClosed();
+                          },
+                      });
+
     // File drops (OLE: needs OleInitialize on this thread, see main.cpp).
     dropTarget_ = new DropTarget(this);
     if (const HRESULT dr = RegisterDragDrop(hwnd_, dropTarget_); FAILED(dr)) {
@@ -1456,6 +1473,7 @@ bool DockWindow::RecoverDevice() {
     folder_.Destroy();
     weatherPopup_.Destroy();
     calendar_.Destroy();
+    widgetPopup_.Destroy();
     for (int attempt = 0; attempt < 3; ++attempt) {
         ResetLayers();
         icons_.Clear();  // the bitmaps belong to the lost device
@@ -2134,6 +2152,7 @@ void DockWindow::DismissPreview(bool animate, bool leaveCheck) {
     preview_.Hide(animate);
     previewItem_ = -1;
     previewKey_ = AppKey{};
+    previewOpener_.clear();
     ReleasePopupHold(kHoldPreview, leaveCheck);
 }
 
@@ -2193,6 +2212,12 @@ void DockWindow::ShowFolderPopup(int index, float anchor) {
     if (index < 0 || index >= static_cast<int>(items_.size())) return;
     const DockItem& item = items_[static_cast<size_t>(index)];
     if (item.kind != DockItem::Kind::Folder) return;
+    const std::wstring path = !item.targetPath.empty() ? item.targetPath : item.launchPath.value_or(item.key.Source());
+    ShowFolderPopupAt(path, item.displayName, anchor, item.key);
+}
+
+void DockWindow::ShowFolderPopupAt(const std::wstring& path, const std::wstring& name, float anchor, const AppKey& key) {
+    DismissWidgetPopup(false, false);
     DismissPreview(false, false);
     DismissWeatherPopup(false, false);
     DismissCalendarPopup(false, false);
@@ -2208,9 +2233,7 @@ void DockWindow::ShowFolderPopup(int index, float anchor) {
     style.hotBorder = theme.previewHotBorder;
     style.cornerRadiusDip = theme.cornerRadius;
     style.monitor = l.work;
-    const std::wstring path = !item.targetPath.empty() ? item.targetPath : item.launchPath.value_or(item.key.Source());
-    const AppKey key = item.key;
-    if (!folder_.Show(path, item.displayName, style, PopupAnchorAt(anchor))) {
+    if (!folder_.Show(path, name, style, PopupAnchorAt(anchor))) {
         DismissFolderPopup(false);
         MessageBeep(MB_ICONWARNING);
         return;
@@ -2236,7 +2259,8 @@ void DockWindow::OnFolderPopupClosed() {
 void DockWindow::RefreshFolderPopup() {
     if (!folder_.OnScreen() || folderKey_.id.empty()) return;
     const bool present = std::any_of(items_.begin(), items_.end(), [&](const DockItem& item) {
-        return item.key == folderKey_ && item.kind == DockItem::Kind::Folder;
+        // A folder item, or the script widget that opened it (popup.folder).
+        return item.key == folderKey_ && (item.kind == DockItem::Kind::Folder || item.kind == DockItem::Kind::Widget);
     });
     if (!present) DismissFolderPopup(true);  // unpinned while open
 }
@@ -2309,6 +2333,7 @@ void DockWindow::ShowWeatherPopup(float anchor) {
     DismissPreview(false, false);
     DismissFolderPopup(false, false);
     DismissCalendarPopup(false, false);
+    DismissWidgetPopup(false, false);
     if (!weatherPopup_.Show(WeatherPopupStyle(), PopupAnchorAt(anchor))) {
         DismissWeatherPopup(false);
         MessageBeep(MB_ICONWARNING);
@@ -2329,6 +2354,7 @@ void DockWindow::ShowCalendarPopup(float anchor) {
     DismissPreview(false, false);
     DismissFolderPopup(false, false);
     DismissWeatherPopup(false, false);
+    DismissWidgetPopup(false, false);
     const Layout& l = layout_;
     const ThemeConfig& theme = DockTheme();
     CalendarPopup::Style style;
@@ -2366,6 +2392,130 @@ void DockWindow::DismissClickPopups(bool animate, bool leaveCheck) {
     DismissFolderPopup(animate, leaveCheck);
     DismissWeatherPopup(animate, leaveCheck);
     DismissCalendarPopup(animate, leaveCheck);
+    DismissWidgetPopup(animate, leaveCheck);
+}
+
+// --- Script widget popups ------------------------------------------------------------------------
+// popup.open / close / redraw / folder / previews of a widget arrive here posted (they are asked
+// for from inside script calls). A script popup is ScriptPopup (drawn by the widget's drawPopup),
+// anchored on the widget's slot, holding the dock shown like the other click popups (kHoldWidget).
+
+int DockWindow::SlotOfWidget(const WidgetInstance& w) const {
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (WidgetAt(static_cast<int>(i)) == &w) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+WidgetInstance* DockWindow::WidgetByKey(const std::wstring& key) const {
+    auto it = widgets_.find(key);
+    return it == widgets_.end() ? nullptr : it->second.get();
+}
+
+void DockWindow::WidgetPopupRequest(WidgetInstance& w) {
+    if (std::find(popupRequests_.begin(), popupRequests_.end(), w.Key()) == popupRequests_.end()) {
+        popupRequests_.push_back(w.Key());
+    }
+    if (!popupRequestPosted_ && hwnd_) popupRequestPosted_ = PostMessageW(hwnd_, kWidgetPopupMessage, 0, 0) != FALSE;
+}
+
+bool DockWindow::WidgetPopupShown(const WidgetInstance& w) const {
+    if (widgetPopup_.Visible() && popupWidget_ == w.Key()) return true;
+    if (previewOpener_ == w.Key() && preview_.Visible()) return true;
+    const int slot = SlotOfWidget(w);
+    return slot >= 0 && folder_.Visible() && folderKey_ == items_[static_cast<size_t>(slot)].key;
+}
+
+void DockWindow::OnWidgetPopupRequests() {
+    popupRequestPosted_ = false;
+    const std::vector<std::wstring> keys = std::move(popupRequests_);
+    popupRequests_.clear();
+    for (const std::wstring& key : keys) {
+        WidgetInstance* w = WidgetByKey(key);
+        if (!w) continue;
+        const WidgetInstance::PopupRequest r = w->TakePopupRequest();
+        const int slot = SlotOfWidget(*w);
+        using Kind = WidgetInstance::PopupRequest::Kind;
+        switch (r.kind) {
+            case Kind::Close:
+                if (popupWidget_ == key) DismissWidgetPopup(true);
+                if (previewOpener_ == key) DismissPreview(true);
+                if (slot >= 0 && folderKey_ == items_[static_cast<size_t>(slot)].key) DismissFolderPopup(true);
+                break;
+            case Kind::Redraw:
+                if (popupWidget_ == key && widgetPopup_.OnScreen()) widgetPopup_.Repaint();
+                break;
+            case Kind::Open: {
+                if (slot < 0 || hideState_ != HideState::Shown) break;
+                DismissPreview(false, false);
+                if (popupWidget_ != key) DismissClickPopups(false, false);
+                const DockItem& item = items_[static_cast<size_t>(slot)];
+                const Layout& l = layout_;
+                const ThemeConfig& theme = DockTheme();
+                ScriptPopup::Style style;
+                style.scale = l.scale;
+                style.acrylic = acrylic_;
+                style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
+                style.border = theme.barBorder;
+                style.cornerRadiusDip = theme.cornerRadius;
+                style.monitor = l.work;
+                popupWidget_ = key;
+                if (!widgetPopup_.Show(r.width, r.height, style, PopupAnchorAt(item.x + item.slotW / 2.0f))) {
+                    popupWidget_.clear();
+                    MessageBeep(MB_ICONWARNING);
+                    break;
+                }
+                TakePopupHold(kHoldWidget);
+                HideLabel();
+                RenderWithRecovery([] { return S_OK; });
+                break;
+            }
+            case Kind::Folder: {
+                if (slot < 0 || hideState_ != HideState::Shown) break;
+                const DockItem& item = items_[static_cast<size_t>(slot)];
+                std::wstring name = r.arg;
+                while (name.size() > 3 && (name.back() == L'\\' || name.back() == L'/')) name.pop_back();
+                const size_t cut = name.find_last_of(L"\\/");
+                if (cut != std::wstring::npos && cut + 1 < name.size()) name = name.substr(cut + 1);
+                ShowFolderPopupAt(r.arg, name, item.x + item.slotW / 2.0f, item.key);
+                break;
+            }
+            case Kind::Previews: {
+                if (slot < 0 || hideState_ != HideState::Shown) break;
+                // The app's slot on this dock (exe path or AppUserModelID, any case).
+                std::wstring want = r.arg;
+                for (wchar_t& c : want) c = static_cast<wchar_t>(towlower(c));
+                int app = -1;
+                for (size_t i = 0; i < items_.size() && app < 0; ++i) {
+                    if (items_[i].kind == DockItem::Kind::App && !items_[i].windows.empty() && items_[i].key.id == want) {
+                        app = static_cast<int>(i);
+                    }
+                }
+                if (app < 0) {
+                    w->Note(L"popup.previews: " + r.arg + L" has no windows on this dock");
+                    break;
+                }
+                DismissClickPopups(false, false);
+                const DockItem& item = items_[static_cast<size_t>(slot)];
+                previewAnchor_ = PopupAnchorAt(item.x + item.slotW / 2.0f).along;
+                ShowPreview(app, true);
+                if (preview_.Visible()) previewOpener_ = key;
+                break;
+            }
+            case Kind::None:
+            default:
+                break;
+        }
+    }
+}
+
+void DockWindow::DismissWidgetPopup(bool animate, bool leaveCheck) {
+    if (popupWidget_.empty() && !widgetPopup_.OnScreen()) return;
+    widgetPopup_.Hide(animate);
+    const std::wstring key = std::move(popupWidget_);
+    popupWidget_.clear();
+    ReleasePopupHold(kHoldWidget, leaveCheck);
+    if (WidgetInstance* w = WidgetByKey(key)) w->PopupClosed();
 }
 
 // --- Recycle Bin item --------------------------------------------------------------------------
@@ -2948,6 +3098,7 @@ void DockWindow::BuildElements() {
         return std::find(widgetsClaimed_.begin(), widgetsClaimed_.end(), kv.first) == widgetsClaimed_.end();
     });
     widgetsClaimed_.clear();
+    if (!popupWidget_.empty() && !WidgetByKey(popupWidget_)) DismissWidgetPopup(false);  // its widget went
 }
 
 WidgetInstance* DockWindow::AcquireWidget(const DockItemEntry& entry, size_t ordinal) {
@@ -3949,6 +4100,13 @@ DockWindow::DropMode DockWindow::DropModeAt(float stageX, int* item, int* gap) c
             *item = slot;
             return DropMode::Recycle;
         }
+        // A script widget that takes files: the whole slot.
+        if (it.kind == DockItem::Kind::Widget) {
+            if (const WidgetInstance* w = WidgetAt(slot); w && w->AcceptsDrops()) {
+                *item = slot;
+                return DropMode::Widget;
+            }
+        }
     }
     // A locked dock pins nothing (open with / recycle still work): the no-drop cursor.
     if (!dropPinnable_ || items_.empty() || DockCfg().locked) return DropMode::None;
@@ -4015,6 +4173,7 @@ DWORD DockWindow::OnDragOver(POINT screenPt, DWORD allowed) {
         case DropMode::Insert:
             return DropEffect(allowed);
         case DropMode::OpenWith:
+        case DropMode::Widget:
             return OpenEffect(allowed);
         case DropMode::Recycle:
             return RecycleEffect(allowed);
@@ -4051,12 +4210,13 @@ DWORD DockWindow::OnDrop(IDataObject* data, POINT screenPt, DWORD allowed) {
         if (!pinnable.empty() && pinRequests_.pinFiles) pinRequests_.pinFiles(pinnable, at);
         effect = pinnable.empty() ? DROPEFFECT_NONE : DropEffect(allowed);
     } else {
-        if ((mode == DropMode::OpenWith || mode == DropMode::Recycle) && !files.empty() && item >= 0 && hwnd_) {
-            dropAction_ = DropAction{mode, items_[static_cast<size_t>(item)].key, files};
+        if ((mode == DropMode::OpenWith || mode == DropMode::Recycle || mode == DropMode::Widget) && !files.empty() &&
+            item >= 0 && hwnd_) {
+            dropAction_ = DropAction{mode, items_[static_cast<size_t>(item)].key, files, screenPt};
             PostMessageW(hwnd_, kDropActionMessage, 0, 0);
             // A recycle is done by us (the files are deleted, not moved by the source): report no
             // effect so the source does not try to delete them itself.
-            effect = mode == DropMode::OpenWith ? OpenEffect(allowed) : DROPEFFECT_NONE;
+            effect = mode == DropMode::Recycle ? DROPEFFECT_NONE : OpenEffect(allowed);
         }
         SetDropTarget(DropMode::None, -1, -1);  // the icon shrinks back
         dropActive_ = false;
@@ -4079,6 +4239,19 @@ void DockWindow::OnDropAction() {
     if (action.mode == DropMode::Recycle) {
         if (!Launcher::Recycle(action.files, hwnd_)) MessageBeep(MB_ICONWARNING);
         return;  // the bin's change notification redraws its icon
+    }
+    if (action.mode == DropMode::Widget) {
+        for (size_t i = 0; i < items_.size(); ++i) {
+            if (items_[i].key != action.key) continue;
+            WidgetInstance* w = WidgetAt(static_cast<int>(i));
+            if (!w) return;
+            const D2D1_RECT_F box = SlotScreenBox(static_cast<int>(i));
+            const float s = layout_.scale > 0.0f ? layout_.scale : 1.0f;
+            w->Drop(action.files, (static_cast<float>(action.screen.x) - box.left) / s,
+                    (static_cast<float>(action.screen.y) - box.top) / s);
+            return;
+        }
+        return;
     }
     if (action.mode != DropMode::OpenWith) return;
     int index = -1;
@@ -4586,6 +4759,12 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const WidgetInstance* w = WidgetAt(static_cast<int>(lp));
             return w ? static_cast<LRESULT>(w->LogTotal()) : -1;
         }
+        case 65:  // a script widget's popup is visible
+            return widgetPopup_.Visible() ? 1 : 0;
+        case 66:  // the widget popup's size in px, MAKELONG(w, h) (0 hidden)
+            return widgetPopup_.Visible() ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(std::lround(widgetPopup_.WidthDip() * layout_.scale)),
+                                                                         static_cast<WORD>(std::lround(widgetPopup_.HeightDip() * layout_.scale))))
+                                          : 0;
         case 61:  // slot lp's box along the dock (px; icons: the icon) ...
         case 62:  // ... and across it
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
@@ -4827,6 +5006,10 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             DispatchEvent(DockEvent::WidgetRedraw);
             return 0;
 
+        case kWidgetPopupMessage:
+            OnWidgetPopupRequests();
+            return 0;
+
         case WM_ACTIVATE:
             if (appBar_) {
                 APPBARDATA abd{sizeof(abd)};
@@ -5020,6 +5203,10 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             folderKey_ = AppKey{};
             weatherPopup_.Destroy();
             calendar_.Destroy();
+            widgetPopup_.Destroy();
+            popupWidget_.clear();
+            previewOpener_.clear();
+            popupRequests_.clear();
             acrylic_ = false;
             backdrop_.Destroy();
             labelFormat_ = nullptr;

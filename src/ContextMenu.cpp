@@ -60,7 +60,10 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     Append(menu, kOpenConfig, L"Open config file", true);
     Append(menu, kReloadConfig, L"Reload config", true);
-    if (state.hasWidgets) Append(menu, kReloadWidgets, L"Reload widgets", true);
+    if (state.hasWidgets) {
+        Append(menu, kReloadWidgets, L"Reload widgets", true);
+        Append(menu, kWidgetConsole, L"Widget console…", true);
+    }
     // Session-only: unchecks "Hide taskbar" until it is checked again (or the dock restarts).
     Append(menu, kRestoreTaskbar, L"Show taskbar until re-enabled", state.hideTaskbar);
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);

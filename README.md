@@ -506,10 +506,12 @@ write and edit without compiling anything. The full reference (every call, every
   int, number, string, choice, colour, font, with defaults; the values live in the item's
   `settings` object).
 - **main.js** exports `draw(canvas, dock)` (required) and optionally `measure(canvas, dock)`
-  (returns `{ main, cross }`), `tick(dock)`, `onClick(e)`, `onMiddleClick(e)`, `onWheel(e)`
-  (return `true` to use the wheel), `onHover(e)` and `onSettingsChanged(settings)`. Nothing is
-  drawn per frame: the dock calls `draw()` when the widget asks for it (`requestRedraw()`), when a
-  tick redraws it, and when the dock lays it out again.
+  (returns `{ main, cross }`), `tick(dock)`, `onPress(e)`, `onClick(e)`, `onMiddleClick(e)`,
+  `onWheel(e)` (return `true` to use the wheel), `onHover(e)`, `onDrop(e)` (files dropped on it;
+  needs the shell permission), `onSettingsChanged(settings)`, and for its popup `drawPopup(canvas,
+  dock)`, `onPopupClick(e)`, `onPopupClose()`. Nothing is drawn per frame: the dock calls `draw()`
+  when the widget asks for it (`requestRedraw()`), when a tick redraws it, and when the dock lays
+  it out again.
 - **API**: `canvas` (rectangles, rounded rectangles, ellipses, lines, paths with arcs and Béziers,
   solid colours and linear / radial gradients, DirectWrite text and `measureText`, images from the
   widget's folder, clip, opacity, transforms, save / restore; DIPs, upright on every edge, drawn
@@ -517,7 +519,21 @@ write and edit without compiling anything. The full reference (every call, every
   colours, hovered / magnified, reduce motion), `timer` (`setTimeout`, `setInterval`, `clear`,
   `setRefresh`, `requestRedraw`), `console` (log / warn / error to the widget's log), `system`
   (local date and time computed by Windows, strftime formatting, locale names, 12 / 24 h, units),
-  `settings`.
+  `settings`, `storage` (a JSON store per widget in `%LocalAppData%\WinDock\widget-data\<id>.json`,
+  written a second after a change), `http` (GET / POST ... to the hosts its manifest lists, as
+  promises), `shell` (open files and URLs, list folders, file icons), `popup` (a popup the widget
+  draws, or the dock's folder / window-preview popups, anchored on the widget).
+- **Permissions** (`"permissions"` in widget.json): `{ "http": ["api.example.com"] }` for
+  requests to those hosts, `"shell"` for opening files / URLs, listing folders, file icons, the
+  folder popup and file drops. Without them those calls throw.
+- **Settings**: Settings > **Widget settings** is generated from each widget item's schema (pick
+  the item at the top, or press Settings… on its Dock contents row); changes apply at once.
+  Settings > **Widgets** lists the installed widgets (built-in / folder) with **Add to dock**,
+  **Add from folder…**, **Export built-in to folder** (to edit a copy), **Reload widgets**, **Open
+  widgets folder** and **Console…**.
+- **Developing**: `"watch": true` reloads a folder widget when one of its files changes (no
+  polling); the **Console** (Settings > Widgets, the dock menu's Widget console…) shows every
+  widget's state and log with Reload / Open folder / Clear.
 - **Safety**: every widget has its own script engine (QuickJS-ng) with its own heap limit; a call
   that runs longer than its time limit is stopped and the widget suspended ("Stopped" tile), an
   uncaught exception shows an "Error" tile with the message; **Reload widgets** (dock menu) starts
@@ -595,6 +611,12 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   the focus; an invalid value beeps and goes back), units (metric: °C and km/h; imperial: °F and
   mph), the refresh interval (5-360 minutes), the status ("Updated 10:15", "(stale)", "Updating…",
   "Not configured", "Error: …"), **Refresh now** and the Open-Meteo credit.
+- **Widgets**: the installed script widgets (name, id, built-in / folder, version) with **Add to
+  dock**, **Add from folder…**, **Export built-in to folder**, **Reload widgets**, **Open widgets
+  folder** and **Console…** (see **Widgets** above).
+- **Widget settings**: the settings of one widget item of the dock, generated from its widget.json
+  schema (a drop-down at the top picks the item; **Settings…** on a widget row of Dock contents
+  opens it), with **Reset to defaults**.
 
 Every change applies to the dock at once (sliders when you release them, number boxes on each
 arrow step, on Enter or when the box loses the focus) and is saved within 300 ms, exactly like the
@@ -993,7 +1015,7 @@ always there, also when every dock is parked) handle these registered messages:
   dock toggle, 117 Add widget > Clock, 118 Add widget > Weather, 119 Add widget > Running apps,
   120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right, 124 Lock all docks,
   125 Unlock all docks, 126 Reload widgets (every script widget of every dock reloads its package
-  and script); saved like the menu).
+  and script), 127 open (or activate) the widget Console; saved like the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -1053,7 +1075,11 @@ always there, also when every dock is parked) handle these registered messages:
   failed: the runtime is freed). 58 = how often slot `lParam`'s widget has drawn (`draw()` calls).
   59 = how often the widget timer scheduler has woken the process (all widgets; stays put while no
   widget waits for a timer). 60 = the log lines slot `lParam`'s widget has written. 61 / 62 = slot
-  `lParam`'s box along / across the dock in px (an icon slot: the icon size). Per dock: 14 / 36 /
+  `lParam`'s box along / across the dock in px (an icon slot: the icon size). 63 = 1 while the
+  widget Console is open (with `lParam` 1: its window handle). 64 = the log lines the Console shows
+  now (-1 when it is closed). 65 = 1 while a script widget's popup (`popup.open`) is visible on the
+  dock. 66 = that popup's size in px as `MAKELONG(width, height)` (0 when hidden). 26 reports 4
+  while files are dragged over a script widget that takes them (`onDrop`). Per dock: 14 / 36 /
   39 / 40 / 42 and 37 refer to that dock's own config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
@@ -1076,9 +1102,16 @@ always there, also when every dock is parked) handle these registered messages:
   (id)", 2806 Lock all docks, 2807 Unlock all docks; phase 3b: General 2165 Layer (0 above
   windows, 1 desktop only), Layout page 2900 the canvas (class `WinDock.LayoutCanvas`; its window
   text lists every dock instance as `index:config index:monitor:left,top,right,bottom;` in canvas
-  client pixels, `-` for a parked one), 2902 the selected dock / where a drag would drop it).
+  client pixels, `-` for a parked one), 2902 the selected dock / where a drag would drop it;
+  phase 4b: page 9 Widgets (3500 list: Name, Id, Source, Version; 3501 Add from folder…, 3502
+  Export built-in to folder, 3503 Reload widgets, 3504 Open widgets folder, 3505 Console…, 3506
+  Add to dock, 3508 the last action's result), page 10 Widget settings (3601 the widget item
+  drop-down; then per schema field k `3700 + 10 * k + part`: 0 label, 1 the control (check box,
+  edit, drop-down), 2 the check box's caption or the int's up-down, 3 the field's note; 3603 Reset
+  to defaults; the page's controls are rebuilt when another item is picked; its title 2000 reads
+  "Widget: <name>"); Dock contents 2613 Settings… on a widget row opens page 10 for it).
   "Add widget ▾" opens a popup menu
-  (items 1 Clock, 2 Weather, 3 Running apps), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
+  (items 1 Clock, 2 Weather, 3 Running apps, then the installed widgets 100 + n), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
   field rows use `3000 + 10 * field index + part` (ids 3000 - 3399; field index in
   `Theme::Fields()` order; part 0 label, 1 swatch / check box, 2 hex box / check box caption,
@@ -1096,4 +1129,9 @@ always there, also when every dock is parked) handle these registered messages:
   Escape does not reach it; it still closes when another window comes to the foreground, on a dock
   click, or with 806 again.
 - Popup windows: the window-preview popup is class `WinDockPreview`, the folder popup
-  `WinDockFolder`, the weather popup `WinDockWeather`, the calendar `WinDockCalendar`.
+  `WinDockFolder`, the weather popup `WinDockWeather`, the calendar `WinDockCalendar`, a script
+  widget's popup `WinDockWidgetPopup`.
+- Widget Console (class `WinDock.WidgetConsole`, `DockCommand` 127, `QueryState` 63 / 64): 4001 the
+  instance list (LISTBOX, one row "dock · name (id#n) · state"; select with `LB_SETCURSEL` +
+  `WM_COMMAND(LBN_SELCHANGE)`), 4002 the log (read-only EDIT, `WM_GETTEXT`), 4003 Reload, 4004 Open
+  folder, 4005 Clear, 4006 the count.

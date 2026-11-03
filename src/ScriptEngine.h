@@ -56,6 +56,37 @@ public:
     // tick() every `ms` aligned to local time (0: none), replacing the manifest's refreshMs.
     virtual void SetRefresh(uint32_t ms) = 0;
 
+    // --- permissions ---
+    enum class Permission { Http, Shell };
+    virtual bool Permitted(Permission p) const = 0;
+
+    // --- storage: one JSON object per widget id, values as JSON text ---
+    virtual bool StorageGet(const std::string& key, std::string& json) = 0;
+    virtual bool StorageSet(const std::string& key, const std::string& json, std::wstring& error) = 0;
+    virtual void StorageRemove(const std::string& key) = 0;
+    virtual std::vector<std::string> StorageKeys() = 0;
+
+    // --- http: starts a request (0 + `error` when refused: no permission, a host that is not
+    // allowed, too many in flight). The result arrives later as ScriptEngine::Resolve(id, ...).
+    virtual int HttpStart(const std::wstring& method, const std::wstring& url, const std::wstring& headers,
+                          const std::string& body, uint32_t timeoutMs, std::wstring& error) = 0;
+
+    // --- shell (permission "shell") ---
+    virtual bool ShellOpen(const std::wstring& target, const std::wstring& args, std::wstring& error) = 0;
+    // The folder's entries as a JSON array of { name, path, folder, size, modified }.
+    virtual bool ShellList(const std::wstring& folder, std::string& json, std::wstring& error) = 0;
+
+    // --- popups (anchored on the widget's slot, beside the dock) ---
+    // A popup the script draws (drawPopup) of w x h DIPs.
+    virtual bool PopupOpen(float w, float h, std::wstring& error) = 0;
+    virtual void PopupClose() = 0;
+    virtual bool PopupShown() const = 0;
+    virtual void PopupRedraw() = 0;
+    // The dock's own folder popup for a folder / its window previews for an app (exe path or
+    // AppUserModelID) that the dock shows.
+    virtual bool PopupFolder(const std::wstring& path, std::wstring& error) = 0;
+    virtual bool PopupPreviews(const std::wstring& app, std::wstring& error) = 0;
+
 protected:
     ~ScriptHost() = default;
 };
@@ -84,7 +115,22 @@ struct ScriptLimits {
 class ScriptEngine {
 public:
     // The widget's exports the host calls (docs/widgets.md, "Exports").
-    enum class Fn { Draw, Measure, Tick, OnClick, OnMiddleClick, OnWheel, OnHover, OnSettingsChanged, Count };
+    enum class Fn {
+        Draw,
+        Measure,
+        Tick,
+        OnClick,
+        OnMiddleClick,
+        OnWheel,
+        OnHover,
+        OnSettingsChanged,
+        OnPress,
+        OnDrop,
+        DrawPopup,      // (canvas, dock): the script popup's content
+        OnPopupClick,   // (event, dock)
+        OnPopupClose,   // (event, dock): the popup closed (by itself or popup.close())
+        Count
+    };
 
     virtual ~ScriptEngine() = default;
     // Evaluates the main module (`mainPath`, normalized) with its imports.
@@ -94,6 +140,9 @@ public:
     // others (event, dock) with the event parsed from `eventJson`.
     virtual ScriptResult Call(Fn fn, const std::string& eventJson) = 0;
     virtual ScriptResult FireTimer(int id) = 0;
+    // An http request finished: resolves (ok, `json` = the response object as JSON) or rejects
+    // (`json` = the error message as a JSON string) its promise, then runs the jobs that follow.
+    virtual ScriptResult Resolve(int id, bool ok, const std::string& json) = 0;
     // The settings changed (re-read through ScriptHost::SettingsJson before the next call).
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).

@@ -436,7 +436,7 @@ private:
         Enable(kPinChooseIcon, iconable);
         Enable(kPinChooseImage, iconable);
         Enable(kPinResetIcon, iconable && !e->icon.empty());
-        Enable(kPinSettings, e && k != ItemKind::Separator && k != ItemKind::Unknown && k != ItemKind::Widget);
+        Enable(kPinSettings, e && k != ItemKind::Separator && k != ItemKind::Unknown);
         // A button that just got disabled must not keep the keyboard focus.
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kPinnedList));
     }
@@ -448,6 +448,7 @@ private:
             case ItemKind::Clock: Window().ShowPage(kPageGeneral); break;
             case ItemKind::Weather: Window().ShowPage(kPageWeather); break;
             case ItemKind::Running: Window().ShowPage(kPageBehaviour); break;
+            case ItemKind::Widget: Window().ShowWidgetSettings(row); break;
             case ItemKind::App:
             case ItemKind::Folder:
             case ItemKind::RecycleBin: ChooseIcon(row, false); break;

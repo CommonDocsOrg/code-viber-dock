@@ -3,29 +3,82 @@
 #include <windows.h>
 
 #include <cstdint>
+#include <functional>
+#include <map>
+#include <memory>
+#include <set>
 #include <string>
 #include <vector>
+
+#include "HttpClient.h"
 
 class WidgetInstance;
 
 // The process-wide part of the widget runtime (owned by DockManager, bound to the app's hidden
 // window like the other shared services): one timer scheduler for every widget's setTimeout /
 // setInterval / tick (a single one-shot SetTimer for the earliest deadline; none while no widget
-// waits for anything), and the list of live widget instances (reload all, automation, the
-// Console). Every script runs on the UI thread; each widget instance has its own script runtime
+// waits for anything), the list of live widget instances (reload all, automation, the Console),
+// the widgets' storage files (written debounced), their http requests (one short-lived worker
+// thread per request, the result posted back), and the folder watcher of `watch` widgets (one
+// thread blocked in ReadDirectoryChangesW while any watched widget exists; no polling). Every
+// script runs on the UI thread; each widget instance has its own script runtime
 // (WidgetInstance.h).
 class WidgetRuntime {
 public:
-    static constexpr UINT_PTR kTimerId = 30;  // on the owner window
+    static constexpr UINT_PTR kTimerId = 30;        // on the owner window: the next widget timer
+    static constexpr UINT_PTR kSaveTimerId = 31;    // storage files, debounced (one-shot)
+    static constexpr UINT_PTR kReloadTimerId = 32;  // watched folders changed: reload (debounced)
+    static constexpr UINT kHttpMessage = WM_APP + 30;   // lParam: a finished request (HttpJob*)
+    static constexpr UINT kWatchMessage = WM_APP + 31;  // wParam: folder index, lParam: generation
+    static constexpr UINT kWatchSyncMessage = WM_APP + 32;  // posted: re-read the watched folders
+    static constexpr DWORD kSaveDelayMs = 1000;
+    static constexpr DWORD kReloadDelayMs = 250;
+    static constexpr size_t kMaxStorageBytes = 1u << 20;  // per widget id
+    static constexpr int kMaxRequests = 4;                // http requests in flight per widget
 
     WidgetRuntime() = default;
     WidgetRuntime(const WidgetRuntime&) = delete;
     WidgetRuntime& operator=(const WidgetRuntime&) = delete;
+    ~WidgetRuntime() { Shutdown(); }
 
     void Initialize(HWND owner) { owner_ = owner; }
+    // Writes pending storage, stops the watcher thread and the timers.
     void Shutdown();
-    // The owner window's messages (WM_TIMER kTimerId). True if handled.
+    // The owner window's messages (timers, http results, watcher events). True if handled.
     bool HandleMessage(UINT msg, WPARAM wp, LPARAM lp);
+
+    // --- storage (%LocalAppData%\WinDock\widget-data\<id>.json, one object per widget id) ---
+    bool StorageGet(const std::wstring& id, const std::string& key, std::string& json);
+    bool StorageSet(const std::wstring& id, const std::string& key, const std::string& json, std::wstring& error);
+    void StorageRemove(const std::wstring& id, const std::string& key);
+    std::vector<std::string> StorageKeys(const std::wstring& id);
+    static std::wstring StorageDirectory();
+    // Writes every changed storage file now.
+    void FlushStorage();
+
+    // --- http ---
+    // Runs `request` on a worker thread; the result comes back as WidgetInstance::OnHttpResult(id)
+    // if `w` (with the same generation) still exists. False if the thread could not start.
+    bool StartHttp(WidgetInstance* w, uint64_t generation, int id, Http::Request request);
+
+    // --- watched folders ---
+    // The set of watched widget folders may have changed (instances came / went / reloaded):
+    // re-read it soon (posted, coalesced).
+    void SyncWatch();
+    size_t WatchedFolders() const { return watched_.size(); }
+
+    // --- the Console ---
+    // `log`: a widget wrote to its log; `changed`: instances came, went or changed state. Null to stop.
+    void SetListeners(std::function<void(WidgetInstance*)> log, std::function<void()> changed) {
+        logListener_ = std::move(log);
+        changedListener_ = std::move(changed);
+    }
+    void NotifyLog(WidgetInstance* w) {
+        if (logListener_) logListener_(w);
+    }
+    void NotifyChanged() {
+        if (changedListener_) changedListener_();
+    }
 
     // A timer of widget `w`: due in `ms` (repeat: every `ms`; aligned: at the next multiple of
     // `ms` of the local time of day, then every multiple). Replaces a timer with the same id.
@@ -54,6 +107,19 @@ private:
     void Arm();
     void OnTimer();
 
+    struct Store {
+        bool loaded = false;
+        bool dirty = false;
+        std::map<std::string, std::string> values;  // key -> JSON text
+        size_t bytes = 0;
+    };
+    Store& StoreFor(const std::wstring& id);
+    void ScheduleSave();
+    void OnHttpResult(LPARAM lp);
+    void DoSyncWatch();
+    void StopWatcher();
+    void OnWatchEvent(WPARAM index, LPARAM generation);
+
     HWND owner_ = nullptr;
     std::vector<Entry> entries_;
     bool armed_ = false;
@@ -61,6 +127,23 @@ private:
     bool firing_ = false;
     uint64_t wakeups_ = 0;
     std::vector<WidgetInstance*> instances_;
+    std::map<std::wstring, Store> stores_;
+    bool savePending_ = false;
+    // The watcher: the folders it watches (index = wParam of kWatchMessage) and their widget ids.
+    struct Watched {
+        std::wstring id;
+        std::wstring folder;
+        bool operator==(const Watched&) const = default;
+    };
+    std::vector<Watched> watched_;
+    HANDLE watchThread_ = nullptr;
+    HANDLE watchStop_ = nullptr;  // manual-reset event: the thread ends
+    LONG watchGeneration_ = 0;
+    bool watchSyncPosted_ = false;
+    std::set<std::wstring> reloadIds_;  // changed folders waiting for kReloadTimerId
+    bool reloadPending_ = false;
+    std::function<void(WidgetInstance*)> logListener_;
+    std::function<void()> changedListener_;
 };
 
 // The `system` namespace of the widget API: local date / time and locale strings computed by the
@@ -91,6 +174,6 @@ std::wstring FormatTime(bool seconds);
 
 // Monotonic milliseconds (QueryPerformanceCounter).
 double WidgetNowMs();
-// Milliseconds from now to the next multiple of `period` ms of the local time of day (+15 ms, so
+// Milliseconds from now to the next multiple of `period` ms of the local time of day (+30 ms, so
 // it lands just after the boundary).
 uint32_t WidgetAlignedDelay(uint32_t period);

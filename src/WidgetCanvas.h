@@ -137,6 +137,8 @@ public:
     // <= 0: the image's own size in DIPs at 96 DPI). False (with `error`) if it cannot be loaded.
     bool Image(const std::string& path, float x, float y, float w, float h, float opacity, std::wstring& error);
     bool ImageSize(const std::string& path, float& w, float& h, std::wstring& error);
+    // The shell's icon of a file or folder (absolute path), `size` DIPs square at (x, y).
+    bool FileIcon(const std::wstring& path, float x, float y, float size, std::wstring& error);
 
     void Save();
     bool Restore();  // false: nothing saved

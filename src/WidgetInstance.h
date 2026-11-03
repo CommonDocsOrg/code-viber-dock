@@ -9,8 +9,10 @@
 #include <deque>
 #include <memory>
 #include <string>
+#include <vector>
 
 #include "DockElement.h"
+#include "HttpClient.h"
 #include "Renderer.h"
 #include "ScriptEngine.h"
 #include "WidgetCanvas.h"
@@ -38,9 +40,22 @@ public:
         // The widget wants to be redrawn (and re-measured). Called from inside script calls:
         // the dock must defer the redraw (post it).
         virtual void WidgetChanged(WidgetInstance& widget) = 0;
+        // The widget asked for a popup to open / close / redraw (TakePopupRequest). Called from
+        // inside script calls: the dock defers it.
+        virtual void WidgetPopupRequest(WidgetInstance& widget) = 0;
+        // The widget's script popup is on screen.
+        virtual bool WidgetPopupShown(const WidgetInstance& widget) const = 0;
 
     protected:
         ~Client() = default;
+    };
+
+    // What the widget asked of its popup (popup.open / close / redraw / folder / previews).
+    struct PopupRequest {
+        enum class Kind { None, Open, Close, Redraw, Folder, Previews };
+        Kind kind = Kind::None;
+        float width = 0, height = 0;  // Open: DIPs
+        std::wstring arg;             // Folder: the path; Previews: the app
     };
 
     struct LogLine {
@@ -61,6 +76,7 @@ public:
     const std::wstring& ErrorText() const { return error_; }
     std::wstring Name() const;
     const Widgets::Package* Package() const { return package_.get(); }
+    const ScriptDockInfo& DockInfo() const { return dock_; }
 
     // Loads (again) the package and the script. The first load happens in the constructor.
     void Reload();
@@ -77,11 +93,36 @@ public:
     HRESULT Render(Renderer& renderer, Layer& layer, const LayoutContext& ctx);
 
     // Input on the widget's box; x / y in DIPs from its top-left (upright).
-    void Click(float x, float y);
+    void Press(float x, float y);
+    // `closedPopup`: the press closed this widget's popup (a click on the widget toggles it).
+    void Click(float x, float y, bool closedPopup = false);
     void MiddleClick(float x, float y);
     // True if the widget consumed it (its onWheel returned true).
     bool Wheel(float x, float y, int delta, bool horizontal);
     void Hover(bool inside, float x, float y);
+    // Files dropped on the widget: it exports onDrop and has the "shell" permission.
+    bool AcceptsDrops() const;
+    void Drop(const std::vector<std::wstring>& files, float x, float y);
+
+    // --- its popup (hosted by the dock) ---
+    bool PopupShownNow() const { return client_.WidgetPopupShown(*this); }
+    PopupRequest TakePopupRequest() {
+        PopupRequest r = popupRequest_;
+        popupRequest_ = PopupRequest{};
+        return r;
+    }
+    // drawPopup(canvas, dock) into the popup's surface (w x h DIPs at `scale`).
+    void RenderPopup(ID2D1DeviceContext* dc, float w, float h, float scale);
+    void PopupClick(float x, float y, int button);
+    // The popup closed (by itself, or the dock closed it): onPopupClose.
+    void PopupClosed();
+
+    // WidgetRuntime: an http request of generation `generation` finished.
+    void OnHttpResult(uint64_t generation, int id, const Http::Result& result);
+    // A folder widget with `watch`: its id and canonical folder (false: not watched).
+    bool WatchFolder(std::wstring& id, std::wstring& folder) const;
+    // A line of the host's own in the widget's log (reloads, file changes).
+    void Note(const std::wstring& line) { Log(ScriptLogLevel::Info, line); }
 
     // A redraw was requested since the last Render (clears the flag).
     bool TakeChanged() {
@@ -95,7 +136,7 @@ public:
     // Diagnostics (QueryState, the Console).
     size_t HeapBytes() const { return engine_ ? engine_->HeapBytes() : 0; }
     uint64_t DrawCount() const { return draws_; }
-    const std::deque<LogLine>& Log() const { return log_; }
+    const std::deque<LogLine>& LogLines() const { return log_; }
     uint64_t LogTotal() const { return logTotal_; }
 
 private:
@@ -112,6 +153,23 @@ private:
     void CancelTimer(int id) override;
     void RequestRedraw() override;
     void SetRefresh(uint32_t ms) override;
+    bool Permitted(Permission p) const override;
+    bool StorageGet(const std::string& key, std::string& json) override;
+    bool StorageSet(const std::string& key, const std::string& json, std::wstring& error) override;
+    void StorageRemove(const std::string& key) override;
+    std::vector<std::string> StorageKeys() override;
+    int HttpStart(const std::wstring& method, const std::wstring& url, const std::wstring& headers,
+                  const std::string& body, uint32_t timeoutMs, std::wstring& error) override;
+    bool ShellOpen(const std::wstring& target, const std::wstring& args, std::wstring& error) override;
+    bool ShellList(const std::wstring& folder, std::string& json, std::wstring& error) override;
+    bool PopupOpen(float w, float h, std::wstring& error) override;
+    void PopupClose() override;
+    bool PopupShown() const override { return client_.WidgetPopupShown(*this); }
+    void PopupRedraw() override;
+    bool PopupFolder(const std::wstring& path, std::wstring& error) override;
+    bool PopupPreviews(const std::wstring& app, std::wstring& error) override;
+    void RequestPopup(PopupRequest r);
+    bool HostAllowed(const std::wstring& host) const;
 
     // A call's outcome: a failure moves the widget to Error / Suspended (logged, timers stopped,
     // the tile shown). True if it went fine.
@@ -139,7 +197,10 @@ private:
     bool changed_ = true;
     uint32_t refreshMs_ = 0;
     bool refreshSet_ = false;  // the script called timer.setRefresh (overrides the manifest)
-    size_t timers_ = 0;        // script timers scheduled (not the refresh)
+    uint64_t generation_ = 0;  // +1 per load: http results of an older load are dropped
+    int nextRequest_ = 1;
+    int requests_ = 0;         // http requests in flight (this generation)
+    PopupRequest popupRequest_;
     // Measure cache.
     bool measured_ = false;
     DockAxis measuredAxis_ = DockAxis::Horizontal;

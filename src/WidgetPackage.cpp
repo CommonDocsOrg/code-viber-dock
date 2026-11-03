@@ -504,6 +504,99 @@ std::vector<CatalogEntry> Catalog() {
     return out;
 }
 
+namespace {
+
+bool CreateDirs(const std::wstring& path) {
+    // Creates every missing level ("C:\a\b\c").
+    for (size_t p = path.find(L'\\', 3); ; p = path.find(L'\\', p + 1)) {
+        const std::wstring part = p == std::wstring::npos ? path : path.substr(0, p);
+        if (!CreateDirectoryW(part.c_str(), nullptr) && GetLastError() != ERROR_ALREADY_EXISTS) return false;
+        if (p == std::wstring::npos) return true;
+    }
+}
+
+}  // namespace
+
+bool ExportBuiltIn(const std::wstring& id, std::wstring& folder, std::wstring& error) {
+    if (!IsBuiltIn(id)) {
+        error = L"\"" + id + L"\" is not a built-in widget";
+        return false;
+    }
+    folder = Directory() + L"\\" + id;
+    if (GetFileAttributesW(folder.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        error = folder + L" exists already";
+        return false;
+    }
+    if (!CreateDirs(folder)) {
+        error = L"cannot create " + folder;
+        return false;
+    }
+    for (const BuiltInFile& f : kBuiltIns) {
+        if (id != f.id) continue;
+        std::string bytes;
+        if (!ReadResource(f.resource, bytes)) {
+            error = L"cannot read the built-in " + Utf8ToWide(f.path);
+            return false;
+        }
+        std::wstring rel = Utf8ToWide(f.path);
+        std::replace(rel.begin(), rel.end(), L'/', L'\\');
+        const std::wstring target = folder + L"\\" + rel;
+        if (const size_t cut = target.find_last_of(L'\\'); cut != std::wstring::npos) CreateDirs(target.substr(0, cut));
+        if (!JsonUtil::WriteFileAtomic(target, bytes)) {
+            error = L"cannot write " + target;
+            return false;
+        }
+    }
+    return true;
+}
+
+bool InstallFolder(const std::wstring& source, std::wstring& id, std::wstring& error) {
+    std::wstring src = source;
+    while (src.size() > 3 && src.back() == L'\\') src.pop_back();
+    const DWORD a = GetFileAttributesW((src + L"\\widget.json").c_str());
+    if (a == INVALID_FILE_ATTRIBUTES || (a & FILE_ATTRIBUTE_DIRECTORY)) {
+        error = src + L" has no widget.json";
+        return false;
+    }
+    const size_t cut = src.find_last_of(L'\\');
+    id = Lower(cut == std::wstring::npos ? src : src.substr(cut + 1));
+    if (!ValidId(id)) {
+        error = L"the folder name \"" + id + L"\" is not a valid widget id (a-z, 0-9, - _ .)";
+        return false;
+    }
+    const std::wstring dest = Directory() + L"\\" + id;
+    if (GetFileAttributesW(dest.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        error = L"a widget \"" + id + L"\" is installed already (" + dest + L")";
+        return false;
+    }
+    Package from;
+    from.source = Package::Source::Folder;
+    from.folder = CanonicalFolder(src);
+    if (from.folder.empty()) {
+        error = L"cannot open " + src;
+        return false;
+    }
+    const std::vector<std::string> files = from.Files();
+    if (!CreateDirs(dest)) {
+        error = L"cannot create " + dest;
+        return false;
+    }
+    for (const std::string& f : files) {
+        std::string bytes;
+        std::wstring readError;
+        if (!from.Read(f, bytes, readError)) continue;  // outside the folder (a link) or too large: skipped
+        std::wstring rel = Utf8ToWide(f);
+        std::replace(rel.begin(), rel.end(), L'/', L'\\');
+        const std::wstring target = dest + L"\\" + rel;
+        if (const size_t c = target.find_last_of(L'\\'); c != std::wstring::npos) CreateDirs(target.substr(0, c));
+        if (!JsonUtil::WriteFileAtomic(target, bytes)) {
+            error = L"cannot write " + target;
+            return false;
+        }
+    }
+    return true;
+}
+
 std::wstring DisplayName(const std::wstring& id) {
     std::wstring error;
     const auto pkg = Load(id, error);

@@ -707,5 +707,7 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
     pages.push_back(MakeWeatherPage(window));  // kPageWeather (after About: the nav shows pages in index order)
     pages.push_back(MakeDocksPage(window));    // kPageDocks
     pages.push_back(MakeLayoutPage(window));   // kPageLayout
+    pages.push_back(MakeWidgetsPage(window));  // kPageWidgets
+    pages.push_back(MakeWidgetSettingsPage(window));  // kPageWidgetSettings
     return pages;
 }
