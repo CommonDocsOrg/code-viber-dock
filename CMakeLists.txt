@@ -95,6 +95,7 @@ add_executable(WinDock WIN32
   src/Ics.cpp
   src/CalendarService.cpp
   src/SettingsPagesCalendar.cpp
+  src/ReminderBanner.cpp
   res/app.rc
   res/app.manifest
 )

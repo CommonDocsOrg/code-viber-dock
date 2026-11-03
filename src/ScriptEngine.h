@@ -58,7 +58,7 @@ public:
     virtual void SetRefresh(uint32_t ms) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell, Audio, Media, Notifications };
+    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -99,6 +99,11 @@ public:
     // "dismiss" / "activate" / "markRead" (`id`), "dismissAll", "openCentre".
     virtual bool NotificationsCommand(const std::string& command, double id, std::wstring& error) = 0;
 
+    // --- calendar (permission "calendar", round 4 phase 13) ---
+    // `what`: "feeds", "events" ({from, to}), "eventsOn" ({date}), "next" ({n}), "refresh",
+    // "openPopup" ({date}); `args` a JSON object. The result as JSON (docs/widgets.md).
+    virtual bool CalendarCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) = 0;
+
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs.
     virtual bool PopupOpen(float w, float h, std::wstring& error) = 0;
@@ -109,8 +114,9 @@ public:
     // AppUserModelID) that the dock shows.
     virtual bool PopupFolder(const std::wstring& path, const std::wstring& view, std::wstring& error) = 0;
     virtual bool PopupPreviews(const std::wstring& app, std::wstring& error) = 0;
-    // The dock's own month calendar (the clock's CalendarPopup), anchored on the widget.
-    virtual bool PopupCalendar(std::wstring& error) = 0;
+    // The dock's own month calendar (the clock's CalendarPopup), anchored on the widget, showing
+    // local day `day` (days since 1970; INT64_MIN: today).
+    virtual bool PopupCalendar(int64_t day, std::wstring& error) = 0;
 
     // --- the widget's own package (no permission: modules and images come from it anyway) ---
     // Its files ("main.js", "faces/classic.json" ...), sorted.
@@ -177,9 +183,9 @@ public:
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).
     virtual size_t HeapBytes() = 0;
-    // A provider changed ("audio", "media", "notifications"): its onChange listeners run with its
-    // new state.
-    virtual ScriptResult Emit(const std::string& channel) = 0;
+    // A provider changed ("audio", "media", "notifications", "calendar"): its onChange listeners
+    // run with its new state. "calendarReminder": the onReminder listeners get `payload` (JSON).
+    virtual ScriptResult Emit(const std::string& channel, const std::string& payload = {}) = 0;
 };
 
 std::unique_ptr<ScriptEngine> CreateQuickJsEngine(ScriptHost& host, const ScriptLimits& limits);

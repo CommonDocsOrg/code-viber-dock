@@ -60,8 +60,15 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     // Calendars (phase 13): every dock (the popup, the clock's dot) and the settings window.
     calendar_.SetChanged([this] {
         ForEach([](DockWindow& w) { w.OnCalendarChanged(); });
+        widgets_.NotifyCalendar();
         if (callbacks_.calendarChanged) callbacks_.calendarChanged();
     });
+    // Reminders (13b): the first dock's banner, and the widgets' onReminder.
+    calendar_.SetReminderCallback([this](const CalendarService::ReminderInfo& r) {
+        if (DockWindow* w = First()) w->ShowReminder(r);
+        widgets_.NotifyReminder(r.json);
+    });
+    widgets_.SetCalendar(&calendar_);
     tray_.SetRectResolver([this](const TrayIcon& icon, RECT& r) {
         for (Instance& i : instances_) {
             if (i.window && i.window->TrayIconRect(icon.id, r)) return true;
@@ -103,7 +110,9 @@ void DockManager::Shutdown() {
     tracker_.Stop();
     weather_.Stop();  // a fetch still in flight posts to a window that is gone (and frees it)
     calendar_.SetChanged(nullptr);
+    calendar_.SetReminderCallback(nullptr);
     calendar_.Stop();
+    widgets_.SetCalendar(nullptr);
     graveyard_.clear();
     widgets_.Shutdown();  // every widget went with its window
     config_ = nullptr;

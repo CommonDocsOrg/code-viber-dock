@@ -6,6 +6,7 @@
 #include <functional>
 #include <map>
 #include <memory>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -36,6 +37,8 @@ public:
     static constexpr UINT kFileMessage = WM_APP + 51;    // wParam: watcher generation, lParam: folder index
     static constexpr UINT_PTR kRefreshTimerId = 40;      // on the owner: the next feed that is due
     static constexpr UINT_PTR kFileTimerId = 41;         // a watched file changed (debounce)
+    static constexpr UINT_PTR kReminderTimerId = 42;     // the next reminder that is due (13b)
+    static constexpr int64_t kReminderGraceS = 300;      // a reminder still fires up to 5 min after the start
     static constexpr int kDaysBack = 31, kDaysAhead = 92;
 
     enum class FeedStatus { Off = 0, Loading = 1, Ok = 2, Error = 3 };
@@ -62,6 +65,15 @@ public:
     struct Item {
         Ics::Occurrence occ;
         uint32_t feed = 0;
+    };
+    // A reminder that fired (13b): for the dock's banner and the widgets' onReminder.
+    struct ReminderInfo {
+        std::wstring id;        // IdOf(item)
+        std::wstring title, location, when;  // when: "10:00 AM" (the start)
+        int64_t start = 0;      // UTC seconds
+        int64_t day = 0;        // its local day
+        uint32_t color = 0;
+        std::string json;       // EventJson(item)
     };
 
     struct Job;  // a worker's job and its result (CalendarService.cpp)
@@ -111,13 +123,36 @@ public:
     // A feed's status line for Settings ("Updated 10:15, 42 events", "Error: HTTP 404; retry in 2 min").
     std::wstring StatusText(size_t feed) const;
 
+    // --- the widgets' `calendar` provider (13b) ---
+    // A stable id of an occurrence: the feed's source, the event's UID and its original start.
+    std::wstring IdOf(const Item& item) const;
+    // { id, feed, color, title, location, description, start, end (ms since 1970), allDay, url,
+    // recurring, startDay / endDay ("YYYY-MM-DD", local; endDay the last day), startTime / endTime
+    // (locale short time, "" all-day), reminder (the event's VALARM minutes, -1 none) }.
+    std::string EventJson(const Item& item) const;
+    // [{ name, color, enabled, file, status ("off" | "loading" | "ok" | "error"), error,
+    // lastFetch (ms, 0 never), events }].
+    std::string FeedsJson() const;
+
+    // --- reminders (13b): one timer for the earliest due one ---
+    // The reminder minutes of a feed (its reminderMin, else calendars.defaultReminderMin; 0 off).
+    int ReminderMinutes(const Feed& f) const;
+    void SetReminderCallback(std::function<void(const ReminderInfo&)> cb) { reminder_ = std::move(cb); }
+    size_t PendingReminders() const;      // not fired yet (timed events still ahead) + snoozed
+    int64_t NextReminderIn() const;       // seconds until the reminder timer fires (-1 none)
+    uint64_t RemindersFired() const { return remindersFired_; }
+    // Automation: the earliest pending reminder (else the earliest snoozed one) fires now.
+    bool FireNextReminder();
+    // The reminder `id` fires again in `seconds`.
+    void Snooze(const std::wstring& id, int seconds);
+
     // --- automation ---
     int State() const;                 // 0 off, 1 running, 2 a feed has an error
     int64_t LastFetchAge() const;      // seconds since the newest good fetch / read (-1 none)
     uint64_t Fetches() const { return fetches_; }          // web responses received
     uint64_t NotModified() const { return notModified_; }  // ... of which 304
     uint64_t FileReads() const { return fileReads_; }      // file feeds read
-    int PendingTimers() const { return (refreshArmed_ ? 1 : 0) + (fileTimerArmed_ ? 1 : 0); }
+    int PendingTimers() const { return (refreshArmed_ ? 1 : 0) + (fileTimerArmed_ ? 1 : 0) + (reminderArmed_ ? 1 : 0); }
     int64_t NextDueIn() const;         // seconds until the refresh timer fires (-1 none)
     bool Watching() const { return watchThread_ != nullptr; }
     // The web feed's URL for a config URL (webcal -> https) or the file path (file:/// too). False
@@ -135,6 +170,9 @@ private:
     void StopWatcher();
     void OnFileChanged(WPARAM generation, LPARAM folder);
     void OnFileTimer();
+    void ArmReminders();
+    void OnReminderTimer();
+    void Fire(const Item& item, const std::wstring& id);
     void Notify() {
         if (changed_) changed_();
     }
@@ -160,4 +198,11 @@ private:
     LONG watchGeneration_ = 0;
     uint64_t fetches_ = 0, notModified_ = 0, fileReads_ = 0;
     std::function<void()> changed_;
+    // Reminders (session only): ids that fired, snoozed ids -> when they fire again.
+    std::set<std::wstring> fired_;
+    std::map<std::wstring, int64_t> snoozed_;
+    bool reminderArmed_ = false;
+    int64_t reminderDue_ = 0;
+    uint64_t remindersFired_ = 0;
+    std::function<void(const ReminderInfo&)> reminder_;
 };

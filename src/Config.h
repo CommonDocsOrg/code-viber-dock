@@ -425,6 +425,7 @@ struct CalendarFeed {
     uint32_t color = 0xFF4CC2FF;  // "#AARRGGBB"; without a "color" key: the next colour of a fixed palette
     bool enabled = true;
     int refreshMin = 30;          // 5 - 1440 (web feeds; a file is re-read when it changes, never polled)
+    int reminderMin = 0;          // a reminder this many minutes before each timed event (0: calendars.defaultReminderMin)
     bool operator==(const CalendarFeed&) const = default;
 };
 struct CalendarsConfig {

@@ -60,6 +60,7 @@ public:
         Kind kind = Kind::None;
         float width = 0, height = 0;  // Open: DIPs
         std::wstring arg;             // Folder: the path; Previews: the app
+        int64_t day = INT64_MIN;      // Calendar: the local day to show (INT64_MIN: today)
         std::wstring view;            // Folder: "auto" / "grid" / "list" ("" auto)
     };
 
@@ -130,7 +131,7 @@ public:
     void PopupClosed();
 
     // WidgetRuntime: a provider this widget used changed ("audio", "media").
-    void ProviderChanged(const char* channel);
+    void ProviderChanged(const char* channel, const std::string& payload = {});
     // WidgetRuntime: an http request of generation `generation` finished.
     void OnHttpResult(uint64_t generation, int id, const Http::Result& result);
     // A folder widget with `watch`: its id and canonical folder (false: not watched).
@@ -190,7 +191,8 @@ private:
     void PopupRedraw() override;
     bool PopupFolder(const std::wstring& path, const std::wstring& view, std::wstring& error) override;
     bool PopupPreviews(const std::wstring& app, std::wstring& error) override;
-    bool PopupCalendar(std::wstring& error) override;
+    bool PopupCalendar(int64_t day, std::wstring& error) override;
+    bool CalendarCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) override;
     std::vector<std::string> PackageFiles() override;
     void RequestPopup(PopupRequest r);
     bool HostAllowed(const std::wstring& host) const;

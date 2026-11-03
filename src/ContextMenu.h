@@ -91,6 +91,9 @@ enum Command : UINT {
     kMagnifyAt = 834,           // magnify as if the pointer were at stage main coordinate HIWORD(wParam) (0xFFFF: left)
     // Calendars (round 4 phase 13; lParam: the dock in its high word):
     kCalendarSelect = 835,      // the open calendar popup selects today + (int16) HIWORD(wParam) days
+    kReminderFireNext = 836,    // the earliest pending reminder fires now (any dock: the service's)
+    kReminderSnooze = 837,      // the dock's reminder banner: Snooze 5 min
+    kReminderDismiss = 838,     // ... Dismiss
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

@@ -1,0 +1,27 @@
+{
+  "name": "Agenda",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "The next event of the dock's calendar feeds (Settings > Calendar): how long until it starts (\"In 25 min\", \"Now\", the time) and its title; a click shows the next events in a popup, the month calendar or an app / address. It wakes only when what it shows changes: at an event's start or end, each minute of the last hour before one, at midnight, and when the feeds change.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 160, "cross": 44 },
+    "vertical": { "main": 56, "cross": 48 }
+  },
+  "permissions": ["calendar", "shell"],
+  "settings": [
+    { "key": "count", "type": "int", "label": "Events in the popup", "min": 1, "max": 20, "default": 6 },
+    { "key": "lookaheadDays", "type": "int", "label": "Look ahead (days)", "min": 1, "max": 90, "default": 7,
+      "description": "Events further away are not shown (the slot then says \"No events\")." },
+    { "key": "showLocation", "type": "bool", "label": "Show locations in the popup", "default": true },
+    { "key": "feeds", "type": "string", "label": "Only these feeds", "default": "",
+      "description": "Feed names, comma separated (Settings > Calendar). Empty: every feed." },
+    { "key": "clickOpens", "type": "choice", "label": "A click opens", "default": "popup",
+      "choices": [ { "value": "popup", "label": "The next events" },
+                   { "value": "calendar", "label": "The month calendar" },
+                   { "value": "target", "label": "The app or address below" } ] },
+    { "key": "target", "type": "string", "label": "App or address", "default": "",
+      "description": "For \"The app or address below\": a program, a file or a URL (https://calendar.google.com)." },
+    { "key": "width", "type": "int", "label": "Width (DIPs, horizontal docks)", "min": 80, "max": 400, "default": 160 }
+  ]
+}

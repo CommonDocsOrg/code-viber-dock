@@ -672,6 +672,18 @@ calendar) or an `.ics` file on this PC (a full path or a `file:///` URL).
   nothing. Navigating far ahead or back extends the expansion (below) on demand.
 - **On the clock**: with `showDots`, a small accent dot after the date (after the time without a
   date; under the text on a vertical dock) while today has events.
+- **Reminders** (13b): a feed's `reminderMin` (else `defaultReminderMin`; both 0 = off) minutes
+  before each timed event (all-day events have none), a banner appears beside the first dock, over
+  its clock (a `WinDockReminder` window that never takes the focus): the feed's colour, the title,
+  "In 15 min · 10:00 AM" (or "Now"), the location, "+n more" while others wait, **Snooze 5 min**
+  and **Dismiss**; a click on the banner itself dismisses it and opens the month calendar on that
+  day. One timer waits for the earliest reminder (none while no feed has reminders); a reminder
+  whose time passed while the dock was not running still shows until 5 minutes after the event
+  started. Reminders and snoozes are not kept across restarts. Widgets hear them too
+  (`calendar.onReminder`).
+- **Widgets**: the `calendar` provider (permission `"calendar"`, docs/widgets.md): `feeds()`,
+  `events({ from, to })`, `eventsOn(date)`, `today()`, `next(n)`, `refresh()`, `openPopup(date)`,
+  `onChange(fn)`, `onReminder(fn)`; the Agenda widget uses it.
 - **Fetching**: each web feed is fetched on a short-lived worker thread (WinHTTP, the system proxy,
   15 s timeouts, at most 32 MB), which also parses it; the `ETag` / `Last-Modified` of the last
   response go back as `If-None-Match` / `If-Modified-Since`, so an unchanged feed costs a `304`.
@@ -735,7 +747,11 @@ write and edit without compiling anything. The full reference (every call, every
   (`start`: the Windows logo or your icon, opens Start), **Search** (`search`: opens Windows Search)
   and **Notifications** (`notification-bell`: a bell that opens Windows' notification centre (Win+N)
   or, with its "A click opens" setting, WinDock's own centre; with its "Show the unread count"
-  setting on (off by default: nothing polls) the badge is the number of unread notifications). A folder with a built-in's id replaces the built-in; your own clock faces
+  setting on (off by default: nothing polls) the badge is the number of unread notifications), and
+  **Agenda** (`agenda`: the next event of the calendar feeds, "In 25 min" / "Now" / its time over
+  its title with the feed's colour; a click shows the next events in a popup, the month calendar or
+  an app / address; it wakes only when its text changes: at an event's start and end, each minute
+  of the last hour before one, at midnight, and when the feeds change). A folder with a built-in's id replaces the built-in; your own clock faces
   go into an exported `analog-clock\faces` folder.
 - **Adding one**: Settings > Dock contents > **Add widget ▾** lists the installed widgets after
   Clock / Weather / Running apps, or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
@@ -1019,8 +1035,8 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 - **Calendar** (round 4 phase 13): the calendar feeds (a check box enables / disables each; the
   status per feed: when it was updated and how many events, or the error and when it retries),
   fields to add a feed or edit the selected one (name, address or file, colour `#AARRGGBB`, the
-  refresh interval, enabled) with **Add feed** / **Save changes**, **Remove**, **Refresh now**, and
-  **Show dots on days with events**.
+  refresh interval, the reminder minutes, enabled) with **Add feed** / **Save changes**, **Remove**,
+  **Refresh now**, **Show dots on days with events** and the **Default reminder**.
 - **Folders and groups**: one folder or shortcut group of the dock (a drop-down picks it;
   **Settings…** on its row of Dock contents opens it): **Show the contents as** Automatic (a grid
   up to 48 entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose
@@ -1295,7 +1311,8 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   webcal URL, a file path or file:/// URL), "color": "#AARRGGBB" (without it: the next colour of a
   fixed palette), "enabled": true, "refreshMin": 30 (5 - 1440; web feeds) }`, at most 32.
   `showDots`: dots on event days in the month calendar and after the clock's date.
-  `defaultReminderMin`: reminders before events (0 off; 0 - 1440). See Calendar feeds.
+  `defaultReminderMin`: reminders before events (0 off; 0 - 1440), for feeds without their own
+  `reminderMin` (per feed, 0 - 1440; written only when set). See Calendar feeds.
 
 ### Themes
 
@@ -1562,7 +1579,15 @@ always there, also when every dock is parked) handle these registered messages:
   `WM_KEYDOWN`). Settings page 14 Calendar: 4300 the feed list (check boxes = enabled; columns Name,
   Address, Every, Status), 4302 name, 4304 address / file, 4306 colour, 4309 / 4310 interval, 4323
   enabled, 4312 Add feed, 4313 Save changes, 4314 Remove, 4315 Refresh now, 4316 Show dots, 4319 the
-  fields' note (errors).
+  fields' note (errors), 4326 / 4327 the feed's reminder minutes, 4330 / 4331 the default reminder.
+  Reminders (13b): `QueryState` 178 = reminders pending (timed events ahead on feeds with reminders,
+  not fired yet, plus snoozed ones), 179 = 1 while this dock's reminder banner is shown, 180 =
+  seconds until the reminder timer fires (-1 none), 181 = reminders fired this session, 182 =
+  reminders waiting for this dock's banner (the shown one included). `ItemCommand` 836 = the
+  earliest pending reminder fires now (else the earliest snoozed one; any dock), 837 / 838 = the
+  dock's banner: Snooze 5 min / Dismiss (1 when a banner was shown). The banner takes sent mouse
+  clicks (`WM_LBUTTONDOWN` / `UP`): the buttons are at its bottom right, the rest is the body.
+  The Agenda widget's state: the widget QueryStates (54, 58, 59) and its storage (`debugStore`).
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide

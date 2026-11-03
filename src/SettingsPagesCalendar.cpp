@@ -58,6 +58,10 @@ protected:
         Spin(kCalRefreshEdit, kCalRefreshSpin, kColX, kNumberW, 5, 1440, 5);
         Text(kCalRefreshUnit, CtlKind::Note, L"minutes (web feeds)", kColX + kNumberW + 8, 200);
         NextRow();
+        Label(kCalReminderLabel, L"Remind me before events");
+        Spin(kCalReminderEdit, kCalReminderSpin, kColX, kNumberW, 0, 1440, 5);
+        Text(kCalReminderUnit, CtlKind::Note, L"minutes (0: the default below)", kColX + kNumberW + 8, 260);
+        NextRow();
         Check(kCalEnable, kCalEnableCaption, L"Enabled");
         NextRow();
         Button(kCalAdd, L"Add feed", kMargin, kButtonW);
@@ -68,6 +72,15 @@ protected:
         Section(kCalOptionsSection, L"Display");
         Check(kCalShowDots, kCalShowDotsCaption, L"Show dots on days with events (month calendar, clock)");
         NextRow();
+        Label(kCalDefaultReminderLabel, L"Default reminder");
+        Spin(kCalDefaultReminderEdit, kCalDefaultReminderSpin, kColX, kNumberW, 0, 1440, 5);
+        Text(kCalDefaultReminderUnit, CtlKind::Note, L"minutes before (0: no reminders)", kColX + kNumberW + 8, 260);
+        NextRow();
+        Text(kCalReminderNote, CtlKind::Note,
+             L"A reminder shows a banner beside the dock (Snooze 5 min, Dismiss) before each timed event of a feed with "
+             L"reminders. All-day events have none.",
+             kMargin, right - kMargin, 40);
+        NextRow(44);
     }
 
     void Created() override {
@@ -98,6 +111,7 @@ protected:
 
     void Load() override {
         SetCheck(kCalShowDots, Cfg().calendars.showDots);
+        SetSpin(kCalDefaultReminderSpin, Cfg().calendars.defaultReminderMin);
         FillList();
         LoadFields(Selected());
     }
@@ -204,6 +218,7 @@ private:
         SetText(kCalUrlEdit, f.url);
         SetText(kCalColorEdit, FormatArgbColor(f.color));
         SetSpin(kCalRefreshSpin, f.refreshMin);
+        SetSpin(kCalReminderSpin, f.reminderMin);
         SetCheck(kCalEnable, f.enabled);
         Enable(kCalSave, row >= 0);
         Enable(kCalRemove, row >= 0);
@@ -243,6 +258,12 @@ private:
             return false;
         }
         f.refreshMin = minutes;
+        int remind = 0;
+        if (!ReadInt(kCalReminderEdit, 0, 1440, remind)) {
+            error = L"Reminder: a number of minutes (0 - 1440).";
+            return false;
+        }
+        f.reminderMin = remind;
         f.enabled = GetCheck(kCalEnable);
         return true;
     }
@@ -292,6 +313,26 @@ private:
             ListView_SetItemText(list, static_cast<int>(i), 3, st.data());
         }
         filling_ = false;
+    }
+
+    void Spun(int spin, int pos) override {
+        if (spin == kCalDefaultReminderSpin) SetDefaultReminder(pos);
+    }
+    void Commit(int id) override {
+        if (id != kCalDefaultReminderEdit) return;
+        int value = 0;
+        if (ReadInt(id, 0, 1440, value)) {
+            SetDefaultReminder(value);
+        } else {
+            SetSpin(kCalDefaultReminderSpin, Cfg().calendars.defaultReminderMin);
+        }
+    }
+    void SetDefaultReminder(int value) {
+        value = std::clamp(value, 0, 1440);
+        SetSpin(kCalDefaultReminderSpin, value);
+        if (Cfg().calendars.defaultReminderMin == value) return;
+        Cfg().calendars.defaultReminderMin = value;
+        Changed(SettingsScope::Calendars);
     }
 
     bool filling_ = false;

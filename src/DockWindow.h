@@ -24,6 +24,7 @@
 #include "NotificationPopup.h"
 #include "NotificationService.h"
 #include "PreviewPopup.h"
+#include "ReminderBanner.h"
 #include "Renderer.h"
 #include "ScriptPopup.h"
 #include "Thumbnails.h"
@@ -373,6 +374,12 @@ public:
     // Automation (ItemCommand 835): the open calendar popup selects the day `offset` days from
     // today (its month is shown). False when it is not open.
     bool CalendarSelect(int offset);
+    // A calendar reminder fired (13b): the banner shows it (queued behind one that is shown).
+    void ShowReminder(const CalendarService::ReminderInfo& reminder);
+    // Automation (ItemCommand 837 / 838): the banner's Snooze 5 min / Dismiss. False without one.
+    bool ReminderCommand(UINT cmd);
+    bool ReminderShown() const { return reminder_.Visible(); }
+    size_t RemindersQueued() const { return reminders_.size(); }
 
 private:
     class DropTarget;
@@ -1262,6 +1269,12 @@ private:
     // The forecast and calendar popups (the weather data is shared_->WeatherData())
     WeatherPopup weatherPopup_;
     CalendarPopup calendar_;
+    // Calendar reminders (13b): the banner and the reminders waiting for it (the front one is shown).
+    ReminderBanner reminder_;
+    std::vector<CalendarService::ReminderInfo> reminders_;
+    // The banner's buttons: 1 snooze, 2 dismiss, 3 the body (dismiss, open the month calendar).
+    void ReminderAction(int action);
+    void ShowFrontReminder();
     WeatherCallbacks weatherCallbacks_;
     bool weatherQuiet_ = false;   // Configure is running inside ApplyConfig / ApplyWeather
 

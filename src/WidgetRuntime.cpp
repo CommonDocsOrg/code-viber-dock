@@ -136,6 +136,7 @@ void WidgetRuntime::Shutdown() {
     audioUsers_.clear();
     mediaUsers_.clear();
     notificationUsers_.clear();
+    calendarUsers_.clear();
     notificationsDemand_ = nullptr;
     audio_.Stop();
     media_.Stop();
@@ -539,16 +540,23 @@ NotificationService* WidgetRuntime::UseNotifications(WidgetInstance* w) {
     return notifications_;
 }
 
+CalendarService* WidgetRuntime::UseCalendar(WidgetInstance* w) {
+    if (!calendar_) return nullptr;
+    calendarUsers_.insert(w);
+    return calendar_;
+}
+
 void WidgetRuntime::ReleaseProviders(WidgetInstance* w) {
+    calendarUsers_.erase(w);
     if (audioUsers_.erase(w) && audioUsers_.empty()) audio_.Stop();
     if (mediaUsers_.erase(w) && mediaUsers_.empty()) media_.Stop();
     if (notificationUsers_.erase(w) && notificationUsers_.empty() && notificationsDemand_) notificationsDemand_();
 }
 
-void WidgetRuntime::NotifyProvider(std::set<WidgetInstance*>& users, const char* channel) {
+void WidgetRuntime::NotifyProvider(std::set<WidgetInstance*>& users, const char* channel, const std::string& payload) {
     const std::vector<WidgetInstance*> all(users.begin(), users.end());  // a callback may reload a widget
     for (WidgetInstance* w : all) {
-        if (users.count(w) && Alive(w)) w->ProviderChanged(channel);
+        if (users.count(w) && Alive(w)) w->ProviderChanged(channel, payload);
     }
 }
 

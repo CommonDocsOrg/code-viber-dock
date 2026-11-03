@@ -521,10 +521,11 @@ transform in DockGeometry) and 11b (`shape` arc / circle: the polar mapping in D
 
 ## Phase 13: calendar integrations
 
-Status: 13a done 2026-11-03 (ICS feeds only, per the decisions: CalendarService with web and file
+Status: done 2026-11-03 (ICS feeds only, per the decisions): 13a (CalendarService with web and file
 feeds, the own RFC 5545 parser and its tests in `tests/ics`, events and dots in the calendar
-popup, the clock's dot, Settings > Calendar); 13b (the `calendar` provider, the agenda widget,
-reminders) next; see STATUS.md.
+popup, the clock's dot, Settings > Calendar) and 13b (the `calendar` provider for widgets, the
+Agenda widget, reminder banners); see STATUS.md. Phase 14's script calendar popup can be drawn
+from `calendar.eventsOn` / `events` (startDay / endDay, colours) and `system`.
 
 - Provider `calendar`: Google Calendar and Outlook / Microsoft 365 (OAuth device-code or
   loopback flow, tokens in DPAPI) or ICS feeds (per the questions). Events in the calendar

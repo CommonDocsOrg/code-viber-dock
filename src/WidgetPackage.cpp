@@ -52,6 +52,8 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"search", "main.js", IDR_WIDGET_SEARCH_MAIN},
     {L"notification-bell", "widget.json", IDR_WIDGET_BELL_JSON},
     {L"notification-bell", "main.js", IDR_WIDGET_BELL_MAIN},
+    {L"agenda", "widget.json", IDR_WIDGET_AGENDA_JSON},
+    {L"agenda", "main.js", IDR_WIDGET_AGENDA_MAIN},
 };
 
 bool IsBuiltIn(const std::wstring& id) {
@@ -163,6 +165,8 @@ void ReadPermissions(const json::JsonObject& root, Manifest& m) {
                 m.media = true;
             } else if (s == L"notifications") {
                 m.notifications = true;
+            } else if (s == L"calendar") {
+                m.calendar = true;
             } else if (s == L"http") {
                 m.http = true;  // no hosts: every request is refused (name the hosts)
             } else if (s.rfind(L"http:", 0) == 0) {

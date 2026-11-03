@@ -11,6 +11,7 @@
 #include <cstring>
 #include <cwctype>
 
+#include "CalendarService.h"
 #include "JsonUtil.h"
 #include "NotificationService.h"
 #include "WidgetRuntime.h"
@@ -537,8 +538,11 @@ bool WidgetInstance::PopupPreviews(const std::wstring& app, std::wstring& error)
     return true;
 }
 
-bool WidgetInstance::PopupCalendar(std::wstring&) {
-    RequestPopup(PopupRequest{PopupRequest::Kind::Calendar});
+bool WidgetInstance::PopupCalendar(int64_t day, std::wstring&) {
+    PopupRequest r;
+    r.kind = PopupRequest::Kind::Calendar;
+    r.day = day;
+    RequestPopup(std::move(r));
     return true;
 }
 
@@ -584,6 +588,7 @@ bool WidgetInstance::Permitted(Permission p) const {
         case Permission::Audio: return package_->manifest.audio;
         case Permission::Media: return package_->manifest.media;
         case Permission::Notifications: return package_->manifest.notifications;
+        case Permission::Calendar: return package_->manifest.calendar;
         case Permission::Http:
         default: return package_->manifest.http;
     }
@@ -759,10 +764,10 @@ bool WidgetInstance::ShellList(const std::wstring& folder, std::string& json, st
 
 // --- 5b: providers (audio, media) and shell.sendKeys ------------------------------------------------
 
-void WidgetInstance::ProviderChanged(const char* channel) {
+void WidgetInstance::ProviderChanged(const char* channel, const std::string& payload) {
     if (state_ != State::Ok || !engine_) return;
     const std::string what = std::string(channel) + ".onChange";
-    Check(engine_->Emit(channel), what.c_str());
+    Check(engine_->Emit(channel, payload), what.c_str());
 }
 
 namespace {
@@ -1022,4 +1027,138 @@ bool WidgetInstance::NotificationsCommand(const std::string& command, double id,
     }
     Log(ScriptLogLevel::Info, L"notifications." + JsonUtil::Utf8ToWide(command));
     return true;
+}
+
+// --- round 4 phase 13: calendar ------------------------------------------------------------------
+
+namespace {
+
+// A date argument: ms since 1970 (UTC; its local day), or "YYYY-MM-DD" (a local day). False if absent
+// or malformed. `day`: the local day; `utc`: the instant (a day: its local midnight).
+bool CalendarDate(const json::JsonObject& o, const wchar_t* key, const CalendarService& c, int64_t& day, int64_t& utc) {
+    const json::IJsonValue v = JsonUtil::Find(o, key);
+    if (!v) return false;
+    if (v.ValueType() == json::JsonValueType::Number) {
+        const double ms = v.GetNumber();
+        if (!std::isfinite(ms) || std::fabs(ms) > 8.0e15) return false;
+        utc = static_cast<int64_t>(std::floor(ms / 1000.0));
+        day = Ics::DayOf(c.LocalWall(utc));
+        return true;
+    }
+    if (v.ValueType() != json::JsonValueType::String) return false;
+    const std::wstring s(v.GetString());
+    int y = 0, m = 0, d = 0;
+    if (s.size() != 10 || swscanf_s(s.c_str(), L"%4d-%2d-%2d", &y, &m, &d) != 3 || m < 1 || m > 12 || d < 1 ||
+        d > Ics::DaysInMonth(y, m) || y < 1601 || y > 9999) {
+        return false;
+    }
+    day = Ics::DaysFromCivil(y, m, d);
+    utc = c.LocalToUtc(day * 86400);
+    return true;
+}
+
+}  // namespace
+
+bool WidgetInstance::CalendarCall(const std::string& what, const std::string& args, std::string& out, std::wstring& error) {
+    if (!Permitted(Permission::Calendar)) {
+        error = L"calendar needs the \"calendar\" permission";
+        return false;
+    }
+    CalendarService* c = runtime_.UseCalendar(this);
+    if (!c) {
+        error = L"calendar: the calendar service is not available";
+        return false;
+    }
+    json::JsonObject o{nullptr};
+    try {
+        if (!json::JsonObject::TryParse(JsonUtil::Utf8ToWide(args), o) || !o) o = json::JsonObject();
+    } catch (...) {
+        o = json::JsonObject();
+    }
+    const auto& items = c->Items();
+    auto list = [&](const std::vector<size_t>& indexes) {
+        out = "[";
+        for (size_t k = 0; k < indexes.size(); ++k) out += (k ? "," : "") + c->EventJson(items[indexes[k]]);
+        out += "]";
+    };
+    if (what == "feeds") {
+        out = c->FeedsJson();
+        return true;
+    }
+    if (what == "eventsOn") {
+        int64_t day = CalendarService::Today(), utc = 0;
+        if (JsonUtil::Find(o, L"date") && !CalendarDate(o, L"date", *c, day, utc)) {
+            error = L"calendar.eventsOn: the date must be a Date, ms since 1970 or \"YYYY-MM-DD\"";
+            return false;
+        }
+        c->EnsureDays(day, day);
+        list(c->On(day));
+        return true;
+    }
+    if (what == "events") {
+        // Default: from now to the end of the expansion window.
+        int64_t fromDay = 0, toDay = 0, from = CalendarService::Now(), to = 0;
+        if (JsonUtil::Find(o, L"from") && !CalendarDate(o, L"from", *c, fromDay, from)) {
+            error = L"calendar.events: from must be a Date, ms since 1970 or \"YYYY-MM-DD\"";
+            return false;
+        }
+        fromDay = Ics::DayOf(c->LocalWall(from));
+        if (JsonUtil::Find(o, L"to")) {
+            if (!CalendarDate(o, L"to", *c, toDay, to)) {
+                error = L"calendar.events: to must be a Date, ms since 1970 or \"YYYY-MM-DD\"";
+                return false;
+            }
+        } else {
+            toDay = c->WindowTo() + 1;
+            to = c->LocalToUtc(toDay * 86400);
+        }
+        if (to <= from) {
+            out = "[]";
+            return true;
+        }
+        if (toDay - fromDay > 1100) {
+            error = L"calendar.events: at most about three years at a time";
+            return false;
+        }
+        c->EnsureDays(fromDay, toDay);
+        std::vector<size_t> hits;
+        const auto& all = c->Items();
+        for (size_t i = 0; i < all.size() && hits.size() < 2000; ++i) {
+            const Ics::Occurrence& oc = all[i].occ;
+            const bool inside = oc.end > oc.start ? (oc.end > from && oc.start < to) : (oc.start >= from && oc.start < to);
+            if (inside) hits.push_back(i);
+        }
+        list(hits);
+        return true;
+    }
+    if (what == "next") {
+        double n = 5.0;
+        JsonUtil::ReadNumber(o, L"n", n);
+        const size_t count = static_cast<size_t>(std::clamp(std::isfinite(n) ? n : 5.0, 1.0, 100.0));
+        const int64_t now = CalendarService::Now();
+        std::vector<size_t> hits;
+        for (size_t i = 0; i < items.size() && hits.size() < count; ++i) {
+            const Ics::Occurrence& oc = items[i].occ;
+            if (oc.end > now || (oc.end <= oc.start && oc.start >= now)) hits.push_back(i);
+        }
+        list(hits);
+        return true;
+    }
+    if (what == "refresh") {
+        c->RefreshNow();
+        out = "null";
+        return true;
+    }
+    if (what == "openPopup") {
+        int64_t day = INT64_MIN, utc = 0;
+        if (JsonUtil::Find(o, L"date") && !CalendarDate(o, L"date", *c, day, utc)) {
+            error = L"calendar.openPopup: the date must be a Date, ms since 1970 or \"YYYY-MM-DD\"";
+            return false;
+        }
+        PopupCalendar(day, error);
+        out = "null";
+        return true;
+    }
+    error = L"calendar: unknown call";
+    return false;
 }

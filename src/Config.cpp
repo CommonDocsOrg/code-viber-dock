@@ -546,6 +546,7 @@ void Config::Sanitize() {
         if (f.name.size() > 128) f.name.resize(128);
         if (f.url.size() > 4096) f.url.resize(4096);
         f.refreshMin = std::clamp(f.refreshMin, 5, 1440);
+        f.reminderMin = std::clamp(f.reminderMin, 0, 1440);
     }
     calendars.defaultReminderMin = std::clamp(calendars.defaultReminderMin, 0, 1440);
 }
@@ -758,6 +759,7 @@ Config::LoadResult Config::LoadFile() {
                     if (!ParseArgbColor(color, feed.color)) feed.color = DefaultFeedColor(calendars.feeds.size());
                     ReadBool(f, L"enabled", feed.enabled);
                     ReadInt(f, L"refreshMin", feed.refreshMin);
+                    ReadInt(f, L"reminderMin", feed.reminderMin);
                     calendars.feeds.push_back(std::move(feed));
                 }
             }
@@ -904,7 +906,8 @@ bool Config::Save() const {
                 const CalendarFeed& f = calendars.feeds[k];
                 o += (k ? L",\n    { \"name\": " : L"\n    { \"name\": ") + Quote(f.name) + L", \"url\": " + Quote(f.url) +
                      L",\n      \"color\": " + Quote(FormatArgbColor(f.color)) + L", \"enabled\": " + Bool(f.enabled) +
-                     L", \"refreshMin\": " + Num(f.refreshMin) + L" }";
+                     L", \"refreshMin\": " + Num(f.refreshMin) +
+                     (f.reminderMin > 0 ? L", \"reminderMin\": " + Num(f.reminderMin) : std::wstring()) + L" }";
             }
             o += calendars.feeds.empty() ? L"]" : L"\n  ]";
             o += L", \"showDots\": " + Bool(calendars.showDots) + L", \"defaultReminderMin\": " +

@@ -410,7 +410,7 @@ void CalendarService::Configure(const CalendarsConfig& cfg, HWND owner) {
         f.id = nextFeedId_++;
         f.status = c.enabled && f.problem.empty() ? FeedStatus::Loading : f.problem.empty() ? FeedStatus::Off : FeedStatus::Error;
         if (!f.problem.empty()) f.error = f.problem;
-        if (!f.file && !f.location.empty()) f.cacheKey = Hex64(Fnv1a(Lower(f.location)));
+        if (!f.location.empty()) f.cacheKey = Hex64(Fnv1a(Lower(f.location)));  // also the reminder ids' source
         next.push_back(std::move(f));
     }
     feeds_ = std::move(next);
@@ -443,7 +443,8 @@ void CalendarService::Stop() {
     ++generation_;  // results in flight are dropped when they arrive
     if (owner_ && refreshArmed_) KillTimer(owner_, kRefreshTimerId);
     if (owner_ && fileTimerArmed_) KillTimer(owner_, kFileTimerId);
-    refreshArmed_ = fileTimerArmed_ = false;
+    if (owner_ && reminderArmed_) KillTimer(owner_, kReminderTimerId);
+    refreshArmed_ = fileTimerArmed_ = reminderArmed_ = false;
     StopWatcher();
     for (Feed& f : feeds_) f.inFlight = false;
     active_ = false;
@@ -727,6 +728,10 @@ bool CalendarService::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
         OnFileTimer();
         return true;
     }
+    if (msg == WM_TIMER && wp == kReminderTimerId) {
+        OnReminderTimer();
+        return true;
+    }
     return false;
 }
 
@@ -753,6 +758,7 @@ void CalendarService::Rebuild() {
     }
     if (!active_) {
         for (Feed& f : feeds_) f.occurrences = 0;
+        ArmReminders();
         return;
     }
     const int64_t from = local_->ToUtc(winFrom_ * 86400), to = local_->ToUtc((winTo_ + 1) * 86400);
@@ -783,6 +789,7 @@ void CalendarService::Rebuild() {
             return x.occ.start < y.occ.start;
         });
     }
+    ArmReminders();
 }
 
 void CalendarService::EnsureDays(int64_t from, int64_t to) {
@@ -870,4 +877,228 @@ int64_t CalendarService::LastFetchAge() const {
         if (f.cfg.enabled && !f.fromCache) newest = std::max(newest, f.lastFetch);
     }
     return newest > 0 ? std::max<int64_t>(0, Now() - newest) : -1;
+}
+
+// --- the widgets' provider (13b) -----------------------------------------------------------------
+
+namespace {
+
+std::string JsonText(const std::wstring& w) {
+    const std::string s = Utf8(w);
+    std::string o = "\"";
+    for (unsigned char c : s) {
+        switch (c) {
+            case '"': o += "\\\""; break;
+            case '\\': o += "\\\\"; break;
+            case '\n': o += "\\n"; break;
+            case '\r': o += "\\r"; break;
+            case '\t': o += "\\t"; break;
+            default:
+                if (c < 0x20) {
+                    char buf[8];
+                    sprintf_s(buf, "\\u%04x", c);
+                    o += buf;
+                } else {
+                    o += static_cast<char>(c);
+                }
+        }
+    }
+    return o + "\"";
+}
+
+std::string DayText(int64_t day) {
+    int y = 0, m = 0, d = 0;
+    Ics::CivilFromDays(day, y, m, d);
+    char buf[16];
+    sprintf_s(buf, "%04d-%02d-%02d", y, m, d);
+    return buf;
+}
+
+std::string ColorText(uint32_t argb) {
+    char buf[16];
+    sprintf_s(buf, "#%08X", argb);
+    return buf;
+}
+
+}  // namespace
+
+std::wstring CalendarService::IdOf(const Item& item) const {
+    const Feed& f = feeds_[item.feed];
+    const Ics::Event& ev = EventOf(item);
+    return f.cacheKey + L"|" + ev.uid + L"|" + std::to_wstring(item.occ.originalStart);
+}
+
+std::string CalendarService::EventJson(const Item& item) const {
+    const Feed& f = feeds_[item.feed];
+    const Ics::Event& ev = EventOf(item);
+    const Ics::Occurrence& o = item.occ;
+    std::string j = "{\"id\":" + JsonText(IdOf(item)) + ",\"feed\":" + JsonText(f.cfg.name) + ",\"color\":\"" +
+                    ColorText(f.cfg.color) + "\",\"title\":" + JsonText(ev.summary) + ",\"location\":" +
+                    JsonText(ev.location) + ",\"description\":" + JsonText(ev.description) +
+                    ",\"start\":" + std::to_string(o.start * 1000) + ",\"end\":" + std::to_string(o.end * 1000) +
+                    ",\"allDay\":" + (o.allDay ? "true" : "false") + ",\"url\":" + JsonText(ev.url) +
+                    ",\"recurring\":" + (o.recurring ? "true" : "false") + ",\"startDay\":\"" + DayText(o.firstDay) +
+                    "\",\"endDay\":\"" + DayText(o.lastDay) + "\",\"startTime\":" +
+                    JsonText(o.allDay ? std::wstring() : TimeText(o.start)) + ",\"endTime\":" +
+                    JsonText(o.allDay ? std::wstring() : TimeText(o.end)) + ",\"reminder\":" +
+                    std::to_string(ev.reminderMin) + "}";
+    return j;
+}
+
+std::string CalendarService::FeedsJson() const {
+    static const char* const kStatus[] = {"off", "loading", "ok", "error"};
+    std::string j = "[";
+    for (size_t i = 0; i < feeds_.size(); ++i) {
+        const Feed& f = feeds_[i];
+        if (i) j += ",";
+        j += "{\"name\":" + JsonText(f.cfg.name) + ",\"color\":\"" + ColorText(f.cfg.color) + "\",\"enabled\":" +
+             (f.cfg.enabled ? "true" : "false") + ",\"file\":" + (f.file ? "true" : "false") + ",\"status\":\"" +
+             kStatus[static_cast<int>(f.status)] + "\",\"error\":" + JsonText(f.error) + ",\"lastFetch\":" +
+             std::to_string(f.lastFetch * 1000) + ",\"events\":" + std::to_string(f.occurrences) + "}";
+    }
+    return j + "]";
+}
+
+// --- reminders (13b) -----------------------------------------------------------------------------
+
+int CalendarService::ReminderMinutes(const Feed& f) const {
+    return f.cfg.reminderMin > 0 ? f.cfg.reminderMin : cfg_.defaultReminderMin;
+}
+
+void CalendarService::ArmReminders() {
+    if (!owner_) return;
+    int64_t next = INT64_MAX;
+    const int64_t now = Now();
+    if (active_) {
+        for (const Item& it : items_) {
+            const int minutes = ReminderMinutes(feeds_[it.feed]);
+            if (minutes <= 0 || it.occ.allDay || now >= it.occ.start + kReminderGraceS) continue;
+            const int64_t due = it.occ.start - static_cast<int64_t>(minutes) * 60;
+            if (due >= next) continue;  // items_ is sorted by start, not by due: no early exit
+            if (fired_.count(IdOf(it))) continue;
+            next = due;
+        }
+        for (const auto& [id, until] : snoozed_) next = std::min(next, until);
+    }
+    if (next == INT64_MAX) {
+        if (reminderArmed_) KillTimer(owner_, kReminderTimerId);
+        reminderArmed_ = false;
+        return;
+    }
+    next = std::max(next, now);
+    if (reminderArmed_ && reminderDue_ == next) return;
+    const int64_t ms = std::clamp<int64_t>((next - now) * 1000 + 20, USER_TIMER_MINIMUM, 0x7FFFFFF0);
+    SetTimer(owner_, kReminderTimerId, static_cast<UINT>(ms), nullptr);
+    reminderArmed_ = true;
+    reminderDue_ = next;
+}
+
+void CalendarService::Fire(const Item& it, const std::wstring& id) {
+    fired_.insert(id);
+    ++remindersFired_;
+    if (!reminder_) return;
+    ReminderInfo r;
+    r.id = id;
+    const Ics::Event& ev = EventOf(it);
+    r.title = ev.summary.empty() ? std::wstring(L"(No title)") : ev.summary;
+    r.location = ev.location;
+    r.when = TimeText(it.occ.start);
+    r.start = it.occ.start;
+    r.day = it.occ.firstDay;
+    r.color = feeds_[it.feed].cfg.color;
+    r.json = EventJson(it);
+    reminder_(r);
+}
+
+void CalendarService::OnReminderTimer() {
+    KillTimer(owner_, kReminderTimerId);
+    reminderArmed_ = false;
+    if (!active_) return;
+    const int64_t now = Now() + 1;
+    // Collected first: a callback may reconfigure (it must not see half-fired state).
+    std::vector<std::pair<size_t, std::wstring>> due;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        const Item& it = items_[i];
+        const int minutes = ReminderMinutes(feeds_[it.feed]);
+        if (minutes <= 0 || it.occ.allDay || now >= it.occ.start + kReminderGraceS) continue;
+        if (it.occ.start - static_cast<int64_t>(minutes) * 60 > now) continue;
+        std::wstring id = IdOf(it);
+        if (!fired_.count(id)) due.emplace_back(i, std::move(id));
+    }
+    for (auto s = snoozed_.begin(); s != snoozed_.end();) {
+        if (s->second > now) {
+            ++s;
+            continue;
+        }
+        const std::wstring id = s->first;
+        s = snoozed_.erase(s);
+        for (size_t i = 0; i < items_.size(); ++i) {
+            if (IdOf(items_[i]) == id) {
+                fired_.erase(id);
+                due.emplace_back(i, id);
+                break;
+            }
+        }
+    }
+    const std::vector<Item> snapshot = items_;
+    for (const auto& [index, id] : due) Fire(snapshot[index], id);
+    ArmReminders();
+}
+
+size_t CalendarService::PendingReminders() const {
+    if (!active_) return 0;
+    const int64_t now = Now();
+    size_t n = snoozed_.size();
+    for (const Item& it : items_) {
+        if (ReminderMinutes(feeds_[it.feed]) <= 0 || it.occ.allDay || now >= it.occ.start + kReminderGraceS) continue;
+        if (!fired_.count(IdOf(it))) ++n;
+    }
+    return n;
+}
+
+int64_t CalendarService::NextReminderIn() const {
+    if (!reminderArmed_) return -1;
+    return std::max<int64_t>(0, reminderDue_ - Now());
+}
+
+bool CalendarService::FireNextReminder() {
+    if (!active_) return false;
+    const int64_t now = Now();
+    const Item* best = nullptr;
+    int64_t bestDue = INT64_MAX;
+    std::wstring bestId;
+    for (const Item& it : items_) {
+        const int minutes = ReminderMinutes(feeds_[it.feed]);
+        if (minutes <= 0 || it.occ.allDay || now >= it.occ.start + kReminderGraceS) continue;
+        const int64_t due = it.occ.start - static_cast<int64_t>(minutes) * 60;
+        if (due >= bestDue) continue;
+        std::wstring id = IdOf(it);
+        if (fired_.count(id)) continue;
+        best = &it;
+        bestDue = due;
+        bestId = std::move(id);
+    }
+    if (!best && !snoozed_.empty()) {
+        auto s = std::min_element(snoozed_.begin(), snoozed_.end(), [](const auto& a, const auto& b) { return a.second < b.second; });
+        for (const Item& it : items_) {
+            if (IdOf(it) == s->first) {
+                best = &it;
+                bestId = s->first;
+                break;
+            }
+        }
+        snoozed_.erase(s);
+        if (best) fired_.erase(bestId);
+    }
+    if (!best) return false;
+    const Item copy = *best;
+    Fire(copy, bestId);
+    ArmReminders();
+    return true;
+}
+
+void CalendarService::Snooze(const std::wstring& id, int seconds) {
+    if (!active_ || id.empty()) return;
+    snoozed_[id] = Now() + std::max(1, seconds);
+    ArmReminders();
 }

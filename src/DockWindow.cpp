@@ -329,6 +329,13 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                        },
                    });
 
+    reminder_.Init(instance, &renderer_,
+                   ReminderBanner::Callbacks{
+                       [this] { ReminderAction(1); },
+                       [this] { ReminderAction(2); },
+                       [this] { ReminderAction(3); },
+                   });
+
     widgetPopup_.Init(instance, &renderer_,
                       ScriptPopup::Callbacks{
                           [this](ID2D1DeviceContext* dc, float w, float h, float scale) {
@@ -2966,6 +2973,7 @@ bool DockWindow::RecoverDevice() {
     folder_.Destroy();
     weatherPopup_.Destroy();
     calendar_.Destroy();
+    reminder_.Destroy();
     widgetPopup_.Destroy();
     centre_.Destroy();
     thumbs_.Reset();  // the frames and the capture device belong to the lost device
@@ -4298,6 +4306,66 @@ void DockWindow::OnCalendarChanged() {
     calendar_.Update();
 }
 
+void DockWindow::ShowReminder(const CalendarService::ReminderInfo& reminder) {
+    if (!hwnd_) return;
+    for (const CalendarService::ReminderInfo& r : reminders_) {
+        if (r.id == reminder.id) return;  // already waiting
+    }
+    reminders_.push_back(reminder);
+    if (reminders_.size() > 32) reminders_.erase(reminders_.begin() + 1);  // the oldest waiting ones go
+    ShowFrontReminder();
+}
+
+void DockWindow::ShowFrontReminder() {
+    if (reminders_.empty()) {
+        reminder_.Hide(true);
+        return;
+    }
+    const Layout& l = layout_;
+    const ThemeConfig& theme = DockTheme();
+    ReminderBanner::Style style;
+    style.scale = l.scale;
+    style.acrylic = acrylic_;
+    style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
+    style.text = theme.labelText;
+    style.secondary = theme.clockDateText;
+    style.border = theme.barBorder;
+    style.hotBackground = theme.previewHotBackground;
+    style.hotBorder = theme.previewHotBorder;
+    style.cornerRadiusDip = theme.cornerRadius;
+    style.monitor = l.work;
+    // Over the clock when the dock has one, else over the middle of the bar.
+    float anchor = (l.bar.left + l.bar.right) / 2.0f;
+    for (const DockItem& item : items_) {
+        if (item.kind == DockItem::Kind::Clock) {
+            anchor = item.x + item.slotW / 2.0f;
+            break;
+        }
+    }
+    if (!reminder_.Show(style, PopupAnchorAt(anchor), reminders_.front(), reminders_.size() - 1)) MessageBeep(MB_ICONINFORMATION);
+}
+
+void DockWindow::ReminderAction(int action) {
+    if (reminders_.empty()) return;
+    const CalendarService::ReminderInfo r = reminders_.front();
+    reminders_.erase(reminders_.begin());
+    if (action == 1 && shared_) shared_->Calendar().Snooze(r.id, 5 * 60);
+    ShowFrontReminder();
+    if (action == 3) {
+        for (size_t i = 0; i < items_.size(); ++i) {
+            if (items_[i].kind != DockItem::Kind::Clock) continue;
+            ShowCalendarPopup(items_[i].x + items_[i].slotW / 2.0f, r.day);
+            break;
+        }
+    }
+}
+
+bool DockWindow::ReminderCommand(UINT cmd) {
+    if (!reminder_.Visible() || reminders_.empty()) return false;
+    ReminderAction(cmd == ContextMenu::kReminderSnooze ? 1 : 2);
+    return true;
+}
+
 bool DockWindow::CalendarSelect(int offset) {
     if (!calendar_.Visible()) return false;
     return calendar_.SelectDay(CalendarService::Today() + offset);
@@ -4399,7 +4467,7 @@ void DockWindow::OnWidgetPopupRequests() {
             case Kind::Calendar: {
                 if (slot < 0 || hideState_ != HideState::Shown) break;
                 const DockItem& item = items_[static_cast<size_t>(slot)];
-                ShowCalendarPopup(item.x + item.slotW / 2.0f);
+                ShowCalendarPopup(item.x + item.slotW / 2.0f, r.day);
                 if (calendar_.Visible()) calendarOpener_ = key;
                 break;
             }
@@ -7498,6 +7566,17 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return calendar_.Visible() ? calendar_.HotRow() : -1;
         case 177:  // ... the row its detail strip describes (hovered, else selected with Up / Down; -1 none)
             return calendar_.Visible() ? calendar_.DetailShown() : -1;
+        // --- reminders (13b) ---
+        case 178:  // reminders pending (timed events ahead on feeds with reminders, not fired yet; snoozed ones)
+            return shared_ ? static_cast<LRESULT>(shared_->Calendar().PendingReminders()) : 0;
+        case 179:  // 1 while this dock's reminder banner is shown
+            return reminder_.Visible() ? 1 : 0;
+        case 180:  // seconds until the reminder timer fires (-1 none)
+            return shared_ ? static_cast<LRESULT>(shared_->Calendar().NextReminderIn()) : -1;
+        case 181:  // reminders fired this session
+            return shared_ ? static_cast<LRESULT>(shared_->Calendar().RemindersFired()) : 0;
+        case 182:  // reminders waiting for this dock's banner (the shown one included)
+            return static_cast<LRESULT>(reminders_.size());
         case 144:  // the stage's screen coordinate along the main axis (stage main 0; QueryState 142, ItemCommand 834)
             return layout_.vertical ? layout_.window.top : layout_.window.left;
         case 141: {  // the edge-fade opacity x 100 of slot lp at rest (100: none; -1 no such slot)

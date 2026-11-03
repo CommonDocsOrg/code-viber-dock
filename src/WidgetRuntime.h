@@ -15,6 +15,7 @@
 #include "MediaService.h"
 
 class NotificationService;
+class CalendarService;
 
 class WidgetInstance;
 
@@ -120,6 +121,13 @@ public:
     size_t NotificationUsers() const { return notificationUsers_.size(); }
     // The notification list changed: the widgets that used the provider hear onChange.
     void NotifyNotifications() { NotifyProvider(notificationUsers_, "notifications"); }
+    // `calendar` (phase 13): DockManager's service (it runs while some feed is enabled, whatever
+    // the widgets do); its users hear onChange, and onReminder with the event (JSON).
+    void SetCalendar(CalendarService* service) { calendar_ = service; }
+    CalendarService* UseCalendar(WidgetInstance* w);
+    size_t CalendarUsers() const { return calendarUsers_.size(); }
+    void NotifyCalendar() { NotifyProvider(calendarUsers_, "calendar"); }
+    void NotifyReminder(const std::string& eventJson) { NotifyProvider(calendarUsers_, "calendarReminder", eventJson); }
 
 private:
     struct Entry {
@@ -171,10 +179,11 @@ private:
     std::function<void()> changedListener_;
     AudioService audio_;
     MediaService media_;
-    std::set<WidgetInstance*> audioUsers_, mediaUsers_, notificationUsers_;
+    std::set<WidgetInstance*> audioUsers_, mediaUsers_, notificationUsers_, calendarUsers_;
+    CalendarService* calendar_ = nullptr;
     NotificationService* notifications_ = nullptr;
     std::function<void()> notificationsDemand_;
-    void NotifyProvider(std::set<WidgetInstance*>& users, const char* channel);
+    void NotifyProvider(std::set<WidgetInstance*>& users, const char* channel, const std::string& payload = {});
 };
 
 // The `system` namespace of the widget API: local date / time and locale strings computed by the

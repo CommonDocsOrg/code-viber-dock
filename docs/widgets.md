@@ -9,7 +9,7 @@ thread. This file is the full reference; README.md has the short version.
 - [widget.json](#widgetjson): the manifest
 - [main.js](#mainjs): the module and its exports, when they are called
 - [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`,
-  `storage`, `http`, `shell`, `audio`, `media`, `popup`, `widget`
+  `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `popup`, `widget`
 - [Animation](#animation): frames with timers, `dock.visible`, `dock.reduceMotion`, the cost rules
 - [Analog clock faces](#analog-clock-faces): the `faces/*.json` format
 - [Limits and errors](#limits-and-errors): the watchdog, memory, the error tile, reloading
@@ -30,7 +30,7 @@ thread. This file is the full reference; README.md has the short version.
 ```
 
 Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
-`start`, `search`, `notification-bell`) are compiled into the
+`start`, `search`, `notification-bell`, `agenda`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Widgets are always loaded as source; bytecode is never loaded.
@@ -67,7 +67,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time. |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `settings` | [] | The widget's settings schema, see below. |
 
@@ -352,6 +352,39 @@ the dock) until the widget goes or reloads; while it runs every change calls `on
 | `notifications.openCentre()` | Toggles the dock's notification centre (README "Notifications and badges") over the widget: the same list as the `notifications` element's, opened after the call returns. Throws when the widget has no slot. |
 | `notifications.onChange(fn)` | `fn(list)` (the `get()` array) when notifications come, go or change state. Returns a remover. |
 
+### calendar
+
+Needs `"calendar"` in `permissions`. The events of the dock's calendar feeds (README "Calendar
+feeds", Settings > Calendar: ICS web feeds and files). The feeds belong to the dock, not to the
+widget: they are fetched and expanded whether or not a widget asks (and not at all while no feed is
+enabled; every call then returns empty lists). Calls answer from the dock's expanded occurrences
+at once (no I/O); nothing polls, changes arrive through `onChange`.
+
+Dates in arguments: a `Date`, a number (ms since 1970, UTC; its local day where a day is meant) or
+`"YYYY-MM-DD"` (a local day; its local midnight where an instant is meant). A malformed one throws.
+
+| Call | |
+|---|---|
+| `calendar.feeds()` | `[{ name, color, enabled, file, status, error, lastFetch, events }]`: `status` `"off"`, `"loading"`, `"ok"` or `"error"` (`error` says why), `lastFetch` ms since 1970 (0 never), `events` the feed's occurrences in the expansion window. |
+| `calendar.events({ from, to })` | The occurrences overlapping `[from, to)`, sorted by start (all-day first on the same start; at most 2000). `from` defaults to now, `to` to the end of the expansion window (92 days ahead); at most about three years at a time. Ranges outside the window extend it. |
+| `calendar.eventsOn(date)` | The events touching that local day (default today): all-day and continuing ones first, then by start (what the month calendar lists for the day). |
+| `calendar.today()` | `eventsOn` today. |
+| `calendar.next(n)` | The next `n` (1 - 100, default 5) events that have not ended (ongoing first, an all-day event of today included), sorted by start. |
+| `calendar.refresh()` | Every feed fetches / is read now. |
+| `calendar.openPopup(date)` | The dock's month calendar over the widget, showing that day's month with the day selected (default today); after the current call returns. |
+| `calendar.onChange(fn)` | `fn(feeds)` (the `feeds()` array) after the feeds' data or status changed. Returns a remover. |
+| `calendar.onReminder(fn)` | `fn(event)` when a reminder fires (feeds with reminders, Settings > Calendar; the dock also shows its banner). Returns a remover. |
+
+An event: `{ id, feed, color, title, location, description, start, end, allDay, url, recurring,
+startDay, endDay, startTime, endTime, reminder }`: `id` stable across refreshes (the feed, the
+event's UID and its original start), `feed` / `color` the feed's name and `"#AARRGGBB"`, `start` /
+`end` ms since 1970 (UTC; an all-day event: the local midnights), `startDay` / `endDay` its first /
+last local day as `"YYYY-MM-DD"`, `startTime` / `endTime` the locale's short time (`""` for
+all-day events), `recurring` it is an instance of a repeating event, `reminder` the event's own
+alarm in minutes before the start (-1 none; informational, the dock's reminders use the feed's
+setting). Format days with these fields rather than `new Date(start)`: QuickJS's local `Date`
+applies today's daylight-saving offset to every date on Windows.
+
 ### popup
 
 A widget can open one popup at a time, anchored on its slot beside the dock (above a bottom dock,
@@ -530,7 +563,8 @@ widget's globals. Without permissions there is no file system, process or networ
 draws file icons, opens the folder popup, receives file drops and presses the `sendKeys`
 allow-list; `"audio"` reads and changes the system volume / mutes / the default output; `"media"`
 reads the current media session and controls its playback; `"notifications"` reads Windows'
-notifications and dismisses them. Modules and images are read
+notifications and dismisses them; `"calendar"` reads the dock's calendar feeds (and asks them to
+refresh). Modules and images are read
 only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
 - `import` / `import()` specifiers are package paths: `"./x.js"` and `"../x.js"` relative to the
@@ -616,6 +650,17 @@ The built-ins are the examples:
   Windows refuses the input; `icon` `windows` / `mono` / `image` with `image` (a package file, or
   any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot).
 - `widgets/search`: `shell.sendKeys('win+s')`; `showLabel`, `label`, `image`.
+- `widgets/agenda` ("Agenda"): the next event of the calendar feeds (`calendar.next`) in the slot:
+  how long until it starts ("In 25 min", "Now", the time, "Tomorrow 9:00 AM") over its title, with
+  the feed's colour bar; a click opens a popup with the next `count` events (a row opens the event's
+  URL with `shell.open`, else the month calendar on its day; a button opens the month calendar), or
+  (`clickOpens`) the month calendar (`calendar.openPopup()`) or `target`. Settings `count`,
+  `lookaheadDays`, `showLocation`, `feeds` (names, comma separated), `clickOpens`, `target`,
+  `width`. **One timer**: each draw sets a single `setTimeout` to the next moment the text changes
+  (the event's start or end, each minute of the last hour before it, the next event entering the
+  look-ahead, local midnight); `calendar.onChange` redraws. Test hook: an item setting
+  `"debugStore": true` appends each text it shows to its storage (`shown`). Permissions `calendar`,
+  `shell`.
 - `widgets/notification-bell` ("Notifications"): a bell; `unread` (default off: then nothing polls
   and the fixed `badge` number shows) draws `notifications.count()` and redraws on
   `notifications.onChange`; `click` `windows` (default: `shell.sendKeys('win+n')`) or `centre`

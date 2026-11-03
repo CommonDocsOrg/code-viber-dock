@@ -28,6 +28,8 @@ IDR_WIDGET_SEARCH_JSON RCDATA "../widgets/search/widget.json"
 IDR_WIDGET_SEARCH_MAIN RCDATA "../widgets/search/main.js"
 IDR_WIDGET_BELL_JSON RCDATA "../widgets/notification-bell/widget.json"
 IDR_WIDGET_BELL_MAIN RCDATA "../widgets/notification-bell/main.js"
+IDR_WIDGET_AGENDA_JSON RCDATA "../widgets/agenda/widget.json"
+IDR_WIDGET_AGENDA_MAIN RCDATA "../widgets/agenda/main.js"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 0,1,0,0

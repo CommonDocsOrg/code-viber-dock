@@ -1470,6 +1470,16 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         result = dock && dock->CentreCommand(static_cast<UINT>(wp & 0xFFFF), static_cast<size_t>((wp >> 16) & 0xFFFF)) ? 1 : 0;
         return true;
     }
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kReminderFireNext && (wp & 0xFFFF) <= ContextMenu::kReminderDismiss) {
+        const UINT cmd = static_cast<UINT>(wp & 0xFFFF);
+        if (cmd == ContextMenu::kReminderFireNext) {
+            result = docks_.Calendar().FireNextReminder() ? 1 : 0;
+        } else {
+            DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+            result = dock && dock->ReminderCommand(cmd) ? 1 : 0;
+        }
+        return true;
+    }
     if (msg == msgItemCommand_ && (wp & 0xFFFF) == ContextMenu::kCalendarSelect) {
         DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
         result = dock && dock->CalendarSelect(static_cast<int16_t>((wp >> 16) & 0xFFFF)) ? 1 : 0;

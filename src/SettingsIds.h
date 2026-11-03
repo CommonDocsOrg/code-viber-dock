@@ -443,5 +443,15 @@ inline constexpr int kCalEditSection = 4321;    // "Add or edit a feed"
 inline constexpr int kCalOptionsSection = 4322; // "Display"
 inline constexpr int kCalEnable = 4323;         // check box: the selected feed enabled (+ caption 4324)
 inline constexpr int kCalEnableCaption = 4324;
+// 13b: reminders.
+inline constexpr int kCalReminderLabel = 4325;
+inline constexpr int kCalReminderEdit = 4326;   // the feed's reminderMin (0: the default below), 0 - 1440
+inline constexpr int kCalReminderSpin = 4327;
+inline constexpr int kCalReminderUnit = 4328;
+inline constexpr int kCalDefaultReminderLabel = 4329;
+inline constexpr int kCalDefaultReminderEdit = 4330;  // calendars.defaultReminderMin (0: off), 0 - 1440
+inline constexpr int kCalDefaultReminderSpin = 4331;
+inline constexpr int kCalDefaultReminderUnit = 4332;
+inline constexpr int kCalReminderNote = 4333;
 
 }  // namespace SettingsIds

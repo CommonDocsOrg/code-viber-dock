@@ -238,7 +238,7 @@ constexpr char kPrelude[] = R"JS(
     },
   });
   // Providers: onChange listeners kept here; the host calls the returned emit(channel).
-  const listeners = { audio: [], media: [], notifications: [] };
+  const listeners = { audio: [], media: [], notifications: [], calendar: [], calendarReminder: [] };
   const onChange = (ch) => (cb) => {
     if (typeof cb !== 'function') throw new TypeError(ch + '.onChange: the argument must be a function');
     listeners[ch].push(cb);
@@ -279,10 +279,26 @@ constexpr char kPrelude[] = R"JS(
     openCentre: () => p.notifCmd('openCentre', 0),
     onChange: onChange('notifications'),
   });
-  return (ch) => {
+  // calendar (phase 13): the dock's ICS feeds. Dates: a Date, ms since 1970 (UTC) or "YYYY-MM-DD"
+  // (a local day).
+  const day = (v) => (v instanceof Date ? v.getTime() : v);
+  const cal = (what, a) => p.cal(what, JSON.stringify(a ?? {}));
+  g.calendar = Object.freeze({
+    feeds: () => cal('feeds'),
+    events: (o) => cal('events', { from: day(o?.from), to: day(o?.to) }),
+    eventsOn: (d) => cal('eventsOn', { date: day(d) }),
+    today: () => cal('eventsOn', {}),
+    next: (n) => cal('next', { n: n === undefined ? 5 : Number(n) }),
+    refresh: () => cal('refresh'),
+    openPopup: (d) => cal('openPopup', { date: day(d) }),
+    onChange: onChange('calendar'),
+    onReminder: onChange('calendarReminder'),
+  });
+  return (ch, data) => {
     const l = listeners[ch];
     if (!l || !l.length) return;
-    const state = ch === 'audio' ? p.audioGet() : ch === 'media' ? p.mediaGet() : p.notifGet().items;
+    const state = ch === 'audio' ? p.audioGet() : ch === 'media' ? p.mediaGet() : ch === 'calendar' ? cal('feeds')
+      : ch === 'calendarReminder' ? JSON.parse(data) : p.notifGet().items;
     for (const cb of l.slice()) cb(state);
   };
 })(globalThis, globalThis.__windock);
@@ -493,11 +509,12 @@ public:
         JS_FreeValue(ctx_, global);
     }
 
-    ScriptResult Emit(const std::string& channel) override {
+    ScriptResult Emit(const std::string& channel, const std::string& payload) override {
         if (!JS_IsFunction(ctx_, emit_)) return ScriptResult{};
-        JSValue arg = NewString(ctx_, channel);
-        ScriptResult res = Invoke(emit_, 1, &arg);
-        JS_FreeValue(ctx_, arg);
+        JSValue args[2] = {NewString(ctx_, channel), NewString(ctx_, payload)};
+        ScriptResult res = Invoke(emit_, 2, args);
+        JS_FreeValue(ctx_, args[0]);
+        JS_FreeValue(ctx_, args[1]);
         return res;
     }
 
@@ -1586,6 +1603,18 @@ JSValue NotifCmdFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     return JS_UNDEFINED;
 }
 
+// cal(what, argsJson): the calendar provider (permission "calendar").
+JSValue CalFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string what = WideToUtf8(a.S(0));
+    const std::string args = a.Has(1) ? WideToUtf8(a.S(1)) : std::string("{}");
+    if (a.failed) return JS_EXCEPTION;
+    std::string json;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.CalendarCall(what, args, json, error);
+    return JsonResult(ctx, ok, json, error, "<calendar>");
+}
+
 // canvas.fileIcon(path, x, y, size): the shell's icon of a file or folder (permission "shell").
 JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     CANVAS_OR_THROW();
@@ -1645,7 +1674,7 @@ JSValue PopupPreviewsFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* ar
 }
 JSValue PopupCalendarFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
     std::wstring error;
-    if (!Self(ctx)->host_.PopupCalendar(error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    if (!Self(ctx)->host_.PopupCalendar(INT64_MIN, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
     return JS_UNDEFINED;
 }
 JSValue PopupGet(JSContext* ctx, JSValueConst, int) { return JS_NewBool(ctx, Self(ctx)->host_.PopupShown()); }
@@ -1704,6 +1733,7 @@ const JSCFunctionListEntry kProviderFuncs[] = {
     JS_CFUNC_DEF("mediaArt", 0, Guard<MediaArtFn>),
     JS_CFUNC_DEF("notifGet", 0, Guard<NotifGetFn>),
     JS_CFUNC_DEF("notifCmd", 2, Guard<NotifCmdFn>),
+    JS_CFUNC_DEF("cal", 2, Guard<CalFn>),
 };
 
 const JSCFunctionListEntry kPopupFuncs[] = {
