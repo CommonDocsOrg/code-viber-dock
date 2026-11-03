@@ -84,6 +84,7 @@ void WidgetInstance::Reload() {
     error_.clear();
     refreshMs_ = 0;
     refreshSet_ = false;
+    refreshZone_.clear();
     measured_ = false;
     changed_ = true;
     ++generation_;  // results of the old script's requests are dropped
@@ -170,6 +171,7 @@ void WidgetInstance::SetVisible(bool visible) {
 }
 
 void WidgetInstance::TimeChanged() {
+    WidgetSystem::ForgetZones();  // the zone data may have changed with it
     if (state_ != State::Ok || !engine_ || refreshMs_ == 0) return;
     ScheduleRefresh();  // aligned to the new local time
     OnTimer(0);         // and up to date now
@@ -412,7 +414,7 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
 
 void WidgetInstance::ScheduleRefresh() {
     runtime_.Cancel(this, 0);
-    if (refreshMs_ > 0 && state_ == State::Ok) runtime_.Schedule(this, 0, refreshMs_, true, true);
+    if (refreshMs_ > 0 && state_ == State::Ok) runtime_.Schedule(this, 0, refreshMs_, true, true, refreshZone_);
 }
 
 // --- ScriptHost --------------------------------------------------------------------------------
@@ -467,8 +469,9 @@ void WidgetInstance::RequestRedraw() {
     client_.WidgetChanged(*this);
 }
 
-void WidgetInstance::SetRefresh(uint32_t ms) {
+void WidgetInstance::SetRefresh(uint32_t ms, const std::wstring& timeZone) {
     refreshSet_ = true;
+    refreshZone_ = timeZone.size() > 128 ? std::wstring() : timeZone;
     refreshMs_ = ms == 0 ? 0 : std::clamp<uint32_t>(ms, 100u, 86400000u);
     ScheduleRefresh();
 }

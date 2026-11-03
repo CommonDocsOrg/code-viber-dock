@@ -55,8 +55,9 @@ public:
     virtual void CancelTimer(int id) = 0;
     // Redraw the widget soon (coalesced; never inside the current call).
     virtual void RequestRedraw() = 0;
-    // tick() every `ms` aligned to local time (0: none), replacing the manifest's refreshMs.
-    virtual void SetRefresh(uint32_t ms) = 0;
+    // tick() every `ms` aligned to the time of day of `timeZone` ("" local; 0 ms: none), replacing
+    // the manifest's refreshMs.
+    virtual void SetRefresh(uint32_t ms, const std::wstring& timeZone) = 0;
 
     // --- permissions ---
     enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather };

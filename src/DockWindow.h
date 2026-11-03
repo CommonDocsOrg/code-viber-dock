@@ -211,8 +211,9 @@ public:
         std::function<void(const std::wstring& key)> unpinTray;
         // Icon `key` hidden from / shown in the grid of tray item `item`.
         std::function<void(size_t item, const std::wstring& key, bool hide)> trayHide;
-        // Settings > Tray.
-        std::function<void()> traySettings;
+        // The tray menu's Tray settings…: the Item window of tray item `item` (an index into the
+        // dock's items; SIZE_MAX: the dock's first tray item).
+        std::function<void(size_t item)> traySettings;
     };
 
     DockWindow() = default;

@@ -1,6 +1,7 @@
-// The Notifications page (round 4 phase 9): the edited dock's badges and notification centre item,
-// tray balloons in the centre, clearOnActivate, the poll interval, Windows' access status (with a
-// button to its privacy setting) and the apps whose badges are shown.
+// Global > Notifications (round 4 phase 9): tray balloons in the centre, clearOnActivate, the poll
+// interval, Windows' access status (with a button to its privacy setting) and the apps whose badges
+// are shown (notifications.excluded). A dock's own badges and notification centre item are on its
+// window's Behaviour tab since round 5 phase D (no Global page acts on one dock).
 
 #include <windows.h>
 #include <commctrl.h>
@@ -29,22 +30,17 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Notifications");
-        Text(kNotifDockLine, CtlKind::Note, L"", kMargin, right - kMargin, 20);
-        NextRow(22);
-        Check(kNotifBadges, kNotifBadgesCaption, L"Show notification badges on this dock's apps");
-        NextRow();
-        Check(kNotifCentre, kNotifCentreCaption, L"Show the notification centre on this dock");
-        NextRow();
         Text(kNotifCentreNote, CtlKind::Note,
-             L"A bell with the unread count; a click opens the list: click a notification to open its app (it is "
-             L"dismissed), the cross or Delete dismisses it, Clear all dismisses every one. The Notifications widget can "
-             L"open the same list (its \"A click opens\" setting).",
-             kMargin, right - kMargin, 40);
-        NextRow(44);
+             L"A dock's notification badges and its notification centre (a bell with the unread count; a click opens "
+             L"the list: click a notification to open its app, the cross or Delete dismisses it, Clear all dismisses "
+             L"every one) are on that dock's own window, Behaviour tab; the centre is also in the widget drawer. The "
+             L"Notifications widget can open the same list (its \"A click opens\" setting).",
+             kMargin, right - kMargin, 58);
+        NextRow(62);
         Check(kNotifBalloons, kNotifBalloonsCaption, L"Show tray balloons in the centre instead of Windows toasts");
         NextRow();
         Text(kNotifBalloonsNote, CtlKind::Note,
-             L"With the tray on this dock (Settings > Tray): an app's tray balloon becomes a notification of the dock's "
+             L"With the tray takeover on (Tray icons): an app's tray balloon becomes a notification of the dock's "
              L"list (and badges that app); Windows no longer shows it as a toast.",
              kMargin, right - kMargin, 40);
         NextRow(44);
@@ -77,7 +73,8 @@ protected:
             RECT{kMargin, y_, right, y_ + kListH});
         NextRow(kListH + 8);
         Text(kNotifAppsNote, CtlKind::Note,
-             L"This dock's apps and every app with a notification now. Unchecked apps never show a badge (on any dock).",
+             L"The apps on every dock and every app with a notification now. Unchecked apps never show a badge (on any "
+             L"dock).",
              kMargin, right - kMargin, 40);
         NextRow(44);
     }
@@ -108,10 +105,6 @@ protected:
     }
 
     void Load() override {
-        const DockConfig& d = Dock();
-        SetText(kNotifDockLine, L"The two check boxes below are about the dock selected on Docks and displays: " + d.id + L".");
-        SetCheck(kNotifBadges, d.badges);
-        SetCheck(kNotifCentre, d.Has(ItemKind::Notifications));
         SetCheck(kNotifBalloons, Cfg().notifications.balloons);
         SetCheck(kNotifClearOnActivate, Cfg().notifications.clearOnActivate);
         SetSpin(kNotifPollSpin, Cfg().notifications.pollS);
@@ -128,21 +121,6 @@ protected:
         if (code != BN_CLICKED) return;
         NotificationsConfig& n = Cfg().notifications;
         switch (id) {
-            case kNotifBadges:
-                Dock().badges = GetCheck(kNotifBadges);
-                Changed(SettingsScope::Notifications);
-                break;
-            case kNotifCentre: {
-                DockConfig& d = Dock();
-                if (GetCheck(kNotifCentre)) {
-                    if (!d.Has(ItemKind::Notifications)) d.AddWidget(ItemKind::Notifications);
-                } else {
-                    d.Show(ItemKind::Notifications, false);
-                }
-                Changed(SettingsScope::Pins);  // reloads the dock; the service follows (SyncNotifications)
-                Changed(SettingsScope::Notifications);
-                break;
-            }
             case kNotifBalloons:
                 n.balloons = GetCheck(kNotifBalloons);
                 Changed(SettingsScope::Notifications);
@@ -212,7 +190,7 @@ private:
         SetText(kNotifStatus, text);
     }
 
-    // The edited dock's apps, then the apps with notifications (by key, once each).
+    // Every dock's apps, then the apps with notifications (by key, once each).
     void FillList() {
         HWND list = Item(kNotifAppList);
         if (!list) return;

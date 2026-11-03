@@ -3,7 +3,9 @@
 //
 // Cost: one wake-up a day. timer.setRefresh(86400000) is aligned to local midnight by the host
 // (and re-aligned when the clock or time zone changes, or the machine resumes); nothing runs in
-// between. When the date changes while the dock is on screen the page flips (0.45 s at ~60 frames
+// between. With settings.timeZone (round 5: a Windows zone key) the date is that zone's
+// (system.localTime) and setRefresh(86400000, { timeZone }) wakes at that zone's midnight (a zone
+// 5:45 or 12:45 from UTC included: the host aligns to the zone's own time of day). When the date changes while the dock is on screen the page flips (0.45 s at ~60 frames
 // a second, never with reduce motion).
 //
 // Testing without touching the system clock: an item setting the schema does not know,
@@ -22,7 +24,7 @@ let debugBase = null;  // { ms (fake local time as a UTC timestamp), at (Date.no
 let debugTimer = 0;
 let flips = 0;
 
-// Local date parts, from the host (system.now()) or the fake clock.
+// Local date parts (of settings.timeZone), from the host (system.localTime) or the fake clock.
 function today() {
   if (debugBase) {
     const d = new Date(debugBase.ms + (Date.now() - debugBase.at));
@@ -31,7 +33,7 @@ function today() {
       hour: d.getUTCHours(), minute: d.getUTCMinutes(), second: d.getUTCSeconds(), millisecond: d.getUTCMilliseconds(),
     };
   }
-  return system.now();
+  return system.localTime(settings.timeZone || '');
 }
 
 // Milliseconds from `t` (date parts) to the next local midnight.
@@ -58,7 +60,7 @@ function arm() {
       arm();
     }, msToMidnight(today()) + 30);
   } else {
-    timer.setRefresh(86400000);  // on local midnight (aligned by the host)
+    timer.setRefresh(86400000, { timeZone: settings.timeZone || '' });  // on the zone's midnight (aligned by the host)
   }
 }
 

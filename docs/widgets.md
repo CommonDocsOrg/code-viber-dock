@@ -67,7 +67,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `version`, `author`, `description` | "" | Informational. |
 | `main` | `"main.js"` | The module to load, a path inside the package. |
 | `size.horizontal`, `size.vertical` | 64 x 40, 48 x 48 | The box in DIPs (pixels at 100 % scale) on a horizontal (bottom / top) and a vertical (left / right) dock: `main` along the dock, `cross` across it. Used unless the module exports `measure()`. Clamped to 4 - 1024 (main) and 4 - 512 (cross). |
-| `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time. |
+| `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time (also for another time zone: `timer.setRefresh(ms, { timeZone })`). |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
 | `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). |
@@ -103,7 +103,9 @@ weather below).
 
 `timezone` (round 5): a drop-down with "Local time" and then every time zone of this Windows by its
 display name, sorted by UTC offset; the value is the zone's key name (`""` for local). A `default`
-that names no zone of this machine is warned about (the local time is used).
+that names no zone of this machine is warned about (the local time is used). The script passes the
+value to the `system` time calls and to `timer.setRefresh` (see [system](#system)); the Digital
+clock (script), Analog clock and Calendar page widgets have a `timeZone` field of this type.
 
 `choiceFrom` (choice fields): `"faces/*.json"` adds one choice per package file matching the glob
 (`*` and `?` stay inside one folder level), after any fixed `choices`: the value is the file name
@@ -115,12 +117,14 @@ file falls back to the first one.
 The values live in the dock item's `settings` object in config.json. The script sees the schema's
 defaults overridden by the item's values (a value of the wrong type or out of range falls back to
 the default; ints are rounded, numbers clamped); keys the schema does not name are passed through
-unchanged. Settings > **Widget settings** is generated from the schema for each widget item of
-the dock the settings window edits (each item has its own window: Dock settings > Contents >
-**Open settings in its own window** on a widget's tile opens it): a check box per `bool`, an up-down (stepper, `step` per click, `min` - `max`)
-per `int`, a drop-down per `choice`, an edit box for the others (`colour` as `#AARRGGBB`), each
-field's `description` under it, and **Reset to defaults** (removes the item's `settings`). A change
-is saved and reaches the widget at once (`onSettingsChanged`).
+unchanged. Each widget item has its own settings window (an Item window, round 5), generated from
+the schema: **<name> settings…** in the dock menu opened over the widget, or Dock settings >
+Contents > **Open settings in its own window** on the widget's tile (a double click or Enter on it
+does the same). It has a check box per `bool`, an up-down (stepper, `step` per click, `min` -
+`max`) per `int`, a drop-down per `choice` and `timezone`, the place block for a `place`, an edit
+box for the others (`colour` as `#AARRGGBB`), each field's `description` under it, and **Reset to
+defaults** in its footer (removes the item's `settings`). A change is saved and reaches the widget
+at once (`onSettingsChanged`).
 
 The page's layout keys (round 4 phase 14):
 
@@ -237,7 +241,7 @@ Read-only, always current:
 | `requestRedraw()` (also `timer.requestRedraw()`, `dock.requestRedraw()`) | Redraw (and re-measure) the widget soon: once, after the current call returns, however often it is called. |
 | `setTimeout(fn, ms)`, `setInterval(fn, ms)` (also `timer.setTimeout` / `timer.setInterval`) | Returns an id. One shared host scheduler runs every widget's timers (one Windows timer for the earliest deadline; none while nothing waits). Intervals are at least 16 ms. At most 64 timers per widget (more throws a RangeError). No extra arguments are passed to `fn`. |
 | `clearTimeout(id)`, `clearInterval(id)`, `timer.clear(id)` | |
-| `timer.setRefresh(ms)` | `tick()` every `ms` (at least 100, at most 86400000) aligned to local time, replacing the manifest's `refreshMs`; 0 stops it. A clock that shows seconds calls `timer.setRefresh(1000)`, one without `60000`; `86400000` wakes at local midnight. When the system time or time zone changes, or the machine resumes from sleep, the refresh is re-aligned to the new local time and `tick()` runs at once. |
+| `timer.setRefresh(ms[, { timeZone }])` | `tick()` every `ms` (at least 100, at most 86400000) aligned to local time, replacing the manifest's `refreshMs`; 0 stops it. A clock that shows seconds calls `timer.setRefresh(1000)`, one without `60000`; `86400000` wakes at local midnight. With `timeZone` (round 5: a Windows time zone key name, see [system](#system); the key alone as the second argument works too) the multiples are of that zone's time of day: `timer.setRefresh(86400000, { timeZone: 'Tokyo Standard Time' })` wakes at Tokyo's midnight, `3600000` on its hours (zones 5:45 or 12:45 from UTC included). Every Windows zone is a whole number of minutes from UTC, so periods up to a minute fall on the same instants in every zone. When the system time or time zone changes, or the machine resumes from sleep, the refresh is re-aligned and `tick()` runs at once; a daylight-saving change of the zone itself is picked up at the next wake-up (each wake-up aligns the next one again). |
 
 Prefer `setRefresh` / `refreshMs` for anything tied to the clock (it wakes at the boundary itself)
 and redraw only what changed: a widget that does nothing costs no CPU at all.
@@ -251,13 +255,25 @@ lines; also sent to the debugger output as `WinDock widget <id>#<n> [log] ...`).
 ### system
 
 Computed by the host in the user's locale (QuickJS's own `Date` applies the current daylight-saving
-offset to every date on Windows: use these for local time).
+offset to every date on Windows: use these for local time). Since round 5 the time calls take an
+optional Windows time zone key name; a clock in another zone:
+
+```js
+const zone = () => settings.timeZone || '';        // a "timezone" setting ("" = local)
+timer.setRefresh(60000, { timeZone: zone() });      // on the minute (the same instant in every zone)
+export function draw(canvas, dock) {
+  const t = system.localTime(zone());               // { hour, minute, ..., utcOffset, timeZone }
+  canvas.text(system.format('%H:%M', zone()), canvas.width / 2, 0, { align: 'center', color: dock.theme.text });
+}
+```
 
 | Call | |
 |---|---|
-| `system.now()` | `{ year, month (1 - 12), day, hour, minute, second, millisecond, weekday (0 = Sunday), yearDay, dst, utcOffset (minutes east of UTC) }` |
-| `system.format(fmt)` | The local time now through strftime (`wcsftime`, as `clock.format`): `"%H:%M"`, `"%a %d %b"`, `"%#I:%M %p"`. A bad specifier falls back to `"%H:%M"`. |
-| `system.formatDate("long" \| "short")`, `system.formatTime(seconds)` | The user's own date / time formats (Windows region settings). |
+| `system.now()` | `{ year, month (1 - 12), day, hour, minute, second, millisecond, weekday (0 = Sunday), yearDay, dst, utcOffset (minutes east of UTC), timeZone }` (`timeZone` `""`: the local time). |
+| `system.localTime(timeZone)` | Round 5: the same object for the time now in a Windows time zone given by its key name (`"Tokyo Standard Time"`, `"GMT Standard Time"`: what a `timezone` setting holds; any case), converted by Windows with the zone's own daylight-saving rules (`SystemTimeToTzSpecificLocalTimeEx`): `utcOffset` is the zone's offset now, `dst` whether its daylight time is in effect, `timeZone` the key as Windows spells it. `""`, `null`, no argument or a key this Windows does not know: the local time with `timeZone` `""` (so a script can tell an unknown zone apart). |
+| `system.timeZones()` | Round 5: every zone of this Windows as `[{ key, name, standardOffset }]`, sorted as Windows lists them (by UTC offset, then name): `name` the display name (`"(UTC+09:00) Osaka, Sapporo, Tokyo"`), `standardOffset` minutes east of UTC without daylight saving (the offset now is `system.localTime(key).utcOffset`). About 140 entries, read from the registry on each call: call it once. |
+| `system.format(fmt[, timeZone])` | The time now (local, or in `timeZone`) through strftime (`wcsftime`, as `clock.format`): `"%H:%M"`, `"%a %d %b"`, `"%#I:%M %p"`. A bad specifier falls back to `"%H:%M"`. `%Z` / `%z` always name the local zone. |
+| `system.formatDate("long" \| "short"[, timeZone])`, `system.formatTime(seconds[, timeZone])` | The user's own date / time formats (Windows region settings), for the local time or the time in `timeZone`. |
 | `system.locale` | `"en-US"`. |
 | `system.hour12` | The user's time format is a 12-hour clock. |
 | `system.firstDayOfWeek` | 0 = Sunday. |
@@ -391,7 +407,7 @@ the dock) until the widget goes or reloads; while it runs every change calls `on
 ### calendar
 
 Needs `"calendar"` in `permissions`. The events of the dock's calendar feeds (README "Calendar
-feeds", Settings > Calendar: ICS web feeds and files). The feeds belong to the dock, not to the
+feeds", Global settings > Calendar feeds: ICS web feeds and files). The feeds belong to the dock, not to the
 widget: they are fetched and expanded whether or not a widget asks (and not at all while no feed is
 enabled; every call then returns empty lists). Calls answer from the dock's expanded occurrences
 at once (no I/O); nothing polls, changes arrive through `onChange`.
@@ -409,7 +425,7 @@ Dates in arguments: a `Date`, a number (ms since 1970, UTC; its local day where 
 | `calendar.refresh()` | Every feed fetches / is read now. |
 | `calendar.openPopup(date)` | The dock's month calendar over the widget, showing that day's month with the day selected (default today); after the current call returns. |
 | `calendar.onChange(fn)` | `fn(feeds)` (the `feeds()` array) after the feeds' data or status changed. Returns a remover. |
-| `calendar.onReminder(fn)` | `fn(event)` when a reminder fires (feeds with reminders, Settings > Calendar; the dock also shows its banner). Returns a remover. |
+| `calendar.onReminder(fn)` | `fn(event)` when a reminder fires (feeds with reminders, Global settings > Calendar feeds; the dock also shows its banner). Returns a remover. |
 
 An event: `{ id, feed, color, title, location, description, start, end, allDay, url, recurring,
 startDay, endDay, startTime, endTime, reminder }`: `id` stable across refreshes (the feed, the
@@ -440,7 +456,7 @@ minutes later. Nothing polls; calls answer from the service's data at once.
 |---|---|
 | `weather.get()` | `{ state, configured, place, latitude, longitude, units, temperatureUnit, windUnit, refreshMinutes, busy, error, status, age, fetchedAt, updated, current, hourly, daily }`: `state` `"none"` (no data yet / not configured / not running), `"stale"` (the cached or last data; a fetch failed or has not finished), `"fresh"` or `"error"` (no data and the last fetch failed: `error` says why, e.g. `"cannot connect"`); `configured` false while no place is set; `place` the name shown (the widget's own `location`, else its place's); `label` the widget's own `label` setting (`""` none); `units` `"metric"` / `"imperial"`, `temperatureUnit` `"C"` / `"F"`, `windUnit` `"km/h"` / `"mph"`; `busy` a fetch is in flight; `status` the Settings page's status line; `age` seconds since the data was fetched (-1 none); `fetchedAt` ms since 1970 (0 none); `updated` its local short time (`"10:15"`); `current` `{ temp, code, isDay, description, glyph, wind, humidity }` or `null` (`code` the WMO weather code, `description` "Partly cloudy", `glyph` the glyph's name); `hourly` up to 48 hours from the current one: `[{ time (ms since 1970), hour (0 - 23, the place's local time), temp, code, isDay, precip (% chance) }]`; `daily` up to 7 days from today: `[{ day ("YYYY-MM-DD"), weekday (0 = Sunday), code, description, min, max }]`. Missing numbers are `null`. |
 | `weather.refresh()` | Fetches the widget's place now (its service: every item of that place gets the result). After the call returns. |
-| `weather.openSettings()` | Opens this widget item's own settings page (Settings > Widget settings for the item, where its `place` field is; after the call returns; the widget's popup closes). Round 5 Phase B gives it a window of its own. |
+| `weather.openSettings()` | Opens this widget item's own settings window (its Item window, round 5, where its `place` field is; after the call returns; the widget's popup closes). |
 | `weather.icon(code, isDay, colours)` | An image token for `canvas.image(token, x, y, w, h, opacity)`: the dock's own vector condition glyph for a WMO `code` (sun / moon with `isDay` false, partly cloudy, overcast, fog, drizzle, rain, snow, thunder), `"setLocation"` (the map pin) or `"refresh"` (the circular arrow). `colours`: `{ ink, water }` (default `dock.theme.text` and `dock.theme.accent`; `refresh` uses `ink`). Drawn as geometry at any size (crisp at any scale; `w` / `h` omitted: 24 DIPs); `opacity` dims it as the native element does for stale data (0.6). |
 | `weather.onChange(fn)` | `fn(state)` (the `get()` object) whenever the data or the status of the widget's place changes: a fetch started, finished or failed, the place or units changed. Returns a remover. |
 
@@ -558,8 +574,8 @@ package, the dock's clock only files with `"type": "digital"`.
 ### Analog clock faces (format 1)
 
 The analog clock widget draws a face file: `faces/<name>.json` in its package (the built-ins:
-`classic`, `minimal`, `modern-dark`, `roman`, `station`). To add one, export the widget (Settings >
-Widgets > **Export built-in to folder**), put a new `.json` next to the others in
+`classic`, `minimal`, `modern-dark`, `roman`, `station`). To add one, export the widget (Global
+settings > Widget library > **Export built-in to folder**), put a new `.json` next to the others in
 `%LocalAppData%\WinDock\widgets\analog-clock\faces\`, and press **Reload widgets**: the Face
 drop-down lists it (`choiceFrom`). A face only needs the keys it changes; everything else has a
 default. The dock's own digital clock has a face format of its own (format 2, below).
@@ -679,8 +695,8 @@ An analog clock on the dock is the Analog clock widget (Dock settings > Contents
 - **Memory.** Each widget has its own runtime with a `memoryLimitMB` heap limit; running out is an
   error. Deep recursion throws a `RangeError` (the script's stack is limited well inside the dock's
   own).
-- **Reload.** **Reload widgets** in the dock menu (shown when a dock has a widget), Settings >
-  Widgets, the Console or `WinDock.DockCommand` 126 reloads every widget; the Console's Reload or
+- **Reload.** **Reload widgets** in the dock menu (shown when a dock has a widget), Global
+  settings > Widget library, the Console or `WinDock.DockCommand` 126 reloads every widget; the Console's Reload or
   `WinDock.ItemCommand` 809 reloads one. Reloading reads the package again (the folder version if
   there is one) and starts the script over (its storage stays). Editing config.json and **Reload
   config** also re-creates widgets whose items changed.
@@ -706,7 +722,7 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
 ## Developing a widget
 
-- **Export a built-in** to start from it: Settings > **Widgets** lists every installed widget (name,
+- **Export a built-in** to start from it: Global settings > **Widget library** lists every installed widget (name,
   id, source: built-in, folder, or folder replacing a built-in; version). **Export built-in to
   folder** writes its files to `widgets\<id>\` (refused if that folder exists), sub-folders such as
   the analog clock's `faces\` included, plus a `README.md` stub pointing here; the copy then
@@ -717,14 +733,14 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
   script popup with the shell's icons and click handling). They are not built in: install one with
   **Add from folder…**. **Add from folder…** copies a folder that holds a widget.json into the
   widgets folder (its name, lowercased, becomes the id). **Add to dock** adds the selected widget
-  to the dock the settings window edits; **Reload widgets**, **Open widgets folder** and
-  **Console…** do what they say.
+  to a dock (with several docks a small menu asks which); **Reload widgets**, **Open widgets
+  folder** and **Console…** do what they say.
 - **`"watch": true`** in widget.json (folder widgets): every change in the widget's folder (any
   file, sub-folders included) reloads it a quarter of a second after the first change (a burst of
   writes by an editor is one reload). One
   thread waits in `ReadDirectoryChangesW` on every watched folder while any watched widget is on a
   dock; nothing polls, and it costs nothing while the files do not change.
-- **The Console** (Settings > Widgets > Console…, the dock menu's **Widget console…**,
+- **The Console** (Global settings > Widget library > Console…, the dock menu's **Widget console…**,
   `WinDock.DockCommand` 127): every widget instance of every dock with its state (ok, error,
   stopped), the selected one's log (console output, errors with their stacks, the host's own
   lines: loading, reloads, file changes, shell.open), **Reload**, **Open folder** (the widget's
@@ -783,7 +799,7 @@ settings and state) and on several docks.
 ## Examples
 
 The repository's `examples\` folder holds three small annotated widgets to start from (README.md
-in each; install with Settings > Widgets > **Add from folder…**): `examples/minimal`,
+in each; install with Global settings > Widget library > **Add from folder…**): `examples/minimal`,
 `examples/http-json`, `examples/popup-list` ([Developing a widget](#developing-a-widget)). The
 built-ins are worked examples too:
 
@@ -793,20 +809,28 @@ built-ins are worked examples too:
 - `widgets/digital-clock`: a scripted copy of the dock's own clock (the same box and pixels for
   the same settings). `measure()` sizes the box from `canvas.measureText`, `timer.setRefresh`
   wakes it once a minute (or once a second with seconds), `system.format` formats the time, and on
-  a vertical dock every space breaks the line.
+  a vertical dock every space breaks the line. Round 5: `timeZone` (a `timezone` field: the time of
+  any Windows zone, passed to `system.format` and `setRefresh`; once per load or settings change it
+  logs the zone, its UTC offset and the time it shows, and it warns about a zone this Windows does
+  not know) and `label` (drawn small under the time: before the date, or alone, as the built-in
+  clock draws its label).
 - `widgets/analog-clock`: faces as data (`faces/*.json`, [the format](#analog-clock-faces-format-1)) listed
   by a `choiceFrom` setting and read with `widget.readJson`; settings (grouped: Face, Second hand,
   Motion and size; the motion shown only with a second hand: `visibleIf`) `face`, `seconds` (second
   hand), `secondsMotion` (`ticking`: one wake-up a second; `smooth`: 30 frames a second while the
   dock is visible), `dateOnFace` (`none`, `day`, `month-day`, `year`, `full`), `showDigital` (the
   time under the dial), `sweep` (the hands sweep in when it appears or its face changes), `size`
-  (DIPs, 0 = the dock's icon size; the box is square). The [Animation](#animation) example.
+  (DIPs, 0 = the dock's icon size; the box is square), and (round 5, group "Time zone")
+  `timeZone` (the hands, the date on the face and the digital time follow `system.localTime(zone)`)
+  and `label` (drawn small under the dial, before the digital time when that is shown). The
+  [Animation](#animation) example.
 - `widgets/analog-date` ("Calendar page"): today's date as a page with a coloured header (the
   month, or the weekday) over a big day number; `style` `flip` (split page, stacked pages, a curled
   corner, the page flips over when the date changes) or `flat`; `showMonth`, `showWeekday`,
   `showYear`, `accent` (header colour), `click` (`calendar`: `popup.calendar()`, `target`:
-  `shell.open(clickTarget)`, `none`), `size`. One wake-up a day: `timer.setRefresh(86400000)`
-  wakes it at local midnight. Test hook: an item setting `"debugNow": "2026-12-31T23:59:57"`
+  `shell.open(clickTarget)`, `none`), `size`, `timeZone` (round 5: the date of another zone). One
+  wake-up a day: `timer.setRefresh(86400000, { timeZone })` wakes it at midnight of its zone (local
+  midnight without one). Test hook: an item setting `"debugNow": "2026-12-31T23:59:57"`
   runs it on a fake clock starting at that local time (the midnight timer becomes a `setTimeout`
   to the fake midnight) and writes each date it shows to its storage (`debugShown`).
 - `widgets/volume`: `audio.get()` / `audio.onChange` for the glyph and the percentage; `onWheel`

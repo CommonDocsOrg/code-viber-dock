@@ -198,7 +198,7 @@ private:
     // After the config changed: Dock / Item windows whose dock is gone close, Item windows find
     // their item again (same index and equal entry, else the equal entry elsewhere, else (the
     // same number of items) the same index with the same identity: an edit in place; else they
-    // close), the Global window's selected dock falls back to the first.
+    // close), the Global window's Docks and displays row falls back to the first dock.
     void SyncSettingsTargets();
     // A window became (in)active: the dock of the active Dock / Item window is kept shown.
     void OnSettingsActivated(SettingsWindow* w, bool active);
@@ -206,8 +206,8 @@ private:
     bool KeepShownFor(size_t cfg) const;
     // Flash this dock: every window of config dock `cfg` (DockWindow::Flash in its colour).
     void FlashDock(size_t cfg);
-    // An item kind with an Item window (widget, clock, weather, folder, group, an app that
-    // resolves to a folder).
+    // An item kind with an Item window (widget, clock, weather, tray (round 5 phase D), folder,
+    // group, an app that resolves to a folder).
     bool HasItemWindow(size_t cfg, size_t item);
     // Docks page: add / duplicate / remove a config dock (refused while a menu or dialog is open).
     bool EditDocks(SettingsDockEdit edit, size_t index);

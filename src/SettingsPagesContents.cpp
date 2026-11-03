@@ -1742,20 +1742,24 @@ private:
     }
 
     // Enter / a double click on a tile, "Open settings in its own window": an item with settings
-    // -> its own Item window (round 5 phase B); the tray -> Global > Tray icons; the running apps
-    // -> the Running apps tab; the notification centre -> Global > Notifications.
+    // -> its own Item window (round 5 phase B; the tray too since phase D); a pinned tray icon ->
+    // the dock's tray item's window (none: Global > Tray icons); the running apps -> the Running
+    // apps tab; the notification centre -> the Behaviour tab (this dock's badges and centre).
     void OpenItemSettings(int item) {
         const DockConfig& d = Dock();
         if (item < 0 || item >= static_cast<int>(d.items.size())) return;
         switch (d.items[static_cast<size_t>(item)].Kind()) {
             case ItemKind::Running: Window().ShowPage(kTabRunning); return;
-            case ItemKind::Tray:
-            case ItemKind::TrayApp:
-                if (Host().openGlobal) Host().openGlobal(kPageTray);
+            case ItemKind::TrayApp: {
+                const auto it = std::find_if(d.items.begin(), d.items.end(), [](const DockItemEntry& e) { return e.Kind() == ItemKind::Tray; });
+                if (it != d.items.end() && Host().openItem && DockIndex() != SIZE_MAX) {
+                    Host().openItem(DockIndex(), static_cast<size_t>(it - d.items.begin()));
+                } else if (Host().openGlobal) {
+                    Host().openGlobal(kPageTray);
+                }
                 return;
-            case ItemKind::Notifications:
-                if (Host().openGlobal) Host().openGlobal(kPageNotifications);
-                return;
+            }
+            case ItemKind::Notifications: Window().ShowPage(kTabBehaviour); return;
             default: break;
         }
         if (HasSettings(static_cast<size_t>(item)) && Host().openItem && DockIndex() != SIZE_MAX) {

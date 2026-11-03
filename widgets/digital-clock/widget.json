@@ -2,7 +2,7 @@
   "name": "Digital clock (script)",
   "version": "1.0.0",
   "author": "WinDock",
-  "description": "A scripted copy of the built-in clock: the time in a strftime format, optional seconds and the date under it.",
+  "description": "A scripted copy of the built-in clock: the time in a strftime format, optional seconds, the date under it, any time zone and a label.",
   "api": 1,
   "size": {
     "horizontal": { "main": 48, "cross": 22 },
@@ -11,6 +11,10 @@
   "settings": [
     { "key": "format", "type": "string", "label": "Time format (strftime, as clock.format)", "default": "%H:%M" },
     { "key": "showSeconds", "type": "bool", "label": "Show seconds", "default": false },
-    { "key": "showDate", "type": "bool", "label": "Show the date under the time", "default": false }
+    { "key": "showDate", "type": "bool", "label": "Show the date under the time", "default": false },
+    { "key": "timeZone", "type": "timezone", "label": "Time zone", "default": "",
+      "description": "Local time, or the time of any Windows time zone (with its own daylight saving)." },
+    { "key": "label", "type": "string", "label": "Label (e.g. Tokyo)", "default": "",
+      "description": "Drawn small under the time: before the date, or alone without it." }
   ]
 }

@@ -69,8 +69,8 @@ struct SettingsCalendarFeed {
 
 // Everything a settings window may use of the app, so it never sees App internals. App binds one
 // host per window (round 5 phase B): "the dock" below is the window's own dock (SettingsWindow::
-// DockIndex(), looked up by id each time; the Global window: the dock selected on its Docks and
-// displays page), its first window.
+// DockIndex(), looked up by id each time; the Global window: the row selected on its Docks and
+// displays page, which only that page acts on), its first window.
 struct SettingsHost {
     Config* config = nullptr;                              // &App::config_, edited in place (stable address)
     // A setting changed: App applies it and saves. `dock` is the config dock it is about (the
@@ -116,7 +116,7 @@ struct SettingsHost {
     std::function<std::vector<SettingsDockRect>()> dockRects;
     // Tray page: the notify icons the tray host has now (empty while it is off).
     std::function<std::vector<SettingsTrayIcon>()> trayIcons;
-    // Notifications page: the service's state, and the edited dock's apps plus every app with a
+    // Notifications page: the service's state, and every dock's apps plus every app with a
     // notification now (by key, once each).
     std::function<SettingsNotificationStatus()> notificationStatus;
     std::function<std::vector<SettingsNotificationApp>()> notificationApps;
@@ -322,7 +322,7 @@ public:
     static constexpr wchar_t kBandClassName[] = L"WinDock.SettingsBand";
     static constexpr wchar_t kTabsClassName[] = L"WinDock.SettingsTabs";
 
-    // `dock`: the config dock id (Global: the dock its Docks and displays page selects first);
+    // `dock`: the config dock id (Global: the row its Docks and displays page selects first);
     // `item`: an Item window's index into that dock's items.
     SettingsWindow(SettingsHost host, SettingsKind kind, std::wstring dock, size_t item = SIZE_MAX);
     ~SettingsWindow();
@@ -366,7 +366,8 @@ public:
     DockConfig& Dock();
     // A Dock window of a folder window entry (round 4 phase 12: only the Folder window page).
     bool IsFolderWindow() const;
-    // The Global window: the dock its Docks and displays / Tray / Notifications pages are about.
+    // The Global window: the row selected on its Docks and displays page (Duplicate / Remove / Open
+    // act on it; round 5 phase D: no other Global page reads it).
     void SelectDock(const std::wstring& id);
     // An Item window's item: its index, the entry (null: out of range).
     size_t ItemIndex() const { return item_; }

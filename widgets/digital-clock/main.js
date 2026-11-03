@@ -3,6 +3,12 @@
 // and the date ("%a %d %b") under the time in a smaller font. On a vertical dock every space
 // breaks the line, as the built-in clock does. It wakes once a minute, or once a second when the
 // format shows seconds (timer.setRefresh aligns the wake-ups to the boundary).
+//
+// Time zone (round 5): settings.timeZone is a Windows zone key ("Tokyo Standard Time"; "" local);
+// every system.format / setRefresh call passes it, so the host converts the time with the zone's
+// own rules. Every zone is a whole number of minutes from UTC, so the minute / second wake-ups are
+// the same instants in every zone. settings.label goes on the date's line ("Tokyo · Tue 03 Nov"),
+// or alone under the time without the date, as the built-in clock draws its label.
 
 const DATE_FORMAT = '%a %d %b';
 
@@ -33,10 +39,23 @@ function effectiveFormat(format, seconds) {
 }
 
 let format = '%H:%M';
+let zone = '';
 
 function configure() {
   format = effectiveFormat(settings.format || '%H:%M', settings.showSeconds);
-  timer.setRefresh(hasSeconds(format) ? 1000 : 60000);
+  zone = settings.timeZone || '';
+  timer.setRefresh(hasSeconds(format) ? 1000 : 60000, { timeZone: zone });
+  if (zone) {
+    // One line per (re)configuration: which zone and what it shows (tests read it in the Console).
+    const t = system.localTime(zone);
+    if (!t.timeZone) {
+      console.warn('unknown time zone "' + zone + '": showing the local time');
+    } else {
+      const off = t.utcOffset, a = Math.abs(off);
+      const utc = 'UTC' + (off < 0 ? '-' : '+') + String(Math.floor(a / 60)).padStart(2, '0') + ':' + String(a % 60).padStart(2, '0');
+      console.log('time zone ' + t.timeZone + ' (' + utc + '): ' + system.format('%Y-%m-%d %H:%M', zone));
+    }
+  }
 }
 configure();
 
@@ -45,8 +64,9 @@ export function onSettingsChanged() {
 }
 
 function lines(dock) {
-  let time = system.format(format);
-  let date = settings.showDate ? system.format(DATE_FORMAT) : '';
+  let time = system.format(format, zone);
+  let date = settings.showDate ? system.format(DATE_FORMAT, zone) : '';
+  if (settings.label) date = date ? settings.label + ' · ' + date : settings.label;
   if (dock.axis === 'vertical') {
     time = time.replaceAll(' ', '\n');
     date = date.replaceAll(' ', '\n');
@@ -54,7 +74,7 @@ function lines(dock) {
   return { time, date };
 }
 
-const timeStyle = () => ({ size: settings.showDate ? 14 : 16, weight: 'semibold', align: 'center' });
+const timeStyle = () => ({ size: settings.showDate || settings.label ? 14 : 16, weight: 'semibold', align: 'center' });
 const dateStyle = { size: 11, align: 'center' };
 
 export function measure(canvas, dock) {

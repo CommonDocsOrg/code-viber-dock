@@ -134,9 +134,9 @@ private:
 
 // Global > Docks and displays (round 5 phase B: the Docks list of round 4 phase 3 and the Layout
 // canvas of 3b on one page). The canvas on top, the list of docks (with each dock's colour dot)
-// under it. The selected row (= the dock clicked on the canvas) is the dock the Tray and
-// Notifications pages are about (SettingsWindow::SelectDock); a double click on the canvas or the
-// list, or Open dock settings, opens that dock's own window.
+// under it. The selected row (= the dock clicked on the canvas; kept as SettingsWindow::SelectDock)
+// is what this page's Duplicate / Remove / Open dock settings act on; no other page reads it (round
+// 5 phase D). A double click on the canvas or the list opens that dock's own window.
 class LayoutPage : public FormPage {
 public:
     explicit LayoutPage(SettingsWindow& w) : FormPage(w, L"Docks and displays", L'\xE7F4'), canvas_(*this) {}
@@ -151,13 +151,13 @@ public:
     void SetSelectedText(const std::wstring& text) { SetText(kLayoutSelected, text); }
     // The selected config dock (the window's dock).
     size_t SelectedCfg() const { return const_cast<LayoutPage*>(this)->DockIndex(); }
-    // Selects config dock `cfg` (every page of the window follows when `refresh`).
+    // Selects config dock `cfg` (this page's list and canvas follow when `refresh`).
     void SelectCfg(size_t cfg, bool refresh = true) {
         Config& c = Cfg();
         if (cfg >= c.docks.size() || cfg == SelectedCfg()) return;
         Window().SelectDock(c.docks[cfg].id);
         if (refresh) {
-            Window().Refresh();  // the Tray / Notifications pages and this list and canvas
+            Window().Refresh();  // this list and canvas
             Window().ConfigApplied();
         }
     }

@@ -1279,11 +1279,26 @@ JSValue ClearTimerFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
     if (id >= 1.0f && id < 1.0e9f) Self(ctx)->ClearTimer(static_cast<int>(id));
     return JS_UNDEFINED;
 }
+// A time zone argument (round 5 phase D): a Windows zone key name; absent / null / "" = local.
+std::wstring ZoneArg(Args& a, int i) {
+    if (!a.Has(i) || JS_IsNull(a.At(i))) return {};
+    std::wstring z = a.S(i);
+    return z.size() > 128 ? std::wstring() : z;
+}
 JSValue SetRefreshFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     Args a{ctx, argc, argv};
     const uint32_t ms = Ms(a, 0);
+    // timer.setRefresh(ms, { timeZone }) (or the key as a string): aligned to that zone's time of day.
+    std::wstring zone;
+    if (a.Has(1) && JS_IsObject(a.At(1))) {
+        std::string z;
+        if (!PropS(ctx, a.At(1), "timeZone", z)) return JS_EXCEPTION;
+        zone = z.size() > 256 ? std::wstring() : Utf8ToWide(z);
+    } else {
+        zone = ZoneArg(a, 1);
+    }
     if (a.failed) return JS_EXCEPTION;
-    Self(ctx)->host_.SetRefresh(ms);
+    Self(ctx)->host_.SetRefresh(ms, zone);
     return JS_UNDEFINED;
 }
 JSValue RequestRedrawFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
@@ -1302,8 +1317,12 @@ JSValue LogFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
 
 // --- system ----------------------------------------------------------------------------------------
 
-JSValue NowFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
-    const WidgetSystem::LocalTime t = WidgetSystem::Now();
+// system.now() / system.localTime(timeZone): the same object (round 5 phase D: + timeZone).
+JSValue NowFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring zone = ZoneArg(a, 0);
+    if (a.failed) return JS_EXCEPTION;
+    const WidgetSystem::LocalTime t = WidgetSystem::Now(zone);
     JSValue o = JS_NewObject(ctx);
     JS_SetPropertyStr(ctx, o, "year", JS_NewInt32(ctx, t.year));
     JS_SetPropertyStr(ctx, o, "month", JS_NewInt32(ctx, t.month));
@@ -1316,25 +1335,41 @@ JSValue NowFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
     JS_SetPropertyStr(ctx, o, "yearDay", JS_NewInt32(ctx, t.yearDay));
     JS_SetPropertyStr(ctx, o, "dst", JS_NewBool(ctx, t.dst));
     JS_SetPropertyStr(ctx, o, "utcOffset", JS_NewInt32(ctx, t.utcOffset));
+    JS_SetPropertyStr(ctx, o, "timeZone", NewString(ctx, t.timeZone));
     return o;
+}
+JSValue TimeZonesFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    const std::vector<WidgetSystem::Zone> zones = WidgetSystem::TimeZones();
+    JSValue arr = JS_NewArray(ctx);
+    for (size_t i = 0; i < zones.size(); ++i) {
+        JSValue o = JS_NewObject(ctx);
+        JS_SetPropertyStr(ctx, o, "key", NewString(ctx, zones[i].key));
+        JS_SetPropertyStr(ctx, o, "name", NewString(ctx, zones[i].name));
+        JS_SetPropertyStr(ctx, o, "standardOffset", JS_NewInt32(ctx, zones[i].standardOffset));
+        JS_SetPropertyUint32(ctx, arr, static_cast<uint32_t>(i), o);
+    }
+    return arr;
 }
 JSValue FormatFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     Args a{ctx, argc, argv};
     const std::wstring f = a.S(0);
+    const std::wstring zone = ZoneArg(a, 1);
     if (a.failed) return JS_EXCEPTION;
-    return NewString(ctx, WidgetSystem::Format(f.size() > 256 ? f.substr(0, 256) : f));
+    return NewString(ctx, WidgetSystem::Format(f.size() > 256 ? f.substr(0, 256) : f, zone));
 }
 JSValue FormatDateFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     Args a{ctx, argc, argv};
     const std::wstring style = a.S(0);
+    const std::wstring zone = ZoneArg(a, 1);
     if (a.failed) return JS_EXCEPTION;
-    return NewString(ctx, WidgetSystem::FormatDate(style != L"short"));
+    return NewString(ctx, WidgetSystem::FormatDate(style != L"short", zone));
 }
 JSValue FormatTimeFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     Args a{ctx, argc, argv};
     const bool seconds = a.B(0, false);
+    const std::wstring zone = ZoneArg(a, 1);
     if (a.failed) return JS_EXCEPTION;
-    return NewString(ctx, WidgetSystem::FormatTime(seconds));
+    return NewString(ctx, WidgetSystem::FormatTime(seconds, zone));
 }
 JSValue Names(JSContext* ctx, const std::vector<std::wstring>& names) {
     JSValue arr = JS_NewArray(ctx);
@@ -1435,7 +1470,7 @@ const JSCFunctionListEntry kTimerFuncs[] = {
     JS_CFUNC_DEF("setTimeout", 2, Guard<SetTimeoutFn>),
     JS_CFUNC_DEF("setInterval", 2, Guard<SetIntervalFn>),
     JS_CFUNC_DEF("clear", 1, Guard<ClearTimerFn>),
-    JS_CFUNC_DEF("setRefresh", 1, Guard<SetRefreshFn>),
+    JS_CFUNC_DEF("setRefresh", 2, Guard<SetRefreshFn>),
     JS_CFUNC_DEF("requestRedraw", 0, Guard<RequestRedrawFn>),
 };
 
@@ -1449,9 +1484,11 @@ const JSCFunctionListEntry kGlobalFuncs[] = {
 
 const JSCFunctionListEntry kSystemFuncs[] = {
     JS_CFUNC_DEF("now", 0, Guard<NowFn>),
-    JS_CFUNC_DEF("format", 1, Guard<FormatFn>),
-    JS_CFUNC_DEF("formatDate", 1, Guard<FormatDateFn>),
-    JS_CFUNC_DEF("formatTime", 1, Guard<FormatTimeFn>),
+    JS_CFUNC_DEF("localTime", 1, Guard<NowFn>),
+    JS_CFUNC_DEF("timeZones", 0, Guard<TimeZonesFn>),
+    JS_CFUNC_DEF("format", 2, Guard<FormatFn>),
+    JS_CFUNC_DEF("formatDate", 2, Guard<FormatDateFn>),
+    JS_CFUNC_DEF("formatTime", 2, Guard<FormatTimeFn>),
     JS_CGETSET_MAGIC_DEF("locale", GuardGet<SystemGet>, nullptr, 0),
     JS_CGETSET_MAGIC_DEF("hour12", GuardGet<SystemGet>, nullptr, 1),
     JS_CGETSET_MAGIC_DEF("units", GuardGet<SystemGet>, nullptr, 2),

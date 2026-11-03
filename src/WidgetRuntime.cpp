@@ -14,34 +14,130 @@
 
 namespace WidgetSystem {
 
-LocalTime Now() {
-    LocalTime t;
+namespace {
+
+int64_t MinutesOf(const SYSTEMTIME& s) {
+    FILETIME ft{};
+    if (!SystemTimeToFileTime(&s, &ft)) return 0;
+    const int64_t ticks = static_cast<int64_t>((static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
+    return ticks / 600000000LL;  // 100 ns -> minutes
+}
+
+// Zone lookups by key name (EnumDynamicTimeZoneInformation reads the registry each time, and a
+// clock asks every second: cached on the UI thread, misses too; "" is never looked up).
+struct CachedZone {
+    std::wstring key;
+    bool found = false;
+    DYNAMIC_TIME_ZONE_INFORMATION zone{};
+};
+std::vector<CachedZone>& ZoneCache() {
+    static std::vector<CachedZone> cache;
+    return cache;
+}
+
+const CachedZone* FindZone(const std::wstring& key) {
+    if (key.empty() || key.size() > 128) return nullptr;
+    std::vector<CachedZone>& cache = ZoneCache();
+    for (const CachedZone& c : cache) {
+        if (_wcsicmp(c.key.c_str(), key.c_str()) == 0) return c.found ? &c : nullptr;
+    }
+    if (cache.size() >= 32) cache.erase(cache.begin());
+    CachedZone c;
+    c.key = key;
+    c.found = Clock::FindTimeZone(key, c.zone);
+    if (c.found) c.key = c.zone.TimeZoneKeyName;  // Windows' spelling
+    cache.push_back(c);
+    return cache.back().found ? &cache.back() : nullptr;
+}
+
+// The time now in zone `key` (the local time when it is "" or unknown).
+struct ZonedNow {
     SYSTEMTIME st{};
-    GetLocalTime(&st);
-    t.year = st.wYear;
-    t.month = st.wMonth;
-    t.day = st.wDay;
-    t.hour = st.wHour;
-    t.minute = st.wMinute;
-    t.second = st.wSecond;
-    t.millisecond = st.wMilliseconds;
-    t.weekday = st.wDayOfWeek;
-    static const int kCum[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
-    const bool leap = (t.year % 4 == 0 && t.year % 100 != 0) || t.year % 400 == 0;
-    t.yearDay = kCum[std::clamp(t.month, 1, 12) - 1] + t.day + (leap && t.month > 2 ? 1 : 0);
+    bool dst = false;
+    int utcOffset = 0;
+    std::wstring key;  // "" local
+};
+ZonedNow NowIn(const std::wstring& key) {
+    ZonedNow n;
+    if (const CachedZone* z = FindZone(key)) {
+        SYSTEMTIME utc{}, there{};
+        GetSystemTime(&utc);
+        if (SystemTimeToTzSpecificLocalTimeEx(&z->zone, &utc, &there)) {
+            // The weekday: SystemTimeToTzSpecificLocalTimeEx leaves it as it was (a round trip sets it).
+            FILETIME ft{};
+            if (SystemTimeToFileTime(&there, &ft)) FileTimeToSystemTime(&ft, &there);
+            n.st = there;
+            n.utcOffset = static_cast<int>(MinutesOf(there) - MinutesOf(utc));
+            TIME_ZONE_INFORMATION tzi{};
+            if (GetTimeZoneInformationForYear(there.wYear, const_cast<DYNAMIC_TIME_ZONE_INFORMATION*>(&z->zone), &tzi)) {
+                n.dst = tzi.DaylightDate.wMonth != 0 && n.utcOffset != -static_cast<int>(tzi.Bias + tzi.StandardBias);
+            }
+            n.key = z->key;
+            return n;
+        }
+    }
+    GetLocalTime(&n.st);
     DYNAMIC_TIME_ZONE_INFORMATION tz{};
     const DWORD mode = GetDynamicTimeZoneInformation(&tz);
-    t.dst = mode == TIME_ZONE_ID_DAYLIGHT;
-    t.utcOffset = -static_cast<int>(tz.Bias + (t.dst ? tz.DaylightBias : tz.StandardBias));
+    n.dst = mode == TIME_ZONE_ID_DAYLIGHT;
+    n.utcOffset = -static_cast<int>(tz.Bias + (n.dst ? tz.DaylightBias : tz.StandardBias));
+    return n;
+}
+
+int YearDay(int year, int month, int day) {
+    static const int kCum[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+    return kCum[std::clamp(month, 1, 12) - 1] + day + (leap && month > 2 ? 1 : 0);
+}
+
+}  // namespace
+
+LocalTime Now(const std::wstring& timeZone) {
+    const ZonedNow n = NowIn(timeZone);
+    LocalTime t;
+    t.year = n.st.wYear;
+    t.month = n.st.wMonth;
+    t.day = n.st.wDay;
+    t.hour = n.st.wHour;
+    t.minute = n.st.wMinute;
+    t.second = n.st.wSecond;
+    t.millisecond = n.st.wMilliseconds;
+    t.weekday = n.st.wDayOfWeek;
+    t.yearDay = YearDay(t.year, t.month, t.day);
+    t.dst = n.dst;
+    t.utcOffset = n.utcOffset;
+    t.timeZone = n.key;
     return t;
 }
 
-std::wstring Format(const std::wstring& format) {
-    __time64_t now = _time64(nullptr);
-    tm local{};
-    if (_localtime64_s(&local, &now) != 0) return {};
-    return Clock::Format(format, local);
+std::wstring Format(const std::wstring& format, const std::wstring& timeZone) {
+    if (timeZone.empty()) {
+        __time64_t now = _time64(nullptr);
+        tm local{};
+        if (_localtime64_s(&local, &now) != 0) return {};
+        return Clock::Format(format, local);
+    }
+    const ZonedNow n = NowIn(timeZone);
+    tm t{};
+    t.tm_year = n.st.wYear - 1900;
+    t.tm_mon = n.st.wMonth - 1;
+    t.tm_mday = n.st.wDay;
+    t.tm_hour = n.st.wHour;
+    t.tm_min = n.st.wMinute;
+    t.tm_sec = n.st.wSecond;
+    t.tm_wday = n.st.wDayOfWeek;
+    t.tm_yday = YearDay(n.st.wYear, n.st.wMonth, n.st.wDay) - 1;
+    t.tm_isdst = n.dst ? 1 : 0;
+    return Clock::Format(format, t);
 }
+
+std::vector<Zone> TimeZones() {
+    std::vector<Zone> out;
+    for (const Clock::TimeZoneInfo& z : Clock::TimeZones()) out.push_back(Zone{z.key, z.display, -static_cast<int>(z.bias)});
+    return out;
+}
+
+void ForgetZones() { ZoneCache().clear(); }
 
 std::wstring Locale() {
     wchar_t name[LOCALE_NAME_MAX_LENGTH]{};
@@ -93,17 +189,19 @@ std::vector<std::wstring> MonthNames(bool abbreviated) {
     return out;
 }
 
-std::wstring FormatDate(bool longFormat) {
+std::wstring FormatDate(bool longFormat, const std::wstring& timeZone) {
     wchar_t buf[128]{};
-    return GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, longFormat ? DATE_LONGDATE : DATE_SHORTDATE, nullptr, nullptr, buf,
+    const ZonedNow n = NowIn(timeZone);  // null below would be the local time too
+    return GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, longFormat ? DATE_LONGDATE : DATE_SHORTDATE, &n.st, nullptr, buf,
                            static_cast<int>(std::size(buf)), nullptr)
                ? buf
                : L"";
 }
 
-std::wstring FormatTime(bool seconds) {
+std::wstring FormatTime(bool seconds, const std::wstring& timeZone) {
     wchar_t buf[64]{};
-    return GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, seconds ? 0 : TIME_NOSECONDS, nullptr, nullptr, buf,
+    const ZonedNow n = NowIn(timeZone);
+    return GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, seconds ? 0 : TIME_NOSECONDS, &n.st, nullptr, buf,
                            static_cast<int>(std::size(buf)))
                ? buf
                : L"";
@@ -122,10 +220,9 @@ double WidgetNowMs() {
     return static_cast<double>(c.QuadPart) * 1000.0 / freq;
 }
 
-uint32_t WidgetAlignedDelay(uint32_t period) {
+uint32_t WidgetAlignedDelay(uint32_t period, const std::wstring& timeZone) {
     if (period == 0) return 0;
-    SYSTEMTIME st{};
-    GetLocalTime(&st);
+    const SYSTEMTIME st = WidgetSystem::NowIn(timeZone).st;
     const uint64_t tod = ((static_cast<uint64_t>(st.wHour) * 60u + st.wMinute) * 60u + st.wSecond) * 1000u + st.wMilliseconds;
     const uint64_t p = std::min<uint64_t>(period, 86400000u);
     const uint64_t delay = p - tod % p;
@@ -478,14 +575,15 @@ void WidgetRuntime::OnWatchEvent(WPARAM index, LPARAM generation) {
     reloadPending_ = SetTimer(owner_, kReloadTimerId, kReloadDelayMs, nullptr) != 0;
 }
 
-void WidgetRuntime::Schedule(WidgetInstance* w, int id, uint32_t ms, bool repeat, bool aligned) {
+void WidgetRuntime::Schedule(WidgetInstance* w, int id, uint32_t ms, bool repeat, bool aligned, const std::wstring& zone) {
     Cancel(w, id);
     Entry e;
     e.w = w;
     e.id = id;
     e.period = repeat ? std::max<uint32_t>(ms, 1u) : 0u;
     e.aligned = aligned && repeat;
-    e.due = WidgetNowMs() + static_cast<double>(e.aligned ? WidgetAlignedDelay(e.period) : ms);
+    e.zone = e.aligned ? zone : std::wstring();
+    e.due = WidgetNowMs() + static_cast<double>(e.aligned ? WidgetAlignedDelay(e.period, e.zone) : ms);
     entries_.push_back(e);
     Arm();
 }
@@ -638,7 +736,7 @@ void WidgetRuntime::OnTimer() {
         if (it->period == 0) {
             entries_.erase(it);
         } else if (it->aligned) {
-            it->due = WidgetNowMs() + WidgetAlignedDelay(it->period);
+            it->due = WidgetNowMs() + WidgetAlignedDelay(it->period, it->zone);
         } else {
             it->due = std::max(it->due + it->period, WidgetNowMs() + 1.0);
         }

@@ -7,6 +7,11 @@
 // dock is hidden and redraws once when it comes back. The sweep-in (the hands turning from 12 to
 // the time when the clock appears or its face changes) runs ~60 frames a second for 0.7 s and then
 // stops; never with reduce motion.
+//
+// Time zone (round 5): settings.timeZone (a Windows zone key, "" local) goes to every
+// system.localTime / formatTime / setRefresh call; every zone is a whole number of minutes from UTC,
+// so the minute and second wake-ups fall on the same instants in any zone. settings.label is drawn
+// under the dial ("Tokyo", or "Tokyo · 21:04" with the digital time).
 
 const SWEEP_MS = 700;
 const FRAME_MS = 16;   // the sweep
@@ -83,6 +88,7 @@ let pendingSweep = false;  // sweep when the dock next comes on screen
 let frameTimer = 0;     // setInterval of the sweep / the smooth second hand
 
 const smooth = () => settings.seconds && settings.secondsMotion === 'smooth' && !dock.reduceMotion;
+const zone = () => settings.timeZone || '';
 
 // Picks the cheapest timer for what is shown now (see the cost note at the top).
 function schedule() {
@@ -97,7 +103,7 @@ function schedule() {
     frameTimer = setInterval(frame, sweep ? FRAME_MS : SMOOTH_MS);
     return;
   }
-  timer.setRefresh(settings.seconds ? 1000 : 60000);
+  timer.setRefresh(settings.seconds ? 1000 : 60000, { timeZone: zone() });
 }
 
 function frame() {
@@ -147,7 +153,7 @@ export function onVisibilityChange(e) {
 
 // Hand angles in radians (0 = 12 o'clock, clockwise).
 function angles() {
-  const t = system.now();
+  const t = system.localTime(zone());
   const sec = t.second + (smooth() ? t.millisecond / 1000 : 0);
   const min = t.minute + (settings.seconds ? sec / 60 : 0);
   const hour = (t.hour % 12) + min / 60;
@@ -329,7 +335,8 @@ function drawHand(canvas, spec, angle, cx, cy, r) {
 
 export function draw(canvas, dock) {
   const w = canvas.width, h = canvas.height;
-  const digital = settings.showDigital;
+  const under = [settings.label || '', settings.showDigital ? system.formatTime(false, zone()) : ''].filter((s) => s).join(' · ');
+  const digital = under !== '';
   const textSize = Math.max(7, Math.min(12, Math.min(w, h) * 0.2));
   const dialBox = Math.min(w, digital ? h - textSize - 1 : h);
   const cx = w / 2, cy = digital ? dialBox / 2 : h / 2;
@@ -356,6 +363,6 @@ export function draw(canvas, dock) {
     if (cap.ring) canvas.strokeCircle(cx, cy, Math.max(1, cap.radius * r), cap.ring, Math.max(0.5, (cap.ringWidth ?? 0.02) * r));
   }
   if (digital) {
-    canvas.text(system.formatTime(false), w / 2, h, { size: textSize, weight: 'semibold', align: 'center', baseline: 'bottom', color: dock.theme.text });
+    canvas.text(under, w / 2, h, { size: textSize, weight: 'semibold', align: 'center', baseline: 'bottom', color: dock.theme.text });
   }
 }

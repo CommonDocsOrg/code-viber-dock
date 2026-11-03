@@ -2,7 +2,7 @@
   "name": "Calendar page",
   "version": "1.0.0",
   "author": "WinDock",
-  "description": "Today's date as a skeuomorphic calendar page: a coloured header with the month (or weekday) over a big day number, as a flip calendar or a flat page. Turns over at local midnight (one timer, nothing in between).",
+  "description": "Today's date as a skeuomorphic calendar page: a coloured header with the month (or weekday) over a big day number, as a flip calendar or a flat page. Turns over at midnight of its time zone (one timer, nothing in between).",
   "api": 1,
   "size": {
     "horizontal": { "main": 48, "cross": 48 },
@@ -28,6 +28,8 @@
       ] },
     { "key": "clickTarget", "visibleIf": { "click": "target" }, "type": "string", "label": "App or URL", "default": "outlookcal:",
       "description": "Opened by a click when \"Clicking the page opens\" is the app or URL (needs the widget's shell permission)." },
-    { "key": "size", "unit": "DIPs", "type": "int", "label": "Size in DIPs (0: the dock's icon size)", "min": 0, "max": 128, "default": 0 }
+    { "key": "size", "unit": "DIPs", "type": "int", "label": "Size in DIPs (0: the dock's icon size)", "min": 0, "max": 128, "default": 0 },
+    { "key": "timeZone", "type": "timezone", "label": "Time zone", "default": "",
+      "description": "Today's date in the local time, or in any Windows time zone (the page turns over at that zone's midnight)." }
   ]
 }

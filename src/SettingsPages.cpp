@@ -298,6 +298,19 @@ protected:
         Label(kWheelLabel, L"Mouse wheel over an app");
         Combo(kWheelCombo, kColX, right - kColX, false);
         NextRow();
+
+        // Round 5 phase D: this dock's part of the notifications (moved from Global > Notifications).
+        Section(kSectionDockNotifications, L"Notifications");
+        Check(kBadges, kBadgesCaption, L"Notification badges on app icons");
+        NextRow();
+        Check(kDockCentre, kDockCentreCaption, L"Show the notification centre on this dock");
+        NextRow(kRowH);
+        Text(kDockNotificationsNote, CtlKind::Note,
+             L"Badges: the unread count of each app's notifications on its icon. The centre is a bell item with the "
+             L"list (also in the widget drawer). Which apps may badge, tray balloons and the poll interval apply to "
+             L"every dock: Global settings > Notifications.",
+             kMargin, right - kMargin, 58);
+        NextRow(60);
     }
 
     void BuildRunning() {
@@ -390,6 +403,8 @@ protected:
         SetCheck(kPreviewSingle, d.previewSingle);
         SetComboSel(kMiddleClickCombo, static_cast<int>(d.middleClick));
         SetComboSel(kWheelCombo, static_cast<int>(d.wheel));
+        SetCheck(kBadges, d.badges);
+        SetCheck(kDockCentre, d.Has(ItemKind::Notifications));
         // Running apps
         SetCheck(kRunningMonitorOnly, d.runningFilter == RunningFilter::Monitor);
         SetComboSel(kWindowsCombo, static_cast<int>(d.windows));
@@ -568,6 +583,20 @@ protected:
             case kPreviewSingle:
                 d.previewSingle = GetCheck(id);  // read when the mouse rests on an app
                 Changed(SettingsScope::SaveOnly);
+                break;
+            case kBadges:
+                d.badges = GetCheck(id);
+                Changed(SettingsScope::Notifications);  // the service starts / stops with the demand
+                break;
+            case kDockCentre:
+                if (GetCheck(id)) {
+                    if (!d.Has(ItemKind::Notifications)) d.AddWidget(ItemKind::Notifications);
+                } else {
+                    d.Show(ItemKind::Notifications, false);
+                }
+                Changed(SettingsScope::Pins);  // reloads the dock; the service follows (SyncNotifications)
+                Changed(SettingsScope::Notifications);
+                Window().Refresh();  // this window's Contents tab shows the item (or not)
                 break;
             default:
                 break;
@@ -781,11 +810,14 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
             pages.push_back(MakeDockThemePage(window));                                                  // kTabTheme
             break;
         case SettingsKind::Item: {
-            // A widget, clock or weather item: its generated schema page; a folder / group: Folders and groups.
+            // A widget, clock or weather item: its generated schema page; a tray: its grid (round 5
+            // phase D); a folder / group: Folders and groups.
             const DockItemEntry* e = window.TargetItem();
             const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
             if (k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather) {
                 pages.push_back(MakeWidgetSettingsPage(window));
+            } else if (k == ItemKind::Tray) {
+                pages.push_back(MakeTrayItemPage(window));
             } else {
                 pages.push_back(MakeItemSettingsPage(window));
             }

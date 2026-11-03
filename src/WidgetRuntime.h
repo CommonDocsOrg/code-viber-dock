@@ -89,7 +89,7 @@ public:
 
     // A timer of widget `w`: due in `ms` (repeat: every `ms`; aligned: at the next multiple of
     // `ms` of the local time of day, then every multiple). Replaces a timer with the same id.
-    void Schedule(WidgetInstance* w, int id, uint32_t ms, bool repeat, bool aligned = false);
+    void Schedule(WidgetInstance* w, int id, uint32_t ms, bool repeat, bool aligned = false, const std::wstring& zone = {});
     void Cancel(WidgetInstance* w, int id);
     void CancelAll(WidgetInstance* w);
     size_t PendingTimers(const WidgetInstance* w) const;
@@ -161,6 +161,7 @@ private:
         double due = 0.0;  // NowMs
         uint32_t period = 0;  // 0: one-shot
         bool aligned = false;
+        std::wstring zone;  // aligned: to the time of day of this zone ("" local)
     };
     void Arm();
     void OnTimer();
@@ -216,7 +217,9 @@ private:
 
 // The `system` namespace of the widget API: local date / time and locale strings computed by the
 // host (not by the script engine: QuickJS's Date applies the current DST offset to every date on
-// Windows), in the user's locale.
+// Windows), in the user's locale. Round 5 phase D: every time call takes a Windows time zone key
+// name ("Tokyo Standard Time"; "" or an unknown key = the local time), converted with
+// SystemTimeToTzSpecificLocalTimeEx (the zone's own daylight-saving rules).
 namespace WidgetSystem {
 struct LocalTime {
     int year = 0, month = 0, day = 0;  // month 1 - 12
@@ -225,10 +228,11 @@ struct LocalTime {
     int yearDay = 0;   // 1 - 366
     bool dst = false;
     int utcOffset = 0;  // minutes east of UTC
+    std::wstring timeZone;  // the zone's key name ("" = the local time: no key, or an unknown one)
 };
-LocalTime Now();
-// strftime (wcsftime) of the local time now; a bad specifier falls back to "%H:%M" (Clock::Format).
-std::wstring Format(const std::wstring& format);
+LocalTime Now(const std::wstring& timeZone = {});
+// strftime (wcsftime) of the time now in the zone; a bad specifier falls back to "%H:%M" (Clock::Format).
+std::wstring Format(const std::wstring& format, const std::wstring& timeZone = {});
 std::wstring Locale();  // "en-US"
 bool Hour12();          // the user's time format uses a 12-hour clock
 int FirstDayOfWeek();   // 0 = Sunday
@@ -236,12 +240,22 @@ int FirstDayOfWeek();   // 0 = Sunday
 std::vector<std::wstring> DayNames(bool abbreviated);
 std::vector<std::wstring> MonthNames(bool abbreviated);
 // The user's long / short date and time formats (GetDateFormatEx / GetTimeFormatEx) for now.
-std::wstring FormatDate(bool longFormat);
-std::wstring FormatTime(bool seconds);
+std::wstring FormatDate(bool longFormat, const std::wstring& timeZone = {});
+std::wstring FormatTime(bool seconds, const std::wstring& timeZone = {});
+// The zones of this Windows (Clock::TimeZones: by UTC offset, then name).
+struct Zone {
+    std::wstring key, name;
+    int standardOffset = 0;  // minutes east of UTC without daylight saving
+};
+std::vector<Zone> TimeZones();
+// Forget the zone lookups (the time zone data or the clock changed).
+void ForgetZones();
 }  // namespace WidgetSystem
 
 // Monotonic milliseconds (QueryPerformanceCounter).
 double WidgetNowMs();
-// Milliseconds from now to the next multiple of `period` ms of the local time of day (+30 ms, so
-// it lands just after the boundary).
-uint32_t WidgetAlignedDelay(uint32_t period);
+// Milliseconds from now to the next multiple of `period` ms of the time of day in `timeZone` ("":
+// the local time; +30 ms, so it lands just after the boundary). Every Windows zone is a whole number
+// of minutes from UTC, so periods up to a minute fall on the same instants in every zone; longer
+// ones (an hour, a day) follow the zone's own hours and midnight.
+uint32_t WidgetAlignedDelay(uint32_t period, const std::wstring& timeZone = {});

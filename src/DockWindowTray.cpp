@@ -155,7 +155,7 @@ void DockWindow::ShowTrayMenu(int slot, const std::wstring& key, bool pinnedSlot
             if (pinRequests_.unpinTray) pinRequests_.unpinTray(key);
             break;
         case kSettings:
-            if (pinRequests_.traySettings) pinRequests_.traySettings();
+            if (pinRequests_.traySettings) pinRequests_.traySettings(trayItem);
             break;
         default:
             break;

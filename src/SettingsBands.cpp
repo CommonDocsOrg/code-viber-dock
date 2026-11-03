@@ -104,7 +104,7 @@ void SettingsWindow::CreateBands(bool footer) {
         footer_ = band(kFooter);
         const DockItemEntry* e = TargetItem();
         const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
-        if (footer_ && (k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather)) {
+        if (footer_ && (k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Tray)) {
             child(footer_, kFooterReset, WC_BUTTONW, L"Reset to defaults");
         }
         if (footer_ && k == ItemKind::Widget) child(footer_, kFooterConsole, WC_BUTTONW, L"Console…");
@@ -177,6 +177,7 @@ std::wstring SettingsWindow::ItemName() {
         }
         case ItemKind::Widget: return Widgets::DisplayName(e->id);
         case ItemKind::Group: return e->name.empty() ? std::wstring(L"Group") : e->name;
+        case ItemKind::Tray: return L"System tray";
         default: {
             // A folder (or a shortcut to one): its resolved name, else the path's.
             if (host_.pins) {

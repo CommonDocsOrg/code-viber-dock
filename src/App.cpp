@@ -214,7 +214,21 @@ void App::SetUpDock(DockWindow& dock) {
     requests.pinTray = [this, d](const std::wstring& key, size_t at) { PinTray(d->ConfigIndex(), key, at); };
     requests.unpinTray = [this, d](const std::wstring& key) { UnpinTray(d->ConfigIndex(), key); };
     requests.trayHide = [this, d](size_t item, const std::wstring& key, bool hide) { TrayHide(d->ConfigIndex(), item, key, hide); };
-    requests.traySettings = [this] { OpenSettings(SettingsIds::kPageTray); };
+    requests.traySettings = [this, d](size_t item) {
+        // The tray item's own window (the menu's item, else the dock's first tray item); without
+        // one: Global > Tray icons.
+        const size_t cfg = d->ConfigIndex();
+        const auto& items = config_.docks[cfg].items;
+        if (item >= items.size() || items[item].Kind() != ItemKind::Tray) {
+            const auto it = std::find_if(items.begin(), items.end(), [](const DockItemEntry& e) { return e.Kind() == ItemKind::Tray; });
+            item = it == items.end() ? SIZE_MAX : static_cast<size_t>(it - items.begin());
+        }
+        if (item == SIZE_MAX) {
+            OpenSettings(SettingsIds::kPageTray);
+        } else {
+            OpenItemSettings(cfg, item);
+        }
+    };
     requests.moveCircle = [this, d](int x, int y) {
         const size_t cfg = d->ConfigIndex();
         DockConfig& c = config_.docks[cfg];
@@ -907,11 +921,12 @@ void App::ShowMenu(DockWindow* dock, POINT pt, int slot) {
         const auto& items = config_.docks[cfg].items;
         if (element < items.size()) {
             const ItemKind k = items[element].Kind();
-            if (k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Widget) {
+            if (k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Widget || k == ItemKind::Tray) {
                 item = element;
                 entry = items[element];
                 state.itemSettings = k == ItemKind::Clock     ? std::wstring(L"Clock settings…")
                                      : k == ItemKind::Weather ? std::wstring(L"Weather settings…")
+                                     : k == ItemKind::Tray    ? std::wstring(L"Tray settings…")
                                                               : Widgets::DisplayName(entry.id) + L" settings…";
             }
         }
@@ -1309,6 +1324,7 @@ bool App::HasItemWindow(size_t cfg, size_t item) {
         case ItemKind::Weather:
         case ItemKind::Folder:
         case ItemKind::Group:
+        case ItemKind::Tray:  // round 5 phase D: its grid and icons
             return true;
         case ItemKind::App: {
             // A shortcut to a folder is a folder item too (its popup's layout).
@@ -1506,7 +1522,8 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         for (size_t i = 0; i < c.Feeds().size(); ++i) feeds.push_back(SettingsCalendarFeed{c.StatusText(i)});
         return feeds;
     };
-    host.notificationApps = [this, dockOf] {
+    host.notificationApps = [this] {
+        // Global > Notifications (round 5 phase D: every dock's apps, not one dock's).
         std::vector<SettingsNotificationApp> apps;
         auto add = [&](const AppKey& key, const std::wstring& name) {
             if (key.id.empty() || key.IsSynthetic()) return;
@@ -1514,7 +1531,9 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
             apps.push_back(SettingsNotificationApp{key.id, name.empty() ? key.Source() : name,
                                                    docks_.Notifications().UnreadFor(key)});
         };
-        if (DockWindow* d = dockOf() != SIZE_MAX ? docks_.FirstOf(dockOf()) : nullptr) {
+        for (size_t cfg = 0; cfg < config_.docks.size(); ++cfg) {
+            DockWindow* d = docks_.FirstOf(cfg);
+            if (!d) continue;
             for (const AppIdentity::ResolvedPin& p : d->Pins()) {
                 if (p.kind == AppIdentity::PinKind::App) add(p.key, p.displayName);
                 for (const AppIdentity::ResolvedPin& m : p.members) {

@@ -326,7 +326,6 @@ bool SettingsWindow::IsFolderWindow() const {
 void SettingsWindow::SelectDock(const std::wstring& id) {
     if (kind_ != SettingsKind::Global || id == dockId_) return;
     dockId_ = id;
-    if (preview_) preview_->Invalidate();
 }
 
 DockItemEntry* SettingsWindow::TargetItem() {
@@ -534,9 +533,19 @@ bool SettingsWindow::Create(HINSTANCE instance) {
     if (kind_ == SettingsKind::Global || (kind_ == SettingsKind::Dock && !IsFolderWindow())) {
         preview_ = std::make_unique<SettingsPreview>();
         if (preview_->Create(instance, hwnd_, SettingsIds::kPreview, host_.config, dpi_)) {
-            // Global: the global theme (on the selected dock's items); a Dock window: its dock.
-            preview_->SetDock([this]() -> const DockConfig* { return DockIndex() != SIZE_MAX ? &Dock() : nullptr; },
-                              kind_ == SettingsKind::Global);
+            // Global: the global theme on the first dock's items (round 5 phase D: not the Docks
+            // and displays page's selection); a Dock window: its dock.
+            preview_->SetDock(
+                [this]() -> const DockConfig* {
+                    if (kind_ == SettingsKind::Global) {
+                        for (const DockConfig& d : host_.config->docks) {
+                            if (!d.IsFolderWindow()) return &d;
+                        }
+                        return nullptr;
+                    }
+                    return DockIndex() != SIZE_MAX ? &Dock() : nullptr;
+                },
+                kind_ == SettingsKind::Global);
         } else {
             preview_.reset();  // the window works without it
         }

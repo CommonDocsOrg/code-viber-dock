@@ -181,7 +181,7 @@ private:
     bool ScheduleTimer(int id, uint32_t ms, bool repeat) override;
     void CancelTimer(int id) override;
     void RequestRedraw() override;
-    void SetRefresh(uint32_t ms) override;
+    void SetRefresh(uint32_t ms, const std::wstring& timeZone) override;
     bool Permitted(Permission p) const override;
     bool StorageGet(const std::string& key, std::string& json) override;
     bool StorageSet(const std::string& key, const std::string& json, std::wstring& error) override;
@@ -239,6 +239,7 @@ private:
     bool changed_ = true;
     uint32_t refreshMs_ = 0;
     bool refreshSet_ = false;  // the script called timer.setRefresh (overrides the manifest)
+    std::wstring refreshZone_;  // its timeZone option (round 5 phase D): aligned to that zone's time of day
     uint64_t generation_ = 0;  // +1 per load: http results of an older load are dropped
     int nextRequest_ = 1;
     int requests_ = 0;         // http requests in flight (this generation)

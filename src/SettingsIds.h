@@ -27,8 +27,8 @@ inline constexpr int kPageThemes = 1;         // the global theme (was Appearanc
 inline constexpr int kPageAppearance = kPageThemes;
 inline constexpr int kPageAnimation = 2;
 inline constexpr int kPageCalendar = 3;       // round 4 phase 13: the ICS feeds
-inline constexpr int kPageTray = 4;           // round 4 phase 8: the notify icons (tray.enabled, the selected dock's tray item)
-inline constexpr int kPageNotifications = 5;  // round 4 phase 9: badges, the centre, balloons, access
+inline constexpr int kPageTray = 4;           // round 4 phase 8: the notify icons (tray.enabled, Put the tray in its own dock)
+inline constexpr int kPageNotifications = 5;  // round 4 phase 9: balloons, clear on activate, polling, access, badges per app
 inline constexpr int kPageWidgets = 6;        // "Widget library": installed widgets, Console, export
 inline constexpr int kPageDocks = 7;          // "Docks and displays": the monitor canvas and the list of docks
 inline constexpr int kPageLayout = kPageDocks;
@@ -188,6 +188,14 @@ inline constexpr int kThumbSizeLabel = 2249;
 inline constexpr int kThumbSizeEdit = 2250;        // thumbnailSize DIPs, 0 (twice the icon) or 16 - 512
 inline constexpr int kThumbSizeSpin = 2251;
 inline constexpr int kThumbSizeUnit = 2252;
+// Round 5 phase D: the Dock window's Behaviour tab, "Notifications" (moved from Global >
+// Notifications: they are this dock's).
+inline constexpr int kSectionDockNotifications = 2253;
+inline constexpr int kBadges = 2254;               // check box: docks[].badges (+ caption 2255; was 4200)
+inline constexpr int kBadgesCaption = 2255;
+inline constexpr int kDockCentre = 2256;           // check box: the dock has a "notifications" item (+ caption 2257; was 4202)
+inline constexpr int kDockCentreCaption = 2257;
+inline constexpr int kDockNotificationsNote = 2258;
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;
@@ -314,7 +322,7 @@ inline constexpr int kDrawerLibraryLink = 2624;   // SysLink: opens Global > Wid
 // is a Place field of the generated page, 3610 - 3629); reserved.
 
 // Docks and displays (2800 - 2999; round 4 phase 3 Docks + 3b Layout, one page since round 5 phase B)
-inline constexpr int kDocksList = 2800;       // SysListView32 (report): Id (with the dock's colour dot), Edge, Display, Windows; one row per docks[]; the selected row is the dock the Tray / Notifications pages are about
+inline constexpr int kDocksList = 2800;       // SysListView32 (report): Id (with the dock's colour dot), Edge, Display, Windows; one row per docks[]; the selected row is what this page's Duplicate / Remove / Open act on (no other page reads it)
 inline constexpr int kDockAdd = 2801;         // "Add dock" (bottom, primary display, running apps + clock)
 inline constexpr int kDockDuplicate = 2802;   // copies the selected dock (new id)
 inline constexpr int kDockRemove = 2803;      // removes the selected dock (disabled for the last one)
@@ -391,7 +399,10 @@ inline constexpr int kGroupRemove = 4015;
 inline constexpr int kGroupUp = 4016;          // "Move up"
 inline constexpr int kGroupDown = 4017;        // "Move down"
 
-// Tray (4100 - 4199; round 4 phase 8): tray.enabled and the edited dock's first "tray" item.
+// Tray (4100 - 4199; round 4 phase 8): tray.enabled and the tray item. Since round 5 phase D the
+// Global Tray icons page has 4100 - 4102, 4114 / 4115, 4125 / 4126 only; a tray item's own Item
+// window (its page 0) has 4103 - 4113, 4118 - 4121, 4123 / 4124 (the same ids as before). 4116 /
+// 4117 (Add a tray to this dock) and 4122 (which dock) are retired.
 inline constexpr int kTrayEnabled = 4100;       // check box: tray.enabled (DockCommand 129 / 130)
 inline constexpr int kTrayEnabledCaption = 4101;
 inline constexpr int kTrayEnabledNote = 4102;
@@ -406,21 +417,22 @@ inline constexpr int kTrayIconSizeCombo = 4110; // 0 = 16, 1 = 20, 2 = 24 px (ic
 inline constexpr int kTrayIconsLabel = 4111;
 inline constexpr int kTrayIconList = 4112;      // SysListView32 (report, check boxes): Icon, App, Key; checked = shown in the grid (unchecked: in `hidden`)
 inline constexpr int kTrayReset = 4113;         // "Reset to Explorer" (= DockCommand 130)
-inline constexpr int kTrayOwnDock = 4114;       // 8b: "Put the tray in its own dock"
+inline constexpr int kTrayOwnDock = 4114;       // 8b: "Put the tray in its own dock" (Global: the first dock's tray item that is not alone on its dock)
 inline constexpr int kTrayOwnDockNote = 4115;
-inline constexpr int kTrayAddItem = 4116;       // "Add a tray to this dock" (enabled without a tray item)
-inline constexpr int kTrayNoItem = 4117;        // "This dock has (no) tray."
+// 4116 / 4117: "Add a tray to this dock" and its line until round 5 phase D (the widget drawer adds one); reserved.
 inline constexpr int kTrayGridSection = 4118;
 inline constexpr int kTrayGridNote = 4119;
 inline constexpr int kTrayIconsNote = 4120;
 inline constexpr int kTrayResetNote = 4121;
-inline constexpr int kTrayDockLine = 4122;      // round 5 phase B: which dock the tray item settings are about
+// 4122: the "which dock" line of round 5 phase B; reserved.
+inline constexpr int kTrayIconUp = 4123;        // a tray item's window: "Move up" (the selected icon earlier in `order`)
+inline constexpr int kTrayIconDown = 4124;      // "Move down"
+inline constexpr int kTrayGlobalNote = 4125;    // Global: where each tray item's grid settings are
+inline constexpr int kTrayOwnDockStatus = 4126; // Global: the last Put the tray in its own dock result
 
-// Notifications (4200 - 4299; round 4 phase 9): the edited dock's badges / centre, config.notifications.
-inline constexpr int kNotifBadges = 4200;          // check box: docks[].badges (+ caption 4201)
-inline constexpr int kNotifBadgesCaption = 4201;
-inline constexpr int kNotifCentre = 4202;          // check box: the edited dock has a "notifications" item (+ caption 4203)
-inline constexpr int kNotifCentreCaption = 4203;
+// Notifications (4200 - 4299; round 4 phase 9): config.notifications. 4200 - 4203 (the edited
+// dock's badges / centre) moved to the Dock window's Behaviour tab in round 5 phase D (2254 -
+// 2257); 4223 (which dock) is retired; 4204 stays: the note on the centre.
 inline constexpr int kNotifCentreNote = 4204;
 inline constexpr int kNotifBalloons = 4205;        // check box: notifications.balloons (+ caption 4206)
 inline constexpr int kNotifBalloonsCaption = 4206;
@@ -440,7 +452,6 @@ inline constexpr int kNotifDndNote = 4219;
 inline constexpr int kNotifAppsSection = 4220;
 inline constexpr int kNotifAppList = 4221;         // SysListView32 (report, check boxes): App, Unread, Key; unchecked = in notifications.excluded
 inline constexpr int kNotifAppsNote = 4222;
-inline constexpr int kNotifDockLine = 4223;        // round 5 phase B: which dock the badge / centre check boxes are about
 
 // Calendar (4300 - 4399; round 4 phase 13): config.calendars.
 inline constexpr int kCalFeedList = 4300;       // SysListView32 (report, check boxes): Name, URL, Every, Status; checked = enabled
