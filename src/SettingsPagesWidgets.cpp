@@ -258,9 +258,20 @@ protected:
         }
         if (!pkg_) return;
         const auto& fields = pkg_->manifest.settings;
+        // The values now: `visibleIf` hides the fields whose condition does not hold (the page is
+        // generated again when a field others depend on changes).
+        json::JsonObject values{nullptr};
+        try {
+            json::JsonObject::TryParse(JsonUtil::Utf8ToWide(Widgets::MergeSettings(pkg_->manifest, Entry().settings)), values);
+        } catch (...) {
+        }
+        std::wstring group;
         for (size_t k = 0; k < fields.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) {
             const Widgets::SettingField& f = fields[k];
             const int base = kWidgetFieldBase + 10 * static_cast<int>(k);
+            if (!Visible(f, values)) continue;
+            if (!f.group.empty() && f.group != group) Section(base + 4, f.group.c_str());  // a group header
+            group = f.group;
             using T = Widgets::SettingField::Type;
             switch (f.type) {
                 case T::Bool:
@@ -271,6 +282,7 @@ protected:
                     Label(base, f.label.c_str());
                     const int lo = static_cast<int>(std::max(-1e9, f.min)), hi = static_cast<int>(std::min(1e9, f.max));
                     Spin(base + 1, base + 2, kColX, 120, lo, hi, std::max(1, static_cast<int>(f.step)));
+                    if (!f.unit.empty()) Text(base + 5, CtlKind::Note, f.unit, kColX + 128, 120);  // "DIPs", "%"
                     NextRow();
                     break;
                 }
@@ -283,6 +295,7 @@ protected:
                 case T::Number:
                     Label(base, f.label.c_str());
                     EditBox(base + 1, kColX, 160, 32);
+                    if (!f.unit.empty()) Text(base + 5, CtlKind::Note, f.unit, kColX + 168, 120);
                     NextRow();
                     break;
                 case T::Font:
@@ -384,7 +397,7 @@ protected:
             if (item_ < 0) return;
             Entry().settings.clear();
             Changed(SettingsScope::Pins);
-            Load();
+            Window().RequestRebuild(*this);  // the defaults may show / hide visibleIf fields
             return;
         }
         const Widgets::SettingField* f = FieldOf(id);
@@ -496,6 +509,29 @@ private:
             return;
         }
         Changed(SettingsScope::Pins);  // the dock re-reads the item: onSettingsChanged
+        // Fields shown only for some value of this one: generate the page again.
+        const auto& fields = pkg_->manifest.settings;
+        if (std::any_of(fields.begin(), fields.end(), [&](const Widgets::SettingField& o) {
+                return std::any_of(o.visibleIf.begin(), o.visibleIf.end(), [&](const auto& c) { return c.first == f.key; });
+            })) {
+            Window().RequestRebuild(*this);
+        }
+    }
+
+    // visibleIf: every named field has that value now (compared as JSON).
+    static bool Visible(const Widgets::SettingField& f, const json::JsonObject& values) {
+        if (f.visibleIf.empty()) return true;
+        if (!values) return true;
+        for (const auto& [key, want] : f.visibleIf) {
+            const json::IJsonValue v = JsonUtil::Find(values, key.c_str());
+            if (!v) return false;
+            try {
+                if (std::wstring(v.Stringify()) != std::wstring(json::JsonValue::Parse(want).Stringify())) return false;
+            } catch (...) {
+                return false;
+            }
+        }
+        return true;
     }
 
     int item_ = -1;

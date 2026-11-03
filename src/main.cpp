@@ -5,12 +5,16 @@
 
 #include <winrt/base.h>
 
+#include <algorithm>
 #include <exception>
+#include <string>
+#include <vector>
 #include <string_view>
 
 #include "App.h"
 #include "DockWindow.h"
 #include "TaskbarController.h"
+#include "WidgetPackage.h"
 
 namespace {
 
@@ -18,6 +22,8 @@ struct Options {
     bool quit = false;
     bool restoreTaskbar = false;
     bool settings = false;  // open the settings window (in the running dock, or after starting)
+    bool validate = false;  // --validate-widget <folder>: check a widget's manifest, print, exit
+    std::wstring validateFolder;
 };
 
 Options ParseCommandLine() {
@@ -30,6 +36,10 @@ Options ParseCommandLine() {
         if (a == L"--quit") o.quit = true;
         else if (a == L"--restore-taskbar") o.restoreTaskbar = true;
         else if (a == L"--settings") o.settings = true;
+        else if (a == L"--validate-widget") {
+            o.validate = true;
+            if (i + 1 < argc) o.validateFolder = argv[++i];
+        }
     }
     LocalFree(argv);
     return o;
@@ -74,10 +84,65 @@ LONG WINAPI UnhandledExceptionHandler(EXCEPTION_POINTERS*) {
     return EXCEPTION_CONTINUE_SEARCH;
 }
 
+// Text to the caller (a GUI-subsystem exe: its redirected standard output, else the console of the
+// process that started it), UTF-8 into a pipe or file, UTF-16 into a console.
+void Print(const std::wstring& text) {
+    HANDLE out = GetStdHandle(STD_OUTPUT_HANDLE);
+    if (!out || out == INVALID_HANDLE_VALUE) {
+        if (AttachConsole(ATTACH_PARENT_PROCESS)) {
+            out = CreateFileW(L"CONOUT$", GENERIC_WRITE, FILE_SHARE_WRITE, nullptr, OPEN_EXISTING, 0, nullptr);
+        }
+        if (!out || out == INVALID_HANDLE_VALUE) return;
+    }
+    DWORD mode = 0, written = 0;
+    if (GetConsoleMode(out, &mode)) {
+        WriteConsoleW(out, text.c_str(), static_cast<DWORD>(text.size()), &written, nullptr);
+        return;
+    }
+    const int n = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), nullptr, 0, nullptr, nullptr);
+    std::string utf8(static_cast<size_t>(std::max(n, 0)), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()), utf8.data(), n, nullptr, nullptr);
+    WriteFile(out, utf8.data(), static_cast<DWORD>(utf8.size()), &written, nullptr);
+}
+
+// WinDock.exe --validate-widget <folder>: the manifest check of docs/widgets.md "Validating a
+// widget", printed one problem per line. Exit code 0: no errors (warnings may be listed), 1: errors,
+// 2: no folder given / not a widget folder.
+int ValidateWidget(const std::wstring& folder) {
+    if (folder.empty()) {
+        Print(L"usage: WinDock.exe --validate-widget <widget folder>\r\n");
+        return 2;
+    }
+    winrt::init_apartment(winrt::apartment_type::single_threaded);  // Windows.Data.Json
+    std::vector<Widgets::Issue> issues;
+    std::wstring name;
+    const bool read = Widgets::ValidateFolder(folder, issues, name);
+    std::wstring text = L"WinDock widget check: " + folder + L"\r\n";
+    if (!name.empty()) text += L"  name: " + name + L"\r\n";
+    size_t errors = 0, warnings = 0;
+    for (const Widgets::Issue& i : issues) {
+        (i.error ? errors : warnings)++;
+        text += L"  " + i.Text() + L"\r\n";
+    }
+    if (!read) {
+        text += L"not a widget folder\r\n";
+    } else if (issues.empty()) {
+        text += L"OK: no problems\r\n";
+    } else {
+        text += (errors ? L"FAILED: " : L"OK: ") + std::to_wstring(errors) + (errors == 1 ? L" error, " : L" errors, ") +
+                std::to_wstring(warnings) + (warnings == 1 ? L" warning\r\n" : L" warnings\r\n");
+    }
+    Print(text);
+    return !read ? 2 : errors ? 1 : 0;
+}
+
 }  // namespace
 
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int) {
     const Options options = ParseCommandLine();
+
+    // A tool for widget authors and CI: no dock, no mutex, nothing shown.
+    if (options.validate) return ValidateWidget(options.validateFolder);
 
     if (options.quit) {
         SignalRunningInstance(AppIpc::kQuitMessage, true);

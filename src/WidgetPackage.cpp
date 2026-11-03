@@ -218,6 +218,11 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
         JsonUtil::ReadString(o, L"label", f.label);
         if (f.label.empty()) f.label = f.key;
         JsonUtil::ReadString(o, L"description", f.description);
+        JsonUtil::ReadString(o, L"group", f.group);
+        JsonUtil::ReadString(o, L"unit", f.unit);
+        if (const json::JsonObject vis = JsonUtil::ReadObject(o, L"visibleIf")) {
+            for (const auto& kv : vis) f.visibleIf.emplace_back(std::wstring(kv.Key()), std::wstring(kv.Value().Stringify()));
+        }
         if (f.type == SettingField::Type::Choice) {
             JsonUtil::ReadString(o, L"choiceFrom", f.choiceFrom);
             if (!f.choiceFrom.empty() && f.choiceFrom.find_first_of(L":\\") != std::wstring::npos) {
@@ -493,6 +498,395 @@ std::vector<std::string> Package::Files() const {
     return files;
 }
 
+// --- validation (round 4 phase 14) -----------------------------------------------------------------
+
+std::wstring Issue::Text() const {
+    std::wstring s = (error ? L"error: " : L"warning: ") + field + L": " + message;
+    if (!fix.empty()) s += L" (fix: " + fix + L")";
+    return s;
+}
+
+bool Manifest::HasErrors() const {
+    return std::any_of(issues.begin(), issues.end(), [](const Issue& i) { return i.error; });
+}
+
+namespace {
+
+const wchar_t* TypeName(json::JsonValueType t) {
+    switch (t) {
+        case json::JsonValueType::Null: return L"null";
+        case json::JsonValueType::Boolean: return L"a boolean";
+        case json::JsonValueType::Number: return L"a number";
+        case json::JsonValueType::String: return L"a string";
+        case json::JsonValueType::Array: return L"an array";
+        case json::JsonValueType::Object:
+        default: return L"an object";
+    }
+}
+
+class Checker {
+public:
+    explicit Checker(std::vector<Issue>& out) : out_(out) {}
+    void Error(std::wstring field, std::wstring message, std::wstring fix) {
+        out_.push_back(Issue{true, std::move(field), std::move(message), std::move(fix)});
+    }
+    void Warn(std::wstring field, std::wstring message, std::wstring fix = {}) {
+        out_.push_back(Issue{false, std::move(field), std::move(message), std::move(fix)});
+    }
+    // `key` of `o` must be of type `t` when present. False if present with another type.
+    bool Type(const json::JsonObject& o, const wchar_t* key, json::JsonValueType t, const std::wstring& field,
+              const wchar_t* fix) {
+        const json::IJsonValue v = JsonUtil::Find(o, key);
+        if (!v || v.ValueType() == t) return true;
+        Error(field, std::wstring(L"is ") + TypeName(v.ValueType()) + L", not " + TypeName(t), fix);
+        return false;
+    }
+    void Range(const json::JsonObject& o, const wchar_t* key, double lo, double hi, const std::wstring& field,
+               const wchar_t* what) {
+        const json::IJsonValue v = JsonUtil::Find(o, key);
+        if (!v) return;
+        if (v.ValueType() != json::JsonValueType::Number) {
+            Error(field, std::wstring(L"is ") + TypeName(v.ValueType()) + L", not a number", what);
+            return;
+        }
+        const double n = v.GetNumber();
+        if (n < lo || n > hi) Warn(field, JsonUtil::Num(n) + L" is outside " + JsonUtil::Num(lo) + L" - " + JsonUtil::Num(hi) + L" (clamped)", what);
+    }
+
+private:
+    std::vector<Issue>& out_;
+};
+
+constexpr const wchar_t* kTopKeys[] = {L"name",         L"version",     L"author",      L"description", L"main",
+                                       L"size",         L"refreshMs",   L"timeLimitMs", L"memoryLimitMB",
+                                       L"permissions",  L"watch",       L"settings",    L"api"};
+constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"description", L"default", L"min",
+                                         L"max",     L"step",       L"choices", L"choiceFrom", L"group", L"unit",
+                                         L"visibleIf"};
+constexpr wchar_t kPermissionFix[] =
+    L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\" or { \"http\": [\"host\"] }";
+
+bool Known(const wchar_t* const* begin, const wchar_t* const* end, const std::wstring& key) {
+    return std::any_of(begin, end, [&](const wchar_t* k) { return key == k; });
+}
+
+void CheckSize(Checker& c, const json::JsonObject& root) {
+    const json::IJsonValue size = JsonUtil::Find(root, L"size");
+    if (!size) return;
+    if (size.ValueType() != json::JsonValueType::Object) {
+        c.Error(L"size", std::wstring(L"is ") + TypeName(size.ValueType()) + L", not an object",
+                L"{ \"horizontal\": { \"main\": 64, \"cross\": 40 }, \"vertical\": { \"main\": 48, \"cross\": 48 } }");
+        return;
+    }
+    const json::JsonObject o = size.GetObject();
+    for (const auto& kv : o) {
+        const std::wstring axis(kv.Key());
+        if (axis != L"horizontal" && axis != L"vertical") {
+            c.Warn(L"size." + axis, L"is not a dock axis (ignored)", L"use \"horizontal\" and \"vertical\"");
+            continue;
+        }
+        if (kv.Value().ValueType() != json::JsonValueType::Object) {
+            c.Error(L"size." + axis, std::wstring(L"is ") + TypeName(kv.Value().ValueType()) + L", not an object",
+                    L"{ \"main\": 64, \"cross\": 40 } (DIPs along / across the dock)");
+            continue;
+        }
+        const json::JsonObject a = kv.Value().GetObject();
+        for (const wchar_t* k : {L"main", L"cross"}) {
+            const json::IJsonValue v = JsonUtil::Find(a, k);
+            const std::wstring field = L"size." + axis + L"." + k;
+            if (!v) {
+                c.Error(field, L"is missing", L"a number of DIPs (main along the dock, cross across it)");
+            } else if (v.ValueType() != json::JsonValueType::Number) {
+                c.Error(field, std::wstring(L"is ") + TypeName(v.ValueType()) + L", not a number", L"a number of DIPs");
+            } else {
+                const double n = v.GetNumber(), hi = std::wstring(k) == L"main" ? 1024.0 : 512.0;
+                if (!(n >= 4.0 && n <= hi)) {
+                    c.Error(field, JsonUtil::Num(n) + L" is outside 4 - " + JsonUtil::Num(hi), L"a size from 4 to " + JsonUtil::Num(hi) + L" DIPs");
+                }
+            }
+        }
+    }
+}
+
+void CheckPermissions(Checker& c, const json::JsonObject& root) {
+    const json::IJsonValue perms = JsonUtil::Find(root, L"permissions");
+    if (!perms) return;
+    if (perms.ValueType() != json::JsonValueType::Array) {
+        c.Error(L"permissions", std::wstring(L"is ") + TypeName(perms.ValueType()) + L", not an array", kPermissionFix);
+        return;
+    }
+    uint32_t i = 0;
+    auto hostOk = [](const std::wstring& h) { return !h.empty() && h.find_first_of(L"/:\\ ") == std::wstring::npos; };
+    for (const auto& v : perms.GetArray()) {
+        const std::wstring field = L"permissions[" + std::to_wstring(i++) + L"]";
+        if (v.ValueType() == json::JsonValueType::String) {
+            const std::wstring s = Lower(std::wstring(v.GetString()));
+            if (s == L"shell" || s == L"audio" || s == L"media" || s == L"notifications" || s == L"calendar" ||
+                s == L"weather") {
+                continue;
+            }
+            if (s == L"http") {
+                c.Error(field, L"\"http\" without hosts allows no request", L"name the hosts: { \"http\": [\"api.example.com\"] }");
+            } else if (s.rfind(L"http:", 0) == 0) {
+                if (!hostOk(s.substr(5))) c.Error(field, L"\"" + s + L"\" is not a host name", L"\"http:api.example.com\" (no scheme, path or port)");
+            } else {
+                c.Error(field, L"unknown permission \"" + s + L"\"", kPermissionFix);
+            }
+        } else if (v.ValueType() == json::JsonValueType::Object) {
+            const json::JsonObject o = v.GetObject();
+            for (const auto& kv : o) {
+                const std::wstring k(kv.Key());
+                if (k == L"shell") continue;
+                if (k != L"http") {
+                    c.Error(field + L"." + k, L"unknown permission \"" + k + L"\"", kPermissionFix);
+                    continue;
+                }
+                if (kv.Value().ValueType() != json::JsonValueType::Array) {
+                    c.Error(field + L".http", L"is not an array of host names", L"{ \"http\": [\"api.example.com\", \"*.example.org\"] }");
+                    continue;
+                }
+                uint32_t j = 0;
+                for (const auto& h : kv.Value().GetArray()) {
+                    const std::wstring hf = field + L".http[" + std::to_wstring(j++) + L"]";
+                    if (h.ValueType() != json::JsonValueType::String || !hostOk(std::wstring(h.GetString()))) {
+                        c.Error(hf, L"is not a host name", L"\"api.example.com\" or \"*.example.org\" (no scheme, path or port)");
+                    }
+                }
+            }
+        } else {
+            c.Error(field, std::wstring(L"is ") + TypeName(v.ValueType()), kPermissionFix);
+        }
+    }
+}
+
+void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg) {
+    const json::IJsonValue settings = JsonUtil::Find(root, L"settings");
+    if (!settings) return;
+    if (settings.ValueType() != json::JsonValueType::Array) {
+        c.Error(L"settings", std::wstring(L"is ") + TypeName(settings.ValueType()) + L", not an array",
+                L"[ { \"key\": \"label\", \"type\": \"string\", \"label\": \"Label\", \"default\": \"Hello\" } ]");
+        return;
+    }
+    std::vector<std::wstring> keys;
+    for (const auto& v : settings.GetArray()) {
+        if (v.ValueType() == json::JsonValueType::Object) {
+            std::wstring k;
+            JsonUtil::ReadString(v.GetObject(), L"key", k);
+            keys.push_back(k);
+        }
+    }
+    std::vector<std::string> files;
+    bool listed = false;
+    uint32_t i = 0;
+    std::vector<std::wstring> seen;
+    for (const auto& v : settings.GetArray()) {
+        std::wstring field = L"settings[" + std::to_wstring(i++) + L"]";
+        if (v.ValueType() != json::JsonValueType::Object) {
+            c.Error(field, std::wstring(L"is ") + TypeName(v.ValueType()) + L", not an object", L"{ \"key\": ..., \"type\": ... }");
+            continue;
+        }
+        const json::JsonObject o = v.GetObject();
+        std::wstring key;
+        JsonUtil::ReadString(o, L"key", key);
+        if (key.empty() || key.size() > 64) {
+            c.Error(field + L".key", key.empty() ? L"is missing" : L"is longer than 64 characters", L"a short name: \"key\": \"label\"");
+            continue;
+        }
+        field += L" (" + key + L")";
+        if (std::find(seen.begin(), seen.end(), key) != seen.end()) {
+            c.Error(field + L".key", L"\"" + key + L"\" is used twice", L"give every setting its own key");
+            continue;
+        }
+        seen.push_back(key);
+        for (const auto& kv : o) {
+            const std::wstring k(kv.Key());
+            if (!Known(std::begin(kFieldKeys), std::end(kFieldKeys), k)) c.Warn(field + L"." + k, L"unknown key (ignored)");
+        }
+        std::wstring type = L"string";
+        if (!c.Type(o, L"type", json::JsonValueType::String, field + L".type", L"\"bool\", \"int\", \"number\", \"string\", \"choice\", \"colour\" or \"font\"")) continue;
+        JsonUtil::ReadString(o, L"type", type);
+        bool ok = true;
+        const SettingField::Type t = TypeOf(type, ok);
+        if (!ok) {
+            c.Error(field + L".type", L"unknown type \"" + type + L"\"", L"\"bool\", \"int\", \"number\", \"string\", \"choice\", \"colour\" or \"font\"");
+            continue;
+        }
+        for (const wchar_t* k : {L"label", L"description", L"group", L"unit", L"choiceFrom"}) {
+            c.Type(o, k, json::JsonValueType::String, field + L"." + k, L"a string");
+        }
+        const json::IJsonValue d = JsonUtil::Find(o, L"default");
+        const json::JsonValueType dt = d ? d.ValueType() : json::JsonValueType::Null;
+        if (t == SettingField::Type::Int || t == SettingField::Type::Number) {
+            double lo = -1e9, hi = 1e9, step = 1.0;
+            for (const wchar_t* k : {L"min", L"max", L"step"}) c.Type(o, k, json::JsonValueType::Number, field + L"." + k, L"a number");
+            JsonUtil::ReadNumber(o, L"min", lo);
+            JsonUtil::ReadNumber(o, L"max", hi);
+            JsonUtil::ReadNumber(o, L"step", step);
+            if (lo > hi) c.Error(field, L"min " + JsonUtil::Num(lo) + L" is above max " + JsonUtil::Num(hi), L"swap them");
+            if (!(step > 0)) c.Error(field + L".step", L"must be above 0", L"\"step\": 1");
+            if (d && dt != json::JsonValueType::Number) c.Warn(field + L".default", std::wstring(L"is ") + TypeName(dt) + L", not a number (min used)", L"a number");
+            if (dt == json::JsonValueType::Number && (d.GetNumber() < lo || d.GetNumber() > hi)) {
+                c.Warn(field + L".default", JsonUtil::Num(d.GetNumber()) + L" is outside min - max (clamped)");
+            }
+        } else if (t == SettingField::Type::Bool) {
+            if (d && dt != json::JsonValueType::Boolean) c.Warn(field + L".default", std::wstring(L"is ") + TypeName(dt) + L", not a boolean (false used)", L"true or false");
+        } else if (t == SettingField::Type::Color) {
+            uint32_t argb = 0;
+            if (d && (dt != json::JsonValueType::String || !ParseArgbColor(std::wstring(d.GetString()), argb))) {
+                c.Warn(field + L".default", L"is not a colour (\"#FFFFFFFF\" used)", L"\"#AARRGGBB\" or \"#RRGGBB\"");
+            }
+        } else if (d && dt != json::JsonValueType::String) {
+            c.Warn(field + L".default", std::wstring(L"is ") + TypeName(dt) + L", not a string", L"a string");
+        }
+        if (t == SettingField::Type::Choice) {
+            std::vector<std::wstring> values;
+            const json::IJsonValue ch = JsonUtil::Find(o, L"choices");
+            if (ch && ch.ValueType() != json::JsonValueType::Array) {
+                c.Error(field + L".choices", std::wstring(L"is ") + TypeName(ch.ValueType()) + L", not an array", L"[\"a\", \"b\"] or [{ \"value\": \"a\", \"label\": \"A\" }]");
+            } else if (ch) {
+                uint32_t j = 0;
+                for (const auto& e : ch.GetArray()) {
+                    const std::wstring cf = field + L".choices[" + std::to_wstring(j++) + L"]";
+                    if (e.ValueType() == json::JsonValueType::String) {
+                        values.emplace_back(e.GetString());
+                    } else if (e.ValueType() == json::JsonValueType::Object) {
+                        std::wstring value;
+                        JsonUtil::ReadString(e.GetObject(), L"value", value);
+                        if (value.empty()) c.Error(cf + L".value", L"is missing", L"{ \"value\": \"a\", \"label\": \"A\" }");
+                        values.push_back(value);
+                    } else {
+                        c.Error(cf, std::wstring(L"is ") + TypeName(e.ValueType()), L"a string or { \"value\", \"label\" }");
+                    }
+                }
+            }
+            std::wstring from;
+            JsonUtil::ReadString(o, L"choiceFrom", from);
+            if (!from.empty()) {
+                if (from.find_first_of(L":\\") != std::wstring::npos || from.front() == L'/') {
+                    c.Error(field + L".choiceFrom", L"\"" + from + L"\" is not a glob of package files", L"a path inside the widget such as \"faces/*.json\"");
+                } else {
+                    if (!listed) {
+                        files = pkg.Files();
+                        listed = true;
+                    }
+                    const std::string pattern = WideToUtf8(from);
+                    size_t matches = 0;
+                    for (const std::string& file : files) {
+                        if (!GlobMatch(pattern, file)) continue;
+                        ++matches;
+                        std::string text;
+                        std::wstring readError;
+                        json::JsonObject fo{nullptr};
+                        if (file.size() > 5 && file.compare(file.size() - 5, 5, ".json") == 0 && pkg.Read(file, text, readError) &&
+                            !(json::JsonObject::TryParse(Utf8ToWide(text), fo) && fo)) {
+                            c.Warn(field + L".choiceFrom", Utf8ToWide(file) + L" is not a JSON object (its label is its file name)");
+                        }
+                    }
+                    if (!matches) {
+                        c.Error(field + L".choiceFrom", L"\"" + from + L"\" matches no file of the widget",
+                                L"add files matching it (e.g. faces/classic.json) or fix the glob");
+                    }
+                }
+            } else if (values.empty()) {
+                c.Error(field, L"a choice without \"choices\" or \"choiceFrom\"", L"\"choices\": [\"a\", \"b\"]");
+            }
+            if (dt == json::JsonValueType::String && !values.empty() && from.empty() &&
+                std::find(values.begin(), values.end(), std::wstring(d.GetString())) == values.end()) {
+                c.Warn(field + L".default", L"\"" + std::wstring(d.GetString()) + L"\" is not one of the choices (the first is used)");
+            }
+        }
+        if (const json::IJsonValue vis = JsonUtil::Find(o, L"visibleIf")) {
+            if (vis.ValueType() != json::JsonValueType::Object || vis.GetObject().Size() == 0) {
+                c.Error(field + L".visibleIf", L"is not an object of { \"otherKey\": value }", L"\"visibleIf\": { \"mode\": \"custom\" }");
+            } else {
+                for (const auto& kv : vis.GetObject()) {
+                    const std::wstring other(kv.Key());
+                    if (other == key || std::find(keys.begin(), keys.end(), other) == keys.end()) {
+                        c.Error(field + L".visibleIf." + other, L"names no other setting", L"the key of another entry of \"settings\"");
+                    }
+                }
+            }
+        }
+    }
+}
+
+}  // namespace
+
+std::vector<Issue> Validate(const std::string& bytes, const Package& pkg) {
+    std::vector<Issue> issues;
+    Checker c(issues);
+    json::JsonObject root{nullptr};
+    try {
+        if (!json::JsonObject::TryParse(Utf8ToWide(bytes), root) || !root) {
+            c.Error(L"widget.json", L"is not a JSON object (a syntax error, or not an object)",
+                    L"{ \"name\": \"My widget\", \"main\": \"main.js\" } (check commas and quotes)");
+            return issues;
+        }
+        for (const auto& kv : root) {
+            const std::wstring k(kv.Key());
+            if (!Known(std::begin(kTopKeys), std::end(kTopKeys), k)) c.Warn(k, L"unknown key (ignored)");
+        }
+        for (const wchar_t* k : {L"name", L"version", L"author", L"description"}) {
+            c.Type(root, k, json::JsonValueType::String, k, L"a string");
+        }
+        c.Type(root, L"watch", json::JsonValueType::Boolean, L"watch", L"true or false");
+        // main: a package path to a module that exists.
+        std::wstring main = L"main.js";
+        if (c.Type(root, L"main", json::JsonValueType::String, L"main", L"\"main\": \"main.js\"")) {
+            JsonUtil::ReadString(root, L"main", main);
+            std::string resolved;
+            if (!ResolvePath("", WideToUtf8(main), resolved)) {
+                c.Error(L"main", L"\"" + main + L"\" is not a path inside the widget folder", L"a relative path such as \"main.js\" or \"src/main.js\"");
+            } else {
+                const std::vector<std::string> files = pkg.Files();
+                if (std::find(files.begin(), files.end(), resolved) == files.end()) {
+                    c.Error(L"main", L"\"" + Utf8ToWide(resolved) + L"\" was not found in the widget",
+                            root.HasKey(L"main") ? L"add the module or set \"main\" to its path"
+                                                            : L"add main.js, or name the module: \"main\": \"app.js\"");
+                }
+            }
+        }
+        CheckSize(c, root);
+        c.Range(root, L"refreshMs", 0, 86400000, L"refreshMs", L"0 (no tick) or 100 - 86400000 ms");
+        c.Range(root, L"timeLimitMs", 10, 1000, L"timeLimitMs", L"10 - 1000 ms");
+        c.Range(root, L"memoryLimitMB", 4, 256, L"memoryLimitMB", L"4 - 256 MB");
+        CheckPermissions(c, root);
+        CheckSettings(c, root, pkg);
+    } catch (...) {
+        c.Error(L"widget.json", L"could not be read", L"save it as UTF-8 JSON");
+    }
+    return issues;
+}
+
+bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name) {
+    issues.clear();
+    std::wstring src = folder;
+    while (src.size() > 3 && (src.back() == L'\\' || src.back() == L'/')) src.pop_back();
+    Package pkg;
+    pkg.source = Package::Source::Folder;
+    pkg.folder = CanonicalFolder(src);
+    if (pkg.folder.empty()) {
+        issues.push_back(Issue{true, L"folder", src + L" cannot be opened", L"the path of a widget folder"});
+        return false;
+    }
+    const size_t cut = pkg.folder.find_last_of(L'\\');
+    pkg.id = Lower(cut == std::wstring::npos ? pkg.folder : pkg.folder.substr(cut + 1));
+    std::string bytes;
+    std::wstring error;
+    if (!pkg.Read("widget.json", bytes, error)) {
+        issues.push_back(Issue{true, L"widget.json", L"was not found in " + pkg.folder, L"a widget folder holds a widget.json"});
+        return false;
+    }
+    if (!ValidId(pkg.id)) {
+        issues.push_back(Issue{true, L"folder name", L"\"" + pkg.id + L"\" is not a valid widget id",
+                               L"rename the folder: 1 - 64 of a-z 0-9 - _ . (it becomes the id when installed)"});
+    }
+    std::vector<Issue> found = Validate(bytes, pkg);
+    issues.insert(issues.end(), found.begin(), found.end());
+    if (ParseManifest(bytes, pkg.id, pkg.manifest, error)) name = pkg.manifest.name;
+    return true;
+}
+
 // choiceFrom: the choices from the package's files (below).
 void ExpandChoices(Package& pkg);
 
@@ -527,6 +921,7 @@ std::shared_ptr<const Package> Load(const std::wstring& id, std::wstring& error)
     }
     if (!ParseManifest(bytes, id, pkg->manifest, error)) return nullptr;
     ExpandChoices(*pkg);
+    pkg->manifest.issues = Validate(bytes, *pkg);
     return pkg;
 }
 
@@ -663,6 +1058,24 @@ bool ExportBuiltIn(const std::wstring& id, std::wstring& folder, std::wstring& e
             error = L"cannot write " + target;
             return false;
         }
+    }
+    // A stub README: where the API is documented and how the copy behaves.
+    std::wstring name = id;
+    if (const auto pkg = Load(id, error)) name = pkg->manifest.name;
+    error.clear();
+    const std::string readme =
+        "# " + WideToUtf8(name) + " (exported from WinDock)\n\n"
+        "This folder is a copy of WinDock's built-in `" + WideToUtf8(id) + "` widget. While it exists it replaces the\n"
+        "built-in: edit `widget.json` and `main.js` (and any `faces/` or `assets/` files), then press **Reload widgets**\n"
+        "(the dock menu, Settings > Widgets or the Console). Set `\"watch\": true` in widget.json to reload on every save.\n"
+        "Delete the folder to get the built-in back.\n\n"
+        "- The API (canvas, dock, timer, settings, storage, providers, popups, the manifest and its settings schema):\n"
+        "  docs/widgets.md in the WinDock repository.\n"
+        "- Check the manifest: `WinDock.exe --validate-widget \"<this folder>\"`.\n"
+        "- Errors and `console.log` output: Settings > Widgets > Console.\n";
+    if (!JsonUtil::WriteFileAtomic(folder + L"\\README.md", readme)) {
+        error = L"cannot write " + folder + L"\\README.md";
+        return false;
     }
     return true;
 }

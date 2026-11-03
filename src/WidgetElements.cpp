@@ -67,6 +67,13 @@ public:
         const Config& c = host_.Cfg();
         clock_.Configure(Clock::EffectiveFormat(c.clock.format, c.clock.showSeconds), c.clock.showDate);
         clock_.SetColors(host_.DockTheme().clockText, host_.DockTheme().clockDateText);
+        // A custom face (clock.face, phase 14); "digital" or a face that cannot be read: the
+        // classic rendering.
+        std::wstring error;
+        std::shared_ptr<const ClockFace> face = ClockFaces::Load(c.clock.face, error);
+        if (!error.empty()) OutputDebugStringW((L"WinDock: clock face: " + error + L"\n").c_str());
+        clock_.SetFace(face, face ? ClockFaces::Resolve(*face, host_.DockTheme()) : ClockFaceColors{}, c.clock.format,
+                       c.clock.showSeconds);
         dot_ = WantDot();
     }
     void Start() override {

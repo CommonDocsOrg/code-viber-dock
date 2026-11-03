@@ -56,6 +56,7 @@ add_executable(WinDock WIN32
   src/WeatherGlyphs.cpp
   src/Renderer.cpp
   src/Clock.cpp
+  src/ClockFaces.cpp
   src/TaskbarController.cpp
   src/ContextMenu.cpp
   src/AppIdentity.cpp
@@ -105,10 +106,11 @@ add_executable(WinDock WIN32
 
 target_include_directories(WinDock PRIVATE src)
 
-# The built-in widgets are RCDATA in app.rc: rebuild the resources when one of them changes.
+# The built-in widgets and clock faces are RCDATA in app.rc: rebuild the resources when one of them changes.
 file(GLOB_RECURSE WINDOCK_BUILTIN_WIDGETS CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_SOURCE_DIR}/widgets/*.json
   ${CMAKE_CURRENT_SOURCE_DIR}/widgets/*.js
+  ${CMAKE_CURRENT_SOURCE_DIR}/res/clock-faces/*.json
 )
 set_source_files_properties(res/app.rc PROPERTIES OBJECT_DEPENDS "${WINDOCK_BUILTIN_WIDGETS}")
 

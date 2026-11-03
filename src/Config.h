@@ -356,6 +356,9 @@ struct ClockConfig {
     // An app / file path or a URL, opened by ShellExecute ("%VAR%" expanded; a quoted path may be
     // followed by arguments). Used by click "launch" and by the calendar popup's footer button.
     std::wstring clickTarget;
+    // "digital" (the classic rendering) or the id of a digital face file (ClockFaces: shipped, or
+    // %LocalAppData%\WinDock\clock-faces\<id>.json). Written only when not "digital".
+    std::wstring face = L"digital";
 };
 
 // Temperatures in °C and wind in km/h ("metric") or °F and mph ("imperial").

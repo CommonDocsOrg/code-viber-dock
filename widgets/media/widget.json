@@ -12,8 +12,8 @@
   "settings": [
     { "key": "showText", "type": "bool", "label": "Show the title and artist beside the art", "default": true,
       "description": "Horizontal docks only; a vertical dock shows the art." },
-    { "key": "textWidth", "type": "int", "label": "Text width (DIPs)", "min": 40, "max": 400, "default": 120 },
-    { "key": "marquee", "type": "bool", "label": "Scroll a long title while the pointer is over it", "default": true,
+    { "key": "textWidth", "unit": "DIPs", "visibleIf": { "showText": true }, "type": "int", "label": "Text width (DIPs)", "min": 40, "max": 400, "default": 120 },
+    { "key": "marquee", "visibleIf": { "showText": true }, "type": "bool", "label": "Scroll a long title while the pointer is over it", "default": true,
       "description": "30 frames a second only while hovered (and never with reduce motion)." },
     { "key": "wheelVolume", "type": "bool", "label": "The wheel changes the volume", "default": false }
   ]

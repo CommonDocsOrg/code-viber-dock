@@ -16,8 +16,8 @@
         { "value": "mono", "label": "Windows logo (the theme's text colour)" },
         { "value": "image", "label": "An image or a file's icon (below)" }
       ] },
-    { "key": "image", "type": "string", "label": "Image", "default": "",
+    { "key": "image", "visibleIf": { "icon": "image" }, "type": "string", "label": "Image", "default": "",
       "description": "A file of the widget (assets/start.png, after exporting it) or the full path of any file, whose shell icon is drawn (an .exe, .ico, .lnk ...)." },
-    { "key": "size", "type": "int", "label": "Icon size (percent of the slot)", "min": 30, "max": 100, "default": 62 }
+    { "key": "size", "unit": "%", "type": "int", "label": "Icon size (percent of the slot)", "min": 30, "max": 100, "default": 62 }
   ]
 }

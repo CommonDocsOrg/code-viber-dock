@@ -15,7 +15,7 @@
     { "key": "click", "type": "choice", "label": "A click opens", "default": "windows",
       "choices": [ { "value": "windows", "label": "Windows' notification centre (Win+N)" },
                    { "value": "centre", "label": "WinDock's notification centre" } ] },
-    { "key": "badge", "type": "int", "label": "Fixed badge (0: none)", "min": 0, "max": 99, "default": 0,
+    { "key": "badge", "visibleIf": { "unread": false }, "type": "int", "label": "Fixed badge (0: none)", "min": 0, "max": 99, "default": 0,
       "description": "Shown while the unread count is off." },
     { "key": "badgeColor", "type": "colour", "label": "Badge colour", "default": "#FFE0453A" },
     { "key": "image", "type": "string", "label": "Image instead of the bell", "default": "",

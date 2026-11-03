@@ -1,0 +1,17 @@
+{
+  "name": "Air quality (example)",
+  "version": "1.0.0",
+  "author": "WinDock examples",
+  "description": "Fetches a public JSON API (Open-Meteo's air quality, no key) and shows one value: the European air quality index of a place, refreshed on a timer.",
+  "main": "main.js",
+  "size": {
+    "horizontal": { "main": 72, "cross": 36 },
+    "vertical": { "main": 44, "cross": 48 }
+  },
+  "permissions": [{ "http": ["air-quality-api.open-meteo.com"] }],
+  "settings": [
+    { "key": "latitude", "type": "number", "label": "Latitude", "min": -90, "max": 90, "default": 52.52, "unit": "°", "group": "Place" },
+    { "key": "longitude", "type": "number", "label": "Longitude", "min": -180, "max": 180, "default": 13.41, "unit": "°", "group": "Place" },
+    { "key": "minutes", "type": "int", "label": "Refresh every", "min": 10, "max": 240, "step": 10, "default": 60, "unit": "minutes", "group": "Updates" }
+  ]
+}

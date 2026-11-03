@@ -1,6 +1,56 @@
 # WinDock roadmap: feature round 4 and beyond
 
-Written 2026-11-02 against commit 4a61f6d. Companion to STATUS.md. Nothing here is built yet.
+Written 2026-11-02 against commit 4a61f6d. Companion to STATUS.md.
+
+## Done (2026-11-03)
+
+Round 4 is complete: every phase below is done except Phase 10 (virtual desktops), which the user
+parked, and "Phase 5 round 2" (extra widgets, never scheduled). One commit per sub-phase, all on
+master, none pushed by the agents (STATUS.md's "Round 4" table has the commits' notes, what was
+verified and how).
+
+| Phase | Status | Commits |
+|---|---|---|
+| 0 Quick wins | Done (with 1c) | 76cd3f2 |
+| 1 Element model | Done | d0713d3 (1a), 8f63bfd (1b), 76cd3f2 (1c) |
+| 2 Geometry: edges, alignment, full width, reserve space, peek, drag the dock | Done | 7009e8c (2a), 6c28397 (2b) |
+| 3 Multiple docks, monitors, desktop layer, Layout canvas | Done | 49b798e (3a), 6eb2def (3b) |
+| 4 Widget runtime (QuickJS-ng), settings, storage, http, shell, popups, Console | Done | 88eabd6 (4a), d6689c6 (4b) |
+| 5 Bundled widgets round 1: analog clock + faces, calendar page, audio / media providers, volume, media, start, search, bell | Done | 81b79f8 (5a), 12241cc (5b) |
+| 6 Task list: unstacked windows, titles, minimize to dock, thumbnails | Done | 23affaf (6a), 8ce0d03 (6b) |
+| 7 Folders and groups: ItemGridView, folder popups, shortcut groups | Done | dda093d (7a), 38e5e50 (7b) |
+| 8 System tray takeover, tray grid / drawer, trayApp pins, tray dock | Done | 9381dea (8a), 100edbf (8b) |
+| 9 Notifications: service, badges, provider, notification centre, balloons | Done | ed3b7b0 (9a), d415dde (9b) |
+| 10 Virtual desktops | Parked (user decision) | |
+| 11 Shapes and overflow: scrolling docks, half-circle and circle docks | Done | f6ad5a1 (11a), 6394591 (11b) |
+| 12 Desktop folder windows: FolderWindow, rules, appearance, clipboard | Done | fe195d1 (12a), c194d4b (12b) |
+| 13 Calendars: ICS feeds, popup events, provider, agenda, reminders | Done | 8a5018c (13a), dd18f42 (13b) |
+| 14 Built-ins as widgets (weather script + provider), digital clock faces, examples, validation, settings UI, docs | Done | 8fa0317 (14a), the 14b commit |
+
+### Not verified (needs an unlocked session / a second display / the user)
+
+Collected from STATUS.md's round-4 rows; every item is a code path the scripted tests could not
+drive here:
+
+- **Second display**: monitor indexes and `"each"` with two copies, parking by unplugging,
+  `WM_DPICHANGED` across monitors of different DPI, the monitor running filter with windows on two
+  monitors, reserve space on a second monitor, a canvas drag onto another display (3a, 3b, 11b).
+- **A real DPI change** (any phase: widgets, popups, titles, effects, thumbnails, faces).
+- **Unlocked-session input** (the session was locked during phases 9 - 14, so input was sent
+  messages and pixels PrintWindow pictures): real hover / magnification on scrolling and ring docks,
+  the strip / hub reveal by hovering, OLE file drags and drops onto scrolling / ring docks, folder
+  windows (drag out to Explorer, drops from Explorer, real keyboard focus), the clipboard (12b:
+  `OpenClipboard` is refused while locked), the reminder banner and agenda popup by a real click,
+  the notification centre's pixels, the weather script popup by real clicks (14a), the acrylic blur
+  of rings and folder windows (not in PrintWindow pictures).
+- **Explorer**: a real Explorer restart with the tray takeover or folder windows (the recovery ran
+  through test hooks), a real Win+D / Show desktop.
+- **Hardware / apps**: a precision touchpad wheel, an exclusive-fullscreen game with auto-hide,
+  ABN_FULLSCREENAPP with a real fullscreen app, an elevated tray app, a DRM video window's
+  thumbnail, switching the default audio output on this machine, a device loss with live
+  thumbnails, a real midnight / DST transition for the widgets (the fake clock path only).
+- **Would touch the user's data**: Empty Recycle Bin with the user's items, opening an event URL
+  in the user's browser, rules on the real Desktop.
 
 ## Why this order
 
@@ -569,6 +619,16 @@ from `calendar.eventsOn` / `events` (startDay / endDay, colours) and `system`.
   popup, an agenda widget, and the clock's day shown with a dot on event days.
 
 ## Phase 14: built-ins as widgets, dev tooling polish
+
+Status: done 2026-11-03 as 14a (the `weather` provider over the one WeatherService, the "Weather
+(script)" widget and its forecast popup; the native weather item stays as the fallback; the script
+calendar popup port was skipped: optional, the native popup already shows the feeds) and 14b
+(digital faces for the native clock, `clock.face`, three shipped faces + user files in
+`clock-faces\`; `examples/` with three annotated widgets; manifest validation in the Console / the
+error tile and `WinDock.exe --validate-widget`; Export built-in with sub-folders and a README stub;
+the generated settings page's `group`, `unit`, `visibleIf`; the docs pass with
+`tools/check_widget_docs.py`). The digital clock itself was not ported to a script (the decision
+above: it stays native and gains faces); the scripted `digital-clock` widget of 4a remains.
 
 - Port the digital clock, weather (widget and popup), calendar popup to scripts; the native
   versions stay as fallbacks until the ported ones have run for a release.

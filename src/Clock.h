@@ -9,7 +9,11 @@
 
 #include <cstdint>
 #include <ctime>
+#include <memory>
 #include <string>
+#include <vector>
+
+#include "ClockFaces.h"
 
 // Formats the current time with a strftime-style format and lays it out with DirectWrite.
 // Timer scheduling is a one-shot SetTimer aligned to the next minute (or second) boundary.
@@ -22,6 +26,13 @@ public:
         dateColor_ = date;
     }
 
+    // A custom face (ClockFaces, round 4 phase 14) with its colours resolved for the dock's theme;
+    // null: the classic rendering (unchanged). `rawFormat` / `showSeconds`: clock.format and
+    // clock.showSeconds (a face places the seconds itself). Call after Configure.
+    void SetFace(std::shared_ptr<const ClockFace> face, const ClockFaceColors& colors, const std::wstring& rawFormat,
+                 bool showSeconds);
+    bool HasFace() const { return face_ != nullptr; }
+
     // Starts/restarts the aligned one-shot timer on hwnd. Call again from WM_TIMER.
     void ScheduleNextTick(HWND hwnd, UINT_PTR timerId) const;
     static void Stop(HWND hwnd, UINT_PTR timerId);
@@ -33,6 +44,7 @@ public:
         stacked_ = stacked;
         timeLayout_ = nullptr;
         dateLayout_ = nullptr;
+        if (face_) faceLines_.clear();  // the lines depend on it (an inline face stacks)
     }
 
     // Re-formats the text. Returns true if it changed (layout must be rebuilt).
@@ -44,6 +56,7 @@ public:
     void Draw(ID2D1DeviceContext* dc, float x, float y) const;
     // The vertical centre of the last line (the date's, else the time's) in the block, px.
     float LastLineCentre() const {
+        if (face_) return faceLastCentre_;
         return dateLayout_ ? timeHeight_ + (static_cast<float>(size_.height) - timeHeight_) / 2.0f
                            : static_cast<float>(size_.height) / 2.0f;
     }
@@ -60,6 +73,39 @@ public:
     static std::wstring EffectiveFormat(const std::wstring& format, bool showSeconds);
 
 private:
+    // --- a custom face ---
+    struct FaceRange {
+        UINT32 start = 0, length = 0;
+        std::wstring font;  // "" the line's
+        int weight = 0;     // 0 the line's
+        float size = 0.0f;  // DIPs (0 the line's)
+        uint32_t color = 0;
+    };
+    struct FaceLine {
+        std::wstring text;
+        std::wstring font;
+        int weight = 400;
+        float size = 16.0f;  // DIPs
+        uint32_t color = 0;
+        std::vector<FaceRange> ranges;
+        bool SameText(const FaceLine& o) const;
+        // Built by BuildLayout.
+        winrt::com_ptr<IDWriteTextFormat> format;
+        std::wstring formatKey;
+        winrt::com_ptr<IDWriteTextLayout> layout;
+        float y = 0.0f, height = 0.0f;  // px in the block (inside the padding)
+    };
+    std::vector<FaceLine> FaceTexts(const tm& t) const;
+    D2D1_SIZE_U BuildFaceLayout(IDWriteFactory* dwrite, float scale);
+    void DrawFace(ID2D1DeviceContext* dc, float x, float y) const;
+
+    std::shared_ptr<const ClockFace> face_;
+    ClockFaceColors faceColors_;
+    std::wstring rawFormat_ = L"%H:%M";
+    bool rawSeconds_ = false;
+    std::vector<FaceLine> faceLines_;
+    float faceLastCentre_ = 0.0f;
+    float padX_ = 0.0f, padY_ = 0.0f;  // px
 
     std::wstring format_ = L"%H:%M";
     bool showDate_ = false;

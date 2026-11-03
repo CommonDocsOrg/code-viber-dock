@@ -11,10 +11,12 @@ thread. This file is the full reference; README.md has the short version.
 - [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`,
   `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `weather`, `popup`, `widget`
 - [Animation](#animation): frames with timers, `dock.visible`, `dock.reduceMotion`, the cost rules
-- [Analog clock faces](#analog-clock-faces): the `faces/*.json` format
+- [Clock faces](#clock-faces): the face formats: analog (`faces/*.json` of the Analog clock widget)
+  and digital (the dock's own clock, `clock.face`)
 - [Limits and errors](#limits-and-errors): the watchdog, memory, the error tile, reloading
 - [Sandbox](#sandbox): what a widget can and cannot reach, permissions
-- [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages
+- [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages, `examples/`
+- [Validating a widget](#validating-a-widget): the manifest check, `WinDock.exe --validate-widget`
 - [Adding a widget to a dock](#adding-a-widget-to-a-dock)
 - [Examples](#examples)
 
@@ -61,19 +63,21 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | Key | Default | Meaning |
 |---|---|---|
 | `name` | the id | Shown in Settings (Dock contents, Add widget). |
+| `api` | 1 | The widget API version it was written for (informational; 1 is the only one so far). |
 | `version`, `author`, `description` | "" | Informational. |
 | `main` | `"main.js"` | The module to load, a path inside the package. |
 | `size.horizontal`, `size.vertical` | 64 x 40, 48 x 48 | The box in DIPs (pixels at 100 % scale) on a horizontal (bottom / top) and a vertical (left / right) dock: `main` along the dock, `cross` across it. Used unless the module exports `measure()`. Clamped to 4 - 1024 (main) and 4 - 512 (cross). |
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time. |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `settings` | [] | The widget's settings schema, see below. |
 
 ### Settings schema
 
-Each entry: `key` (required), `type`, `label`, `description`, `default`, and per type:
+Each entry: `key` (required), `type`, `label`, `description`, `default`, the page's layout keys
+`group`, `unit` and `visibleIf` (below), and per type:
 
 | `type` | Value | Extra keys |
 |---|---|---|
@@ -97,10 +101,25 @@ defaults overridden by the item's values (a value of the wrong type or out of ra
 the default; ints are rounded, numbers clamped); keys the schema does not name are passed through
 unchanged. Settings > **Widget settings** is generated from the schema for each widget item of
 the dock the settings window edits (a drop-down picks the item; Dock contents > Settings… on a
-widget row opens it): a check box per `bool`, an up-down per `int`, a drop-down per `choice`, an
-edit box for the others (`colour` as `#AARRGGBB`), each field's `description` under it, and
-**Reset to defaults** (removes the item's `settings`). A change is saved and reaches the widget at
-once (`onSettingsChanged`).
+widget row opens it): a check box per `bool`, an up-down (stepper, `step` per click, `min` - `max`)
+per `int`, a drop-down per `choice`, an edit box for the others (`colour` as `#AARRGGBB`), each
+field's `description` under it, and **Reset to defaults** (removes the item's `settings`). A change
+is saved and reaches the widget at once (`onSettingsChanged`).
+
+The page's layout keys (round 4 phase 14):
+
+| Key | Example | Effect |
+|---|---|---|
+| `group` | `"group": "Second hand"` | A section header before the field when its group differs from the field above it (fields of one group should be next to each other). |
+| `unit` | `"unit": "DIPs"` | A unit after an `int`'s stepper or a `number`'s edit box ("%", "minutes"). |
+| `visibleIf` | `"visibleIf": { "seconds": true }` | The field (and a group header that would be left empty) is shown only while every named field has that value; the page is generated again when one of them changes. A key that names no other field is an error. |
+
+```json
+{ "key": "seconds", "type": "bool", "label": "Second hand", "default": false, "group": "Second hand" },
+{ "key": "secondsMotion", "type": "choice", "label": "Second hand motion", "group": "Second hand",
+  "visibleIf": { "seconds": true }, "choices": ["ticking", "smooth"], "default": "ticking" },
+{ "key": "size", "type": "int", "label": "Size", "min": 0, "max": 128, "default": 0, "unit": "DIPs" }
+```
 
 ## main.js
 
@@ -498,14 +517,31 @@ Measured (5a, this machine, user config): the analog clock with a ticking second
 times in 10 s; with the smooth second hand ~300 times in 10 s while the dock is shown and 0 while
 it is auto-hidden; without a second hand 0 in 10 s (once a minute); the sweep is ~45 frames.
 
-## Analog clock faces
+## Clock faces
+
+Two clocks draw faces from JSON files: the **Analog clock** widget (format 1, below) and the dock's
+own **digital clock** (format 2, `clock.face`). They share these keys:
+
+| Key | |
+|---|---|
+| `name` | Shown in the face drop-down (the widget's Face setting, Settings > General > Clock > Face). |
+| `description` | Informational. |
+| `format` | 1: an analog face; 2: a digital face. |
+| `type` | `"digital"` for a digital face (required there); analog faces have none. |
+| colours | `"#AARRGGBB"` / `"#RRGGBB"` (as in config.json); digital faces also take theme references (below). |
+| fonts | `font` (a family name), `weight` (100 - 950), `size`: a ratio (analog: of the dial's radius; digital: of the built-in clock's size). |
+
+A file of the other kind is not offered: the Analog clock widget lists `faces/*.json` of its own
+package, the dock's clock only files with `"type": "digital"`.
+
+### Analog clock faces (format 1)
 
 The analog clock widget draws a face file: `faces/<name>.json` in its package (the built-ins:
 `classic`, `minimal`, `modern-dark`, `roman`, `station`). To add one, export the widget (Settings >
 Widgets > **Export built-in to folder**), put a new `.json` next to the others in
 `%LocalAppData%\WinDock\widgets\analog-clock\faces\`, and press **Reload widgets**: the Face
 drop-down lists it (`choiceFrom`). A face only needs the keys it changes; everything else has a
-default. The same format is meant for other clock faces later (the native clock's custom faces).
+default. The dock's own digital clock has a face format of its own (format 2, below).
 
 All lengths and widths are **fractions of the dial's radius** (inside the rim), so a face scales to
 any size. Colours are `"#AARRGGBB"` / `"#RRGGBB"` (as in config.json). A *paint* is a colour or a
@@ -558,6 +594,53 @@ on the dial, the focus moved by fractions of the radius) or `{ "linear": [[0, "#
 logged (Console) and the default face is drawn; a face named in the settings that does not exist
 falls back to the first file.
 
+### Digital clock faces (format 2: the dock's clock)
+
+The dock's built-in clock (a `clock` item) draws `clock.face`: `"digital"` (the default: its own
+look, unchanged) or the id of a face file. Shipped faces: `default` (the built-in look as a face
+file, pixel for pixel the same: a starting point), `large-time-small-date`, `mono-pill`. Your own:
+`%LocalAppData%\WinDock\clock-faces\<id>.json` (Settings > General > Clock > **Open faces folder**);
+a file with a shipped face's id replaces it. Settings > General > Clock > **Face** lists them (the
+list is read again whenever the page loads); a face that cannot be read is not offered, and a
+configured face that is missing draws `"digital"` (the page says why). The clock's settings stay in
+force: `clock.format` (strftime), `clock.showSeconds`, `clock.showDate`, the click and the calendar
+dot. Sizes are ratios of the built-in clock's: the time 16 DIPs (14 while the date is shown), the
+date 11 DIPs; `seconds.size` / `suffix.size` are ratios of the time's size.
+
+```jsonc
+{
+  "name": "Large time, small date",
+  "type": "digital",
+  "format": 2,
+  "layout": "stacked",                     // stacked (time over date) | date-first | inline (one line)
+  "align": "center",                       // center | start | end: the lines inside the block
+  "separator": "  ",                       // inline: between the time and the date
+  "lineGap": -2,                           // DIPs between the lines (may be negative)
+  "time": { "font": "Segoe UI", "weight": 300, "size": 1.4, "color": "theme:text",
+            "case": "as-is", "separator": ":" },      // separator: replaces ':' in the time
+  "date": { "font": "Segoe UI", "weight": 600, "size": 0.8, "color": "theme:accent",
+            "format": "%a %d %b", "case": "upper" }, // case: as-is | upper | lower
+  "seconds": { "style": "small", "size": 0.55, "color": "theme:dateText" },
+                                            // with clock.showSeconds: inline (as the built-in clock) |
+                                            // small (a smaller run after the minutes) | line (their own
+                                            // line under the time) | hidden (and the clock ticks once a minute)
+  "suffix": { "style": "small", "size": 0.5 },
+                                            // the 12-hour AM / PM (as %p gives it): as-is | small | lower | none
+  "background": { "fill": "#2EFFFFFF", "border": "#26FFFFFF", "borderWidth": 1, "radius": 8, "padX": 8, "padY": 3 },
+                                            // optional: a rounded pill behind the text (DIPs)
+  "vertical": { "stack": true, "align": "center" }
+                                            // left / right docks: every space breaks the line (an inline
+                                            // face stacks), and the lines' alignment there
+}
+```
+
+Colours (`color`, `fill`, `border`) are `"#AARRGGBB"` / `"#RRGGBB"` or a reference to the dock's
+theme: `"theme:text"` (the clock's text), `"theme:dateText"`, `"theme:accent"`, `"theme:background"`,
+`"theme:labelText"`, `"theme:labelBackground"`, `"theme:separator"`, `"theme:border"`; the defaults
+are `theme:text` for the time, the seconds and the suffix, `theme:dateText` for the date. Every key
+is optional; a value of the wrong kind makes the whole file unreadable (the page shows the field).
+An analog clock on the dock is the Analog clock widget (Dock contents > Add widget), not a face.
+
 ## Limits and errors
 
 - **Watchdog.** Every call into the script (an export, a timer callback, the jobs it queues such as
@@ -602,8 +685,14 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
 - **Export a built-in** to start from it: Settings > **Widgets** lists every installed widget (name,
   id, source: built-in, folder, or folder replacing a built-in; version). **Export built-in to
-  folder** writes its files to `widgets\<id>\` (refused if that folder exists); the copy then
-  replaces the built-in. **Add from folder…** copies a folder that holds a widget.json into the
+  folder** writes its files to `widgets\<id>\` (refused if that folder exists), sub-folders such as
+  the analog clock's `faces\` included, plus a `README.md` stub pointing here; the copy then
+  replaces the built-in (delete the folder to get the built-in back).
+- **Start from an example**: the repository's `examples\` folder has three small annotated widgets,
+  each with a README: `minimal` (one line of text: `measure` and `draw`), `http-json` (a public JSON
+  API with a host allow-list, `timer.setRefresh` + `tick`, `storage`) and `popup-list` (a list in a
+  script popup with the shell's icons and click handling). They are not built in: install one with
+  **Add from folder…**. **Add from folder…** copies a folder that holds a widget.json into the
   widgets folder (its name, lowercased, becomes the id). **Add to dock** adds the selected widget
   to the dock the settings window edits; **Reload widgets**, **Open widgets folder** and
   **Console…** do what they say.
@@ -619,6 +708,39 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
   folder, or the widgets folder for a built-in) and **Clear** (the view; the log is kept). It
   updates as lines arrive.
 - **Errors** show on the widget's tile ("Error" / "Stopped" and the first line of the message).
+
+## Validating a widget
+
+The dock checks a widget's manifest every time it loads the widget (a reload, a dock start), and
+`WinDock.exe --validate-widget <folder>` does the same for a folder that is not installed (for
+authors and CI; no dock starts, nothing is shown). Each problem names the field and the fix:
+
+```
+> WinDock.exe --validate-widget C:\src\my-widget
+WinDock widget check: C:\src\my-widget
+  name: My widget
+  error: main: "app.js" was not found in the widget (fix: add the module or set "main" to its path)
+  error: permissions[1]: unknown permission "camera" (fix: use "shell", "audio", ... or { "http": ["host"] })
+  warning: settings[2] (size).default: 500 is outside min - max (clamped)
+FAILED: 2 errors, 1 warning
+```
+
+Exit code **0**: no errors (warnings may be listed), **1**: errors, **2**: no folder given, or no
+widget.json in it. The output goes to the console that started it (or a redirected standard
+output, UTF-8). Errors: widget.json that is not a JSON object; `main` that is not a package path or
+names no file (also the default `main.js` missing); `size` (not an object, a missing or non-number
+`main` / `cross`, outside 4 - 1024 / 4 - 512); `permissions` (not an array, an unknown permission,
+`"http"` without hosts, a host with a scheme, path or port); the settings schema (an entry that is
+not an object, no `key`, a duplicate key, an unknown `type`, a `choice` without `choices` or
+`choiceFrom`, a `choiceFrom` glob that is not a package path or matches no file, `min` above `max`,
+`step` 0 or less, `visibleIf` naming no other setting); the folder name is not a valid widget id.
+Warnings: unknown keys (top level and in schema entries: ignored), defaults of the wrong type or
+out of range (the type's default or the clamped value is used), `refreshMs` / `timeLimitMs` /
+`memoryLimitMB` out of range (clamped), a `choiceFrom` file that is not a JSON object.
+
+On a dock, a widget with an error does not run: its tile shows "Error" and the first problem
+(`widget.json: permissions[1]: ...`), and the Console lists every problem with its fix; warnings
+go to the Console only.
 
 ## Adding a widget to a dock
 
@@ -636,7 +758,10 @@ settings and state) and on several docks.
 
 ## Examples
 
-The built-ins are the examples:
+The repository's `examples\` folder holds three small annotated widgets to start from (README.md
+in each; install with Settings > Widgets > **Add from folder…**): `examples/minimal`,
+`examples/http-json`, `examples/popup-list` ([Developing a widget](#developing-a-widget)). The
+built-ins are worked examples too:
 
 - `widgets/hello`: a label and a counter. `onClick` counts, `onMiddleClick` resets, `onWheel`
   counts up / down and returns `true`, `onHover` highlights the border; every handler ends with
@@ -645,8 +770,9 @@ The built-ins are the examples:
   the same settings). `measure()` sizes the box from `canvas.measureText`, `timer.setRefresh`
   wakes it once a minute (or once a second with seconds), `system.format` formats the time, and on
   a vertical dock every space breaks the line.
-- `widgets/analog-clock`: faces as data (`faces/*.json`, [the format](#analog-clock-faces)) listed
-  by a `choiceFrom` setting and read with `widget.readJson`; settings `face`, `seconds` (second
+- `widgets/analog-clock`: faces as data (`faces/*.json`, [the format](#analog-clock-faces-format-1)) listed
+  by a `choiceFrom` setting and read with `widget.readJson`; settings (grouped: Face, Second hand,
+  Motion and size; the motion shown only with a second hand: `visibleIf`) `face`, `seconds` (second
   hand), `secondsMotion` (`ticking`: one wake-up a second; `smooth`: 30 frames a second while the
   dock is visible), `dateOnFace` (`none`, `day`, `month-day`, `year`, `full`), `showDigital` (the
   time under the dial), `sweep` (the hands sweep in when it appears or its face changes), `size`

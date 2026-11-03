@@ -4,14 +4,33 @@ A macOS-style dock for Windows 11. C++20 / Win32, Direct2D + DirectComposition; 
 third-party library, the QuickJS-ng script engine for widgets (`third_party/quickjs-ng`, MIT,
 compiled in). Single static exe (no VC++ redistributable needed).
 
-Status: Phase 5. A translucent bar with a live clock at the bottom-center of the configured
-monitor, plus a tray icon. Icons magnify under the mouse (macOS style), the hovered app's name
-shows above it, and the dock auto-hides into the bottom screen edge. The Explorer taskbar is hidden while the dock runs and restored on
-exit, crash recovery, or `--restore-taskbar`. Running apps appear on the dock (grouped per app,
-with a dot under each). Everything is laid out in the order of the dock's `items` in config.json
-(pinned apps, folders, separators, the Recycle Bin, the clock, the weather widget, and a `running`
-item where the unpinned running apps go, in the order they were first seen). A running app that
-matches a pin merges into the pinned item.
+What it does (rounds 1 to 4 are complete; ROADMAP.md has the history, STATUS.md what was verified):
+
+- **The dock**: a translucent (acrylic) bar whose icons magnify under the mouse, with the hovered
+  app's name, running-app dots, window previews, launch feedback, drag to reorder, drop files on
+  apps, folders and the Recycle Bin, custom icons, glow / reflection / 3D shelf effects, themes and
+  animation styles. The Explorer taskbar is hidden while the dock runs (and always restored: on
+  exit, after a crash, `--restore-taskbar`). Auto-hide off / always / when a window overlaps.
+- **Where**: any screen **edge** (bottom, top, left, right) with alignment and offset, full width,
+  reserved screen space, a peek strip, a title; **several docks** (per monitor, on every monitor,
+  a separate tray dock), docks on the **desktop layer**, **half-circle and circle** docks, docks that
+  **scroll** (or shrink) when the icons do not fit.
+- **What it holds**: everything in the order of the dock's `items` in config.json: pinned apps,
+  folders (a contents popup: grid or list, sub-folders), **shortcut groups**, separators, the
+  Recycle Bin, a `running` item where the unpinned running apps go (stacked per app or one slot per
+  window, titles under the icons, live or snapshot **thumbnails**), the clock (with **custom digital
+  faces**), the weather, the **system tray** (Windows' notify icons in a grid, tray icons pinned as
+  dock items), the **notification centre** with badges, and **script widgets**.
+- **Widgets**: small JavaScript programs (QuickJS-ng, sandboxed, a watchdog and a heap limit each)
+  that draw into a slot and open popups: analog clocks with faces, a calendar page, volume, now
+  playing, Start, Search, notifications, an agenda of your calendars, the weather (a script version
+  of the built-in one), your own (`docs/widgets.md`, `examples/`, `--validate-widget`).
+- **Calendars**: ICS feeds (Google / Outlook secret addresses, files) in the month calendar, dots on
+  the clock, an agenda widget, reminder banners.
+- **Desktop folder windows** (Fences-like): titled panels on the desktop showing a folder, with the
+  shell's menu, drops, rename, rules that sort the Desktop's files into them.
+- **Settings**: a window with a page for every part (see Settings); everything is also in
+  `config.json`.
 
 ## Build
 
@@ -36,7 +55,12 @@ build\x64-release\WinDock.exe                     :: start the dock (only one in
 build\x64-release\WinDock.exe --quit              :: ask the running dock to exit
 build\x64-release\WinDock.exe --restore-taskbar   :: bring the Explorer taskbar back
 build\x64-release\WinDock.exe --settings          :: open the settings window (starts the dock if needed)
+build\x64-release\WinDock.exe --validate-widget examples\minimal   :: check a widget folder's manifest, print, exit
 ```
+
+`--validate-widget <folder>` starts no dock: it prints the folder's manifest problems with their
+fields and fixes and exits with 0 (no errors), 1 (errors) or 2 (not a widget folder); see
+[docs/widgets.md](docs/widgets.md#validating-a-widget).
 
 Right-click the tray icon or an empty part of the dock for the menu:
 
@@ -733,6 +757,18 @@ calendar) or an `.ics` file on this PC (a full path or a `file:///` URL).
   (not built by default: `cmake --build --preset x64-release --target WinDockTests`, then
   `build\x64-release\WinDockTests.exe`).
 
+**Clock faces** (round 4 phase 14): `clock.face` is `"digital"` (the default: the clock as it has
+always looked) or a face file: the shipped `default` (the same look as a file to start from),
+`large-time-small-date` (a big light time with small seconds and AM / PM over a small upper-case
+date in the accent colour) and `mono-pill` (a monospaced time and date on one line in a rounded
+pill), or your own `%LocalAppData%\WinDock\clock-faces\<id>.json` (General > Clock > Face, **Open
+faces folder**). A face sets the lines (stacked, date first, one line), fonts, size ratios, colours
+(or the theme's), the seconds' and the AM / PM's style, separators, an optional background pill and
+the alignment on vertical docks; the format, seconds and date settings still apply
+([docs/widgets.md "Clock faces"](docs/widgets.md#digital-clock-faces-format-2-the-docks-clock)).
+A face that is missing or cannot be read draws the digital look. For an analog clock use the
+Analog clock widget.
+
 What a click on the clock opens is `clock.click` (General page: "Clicking the clock opens"):
 `"calendar"` (the default), `"launch"` (the app, file or URL in `clock.clickTarget`, for example
 Outlook or `https://calendar.google.com`) or `"none"`. With a `clickTarget` set, the calendar also
@@ -821,7 +857,20 @@ write and edit without compiling anything. The full reference (every call, every
   widgets folder** and **Console…**.
 - **Developing**: `"watch": true` reloads a folder widget when one of its files changes (no
   polling); the **Console** (Settings > Widgets, the dock menu's Widget console…) shows every
-  widget's state and log with Reload / Open folder / Clear.
+  widget's state and log with Reload / Open folder / Clear. **Export built-in to folder** copies a
+  built-in with its sub-folders (the analog clock's `faces\`) and a README.md stub.
+- **Examples**: this repository's `examples\` folder: `minimal` (one line of text), `http-json` (a
+  public JSON API behind a host allow-list, on a refresh timer) and `popup-list` (a list in a
+  script popup with the shell's icons and clicks), each annotated and with a README. They are not
+  built in: Settings > Widgets > **Add from folder…** installs one (into the widgets folder), then
+  **Add to dock**.
+- **Validation**: the manifest is checked whenever a widget loads; an error (a missing main module,
+  a bad size, an unknown permission, a bad settings entry, a `choiceFrom` glob that matches nothing)
+  stops it with the field and the fix on its tile and in the Console, warnings go to the Console.
+  `WinDock.exe --validate-widget <folder>` runs the same check from a command line (exit code 0 / 1
+  / 2), for authors and CI.
+- **Settings page layout**: schema entries can carry `group` (section headers), `unit` (after a
+  stepper) and `visibleIf` (shown only for some value of another field).
 - **Safety**: every widget has its own script engine (QuickJS-ng) with its own heap limit; a call
   that runs longer than its time limit is stopped and the widget suspended ("Stopped" tile), an
   uncaught exception shows an "Error" tile with the message; **Reload widgets** (dock menu) starts
@@ -1050,7 +1099,10 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   100 % scale; applied on Enter or focus loss), Full width, Reserve screen space (enabled with
   full width), Peek when hidden (pixels), Peek opacity (%) and Title (see Position), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
   dock's order), clock on / off, time format (pick one or type a `strftime` format; a preview shows
-  the result), **Show seconds**, date line, **Clicking the clock opens** (the month calendar, the
+  the result), **Show seconds**, date line, **Face** (Digital (built in), the shipped faces Default,
+  Large time, small date and Mono pill, then your face files; **Open faces folder**; the note says
+  when the configured face cannot be read, and that an analog clock is the Analog clock widget),
+  **Clicking the clock opens** (the month calendar, the
   app or URL below, nothing), **App or URL** (typed, applied on Enter or when the box loses the
   focus, or **Browse…** for an app; a path with spaces is quoted), Start with Windows, Hide the
   Windows taskbar, and the renderer (`auto` / `software`; takes effect after WinDock restarts, the
@@ -1115,7 +1167,15 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   folder** and **Console…** (see **Widgets** above).
 - **Widget settings**: the settings of one widget item of the dock, generated from its widget.json
   schema (a drop-down at the top picks the item; **Settings…** on a widget row of Dock contents
-  opens it), with **Reset to defaults**.
+  opens it): check boxes, steppers with their units, drop-downs, edit boxes, a description under a
+  field, section headers from the schema's groups, fields that appear only for some value of
+  another (`visibleIf`: the analog clock's motion only with a second hand), **Reset to defaults**.
+- **Docks** (round 4 phase 3): every dock and folder window (id, edge, display, layer, state) with
+  Add / Duplicate / Remove, Lock all / Unlock all, New folder window…, Folder window settings….
+- **Layout** (round 4 phase 3): the displays with every dock drawn on them; drag a dock to another
+  edge, place or display.
+- **Tray** (round 4 phase 8): show the notification area icons in the dock, the icon list (hide,
+  order), Reset to Explorer, Put the tray in its own dock.
 - **Notifications** (round 4 phase 9): badges and the notification centre on the dock it edits, tray
   balloons in the centre, clear on activate, the poll interval, Windows' access status, badges per
   app (see Notifications and badges).
@@ -1374,6 +1434,9 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   open, through the shell (like Run): an app, a shortcut, a document or a URL; environment
   variables are expanded, and a quoted path may be followed by arguments
   (`"\"C:\\Program Files\\App\\app.exe\" --calendar"`). See Weather and calendar.
+  `clock.face` (default `"digital"`, written only when it is not): the clock's look, `"digital"` or
+  the id of a digital face file (`default`, `large-time-small-date`, `mono-pill`, or a file of
+  `%LocalAppData%\WinDock\clock-faces\`); see Clock faces under Weather and calendar.
 - `weather`: the weather widget (see Weather and calendar; shown by a `weather` item);
   `latitude` (-90 - 90) and `longitude` (-180 - 180), in degrees, saved with 4 decimals (both 0:
   no location yet); `location`, the name shown in the popup (it is not looked up); `units`,
@@ -1758,6 +1821,15 @@ always there, also when every dock is parked) handle these registered messages:
   shows. Test hook: the environment variable `WINDOCK_WEATHER_HOST` of the dock process replaces
   the forecast host (`api.open-meteo.com`; tests use an address that refuses connections for the
   offline / error path).
+- **Clock faces, widget folders** (round 4 phase 14): `QueryState` 216 = `clock.face`: 0 `"digital"`,
+  1 a face file the clock draws, -1 a face that cannot be read (the clock draws digital); 217 = the
+  faces offered (shipped + readable user files). `DockCommand` 141 = Settings > Widgets > Add from
+  folder… without its dialog: the folder path in the global atom `LOWORD(lParam)` (returns 1
+  installed, 0 refused: no widget.json, an invalid folder name, the id taken). Settings > General
+  2176 the Face drop-down (0 Digital, then the faces in `QueryState` 217's order), 2177 Open faces
+  folder, 2178 its note; Widget settings: field k's controls are 3700 + 10 k + part (0 label, 1 the
+  control, 2 its caption / spin, 3 description, 4 the group header before it, 5 its unit); a field
+  hidden by `visibleIf` has none.
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
@@ -1769,7 +1841,8 @@ always there, also when every dock is parked) handle these registered messages:
   125 Unlock all docks, 126 Reload widgets (every script widget of every dock reloads its package
   and script), 127 open (or activate) the widget Console; 128 - 134 see Tray / Notifications above,
   135 refresh the calendar feeds, 136 - 140 see Folder windows above (139 New folder window…, 140
-  Sort desktop now); saved like the menu).
+  Sort desktop now), 141 install a widget folder (the path in a global atom, see Clock faces, widget
+  folders above); saved like the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup

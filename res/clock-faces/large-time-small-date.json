@@ -1,0 +1,14 @@
+{
+  "name": "Large time, small date",
+  "description": "A larger light time with small seconds and a small AM / PM, over a small upper-case date in the accent colour.",
+  "type": "digital",
+  "format": 2,
+  "layout": "stacked",
+  "align": "center",
+  "time": { "font": "Segoe UI", "weight": 300, "size": 1.4, "color": "theme:text" },
+  "date": { "font": "Segoe UI", "weight": 600, "size": 0.8, "color": "theme:accent", "format": "%a %d %b", "case": "upper" },
+  "seconds": { "style": "small", "size": 0.55, "color": "theme:dateText" },
+  "suffix": { "style": "small", "size": 0.5 },
+  "lineGap": -2,
+  "vertical": { "stack": true, "align": "center" }
+}

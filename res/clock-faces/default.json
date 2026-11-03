@@ -1,0 +1,13 @@
+{
+  "name": "Default",
+  "description": "The built-in clock as a face file: the time over the date, both centred, the dock's clock colours. A starting point for your own faces.",
+  "type": "digital",
+  "format": 2,
+  "layout": "stacked",
+  "align": "center",
+  "time": { "font": "Segoe UI", "weight": 600, "size": 1, "color": "theme:text" },
+  "date": { "font": "Segoe UI", "weight": 400, "size": 1, "color": "theme:dateText", "format": "%a %d %b" },
+  "seconds": { "style": "inline" },
+  "suffix": { "style": "as-is" },
+  "vertical": { "stack": true, "align": "center" }
+}

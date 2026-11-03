@@ -607,6 +607,7 @@ void Config::Sanitize() {
     animation.labelFadeMs = std::clamp(animation.labelFadeMs, 0, 1000);
     if (clock.format.size() > 128) clock.format.resize(128);
     if (clock.clickTarget.size() > 2048) clock.clickTarget.resize(2048);
+    if (clock.face.empty() || clock.face.size() > 64) clock.face = L"digital";
     if (renderer != L"auto" && renderer != L"software") renderer = L"auto";
     if (!(weather.latitude >= -90.0 && weather.latitude <= 90.0)) weather.latitude = 0.0;  // also NaN
     if (!(weather.longitude >= -180.0 && weather.longitude <= 180.0)) weather.longitude = 0.0;
@@ -679,6 +680,7 @@ Config::LoadResult Config::LoadFile() {
                 if (!calendarPopup) clock.click = ClockClick::None;
             }
             ReadString(clockObj, L"clickTarget", clock.clickTarget);
+            ReadString(clockObj, L"face", clock.face);
         }
         const json::JsonObject weatherObj = ReadObject(root, L"weather");
 
@@ -991,7 +993,8 @@ bool Config::Save() const {
         o += L"  \"renderer\": " + Quote(renderer) + L",\n";
         o += L"  \"clock\": { \"format\": " + Quote(clock.format) + L", \"showSeconds\": " + Bool(clock.showSeconds) +
              L", \"showDate\": " + Bool(clock.showDate) + L",\n             \"click\": " + Quote(ToString(clock.click)) +
-             L", \"clickTarget\": " + Quote(clock.clickTarget) + L" },\n";
+             L", \"clickTarget\": " + Quote(clock.clickTarget) +
+             (clock.face != L"digital" ? L", \"face\": " + Quote(clock.face) : std::wstring()) + L" },\n";
         // Only the preset and the fields set inline: editing the theme file keeps affecting the dock.
         o += L"  \"theme\": { \"preset\": " + Quote(themePreset) +
              Theme::WriteFields(theme, themeOverrides, L"             ") + L" },\n";

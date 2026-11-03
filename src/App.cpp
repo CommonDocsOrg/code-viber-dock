@@ -1,4 +1,5 @@
 #include "App.h"
+#include "ClockFaces.h"
 
 #include "InputDialog.h"
 
@@ -17,6 +18,7 @@
 #include "DesktopLayer.h"
 #include "IconUtil.h"
 #include "SettingsIds.h"
+#include "WidgetPackage.h"
 #include "resource.h"
 
 namespace {
@@ -1536,6 +1538,13 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return static_cast<LRESULT>(docks_.WeatherData().FetchCount());  // forecast requests started
         case 215:
             return static_cast<LRESULT>(docks_.Widgets().WeatherNotices());  // weather onChange deliveries
+        case 216: {  // clock.face: 0 "digital", 1 a face file the clock draws, -1 a face that cannot be read
+            std::wstring error;
+            const bool face = ClockFaces::Load(config_.clock.face, error) != nullptr;
+            return face ? 1 : (error.empty() ? 0 : -1);
+        }
+        case 217:
+            return static_cast<LRESULT>(ClockFaces::List().size());  // faces offered (shipped + user files)
         case 202:
             if (inst && inst->folder) break;  // the window's own answer
             return static_cast<LRESULT>(DesktopLayer::Count());
@@ -1590,6 +1599,19 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     if (msg == msgDockCommand_ && wp == ContextMenu::kRemoveFolderWindow) {
         DockManager::Instance* inst = docks_.At(DockOfParam(lp));
         result = inst && inst->isFolder && EditDocks(SettingsDockEdit::Remove, inst->cfg) ? 1 : 0;
+        if (result) RefreshSettings();
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kInstallWidgetFolder) {
+        // Add from folder… without its folder dialog: the path in a global atom. 1 installed (the
+        // settings window's lists refresh), 0 refused (the reason goes to the debugger output).
+        wchar_t buf[256]{};
+        std::wstring id, error;
+        result = GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf))) &&
+                         Widgets::InstallFolder(buf, id, error)
+                     ? 1
+                     : 0;
+        if (!result) OutputDebugStringW((L"WinDock: install widget folder: " + error + L"\n").c_str());
         if (result) RefreshSettings();
         return true;
     }

@@ -10,18 +10,20 @@
   },
   "permissions": ["weather", "shell"],
   "settings": [
-    { "key": "showPlace", "type": "bool", "label": "Show the place under the temperature", "default": false },
-    { "key": "showHigh", "type": "bool", "label": "Show today's high", "default": false },
-    { "key": "showLow", "type": "bool", "label": "Show today's low", "default": false },
-    { "key": "compact", "type": "bool", "label": "Compact (the glyph only)", "default": false,
+    { "key": "showPlace", "type": "bool", "label": "Show the place under the temperature", "default": false, "group": "Slot" },
+    { "key": "showHigh", "type": "bool", "label": "Show today's high", "default": false, "group": "Slot" },
+    { "key": "showLow", "type": "bool", "label": "Show today's low", "default": false, "group": "Slot" },
+    { "key": "compact", "type": "bool", "label": "Compact (the glyph only)", "default": false, "group": "Slot",
       "description": "The temperature is left out; the popup still shows everything." },
-    { "key": "clickOpens", "type": "choice", "label": "Clicking the widget opens", "default": "popup",
+    { "key": "clickOpens", "type": "choice", "label": "Clicking the widget opens", "default": "popup", "group": "Click",
       "choices": [
         { "value": "popup", "label": "The forecast popup" },
         { "value": "settings", "label": "Settings > Weather" },
         { "value": "none", "label": "Nothing" }
       ] },
-    { "key": "days", "type": "int", "label": "Days in the popup", "min": 3, "max": 7, "step": 1, "default": 7 },
-    { "key": "hours", "type": "int", "label": "Hours in the popup's strip", "min": 12, "max": 24, "step": 2, "default": 24 }
+    { "key": "days", "type": "int", "label": "Days in the popup", "min": 3, "max": 7, "step": 1, "default": 7,
+      "unit": "days", "group": "Popup", "visibleIf": { "clickOpens": "popup" } },
+    { "key": "hours", "type": "int", "label": "Hours in the popup's strip", "min": 12, "max": 24, "step": 2, "default": 24,
+      "unit": "hours", "group": "Popup", "visibleIf": { "clickOpens": "popup" } }
   ]
 }

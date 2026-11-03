@@ -26,8 +26,8 @@
         { "value": "target", "label": "The app or URL below" },
         { "value": "none", "label": "Nothing" }
       ] },
-    { "key": "clickTarget", "type": "string", "label": "App or URL", "default": "outlookcal:",
+    { "key": "clickTarget", "visibleIf": { "click": "target" }, "type": "string", "label": "App or URL", "default": "outlookcal:",
       "description": "Opened by a click when \"Clicking the page opens\" is the app or URL (needs the widget's shell permission)." },
-    { "key": "size", "type": "int", "label": "Size in DIPs (0: the dock's icon size)", "min": 0, "max": 128, "default": 0 }
+    { "key": "size", "unit": "DIPs", "type": "int", "label": "Size in DIPs (0: the dock's icon size)", "min": 0, "max": 128, "default": 0 }
   ]
 }

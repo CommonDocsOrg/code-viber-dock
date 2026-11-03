@@ -11,7 +11,7 @@
   "permissions": ["audio", "shell"],
   "settings": [
     { "key": "showPercent", "type": "bool", "label": "Show the level in percent", "default": true },
-    { "key": "step", "type": "int", "label": "Wheel step (percent per notch)", "min": 1, "max": 10, "default": 2 },
+    { "key": "step", "unit": "%", "type": "int", "label": "Wheel step (percent per notch)", "min": 1, "max": 10, "default": 2 },
     { "key": "middleClick", "type": "choice", "label": "Middle click", "default": "mute",
       "choices": [
         { "value": "mute", "label": "Mutes / unmutes" },

@@ -119,6 +119,11 @@ inline constexpr int kRadiusEdit = 2171;     // docks[].radius DIPs, 0 = automat
 inline constexpr int kRadiusSpin = 2172;
 inline constexpr int kRotateIcons = 2173;    // check box (+ caption 2174)
 inline constexpr int kRotateIconsCaption = 2174;
+// Clock face (round 4 phase 14): clock.face ("digital" first, then the shipped and user faces).
+inline constexpr int kClockFaceLabel = 2175;
+inline constexpr int kClockFaceCombo = 2176;    // 0 Digital (built in), then ClockFaces::List() order
+inline constexpr int kClockFaceFolder = 2177;   // "Open faces folder" (%LocalAppData%\WinDock\clock-faces, created)
+inline constexpr int kClockFaceNote = 2178;     // the analog clock widget guidance / a face that cannot be read
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;

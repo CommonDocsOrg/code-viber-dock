@@ -1,0 +1,15 @@
+{
+  "name": "Mono pill",
+  "description": "A monospaced time and date on one line in a rounded pill; on a vertical dock the words stack inside it.",
+  "type": "digital",
+  "format": 2,
+  "layout": "inline",
+  "align": "center",
+  "separator": " · ",
+  "time": { "font": "Consolas", "weight": 700, "size": 1, "color": "theme:text", "separator": ":" },
+  "date": { "font": "Consolas", "weight": 400, "size": 1.05, "color": "theme:dateText", "format": "%a %d", "case": "lower" },
+  "seconds": { "style": "small", "size": 0.75, "color": "theme:dateText" },
+  "suffix": { "style": "lower" },
+  "background": { "fill": "#2EFFFFFF", "border": "#26FFFFFF", "borderWidth": 1, "radius": 8, "padX": 8, "padY": 3 },
+  "vertical": { "stack": true, "align": "center" }
+}

@@ -55,7 +55,9 @@ enum Command : UINT {
     kSimulateExplorerRestart = 138,  // test hook: every folder window pushed under the desktop, then the restart recovery
     kNewFolderWindow = 139,     // "New folder window…": a folder picker, then a folder window at the pointer
     kSortDesktopNow = 140,      // 12b: the Desktop's files matching folder windows' rules move into their folders (once)
-    kLastDockCommand = kSortDesktopNow,
+    // Widgets (round 4 phase 14):
+    kInstallWidgetFolder = 141,  // automation: Settings > Widgets > Add from folder… for the path in the global atom LOWORD(lParam)
+    kLastDockCommand = kInstallWidgetFolder,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>

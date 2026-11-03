@@ -38,6 +38,24 @@ struct SettingField {
     // Load: the value is the file name without folder and extension, the label the file's JSON
     // "name" (else the value).
     std::wstring choiceFrom;
+    // The generated settings page (round 4 phase 14): a section header when `group` changes from
+    // the field before, a unit after an int / number control, and the field shown only while every
+    // `visibleIf` key (another field) has that value (JSON text of the value).
+    std::wstring group;
+    std::wstring unit;
+    std::vector<std::pair<std::wstring, std::wstring>> visibleIf;
+};
+
+// A problem found in a widget's manifest (Validate): `field` names the key ("main",
+// "settings[2].choiceFrom" ...), `fix` says what to change. Errors stop the widget from loading
+// (the error tile and the Console show them); warnings are logged.
+struct Issue {
+    bool error = true;
+    std::wstring field;
+    std::wstring message;
+    std::wstring fix;
+    // error: main: "app.js" was not found in the widget folder (fix: ...)
+    std::wstring Text() const;
 };
 
 struct Manifest {
@@ -63,6 +81,8 @@ struct Manifest {
     std::vector<std::wstring> httpHosts;  // lowercase; "*.example.com" matches sub-domains
     std::vector<SettingField> settings;
     std::vector<std::wstring> warnings;  // what was ignored while reading it
+    std::vector<Issue> issues;           // Validate's findings (Load fills them in)
+    bool HasErrors() const;
 };
 
 class Package {
@@ -96,6 +116,14 @@ bool GlobMatch(std::string_view pattern, std::string_view path);
 // none or its manifest is unreadable.
 std::shared_ptr<const Package> Load(const std::wstring& id, std::wstring& error);
 
+// Checks widget.json (`bytes`) of `pkg` (its files: main, choiceFrom globs) against the manifest
+// format: unknown / malformed keys, a missing main module, sizes, permissions, the settings
+// schema. Called by Load (into manifest.issues) and by `WinDock.exe --validate-widget`.
+std::vector<Issue> Validate(const std::string& bytes, const Package& pkg);
+// The CLI's check of a widget folder (not installed): reads and validates it. False when it cannot
+// be read at all (no folder, no widget.json; `issues` say why). `name`: its manifest name.
+bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name);
+
 // The installed widgets for menus and the settings window: every built-in and every folder under
 // Directory() with a widget.json, one entry per id (folder wins), sorted by name.
 struct CatalogEntry {
@@ -108,7 +136,8 @@ std::vector<CatalogEntry> Catalog();
 // The display name of widget `id` (its manifest name, else the id).
 std::wstring DisplayName(const std::wstring& id);
 
-// Writes built-in widget `id`'s files to Directory()\<id>\ (refused if that folder exists).
+// Writes built-in widget `id`'s files to Directory()\<id>\ (refused if that folder exists), its
+// faces / assets sub-folders included, and a README.md stub pointing at docs/widgets.md.
 // `folder`: where it went. The folder copy then replaces the built-in.
 bool ExportBuiltIn(const std::wstring& id, std::wstring& folder, std::wstring& error);
 // Copies a widget folder (it must hold a widget.json; up to 512 files, 8 MB each, no links

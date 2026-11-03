@@ -102,7 +102,18 @@ void WidgetInstance::Reload() {
         return;
     }
     const Widgets::Manifest& m = package_->manifest;
-    for (const std::wstring& w : m.warnings) Log(ScriptLogLevel::Warn, L"widget.json: " + w);
+    // The manifest's problems (Widgets::Validate): every one logged with its field and fix; an
+    // error stops the widget (the tile shows the first).
+    const Widgets::Issue* firstError = nullptr;
+    for (const Widgets::Issue& i : m.issues) {
+        Log(i.error ? ScriptLogLevel::Error : ScriptLogLevel::Warn, L"widget.json: " + i.Text());
+        if (i.error && !firstError) firstError = &i;
+    }
+    if (firstError) {
+        Fail(State::Error, L"widget.json: " + firstError->field + L": " + firstError->message +
+                               (firstError->fix.empty() ? L"" : L" (fix: " + firstError->fix + L")"));
+        return;
+    }
     settings_ = Widgets::MergeSettings(m, itemSettings_);
     Log(ScriptLogLevel::Info, L"loading " + m.name + (m.version.empty() ? L"" : L" " + m.version) +
                                   (package_->source == Widgets::Package::Source::BuiltIn ? L" (built-in)"

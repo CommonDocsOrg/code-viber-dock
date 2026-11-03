@@ -166,6 +166,15 @@ protected:
         NextRow();
         Check(kClockDate, kClockDateCaption, L"Show the date under the time");
         NextRow();
+        Label(kClockFaceLabel, L"Face");
+        Combo(kClockFaceCombo, kColX, right - kColX - 172, false);
+        Button(kClockFaceFolder, L"Open faces folder", right - 164, 164);
+        NextRow(kRowH);
+        Text(kClockFaceNote, CtlKind::Note,
+             L"Digital is the clock's own look; the others are face files (docs/widgets.md \"Clock faces\"): add your "
+             L"own .json to the faces folder. For an analog clock, add the Analog clock widget (Dock contents > Add widget).",
+             kColX, right - kColX, 54);
+        NextRow(56);
         Label(kClockClickLabel, L"Clicking the clock opens");
         Combo(kClockClickCombo, kColX, right - kColX, false);
         NextRow();
@@ -234,6 +243,7 @@ protected:
         SetText(kClockPreview, ClockPreview(c.clock.format, c.clock.showSeconds));
         SetCheck(kClockSeconds, c.clock.showSeconds);
         SetCheck(kClockDate, c.clock.showDate);
+        FillFaces();
         SetComboSel(kClockClickCombo, static_cast<int>(c.clock.click));
         SetText(kClockTargetEdit, c.clock.clickTarget);
         EnableClock(c.Edit().Has(ItemKind::Clock));
@@ -398,6 +408,24 @@ protected:
             case kClockTargetBrowse:
                 if (code == BN_CLICKED) BrowseTarget();
                 break;
+            case kClockFaceCombo:
+                if (code == CBN_SELCHANGE) {
+                    const int sel = ComboSel(id);
+                    if (sel >= 0 && sel < static_cast<int>(faces_.size()) && faces_[static_cast<size_t>(sel)] != c.clock.face) {
+                        c.clock.face = faces_[static_cast<size_t>(sel)];
+                        Changed(SettingsScope::Appearance);  // the clock's text, its size
+                        FaceNote();
+                    }
+                }
+                break;
+            case kClockFaceFolder:
+                if (code == BN_CLICKED) {
+                    const std::wstring dir = ClockFaces::Directory();
+                    CreateDirectoryW(Config::Directory().c_str(), nullptr);
+                    CreateDirectoryW(dir.c_str(), nullptr);
+                    ShellExecuteW(Owner(), L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                }
+                break;
             case kClockDate:
                 if (code == BN_CLICKED) {
                     c.clock.showDate = GetCheck(id);
@@ -509,7 +537,42 @@ private:
         Changed(SettingsScope::Appearance);
     }
 
+    // "Digital (built in)", then the shipped and user faces (re-read: a file added to the faces
+    // folder shows up when the page loads again); a configured face that is missing is listed too.
+    void FillFaces() {
+        HWND combo = Item(kClockFaceCombo);
+        if (!combo) return;
+        const std::wstring current = Cfg().clock.face;
+        SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+        faces_.assign(1, ClockFaces::kDigital);
+        ComboAdd(kClockFaceCombo, L"Digital (built in)");
+        int sel = 0;
+        for (const ClockFaces::Entry& e : ClockFaces::List()) {
+            if (_wcsicmp(e.id.c_str(), current.c_str()) == 0) sel = static_cast<int>(faces_.size());
+            faces_.push_back(e.id);
+            ComboAdd(kClockFaceCombo, (e.name + (e.builtIn ? L"" : L" (file)")).c_str());
+        }
+        if (sel == 0 && _wcsicmp(current.c_str(), ClockFaces::kDigital) != 0) {
+            sel = static_cast<int>(faces_.size());
+            faces_.push_back(current);
+            ComboAdd(kClockFaceCombo, (current + L" (missing)").c_str());
+        }
+        SetComboSel(kClockFaceCombo, sel);
+        FaceNote();
+    }
+
+    void FaceNote() {
+        std::wstring error;
+        ClockFaces::Load(Cfg().clock.face, error);
+        SetText(kClockFaceNote, !error.empty()
+                                    ? L"This face cannot be used (the clock looks Digital): " + error
+                                    : std::wstring(L"Digital is the clock's own look; the others are face files (docs/widgets.md "
+                                                   L"\"Clock faces\"): add your own .json to the faces folder. For an analog "
+                                                   L"clock, add the Analog clock widget (Dock contents > Add widget)."));
+    }
+
     void EnableClock(bool on) {
+        Enable(kClockFaceCombo, on);
         Enable(kClockFormatCombo, on);
         Enable(kClockSeconds, on);
         Enable(kClockDate, on);
@@ -533,6 +596,8 @@ private:
         for (const std::wstring& n : names) ComboAdd(kMonitorCombo, n.c_str());
         SetComboSel(kMonitorCombo, monitor == DockConfig::kMonitorEach ? static_cast<int>(names.size()) - 1 : want);
     }
+
+    std::vector<std::wstring> faces_;  // kClockFaceCombo rows -> clock.face ids
 };
 
 // --- Behaviour -------------------------------------------------------------------------------

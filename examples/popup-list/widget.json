@@ -1,0 +1,19 @@
+{
+  "name": "Quick links (example)",
+  "version": "1.0.0",
+  "author": "WinDock examples",
+  "description": "A list in a script popup, like the dock's own grid / list views: rows with the shell's icons, a click opens the row's target.",
+  "main": "main.js",
+  "size": {
+    "horizontal": { "main": 40, "cross": 40 },
+    "vertical": { "main": 40, "cross": 40 }
+  },
+  "permissions": ["shell"],
+  "settings": [
+    { "key": "links", "type": "string", "label": "Links (name = target; ...)",
+      "default": "Documents = %USERPROFILE%\\Documents; Downloads = %USERPROFILE%\\Downloads; Windows = %WINDIR%; WinDock widgets = %LOCALAPPDATA%\\WinDock\\widgets",
+      "description": "Folders, files, apps or URLs; ';' separates the rows." },
+    { "key": "iconSize", "type": "int", "label": "Icon size", "min": 16, "max": 32, "step": 4, "default": 20, "unit": "DIPs" },
+    { "key": "close", "type": "bool", "label": "Close the popup after opening a link", "default": true }
+  ]
+}
