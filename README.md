@@ -381,18 +381,40 @@ band. `WinDock.QueryState` 45.
   windows belong to File Explorer. A folder and a shortcut to it are the same item (shown once).
   Pin one by dropping it (or a shortcut to it) on the dock, with **Add folder…** on the Dock
   contents page, or in config.json.
-  - A left click opens the folder's contents in a popup above the icon; clicking the icon again
-    closes it. The popup shows the folder's name, an **Open in Explorer** button and a grid of its
-    entries: sub-folders first, then files, in Explorer's name order ("file2" before "file10"),
-    hidden and system entries left out, with the shell's icons and two-line names. Up to 48
-    entries are shown (fewer on a small monitor); a **+N more** line opens the folder in Explorer.
+  - A left click opens the folder's contents in a popup above the icon (beside it on a left /
+    right dock); clicking the icon again closes it. The popup shows the folder's name, an **Open
+    in Explorer** button and its entries: sub-folders first, then files, in Explorer's name order
+    ("file2" before "file10"), hidden and system entries left out, with the shell's icons. Two
+    layouts, chosen per folder item with `"view"` (right click > **View**, or Settings > Folders
+    and groups):
+    - `"grid"`: cells with the icon and a two-line name, up to 6 columns and 8 rows visible;
+    - `"list"`: a scrolling list ("stack list") 340 DIPs wide, up to 14 rows visible: icon, name,
+      and the size and date at the right (folders: the date);
+    - `"auto"` (the default): a grid up to **48** entries (exactly the round-3 popup), a list for
+      more.
+    Both scroll when there are more entries than fit: the mouse wheel (a grid row, or three list
+    rows, a notch, animated unless reduce motion is on), dragging the contents up / down, or the
+    thin scrollbar at the right edge (it fades in while scrolling and on hover, out after a
+    second; drag its thumb, click above / below it to page). Only the rows on screen have
+    surfaces, so a folder with thousands of entries costs a screenful (icons load as rows scroll
+    in). Nothing runs while the popup is still.
   - In the popup, click a file to open it (the popup closes), click a sub-folder to show its
-    contents in place, the back arrow or Backspace to go up again (never above the pinned folder),
-    middle-click a sub-folder to open it in Explorer. Escape, clicking anywhere else (another
-    window, the dock), a menu, a drag or the dock hiding close it. While it is open the dock does
-    not auto-hide.
+    contents in place (the header then shows the path from the pinned folder, `Downloads › Photos
+    › 2026`, leading parts shortened to "…" when it does not fit, and a back arrow), the back arrow,
+    Backspace or Alt+Up to go up again (never above the pinned folder; the sub-folder you came
+    from is selected), middle-click a sub-folder to open it in Explorer. Keyboard: arrows, Home /
+    End, Page Up / Down move the selection (scrolled into view), Enter opens it, typing selects
+    the next entry whose name starts with the typed text (keys within a second extend it).
+    Right click an entry: **Open**, **Open in Explorer** (a folder) / **Show in Explorer** (a file).
+    Escape, clicking anywhere else (another window, the dock), a menu, a drag or the dock hiding
+    close it. While it is open the dock does not auto-hide.
+  - Drop files onto the popup to move or copy them into the folder it shows, or into the
+    sub-folder under the pointer (it is highlighted), as Explorer does: a move on the same volume,
+    a copy across volumes; Ctrl copies, Shift moves. The shell's own file operation does it (undo,
+    progress and conflict dialogs included) on a thread of its own; the popup then shows the new
+    entries. Dropping onto the folder's icon on the dock still pins the files (below).
   - Middle click on the icon opens the folder in Explorer. Right click: the name, Unpin from
-    dock, the icon entries, Open in Explorer, then the dock menu.
+    dock, the icon entries, Open in Explorer, View (Automatic / Grid / List), then the dock menu.
 - **Recycle Bin** (`{ "kind": "recycleBin" }` in the dock's `items`, or **Add Recycle Bin** on the Dock
   contents page): shows the bin's empty or full icon, which follows the bin (the dock asks the shell to
   tell it when the bin changes; nothing polls). Its name label reads "Recycle Bin (12 items,
@@ -674,7 +696,8 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   **Remove** (any item; without a running apps item, running apps that are not pinned are not
   shown, add it back with Add widget > Running apps), **Settings…** for the selected item (the
   clock: the General page; the weather: the Weather page; the running apps: the Behaviour page;
-  an app, folder or the Recycle Bin: Choose icon…; greyed for a separator), **Choose icon…**,
+  a folder (or a shortcut to one): the Folders and groups page; an app or the Recycle Bin:
+  Choose icon…; greyed for a separator), **Choose icon…**,
   **Choose image…**, **Reset icon** (as in the dock's menu, see Custom icons; for apps, folders
   and the Recycle Bin, Reset only when the entry has an `icon`), **Add Recycle Bin** (greyed
   while the bin is on the dock) and **Lock the dock**. Every change applies to the dock at once;
@@ -693,6 +716,10 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 - **Widget settings**: the settings of one widget item of the dock, generated from its widget.json
   schema (a drop-down at the top picks the item; **Settings…** on a widget row of Dock contents
   opens it), with **Reset to defaults**.
+- **Folders and groups**: one folder item of the dock (a drop-down picks it; **Settings…** on a
+  folder row of Dock contents opens it): **Show the contents as** Automatic (a grid up to 48
+  entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose image…, Reset
+  icon).
 
 Every change applies to the dock at once (sliders when you release them, number boxes on each
 arrow step, on Enter or when the box loses the focus) and is saved within 300 ms, exactly like the
@@ -799,7 +826,8 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     - `"app"`: `{ "kind": "app", "path": "<.lnk or .exe>" }` or
       `{ "kind": "app", "aumid": "<AppUserModelID>" }`. Environment variables in paths are
       expanded. A shortcut to a folder works too (it is shown as a folder).
-    - `"folder"`: `{ "kind": "folder", "path": "<folder>" }`, a folder stack (see Dock items).
+    - `"folder"`: `{ "kind": "folder", "path": "<folder>", "view": "auto" }`, a folder stack (see
+      Dock items). `view` is `"auto"` (default; not written), `"grid"` or `"list"`.
     - `"separator"` (any number) and `"recycleBin"`: need no `path`.
     - `"running"`: where the running apps that are not pinned go (one icon each). **Without a
       `running` item, running apps that are not pinned are not shown**; pinned apps still show
@@ -1128,8 +1156,8 @@ always there, also when every dock is parked) handle these registered messages:
   filtered ones (cursor, caret, child windows) included. 24 = kind of item `lParam` (0 app,
   1 folder, 2 separator, 3 Recycle Bin, 4 clock, 5 weather, 6 script widget; -1 if there is no such item). 25 = 1 if item `lParam`
   has a custom icon from its `icon` key (0 if not, -1 if there is no such item). 22 = 1 while the
-  folder popup is visible. 23 = number of entries (cells) shown in the folder popup (0 when it is
-  hidden). 26 = drop mode while files are dragged over the dock (0 none, 1 insertion marker,
+  folder popup is visible. 23 = number of entries of the folder the popup shows (all of them,
+  scrolled into view or not; 0 when it is hidden). 26 = drop mode while files are dragged over the dock (0 none, 1 insertion marker,
   2 open with the app under the pointer, 3 recycle on the Recycle Bin). 27 = weather state
   (0 none: the widget is off, has no location or has no data yet; 1 stale: cached data, or the
   last refresh failed; 2 fresh; 3 error: the fetch failed and there is no data). 28 = the current
@@ -1183,7 +1211,11 @@ always there, also when every dock is parked) handle these registered messages:
   -1 no such slot). 81 = live frames this dock received. 82 = `PrintWindow` calls of every dock.
   83 = live capture sessions running now. 84 = snapshot rounds this dock started. 85 = the window
   slot `lParam`'s tile shows (0: not a tile). 86 = the HRESULT of the last live capture that could
-  not start (0 none). 26 reports 4
+  not start (0 none). Phase 7, the folder popup: 87 = its layout (0 grid, 1 list; -1 hidden),
+  88 = rows that have a visual (surface) now (a screenful; both ends' rows during an animated
+  scroll), 89 = scroll offset in px, 90 = the selected entry (-1 none), 91 = characters in the
+  path of the folder it shows (grows when navigating into a sub-folder; 0 hidden), 92 = its
+  columns (1 in a list; 0 hidden). 5 counts the popup's scroll / scrollbar timers. 26 reports 4
   while files are dragged over a script widget that takes them (`onDrop`). Per dock: 14 / 36 /
   39 / 40 / 42 and 37 refer to that dock's own config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
@@ -1219,7 +1251,11 @@ always there, also when every dock is parked) handle these registered messages:
   drop-down; then per schema field k `3700 + 10 * k + part`: 0 label, 1 the control (check box,
   edit, drop-down), 2 the check box's caption or the int's up-down, 3 the field's note; 3603 Reset
   to defaults; the page's controls are rebuilt when another item is picked; its title 2000 reads
-  "Widget: <name>"); Dock contents 2613 Settings… on a widget row opens page 10 for it).
+  "Widget: <name>"); Dock contents 2613 Settings… on a widget row opens page 10 for it);
+  phase 7: page 11 Folders and groups (4001 the item drop-down: the edited dock's folder items,
+  shortcuts to folders included; 4003 Show the contents as: 0 Automatic, 1 Grid, 2 List; 4005
+  Choose icon…, 4006 Choose image…, 4007 Reset icon; 4008 the folder's path); Dock contents 2613
+  Settings… on a folder row opens page 11 for it.
   "Add widget ▾" opens a popup menu
   (items 1 Clock, 2 Weather, 3 Running apps, then the installed widgets 100 + n), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
@@ -1235,11 +1271,17 @@ always there, also when every dock is parked) handle these registered messages:
   once), 809 reload a script widget (its package and script; nothing for other slots), 810 what a
   left click on the slot does (activates / minimizes a window slot's window, activates / launches
   an app, opens a folder's or widget's popup; by slot index, so it reaches each window slot of an
-  unstacked app), 900 close all windows),
+  unstacked app), 811 / 812 / 813 a folder's popup layout automatic / grid / list (saved as its
+  `view`), 900 close all windows),
   `lParam` = item index or a window handle of the item. Returns 1 if the item was found. A folder
   popup opened this way usually cannot take the foreground (the dock did not get the click), so
   Escape does not reach it; it still closes when another window comes to the foreground, on a dock
-  click, or with 806 again.
+  click, or with 806 again. On the dock's open folder popup (the low word of `lParam` is the
+  argument, not an item; the dock in the high word as usual): 814 select entry n (scrolled into
+  view), 815 scroll to n px (animated unless reduce motion), 816 open entry n as a left click
+  does (a sub-folder navigates); they return 0 while no popup is open. Keys can be posted to the
+  popup window (`WM_KEYDOWN` arrows / Home / End / Enter / Backspace, `WM_SYSKEYDOWN` Alt+Up,
+  `WM_CHAR` for type-to-select) and `WM_MOUSEWHEEL` scrolls it.
 - Popup windows: the window-preview popup is class `WinDockPreview`, the folder popup
   `WinDockFolder`, the weather popup `WinDockWeather`, the calendar `WinDockCalendar`, a script
   widget's popup `WinDockWidgetPopup`.

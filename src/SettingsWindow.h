@@ -247,6 +247,8 @@ public:
     void WeatherChanged();
     // Settings > Widget settings for item `item` of the edited dock (a `widget` item).
     void ShowWidgetSettings(int item);
+    // Settings > Folders and groups for item `item` of the edited dock (a folder or group item).
+    void ShowItemSettings(int item);
     // A page whose controls depend on the config (the generated widget settings page) builds its
     // table again: posted, so a page may ask from inside its own notification.
     void RequestRebuild(const SettingsPage& page);

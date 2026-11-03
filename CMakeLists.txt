@@ -43,6 +43,7 @@ add_executable(WinDock WIN32
   src/PopupWindow.cpp
   src/PreviewPopup.cpp
   src/FolderPopup.cpp
+  src/ItemGridView.cpp
   src/WeatherPopup.cpp
   src/CalendarPopup.cpp
   src/Weather.cpp
@@ -78,6 +79,7 @@ add_executable(WinDock WIN32
   src/ScriptPopup.cpp
   src/WidgetConsole.cpp
   src/SettingsPagesWidgets.cpp
+  src/SettingsPagesItems.cpp
   src/AudioService.cpp
   src/MediaService.cpp
   src/Thumbnails.cpp

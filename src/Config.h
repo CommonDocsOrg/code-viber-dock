@@ -15,6 +15,10 @@ inline bool IsPinKind(ItemKind k) {
     return k == ItemKind::App || k == ItemKind::Folder || k == ItemKind::Separator || k == ItemKind::RecycleBin;
 }
 
+// How a folder item's popup shows its entries: "auto" (default: a grid up to
+// FolderPopup::kAutoGridMax = 48 entries, a list above), "grid" or "list".
+enum class ItemView { Auto, Grid, List };
+
 // One element of a dock, in dock order. App / folder entries set path (or aumid); the other
 // kinds set neither.
 struct DockItemEntry {
@@ -32,6 +36,8 @@ struct DockItemEntry {
     // built-in) and its settings object, kept as compact JSON text ("" = none: the defaults).
     std::wstring id;
     std::wstring settings;
+    // "folder" items: the popup's layout ("view"; saved only when not auto).
+    ItemView view = ItemView::Auto;
 
     ItemKind Kind() const { return ItemKindOf(kind); }
     bool IsPin() const { return IsPinKind(Kind()); }
@@ -302,6 +308,8 @@ const wchar_t* ToString(TitlesMode v);
 const wchar_t* ToString(TitlesVertical v);
 const wchar_t* ToString(ThumbnailMode v);
 bool FromString(std::wstring_view s, ThumbnailMode& v);
+const wchar_t* ToString(ItemView v);
+bool FromString(std::wstring_view s, ItemView& v);
 bool FromString(std::wstring_view s, WindowsMode& v);
 bool FromString(std::wstring_view s, TitlesMode& v);
 bool FromString(std::wstring_view s, TitlesVertical& v);

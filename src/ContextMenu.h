@@ -53,6 +53,13 @@ enum Command : UINT {
     kChooseImage = 808,         // pins: an open-file dialog for an image / icon file
     kReloadWidget = 809,        // a script widget: reload its package and script (automation)
     kClickSlot = 810,           // a left click on the slot (automation; e.g. activate a window slot)
+    kViewAuto = 811,            // folders: the popup's layout (the item's `view`): auto / grid / list
+    kViewGrid = 812,
+    kViewList = 813,
+    // Automation on the dock's open folder popup (lParam's low word is the argument, not an item):
+    kPopupSelect = 814,         // select entry n (scrolled into view)
+    kPopupScroll = 815,         // scroll to n px (animated unless reduce motion)
+    kPopupOpen = 816,           // open entry n as a left click does
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
@@ -84,12 +91,14 @@ struct ItemMenuState {
     bool canOpenLocation = false;  // path-based items
     bool binEmpty = false;         // the Recycle Bin has nothing in it (Empty is greyed)
     bool hasIcon = false;          // the pin's config entry names an `icon` (Reset icon is greyed otherwise)
+    ItemView view = ItemView::Auto;  // folders: the popup's layout (View submenu)
 };
 
 // Per-item menu, then the dock menu. Apps: the app name (disabled header), Pin/Unpin, the icon
 // entries (pinned apps only), New window (Open when not running), Open file location, one
 // "Close <title>" entry per window (kCloseWindowBase + index), "Close all windows" when there
-// are several. Folders: the name, Unpin, the icon entries, Open in Explorer. Separators: Remove.
+// are several. Folders: the name, Unpin, the icon entries, Open in Explorer, View (Automatic /
+// Grid / List). Separators: Remove.
 // The Recycle Bin: Open, Empty Recycle Bin, Unpin, the icon entries. The icon entries: Choose
 // icon…, Choose image…, Reset icon.
 UINT ShowItemMenu(HWND owner, POINT screenPt, const std::wstring& appName, const std::vector<std::wstring>& windowTitles,

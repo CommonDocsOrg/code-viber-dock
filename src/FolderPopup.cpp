@@ -2,12 +2,15 @@
 
 #include <commctrl.h>
 #include <commoncontrols.h>
+#include <oleidl.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <shlwapi.h>
+#include <shobjidl.h>
+#include <windowsx.h>
 
 #include <algorithm>
 #include <cmath>
-#include <unordered_map>
 
 #include "Theme.h"
 
@@ -22,22 +25,22 @@ constexpr float kButtonH = 24.0f;      // "Open in Explorer"
 constexpr float kButtonPadX = 10.0f;
 constexpr float kCellW = 88.0f;
 constexpr float kCellH = 84.0f;
-constexpr float kIconDip = 40.0f;
-constexpr float kIconTop = 6.0f;       // cell top -> icon
-constexpr float kTextGap = 4.0f;       // icon -> name
-constexpr float kTextPadX = 4.0f;      // cell edge -> name
-constexpr float kLineH = 16.0f;        // name line height (two lines)
-constexpr float kFooterH = 28.0f;      // "+N more"
+constexpr float kListRowH = 36.0f;
+constexpr float kListWidth = 340.0f;
 constexpr float kMessageH = 56.0f;     // "This folder is empty"
 constexpr float kMinWidth = 260.0f;
 constexpr float kMinTitleW = 96.0f;    // the header keeps at least this much room for the name
 constexpr float kCellRadius = 6.0f;
-constexpr float kNameFont = 12.0f;
 constexpr float kTitleFont = 14.0f;
 constexpr float kButtonFont = 12.0f;
 constexpr float kMonitorMargin = 8.0f;
 constexpr size_t kMaxColumns = 6;
+constexpr size_t kMaxGridRows = 8;     // visible; more scroll (6 x 8 = the round-3 maximum of 48)
+constexpr size_t kMaxListRows = 14;
+constexpr size_t kMaxEntries = 20000;  // enumeration cap (a pathological folder)
+constexpr double kScrollSeconds = 0.16;
 constexpr wchar_t kExplorerText[] = L"Open in Explorer";
+constexpr wchar_t kPathSeparator[] = L" \u203A ";  // " › "
 
 LONG Px(float dip, float scale) { return static_cast<LONG>(std::lround(dip * scale)); }
 
@@ -77,7 +80,149 @@ bool SamePath(const std::wstring& a, const std::wstring& b) {
     return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_EQUAL;
 }
 
+// `path` is `dir` or inside it.
+bool IsInside(const std::wstring& path, const std::wstring& dir) {
+    if (SamePath(path, dir)) return true;
+    const std::wstring prefix = dir.empty() || dir.back() == L'\\' ? dir : dir + L'\\';
+    return path.size() > prefix.size() &&
+           CompareStringOrdinal(path.c_str(), static_cast<int>(prefix.size()), prefix.c_str(),
+                                static_cast<int>(prefix.size()), TRUE) == CSTR_EQUAL;
+}
+
+std::wstring VolumeOf(const std::wstring& path) {
+    wchar_t volume[MAX_PATH]{};
+    return GetVolumePathNameW(path.c_str(), volume, MAX_PATH) ? std::wstring(volume) : std::wstring();
+}
+
+// "12.3 KB · 02/11/2026" (folders: the date only).
+std::wstring Secondary(bool folder, ULONGLONG size, const FILETIME& modified) {
+    std::wstring text;
+    if (!folder) {
+        wchar_t buf[64]{};
+        if (SUCCEEDED(StrFormatByteSizeEx(size, SFBS_FLAGS_ROUND_TO_NEAREST_DISPLAYED_DIGIT, buf,
+                                          static_cast<UINT>(std::size(buf))))) {
+            text = buf;
+        }
+    }
+    FILETIME local{};
+    SYSTEMTIME st{};
+    if ((modified.dwHighDateTime || modified.dwLowDateTime) && FileTimeToLocalFileTime(&modified, &local) &&
+        FileTimeToSystemTime(&local, &st)) {
+        wchar_t date[64]{};
+        if (GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &st, nullptr, date, static_cast<int>(std::size(date)),
+                            nullptr) > 0) {
+            if (!text.empty()) text += L"  \u00B7  ";
+            text += date;
+        }
+    }
+    return text;
+}
+
+// The files of a CF_HDROP drag.
+std::vector<std::wstring> FilesOf(IDataObject* data) {
+    std::vector<std::wstring> files;
+    if (!data) return files;
+    FORMATETC fmt{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium{};
+    if (FAILED(data->GetData(&fmt, &medium))) return files;
+    if (HDROP drop = static_cast<HDROP>(GlobalLock(medium.hGlobal))) {
+        const UINT n = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
+        for (UINT i = 0; i < n; ++i) {
+            const UINT len = DragQueryFileW(drop, i, nullptr, 0);
+            std::wstring path(len, L'\0');
+            if (len && DragQueryFileW(drop, i, path.data(), len + 1)) files.push_back(std::move(path));
+        }
+        GlobalUnlock(medium.hGlobal);
+    }
+    ReleaseStgMedium(&medium);
+    return files;
+}
+
+// A move / copy of dropped files, run by IFileOperation on its own STA thread (it may show the
+// shell's progress / conflict UI); the popup is told when it is done.
+struct FileJob {
+    std::vector<std::wstring> files;
+    std::wstring dest;
+    bool move = false;
+    HWND notify = nullptr;
+};
+
+DWORD WINAPI FileJobThread(void* param) {
+    FileJob* job = static_cast<FileJob*>(param);
+    if (SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) {
+        winrt::com_ptr<IFileOperation> op;
+        winrt::com_ptr<IShellItem> dest;
+        if (SUCCEEDED(CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(op.put()))) &&
+            SUCCEEDED(SHCreateItemFromParsingName(job->dest.c_str(), nullptr, IID_PPV_ARGS(dest.put())))) {
+            op->SetOperationFlags(FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR);
+            size_t queued = 0;
+            for (const std::wstring& f : job->files) {
+                winrt::com_ptr<IShellItem> item;
+                if (FAILED(SHCreateItemFromParsingName(f.c_str(), nullptr, IID_PPV_ARGS(item.put())))) continue;
+                const HRESULT hr = job->move ? op->MoveItem(item.get(), dest.get(), nullptr, nullptr)
+                                             : op->CopyItem(item.get(), dest.get(), nullptr, nullptr);
+                if (SUCCEEDED(hr)) ++queued;
+            }
+            if (queued) op->PerformOperations();
+        }
+        op = nullptr;
+        dest = nullptr;
+        CoUninitialize();
+    }
+    if (job->notify && IsWindow(job->notify)) PostMessageW(job->notify, FolderPopup::kDropDoneMessage, 0, 0);
+    delete job;
+    return 0;
+}
+
 }  // namespace
+
+// OLE drop target of the popup window (calls on the UI thread).
+class FolderDropTarget final : public IDropTarget {
+public:
+    explicit FolderDropTarget(FolderPopup* popup) : popup_(popup) {}
+    void Detach() { popup_ = nullptr; }
+
+    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
+        if (!ppv) return E_POINTER;
+        if (riid == __uuidof(IUnknown) || riid == __uuidof(IDropTarget)) {
+            *ppv = static_cast<IDropTarget*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    ULONG STDMETHODCALLTYPE AddRef() override { return static_cast<ULONG>(InterlockedIncrement(&refs_)); }
+    ULONG STDMETHODCALLTYPE Release() override {
+        const LONG n = InterlockedDecrement(&refs_);
+        if (n == 0) delete this;
+        return static_cast<ULONG>(n);
+    }
+    HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* data, DWORD keys, POINTL pt, DWORD* effect) override {
+        if (!effect) return E_INVALIDARG;
+        *effect = popup_ ? popup_->DragEnter(data, POINT{pt.x, pt.y}, keys, *effect) : DROPEFFECT_NONE;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DragOver(DWORD keys, POINTL pt, DWORD* effect) override {
+        if (!effect) return E_INVALIDARG;
+        *effect = popup_ ? popup_->DragOver(POINT{pt.x, pt.y}, keys, *effect) : DROPEFFECT_NONE;
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE DragLeave() override {
+        if (popup_) popup_->DragLeave();
+        return S_OK;
+    }
+    HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD keys, POINTL pt, DWORD* effect) override {
+        if (!effect) return E_INVALIDARG;
+        *effect = popup_ ? popup_->Drop(data, POINT{pt.x, pt.y}, keys, *effect) : DROPEFFECT_NONE;
+        return S_OK;
+    }
+
+private:
+    ~FolderDropTarget() = default;
+    FolderPopup* popup_;
+    LONG refs_ = 1;
+};
 
 void FolderPopup::Init(HINSTANCE instance, Renderer* renderer, IconCache* icons, Callbacks callbacks) {
     PopupWindow::Init(instance, renderer);
@@ -87,28 +232,37 @@ void FolderPopup::Init(HINSTANCE instance, Renderer* renderer, IconCache* icons,
 }
 
 void FolderPopup::Release() {
+    view_.Detach();
+    view_.SetItems({});
     entries_.clear();
     entries_.shrink_to_fit();
+    iconByIndex_.clear();
     root_.clear();
     rootName_.clear();
     current_.clear();
-    total_ = 0;
     readable_ = true;
+    dragFiles_.clear();
+    selectAfterLoad_.clear();
 }
 
 void FolderPopup::OnHidden() { Release(); }
 
 void FolderPopup::OnDestroying() {
+    if (dropTarget_) {
+        if (Window()) RevokeDragDrop(Window());
+        dropTarget_->Detach();
+        dropTarget_->Release();
+        dropTarget_ = nullptr;
+    }
     Release();
-    nameFormat_ = nullptr;
+    viewReady_ = false;
     titleFormat_ = nullptr;
     buttonFormat_ = nullptr;
-    nameEllipsis_ = nullptr;
     titleEllipsis_ = nullptr;
     formatScale_ = 0.0f;
 }
 
-bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, const Style& style,
+bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, ItemView view, const Style& style,
                        const PopupAnchor& anchor) {
     if (folder.empty()) return false;
     style_ = style;
@@ -118,6 +272,7 @@ bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, con
     frame_.cornerRadiusDip = style.cornerRadiusDip;
     frame_.monitor = style.monitor;
     anchor_ = anchor;
+    viewSetting_ = view;
     root_ = Normalize(folder);
     rootName_ = name.empty() ? LastComponent(root_) : name;
     Load(root_);
@@ -131,94 +286,80 @@ bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, con
 void FolderPopup::Load(const std::wstring& folder) {
     current_ = folder;
     entries_.clear();
-    total_ = 0;
+    iconByIndex_.clear();
     readable_ = true;
     ClearHot();
 
-    std::vector<Entry> all;
     WIN32_FIND_DATAW fd{};
     HANDLE find = FindFirstFileExW(Join(folder, L"*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr,
                                    FIND_FIRST_EX_LARGE_FETCH);
     if (find == INVALID_HANDLE_VALUE) {
         readable_ = false;
-        return;
+    } else {
+        do {
+            const wchar_t* n = fd.cFileName;
+            if ((n[0] == L'.' && n[1] == 0) || (n[0] == L'.' && n[1] == L'.' && n[2] == 0)) continue;
+            if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
+            Entry e;
+            e.name = n;
+            e.folder = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
+            e.size = (static_cast<ULONGLONG>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow;
+            e.modified = fd.ftLastWriteTime;
+            entries_.push_back(std::move(e));
+        } while (entries_.size() < kMaxEntries && FindNextFileW(find, &fd));
+        FindClose(find);
     }
-    do {
-        const wchar_t* n = fd.cFileName;
-        if ((n[0] == L'.' && n[1] == 0) || (n[0] == L'.' && n[1] == L'.' && n[2] == 0)) continue;
-        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
-        Entry e;
-        e.name = n;
-        e.folder = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-        all.push_back(std::move(e));
-    } while (FindNextFileW(find, &fd));
-    FindClose(find);
-
     // Folders first, then Explorer's logical order ("file2" before "file10").
-    std::sort(all.begin(), all.end(), [](const Entry& a, const Entry& b) {
+    std::sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) {
         if (a.folder != b.folder) return a.folder;
         return StrCmpLogicalW(a.name.c_str(), b.name.c_str()) < 0;
     });
-    total_ = all.size();
-
-    // As many cells as fit: columns min(6, ceil(sqrt(n))) within the monitor's width (beside a
-    // vertical dock: the room on its side), rows within the room above the dock (below a top dock,
-    // the monitor's height beside a vertical one); the rest goes into "+N more".
-    const float s = style_.scale;
-    const RECT& m = style_.monitor;
-    const LONG pad = Px(kPad, s), cellW = Px(kCellW, s), cellH = Px(kCellH, s), margin = Px(kMonitorMargin, s);
-    LONG roomW = (m.right - m.left) - 2 * margin;
-    LONG roomH = (anchor_.side - m.top) - margin;
-    switch (anchor_.edge) {
-        case DockEdge::Top: roomH = (m.bottom - anchor_.side) - margin; break;
-        case DockEdge::Left:
-            roomW = (m.right - anchor_.side) - margin;
-            roomH = (m.bottom - m.top) - 2 * margin;
-            break;
-        case DockEdge::Right:
-            roomW = (anchor_.side - m.left) - margin;
-            roomH = (m.bottom - m.top) - 2 * margin;
-            break;
-        case DockEdge::Bottom:
-        default: break;
-    }
-    const LONG availW = roomW - 2 * pad;
-    const LONG availH = roomH - 2 * pad - Px(kHeaderH + kHeaderGap + kFooterH, s);
-    const size_t maxColumns = static_cast<size_t>(std::max<LONG>(1, availW / std::max<LONG>(1, cellW)));
-    const size_t maxRows = static_cast<size_t>(std::max<LONG>(1, availH / std::max<LONG>(1, cellH)));
-    size_t n = std::min(total_, kMaxEntries);
-    columns_ = std::max<size_t>(
-        1, std::min({kMaxColumns, static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(n)))), maxColumns}));
-    n = std::min(n, columns_ * maxRows);
-    all.resize(n);
-
-    // Display names and icons (the system image list; one bitmap per distinct icon).
-    winrt::com_ptr<IImageList> images;
-    if (FAILED(SHGetImageList(SHIL_EXTRALARGE, IID_PPV_ARGS(images.put())))) images = nullptr;
-    ID2D1DeviceContext* dc = Render() ? Render()->ResourceContext() : nullptr;
-    std::unordered_map<int, winrt::com_ptr<ID2D1Bitmap>> byIndex;
-    for (Entry& e : all) {
+    const bool list = viewSetting_ == ItemView::List || (viewSetting_ == ItemView::Auto && entries_.size() > kAutoGridMax);
+    std::vector<GridItem> items;
+    items.reserve(entries_.size());
+    for (size_t i = 0; i < entries_.size(); ++i) {
+        Entry& e = entries_[i];
         e.path = Join(folder, e.name);
-        SHFILEINFOW sfi{};
-        if (SHGetFileInfoW(e.path.c_str(), 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_DISPLAYNAME)) {
-            e.label = sfi.szDisplayName;
-            if (images && dc && icons_) {
-                auto it = byIndex.find(sfi.iIcon);
-                if (it == byIndex.end()) {
-                    winrt::com_ptr<ID2D1Bitmap> bitmap;
-                    HICON icon = nullptr;
-                    if (SUCCEEDED(images->GetIcon(sfi.iIcon, ILD_TRANSPARENT, &icon)) && icon) {
-                        bitmap = icons_->FromHicon(icon, dc);
-                        DestroyIcon(icon);
-                    }
-                    it = byIndex.emplace(sfi.iIcon, std::move(bitmap)).first;
-                }
-                e.icon = it->second;
+        GridItem item;
+        item.label = e.name;  // the shell's display name replaces it when the row is drawn
+        item.id = i;
+        item.flags = e.folder ? 1u : 0u;
+        if (list) item.secondary = Secondary(e.folder, e.size, e.modified);
+        items.push_back(std::move(item));
+    }
+    view_.SetItems(std::move(items));
+    view_.SetMode(list ? ItemGridView::Mode::List : ItemGridView::Mode::Grid);
+    pendingSelect_ = -1;
+    if (!selectAfterLoad_.empty()) {
+        // Back from a sub-folder: it is selected and scrolled into view (Measure).
+        for (size_t i = 0; i < entries_.size(); ++i) {
+            if (SamePath(entries_[i].path, selectAfterLoad_)) pendingSelect_ = static_cast<int>(i);
+        }
+        selectAfterLoad_.clear();
+    }
+}
+
+void FolderPopup::ResolveItem(size_t index, GridItem& item) {
+    if (index >= entries_.size()) return;
+    const Entry& e = entries_[index];
+    SHFILEINFOW sfi{};
+    if (!SHGetFileInfoW(e.path.c_str(), 0, &sfi, sizeof(sfi), SHGFI_SYSICONINDEX | SHGFI_DISPLAYNAME)) return;
+    if (sfi.szDisplayName[0]) item.label = sfi.szDisplayName;
+    auto it = iconByIndex_.find(sfi.iIcon);
+    if (it == iconByIndex_.end()) {
+        winrt::com_ptr<ID2D1Bitmap> bitmap;
+        winrt::com_ptr<IImageList> images;
+        ID2D1DeviceContext* dc = Render() ? Render()->ResourceContext() : nullptr;
+        if (dc && icons_ && SUCCEEDED(SHGetImageList(SHIL_EXTRALARGE, IID_PPV_ARGS(images.put())))) {
+            HICON icon = nullptr;
+            if (SUCCEEDED(images->GetIcon(sfi.iIcon, ILD_TRANSPARENT, &icon)) && icon) {
+                bitmap = icons_->FromHicon(icon, dc);
+                DestroyIcon(icon);
             }
         }
-        if (e.label.empty()) e.label = e.name;
+        it = iconByIndex_.emplace(sfi.iIcon, std::move(bitmap)).first;
     }
-    entries_ = std::move(all);
+    item.icon = it->second;
 }
 
 void FolderPopup::Navigate(const std::wstring& folder) {
@@ -230,11 +371,45 @@ void FolderPopup::Navigate(const std::wstring& folder) {
 void FolderPopup::GoBack() {
     if (current_.empty() || SamePath(current_, root_)) return;
     const std::wstring parent = Parent(current_);
-    Navigate(parent.empty() ? root_ : parent);
+    selectAfterLoad_ = current_;
+    Navigate(parent.empty() || !IsInside(parent, root_) ? root_ : parent);
 }
 
-std::wstring FolderPopup::Title() const {
-    return SamePath(current_, root_) ? rootName_ : LastComponent(current_);
+std::wstring FolderPopup::Title(float maxWidth) const {
+    if (SamePath(current_, root_) || !IsInside(current_, root_)) return SamePath(current_, root_) ? rootName_ : LastComponent(current_);
+    // The pinned folder's name, then the path below it.
+    std::vector<std::wstring> parts{rootName_};
+    std::wstring rest = current_.substr(std::min(current_.size(), root_.size()));
+    size_t start = 0;
+    while (start < rest.size()) {
+        const size_t slash = rest.find_first_of(L"\\/", start);
+        const std::wstring part = rest.substr(start, slash == std::wstring::npos ? std::wstring::npos : slash - start);
+        if (!part.empty()) parts.push_back(part);
+        if (slash == std::wstring::npos) break;
+        start = slash + 1;
+    }
+    IDWriteFactory* dw = Render() ? Render()->DWrite() : nullptr;
+    auto build = [&](size_t from) {
+        std::wstring text = from > 0 ? std::wstring(L"\u2026") + kPathSeparator : std::wstring();
+        for (size_t i = from; i < parts.size(); ++i) {
+            if (i > from) text += kPathSeparator;
+            text += parts[i];
+        }
+        return text;
+    };
+    // Leading parts give way to "…" until the rest fits (the last one is ellipsized if it must).
+    for (size_t from = 0; from + 1 < parts.size(); ++from) {
+        const std::wstring text = build(from);
+        winrt::com_ptr<IDWriteTextLayout> layout;
+        DWRITE_TEXT_METRICS tm{};
+        if (!dw || !titleFormat_ ||
+            FAILED(dw->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), titleFormat_.get(), 10000.0f,
+                                        100.0f, layout.put())) ||
+            FAILED(layout->GetMetrics(&tm)) || tm.widthIncludingTrailingWhitespace <= maxWidth) {
+            return text;
+        }
+    }
+    return build(parts.size() - 1);
 }
 
 void FolderPopup::Open(std::wstring path, bool explorer) {
@@ -257,26 +432,64 @@ void FolderPopup::Open(std::wstring path, bool explorer) {
     MessageBeep(MB_ICONWARNING);
 }
 
+void FolderPopup::Activate(size_t index, ItemGridView::Button button) {
+    if (index >= entries_.size()) return;
+    const Entry e = entries_[index];  // a copy: Navigate replaces the entries
+    if (e.folder && button == ItemGridView::Button::Left) {
+        Navigate(e.path);
+        return;
+    }
+    // A file (left or middle click), or a sub-folder with the middle button (Explorer).
+    Open(e.path, e.folder);
+}
+
+void FolderPopup::ContextMenu(int index, POINT screen) {
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+    constexpr UINT kOpen = 1, kExplorer = 2, kShowIn = 3;
+    const bool entry = index >= 0 && static_cast<size_t>(index) < entries_.size();
+    if (entry) {
+        AppendMenuW(menu, MF_STRING, kOpen, L"Open");
+        if (entries_[static_cast<size_t>(index)].folder) {
+            AppendMenuW(menu, MF_STRING, kExplorer, L"Open in Explorer");
+        } else {
+            AppendMenuW(menu, MF_STRING, kShowIn, L"Show in Explorer");
+        }
+        SetMenuDefaultItem(menu, kOpen, FALSE);
+    } else {
+        AppendMenuW(menu, MF_STRING, kExplorer, kExplorerText);
+    }
+    const UINT cmd = static_cast<UINT>(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON,
+                                                        screen.x, screen.y, Window(), nullptr));
+    DestroyMenu(menu);
+    if (!OnScreen()) return;
+    const std::wstring path = entry ? entries_[static_cast<size_t>(index)].path : current_;
+    switch (cmd) {
+        case kOpen:
+            Activate(static_cast<size_t>(index), ItemGridView::Button::Left);
+            break;
+        case kExplorer:
+            Open(path, true);
+            break;
+        case kShowIn: {
+            if (callbacks_.dismiss) callbacks_.dismiss();
+            const std::wstring args = L"/select,\"" + path + L"\"";
+            AllowSetForegroundWindow(ASFW_ANY);
+            ShellExecuteW(nullptr, nullptr, L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+            break;
+        }
+        default:
+            break;
+    }
+}
+
 void FolderPopup::EnsureFormats() {
     IDWriteFactory* dw = Render() ? Render()->DWrite() : nullptr;
     const float s = style_.scale;
-    if (!dw || (nameFormat_ && formatScale_ == s)) return;
-    nameFormat_ = titleFormat_ = buttonFormat_ = nullptr;
-    nameEllipsis_ = titleEllipsis_ = nullptr;
+    if (!dw || (titleFormat_ && formatScale_ == s)) return;
+    titleFormat_ = buttonFormat_ = nullptr;
+    titleEllipsis_ = nullptr;
     const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
-    if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                                       DWRITE_FONT_STRETCH_NORMAL, kNameFont * s, L"", nameFormat_.put()))) {
-        nameFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-        nameFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
-        nameFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
-        // Fixed line height: exactly two lines fit the name box; the second one is ellipsized.
-        nameFormat_->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, kLineH * s, 13.0f * s);
-        if (SUCCEEDED(dw->CreateEllipsisTrimmingSign(nameFormat_.get(), nameEllipsis_.put()))) {
-            nameFormat_->SetTrimming(&trimming, nameEllipsis_.get());
-        }
-    } else {
-        nameFormat_ = nullptr;
-    }
     if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
                                        DWRITE_FONT_STRETCH_NORMAL, kTitleFont * s, L"", titleFormat_.put()))) {
         titleFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -306,23 +519,89 @@ void FolderPopup::EnsureFormats() {
     formatScale_ = s;
 }
 
+ItemGridView::Style FolderPopup::ViewStyle() const {
+    ItemGridView::Style v;
+    v.scale = style_.scale;
+    v.text = style_.text;
+    v.secondary = style_.secondary;
+    v.hotBackground = style_.hotBackground;
+    v.hotBorder = style_.hotBorder;
+    v.accent = style_.accent;
+    v.scrollbar = (style_.text & 0x00FFFFFF) | 0x80000000;
+    v.cellW = kCellW;
+    v.cellH = kCellH;
+    v.rowH = kListRowH;
+    v.scrollSeconds = kScrollSeconds;
+    v.reduceMotion = style_.reduceMotion;
+    return v;
+}
+
 SIZE FolderPopup::Measure() {
     EnsureFormats();
-    IDWriteFactory* dw = Render() ? Render()->DWrite() : nullptr;
+    RegisterDrop();
+    if (!viewReady_ && Window()) {
+        view_.Init(Render(), Window(), kViewTimerBase,
+                   ItemGridView::Callbacks{
+                       [this](size_t i, GridItem& item) { ResolveItem(i, item); },
+                       [this](size_t i, ItemGridView::Button b) { Activate(i, b); },
+                       [this](int i, POINT screen) { ContextMenu(i, screen); },
+                       nullptr,
+                   });
+        viewReady_ = true;
+    }
+    if (!view_.Attached()) view_.Attach(ContentLayer());
+    view_.SetStyle(ViewStyle());
+
     const float s = style_.scale;
     const LONG pad = Px(kPad, s), headerH = Px(kHeaderH, s), cellW = Px(kCellW, s), cellH = Px(kCellH, s);
+    const LONG rowH = Px(kListRowH, s);
     const LONG buttonW = static_cast<LONG>(std::ceil(explorerTextW_)) + 2 * Px(kButtonPadX, s);
-    const LONG buttonH = Px(kButtonH, s), back = Px(kBackSize, s);
+    const LONG buttonH = Px(kButtonH, s), back = Px(kBackSize, s), margin = Px(kMonitorMargin, s);
     const bool navigated = !SamePath(current_, root_);
+    const bool list = view_.GetMode() == ItemGridView::Mode::List;
     const size_t n = entries_.size();
-    const size_t cols = n ? std::min(columns_, n) : 1;
-    const size_t rows = n ? (n + cols - 1) / cols : 0;
-    const LONG gridW = n ? static_cast<LONG>(cols) * cellW : 0;
 
-    LONG w = std::max({2 * pad + gridW, Px(kMinWidth, s),
-                       2 * pad + (navigated ? back : 0) + Px(kMinTitleW, s) + buttonW + Px(8.0f, s)});
+    // The room beside the dock: above a bottom dock (below a top one), the monitor's height beside
+    // a vertical one; the width the monitor's (beside a vertical dock: the room on its side).
     const RECT& m = style_.monitor;
-    w = std::min<LONG>(w, std::max<LONG>(Px(kMinWidth, s), (m.right - m.left) - 2 * Px(kMonitorMargin, s)));
+    LONG roomW = (m.right - m.left) - 2 * margin;
+    LONG roomH = (anchor_.side - m.top) - margin;
+    switch (anchor_.edge) {
+        case DockEdge::Top: roomH = (m.bottom - anchor_.side) - margin; break;
+        case DockEdge::Left:
+            roomW = (m.right - anchor_.side) - margin;
+            roomH = (m.bottom - m.top) - 2 * margin;
+            break;
+        case DockEdge::Right:
+            roomW = (anchor_.side - m.left) - margin;
+            roomH = (m.bottom - m.top) - 2 * margin;
+            break;
+        case DockEdge::Bottom:
+        default: break;
+    }
+    const LONG availW = roomW - 2 * pad;
+    const LONG availH = roomH - 2 * pad - Px(kHeaderH + kHeaderGap, s);
+
+    LONG contentW = 0;
+    size_t visibleRows = 0;
+    if (n > 0 && !list) {
+        // Columns min(6, ceil(sqrt(n))) within the room; rows up to 8 (and the room), then it scrolls.
+        const size_t maxColumns = static_cast<size_t>(std::max<LONG>(1, availW / std::max<LONG>(1, cellW)));
+        const size_t cols = std::max<size_t>(
+            1, std::min({kMaxColumns, static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(n)))), maxColumns, n}));
+        const size_t maxRows = static_cast<size_t>(std::max<LONG>(1, availH / std::max<LONG>(1, cellH)));
+        view_.SetColumns(cols);
+        visibleRows = std::min({(n + cols - 1) / cols, maxRows, kMaxGridRows});
+        contentW = static_cast<LONG>(cols) * cellW;
+    } else if (n > 0) {
+        const size_t maxRows = static_cast<size_t>(std::max<LONG>(1, availH / std::max<LONG>(1, rowH)));
+        visibleRows = std::min({n, maxRows, kMaxListRows});
+        contentW = std::min(Px(kListWidth, s) - 2 * pad, availW);
+    }
+
+    LONG w = std::max({2 * pad + contentW, Px(kMinWidth, s),
+                       2 * pad + (navigated ? back : 0) + Px(kMinTitleW, s) + buttonW + Px(8.0f, s)});
+    w = std::min<LONG>(w, std::max<LONG>(Px(kMinWidth, s), (m.right - m.left) - 2 * margin));
 
     LONG y = pad;
     headerRect_ = RECT{pad, y, w - pad, y + headerH};
@@ -332,34 +611,26 @@ SIZE FolderPopup::Measure() {
 
     if (n == 0) {
         messageRect_ = RECT{pad, y, w - pad, y + Px(kMessageH, s)};
+        viewRect_ = RECT{};
         y = messageRect_.bottom;
     } else {
         messageRect_ = RECT{};
-        const LONG left = (w - gridW) / 2;
-        const float textW = static_cast<float>(cellW - 2 * Px(kTextPadX, s));
-        const float textH = std::round(2.0f * kLineH * s);
-        for (size_t i = 0; i < n; ++i) {
-            Entry& e = entries_[i];
-            const LONG x = left + static_cast<LONG>(i % cols) * cellW;
-            const LONG top = y + static_cast<LONG>(i / cols) * cellH;
-            e.rect = RECT{x, top, x + cellW, top + cellH};
-            if (!e.text && dw && nameFormat_) {
-                if (FAILED(dw->CreateTextLayout(e.label.c_str(), static_cast<UINT32>(e.label.size()), nameFormat_.get(),
-                                                textW, textH, e.text.put()))) {
-                    e.text = nullptr;
-                }
-            }
-        }
-        y += static_cast<LONG>(rows) * cellH;
-    }
-    if (total_ > n && readable_) {
-        moreRect_ = RECT{pad, y, w - pad, y + Px(kFooterH, s)};
-        y = moreRect_.bottom;
-    } else {
-        moreRect_ = RECT{};
+        const LONG h = static_cast<LONG>(visibleRows) * (list ? rowH : cellH);
+        viewRect_ = RECT{pad, y, w - pad, y + h};
+        y = viewRect_.bottom;
     }
     y += pad;
-    if (Hot() >= 0 && Hot() < kHitBack && static_cast<size_t>(Hot()) >= n) ClearHot();
+    view_.SetBounds(viewRect_);
+    view_.Refresh();
+    if (pendingSelect_ >= 0) {
+        const int sel = pendingSelect_;
+        pendingSelect_ = -1;
+        const RECT r = view_.ItemRect(static_cast<size_t>(sel));
+        const LONG viewH = viewRect_.bottom - viewRect_.top;
+        view_.ScrollTo(static_cast<float>(r.top - viewRect_.top - (viewH - (r.bottom - r.top)) / 2), false);
+        view_.Select(sel, false);
+    }
+    if (Hot() >= 0 && Hot() < kHitBack) ClearHot();
     return SIZE{w, y};
 }
 
@@ -386,7 +657,7 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
         dc->DrawRoundedRectangle(D2D1::RoundedRect(edge, radius - inset, radius - inset), brush.get(), stroke);
     };
 
-    // Header: back glyph, title, "Open in Explorer".
+    // Header: back glyph, title (the path below the pinned folder), "Open in Explorer".
     if (!Empty(backRect_)) {
         if (hot == kHitBack) hotBox(backRect_, 1.0f, true);
         const D2D1_RECT_F b = ToRectF(backRect_);
@@ -398,13 +669,13 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
         dc->DrawLine(D2D1::Point2F(cx + g / 2.0f, cy - g), D2D1::Point2F(cx - g / 2.0f, cy), brush.get(), glyphStroke);
         dc->DrawLine(D2D1::Point2F(cx - g / 2.0f, cy), D2D1::Point2F(cx + g / 2.0f, cy + g), brush.get(), glyphStroke);
     }
-    const std::wstring title = Title();
-    if (dw && titleFormat_ && !title.empty()) {
+    {
         const float left = static_cast<float>(Empty(backRect_) ? headerRect_.left + Px(4.0f, s)
                                                                : backRect_.right + Px(6.0f, s));
         const float right = static_cast<float>(explorerRect_.left - Px(8.0f, s));
+        const std::wstring title = Title(right - left);
         winrt::com_ptr<IDWriteTextLayout> layout;
-        if (right > left &&
+        if (dw && titleFormat_ && !title.empty() && right > left &&
             SUCCEEDED(dw->CreateTextLayout(title.c_str(), static_cast<UINT32>(title.size()), titleFormat_.get(),
                                            right - left, static_cast<float>(headerRect_.bottom - headerRect_.top),
                                            layout.put()))) {
@@ -426,39 +697,11 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
         dc->DrawLine(D2D1::Point2F(static_cast<float>(headerRect_.left), y),
                      D2D1::Point2F(static_cast<float>(headerRect_.right), y), brush.get(), stroke);
     }
-
-    // Cells.
-    const float iconPx = std::round(kIconDip * s);
-    for (size_t i = 0; i < entries_.size(); ++i) {
-        const Entry& e = entries_[i];
-        const bool isHot = static_cast<int>(i) == hot;
-        if (isHot) hotBox(e.rect, 1.0f, true);
-        const D2D1_RECT_F cell = ToRectF(e.rect);
-        const float ix = std::round((cell.left + cell.right - iconPx) / 2.0f);
-        const float iy = cell.top + std::round(kIconTop * s);
-        if (e.icon) {
-            const D2D1_RECT_F dst = D2D1::RectF(ix, iy, ix + iconPx, iy + iconPx);
-            dc->DrawBitmap(e.icon.get(), &dst, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
-        }
-        if (e.text) {
-            brush->SetColor(Theme::ToColor(style_.text, isHot ? 1.0f : 0.9f));
-            dc->DrawTextLayout(D2D1::Point2F(cell.left + std::round(kTextPadX * s),
-                                             iy + iconPx + std::round(kTextGap * s)),
-                               e.text.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
-        }
-    }
-
+    // The entries are the view's own layers, in front of this surface.
     if (!Empty(messageRect_) && buttonFormat_) {
         const wchar_t* text = readable_ ? L"This folder is empty" : L"Cannot open this folder";
         brush->SetColor(Theme::ToColor(style_.text, 0.6f));
         dc->DrawText(text, static_cast<UINT32>(wcslen(text)), buttonFormat_.get(), ToRectF(messageRect_), brush.get());
-    }
-    if (!Empty(moreRect_) && buttonFormat_) {
-        if (hot == kHitMore) hotBox(moreRect_, 1.0f, true);
-        const std::wstring more = L"+" + std::to_wstring(total_ - entries_.size()) + L" more";
-        brush->SetColor(Theme::ToColor(style_.text, hot == kHitMore ? 1.0f : 0.75f));
-        dc->DrawText(more.c_str(), static_cast<UINT32>(more.size()), buttonFormat_.get(), ToRectF(moreRect_),
-                     brush.get());
     }
 }
 
@@ -466,11 +709,7 @@ int FolderPopup::HitAt(POINT pt, int* part) const {
     if (part) *part = 0;
     if (!Empty(backRect_) && PtInRect(&backRect_, pt)) return kHitBack;
     if (PtInRect(&explorerRect_, pt)) return kHitExplorer;
-    if (!Empty(moreRect_) && PtInRect(&moreRect_, pt)) return kHitMore;
-    for (size_t i = 0; i < entries_.size(); ++i) {
-        if (PtInRect(&entries_[i].rect, pt)) return static_cast<int>(i);
-    }
-    return -1;
+    return -1;  // the entries are the view's
 }
 
 void FolderPopup::OnClick(int index, int, Button button) {
@@ -480,27 +719,191 @@ void FolderPopup::OnClick(int index, int, Button button) {
             if (button == Button::Left) GoBack();
             return;
         case kHitExplorer:
-        case kHitMore:
             Open(current_, true);
             return;
         default:
-            break;
+            return;
     }
-    if (index < 0 || static_cast<size_t>(index) >= entries_.size()) return;
-    const Entry& e = entries_[static_cast<size_t>(index)];
-    if (e.folder && button == Button::Left) {
-        Navigate(std::wstring(e.path));  // a copy: Load replaces the entries
-        return;
-    }
-    // A file (left or middle click), or a sub-folder with the middle button (Explorer).
-    Open(e.path, e.folder);
 }
 
-bool FolderPopup::OnMessage(UINT msg, WPARAM wp, LPARAM, LRESULT& result) {
-    if (msg == WM_KEYDOWN && wp == VK_BACK) {
-        GoBack();
-        result = 0;
-        return true;
+bool FolderPopup::SelectEntry(int index) {
+    if (!OnScreen() || index < 0 || static_cast<size_t>(index) >= entries_.size()) return false;
+    view_.Select(index, true);
+    return true;
+}
+
+bool FolderPopup::ScrollTo(int px) {
+    if (!OnScreen()) return false;
+    view_.ScrollTo(static_cast<float>(px), true);
+    return true;
+}
+
+bool FolderPopup::OpenEntry(int index) {
+    if (!OnScreen() || index < 0 || static_cast<size_t>(index) >= entries_.size()) return false;
+    Activate(static_cast<size_t>(index), ItemGridView::Button::Left);
+    return true;
+}
+
+bool FolderPopup::OnMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
+    const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+    result = 0;
+    switch (msg) {
+        case WM_KEYDOWN:
+            if (wp == VK_BACK) {
+                GoBack();
+                return true;
+            }
+            return view_.KeyDown(static_cast<UINT>(wp));
+        case WM_SYSKEYDOWN:
+            if (wp == VK_UP) {  // Alt+Up
+                GoBack();
+                return true;
+            }
+            if (wp == VK_F10 && GetKeyState(VK_SHIFT) < 0) return view_.KeyDown(VK_F10);
+            return false;
+        case WM_CHAR:
+            return view_.Char(static_cast<wchar_t>(wp));
+        case WM_MOUSEMOVE:
+            view_.MouseMove(pt);
+            return false;  // the base tracks the header's hot button and the leave
+        case WM_MOUSELEAVE:
+            view_.MouseLeave();
+            return false;
+        case WM_LBUTTONDOWN:
+            return view_.ButtonDown(ItemGridView::Button::Left, pt);
+        case WM_LBUTTONUP:
+            return view_.ButtonUp(ItemGridView::Button::Left, pt);
+        case WM_MBUTTONDOWN:
+            return view_.ButtonDown(ItemGridView::Button::Middle, pt);
+        case WM_MBUTTONUP:
+            return view_.ButtonUp(ItemGridView::Button::Middle, pt);
+        case WM_RBUTTONDOWN:
+            return view_.ButtonDown(ItemGridView::Button::Right, pt);
+        case WM_RBUTTONUP:
+            return view_.ButtonUp(ItemGridView::Button::Right, pt);
+        case WM_MOUSEWHEEL: {
+            POINT client = pt;  // screen coordinates
+            if (Window()) ScreenToClient(Window(), &client);
+            view_.Wheel(GET_WHEEL_DELTA_WPARAM(wp), client);
+            return true;
+        }
+        case WM_CAPTURECHANGED:
+            view_.CaptureLost();
+            return false;
+        case WM_TIMER:
+            return view_.Timer(wp);
+        case kDropDoneMessage:
+            // A drop's files arrived: show them (the folder shown, same anchor).
+            if (OnScreen() && !current_.empty()) {
+                const LONG scroll = view_.ScrollOffset();
+                Load(std::wstring(current_));
+                if (ShowAt(frame_, anchor_)) view_.ScrollTo(static_cast<float>(scroll), false);
+            }
+            return true;
+        default:
+            return false;
     }
-    return false;
+}
+
+// --- File drops ------------------------------------------------------------------------------------
+
+void FolderPopup::RegisterDrop() {
+    if (dropTarget_ || !Window()) return;
+    dropTarget_ = new FolderDropTarget(this);
+    if (FAILED(RegisterDragDrop(Window(), dropTarget_))) {
+        dropTarget_->Detach();
+        dropTarget_->Release();
+        dropTarget_ = nullptr;
+    }
+}
+
+std::wstring FolderPopup::DropFolderAt(POINT screen, int* entry) const {
+    if (entry) *entry = -1;
+    POINT client = screen;
+    if (Window()) ScreenToClient(Window(), &client);
+    const int i = view_.HitTest(client);
+    if (i >= 0 && static_cast<size_t>(i) < entries_.size() && entries_[static_cast<size_t>(i)].folder) {
+        const std::wstring& dest = entries_[static_cast<size_t>(i)].path;
+        // Not into one of the dragged folders itself.
+        const bool self = std::any_of(dragFiles_.begin(), dragFiles_.end(), [&](const std::wstring& f) { return IsInside(dest, f); });
+        if (!self) {
+            if (entry) *entry = i;
+            return dest;
+        }
+    }
+    return current_;
+}
+
+DWORD FolderPopup::EffectFor(const std::wstring& dest, DWORD keys, DWORD allowed) const {
+    if (dragFiles_.empty() || dest.empty() || !readable_) return DROPEFFECT_NONE;
+    // Nothing to do: every file is already there (a move), or a folder into itself.
+    const bool intoSelf =
+        std::any_of(dragFiles_.begin(), dragFiles_.end(), [&](const std::wstring& f) { return IsInside(dest, f); });
+    if (intoSelf) return DROPEFFECT_NONE;
+    DWORD effect = 0;
+    if (keys & MK_CONTROL) {
+        effect = DROPEFFECT_COPY;
+    } else if (keys & MK_SHIFT) {
+        effect = DROPEFFECT_MOVE;
+    } else {
+        // Explorer's default: a move on the same volume, a copy across volumes.
+        const std::wstring volume = VolumeOf(dest);
+        const bool same = !volume.empty() && std::all_of(dragFiles_.begin(), dragFiles_.end(), [&](const std::wstring& f) {
+            return SamePath(VolumeOf(f), volume);
+        });
+        effect = same ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+    }
+    if (effect == DROPEFFECT_MOVE) {
+        const bool already = std::all_of(dragFiles_.begin(), dragFiles_.end(), [&](const std::wstring& f) {
+            return SamePath(Parent(f), dest);
+        });
+        if (already) return DROPEFFECT_NONE;
+    }
+    if (!(allowed & effect)) effect = (allowed & DROPEFFECT_COPY) ? DROPEFFECT_COPY : (allowed & DROPEFFECT_MOVE);
+    return effect;
+}
+
+DWORD FolderPopup::DragEnter(IDataObject* data, POINT screen, DWORD keys, DWORD allowed) {
+    dragFiles_ = Visible() ? FilesOf(data) : std::vector<std::wstring>{};
+    return DragOver(screen, keys, allowed);
+}
+
+DWORD FolderPopup::DragOver(POINT screen, DWORD keys, DWORD allowed) {
+    if (dragFiles_.empty() || !Visible()) return DROPEFFECT_NONE;
+    int entry = -1;
+    const std::wstring dest = DropFolderAt(screen, &entry);
+    const DWORD effect = EffectFor(dest, keys, allowed);
+    view_.SetDropHighlight(effect != DROPEFFECT_NONE ? entry : -1);
+    return effect;
+}
+
+void FolderPopup::DragLeave() {
+    dragFiles_.clear();
+    view_.SetDropHighlight(-1);
+}
+
+DWORD FolderPopup::Drop(IDataObject* data, POINT screen, DWORD keys, DWORD allowed) {
+    dragFiles_ = Visible() ? FilesOf(data) : std::vector<std::wstring>{};
+    int entry = -1;
+    const std::wstring dest = DropFolderAt(screen, &entry);
+    const DWORD effect = EffectFor(dest, keys, allowed);
+    view_.SetDropHighlight(-1);
+    if (effect == DROPEFFECT_NONE) {
+        dragFiles_.clear();
+        return DROPEFFECT_NONE;
+    }
+    // Done by us (also a move): the source is told "copied", so it never deletes anything itself.
+    FileJob* job = new FileJob{std::move(dragFiles_), dest, effect == DROPEFFECT_MOVE, Window()};
+    dragFiles_.clear();
+    if (job->move) {
+        std::erase_if(job->files, [&](const std::wstring& f) { return SamePath(Parent(f), dest); });
+    }
+    if (HANDLE thread = CreateThread(nullptr, 0, &FileJobThread, job, 0, nullptr)) {
+        CloseHandle(thread);
+    } else {
+        delete job;
+        MessageBeep(MB_ICONWARNING);
+        return DROPEFFECT_NONE;
+    }
+    return DROPEFFECT_COPY & allowed ? DROPEFFECT_COPY : effect;
 }

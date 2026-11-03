@@ -290,6 +290,24 @@ bool App::SetPinIcon(DockWindow& dock, const AppKey& key, const std::wstring& ic
     return true;
 }
 
+void App::SetItemView(DockWindow& dock, const AppKey& key, ItemView view) {
+    const auto& pins = dock.Pins();  // parallel to the pin items of the dock's config
+    DockConfig& dc = config_.docks[dock.ConfigIndex()];
+    const std::vector<size_t> idx = dc.PinIndexes();
+    bool changed = false;
+    for (size_t i = 0; i < pins.size() && i < idx.size(); ++i) {
+        if (pins[i].key != key || pins[i].kind != AppIdentity::PinKind::Folder) continue;
+        DockItemEntry& e = dc.items[idx[i]];
+        if (e.view == view) continue;
+        e.view = view;
+        changed = true;
+    }
+    if (!changed) return;
+    ReloadPins(dock.ConfigIndex());
+    RequestSave();
+    RefreshSettings();
+}
+
 void App::ChooseItemIcon(DockWindow& dock, UINT cmd, const AppKey& key) {
     std::wstring file, image;  // copied: the pins are rebuilt while the dialog is open
     int index = 0;
@@ -457,6 +475,11 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
         case ContextMenu::kResetIcon:
             SetPinIcon(dock, key, {});
             return;
+        case ContextMenu::kViewAuto:
+        case ContextMenu::kViewGrid:
+        case ContextMenu::kViewList:
+            SetItemView(dock, key, static_cast<ItemView>(cmd - ContextMenu::kViewAuto));
+            return;
         case ContextMenu::kReloadWidget:
             dock.ReloadWidget(IndexOfKey(dock, key));
             return;
@@ -610,7 +633,9 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
         const DockConfig& dc = config_.docks[cfg];
         const std::vector<size_t> idx = dc.PinIndexes();
         for (size_t i = 0; i < pins.size() && i < idx.size(); ++i) {
-            if (pins[i].key == key && !dc.items[idx[i]].icon.empty()) itemState.hasIcon = true;
+            if (pins[i].key != key) continue;
+            if (!dc.items[idx[i]].icon.empty()) itemState.hasIcon = true;
+            itemState.view = dc.items[idx[i]].view;
         }
     }
     itemState.canPin = !key.IsClassFallback();
@@ -1066,6 +1091,20 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         const bool known = inst && cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand;
         result = known ? 1 : 0;
         if (known) OnCommand(cmd, inst->cfg, inst->window.get());  // after setting result: kQuit closes the docks
+        return true;
+    }
+    if (msg == msgItemCommand_ && wp >= ContextMenu::kPopupSelect && wp <= ContextMenu::kPopupOpen) {
+        // The dock's open folder popup; the low word of lParam is the entry / offset.
+        DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+        const int arg = static_cast<int>(ArgOfParam(lp));
+        bool ok = false;
+        if (dock) {
+            FolderPopup& popup = dock->Folder();
+            ok = wp == ContextMenu::kPopupSelect   ? popup.SelectEntry(arg)
+                 : wp == ContextMenu::kPopupScroll ? popup.ScrollTo(arg)
+                                                   : popup.OpenEntry(arg);
+        }
+        result = ok ? 1 : 0;
         return true;
     }
     if (msg == msgItemCommand_) {

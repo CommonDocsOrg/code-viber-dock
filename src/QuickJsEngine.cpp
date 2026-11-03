@@ -1596,9 +1596,10 @@ JSValue PopupRedrawFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
 JSValue PopupFolderFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     Args a{ctx, argc, argv};
     const std::wstring path = a.S(0);
+    const std::wstring view = a.S(1);  // optional: "auto" / "grid" / "list"
     if (a.failed) return JS_EXCEPTION;
     std::wstring error;
-    if (!Self(ctx)->host_.PopupFolder(path, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    if (!Self(ctx)->host_.PopupFolder(path, view, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
     return JS_UNDEFINED;
 }
 JSValue PopupPreviewsFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
@@ -1674,7 +1675,7 @@ const JSCFunctionListEntry kPopupFuncs[] = {
     JS_CFUNC_DEF("open", 2, Guard<PopupOpenFn>),
     JS_CFUNC_DEF("close", 0, Guard<PopupCloseFn>),
     JS_CFUNC_DEF("redraw", 0, Guard<PopupRedrawFn>),
-    JS_CFUNC_DEF("folder", 1, Guard<PopupFolderFn>),
+    JS_CFUNC_DEF("folder", 2, Guard<PopupFolderFn>),
     JS_CFUNC_DEF("previews", 1, Guard<PopupPreviewsFn>),
     JS_CFUNC_DEF("calendar", 0, Guard<PopupCalendarFn>),
     JS_CGETSET_MAGIC_DEF("isOpen", GuardGet<PopupGet>, nullptr, 0),

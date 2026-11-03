@@ -2528,10 +2528,11 @@ void DockWindow::ShowFolderPopup(int index, float anchor) {
     const DockItem& item = items_[static_cast<size_t>(index)];
     if (item.kind != DockItem::Kind::Folder) return;
     const std::wstring path = !item.targetPath.empty() ? item.targetPath : item.launchPath.value_or(item.key.Source());
-    ShowFolderPopupAt(path, item.displayName, anchor, item.key);
+    ShowFolderPopupAt(path, item.displayName, anchor, item.key, ElementOf(static_cast<size_t>(index)).Entry().view);
 }
 
-void DockWindow::ShowFolderPopupAt(const std::wstring& path, const std::wstring& name, float anchor, const AppKey& key) {
+void DockWindow::ShowFolderPopupAt(const std::wstring& path, const std::wstring& name, float anchor, const AppKey& key,
+                                   ItemView view) {
     DismissWidgetPopup(false, false);
     DismissPreview(false, false);
     DismissWeatherPopup(false, false);
@@ -2546,9 +2547,12 @@ void DockWindow::ShowFolderPopupAt(const std::wstring& path, const std::wstring&
     style.border = theme.barBorder;
     style.hotBackground = theme.previewHotBackground;
     style.hotBorder = theme.previewHotBorder;
+    style.secondary = theme.clockDateText;
+    style.accent = theme.accent;
     style.cornerRadiusDip = theme.cornerRadius;
+    style.reduceMotion = motion_.reduce;
     style.monitor = l.work;
-    if (!folder_.Show(path, name, style, PopupAnchorAt(anchor))) {
+    if (!folder_.Show(path, name, view, style, PopupAnchorAt(anchor))) {
         DismissFolderPopup(false);
         MessageBeep(MB_ICONWARNING);
         return;
@@ -2796,7 +2800,9 @@ void DockWindow::OnWidgetPopupRequests() {
                 while (name.size() > 3 && (name.back() == L'\\' || name.back() == L'/')) name.pop_back();
                 const size_t cut = name.find_last_of(L"\\/");
                 if (cut != std::wstring::npos && cut + 1 < name.size()) name = name.substr(cut + 1);
-                ShowFolderPopupAt(r.arg, name, item.x + item.slotW / 2.0f, item.key);
+                ItemView view = ItemView::Auto;
+                FromString(r.view, view);
+                ShowFolderPopupAt(r.arg, name, item.x + item.slotW / 2.0f, item.key, view);
                 break;
             }
             case Kind::Calendar: {
@@ -3551,7 +3557,7 @@ void DockWindow::SyncElements(bool force) {
         const DockItemEntry& a = entries[i];
         const DockItemEntry* b = elements_[i] ? &elements_[i]->Entry() : nullptr;
         same = b ? a.kind == b->kind && a.path == b->path && a.aumid == b->aumid && a.icon == b->icon &&
-                       a.id == b->id && a.settings == b->settings
+                       a.id == b->id && a.settings == b->settings && a.view == b->view
                  : a.Kind() == ItemKind::Unknown;
     }
     if (!same) {
@@ -5122,7 +5128,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                    (hideState_ == HideState::Hiding || hideState_ == HideState::Showing ? 1 : 0) +
                    (backdropPending_ ? 1 : 0) + (dragPending_ ? 1 : 0) + (removePending_ ? 1 : 0) +
                    (previewPending_ ? 1 : 0) + (previewLeavePending_ ? 1 : 0) + (preview_.FadePending() ? 1 : 0) +
-                   (folder_.FadePending() ? 1 : 0) + (weatherPopup_.FadePending() ? 1 : 0) +
+                   (folder_.FadePending() ? 1 : 0) + (folder_.ViewTimerPending() ? 1 : 0) +
+                   (weatherPopup_.FadePending() ? 1 : 0) +
                    (calendar_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (watching_ && shared_->Watch().Pending() ? 1 : 0);
         case 6:
             return acrylic_ ? 1 : 0;
@@ -5156,6 +5163,18 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return folder_.Visible() ? 1 : 0;
         case 23:
             return static_cast<LRESULT>(folder_.EntryCount());
+        case 87:  // the folder popup's layout: 0 grid, 1 list (-1 hidden)
+            return folder_.ViewMode();
+        case 88:  // its rows that have a visual (surface) now
+            return static_cast<LRESULT>(folder_.LiveRows());
+        case 89:  // its scroll offset (px)
+            return static_cast<LRESULT>(folder_.ScrollOffset());
+        case 90:  // its selected entry (-1 none)
+            return folder_.Selected();
+        case 91:  // characters in the path of the folder it shows (0 hidden)
+            return static_cast<LRESULT>(folder_.PathLength());
+        case 92:  // its columns (grid; 1 in a list; 0 hidden)
+            return static_cast<LRESULT>(folder_.Columns());
         case 26:
             return dropActive_ ? static_cast<LRESULT>(dropMode_) : 0;
         case 27:

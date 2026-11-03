@@ -102,6 +102,9 @@ private:
     // resolves to `key` (apps, folders, the Recycle Bin; not separators), then reloads the pins,
     // saves and refreshes the settings window. Returns false if no such pin exists.
     bool SetPinIcon(DockWindow& dock, const AppKey& key, const std::wstring& icon);
+    // Sets the `view` of every folder entry of the dock's config that resolves to `key`, then
+    // reloads, saves and refreshes the settings window.
+    void SetItemView(DockWindow& dock, const AppKey& key, ItemView view);
     // kChooseIcon / kChooseImage: runs the picker (owned by the dock, with the dock held shown)
     // for the pin `key`, then SetPinIcon.
     void ChooseItemIcon(DockWindow& dock, UINT cmd, const AppKey& key);

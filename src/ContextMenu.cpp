@@ -102,6 +102,18 @@ void AppendIconEntries(HMENU menu, const ItemMenuState& item) {
     Append(menu, kResetIcon, L"Reset icon", item.hasIcon);
 }
 
+// View ▸ Automatic / Grid / List (the popup's layout of a folder item).
+void AppendViewMenu(HMENU menu, const ItemMenuState& item) {
+    if (!item.pinned) return;
+    HMENU sub = CreatePopupMenu();  // destroyed with its parent
+    if (!sub) return;
+    Append(sub, kViewAuto, L"Automatic", true);
+    Append(sub, kViewGrid, L"Grid", true);
+    Append(sub, kViewList, L"List", true);
+    CheckMenuRadioItem(sub, kViewAuto, kViewList, kViewAuto + static_cast<UINT>(item.view), MF_BYCOMMAND);
+    AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(sub), L"View");
+}
+
 }  // namespace
 
 UINT ShowTrayMenu(HWND owner, POINT pt, const TrayMenuState& state) {
@@ -128,6 +140,7 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
                 Append(menu, kTogglePin, L"Unpin from dock", item.pinned);
                 AppendIconEntries(menu, item);
                 Append(menu, kOpenInExplorer, L"Open in Explorer", true);
+                AppendViewMenu(menu, item);
                 break;
             case DockItem::Kind::Separator:
                 Append(menu, kTogglePin, L"Remove", item.pinned);

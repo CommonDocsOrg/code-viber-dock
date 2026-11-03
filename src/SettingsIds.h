@@ -23,7 +23,8 @@ inline constexpr int kPageDocks = 7;    // round 4 phase 3: the list of docks; p
 inline constexpr int kPageLayout = 8;   // round 4 phase 3b: the monitor canvas (drag the docks)
 inline constexpr int kPageWidgets = 9;  // round 4 phase 4b: installed widgets, Console, export
 inline constexpr int kPageWidgetSettings = 10;  // phase 4b: one widget item's settings, generated from its schema
-inline constexpr int kPageCount = 11;
+inline constexpr int kPageItemSettings = 11;   // round 4 phase 7: a folder / group item's settings
+inline constexpr int kPageCount = 12;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -330,5 +331,16 @@ inline constexpr int kWidgetSettingsNote = 3602;
 inline constexpr int kWidgetReset = 3603;      // "Reset to defaults" (removes the item's settings)
 inline constexpr int kWidgetFieldBase = 3700;
 inline constexpr int kWidgetFieldMax = 30;     // fields shown per widget
+
+// Folders and groups (4000 - 4099; round 4 phase 7): the selected folder / group item of the edited dock.
+inline constexpr int kItemPickLabel = 4000;
+inline constexpr int kItemPick = 4001;         // drop-down: the dock's folder (and group) items ("Folder: Name (item n)")
+inline constexpr int kItemViewLabel = 4002;
+inline constexpr int kItemViewCombo = 4003;    // 0 automatic, 1 grid, 2 list (the item's `view`)
+inline constexpr int kItemViewNote = 4004;
+inline constexpr int kItemChooseIcon = 4005;   // "Choose icon…" (the Change Icon dialog)
+inline constexpr int kItemChooseImage = 4006;  // "Choose image…"
+inline constexpr int kItemResetIcon = 4007;    // "Reset icon" (enabled when the item has an `icon`)
+inline constexpr int kItemNote = 4008;         // the folder's path / "no folder" note
 
 }  // namespace SettingsIds

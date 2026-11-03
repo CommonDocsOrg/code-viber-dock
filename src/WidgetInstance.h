@@ -56,6 +56,7 @@ public:
         Kind kind = Kind::None;
         float width = 0, height = 0;  // Open: DIPs
         std::wstring arg;             // Folder: the path; Previews: the app
+        std::wstring view;            // Folder: "auto" / "grid" / "list" ("" auto)
     };
 
     struct LogLine {
@@ -181,7 +182,7 @@ private:
     void PopupClose() override;
     bool PopupShown() const override { return client_.WidgetPopupShown(*this); }
     void PopupRedraw() override;
-    bool PopupFolder(const std::wstring& path, std::wstring& error) override;
+    bool PopupFolder(const std::wstring& path, const std::wstring& view, std::wstring& error) override;
     bool PopupPreviews(const std::wstring& app, std::wstring& error) override;
     bool PopupCalendar(std::wstring& error) override;
     std::vector<std::string> PackageFiles() override;

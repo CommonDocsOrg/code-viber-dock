@@ -344,7 +344,7 @@ widget reloads.
 | `popup.redraw()` | Calls `drawPopup` again. |
 | `popup.close()` | |
 | `popup.isOpen` | The widget's popup (of any kind) is on screen. |
-| `popup.folder(path)` | The dock's own folder popup (the folder's contents, navigation, Open in Explorer) for that folder, anchored on the widget. Needs `"shell"`. |
+| `popup.folder(path[, view])` | The dock's own folder popup (the folder's contents, scrolling, keyboard, navigation into sub-folders, file drops, Open in Explorer) for that folder, anchored on the widget. `view`: `"auto"` (default: a grid up to 48 entries, a list above), `"grid"` or `"list"`; anything else throws. Needs `"shell"`. |
 | `popup.calendar()` | The dock's own month calendar (the clock's popup: locale weekday names, first day of the week, today marked), anchored on the widget. A second call while it is open does nothing; a click on the widget closes it (`closedPopup`). |
 | `popup.previews(app)` | The window previews of an app the dock shows (its exe path, e.g. `"C:\\Windows\\explorer.exe"`, or its AppUserModelID; any case), anchored on the widget; nothing (a log line) when the app has no window on the dock. |
 

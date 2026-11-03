@@ -52,6 +52,7 @@ const wchar_t* const kWindowsModeNames[] = {L"stacked", L"unstacked"};
 const wchar_t* const kTitlesNames[] = {L"off", L"one", L"two"};
 const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
 const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
+const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather", L"widget"};
 
@@ -192,6 +193,8 @@ bool FromString(std::wstring_view s, TitlesMode& v) { return EnumFromString(s, v
 bool FromString(std::wstring_view s, TitlesVertical& v) { return EnumFromString(s, v, kTitlesVerticalNames); }
 const wchar_t* ToString(ThumbnailMode v) { return EnumToString(v, kThumbnailNames); }
 bool FromString(std::wstring_view s, ThumbnailMode& v) { return EnumFromString(s, v, kThumbnailNames); }
+const wchar_t* ToString(ItemView v) { return EnumToString(v, kItemViewNames); }
+bool FromString(std::wstring_view s, ItemView& v) { return EnumFromString(s, v, kItemViewNames); }
 bool FromString(std::wstring_view s, DockEdge& v) { return EnumFromString(s, v, kEdgeNames); }
 bool FromString(std::wstring_view s, DockAlign& v) { return EnumFromString(s, v, kAlignNames); }
 bool FromString(std::wstring_view s, MiddleClickAction& v) { return EnumFromString(s, v, kMiddleClickNames); }
@@ -581,6 +584,7 @@ Config::LoadResult Config::LoadFile() {
                             ReadString(io, L"icon", e.icon);
                             ReadString(io, L"id", e.id);
                             if (auto so = ReadObject(io, L"settings")) e.settings = std::wstring(so.Stringify());
+                            ReadEnum(io, L"view", e.view);
                             const bool target = !e.path.empty() || !e.aumid.empty();
                             if (e.kind.empty()) {
                                 if (!target) continue;
@@ -700,6 +704,7 @@ bool Config::Save() const {
                 if (!e.icon.empty()) add(L"icon", e.icon);
                 if (!e.id.empty()) add(L"id", e.id);
                 if (!e.settings.empty()) fields += L", " + Quote(L"settings") + L": " + e.settings;
+                if (e.view != ItemView::Auto) add(L"view", ToString(e.view));
                 o += L"{ " + fields + L" }";
             }
             o += d.items.empty() ? L"],\n" : L"\n      ],\n";

@@ -99,6 +99,9 @@ protected:
 
     // The window exists (created by ShowAt before Measure runs).
     HWND Window() const { return hwnd_; }
+    // The layer Paint() draws into (the panel). Subclasses may add child layers in front of it
+    // (an ItemGridView); they must remove them in OnHidden / OnDestroying.
+    Layer& ContentLayer() { return content_; }
     Renderer* Render() const { return renderer_; }
     // The current frame with acrylic / corner radius as actually used.
     const Frame& CurrentFrame() const { return frame_; }

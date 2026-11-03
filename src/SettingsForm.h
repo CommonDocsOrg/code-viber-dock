@@ -124,3 +124,4 @@ std::unique_ptr<SettingsPage> MakeDocksPage(SettingsWindow& window);       // Se
 std::unique_ptr<SettingsPage> MakeLayoutPage(SettingsWindow& window);      // SettingsPagesLayout.cpp
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window);     // SettingsPagesWidgets.cpp
 std::unique_ptr<SettingsPage> MakeWidgetSettingsPage(SettingsWindow& window);  // SettingsPagesWidgets.cpp
+std::unique_ptr<SettingsPage> MakeItemSettingsPage(SettingsWindow& window);    // SettingsPagesItems.cpp ("Folders and groups")

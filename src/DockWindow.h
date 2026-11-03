@@ -265,6 +265,8 @@ public:
     bool LaunchItem(int index, bool newInstance);
     // Shows the folder popup of the folder item at `index`, or hides it if it is showing that item.
     void ToggleFolderPopup(int index);
+    // Automation (ItemCommand 814 - 816) on the open folder popup: select / scroll to / open.
+    FolderPopup& Folder() { return folder_; }
 
     // --- the weather service (the weather elements' data) and widget popups ---
     // Re-reads config->weather (start / stop / restart the service) and relayouts if the widget's
@@ -568,7 +570,8 @@ private:
     // --- script widget popups (posted requests, see DockWindow.cpp) ---
     void OnWidgetPopupRequests();
     void DismissWidgetPopup(bool animate, bool leaveCheck = true);
-    void ShowFolderPopupAt(const std::wstring& path, const std::wstring& name, float anchor, const AppKey& key);
+    void ShowFolderPopupAt(const std::wstring& path, const std::wstring& name, float anchor, const AppKey& key,
+                           ItemView view);
     // The slot that shows widget `w` (-1: none) / the instance with this key (null: none).
     int SlotOfWidget(const WidgetInstance& w) const;
     WidgetInstance* WidgetByKey(const std::wstring& key) const;

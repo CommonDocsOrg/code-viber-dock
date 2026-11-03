@@ -783,5 +783,6 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
     pages.push_back(MakeLayoutPage(window));   // kPageLayout
     pages.push_back(MakeWidgetsPage(window));  // kPageWidgets
     pages.push_back(MakeWidgetSettingsPage(window));  // kPageWidgetSettings
+    pages.push_back(MakeItemSettingsPage(window));    // kPageItemSettings
     return pages;
 }

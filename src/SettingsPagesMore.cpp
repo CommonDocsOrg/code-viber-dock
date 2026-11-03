@@ -442,15 +442,27 @@ private:
     }
 
     // Settings… of a row: the clock -> General, the weather -> Weather, the running apps ->
-    // Behaviour (previews, middle click, wheel), an app / folder / the Recycle Bin -> Choose icon….
+    // Behaviour (previews, middle click, wheel), a folder -> Folders and groups (layout, icon),
+    // an app / the Recycle Bin -> Choose icon….
     void OpenItemSettings(int row) {
         switch (Cfg().Edit().items[static_cast<size_t>(row)].Kind()) {
             case ItemKind::Clock: Window().ShowPage(kPageGeneral); break;
             case ItemKind::Weather: Window().ShowPage(kPageWeather); break;
             case ItemKind::Running: Window().ShowPage(kPageBehaviour); break;
             case ItemKind::Widget: Window().ShowWidgetSettings(row); break;
-            case ItemKind::App:
-            case ItemKind::Folder:
+            case ItemKind::Folder: Window().ShowItemSettings(row); break;
+            case ItemKind::App: {
+                // A shortcut to a folder is a folder item too (its popup's layout); an app: Choose icon….
+                static const std::vector<AppIdentity::ResolvedPin> kNone;
+                const auto& pins = Host().pins ? Host().pins() : kNone;
+                const size_t k = PinOfRow(row);
+                if (k < pins.size() && pins[k].kind == AppIdentity::PinKind::Folder) {
+                    Window().ShowItemSettings(row);
+                } else {
+                    ChooseIcon(row, false);
+                }
+                break;
+            }
             case ItemKind::RecycleBin: ChooseIcon(row, false); break;
             default: break;
         }

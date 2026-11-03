@@ -100,7 +100,7 @@ public:
     virtual void PopupRedraw() = 0;
     // The dock's own folder popup for a folder / its window previews for an app (exe path or
     // AppUserModelID) that the dock shows.
-    virtual bool PopupFolder(const std::wstring& path, std::wstring& error) = 0;
+    virtual bool PopupFolder(const std::wstring& path, const std::wstring& view, std::wstring& error) = 0;
     virtual bool PopupPreviews(const std::wstring& app, std::wstring& error) = 0;
     // The dock's own month calendar (the clock's CalendarPopup), anchored on the widget.
     virtual bool PopupCalendar(std::wstring& error) = 0;

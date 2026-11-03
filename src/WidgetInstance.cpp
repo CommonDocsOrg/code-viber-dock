@@ -499,7 +499,7 @@ void WidgetInstance::PopupRedraw() {
     RequestPopup(PopupRequest{PopupRequest::Kind::Redraw});
 }
 
-bool WidgetInstance::PopupFolder(const std::wstring& path, std::wstring& error) {
+bool WidgetInstance::PopupFolder(const std::wstring& path, const std::wstring& view, std::wstring& error) {
     if (!Permitted(Permission::Shell)) {
         error = L"popup.folder needs the \"shell\" permission";
         return false;
@@ -511,9 +511,15 @@ bool WidgetInstance::PopupFolder(const std::wstring& path, std::wstring& error) 
         error = L"popup.folder: not a folder: " + path;
         return false;
     }
+    ItemView v = ItemView::Auto;
+    if (!view.empty() && !FromString(view, v)) {
+        error = L"popup.folder: view must be \"auto\", \"grid\" or \"list\"";
+        return false;
+    }
     PopupRequest r;
     r.kind = PopupRequest::Kind::Folder;
     r.arg = expanded;
+    r.view = ToString(v);
     RequestPopup(std::move(r));
     return true;
 }

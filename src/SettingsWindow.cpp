@@ -903,6 +903,13 @@ void SettingsWindow::ShowWidgetSettings(int item) {
     SelectPage(SettingsIds::kPageWidgetSettings);
 }
 
+void SettingsWindow::ShowItemSettings(int item) {
+    if (!hwnd_ || SettingsIds::kPageItemSettings >= static_cast<int>(pages_.size())) return;
+    pages_[SettingsIds::kPageItemSettings]->SelectItem(item);
+    RebuildPage(SettingsIds::kPageItemSettings);
+    SelectPage(SettingsIds::kPageItemSettings);
+}
+
 void SettingsWindow::RebuildPage(int index) {
     if (!hwnd_ || index < 0 || index >= static_cast<int>(pages_.size())) return;
     SettingsPage& page = *pages_[static_cast<size_t>(index)];
