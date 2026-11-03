@@ -463,6 +463,30 @@ menu still opens with the Win key while the taskbar is hidden.
 - **Live titles**: when a window's caption changes (the shell's `HSHELL_REDRAW`, coalesced with
   the window-list updates, no polling), its window slot's title, the hover label and the preview
   popup's card follow at once; the preview popup does that for stacked apps too.
+- **Window thumbnails** (`thumbnails`: `"off"` (default), `"live"`, `"snapshots"`): each window
+  slot (on a stacked dock: each app slot with windows, showing the app's active window) becomes a
+  tile with the window's picture and the app icon in its bottom-right corner. A tile is
+  `thumbnailSize` DIPs long along the dock (default 0: twice `iconSize`) and an icon deep, so the
+  bar keeps its height; on left / right docks tiles are an icon wide and `thumbnailSize` tall. Tiles
+  magnify like icons (the picture is kept at the magnified size, so it stays sharp); label, click
+  and preview work as for the slot. Pins and folders stay icons; tiles get no glow or reflection.
+  A minimized window keeps its last picture, dimmed (minimize to dock).
+  - **Live (GPU capture)**: Windows.Graphics.Capture, one session per window, no capture border, no
+    cursor. Windows sends a frame only when the window's content changed, and at most
+    `thumbnailFps` (default 10, 1 - 60) a second; each frame is scaled into the tile on the GPU.
+    Capture runs only while the dock is visible: hidden by auto-hide (or a desktop dock while
+    windows are in front) every session is closed. Measured here: one window animating at 60 fps
+    costs ~0.3 - 1.4 % of one core and ~0.1 % of the GPU's 3D engine at 10 fps; still windows cost
+    nothing; hidden: 0. Each session holds one frame buffer the size of the window in GPU memory.
+    Turning live on switches the dock's Direct3D device to multithreaded (capture requires it; the
+    dock rebuilds its surfaces once).
+  - **Snapshots (every N seconds)**: every `thumbnailIntervalS` seconds (default 5, 1 - 3600) one
+    worker thread takes `PrintWindow` (`PW_RENDERFULLCONTENT`) of each window that is not minimized
+    (or hung), scaled down; nothing runs in between and nothing at all while the dock is hidden. A
+    new window gets its first picture when its tile appears. Measured: 8 ms (640 x 400) to 14 ms
+    (1920 x 1080) per window on the worker, a few ms of CPU.
+  - Neither shows DRM-protected video (it captures black). `"off"` changes nothing: no session, no
+    timer, no thread.
 
 ### Weather and calendar
 
@@ -629,7 +653,9 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   windows, close its windows, nothing) and what the mouse wheel over an app does (nothing, switch
   between its windows), and **Running apps**: **Windows** (Stacked / One slot per window),
   **Titles under icons** (Off / One line / Two lines), **Titles on vertical docks** (Off / Beside
-  the icon); see [Running apps: windows and titles](#running-apps-windows-and-titles).
+  the icon), **Window thumbnails** (Off / Live (GPU capture) / Snapshots (every N seconds), with the
+  trade-off explained under it), the snapshot interval, the live frames per second and the tile
+  length; see [Running apps: windows and titles](#running-apps-windows-and-titles).
 - **Animation**: speed (Off, then 0.25× to 4× on a logarithmic slider), hide style (slide and
   fade, slide, fade, none), launch feedback (bounce until the app opens, hop once, pulse, none),
   magnification falloff (smooth / linear), easing (ease out, linear, spring), the name label fade
@@ -735,7 +761,8 @@ with the defaults and leaves the file untouched.
       "previews": true, "previewsSingleWindow": false, "previewDelayMs": 600,
       "middleClick": "newInstance", "wheel": "none",
       "monitor": 0, "runningFilter": "all", "themePreset": "", "layer": "normal",
-      "windows": "stacked", "titles": "off", "titlesVertical": "beside"
+      "windows": "stacked", "titles": "off", "titlesVertical": "beside",
+      "thumbnails": "off", "thumbnailIntervalS": 5, "thumbnailSize": 0, "thumbnailFps": 10
     }
   ],
   "hideTaskbar": true,
@@ -821,6 +848,9 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     `"off"`; `"one"`, `"two"`), `titlesVertical` (default `"beside"`; `"off"`): see
     [Running apps: windows and titles](#running-apps-windows-and-titles). Unknown text keeps the
     default.
+  - `thumbnails` (default `"off"`; `"live"`, `"snapshots"`), `thumbnailIntervalS` (default 5,
+    1 - 3600), `thumbnailSize` (DIPs along the dock, default 0 = twice `iconSize`, else 16 - 512),
+    `thumbnailFps` (default 10, 1 - 60): window thumbnails as dock items, same section.
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
     `hideDelayMs`, `revealDelayMs`, `previews`, `previewsSingleWindow`, `previewDelayMs`,
     `middleClick`, `wheel`, `monitor`.
@@ -1148,7 +1178,12 @@ always there, also when every dock is parked) handle these registered messages:
   title (-1 no such card). 76 = how many live title changes this dock has applied (slot titles,
   the label, preview cards). 77 = the length of slot `lParam`'s title under the icon (0: none).
   78 = slot `lParam`'s dot (0 none, also for a minimized window slot; 1 running, 2 the active
-  window / app, 3 wants attention). 26 reports 4
+  window / app, 3 wants attention). Thumbnails: 79 = `thumbnails` (0 off, 1 live, 2 snapshots).
+  80 = slot `lParam` is not a thumbnail tile (0), a tile without a picture yet (1) or with one (2;
+  -1 no such slot). 81 = live frames this dock received. 82 = `PrintWindow` calls of every dock.
+  83 = live capture sessions running now. 84 = snapshot rounds this dock started. 85 = the window
+  slot `lParam`'s tile shows (0: not a tile). 86 = the HRESULT of the last live capture that could
+  not start (0 none). 26 reports 4
   while files are dragged over a script widget that takes them (`onDrop`). Per dock: 14 / 36 /
   39 / 40 / 42 and 37 refer to that dock's own config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
@@ -1166,7 +1201,10 @@ always there, also when every dock is parked) handle these registered messages:
   2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied on Enter / focus loss); Behaviour added 2223
   single-window previews, 2227 middle click, 2229 mouse wheel, and in phase 6 2232 Windows (0
   stacked, 1 one slot per window), 2234 Titles under icons (0 off, 1 one line, 2 two lines), 2236
-  Titles on vertical docks (0 off, 1 beside the icon; disabled while titles are off); phase 3: General 2162 "Show only
+  Titles on vertical docks (0 off, 1 beside the icon; disabled while titles are off), 2239 Window
+  thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the trade-off), 2242 / 2243 snapshot
+  interval (s), 2246 / 2247 live frames per second, 2250 / 2251 tile length (DIPs, 0 = twice the
+  icon); phase 3: General 2162 "Show only
   the windows on this dock's display" (`runningFilter`), the Display drop-down 2111 ends with
   "Every display" (`"each"`), Appearance 2420 "This dock's theme" (0 = same as all docks, then the
   theme list), Docks page 2800 list (Dock, Edge, Display, Windows; selecting a row makes it the dock

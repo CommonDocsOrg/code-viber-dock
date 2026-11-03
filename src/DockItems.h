@@ -8,6 +8,8 @@
 #include <string>
 #include <vector>
 
+#include <d2d1.h>
+
 #include "Renderer.h"
 
 // Identity of an application. `id` is normalized (lowercase): an AppUserModelID when
@@ -73,6 +75,12 @@ struct DockItem {
     HWND window = nullptr;
     bool minimized = false;                  // a window slot's window is minimized (no dot)
     std::wstring windowTitle;                // a window slot's caption (hover label, title under the icon)
+    // A thumbnail tile (docks[].thumbnails): the window shown in it (a window slot's window, or a
+    // stacked app's active window); null: an ordinary icon. A tile is boxMain (thumbnailSize) long.
+    HWND thumbWindow = nullptr;
+    bool thumbDim = false;  // that window is minimized: its last frame, dimmed
+    float boxMain = 0.0f;   // the box along the bar (icons: iconPx; tiles: the tile's length); set by the layout
+    D2D1_POINT_2F dotShift{};  // the dot's static offset (physical; centred under a longer tile)
     // The text under the icon (docks[].titles; empty: none) as last drawn into `caption`.
     std::wstring captionText;
     bool captionDirty = true;

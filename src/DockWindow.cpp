@@ -173,7 +173,8 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
     if (!hwnd_) return HRESULT_FROM_WIN32(GetLastError());
     dpi_ = GetDpiForWindow(hwnd_);
 
-    HRESULT hr = renderer_.Initialize(hwnd_, config_->renderer == L"software");
+    // Live window thumbnails need a multithreaded D3D device (Windows.Graphics.Capture).
+    HRESULT hr = renderer_.Initialize(hwnd_, config_->renderer == L"software", DockCfg().thumbnails == ThumbnailMode::Live);
     if (FAILED(hr)) {
         Log(L"Renderer::Initialize", hr);
         return hr;
@@ -183,6 +184,7 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
         Log(L"CreateLayers", hr);
         return hr;
     }
+    thumbs_.Init(hwnd_, &renderer_, [this](const std::vector<HWND>& windows) { OnThumbnailFrames(windows); });
     preview_.Init(instance, &renderer_,
                   PreviewPopup::Callbacks{
                       [this](HWND w) {
@@ -338,7 +340,9 @@ void DockWindow::ApplyConfig() {
     FinishLabelFade();             // its text / position may no longer match
     SyncElements();                // the clock may have been turned on / off; config re-read, timers
     // docks[].windows changed: the slots change (one per app <-> one per window).
-    if (tracking_ && builtUnstacked_ != (DockCfg().windows == WindowsMode::Unstacked)) {
+    // docks[].thumbnails turned on / off: slots become tiles or icons again.
+    if (tracking_ && (builtUnstacked_ != (DockCfg().windows == WindowsMode::Unstacked) ||
+                      builtThumbnails_ != (DockCfg().thumbnails != ThumbnailMode::Off))) {
         RebuildFrom(shared_->Tracker().Current());
     }
     // The drop marker is only redrawn when its size changes: force it (the accent may differ).
@@ -356,6 +360,7 @@ void DockWindow::ApplyConfig() {
     weatherQuiet_ = false;
     UpdateAcrylic();
     Relayout();
+    SyncThumbnails();  // mode, rate, interval, the tile size
     ApplyAutoHide();
     UpdateDesktopShown();  // the layer may have changed
 }
@@ -489,6 +494,9 @@ void DockWindow::ComputeLayout() {
     const float widgetGap = std::round(kWidgetGap * s);
     const LayoutContext ctx{l.vertical ? DockAxis::Vertical : DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite()};
     Run first = Run::None, prev = Run::None;
+    const float tilePx = std::round(
+        static_cast<float>(d.thumbnailSize > 0 ? d.thumbnailSize : 2 * d.iconSize) * s);
+    float maxBox = l.iconPx;  // the longest magnifying box (a thumbnail tile is longer than an icon)
     size_t icons = 0;  // icon and separator slots (they make up the "items" of the bar)
     float itemsW = 0.0f;
     l.firstMag = l.lastMag = -1;
@@ -506,7 +514,11 @@ void DockWindow::ComputeLayout() {
             run = box.main > 0.0f ? Run::Widget : Run::None;  // nothing to show: takes no room
         } else {
             const ElementSize box = element.Measure(ctx);
-            item.slotW = item.Magnifies() ? box.main + l.gap : box.main;
+            // A thumbnail tile (docks[].thumbnails) is longer along the bar than an icon.
+            const float main = item.thumbWindow && item.Magnifies() ? tilePx : box.main;
+            item.boxMain = main;
+            if (item.Magnifies()) maxBox = std::max(maxBox, main);
+            item.slotW = item.Magnifies() ? main + l.gap : main;
             item.boxCross = l.iconPx;
             item.hitSlack = 0.0f;
             ++icons;
@@ -534,7 +546,7 @@ void DockWindow::ComputeLayout() {
     l.growMax = 0.0f;
     if (n && l.magnification > 1.001f) {
         const float terms = static_cast<float>(std::min<size_t>(n, static_cast<size_t>(d.magnifyRange)));
-        l.growMax = std::ceil((l.magnification - 1.0f) * l.iconPx * terms) + 2.0f;
+        l.growMax = std::ceil((l.magnification - 1.0f) * maxBox * terms) + 2.0f;
     }
     // A file dragged over the dock opens a one-slot gap: the bar grows by half a slot per side.
     if (n) l.growMax = std::max(l.growMax, std::ceil(stride / 2.0f) + 2.0f);
@@ -901,6 +913,7 @@ void DockWindow::ResetLayers() {
         item.dot.Reset();
         item.caption.Reset();
         item.captionDirty = true;
+        item.dotShift = D2D1_POINT_2F{};
     }
 }
 
@@ -948,6 +961,7 @@ HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
     item.dot.Reset();
     item.caption.Reset();  // created by RenderCaption while titles are on
     item.captionDirty = true;
+    item.dotShift = D2D1_POINT_2F{};  // a fresh dot visual has no transform
     // A widget is one plain visual in widgetsGroup_ (behind the icons): its content is drawn into
     // `layer` itself and it is placed with the visual's offsets (it never scales or bounces).
     if (item.IsWidget()) {
@@ -1092,6 +1106,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
                            ? nullptr
                            : icons_.Get(item.key, sample, l.bitmapPx, renderer_.ResourceContext(), item.iconFile,
                                         item.iconIndex);
+    if (item.thumbWindow) return RenderTile(item, bmp);
 
     auto drawIcon = [&](ID2D1DeviceContext* dc, float size) {
         if (bmp) {
@@ -1140,6 +1155,77 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
     // The magnified-size surface is drawn at bitmapPx and shown at iconPx * scale.
     if (bigPx) renderer_.SetStaticTransform(item.iconBig, D2D1::Matrix3x2F::Scale(icon / bigPx, icon / bigPx));
     const bool big = bigIcons_ && bigPx;
+    renderer_.SetVisible(item.icon, !big);
+    renderer_.SetVisible(item.iconBig, big);
+    return S_OK;
+}
+
+float DockWindow::TilePx() const {
+    const DockConfig& d = DockCfg();
+    return std::round(static_cast<float>(d.thumbnailSize > 0 ? d.thumbnailSize : 2 * d.iconSize) * layout_.scale);
+}
+
+HRESULT DockWindow::RenderTile(DockItem& item, ID2D1Bitmap* icon) {
+    // Drawn upright like an icon, at rest size and at the magnified size (crisp both ways); the
+    // frame keeps the window's aspect inside the tile, the app icon sits in its bottom-right corner.
+    const Layout& l = layout_;
+    const D2D1_SIZE_F rest = l.PhysSize(BoxW(item), l.iconPx);
+    const UINT smallW = static_cast<UINT>(rest.width), smallH = static_cast<UINT>(rest.height);
+    const float k = l.bitmapPx > static_cast<UINT>(l.iconPx) ? static_cast<float>(l.bitmapPx) / l.iconPx : 0.0f;
+    const UINT bigW = k > 0.0f ? static_cast<UINT>(std::lround(rest.width * k)) : 0;
+    const UINT bigH = k > 0.0f ? static_cast<UINT>(std::lround(rest.height * k)) : 0;
+    ID2D1Bitmap* frame = thumbs_.FrameOf(item.thumbWindow);
+    // A minimized window: its last frame, dimmed.
+    const bool dim = item.thumbDim;
+    const ThemeConfig& t = DockTheme();
+    auto draw = [&](ID2D1DeviceContext* dc, float w, float h) {
+        const float cross = std::min(w, h);  // the tile across the dock (an icon's size)
+        const float u = cross / 48.0f;       // tile units
+        const float radius = std::max(2.0f, std::round(5.0f * u));
+        winrt::com_ptr<ID2D1SolidColorBrush> brush;
+        if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(t.previewHotBackground), brush.put()))) return;
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, w, h), radius, radius), brush.get());
+        if (frame) {
+            const D2D1_SIZE_F fs = frame->GetSize();
+            const float inset = std::max(1.0f, std::round(2.0f * u));
+            const float fit = std::min((w - 2.0f * inset) / std::max(fs.width, 1.0f), (h - 2.0f * inset) / std::max(fs.height, 1.0f));
+            const float fw = std::round(fs.width * fit), fh = std::round(fs.height * fit);
+            const float x = std::round((w - fw) / 2.0f), y = std::round((h - fh) / 2.0f);
+            dc->DrawBitmap(frame, D2D1::RectF(x, y, x + fw, y + fh), dim ? 0.45f : 1.0f,
+                           D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+            brush->SetColor(Theme::ToColor(t.barBorder));
+            const float stroke = std::max(1.0f, std::round(u));
+            dc->DrawRectangle(D2D1::RectF(x + stroke / 2.0f, y + stroke / 2.0f, x + fw - stroke / 2.0f, y + fh - stroke / 2.0f),
+                              brush.get(), stroke);
+        }
+        if (!icon) return;
+        // The app icon: in the corner over the frame, or centred while there is no frame yet.
+        const float size = frame ? std::round(cross * 0.46f) : cross;
+        const float x = frame ? w - size : std::round((w - size) / 2.0f);
+        const float y = frame ? h - size : std::round((h - size) / 2.0f);
+        const D2D1_SIZE_F bs = icon->GetSize();
+        const float fit = std::min(size / std::max(bs.width, 1.0f), size / std::max(bs.height, 1.0f));
+        const float dw = bs.width * fit, dh = bs.height * fit;
+        const D2D1_RECT_F dst = D2D1::RectF(x + (size - dw) / 2.0f, y + (size - dh) / 2.0f, x + (size + dw) / 2.0f,
+                                            y + (size + dh) / 2.0f);
+        dc->DrawBitmap(icon, &dst, dim && frame ? 0.7f : 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+    };
+    HRESULT hr = renderer_.DrawLayer(item.icon, smallW, smallH, [&](ID2D1DeviceContext* dc) {
+        draw(dc, static_cast<float>(smallW), static_cast<float>(smallH));
+    });
+    if (SUCCEEDED(hr)) {
+        hr = bigW ? renderer_.DrawLayer(item.iconBig, bigW, bigH,
+                                        [&](ID2D1DeviceContext* dc) { draw(dc, static_cast<float>(bigW), static_cast<float>(bigH)); })
+                  : renderer_.DrawLayer(item.iconBig, 0, 0, {});
+    }
+    // Tiles have no glow and no reflection.
+    if (SUCCEEDED(hr)) hr = renderer_.DrawLayer(item.glow, 0, 0, {});
+    if (SUCCEEDED(hr)) hr = renderer_.DrawLayer(item.reflection, 0, 0, {});
+    if (FAILED(hr)) return hr;
+    item.glowOpacity.valid = false;
+    item.dirty = false;
+    if (bigW) renderer_.SetStaticTransform(item.iconBig, D2D1::Matrix3x2F::Scale(1.0f / k, 1.0f / k));
+    const bool big = bigIcons_ && bigW;
     renderer_.SetVisible(item.icon, !big);
     renderer_.SetVisible(item.iconBig, big);
     return S_OK;
@@ -1500,7 +1586,9 @@ HRESULT DockWindow::RenderCaption(DockItem& item) {
     // ones (the text stays upright).
     const float s = l.scale;
     const float pad = std::round(kCaptionPad * s);
-    const D2D1_SIZE_F box = l.PhysSize(l.captionMain, l.captionCross);
+    // The slot's width (horizontal; a thumbnail tile is longer than an icon) or the box's length.
+    const float captionMain = l.vertical ? BoxW(item) : BoxW(item) + (l.captionMain - l.iconPx);
+    const D2D1_SIZE_F box = l.PhysSize(captionMain, l.captionCross);
     const float textW = std::max(1.0f, box.width - 2.0f * pad);
     const float textH = l.vertical ? box.height : std::ceil(captionLineH_ * static_cast<float>(l.captionLines));
     winrt::com_ptr<IDWriteTextLayout> layout;
@@ -1678,6 +1766,7 @@ bool DockWindow::RecoverDevice() {
     weatherPopup_.Destroy();
     calendar_.Destroy();
     widgetPopup_.Destroy();
+    thumbs_.Reset();  // the frames and the capture device belong to the lost device
     for (int attempt = 0; attempt < 3; ++attempt) {
         ResetLayers();
         icons_.Clear();  // the bitmaps belong to the lost device
@@ -1687,7 +1776,10 @@ bool DockWindow::RecoverDevice() {
         if (SUCCEEDED(hr)) hr = CreateLayers();
         if (SUCCEEDED(hr)) hr = DrawFrame(true);
         if (SUCCEEDED(hr)) hr = renderer_.Commit();
-        if (SUCCEEDED(hr)) return true;
+        if (SUCCEEDED(hr)) {
+            SyncThumbnails();  // capture again on the new device
+            return true;
+        }
         Log(L"RecreateDevice", hr);
         Sleep(100);
     }
@@ -1829,11 +1921,11 @@ void DockWindow::ComputeTargets() {
             }
         }
         item.targetScale = scale;
-        delta += l.iconPx * (scale - 1.0f);
+        delta += BoxW(item) * (scale - 1.0f);  // separators and widgets: scale 1
     }
-    // Width of an item's slot in the magnified layout.
+    // Width of an item's slot in the magnified layout (an icon or a thumbnail tile scales).
     auto magnifiedW = [&](const DockItem& item) {
-        return item.Magnifies() ? l.iconPx * item.targetScale + l.gap : item.slotW;
+        return item.Magnifies() ? BoxW(item) * item.targetScale + l.gap : item.slotW;
     };
 
     float growLeft = 0.0f;
@@ -1877,8 +1969,8 @@ void DockWindow::ComputeTargets() {
         if (item.Magnifies()) {
             // The icon box keeps its rest size and is scaled about its bottom centre, so its left
             // edge sits half an icon left of the magnified icon's centre.
-            const float w = l.iconPx * item.targetScale;
-            item.targetX = slotLeft + half + w / 2.0f - l.iconPx / 2.0f;
+            const float w = BoxW(item) * item.targetScale;
+            item.targetX = slotLeft + half + w / 2.0f - BoxW(item) / 2.0f;
         } else if (item.IsWidget() && k > l.lastMag) {
             item.targetX = item.x + growRight;  // moves with the bar's right end
         } else if (item.IsWidget() && k < l.firstMag) {
@@ -1905,7 +1997,7 @@ void DockWindow::ComputeTargets() {
         const float winW = l.stageMain;
         const float lw = static_cast<float>(l.vertical ? label_.height : label_.width);
         const float lh = static_cast<float>(l.vertical ? label_.width : label_.height);
-        const float centre = h.targetX + l.iconPx / 2.0f;
+        const float centre = h.targetX + BoxW(h) / 2.0f;
         const float iconTop = l.itemTop + l.iconPx * (1.0f - h.targetScale);
         const float u = std::round(std::clamp(centre - lw / 2.0f, 0.0f, std::max(0.0f, winW - lw)));
         const float v = std::round(std::max(0.0f, iconTop - std::round(kLabelGap * l.scale) - lh));
@@ -1972,6 +2064,13 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
             SetCrossOffset(item.layer.translate.get(), l.CrossOrigin(item.y, l.iconPx));
             if (item.dot.visual) {
                 SetCrossOffset(item.dot.visual.get(), l.CrossOrigin(l.dotTop, static_cast<float>(l.dotHeight)));
+                // The dot surface is an icon wide: centred under a longer thumbnail tile.
+                const float shift = std::floor((BoxW(item) - l.iconPx) / 2.0f);
+                const D2D1_POINT_2F want = l.vertical ? D2D1::Point2F(0.0f, shift) : D2D1::Point2F(shift, 0.0f);
+                if (want.x != item.dotShift.x || want.y != item.dotShift.y) {
+                    renderer_.SetStaticTransform(item.dot, D2D1::Matrix3x2F::Translation(want.x, want.y));
+                    item.dotShift = want;
+                }
             }
             if (item.caption.visual) {
                 SetCrossOffset(item.caption.visual.get(), l.CrossOrigin(l.captionTop, l.captionCross));
@@ -2340,7 +2439,7 @@ void DockWindow::ShowPreview(int index, bool keepAnchor) {
     style.closeHover = theme.closeHover;
     style.cornerRadiusDip = theme.cornerRadius;
     style.monitor = l.work;
-    if (!keepAnchor) previewAnchor_ = PopupAnchorAt(item.targetX + l.iconPx / 2.0f).along;
+    if (!keepAnchor) previewAnchor_ = PopupAnchorAt(item.targetX + BoxW(item) / 2.0f).along;
     PopupAnchor anchor = PopupAnchorAt(0.0f);
     anchor.along = previewAnchor_;
     const AppKey key = item.key;
@@ -3152,6 +3251,46 @@ void DockWindow::UpdateDesktopShown() {
 void DockWindow::SyncWidgetVisibility() {
     const bool visible = !desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
     for (auto& [key, w] : widgets_) w->SetVisible(visible);
+    // Window thumbnails capture only while the dock can be seen (hidden: sessions closed, no timer).
+    thumbs_.Activate(visible);
+}
+
+void DockWindow::SyncThumbnails() {
+    if (!hwnd_) return;
+    const DockConfig& d = DockCfg();
+    if (d.thumbnails == ThumbnailMode::Live && !renderer_.Multithreaded()) {
+        // Live capture was turned on: the D3D device must be multithreaded. Rebuild it (and every
+        // surface) once, the device-loss path; it syncs the thumbnails again at its end.
+        renderer_.SetMultithreaded(true);
+        thumbs_.Reset();
+        RecoverDevice();
+        return;
+    }
+    thumbs_.Configure(d.thumbnails, d.thumbnailFps, d.thumbnailIntervalS);
+    if (d.thumbnails == ThumbnailMode::Off) return;
+    std::vector<HWND> windows;
+    for (const DockItem& item : items_) {
+        if (item.thumbWindow && std::find(windows.begin(), windows.end(), item.thumbWindow) == windows.end()) {
+            windows.push_back(item.thumbWindow);
+        }
+    }
+    // Frames are kept at the magnified tile's pixel size (upright: on a vertical dock the tile is an
+    // icon wide and thumbnailSize tall), so a magnified tile stays sharp.
+    const float k = std::max(1.0f, layout_.magnification);
+    const D2D1_SIZE_F tile = layout_.PhysSize(TilePx() * k, std::max(1.0f, layout_.iconPx) * k);
+    thumbs_.SetWindows(windows, static_cast<UINT>(std::lround(tile.width)), static_cast<UINT>(std::lround(tile.height)));
+    thumbs_.Activate(!desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing));
+}
+
+void DockWindow::OnThumbnailFrames(const std::vector<HWND>& windows) {
+    bool any = false;
+    for (DockItem& item : items_) {
+        if (!item.thumbWindow || std::find(windows.begin(), windows.end(), item.thumbWindow) == windows.end()) continue;
+        item.dirty = true;
+        any = true;
+    }
+    // One redraw for the frames of every window that arrive together.
+    if (any && !thumbRedrawPosted_ && hwnd_) thumbRedrawPosted_ = PostMessageW(hwnd_, kThumbRedrawMessage, 0, 0) != FALSE;
 }
 
 double DockWindow::ApplyRootPose(double duration) {
@@ -3504,6 +3643,9 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     // 2. Windows: a running app's group goes to the app slot with its key (a pinned app or its
     //    running slot; folders, separators, the Recycle Bin and widgets never take windows).
     bool landed = false;  // a launch feedback ended at once (a hop that was already over)
+    const bool thumbsOn = DockCfg().thumbnails != ThumbnailMode::Off;
+    builtThumbnails_ = thumbsOn;
+    bool tilesChanged = false;  // a slot became a thumbnail tile or an icon again (another width)
     for (DockItem& item : next) {
         const WindowTracker::Group* g = nullptr;
         if (item.kind == DockItem::Kind::App) {
@@ -3550,6 +3692,35 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
             item.active = active;
             item.dotDirty = true;
         }
+        // Thumbnail tiles: a window slot shows its window; on a stacked dock an app slot with windows
+        // shows its active one (the foreground window, else the one it showed, else the first).
+        HWND thumb = nullptr;
+        if (thumbsOn && item.kind == DockItem::Kind::App && !item.windows.empty()) {
+            if (item.window) {
+                thumb = item.window;
+            } else if (!builder.unstacked) {
+                thumb = active ? snap.foreground
+                        : std::find(item.windows.begin(), item.windows.end(), item.thumbWindow) != item.windows.end()
+                            ? item.thumbWindow
+                            : item.windows.front();
+            }
+        }
+        if ((thumb != nullptr) != (item.thumbWindow != nullptr)) tilesChanged = true;  // the slot's size changes
+        if (thumb != item.thumbWindow) {
+            item.thumbWindow = thumb;
+            item.dirty = true;
+        }
+        // A tile whose window is minimized shows its last frame dimmed.
+        bool dim = false;
+        if (thumb && g) {
+            const auto it = std::find(g->windows.begin(), g->windows.end(), thumb);
+            const size_t k = static_cast<size_t>(it - g->windows.begin());
+            dim = it != g->windows.end() && k < g->minimized.size() && g->minimized[k];
+        }
+        if (dim != item.thumbDim) {
+            item.thumbDim = dim;
+            if (thumb) item.dirty = true;
+        }
         // The launched app's window appeared (any of its windows: an unstacked app has one per
         // slot): let the icon land.
         const size_t appWindows = g ? g->windows.size() : 0;
@@ -3571,7 +3742,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
         items_[i].iconBig.Reset();
     }
 
-    bool structural = next.size() != oldKeys.size() || next.size() != oldWindows.size();
+    bool structural = next.size() != oldKeys.size() || next.size() != oldWindows.size() || tilesChanged;
     for (size_t i = 0; !structural && i < next.size(); ++i) {
         structural = next[i].key != oldKeys[i] || next[i].window != oldWindows[i];
     }
@@ -3604,6 +3775,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     RefreshFolderPopup();
     UpdateRecycleBinWatch();
     UpdateIconUsage();
+    SyncThumbnails();  // closed windows release their capture, new tiles start theirs
     ScheduleBounceTimer();
     if (landed && !CursorInZone()) TryCompact();  // no bounce timer left to do it
     if (watching_) shared_->Watch().Poke();  // windows came or went: the foreground one may have changed
@@ -5076,6 +5248,27 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             if (item.IsWidget() || item.windows.empty() || (item.window && item.minimized)) return 0;
             return item.wantsAttention ? 3 : item.active ? 2 : 1;
         }
+        case 79:  // docks[].thumbnails: 0 off, 1 live, 2 snapshots
+            return static_cast<LRESULT>(DockCfg().thumbnails);
+        case 80: {  // slot lp: 0 not a thumbnail tile, 1 a tile without a frame yet, 2 a tile with a frame (-1 no slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            const DockItem& item = items_[static_cast<size_t>(lp)];
+            if (!item.thumbWindow) return 0;
+            return thumbs_.FrameOf(item.thumbWindow) ? 2 : 1;
+        }
+        case 81:  // live capture frames received so far (this dock)
+            return static_cast<LRESULT>(thumbs_.LiveFrames());
+        case 82:  // PrintWindow calls so far (every dock)
+            return static_cast<LRESULT>(Thumbnails::PrintCalls());
+        case 83:  // live capture sessions running now
+            return static_cast<LRESULT>(thumbs_.Sessions());
+        case 84:  // snapshot rounds started so far (this dock)
+            return static_cast<LRESULT>(thumbs_.Rounds());
+        case 86:  // the HRESULT of the last live capture that could not start (0: none)
+            return static_cast<LRESULT>(thumbs_.LastError());
+        case 85:  // the window slot lp's tile shows (0: not a tile)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return reinterpret_cast<LRESULT>(items_[static_cast<size_t>(lp)].thumbWindow);
         case 77:  // slot lp's title under the icon: characters of its text (0: none; -1 no such slot)
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             return items_[static_cast<size_t>(lp)].caption.visual
@@ -5332,6 +5525,16 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             OnWidgetPopupRequests();
             return 0;
 
+        case kThumbRedrawMessage:
+            thumbRedrawPosted_ = false;
+            RenderWithRecovery([this] { return DrawFrame(false); });  // the dirty tiles
+            return 0;
+
+        case Thumbnails::kSnapshotMessage:  // owns the job: frees it
+        case Thumbnails::kLiveMessage:      // start / stop the live sessions
+            thumbs_.HandleMessage(msg, wp, lp);
+            return 0;
+
         case WM_ACTIVATE:
             if (appBar_) {
                 APPBARDATA abd{sizeof(abd)};
@@ -5420,6 +5623,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                     KillTimer(hwnd_, kBackdropTimerId);  // one-shot; re-armed while the bar animates
                     backdropPending_ = false;
                     SyncBackdrop();
+                    return 0;
+                case Thumbnails::kTimerId:
+                    thumbs_.HandleMessage(msg, wp, lp);  // the snapshot interval
                     return 0;
                 case kRestTimerId:
                     KillTimer(hwnd_, kRestTimerId);
@@ -5531,6 +5737,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             popupRequests_.clear();
             acrylic_ = false;
             backdrop_.Destroy();
+            thumbs_.Reset();  // capture sessions and frames (on this dock's device), the snapshot timer
             labelFormat_ = nullptr;
             labelEllipsis_ = nullptr;
             ResetLayers();

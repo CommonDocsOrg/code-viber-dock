@@ -107,7 +107,11 @@ public:
 
     // Creates device-independent factories and the device chain bound to hwnd. With
     // `softwareOnly` the D3D11 device is always WARP (also when the device is recreated).
-    HRESULT Initialize(HWND hwnd, bool softwareOnly = false);
+    HRESULT Initialize(HWND hwnd, bool softwareOnly = false, bool multithreaded = false);
+    // The D3D device is created without D3D11_CREATE_DEVICE_SINGLETHREADED (window capture needs
+    // that). Takes effect with the next device (RecreateDevice).
+    void SetMultithreaded(bool on) { multithreaded_ = on; }
+    bool Multithreaded() const { return multithreaded_; }
     void Shutdown();
 
     // Releases every device-dependent resource and builds a fresh device chain.
@@ -235,6 +239,8 @@ public:
     // The DirectComposition device (3D transform effects); null before Initialize.
     IDCompositionDesktopDevice* DComp() const { return dcomp_.get(); }
     IDWriteFactory* DWrite() const { return dwrite_.get(); }
+    // The D3D device (window capture frames arrive as its textures); null before Initialize.
+    IDXGIDevice* Dxgi() const { return dxgiDevice_.get(); }
     ID2D1Factory1* D2DFactory() const { return d2dFactory_.get(); }
     bool UsingWarp() const { return usingWarp_; }
 
@@ -245,6 +251,7 @@ private:
     HWND hwnd_ = nullptr;
     bool usingWarp_ = false;
     bool softwareOnly_ = false;
+    bool multithreaded_ = false;
     Easing defaultEasing_ = Easing::EaseOut;
 
     // Device independent.

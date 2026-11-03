@@ -51,6 +51,7 @@ const wchar_t* const kLayerNames[] = {L"normal", L"desktop"};
 const wchar_t* const kWindowsModeNames[] = {L"stacked", L"unstacked"};
 const wchar_t* const kTitlesNames[] = {L"off", L"one", L"two"};
 const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
+const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather", L"widget"};
 
@@ -121,6 +122,12 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     s.clear();
     ReadString(o, L"titlesVertical", s);
     if (!s.empty()) FromString(s, d.titlesVertical);
+    s.clear();
+    ReadString(o, L"thumbnails", s);
+    if (!s.empty()) FromString(s, d.thumbnails);
+    ReadInt(o, L"thumbnailIntervalS", d.thumbnailIntervalS);
+    ReadInt(o, L"thumbnailSize", d.thumbnailSize);
+    ReadInt(o, L"thumbnailFps", d.thumbnailFps);
 }
 
 // docks[].monitor as JSON: the index, or "primary" / "each".
@@ -183,6 +190,8 @@ const wchar_t* ToString(TitlesVertical v) { return EnumToString(v, kTitlesVertic
 bool FromString(std::wstring_view s, WindowsMode& v) { return EnumFromString(s, v, kWindowsModeNames); }
 bool FromString(std::wstring_view s, TitlesMode& v) { return EnumFromString(s, v, kTitlesNames); }
 bool FromString(std::wstring_view s, TitlesVertical& v) { return EnumFromString(s, v, kTitlesVerticalNames); }
+const wchar_t* ToString(ThumbnailMode v) { return EnumToString(v, kThumbnailNames); }
+bool FromString(std::wstring_view s, ThumbnailMode& v) { return EnumFromString(s, v, kThumbnailNames); }
 bool FromString(std::wstring_view s, DockEdge& v) { return EnumFromString(s, v, kEdgeNames); }
 bool FromString(std::wstring_view s, DockAlign& v) { return EnumFromString(s, v, kAlignNames); }
 bool FromString(std::wstring_view s, MiddleClickAction& v) { return EnumFromString(s, v, kMiddleClickNames); }
@@ -434,6 +443,12 @@ void Config::Sanitize() {
         if (static_cast<unsigned>(d.titlesVertical) > static_cast<unsigned>(TitlesVertical::Beside)) {
             d.titlesVertical = TitlesVertical::Beside;
         }
+        if (static_cast<unsigned>(d.thumbnails) > static_cast<unsigned>(ThumbnailMode::Snapshots)) {
+            d.thumbnails = ThumbnailMode::Off;
+        }
+        d.thumbnailIntervalS = std::clamp(d.thumbnailIntervalS, 1, 3600);
+        d.thumbnailSize = d.thumbnailSize <= 0 ? 0 : std::clamp(d.thumbnailSize, 16, 512);
+        d.thumbnailFps = std::clamp(d.thumbnailFps, 1, 60);
         // A file stem inside the themes folder, like theme.preset: no paths.
         if (d.themePreset.size() > 64 || d.themePreset.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos ||
             d.themePreset == L"." || d.themePreset == L"..") {
@@ -705,7 +720,10 @@ bool Config::Save() const {
                  Quote(ToString(d.runningFilter)) + L", \"themePreset\": " + Quote(d.themePreset) + L", \"layer\": " +
                  Quote(ToString(d.layer)) + L",\n";
             o += L"      \"windows\": " + Quote(ToString(d.windows)) + L", \"titles\": " + Quote(ToString(d.titles)) +
-                 L", \"titlesVertical\": " + Quote(ToString(d.titlesVertical)) + L"\n    }";
+                 L", \"titlesVertical\": " + Quote(ToString(d.titlesVertical)) + L",\n";
+            o += L"      \"thumbnails\": " + Quote(ToString(d.thumbnails)) + L", \"thumbnailIntervalS\": " +
+                 Num(d.thumbnailIntervalS) + L", \"thumbnailSize\": " + Num(d.thumbnailSize) + L", \"thumbnailFps\": " +
+                 Num(d.thumbnailFps) + L"\n    }";
         }
         o += docks.empty() ? L"],\n" : L"\n  ],\n";
         o += L"  \"hideTaskbar\": " + Bool(hideTaskbar) + L",\n";

@@ -268,6 +268,44 @@ and the `volume`, `media`, `start`, `search` and `notification-bell` widgets; se
 
 ## Phase 6: task list options
 
+Status: done (2026-11-02) as 6a (unstacked windows, titles under icons, minimize to dock, live
+window titles) and 6b (thumbnails as items, live capture or snapshots); see STATUS.md and README
+"Running apps: windows and titles".
+
+In-dock thumbnails spike (6b, Windows 11 build 26300; harness in the session scratchpad
+`p6\spike\spike.cpp`, an animated WinForms window updating every 15 ms, mspaint windows):
+
+- **Windows.Graphics.Capture** (GraphicsCaptureItem from the HWND via
+  `IGraphicsCaptureItemInterop::CreateForWindow`, `Direct3D11CaptureFramePool`, frames drawn into a
+  D2D bitmap): every `GraphicsCaptureSession` property exists on 26300 (`IsBorderRequired`,
+  `IsCursorCaptureEnabled`, `MinUpdateInterval`, `DirtyRegionMode`, `IncludeSecondaryWindows`);
+  `GraphicsCaptureAccess::RequestAccessAsync(Borderless)` returns Allowed for the unpackaged exe and
+  `IsBorderRequired(false)` really removes the yellow border (screenshot checked). Frames come only
+  when the window's content changes: a still mspaint window sent 1 frame in 6 s. The animated window:
+  58.7 fps uncapped (0.94 % of one core including the D2D scale, 0.11 ms per frame),
+  `MinUpdateInterval` 100 ms gives 9.4 - 9.6 fps (0.13 - 0.31 % CPU), 33 ms 28.3 fps (1.25 %); the
+  process's GPU 3D engine stayed at ~0.1 %. A minimized window delivers no frames (the item shrinks
+  to the 146 x 28 minimized caption): keep the last frame. **The frame pool refuses a D3D device
+  created with `D3D11_CREATE_DEVICE_SINGLETHREADED` (E_NOINTERFACE)**: the dock's device is created
+  multithreaded while live thumbnails are on (switching to live rebuilds it once). Capture calls
+  made inside another process's `SendMessage` fail with `RPC_E_CANTCALLOUT_ININPUTSYNCCALL`
+  (automation): sessions start from a posted message. Each session holds a frame buffer the size of
+  the window (GPU memory). Cannot capture DRM content (black).
+- **DWM thumbnails** (`DwmRegisterThumbnail`, what the preview popup uses): rejected for tiles.
+  DWM draws them over the destination window, outside our DirectComposition tree, so they cannot
+  take part in the placement / magnification animations (each frame of a magnification would need
+  `DwmUpdateThumbnailProperties` from the CPU), they sit above every visual of the window (no app
+  icon over them, no clipping by the auto-hide slide, no perspective / effects), and each needs its
+  own top-level destination.
+- **PrintWindow(`PW_RENDERFULLCONTENT`)** into a DIB, scaled with `StretchBlt(HALFTONE)`: 7.7 ms
+  per call for 640 x 400 (0.5 ms CPU in our process) and 13.8 ms for 1920 x 1080 (5.5 - 15 ms CPU,
+  plus 2.9 ms for the scale); works for occluded windows; a minimized window gives its minimized
+  caption (skip it, keep the last frame); it waits on the target window, so it runs on a worker
+  thread (a hung window is skipped: `IsHungAppWindow`). DRM content is black.
+- Chosen: live = Windows.Graphics.Capture (one-buffer pool, not free-threaded, frames on the UI
+  thread through a DispatcherQueue, `MinUpdateInterval` = 1 / `thumbnailFps`, sessions only while
+  the dock is visible); snapshots = PrintWindow on a worker thread every `thumbnailIntervalS`.
+
 All on the `running` / `app` elements.
 
 - Unstack windows: one slot per window, grouped by app, with the app's order kept.

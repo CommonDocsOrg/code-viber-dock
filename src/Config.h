@@ -67,6 +67,11 @@ enum class TitlesMode { Off, One, Two };
 // Titles on left / right docks: "beside" (default: next to the icon, toward the screen edge) or
 // "off".
 enum class TitlesVertical { Off, Beside };
+// Window thumbnails as dock items: "off" (default), "live" (Windows.Graphics.Capture: the tile
+// follows the window while the dock is visible, at most thumbnailFps frames a second; GPU work in
+// DWM and buffers the size of the window) or "snapshots" (PrintWindow every thumbnailIntervalS
+// seconds; nothing runs in between).
+enum class ThumbnailMode { Off, Live, Snapshots };
 
 // Every field is listed in Theme::Fields() (Theme.h), which drives reading, writing and the UI.
 // The defaults are the built-in "dark" preset.
@@ -183,6 +188,12 @@ struct DockConfig {
     WindowsMode windows = WindowsMode::Stacked;
     TitlesMode titles = TitlesMode::Off;
     TitlesVertical titlesVertical = TitlesVertical::Beside;
+    // Thumbnails: each window slot (unstacked; stacked: an app slot with windows, its active
+    // window) shows the window as a tile with the app icon in a corner.
+    ThumbnailMode thumbnails = ThumbnailMode::Off;
+    int thumbnailIntervalS = 5;  // snapshots: seconds between pictures (1 - 3600)
+    int thumbnailSize = 0;       // the tile's length along the dock in DIPs (0: twice iconSize; 16 - 512)
+    int thumbnailFps = 10;       // live: at most this many frames a second per window (1 - 60)
 
     // Not saved: `themePreset` resolved (Config::ResolveDockThemes); ownTheme false = use the
     // global theme.
@@ -289,6 +300,8 @@ const wchar_t* ToString(DockLayer v);
 const wchar_t* ToString(WindowsMode v);
 const wchar_t* ToString(TitlesMode v);
 const wchar_t* ToString(TitlesVertical v);
+const wchar_t* ToString(ThumbnailMode v);
+bool FromString(std::wstring_view s, ThumbnailMode& v);
 bool FromString(std::wstring_view s, WindowsMode& v);
 bool FromString(std::wstring_view s, TitlesMode& v);
 bool FromString(std::wstring_view s, TitlesVertical& v);

@@ -1,5 +1,7 @@
 #include "Renderer.h"
 
+#include <d3d11_4.h>
+
 #include <iterator>
 
 namespace {
@@ -21,9 +23,10 @@ HRESULT CreateD3DDevice(D3D_DRIVER_TYPE type, UINT flags, ID3D11Device** device)
 
 }  // namespace
 
-HRESULT Renderer::Initialize(HWND hwnd, bool softwareOnly) {
+HRESULT Renderer::Initialize(HWND hwnd, bool softwareOnly, bool multithreaded) {
     hwnd_ = hwnd;
     softwareOnly_ = softwareOnly;
+    multithreaded_ = multithreaded;
 
     D2D1_FACTORY_OPTIONS options{};
 #ifdef _DEBUG
@@ -57,7 +60,9 @@ HRESULT Renderer::RecreateDevice() {
 
 HRESULT Renderer::CreateDeviceResources() {
     // BGRA support is mandatory for D2D interop.
-    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | D3D11_CREATE_DEVICE_SINGLETHREADED;
+    // Single-threaded unless window capture needs the device (Windows.Graphics.Capture frame pools
+    // refuse a single-threaded device with E_NOINTERFACE).
+    UINT flags = D3D11_CREATE_DEVICE_BGRA_SUPPORT | (multithreaded_ ? 0u : static_cast<UINT>(D3D11_CREATE_DEVICE_SINGLETHREADED));
 
     // "software" config: go straight to WARP. The hardware path maps the GPU vendor's user-mode
     // driver into the process (tens of MB of private bytes); the dock draws rarely, so WARP is fine.
@@ -70,6 +75,9 @@ HRESULT Renderer::CreateDeviceResources() {
     }
     RETURN_IF_FAILED(hr);
 
+    if (multithreaded_) {
+        if (auto mt = d3dDevice_.try_as<ID3D11Multithread>()) mt->SetMultithreadProtected(TRUE);
+    }
     RETURN_IF_FAILED(d3dDevice_->QueryInterface(IID_PPV_ARGS(dxgiDevice_.put())));
     RETURN_IF_FAILED(d2dFactory_->CreateDevice(dxgiDevice_.get(), d2dDevice_.put()));
 

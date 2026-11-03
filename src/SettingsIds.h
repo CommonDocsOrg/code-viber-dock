@@ -144,6 +144,21 @@ inline constexpr int kTitlesCombo = 2234;          // docks[].titles: 0 off, 1 o
 inline constexpr int kTitlesVerticalLabel = 2235;
 inline constexpr int kTitlesVerticalCombo = 2236;  // docks[].titlesVertical: 0 off, 1 beside
 inline constexpr int kTaskListNote = 2237;
+inline constexpr int kThumbnailsLabel = 2238;
+inline constexpr int kThumbnailsCombo = 2239;      // docks[].thumbnails: 0 off, 1 live, 2 snapshots
+inline constexpr int kThumbnailsNote = 2240;       // the trade-off between live and snapshots
+inline constexpr int kThumbIntervalLabel = 2241;
+inline constexpr int kThumbIntervalEdit = 2242;    // thumbnailIntervalS, 1 - 3600
+inline constexpr int kThumbIntervalSpin = 2243;
+inline constexpr int kThumbIntervalUnit = 2244;
+inline constexpr int kThumbFpsLabel = 2245;
+inline constexpr int kThumbFpsEdit = 2246;         // thumbnailFps, 1 - 60
+inline constexpr int kThumbFpsSpin = 2247;
+inline constexpr int kThumbFpsUnit = 2248;
+inline constexpr int kThumbSizeLabel = 2249;
+inline constexpr int kThumbSizeEdit = 2250;        // thumbnailSize DIPs, 0 (twice the icon) or 16 - 512
+inline constexpr int kThumbSizeSpin = 2251;
+inline constexpr int kThumbSizeUnit = 2252;
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;

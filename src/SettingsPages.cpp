@@ -545,6 +545,30 @@ protected:
              L"window title, or the app's name.",
              kMargin, right - kMargin, 36);
         NextRow(36);
+        Label(kThumbnailsLabel, L"Window thumbnails");
+        Combo(kThumbnailsCombo, kColX, right - kColX, false);
+        NextRow(kRowH);
+        Text(kThumbnailsNote, CtlKind::Note,
+             L"Live uses the GPU to show windows as they change (only while the dock is visible, at most the "
+             L"frames per second below). Snapshots takes a picture every N seconds and costs almost nothing in "
+             L"between. Each window gets a tile (stacked: each app its active window).",
+             kMargin, right - kMargin, 52);
+        NextRow(52);
+        Label(kThumbIntervalLabel, L"Snapshot every");
+        IntSpin(kThumbIntervalEdit, kThumbIntervalSpin, kColX, 90, 1, 3600, 1,
+                [](Config& c) -> int& { return c.Edit().thumbnailIntervalS; }, SettingsScope::Appearance);
+        Text(kThumbIntervalUnit, CtlKind::Note, L"s", kColX + 98, 40);
+        NextRow();
+        Label(kThumbFpsLabel, L"Live frames per second");
+        IntSpin(kThumbFpsEdit, kThumbFpsSpin, kColX, 90, 1, 60, 1, [](Config& c) -> int& { return c.Edit().thumbnailFps; },
+                SettingsScope::Appearance);
+        Text(kThumbFpsUnit, CtlKind::Note, L"at most", kColX + 98, 80);
+        NextRow();
+        Label(kThumbSizeLabel, L"Tile length");
+        IntSpin(kThumbSizeEdit, kThumbSizeSpin, kColX, 90, 0, 512, 8, [](Config& c) -> int& { return c.Edit().thumbnailSize; },
+                SettingsScope::Appearance);
+        Text(kThumbSizeUnit, CtlKind::Note, L"DIP (0: twice the icon)", kColX + 98, 200);
+        NextRow();
     }
 
     void Created() override {
@@ -561,6 +585,9 @@ protected:
         ComboAdd(kTitlesCombo, L"Two lines");
         ComboAdd(kTitlesVerticalCombo, L"Off");  // TitlesVertical order
         ComboAdd(kTitlesVerticalCombo, L"Beside the icon");
+        ComboAdd(kThumbnailsCombo, L"Off");  // ThumbnailMode order
+        ComboAdd(kThumbnailsCombo, L"Live (GPU capture)");
+        ComboAdd(kThumbnailsCombo, L"Snapshots (every N seconds)");
     }
 
     void Load() override {
@@ -576,6 +603,7 @@ protected:
         SetComboSel(kWindowsCombo, static_cast<int>(c.Edit().windows));
         SetComboSel(kTitlesCombo, static_cast<int>(c.Edit().titles));
         SetComboSel(kTitlesVerticalCombo, static_cast<int>(c.Edit().titlesVertical));
+        SetComboSel(kThumbnailsCombo, static_cast<int>(c.Edit().thumbnails));
         EnableDependents();
     }
 
@@ -601,6 +629,11 @@ protected:
                        static_cast<TitlesVertical>(sel) != c.Edit().titlesVertical) {
                 c.Edit().titlesVertical = static_cast<TitlesVertical>(sel);
                 Changed(SettingsScope::Appearance);
+            } else if (id == kThumbnailsCombo && sel >= 0 && sel <= 2 &&
+                       static_cast<ThumbnailMode>(sel) != c.Edit().thumbnails) {
+                c.Edit().thumbnails = static_cast<ThumbnailMode>(sel);
+                EnableDependents();
+                Changed(SettingsScope::Appearance);  // slots become tiles; capture starts / stops
             }
             return;
         }
@@ -640,6 +673,9 @@ private:
         Enable(kPreviewDelayEdit, c.Edit().previews);
         Enable(kPreviewSingle, c.Edit().previews);
         Enable(kTitlesVerticalCombo, c.Edit().titles != TitlesMode::Off);
+        Enable(kThumbIntervalEdit, c.Edit().thumbnails == ThumbnailMode::Snapshots);
+        Enable(kThumbFpsEdit, c.Edit().thumbnails == ThumbnailMode::Live);
+        Enable(kThumbSizeEdit, c.Edit().thumbnails != ThumbnailMode::Off);
     }
 };
 

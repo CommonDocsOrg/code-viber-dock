@@ -23,6 +23,7 @@
 #include "PreviewPopup.h"
 #include "Renderer.h"
 #include "ScriptPopup.h"
+#include "Thumbnails.h"
 #include "Weather.h"
 #include "WeatherPopup.h"
 #include "WidgetInstance.h"
@@ -91,6 +92,9 @@ public:
     static constexpr UINT kWidgetRedrawMessage = WM_APP + 25;
     // Posted (coalesced): script widgets asked for their popups (DockWindow::OnWidgetPopupRequests).
     static constexpr UINT kWidgetPopupMessage = WM_APP + 26;
+    // WM_APP + 27 = Thumbnails::kSnapshotMessage (a snapshot round finished). Posted (coalesced):
+    // window thumbnails got new frames, the tiles redraw.
+    static constexpr UINT kThumbRedrawMessage = WM_APP + 28;
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -456,6 +460,16 @@ private:
     // background, the widgets and the items. Called after every layout snap.
     void ApplyPerspective();
     HRESULT RenderSeparator(DockItem& item);
+    // A thumbnail tile (docks[].thumbnails): the window's latest frame (dimmed while minimized),
+    // the app icon in a corner; the app icon alone until a frame exists.
+    HRESULT RenderTile(DockItem& item, ID2D1Bitmap* icon);
+    // --- window thumbnails ---
+    // The tile's length along the bar (px) for this layout.
+    float TilePx() const;
+    // Hands the tile windows and the frame size to thumbs_ (after a rebuild / config change) and
+    // whether the dock is visible.
+    void SyncThumbnails();
+    void OnThumbnailFrames(const std::vector<HWND>& windows);
     HRESULT RenderDotSources();
     HRESULT RenderDot(DockItem& item);
     // --- titles under the icons (docks[].titles) ---
@@ -699,7 +713,9 @@ private:
     // Index of the rest slot containing stage x (-1 outside every slot: beyond the ends, in a spacer).
     int SlotAt(float stageX) const;
     // Width of an item's box: the icon, or a separator's / widget's whole slot.
-    float BoxW(const DockItem& item) const { return item.Magnifies() ? layout_.iconPx : item.slotW; }
+    float BoxW(const DockItem& item) const {
+        return item.Magnifies() ? (item.boxMain > 0.0f ? item.boxMain : layout_.iconPx) : item.slotW;
+    }
     // Height (cross axis) of an item's box: the icon, or a widget's content.
     float BoxCross(const DockItem& item) const { return item.IsWidget() ? item.boxCross : layout_.iconPx; }
     // The point (box-local, physical) an icon box scales about: the middle of its edge-facing side.
@@ -907,7 +923,13 @@ private:
     float captionScale_ = 0.0f;
     float captionLineH_ = 0.0f;
     bool builtUnstacked_ = false;  // the last Rebuild made window slots (docks[].windows)
+    bool builtThumbnails_ = false; // the last Rebuild made thumbnail tiles (docks[].thumbnails)
     size_t titleUpdates_ = 0;      // live caption changes applied (QueryState 76)
+
+    // Window thumbnails (docks[].thumbnails): the frames per window, and the coalesced redraw.
+    Thumbnails thumbs_;
+    bool thumbRedrawPosted_ = false;
+    std::vector<HWND> thumbDirty_;  // windows with a new frame since the last redraw
 
     // Acrylic backdrop
     Backdrop backdrop_;
