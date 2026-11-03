@@ -206,6 +206,56 @@ public:
         t = Tween{current, target, now, duration, true, e};
     }
 
+    // Drive's bookkeeping alone: `t` ends up as Drive would leave it (the same curve from the same
+    // value), but no property is set and no animation is made (a slot scrolled out of the
+    // viewport). Returns false when Drive would not have changed anything either.
+    bool Track(Tween& t, float target, double duration, double now, float epsilon = 0.01f,
+               std::optional<Easing> easing = std::nullopt) const {
+        if (t.valid && std::fabs(target - t.to) < epsilon) return false;
+        const float current = t.Value(now);
+        if (!t.valid || duration <= 0.0 || std::fabs(target - current) < epsilon) {
+            t = Tween{target, target, now, 0.0, true};
+            return true;
+        }
+        t = Tween{current, target, now, duration, true, easing.value_or(defaultEasing_)};
+        return true;
+    }
+
+    // Puts a property back on the curve `t` describes (one that only Track followed): the rest of
+    // that curve from now on (ease-out / linear: exactly; spring: a fresh ease-out from the current
+    // value), or its end value once it has finished.
+    template <class Setter>
+    void Resume(Tween& t, double now, Setter&& set) {
+        if (!t.Running(now)) {
+            set(t.to);
+            return;
+        }
+        winrt::com_ptr<IDCompositionAnimation> anim = CreateAnimation();
+        const double D = t.duration, s0 = now - t.start, rest = D - s0;
+        if (!anim || rest <= 0.0) {
+            set(t.to);
+            return;
+        }
+        const double d = static_cast<double>(t.to) - static_cast<double>(t.from);
+        if (t.easing == Easing::Spring) {
+            const float current = t.Value(now);
+            const double r = static_cast<double>(t.to) - current;
+            anim->AddCubic(0.0, current, static_cast<float>(3.0 * r / rest), static_cast<float>(-3.0 * r / (rest * rest)),
+                           static_cast<float>(r / (rest * rest * rest)));
+            t = Tween{current, t.to, now, rest, true, Easing::EaseOut};
+        } else {
+            const bool linear = t.easing == Easing::Linear;
+            const double k1 = linear ? d / D : 3.0 * d / D;
+            const double k2 = linear ? 0.0 : -3.0 * d / (D * D);
+            const double k3 = linear ? 0.0 : d / (D * D * D);
+            const double p = t.from + ((k3 * s0 + k2) * s0 + k1) * s0;
+            anim->AddCubic(0.0, static_cast<float>(p), static_cast<float>(k1 + (2.0 * k2 + 3.0 * k3 * s0) * s0),
+                           static_cast<float>(k2 + 3.0 * k3 * s0), static_cast<float>(k3));
+        }
+        anim->End(rest, t.to);
+        set(anim.get());
+    }
+
     // The easing Drive uses when none is given (settle animations). Tracking retargets pass
     // Easing::EaseOut explicitly.
     void SetDefaultEasing(Easing easing) { defaultEasing_ = easing; }

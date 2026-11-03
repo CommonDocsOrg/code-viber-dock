@@ -52,6 +52,7 @@ const wchar_t* const kWindowsModeNames[] = {L"stacked", L"unstacked"};
 const wchar_t* const kTitlesNames[] = {L"off", L"one", L"two"};
 const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
 const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
+const wchar_t* const kOverflowNames[] = {L"scroll", L"shrink", L"clip"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather", L"widget", L"group",
@@ -131,6 +132,9 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadInt(o, L"thumbnailSize", d.thumbnailSize);
     ReadInt(o, L"thumbnailFps", d.thumbnailFps);
     ReadBool(o, L"badges", d.badges);
+    s.clear();
+    ReadString(o, L"overflow", s);
+    if (!s.empty()) FromString(s, d.overflow);  // unknown text: scroll
 }
 
 // docks[].monitor as JSON: the index, or "primary" / "each".
@@ -195,6 +199,8 @@ bool FromString(std::wstring_view s, TitlesMode& v) { return EnumFromString(s, v
 bool FromString(std::wstring_view s, TitlesVertical& v) { return EnumFromString(s, v, kTitlesVerticalNames); }
 const wchar_t* ToString(ThumbnailMode v) { return EnumToString(v, kThumbnailNames); }
 bool FromString(std::wstring_view s, ThumbnailMode& v) { return EnumFromString(s, v, kThumbnailNames); }
+const wchar_t* ToString(OverflowMode v) { return EnumToString(v, kOverflowNames); }
+bool FromString(std::wstring_view s, OverflowMode& v) { return EnumFromString(s, v, kOverflowNames); }
 const wchar_t* ToString(ItemView v) { return EnumToString(v, kItemViewNames); }
 bool FromString(std::wstring_view s, ItemView& v) { return EnumFromString(s, v, kItemViewNames); }
 bool FromString(std::wstring_view s, DockEdge& v) { return EnumFromString(s, v, kEdgeNames); }
@@ -458,6 +464,7 @@ void Config::Sanitize() {
         d.thumbnailIntervalS = std::clamp(d.thumbnailIntervalS, 1, 3600);
         d.thumbnailSize = d.thumbnailSize <= 0 ? 0 : std::clamp(d.thumbnailSize, 16, 512);
         d.thumbnailFps = std::clamp(d.thumbnailFps, 1, 60);
+        if (static_cast<unsigned>(d.overflow) > static_cast<unsigned>(OverflowMode::Clip)) d.overflow = OverflowMode::Scroll;
         notifications.pollS = std::clamp(notifications.pollS, 1, 60);
         for (DockItemEntry& e : d.items) {
             if (e.Kind() != ItemKind::Tray) continue;
@@ -807,7 +814,9 @@ bool Config::Save() const {
                  L", \"titlesVertical\": " + Quote(ToString(d.titlesVertical)) + L",\n";
             o += L"      \"thumbnails\": " + Quote(ToString(d.thumbnails)) + L", \"thumbnailIntervalS\": " +
                  Num(d.thumbnailIntervalS) + L", \"thumbnailSize\": " + Num(d.thumbnailSize) + L", \"thumbnailFps\": " +
-                 Num(d.thumbnailFps) + (d.badges ? L",\n      \"badges\": true" : L"") + L"\n    }";
+                 Num(d.thumbnailFps) + (d.badges ? L",\n      \"badges\": true" : L"") +
+                 (d.overflow != OverflowMode::Scroll ? L",\n      \"overflow\": " + Quote(ToString(d.overflow)) : L"") +
+                 L"\n    }";
         }
         o += docks.empty() ? L"],\n" : L"\n  ],\n";
         o += L"  \"hideTaskbar\": " + Bool(hideTaskbar) + L",\n";

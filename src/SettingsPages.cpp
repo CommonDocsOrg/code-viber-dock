@@ -122,6 +122,9 @@ protected:
              L"along its edge or onto another edge (unless it is locked).",
              kColX, right - kColX, 54);
         NextRow(56);
+        Label(kOverflowLabel, L"When the icons do not fit");
+        Combo(kOverflowCombo, kColX, right - kColX, false);
+        NextRow();
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
         NextRow();
         Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
@@ -187,6 +190,10 @@ protected:
         ComboAdd(kLayerCombo, L"Above windows");  // DockLayer order
         ComboAdd(kLayerCombo, L"Desktop only (shown while the desktop is visible)");
         for (const wchar_t* a : {L"Centre", L"Start (left / top)", L"End (right / bottom)"}) ComboAdd(kAlignCombo, a);
+        // OverflowMode order.
+        for (const wchar_t* o : {L"Scroll (wheel, drag the bar)", L"Shrink the icons", L"Clip at the screen's end"}) {
+            ComboAdd(kOverflowCombo, o);
+        }
         ComboAdd(kRendererCombo, L"Automatic (GPU, software if that fails)");
         ComboAdd(kRendererCombo, L"Software (WARP, less memory)");
     }
@@ -203,6 +210,7 @@ protected:
         SetComboSel(kLayerCombo, static_cast<int>(c.Edit().layer));
         SetComboSel(kEdgeCombo, static_cast<int>(c.Edit().edge));
         SetComboSel(kAlignCombo, static_cast<int>(c.Edit().align));
+        SetComboSel(kOverflowCombo, static_cast<int>(c.Edit().overflow));
         SetCheck(kFullWidth, c.Edit().fullWidth);
         SetCheck(kReserveSpace, c.Edit().reserveSpace);
         SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(c.Edit().peekOpacity * 100.0)));
@@ -297,6 +305,15 @@ protected:
                 if (code == BN_CLICKED) {
                     c.Edit().reserveSpace = GetCheck(id);
                     Changed(SettingsScope::Appearance);
+                }
+                break;
+            case kOverflowCombo:
+                if (code == CBN_SELCHANGE) {
+                    const int sel = ComboSel(id);
+                    if (sel >= 0 && sel <= 2 && static_cast<OverflowMode>(sel) != c.Edit().overflow) {
+                        c.Edit().overflow = static_cast<OverflowMode>(sel);
+                        Changed(SettingsScope::Appearance);
+                    }
                 }
                 break;
             case kAlignCombo:

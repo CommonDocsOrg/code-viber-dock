@@ -483,6 +483,32 @@ void DockWindow::MonitorRects(RECT& monitor, RECT& work) const {
 
 void DockWindow::ComputeLayout() {
     const DockConfig& d = DockCfg();
+    ComputeLayoutAt(d.iconSize);
+    if (d.overflow != OverflowMode::Shrink) return;
+    // "shrink": smaller icons until the run fits the room along the edge (the gaps, padding,
+    // spacers and widgets keep their size). The widgets measure against the icon size, so a pass
+    // may still be a little long: a few passes, never below kMinShrinkDip (then it is clipped).
+    constexpr int kMinShrinkDip = 16;
+    for (int pass = 0; pass < 4; ++pass) {
+        const Layout& l = layout_;
+        const float room = static_cast<float>(DockGeometry::MainEnd(l.edge, l.monitor) - DockGeometry::MainStart(l.edge, l.monitor)) -
+                           (l.fullWidth ? 0.0f : 2.0f * std::round(kBottomMargin * l.scale));
+        const float barW = l.fullWidth ? (l.itemsW + 2.0f * l.padding) : (l.bar.right - l.bar.left);
+        if (barW <= room + 0.5f || l.iconDip <= kMinShrinkDip) return;
+        float iconsW = 0.0f;  // the part that scales with the icon size
+        for (const DockItem& item : items_) {
+            if (item.Magnifies()) iconsW += BoxW(item);
+        }
+        if (iconsW <= 0.0f) return;
+        const float factor = std::clamp((room - (barW - iconsW)) / iconsW, 0.0f, 1.0f);
+        int next = static_cast<int>(std::floor(static_cast<float>(l.iconDip) * factor));
+        next = std::clamp(next, kMinShrinkDip, l.iconDip - 1);
+        ComputeLayoutAt(next);
+    }
+}
+
+void DockWindow::ComputeLayoutAt(int iconDip) {
+    const DockConfig& d = DockCfg();
     Layout l;
     l.scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
     const float s = l.scale;
@@ -490,13 +516,14 @@ void DockWindow::ComputeLayout() {
     l.vertical = IsVertical(d.edge);
     // Full width: the bar spans the monitor's edge, flush with the screen edge, square corners.
     l.fullWidth = d.fullWidth;
+    l.iconDip = iconDip;
 
-    l.iconPx = std::round(static_cast<float>(d.iconSize) * s);
+    l.iconPx = std::round(static_cast<float>(iconDip) * s);
     l.padding = std::round(kPadding * s);
     // With acrylic, DWM rounds the blur with its own radius; the tint matches it.
     l.cornerRadius = l.fullWidth ? 0.0f : std::round((acrylic_ ? acrylicRadiusDip_ : DockTheme().cornerRadius) * s);
     l.magnification = static_cast<float>(d.magnification);
-    l.bitmapPx = static_cast<UINT>(std::lround(static_cast<double>(d.iconSize) * d.magnification * s));
+    l.bitmapPx = static_cast<UINT>(std::lround(static_cast<double>(iconDip) * d.magnification * s));
 
     // Icon effects. The reflection surface is drawn at the bitmap size and shown at rest scale
     // under each icon: the bar grows by its height. The glow reaches glowPad beyond the icon box.
@@ -594,7 +621,7 @@ void DockWindow::ComputeLayout() {
     const LayoutContext ctx{l.vertical ? DockAxis::Vertical : DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite()};
     Run first = Run::None, prev = Run::None;
     const float tilePx = std::round(
-        static_cast<float>(d.thumbnailSize > 0 ? d.thumbnailSize : 2 * d.iconSize) * s);
+        static_cast<float>(d.thumbnailSize > 0 ? d.thumbnailSize : 2 * iconDip) * s);
     float maxBox = l.iconPx;  // the longest magnifying box (a thumbnail tile is longer than an icon)
     size_t icons = 0;  // icon and separator slots (they make up the "items" of the bar)
     float itemsW = 0.0f;
@@ -660,6 +687,19 @@ void DockWindow::ComputeLayout() {
     const RECT& m = l.monitor;
     const LONG mStart = DockGeometry::MainStart(l.edge, m), mEnd = DockGeometry::MainEnd(l.edge, m);
     const LONG offsetPx = static_cast<LONG>(std::lround(static_cast<double>(d.offset) * s));
+    // Overflow (docks[].overflow): the run does not fit the room along the edge (the monitor's
+    // extent minus the margins). "scroll": the bar takes that room and the run scrolls inside it
+    // (layout_.view); the bar never grows then (a magnified run is clipped at the bar's ends).
+    // "clip" (and "shrink" once the icons cannot get smaller): the bar starts at the monitor's start
+    // and the stage cuts it at its end, as always.
+    const float roomPx = static_cast<float>(mEnd - mStart) - 2.0f * margin;
+    l.view.on = d.overflow == OverflowMode::Scroll && itemsW > 0.0f && lead + itemsW + trail > roomPx + 0.5f;
+    if (l.view.on) {
+        if (!l.fullWidth) barW = std::floor(roomPx);
+        l.growMax = 0.0f;
+        slack = std::round(kMinSideSlack * s);
+        winW = barW + 2.0f * slack;
+    }
     if (l.fullWidth) {
         // The whole edge; the items are placed in it below.
         barW = static_cast<float>(mEnd - mStart);
@@ -718,6 +758,27 @@ void DockWindow::ComputeLayout() {
         l.growRoomStart = l.itemsLeft - lo;
         l.growRoomEnd = hi - l.itemsLeft;
     }
+    if (l.view.on) {
+        // The viewport: the run's room inside the bar, the run shown from scroll_ on (kept across
+        // relayouts, clamped to the new length). Every slot position below is a view position.
+        DockGeometry::Viewport& v = l.view;
+        v.start = l.bar.left + lead;
+        v.end = l.bar.right - trail;
+        v.clipStart = l.bar.left;
+        v.clipEnd = l.bar.right;
+        v.content = itemsW;
+        v.max = std::max(0.0f, std::ceil(itemsW - v.Length()));
+        scroll_ = std::clamp(std::round(scroll_), 0.0f, v.max);
+        if (!scrollShown_.valid || scrollShown_.to != scroll_) scrollShown_ = Tween{scroll_, scroll_, Renderer::Now(), 0.0, true};
+        v.scroll = scroll_;
+        v.fade = std::round(std::min(stride * 1.25f, v.Length() / 4.0f));
+        v.fadeStart = scroll_ > 0.5f;
+        v.fadeEnd = scroll_ < v.max - 0.5f;
+        l.itemsLeft = v.start - scroll_;
+        // The magnified run grows past the viewport's ends on both sides (the slot under the
+        // pointer stays under it); the clip cuts what goes beyond the bar.
+        l.growRoomStart = l.growRoomEnd = 1e6f;
+    }
     float slotX = l.itemsLeft;
     for (size_t i = 0; i < items_.size(); ++i) {
         DockItem& item = items_[i];
@@ -733,6 +794,8 @@ void DockWindow::ComputeLayout() {
         if (k > lastIcon && l.separatorX < 0.0f) l.separatorX = std::round(spacerLeft + item.lead / 2.0f);
         if (k == firstIcon) l.leftSeparatorX = std::round(spacerLeft + item.lead / 2.0f);
     }
+    // Scrolling: the spacers move with the run, so the background (fixed) draws no hairlines.
+    if (l.view.on) l.separatorX = l.leftSeparatorX = -1.0f;
     l.itemHeight = l.bar.bottom - l.itemTop;
     l.magTop = l.itemTop + l.iconPx - l.iconPx * l.magnification;
     // Popups open beyond the stage (above a bottom dock, as always); beside a vertical dock, whose
@@ -753,7 +816,8 @@ void DockWindow::ComputeLayout() {
     // The title is part of the resting window too (it takes no part in hit testing), centred on the
     // run of items along the bar.
     if (titleCross > 0.0f) {
-        const float u0 = std::round(l.itemsLeft + itemsW / 2.0f - titleMain / 2.0f);
+        const float runMiddle = l.view.on ? (l.view.start + l.view.end) / 2.0f : l.itemsLeft + itemsW / 2.0f;
+        const float u0 = std::round(runMiddle - titleMain / 2.0f);
         const float v0 = l.bar.top - titleGap - titleCross;
         l.title = l.PhysRect(std::clamp(u0, 0.0f, std::max(0.0f, l.stageMain - titleMain)), v0,
                              std::clamp(u0, 0.0f, std::max(0.0f, l.stageMain - titleMain)) + titleMain, v0 + titleCross);
@@ -783,6 +847,11 @@ void DockWindow::ComputeLayout() {
     l.peek = d.peekPx > 0 ? std::min(std::round(static_cast<float>(d.peekPx) * s), barH) : 0.0f;
     l.hiddenSlide = l.peek > 0.0f ? l.stageCross - l.peek - l.bar.top : l.slide;
 
+    const DockGeometry::Viewport& ov = layout_.view;
+    if (ov.on != l.view.on || ov.start != l.view.start || ov.end != l.view.end || ov.fade != l.view.fade ||
+        ov.fadeStart != l.view.fadeStart || ov.fadeEnd != l.view.fadeEnd) {
+        ++fadeSerial_;
+    }
     layout_ = l;
 }
 
@@ -1003,6 +1072,10 @@ void DockWindow::ResetLayers() {
     labelOpacity_.valid = false;
     label_.Reset();
     title_.Reset();
+    scrollThumb_.Reset();
+    thumbMain_.valid = thumbOpacity_.valid = false;
+    thumbLen_ = 0.0f;
+    hintShown_ = false;
     for (DockItem& item : items_) {
         item.layer.Reset();
         item.glow.Reset();
@@ -1067,6 +1140,8 @@ HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
     item.badgeBig.Reset();
     item.badgeDirty = item.badgeCount > 0;
     item.dotShift = D2D1_POINT_2F{};  // a fresh dot visual has no transform
+    item.edgeOpacity = 1.0f;          // fresh visuals are opaque and not yet placed
+    item.placementStale = false;
     // A widget is one plain visual in widgetsGroup_ (behind the icons): its content is drawn into
     // `layer` itself and it is placed with the visual's offsets (it never scales or bounces).
     if (item.IsWidget()) {
@@ -1314,7 +1389,8 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
 
 float DockWindow::TilePx() const {
     const DockConfig& d = DockCfg();
-    return std::round(static_cast<float>(d.thumbnailSize > 0 ? d.thumbnailSize : 2 * d.iconSize) * layout_.scale);
+    const int icon = layout_.iconDip > 0 ? layout_.iconDip : d.iconSize;  // "shrink" lays out smaller icons
+    return std::round(static_cast<float>(d.thumbnailSize > 0 ? d.thumbnailSize : 2 * icon) * layout_.scale);
 }
 
 HRESULT DockWindow::RenderTile(DockItem& item, ID2D1Bitmap* icon) {
@@ -1889,6 +1965,8 @@ HRESULT DockWindow::RenderCaption(DockItem& item) {
         const HRESULT hr = renderer_.CreateLayer(item.caption, &itemsGroup_);
         if (FAILED(hr)) return hr;
         item.tx.valid = false;  // ApplyTargets places it (cross offset, then the main tween with the icon)
+        item.placementStale = false;
+        if (item.edgeOpacity != 1.0f) item.edgeOpacity = -1.0f;  // the new visual is opaque: fade it again
     }
     // Physical box: under the icon on horizontal docks (the slot's width), beside it on vertical
     // ones (the text stays upright).
@@ -1991,14 +2069,410 @@ HRESULT DockWindow::RenderTitle() {
 void DockWindow::ApplyReflectionClip() {
     // A clip on the icons' container at the bar's screen-edge side (in front of it, nothing of the
     // icons is cut: bounces and the label go the other way).
+    // A scrolling run: both slot groups are cut at the viewport's clip (the bar's ends) on the main
+    // axis.
     if (!itemsGroup_.visual) return;
-    if (layout_.reflClip) {
-        const Layout& l = layout_;
-        renderer_.SetClip(itemsGroup_, l.PhysRect(-1e5f, -1e5f, 1e5f, l.bar.bottom));
+    const Layout& l = layout_;
+    const float u0 = l.view.on ? l.view.clipStart : -1e5f;
+    const float u1 = l.view.on ? l.view.clipEnd : 1e5f;
+    if (layout_.reflClip || l.view.on) {
+        renderer_.SetClip(itemsGroup_, l.PhysRect(u0, -1e5f, u1, l.reflClip ? l.bar.bottom : 1e5f));
     } else if (itemsGroup_.clip) {
         itemsGroup_.visual->SetClip(nullptr);
         itemsGroup_.clip = nullptr;
     }
+    if (!widgetsGroup_.visual) return;
+    if (l.view.on) {
+        renderer_.SetClip(widgetsGroup_, l.PhysRect(u0, -1e5f, u1, 1e5f));
+    } else if (widgetsGroup_.clip) {
+        widgetsGroup_.visual->SetClip(nullptr);
+        widgetsGroup_.clip = nullptr;
+    }
+}
+
+// --- Scrolling (docks[].overflow "scroll", DockGeometry::Viewport) ----------------------------
+// The layout keeps every rest position in view coordinates. A scroll shifts them all (ShiftScroll)
+// and the slots glide to their new targets with one ease-out curve each (ApplyTargets), so the run
+// moves as one; slots whose whole path is outside the viewport are only tracked. The edge fades
+// are per-slot opacity curves built from the same placement curves (DriveEdgeFade). Nothing runs
+// once the glide has ended (the thumb's fade-out is one one-shot timer).
+
+namespace {
+constexpr double kWheelScrollS = 0.2;      // the glide of a wheel step
+constexpr double kFlingS = 0.55;           // inertia after a drag on the bar (an ease-out this long)
+constexpr float kFlingMinSpeed = 250.0f;   // px / s: a slower release just stops
+constexpr float kWheelSlots = 2.0f;        // icon slots per wheel notch
+constexpr UINT kScrollHintMs = 900;        // the thumb fades out this long after the last scroll
+constexpr double kHintFadeInS = 0.1;
+constexpr double kHintFadeOutS = 0.3;
+constexpr float kAutoScrollSlots = 14.0f;  // icon slots per second at a viewport's very end
+constexpr UINT kAutoScrollMs = 30;
+constexpr float kThumbDip = 3.0f;          // the thumb's thickness
+constexpr float kThumbMinDip = 24.0f;      // and its shortest length
+constexpr float kThumbInsetDip = 2.0f;     // from the bar's far side
+}  // namespace
+
+bool DockWindow::ShiftScroll(float to) {
+    Layout& l = layout_;
+    if (!l.view.on) return false;
+    to = std::round(std::clamp(to, 0.0f, l.view.max));
+    const float shift = scroll_ - to;
+    if (shift == 0.0f) return false;
+    scroll_ = to;
+    l.view.scroll = to;
+    l.itemsLeft += shift;
+    for (DockItem& item : items_) {
+        item.slotX += shift;
+        item.x += shift;
+    }
+    // A preview popup would stay where its slot was.
+    if (previewItem_ >= 0 || previewPending_) DismissPreview(true, false);
+    // The slot under a still pointer is another one now.
+    if (magnifying_ && dragPhase_ == DragPhase::None && !scrollDrag_) {
+        POINT screen{};
+        if (GetCursorPos(&screen)) {
+            const int hit = HitTest(POINT{screen.x - l.window.left, screen.y - l.window.top});
+            SetHover(hit >= 0 && items_[static_cast<size_t>(hit)].IsWidget() ? -1 : hit);
+        }
+    }
+    return true;
+}
+
+void DockWindow::ScrollTo(float to, double duration) {
+    if (!ShiftScroll(to)) return;
+    const double now = Renderer::Now();
+    renderer_.Track(scrollShown_, scroll_, duration, now, 0.01f, Easing::EaseOut);
+    if (dragPhase_ == DragPhase::Dragging) UpdateDragTarget(cursorX_);
+    RenderWithRecovery([&] {
+        ComputeTargets();
+        ApplyTargets(duration, true);  // tracking: always an ease-out (the curve a fling is computed for)
+        ShowScrollHint();
+        PlaceScrollThumb(duration);
+        return S_OK;
+    });
+}
+
+void DockWindow::ScrollByWheel(int delta) {
+    if (!layout_.view.on || delta == 0) return;
+    // Proportional (precision touchpads send fractions of a notch); whole px per step, the rest kept.
+    const float px = static_cast<float>(delta) / WHEEL_DELTA * kWheelSlots * (layout_.iconPx + layout_.gap) +
+                     static_cast<float>(wheelRemainder_) / 100.0f;
+    const float whole = std::trunc(px);
+    wheelRemainder_ = static_cast<int>(std::lround((px - whole) * 100.0f));
+    if (whole != 0.0f) ScrollTo(scroll_ + whole, kWheelScrollS * motion_.scale);
+}
+
+bool DockWindow::ScrollCommand(UINT cmd, int arg) {
+    if (cmd == ContextMenu::kMagnifyAt) {
+        // As if the pointer rested at stage main coordinate `arg` (0xFFFF: as if it left).
+        if (arg == 0xFFFF) {
+            LeaveZone();
+            return true;
+        }
+        // The targets only: the window is not expanded (with no real pointer on it, its leave
+        // tracking would end the magnification at once).
+        if (hideState_ != HideState::Shown || dragPhase_ != DragPhase::None) return false;
+        magnifying_ = true;
+        cursorX_ = static_cast<float>(arg);
+        ApplyMagnify();
+        return true;
+    }
+    if (!layout_.view.on) return false;
+    if (cmd == ContextMenu::kScrollIntoView) return ScrollSlotIntoView(arg);
+    ScrollTo(static_cast<float>(arg), cmd == ContextMenu::kScrollTo ? 0.0 : kWheelScrollS * motion_.scale);
+    return true;
+}
+
+bool DockWindow::ScrollSlotIntoView(int index) {
+    if (!layout_.view.on || index < 0 || index >= static_cast<int>(items_.size())) return false;
+    const DockItem& it = items_[static_cast<size_t>(index)];
+    float to = scroll_;
+    if (it.slotX < layout_.view.start) to -= layout_.view.start - it.slotX;
+    else if (it.slotX + it.slotW > layout_.view.end) to += it.slotX + it.slotW - layout_.view.end;
+    ScrollTo(to, kWheelScrollS * motion_.scale);
+    return true;
+}
+
+void DockWindow::BeginScrollDrag() {
+    scrollDrag_ = true;
+    pressed_ = -1;
+    pressClosedPopup_ = false;
+    scrollSampleCount_ = 0;
+    SetHold(true);  // no hide meanwhile; the window stays at stage size
+    magnifying_ = false;
+    if (magnifyPending_) {
+        KillTimer(hwnd_, kMagnifyTimerId);
+        magnifyPending_ = false;
+    }
+    SetHover(-1);
+    if (!expanded_) {
+        expanded_ = true;
+        UpdateWindowRect();
+    }
+}
+
+void DockWindow::UpdateScrollDrag(POINT pt) {
+    const float main = layout_.Canon(pt).x;
+    const double now = Renderer::Now();
+    if (scrollSampleCount_ == std::size(scrollSamples_)) {
+        std::move(std::begin(scrollSamples_) + 1, std::end(scrollSamples_), std::begin(scrollSamples_));
+        --scrollSampleCount_;
+    }
+    scrollSamples_[scrollSampleCount_++] = ScrollSample{now, main};
+    if (!ShiftScroll(scrollPressOffset_ + (scrollPressMain_ - main))) return;
+    renderer_.Track(scrollShown_, scroll_, motion_.magnify, now, 0.01f, Easing::EaseOut);
+    ScheduleMagnify();  // the throttled retarget (with the thumb)
+    RenderWithRecovery([this] {
+        ShowScrollHint();
+        return S_OK;
+    });
+}
+
+void DockWindow::EndScrollDrag(bool fling) {
+    const bool dragged = scrollDrag_;
+    scrollPress_ = false;
+    scrollDrag_ = false;
+    if (GetCapture() == hwnd_) ReleaseCapture();  // WM_CAPTURECHANGED finds both flags cleared
+    if (!dragged) return;
+    // The pointer's speed over the last ~100 ms.
+    float speed = 0.0f;
+    if (fling && scrollSampleCount_ >= 2) {
+        const ScrollSample& last = scrollSamples_[scrollSampleCount_ - 1];
+        size_t first = scrollSampleCount_ - 1;
+        while (first > 0 && last.t - scrollSamples_[first - 1].t <= 0.1) --first;
+        const double dt = last.t - scrollSamples_[first].t;
+        if (dt > 0.008 && Renderer::Now() - last.t < 0.08) {
+            speed = static_cast<float>((last.main - scrollSamples_[first].main) / dt);
+        }
+    }
+    SetHold(false);
+    const double duration = kFlingS * motion_.scale;
+    if (duration > 0.0 && std::fabs(speed) > kFlingMinSpeed) {
+        // An ease-out starts at 3 d / D: matching the pointer's speed, the run glides d further.
+        ScrollTo(scroll_ - speed * static_cast<float>(duration) / 3.0f, duration);
+    } else {
+        RenderWithRecovery([this] {
+            ComputeTargets();
+            ApplyTargets(motion_.rest);  // land on whole pixels
+            PlaceScrollThumb(motion_.rest);
+            return S_OK;
+        });
+    }
+    if (!CursorInZone()) LeaveZone();
+}
+
+void DockWindow::UpdateAutoScroll(float main) {
+    const DockGeometry::Viewport& v = layout_.view;
+    float speed = 0.0f;
+    if (v.on) {
+        const float zone = layout_.iconPx + layout_.gap;
+        const float top = kAutoScrollSlots * zone;
+        if (main < v.start + zone && scroll_ > 0.0f) {
+            speed = -top * std::clamp((v.start + zone - main) / zone, 0.25f, 1.0f);
+        } else if (main > v.end - zone && scroll_ < v.max) {
+            speed = top * std::clamp((main - (v.end - zone)) / zone, 0.25f, 1.0f);
+        }
+    }
+    autoScrollSpeed_ = speed;
+    if (speed == 0.0f) {
+        StopAutoScroll();
+        return;
+    }
+    if (!autoScrollPending_) {
+        autoScrollLast_ = Renderer::Now();
+        autoScrollPending_ = SetTimer(hwnd_, kAutoScrollTimerId, kAutoScrollMs, nullptr) != 0;
+    }
+}
+
+void DockWindow::StopAutoScroll() {
+    if (autoScrollPending_) KillTimer(hwnd_, kAutoScrollTimerId);
+    autoScrollPending_ = false;
+    autoScrollSpeed_ = 0.0f;
+}
+
+void DockWindow::OnAutoScrollTimer() {
+    const double now = Renderer::Now();
+    const double dt = std::min(now - autoScrollLast_, 0.1);
+    autoScrollLast_ = now;
+    const bool dragging = dragPhase_ == DragPhase::Dragging;
+    if ((!dragging && !dropActive_) || autoScrollSpeed_ == 0.0f ||
+        !ShiftScroll(scroll_ + autoScrollSpeed_ * static_cast<float>(dt))) {
+        StopAutoScroll();  // the drag ended, or the run reached its end
+        return;
+    }
+    renderer_.Track(scrollShown_, scroll_, motion_.magnify, now, 0.01f, Easing::EaseOut);
+    if (dragging) {
+        // The drag target under the (still) pointer moved: as a mouse move does.
+        POINT screen{};
+        GetCursorPos(&screen);
+        UpdateDrag(POINT{screen.x - layout_.window.left, screen.y - layout_.window.top});
+        RenderWithRecovery([this] {
+            ShowScrollHint();
+            return S_OK;
+        });
+        return;
+    }
+    int item = -1, gap = -1;
+    const DropMode mode = DropModeAt(dropMain_, &item, &gap);
+    SetDropTarget(mode, item, gap);
+    RenderWithRecovery([this] {
+        ComputeTargets();
+        ApplyTargets(motion_.magnify, true);
+        ShowScrollHint();
+        PlaceScrollThumb(motion_.magnify);
+        return S_OK;
+    });
+}
+
+HRESULT DockWindow::RenderScrollThumb() {
+    const Layout& l = layout_;
+    const DockGeometry::Viewport& v = l.view;
+    if (!v.on) return S_OK;
+    if (!scrollThumb_.visual) {
+        // In front of everything of the dock (it lies inside the bar, under no label).
+        if (const HRESULT hr = renderer_.CreateLayer(scrollThumb_); FAILED(hr)) return hr;
+        renderer_.StopOpacityAnimation(scrollThumb_, 0.0f);
+        thumbOpacity_ = Tween{0.0f, 0.0f, Renderer::Now(), 0.0, true};
+        thumbLen_ = 0.0f;
+    }
+    const float s = l.scale;
+    const float thick = std::max(2.0f, std::round(kThumbDip * s));
+    const float len = std::round(std::clamp(v.Length() * v.Length() / std::max(1.0f, v.content), kThumbMinDip * s, v.Length()));
+    if (len == thumbLen_ && scrollThumb_.width) return S_OK;
+    thumbLen_ = len;
+    thumbMain_.valid = false;  // placed again (its cross offset too)
+    const uint32_t c = DockTheme().labelText;
+    const D2D1_COLOR_F color = Theme::ToColor((c & 0x00FFFFFFu) | 0x8C000000u);
+    return DrawCanonical(scrollThumb_, len, thick, [&](ID2D1DeviceContext* dc) {
+        winrt::com_ptr<ID2D1SolidColorBrush> brush;
+        if (FAILED(dc->CreateSolidColorBrush(color, brush.put()))) return;
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0.0f, 0.0f, len, thick), thick / 2.0f, thick / 2.0f),
+                                 brush.get());
+    });
+}
+
+void DockWindow::PlaceScrollThumb(double duration) {
+    const Layout& l = layout_;
+    if (!scrollThumb_.visual || !l.view.on || !hintShown_) return;
+    IDCompositionVisual2* visual = scrollThumb_.visual.get();
+    const DockGeometry::Viewport& v = l.view;
+    if (!thumbMain_.valid) {
+        const float thick = std::max(2.0f, std::round(kThumbDip * l.scale));
+        SetCrossOffset(visual, l.CrossOrigin(l.bar.top + std::round(kThumbInsetDip * l.scale), thick));
+    }
+    const float track = std::max(0.0f, v.Length() - thumbLen_);
+    const float u = std::round(v.start + (v.max > 0.0f ? track * scroll_ / v.max : 0.0f));
+    renderer_.Drive(
+        thumbMain_, u, duration, Renderer::Now(), [&](auto x) { return SetMainOffset(visual, x); }, 0.01f,
+        Easing::EaseOut);
+}
+
+void DockWindow::ShowScrollHint() {
+    // Called inside a RenderWithRecovery step (the caller commits).
+    if (!layout_.view.on || FAILED(RenderScrollThumb()) || !scrollThumb_.visual) return;
+    if (!hintShown_) {
+        hintShown_ = true;
+        thumbMain_.valid = false;
+        PlaceScrollThumb(0.0);  // appears where the run is now heading
+        winrt::com_ptr<IDCompositionVisual3> v3;
+        if (SUCCEEDED(scrollThumb_.visual->QueryInterface(IID_PPV_ARGS(v3.put())))) {
+            renderer_.Drive(
+                thumbOpacity_, 1.0f, kHintFadeInS * motion_.scale, Renderer::Now(),
+                [&](auto o) { return v3->SetOpacity(o); }, 0.001f, renderer_.FadeEasing());
+        }
+    }
+    hintPending_ = SetTimer(hwnd_, kScrollHintTimerId, kScrollHintMs, nullptr) != 0;  // restarts it
+}
+
+void DockWindow::OnScrollHintTimer() {
+    KillTimer(hwnd_, kScrollHintTimerId);
+    hintPending_ = false;
+    if (scrollDrag_ || autoScrollPending_) {  // still scrolling: keep it
+        hintPending_ = SetTimer(hwnd_, kScrollHintTimerId, kScrollHintMs, nullptr) != 0;
+        return;
+    }
+    if (!hintShown_ || !scrollThumb_.visual) return;
+    hintShown_ = false;
+    RenderWithRecovery([this] {
+        winrt::com_ptr<IDCompositionVisual3> v3;
+        if (SUCCEEDED(scrollThumb_.visual->QueryInterface(IID_PPV_ARGS(v3.put())))) {
+            renderer_.Drive(
+                thumbOpacity_, 0.0f, kHintFadeOutS * motion_.scale, Renderer::Now(),
+                [&](auto o) { return v3->SetOpacity(o); }, 0.001f, renderer_.FadeEasing());
+        }
+        return S_OK;
+    });
+}
+
+void DockWindow::SetEdgeOpacity(DockItem& item, float value, IDCompositionAnimation* anim) {
+    for (Layer* layer : {&item.layer, &item.dot, &item.caption}) {
+        if (!layer->visual) continue;
+        if (anim) {
+            renderer_.AnimateOpacity(*layer, anim);
+        } else {
+            renderer_.StopOpacityAnimation(*layer, value);
+        }
+    }
+}
+
+void DockWindow::DriveEdgeFade(DockItem& item, size_t index, double now) {
+    const DockGeometry::Viewport& v = layout_.view;
+    // Another opacity owns the icon container now (a launch pulse, the dragged icon, the fade of
+    // an icon dragged off): leave it; the edge fade is set again afterwards.
+    const bool pulsing = item.bounce != DockItem::Bounce::None && item.bounceStyle == LaunchStyle::Pulse;
+    const bool dragged = dragPhase_ != DragPhase::None && static_cast<int>(index) == dragSource_;
+    const bool fading = item.fade.valid && (item.fade.to != 1.0f || item.fade.Running(now));
+    if (pulsing || dragged || fading) {
+        if (v.on || item.edgeOpacity != 1.0f) item.edgeOpacity = -1.0f;
+        return;
+    }
+    if (!v.on) {
+        // Not scrolling: nothing is touched unless an earlier (scrolling) layout faded the slot.
+        if (item.edgeOpacity != 1.0f) {
+            SetEdgeOpacity(item, 1.0f, nullptr);
+            item.edgeOpacity = 1.0f;
+        }
+        return;
+    }
+    const Tween& t = item.tx;
+    const float half = BoxW(item) / 2.0f;
+    if (!t.valid || !t.Running(now)) {
+        const float o = v.Opacity(t.to + half);
+        if (o != item.edgeOpacity) {
+            SetEdgeOpacity(item, o, nullptr);
+            item.edgeOpacity = o;
+        }
+        return;
+    }
+    const Tween& f = item.edgeFadeFor;
+    if (item.edgeOpacity < 0.0f && item.edgeFadeSerial == fadeSerial_ && f.valid && f.start == t.start && f.to == t.to &&
+        f.from == t.from && f.duration == t.duration) {
+        return;  // already built for this curve and these ends
+    }
+    DockGeometry::CubicSegment segs[5];
+    const int n = DockGeometry::FadeSegments(v, t.from, t.to, t.duration, t.easing == Easing::Linear, half,
+                                             now - t.start, segs);
+    item.edgeFadeFor = t;
+    item.edgeFadeSerial = fadeSerial_;
+    if (n == 1 && segs[0].c1 == 0.0f && segs[0].c2 == 0.0f && segs[0].c3 == 0.0f) {
+        const float o = segs[0].c0;  // constant along the whole way
+        if (o != item.edgeOpacity) {
+            SetEdgeOpacity(item, o, nullptr);
+            item.edgeOpacity = o;
+        }
+        return;
+    }
+    winrt::com_ptr<IDCompositionAnimation> anim = renderer_.CreateAnimation();
+    const float end = v.Opacity(t.to + half);
+    if (!anim) {
+        SetEdgeOpacity(item, end, nullptr);
+        item.edgeOpacity = end;
+        return;
+    }
+    for (int i = 0; i < n; ++i) anim->AddCubic(segs[i].begin, segs[i].c0, segs[i].c1, segs[i].c2, segs[i].c3);
+    anim->End(std::max(0.0, t.duration - (now - t.start)), end);
+    SetEdgeOpacity(item, end, anim.get());
+    item.edgeOpacity = -1.0f;
 }
 
 HRESULT DockWindow::DrawFrame(bool all) {
@@ -2042,6 +2516,19 @@ HRESULT DockWindow::DrawFrame(bool all) {
         if (title_.visual) {
             title_.visual->SetOffsetX(layout_.title.left);
             title_.visual->SetOffsetY(layout_.title.top);
+        }
+        if (scrollThumb_.visual) {
+            // The viewport may have changed: the thumb is re-drawn / re-placed (or goes).
+            thumbMain_.valid = false;
+            if (!layout_.view.on) {
+                renderer_.StopOpacityAnimation(scrollThumb_, 0.0f);
+                thumbOpacity_ = Tween{0.0f, 0.0f, Renderer::Now(), 0.0, true};
+                hintShown_ = false;
+            } else if (hintShown_) {
+                hr = RenderScrollThumb();
+                PlaceScrollThumb(0.0);
+                if (FAILED(hr)) return hr;
+            }
         }
     }
     if (!rootY_.valid) ApplyRootPose(0.0);
@@ -2167,6 +2654,17 @@ void DockWindow::ComputeTargets() {
                             src < static_cast<int>(n) && items_[static_cast<size_t>(src)].key == dragKey_ &&
                             dragInsert_ >= 0 && dragOrder_.size() == n;
     const bool gapLayout = !dragLayout && dropGap_ >= 0 && n > 0;
+    // A scrolling run fades at an end with content beyond it: scrolled there, or pushed past it
+    // (magnified, a drop gap opened). The bar itself never grows.
+    auto viewEnds = [&](bool pushedStart, bool pushedEnd) {
+        if (!l.view.on) return;
+        const bool fs = scroll_ > 0.5f || pushedStart;
+        const bool fe = scroll_ < l.view.max - 0.5f || pushedEnd;
+        if (fs == layout_.view.fadeStart && fe == layout_.view.fadeEnd) return;
+        layout_.view.fadeStart = fs;
+        layout_.view.fadeEnd = fe;
+        ++fadeSerial_;
+    };
     if (dragLayout || gapLayout) {
         const float shiftLeft = gapLayout ? std::floor(stride / 2.0f) : 0.0f;
         const float shiftRight = gapLayout ? stride - shiftLeft : 0.0f;
@@ -2222,8 +2720,9 @@ void DockWindow::ComputeTargets() {
                 if (i < n) place(i, lead);
             }
         }
-        bgLeftTarget_ = l.bar.left - shiftLeft;
-        bgRightTarget_ = l.bar.right + shiftRight - l.bgSurfaceW;
+        bgLeftTarget_ = l.bar.left - (l.view.on ? 0.0f : shiftLeft);
+        bgRightTarget_ = l.bar.right + (l.view.on ? 0.0f : shiftRight) - l.bgSurfaceW;
+        viewEnds(gapLayout, gapLayout);
         return;
     }
 
@@ -2309,8 +2808,9 @@ void DockWindow::ComputeTargets() {
         items_[static_cast<size_t>(groupTarget_)].targetScale = kGroupScale;
     }
 
-    bgLeftTarget_ = l.bar.left - growLeft;
-    bgRightTarget_ = l.bar.right + growRight - l.bgSurfaceW;
+    bgLeftTarget_ = l.bar.left - (l.view.on ? 0.0f : growLeft);
+    bgRightTarget_ = l.bar.right + (l.view.on ? 0.0f : growRight) - l.bgSurfaceW;
+    viewEnds(growLeft > 0.5f, growRight > 0.5f);
 
     if (labelShown_ && hovered_ >= 0 && hovered_ < static_cast<int>(n) && label_.width) {
         // Centred on the icon along the bar, kLabelGap beyond the magnified icon (above a bottom
@@ -2366,7 +2866,20 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
             bgRightX_, bgRightTarget_, duration, now, [&](auto v) { return SetMainOffset(bgRight_.visual.get(), v); },
             posEpsilon, easing);
     }
-    for (DockItem& item : items_) {
+    // A scrolling run: a slot whose whole path (where it is now -> its target) stays outside the
+    // viewport is not touched; its tweens only follow (Renderer::Track) and it is put back on its
+    // curve (Resume) once it comes near the viewport again.
+    const float outMargin = l.iconPx + l.gap;
+    auto scrolledOut = [&](const DockItem& item) {
+        // Not for a visual that has not been placed since the last snap (a new slot, a layout
+        // change): it is placed once, statically, so it never shows at its default offset.
+        if (!l.view.on || !item.tx.valid) return false;
+        const float from = item.tx.Value(now);
+        return l.view.Outside(std::min(from, item.targetX), std::max(from, item.targetX) + BoxW(item), outMargin);
+    };
+    placedDriven_ = placedSkipped_ = 0;
+    for (size_t index = 0; index < items_.size(); ++index) {
+        DockItem& item = items_[index];
         if (item.IsWidget() && item.layer.visual) {
             // A widget: the visual's own offsets. Its height can change without a snap (the first
             // weather data arriving): follow it here.
@@ -2376,9 +2889,19 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
                 SetCrossOffset(visual, cross);
                 item.appliedY = cross;
             }
-            renderer_.Drive(
-                item.tx, item.targetX, duration, now, [&](auto v) { return SetMainOffset(visual, v); }, posEpsilon,
-                easing);
+            auto setMain = [&](auto v) { return SetMainOffset(visual, v); };
+            if (scrolledOut(item)) {  // (a visual never placed since the last snap is placed once below)
+                if (renderer_.Track(item.tx, item.targetX, duration, now, posEpsilon, easing)) item.placementStale = true;
+                ++placedSkipped_;
+                continue;
+            }
+            if (item.placementStale) {
+                renderer_.Resume(item.tx, now, setMain);
+                item.placementStale = false;
+            }
+            renderer_.Drive(item.tx, item.targetX, duration, now, setMain, posEpsilon, easing);
+            ++placedDriven_;
+            DriveEdgeFade(item, index, now);
             continue;
         }
         if (!item.layer.visual || !item.layer.translate || !item.layer.scale) continue;
@@ -2406,23 +2929,33 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
         IDCompositionVisual2* caption = item.caption.visual.get();
         // The dot and the title follow the icon box along the bar: one animation object drives all.
         // (The title does not scale: magnification grows the icon away from it.)
-        renderer_.Drive(
-            item.tx, item.targetX, duration, now,
-            [&](auto v) {
-                HRESULT hr = SetMainOffset(translate, v);
-                if (SUCCEEDED(hr) && dot) hr = SetMainOffset(dot, v);
-                if (SUCCEEDED(hr) && caption) hr = SetMainOffset(caption, v);
-                return hr;
-            },
-            posEpsilon, easing);
-        renderer_.Drive(
-            item.ts, item.targetScale, duration, now,
-            [&](auto v) {
-                HRESULT hr = scale->SetScaleX(v);
-                if (SUCCEEDED(hr)) hr = scale->SetScaleY(v);
-                return hr;
-            },
-            scaleEpsilon, easing);
+        auto setMain = [&](auto v) {
+            HRESULT hr = SetMainOffset(translate, v);
+            if (SUCCEEDED(hr) && dot) hr = SetMainOffset(dot, v);
+            if (SUCCEEDED(hr) && caption) hr = SetMainOffset(caption, v);
+            return hr;
+        };
+        auto setScale = [&](auto v) {
+            HRESULT hr = scale->SetScaleX(v);
+            if (SUCCEEDED(hr)) hr = scale->SetScaleY(v);
+            return hr;
+        };
+        if (scrolledOut(item)) {
+            const bool moved = renderer_.Track(item.tx, item.targetX, duration, now, posEpsilon, easing);
+            const bool scaled = renderer_.Track(item.ts, item.targetScale, duration, now, scaleEpsilon, easing);
+            if (moved || scaled) item.placementStale = true;
+            ++placedSkipped_;
+            continue;
+        }
+        if (item.placementStale) {
+            renderer_.Resume(item.tx, now, setMain);
+            renderer_.Resume(item.ts, now, setScale);
+            item.placementStale = false;
+        }
+        renderer_.Drive(item.tx, item.targetX, duration, now, setMain, posEpsilon, easing);
+        renderer_.Drive(item.ts, item.targetScale, duration, now, setScale, scaleEpsilon, easing);
+        ++placedDriven_;
+        DriveEdgeFade(item, index, now);
     }
 
     if (dropGap_ >= 0 && marker_.visual && marker_.width) {
@@ -2487,6 +3020,7 @@ void DockWindow::ApplyMagnify() {
         if (labelShown_ && labelDirty_) hr = RenderLabel();
         ComputeTargets();
         ApplyTargets(motion_.magnify, true);
+        PlaceScrollThumb(motion_.magnify);  // a drag on the bar / an auto-scroll moved the run
         return hr;
     });
 }
@@ -3093,6 +3627,8 @@ bool DockWindow::PopupShownFor(int slot) const {
 
 void DockWindow::ShowClickPopup(int slot) {
     if (slot < 0 || slot >= static_cast<int>(items_.size())) return;
+    // A scrolling run: the slot glides fully into view first (the popup opens over where it lands).
+    if (layout_.view.on) ScrollSlotIntoView(slot);
     const DockElement& element = ElementOf(static_cast<size_t>(slot));
     const float anchor = element.PopupAnchor(items_[static_cast<size_t>(slot)], Context());
     switch (element.Popup()) {
@@ -4959,6 +5495,12 @@ void DockWindow::UpdateDrag(POINT pt) {
     } else {
         UpdateDragTarget(cursorX_);
     }
+    // Near a viewport end (not up in the remove zone): the run scrolls that way.
+    if (DragInRemoveZone(pt)) {
+        StopAutoScroll();
+    } else {
+        UpdateAutoScroll(cursorX_);
+    }
     const bool remove = DragRemovable() && DragInRemoveZone(pt);
     if (remove != dragRemove_) {
         dragRemove_ = remove;
@@ -5008,6 +5550,7 @@ void DockWindow::ResetGroupTarget() {
 
 void DockWindow::EndDrag(bool commit) {
     if (dragPhase_ != DragPhase::Dragging) return;
+    StopAutoScroll();
     if (dragPending_) {
         KillTimer(hwnd_, kDragTimerId);
         dragPending_ = false;
@@ -5102,6 +5645,7 @@ void DockWindow::EndDrag(bool commit) {
 
 void DockWindow::AbortDrag() {
     if (dragPhase_ != DragPhase::Dragging) return;
+    StopAutoScroll();
     ResetGroupTarget();
     if (dragPending_) {
         KillTimer(hwnd_, kDragTimerId);
@@ -5355,7 +5899,11 @@ DWORD DockWindow::OnDragOver(POINT screenPt, DWORD allowed) {
     if (!dropActive_) return DROPEFFECT_NONE;
     const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
     int item = -1, gap = -1;
-    const DropMode mode = shown ? DropModeAt(DropMainAt(screenPt), &item, &gap) : DropMode::None;
+    dropMain_ = DropMainAt(screenPt);
+    // Near a viewport end of a scrolling run: it scrolls that way (the drop target follows).
+    UpdateAutoScroll(shown ? dropMain_ : 0.0f);
+    if (!shown) StopAutoScroll();
+    const DropMode mode = shown ? DropModeAt(dropMain_, &item, &gap) : DropMode::None;
     SetDropTarget(mode, item, gap);
     switch (mode) {
         case DropMode::Insert:
@@ -5379,6 +5927,7 @@ void DockWindow::OnDragLeave() {
     memberDragGroup_ = AppKey{};
     memberDragIndex_ = SIZE_MAX;
     trayDragKey_.clear();
+    StopAutoScroll();
     if (!dropActive_) return;
     SetDropTarget(DropMode::None, -1, -1);
     dropActive_ = false;
@@ -5387,6 +5936,7 @@ void DockWindow::OnDragLeave() {
 }
 
 DWORD DockWindow::OnDrop(IDataObject* data, POINT screenPt, DWORD allowed) {
+    StopAutoScroll();
     if (!dropActive_) return DROPEFFECT_NONE;
     const std::vector<std::wstring> files = DroppedFiles(data);
     int item = -1, gap = -1;
@@ -5844,6 +6394,8 @@ int DockWindow::HitTest(POINT pt) const {  // stage coordinates
 
 int DockWindow::SlotAt(float x) const {
     if (items_.empty() || x < layout_.itemsLeft) return -1;
+    // A scrolling run: only what the viewport shows (scrolled-out slots lie beyond its clip).
+    if (layout_.view.on && (x < layout_.view.clipStart || x >= layout_.view.clipEnd)) return -1;
     for (size_t i = 0; i < items_.size(); ++i) {
         const DockItem& item = items_[i];
         if (x < item.slotX) return -1;  // in the spacer before it
@@ -5901,7 +6453,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                    (folder_.FadePending() ? 1 : 0) + (folder_.ViewTimerPending() ? 1 : 0) +
                    (weatherPopup_.FadePending() ? 1 : 0) +
                    (calendar_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (groupHoldPending_ ? 1 : 0) +
-                   (watching_ && shared_->Watch().Pending() ? 1 : 0);
+                   (watching_ && shared_->Watch().Pending() ? 1 : 0) + (hintPending_ ? 1 : 0) +
+                   (autoScrollPending_ ? 1 : 0);
         case 6:
             return acrylic_ ? 1 : 0;
         case 7:
@@ -6216,6 +6769,52 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             if (wp == 34) return static_cast<LRESULT>(item.reflection.height);
             return wp == 24 ? static_cast<LRESULT>(item.kind) : (item.customIcon ? 1 : 0);
         }
+        // --- overflow / scrolling (round 4 phase 11a) ---
+        case 128:  // docks[].overflow (0 scroll, 1 shrink, 2 clip)
+            return static_cast<LRESULT>(DockCfg().overflow);
+        case 129:  // 1 while the run scrolls (it is longer than the viewport)
+            return layout_.view.on ? 1 : 0;
+        case 130:  // the scroll offset (px; where the run is going)
+            return layout_.view.on ? static_cast<LRESULT>(std::lround(scroll_)) : 0;
+        case 131:  // the run's length (px; also when it does not scroll)
+            return static_cast<LRESULT>(std::lround(layout_.view.on ? layout_.view.content : layout_.itemsW));
+        case 132:  // the viewport's length (px; 0 when not scrolling)
+            return layout_.view.on ? static_cast<LRESULT>(std::lround(layout_.view.Length())) : 0;
+        case 133:  // edge fades in effect now (bit 0 the start, bit 1 the end)
+            return (layout_.view.on && layout_.view.fadeStart ? 1 : 0) | (layout_.view.on && layout_.view.fadeEnd ? 2 : 0);
+        case 134: {  // slot lp in the viewport: 2 whole, 1 partly, 0 scrolled out (-1: no such slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            const DockItem& it = items_[static_cast<size_t>(lp)];
+            if (!layout_.view.on) return 2;
+            const float a = it.slotX, b = it.slotX + it.slotW;
+            if (a >= layout_.view.start - 0.5f && b <= layout_.view.end + 0.5f) return 2;
+            return b > layout_.view.clipStart && a < layout_.view.clipEnd ? 1 : 0;
+        }
+        case 135:  // 1 while the scroll thumb is shown
+            return hintShown_ ? 1 : 0;
+        case 136:  // the icon size laid out (DIPs; smaller than docks[].iconSize with "shrink")
+            return layout_.iconDip;
+        case 137:  // slot placements in the last pass: driven (low word), only tracked as scrolled out (high word)
+            return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(placedDriven_), static_cast<WORD>(placedSkipped_)));
+        case 138:  // 1 while a drag near a viewport end auto-scrolls the run
+            return autoScrollPending_ ? 1 : 0;
+        case 139:  // 1 while the bar is dragged to scroll (2: pressed, not moved yet)
+            return scrollDrag_ ? 1 : scrollPress_ ? 2 : 0;
+        case 140:  // the scroll offset the slots show now (px; follows 130 over the glide)
+            return layout_.view.on ? static_cast<LRESULT>(std::lround(scrollShown_.Value(Renderer::Now()))) : 0;
+        case 142:    // the main coordinate (px, stage) of slot lp's box as placed now (magnified / dragged targets)
+        case 143: {  // ... and its target scale x 1000 (-1: no such slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            const DockItem& it = items_[static_cast<size_t>(lp)];
+            return wp == 142 ? std::lround(it.targetX) : std::lround(it.targetScale * 1000.0f);
+        }
+        case 144:  // the stage's screen coordinate along the main axis (stage main 0; QueryState 142, ItemCommand 834)
+            return layout_.vertical ? layout_.window.top : layout_.window.left;
+        case 141: {  // the edge-fade opacity x 100 of slot lp at rest (100: none; -1 no such slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            const DockItem& it = items_[static_cast<size_t>(lp)];
+            return std::lround(layout_.view.Opacity(it.targetX + BoxW(it) / 2.0f) * 100.0f);
+        }
         default:
             return -1;
     }
@@ -6258,6 +6857,18 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 UpdateDockDrag();
                 return 0;
             }
+            if (scrollDrag_) {
+                UpdateScrollDrag(pt);
+                return 0;
+            }
+            if (scrollPress_ && (wp & MK_LBUTTON) && dragPhase_ == DragPhase::None &&
+                std::fabs(layout_.Canon(pt).x - scrollPressMain_) >
+                    static_cast<float>(GetSystemMetricsForDpi(layout_.vertical ? SM_CYDRAG : SM_CXDRAG, dpi_))) {
+                // A press on the background of a scrolling bar, moved along it: the run follows.
+                BeginScrollDrag();
+                UpdateScrollDrag(pt);
+                return 0;
+            }
             if (dockPress_ && (wp & MK_LBUTTON) && dragPhase_ == DragPhase::None) {
                 POINT screen{};
                 GetCursorPos(&screen);
@@ -6283,7 +6894,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 DragTrayIcon(key);
                 return 0;
             }
-            if (pressed_ >= 0 && Draggable(static_cast<size_t>(pressed_)) && (wp & MK_LBUTTON) &&
+            if (pressed_ >= 0 && !scrollPress_ && Draggable(static_cast<size_t>(pressed_)) && (wp & MK_LBUTTON) &&
                 hideState_ != HideState::Hidden &&
                 (std::abs(pt.x - pressPt_.x) > GetSystemMetricsForDpi(SM_CXDRAG, dpi_) ||
                  std::abs(pt.y - pressPt_.y) > GetSystemMetricsForDpi(SM_CYDRAG, dpi_))) {
@@ -6337,7 +6948,8 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_MOUSELEAVE:
             trackingMouse_ = false;
-            if (dragPhase_ != DragPhase::None || dockDrag_) return 0;  // the drag owns the mouse
+            // A drag owns the mouse (an icon, the dock, the run of a scrolling dock).
+            if (dragPhase_ != DragPhase::None || dockDrag_ || scrollDrag_ || scrollPress_) return 0;
             if (hideState_ == HideState::Hidden) {
                 if (revealPending_) {  // left the strip before the reveal delay: stay hidden
                     KillTimer(hwnd_, kRevealTimerId);
@@ -6364,6 +6976,23 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                          hideState_ == HideState::Shown && InZone(pressPt_) && GetCursorPos(&dockPressScreen_);
             // The capture from the press on: a quick first move may already leave the dock.
             if (dockPress_) SetCapture(hwnd_);
+            // A press on the background of a scrolling bar (or on a slot that cannot be dragged: a
+            // locked dock) may start a drag of the run.
+            // The bar's surface beside an icon box (above / below it on the cross axis) counts as
+            // background too: a full bar has hardly any room between its icons.
+            {
+                const float v = layout_.Canon(pressPt_).y;
+                const bool offBox = pressed_ >= 0 && !items_[static_cast<size_t>(pressed_)].IsWidget() &&
+                                    (v < layout_.itemTop || v >= layout_.itemTop + layout_.iconPx);
+                scrollPress_ = !dockPress_ && layout_.view.on && dragPhase_ == DragPhase::None &&
+                               hideState_ == HideState::Shown && InZone(pressPt_) && pressTrayKey_.empty() &&
+                               (pressed_ < 0 || offBox || !Draggable(static_cast<size_t>(pressed_)));
+            }
+            if (scrollPress_) {
+                scrollPressMain_ = layout_.Canon(pressPt_).x;
+                scrollPressOffset_ = scroll_;
+                SetCapture(hwnd_);
+            }
             // A press on the dock closes the click popup; on the slot whose popup it is (a folder,
             // the clock, the weather) the release then does not open it again (the click toggles).
             pressClosedPopup_ = pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).OnPress(pressed_);
@@ -6379,6 +7008,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 EndDockDrag(true);
                 return 0;
             }
+            if (scrollDrag_) {
+                EndScrollDrag(true);  // flings on; no click
+                return 0;
+            }
+            if (scrollPress_) EndScrollDrag(false);  // not moved: an ordinary click
             if (dragPhase_ == DragPhase::Dragging) {
                 EndDrag(true);
                 return 0;
@@ -6410,12 +7044,26 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_MOUSEWHEEL:
         case WM_MOUSEHWHEEL: {
-            // Routed to the element under the pointer (apps: the dock's wheel action).
+            // Routed to the element under the pointer (apps: the dock's wheel action). A scrolling
+            // run: Shift + wheel always scrolls it; otherwise a wheel no element takes scrolls it
+            // when the dock's wheel action is "none" (a horizontal wheel: always).
             POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};  // screen coordinates
             ScreenToClient(hwnd_, &pt);
-            const int index = HitTest(ToStage(pt));
-            if (index >= 0 && ElementOf(static_cast<size_t>(index))
-                                  .OnWheel(index, GET_WHEEL_DELTA_WPARAM(wp), msg == WM_MOUSEHWHEEL)) {
+            const POINT stagePt = ToStage(pt);
+            const int index = HitTest(stagePt);
+            const int delta = GET_WHEEL_DELTA_WPARAM(wp);
+            const bool horizontal = msg == WM_MOUSEHWHEEL;
+            // + = toward the run's end: wheel down (negative), tilt right (positive).
+            const int toEnd = horizontal ? delta : -delta;
+            if (layout_.view.on && (GET_KEYSTATE_WPARAM(wp) & MK_SHIFT) && InZone(stagePt)) {
+                ScrollByWheel(toEnd);
+                return 0;
+            }
+            if (index >= 0 && ElementOf(static_cast<size_t>(index)).OnWheel(index, delta, horizontal)) {
+                return 0;
+            }
+            if (layout_.view.on && (horizontal || DockCfg().wheel == WheelAction::None) && InZone(stagePt)) {
+                ScrollByWheel(toEnd);
                 return 0;
             }
             break;
@@ -6491,6 +7139,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // Someone else took the mouse (a menu, Alt+Tab...): cancel the drag.
             if (dragPhase_ == DragPhase::Dragging && reinterpret_cast<HWND>(lp) != hwnd_) EndDrag(false);
             if (dockDrag_ && reinterpret_cast<HWND>(lp) != hwnd_) EndDockDrag(false);
+            if ((scrollDrag_ || scrollPress_) && reinterpret_cast<HWND>(lp) != hwnd_) EndScrollDrag(false);
             return 0;
 
         case WM_ERASEBKGND:
@@ -6573,6 +7222,12 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case Thumbnails::kTimerId:
                     thumbs_.HandleMessage(msg, wp, lp);  // the snapshot interval
+                    return 0;
+                case kScrollHintTimerId:
+                    OnScrollHintTimer();
+                    return 0;
+                case kAutoScrollTimerId:
+                    OnAutoScrollTimer();
                     return 0;
                 case kRestTimerId:
                     KillTimer(hwnd_, kRestTimerId);

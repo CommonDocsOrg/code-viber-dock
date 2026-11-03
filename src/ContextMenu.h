@@ -83,6 +83,11 @@ enum Command : UINT {
     kCentreDismiss = 828,       // dismiss row HIWORD(wParam) (as its close glyph does)
     kCentreClearAll = 829,      // "Clear all"
     kCentreActivate = 830,      // row HIWORD(wParam) as a click: its app to the front, the notification dismissed
+    // A scrolling dock's run (round 4 phase 11a; lParam: the dock in its high word):
+    kScrollTo = 831,            // scroll to offset HIWORD(wParam) px at once
+    kScrollAnimated = 832,      // ... with the wheel's glide
+    kScrollIntoView = 833,      // scroll just far enough to show slot LOWORD(lParam)
+    kMagnifyAt = 834,           // magnify as if the pointer were at stage main coordinate HIWORD(wParam) (0xFFFF: left)
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

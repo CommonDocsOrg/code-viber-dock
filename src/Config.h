@@ -98,6 +98,11 @@ enum class TitlesVertical { Off, Beside };
 // DWM and buffers the size of the window) or "snapshots" (PrintWindow every thumbnailIntervalS
 // seconds; nothing runs in between).
 enum class ThumbnailMode { Off, Live, Snapshots };
+// When the run of items is longer than the room along the edge (the monitor's edge minus the
+// margins): "scroll" (default: the bar keeps that length and the run scrolls inside it, with the
+// wheel, a drag on the bar and edge fades), "shrink" (the icons get smaller until it fits, 16 DIP
+// at least) or "clip" (the run goes on past the monitor's end, as before round 4 phase 11).
+enum class OverflowMode { Scroll, Shrink, Clip };
 
 // Every field is listed in Theme::Fields() (Theme.h), which drives reading, writing and the UI.
 // The defaults are the built-in "dark" preset.
@@ -228,6 +233,9 @@ struct DockConfig {
     // Round 4 phase 9: a bubble with the unread notification count on the app slots
     // (NotificationService; the per-app toast count). Saved only when on.
     bool badges = false;
+    // Round 4 phase 11a: a run longer than the edge scrolls / shrinks / is clipped. Saved only when
+    // not "scroll".
+    OverflowMode overflow = OverflowMode::Scroll;
 
     // Not saved: `themePreset` resolved (Config::ResolveDockThemes); ownTheme false = use the
     // global theme.
@@ -336,6 +344,8 @@ const wchar_t* ToString(TitlesMode v);
 const wchar_t* ToString(TitlesVertical v);
 const wchar_t* ToString(ThumbnailMode v);
 bool FromString(std::wstring_view s, ThumbnailMode& v);
+const wchar_t* ToString(OverflowMode v);
+bool FromString(std::wstring_view s, OverflowMode& v);
 const wchar_t* ToString(ItemView v);
 bool FromString(std::wstring_view s, ItemView& v);
 bool FromString(std::wstring_view s, WindowsMode& v);

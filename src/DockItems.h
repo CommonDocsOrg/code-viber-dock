@@ -162,6 +162,15 @@ struct DockItem {
     Tween tx;               // translate.OffsetX (and the dot's OffsetX)
     Tween ts;               // scale.ScaleX/Y
     Tween fade;             // layer opacity (dragging: dimmed; dragged off the dock: fading out)
+    // A scrolling dock (DockGeometry::Viewport): the edge-fade opacity set on the slot's visuals (the
+    // icon container, the dot and the caption; a widget's visual): the static value, or -1 while an
+    // animation drives it (built for the `tx` curve recorded in edgeFadeFor) or it is unknown.
+    float edgeOpacity = 1.0f;
+    Tween edgeFadeFor;
+    unsigned edgeFadeSerial = 0;  // DockWindow::fadeSerial_ when it was built
+    // The slot was outside the viewport at its last placement: only its tweens' bookkeeping
+    // followed (no visual was touched); its visuals are re-placed before they are driven again.
+    bool placementStale = false;
 
     // Launch feedback (animation.launchStyle): the icon bounces / hops / pulses until a new
     // window appears (or a timeout), then finishes the current bounce (or fades back to opaque).

@@ -91,6 +91,8 @@ public:
     static constexpr UINT_PTR kRecycleBinTimerId = 21;    // coalesces Recycle Bin change notifications
     // 22 = Thumbnails::kTimerId
     static constexpr UINT_PTR kGroupHoldTimerId = 23;     // a dragged icon held over a pin: make a group
+    static constexpr UINT_PTR kScrollHintTimerId = 24;    // a scrolling dock: fade the scroll thumb out
+    static constexpr UINT_PTR kAutoScrollTimerId = 25;    // a drag held near a viewport end scrolls the run
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);
     // a dropped file's open-with / recycle action (run after the OLE Drop call has returned).
     // WM_APP + 20 = WeatherService::kResultMessage (a forecast fetch finished; handled here) and
@@ -353,6 +355,13 @@ public:
     // `row`, clear all. False when it is not open or there is no such row.
     bool CentreCommand(UINT cmd, size_t row);
 
+    // --- scrolling (round 4 phase 11a) ---
+    // Automation (ItemCommand 831 - 833): scroll the run to offset `arg` px at once (831) or with
+    // the wheel's glide (832), or just far enough to show slot `arg` (833). 834 (any dock): magnify
+    // as if the pointer rested at stage main coordinate `arg` (0xFFFF: as if it left; for tests of
+    // the magnified layout without a real pointer). False: the run does not scroll (or no such slot).
+    bool ScrollCommand(UINT cmd, int arg);
+
 private:
     class DropTarget;
     friend class DropTarget;
@@ -426,6 +435,10 @@ private:
         float captionCross = 0.0f;
         float captionShift = 0.0f;
         float captionBand = 0.0f;  // what the captions add to the bar's cross size
+        // docks[].overflow (round 4 phase 11a). `view`: the scrolling viewport (off: the identity);
+        // iconDip: the icon size laid out (docks[].iconSize, smaller with "shrink").
+        DockGeometry::Viewport view;
+        int iconDip = 0;
 
         D2D1_POINT_2F Phys(float u, float v) const { return DockGeometry::Point(edge, u, v, stageCross); }
         D2D1_RECT_F PhysRect(float u0, float v0, float u1, float v1) const {
@@ -459,8 +472,40 @@ private:
     // The label's text format (labels and the title), at scale `s`. False without DirectWrite.
     bool EnsureLabelFormat(float s);
     HRESULT RenderTitle();
-    // Clips the icons at the bar's edge while reflections are clipped (theme.reflectionClip).
+    // Clips the icons at the bar's edge while reflections are clipped (theme.reflectionClip), and
+    // both slot groups at the viewport's ends while the run scrolls.
     void ApplyReflectionClip();
+
+    // --- scrolling (docks[].overflow "scroll"; layout_.view) ---
+    // Moves the run to offset `to` (clamped, whole px): every rest position shifts (the layout is in
+    // view coordinates), the hover follows the pointer. No visual is touched. False: no change.
+    bool ShiftScroll(float to);
+    // ShiftScroll, then the slots glide there over `duration` (0: at once; an ease-out, the curve
+    // inertia is computed for) with the scroll thumb shown.
+    void ScrollTo(float to, double duration);
+    // Wheel notches (delta / WHEEL_DELTA; + = toward the end) scroll the run.
+    void ScrollByWheel(int delta);
+    // Scrolls just far enough to show slot `index` whole. False: no such slot / not scrolling.
+    bool ScrollSlotIntoView(int index);
+    // Press on the bar's background and move: the run follows the pointer; the release flings it on.
+    void BeginScrollDrag();
+    void UpdateScrollDrag(POINT stagePt);
+    void EndScrollDrag(bool fling);
+    // A drag (an icon, or an OLE drag over the dock) at main coordinate `main`: near a viewport end
+    // the run scrolls that way (kAutoScrollTimerId) until it leaves the zone or the run ends.
+    void UpdateAutoScroll(float main);
+    void StopAutoScroll();
+    void OnAutoScrollTimer();
+    // The scroll thumb: drawn per size, placed along the viewport, shown while scrolling and faded
+    // out kScrollHint after the last move.
+    HRESULT RenderScrollThumb();
+    void PlaceScrollThumb(double duration);
+    void ShowScrollHint();
+    void OnScrollHintTimer();
+    // The edge-fade opacity of slot `item` for its current placement curve (scrolling docks; a
+    // non-scrolling dock touches nothing unless an earlier layout faded the slot).
+    void DriveEdgeFade(DockItem& item, size_t index, double now);
+    void SetEdgeOpacity(DockItem& item, float value, IDCompositionAnimation* anim);
     // Registers / moves / removes the app bar per config (after a layout pass).
     void UpdateAppBar();
     void RemoveAppBar();
@@ -482,7 +527,9 @@ private:
     HMONITOR PickMonitor() const;
     // The dock's monitor and its work area (screen px): the one place the layout gets them from.
     void MonitorRects(RECT& monitor, RECT& work) const;
+    // ComputeLayoutAt with the configured icon size, and with "shrink" a smaller one until it fits.
     void ComputeLayout();
+    void ComputeLayoutAt(int iconDip);
     // The HWND rect (screen) for the current state: the 1 px strip while Hidden, the whole stage
     // while expanded_ (mouse on the dock), the bar column down to the screen edge while sliding,
     // and just the drawn bar while Shown at rest.
@@ -1185,4 +1232,37 @@ private:
     int dropGap_ = -1;            // slot the gap is open at (-1: none)
     Layer marker_;                // insertion marker
     Tween markerX_;
+    float dropMain_ = 0.0f;       // main coordinate of the last OLE drag-over point (auto-scroll)
+
+    // Scrolling (docks[].overflow "scroll"): the offset survives relayouts (clamped to the new
+    // maximum); scrollShown_ is its bookkeeping curve (what the slots show now, QueryState 140).
+    float scroll_ = 0.0f;
+    Tween scrollShown_;
+    unsigned fadeSerial_ = 1;     // bumped when the viewport or its fading ends change
+    bool fadeStartShown_ = false, fadeEndShown_ = false;  // the ends the slots were faded for
+    // Wheel deltas below a notch add up (precision touchpads).
+    int wheelRemainder_ = 0;
+    // Drag-scrolling the bar.
+    bool scrollPress_ = false;    // a left press on the bar's background of a scrolling dock
+    bool scrollDrag_ = false;     // ... moved: the run follows the pointer
+    float scrollPressMain_ = 0.0f;
+    float scrollPressOffset_ = 0.0f;
+    struct ScrollSample {
+        double t;
+        float main;
+    };
+    ScrollSample scrollSamples_[8]{};
+    size_t scrollSampleCount_ = 0;
+    // Auto-scroll during a drag: px per second (signed, + = toward the end), its last tick.
+    float autoScrollSpeed_ = 0.0f;
+    double autoScrollLast_ = 0.0;
+    bool autoScrollPending_ = false;
+    // The scroll thumb (created on first use: a dock that never scrolls has no visual for it).
+    Layer scrollThumb_;
+    Tween thumbMain_, thumbOpacity_;
+    float thumbLen_ = 0.0f;
+    bool hintShown_ = false;
+    bool hintPending_ = false;
+    // Slot placements driven / only tracked (scrolled out) in the last ApplyTargets (QueryState 137).
+    size_t placedDriven_ = 0, placedSkipped_ = 0;
 };

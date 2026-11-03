@@ -1445,6 +1445,15 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         result = dock && dock->CentreCommand(static_cast<UINT>(wp & 0xFFFF), static_cast<size_t>((wp >> 16) & 0xFFFF)) ? 1 : 0;
         return true;
     }
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kScrollTo && (wp & 0xFFFF) <= ContextMenu::kMagnifyAt) {
+        // A scrolling dock's run: an offset in the high word of wParam, or (833) the slot in lParam.
+        DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+        const UINT cmd = static_cast<UINT>(wp & 0xFFFF);
+        const int arg = cmd == ContextMenu::kScrollIntoView ? static_cast<int>(ArgOfParam(lp))
+                                                            : static_cast<int>((wp >> 16) & 0xFFFF);
+        result = dock && dock->ScrollCommand(cmd, arg) ? 1 : 0;
+        return true;
+    }
     if (msg == msgItemCommand_ && wp >= ContextMenu::kPopupSelect && wp <= ContextMenu::kPopupOpen) {
         // The dock's open folder popup; the low word of lParam is the entry / offset.
         DockWindow* dock = docks_.WindowAt(DockOfParam(lp));

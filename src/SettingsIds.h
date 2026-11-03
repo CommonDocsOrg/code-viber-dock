@@ -106,6 +106,9 @@ inline constexpr int kRunningMonitorOnlyCaption = 2163;
 // Round 4 phase 3b: docks[].layer.
 inline constexpr int kLayerLabel = 2164;
 inline constexpr int kLayerCombo = 2165;  // 0 normal (above windows), 1 desktop only
+// Round 4 phase 11a: docks[].overflow.
+inline constexpr int kOverflowLabel = 2166;
+inline constexpr int kOverflowCombo = 2167;  // 0 scroll, 1 shrink, 2 clip (OverflowMode order)
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;

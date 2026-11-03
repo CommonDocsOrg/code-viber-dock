@@ -301,6 +301,44 @@ beside a vertical one), centred on the items. It takes no part in hit testing (h
 clicking it does nothing), hides and slides with the dock, and the resting window includes its
 band. `WinDock.QueryState` 45.
 
+**When the icons do not fit** (`overflow`, round 4 phase 11a): what happens when the run of items is
+longer than the room along the edge (the monitor's extent minus the 8 DIP margins; full width: the
+whole edge minus the padding). A dock that fits is not affected at all (same layout, same pixels).
+
+- `"scroll"` (default): the bar takes the whole room and the run scrolls inside it. **Mouse wheel**
+  over the bar: two icon slots a notch (precision-touchpad fractions add up), when no element takes
+  the wheel (a volume widget does) and the dock's `wheel` action is `"none"`; **Shift + wheel**
+  always scrolls (the way to scroll a dock whose `wheel` is `"cycle"`), so does a horizontal wheel /
+  tilt. **Drag the bar** with the left button: a press on the bar's surface that is not an icon box
+  (the padding, the spacers, the band of the running dots under the icons, or any slot of a locked
+  dock) moved along the bar drags the run with the pointer; released while moving it glides on
+  (an ease-out whose start speed is the pointer's, about half a second; reduce motion: it stops).
+  A press that does not move is a click. A press on an icon still drags that icon (reorder), and
+  Ctrl + drag still moves the dock. While more content lies beyond an end, the slots there **fade
+  out** over about one and a quarter icon slots (each slot's opacity follows its own position
+  exactly, also while it glides) and are cut at the bar's ends; a thin **scroll thumb** along the
+  bar's far side shows where the view is and fades out 0.9 s after the last scroll.
+  **Magnification** works as anywhere: the icon under the pointer magnifies where it is on screen
+  and its neighbours make room by moving within the bar (the run is pushed past the ends, where it
+  fades and is cut, instead of the bar growing). **Dragging an icon** (or a file, a group member, a
+  tray icon) near either end of the view scrolls the run that way, faster the closer to the end, so
+  an icon can be moved from the first place to the last; the insertion marker and the drop target
+  follow. Opening a slot's popup (folder, group, calendar, weather, the tray drawer, the
+  notification centre) first scrolls that slot fully into view. Labels, previews and popups use the
+  slot's place on screen. Slots outside the view are not touched while it scrolls (their placement
+  is only tracked and set again when they come near the view); nothing runs once a glide has
+  ended. The hairlines between icons and trailing / leading widgets are not drawn on a scrolling
+  bar (they would have to scroll with the run); the title is centred on the view. The scroll
+  offset is kept while the dock runs (not saved) and clamped when items come or go.
+- `"shrink"`: the icons get smaller (down to 16 DIP) until the run fits; gaps, padding, spacers and
+  widgets keep their sizes (thumbnail tiles shrink with the icons). Magnification still uses
+  `magnification` of the smaller size.
+- `"clip"`: as before this option existed: the bar starts at the monitor's start and runs past its
+  end, which cuts it off.
+
+Settings > General > Position > **When the icons do not fit**. The key is written only when it is not
+`"scroll"`. Automation: `QueryState` 128 - 144, `ItemCommand` 831 - 834 (see Automation).
+
 ### Dock items
 
 - Left click: launches the app if it has no windows; otherwise activates, minimizes, or cycles
@@ -1066,6 +1104,8 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   - `thumbnails` (default `"off"`; `"live"`, `"snapshots"`), `thumbnailIntervalS` (default 5,
     1 - 3600), `thumbnailSize` (DIPs along the dock, default 0 = twice `iconSize`, else 16 - 512),
     `thumbnailFps` (default 10, 1 - 60): window thumbnails as dock items, same section.
+  - `overflow` (default `"scroll"`; `"shrink"`, `"clip"`; written only when not `"scroll"`): a run
+    of items longer than the edge, see [Position](#position-edge-alignment-offset).
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
     `hideDelayMs`, `revealDelayMs`, `previews`, `previewsSingleWindow`, `previewDelayMs`,
     `middleClick`, `wheel`, `monitor`.
@@ -1364,6 +1404,26 @@ always there, also when every dock is parked) handle these registered messages:
   the service starts): `WINDOCK_NOTIFY_FILTER=text;text` lists only toasts whose AUMID (balloons:
   whose exe path) contains one of the parts, so tests never touch other notifications;
   `WINDOCK_NOTIFY_DENIED=1` behaves as if access were denied.
+- **Overflow and scrolling** (round 4 phase 11a): `QueryState` 128 = `overflow` (0 scroll, 1 shrink,
+  2 clip), 129 = 1 while the run scrolls (it is longer than the view), 130 = the scroll offset in px
+  (where the run is going), 131 = the run's length (px; also when it fits), 132 = the view's length
+  (0 when not scrolling), 133 = edge fades in effect (bit 0 the start, bit 1 the end; also while a
+  magnified run or a drop gap pushes slots past an end), 134 = slot `lParam` in the view (2 whole,
+  1 partly, 0 scrolled out; 2 when not scrolling), 135 = 1 while the scroll thumb is shown, 136 = the
+  icon size laid out (DIPs; smaller with `"shrink"`), 137 = slot placements in the last layout pass:
+  driven in the low word, only tracked (scrolled out, no visual touched) in the high word, 138 = 1
+  while a drag near an end auto-scrolls, 139 = 1 while the bar is dragged (2: pressed, not moved
+  yet), 140 = the offset the slots show now (follows 130 over a glide), 141 = the edge-fade opacity
+  x 100 of slot `lParam` at its target place, 142 = the main coordinate (stage px) of slot
+  `lParam`'s box as targeted now (magnified / dragged layouts included), 143 = its target scale
+  x 1000, 144 = the stage's screen coordinate along the main axis (stage coordinate 0).
+  `QueryItemPoint` of a scrolled-out slot returns its place outside the view. `ItemCommand` (the
+  dock in the high word of `lParam`): 831 scrolls to offset `HIWORD(wParam)` px at once, 832 the
+  same with the wheel's glide, 833 scrolls just far enough to show slot `LOWORD(lParam)` (each 1
+  when the run scrolls), 834 magnifies as if the pointer rested at stage main coordinate
+  `HIWORD(wParam)` (0xFFFF: as if it left; any dock; the targets only, the window does not expand:
+  for checking the magnified layout without a real pointer, e.g. while the session is locked).
+  Settings: 2167 the overflow combo (0 scroll, 1 shrink, 2 clip).
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
