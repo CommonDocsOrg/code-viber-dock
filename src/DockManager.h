@@ -108,6 +108,7 @@ public:
     bool AnyWeatherItem() const override;
     ForegroundWatch& Watch() override { return watch_; }
     void SetWatching(DockWindow* dock, bool on) override;
+    WidgetRuntime& Widgets() override { return widgets_; }
 
 private:
     HRESULT CreateWindowFor(Instance& inst);
@@ -118,6 +119,8 @@ private:
     Config* config_ = nullptr;
     HWND owner_ = nullptr;
     Callbacks callbacks_;
+    // Before the windows: their script widgets unregister from it when they go.
+    WidgetRuntime widgets_;
     std::vector<HMONITOR> monitors_;
     std::vector<Instance> instances_;
     std::vector<std::unique_ptr<DockWindow>> graveyard_;  // closed windows, freed by Reap

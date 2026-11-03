@@ -19,6 +19,7 @@
 #include "IconUtil.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
+#include "WidgetPackage.h"
 
 namespace {
 
@@ -215,6 +216,7 @@ const wchar_t* KindLabel(ItemKind k) {
         case ItemKind::Running: return L"Running apps";
         case ItemKind::Clock: return L"Clock";
         case ItemKind::Weather: return L"Weather";
+        case ItemKind::Widget: return L"Widget";
         case ItemKind::Unknown:
         default: return L"";
     }
@@ -434,7 +436,7 @@ private:
         Enable(kPinChooseIcon, iconable);
         Enable(kPinChooseImage, iconable);
         Enable(kPinResetIcon, iconable && !e->icon.empty());
-        Enable(kPinSettings, e && k != ItemKind::Separator && k != ItemKind::Unknown);
+        Enable(kPinSettings, e && k != ItemKind::Separator && k != ItemKind::Unknown && k != ItemKind::Widget);
         // A button that just got disabled must not keep the keyboard focus.
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kPinnedList));
     }
@@ -453,21 +455,36 @@ private:
         }
     }
 
-    // "Add widget ▾": a menu under the button (Clock, Weather, Running apps; DockConfig::AddWidget).
+    // "Add widget ▾": a menu under the button (Clock, Weather, Running apps; DockConfig::AddWidget),
+    // then the installed script widgets (built-in and folder, Widgets::Catalog), ids 100 + n.
     void AddWidget() {
         HWND button = Item(kPinAddWidget);
         HMENU menu = CreatePopupMenu();
         if (!button || !menu) return;
-        constexpr UINT kClock = 1, kWeather = 2, kRunning = 3;
+        constexpr UINT kClock = 1, kWeather = 2, kRunning = 3, kScript = 100;
         AppendMenuW(menu, MF_STRING, kClock, L"Clock");
         AppendMenuW(menu, MF_STRING, kWeather, L"Weather");
         AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Running) ? MF_GRAYED : 0), kRunning, L"Running apps");
+        const std::vector<Widgets::CatalogEntry> installed = Widgets::Catalog();
+        if (!installed.empty()) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        for (size_t i = 0; i < installed.size() && i < 200; ++i) {
+            const Widgets::CatalogEntry& w = installed[i];
+            const std::wstring text =
+                w.name + L"\t" + (w.source == Widgets::Package::Source::Folder ? L"folder" : L"built-in");
+            AppendMenuW(menu, MF_STRING, kScript + static_cast<UINT>(i), text.c_str());
+        }
         RECT r{};
         GetWindowRect(button, &r);
         const UINT cmd = static_cast<UINT>(
             TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, r.left, r.bottom, Owner(), nullptr));
         DestroyMenu(menu);
         if (cmd == 0) return;
+        if (cmd >= kScript && cmd - kScript < installed.size()) {
+            const size_t at = Cfg().Edit().AddScriptWidget(installed[cmd - kScript].id);
+            Changed(SettingsScope::Pins);
+            FillList(static_cast<int>(at));
+            return;
+        }
         const ItemKind kind = cmd == kClock ? ItemKind::Clock : cmd == kWeather ? ItemKind::Weather : ItemKind::Running;
         const size_t at = Cfg().Edit().AddWidget(kind);
         if (at == SIZE_MAX) {
@@ -562,6 +579,15 @@ private:
                 details = c.weather.Configured() ? (c.weather.location.empty() ? L"Location set" : c.weather.location)
                                                  : L"No location yet";
                 break;
+            case ItemKind::Widget: {
+                name = Widgets::DisplayName(e.id);
+                std::wstring error;
+                const auto pkg = Widgets::Load(e.id, error);
+                details = !pkg ? L"Not installed: " + e.id
+                               : e.id + (pkg->source == Widgets::Package::Source::BuiltIn ? L" (built-in)"
+                                                                                         : L" (" + pkg->folder + L")");
+                break;
+            }
             case ItemKind::Unknown:
             default:
                 name = e.kind.empty() ? L"(no kind)" : e.kind;

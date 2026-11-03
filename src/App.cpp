@@ -457,6 +457,9 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
         case ContextMenu::kResetIcon:
             SetPinIcon(dock, key, {});
             return;
+        case ContextMenu::kReloadWidget:
+            dock.ReloadWidget(IndexOfKey(dock, key));
+            return;
         case ContextMenu::kEmptyRecycleBin: {
             const int index = IndexOfKey(dock, key);
             if (index < 0 || dock.Items()[static_cast<size_t>(index)].kind != DockItem::Kind::RecycleBin) return;
@@ -554,6 +557,7 @@ ContextMenu::TrayMenuState App::MenuState(size_t cfg) const {
     state.dockCount = static_cast<int>(config_.docks.size());
     for (const DockConfig& o : config_.docks) {
         (o.locked ? state.anyLocked : state.anyUnlocked) = true;
+        if (o.Has(ItemKind::Widget)) state.hasWidgets = true;
     }
     return state;
 }
@@ -732,6 +736,9 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         case ContextMenu::kReloadConfig:
             ReloadConfig();
+            break;
+        case ContextMenu::kReloadWidgets:
+            docks_.Widgets().ReloadAll();
             break;
         case ContextMenu::kRestoreTaskbar:
             // For this session only: the controller is disabled (so "Hide taskbar" shows

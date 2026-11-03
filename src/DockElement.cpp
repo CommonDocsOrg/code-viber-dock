@@ -213,6 +213,8 @@ std::unique_ptr<DockElement> MakeElement(ElementHost& host, const DockItemEntry&
             return MakeClockElement(host, entry, ordinal);
         case ItemKind::Weather:
             return MakeWeatherElement(host, entry, ordinal);
+        case ItemKind::Widget:
+            return MakeScriptWidgetElement(host, entry, ordinal);
         case ItemKind::Unknown:
         default:
             return nullptr;

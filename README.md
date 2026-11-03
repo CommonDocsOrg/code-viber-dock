@@ -1,7 +1,8 @@
 # WinDock
 
-A macOS-style dock for Windows 11. C++20 / Win32, Direct2D + DirectComposition, no third-party
-dependencies. Single static exe (no VC++ redistributable needed).
+A macOS-style dock for Windows 11. C++20 / Win32, Direct2D + DirectComposition; one vendored
+third-party library, the QuickJS-ng script engine for widgets (`third_party/quickjs-ng`, MIT,
+compiled in). Single static exe (no VC++ redistributable needed).
 
 Status: Phase 5. A translucent bar with a live clock at the bottom-center of the configured
 monitor, plus a tray icon. Icons magnify under the mouse (macOS style), the hovered app's name
@@ -482,6 +483,48 @@ gets an **Open …** button at the bottom ("Open" and the file name, or the URL'
 the app are both a click away (`WinDock.DockCommand` 114 still opens the calendar in "launch"
 mode).
 
+### Widgets
+
+A **widget** is a small JavaScript program that draws into a slot of the dock: a folder you can
+write and edit without compiling anything. The full reference (every call, every manifest key) is
+[docs/widgets.md](docs/widgets.md); the short version:
+
+- **Where**: `%LocalAppData%\WinDock\widgets\<id>\` with `widget.json` (the manifest), `main.js`
+  (an ES module), more modules and an `assets` folder if it needs them. Two widgets are built in
+  (their sources are in this repository's `widgets\` folder): **Hello** (`hello`: a label and a
+  click counter) and **Digital clock (script)** (`digital-clock`: a scripted copy of the dock's own
+  clock, with the same format, seconds and date options as its settings). A folder with a
+  built-in's id replaces the built-in.
+- **Adding one**: Settings > Dock contents > **Add widget ▾** lists the installed widgets after
+  Clock / Weather / Running apps, or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
+  (with an optional `"settings": { ... }` object). A widget can be dragged on the dock like the
+  clock; a right click opens the dock menu, which then has **Reload widgets**.
+- **widget.json**: `name`, `version`, `author`, `description`, `size` (the box per axis in DIPs:
+  `{ "horizontal": { "main": 64, "cross": 40 }, "vertical": { "main": 44, "cross": 48 } }`),
+  `refreshMs` (call `tick()` every so often, aligned to the clock), `timeLimitMs` (watchdog, default
+  50 ms), `memoryLimitMB` (default 32), `permissions`, `watch`, and `settings` (a schema: bool,
+  int, number, string, choice, colour, font, with defaults; the values live in the item's
+  `settings` object).
+- **main.js** exports `draw(canvas, dock)` (required) and optionally `measure(canvas, dock)`
+  (returns `{ main, cross }`), `tick(dock)`, `onClick(e)`, `onMiddleClick(e)`, `onWheel(e)`
+  (return `true` to use the wheel), `onHover(e)` and `onSettingsChanged(settings)`. Nothing is
+  drawn per frame: the dock calls `draw()` when the widget asks for it (`requestRedraw()`), when a
+  tick redraws it, and when the dock lays it out again.
+- **API**: `canvas` (rectangles, rounded rectangles, ellipses, lines, paths with arcs and Béziers,
+  solid colours and linear / radial gradients, DirectWrite text and `measureText`, images from the
+  widget's folder, clip, opacity, transforms, save / restore; DIPs, upright on every edge, drawn
+  with Direct2D straight into the slot), `dock` (axis, edge, box size, scale, icon size, theme
+  colours, hovered / magnified, reduce motion), `timer` (`setTimeout`, `setInterval`, `clear`,
+  `setRefresh`, `requestRedraw`), `console` (log / warn / error to the widget's log), `system`
+  (local date and time computed by Windows, strftime formatting, locale names, 12 / 24 h, units),
+  `settings`.
+- **Safety**: every widget has its own script engine (QuickJS-ng) with its own heap limit; a call
+  that runs longer than its time limit is stopped and the widget suspended ("Stopped" tile), an
+  uncaught exception shows an "Error" tile with the message; **Reload widgets** (dock menu) starts
+  them over. Imports and images are read only from the widget's own folder. Widgets run on the
+  dock's thread and cost nothing while they do not redraw (each widget's runtime is about 130 KB
+  of script heap, about 400 KB of private memory with its surface).
+
 ## Settings
 
 **Settings…** in the tray / dock menu, `WinDock.exe --settings` (asks the running dock to open it,
@@ -664,6 +707,9 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     - `"clock"` / `"weather"`: the clock and the weather widget. The widget is shown when its item
       is present; the settings toggles add the item (at the end; the weather goes before the
       clock) or remove it.
+    - `"widget"`: a script widget, `{ "kind": "widget", "id": "<widget id>", "settings": { ... } }`
+      (see **Widgets** above and docs/widgets.md). An item without an `id` is dropped on load;
+      `settings` is optional and written back as it is.
 
     App, folder and Recycle Bin items take an optional `icon` (written back only when set): a
     custom icon. An image (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`; scaled to the icon size), an
@@ -946,7 +992,8 @@ always there, also when every dock is parked) handle these registered messages:
   Weather page), 114 show / hide the calendar popup, 115 show / hide the weather popup, 116 Lock
   dock toggle, 117 Add widget > Clock, 118 Add widget > Weather, 119 Add widget > Running apps,
   120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right, 124 Lock all docks,
-  125 Unlock all docks; saved like the menu).
+  125 Unlock all docks, 126 Reload widgets (every script widget of every dock reloads its package
+  and script); saved like the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -970,7 +1017,7 @@ always there, also when every dock is parked) handle these registered messages:
   window; it stops counting in the other modes). 20 = 1 if the theme preset failed to resolve on
   the last load (the dock uses `dark`). 21 = number of callbacks those hooks delivered, the
   filtered ones (cursor, caret, child windows) included. 24 = kind of item `lParam` (0 app,
-  1 folder, 2 separator, 3 Recycle Bin, 4 clock, 5 weather; -1 if there is no such item). 25 = 1 if item `lParam`
+  1 folder, 2 separator, 3 Recycle Bin, 4 clock, 5 weather, 6 script widget; -1 if there is no such item). 25 = 1 if item `lParam`
   has a custom icon from its `icon` key (0 if not, -1 if there is no such item). 22 = 1 while the
   folder popup is visible. 23 = number of entries (cells) shown in the folder popup (0 when it is
   hidden). 26 = drop mode while files are dragged over the dock (0 none, 1 insertion marker,
@@ -999,8 +1046,15 @@ always there, also when every dock is parked) handle these registered messages:
   not connected: no window), 0 if shown, -1 no such dock. 50 = its index in `docks[]`. 51 = its
   window handle (0 parked). 52 = `docks[].layer` (0 normal, 1 desktop). 53 = a desktop-layer
   dock's window is shown (1) or hidden because another window is in the foreground (0); -1 for a
-  normal dock. Per dock: 14 / 36 / 39 / 40 / 42 and 37 refer to that dock's own
-  config entry. `QueryItemPoint`
+  normal dock. Script widgets (24 reports kind 6 for their slots): 54 = the widget state of slot
+  `lParam` (0 ok, 1 error, 2 suspended by the watchdog; -1 if the slot is not a script widget).
+  55 = the number of script widgets on the dock. 56 = the number of script widgets of every dock
+  (live script runtimes). 57 = the script heap of slot `lParam`'s widget in bytes (0 once it
+  failed: the runtime is freed). 58 = how often slot `lParam`'s widget has drawn (`draw()` calls).
+  59 = how often the widget timer scheduler has woken the process (all widgets; stays put while no
+  widget waits for a timer). 60 = the log lines slot `lParam`'s widget has written. 61 / 62 = slot
+  `lParam`'s box along / across the dock in px (an icon slot: the icon size). Per dock: 14 / 36 /
+  39 / 40 / 42 and 37 refer to that dock's own config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
   what `WinDock.exe --settings` sends to a running dock.
@@ -1035,7 +1089,8 @@ always there, also when every dock is parked) handle these registered messages:
   posted, the command is posted back to the dock so the call returns at once), 805 Reset icon
   (removes the pin's `icon`; scriptable), 806 show / hide a folder's popup, 807 empty the Recycle
   Bin (the shell's confirmation appears; it runs on a thread of its own, so the call returns at
-  once), 900 close all windows),
+  once), 809 reload a script widget (its package and script; nothing for other slots), 900 close
+  all windows),
   `lParam` = item index or a window handle of the item. Returns 1 if the item was found. A folder
   popup opened this way usually cannot take the foreground (the dock did not get the click), so
   Escape does not reach it; it still closes when another window comes to the foreground, on a dock

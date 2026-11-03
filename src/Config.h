@@ -7,7 +7,7 @@
 #include <vector>
 
 // docks[].items[].kind values this version knows (case-insensitive); Unknown for anything else.
-enum class ItemKind { Unknown, App, Folder, Separator, RecycleBin, Running, Clock, Weather };
+enum class ItemKind { Unknown, App, Folder, Separator, RecycleBin, Running, Clock, Weather, Widget };
 ItemKind ItemKindOf(std::wstring_view kind);
 const wchar_t* ToString(ItemKind v);  // the canonical JSON name ("" for Unknown)
 // The kinds that are "pins" (the pinned section of the dock): app, folder, separator, recycleBin.
@@ -19,8 +19,8 @@ inline bool IsPinKind(ItemKind k) {
 // kinds set neither.
 struct DockItemEntry {
     // "app", "folder", "separator", "recycleBin", "running" (the unpinned running apps), "clock",
-    // "weather". Kept verbatim, so a kind this version does not know survives a save (such an
-    // item is not shown).
+    // "weather", "widget" (a script widget, docs/widgets.md). Kept verbatim, so a kind this version
+    // does not know survives a save (such an item is not shown).
     std::wstring kind = L"app";
     std::wstring path;   // .lnk, .exe or a folder (a folder is also detected from a .lnk's target)
     std::wstring aumid;  // AppUserModelID for packaged apps
@@ -28,6 +28,10 @@ struct DockItemEntry {
     // (icon index, negative = resource id). Environment variables are expanded. Empty: the
     // default icon; a file that does not exist also keeps the default (the entry is kept as is).
     std::wstring icon;
+    // "widget" items: the widget's id (its folder under %LocalAppData%\WinDock\widgets, or a
+    // built-in) and its settings object, kept as compact JSON text ("" = none: the defaults).
+    std::wstring id;
+    std::wstring settings;
 
     ItemKind Kind() const { return ItemKindOf(kind); }
     bool IsPin() const { return IsPinKind(Kind()); }
@@ -184,6 +188,9 @@ struct DockConfig {
     // (no pins: first). A second `running` item is refused (only the first one expands). Returns
     // the new item's index, or SIZE_MAX if nothing was added.
     size_t AddWidget(ItemKind kind);
+    // Adds a script widget item with this id where AddWidget puts a weather item (before a clock
+    // that ends the list, else at the end). Returns its index.
+    size_t AddScriptWidget(const std::wstring& widgetId);
     // Moves item `from` so it comes right before the item now at `to` (to >= items.size(): to the
     // end). Returns true if the order changed.
     bool MoveItem(size_t from, size_t to);

@@ -27,6 +27,7 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     owner_ = owner;
     callbacks_ = std::move(callbacks);
     monitors_ = EnumerateMonitors();
+    widgets_.Initialize(owner_);
     weather_.SetChangedCallback([this] {
         ForEach([](DockWindow& w) { w.OnWeatherChanged(); });
         if (callbacks_.weatherChanged) callbacks_.weatherChanged();
@@ -47,12 +48,15 @@ void DockManager::Shutdown() {
     watch_.Stop();
     tracker_.Stop();
     weather_.Stop();  // a fetch still in flight posts to a window that is gone (and frees it)
+    graveyard_.clear();
+    widgets_.Shutdown();  // every widget went with its window
     config_ = nullptr;
 }
 
 bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (tracker_.HandleMessage(msg, wp, lp)) return true;
     if (watch_.HandleMessage(msg, wp, lp)) return true;
+    if (widgets_.HandleMessage(msg, wp, lp)) return true;  // the widget timers
     return weather_.HandleMessage(msg, wp, lp);  // fetch results, the refresh timer
 }
 

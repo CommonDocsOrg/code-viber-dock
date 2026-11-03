@@ -24,6 +24,8 @@
 #include "Renderer.h"
 #include "Weather.h"
 #include "WeatherPopup.h"
+#include "WidgetInstance.h"
+#include "WidgetRuntime.h"
 #include "WindowTracker.h"
 
 struct IDataObject;
@@ -42,6 +44,8 @@ public:
     // A dock starts / stops needing the foreground watch (autoHide "intelligent"): the hooks run
     // while at least one does, and every watching dock gets its overlap re-checked on an event.
     virtual void SetWatching(DockWindow* dock, bool on) = 0;
+    // The widget runtime: the scheduler of every script widget's timers, the live instances.
+    virtual WidgetRuntime& Widgets() = 0;
 
 protected:
     ~DockShared() = default;
@@ -50,7 +54,7 @@ protected:
 // The dock HWND: placement, DPI, layout, input, magnification, hover label, auto-hide, and the
 // composition layers drawn into it. What it shows comes from its elements (DockElement.h, one per
 // config item, in config order); it lays out and animates the flat list of slots they contribute.
-class DockWindow : private ElementHost {
+class DockWindow : private ElementHost, private WidgetInstance::Client {
 public:
     static constexpr wchar_t kClassName[] = L"WinDock.DockWindow";
     static constexpr UINT_PTR kClockTimerId = ElementHost::kClockTimerId;  // a clock element's tick
@@ -82,6 +86,8 @@ public:
     static constexpr UINT kDropActionMessage = WM_APP + 22;
     // The shell's app bar notifications (SHAppBarMessage ABM_NEW callback; ABN_POSCHANGED, ...).
     static constexpr UINT kAppBarMessage = WM_APP + 24;
+    // Posted (coalesced): a script widget asked to be redrawn (WidgetInstance::Client).
+    static constexpr UINT kWidgetRedrawMessage = WM_APP + 25;
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -258,6 +264,13 @@ public:
         std::function<void()> openSettings;  // the unconfigured widget was clicked: Settings > Weather
     };
     void SetWeatherCallbacks(WeatherCallbacks callbacks) { weatherCallbacks_ = std::move(callbacks); }
+
+    // --- script widgets ---
+    // The script widget shown by slot `index` (null: not a script widget).
+    WidgetInstance* WidgetAt(int index) const;
+    // Reloads the script widget of slot `index` (false: not one).
+    bool ReloadWidget(int index);
+    size_t WidgetCount() const { return widgets_.size(); }
 
 private:
     class DropTarget;
@@ -621,6 +634,14 @@ private:
     void OpenWeatherSettings() override {
         if (weatherCallbacks_.openSettings) weatherCallbacks_.openSettings();
     }
+    WidgetInstance* AcquireWidget(const DockItemEntry& entry, size_t ordinal) override;
+    D2D1_RECT_F SlotScreenBox(int slot) const override;
+    bool Magnifying() const override { return magnifying_; }
+    bool ReducedMotion() const override { return motion_.reduce; }
+    // --- WidgetInstance::Client ---
+    void WidgetChanged(WidgetInstance& widget) override;
+    // The pointer is over widget slot `index` now (-1: none): onHover leave / enter.
+    void UpdateWidgetHover(int index);
 
     // Launch feedback per motion_.launch: bounce / hop (DirectComposition OffsetY animation) or
     // pulse (opacity animation); no timers while idle.
@@ -784,6 +805,12 @@ private:
     IconCache icons_;
     // One per config item of config->Main() (an unknown kind: null), in config order.
     std::vector<std::unique_ptr<DockElement>> elements_;
+    // The script widgets of the `widget` items, keyed "<id>#<n>" (the n-th item with that id):
+    // they outlive the elements (BuildElements drops the ones no item claims any more).
+    std::unordered_map<std::wstring, std::unique_ptr<WidgetInstance>> widgets_;
+    std::vector<std::wstring> widgetsClaimed_;  // keys AcquireWidget handed out during BuildElements
+    bool widgetRedrawPosted_ = false;           // kWidgetRedrawMessage is posted
+    AppKey hoverWidget_;                        // the widget slot under the pointer (empty: none)
     std::vector<DockItem> items_;  // the slots, in dock order
     bool evictPending_ = false;
     std::vector<AppIdentity::ResolvedPin> pins_;                       // parallel to the pin items

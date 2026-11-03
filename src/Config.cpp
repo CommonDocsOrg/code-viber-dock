@@ -49,7 +49,7 @@ const wchar_t* const kAlignNames[] = {L"center", L"start", L"end"};
 const wchar_t* const kRunningFilterNames[] = {L"all", L"monitor"};
 const wchar_t* const kLayerNames[] = {L"normal", L"desktop"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
-                                         L"recycleBin", L"running", L"clock", L"weather"};
+                                         L"recycleBin", L"running", L"clock", L"weather", L"widget"};
 
 // The keys of a dock object; before `docks` existed (legacy files) they were top-level keys.
 void ReadDockFields(const json::JsonObject& o, DockConfig& d) {
@@ -227,6 +227,16 @@ size_t DockConfig::AddWidget(ItemKind kind) {
     }
     DockItemEntry e;
     e.kind = ToString(kind);
+    items.insert(items.begin() + static_cast<ptrdiff_t>(at), std::move(e));
+    return at;
+}
+
+size_t DockConfig::AddScriptWidget(const std::wstring& widgetId) {
+    size_t at = items.size();
+    if (!items.empty() && items.back().Kind() == ItemKind::Clock) at = items.size() - 1;
+    DockItemEntry e;
+    e.kind = ToString(ItemKind::Widget);
+    e.id = widgetId;
     items.insert(items.begin() + static_cast<ptrdiff_t>(at), std::move(e));
     return at;
 }
@@ -530,6 +540,8 @@ Config::LoadResult Config::LoadFile() {
                             ReadString(io, L"path", e.path);
                             ReadString(io, L"aumid", e.aumid);
                             ReadString(io, L"icon", e.icon);
+                            ReadString(io, L"id", e.id);
+                            if (auto so = ReadObject(io, L"settings")) e.settings = std::wstring(so.Stringify());
                             const bool target = !e.path.empty() || !e.aumid.empty();
                             if (e.kind.empty()) {
                                 if (!target) continue;
@@ -537,6 +549,7 @@ Config::LoadResult Config::LoadFile() {
                             }
                             const ItemKind k = e.Kind();
                             if ((k == ItemKind::App || k == ItemKind::Folder) && !target) continue;  // nothing to show
+                            if (k == ItemKind::Widget && e.id.empty()) continue;  // which widget?
                             d.items.push_back(std::move(e));
                         }
                     }
@@ -646,6 +659,8 @@ bool Config::Save() const {
                 if (!e.aumid.empty()) add(L"aumid", e.aumid);
                 else if (!e.path.empty()) add(L"path", e.path);
                 if (!e.icon.empty()) add(L"icon", e.icon);
+                if (!e.id.empty()) add(L"id", e.id);
+                if (!e.settings.empty()) fields += L", " + Quote(L"settings") + L": " + e.settings;
                 o += L"{ " + fields + L" }";
             }
             o += d.items.empty() ? L"],\n" : L"\n      ],\n";

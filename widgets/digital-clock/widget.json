@@ -1,0 +1,16 @@
+{
+  "name": "Digital clock (script)",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "A scripted copy of the built-in clock: the time in a strftime format, optional seconds and the date under it.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 48, "cross": 22 },
+    "vertical": { "main": 40, "cross": 48 }
+  },
+  "settings": [
+    { "key": "format", "type": "string", "label": "Time format (strftime, as clock.format)", "default": "%H:%M" },
+    { "key": "showSeconds", "type": "bool", "label": "Show seconds", "default": false },
+    { "key": "showDate", "type": "bool", "label": "Show the date under the time", "default": false }
+  ]
+}

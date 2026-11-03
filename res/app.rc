@@ -3,6 +3,13 @@
 
 IDI_APP ICON "dock.ico"
 
+// Built-in widgets: their sources live in the repo's widgets folder (shipped as source, never
+// bytecode). WidgetPackage.cpp maps them to package paths.
+IDR_WIDGET_HELLO_JSON RCDATA "../widgets/hello/widget.json"
+IDR_WIDGET_HELLO_MAIN RCDATA "../widgets/hello/main.js"
+IDR_WIDGET_CLOCK_JSON RCDATA "../widgets/digital-clock/widget.json"
+IDR_WIDGET_CLOCK_MAIN RCDATA "../widgets/digital-clock/main.js"
+
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 0,1,0,0
  PRODUCTVERSION 0,1,0,0

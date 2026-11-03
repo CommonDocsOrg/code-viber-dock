@@ -1862,6 +1862,7 @@ void DockWindow::LeaveZone() {
         magnifyPending_ = false;
     }
     SetHover(-1);
+    UpdateWidgetHover(-1);
     if (wasActive) {
         RenderWithRecovery([this] {
             ComputeTargets();
@@ -2930,13 +2931,88 @@ void DockWindow::BuildElements() {
     elements.reserve(entries.size());
     size_t pinIndex = 0;
     size_t clocks = 0, weathers = 0;
+    std::unordered_map<std::wstring, size_t> widgetIds;  // script widgets: ordinal per id
+    widgetsClaimed_.clear();
     for (const DockItemEntry& e : entries) {
         const ItemKind kind = e.Kind();
-        const size_t ordinal = kind == ItemKind::Clock ? clocks++ : kind == ItemKind::Weather ? weathers++ : 0;
+        const size_t ordinal = kind == ItemKind::Clock     ? clocks++
+                               : kind == ItemKind::Weather ? weathers++
+                               : kind == ItemKind::Widget  ? widgetIds[e.id]++
+                                                           : 0;
         elements.push_back(MakeElement(*this, e, pinIndex, ordinal));
         if (IsPinKind(kind)) ++pinIndex;
     }
     elements_ = std::move(elements);
+    // Script widgets no item shows any more go (their runtimes with them).
+    std::erase_if(widgets_, [&](const auto& kv) {
+        return std::find(widgetsClaimed_.begin(), widgetsClaimed_.end(), kv.first) == widgetsClaimed_.end();
+    });
+    widgetsClaimed_.clear();
+}
+
+WidgetInstance* DockWindow::AcquireWidget(const DockItemEntry& entry, size_t ordinal) {
+    if (!renderer_.D2DFactory() || !renderer_.DWrite() || !shared_) return nullptr;
+    const std::wstring key = entry.id + L"#" + std::to_wstring(ordinal);
+    widgetsClaimed_.push_back(key);
+    if (auto it = widgets_.find(key); it != widgets_.end()) {
+        it->second->SetSettings(entry.settings);
+        return it->second.get();
+    }
+    auto widget = std::make_unique<WidgetInstance>(shared_->Widgets(), static_cast<WidgetInstance::Client&>(*this), renderer_.D2DFactory(), renderer_.DWrite(),
+                                                   entry.id, key, entry.settings);
+    WidgetInstance* raw = widget.get();
+    widgets_.emplace(key, std::move(widget));
+    return raw;
+}
+
+WidgetInstance* DockWindow::WidgetAt(int index) const {
+    if (index < 0 || index >= static_cast<int>(items_.size())) return nullptr;
+    const DockItem& item = items_[static_cast<size_t>(index)];
+    if (item.kind != DockItem::Kind::Widget || item.element >= elements_.size() || !elements_[item.element]) {
+        return nullptr;
+    }
+    return elements_[item.element]->Widget();
+}
+
+bool DockWindow::ReloadWidget(int index) {
+    WidgetInstance* w = WidgetAt(index);
+    if (!w) return false;
+    w->Reload();
+    return true;
+}
+
+D2D1_RECT_F DockWindow::SlotScreenBox(int slot) const {
+    if (slot < 0 || slot >= static_cast<int>(items_.size())) return {};
+    const DockItem& item = items_[static_cast<size_t>(slot)];
+    // Widgets do not scale: their box is where the layout targets it now (it moves with the bar's
+    // ends while the dock magnifies).
+    const D2D1_RECT_F r = layout_.PhysRect(item.targetX, item.y, item.targetX + BoxW(item), item.y + BoxCross(item));
+    const float x0 = static_cast<float>(layout_.window.left), y0 = static_cast<float>(layout_.window.top);
+    return D2D1::RectF(x0 + r.left, y0 + r.top, x0 + r.right, y0 + r.bottom);
+}
+
+void DockWindow::WidgetChanged(WidgetInstance&) {
+    if (widgetRedrawPosted_ || !hwnd_) return;
+    widgetRedrawPosted_ = PostMessageW(hwnd_, kWidgetRedrawMessage, 0, 0) != FALSE;
+}
+
+void DockWindow::UpdateWidgetHover(int index) {
+    const AppKey key =
+        index >= 0 && index < static_cast<int>(items_.size()) ? items_[static_cast<size_t>(index)].key : AppKey{};
+    if (key == hoverWidget_) return;
+    // Leave the old one (if it is still on the dock), then enter the new one.
+    if (!hoverWidget_.id.empty()) {
+        for (size_t i = 0; i < items_.size(); ++i) {
+            if (items_[i].key == hoverWidget_ && elements_[items_[i].element]) {
+                elements_[items_[i].element]->OnHover(static_cast<int>(i), false);
+                break;
+            }
+        }
+    }
+    hoverWidget_ = key;
+    if (index >= 0 && !key.id.empty() && elements_[items_[static_cast<size_t>(index)].element]) {
+        ElementOf(static_cast<size_t>(index)).OnHover(index, true);
+    }
 }
 
 void DockWindow::SyncElements(bool force) {
@@ -2945,7 +3021,8 @@ void DockWindow::SyncElements(bool force) {
     for (size_t i = 0; same && i < entries.size(); ++i) {
         const DockItemEntry& a = entries[i];
         const DockItemEntry* b = elements_[i] ? &elements_[i]->Entry() : nullptr;
-        same = b ? a.kind == b->kind && a.path == b->path && a.aumid == b->aumid && a.icon == b->icon
+        same = b ? a.kind == b->kind && a.path == b->path && a.aumid == b->aumid && a.icon == b->icon &&
+                       a.id == b->id && a.settings == b->settings
                  : a.Kind() == ItemKind::Unknown;
     }
     if (!same) {
@@ -4487,6 +4564,33 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return titleLayout_ && title_.width > 0 ? 1 : 0;
         case 46:
             return !dockDrag_ ? 0 : dockZone_ == DockCfg().edge ? 1 : 2;
+        case 54: {  // script widget state of slot lp (0 ok, 1 error, 2 suspended; -1 not a script widget)
+            const WidgetInstance* w = WidgetAt(static_cast<int>(lp));
+            return w ? static_cast<LRESULT>(w->GetState()) : -1;
+        }
+        case 55:
+            return static_cast<LRESULT>(widgets_.size());  // this dock's script widgets
+        case 56:
+            return static_cast<LRESULT>(shared_->Widgets().Instances().size());  // every dock's
+        case 57: {  // script heap bytes of slot lp's widget
+            const WidgetInstance* w = WidgetAt(static_cast<int>(lp));
+            return w ? static_cast<LRESULT>(w->HeapBytes()) : -1;
+        }
+        case 58: {  // draw() calls of slot lp's widget so far
+            const WidgetInstance* w = WidgetAt(static_cast<int>(lp));
+            return w ? static_cast<LRESULT>(w->DrawCount()) : -1;
+        }
+        case 59:
+            return static_cast<LRESULT>(shared_->Widgets().Wakeups());  // widget timer wake-ups (process)
+        case 60: {  // log lines slot lp's widget has written since it was created
+            const WidgetInstance* w = WidgetAt(static_cast<int>(lp));
+            return w ? static_cast<LRESULT>(w->LogTotal()) : -1;
+        }
+        case 61:  // slot lp's box along the dock (px; icons: the icon) ...
+        case 62:  // ... and across it
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return static_cast<LRESULT>(wp == 61 ? BoxW(items_[static_cast<size_t>(lp)])
+                                                 : BoxCross(items_[static_cast<size_t>(lp)]));
         case 52:
             return static_cast<LRESULT>(DockCfg().layer);  // 0 normal, 1 desktop
         case 53:
@@ -4608,7 +4712,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             cursorX_ = layout_.Canon(pt).x;
             {
                 const int hit = HitTest(pt);  // a widget is not hovered: no label, no preview
-                SetHover(hit >= 0 && items_[static_cast<size_t>(hit)].IsWidget() ? -1 : hit);
+                const bool widget = hit >= 0 && items_[static_cast<size_t>(hit)].IsWidget();
+                SetHover(widget ? -1 : hit);
+                UpdateWidgetHover(widget ? hit : -1);  // script widgets: onHover
             }
             ScheduleMagnify();
             return 0;
@@ -4714,6 +4820,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case kAppBarMessage:
             OnAppBarNotify(wp, lp);
+            return 0;
+
+        case kWidgetRedrawMessage:
+            widgetRedrawPosted_ = false;
+            DispatchEvent(DockEvent::WidgetRedraw);
             return 0;
 
         case WM_ACTIVATE:
@@ -4916,6 +5027,8 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             ResetLayers();
             items_.clear();
             elements_.clear();  // their text layouts (the clock's, the weather's)
+            widgets_.clear();   // the script widgets: runtimes, canvases, their D2D resources
+            hoverWidget_ = AppKey{};
             icons_.Shutdown();
             renderer_.Shutdown();
             return 0;

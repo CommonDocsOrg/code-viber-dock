@@ -1,0 +1,14 @@
+{
+  "name": "Hello",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "The smallest useful widget: a label and a counter. Click to count, middle-click to reset, turn the wheel to count up or down.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 64, "cross": 40 },
+    "vertical": { "main": 44, "cross": 48 }
+  },
+  "settings": [
+    { "key": "label", "type": "string", "label": "Label", "default": "Hello" }
+  ]
+}

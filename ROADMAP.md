@@ -191,6 +191,10 @@ Goal: N docks, each on a monitor or on every monitor, with filters and a lock.
 
 ## Phase 4: widget runtime (foundation)
 
+Status: 4a done (2026-11-02: engine, `widget` element, canvas API, hello + scripted clock; one
+QuickJS runtime per widget instance, see STATUS.md and docs/widgets.md); 4b (settings pages,
+storage, http, shell, popups, drop, dev tools, Widgets page) next.
+
 Goal: a widget is a folder, loads without compiling, draws through a canvas API, keeps its own
 settings and data, and can be hot-reloaded.
 

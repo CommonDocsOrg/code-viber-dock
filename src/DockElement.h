@@ -15,6 +15,7 @@
 #include "WindowTracker.h"
 
 class WeatherService;
+class WidgetInstance;
 
 // The dock's contents. Every docks[].items[] entry becomes one DockElement, and the dock lays the
 // elements out in config order. An element contributes 0..n slots (DockItem: the icon row's unit
@@ -51,6 +52,7 @@ enum class DockEvent {
     ClockTick,    // the clock's timer (DockWindow::kClockTimerId) fired
     TimeChanged,  // WM_TIMECHANGE, resume from sleep
     WeatherData,  // the weather service's data or status changed
+    WidgetRedraw, // a script widget asked to be redrawn (WidgetInstance::TakeChanged)
 };
 
 // The click popups the dock hosts (one at a time; each holds the dock shown while open).
@@ -89,6 +91,15 @@ public:
     virtual void SlotWindows(int slot, WindowsCommand cmd) = 0;
     // Opens an app / file / URL the user configured (Launcher::OpenTarget; beeps on failure).
     virtual void OpenTarget(const std::wstring& target) = 0;
+    // The script widget instance for a `widget` item (the `ordinal`-th item with that id): the
+    // dock owns the instances and keeps them across element rebuilds. Null without a device.
+    virtual WidgetInstance* AcquireWidget(const DockItemEntry& entry, size_t ordinal) = 0;
+    // The slot's box where it is drawn now, in screen pixels.
+    virtual D2D1_RECT_F SlotScreenBox(int slot) const = 0;
+    // The dock is magnifying (the pointer is on it).
+    virtual bool Magnifying() const = 0;
+    // Reduce-motion is in effect (animation.reduceMotion, or the system setting).
+    virtual bool ReducedMotion() const = 0;
 
 protected:
     ~ElementHost() = default;
@@ -168,6 +179,10 @@ public:
     // A wheel turn over the slot (WHEEL_DELTA units; horizontal: the tilt wheel). True if consumed.
     virtual bool OnWheel(int, int /*delta*/, bool /*horizontal*/) { return false; }
     virtual RightClickAction OnRightClick(int) const { return RightClickAction::ItemMenu; }
+    // The pointer entered / left the slot (widget slots only: icons have the hover label).
+    virtual void OnHover(int /*slot*/, bool /*inside*/) {}
+    // A script widget element's instance (null for every other kind).
+    virtual WidgetInstance* Widget() const { return nullptr; }
 
     // --- popups ---
     // The click popup this element opens (the dock hosts it).
@@ -203,3 +218,5 @@ std::unique_ptr<DockElement> MakeElement(ElementHost& host, const DockItemEntry&
 // WidgetElements.cpp
 std::unique_ptr<DockElement> MakeClockElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
 std::unique_ptr<DockElement> MakeWeatherElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
+// A script widget (`widget` item, docs/widgets.md); `ordinal`: among the items with its id.
+std::unique_ptr<DockElement> MakeScriptWidgetElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);

@@ -39,7 +39,8 @@ enum Command : UINT {
     kEdgeRight = 123,
     kLockAllDocks = 124,        // sets docks[].locked on every dock
     kUnlockAllDocks = 125,      // clears it on every dock
-    kLastDockCommand = kUnlockAllDocks,
+    kReloadWidgets = 126,       // every script widget (every dock) reloads its package and script
+    kLastDockCommand = kReloadWidgets,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -49,6 +50,7 @@ enum Command : UINT {
     kToggleFolderPopup = 806,   // folders: show / hide the contents popup
     kEmptyRecycleBin = 807,     // the Recycle Bin: empty it (the shell's confirmation)
     kChooseImage = 808,         // pins: an open-file dialog for an image / icon file
+    kReloadWidget = 809,        // a script widget: reload its package and script (automation)
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
@@ -65,6 +67,7 @@ struct TrayMenuState {
     int dockCount = 1;              // config docks: Lock all / Unlock all docks with more than one
     bool anyLocked = false;         // some dock is locked (Unlock all docks enabled)
     bool anyUnlocked = false;       // some dock is not (Lock all docks enabled)
+    bool hasWidgets = false;        // some dock shows a script widget: Reload widgets
 };
 
 // Shows the dock/tray menu at a screen point and returns the chosen Command (kNone if dismissed).

@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(WinDock VERSION 0.1.0 LANGUAGES CXX RC)
+project(WinDock VERSION 0.1.0 LANGUAGES C CXX RC)
 
 if(NOT MSVC)
   message(FATAL_ERROR "WinDock is built with MSVC (run from a VS developer environment).")
@@ -12,6 +12,22 @@ set(CMAKE_CXX_EXTENSIONS OFF)
 
 # Static CRT: no VC++ redistributable needed.
 set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
+
+# QuickJS-ng (third_party/quickjs-ng, see its VERSION.md): our own static library with upstream's
+# defines, warnings off (/W0: ~1,500 at /W4), the same static runtime as the dock (CMP0091 is NEW
+# with cmake_minimum_required 3.21, so CMAKE_MSVC_RUNTIME_LIBRARY applies to it too).
+add_library(quickjs STATIC
+  third_party/quickjs-ng/quickjs.c
+  third_party/quickjs-ng/dtoa.c
+  third_party/quickjs-ng/libregexp.c
+  third_party/quickjs-ng/libunicode.c
+)
+set_target_properties(quickjs PROPERTIES C_STANDARD 11 C_STANDARD_REQUIRED ON C_EXTENSIONS OFF)
+target_include_directories(quickjs PUBLIC third_party/quickjs-ng)
+target_compile_definitions(quickjs PRIVATE QUICKJS_NG_BUILD WIN32_LEAN_AND_MEAN _GNU_SOURCE _WIN32_WINNT=0x0601)
+target_compile_options(quickjs PRIVATE /W0 /experimental:c11atomics /utf-8
+  $<$<CONFIG:Release>:/O2 /GL /Gy /Gw>
+)
 
 add_executable(WinDock WIN32
   src/main.cpp
@@ -53,11 +69,25 @@ add_executable(WinDock WIN32
   src/SettingsPagesDocks.cpp
   src/SettingsPagesLayout.cpp
   src/SettingsPreview.cpp
+  src/QuickJsEngine.cpp
+  src/WidgetCanvas.cpp
+  src/WidgetPackage.cpp
+  src/WidgetInstance.cpp
+  src/WidgetRuntime.cpp
   res/app.rc
   res/app.manifest
 )
 
 target_include_directories(WinDock PRIVATE src)
+
+# The built-in widgets are RCDATA in app.rc: rebuild the resources when one of them changes.
+set(WINDOCK_BUILTIN_WIDGETS
+  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/hello/widget.json
+  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/hello/main.js
+  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/digital-clock/widget.json
+  ${CMAKE_CURRENT_SOURCE_DIR}/widgets/digital-clock/main.js
+)
+set_source_files_properties(res/app.rc PROPERTIES OBJECT_DEPENDS "${WINDOCK_BUILTIN_WIDGETS}")
 
 target_compile_definitions(WinDock PRIVATE
   UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN
@@ -69,7 +99,11 @@ target_compile_options(WinDock PRIVATE
   $<$<AND:$<COMPILE_LANGUAGE:CXX>,$<CONFIG:Release>>:/O2 /GL /Gy /Gw>
 )
 
+# An 8 MB main-thread stack: the widget scripts run on the UI thread, and QuickJS's own stack
+# limit (JS_SetMaxStackSize, WidgetRuntime.h) must stay well inside the real stack (MSVC frames are
+# ~4.8 KB per JS call; with the default 1 MB stack deep recursion would crash the process).
 target_link_options(WinDock PRIVATE
+  /STACK:8388608
   $<$<CONFIG:Release>:/LTCG /OPT:REF /OPT:ICF>
 )
 
@@ -78,4 +112,5 @@ target_link_libraries(WinDock PRIVATE
   shell32 ole32 shlwapi dwmapi propsys user32 gdi32 version advapi32
   comctl32 uxtheme comdlg32 winhttp shcore
   windowsapp
+  quickjs
 )

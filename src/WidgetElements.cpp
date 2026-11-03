@@ -8,9 +8,11 @@
 
 #include "Clock.h"
 #include "DockElement.h"
+#include "JsonUtil.h"
 #include "Theme.h"
 #include "Weather.h"
 #include "WeatherGlyphs.h"
+#include "WidgetInstance.h"
 
 namespace {
 
@@ -247,7 +249,93 @@ private:
     D2D1_SIZE_U size_{};
 };
 
+// widget: a script widget (docs/widgets.md). The instance (its script runtime, timers, settings,
+// log) belongs to the dock and outlives this element, which is rebuilt with every item-list
+// change; the element forwards layout, drawing and input to it. Its slot key is
+// "kind:widget:<id>" (+ "#n" for the n-th item with the same id).
+class ScriptWidgetElement final : public WidgetElement {
+public:
+    ScriptWidgetElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal)
+        : WidgetElement(host, entry, DockItem::Kind::Widget, (L"widget:" + entry.id).c_str(), ordinal),
+          widget_(host.AcquireWidget(entry, ordinal)) {
+        ScriptWidgetElement::Configure();
+    }
+
+    void Configure() override {
+        if (widget_) widget_->SetDock(Info());
+    }
+    ElementSize Measure(const LayoutContext& ctx) override { return widget_ ? widget_->Measure(ctx) : ElementSize{}; }
+    HRESULT Render(Renderer& r, Layer& content, const LayoutContext& ctx) override {
+        if (!widget_) return r.DrawLayer(content, 0, 0, {});
+        widget_->SetMagnified(host_.Magnifying());
+        return widget_->Render(r, content, ctx);
+    }
+    bool OnEvent(DockEvent e) override { return e == DockEvent::WidgetRedraw && widget_ && widget_->TakeChanged(); }
+    WidgetInstance* Widget() const override { return widget_; }
+
+    void OnClick(int slot, bool) override {
+        float x = 0, y = 0;
+        if (widget_ && Local(slot, x, y)) widget_->Click(x, y);
+    }
+    void OnMiddleClick(int slot) override {
+        float x = 0, y = 0;
+        if (widget_ && Local(slot, x, y)) widget_->MiddleClick(x, y);
+    }
+    bool OnWheel(int slot, int delta, bool horizontal) override {
+        float x = 0, y = 0;
+        return widget_ && Local(slot, x, y) && widget_->Wheel(x, y, delta, horizontal);
+    }
+    void OnHover(int slot, bool inside) override {
+        float x = 0, y = 0;
+        if (!widget_) return;
+        Local(slot, x, y);
+        widget_->SetMagnified(host_.Magnifying());
+        widget_->Hover(inside, x, y);
+    }
+
+private:
+    ScriptDockInfo Info() const {
+        const DockConfig& d = host_.DockCfg();
+        const ThemeConfig& t = host_.DockTheme();
+        ScriptDockInfo info;
+        info.edge = JsonUtil::WideToUtf8(ToString(d.edge));
+        info.axis = IsVertical(d.edge) ? "vertical" : "horizontal";
+        info.dockId = JsonUtil::WideToUtf8(d.id);
+        info.locked = d.locked;
+        info.reduceMotion = host_.ReducedMotion();
+        info.metric = host_.Cfg().weather.units == Units::Metric;
+        info.text = t.clockText;
+        info.dateText = t.clockDateText;
+        info.accent = t.accent;
+        info.background = t.background;
+        info.labelBackground = t.labelBackground;
+        info.labelText = t.labelText;
+        info.separator = t.separator;
+        info.border = t.barBorder;
+        return info;
+    }
+    // The pointer (of the message being handled) in DIPs from the box's top-left.
+    bool Local(int slot, float& x, float& y) const {
+        const D2D1_RECT_F box = host_.SlotScreenBox(slot);
+        const DWORD pos = GetMessagePos();
+        const float s = std::max(0.01f, Scale());
+        x = (static_cast<float>(static_cast<short>(LOWORD(pos))) - box.left) / s;
+        y = (static_cast<float>(static_cast<short>(HIWORD(pos))) - box.top) / s;
+        return true;
+    }
+    float Scale() const {
+        const UINT dpi = GetDpiForWindow(host_.Hwnd());
+        return dpi ? static_cast<float>(dpi) / 96.0f : 1.0f;
+    }
+
+    WidgetInstance* widget_;
+};
+
 }  // namespace
+
+std::unique_ptr<DockElement> MakeScriptWidgetElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal) {
+    return std::make_unique<ScriptWidgetElement>(host, entry, ordinal);
+}
 
 std::unique_ptr<DockElement> MakeClockElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal) {
     return std::make_unique<ClockElement>(host, entry, ordinal);

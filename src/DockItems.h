@@ -46,7 +46,8 @@ struct DockItem {
     // spacer between items) and RecycleBin are pins only and never get windows. Clock and Weather
     // are widget slots: their content is drawn by their element, they never magnify, are never
     // dragged and have no name label (QueryState 24 reports the kind as its number).
-    enum class Kind { App, Folder, Separator, RecycleBin, Clock, Weather };
+    // Widget: a script widget (docs/widgets.md), drawn by its element like the clock.
+    enum class Kind { App, Folder, Separator, RecycleBin, Clock, Weather, Widget };
 
     AppKey key;
     Kind kind = Kind::App;
@@ -55,7 +56,7 @@ struct DockItem {
     // An icon that magnifies (apps, folders, the Recycle Bin).
     bool Magnifies() const { return kind == Kind::App || kind == Kind::Folder || kind == Kind::RecycleBin; }
     // A widget slot (content drawn by its element; not dragged, no label).
-    bool IsWidget() const { return kind == Kind::Clock || kind == Kind::Weather; }
+    bool IsWidget() const { return kind == Kind::Clock || kind == Kind::Weather || kind == Kind::Widget; }
     std::wstring displayName;
     std::optional<std::wstring> launchPath;  // .lnk/.exe for pinned entries (keeps args / working dir)
     std::wstring workingDir;                 // launch directory (the link's, else the target's folder)
