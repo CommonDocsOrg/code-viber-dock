@@ -1,0 +1,21 @@
+{
+  "name": "Volume",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "The default output's volume: a speaker glyph and the level. Wheel: change it; click: a popup with a slider, mute, microphone mute, the outputs and Sound settings; middle click: mute.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 40, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "permissions": ["audio", "shell"],
+  "settings": [
+    { "key": "showPercent", "type": "bool", "label": "Show the level in percent", "default": true },
+    { "key": "step", "type": "int", "label": "Wheel step (percent per notch)", "min": 1, "max": 10, "default": 2 },
+    { "key": "middleClick", "type": "choice", "label": "Middle click", "default": "mute",
+      "choices": [
+        { "value": "mute", "label": "Mutes / unmutes" },
+        { "value": "none", "label": "Nothing" }
+      ] }
+  ]
+}

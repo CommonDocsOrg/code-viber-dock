@@ -9,7 +9,7 @@ thread. This file is the full reference; README.md has the short version.
 - [widget.json](#widgetjson): the manifest
 - [main.js](#mainjs): the module and its exports, when they are called
 - [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`,
-  `storage`, `http`, `shell`, `popup`, `widget`
+  `storage`, `http`, `shell`, `audio`, `media`, `popup`, `widget`
 - [Animation](#animation): frames with timers, `dock.visible`, `dock.reduceMotion`, the cost rules
 - [Analog clock faces](#analog-clock-faces): the `faces/*.json` format
 - [Limits and errors](#limits-and-errors): the watchdog, memory, the error tile, reloading
@@ -29,7 +29,8 @@ thread. This file is the full reference; README.md has the short version.
     assets\icon.png     images for canvas.image()
 ```
 
-Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`) are compiled into the
+Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
+`start`, `search`, `notification-bell`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Widgets are always loaded as source; bytecode is never loaded.
@@ -66,7 +67,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time. |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `settings` | [] | The widget's settings schema, see below. |
 
@@ -278,6 +279,57 @@ Needs `"shell"` in `permissions` (else every call throws).
 |---|---|
 | `shell.open(target, args)` | Opens a file, folder, app or URL the way Explorer does (ShellExecute; `%VAR%` expanded). |
 | `shell.list(folder)` | The folder's entries, folders first, in Explorer's name order, hidden and system entries left out (up to 1000): `[{ name, path, folder, size, modified }]` (`modified`: ms since 1970, UTC). Draw their icons with `canvas.fileIcon`. |
+| `shell.sendKeys(name)` | Presses one key combination of a fixed allow-list with `SendInput` (as if typed: the keys go to whatever has the focus, the shell handles the Windows-key ones). Anything else throws, and so does input Windows refuses (a window of higher integrity has the focus). Returns `true`. |
+
+The `sendKeys` allow-list (names are case-insensitive):
+
+| Name | Keys | Opens |
+|---|---|---|
+| `win` | Windows | Start |
+| `win+a` | Windows + A | Quick settings |
+| `win+b` | Windows + B | The notification area (keyboard focus) |
+| `win+d` | Windows + D | Show / hide the desktop |
+| `win+e` | Windows + E | File Explorer |
+| `win+i` | Windows + I | Settings |
+| `win+n` | Windows + N | The notification centre and calendar |
+| `win+s` | Windows + S | Search |
+| `win+tab` | Windows + Tab | Task view |
+| `win+v` | Windows + V | Clipboard history |
+| `win+w` | Windows + W | Widgets |
+| `win+x` | Windows + X | The Start button's menu |
+| `volume-up`, `volume-down`, `volume-mute` | the volume keys | (the system volume; prefer `audio`) |
+| `media-play-pause`, `media-next`, `media-previous`, `media-stop` | the media keys | (the focused media app; prefer `media`) |
+
+### audio
+
+Needs `"audio"` in `permissions`. The default output device (Windows' "Speakers") and input device
+(the microphone) through Core Audio. The provider starts with the first call of a widget that has
+the permission and stops when the last such widget goes; it is event-driven (Core Audio's device
+and volume callbacks), nothing polls.
+
+| Call | |
+|---|---|
+| `audio.get()` | `{ available, volume, muted, device, deviceId, mic, micVolume, micMuted, micName, devices }`: `available` false when there is no output; `volume` 0 - 1 (the number Windows' volume slider shows / 100); `device` the output's name; `mic` true when there is an input device; `devices`: the active outputs `[{ id, name, default }]`. |
+| `audio.setVolume(v)` | The output level, 0 - 1 (clamped). |
+| `audio.setMuted(b)`, `audio.setMicMuted(b)` | Mutes / unmutes the output / the microphone. |
+| `audio.setDevice(id)` | Makes the output with this id (from `devices`) the default (the console and multimedia roles, as the Sound settings do). This uses `IPolicyConfig`, the undocumented interface Windows' own settings use (stable since Windows 7). An id that is not an active output throws. |
+| `audio.onChange(fn)` | `fn(state)` (the `get()` object) whenever the level, a mute state, the default devices or the device list change, by this widget, another program, the volume keys or the quick settings. Returns a function that removes the listener. Changes are coalesced (one call per burst). A mute change can take most of a second to be reported by Windows: a widget that changes something itself should update its own view at once. |
+
+### media
+
+Needs `"media"` in `permissions`. The system's current media session (what the media keys and the
+quick settings' media controls act on: Spotify, browsers playing media, the Media Player app ...),
+through `GlobalSystemMediaTransportControlsSessionManager`. The provider starts with the first call
+and stops when the last widget using it goes; all its WinRT calls run on a worker thread of its own,
+woken by the session manager's events (sessions, current session, media properties, playback
+state); nothing polls and the timeline is not followed.
+
+| Call | |
+|---|---|
+| `media.get()` | `{ available, session, title, artist, album, app, status, hasArt, position, duration, canPlay, canPause, canToggle, canNext, canPrevious }`: `session` false when nothing is current; `status` `"playing"`, `"paused"`, `"stopped"` or `"none"`; `app` the session's AppUserModelId (`"Spotify.exe"`, `"Chrome"`, `"Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic"`); `position` / `duration` in seconds or `null` (the position is carried forward while playing, from the app's last report). The first call returns `available: false` until the worker's first snapshot (a moment later, `onChange` follows). |
+| `media.art()` | The current art as an image token (`"media:art/3"`) for `canvas.image(token, x, y, w, h)` / `imageSize`, or `null`. The thumbnail is read once per track (app + title + artist + album) and decoded by the canvas like a package image; a token of an older track throws in `canvas.image`. |
+| `media.play()`, `pause()`, `toggle()`, `next()`, `previous()` | Sent to the current session (asynchronously; `onChange` reports the result). |
+| `media.onChange(fn)` | `fn(state)` (the `get()` object) when the session, the track, the playback state or the art change. Returns a remover. |
 
 ### popup
 
@@ -454,8 +506,10 @@ falls back to the first file.
 A widget sees only the host API above; each widget has its own runtime and cannot reach another
 widget's globals. Without permissions there is no file system, process or network access at all.
 `"http"` opens requests to the listed hosts only; `"shell"` opens files and URLs, lists folders,
-draws file icons, opens the folder popup and receives file drops. Modules and images are read
-only from the widget's own package:
+draws file icons, opens the folder popup, receives file drops and presses the `sendKeys`
+allow-list; `"audio"` reads and changes the system volume / mutes / the default output; `"media"`
+reads the current media session and controls its playback. Modules and images are read
+only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
 - `import` / `import()` specifiers are package paths: `"./x.js"` and `"../x.js"` relative to the
   importing module, anything else relative to the package root (`"lib/x.js"`).
@@ -525,6 +579,23 @@ The built-ins are the examples:
   wakes it at local midnight. Test hook: an item setting `"debugNow": "2026-12-31T23:59:57"`
   runs it on a fake clock starting at that local time (the midnight timer becomes a `setTimeout`
   to the fake midnight) and writes each date it shows to its storage (`debugShown`).
+- `widgets/volume`: `audio.get()` / `audio.onChange` for the glyph and the percentage; `onWheel`
+  steps `settings.step` % (default 2) on the step grid and unmutes on the way up; `onMiddleClick`
+  mutes (`middleClick`: `mute` / `none`); the popup (`drawPopup` with hit rectangles for
+  `onPopupClick`): slider, Mute, Mute microphone, the outputs (`audio.setDevice`), Sound settings
+  (`shell.open('ms-settings:sound')`). Settings `showPercent`, `step`, `middleClick`. Permissions
+  `audio`, `shell`.
+- `widgets/media` ("Now playing"): `media.art()` drawn with `canvas.image` in a rounded clip, the
+  note glyph when there is no art, title / artist beside it (faded at the edge; a marquee at 30
+  frames a second only while hovered); hovering shows previous / play-pause / next over the art;
+  a click on the text opens a popup with the album and the controls. Settings `showText`,
+  `textWidth`, `marquee`, `wheelVolume`. Permissions `media`, `audio`.
+- `widgets/start`: `shell.sendKeys('win')`, falling back to `shell.open('shell:AppsFolder')` when
+  Windows refuses the input; `icon` `windows` / `mono` / `image` with `image` (a package file, or
+  any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot).
+- `widgets/search`: `shell.sendKeys('win+s')`; `showLabel`, `label`, `image`.
+- `widgets/notification-bell` ("Notifications", a placeholder): `shell.sendKeys('win+n')`; `badge` (a
+  fixed number until phase 9 reads notifications), `badgeColor`, `image`.
 
 A minimal widget:
 

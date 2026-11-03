@@ -498,7 +498,14 @@ write and edit without compiling anything. The full reference (every call, every
   second hand that ticks or sweeps smoothly, the date on the face, the time under the dial, a
   sweep-in animation) and **Calendar page** (`analog-date`: today's date as a flip-calendar or flat
   page with the month or weekday in a coloured header; a click opens the month calendar; it wakes
-  once a day, at midnight). A folder with a built-in's id replaces the built-in; your own clock faces
+  once a day, at midnight), **Volume** (`volume`: the output level with a percentage; the wheel
+  changes it in 2 % steps, a middle click mutes, a click opens a popup with a slider, Mute, Mute
+  microphone, the output devices and Sound settings), **Now playing** (`media`: the current media
+  session's art, title and artist (Spotify, browsers, Media Player ...); hover the art for previous /
+  play-pause / next, click the text for a popup; optionally the wheel changes the volume), **Start**
+  (`start`: the Windows logo or your icon, opens Start), **Search** (`search`: opens Windows Search)
+  and **Notifications** (`notification-bell`: a bell that opens the notification centre; its badge is
+  a placeholder until notifications are read). A folder with a built-in's id replaces the built-in; your own clock faces
   go into an exported `analog-clock\faces` folder.
 - **Adding one**: Settings > Dock contents > **Add widget ▾** lists the installed widgets after
   Clock / Weather / Running apps, or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
@@ -528,12 +535,18 @@ write and edit without compiling anything. The full reference (every call, every
   (local date and time computed by Windows, strftime formatting, locale names, 12 / 24 h, units),
   `settings`, `storage` (a JSON store per widget in `%LocalAppData%\WinDock\widget-data\<id>.json`,
   written a second after a change), `http` (GET / POST ... to the hosts its manifest lists, as
-  promises), `shell` (open files and URLs, list folders, file icons), `popup` (a popup the widget
+  promises), `shell` (open files and URLs, list folders, file icons, `sendKeys` for a fixed list of
+  Windows shortcuts: Start, Search, the notification centre ...), `audio` (the default output's
+  level / mute, the microphone's mute, the outputs, switching the default output, change events),
+  `media` (the current media session: title, artist, album, state, art, play / pause / next /
+  previous, change events), `popup` (a popup the widget
   draws, or the dock's folder / window-preview / month calendar popups, anchored on the widget),
   `widget` (the widget's own package files: `files(glob)`, `read`, `readJson`).
 - **Permissions** (`"permissions"` in widget.json): `{ "http": ["api.example.com"] }` for
   requests to those hosts, `"shell"` for opening files / URLs, listing folders, file icons, the
-  folder popup and file drops. Without them those calls throw.
+  folder popup, file drops and `sendKeys`, `"audio"` and `"media"` for the providers. Without them
+  those calls throw. The audio and media providers run only while a widget uses them and never
+  poll (Core Audio and media-session events).
 - **Settings**: Settings > **Widget settings** is generated from each widget item's schema (pick
   the item at the top, or press Settings… on its Dock contents row); changes apply at once.
   Settings > **Widgets** lists the installed widgets (built-in / folder) with **Add to dock**,
@@ -1086,7 +1099,11 @@ always there, also when every dock is parked) handle these registered messages:
   `lParam`'s box along / across the dock in px (an icon slot: the icon size). 63 = 1 while the
   widget Console is open (with `lParam` 1: its window handle). 64 = the log lines the Console shows
   now (-1 when it is closed). 65 = 1 while a script widget's popup (`popup.open`) is visible on the
-  dock. 66 = that popup's size in px as `MAKELONG(width, height)` (0 when hidden). 26 reports 4
+  dock. 66 = that popup's size in px as `MAKELONG(width, height)` (0 when hidden). 67 = the
+  widgets' audio provider: change notifications handled since the start (-1 while it is not
+  running: no widget uses `audio`). 68 = the media provider: session snapshots received (-1 not
+  running). 69 = the media provider's current session: 0 none, 1 stopped, 2 paused, 3 playing (-1
+  not running). 26 reports 4
   while files are dragged over a script widget that takes them (`onDrop`). Per dock: 14 / 36 /
   39 / 40 / 42 and 37 refer to that dock's own config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.

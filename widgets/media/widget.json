@@ -1,0 +1,20 @@
+{
+  "name": "Now playing",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "The current media session (Spotify, a browser, the Media Player app ...): album art, title and artist. Hover the art for previous / play-pause / next; click the text for a popup with the controls; optionally the wheel changes the volume.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 170, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "permissions": ["media", "audio"],
+  "settings": [
+    { "key": "showText", "type": "bool", "label": "Show the title and artist beside the art", "default": true,
+      "description": "Horizontal docks only; a vertical dock shows the art." },
+    { "key": "textWidth", "type": "int", "label": "Text width (DIPs)", "min": 40, "max": 400, "default": 120 },
+    { "key": "marquee", "type": "bool", "label": "Scroll a long title while the pointer is over it", "default": true,
+      "description": "30 frames a second only while hovered (and never with reduce motion)." },
+    { "key": "wheelVolume", "type": "bool", "label": "The wheel changes the volume", "default": false }
+  ]
+}

@@ -58,7 +58,7 @@ public:
     virtual void SetRefresh(uint32_t ms) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell };
+    enum class Permission { Http, Shell, Audio, Media };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -76,6 +76,21 @@ public:
     virtual bool ShellOpen(const std::wstring& target, const std::wstring& args, std::wstring& error) = 0;
     // The folder's entries as a JSON array of { name, path, folder, size, modified }.
     virtual bool ShellList(const std::wstring& folder, std::string& json, std::wstring& error) = 0;
+    // A key combination from a fixed allow-list ("win", "win+s" ...), sent with SendInput.
+    virtual bool SendKeys(const std::wstring& name, std::wstring& error) = 0;
+
+    // --- audio (permission "audio"): the default devices' volume / mute, the outputs ---
+    // The state as a JSON object (docs/widgets.md, audio.get()).
+    virtual bool AudioGet(std::string& json, std::wstring& error) = 0;
+    // what: "volume" (number 0 - 1), "muted" / "micMuted" (number 0 / 1), "device" (text: an id).
+    virtual bool AudioSet(const std::string& what, double number, const std::wstring& text, std::wstring& error) = 0;
+
+    // --- media (permission "media"): the current media session ---
+    virtual bool MediaGet(std::string& json, std::wstring& error) = 0;
+    // "play", "pause", "toggle", "next", "previous".
+    virtual bool MediaCommand(const std::string& command, std::wstring& error) = 0;
+    // The current art as an image token for canvas.image ("" none).
+    virtual bool MediaArt(std::string& token, std::wstring& error) = 0;
 
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs.
@@ -155,6 +170,8 @@ public:
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).
     virtual size_t HeapBytes() = 0;
+    // A provider changed ("audio", "media"): its onChange listeners run with its new state.
+    virtual ScriptResult Emit(const std::string& channel) = 0;
 };
 
 std::unique_ptr<ScriptEngine> CreateQuickJsEngine(ScriptHost& host, const ScriptLimits& limits);

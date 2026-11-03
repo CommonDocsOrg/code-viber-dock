@@ -55,6 +55,8 @@ struct Manifest {
     bool watch = false;       // reload when a file of the folder changes (folder widgets)
     bool shell = false;       // permission "shell"
     bool http = false;        // permission "http" (with httpHosts)
+    bool audio = false;       // permission "audio"
+    bool media = false;       // permission "media"
     std::vector<std::wstring> httpHosts;  // lowercase; "*.example.com" matches sub-domains
     std::vector<SettingField> settings;
     std::vector<std::wstring> warnings;  // what was ignored while reading it

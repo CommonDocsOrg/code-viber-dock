@@ -7,6 +7,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <cstdlib>
+#include <cstring>
 #include <cwctype>
 
 #include "JsonUtil.h"
@@ -15,6 +17,8 @@
 namespace {
 
 namespace json = winrt::Windows::Data::Json;
+
+constexpr char kArtToken[] = "media:art/";
 
 const char* FnName(ScriptEngine::Fn fn) {
     switch (fn) {
@@ -67,6 +71,7 @@ std::wstring WidgetInstance::Name() const {
 
 void WidgetInstance::Reload() {
     runtime_.CancelAll(this);
+    runtime_.ReleaseProviders(this);
     if (PopupShown()) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
     engine_.reset();
     canvas_.ReleaseImages();
@@ -368,6 +373,7 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
     state_ = state;
     error_ = message;
     runtime_.CancelAll(this);
+    runtime_.ReleaseProviders(this);
     // Never called again until a reload: give its heap back now (Fail only runs after a call into
     // the script has returned).
     engine_.reset();
@@ -402,6 +408,17 @@ void WidgetInstance::Log(ScriptLogLevel level, const std::wstring& line) {
 }
 
 bool WidgetInstance::ReadFile(const std::string& path, std::string& bytes, std::wstring& error) {
+    // media.art()'s token (only canvas.image passes it here; module names cannot contain ':').
+    if (path.rfind(kArtToken, 0) == 0) {
+        const MediaService* media = Permitted(Permission::Media) ? &runtime_.Media() : nullptr;
+        const uint64_t serial = std::strtoull(path.c_str() + std::strlen(kArtToken), nullptr, 10);
+        if (!media || !media->Active() || !media->Get().art || media->Get().artSerial != serial) {
+            error = L"the media art is not available (any more)";
+            return false;
+        }
+        bytes = *media->Get().art;
+        return true;
+    }
     if (!package_) {
         error = L"no package";
         return false;
@@ -555,7 +572,13 @@ bool WidgetInstance::WatchFolder(std::wstring& id, std::wstring& folder) const {
 
 bool WidgetInstance::Permitted(Permission p) const {
     if (!package_) return false;
-    return p == Permission::Shell ? package_->manifest.shell : package_->manifest.http;
+    switch (p) {
+        case Permission::Shell: return package_->manifest.shell;
+        case Permission::Audio: return package_->manifest.audio;
+        case Permission::Media: return package_->manifest.media;
+        case Permission::Http:
+        default: return package_->manifest.http;
+    }
 }
 
 bool WidgetInstance::StorageGet(const std::string& key, std::string& json) {
@@ -723,5 +746,208 @@ bool WidgetInstance::ShellList(const std::wstring& folder, std::string& json, st
     }
     out += L"]";
     json = JsonUtil::WideToUtf8(out);
+    return true;
+}
+
+// --- 5b: providers (audio, media) and shell.sendKeys ------------------------------------------------
+
+void WidgetInstance::ProviderChanged(const char* channel) {
+    if (state_ != State::Ok || !engine_) return;
+    Check(engine_->Emit(channel), channel[0] == 'a' ? "audio.onChange" : "media.onChange");
+}
+
+namespace {
+
+std::string J(const std::wstring& s) { return JsonUtil::WideToUtf8(JsonUtil::Quote(s)); }
+std::string Num(double v) { return JsonUtil::WideToUtf8(JsonUtil::Num(v)); }
+const char* Bool(bool b) { return b ? "true" : "false"; }
+
+// The keys shell.sendKeys may press: Windows' own UI and the media keys only (docs/widgets.md).
+struct KeyCombo {
+    const wchar_t* name;
+    WORD keys[2];  // pressed in order, released in reverse; 0 ends the list
+};
+constexpr KeyCombo kKeyCombos[] = {
+    {L"win", {VK_LWIN, 0}},             // Start
+    {L"win+a", {VK_LWIN, 'A'}},         // quick settings
+    {L"win+b", {VK_LWIN, 'B'}},         // the notification area (keyboard focus)
+    {L"win+d", {VK_LWIN, 'D'}},         // show / hide the desktop
+    {L"win+e", {VK_LWIN, 'E'}},         // File Explorer
+    {L"win+i", {VK_LWIN, 'I'}},         // Settings
+    {L"win+n", {VK_LWIN, 'N'}},         // the notification centre and calendar
+    {L"win+s", {VK_LWIN, 'S'}},         // Search
+    {L"win+tab", {VK_LWIN, VK_TAB}},    // Task view
+    {L"win+v", {VK_LWIN, 'V'}},         // clipboard history
+    {L"win+w", {VK_LWIN, 'W'}},         // Widgets
+    {L"win+x", {VK_LWIN, 'X'}},         // the Start button's context menu
+    {L"volume-up", {VK_VOLUME_UP, 0}},
+    {L"volume-down", {VK_VOLUME_DOWN, 0}},
+    {L"volume-mute", {VK_VOLUME_MUTE, 0}},
+    {L"media-play-pause", {VK_MEDIA_PLAY_PAUSE, 0}},
+    {L"media-next", {VK_MEDIA_NEXT_TRACK, 0}},
+    {L"media-previous", {VK_MEDIA_PREV_TRACK, 0}},
+    {L"media-stop", {VK_MEDIA_STOP, 0}},
+};
+
+bool ExtendedKey(WORD vk) {
+    switch (vk) {
+        case VK_LWIN:
+        case VK_RWIN:
+        case VK_VOLUME_UP:
+        case VK_VOLUME_DOWN:
+        case VK_VOLUME_MUTE:
+        case VK_MEDIA_PLAY_PAUSE:
+        case VK_MEDIA_NEXT_TRACK:
+        case VK_MEDIA_PREV_TRACK:
+        case VK_MEDIA_STOP:
+            return true;
+        default:
+            return false;
+    }
+}
+
+}  // namespace
+
+bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
+    if (!Permitted(Permission::Shell)) {
+        error = L"shell.sendKeys needs the \"shell\" permission";
+        return false;
+    }
+    std::wstring n = name;
+    for (wchar_t& c : n) c = static_cast<wchar_t>(std::towlower(c));
+    const KeyCombo* combo = nullptr;
+    for (const KeyCombo& k : kKeyCombos) {
+        if (n == k.name) combo = &k;
+    }
+    if (!combo) {
+        error = L"shell.sendKeys: \"" + name + L"\" is not in the allow-list (docs/widgets.md)";
+        return false;
+    }
+    const size_t count = combo->keys[1] ? 2 : 1;
+    INPUT in[4]{};
+    for (size_t i = 0; i < count; ++i) {
+        INPUT& down = in[i];
+        down.type = INPUT_KEYBOARD;
+        down.ki.wVk = combo->keys[i];
+        down.ki.dwFlags = ExtendedKey(combo->keys[i]) ? KEYEVENTF_EXTENDEDKEY : 0;
+        INPUT& up = in[2 * count - 1 - i];
+        up.type = INPUT_KEYBOARD;
+        up.ki.wVk = combo->keys[i];
+        up.ki.dwFlags = KEYEVENTF_KEYUP | (ExtendedKey(combo->keys[i]) ? KEYEVENTF_EXTENDEDKEY : 0);
+    }
+    const UINT total = static_cast<UINT>(2 * count);
+    if (SendInput(total, in, sizeof(INPUT)) != total) {
+        error = L"shell.sendKeys: Windows blocked the input (" + std::to_wstring(GetLastError()) + L")";
+        return false;
+    }
+    Log(ScriptLogLevel::Info, L"shell.sendKeys " + n);
+    return true;
+}
+
+bool WidgetInstance::AudioGet(std::string& json, std::wstring& error) {
+    if (!Permitted(Permission::Audio)) {
+        error = L"audio needs the \"audio\" permission";
+        return false;
+    }
+    const AudioService* a = runtime_.UseAudio(this);
+    if (!a) {
+        error = L"audio: Core Audio is not available";
+        return false;
+    }
+    const AudioService::State& s = a->Get();
+    std::string devices = "[";
+    for (size_t i = 0; i < s.devices.size(); ++i) {
+        const AudioService::Device& d = s.devices[i];
+        devices += std::string(i ? "," : "") + "{\"id\":" + J(d.id) + ",\"name\":" + J(d.name) +
+                   ",\"default\":" + Bool(d.isDefault) + "}";
+    }
+    devices += "]";
+    json = std::string("{\"available\":") + Bool(s.output) + ",\"volume\":" + Num(s.volume) +
+           ",\"muted\":" + Bool(s.muted) + ",\"device\":" + J(s.deviceName) + ",\"deviceId\":" + J(s.deviceId) +
+           ",\"mic\":" + Bool(s.input) + ",\"micVolume\":" + Num(s.micVolume) + ",\"micMuted\":" + Bool(s.micMuted) +
+           ",\"micName\":" + J(s.micName) + ",\"devices\":" + devices + "}";
+    return true;
+}
+
+bool WidgetInstance::AudioSet(const std::string& what, double number, const std::wstring& text, std::wstring& error) {
+    if (!Permitted(Permission::Audio)) {
+        error = L"audio needs the \"audio\" permission";
+        return false;
+    }
+    AudioService* a = runtime_.UseAudio(this);
+    if (!a) {
+        error = L"audio: Core Audio is not available";
+        return false;
+    }
+    if (what == "volume") return a->SetVolume(static_cast<float>(number), error);
+    if (what == "muted") return a->SetMuted(number != 0.0, error);
+    if (what == "micMuted") return a->SetMicMuted(number != 0.0, error);
+    if (what == "device") return a->SetDevice(text, error);
+    error = L"audio: unknown setting";
+    return false;
+}
+
+bool WidgetInstance::MediaGet(std::string& json, std::wstring& error) {
+    if (!Permitted(Permission::Media)) {
+        error = L"media needs the \"media\" permission";
+        return false;
+    }
+    const MediaService* m = runtime_.UseMedia(this);
+    if (!m) {
+        error = L"media: the media session manager could not be started";
+        return false;
+    }
+    const MediaService::State& s = m->Get();
+    static const char* const kStatus[] = {"none", "stopped", "paused", "playing"};
+    const MediaService::Status status = s.session ? s.status : MediaService::Status::None;
+    const double pos = m->PositionNow();
+    json = std::string("{\"available\":") + Bool(s.available) + ",\"session\":" + Bool(s.session) +
+           ",\"title\":" + J(s.title) + ",\"artist\":" + J(s.artist) + ",\"album\":" + J(s.album) +
+           ",\"app\":" + J(s.app) + ",\"status\":\"" + kStatus[static_cast<int>(status)] +
+           "\",\"hasArt\":" + Bool(s.art != nullptr) +
+           ",\"position\":" + (pos >= 0.0 ? Num(std::round(pos * 10.0) / 10.0) : std::string("null")) +
+           ",\"duration\":" + (s.duration > 0.0 ? Num(std::round(s.duration * 10.0) / 10.0) : std::string("null")) +
+           ",\"canPlay\":" + Bool(s.canPlay) + ",\"canPause\":" + Bool(s.canPause) + ",\"canToggle\":" +
+           Bool(s.canToggle) + ",\"canNext\":" + Bool(s.canNext) + ",\"canPrevious\":" + Bool(s.canPrevious) + "}";
+    return true;
+}
+
+bool WidgetInstance::MediaCommand(const std::string& command, std::wstring& error) {
+    if (!Permitted(Permission::Media)) {
+        error = L"media needs the \"media\" permission";
+        return false;
+    }
+    MediaService* m = runtime_.UseMedia(this);
+    if (!m) {
+        error = L"media: the media session manager could not be started";
+        return false;
+    }
+    using C = MediaService::Command;
+    if (command == "play") {
+        m->Send(C::Play);
+    } else if (command == "pause") {
+        m->Send(C::Pause);
+    } else if (command == "toggle") {
+        m->Send(C::Toggle);
+    } else if (command == "next") {
+        m->Send(C::Next);
+    } else if (command == "previous") {
+        m->Send(C::Previous);
+    } else {
+        error = L"media: unknown command";
+        return false;
+    }
+    Log(ScriptLogLevel::Info, L"media." + JsonUtil::Utf8ToWide(command));
+    return true;
+}
+
+bool WidgetInstance::MediaArt(std::string& token, std::wstring& error) {
+    if (!Permitted(Permission::Media)) {
+        error = L"media needs the \"media\" permission";
+        return false;
+    }
+    const MediaService* m = runtime_.UseMedia(this);
+    token.clear();
+    if (m && m->Get().art && m->Get().artSerial) token = kArtToken + std::to_string(m->Get().artSerial);
     return true;
 }

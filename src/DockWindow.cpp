@@ -4782,6 +4782,19 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const WidgetInstance* w = WidgetAt(static_cast<int>(lp));
             return w ? static_cast<LRESULT>(w->LogTotal()) : -1;
         }
+        case 67: {  // the audio provider: change notifications handled (-1: not running)
+            const AudioService& a = shared_->Widgets().Audio();
+            return a.Active() ? static_cast<LRESULT>(a.Notifications()) : -1;
+        }
+        case 68: {  // the media provider: snapshots received (-1: not running)
+            const MediaService& m = shared_->Widgets().Media();
+            return m.Active() ? static_cast<LRESULT>(m.Updates()) : -1;
+        }
+        case 69: {  // the media provider: 0 no session, 1 stopped, 2 paused, 3 playing (-1: not running)
+            const MediaService& m = shared_->Widgets().Media();
+            if (!m.Active()) return -1;
+            return m.Get().session ? static_cast<LRESULT>(m.Get().status) : 0;
+        }
         case 65:  // a script widget's popup is visible
             return widgetPopup_.Visible() ? 1 : 0;
         case 66:  // the widget popup's size in px, MAKELONG(w, h) (0 hidden)

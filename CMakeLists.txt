@@ -78,6 +78,8 @@ add_executable(WinDock WIN32
   src/ScriptPopup.cpp
   src/WidgetConsole.cpp
   src/SettingsPagesWidgets.cpp
+  src/AudioService.cpp
+  src/MediaService.cpp
   res/app.rc
   res/app.manifest
 )

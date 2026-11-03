@@ -42,6 +42,16 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"analog-clock", "faces/station.json", IDR_WIDGET_ANALOG_FACE_STATION},
     {L"analog-date", "widget.json", IDR_WIDGET_DATE_JSON},
     {L"analog-date", "main.js", IDR_WIDGET_DATE_MAIN},
+    {L"volume", "widget.json", IDR_WIDGET_VOLUME_JSON},
+    {L"volume", "main.js", IDR_WIDGET_VOLUME_MAIN},
+    {L"media", "widget.json", IDR_WIDGET_MEDIA_JSON},
+    {L"media", "main.js", IDR_WIDGET_MEDIA_MAIN},
+    {L"start", "widget.json", IDR_WIDGET_START_JSON},
+    {L"start", "main.js", IDR_WIDGET_START_MAIN},
+    {L"search", "widget.json", IDR_WIDGET_SEARCH_JSON},
+    {L"search", "main.js", IDR_WIDGET_SEARCH_MAIN},
+    {L"notification-bell", "widget.json", IDR_WIDGET_BELL_JSON},
+    {L"notification-bell", "main.js", IDR_WIDGET_BELL_MAIN},
 };
 
 bool IsBuiltIn(const std::wstring& id) {
@@ -147,6 +157,10 @@ void ReadPermissions(const json::JsonObject& root, Manifest& m) {
             const std::wstring s = Lower(std::wstring(v.GetString()));
             if (s == L"shell") {
                 m.shell = true;
+            } else if (s == L"audio") {
+                m.audio = true;
+            } else if (s == L"media") {
+                m.media = true;
             } else if (s == L"http") {
                 m.http = true;  // no hosts: every request is refused (name the hosts)
             } else if (s.rfind(L"http:", 0) == 0) {

@@ -10,7 +10,9 @@
 #include <string>
 #include <vector>
 
+#include "AudioService.h"
 #include "HttpClient.h"
+#include "MediaService.h"
 
 class WidgetInstance;
 
@@ -96,6 +98,16 @@ public:
     // How often the scheduler's timer fired (automation: idle widgets never wake the process).
     uint64_t Wakeups() const { return wakeups_; }
 
+    // --- providers (audio, media): started for the first widget that uses one, stopped when the
+    // last such widget goes or reloads; their changes reach every widget that used them
+    // (WidgetInstance::ProviderChanged). Null if the provider cannot start.
+    AudioService* UseAudio(WidgetInstance* w);
+    MediaService* UseMedia(WidgetInstance* w);
+    // `w` no longer uses the providers (it reloads, failed or goes).
+    void ReleaseProviders(WidgetInstance* w);
+    const AudioService& Audio() const { return audio_; }
+    const MediaService& Media() const { return media_; }
+
 private:
     struct Entry {
         WidgetInstance* w = nullptr;
@@ -144,6 +156,10 @@ private:
     bool reloadPending_ = false;
     std::function<void(WidgetInstance*)> logListener_;
     std::function<void()> changedListener_;
+    AudioService audio_;
+    MediaService media_;
+    std::set<WidgetInstance*> audioUsers_, mediaUsers_;
+    void NotifyProvider(std::set<WidgetInstance*>& users, const char* channel);
 };
 
 // The `system` namespace of the widget API: local date / time and locale strings computed by the

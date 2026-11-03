@@ -124,6 +124,8 @@ public:
     // The popup closed (by itself, or the dock closed it): onPopupClose.
     void PopupClosed();
 
+    // WidgetRuntime: a provider this widget used changed ("audio", "media").
+    void ProviderChanged(const char* channel);
     // WidgetRuntime: an http request of generation `generation` finished.
     void OnHttpResult(uint64_t generation, int id, const Http::Result& result);
     // A folder widget with `watch`: its id and canonical folder (false: not watched).
@@ -169,6 +171,12 @@ private:
                   const std::string& body, uint32_t timeoutMs, std::wstring& error) override;
     bool ShellOpen(const std::wstring& target, const std::wstring& args, std::wstring& error) override;
     bool ShellList(const std::wstring& folder, std::string& json, std::wstring& error) override;
+    bool SendKeys(const std::wstring& name, std::wstring& error) override;
+    bool AudioGet(std::string& json, std::wstring& error) override;
+    bool AudioSet(const std::string& what, double number, const std::wstring& text, std::wstring& error) override;
+    bool MediaGet(std::string& json, std::wstring& error) override;
+    bool MediaCommand(const std::string& command, std::wstring& error) override;
+    bool MediaArt(std::string& token, std::wstring& error) override;
     bool PopupOpen(float w, float h, std::wstring& error) override;
     void PopupClose() override;
     bool PopupShown() const override { return client_.WidgetPopupShown(*this); }

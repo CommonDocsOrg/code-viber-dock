@@ -247,9 +247,10 @@ settings and data, and can be hot-reloaded.
 
 Each is one small phase; order by the user's priority.
 
-Status: 5a done (2026-11-02): `analog-clock` (five faces in `faces/*.json`, the format in
-docs/widgets.md "Analog clock faces", reused by Phase 14) and `analog-date` (the calendar page);
-see STATUS.md.
+Status: done (2026-11-02). 5a: `analog-clock` (five faces in `faces/*.json`, the format in
+docs/widgets.md "Analog clock faces", reused by Phase 14) and `analog-date` (the calendar page).
+5b (the roadmap's 5b - 5e in one commit): the `audio` and `media` providers, `shell.sendKeys`,
+and the `volume`, `media`, `start`, `search` and `notification-bell` widgets; see STATUS.md.
 
 - 5a **Analog clock**: faces as data (`faces/*.json`: hands, ticks, numerals, colours), several
   shipped; `face` setting; seconds hand optional. **Analog date** (confirmed: a calendar page

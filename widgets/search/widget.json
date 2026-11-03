@@ -1,0 +1,18 @@
+{
+  "name": "Search",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "Opens Windows Search (Win+S, sent with SendInput). A magnifier glyph, optionally with a label, or your own icon.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 48, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "permissions": ["shell"],
+  "settings": [
+    { "key": "showLabel", "type": "bool", "label": "Show \"Search\" beside the glyph (horizontal docks)", "default": false },
+    { "key": "label", "type": "string", "label": "Label", "default": "Search" },
+    { "key": "image", "type": "string", "label": "Image instead of the glyph", "default": "",
+      "description": "A file of the widget (assets/search.png, after exporting it) or the full path of any file, whose shell icon is drawn." }
+  ]
+}

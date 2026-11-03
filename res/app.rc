@@ -18,6 +18,16 @@ IDR_WIDGET_ANALOG_FACE_ROMAN RCDATA "../widgets/analog-clock/faces/roman.json"
 IDR_WIDGET_ANALOG_FACE_STATION RCDATA "../widgets/analog-clock/faces/station.json"
 IDR_WIDGET_DATE_JSON RCDATA "../widgets/analog-date/widget.json"
 IDR_WIDGET_DATE_MAIN RCDATA "../widgets/analog-date/main.js"
+IDR_WIDGET_VOLUME_JSON RCDATA "../widgets/volume/widget.json"
+IDR_WIDGET_VOLUME_MAIN RCDATA "../widgets/volume/main.js"
+IDR_WIDGET_MEDIA_JSON RCDATA "../widgets/media/widget.json"
+IDR_WIDGET_MEDIA_MAIN RCDATA "../widgets/media/main.js"
+IDR_WIDGET_START_JSON RCDATA "../widgets/start/widget.json"
+IDR_WIDGET_START_MAIN RCDATA "../widgets/start/main.js"
+IDR_WIDGET_SEARCH_JSON RCDATA "../widgets/search/widget.json"
+IDR_WIDGET_SEARCH_MAIN RCDATA "../widgets/search/main.js"
+IDR_WIDGET_BELL_JSON RCDATA "../widgets/notification-bell/widget.json"
+IDR_WIDGET_BELL_MAIN RCDATA "../widgets/notification-bell/main.js"
 
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 0,1,0,0

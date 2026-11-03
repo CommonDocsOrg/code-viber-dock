@@ -1,0 +1,23 @@
+{
+  "name": "Start",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "A Start button: opens the Start menu (the Windows key, sent with SendInput; if Windows refuses the input, the All apps folder opens instead). The Windows logo or your own icon.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 48, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "permissions": ["shell"],
+  "settings": [
+    { "key": "icon", "type": "choice", "label": "Icon", "default": "windows",
+      "choices": [
+        { "value": "windows", "label": "Windows logo (blue)" },
+        { "value": "mono", "label": "Windows logo (the theme's text colour)" },
+        { "value": "image", "label": "An image or a file's icon (below)" }
+      ] },
+    { "key": "image", "type": "string", "label": "Image", "default": "",
+      "description": "A file of the widget (assets/start.png, after exporting it) or the full path of any file, whose shell icon is drawn (an .exe, .ico, .lnk ...)." },
+    { "key": "size", "type": "int", "label": "Icon size (percent of the slot)", "min": 30, "max": 100, "default": 62 }
+  ]
+}

@@ -237,8 +237,39 @@ constexpr char kPrelude[] = R"JS(
       try { return JSON.parse(text); } catch (e) { throw new SyntaxError(String(path) + ': ' + e.message); }
     },
   });
+  // Providers: onChange listeners kept here; the host calls the returned emit(channel).
+  const listeners = { audio: [], media: [] };
+  const onChange = (ch) => (cb) => {
+    if (typeof cb !== 'function') throw new TypeError(ch + '.onChange: the argument must be a function');
+    listeners[ch].push(cb);
+    return () => { const i = listeners[ch].indexOf(cb); if (i >= 0) listeners[ch].splice(i, 1); };
+  };
+  const p = n.providers;
+  g.audio = Object.freeze({
+    get: () => p.audioGet(),
+    setVolume: (v) => p.audioSet('volume', Number(v)),
+    setMuted: (b) => p.audioSet('muted', b ? 1 : 0),
+    setMicMuted: (b) => p.audioSet('micMuted', b ? 1 : 0),
+    setDevice: (id) => p.audioSet('device', 0, String(id)),
+    onChange: onChange('audio'),
+  });
+  g.media = Object.freeze({
+    get: () => p.mediaGet(),
+    art: () => p.mediaArt(),
+    play: () => p.mediaCmd('play'),
+    pause: () => p.mediaCmd('pause'),
+    toggle: () => p.mediaCmd('toggle'),
+    next: () => p.mediaCmd('next'),
+    previous: () => p.mediaCmd('previous'),
+    onChange: onChange('media'),
+  });
+  return (ch) => {
+    const l = listeners[ch];
+    if (!l || !l.length) return;
+    const state = ch === 'audio' ? p.audioGet() : p.mediaGet();
+    for (const cb of l.slice()) cb(state);
+  };
 })(globalThis, globalThis.__windock);
-delete globalThis.__windock;
 )JS";
 
 class QuickJsEngine final : public ScriptEngine {
@@ -258,6 +289,7 @@ public:
         }
         pending_.clear();
         for (JSValue& f : fns_) JS_FreeValue(ctx_, f);
+        JS_FreeValue(ctx_, emit_);
         JS_FreeValue(ctx_, ns_);
         JS_FreeValue(ctx_, canvas_);
         JS_FreeValue(ctx_, dock_);
@@ -443,6 +475,14 @@ public:
         JSValue global = JS_GetGlobalObject(ctx_);
         JS_SetPropertyStr(ctx_, global, "settings", JS_DupValue(ctx_, settings_));
         JS_FreeValue(ctx_, global);
+    }
+
+    ScriptResult Emit(const std::string& channel) override {
+        if (!JS_IsFunction(ctx_, emit_)) return ScriptResult{};
+        JSValue arg = NewString(ctx_, channel);
+        ScriptResult res = Invoke(emit_, 1, &arg);
+        JS_FreeValue(ctx_, arg);
+        return res;
     }
 
     size_t HeapBytes() override {
@@ -685,6 +725,7 @@ private:
     ScriptLimits limits_;
     JSValue fns_[static_cast<size_t>(Fn::Count)]{};
     JSValue ns_ = JS_UNDEFINED;
+    JSValue emit_ = JS_UNDEFINED;  // the prelude's emit(channel) for provider changes
     JSValue canvas_ = JS_UNDEFINED;
     JSValue dock_ = JS_UNDEFINED;
     JSValue settings_ = JS_UNDEFINED;
@@ -984,6 +1025,15 @@ JSValue MeasureTextFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv
 }
 
 bool AssetPath(JSContext* ctx, const std::wstring& given, std::string& path) {
+    // media.art()'s token: the current media session's thumbnail (permission "media").
+    if (given.rfind(L"media:art/", 0) == 0) {
+        if (!Self(ctx)->host_.Permitted(ScriptHost::Permission::Media)) {
+            JS_ThrowTypeError(ctx, "image: media art needs the \"media\" permission");
+            return false;
+        }
+        path = WideToUtf8(given);
+        return true;
+    }
     if (!Widgets::ResolvePath("", WideToUtf8(given), path)) {
         JS_ThrowTypeError(ctx, "image: '%s' is not a path inside the widget folder", WideToUtf8(given).c_str());
         return false;
@@ -1450,6 +1500,59 @@ JSValue ShellListFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) 
     if (!Self(ctx)->host_.ShellList(folder, json, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
     return JS_ParseJSON(ctx, json.data(), json.size(), "<shell.list>");
 }
+JSValue SendKeysFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring name = a.S(0);
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    if (!Self(ctx)->host_.SendKeys(name, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_TRUE;
+}
+
+// --- providers (native half; audio / media are in the prelude) -------------------------------------
+
+JSValue JsonResult(JSContext* ctx, bool ok, const std::string& json, const std::wstring& error, const char* what) {
+    if (!ok) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_ParseJSON(ctx, json.data(), json.size(), what);
+}
+JSValue AudioGetFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    std::string json;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.AudioGet(json, error);
+    return JsonResult(ctx, ok, json, error, "<audio>");
+}
+// audioSet(what, number, text)
+JSValue AudioSetFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string what = WideToUtf8(a.S(0));
+    const float number = a.F(1, 0.0f);
+    const std::wstring text = a.S(2);
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    if (!Self(ctx)->host_.AudioSet(what, number, text, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
+JSValue MediaGetFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    std::string json;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.MediaGet(json, error);
+    return JsonResult(ctx, ok, json, error, "<media>");
+}
+JSValue MediaCmdFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string cmd = WideToUtf8(a.S(0));
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    if (!Self(ctx)->host_.MediaCommand(cmd, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
+JSValue MediaArtFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    std::string token;
+    std::wstring error;
+    if (!Self(ctx)->host_.MediaArt(token, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return token.empty() ? JS_NULL : NewString(ctx, token);
+}
+
 // canvas.fileIcon(path, x, y, size): the shell's icon of a file or folder (permission "shell").
 JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     CANVAS_OR_THROW();
@@ -1556,6 +1659,15 @@ const JSCFunctionListEntry kStorageFuncs[] = {
 const JSCFunctionListEntry kShellFuncs[] = {
     JS_CFUNC_DEF("open", 2, Guard<ShellOpenFn>),
     JS_CFUNC_DEF("list", 1, Guard<ShellListFn>),
+    JS_CFUNC_DEF("sendKeys", 1, Guard<SendKeysFn>),
+};
+
+const JSCFunctionListEntry kProviderFuncs[] = {
+    JS_CFUNC_DEF("audioGet", 0, Guard<AudioGetFn>),
+    JS_CFUNC_DEF("audioSet", 3, Guard<AudioSetFn>),
+    JS_CFUNC_DEF("mediaGet", 0, Guard<MediaGetFn>),
+    JS_CFUNC_DEF("mediaCmd", 1, Guard<MediaCmdFn>),
+    JS_CFUNC_DEF("mediaArt", 0, Guard<MediaArtFn>),
 };
 
 const JSCFunctionListEntry kPopupFuncs[] = {
@@ -1607,6 +1719,7 @@ bool QuickJsEngine::InstallApi() {
     JSValue native = object(kNativeFuncs, std::size(kNativeFuncs));
     JS_SetPropertyStr(ctx_, native, "canvas", JS_DupValue(ctx_, canvas_));
     JS_SetPropertyStr(ctx_, native, "widget", object(kWidgetFuncs, std::size(kWidgetFuncs)));
+    JS_SetPropertyStr(ctx_, native, "providers", object(kProviderFuncs, std::size(kProviderFuncs)));
     JS_SetPropertyStr(ctx_, global, "__windock", native);
     JS_FreeValue(ctx_, global);
 
@@ -1617,7 +1730,17 @@ bool QuickJsEngine::InstallApi() {
         host_.Log(ScriptLogLevel::Error, L"prelude: " + TakeException().error);
         return false;
     }
-    JS_FreeValue(ctx_, r);
+    // The prelude's value is the providers' emit(channel); the native object goes again.
+    if (JS_IsFunction(ctx_, r)) {
+        emit_ = r;
+    } else {
+        JS_FreeValue(ctx_, r);
+    }
+    JSValue g = JS_GetGlobalObject(ctx_);
+    const JSAtom atom = JS_NewAtom(ctx_, "__windock");
+    JS_DeleteProperty(ctx_, g, atom, 0);
+    JS_FreeAtom(ctx_, atom);
+    JS_FreeValue(ctx_, g);
     return true;
 }
 

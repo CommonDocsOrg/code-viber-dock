@@ -133,6 +133,10 @@ uint32_t WidgetAlignedDelay(uint32_t period) {
 }
 
 void WidgetRuntime::Shutdown() {
+    audioUsers_.clear();
+    mediaUsers_.clear();
+    audio_.Stop();
+    media_.Stop();
     FlushStorage();
     StopWatcher();
     watched_.clear();
@@ -188,6 +192,10 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             watchSyncPosted_ = false;
             DoSyncWatch();
             return true;
+        case AudioService::kMessage:
+            return audio_.HandleMessage(msg, wp, lp);
+        case MediaService::kMessage:
+            return media_.HandleMessage(msg, wp, lp);
         default:
             return false;
     }
@@ -496,10 +504,41 @@ void WidgetRuntime::Add(WidgetInstance* w) {
 }
 
 void WidgetRuntime::Remove(WidgetInstance* w) {
+    ReleaseProviders(w);
     std::erase(instances_, w);
     CancelAll(w);
     SyncWatch();
     NotifyChanged();
+}
+
+AudioService* WidgetRuntime::UseAudio(WidgetInstance* w) {
+    if (!audio_.Active()) {
+        if (!owner_ || !audio_.Start(owner_)) return nullptr;
+        audio_.SetChanged([this] { NotifyProvider(audioUsers_, "audio"); });
+    }
+    audioUsers_.insert(w);
+    return &audio_;
+}
+
+MediaService* WidgetRuntime::UseMedia(WidgetInstance* w) {
+    if (!media_.Active()) {
+        if (!owner_ || !media_.Start(owner_)) return nullptr;
+        media_.SetChanged([this] { NotifyProvider(mediaUsers_, "media"); });
+    }
+    mediaUsers_.insert(w);
+    return &media_;
+}
+
+void WidgetRuntime::ReleaseProviders(WidgetInstance* w) {
+    if (audioUsers_.erase(w) && audioUsers_.empty()) audio_.Stop();
+    if (mediaUsers_.erase(w) && mediaUsers_.empty()) media_.Stop();
+}
+
+void WidgetRuntime::NotifyProvider(std::set<WidgetInstance*>& users, const char* channel) {
+    const std::vector<WidgetInstance*> all(users.begin(), users.end());  // a callback may reload a widget
+    for (WidgetInstance* w : all) {
+        if (users.count(w) && Alive(w)) w->ProviderChanged(channel);
+    }
 }
 
 bool WidgetRuntime::Alive(const WidgetInstance* w) const {
