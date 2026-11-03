@@ -197,15 +197,19 @@ protected:
         Button(kLockAllDocks, L"Lock all docks", kMargin + kButtonStep + 28, kButtonW);
         Button(kUnlockAllDocks, L"Unlock all docks", kMargin + 2 * kButtonStep + 28, kButtonW);
         NextRow(kRowH + 4);
+        // Round 6 phase 6A: a floating bar on the desktop layer (useful for folders and files).
+        Button(kDockAddFloating, L"Add floating dock", kMargin, kButtonW + 28);
+        NextRow(kRowH + 4);
         Text(kDocksNote, CtlKind::Note,
              L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
              L"it (or its row) to open its own settings window; drag it along its edge (it snaps to the centre and the "
              L"ends), onto another edge or onto another display: it moves when you let go. A new dock starts at the "
              L"bottom of the primary display with the running apps and the clock. A dock whose display is not "
              L"connected is parked until it is; \"Every display\" shows one copy on each. A folder window shows a "
-             L"folder on the desktop, under your windows.",
-             kMargin, right - kMargin, 104);
-        NextRow(104);
+             L"folder on the desktop, under your windows. A floating dock sits anywhere on its display (on the desktop "
+             L"until you choose another layer): drag it where you want it.",
+             kMargin, right - kMargin, 122);
+        NextRow(122);
     }
 
     void Created() override {
@@ -275,17 +279,19 @@ protected:
         const size_t sel = SelectedCfg();
         switch (id) {
             case kDockAdd:
+            case kDockAddFloating:
             case kDockDuplicate:
             case kDockRemove: {
-                const SettingsDockEdit edit = id == kDockAdd         ? SettingsDockEdit::Add
-                                              : id == kDockDuplicate ? SettingsDockEdit::Duplicate
-                                                                     : SettingsDockEdit::Remove;
+                const SettingsDockEdit edit = id == kDockAdd           ? SettingsDockEdit::Add
+                                              : id == kDockAddFloating ? SettingsDockEdit::AddFloating
+                                              : id == kDockDuplicate   ? SettingsDockEdit::Duplicate
+                                                                       : SettingsDockEdit::Remove;
                 if (!Host().editDocks || !Host().editDocks(edit, sel)) {
                     MessageBeep(MB_ICONWARNING);
                     return;
                 }
                 // The new dock (appended / right after the copied one), or the removed one's neighbour.
-                const size_t next = edit == SettingsDockEdit::Add         ? c.docks.size() - 1
+                const size_t next = edit == SettingsDockEdit::Add || edit == SettingsDockEdit::AddFloating ? c.docks.size() - 1
                                     : edit == SettingsDockEdit::Duplicate ? sel + 1
                                                                           : std::min(sel, c.docks.size() - 1);
                 if (next < c.docks.size()) Window().SelectDock(c.docks[next].id);
@@ -363,6 +369,7 @@ private:
             const DockConfig& d = c.docks[static_cast<size_t>(i)];
             std::wstring id = d.id + (d.title.empty() ? L"" : L" (" + d.title + L")");
             const std::wstring edge = d.IsFolderWindow() ? std::wstring(L"Folder window")
+                                      : d.Floating()     ? L"Floating, faces " + std::wstring(SettingsEdgeName(d.edge))
                                                          : std::wstring(SettingsEdgeName(d.edge)) + (d.fullWidth ? L", full" : L"");
             const std::wstring display = SettingsDisplayName(d.monitor);
             const int windows = Host().dockWindows ? Host().dockWindows(static_cast<size_t>(i)) : 1;
@@ -525,8 +532,9 @@ LayoutCanvas::Target LayoutCanvas::TargetFor(POINT canvasPt) const {
     if (mons_.empty()) return t;
     const Mon& m = mons_[static_cast<size_t>(t.monitor)];
     const RECT& r = m.rc;
-    if (d.folder) {
-        // A folder window goes where it is dragged (kept on that monitor's work area); no snapping.
+    if (d.folder || dc.Floating()) {
+        // A folder window (and a floating dock, round 6 phase 6A: its bar's top-left) goes where it
+        // is dragged (kept on that monitor's work area); no snapping.
         const float s = static_cast<float>(m.dpi) / 96.0f;
         const LONG w = d.bar.right - d.bar.left, h = d.bar.bottom - d.bar.top;
         const LONG left = std::clamp(c.x - w / 2, m.work.left, std::max(m.work.left, m.work.right - w));
@@ -620,10 +628,11 @@ void LayoutCanvas::Drop(const Target& t) {
     int monitor = dc.monitor;
     if (!dc.Each() && !(dc.monitor == DockConfig::kMonitorPrimary && t.monitor == 0)) monitor = t.monitor;
     if (t.folder) {
-        if (dc.x == t.xDip && dc.y == t.yDip && dc.monitor == t.monitor) return;
+        // A folder window or a floating dock ("each" stays on every monitor).
+        if (dc.x == t.xDip && dc.y == t.yDip && dc.monitor == (d.folder ? t.monitor : monitor)) return;
         dc.x = t.xDip;
         dc.y = t.yDip;
-        dc.monitor = t.monitor;
+        dc.monitor = d.folder ? t.monitor : monitor;
         page_.SelectCfg(d.cfg, false);
         page_.Apply();  // Sync re-places it (and saves)
         page_.Win().Refresh();
@@ -675,6 +684,10 @@ void LayoutCanvas::Publish() {
     } else if (const size_t selCfg = page_.SelectedCfg(); selCfg < c.docks.size() && c.docks[selCfg].IsFolderWindow()) {
         const DockConfig& d = c.docks[selCfg];
         line = L"Selected: the folder window " + d.id + L" (" + d.folder.path + L")";
+    } else if (const size_t fl = page_.SelectedCfg(); fl < c.docks.size() && c.docks[fl].Floating()) {
+        const DockConfig& d = c.docks[fl];
+        auto coord = [](int v) { return v == DockConfig::kCentred ? std::wstring(L"centred") : std::to_wstring(v); };
+        line = L"Selected: " + d.id + L" (floating at " + coord(d.x) + L", " + coord(d.y) + L", faces " + EdgeWord(d.edge) + L")";
     } else if (page_.SelectedCfg() < c.docks.size()) {
         const DockConfig& d = c.docks[page_.SelectedCfg()];
         line = L"Selected: " + d.id + L" (" + EdgeWord(d.edge) + L", " + AlignWord(d.align) +
@@ -771,7 +784,10 @@ void LayoutCanvas::Paint(HDC hdc) {
         // The label beside the bar, toward the middle of its monitor.
         const DockConfig& dc = c.docks[d.cfg];
         std::wstring label = dc.id + (dc.title.empty() ? L"" : L" · " + dc.title) +
-                             (dc.layer == DockLayer::Desktop ? L" (desktop)" : L"");
+                             (dc.layer == DockLayer::Desktop  ? L" (desktop)"
+                              : dc.layer == DockLayer::Behind ? L" (behind windows)"
+                                                              : L"") +
+                             (dc.Floating() ? L" · floating" : L"");
         SetTextColor(hdc, selected ? pal.text : pal.textSecondary);
         SIZE sz{};
         GetTextExtentPoint32W(hdc, label.c_str(), static_cast<int>(label.size()), &sz);
@@ -784,6 +800,9 @@ void LayoutCanvas::Paint(HDC hdc) {
             case DockEdge::Bottom:
             default: tr = RECT{(r.left + r.right - sz.cx) / 2, r.top - gap - sz.cy, 0, 0}; break;
         }
+        // Kept inside the canvas (a floating dock near a display's side, round 6 phase 6A).
+        tr.left = std::clamp(tr.left, 2L, std::max(2L, client.right - 2 - sz.cx));
+        tr.top = std::clamp(tr.top, 2L, std::max(2L, client.bottom - 2 - sz.cy));
         tr.right = tr.left + sz.cx;
         tr.bottom = tr.top + sz.cy;
         DrawTextW(hdc, label.c_str(), -1, &tr, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);

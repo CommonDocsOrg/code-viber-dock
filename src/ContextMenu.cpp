@@ -20,6 +20,8 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
     // Round 5 phase B: this dock's own settings window, then the one for every dock.
     Append(menu, kDockSettings, L"Dock settings…", true);
     Append(menu, kOpenSettings, L"Global settings…", true);
+    // Round 6 phase 6A: the desktop docks to the front (the dashboard hotkey does the same).
+    Append(menu, kToggleDashboard, L"Show dashboard", true, state.dashboard);
     Append(menu, kLockDock, L"Lock dock", true, state.locked);
     if (state.dockCount > 1) {
         Append(menu, kLockAllDocks, L"Lock all docks", state.anyUnlocked);

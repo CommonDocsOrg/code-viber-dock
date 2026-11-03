@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "ContextMenu.h"
+#include "Hotkey.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
 #include "SettingsWindow.h"
@@ -66,7 +67,103 @@ std::vector<std::wstring> MonitorNames() {
     return names;
 }
 
-// Global > General: what applies to the whole app (startup, the taskbar, the renderer, the file).
+// --- the hotkey capture box (round 6 phase 6A: the dashboard hotkey) ---------------------------
+// An edit control subclassed to record key combinations instead of text: focus it and press the
+// combination (Win, Ctrl, Alt, Shift and a key); Backspace / Delete clear it (no hotkey). The
+// canonical text is its window text; each new combination is reported to the page as WM_COMMAND
+// with kHotkeyChanged. Not the common-controls hotkey control: that one cannot record Win. Plain
+// Tab / Shift+Tab, Escape and Enter stay the window's (focus, close, commit). The registered
+// combination itself never arrives as keys (Windows hands it to RegisterHotKey's window): App
+// forwards it to the focused box (Hotkey::kCaptureMessage).
+constexpr WORD kHotkeyChanged = 0x7A01;
+
+void HotkeyBoxSet(HWND box, const std::wstring& text, bool notify) {
+    SetWindowTextW(box, text.c_str());
+    SendMessageW(box, EM_SETSEL, text.size(), text.size());
+    if (notify) {
+        SendMessageW(GetParent(box), WM_COMMAND, MAKEWPARAM(static_cast<WORD>(GetDlgCtrlID(box)), kHotkeyChanged),
+                     reinterpret_cast<LPARAM>(box));
+    }
+}
+
+LRESULT CALLBACK HotkeyBoxProc(HWND box, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR) {
+    switch (msg) {
+        case WM_GETDLGCODE: {
+            const MSG* m = reinterpret_cast<const MSG*>(lp);
+            if (m && (m->message == WM_KEYDOWN || m->message == WM_SYSKEYDOWN)) {
+                const UINT mods = Hotkey::HeldModifiers();
+                if ((m->wParam == VK_TAB && (mods & ~static_cast<UINT>(MOD_SHIFT)) == 0) ||
+                    ((m->wParam == VK_ESCAPE || m->wParam == VK_RETURN) && mods == 0)) {
+                    return 0;  // the window's keys
+                }
+            }
+            return DLGC_WANTALLKEYS | DLGC_WANTARROWS | DLGC_WANTCHARS;
+        }
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN: {
+            const UINT vk = static_cast<UINT>(wp);
+            if (vk == VK_BACK || vk == VK_DELETE) {
+                HotkeyBoxSet(box, L"", true);
+                return 0;
+            }
+            const UINT mods = Hotkey::HeldModifiers();
+            if (Hotkey::IsModifierKey(vk)) {
+                // Only modifiers so far: show them ("Win+Shift+…"); the key completes it.
+                std::wstring partial;
+                if (mods & MOD_WIN) partial += L"Win+";
+                if (mods & MOD_CONTROL) partial += L"Ctrl+";
+                if (mods & MOD_ALT) partial += L"Alt+";
+                if (mods & MOD_SHIFT) partial += L"Shift+";
+                SetPropW(box, L"WinDock.HotkeyPartial", reinterpret_cast<HANDLE>(1));
+                SetWindowTextW(box, (partial + L"…").c_str());
+                return 0;
+            }
+            const std::wstring text = Hotkey::Format(Hotkey::Combo{mods, vk});
+            RemovePropW(box, L"WinDock.HotkeyPartial");
+            if (text.empty()) {
+                MessageBeep(MB_OK);  // a key without a name
+                return 0;
+            }
+            HotkeyBoxSet(box, text, true);
+            return 0;
+        }
+        case WM_KEYUP:
+        case WM_SYSKEYUP:
+            // Modifiers released without a key: back to the recorded combination.
+            if (GetPropW(box, L"WinDock.HotkeyPartial") && Hotkey::HeldModifiers() == 0) {
+                RemovePropW(box, L"WinDock.HotkeyPartial");
+                SendMessageW(GetParent(box), WM_COMMAND, MAKEWPARAM(static_cast<WORD>(GetDlgCtrlID(box)), kHotkeyChanged + 1),
+                             reinterpret_cast<LPARAM>(box));
+            }
+            return 0;
+        case Hotkey::kCaptureMessage:
+            // The registered hotkey itself, pressed while the box has the focus (App's WM_HOTKEY).
+            RemovePropW(box, L"WinDock.HotkeyPartial");
+            HotkeyBoxSet(box, Hotkey::Format(Hotkey::Combo{static_cast<UINT>(wp), static_cast<UINT>(lp)}), true);
+            return 0;
+        case WM_CHAR:
+        case WM_SYSCHAR:
+        case WM_DEADCHAR:
+        case WM_SYSDEADCHAR:
+        case WM_PASTE:
+        case WM_CUT:
+        case WM_CLEAR:
+        case WM_UNDO:
+        case WM_CONTEXTMENU:
+            return 0;  // no typing, no editing menu
+        case WM_NCDESTROY:
+            RemovePropW(box, Hotkey::kCaptureProp);
+            RemovePropW(box, L"WinDock.HotkeyPartial");
+            RemoveWindowSubclass(box, &HotkeyBoxProc, id);
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(box, msg, wp, lp);
+}
+
+// Global > General: what applies to the whole app (startup, the taskbar, the renderer, the
+// dashboard hotkey, the file).
 class GeneralPage : public FormPage {
 public:
     explicit GeneralPage(SettingsWindow& w) : FormPage(w, L"General", L'\xE713') {}
@@ -85,6 +182,22 @@ protected:
         NextRow(kRowH);
         Text(kRendererNote, CtlKind::Note, L"", kColX, right - kColX, 20);
         NextRow(20);
+        // Round 6 phase 6A.
+        Section(kSectionDashboard, L"Dashboard");
+        Label(kDashboardHotkeyLabel, L"Hotkey");
+        EditBox(kDashboardHotkeyEdit, kColX, 220, 64);
+        NextRow();
+        Text(kDashboardStatus, CtlKind::Value, L"", kColX, right - kColX, 22);
+        NextRow(24);
+        Button(kDashboardShow, L"Show the dashboard now", kColX, 200);
+        NextRow();
+        Text(kDashboardNote, CtlKind::Note,
+             L"The hotkey brings every dock on the desktop layers (\"On the desktop\" in a dock's Position tab) to the "
+             L"front, above every window. Press it again, press Escape, or switch to another window to put them back; "
+             L"clicking the wallpaper keeps them up. Click the box and press the combination (Win, Ctrl, Alt, Shift "
+             L"and a key); Backspace or Delete clears it (no hotkey).",
+             kMargin, right - kMargin, 76);
+        NextRow(78);
         Section(kSectionConfigFile, L"Configuration file");
         Button(kGeneralOpenConfig, L"Open config file", kMargin, 150);
         Button(kGeneralReloadConfig, L"Reload config", kMargin + 162, 150);
@@ -99,6 +212,11 @@ protected:
     void Created() override {
         ComboAdd(kRendererCombo, L"Automatic (GPU, software if that fails)");
         ComboAdd(kRendererCombo, L"Software (WARP, less memory)");
+        if (HWND box = Item(kDashboardHotkeyEdit)) {
+            SetWindowSubclass(box, &HotkeyBoxProc, 1, 0);
+            SetPropW(box, Hotkey::kCaptureProp, reinterpret_cast<HANDLE>(1));
+            SendMessageW(box, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"None: click here and press a combination"));
+        }
     }
 
     void Load() override {
@@ -109,11 +227,37 @@ protected:
         const bool warp = Host().usingWarp && Host().usingWarp();
         SetText(kRendererNote, std::wstring(L"Takes effect after WinDock restarts. Currently: ") +
                                    (warp ? L"software (WARP)" : L"GPU"));
+        SetText(kDashboardHotkeyEdit, c.dashboard.hotkey);
+        LoadDashboardStatus();
+    }
+
+    void LoadDashboardStatus() {
+        const Config& c = Cfg();
+        const bool registered = Host().hotkeyRegistered && Host().hotkeyRegistered();
+        SetText(kDashboardStatus, c.dashboard.hotkey.empty() ? std::wstring(L"No hotkey: use the tray menu's Show dashboard.")
+                                  : registered              ? L"Registered: " + c.dashboard.hotkey + L" shows the dashboard."
+                                                            : L"Not registered: another app uses " + c.dashboard.hotkey +
+                                                                 L". Choose another combination.");
     }
 
     void OnCommand(int id, int code, HWND) override {
         Config& c = Cfg();
         switch (id) {
+            case kDashboardHotkeyEdit:
+                if (code == kHotkeyChanged) {
+                    const std::wstring text = GetText(id);
+                    if (text != c.dashboard.hotkey) {
+                        c.dashboard.hotkey = text;
+                        Changed(SettingsScope::Dashboard);  // App registers it (or none)
+                    }
+                    LoadDashboardStatus();
+                } else if (code == kHotkeyChanged + 1) {
+                    SetText(id, c.dashboard.hotkey);  // modifiers released without a key
+                }
+                break;
+            case kDashboardShow:
+                if (code == BN_CLICKED && Host().command) Host().command(ContextMenu::kEnterDashboard);
+                break;
             case kStartWithWindows:
                 if (code == BN_CLICKED) {
                     c.startWithWindows = GetCheck(id);
@@ -176,12 +320,34 @@ protected:
         NextRow();
         Label(kLayerLabel, L"Layer");
         Combo(kLayerCombo, kColX, right - kColX, false);
-        NextRow();
+        NextRow(kRowH);
+        Text(kLayerNote, CtlKind::Note, L"", kColX, right - kColX, 40);
+        NextRow(42);
 
         Section(kSectionPosition, L"Position");
-        Label(kEdgeLabel, L"Screen edge");
+        // Round 6 phase 6A: a floating bar at x / y (the circle's keys) instead of on an edge.
+        Check(kFloating, kFloatingCaption, L"Floating (place the bar anywhere on the display)");
+        NextRow(kRowH);
+        Text(kFloatingNote, CtlKind::Note,
+             L"A floating dock faces its screen edge (that is where its icons grow and popups open) and never "
+             L"auto-hides: its layer and the dashboard hotkey show it. Drag its bar's background to move it (it snaps "
+             L"to the work area's edges and other floating docks) unless it is locked. Bar shape only.",
+             kColX, right - kColX, 58);
+        NextRow(60);
+        Label(kEdgeLabel, L"Screen edge (floating: faces)");
         Combo(kEdgeCombo, kColX, 160, false);
         NextRow();
+        Label(kCircleXLabel, L"Position x");
+        EditBox(kCircleXEdit, kColX, 88, 7);
+        NextRow();
+        Label(kCircleYLabel, L"Position y");
+        EditBox(kCircleYEdit, kColX, 88, 7);
+        NextRow(kRowH);
+        Text(kCircleNote, CtlKind::Note,
+             L"Position (DIPs from the work area's top-left; empty = centred): a floating bar's top-left corner, a "
+             L"circle's centre. Ctrl+drag a circle to move it.",
+             kColX, right - kColX, 40);
+        NextRow(42);
         Label(kAlignLabel, L"Alignment");
         Combo(kAlignCombo, kColX, 160, false);
         NextRow();
@@ -225,17 +391,6 @@ protected:
         NextRow();
         Check(kRotateIcons, kRotateIconsCaption, L"Turn the icons with the ring");
         NextRow();
-        Label(kCircleXLabel, L"Circle centre x (DIPs)");
-        EditBox(kCircleXEdit, kColX, 88, 7);
-        NextRow();
-        Label(kCircleYLabel, L"Circle centre y (DIPs)");
-        EditBox(kCircleYEdit, kColX, 88, 7);
-        NextRow(kRowH);
-        Text(kCircleNote, CtlKind::Note,
-             L"A circle's centre from its display's work area's top-left; empty: the middle. Ctrl+drag the circle "
-             L"to move it.",
-             kColX, right - kColX, 40);
-        NextRow(42);
         Label(kOverflowLabel, L"When the icons do not fit");
         Combo(kOverflowCombo, kColX, right - kColX, false);
         NextRow();
@@ -361,8 +516,9 @@ protected:
 
     void Created() override {
         for (const wchar_t* e : {L"Bottom", L"Top", L"Left", L"Right"}) ComboAdd(kEdgeCombo, e);  // DockEdge order
-        ComboAdd(kLayerCombo, L"Above windows");  // DockLayer order
-        ComboAdd(kLayerCombo, L"Desktop only (shown while the desktop is visible)");
+        ComboAdd(kLayerCombo, L"Normal (above windows)");  // DockLayer order
+        ComboAdd(kLayerCombo, L"On the desktop, only while the desktop is showing");
+        ComboAdd(kLayerCombo, L"On the desktop, under every window");
         for (const wchar_t* a : {L"Centre", L"Start (left / top)", L"End (right / bottom)"}) ComboAdd(kAlignCombo, a);
         // OverflowMode order.
         for (const wchar_t* o : {L"Scroll (wheel, drag the bar)", L"Shrink the icons", L"Clip at the screen's end"}) {
@@ -399,6 +555,8 @@ protected:
         SetCheck(kAutoHideOff, d.autoHide == AutoHideMode::Off);
         SetCheck(kAutoHideAlways, d.autoHide == AutoHideMode::Always);
         SetCheck(kAutoHideIntelligent, d.autoHide == AutoHideMode::Intelligent);
+        SetText(kAutoHideNote, d.Floating() ? L"A floating dock is shown by its layer and the dashboard hotkey (no auto-hide)."
+                                            : L"The dock stays shown while this window (or one of its item windows) is active.");
         SetCheck(kPreviews, d.previews);
         SetCheck(kPreviewSingle, d.previewSingle);
         SetComboSel(kMiddleClickCombo, static_cast<int>(d.middleClick));
@@ -413,6 +571,8 @@ protected:
         // Position
         if (part_ == Part::Position) FillMonitors();
         SetComboSel(kLayerCombo, static_cast<int>(d.layer));
+        SetText(kLayerNote, LayerNote(d.layer));
+        SetCheck(kFloating, d.Floating());
         SetComboSel(kEdgeCombo, static_cast<int>(d.edge));
         SetComboSel(kAlignCombo, static_cast<int>(d.align));
         SetComboSel(kOverflowCombo, static_cast<int>(d.overflow));
@@ -470,8 +630,10 @@ protected:
                     break;
                 }
                 case kLayerCombo:
-                    if (sel <= 1 && static_cast<DockLayer>(sel) != d.layer) {
+                    if (sel <= 2 && static_cast<DockLayer>(sel) != d.layer) {
                         d.layer = static_cast<DockLayer>(sel);
+                        SetText(kLayerNote, LayerNote(d.layer));
+                        EnableDependents();
                         Changed(SettingsScope::Appearance);
                     }
                     break;
@@ -490,6 +652,10 @@ protected:
                 case kShapeCombo:
                     if (sel <= 2 && static_cast<DockShape>(sel) != d.shape) {
                         d.shape = static_cast<DockShape>(sel);
+                        if (d.shape != DockShape::Bar && d.floating) {
+                            d.floating = false;  // a ring is never floating (Config::Sanitize)
+                            SetCheck(kFloating, false);
+                        }
                         EnableDependents();
                         Changed(SettingsScope::Appearance);
                     }
@@ -554,6 +720,15 @@ protected:
                 d.fullWidth = GetCheck(id);
                 Changed(SettingsScope::Appearance);
                 break;
+            case kFloating: {
+                const bool on = GetCheck(id) && d.shape == DockShape::Bar;
+                if (on == d.Floating()) break;
+                d.floating = on;
+                if (on) d.autoHide = AutoHideMode::Off;  // shown by its layer and the dashboard (6A)
+                EnableDependents();
+                Changed(SettingsScope::Appearance);  // placed at x / y (or back on its edge)
+                break;
+            }
             case kReserveSpace:
                 d.reserveSpace = GetCheck(id);
                 Changed(SettingsScope::Appearance);
@@ -633,6 +808,21 @@ private:
     // The dock this page edits (the window's, looked up by id each time).
     DockConfig& Bound() { return Dock(); }
 
+    // The line under the Layer combo (round 6 phase 6A).
+    static const wchar_t* LayerNote(DockLayer layer) {
+        switch (layer) {
+            case DockLayer::Desktop:
+                return L"Shown only while the desktop is in front (Win+D, a click on the wallpaper), at the bottom of the "
+                       L"windows. The dashboard hotkey brings it to the front.";
+            case DockLayer::Behind:
+                return L"Always on the desktop, under every window (like folder windows). The dashboard hotkey brings it "
+                       L"to the front.";
+            case DockLayer::Normal:
+            default:
+                return L"Above every window (it auto-hides as set on the Behaviour tab).";
+        }
+    }
+
     void SetPeekOpacity(int percent) {
         DockConfig& d = Bound();
         percent = std::clamp(percent, 5, 100);
@@ -649,8 +839,24 @@ private:
         for (int id : {kRadiusLabel, kRadiusEdit, kRadiusSpin, kRotateIcons, kRotateIconsCaption}) {
             if (HWND h = Item(id)) EnableWindow(h, d.Polar());
         }
+        // x / y: a circle's centre or a floating bar's top-left (round 6 phase 6A).
+        const bool floating = d.Floating();
         for (int id : {kCircleXLabel, kCircleXEdit, kCircleYLabel, kCircleYEdit}) {
-            if (HWND h = Item(id)) EnableWindow(h, d.shape == DockShape::Circle);
+            if (HWND h = Item(id)) EnableWindow(h, d.shape == DockShape::Circle || floating);
+        }
+        // Floating: a bar only; alignment, offset, full width, reserve space and peek do not apply.
+        for (int id : {kFloating, kFloatingCaption}) {
+            if (HWND h = Item(id)) EnableWindow(h, d.shape == DockShape::Bar);
+        }
+        for (int id : {kAlignLabel, kAlignCombo, kOffsetLabel, kOffsetEdit, kOffsetSpin, kFullWidth, kFullWidthCaption,
+                       kReserveSpace, kReserveSpaceCaption, kPeekLabel, kPeekEdit, kPeekSpin, kPeekOpacityLabel,
+                       kPeekOpacityEdit, kPeekOpacitySpin}) {
+            if (HWND h = Item(id)) EnableWindow(h, !floating);
+        }
+        // Auto-hide: off for a floating dock (Config::Sanitize).
+        for (int id : {kAutoHideOff, kAutoHideOffCaption, kAutoHideAlways, kAutoHideAlwaysCaption, kAutoHideIntelligent,
+                       kAutoHideIntelligentCaption}) {
+            if (HWND h = Item(id)) EnableWindow(h, !floating);
         }
         Enable(kHideDelayEdit, d.AutoHideOn());
         Enable(kRevealDelayEdit, d.AutoHideOn());

@@ -1,7 +1,9 @@
 #include "DockManager.h"
 
 #include <algorithm>
+#include <cwchar>
 
+#include <dwmapi.h>
 #include <shlobj.h>
 #include <shlwapi.h>
 
@@ -123,6 +125,8 @@ void DockManager::Shutdown() {
     if (folderRendererReady_) folderRenderer_.Shutdown();
     folderRendererReady_ = false;
     watchers_.clear();
+    dashboard_ = false;
+    dashboardPrev_ = nullptr;
     watch_.Stop();
     tracker_.Stop();
     widgets_.SetWeather(nullptr, nullptr);
@@ -228,7 +232,10 @@ size_t DockManager::FolderCount() const {
     return n;
 }
 
-void DockManager::OnExplorerRestarted() { DesktopLayer::Reassert(); }
+void DockManager::OnExplorerRestarted() {
+    DesktopLayer::Reassert();  // folder windows and "behind" docks (registered with the layer)
+    ForEach([](DockWindow& w) { w.ReassertLayer(); });  // shown "desktop" docks
+}
 
 std::wstring DockManager::DesktopFolder() {
     wchar_t buf[MAX_PATH * 2]{};
@@ -670,21 +677,104 @@ void DockManager::ConfigureCalendar() {
     if (config_) calendar_.Configure(config_->calendars, owner_);
 }
 
+void DockManager::StartWatch() {
+    // A running watch only takes the callback (no hooks installed twice).
+    watch_.Start(owner_, [this] {
+        if (dashboard_) CheckDashboardForeground();  // first: leaving re-places the docks below
+        const std::vector<DockWindow*> watchers = watchers_;  // a check may change subscriptions
+        for (DockWindow* w : watchers) {
+            if (std::find(watchers_.begin(), watchers_.end(), w) != watchers_.end()) w->OnWatchEvent();
+        }
+    });
+}
+
 void DockManager::SetWatching(DockWindow* dock, bool on) {
     const auto it = std::find(watchers_.begin(), watchers_.end(), dock);
     if (on) {
         if (it == watchers_.end()) watchers_.push_back(dock);
-        // A running watch only takes the callback (no hooks installed twice).
-        watch_.Start(owner_, [this] {
-            const std::vector<DockWindow*> watchers = watchers_;  // a check may change subscriptions
-            for (DockWindow* w : watchers) {
-                if (std::find(watchers_.begin(), watchers_.end(), w) != watchers_.end()) w->OnWatchEvent();
-            }
-        });
+        StartWatch();
         return;
     }
     if (it != watchers_.end()) watchers_.erase(it);
-    if (watchers_.empty()) watch_.Stop();  // no dock hides intelligently: no hooks at all
+    if (watchers_.empty() && !dashboard_) watch_.Stop();  // nobody needs it: no hooks at all
+}
+
+std::vector<RECT> DockManager::FloatingNeighbours(const DockWindow* self) {
+    std::vector<RECT> rects;
+    for (const Instance& i : instances_) {
+        if (!i.window || i.window.get() == self || !i.window->FloatingShown()) continue;
+        rects.push_back(i.window->RestBarRect());
+    }
+    return rects;
+}
+
+namespace {
+
+bool OwnWindow(HWND hwnd) {
+    DWORD pid = 0;
+    GetWindowThreadProcessId(hwnd, &pid);
+    return pid == GetCurrentProcessId();
+}
+
+// The window to give the foreground back to when dashboard mode ends: the foreground window, or
+// (one of ours has it: the tray menu, a settings window) the first visible app window of another
+// process from the top of the z-order.
+HWND ForegroundToRestore() {
+    HWND fg = GetForegroundWindow();
+    if (fg && !OwnWindow(fg)) return fg;
+    for (HWND w = GetTopWindow(nullptr); w; w = GetWindow(w, GW_HWNDNEXT)) {
+        if (!IsWindowVisible(w) || IsIconic(w) || OwnWindow(w)) continue;
+        const LONG_PTR ex = GetWindowLongPtrW(w, GWL_EXSTYLE);
+        if (ex & (WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOACTIVATE)) continue;
+        DWORD cloaked = 0;
+        if (SUCCEEDED(DwmGetWindowAttribute(w, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) continue;
+        RECT r{};
+        if (!GetWindowRect(w, &r) || r.right <= r.left || r.bottom <= r.top) continue;
+        return w;
+    }
+    return nullptr;
+}
+
+}  // namespace
+
+void DockManager::SetDashboard(bool on) {
+    if (on == dashboard_ || !config_) return;
+    if (on) {
+        dashboardPrev_ = ForegroundToRestore();
+        dashboard_ = true;
+        DockWindow* first = nullptr;
+        for (Instance& i : instances_) {
+            if (!i.window || i.cfg >= config_->docks.size() || config_->docks[i.cfg].layer == DockLayer::Normal) continue;
+            i.window->OnDashboardChanged();
+            if (!first) first = i.window.get();
+        }
+        // The keyboard to the first of them (Escape ends the mode there); WM_HOTKEY's input lets this
+        // process take the foreground. A click on another window then is a foreground change.
+        if (first && SetForegroundWindow(first->Hwnd())) SetFocus(first->Hwnd());
+        StartWatch();
+        return;
+    }
+    dashboard_ = false;
+    // One of our docks has the foreground (Escape, the hotkey): back to the window that had it, so a
+    // "desktop" dock hides again unless that was the desktop.
+    HWND fg = GetForegroundWindow();
+    if (fg && ByHwnd(fg) && dashboardPrev_ && IsWindow(dashboardPrev_) && IsWindowVisible(dashboardPrev_)) {
+        SetForegroundWindow(dashboardPrev_);
+    }
+    dashboardPrev_ = nullptr;
+    ForEach([](DockWindow& w) { w.OnDashboardChanged(); });
+    if (watchers_.empty()) watch_.Stop();
+}
+
+void DockManager::CheckDashboardForeground() {
+    HWND fg = GetForegroundWindow();
+    if (!fg || OwnWindow(fg)) return;  // none, a dock, a popup, a settings window
+    HWND root = GetAncestor(fg, GA_ROOT);
+    wchar_t cls[32]{};
+    if (root && GetClassNameW(root, cls, 32) && (wcscmp(cls, L"Progman") == 0 || wcscmp(cls, L"WorkerW") == 0)) {
+        return;  // the desktop (a click on the wallpaper): the docks stay up
+    }
+    SetDashboard(false);
 }
 
 bool DockManager::NotificationsWanted() const {

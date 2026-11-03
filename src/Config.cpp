@@ -7,6 +7,7 @@
 #include <cwchar>
 #include <iterator>
 
+#include "Hotkey.h"
 #include "JsonUtil.h"
 #include "Theme.h"
 
@@ -47,7 +48,7 @@ const wchar_t* const kClockClickNames[] = {L"calendar", L"launch", L"none"};
 const wchar_t* const kEdgeNames[] = {L"bottom", L"top", L"left", L"right"};
 const wchar_t* const kAlignNames[] = {L"center", L"start", L"end"};
 const wchar_t* const kRunningFilterNames[] = {L"all", L"monitor"};
-const wchar_t* const kLayerNames[] = {L"normal", L"desktop"};
+const wchar_t* const kLayerNames[] = {L"normal", L"desktop", L"behind"};
 const wchar_t* const kWindowsModeNames[] = {L"stacked", L"unstacked"};
 const wchar_t* const kTitlesNames[] = {L"off", L"one", L"two"};
 const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
@@ -144,6 +145,7 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadBool(o, L"rotateIcons", d.rotateIcons);
     ReadInt(o, L"x", d.x);
     ReadInt(o, L"y", d.y);
+    ReadBool(o, L"floating", d.floating);
 }
 
 // docks[].monitor as JSON: the index, or "primary" / "each".
@@ -697,7 +699,7 @@ void Config::Sanitize() {
         if (static_cast<unsigned>(d.runningFilter) > static_cast<unsigned>(RunningFilter::Monitor)) {
             d.runningFilter = RunningFilter::All;
         }
-        if (static_cast<unsigned>(d.layer) > static_cast<unsigned>(DockLayer::Desktop)) d.layer = DockLayer::Normal;
+        if (static_cast<unsigned>(d.layer) > static_cast<unsigned>(DockLayer::Behind)) d.layer = DockLayer::Normal;
         if (static_cast<unsigned>(d.windows) > static_cast<unsigned>(WindowsMode::Unstacked)) d.windows = WindowsMode::Stacked;
         if (static_cast<unsigned>(d.titles) > static_cast<unsigned>(TitlesMode::Two)) d.titles = TitlesMode::Off;
         if (static_cast<unsigned>(d.titlesVertical) > static_cast<unsigned>(TitlesVertical::Beside)) {
@@ -714,6 +716,10 @@ void Config::Sanitize() {
         d.radius = d.radius <= 0 ? 0 : std::clamp(d.radius, 60, 2000);
         if (d.x != DockConfig::kCentred) d.x = std::clamp(d.x, -16000, 16000);
         if (d.y != DockConfig::kCentred) d.y = std::clamp(d.y, -16000, 16000);
+        // Round 6 phase 6A: a floating dock is a bar (another shape reads as not floating) and
+        // never auto-hides (its layer and the dashboard hotkey decide when it shows).
+        if (d.shape != DockShape::Bar) d.floating = false;
+        if (d.floating) d.autoHide = AutoHideMode::Off;
         notifications.pollS = std::clamp(notifications.pollS, 1, 60);
         for (DockItemEntry& e : d.items) {
             if (e.Kind() != ItemKind::Tray) continue;
@@ -771,6 +777,12 @@ void Config::Sanitize() {
         f.reminderMin = std::clamp(f.reminderMin, 0, 1440);
     }
     calendars.defaultReminderMin = std::clamp(calendars.defaultReminderMin, 0, 1440);
+    // The dashboard hotkey in its canonical spelling ("" = none); text that is not a hotkey keeps
+    // the default.
+    if (!dashboard.hotkey.empty()) {
+        Hotkey::Combo combo;
+        dashboard.hotkey = Hotkey::Parse(dashboard.hotkey, combo) ? Hotkey::Format(combo) : DashboardConfig{}.hotkey;
+    }
 }
 
 Config::LoadResult Config::LoadFile() {
@@ -799,7 +811,7 @@ Config::LoadResult Config::LoadFile() {
             L"theme",         L"animation",   L"weather",          L"pinned",         L"iconSize",
             L"magnification", L"magnifyRange", L"autoHide",        L"hideDelayMs",    L"revealDelayMs",
             L"previews",      L"previewDelayMs", L"monitor",       L"tray",           L"notifications",
-            L"calendars",
+            L"calendars",     L"dashboard",
         };
         for (const auto& kv : root) {
             const std::wstring key(kv.Key());
@@ -982,6 +994,7 @@ Config::LoadResult Config::LoadFile() {
                 }
             }
         }
+        if (auto dash = ReadObject(root, L"dashboard")) ReadString(dash, L"hotkey", dashboard.hotkey);
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
         *this = Config{};
@@ -1117,6 +1130,7 @@ bool Config::Save() const {
                  (d.shape != DockShape::Bar ? L",\n      \"shape\": " + Quote(ToString(d.shape)) : L"") +
                  (d.radius > 0 ? L", \"radius\": " + Num(d.radius) : L"") +
                  (d.rotateIcons ? L", \"rotateIcons\": true" : L"") +
+                 (d.Floating() ? L",\n      \"floating\": true" : L"") +
                  (d.x != DockConfig::kCentred ? L", \"x\": " + Num(d.x) : L"") +
                  (d.y != DockConfig::kCentred ? L", \"y\": " + Num(d.y) : L"") + L"\n    }";
         }
@@ -1167,6 +1181,7 @@ bool Config::Save() const {
             o += L", \"showDots\": " + Bool(calendars.showDots) + L", \"defaultReminderMin\": " +
                  Num(calendars.defaultReminderMin) + L" }";
         }
+        if (dashboard != DashboardConfig{}) o += L",\n  \"dashboard\": { \"hotkey\": " + Quote(dashboard.hotkey) + L" }";
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";
         return WriteFileAtomic(FilePath(), WideToUtf8(o));

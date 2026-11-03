@@ -16,6 +16,7 @@
 #include "AppIdentity.h"
 #include "ContextMenu.h"
 #include "DesktopLayer.h"
+#include "Hotkey.h"
 #include "IconUtil.h"
 #include "SettingsIds.h"
 #include "WidgetPackage.h"
@@ -186,7 +187,32 @@ bool App::Initialize(HINSTANCE instance) {
     // Only now: the controller has saved the original work area (without our reservations).
     docks_.AllowAppBar(true);
     UpdateReservedMonitors();
+    ApplyHotkey();  // the dashboard hotkey (round 6 phase 6A)
     return true;
+}
+
+void App::ApplyHotkey() {
+    if (!hwnd_ || shutDown_) return;
+    const std::wstring& text = config_.dashboard.hotkey;
+    if (hotkeyTried_ && text == hotkeyText_ && (hotkeyRegistered_ || text.empty())) return;  // unchanged
+    RemoveHotkey();
+    hotkeyTried_ = true;
+    hotkeyText_ = text;
+    Hotkey::Combo combo;
+    if (text.empty() || !Hotkey::Parse(text, combo)) return;  // none
+    hotkeyRegistered_ = RegisterHotKey(hwnd_, kDashboardHotkeyId, combo.mods | MOD_NOREPEAT, combo.vk) != FALSE;
+    if (!hotkeyRegistered_) {
+        wchar_t buf[160];
+        swprintf_s(buf, L"WinDock: the dashboard hotkey %s could not be registered (error %lu; another app uses it)\n",
+                   text.c_str(), GetLastError());
+        OutputDebugStringW(buf);
+    }
+}
+
+void App::RemoveHotkey() {
+    if (hotkeyRegistered_ && hwnd_) UnregisterHotKey(hwnd_, kDashboardHotkeyId);
+    hotkeyRegistered_ = false;
+    hotkeyTried_ = false;
 }
 
 void App::SetUpDock(DockWindow& dock) {
@@ -820,6 +846,7 @@ void App::Shutdown() {
     console_.reset();  // before the docks: it listens to the widget runtime
     geocodeDone_ = nullptr;
     geocodeOwner_ = nullptr;
+    RemoveHotkey();
     shutDown_ = true;
     FlushSave();
     docks_.AllowAppBar(false);  // first: the restored work area must not keep our bands
@@ -885,6 +912,7 @@ ContextMenu::TrayMenuState App::MenuState(size_t cfg) const {
     state.hasRunning = d.Has(ItemKind::Running);
     state.edge = d.edge;
     state.dockCount = static_cast<int>(config_.docks.size());
+    state.dashboard = docks_.Dashboard();
     for (const DockConfig& o : config_.docks) {
         (o.locked ? state.anyLocked : state.anyUnlocked) = true;
         if (o.Has(ItemKind::Widget)) state.hasWidgets = true;
@@ -1043,6 +1071,15 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kFlashDock:
             FlashDock(cfg);
             break;
+        case ContextMenu::kToggleDashboard:
+            docks_.SetDashboard(!docks_.Dashboard());
+            break;
+        case ContextMenu::kEnterDashboard:
+            docks_.SetDashboard(true);
+            break;
+        case ContextMenu::kLeaveDashboard:
+            docks_.SetDashboard(false);
+            break;
         case ContextMenu::kRefreshWeather:
             docks_.RefreshWeather(nullptr);  // every place
             break;
@@ -1182,6 +1219,7 @@ void App::SetTaskbarEnabled(bool enabled) {
 }
 
 void App::SetAutoHide(size_t cfg, AutoHideMode mode) {
+    if (config_.docks[cfg].Floating()) mode = AutoHideMode::Off;  // its layer and the dashboard decide (6A)
     if (mode != AutoHideMode::Off) lastOnMode_ = mode;
     config_.docks[cfg].autoHide = mode;
     docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyAutoHide(); });
@@ -1237,6 +1275,7 @@ void App::ReloadConfig() {
     });
     if (taskbar_.Enabled() != config_.hideTaskbar) SetTaskbarEnabled(config_.hideTaskbar);
     if (AutostartEnabled() != config_.startWithWindows) SetAutostart(config_.startWithWindows);
+    ApplyHotkey();  // a new dashboard hotkey (or a retry of one another app held)
     RefreshSettings();
 }
 
@@ -1516,6 +1555,8 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         st.unread = n.Unread();
         return st;
     };
+    host.hotkeyRegistered = [this] { return hotkeyRegistered_; };
+    host.dashboardOn = [this] { return docks_.Dashboard(); };
     host.calendarFeeds = [this] {
         std::vector<SettingsCalendarFeed> feeds;
         const CalendarService& c = docks_.Calendar();
@@ -1616,6 +1657,19 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             DockConfig d;
             d.id = config_.UniqueDockId(L"dock");
             d.monitor = DockConfig::kMonitorPrimary;
+            list.push_back(std::move(d));
+            break;
+        }
+        case SettingsDockEdit::AddFloating: {
+            // Round 6 phase 6A: a floating bar on the desktop (shown while the desktop is, and by the
+            // dashboard hotkey), centred on the primary display's work area, the default items.
+            DockConfig d;
+            d.id = config_.UniqueDockId(L"floating");
+            d.monitor = DockConfig::kMonitorPrimary;
+            d.floating = true;
+            d.layer = DockLayer::Desktop;
+            d.autoHide = AutoHideMode::Off;
+            d.reserveSpace = false;
             list.push_back(std::move(d));
             break;
         }
@@ -1780,6 +1834,9 @@ void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* sou
             docks_.ConfigureCalendar();
             docks_.ForEach([](DockWindow& w) { w.OnCalendarChanged(); });  // showDots
             break;
+        case SettingsScope::Dashboard:
+            ApplyHotkey();
+            break;
         case SettingsScope::SaveOnly:
             break;
     }
@@ -1848,6 +1905,10 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
                                     : nullptr;
             return w ? reinterpret_cast<LRESULT>(w->Hwnd()) : 0;
         }
+        case 234:  // round 6 phase 6A: dashboard mode is on
+            return docks_.Dashboard() ? 1 : 0;
+        case 240:  // the dashboard hotkey is registered (RegisterHotKey succeeded)
+            return hotkeyRegistered_ ? 1 : 0;
         case 47:
             return static_cast<LRESULT>(docks_.Count());  // dock instances (parked ones included)
         case 48:
@@ -2259,6 +2320,15 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
     }
 
     switch (msg) {
+        case WM_HOTKEY:
+            if (wp != kDashboardHotkeyId) break;
+            // A hotkey capture box (Settings > General) has the focus: it records the combination.
+            if (HWND focus = GetFocus(); focus && GetPropW(focus, Hotkey::kCaptureProp)) {
+                SendMessageW(focus, Hotkey::kCaptureMessage, LOWORD(lp), HIWORD(lp));
+                return 0;
+            }
+            docks_.SetDashboard(!docks_.Dashboard());
+            return 0;
         case WM_TIMER:
             if (wp != kSaveTimerId) break;
             KillTimer(hwnd_, kSaveTimerId);  // one-shot

@@ -210,13 +210,27 @@ icon cache and popups). Per dock:
 - `themePreset`: a theme preset (built-in id or theme file) for this dock only; empty (default) =
   the global `theme.preset`. The global inline theme fields still apply on top of it.
 
-- `layer`: `"normal"` (default: topmost, above windows) or `"desktop"`: the dock is shown only
-  while the desktop is the foreground (after Win+D or a click on the wallpaper; also while one of
-  WinDock's own windows, such as its popups or a settings window, is in front) and hides as soon
-  as another window comes to the foreground; while shown it sits at the bottom of the z-order,
-  directly above the desktop window (never topmost), so every window stays above it. It follows
-  the same WinEvent hooks as intelligent auto-hide (no polling). A desktop dock reserves no
-  screen space and draws its bar without the acrylic blur. `WinDock.QueryState` 52 / 53.
+- `layer` (Dock settings > Position > **Layer**): where the dock lives in the z-order.
+  - `"normal"` (default; "Normal (above windows)"): topmost, above every window.
+  - `"desktop"` ("On the desktop, only while the desktop is showing"): the dock is shown only
+    while the desktop is the foreground (after Win+D or a click on the wallpaper; also while one of
+    WinDock's own windows, such as its popups or a settings window, is in front) and hides as soon
+    as another window comes to the foreground; while shown it sits at the bottom of the z-order,
+    directly above the desktop window (never topmost), so every window stays above it. It follows
+    the same WinEvent hooks as intelligent auto-hide (no polling). It draws its bar without the
+    acrylic blur.
+  - `"behind"` (round 6 phase 6A; "On the desktop, under every window"): always shown, on the
+    desktop layer under every app window, like [desktop folder windows](#desktop-folder-windows):
+    the window is registered with the desktop layer (`DesktopLayer`), which keeps it (and its
+    acrylic blur window, which it keeps) directly above the desktop window and drops every other
+    z-order change (a click or an app's "bring to top" cannot raise it); it is re-placed when the
+    desktop comes to the foreground and after an Explorer restart (`TaskbarCreated`). Auto-hide works
+    as on any dock (hidden, its reveal strip is under the windows too, so it reveals only where the
+    desktop shows). Script widgets' `dock.visible` follows the window's own shown state.
+
+  A `"desktop"` or `"behind"` dock reserves no screen space; the **dashboard hotkey** (below) brings
+  both to the front for a while. Switching the layer (Settings, Reload config) re-places the dock
+  at once. `WinDock.QueryState` 52 / 53, 235, 239.
 
 Docks on the same edge of one monitor overlap; move one (its window's Position tab, Ctrl+drag, or
 Global settings > Docks and displays).
@@ -416,6 +430,65 @@ Dock settings > Position > **When the icons do not fit**. The key is written onl
 Dock settings > Position: **Shape** (Bar / Half circle / Circle, 2169), **Radius** (2171, 0 =
 automatic), **Turn the icons with the ring** (2173). Each key is written only when not the default.
 Automation: `QueryState` 145 - 154 (see Automation).
+
+**Floating docks** (`floating`, round 6 phase 6A; default `false`, written only when `true`): a bar
+dock that is not on an edge but placed anywhere on its monitor. `x` / `y` (the circle's keys, same
+meaning: DIPs from the monitor's work area's top-left; missing = centred) are the top-left corner of
+the resting bar; the bar is kept on its monitor. `edge` says which way it **faces**: a floating dock
+facing `"bottom"` behaves like a bottom-edge dock lifted off the edge (its icons magnify upward, the
+hover label, previews and popups open above it, the dots sit under the icons), `"top"` / `"left"` /
+`"right"` like those edges (magnification grows down / right / left; left and right make a vertical
+bar). Internally it is an edge dock whose "screen edge" is its own outer side (no margin), so
+magnification, labels, previews, popups, the acrylic blur, the glass shelf, reflections,
+perspective, the glow's extra height, thumbnails and titles all work as on an edge dock. `align`,
+`offset`, `fullWidth`, `reserveSpace` and the peek strip do not apply (Settings greys them), and
+**auto-hide is always off** (`Config::Sanitize`; Settings greys it with the note "A floating dock
+is shown by its layer and the dashboard hotkey"): its `layer` decides when it shows. A floating dock
+is a bar: `"floating"` with another `shape` reads as not floating.
+
+- **Moving**: drag the bar's **background** with the left button (the padding at its ends, the
+  spacers, the band above / below the icon boxes; not an item and not a widget) while the dock is
+  not `locked`; Ctrl + drag works anywhere on the bar as on edge docks. The bar follows the pointer
+  (the grab offset is kept), **snaps within 8 DIP** to the work area's edges and to the other
+  floating docks' bars, and stays on its monitor; on release `x` / `y` are saved (the settings
+  windows follow). Escape or a lost capture cancels; a press without a move is an ordinary click
+  (on an icon's band: that icon). Global settings > Docks and displays drags it too (its top-left,
+  kept on that display's work area).
+- **New floating dock**: Global settings > Docks and displays > **Add floating dock** (a bar dock
+  `floating`, layer `"desktop"`, centred on the primary display, the running apps and the clock;
+  useful for folders and files), or check **Floating** on a dock's Position tab (it keeps its
+  layer). Its header and the Docks and displays drawing show it as a small bar where it is.
+- `WinDock.QueryState` 236 (floating), 237 / 238 (the resting bar's rect).
+
+### Dashboard
+
+Round 6 phase 6A: **one global hotkey** (`dashboard.hotkey`, default **Win+Shift+D**) toggles
+**dashboard mode**: every dock with layer `"desktop"` or `"behind"` is shown (revealed if it
+auto-hid), raised above every window (topmost; a full-screen game or presentation is not fought:
+the dock does not try to get above an exclusive full-screen app) and works as usual (magnification,
+popups, drags). The first of them takes the keyboard (the hotkey's input allows it). It ends when:
+
+- the hotkey is pressed again,
+- **Escape** is pressed while one of those docks has the keyboard (a popup of theirs closes on
+  Escape first; press it again on the dock), or
+- **another window comes to the foreground** (a click on any other window, Alt+Tab, a launched app):
+  the shared foreground watch (the WinEvent hooks intelligent auto-hide uses; no global input
+  hooks) runs while the mode lasts. A click on the wallpaper makes the desktop the foreground,
+  which **keeps the dashboard up** (the docks are on the desktop anyway); WinDock's own windows
+  (a settings window, a dock menu) keep it up too.
+
+Leaving it gives the foreground back to the window that had it (when one of the docks still has it)
+and puts each dock back under its layer's rules: a `"desktop"` dock hides again unless the desktop
+is the foreground, a `"behind"` dock goes back under the windows, auto-hide applies again. Normal
+docks are never touched. The tray / dock menu has **Show dashboard** (checked while it is on;
+DockCommand 145); Global settings > General > **Dashboard** has the hotkey editor (click the box
+and press the combination: Win, Ctrl, Alt, Shift and a key; Backspace or Delete clears it (no
+hotkey); the box shows the canonical text), whether it is registered (a combination another app
+already holds cannot be registered: the line says so and the debugger output logs it; choose
+another one), and **Show the dashboard now** (DockCommand 146). The hotkey is registered with
+`RegisterHotKey` on WinDock's app window and registered again when it changes and on Reload config.
+Nothing runs while the dashboard is off (no timer, no hook beyond what the docks use anyway).
+`WinDock.QueryState` 234 (on), 240 (hotkey registered).
 
 ### Dock items
 
@@ -1181,8 +1254,10 @@ closes the window, Enter applies the text in an edit box.
 **The Global window** (pages in its left column):
 
 - **General**: Start with Windows, Hide the Windows taskbar, the renderer (`auto` / `software`;
-  takes effect after WinDock restarts, the page shows the one in use), **Open config file**,
-  **Reload config**.
+  takes effect after WinDock restarts, the page shows the one in use), the **Dashboard** section
+  (round 6 phase 6A: the hotkey box (click it and press the combination; Backspace / Delete clears
+  it), whether the hotkey is registered, **Show the dashboard now**; see Dashboard), **Open config
+  file**, **Reload config**.
 - **Themes**: the global theme (the built-in presets, then your theme files from the themes folder
   by name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
   **Open themes folder**, **Reset all to preset**, and one row per theme field (see
@@ -1223,7 +1298,9 @@ closes the window, Enter applies the text in an edit box.
   open its own window; drag it along its edge (it snaps to the centre and the ends), onto another
   edge or onto another display: it moves when you let go. Buttons: **Add dock**, **Duplicate**,
   **Remove**, **Add folder window…**, **Open dock settings** (**Open window settings** for a folder
-  window), **Lock all docks**, **Unlock all docks**.
+  window), **Lock all docks**, **Unlock all docks**, **Add floating dock** (round 6 phase 6A). A
+  floating dock is drawn as its bar where it is (labelled with its layer); dragging it sets its
+  `x` / `y`.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
 
@@ -1272,11 +1349,15 @@ take the dock's colour (Windows 11). Tabs:
     on the dock") while the dock has one. **Manage installed widgets in Global > Widget library**
     opens that page.
 - **Position**: display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the dock's order, or
-  Every display), layer, screen edge, alignment and offset (pixels at 100 % scale), Full width,
-  Reserve screen space, Peek when hidden (pixels), Peek opacity (%), Title (see Position), the
-  shape (bar, half circle, circle), the ring's radius, Turn the icons with the ring, a circle's
-  centre x / y (DIPs from the work area's top-left; empty: the middle) and what happens when the
-  icons do not fit.
+  Every display), layer (Normal (above windows) / On the desktop, only while the desktop is
+  showing / On the desktop, under every window, with a line about the one chosen), **Floating**
+  (round 6 phase 6A; bar docks only, with a note), screen edge (a floating dock: the way it faces),
+  Position x / y (DIPs from the work area's top-left; empty = centred: a floating bar's top-left, a
+  circle's centre), alignment and offset (pixels at 100 % scale), Full width, Reserve screen space,
+  Peek when hidden (pixels), Peek opacity (%), Title (see Position; alignment to peek are greyed
+  for a floating dock), the shape (bar, half circle, circle), the ring's radius, Turn the icons
+  with the ring and what happens when the icons do not fit. A floating dock's Behaviour tab greys
+  the auto-hide choices.
 - **Behaviour**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
   magnification range (1-4 icons), auto-hide Off / Always / When a window overlaps the dock, hide
   and reveal delays, window previews on / off, **Show window previews for apps with a single
@@ -1448,8 +1529,12 @@ items that exist. A file whose items have settings already is left alone.
     `docks` (blue `#FF4CC2FF`, orange `#FFFFB356`, green `#FF8FD3A8`, purple `#FFC4A3FF`, pink
     `#FFF0A0C0`, teal `#FF7FD8D0`, repeating).
   - `monitor` (default `0` = primary; an index, `"primary"` or `"each"`), `runningFilter`
-    (`"all"` / `"monitor"`), `themePreset` (default `""`), `layer` (`"normal"` / `"desktop"`):
-    see Multiple docks and monitors.
+    (`"all"` / `"monitor"`), `themePreset` (default `""`), `layer` (`"normal"` / `"desktop"` /
+    `"behind"`; unknown text reads as `"normal"`): see Multiple docks and monitors.
+  - `floating` (round 6 phase 6A; default `false`, written only when `true`; bar docks only): the
+    bar is placed at `x` / `y` (its top-left in DIPs from the work area's top-left; missing:
+    centred) facing `edge`; auto-hide is forced off. See
+    [Position](#position-edge-alignment-offset) > Floating docks.
   - `items`: everything on the dock, in order. Each item has a `kind`:
     - `"app"`: `{ "kind": "app", "path": "<.lnk or .exe>" }` or
       `{ "kind": "app", "aumid": "<AppUserModelID>" }`. Environment variables in paths are
@@ -1530,9 +1615,9 @@ items that exist. A file whose items have settings already is left alone.
   - `overflow` (default `"scroll"`; `"shrink"`, `"clip"`; written only when not `"scroll"`): a run
     of items longer than the edge, see [Position](#position-edge-alignment-offset).
   - `shape` (default `"bar"`; `"arc"`, `"circle"`), `radius` (DIPs, default 0 = automatic, 60 -
-    2000), `rotateIcons` (default `false`), `x` / `y` (a circle's centre in DIPs from the work
-    area's top-left; default: its middle): see [Position](#position-edge-alignment-offset); each is
-    written only when not the default.
+    2000), `rotateIcons` (default `false`), `x` / `y` (a circle's centre, or a floating bar's
+    top-left, in DIPs from the work area's top-left; default: centred): see
+    [Position](#position-edge-alignment-offset); each is written only when not the default.
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
     `hideDelayMs`, `revealDelayMs`, `previews`, `previewsSingleWindow`, `previewDelayMs`,
     `middleClick`, `wheel`, `monitor`.
@@ -1652,6 +1737,13 @@ items that exist. A file whose items have settings already is left alone.
   `showDots`: dots on event days in the month calendar and after the clock's date.
   `defaultReminderMin`: reminders before events (0 off; 0 - 1440), for feeds without their own
   `reminderMin` (per feed, 0 - 1440; written only when set). See Calendar feeds.
+- `dashboard` (round 6 phase 6A): `{ "hotkey": "Win+Shift+D" }` (the default; the object is written
+  only when it differs). `hotkey`: `"Mod+Mod+Key"` with the modifiers `Win`, `Ctrl`, `Alt`, `Shift`
+  (any order and case when read; written as Win, Ctrl, Alt, Shift) and one key: `A` - `Z`, `0` -
+  `9`, `F1` - `F24`, `Space`, `Tab`, `Esc`, `Enter`, `Insert`, `Delete`, `Home`, `End`, `PageUp`,
+  `PageDown`, `Left`, `Up`, `Right`, `Down`, `Pause`, `PrintScreen`, `Num0` - `Num9`, `Num*`,
+  `Num+`, `Num-`, `Num.`, `Num/`, or one of `` ` - = [ ] \ ; ' , . / ``; `""` = no hotkey; text
+  that is not a hotkey reads as the default. See [Dashboard](#dashboard).
 
 ### Themes
 
@@ -2041,7 +2133,11 @@ always there, also when every dock is parked) handle these registered messages:
   settings… (the Dock window of dock `HIWORD(lParam)`, like 142 the dock in the high word; a folder
   window's index opens its window), 144 Flash this dock (dock `HIWORD(lParam)` shows itself and its
   border pulses in its colour for about 1.5 s: 6 steps of 250 ms, `QueryState` 226; a parked dock or
-  a folder window beeps); saved like the menu).
+  a folder window beeps); saved like the menu). Round 6 phase 6A: 145 toggles dashboard mode (the
+  menu's Show dashboard, = the hotkey), 146 turns it on (Settings > General > Show the dashboard
+  now), 147 turns it off (any dock index; a dashboard started by an automation `SendMessage`
+  usually cannot give its dock the foreground, so Escape does not reach it: end it with 147 or the
+  hotkey). There is no command to simulate a floating dock's drag: drive it with real mouse input.
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -2092,9 +2188,9 @@ always there, also when every dock is parked) handle these registered messages:
   47 = the number of docks (parked ones included). 48 = the dock's monitor index (0 primary, as
   in `docks[].monitor`; -1 parked; -2 no such dock). 49 = 1 if the dock is parked (its monitor is
   not connected: no window), 0 if shown, -1 no such dock. 50 = its index in `docks[]`. 51 = its
-  window handle (0 parked). 52 = `docks[].layer` (0 normal, 1 desktop). 53 = a desktop-layer
-  dock's window is shown (1) or hidden because another window is in the foreground (0); -1 for a
-  normal dock. Script widgets (24 reports kind 6 for their slots): 54 = the widget state of slot
+  window handle (0 parked). 52 = `docks[].layer` (0 normal, 1 desktop, 2 behind). 53 = a
+  `"desktop"`-layer dock's window is shown (1) or hidden because another window is in the
+  foreground (0); -1 for a normal or `"behind"` dock, and while dashboard mode lifts it. Script widgets (24 reports kind 6 for their slots): 54 = the widget state of slot
   `lParam` (0 ok, 1 error, 2 suspended by the watchdog; -1 if the slot is not a script widget).
   55 = the number of script widgets on the dock. 56 = the number of script widgets of every dock
   (live script runtimes). 57 = the script heap of slot `lParam`'s widget in bytes (0 once it
@@ -2137,7 +2233,13 @@ always there, also when every dock is parked) handle these registered messages:
   Round 5: 27 - 30 answer for config item `lParam` when it is a weather item (0: the dock's first
   one), 219 - 221 the clocks' zones and the weather services (see Per-item clocks and weather
   above), 222 - 233 the settings windows and a Dock window's Contents tab (see Settings windows
-  below); phase D added no QueryState.
+  below); phase D added no QueryState. Round 6 phase 6A: 234 = 1 while dashboard mode is on (any
+  dock index); 235 = dock `HIWORD(lParam)`'s layer (0 normal, 1 desktop, 2 behind; = 52); 236 = 1
+  if it is floating; 237 = its resting bar's left / top on screen as `MAKELONG(x, y)` (px); 238 =
+  that bar's width / height as `MAKELONG(w, h)`; 239 = 1 while its window is above the desktop
+  window with no other app's visible window between them and not topmost
+  (`DesktopLayer::AboveDesktop`: a `"behind"` dock always, a shown `"desktop"` dock); 240 = 1 while
+  the dashboard hotkey is registered (0: none, or another app holds it).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
@@ -2195,11 +2297,18 @@ always there, also when every dock is parked) handle these registered messages:
   centre from `QueryState` 229 / 230, glide, release; Esc during the drag cancels) and real keys
   while the window is the foreground (Left / Right / Home / End, Ctrl+Left / Ctrl+Right, Delete,
   Enter; the drawer Up / Down / Enter). Position = the General page's dock controls (2111 Display, ending with "Every display"
-  (`"each"`), 2165 Layer (0 above windows, 1 desktop only), 2142 screen edge and 2144 alignment
+  (`"each"`), 2165 Layer (0 normal, 1 desktop only, 2 under every window; 2192 its note), 2189 /
+  2190 Floating (6A; 2191 its note), 2142 screen edge and 2144 alignment
   drop-downs in DockEdge / DockAlign order, 2146 / 2147 offset box and up-down, 2149 Full width,
   2151 Reserve screen space, 2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied
   on Enter / focus loss), 2169 shape, 2171 / 2172 radius, 2173 rotate icons, new 2180 / 2182 a
-  circle's centre x / y (edit boxes, empty = centred; committed on `EN_KILLFOCUS`), 2167 overflow);
+  circle's centre / a floating bar's top-left x / y (edit boxes, empty = centred; committed on
+  `EN_KILLFOCUS`), 2167 overflow); Global > General's Dashboard section (6A): 2195 the hotkey box
+  (its window text is the canonical hotkey; a `WM_KEYDOWN` sent to it records the key with the
+  modifiers the dock's thread holds (Backspace / Delete: none), `WM_APP + 60` with `wParam` =
+  `MOD_*` bits and `lParam` = the virtual key records that combination, as App does when the
+  registered hotkey is pressed while the box has the focus), 2197 the registration line, 2198 Show
+  the dashboard now; Docks and displays 2811 Add floating dock;
   Behaviour = 2101 - 2109 (icon size, magnification, range) and the Behaviour page's auto-hide,
   previews and mouse controls (2201 - 2229, 2223 single-window previews, 2227 middle click, 2229
   mouse wheel), 2254 badges, 2256 the notification centre (round 5 phase D); Running apps = 2162 "Show only the windows on this dock's display"

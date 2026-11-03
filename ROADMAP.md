@@ -642,6 +642,23 @@ above: it stays native and gains faces); the scripted `digital-clock` widget of 
 
 Network, battery, CPU / RAM, now-playing variants, desktop switcher skins.
 
+## Round 6 (planned 2026-11-03): desktop layers, floating docks, standalone widgets, notes, performance monitors, drawer previews
+
+Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round6.md`. The user's wish list:
+a dock that never floats above other windows; floating docks that can be moved or locked and only
+appear on a hotkey or on the desktop; standalone widgets on the desktop (a "dashboard" shown by the
+same hotkey) that can be moved and resized; a note widget written as a script widget; performance
+monitor widgets (CPU, GPU, memory, temperatures ... as graphs, percentages, gauges, dials, numbers;
+HWiNFO allowed); live previews with sample data in the widget drawer.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 6A | `layer: "behind"` (always on the desktop under every window), `floating` bar docks at `x` / `y` (drag, snap, lock), the dashboard hotkey (`dashboard.hotkey`, default Win+Shift+D) and dashboard mode | Done (the commit "Add the behind layer, floating docks and the dashboard hotkey"; STATUS.md "Round 6") |
+| 6B | Standalone widgets: `docks[]` kind `"widget"` (`WidgetWindow`), move / resize, `dock.standalone`, manifest `standalone`, settings windows, drawer "Add to the desktop" | Planned |
+| 6C | `popup.editText` (a native text editor window, Promise) and the `notes` widget | Planned |
+| 6D | `perf` provider (`PerfService`: CPU / memory / GPU / disk / network / battery + HWiNFO shared memory) and the `system-monitor` / `system-overview` widgets | Planned |
+| 6E | Widget previews in the drawer and inspector: preview mode, provider sample data, manifest `preview` | Planned |
+
 ## Dependencies at a glance
 
 ```

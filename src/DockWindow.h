@@ -68,6 +68,13 @@ public:
     virtual NotificationService& Notifications() = 0;
     virtual bool ActivateNotification(uint32_t id) = 0;
     virtual void SetCentreOpen(bool open) = 0;
+    // Round 6 phase 6A. The resting bar rects (screen px) of the other floating docks: a floating
+    // dock being dragged snaps to them.
+    virtual std::vector<RECT> FloatingNeighbours(const DockWindow* self) = 0;
+    // Dashboard mode is on: every "desktop" / "behind" dock is shown and topmost.
+    virtual bool DashboardOn() const = 0;
+    // Leaves dashboard mode (Escape in one of its docks).
+    virtual void EndDashboard() = 0;
 
 protected:
     ~DockShared() = default;
@@ -191,7 +198,8 @@ public:
         std::function<void(size_t from, size_t to)> moveItem;
         // The dock was dragged (Ctrl + drag): put it on `edge` at `align` + `offset` DIPs.
         std::function<void(DockEdge edge, DockAlign align, int offset)> moveDock;
-        // A circle was dragged: its centre goes to x / y DIPs from the work area's top-left.
+        // A circle was dragged: its centre goes to x / y DIPs from the work area's top-left. A
+        // floating dock was dragged (round 6 phase 6A): its resting bar's top-left goes there.
         std::function<void(int x, int y)> moveCircle;
         // Shortcut groups. `source` (a pin or a running app) held over `target`: a group of the two
         // at the target's place, or `source` added to `target` when that is a group.
@@ -291,6 +299,14 @@ public:
     // Nothing runs afterwards (auto-hide is re-applied).
     void Flash(uint32_t argb);
     int FlashSteps() const { return flashSteps_; }
+    // Round 6 phase 6A: the manager's dashboard mode changed (DockShared::DashboardOn). A
+    // "desktop" / "behind" dock is lifted out of its layer (shown, revealed, topmost) or put back
+    // under its layer's rules; a normal dock is untouched.
+    void OnDashboardChanged();
+    // Explorer restarted (a new desktop window): a desktop-layer dock goes back above it.
+    void ReassertLayer();
+    // The dock is floating (docks[].floating on a bar) and on screen (its window is visible).
+    bool FloatingShown() const;
 
     // The monitor the dock is on (screen px), its DPI, and the bar at rest (screen px).
     RECT MonitorRect() const { return layout_.monitor; }
@@ -464,6 +480,9 @@ private:
         float growRoomEnd = 0.0f;
         float popupY = 0.0f;      // popups open beyond this cross coordinate (with kPreviewGap)
         bool fullWidth = false;   // the bar spans the monitor's edge (docks[].fullWidth)
+        // docks[].floating (round 6 phase 6A): the bar sits at docks[].x / y, its "screen edge" is
+        // its own outer side (no margin); the stage reaches from there toward the way it faces.
+        bool floating = false;
         float slack = 0.0f;       // stage room beside the bar on each side (before a monitor end cuts it)
         float peek = 0.0f;        // px of the bar left visible while hidden (0: the 1 px strip)
         float hiddenSlide = 0.0f; // slide distance of the hidden pose (`slide`, or to the peek strip)
@@ -827,7 +846,7 @@ private:
     // Releases it. With `leaveCheck`, once no hold remains a cursor outside the dock counts as
     // having left it (return to rest, compact, start the hide delay).
     void ReleasePopupHold(uint32_t bit, bool leaveCheck);
-    bool Held() const { return hold_ || popupHolds_ != 0 || keepShown_ || flashSteps_ > 0; }
+    bool Held() const { return hold_ || popupHolds_ != 0 || keepShown_ || flashSteps_ > 0 || InDashboard(); }
     // Flash: the border is lit in this step (even steps left).
     bool FlashLit() const { return flashSteps_ > 0 && flashSteps_ % 2 == 0; }
     void OnFlashTimer();
@@ -877,8 +896,21 @@ private:
     // activated can be placed above a topmost window and would bury the reveal strip.
     void AssertTopmost();
     // docks[].layer "desktop" (DesktopLayer.h): shown only while the desktop is the foreground,
-    // directly above the desktop window, never topmost.
-    bool DesktopLayered() const { return DockCfg().layer == DockLayer::Desktop; }
+    // directly above the desktop window, never topmost. Not while dashboard mode lifts it.
+    bool DesktopLayered() const { return DockCfg().layer == DockLayer::Desktop && !InDashboard(); }
+    // docks[].layer "behind" (round 6 phase 6A): registered with the desktop layer (under every app
+    // window, its z-order locked there; its backdrop window kept beneath it), always shown. Not
+    // while dashboard mode lifts it.
+    bool BehindLayered() const { return DockCfg().layer == DockLayer::Behind && !InDashboard(); }
+    // Dashboard mode is on and this dock is on a desktop layer: shown, topmost, never auto-hidden.
+    bool InDashboard() const {
+        return shared_ && DockCfg().layer != DockLayer::Normal && shared_->DashboardOn();
+    }
+    // Registers / unregisters the window (and its backdrop as `under`) with DesktopLayer to match
+    // BehindLayered().
+    void SyncLayer();
+    bool layerRegistered_ = false;
+    DockLayer desktopLayerWas_ = DockLayer::Normal;  // the layer the last ApplyConfig placed it on
     // Shows / hides a desktop dock per the foreground (and shows a normal one that was hidden).
     void UpdateDesktopShown();
     // Tells every script widget whether the dock is on screen (dock.visible, onVisibilityChange):
@@ -1390,4 +1422,5 @@ private:
     bool ringShown_ = false;    // the background shows a ring (its right half is hidden)
     bool bgRing_ = false;       // the background surface was drawn as a ring
     LONG dockShiftY_ = 0;  // a circle dragged (Ctrl + drag): the vertical part of its move
+    RECT dockStartBar_{};  // a floating dock dragged: its resting bar (screen px) when the drag began
 };

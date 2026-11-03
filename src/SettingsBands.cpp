@@ -199,8 +199,13 @@ std::vector<std::wstring> SettingsWindow::HeaderChips() {
     const DockConfig& d = Dock();
     if (d.IsFolderWindow()) {
         chips.push_back(L"Folder window");
+    } else if (d.Floating()) {
+        chips.push_back(L"Floating, faces " + std::wstring(SettingsEdgeName(d.edge)));  // round 6 phase 6A
     } else {
         chips.push_back(std::wstring(SettingsEdgeName(d.edge)) + L" edge");
+    }
+    if (!d.IsFolderWindow() && d.layer != DockLayer::Normal) {
+        chips.push_back(d.layer == DockLayer::Desktop ? L"Desktop only" : L"Behind windows");
     }
     chips.push_back(SettingsDisplayName(d.monitor));
     if (!d.IsFolderWindow()) chips.push_back(std::to_wstring(d.items.size()) + (d.items.size() == 1 ? L" item" : L" items"));
@@ -387,6 +392,24 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
             const RECT w{in.left + Px(6), in.top + Px(4), in.left + Px(46), in.top + Px(34)};
             FillRound(dc, w, Mix(dock, bandColor_, 45), Px(4));
             Fill(dc, RECT{w.left, w.top, w.right, w.top + Px(6)}, dock);
+        } else if (d.Floating()) {
+            // A small bar where the dock is on its display (its rest rect over its monitor), else
+            // centred.
+            const bool vertical = IsVertical(d.edge);
+            const int iw = in.right - in.left, ih = in.bottom - in.top;
+            const int bw = vertical ? thick : iw * 34 / 100, bh = vertical ? ih * 40 / 100 : thick;
+            int fx = (iw - bw) / 2, fy = (ih - bh) / 2;
+            const RECT mon = host_.dockMonitor ? host_.dockMonitor() : RECT{};
+            const RECT bar = host_.dockBar ? host_.dockBar() : RECT{};
+            const LONG mw = mon.right - mon.left, mh = mon.bottom - mon.top;
+            if (mw > 0 && mh > 0 && bar.right > bar.left) {
+                fx = static_cast<int>(static_cast<long long>(bar.left - mon.left) * (iw - bw) / std::max<LONG>(1, mw - (bar.right - bar.left)));
+                fy = static_cast<int>(static_cast<long long>(bar.top - mon.top) * (ih - bh) / std::max<LONG>(1, mh - (bar.bottom - bar.top)));
+                fx = std::clamp(fx, 0, std::max(0, iw - bw));
+                fy = std::clamp(fy, 0, std::max(0, ih - bh));
+            }
+            const RECT fb{in.left + fx, in.top + fy, in.left + fx + bw, in.top + fy + bh};
+            FillRound(dc, fb, dock, Px(3));
         } else if (d.shape == DockShape::Circle) {
             const int r = Px(14);
             const int cx = (in.left + in.right) / 2, cyy = (in.top + in.bottom) / 2;

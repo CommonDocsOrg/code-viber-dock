@@ -181,6 +181,14 @@ private:
     void UpdateReservedMonitors();
     void ReloadConfig();
     void OpenConfigFile();
+    // --- the dashboard hotkey (round 6 phase 6A) ---
+    // Registers config.dashboard.hotkey on the app window (RegisterHotKey, id kDashboardHotkeyId),
+    // replacing the one registered before; "" registers none. A combination another app holds
+    // fails: logged, hotkeyRegistered_ false (Global > General shows it). Skipped when the same
+    // text is registered already.
+    void ApplyHotkey();
+    void RemoveHotkey();
+    static constexpr int kDashboardHotkeyId = 1;
     // The widget Console (DockCommand 127, Settings > Widgets): opens or activates it.
     void OpenConsole();
     // A setting was changed in settings window `source` about config dock `cfg`: apply it to the
@@ -240,6 +248,9 @@ private:
     UINT msgQueryState_ = 0;
     UINT msgQueryItem_ = 0;
     bool savePending_ = false;
+    bool hotkeyRegistered_ = false;  // the dashboard hotkey is registered
+    std::wstring hotkeyText_;        // ... the text it was registered from (or tried: hotkeyTried_)
+    bool hotkeyTried_ = false;
     // The auto-hide mode the kAutoHide toggle turns back on (from the config, default Always).
     AutoHideMode lastOnMode_ = AutoHideMode::Always;
     HICON trayIcon_ = nullptr;

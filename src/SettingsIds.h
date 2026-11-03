@@ -132,6 +132,18 @@ inline constexpr int kGeneralReloadConfig = 2185;  // = tray "Reload config"
 inline constexpr int kSectionDisplay = 2186;
 inline constexpr int kSectionShape = 2187;
 inline constexpr int kSectionConfigFile = 2188;
+// Round 6 phase 6A: floating docks (Position tab; docks[].floating, x / y = kCircleXEdit /
+// kCircleYEdit), the layer's note, and Global > General's Dashboard section.
+inline constexpr int kFloating = 2189;          // check box: docks[].floating (+ caption 2190); bar docks only
+inline constexpr int kFloatingCaption = 2190;
+inline constexpr int kFloatingNote = 2191;
+inline constexpr int kLayerNote = 2192;         // one line about the selected layer
+inline constexpr int kSectionDashboard = 2193;
+inline constexpr int kDashboardHotkeyLabel = 2194;
+inline constexpr int kDashboardHotkeyEdit = 2195;  // the key-capture box: dashboard.hotkey (canonical text; "" = none)
+inline constexpr int kDashboardNote = 2196;
+inline constexpr int kDashboardStatus = 2197;      // "Registered" / "Not registered: ..." / "No hotkey"
+inline constexpr int kDashboardShow = 2198;        // "Show the dashboard now" (= DockCommand 146)
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;
@@ -333,6 +345,7 @@ inline constexpr int kUnlockAllDocks = 2807;  // "Unlock all docks" (= DockComma
 inline constexpr int kDockAddFolder = 2808;   // "Add folder window…" (= DockCommand 139: a folder picker; round 4 phase 12)
 // 2809: "Folder window settings…" until round 5 phase B (kDocksOpen opens a folder window's own window); reserved.
 inline constexpr int kDocksOpen = 2810;       // "Open dock settings" / "Open window settings" (the selected row's own window; = a double click)
+inline constexpr int kDockAddFloating = 2811; // round 6 phase 6A: "Add floating dock" (a floating bar, layer desktop, centred)
 
 // The canvas (round 4 phase 3b)
 inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation); a click selects the row, a double click opens the dock's window

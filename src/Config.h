@@ -85,9 +85,11 @@ enum class WheelAction { None, Cycle };
 // Which windows a dock shows (its running apps, and the dots / window lists of its pinned apps):
 // "all" (default), or "monitor": only windows whose centre is on the dock's monitor.
 enum class RunningFilter { All, Monitor };
-// Where a dock lives in the z-order: "normal" (topmost, default), or "desktop": shown only while
-// the desktop is visible (no window in the foreground), at the bottom of the z-order.
-enum class DockLayer { Normal, Desktop };
+// Where a dock lives in the z-order: "normal" (topmost, default), "desktop": shown only while the
+// desktop is visible (no window in the foreground), at the bottom of the z-order, or (round 6
+// phase 6A) "behind": always shown, on the desktop layer under every app window (as folder windows
+// are). The dashboard hotkey brings "desktop" and "behind" docks to the top until it is dismissed.
+enum class DockLayer { Normal, Desktop, Behind };
 // How a dock shows running windows: "stacked" (default: one slot per app, its windows behind it)
 // or "unstacked" (one slot per window, grouped by app; a pinned app's pin slot is its first window
 // and its other windows follow it as extra slots).
@@ -306,13 +308,21 @@ struct DockConfig {
     int x = kCentred;
     int y = kCentred;
     bool Polar() const { return shape != DockShape::Bar; }
+    // Round 6 phase 6A: a floating dock ("floating": true, written only when true) is a bar placed
+    // at x / y (DIPs from its monitor's work area's top-left: the resting bar's top-left corner;
+    // kCentred: centred) instead of on an edge; `edge` is the way it faces (where magnification
+    // grows and popups open). align / offset / fullWidth / reserveSpace / peek do not apply and
+    // auto-hide is off. Moved by dragging its bar background (unless locked). A dock with another
+    // shape is not floating (Sanitize clears the flag).
+    bool floating = false;
+    bool Floating() const { return floating && shape == DockShape::Bar && dockKind == DockKind::Dock; }
 
     // Not saved: `themePreset` resolved (Config::ResolveDockThemes); ownTheme false = use the
     // global theme.
     bool ownTheme = false;
     ThemeConfig theme;
 
-    bool AutoHideOn() const { return autoHide != AutoHideMode::Off; }
+    bool AutoHideOn() const { return autoHide != AutoHideMode::Off && !Floating(); }
     bool Each() const { return monitor == kMonitorEach; }
     // An item of this kind is in `items` (the clock / weather widget is shown).
     bool Has(ItemKind kind) const;
@@ -506,6 +516,15 @@ struct CalendarsConfig {
 // The palette for feeds without a colour (index modulo its size).
 uint32_t DefaultFeedColor(size_t index);
 
+// The dashboard (round 6 phase 6A): one global hotkey brings every "desktop" / "behind" dock to the
+// top of the z-order until it is pressed again, Escape is pressed in one of them or another
+// window takes the foreground. `hotkey`: "Mod+Mod+Key" in Hotkey's canonical spelling (Win, Ctrl,
+// Alt, Shift; a key name), "" = none. Saved only when not the default.
+struct DashboardConfig {
+    std::wstring hotkey = L"Win+Shift+D";
+    bool operator==(const DashboardConfig&) const = default;
+};
+
 struct Config {
     // At least one dock after LoadFile / Sanitize; ids are unique (Sanitize). Every dock is shown
     // (DockManager), docks[].monitor "each" once per monitor.
@@ -531,6 +550,7 @@ struct Config {
     TrayConfig tray;
     NotificationsConfig notifications;
     CalendarsConfig calendars;
+    DashboardConfig dashboard;
     // Top-level keys this version does not know, kept verbatim (compact JSON) so a save does not
     // drop them. Unknown keys inside known objects (docks, items, clock, theme, animation, weather)
     // are not kept, nor are the legacy pre-`docks` keys.

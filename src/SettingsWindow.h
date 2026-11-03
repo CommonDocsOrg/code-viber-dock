@@ -24,13 +24,16 @@ enum class SettingsScope {
     Weather,     // the weather items / config.weather: DockWindow::ApplyWeather (the services follow)
     Notifications,  // config.notifications, docks[].badges: DockManager::SyncNotifications
     Calendars,   // config.calendars: DockManager::ConfigureCalendar
+    Dashboard,   // config.dashboard: App registers the hotkey again (round 6 phase 6A)
     SaveOnly,    // read from the config when used (delays, renderer): just save
 };
 
 // Docks and displays page edits of config.docks (SettingsHost::editDocks).
 // TrayDock (8b): a new dock holding only a tray item at the bottom right (the edited dock's tray
 // item moves into it), the takeover turned on.
-enum class SettingsDockEdit { Add, Duplicate, Remove, TrayDock };
+// AddFloating (round 6 phase 6A): a floating bar dock (layer "desktop", centred on the primary
+// display's work area, the default items).
+enum class SettingsDockEdit { Add, Duplicate, Remove, TrayDock, AddFloating };
 
 // One dock window for the Layout page (SettingsHost::dockRects).
 struct SettingsDockRect {
@@ -122,6 +125,10 @@ struct SettingsHost {
     std::function<std::vector<SettingsNotificationApp>()> notificationApps;
     // Calendar page: each configured feed's status line.
     std::function<std::vector<SettingsCalendarFeed>()> calendarFeeds;
+    // General page (round 6 phase 6A): the dashboard hotkey is registered (false: none, or another
+    // app holds that combination) and dashboard mode is on.
+    std::function<bool()> hotkeyRegistered;
+    std::function<bool()> dashboardOn;
 };
 
 class SettingsWindow;

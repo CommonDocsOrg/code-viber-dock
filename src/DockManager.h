@@ -163,6 +163,21 @@ public:
     // The centre popup opened / closed (it polls every second while open, and keeps the service
     // running even when nothing else needs it).
     void SetCentreOpen(bool open) override;
+    std::vector<RECT> FloatingNeighbours(const DockWindow* self) override;
+    bool DashboardOn() const override { return dashboard_; }
+    void EndDashboard() override { SetDashboard(false); }
+
+    // --- the dashboard (round 6 phase 6A) ---
+    // On: every dock with layer "desktop" or "behind" is shown, revealed and topmost (its popups
+    // work as usual); the first of them takes the foreground (the hotkey's input allows it), so
+    // Escape reaches it and a click on any other window is a foreground change. Off again by the
+    // hotkey (App), Escape in one of its docks (EndDashboard) or another app's window taking the
+    // foreground (the shared foreground watch runs while the mode lasts; the desktop itself (a
+    // click on the wallpaper) and WinDock's own windows keep it). Off: the foreground goes back to
+    // the window that had it before (when one of our docks still has it), then each dock follows
+    // its layer's rules again. Normal docks are never touched.
+    void SetDashboard(bool on);
+    bool Dashboard() const { return dashboard_; }
 
     // The notification service runs while it is wanted (NotificationsWanted): some shown dock has
     // badges on, a widget uses the provider, or the centre popup is open. Sync, the settings and
@@ -232,4 +247,10 @@ private:
     bool centreOpen_ = false;
     ForegroundWatch watch_;
     std::vector<DockWindow*> watchers_;  // docks subscribed to watch_ (autoHide "intelligent")
+    // Starts watch_ (a running watch only takes the callback): the watchers and the dashboard.
+    void StartWatch();
+    // A foreground change during dashboard mode: another app's window ends it.
+    void CheckDashboardForeground();
+    bool dashboard_ = false;
+    HWND dashboardPrev_ = nullptr;  // the window that had the foreground when the mode began
 };

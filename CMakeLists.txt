@@ -33,6 +33,7 @@ add_executable(WinDock WIN32
   src/main.cpp
   src/App.cpp
   src/Config.cpp
+  src/Hotkey.cpp
   src/Theme.cpp
   src/DockWindow.cpp
   src/DockWindowTray.cpp

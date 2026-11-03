@@ -67,6 +67,7 @@ constexpr UINT kGroupHoldMs = 600;           // hold a dragged icon over a pin t
 constexpr float kDropEdge = 0.15f;           // slot fraction per side that still means "between items"
 constexpr UINT kRecycleBinCoalesceMs = 200;  // bursts of bin change notifications -> one redraw
 constexpr float kDockSnapDip = 24.0f;        // a dragged dock snaps to the centre / an end this close
+constexpr float kFloatSnapDip = 8.0f;        // a dragged floating dock snaps to the work area / other floating docks
 // Titles under the icons (docks[].titles): the label's font at this size, this far under the icon
 // (horizontal docks: in the icon's slot width; vertical docks: beside the icon, this wide).
 constexpr float kCaptionFontSize = 10.0f;
@@ -390,6 +391,8 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
     desktopHidden_ = DesktopLayered() && !DesktopLayer::DesktopForeground();
     if (!desktopHidden_) ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     if (DesktopLayered()) DesktopLayer::PlaceAboveDesktop(hwnd_);
+    if (BehindLayered()) DesktopLayer::Place(hwnd_);  // registered by ApplyConfig (SyncLayer)
+    desktopLayerWas_ = DockCfg().layer;
     // The shared tracker's current window list then builds and lays out the items with their windows.
     tracking_ = true;
     RebuildFrom(shared_->Tracker().Current());
@@ -498,10 +501,18 @@ void DockWindow::ApplyConfig() {
     shared_->SyncWeather();
     weatherQuiet_ = false;
     UpdateAcrylic();
+    SyncLayer();  // the layer (or the backdrop beneath a "behind" dock) may have changed
     Relayout();
     SyncThumbnails();  // mode, rate, interval, the tile size
     ApplyAutoHide();
     UpdateDesktopShown();  // the layer may have changed
+    if (desktopLayerWas_ != DockCfg().layer) {
+        // Another layer: placed by its rules now (normal: topmost again; desktop / behind: above
+        // the desktop window). ApplyWindowPos above only re-asserted the new layer's z-order.
+        desktopLayerWas_ = DockCfg().layer;
+        AssertTopmost();
+        if (backdrop_.Exists()) backdrop_.Restack(hwnd_);
+    }
 }
 
 HMONITOR DockWindow::PickMonitor() const {
@@ -559,8 +570,11 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.shape = d.shape;
     l.rotateIcons = polar && d.rotateIcons;
     l.vertical = !polar && IsVertical(d.edge);
+    // Round 6 phase 6A: a floating bar is placed at x / y; it is an edge dock whose "screen edge" is
+    // its own outer side (no margin, no full width).
+    l.floating = d.Floating();
     // Full width: the bar spans the monitor's edge, flush with the screen edge, square corners.
-    l.fullWidth = d.fullWidth && !polar;
+    l.fullWidth = d.fullWidth && !polar && !l.floating;
     l.iconDip = iconDip;
 
     l.iconPx = std::round(static_cast<float>(iconDip) * s);
@@ -614,7 +628,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // The bar without reflections (the icon row and the titles).
     const float iconBarH = std::round(l.iconPx + kBarExtraHeight * s) + l.captionBand;
     const float barH = iconBarH + l.reflH;
-    const float margin = l.fullWidth ? 0.0f : std::round(kBottomMargin * s);
+    const float margin = l.fullWidth || l.floating ? 0.0f : std::round(kBottomMargin * s);
     float winH = std::round(l.iconPx * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
                  l.reflH + l.captionBand;
     winH = std::max(winH, barH + margin);
@@ -760,6 +774,30 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         case DockAlign::Center:
         default: barStart = mStart + ((mEnd - mStart) - static_cast<LONG>(winW)) / 2 + slackPx + offsetPx; break;
     }
+    // The "screen edge" the stage stands on: the monitor's edge, or a floating bar's outer side.
+    LONG edgeLine = l.edge == DockEdge::Top ? m.top : l.edge == DockEdge::Left ? m.left : l.edge == DockEdge::Right ? m.right : m.bottom;
+    if (l.floating) {
+        // x / y: the resting bar's top-left in DIPs from the work area's top-left (kCentred: centred
+        // on the work area), the bar kept on the monitor. The stage reaches from the bar's outer side
+        // (the side away from the way it faces) toward the way it faces.
+        const RECT& w = l.work;
+        const LONG thickPx = static_cast<LONG>(std::lround(barH));
+        const LONG bw = l.vertical ? thickPx : barPx, bh = l.vertical ? barPx : thickPx;
+        LONG left = d.x == DockConfig::kCentred ? w.left + ((w.right - w.left) - bw) / 2
+                                                : w.left + static_cast<LONG>(std::lround(static_cast<double>(d.x) * s));
+        LONG top = d.y == DockConfig::kCentred ? w.top + ((w.bottom - w.top) - bh) / 2
+                                               : w.top + static_cast<LONG>(std::lround(static_cast<double>(d.y) * s));
+        left = std::clamp(left, m.left, std::max(m.left, m.right - bw));
+        top = std::clamp(top, m.top, std::max(m.top, m.bottom - bh));
+        barStart = l.vertical ? top : left;
+        switch (l.edge) {
+            case DockEdge::Top: edgeLine = top; break;
+            case DockEdge::Left: edgeLine = left; break;
+            case DockEdge::Right: edgeLine = left + bw; break;
+            case DockEdge::Bottom:
+            default: edgeLine = top + bh; break;
+        }
+    }
     barStart = std::clamp(barStart, mStart, std::max(mStart, mEnd - barPx));
     const LONG stageStart = std::max(barStart - slackPx, mStart);
     const LONG stageEnd = std::max(stageStart + 1, std::min(barStart + barPx + slackPx, mEnd));
@@ -769,11 +807,11 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.stageCross = winH;
     const LONG crossPx = static_cast<LONG>(winH);
     switch (l.edge) {
-        case DockEdge::Top: l.window = RECT{stageStart, m.top, stageEnd, m.top + crossPx}; break;
-        case DockEdge::Left: l.window = RECT{m.left, stageStart, m.left + crossPx, stageEnd}; break;
-        case DockEdge::Right: l.window = RECT{m.right - crossPx, stageStart, m.right, stageEnd}; break;
+        case DockEdge::Top: l.window = RECT{stageStart, edgeLine, stageEnd, edgeLine + crossPx}; break;
+        case DockEdge::Left: l.window = RECT{edgeLine, stageStart, edgeLine + crossPx, stageEnd}; break;
+        case DockEdge::Right: l.window = RECT{edgeLine - crossPx, stageStart, edgeLine, stageEnd}; break;
         case DockEdge::Bottom:
-        default: l.window = RECT{stageStart, m.bottom - crossPx, stageEnd, m.bottom}; break;
+        default: l.window = RECT{stageStart, edgeLine - crossPx, stageEnd, edgeLine}; break;
     }
 
     l.bar = D2D1::RectF(barLeft, winH - margin - barH, barLeft + barW, winH - margin);
@@ -1049,6 +1087,11 @@ RECT DockWindow::HiddenRect() const {
         const Layout& l = layout_;
         return StageToScreen(l.bar.left, l.stageCross - l.peek, l.bar.right, l.stageCross, true);
     }
+    // A floating bar never auto-hides (Config::Sanitize); were it hidden, its strip is its outer side.
+    if (layout_.floating) {
+        const Layout& l = layout_;
+        return StageToScreen(l.bar.left, l.stageCross - 1.0f, l.bar.right, l.stageCross, true);
+    }
     // The reveal trigger: a 1 px strip along the monitor's edge. Nothing is drawn in it (the root
     // visual is transparent while hidden and there is no redirection bitmap).
     const RECT& m = layout_.monitor;
@@ -1182,11 +1225,20 @@ void DockWindow::ApplyWindowPos() {
     // While a fullscreen app runs (an app bar's ABN_FULLSCREENAPP) the dock stays where it was
     // put, below it.
     const UINT keepOrder = IsWindowEnabled(hwnd_) && !fullscreenApp_ ? 0 : SWP_NOZORDER;
-    if (DesktopLayered()) {
-        // The desktop layer: directly above the desktop window, never topmost.
+    if (DesktopLayered() || BehindLayered()) {
+        // The desktop layer: directly above the desktop window, never topmost (a "behind" dock is
+        // registered with the layer, which keeps it there; a "desktop" dock is only shown while the
+        // desktop is the foreground).
         SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                      SWP_NOACTIVATE | SWP_NOOWNERZORDER | SWP_NOZORDER);
-        if (!keepOrder) DesktopLayer::PlaceAboveDesktop(hwnd_);
+        if (!keepOrder) {
+            if (layerRegistered_) {
+                DesktopLayer::Place(hwnd_);
+            } else {
+                DesktopLayer::PlaceAboveDesktop(hwnd_);
+            }
+        }
+        UpdateWindowRegion();
         return;
     }
     SetWindowPos(hwnd_, HWND_TOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top,
@@ -4723,8 +4775,9 @@ void DockWindow::UpdateAcrylic() {
     // visibility there; the bar uses its plain fill). Nor on a ring: DWM draws a system backdrop
     // over the blur window's whole rectangle and ignores its window region (a grey box around the
     // ring on screen, seen in the 2026-11-03 verification), so a ring uses its plain fill too.
-    const bool want = DockTheme().acrylic && !DockTheme().shelf && !DockTheme().perspective && !DesktopLayered() &&
-                      !DockCfg().Polar() && Backdrop::SystemAllowsTransparency();
+    // (A "behind" dock keeps its blur: the desktop layer keeps the backdrop window beneath it.)
+    const bool want = DockTheme().acrylic && !DockTheme().shelf && !DockTheme().perspective &&
+                      DockCfg().layer != DockLayer::Desktop && !DockCfg().Polar() && Backdrop::SystemAllowsTransparency();
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
     if (acrylic_) {
@@ -5022,12 +5075,60 @@ void DockWindow::AssertTopmost() {
     // Re-asserting the z-order is cheap and only happens on hide transitions. Not while a modal
     // dialog owned by the dock is open (see ApplyWindowPos).
     if (!hwnd_ || !IsWindowEnabled(hwnd_) || fullscreenApp_) return;
-    if (DesktopLayered()) {
+    if (BehindLayered() && layerRegistered_) {
+        DesktopLayer::Place(hwnd_);  // no-op while it is in place
+        return;
+    }
+    if (DesktopLayered() || BehindLayered()) {
         DesktopLayer::PlaceAboveDesktop(hwnd_);
         return;
     }
     SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
 }
+
+void DockWindow::SyncLayer() {
+    if (!hwnd_) return;
+    if (BehindLayered()) {
+        if (!layerRegistered_) {
+            // Out of the topmost band first: the layer places it after another app's window, but
+            // with no such window it would go to the top and stay topmost.
+            SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            layerRegistered_ = true;
+        }
+        // (Again: the backdrop may have come or gone; Register places the window.)
+        DesktopLayer::Register(hwnd_, acrylic_ ? backdrop_.Hwnd() : nullptr);
+        return;
+    }
+    if (layerRegistered_) {
+        DesktopLayer::Unregister(hwnd_);
+        layerRegistered_ = false;
+    }
+}
+
+void DockWindow::OnDashboardChanged() {
+    if (!hwnd_ || DockCfg().layer == DockLayer::Normal) return;
+    const bool on = InDashboard();
+    // A "behind" dock leaves the layer while lifted (its z-order lock would drop the raise).
+    SyncLayer();
+    if (on) {
+        // Shown and revealed (Held() keeps it from hiding while the mode lasts).
+        CancelHide();
+        if ((hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) && !RevealSuppressed()) StartShow();
+    }
+    UpdateDesktopShown();  // a "desktop" dock: shown while lifted, its foreground rule again after
+    AssertTopmost();       // topmost while lifted; back above the desktop window after
+    if (backdrop_.Exists()) backdrop_.Restack(hwnd_);
+    if (!on) ApplyAutoHide();
+    SyncWidgetVisibility();
+}
+
+void DockWindow::ReassertLayer() {
+    if (!hwnd_) return;
+    if (DesktopLayered() && IsWindowVisible(hwnd_)) DesktopLayer::PlaceAboveDesktop(hwnd_);
+    // A "behind" dock is registered: DesktopLayer::Reassert covers it.
+}
+
+bool DockWindow::FloatingShown() const { return hwnd_ && DockCfg().Floating() && IsWindowVisible(hwnd_); }
 
 void DockWindow::OnWatchEvent() {
     if (DesktopLayered()) UpdateDesktopShown();
@@ -6896,7 +6997,8 @@ void DockWindow::UpdateAppBar() {
     // Any edge, full width or not; only a dock that does not auto-hide reserves space.
     // (Not on the desktop layer: that dock is only shown when no window is in the way.)
     const bool wanted = hwnd_ && appBarAllowed_ && d.reserveSpace && !d.AutoHideOn() && d.layer == DockLayer::Normal &&
-                        !d.Polar();  // a ring reserves no band (it does not span its edge)
+                        !d.Polar() &&      // a ring reserves no band (it does not span its edge)
+                        !d.Floating();  // nor does a floating bar (it is not on an edge)
     if (!wanted) {
         RemoveAppBar();
         return;
@@ -7018,6 +7120,7 @@ void DockWindow::BeginDockDrag() {
     dockShift_ = 0;
     dockShiftY_ = 0;
     dockZone_ = layout_.edge;
+    dockStartBar_ = RestBarRect();
     pressed_ = -1;
     GetAsyncKeyState(VK_ESCAPE);  // clears the "pressed since the last call" bit
     SetCapture(hwnd_);
@@ -7054,6 +7157,52 @@ void DockWindow::UpdateDockDrag() {
         const LONG x0 = ring.left - dockShift_, x1 = ring.right - dockShift_, y0 = ring.top - dockShiftY_, y1 = ring.bottom - dockShiftY_;
         const LONG sx = std::clamp(pt.x - dockPressScreen_.x, std::min(0L, l.monitor.left - x0), std::max(0L, l.monitor.right - x1));
         const LONG sy = std::clamp(pt.y - dockPressScreen_.y, std::min(0L, l.monitor.top - y0), std::max(0L, l.monitor.bottom - y1));
+        if (sx != dockShift_ || sy != dockShiftY_) {
+            OffsetRect(&l.window, sx - dockShift_, sy - dockShiftY_);
+            OffsetRect(&winRect_, sx - dockShift_, sy - dockShiftY_);
+            dockShift_ = sx;
+            dockShiftY_ = sy;
+            SetWindowPos(hwnd_, nullptr, winRect_.left, winRect_.top, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            SyncBackdrop();
+        }
+        return;
+    }
+    if (l.floating) {
+        // A floating bar (round 6 phase 6A) follows the pointer anywhere on its monitor (the grab
+        // offset kept), snapping within kFloatSnapDip to the work area's edges and to the other
+        // floating docks' bars, and kept on the monitor.
+        RECT r = dockStartBar_;
+        OffsetRect(&r, pt.x - dockPressScreen_.x, pt.y - dockPressScreen_.y);
+        const LONG thr = static_cast<LONG>(std::lround(kFloatSnapDip * l.scale));
+        std::vector<LONG> xs{l.work.left, l.work.right}, ys{l.work.top, l.work.bottom};
+        if (shared_) {
+            for (const RECT& n : shared_->FloatingNeighbours(this)) {
+                xs.push_back(n.left);
+                xs.push_back(n.right);
+                ys.push_back(n.top);
+                ys.push_back(n.bottom);
+            }
+        }
+        auto best = [&](LONG a, LONG b, const std::vector<LONG>& cs) {
+            LONG shift = 0, dist = thr + 1;
+            for (LONG c : cs) {
+                if (std::labs(c - a) < dist) {
+                    dist = std::labs(c - a);
+                    shift = c - a;
+                }
+                if (std::labs(c - b) < dist) {
+                    dist = std::labs(c - b);
+                    shift = c - b;
+                }
+            }
+            return dist <= thr ? shift : 0;
+        };
+        OffsetRect(&r, best(r.left, r.right, xs), best(r.top, r.bottom, ys));
+        const LONG w = r.right - r.left, h = r.bottom - r.top;
+        const LONG left = std::clamp(r.left, l.monitor.left, std::max(l.monitor.left, l.monitor.right - w));
+        const LONG top = std::clamp(r.top, l.monitor.top, std::max(l.monitor.top, l.monitor.bottom - h));
+        const LONG sx = left - dockStartBar_.left, sy = top - dockStartBar_.top;
         if (sx != dockShift_ || sy != dockShiftY_) {
             OffsetRect(&l.window, sx - dockShift_, sy - dockShiftY_);
             OffsetRect(&winRect_, sx - dockShift_, sy - dockShiftY_);
@@ -7129,6 +7278,21 @@ void DockWindow::EndDockDrag(bool commit) {
         const float cx = static_cast<float>(l.window.left) + l.polar.cx, cy = static_cast<float>(l.window.top) + l.polar.cy;
         const int x = static_cast<int>(std::lround((cx - static_cast<float>(l.work.left)) / l.scale));
         const int y = static_cast<int>(std::lround((cy - static_cast<float>(l.work.top)) / l.scale));
+        SetHold(false);
+        pinRequests_.moveCircle(x, y);
+        return;
+    }
+    if (layout_.floating) {
+        // A floating bar: its resting top-left, in DIPs from the work area's top-left.
+        const Layout& l = layout_;
+        if (!commit || !pinRequests_.moveCircle || (dockShift_ == 0 && dockShiftY_ == 0)) {
+            Relayout();
+            SetHold(false);
+            return;
+        }
+        const RECT bar = RestBarRect();
+        const int x = static_cast<int>(std::lround(static_cast<float>(bar.left - l.work.left) / l.scale));
+        const int y = static_cast<int>(std::lround(static_cast<float>(bar.top - l.work.top) / l.scale));
         SetHold(false);
         pinRequests_.moveCircle(x, y);
         return;
@@ -7569,7 +7733,20 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return static_cast<LRESULT>(wp == 61 ? BoxW(items_[static_cast<size_t>(lp)])
                                                  : BoxCross(items_[static_cast<size_t>(lp)]));
         case 52:
-            return static_cast<LRESULT>(DockCfg().layer);  // 0 normal, 1 desktop
+        case 235:  // round 6 phase 6A
+            return static_cast<LRESULT>(DockCfg().layer);  // 0 normal, 1 desktop, 2 behind
+        case 236:
+            return DockCfg().Floating() ? 1 : 0;
+        case 237: {  // the resting bar's left / top (screen px)
+            const RECT r = RestBarRect();
+            return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(r.left), static_cast<WORD>(r.top)));
+        }
+        case 238: {  // ... its width / height
+            const RECT r = RestBarRect();
+            return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(r.right - r.left), static_cast<WORD>(r.bottom - r.top)));
+        }
+        case 239:  // above the desktop window with no other app's window between (DesktopLayer::AboveDesktop)
+            return DesktopLayer::AboveDesktop(hwnd_) ? 1 : 0;
         case 53:
             // A desktop-layer dock: 1 while shown (the desktop is the foreground), 0 hidden; -1 normal.
             return DesktopLayered() ? (IsWindowVisible(hwnd_) ? 1 : 0) : -1;
@@ -7910,9 +8087,19 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 GetCursorPos(&screen);
                 pressTrayKey_ = ElementOf(static_cast<size_t>(pressed_)).TrayKeyAt(pressed_, screen);
             }
-            // Ctrl + press on the bar of an unlocked dock: moving on drags the whole dock.
-            dockPress_ = (wp & MK_CONTROL) && !DockCfg().locked && dragPhase_ == DragPhase::None &&
-                         hideState_ == HideState::Shown && InZone(pressPt_) && GetCursorPos(&dockPressScreen_);
+            // Ctrl + press on the bar of an unlocked dock: moving on drags the whole dock. A floating
+            // dock (round 6 phase 6A) also moves by a plain press on its bar's background (not on an
+            // item or a widget; beside an icon's box across the bar counts as background).
+            {
+                bool floatingBackground = false;
+                if (DockCfg().Floating() && !(wp & MK_CONTROL) && pressTrayKey_.empty()) {
+                    const float v = layout_.Canon(pressPt_).y;
+                    floatingBackground = pressed_ < 0 || (!items_[static_cast<size_t>(pressed_)].IsWidget() &&
+                                                          (v < layout_.itemTop || v >= layout_.itemTop + layout_.iconPx));
+                }
+                dockPress_ = ((wp & MK_CONTROL) || floatingBackground) && !DockCfg().locked && dragPhase_ == DragPhase::None &&
+                             hideState_ == HideState::Shown && InZone(pressPt_) && GetCursorPos(&dockPressScreen_);
+            }
             // The capture from the press on: a quick first move may already leave the dock.
             if (dockPress_) SetCapture(hwnd_);
             // A press on the background of a scrolling bar (or on a slot that cannot be dragged: a
@@ -8220,6 +8407,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                                             TRUE) == CSTR_EQUAL)) {
                 // "Transparency effects" or high contrast toggled: acrylic on/off.
                 UpdateAcrylic();
+                SyncLayer();  // a "behind" dock's backdrop beneath it (or none)
                 Relayout();
             } else if (wp == SPI_SETWORKAREA || wp == SPI_SETNONCLIENTMETRICS) {
                 Relayout();
@@ -8228,6 +8416,21 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 RefreshMotion();
             }
             return 0;
+
+        case WM_WINDOWPOSCHANGING:
+            // A "behind" dock (registered with the desktop layer): z-order changes the layer did not
+            // make are dropped (no-op for any other dock).
+            if (layerRegistered_) DesktopLayer::FilterPosChanging(hwnd_, reinterpret_cast<WINDOWPOS*>(lp));
+            break;
+
+        case WM_KEYDOWN:
+        case WM_SYSKEYDOWN:  // (what the active window gets while no window has the focus)
+            // Dashboard mode gave this dock the keyboard (DockManager::SetDashboard): Escape ends it.
+            if (wp == VK_ESCAPE && shared_ && shared_->DashboardOn()) {
+                shared_->EndDashboard();
+                return 0;
+            }
+            break;
 
         case WM_WINDOWPOSCHANGED:
             // Keep the blur directly beneath the dock whenever the dock's z-order changes (layout
@@ -8243,6 +8446,10 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_DESTROY:
             RemoveAppBar();  // never leave a registration behind
             appBarAllowed_ = false;
+            if (layerRegistered_) {
+                DesktopLayer::Unregister(hwnd_);
+                layerRegistered_ = false;
+            }
             SetWatchingForeground(false);
             overlapped_ = false;
             if (dropTarget_) {

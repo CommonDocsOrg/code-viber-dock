@@ -62,7 +62,11 @@ enum Command : UINT {
     // Round 5 phase B:
     kDockSettings = 143,        // "Dock settings…": the settings window of dock HIWORD(lParam) (the dock whose menu it is)
     kFlashDock = 144,           // "Flash this dock": dock HIWORD(lParam) reveals and pulses its border in its colour (~1.5 s)
-    kLastDockCommand = kFlashDock,
+    // Round 6 phase 6A: dashboard mode (every "desktop" / "behind" dock shown and topmost; DockManager::SetDashboard).
+    kToggleDashboard = 145,     // "Show dashboard" (the tray / dock menu, = the hotkey): on <-> off
+    kEnterDashboard = 146,      // on (Settings > General "Show the dashboard now")
+    kLeaveDashboard = 147,      // off
+    kLastDockCommand = kLeaveDashboard,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -144,6 +148,7 @@ struct TrayMenuState {
     bool hasWidgets = false;        // some dock shows a script widget: Reload widgets
     bool hasTray = false;           // the dock has a tray item (Add widget > Tray greyed)
     bool hasNotifications = false;  // the dock has a notifications item (Add widget > Notification centre greyed)
+    bool dashboard = false;         // dashboard mode is on ("Show dashboard" checked)
     // The dock menu opened over a widget / clock / weather slot: its "<name> settings…" entry
     // (kOpenItemSettings) at the top; empty: none.
     std::wstring itemSettings;
