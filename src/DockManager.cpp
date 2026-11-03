@@ -57,6 +57,11 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
         if (config_ && config_->notifications.balloons && tray_.StripBalloons()) notifications_.AddBalloon(b);
     });
     widgets_.SetNotifications(&notifications_, [this] { SyncNotifications(); });
+    // Calendars (phase 13): every dock (the popup, the clock's dot) and the settings window.
+    calendar_.SetChanged([this] {
+        ForEach([](DockWindow& w) { w.OnCalendarChanged(); });
+        if (callbacks_.calendarChanged) callbacks_.calendarChanged();
+    });
     tray_.SetRectResolver([this](const TrayIcon& icon, RECT& r) {
         for (Instance& i : instances_) {
             if (i.window && i.window->TrayIconRect(icon.id, r)) return true;
@@ -97,6 +102,8 @@ void DockManager::Shutdown() {
     watch_.Stop();
     tracker_.Stop();
     weather_.Stop();  // a fetch still in flight posts to a window that is gone (and frees it)
+    calendar_.SetChanged(nullptr);
+    calendar_.Stop();
     graveyard_.clear();
     widgets_.Shutdown();  // every widget went with its window
     config_ = nullptr;
@@ -120,6 +127,8 @@ bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (watch_.HandleMessage(msg, wp, lp)) return true;
     if (widgets_.HandleMessage(msg, wp, lp)) return true;  // the widget timers
     if (notifications_.HandleMessage(msg, wp, lp)) return true;
+    if (calendar_.HandleMessage(msg, wp, lp)) return true;  // feed results, file changes, the refresh timer
+    if (msg == WM_TIMECHANGE) calendar_.TimeChanged();     // (not consumed)
     return weather_.HandleMessage(msg, wp, lp);  // fetch results, the refresh timer
 }
 
@@ -208,6 +217,7 @@ HRESULT DockManager::Sync() {
     }
     // The weather service follows the docks that are shown (a parked weather dock does not fetch).
     ConfigureWeather();
+    ConfigureCalendar();
     syncing_ = false;
     SyncTray();
     SyncNotifications();
@@ -269,6 +279,10 @@ bool DockManager::AnyWeatherItem() const {
         if (d.Each() || MonitorIndexFor(d) >= 0) return true;  // shown (not parked)
     }
     return false;
+}
+
+void DockManager::ConfigureCalendar() {
+    if (config_) calendar_.Configure(config_->calendars, owner_);
 }
 
 void DockManager::ConfigureWeather() {

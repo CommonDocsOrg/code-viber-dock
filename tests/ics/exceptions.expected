@@ -1,0 +1,23 @@
+# EXDATE (date-time and date), RDATE, RECURRENCE-ID overrides (moved, cancelled, orphan), a
+# cancelled event, all-day spans (D<first day>/<day after the last>), floating time (the local
+# zone: Pacific, daylight time in May), DURATION, text escapes, line folding.
+# window: 20260401T000000Z 20260701T000000Z
+# local: Pacific Standard Time
+D20260501/20260502 Weekly all-day
+20260504T100000Z/20260504T103000Z Daily with exceptions
+20260505T100000Z/20260505T103000Z Daily with exceptions
+20260505T170000Z/20260505T180000Z Every 2 weeks TU TH
+20260507T150000Z/20260507T160000Z Daily moved
+20260507T170000Z/20260507T180000Z Every 2 weeks TU TH
+D20260508/20260509 Weekly all-day
+20260509T100000Z/20260509T103000Z Daily with exceptions
+D20260510/20260513 Three day trip
+20260510T100000Z/20260510T103000Z Daily with exceptions
+20260515T160000Z/20260515T170000Z Floating 9 local
+20260516T080000Z/20260516T093000Z Ninety minutes, escaped; text
+20260519T170000Z/20260519T180000Z Every 2 weeks TU TH
+20260520T100000Z/20260520T103000Z Daily with exceptions
+20260521T170000Z/20260521T180000Z Every 2 weeks TU TH
+D20260522/20260523 Weekly all-day
+20260525T100000Z/20260525T110000Z Orphan override
+20260527T120000Z/20260527T120000Z A long title folded across two lines

@@ -42,6 +42,12 @@ public:
     // pixel size of the text block (0x0 if the text is empty or on failure).
     D2D1_SIZE_U BuildLayout(IDWriteFactory* dwrite, float scale);
     void Draw(ID2D1DeviceContext* dc, float x, float y) const;
+    // The vertical centre of the last line (the date's, else the time's) in the block, px.
+    float LastLineCentre() const {
+        return dateLayout_ ? timeHeight_ + (static_cast<float>(size_.height) - timeHeight_) / 2.0f
+                           : static_cast<float>(size_.height) / 2.0f;
+    }
+    uint32_t DateColor() const { return dateColor_; }
 
     void ReleaseLayout();
 

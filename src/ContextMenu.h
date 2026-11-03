@@ -48,7 +48,8 @@ enum Command : UINT {
     kToggleBadges = 132,        // docks[].badges of the dock the message is for (on / off)
     kToggleCentre = 133,        // shows / hides the notification centre over the first notifications item
     kAddNotifications = 134,    // Add widget > Notification centre (a "notifications" item; one per dock)
-    kLastDockCommand = kAddNotifications,
+    kRefreshCalendars = 135,    // every calendar feed fetches / is read now (no-op while none is enabled)
+    kLastDockCommand = kRefreshCalendars,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -88,6 +89,8 @@ enum Command : UINT {
     kScrollAnimated = 832,      // ... with the wheel's glide
     kScrollIntoView = 833,      // scroll just far enough to show slot LOWORD(lParam)
     kMagnifyAt = 834,           // magnify as if the pointer were at stage main coordinate HIWORD(wParam) (0xFFFF: left)
+    // Calendars (round 4 phase 13; lParam: the dock in its high word):
+    kCalendarSelect = 835,      // the open calendar popup selects today + (int16) HIWORD(wParam) days
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

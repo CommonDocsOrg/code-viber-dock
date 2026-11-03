@@ -654,7 +654,56 @@ Without a location it shows a map-pin glyph, and a click on it opens Settings on
 long format, the month and year with previous / next arrows (also Left / Right and Page Up / Page
 Down; a click on the month name or Home goes back to the current month), the weekday names from
 the locale starting on its first day of the week, and six weeks of days with today on an
-accent-coloured disc. No events. Escape or clicking anywhere else closes it.
+accent-coloured disc. Escape or clicking anywhere else closes it. With calendar feeds (below) it
+also shows events.
+
+**Calendar feeds** (round 4 phase 13; Settings > Calendar, config `calendars`): ICS feeds only (no
+Google / Microsoft sign-in): a web address (`https://`, `http://`, or `webcal://`, which is fetched
+over https; for example Google Calendar's "secret address in iCal format" or an Outlook published
+calendar) or an `.ics` file on this PC (a full path or a `file:///` URL).
+
+- **In the month calendar**: days with events get up to three dots (the feeds' colours) under the
+  number (`showDots`); a click on a day selects it (a day of the previous / next month shows that
+  month) and lists its events under the grid: the feed's colour bar, the title, the start time or
+  "All day" (all-day and continuing events first). The popup opens on today with today's events and
+  grows with the list (up to six rows, then the list scrolls; it shrinks again for a quiet day). A
+  hovered event (or one selected with Up / Down) shows its time, feed, location and description in a
+  strip under the list; a click or Enter opens the event's `URL` when it is an http(s) address, else
+  nothing. Navigating far ahead or back extends the expansion (below) on demand.
+- **On the clock**: with `showDots`, a small accent dot after the date (after the time without a
+  date; under the text on a vertical dock) while today has events.
+- **Fetching**: each web feed is fetched on a short-lived worker thread (WinHTTP, the system proxy,
+  15 s timeouts, at most 32 MB), which also parses it; the `ETag` / `Last-Modified` of the last
+  response go back as `If-None-Match` / `If-Modified-Since`, so an unchanged feed costs a `304`.
+  One one-shot timer waits for the earliest feed that is due (`refreshMin` after its last fetch,
+  default 30); after a failure the feed retries after 1, 2, 4 ... minutes (never later than its
+  interval) and keeps its last data. The body is cached in
+  `%LocalAppData%\WinDock\calendar-cache\<hash>.ics` (+ `<hash>.meta`: the URL, the validators and
+  the fetch time) and shown at start, so a restart within the interval does not fetch again. A
+  file feed is read at start and whenever the file changes: one thread waits in
+  `ReadDirectoryChangesW` on the files' folders (no polling; changes settle for 300 ms). With no
+  enabled feed nothing runs at all.
+- **The parser** (own code, RFC 5545 subset): line folding, text escapes, `VEVENT` with `UID`,
+  `SUMMARY`, `DESCRIPTION`, `LOCATION`, `URL`, `DTSTART` / `DTEND` / `DURATION`, all-day dates,
+  UTC, floating times (the calendar's `X-WR-TIMEZONE` if known, else local), `TZID` with the file's
+  `VTIMEZONE` (its STANDARD / DAYLIGHT rules); `RRULE` (`FREQ` daily / weekly / monthly / yearly,
+  `INTERVAL`, `COUNT`, `UNTIL`, `BYDAY` with ordinals such as `2MO` / `-1FR`, `BYMONTHDAY`,
+  `BYMONTH`, `BYYEARDAY`, `BYSETPOS`, `WKST`), `EXDATE`, `RDATE`, `RECURRENCE-ID` overrides (moved
+  or cancelled instances), `STATUS:CANCELLED`; of `VALARM` only the first trigger's offset is kept.
+  **Time zone fallback**: a `TZID` without a `VTIMEZONE` is looked up as a Windows time zone: the
+  name itself ("W. Europe Standard Time"), else an IANA name ("Europe/Berlin") through a built-in
+  table of about 90 common zones, else through ICU (`icu.dll`, `ucal_getWindowsTimeZoneID`, Windows
+  10 1903 and later), with `/mozilla.org/…/Europe/Berlin` style prefixes stripped; a name that is
+  still unknown is read as the local zone. Not supported: `SECONDLY` / `MINUTELY` / `HOURLY` rules
+  (the event shows once), `BYWEEKNO`, `BYHOUR` / `BYMINUTE` / `BYSECOND` (ignored),
+  `RANGE=THISANDFUTURE` (read as one instance). Nonexistent local times (a spring-forward gap) use
+  the offset before the gap, ambiguous ones the first (daylight) instant.
+- **Expansion**: occurrences are expanded into a window of local days, 31 days back to 92 ahead of
+  today, extended when the calendar popup shows a month outside it (to about three years).
+- The parser's tests: `tests/ics` (hand-written cases with their expected occurrences: the RFC 5545
+  examples, DST transitions, `-1FR`, `EXDATE`, overrides), run by the optional `WinDockTests` target
+  (not built by default: `cmake --build --preset x64-release --target WinDockTests`, then
+  `build\x64-release\WinDockTests.exe`).
 
 What a click on the clock opens is `clock.click` (General page: "Clicking the clock opens"):
 `"calendar"` (the default), `"launch"` (the app, file or URL in `clock.clickTarget`, for example
@@ -967,6 +1016,11 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 - **Notifications** (round 4 phase 9): badges and the notification centre on the dock it edits, tray
   balloons in the centre, clear on activate, the poll interval, Windows' access status, badges per
   app (see Notifications and badges).
+- **Calendar** (round 4 phase 13): the calendar feeds (a check box enables / disables each; the
+  status per feed: when it was updated and how many events, or the error and when it retries),
+  fields to add a feed or edit the selected one (name, address or file, colour `#AARRGGBB`, the
+  refresh interval, enabled) with **Add feed** / **Save changes**, **Remove**, **Refresh now**, and
+  **Show dots on days with events**.
 - **Folders and groups**: one folder or shortcut group of the dock (a drop-down picks it;
   **Settings…** on its row of Dock contents opens it): **Show the contents as** Automatic (a grid
   up to 48 entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose
@@ -1236,6 +1290,12 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   `balloons` tray balloons go to the dock's notification list instead of Windows toasts,
   `excluded` app keys (lower-case exe paths or AppUserModelIDs) that never show a badge. See
   Notifications and badges. Per dock: `badges` (default `false`; written only when on).
+- `calendars`: `{ "feeds": [], "showDots": true, "defaultReminderMin": 0 }` (the defaults; the
+  object is written only when something differs). Each feed: `{ "name", "url" (https / http /
+  webcal URL, a file path or file:/// URL), "color": "#AARRGGBB" (without it: the next colour of a
+  fixed palette), "enabled": true, "refreshMin": 30 (5 - 1440; web feeds) }`, at most 32.
+  `showDots`: dots on event days in the month calendar and after the clock's date.
+  `defaultReminderMin`: reminders before events (0 off; 0 - 1440). See Calendar feeds.
 
 ### Themes
 
@@ -1483,6 +1543,26 @@ always there, also when every dock is parked) handle these registered messages:
   shown), 154 = its size as `MAKELONG(width, height)`. `QueryItemPoint` of a ring's slot is rounded
   (a bar's is truncated, as before). Settings: 2169 shape combo, 2171 / 2172 radius, 2173 rotate
   icons.
+- **Calendars** (round 4 phase 13): `QueryState` 155 = the calendar service (0 off: no enabled feed,
+  1 running, 2 some feed's last attempt failed), 156 = enabled feeds (`lParam` 1: every configured
+  feed), 157 = occurrences in the expansion window, 158 = events today, 159 = seconds since the newest
+  fetch / read of this session (-1 none), 160 = the open calendar popup's events listed for its
+  selected day (-1 not open, or no feeds), 161 = its selected day as yyyymmdd, 162 = dots drawn in its
+  grid at its last paint, 163 = web feed responses received, 164 = of them `304 Not Modified`, 165 =
+  file feed reads, 166 = the service's pending timers (the refresh timer, the file debounce), 167 =
+  seconds until the refresh timer fires (-1 none), 168 = feed `lParam`'s status (0 off, 1 loading, 2
+  ok, 3 error; -1 no such feed), 169 = its consecutive failures, 170 = its occurrences in the window,
+  171 = 1 while the file watcher thread runs, 172 / 173 = the window's first / last local day
+  (yyyymmdd; -1 off), 174 = the calendar popup's window size `MAKELONG(width, height)` (-1 not open),
+  175 = events on the day `lParam` days from today (negative: before), 176 = the popup's hovered
+  event row, 177 = the row its detail strip describes (hovered, else selected; -1 none).
+  `DockCommand` 135 = every feed fetches / is read now. `ItemCommand` 835 = the open calendar popup
+  selects today + `(int16) HIWORD(wParam)` days (its month is shown; 1 when the popup is open). The
+  popup is a `WinDockCalendar` window of the WinDock process (Up / Down / Enter can be sent to it as
+  `WM_KEYDOWN`). Settings page 14 Calendar: 4300 the feed list (check boxes = enabled; columns Name,
+  Address, Every, Status), 4302 name, 4304 address / file, 4306 colour, 4309 / 4310 interval, 4323
+  enabled, 4312 Add feed, 4313 Save changes, 4314 Remove, 4315 Refresh now, 4316 Show dots, 4319 the
+  fields' note (errors).
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
@@ -1492,7 +1572,8 @@ always there, also when every dock is parked) handle these registered messages:
   dock toggle, 117 Add widget > Clock, 118 Add widget > Weather, 119 Add widget > Running apps,
   120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right, 124 Lock all docks,
   125 Unlock all docks, 126 Reload widgets (every script widget of every dock reloads its package
-  and script), 127 open (or activate) the widget Console; saved like the menu).
+  and script), 127 open (or activate) the widget Console; 128 - 134 see Tray / Notifications above,
+  135 refresh the calendar feeds; saved like the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup

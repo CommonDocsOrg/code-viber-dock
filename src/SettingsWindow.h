@@ -23,6 +23,7 @@ enum class SettingsScope {
     Autostart,   // config.startWithWindows: the HKCU Run value
     Weather,     // config.weather: DockWindow::ApplyWeather
     Notifications,  // config.notifications, docks[].badges: DockManager::SyncNotifications
+    Calendars,   // config.calendars: DockManager::ConfigureCalendar
     SaveOnly,    // read from the config when used (delays, renderer): just save
 };
 
@@ -57,6 +58,12 @@ struct SettingsNotificationApp {
     std::wstring key;   // AppKey::id (what notifications.excluded holds)
     std::wstring name;
     size_t unread = 0;
+};
+
+// A calendar feed's status for the Calendar page (SettingsHost::calendarFeeds), parallel to
+// config.calendars.feeds.
+struct SettingsCalendarFeed {
+    std::wstring status;  // "Updated 10:15, 42 events", "Error: HTTP 404; retry in 2 min", "Off"
 };
 
 // Everything the settings window may use of the app, so it never sees App internals. "The dock"
@@ -96,6 +103,8 @@ struct SettingsHost {
     // notification now (by key, once each).
     std::function<SettingsNotificationStatus()> notificationStatus;
     std::function<std::vector<SettingsNotificationApp>()> notificationApps;
+    // Calendar page: each configured feed's status line.
+    std::function<std::vector<SettingsCalendarFeed>()> calendarFeeds;
 };
 
 class SettingsWindow;
@@ -183,6 +192,8 @@ class SettingsPreview;
     virtual void OnWeatherChanged() {}
     // The notification list / service state changed (SettingsWindow::NotificationsChanged).
     virtual void OnNotificationsChanged() {}
+    // The calendar feeds' status changed (SettingsWindow::CalendarChanged).
+    virtual void OnCalendarChanged() {}
     // SettingsWindow::ShowWidgetSettings: the item (of the edited dock) the page is about to show.
     virtual void SelectItem(int /*item*/) {}
 
@@ -279,6 +290,8 @@ public:
     void WeatherChanged();
     // The notification list or service state changed: the Notifications page's status line.
     void NotificationsChanged();
+    // The calendar feeds' data / status changed: the Calendar page's status column.
+    void CalendarChanged();
     // Settings > Widget settings for item `item` of the edited dock (a `widget` item).
     void ShowWidgetSettings(int item);
     // Settings > Folders and groups for item `item` of the edited dock (a folder or group item).

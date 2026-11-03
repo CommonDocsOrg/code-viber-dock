@@ -394,6 +394,12 @@ bool ParseArgbColor(const std::wstring& text, uint32_t& argb) {
     return true;
 }
 
+uint32_t DefaultFeedColor(size_t index) {
+    static constexpr uint32_t kPalette[] = {0xFF4CC2FF, 0xFFFF8C42, 0xFF6CCB5F, 0xFFE0453A,
+                                            0xFFB283F0, 0xFFF2C744, 0xFF2EC4B6, 0xFFEC6FB0};
+    return kPalette[index % (sizeof(kPalette) / sizeof(kPalette[0]))];
+}
+
 std::wstring FormatArgbColor(uint32_t argb) {
     wchar_t buf[16];
     swprintf_s(buf, L"#%08X", argb);
@@ -535,6 +541,13 @@ void Config::Sanitize() {
     weather.longitude = std::round(weather.longitude * 1e4) / 1e4;
     weather.refreshMinutes = std::clamp(weather.refreshMinutes, 5, 360);
     if (weather.location.size() > 128) weather.location.resize(128);
+    if (calendars.feeds.size() > 32) calendars.feeds.resize(32);
+    for (CalendarFeed& f : calendars.feeds) {
+        if (f.name.size() > 128) f.name.resize(128);
+        if (f.url.size() > 4096) f.url.resize(4096);
+        f.refreshMin = std::clamp(f.refreshMin, 5, 1440);
+    }
+    calendars.defaultReminderMin = std::clamp(calendars.defaultReminderMin, 0, 1440);
 }
 
 Config::LoadResult Config::LoadFile() {
@@ -563,6 +576,7 @@ Config::LoadResult Config::LoadFile() {
             L"theme",         L"animation",   L"weather",          L"pinned",         L"iconSize",
             L"magnification", L"magnifyRange", L"autoHide",        L"hideDelayMs",    L"revealDelayMs",
             L"previews",      L"previewDelayMs", L"monitor",       L"tray",           L"notifications",
+            L"calendars",
         };
         for (const auto& kv : root) {
             const std::wstring key(kv.Key());
@@ -729,6 +743,25 @@ Config::LoadResult Config::LoadFile() {
                 if (!k.empty()) CharLowerBuffW(k.data(), static_cast<DWORD>(k.size()));
             }
         }
+        if (auto c = ReadObject(root, L"calendars")) {
+            ReadBool(c, L"showDots", calendars.showDots);
+            ReadInt(c, L"defaultReminderMin", calendars.defaultReminderMin);
+            if (const json::JsonArray feeds = ReadArray(c, L"feeds")) {
+                for (const auto& v : feeds) {
+                    if (v.ValueType() != json::JsonValueType::Object) continue;
+                    const json::JsonObject f = v.GetObject();
+                    CalendarFeed feed;
+                    ReadString(f, L"name", feed.name);
+                    ReadString(f, L"url", feed.url);
+                    std::wstring color;
+                    ReadString(f, L"color", color);
+                    if (!ParseArgbColor(color, feed.color)) feed.color = DefaultFeedColor(calendars.feeds.size());
+                    ReadBool(f, L"enabled", feed.enabled);
+                    ReadInt(f, L"refreshMin", feed.refreshMin);
+                    calendars.feeds.push_back(std::move(feed));
+                }
+            }
+        }
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
         *this = Config{};
@@ -864,6 +897,18 @@ bool Config::Save() const {
             o += L",\n  \"notifications\": { \"pollS\": " + Num(notifications.pollS) + L", \"clearOnActivate\": " +
                  Bool(notifications.clearOnActivate) + L", \"balloons\": " + Bool(notifications.balloons) +
                  L", \"excluded\": [" + ex + L"] }";
+        }
+        if (calendars != CalendarsConfig{}) {
+            o += L",\n  \"calendars\": { \"feeds\": [";
+            for (size_t k = 0; k < calendars.feeds.size(); ++k) {
+                const CalendarFeed& f = calendars.feeds[k];
+                o += (k ? L",\n    { \"name\": " : L"\n    { \"name\": ") + Quote(f.name) + L", \"url\": " + Quote(f.url) +
+                     L",\n      \"color\": " + Quote(FormatArgbColor(f.color)) + L", \"enabled\": " + Bool(f.enabled) +
+                     L", \"refreshMin\": " + Num(f.refreshMin) + L" }";
+            }
+            o += calendars.feeds.empty() ? L"]" : L"\n  ]";
+            o += L", \"showDots\": " + Bool(calendars.showDots) + L", \"defaultReminderMin\": " +
+                 Num(calendars.defaultReminderMin) + L" }";
         }
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";

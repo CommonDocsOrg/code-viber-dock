@@ -13,6 +13,7 @@
 #include "AppIdentity.h"
 #include "Backdrop.h"
 #include "CalendarPopup.h"
+#include "CalendarService.h"
 #include "Config.h"
 #include "DockElement.h"
 #include "DockGeometry.h"
@@ -41,6 +42,8 @@ class DockWindow;
 class DockShared {
 public:
     virtual WindowTracker& Tracker() = 0;
+    // The calendar feeds (round 4 phase 13). Active() only while some feed is enabled.
+    virtual CalendarService& Calendar() = 0;
     virtual WeatherService& WeatherData() = 0;
     // Re-applies config.weather to the service; it runs while any dock has a weather item.
     virtual void ConfigureWeather() = 0;
@@ -363,6 +366,13 @@ public:
     // as if the pointer rested at stage main coordinate `arg` (0xFFFF: as if it left; for tests of
     // the magnified layout without a real pointer). False: the run does not scroll (or no such slot).
     bool ScrollCommand(UINT cmd, int arg);
+
+    // --- calendars (round 4 phase 13) ---
+    // The feeds' occurrences or status changed: the clock's dot, the open calendar popup.
+    void OnCalendarChanged();
+    // Automation (ItemCommand 835): the open calendar popup selects the day `offset` days from
+    // today (its month is shown). False when it is not open.
+    bool CalendarSelect(int offset);
 
 private:
     class DropTarget;
@@ -732,7 +742,8 @@ private:
     // --- weather / calendar popups (centred on stage x `anchor`) ---
     void ShowWeatherPopup(float anchor);
     void DismissWeatherPopup(bool animate, bool leaveCheck = true);
-    void ShowCalendarPopup(float anchor);
+    // `day`: the local day to show and select (INT64_MIN: today).
+    void ShowCalendarPopup(float anchor, int64_t day = INT64_MIN);
     void DismissCalendarPopup(bool animate, bool leaveCheck = true);
     // Every click popup (folder, weather, calendar).
     void DismissClickPopups(bool animate, bool leaveCheck = true);
@@ -892,6 +903,7 @@ private:
     std::unordered_map<std::wstring, uint64_t> trayAppSerials_;  // slot key -> the picture last drawn
     size_t UnreadNotifications() const override;
     bool NotificationsDenied() const override;
+    size_t CalendarEventsToday() const override;
     bool Magnifying() const override { return magnifying_; }
     bool ReducedMotion() const override { return motion_.reduce; }
     // --- WidgetInstance::Client ---
@@ -1090,6 +1102,7 @@ private:
     std::wstring popupWidget_;                  // the instance key it belongs to ("" none)
     std::wstring previewOpener_;                // the widget that opened the preview popup (popup.previews)
     std::wstring calendarOpener_;               // the widget that opened the calendar popup (popup.calendar)
+    float calendarAnchor_ = 0.0f;               // the stage anchor it opened at
     std::vector<std::wstring> popupRequests_;   // instance keys with a pending popup request
     bool popupRequestPosted_ = false;           // kWidgetPopupMessage is posted
     std::vector<DockItem> items_;  // the slots, in dock order

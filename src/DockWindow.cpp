@@ -314,13 +314,20 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                          return icons_.Get(n.key, nullptr, px, renderer_.ResourceContext(), L"", 0);
                      },
                  });
-    calendar_.Init(
-        instance, &renderer_, [this] { ReleasePopupHold(kHoldCalendar, true); },
-        [this] {
-            const std::wstring target = config_->clock.clickTarget;  // copied: the popup closes first
-            DismissCalendarPopup(true);
-            OpenTarget(target);
-        });
+    calendar_.Init(instance, &renderer_,
+                   CalendarPopup::Callbacks{
+                       [this] { ReleasePopupHold(kHoldCalendar, true); },
+                       [this] {
+                           const std::wstring target = config_->clock.clickTarget;  // copied: the popup closes first
+                           DismissCalendarPopup(true);
+                           OpenTarget(target);
+                       },
+                       [this](const std::wstring& url) {
+                           const std::wstring target = url;  // copied: the popup (and its rows) go first
+                           DismissCalendarPopup(true);
+                           OpenTarget(target);
+                       },
+                   });
 
     widgetPopup_.Init(instance, &renderer_,
                       ScriptPopup::Callbacks{
@@ -4157,9 +4164,10 @@ void DockWindow::DismissWeatherPopup(bool animate, bool leaveCheck) {
     ReleasePopupHold(kHoldWeather, leaveCheck);
 }
 
-void DockWindow::ShowCalendarPopup(float anchor) {
+void DockWindow::ShowCalendarPopup(float anchor, int64_t day) {
     if (hideState_ == HideState::Hidden) return;
     calendarOpener_.clear();  // the clock's (popup.calendar sets it after this)
+    calendarAnchor_ = anchor;
     DismissPreview(false, false);
     DismissFolderPopup(false, false);
     DismissWeatherPopup(false, false);
@@ -4183,7 +4191,10 @@ void DockWindow::ShowCalendarPopup(float anchor) {
     if (const std::wstring name = Launcher::TargetName(config_->clock.clickTarget); !name.empty()) {
         style.footer = L"Open " + name;
     }
-    if (!calendar_.Show(style, PopupAnchorAt(anchor))) {
+    style.dots = config_->calendars.showDots;
+    style.reduceMotion = motion_.reduce;
+    CalendarService* service = shared_ && shared_->Calendar().Active() ? &shared_->Calendar() : nullptr;
+    if (!calendar_.Show(style, PopupAnchorAt(anchor), service, day)) {
         DismissCalendarPopup(false);
         MessageBeep(MB_ICONWARNING);
         return;
@@ -4265,6 +4276,32 @@ bool DockWindow::CentreCommand(UINT cmd, size_t row) {
 }
 
 size_t DockWindow::UnreadNotifications() const { return shared_ ? shared_->Notifications().Unread() : 0; }
+
+size_t DockWindow::CalendarEventsToday() const {
+    if (!shared_ || !shared_->Calendar().Active()) return 0;
+    return shared_->Calendar().CountOn(CalendarService::Today());
+}
+
+void DockWindow::OnCalendarChanged() {
+    if (!hwnd_ || !tracking_) return;
+    DispatchEvent(DockEvent::Calendar);  // the clock's dot
+    if (!calendar_.Visible()) return;
+    // The service started / stopped while the popup is open: show it again with / without events.
+    const bool active = shared_ && shared_->Calendar().Active();
+    if (active != (calendar_.SelectedDay() != INT64_MIN)) {
+        const int64_t day = calendar_.SelectedDay();
+        const std::wstring opener = calendarOpener_;
+        ShowCalendarPopup(calendarAnchor_, day);
+        if (calendar_.Visible()) calendarOpener_ = opener;
+        return;
+    }
+    calendar_.Update();
+}
+
+bool DockWindow::CalendarSelect(int offset) {
+    if (!calendar_.Visible()) return false;
+    return calendar_.SelectDay(CalendarService::Today() + offset);
+}
 
 bool DockWindow::NotificationsDenied() const {
     return shared_ && shared_->Notifications().GetState() == NotificationService::State::Denied;
@@ -7399,6 +7436,68 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             if (wp == 154) return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(label_.width), static_cast<WORD>(label_.height)));
             return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(layout_.window.left + std::lround(labelXTarget_)),
                                                  static_cast<WORD>(layout_.window.top + std::lround(labelYTarget_))));
+        // --- calendars (round 4 phase 13) ---
+        case 155:  // the calendar service: 0 off (no enabled feed), 1 running, 2 a feed's last attempt failed
+            return shared_ ? shared_->Calendar().State() : 0;
+        case 156:  // enabled feeds (lp 1: every configured feed)
+            if (!shared_) return 0;
+            return static_cast<LRESULT>(lp == 1 ? shared_->Calendar().Feeds().size() : shared_->Calendar().EnabledFeeds());
+        case 157:  // occurrences in the expansion window
+            return shared_ ? static_cast<LRESULT>(shared_->Calendar().Items().size()) : 0;
+        case 158:  // events today (every enabled feed)
+            return static_cast<LRESULT>(CalendarEventsToday());
+        case 159:  // seconds since the newest good fetch / read of this session (-1 none)
+            return shared_ ? static_cast<LRESULT>(shared_->Calendar().LastFetchAge()) : -1;
+        case 160:  // the open calendar popup: events listed for its selected day (-1: not open / no events shown)
+            return calendar_.Visible() && calendar_.SelectedDay() != INT64_MIN ? static_cast<LRESULT>(calendar_.Rows()) : -1;
+        case 161: {  // ... its selected day as yyyymmdd (-1)
+            const int64_t day = calendar_.Visible() ? calendar_.SelectedDay() : INT64_MIN;
+            if (day == INT64_MIN) return -1;
+            int y = 0, m = 0, d = 0;
+            Ics::CivilFromDays(day, y, m, d);
+            return y * 10000 + m * 100 + d;
+        }
+        case 162:  // ... dots drawn in its grid at its last paint (-1 not open)
+            return calendar_.Visible() ? calendar_.DotsDrawn() : -1;
+        case 163:  // web feed responses received; 164: of them 304 Not Modified; 165: file feed reads
+            return shared_ ? static_cast<LRESULT>(shared_->Calendar().Fetches()) : 0;
+        case 164:
+            return shared_ ? static_cast<LRESULT>(shared_->Calendar().NotModified()) : 0;
+        case 165:
+            return shared_ ? static_cast<LRESULT>(shared_->Calendar().FileReads()) : 0;
+        case 166:  // the calendar service's pending timers (the refresh timer, the file debounce)
+            return shared_ ? shared_->Calendar().PendingTimers() : 0;
+        case 167:  // seconds until its refresh timer fires (-1 none)
+            return shared_ ? static_cast<LRESULT>(shared_->Calendar().NextDueIn()) : -1;
+        case 168:  // feed lp's status (0 off, 1 loading, 2 ok, 3 error; -1 no such feed)
+        case 169:  // ... its consecutive failures
+        case 170: {  // ... its occurrences in the window
+            if (!shared_ || lp < 0 || static_cast<size_t>(lp) >= shared_->Calendar().Feeds().size()) return -1;
+            const CalendarService::Feed& f = shared_->Calendar().Feeds()[static_cast<size_t>(lp)];
+            return wp == 168 ? static_cast<LRESULT>(f.status) : wp == 169 ? f.failures : static_cast<LRESULT>(f.occurrences);
+        }
+        case 171:  // 1 while the file watcher thread runs
+            return shared_ && shared_->Calendar().Watching() ? 1 : 0;
+        case 172:  // the expansion window's first / (173) last local day as yyyymmdd (-1: off)
+        case 173: {
+            if (!shared_ || !shared_->Calendar().Active()) return -1;
+            int y = 0, m = 0, d = 0;
+            Ics::CivilFromDays(wp == 172 ? shared_->Calendar().WindowFrom() : shared_->Calendar().WindowTo(), y, m, d);
+            return y * 10000 + m * 100 + d;
+        }
+        case 174: {  // the calendar popup's window size, MAKELONG(width, height) (-1 not open)
+            RECT r{};
+            if (!calendar_.Visible() || !GetWindowRect(calendar_.Hwnd(), &r)) return -1;
+            return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(r.right - r.left), static_cast<WORD>(r.bottom - r.top)));
+        }
+        case 175:  // events on the day lp days from today (negative lp: before)
+            return shared_ && shared_->Calendar().Active()
+                       ? static_cast<LRESULT>(shared_->Calendar().CountOn(CalendarService::Today() + static_cast<int64_t>(lp)))
+                       : 0;
+        case 176:  // the calendar popup's hovered event row (-1 none / not open)
+            return calendar_.Visible() ? calendar_.HotRow() : -1;
+        case 177:  // ... the row its detail strip describes (hovered, else selected with Up / Down; -1 none)
+            return calendar_.Visible() ? calendar_.DetailShown() : -1;
         case 144:  // the stage's screen coordinate along the main axis (stage main 0; QueryState 142, ItemCommand 834)
             return layout_.vertical ? layout_.window.top : layout_.window.left;
         case 141: {  // the edge-fade opacity x 100 of slot lp at rest (100: none; -1 no such slot)

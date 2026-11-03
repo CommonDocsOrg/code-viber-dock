@@ -92,6 +92,9 @@ add_executable(WinDock WIN32
   src/NotificationElements.cpp
   src/NotificationPopup.cpp
   src/Thumbnails.cpp
+  src/Ics.cpp
+  src/CalendarService.cpp
+  src/SettingsPagesCalendar.cpp
   res/app.rc
   res/app.manifest
 )
@@ -130,3 +133,10 @@ target_link_libraries(WinDock PRIVATE
   windowsapp coremessaging
   quickjs
 )
+
+# The ICS parser's tests (round 4 phase 13, tests/ics): not built by default.
+#   cmake --build --preset x64-release --target WinDockTests, then build/x64-release/WinDockTests.exe
+add_executable(WinDockTests EXCLUDE_FROM_ALL tests/ics/IcsTests.cpp src/Ics.cpp)
+target_include_directories(WinDockTests PRIVATE src)
+target_compile_definitions(WinDockTests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00 WINVER=0x0A00)
+target_compile_options(WinDockTests PRIVATE /W4 /permissive- /utf-8)

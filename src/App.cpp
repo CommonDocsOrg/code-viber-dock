@@ -144,6 +144,9 @@ bool App::Initialize(HINSTANCE instance) {
     callbacks.notificationsChanged = [this] {
         if (settings_) settings_->NotificationsChanged();  // the Notifications page's status and counts
     };
+    callbacks.calendarChanged = [this] {
+        if (settings_) settings_->CalendarChanged();  // the Calendar page's feed status
+    };
     docks_.Initialize(instance, &config_, hwnd_, std::move(callbacks));
     const HRESULT hr = docks_.Sync();
     if (FAILED(hr)) {
@@ -998,6 +1001,9 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kPollNotifications:
             docks_.Notifications().PollNow();
             break;
+        case ContextMenu::kRefreshCalendars:
+            docks_.Calendar().RefreshNow();
+            break;
         case ContextMenu::kToggleCentre:
             if (dock) dock->TogglePopup(ItemKind::Notifications);
             break;
@@ -1234,6 +1240,12 @@ void App::OpenSettings(int page) {
         st.unread = n.Unread();
         return st;
     };
+    host.calendarFeeds = [this] {
+        std::vector<SettingsCalendarFeed> feeds;
+        const CalendarService& c = docks_.Calendar();
+        for (size_t i = 0; i < c.Feeds().size(); ++i) feeds.push_back(SettingsCalendarFeed{c.StatusText(i)});
+        return feeds;
+    };
     host.notificationApps = [this] {
         std::vector<SettingsNotificationApp> apps;
         auto add = [&](const AppKey& key, const std::wstring& name) {
@@ -1357,6 +1369,10 @@ void App::OnSettingsChanged(SettingsScope scope) {
         case SettingsScope::Notifications:
             docks_.SyncNotifications();
             break;
+        case SettingsScope::Calendars:
+            docks_.ConfigureCalendar();
+            docks_.ForEach([](DockWindow& w) { w.OnCalendarChanged(); });  // showDots
+            break;
         case SettingsScope::SaveOnly:
             break;
     }
@@ -1452,6 +1468,11 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         // The dock's open notification centre; the row is in the high word of wParam.
         DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
         result = dock && dock->CentreCommand(static_cast<UINT>(wp & 0xFFFF), static_cast<size_t>((wp >> 16) & 0xFFFF)) ? 1 : 0;
+        return true;
+    }
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) == ContextMenu::kCalendarSelect) {
+        DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+        result = dock && dock->CalendarSelect(static_cast<int16_t>((wp >> 16) & 0xFFFF)) ? 1 : 0;
         return true;
     }
     if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kScrollTo && (wp & 0xFFFF) <= ContextMenu::kMagnifyAt) {

@@ -64,6 +64,14 @@ void Perform(const Request& rq, Result& r) {
                                 WINHTTP_NO_HEADER_INDEX)) {
             r.contentType = type;
         }
+        for (const auto& [query, out] : {std::pair<DWORD, std::wstring*>{WINHTTP_QUERY_ETAG, &r.etag},
+                                         std::pair<DWORD, std::wstring*>{WINHTTP_QUERY_LAST_MODIFIED, &r.lastModified}}) {
+            wchar_t value[512]{};
+            DWORD valueSize = sizeof(value) - sizeof(wchar_t);
+            if (WinHttpQueryHeaders(request, query, WINHTTP_HEADER_NAME_BY_INDEX, value, &valueSize, WINHTTP_NO_HEADER_INDEX)) {
+                *out = value;
+            }
+        }
     }
     while (ok) {
         DWORD available = 0;

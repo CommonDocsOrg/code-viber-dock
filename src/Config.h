@@ -416,6 +416,26 @@ struct NotificationsConfig {
     bool operator==(const NotificationsConfig&) const = default;
 };
 
+// Calendar feeds (round 4 phase 13: CalendarService). ICS only: an http(s) URL, a webcal:// URL
+// (fetched over https), a file path or a file:/// URL. The service runs only while at least one
+// feed is enabled. Saved only when something differs from the defaults.
+struct CalendarFeed {
+    std::wstring name;
+    std::wstring url;
+    uint32_t color = 0xFF4CC2FF;  // "#AARRGGBB"; without a "color" key: the next colour of a fixed palette
+    bool enabled = true;
+    int refreshMin = 30;          // 5 - 1440 (web feeds; a file is re-read when it changes, never polled)
+    bool operator==(const CalendarFeed&) const = default;
+};
+struct CalendarsConfig {
+    std::vector<CalendarFeed> feeds;  // at most 32
+    bool showDots = true;             // dots on event days (the calendar popup, the clock's date)
+    int defaultReminderMin = 0;       // reminders before events, minutes (0: off; 0 - 1440)
+    bool operator==(const CalendarsConfig&) const = default;
+};
+// The palette for feeds without a colour (index modulo its size).
+uint32_t DefaultFeedColor(size_t index);
+
 struct Config {
     // At least one dock after LoadFile / Sanitize; ids are unique (Sanitize). Every dock is shown
     // (DockManager), docks[].monitor "each" once per monitor.
@@ -439,6 +459,7 @@ struct Config {
     AnimationConfig animation;
     TrayConfig tray;
     NotificationsConfig notifications;
+    CalendarsConfig calendars;
     // Top-level keys this version does not know, kept verbatim (compact JSON) so a save does not
     // drop them. Unknown keys inside known objects (docks, items, clock, theme, animation, weather)
     // are not kept, nor are the legacy pre-`docks` keys.

@@ -58,6 +58,7 @@ enum class DockEvent {
     WidgetRedraw, // a script widget asked to be redrawn (WidgetInstance::TakeChanged)
     TrayChanged,  // TrayHost's icons came, went or changed (or it started / stopped)
     Notifications,  // the notification list or the service's state changed (round 4 phase 9)
+    Calendar,       // the calendar feeds' occurrences changed (round 4 phase 13)
 };
 
 // The click popups the dock hosts (one at a time; each holds the dock shown while open).
@@ -121,6 +122,8 @@ public:
     // whether access is denied.
     virtual size_t UnreadNotifications() const = 0;
     virtual bool NotificationsDenied() const = 0;
+    // Calendars (round 4 phase 13): events today on the enabled feeds (0 while the service is off).
+    virtual size_t CalendarEventsToday() const = 0;
 
 protected:
     ~ElementHost() = default;

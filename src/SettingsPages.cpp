@@ -840,5 +840,6 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
     pages.push_back(MakeItemSettingsPage(window));    // kPageItemSettings
     pages.push_back(MakeTrayPage(window));            // kPageTray
     pages.push_back(MakeNotificationsPage(window));   // kPageNotifications
+    pages.push_back(MakeCalendarPage(window));        // kPageCalendar
     return pages;
 }

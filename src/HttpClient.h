@@ -25,6 +25,8 @@ struct Result {
     DWORD status = 0;          // HTTP status
     std::string body;          // the response body (empty on error)
     std::wstring contentType;  // the Content-Type header ("" if none)
+    std::wstring etag;         // the ETag header ("" if none; the calendar feeds revalidate with it)
+    std::wstring lastModified; // the Last-Modified header ("" if none)
 };
 
 void Perform(const Request& request, Result& result);

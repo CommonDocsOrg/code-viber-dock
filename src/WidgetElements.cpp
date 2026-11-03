@@ -67,6 +67,7 @@ public:
         const Config& c = host_.Cfg();
         clock_.Configure(Clock::EffectiveFormat(c.clock.format, c.clock.showSeconds), c.clock.showDate);
         clock_.SetColors(host_.DockTheme().clockText, host_.DockTheme().clockDateText);
+        dot_ = WantDot();
     }
     void Start() override {
         if (host_.Hwnd()) clock_.ScheduleNextTick(host_.Hwnd(), ElementHost::kClockTimerId);
@@ -78,17 +79,44 @@ public:
     ElementSize Measure(const LayoutContext& ctx) override {
         const bool vertical = ctx.axis == DockAxis::Vertical;
         clock_.SetStacked(vertical);
-        size_ = clock_.BuildLayout(ctx.dwrite, ctx.scale);
+        text_ = clock_.BuildLayout(ctx.dwrite, ctx.scale);
+        size_ = text_;
+        vertical_ = vertical;
+        // With events today (calendars.showDots): a dot after the last line (under it when stacked).
+        dotSpace_ = dot_ && text_.width > 0 ? static_cast<UINT32>(std::lround((kDotGap + kDotSize) * ctx.scale)) : 0;
+        if (vertical) {
+            size_.height += dotSpace_;
+        } else {
+            size_.width += dotSpace_;
+        }
         const float w = static_cast<float>(size_.width), h = static_cast<float>(size_.height);
         return vertical ? ElementSize{h, w} : ElementSize{w, h};
     }
-    HRESULT Render(Renderer& r, Layer& content, const LayoutContext&) override {
-        return r.DrawLayer(content, size_.width, size_.height, [&](ID2D1DeviceContext* dc) { clock_.Draw(dc, 0.0f, 0.0f); });
+    HRESULT Render(Renderer& r, Layer& content, const LayoutContext& ctx) override {
+        return r.DrawLayer(content, size_.width, size_.height, [&](ID2D1DeviceContext* dc) {
+            clock_.Draw(dc, 0.0f, 0.0f);
+            if (!dotSpace_) return;
+            winrt::com_ptr<ID2D1SolidColorBrush> brush;
+            if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(host_.DockTheme().accent), brush.put()))) return;
+            const float radius = kDotSize * ctx.scale / 2.0f, gap = kDotGap * ctx.scale;
+            const D2D1_POINT_2F c = vertical_ ? D2D1::Point2F(static_cast<float>(text_.width) / 2.0f, static_cast<float>(text_.height) + gap + radius)
+                                              : D2D1::Point2F(static_cast<float>(text_.width) + gap + radius, clock_.LastLineCentre());
+            dc->FillEllipse(D2D1::Ellipse(c, radius, radius), brush.get());
+        });
     }
     bool OnEvent(DockEvent e) override {
+        if (e == DockEvent::Calendar) {
+            const bool want = WantDot();
+            if (want == dot_) return false;
+            dot_ = want;
+            return true;
+        }
         if (e != DockEvent::ClockTick && e != DockEvent::TimeChanged) return false;
         Start();  // the next boundary
-        return clock_.UpdateText();
+        const bool want = WantDot();  // a new day may have events (or none)
+        const bool dotChanged = want != dot_;
+        dot_ = want;
+        return clock_.UpdateText() || dotChanged;
     }
 
     // The calendar popup (also when a click launches clock.clickTarget instead: DockCommand 114
@@ -106,8 +134,16 @@ public:
     }
 
 private:
+    static constexpr float kDotSize = 5.0f;  // DIPs
+    static constexpr float kDotGap = 4.0f;
+    bool WantDot() const { return host_.Cfg().calendars.showDots && host_.CalendarEventsToday() > 0; }
+
     Clock clock_;
-    D2D1_SIZE_U size_{};
+    D2D1_SIZE_U text_{};  // the text block
+    D2D1_SIZE_U size_{};  // the slot's surface (the text block and the dot)
+    UINT32 dotSpace_ = 0;
+    bool dot_ = false;
+    bool vertical_ = false;
 };
 
 // weather: a condition glyph and the temperature from the dock's WeatherService (Open-Meteo);

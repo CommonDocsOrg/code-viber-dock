@@ -480,6 +480,13 @@ void SettingsWindow::NotificationsChanged() {
     loading_ = false;
 }
 
+void SettingsWindow::CalendarChanged() {
+    if (!hwnd_) return;
+    loading_ = true;
+    for (auto& page : pages_) page->OnCalendarChanged();
+    loading_ = false;
+}
+
 void SettingsWindow::ConfigApplied() {
     if (preview_) preview_->Invalidate();
 }

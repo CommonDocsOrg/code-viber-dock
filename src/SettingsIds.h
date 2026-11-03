@@ -26,7 +26,8 @@ inline constexpr int kPageWidgetSettings = 10;  // phase 4b: one widget item's s
 inline constexpr int kPageItemSettings = 11;   // round 4 phase 7: a folder / group item's settings
 inline constexpr int kPageTray = 12;           // round 4 phase 8: the notify icons (tray.enabled, the dock's tray item)
 inline constexpr int kPageNotifications = 13;  // round 4 phase 9: badges, the centre, balloons, access
-inline constexpr int kPageCount = 14;
+inline constexpr int kPageCalendar = 14;       // round 4 phase 13: the ICS feeds
+inline constexpr int kPageCount = 15;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -415,5 +416,32 @@ inline constexpr int kNotifDndNote = 4219;
 inline constexpr int kNotifAppsSection = 4220;
 inline constexpr int kNotifAppList = 4221;         // SysListView32 (report, check boxes): App, Unread, Key; unchecked = in notifications.excluded
 inline constexpr int kNotifAppsNote = 4222;
+
+// Calendar (4300 - 4399; round 4 phase 13): config.calendars.
+inline constexpr int kCalFeedList = 4300;       // SysListView32 (report, check boxes): Name, URL, Every, Status; checked = enabled
+inline constexpr int kCalNameLabel = 4301;
+inline constexpr int kCalNameEdit = 4302;       // the feed being added / edited
+inline constexpr int kCalUrlLabel = 4303;
+inline constexpr int kCalUrlEdit = 4304;        // http(s) / webcal URL, a file path or file:/// URL
+inline constexpr int kCalColorLabel = 4305;
+inline constexpr int kCalColorEdit = 4306;      // "#AARRGGBB"
+// 4307: reserved (a colour swatch)
+inline constexpr int kCalRefreshLabel = 4308;
+inline constexpr int kCalRefreshEdit = 4309;    // minutes, 5 - 1440
+inline constexpr int kCalRefreshSpin = 4310;
+inline constexpr int kCalRefreshUnit = 4311;
+inline constexpr int kCalAdd = 4312;            // "Add feed" (from the fields)
+inline constexpr int kCalSave = 4313;           // "Save changes" (the fields -> the selected feed)
+inline constexpr int kCalRemove = 4314;         // removes the selected feed
+inline constexpr int kCalRefreshNow = 4315;     // "Refresh now" (= DockCommand 135)
+inline constexpr int kCalShowDots = 4316;       // check box: calendars.showDots (+ caption 4317)
+inline constexpr int kCalShowDotsCaption = 4317;
+inline constexpr int kCalNote = 4318;
+inline constexpr int kCalFieldsNote = 4319;     // what the fields accept; the last add / save error
+inline constexpr int kCalSection = 4320;        // "Feeds"
+inline constexpr int kCalEditSection = 4321;    // "Add or edit a feed"
+inline constexpr int kCalOptionsSection = 4322; // "Display"
+inline constexpr int kCalEnable = 4323;         // check box: the selected feed enabled (+ caption 4324)
+inline constexpr int kCalEnableCaption = 4324;
 
 }  // namespace SettingsIds

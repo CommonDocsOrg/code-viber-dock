@@ -7,6 +7,7 @@
 #include <string>
 #include <vector>
 
+#include "CalendarService.h"
 #include "Config.h"
 #include "DockWindow.h"
 #include "ForegroundWatch.h"
@@ -44,6 +45,7 @@ public:
         std::function<void(DockWindow&)> setup;      // a dock window was created (pin requests ...)
         std::function<void()> weatherChanged;        // the weather data / status changed (once per change)
         std::function<void()> notificationsChanged;  // the notification list / service state changed
+        std::function<void()> calendarChanged;       // the calendar feeds' data / status changed
     };
 
     DockManager() = default;
@@ -105,6 +107,10 @@ public:
 
     // --- DockShared ---
     WindowTracker& Tracker() override { return tracker_; }
+    CalendarService& Calendar() override { return calendar_; }
+    const CalendarService& Calendar() const { return calendar_; }
+    // Re-applies config.calendars (the service runs while some feed is enabled).
+    void ConfigureCalendar();
     WeatherService& WeatherData() override { return weather_; }
     const WeatherService& WeatherData() const { return weather_; }
     void ConfigureWeather() override;
@@ -158,6 +164,7 @@ private:
     WeatherService weather_;
     TrayHost tray_;
     NotificationService notifications_;
+    CalendarService calendar_;
     bool centreOpen_ = false;
     ForegroundWatch watch_;
     std::vector<DockWindow*> watchers_;  // docks subscribed to watch_ (autoHide "intelligent")
