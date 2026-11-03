@@ -194,4 +194,148 @@ inline int FadeSegments(const Viewport& v, float p0, float p1, double duration, 
     return count;
 }
 
+// --- polar shapes (docks[].shape "arc" / "circle", round 4 phase 11b) ----------------------------
+//
+// The third mapping besides the edges: the run is laid out in canonical coordinates as for a bar
+// (u along it, v across it toward the screen edge) and wrapped onto a ring. u is arc length on the
+// circle of radius R (the icons' centre line, canonical v = vRing), so the angle is
+// theta = theta0 + dir * u / R; v is radial, r = R + vRing - v (a smaller v lies further out: the
+// cross axis points outward from the screen edge, toward the ring's centre for an arc whose
+// diameter lies on the edge). Angles are the usual mathematical ones (0 = right, pi / 2 = up on
+// screen). Icons, widgets and text stay upright: a box is placed at the mapped point of its centre
+// (Box), and every scroll / magnification / fade computation stays in u. Not polar (`on` false):
+// the edge mapping above applies.
+struct Polar {
+    bool on = false;
+    float cx = 0.0f, cy = 0.0f;  // the ring's centre (physical stage px)
+    float R = 1.0f;              // radius of the line v = vRing
+    float vRing = 0.0f;
+    float theta0 = 0.0f;         // the angle of u = 0
+    float dir = -1.0f;           // +1: u runs counter-clockwise on screen, -1: clockwise
+    float span = 3.14159265f;    // the angle the run may use: pi (a half ring) or 2 pi (a circle)
+
+    float Angle(float u) const { return theta0 + dir * u / R; }
+    float Radius(float v) const { return R + vRing - v; }
+    D2D1_POINT_2F Point(float u, float v) const {
+        const float t = Angle(u), r = Radius(v);
+        return D2D1::Point2F(cx + r * std::cos(t), cy - r * std::sin(t));
+    }
+    // The unit vector pointing away from the centre at u (screen coordinates).
+    D2D1_POINT_2F Outward(float u) const {
+        const float t = Angle(u);
+        return D2D1::Point2F(std::cos(t), -std::sin(t));
+    }
+    // The centre of an upright box w x h placed just outside canonical (u, v), away from the centre
+    // (labels, popups, an arc's title): the box's extent along the outward direction is added.
+    D2D1_POINT_2F Outside(float u, float v, float w, float h) const {
+        const D2D1_POINT_2F p = Point(u, v), o = Outward(u);
+        const float k = (std::fabs(o.x) * w + std::fabs(o.y) * h) / 2.0f;
+        return D2D1::Point2F(p.x + o.x * k, p.y + o.y * k);
+    }
+    // A physical stage point -> canonical (u, v). Angles are unwrapped around the middle of the
+    // run's span, so a point beyond either end gets a u before 0 / after span * R.
+    D2D1_POINT_2F Canon(float x, float y) const {
+        const float dx = x - cx, dy = cy - y;
+        const float r = std::sqrt(dx * dx + dy * dy);
+        constexpr float kTwoPi = 6.28318531f;
+        float a = (std::atan2(dy, dx) - theta0) * dir;  // radians travelled from u = 0
+        const float mid = span / 2.0f;
+        a = mid + std::remainder(a - mid, kTwoPi);
+        return D2D1::Point2F(a * R, vRing - (r - R));
+    }
+    // The bounding box of the ring sector [u0, u1] x [v0, v1].
+    D2D1_RECT_F Bounds(float u0, float v0, float u1, float v1) const {
+        float l = 1e9f, t = 1e9f, r = -1e9f, b = -1e9f;
+        auto add = [&](float u, float v) {
+            const D2D1_POINT_2F p = Point(u, v);
+            l = std::min(l, p.x);
+            t = std::min(t, p.y);
+            r = std::max(r, p.x);
+            b = std::max(b, p.y);
+        };
+        for (const float v : {v0, v1}) {
+            add(u0, v);
+            add(u1, v);
+        }
+        // The quadrant points (where x or y is extreme) inside the sector's angle range.
+        const float a0 = std::min(Angle(u0), Angle(u1)), a1 = std::max(Angle(u0), Angle(u1));
+        constexpr float kHalfPi = 1.57079633f;
+        for (float q = std::ceil(a0 / kHalfPi) * kHalfPi; q <= a1; q += kHalfPi) {
+            for (const float v : {v0, v1}) {
+                const float rr = Radius(v);
+                const D2D1_POINT_2F p = D2D1::Point2F(cx + rr * std::cos(q), cy - rr * std::sin(q));
+                l = std::min(l, p.x);
+                t = std::min(t, p.y);
+                r = std::max(r, p.x);
+                b = std::max(b, p.y);
+            }
+        }
+        return D2D1::RectF(l, t, r, b);
+    }
+    // An upright box `main` x `cross` long centred on canonical (u, v): its physical rect.
+    D2D1_RECT_F Box(float u, float v, float main, float cross) const {
+        const D2D1_POINT_2F p = Point(u, v);
+        return D2D1::RectF(p.x - main / 2.0f, p.y - cross / 2.0f, p.x + main / 2.0f, p.y + cross / 2.0f);
+    }
+};
+
+// Where a ring of radius R starts and which way it runs, per shape and edge: an arc on the bottom
+// edge runs from the left end over the top to the right end (pi -> 0), on the top edge from the left
+// over the bottom (pi -> 2 pi), on the left edge from the top over the right (pi / 2 -> -pi / 2), on
+// the right edge from the top over the left (pi / 2 -> 3 pi / 2); a circle starts at the top and runs
+// clockwise.
+inline void PolarDirection(bool circle, DockEdge e, Polar& p) {
+    constexpr float kPi = 3.14159265f;
+    p.span = circle ? 2.0f * kPi : kPi;
+    if (circle) {
+        p.theta0 = kPi / 2.0f;
+        p.dir = -1.0f;
+        return;
+    }
+    switch (e) {
+        case DockEdge::Top: p.theta0 = kPi; p.dir = 1.0f; break;
+        case DockEdge::Left: p.theta0 = kPi / 2.0f; p.dir = -1.0f; break;
+        case DockEdge::Right: p.theta0 = kPi / 2.0f; p.dir = 1.0f; break;
+        case DockEdge::Bottom:
+        default: p.theta0 = kPi; p.dir = -1.0f; break;
+    }
+}
+
+// An animation curve along a mapped path: the property f(u(t)) for u following the tween's curve
+// (ease-out / linear; a spring is followed as an ease-out) from `elapsed` seconds into it, as
+// piecewise cubic Hermite segments (values and slopes at the ends of each piece, slopes by central
+// differences). Used to move upright boxes along a ring (x and y separately) so they follow the
+// arc, not its chord. Returns the segment count (<= `maxSegments`).
+template <class F>
+int PathSegments(float from, float to, double duration, bool linear, double elapsed, int pieces, F&& f,
+                 CubicSegment* out, int maxSegments) {
+    const double D = duration > 0.0 ? duration : 1.0;
+    const double d = static_cast<double>(to) - static_cast<double>(from);
+    const double k1 = linear ? d / D : 3.0 * d / D;
+    const double k2 = linear ? 0.0 : -3.0 * d / (D * D);
+    const double k3 = linear ? 0.0 : d / (D * D * D);
+    auto u = [&](double s) {
+        s = std::clamp(s, 0.0, D);
+        return static_cast<float>(from + ((k3 * s + k2) * s + k1) * s);
+    };
+    const double s0 = std::clamp(elapsed, 0.0, D);
+    const int n = std::clamp(pieces, 1, maxSegments);
+    const double h = (D - s0) / n;
+    const double e = std::max(1e-4, h * 1e-3);
+    auto slope = [&](double s) { return (static_cast<double>(f(u(s + e))) - static_cast<double>(f(u(s - e)))) / (2.0 * e); };
+    for (int i = 0; i < n; ++i) {
+        const double a = s0 + h * i, b = a + h;
+        const double x0 = f(u(a)), x1 = f(u(b));
+        const double m0 = slope(a), m1 = slope(b);
+        CubicSegment seg;
+        seg.begin = a - s0;
+        seg.c0 = static_cast<float>(x0);
+        seg.c1 = static_cast<float>(m0);
+        seg.c2 = static_cast<float>((3.0 * (x1 - x0) / h - 2.0 * m0 - m1) / h);
+        seg.c3 = static_cast<float>((2.0 * (x0 - x1) / h + m0 + m1) / (h * h));
+        out[i] = seg;
+    }
+    return n;
+}
+
 }  // namespace DockGeometry

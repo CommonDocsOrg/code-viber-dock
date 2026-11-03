@@ -125,6 +125,15 @@ protected:
         Label(kOverflowLabel, L"When the icons do not fit");
         Combo(kOverflowCombo, kColX, right - kColX, false);
         NextRow();
+        Label(kShapeLabel, L"Shape");
+        Combo(kShapeCombo, kColX, 200, false);
+        NextRow();
+        Label(kRadiusLabel, L"Radius (pixels, 0: automatic)");
+        IntSpin(kRadiusEdit, kRadiusSpin, kColX, 88, 0, 2000, 10, [](Config& c) -> int& { return c.Edit().radius; },
+                SettingsScope::Appearance);
+        NextRow();
+        Check(kRotateIcons, kRotateIconsCaption, L"Turn the icons with the ring");
+        NextRow();
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
         NextRow();
         Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
@@ -194,6 +203,8 @@ protected:
         for (const wchar_t* o : {L"Scroll (wheel, drag the bar)", L"Shrink the icons", L"Clip at the screen's end"}) {
             ComboAdd(kOverflowCombo, o);
         }
+        // DockShape order.
+        for (const wchar_t* o : {L"Bar", L"Half circle (on the edge)", L"Circle (anywhere)"}) ComboAdd(kShapeCombo, o);
         ComboAdd(kRendererCombo, L"Automatic (GPU, software if that fails)");
         ComboAdd(kRendererCombo, L"Software (WARP, less memory)");
     }
@@ -211,6 +222,9 @@ protected:
         SetComboSel(kEdgeCombo, static_cast<int>(c.Edit().edge));
         SetComboSel(kAlignCombo, static_cast<int>(c.Edit().align));
         SetComboSel(kOverflowCombo, static_cast<int>(c.Edit().overflow));
+        SetComboSel(kShapeCombo, static_cast<int>(c.Edit().shape));
+        SetCheck(kRotateIcons, c.Edit().rotateIcons);
+        EnableShape(c.Edit().Polar());
         SetCheck(kFullWidth, c.Edit().fullWidth);
         SetCheck(kReserveSpace, c.Edit().reserveSpace);
         SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(c.Edit().peekOpacity * 100.0)));
@@ -232,6 +246,13 @@ protected:
     }
 
     void OnDisplayChange() override { FillMonitors(); }
+
+    // Radius and Rotate icons apply to the ring shapes only.
+    void EnableShape(bool polar) {
+        for (int id : {kRadiusLabel, kRadiusEdit, kRadiusSpin, kRotateIcons, kRotateIconsCaption}) {
+            if (HWND h = Item(id)) EnableWindow(h, polar);
+        }
+    }
 
     void IntChanged(int spin, int value) override {
         if (spin == kIconSizeSpin) SetTrack(kIconSizeTrack, std::min(value, kMaxTrackIconSize));
@@ -304,6 +325,22 @@ protected:
             case kReserveSpace:
                 if (code == BN_CLICKED) {
                     c.Edit().reserveSpace = GetCheck(id);
+                    Changed(SettingsScope::Appearance);
+                }
+                break;
+            case kShapeCombo:
+                if (code == CBN_SELCHANGE) {
+                    const int sel = ComboSel(id);
+                    if (sel >= 0 && sel <= 2 && static_cast<DockShape>(sel) != c.Edit().shape) {
+                        c.Edit().shape = static_cast<DockShape>(sel);
+                        EnableShape(c.Edit().Polar());
+                        Changed(SettingsScope::Appearance);
+                    }
+                }
+                break;
+            case kRotateIcons:
+                if (code == BN_CLICKED) {
+                    c.Edit().rotateIcons = GetCheck(id);
                     Changed(SettingsScope::Appearance);
                 }
                 break;

@@ -75,6 +75,11 @@ constexpr float kCaptionBesideGap = 4.0f;
 constexpr float kCaptionBesideWidth = 76.0f;
 constexpr float kCaptionPad = 2.0f;          // text inset at the ends of a caption box
 constexpr float kPi = 3.14159265358979f;
+// Rings (docks[].shape, round 4 phase 11b): the smallest hole inside a ring, and the hub a hidden
+// circle shrinks to (DIPs).
+constexpr float kMinPolarHoleDip = 24.0f;
+constexpr float kHubDip = 44.0f;
+constexpr float kHubOpacity = 0.9f;
 
 void Log(const wchar_t* what, HRESULT hr) {
     wchar_t buf[160];
@@ -484,7 +489,7 @@ void DockWindow::MonitorRects(RECT& monitor, RECT& work) const {
 void DockWindow::ComputeLayout() {
     const DockConfig& d = DockCfg();
     ComputeLayoutAt(d.iconSize);
-    if (d.overflow != OverflowMode::Shrink) return;
+    if (d.overflow != OverflowMode::Shrink || d.Polar()) return;  // a ring grows its radius, then scrolls
     // "shrink": smaller icons until the run fits the room along the edge (the gaps, padding,
     // spacers and widgets keep their size). The widgets measure against the icon size, so a pass
     // may still be a little long: a few passes, never below kMinShrinkDip (then it is clipped).
@@ -513,9 +518,14 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.scale = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
     const float s = l.scale;
     l.edge = d.edge;
-    l.vertical = IsVertical(d.edge);
+    // A ring (docks[].shape "arc" / "circle") is laid out like a horizontal bar and wrapped onto
+    // the ring at the end of this function: no vertical layout, no full width.
+    const bool polar = d.Polar();
+    l.shape = d.shape;
+    l.rotateIcons = polar && d.rotateIcons;
+    l.vertical = !polar && IsVertical(d.edge);
     // Full width: the bar spans the monitor's edge, flush with the screen edge, square corners.
-    l.fullWidth = d.fullWidth;
+    l.fullWidth = d.fullWidth && !polar;
     l.iconDip = iconDip;
 
     l.iconPx = std::round(static_cast<float>(iconDip) * s);
@@ -529,7 +539,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // under each icon: the bar grows by its height. The glow reaches glowPad beyond the icon box.
     // Vertical docks have no reflections.
     const ThemeConfig& t = DockTheme();
-    const bool reflect = t.reflection && !l.vertical;
+    const bool reflect = t.reflection && !l.vertical && !polar;  // a ring has no reflections
     const UINT reflSurface = reflect ? IconEffects::ReflectionHeight(l.bitmapPx, t.reflectionHeight) : 0;
     l.reflH = reflSurface && l.bitmapPx ? std::ceil(static_cast<float>(reflSurface) * l.iconPx /
                                                     static_cast<float>(l.bitmapPx))
@@ -546,6 +556,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // screen edge) or none (titlesVertical "off"). The bar's cross size grows by the band.
     int lines = d.titles == TitlesMode::One ? 1 : d.titles == TitlesMode::Two ? 2 : 0;
     if (l.vertical && d.titlesVertical == TitlesVertical::Off) lines = 0;
+    if (polar) lines = 0;  // no titles under the icons of a ring
     if (lines && !EnsureCaptionFormat(s)) lines = 0;
     l.captionLines = lines;
     float captionGap = 0.0f;
@@ -735,6 +746,113 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.captionTop = l.itemTop + l.iconPx + l.reflH + captionGap;  // under the icon and its reflection
     l.growRoomStart = l.bar.left;
     l.growRoomEnd = l.stageMain - l.bar.right;
+    float polarRun = 0.0f;  // a ring: the run's length along it (0: not a ring)
+    if (polar) {
+        // The ring (DockGeometry::Polar): the canonical bar becomes the arc [0, arcLen] at the
+        // radius of the icons' centre line; v keeps the bar's frame (the band [bar.top, bar.bottom],
+        // `room` beyond it for magnified icons and the label). Placed as a bar 2 x outer radius
+        // long would be (an arc), or at docks[].x / y on the work area (a circle).
+        const bool circle = d.shape == DockShape::Circle;
+        constexpr float kTwoPi = 6.28318531f;
+        const float span = circle ? kTwoPi : kTwoPi / 2.0f;
+        const float run = lead + itemsW + trail;
+        polarRun = run;
+        const float room = std::max(0.0f, winH - margin - barH);  // beyond the ring
+        const float band = barH;
+        const float iconMid = std::round(kIconTop * s) + l.iconPx / 2.0f;  // bar top -> the icons' centre line
+        const float outFromMid = iconMid;                                 // the centre line -> the outer edge
+        const float inFromMid = band - iconMid;                           // ... -> the inner edge
+        const float minR = std::max(inFromMid + std::round(kMinPolarHoleDip * s), 1.5f * l.iconPx);
+        const float mainLen = static_cast<float>(mEnd - mStart);
+        const float crossLen = static_cast<float>(IsVertical(l.edge) ? m.right - m.left : m.bottom - m.top);
+        const float workW = static_cast<float>(l.work.right - l.work.left), workH = static_cast<float>(l.work.bottom - l.work.top);
+        float maxR = circle ? std::min(workW, workH) / 2.0f - outFromMid - room
+                            : std::min(mainLen / 2.0f - outFromMid - room, crossLen - outFromMid - room);
+        maxR = std::max(maxR, minR);
+        // Auto: the run just fits (a circle: with a gap of a slot and a quarter where its ends meet at
+        // the top, which a magnified run's push uses up instead of overlapping there).
+        const float gapRun = circle ? std::ceil(1.25f * (l.iconPx + std::round(kGap * s))) : 0.0f;
+        float R = d.radius > 0 ? std::round(static_cast<float>(d.radius) * s) : std::ceil((run + gapRun) / span + 0.5f);
+        R = std::clamp(R, std::ceil(minR), std::max(std::ceil(minR), std::floor(maxR)));
+        const float arcLen = span * R;
+        const float rOut = R + outFromMid, rIn = R - inFromMid;
+        // The stage along the edge (an arc): its diameter plus `room` at each end, placed by align /
+        // offset in the bar's own arithmetic (EndDockDrag repeats it).
+        const LONG diaPx = static_cast<LONG>(std::ceil(2.0f * rOut));
+        const LONG ringRoomPx = static_cast<LONG>(std::ceil(room));
+        const LONG extent = static_cast<LONG>(std::ceil(rOut + room));  // centre -> the stage's far side
+        float cxs = 0.0f, cys = 0.0f;  // the centre, screen px
+        if (circle) {
+            const RECT& w = l.work;
+            float cxw = d.x == DockConfig::kCentred ? (w.left + w.right) / 2.0f : w.left + static_cast<float>(d.x) * s;
+            float cyw = d.y == DockConfig::kCentred ? (w.top + w.bottom) / 2.0f : w.top + static_cast<float>(d.y) * s;
+            cxs = std::round(std::clamp(cxw, m.left + rOut, std::max(m.left + rOut, m.right - rOut)));
+            cys = std::round(std::clamp(cyw, m.top + rOut, std::max(m.top + rOut, m.bottom - rOut)));
+            l.window = RECT{std::max(m.left, static_cast<LONG>(cxs) - extent), std::max(m.top, static_cast<LONG>(cys) - extent),
+                            std::min(m.right, static_cast<LONG>(cxs) + extent), std::min(m.bottom, static_cast<LONG>(cys) + extent)};
+        } else {
+            LONG start = 0;
+            switch (d.align) {
+                case DockAlign::Start: start = mStart + marginPx + offsetPx; break;
+                case DockAlign::End: start = mEnd - marginPx - diaPx + offsetPx; break;
+                case DockAlign::Center:
+                default: start = mStart + ((mEnd - mStart) - (diaPx + 2 * ringRoomPx)) / 2 + ringRoomPx + offsetPx; break;
+            }
+            start = std::clamp(start, mStart, std::max(mStart, mEnd - diaPx));
+            const LONG s0 = std::max(start - ringRoomPx, mStart), s1 = std::max(s0 + 1, std::min(start + diaPx + ringRoomPx, mEnd));
+            const float along = static_cast<float>(start) + static_cast<float>(diaPx) / 2.0f;
+            switch (l.edge) {
+                case DockEdge::Top:
+                    cxs = along, cys = static_cast<float>(m.top);
+                    l.window = RECT{s0, m.top, s1, m.top + extent};
+                    break;
+                case DockEdge::Left:
+                    cxs = static_cast<float>(m.left), cys = along;
+                    l.window = RECT{m.left, s0, m.left + extent, s1};
+                    break;
+                case DockEdge::Right:
+                    cxs = static_cast<float>(m.right), cys = along;
+                    l.window = RECT{m.right - extent, s0, m.right, s1};
+                    break;
+                case DockEdge::Bottom:
+                default:
+                    cxs = along, cys = static_cast<float>(m.bottom);
+                    l.window = RECT{s0, m.bottom - extent, s1, m.bottom};
+                    break;
+            }
+        }
+        l.slack = static_cast<float>(ringRoomPx);
+        // The canonical frame: the arc [0, arcLen] as the bar, the band as before.
+        l.bar = D2D1::RectF(0.0f, winH - margin - barH, arcLen, winH - margin);
+        l.itemTop = l.bar.top + std::round(kIconTop * s);
+        l.captionTop = l.itemTop + l.iconPx;
+        l.stageMain = arcLen;
+        l.stageCross = winH;
+        l.growMax = 0.0f;
+        l.growRoomStart = l.growRoomEnd = 1e6f;  // a magnified run moves along the ring (it never grows)
+        DockGeometry::Polar& p = l.polar;
+        p.on = true;
+        DockGeometry::PolarDirection(circle, l.edge, p);
+        p.R = R;
+        p.vRing = l.bar.top + iconMid;
+        p.cx = cxs - static_cast<float>(l.window.left);
+        p.cy = cys - static_cast<float>(l.window.top);
+        l.ringIn = rIn;
+        l.ringOut = rOut;
+        l.ring = p.Bounds(0.0f, l.bar.top, arcLen, l.bar.bottom);
+        // (Kept on the stage: the ends of an arc lie on the screen edge, a rounding error past it.)
+        const float stageW = static_cast<float>(l.window.right - l.window.left), stageH = static_cast<float>(l.window.bottom - l.window.top);
+        l.ring = D2D1::RectF(std::max(0.0f, l.ring.left), std::max(0.0f, l.ring.top), std::min(stageW, l.ring.right),
+                             std::min(stageH, l.ring.bottom));
+        if (circle) {
+            const float hubD = std::round(std::max(kHubDip * s, l.iconPx));
+            l.hub = D2D1::RectF(p.cx - hubD / 2.0f, p.cy - hubD / 2.0f, p.cx + hubD / 2.0f, p.cy + hubD / 2.0f);
+            l.hubScale = hubD / (2.0f * rOut);
+        }
+        // More than the ring holds: "scroll" (and "shrink": a ring does not shrink its icons)
+        // scrolls along it; "clip" lets the run go on past the ring's end.
+        l.view.on = d.overflow != OverflowMode::Clip && itemsW > 0.0f && run > arcLen + 0.5f;
+    }
 
     // Hairlines in the icon -> widget spacers at the ends: before the trailing widgets, after the
     // leading ones (bar-local; both exist only when the dock also has icons).
@@ -746,6 +864,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     }
     l.separatorX = l.leftSeparatorX = -1.0f;
     l.itemsLeft = l.bar.left + lead;
+    if (polar && !l.view.on) l.itemsLeft = std::round((l.bar.right - polarRun) / 2.0f) + lead;  // centred on the ring
     if (l.fullWidth) {
         // The run of items inside the full bar: at its start, centred or at its end, plus the
         // offset, kept inside the bar's padding. Magnification grows the run inside the bar (the
@@ -766,6 +885,12 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         v.end = l.bar.right - trail;
         v.clipStart = l.bar.left;
         v.clipEnd = l.bar.right;
+        if (polar) {
+            // A ring is not clipped (a rectangle cannot cut a sector, ApplyReflectionClip): the fades
+            // take the slots out, so "outside" means beyond the fades' ends.
+            v.clipStart = v.start;
+            v.clipEnd = v.end;
+        }
         v.content = itemsW;
         v.max = std::max(0.0f, std::ceil(itemsW - v.Length()));
         scroll_ = std::clamp(std::round(scroll_), 0.0f, v.max);
@@ -794,8 +919,9 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         if (k > lastIcon && l.separatorX < 0.0f) l.separatorX = std::round(spacerLeft + item.lead / 2.0f);
         if (k == firstIcon) l.leftSeparatorX = std::round(spacerLeft + item.lead / 2.0f);
     }
-    // Scrolling: the spacers move with the run, so the background (fixed) draws no hairlines.
-    if (l.view.on) l.separatorX = l.leftSeparatorX = -1.0f;
+    // Scrolling: the spacers move with the run, so the background (fixed) draws no hairlines (nor
+    // does a ring: its edges are its hairlines).
+    if (l.view.on || polar) l.separatorX = l.leftSeparatorX = -1.0f;
     l.itemHeight = l.bar.bottom - l.itemTop;
     l.magTop = l.itemTop + l.iconPx - l.iconPx * l.magnification;
     // Popups open beyond the stage (above a bottom dock, as always); beside a vertical dock, whose
@@ -822,7 +948,17 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         l.title = l.PhysRect(std::clamp(u0, 0.0f, std::max(0.0f, l.stageMain - titleMain)), v0,
                              std::clamp(u0, 0.0f, std::max(0.0f, l.stageMain - titleMain)) + titleMain, v0 + titleCross);
         l.restTopExtra = std::max(l.restTopExtra, titleGap + titleCross);
+        if (polar) {
+            // In the middle of a circle; beyond the middle of an arc (outside it, like a label).
+            const DockGeometry::Polar& p = l.polar;
+            D2D1_POINT_2F c{p.cx, p.cy};
+            if (l.shape == DockShape::Arc) c = p.Outside(l.bar.right / 2.0f, l.bar.top - titleGap, titleMain, titleCross);
+            l.title = D2D1::RectF(std::round(c.x - titleMain / 2.0f), std::round(c.y - titleCross / 2.0f),
+                                  std::round(c.x - titleMain / 2.0f) + titleMain, std::round(c.y - titleCross / 2.0f) + titleCross);
+            l.restTopExtra = 0.0f;
+        }
     }
+    if (polar) l.restTopExtra = 0.0f;  // the resting window is the ring's box
 
     // Background halves: the seam must sit where both halves show plain fill (between the
     // rounded left end / left hairline and the hairline / rounded right end) for every amount of
@@ -844,8 +980,10 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // The peek strip (docks[].peekPx with auto-hide): hidden, the bar's far side stays this far on
     // screen (at peekOpacity) instead of the whole dock sliding off.
     // (Only used while hidden, so it does not depend on the auto-hide mode.)
-    l.peek = d.peekPx > 0 ? std::min(std::round(static_cast<float>(d.peekPx) * s), barH) : 0.0f;
+    l.peek = d.peekPx > 0 && !polar ? std::min(std::round(static_cast<float>(d.peekPx) * s), barH) : 0.0f;
     l.hiddenSlide = l.peek > 0.0f ? l.stageCross - l.peek - l.bar.top : l.slide;
+    // An arc slides into its edge: its outer radius and a little; a circle shrinks to its hub.
+    if (polar) l.slide = l.hiddenSlide = std::ceil(l.ringOut) + 2.0f;
 
     const DockGeometry::Viewport& ov = layout_.view;
     if (ov.on != l.view.on || ov.start != l.view.start || ov.end != l.view.end || ov.fade != l.view.fade ||
@@ -865,6 +1003,12 @@ RECT DockWindow::StageToScreen(float u0, float v0, float u1, float v1, bool oute
 }
 
 RECT DockWindow::HiddenRect() const {
+    // A hidden circle is its hub (the ring shrunk about its centre); hovering the hub reveals it.
+    if (layout_.shape == DockShape::Circle && layout_.polar.on) {
+        const D2D1_RECT_F& h = layout_.hub;
+        return RECT{layout_.window.left + static_cast<LONG>(std::floor(h.left)), layout_.window.top + static_cast<LONG>(std::floor(h.top)),
+                    layout_.window.left + static_cast<LONG>(std::ceil(h.right)), layout_.window.top + static_cast<LONG>(std::ceil(h.bottom))};
+    }
     // The peek strip: the part of the bar left on screen (drawn at peekOpacity); hovering it reveals.
     if (layout_.peek > 0.0f) {
         const Layout& l = layout_;
@@ -886,6 +1030,13 @@ RECT DockWindow::DesiredRect() const {
     const Layout& l = layout_;
     if (hideState_ == HideState::Hidden) return HiddenRect();
     if (expanded_) return l.window;
+    if (l.polar.on) {
+        // A ring at rest (and an arc sliding into its edge) is its band's box; the window region
+        // (UpdateWindowRegion) leaves the hole inside it to the windows below.
+        const D2D1_RECT_F& r = l.ring;
+        return RECT{l.window.left + static_cast<LONG>(std::floor(r.left)), l.window.top + static_cast<LONG>(std::floor(r.top)),
+                    l.window.left + static_cast<LONG>(std::ceil(r.right)), l.window.top + static_cast<LONG>(std::ceil(r.bottom))};
+    }
     // Only the bar is interactive at rest: the transparent room above and beside it must not
     // swallow clicks meant for the windows below. While sliding, the bar travels through the edge
     // margin, so the rect extends to the screen edge (the stage's edge side).
@@ -903,7 +1054,7 @@ RECT DockWindow::DesiredRect() const {
 HRESULT DockWindow::DrawCanonical(Layer& layer, float main, float cross,
                                   const std::function<void(ID2D1DeviceContext*)>& draw) {
     const D2D1_SIZE_F size = layout_.PhysSize(main, cross);
-    const DockEdge edge = layout_.edge;
+    const DockEdge edge = layout_.DrawEdge();  // a ring's surfaces are upright (as for a bottom dock)
     return renderer_.DrawLayer(layer, static_cast<UINT>(size.width), static_cast<UINT>(size.height),
                                [&](ID2D1DeviceContext* dc) {
                                    D2D1_MATRIX_3X2_F old;
@@ -918,8 +1069,26 @@ PopupAnchor DockWindow::PopupAnchorAt(float anchor) const {
     // Centred on the slot along the edge, kPreviewGap beyond l.popupY (the stage's far side on a
     // horizontal dock), away from the edge.
     const Layout& l = layout_;
-    const D2D1_POINT_2F p = l.Phys(anchor, l.popupY);
     const int gap = static_cast<int>(std::lround(kPreviewGap * l.scale));
+    if (l.polar.on) {
+        // Outward from the ring at the slot's angle, beyond a magnified icon: the side the outward
+        // direction mostly points to (up: the popup opens above, as over a bottom dock; right:
+        // beside it, as for a left dock ...), centred on the slot there; PopupWindow keeps it on the
+        // work area.
+        const D2D1_POINT_2F o = l.polar.Outward(anchor);
+        const D2D1_POINT_2F p = l.polar.Point(anchor, l.magTop);
+        PopupAnchor a;
+        const bool across = std::fabs(o.x) > std::fabs(o.y);
+        a.edge = across ? (o.x > 0.0f ? DockEdge::Left : DockEdge::Right) : (o.y < 0.0f ? DockEdge::Bottom : DockEdge::Top);
+        const int px = l.window.left + static_cast<int>(std::lround(p.x)), py = l.window.top + static_cast<int>(std::lround(p.y));
+        a.along = across ? py : px;
+        a.side = (across ? px : py) + static_cast<int>(DockGeometry::OutwardSign(a.edge)) * -gap;
+        // Diagonal: the popup's near corner at the slot, the popup wholly on the outward side.
+        const float main = across ? o.y : o.x, cross = std::max(0.05f, std::fabs(across ? o.x : o.y));
+        a.alongBias = std::clamp(main / cross, -1.0f, 1.0f);
+        return a;
+    }
+    const D2D1_POINT_2F p = l.Phys(anchor, l.popupY);
     PopupAnchor a;
     a.edge = l.edge;
     a.along = (l.vertical ? l.window.top : l.window.left) + static_cast<int>(std::lround(l.vertical ? p.y : p.x));
@@ -931,10 +1100,42 @@ PopupAnchor DockWindow::PopupAnchorAt(float anchor) const {
 void DockWindow::ApplyStageTransform() {
     // Stage point p is client point p - (winRect_ origin - stage origin). A static transform on
     // the root; the auto-hide slide (root OffsetY) adds on top of it.
-    if (IDCompositionVisual2* root = renderer_.Root()) {
-        root->SetTransform(D2D1::Matrix3x2F::Translation(static_cast<float>(layout_.window.left - winRect_.left),
-                                                         static_cast<float>(layout_.window.top - winRect_.top)));
+    IDCompositionVisual2* root = renderer_.Root();
+    if (!root) return;
+    const float dx = static_cast<float>(layout_.window.left - winRect_.left);
+    const float dy = static_cast<float>(layout_.window.top - winRect_.top);
+    IDCompositionDesktopDevice* dcomp = renderer_.DComp();
+    if (layout_.shape == DockShape::Circle && layout_.polar.on && dcomp) {
+        // A circle: scale about its centre (its hub when hidden, ApplyRootPose), then the stage
+        // translation.
+        if (!rootScale_ || !rootTranslate_) {
+            winrt::com_ptr<IDCompositionScaleTransform> scale;
+            winrt::com_ptr<IDCompositionTranslateTransform> translate;
+            winrt::com_ptr<IDCompositionTransform> group;
+            if (SUCCEEDED(dcomp->CreateScaleTransform(scale.put())) && SUCCEEDED(dcomp->CreateTranslateTransform(translate.put()))) {
+                IDCompositionTransform* parts[] = {scale.get(), translate.get()};
+                if (SUCCEEDED(dcomp->CreateTransformGroup(parts, 2, group.put())) && SUCCEEDED(root->SetTransform(group.get()))) {
+                    rootScale_ = std::move(scale);
+                    rootTranslate_ = std::move(translate);
+                    rootScaleT_ = Tween{1.0f, 1.0f, Renderer::Now(), 0.0, true};
+                    rootY_.valid = false;  // the pose is applied again (to the new transform)
+                }
+            }
+        }
+        if (rootScale_ && rootTranslate_) {
+            rootScale_->SetCenterX(layout_.polar.cx);
+            rootScale_->SetCenterY(layout_.polar.cy);
+            rootTranslate_->SetOffsetX(dx);
+            rootTranslate_->SetOffsetY(dy);
+            return;
+        }
     }
+    if (rootScale_) {
+        rootScale_ = nullptr;
+        rootTranslate_ = nullptr;
+        rootScaleT_.valid = false;
+    }
+    root->SetTransform(D2D1::Matrix3x2F::Translation(dx, dy));
 }
 
 void DockWindow::ApplyWindowPos() {
@@ -955,6 +1156,7 @@ void DockWindow::ApplyWindowPos() {
     }
     SetWindowPos(hwnd_, HWND_TOPMOST, r.left, r.top, r.right - r.left, r.bottom - r.top,
                  SWP_NOACTIVATE | SWP_NOOWNERZORDER | keepOrder);
+    UpdateWindowRegion();
 }
 
 void DockWindow::UpdateWindowRect() {
@@ -971,6 +1173,7 @@ void DockWindow::UpdateWindowRect() {
     });
     SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                  SWP_NOACTIVATE | SWP_NOZORDER | SWP_NOOWNERZORDER | SWP_NOREDRAW);
+    UpdateWindowRegion();
     // A resize under the cursor may end the leave tracking without a WM_MOUSELEAVE: re-arm it.
     if (trackingMouse_) {
         TRACKMOUSEEVENT cancel{sizeof(cancel), TME_LEAVE | TME_CANCEL, hwnd_, 0};
@@ -1034,7 +1237,7 @@ void DockWindow::LayoutPass() {
     // Stage coordinates changed: place everything without animation. With the same geometry
     // (e.g. pins reordered) the running placement animations stay valid and are retargeted.
     const Layout& l = layout_;
-    if (old.edge != l.edge && renderer_.Root()) {
+    if ((old.edge != l.edge || old.shape != l.shape) && renderer_.Root()) {
         // Another edge: the slide and the launch bounces move along the other axis now. Start
         // from a clean pose (DrawFrame re-applies the root's; bounces stop where they are).
         renderer_.Root()->SetOffsetX(0.0f);
@@ -1046,7 +1249,8 @@ void DockWindow::LayoutPass() {
             item.bounce = DockItem::Bounce::None;
         }
     }
-    if (old.edge != l.edge || !EqualRect(&old.window, &l.window) || old.scale != l.scale || old.bar.left != l.bar.left ||
+    if (old.edge != l.edge || old.shape != l.shape || old.polar.R != l.polar.R || old.polar.cx != l.polar.cx ||
+        old.polar.cy != l.polar.cy || !EqualRect(&old.window, &l.window) || old.scale != l.scale || old.bar.left != l.bar.left ||
         old.bar.top != l.bar.top || old.bar.right != l.bar.right || old.bar.bottom != l.bar.bottom ||
         old.itemsLeft != l.itemsLeft || old.iconPx != l.iconPx || old.gap != l.gap || old.growMax != l.growMax ||
         old.itemsW != l.itemsW) {
@@ -1124,6 +1328,12 @@ HRESULT DockWindow::CreateLayers() {
     snapPending_ = true;
     rootY_.valid = false;
     rootOpacity_.valid = false;
+    rootScale_ = nullptr;  // the circle's root transform belonged to the old root
+    rootTranslate_ = nullptr;
+    rootScaleT_.valid = false;
+    ringShown_ = false;
+    bgRing_ = false;
+    for (DockItem& item : items_) item.turn = 0.0f;
     return hr;
 }
 
@@ -1169,6 +1379,53 @@ HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
 
 HRESULT DockWindow::RenderBackground() {
     const Layout& l = layout_;
+    if (l.polar.on) {
+        // A ring / half ring in the theme's fill, its edges the hairlines (no glass shelf, no seam:
+        // one static surface the ring's box large).
+        const ThemeConfig& theme = DockTheme();
+        const float x0 = std::floor(l.ring.left), y0 = std::floor(l.ring.top);
+        const UINT w = static_cast<UINT>(std::ceil(l.ring.right) - x0), h = static_cast<UINT>(std::ceil(l.ring.bottom) - y0);
+        const float stroke = std::max(1.0f, std::round(l.scale));
+        const D2D1_COLOR_F fill = Theme::ToColor(acrylic_ ? theme.acrylicBackground : theme.background);
+        DockGeometry::Polar p = l.polar;
+        p.cx -= x0;
+        p.cy -= y0;
+        const HRESULT hr = renderer_.DrawLayer(bgLeft_, w, h, [&](ID2D1DeviceContext* dc) {
+            winrt::com_ptr<ID2D1PathGeometry> geo;
+            winrt::com_ptr<ID2D1GeometrySink> sink;
+            if (FAILED(renderer_.D2DFactory()->CreatePathGeometry(geo.put())) || FAILED(geo->Open(sink.put()))) return;
+            sink->SetFillMode(D2D1_FILL_MODE_ALTERNATE);
+            const float a0 = p.Angle(0.0f), a1 = p.Angle(l.bar.right);
+            const int steps = std::clamp(static_cast<int>(std::ceil(std::fabs(a1 - a0) / (kPi / 180.0f))), 8, 1440);
+            const bool full = l.shape == DockShape::Circle;
+            for (int ring = 0; ring < 2; ++ring) {
+                // The outer edge, then (a half ring) the inner one back, or (a circle) a loop of its own.
+                const float r = ring == 0 ? l.ringOut - stroke / 2.0f : l.ringIn + stroke / 2.0f;
+                for (int i = 0; i <= steps; ++i) {
+                    const int k = ring == 0 || full ? i : steps - i;
+                    const float a = a0 + (a1 - a0) * static_cast<float>(k) / static_cast<float>(steps);
+                    const D2D1_POINT_2F pt = D2D1::Point2F(p.cx + r * std::cos(a), p.cy - r * std::sin(a));
+                    if (i == 0 && (ring == 0 || full)) {
+                        sink->BeginFigure(pt, D2D1_FIGURE_BEGIN_FILLED);
+                    } else {
+                        sink->AddLine(pt);
+                    }
+                }
+                if (full || ring == 1) sink->EndFigure(D2D1_FIGURE_END_CLOSED);
+            }
+            if (FAILED(sink->Close())) return;
+            winrt::com_ptr<ID2D1SolidColorBrush> brush;
+            if (FAILED(dc->CreateSolidColorBrush(fill, brush.put()))) return;
+            dc->FillGeometry(geo.get(), brush.get());
+            brush->SetColor(Theme::ToColor(theme.barBorder));
+            dc->DrawGeometry(geo.get(), brush.get(), stroke);
+        });
+        if (FAILED(hr)) return hr;
+        bgSeparators_[0] = l.separatorX;
+        bgSeparators_[1] = l.leftSeparatorX;
+        bgLeftX_.valid = false;  // placed again
+        return S_OK;
+    }
     const UINT w = static_cast<UINT>(l.bgSurfaceW);
     const UINT h = static_cast<UINT>(l.bar.bottom - l.bar.top);
     const ThemeConfig& theme = DockTheme();
@@ -1573,7 +1830,7 @@ void DockWindow::ApplyPerspective() {
     Layer* targets[] = {&bgLeftClip_, &bgRightClip_, &widgetsGroup_, &itemsGroup_};
     const ThemeConfig& t = DockTheme();
     IDCompositionDesktopDevice* dcomp = renderer_.DComp();
-    const bool want = t.perspective && t.perspectiveAngle > 0.0f && dcomp;
+    const bool want = t.perspective && t.perspectiveAngle > 0.0f && dcomp && !layout_.polar.on;  // not on a ring
     if (!want) {
         if (perspectiveApplied_) {
             for (Layer* layer : targets) {
@@ -2073,16 +2330,17 @@ void DockWindow::ApplyReflectionClip() {
     // axis.
     if (!itemsGroup_.visual) return;
     const Layout& l = layout_;
-    const float u0 = l.view.on ? l.view.clipStart : -1e5f;
-    const float u1 = l.view.on ? l.view.clipEnd : 1e5f;
-    if (layout_.reflClip || l.view.on) {
+    const bool clipMain = l.view.on && !l.polar.on;  // a ring's sectors cannot be cut by a rectangle
+    const float u0 = clipMain ? l.view.clipStart : -1e5f;
+    const float u1 = clipMain ? l.view.clipEnd : 1e5f;
+    if (layout_.reflClip || clipMain) {
         renderer_.SetClip(itemsGroup_, l.PhysRect(u0, -1e5f, u1, l.reflClip ? l.bar.bottom : 1e5f));
     } else if (itemsGroup_.clip) {
         itemsGroup_.visual->SetClip(nullptr);
         itemsGroup_.clip = nullptr;
     }
     if (!widgetsGroup_.visual) return;
-    if (l.view.on) {
+    if (clipMain) {
         renderer_.SetClip(widgetsGroup_, l.PhysRect(u0, -1e5f, u1, 1e5f));
     } else if (widgetsGroup_.clip) {
         widgetsGroup_.visual->SetClip(nullptr);
@@ -2174,6 +2432,8 @@ bool DockWindow::ScrollCommand(UINT cmd, int arg) {
         if (hideState_ != HideState::Shown || dragPhase_ != DragPhase::None) return false;
         magnifying_ = true;
         cursorX_ = static_cast<float>(arg);
+        const int slot = SlotAt(cursorX_);
+        SetHover(slot >= 0 && !items_[static_cast<size_t>(slot)].IsWidget() ? slot : -1);  // the label follows
         ApplyMagnify();
         return true;
     }
@@ -2368,8 +2628,8 @@ void DockWindow::PlaceScrollThumb(double duration) {
 }
 
 void DockWindow::ShowScrollHint() {
-    // Called inside a RenderWithRecovery step (the caller commits).
-    if (!layout_.view.on || FAILED(RenderScrollThumb()) || !scrollThumb_.visual) return;
+    // Called inside a RenderWithRecovery step (the caller commits). A ring has no thumb.
+    if (!layout_.view.on || layout_.polar.on || FAILED(RenderScrollThumb()) || !scrollThumb_.visual) return;
     if (!hintShown_) {
         hintShown_ = true;
         thumbMain_.valid = false;
@@ -2402,6 +2662,134 @@ void DockWindow::OnScrollHintTimer() {
         }
         return S_OK;
     });
+}
+
+// --- Rings (docks[].shape "arc" / "circle", DockGeometry::Polar) -------------------------------
+
+namespace {
+// The band of a ring sector [0, arcLen] between radii rIn and rOut as a polygon (2 degree steps;
+// a full circle: the outer loop, then the inner one backwards, filled even-odd), offset by (ox, oy).
+std::vector<POINT> RingPolygon(const DockGeometry::Polar& p, float arcLen, float rIn, float rOut, float ox, float oy) {
+    const float a0 = p.Angle(0.0f), a1 = p.Angle(arcLen);
+    const int steps = std::clamp(static_cast<int>(std::ceil(std::fabs(a1 - a0) / (kPi / 90.0f))), 8, 720);
+    std::vector<POINT> pts;
+    pts.reserve(2 * static_cast<size_t>(steps) + 2);
+    for (int i = 0; i <= steps; ++i) {
+        const float a = a0 + (a1 - a0) * static_cast<float>(i) / static_cast<float>(steps);
+        pts.push_back(POINT{std::lround(p.cx + ox + rOut * std::cos(a)), std::lround(p.cy + oy - rOut * std::sin(a))});
+    }
+    for (int i = steps; i >= 0; --i) {
+        const float a = a0 + (a1 - a0) * static_cast<float>(i) / static_cast<float>(steps);
+        pts.push_back(POINT{std::lround(p.cx + ox + rIn * std::cos(a)), std::lround(p.cy + oy - rIn * std::sin(a))});
+    }
+    return pts;
+}
+
+HRGN RingRegion(const DockGeometry::Polar& p, float arcLen, float rIn, float rOut, float ox, float oy) {
+    const std::vector<POINT> pts = RingPolygon(p, arcLen, rIn, rOut, ox, oy);
+    return CreatePolygonRgn(pts.data(), static_cast<int>(pts.size()), ALTERNATE);
+}
+}  // namespace
+
+RECT DockWindow::RingScreenRect() const {
+    const Layout& l = layout_;
+    return RECT{l.window.left + static_cast<LONG>(std::floor(l.ring.left)), l.window.top + static_cast<LONG>(std::floor(l.ring.top)),
+                l.window.left + static_cast<LONG>(std::ceil(l.ring.right)), l.window.top + static_cast<LONG>(std::ceil(l.ring.bottom))};
+}
+
+void DockWindow::UpdateWindowRegion() {
+    if (!hwnd_) return;
+    const Layout& l = layout_;
+    const bool want = l.polar.on && !expanded_ && hideState_ == HideState::Shown;
+    if (!want) {
+        if (regionSet_) SetWindowRgn(hwnd_, nullptr, FALSE);
+        regionSet_ = false;
+        return;
+    }
+    HRGN rgn = RingRegion(l.polar, l.bar.right, l.ringIn - 1.0f, l.ringOut + 1.0f,
+                          static_cast<float>(l.window.left - winRect_.left), static_cast<float>(l.window.top - winRect_.top));
+    if (rgn && SetWindowRgn(hwnd_, rgn, FALSE)) {
+        regionSet_ = true;  // the system owns the region now
+    } else if (rgn) {
+        DeleteObject(rgn);
+    }
+}
+
+void DockWindow::ApplyIconTurn(DockItem& item) {
+    // About the icon box's centre; the magnified-size surface keeps its scale to the rest size.
+    const float w = BoxW(item), h = layout_.iconPx;
+    const D2D1_POINT_2F c = D2D1::Point2F(w / 2.0f, h / 2.0f);
+    const D2D1_MATRIX_3X2_F turn = D2D1::Matrix3x2F::Rotation(item.turn, c);
+    renderer_.SetStaticTransform(item.icon, turn);
+    if (item.iconBig.width > 0 && w > 0.0f) {
+        const float k = static_cast<float>(item.iconBig.width) / w;
+        renderer_.SetStaticTransform(item.iconBig, D2D1::Matrix3x2F::Scale(1.0f / k, 1.0f / k) * turn);
+    }
+}
+
+void DockWindow::PlaceOnRing(DockItem& item, double now, bool fresh) {
+    const Layout& l = layout_;
+    const DockGeometry::Polar& p = l.polar;
+    const float w = BoxW(item), h = BoxCross(item);
+    const float vc = item.y + h / 2.0f;              // the box's centre line (the icons': the ring's radius)
+    const float vDot = l.dotTop + l.dotCenterY;      // the dots: inside the ring, toward its centre
+    const Tween& t = item.tx;
+    IDCompositionVisual2* widget = item.IsWidget() ? item.layer.visual.get() : nullptr;
+    IDCompositionTranslateTransform* translate = widget ? nullptr : item.layer.translate.get();
+    IDCompositionVisual2* dot = widget ? nullptr : item.dot.visual.get();
+    if (fresh && !widget) {
+        // Scale about the side facing the centre, so a magnified icon grows outward; turned with
+        // rotateIcons (its top facing outward). Both for the angle it is placed at.
+        const float uc = t.to + w / 2.0f;
+        const D2D1_POINT_2F o = p.Outward(uc);
+        renderer_.EnsurePlacement(item.layer, w / 2.0f - o.x * h / 2.0f, h / 2.0f - o.y * h / 2.0f);
+        if (item.dotShift.x != 0.0f || item.dotShift.y != 0.0f) {
+            renderer_.SetStaticTransform(item.dot, D2D1::Matrix3x2F::Identity());
+            item.dotShift = D2D1_POINT_2F{};
+        }
+        const float turn = l.rotateIcons ? 90.0f - p.Angle(uc) * 180.0f / kPi : 0.0f;
+        if (turn != item.turn) {
+            item.turn = turn;
+            ApplyIconTurn(item);
+        }
+    }
+    // Along the arc: each coordinate is a sampled curve of the slot's u curve (short moves: one
+    // piece; a long glide around the ring: up to 8).
+    const bool running = t.Running(now);
+    const bool linear = t.easing == Easing::Linear;
+    const int pieces = std::clamp(static_cast<int>(std::ceil(std::fabs(t.to - t.from) / p.R / (kPi / 16.0f))), 1, 8);
+    auto drive = [&](auto&& f, auto&& setter) {
+        if (!running) {
+            setter(f(t.to));
+            return;
+        }
+        DockGeometry::CubicSegment segs[8];
+        const int n = DockGeometry::PathSegments(t.from, t.to, t.duration, linear, now - t.start, pieces, f, segs, 8);
+        winrt::com_ptr<IDCompositionAnimation> anim = renderer_.CreateAnimation();
+        if (!anim) {
+            setter(f(t.to));
+            return;
+        }
+        for (int i = 0; i < n; ++i) anim->AddCubic(segs[i].begin, segs[i].c0, segs[i].c1, segs[i].c2, segs[i].c3);
+        anim->End(std::max(0.0, t.duration - (now - t.start)), f(t.to));
+        setter(anim.get());
+    };
+    auto boxX = [&](float u) { return p.Point(u + w / 2.0f, vc).x - w / 2.0f; };
+    auto boxY = [&](float u) { return p.Point(u + w / 2.0f, vc).y - h / 2.0f; };
+    if (widget) {
+        drive(boxX, [&](auto v) { return widget->SetOffsetX(v); });
+        drive(boxY, [&](auto v) { return widget->SetOffsetY(v); });
+        return;
+    }
+    if (translate) {
+        drive(boxX, [&](auto v) { return translate->SetOffsetX(v); });
+        drive(boxY, [&](auto v) { return translate->SetOffsetY(v); });
+    }
+    if (dot) {
+        const float dw = l.iconPx, dh = static_cast<float>(l.dotHeight);
+        drive([&](float u) { return p.Point(u + w / 2.0f, vDot).x - dw / 2.0f; }, [&](auto v) { return dot->SetOffsetX(v); });
+        drive([&](float u) { return p.Point(u + w / 2.0f, vDot).y - dh / 2.0f; }, [&](auto v) { return dot->SetOffsetY(v); });
+    }
 }
 
 void DockWindow::SetEdgeOpacity(DockItem& item, float value, IDCompositionAnimation* anim) {
@@ -2483,8 +2871,12 @@ HRESULT DockWindow::DrawFrame(bool all) {
                                                 static_cast<float>(static_cast<UINT>(layout_.bar.bottom - layout_.bar.top)));
     const D2D1_SIZE_F dotSize = layout_.PhysSize(static_cast<float>(static_cast<UINT>(layout_.iconPx)),
                                                  static_cast<float>(layout_.dotHeight));
-    if (all || bgLeft_.width != static_cast<UINT>(bgSize.width) || bgLeft_.height != static_cast<UINT>(bgSize.height) ||
-        bgSeparators_[0] != layout_.separatorX || bgSeparators_[1] != layout_.leftSeparatorX) {
+    const D2D1_SIZE_F ringSize = D2D1::SizeF(std::ceil(layout_.ring.right) - std::floor(layout_.ring.left),
+                                             std::ceil(layout_.ring.bottom) - std::floor(layout_.ring.top));
+    const D2D1_SIZE_F bgWant = layout_.polar.on ? ringSize : bgSize;
+    if (all || bgLeft_.width != static_cast<UINT>(bgWant.width) || bgLeft_.height != static_cast<UINT>(bgWant.height) ||
+        bgSeparators_[0] != layout_.separatorX || bgSeparators_[1] != layout_.leftSeparatorX || bgRing_ != layout_.polar.on) {
+        bgRing_ = layout_.polar.on;
         hr = RenderBackground();
     }
     if (SUCCEEDED(hr) && (all || dotSources_[0].width != static_cast<UINT>(dotSize.width) ||
@@ -2494,7 +2886,10 @@ HRESULT DockWindow::DrawFrame(bool all) {
     for (DockItem& item : items_) {
         if (FAILED(hr)) break;
         if (!item.layer.visual) hr = CreateItemVisuals(item);
-        if (SUCCEEDED(hr) && (all || item.dirty)) hr = RenderItem(item);
+        if (SUCCEEDED(hr) && (all || item.dirty)) {
+            hr = RenderItem(item);
+            if (SUCCEEDED(hr) && item.turn != 0.0f && !item.IsWidget()) ApplyIconTurn(item);  // rotateIcons
+        }
         if (SUCCEEDED(hr) && (all || item.dotDirty) && !item.IsWidget()) hr = RenderDot(item);  // widgets: no dot
         // Notification badges (only slots that show or showed one).
         if (SUCCEEDED(hr) && item.Magnifies() && (item.badgeDirty || (all && (item.badgeCount > 0 || item.badge.visual)))) {
@@ -2823,6 +3218,13 @@ void DockWindow::ComputeTargets() {
         const bool cell = hoverCell_ >= 0 && hoverCellSlot_ == hovered_;
         const float centre = h.targetX + (cell ? hoverCellCentre_ : BoxW(h) / 2.0f);
         const float iconTop = l.itemTop + l.iconPx * (1.0f - h.targetScale);
+        if (l.polar.on) {
+            // Outside the ring at the icon's angle, kLabelGap beyond the magnified icon.
+            const D2D1_POINT_2F c = l.polar.Outside(centre, iconTop - std::round(kLabelGap * l.scale), lw, lh);
+            labelXTarget_ = std::round(c.x - lw / 2.0f);
+            labelYTarget_ = std::round(c.y - lh / 2.0f);
+            return;
+        }
         const float u = std::round(std::clamp(centre - lw / 2.0f, 0.0f, std::max(0.0f, winW - lw)));
         const float v = std::round(std::max(0.0f, iconTop - std::round(kLabelGap * l.scale) - lh));
         const D2D1_RECT_F r = l.PhysRect(u, v, u + lw, v + lh);
@@ -2844,8 +3246,23 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
     const std::optional<Easing> easing = tracking ? std::optional<Easing>(Easing::EaseOut) : std::nullopt;
 
     // Main-axis positions are driven (x, or y on vertical docks); cross-axis ones are static,
-    // set after a snap (layout change) through CrossOrigin.
-    if (!bgLeftX_.valid) {
+    // set after a snap (layout change) through CrossOrigin. A ring's background is one static
+    // surface (it never grows).
+    if (l.polar.on) {
+        if (!bgLeftX_.valid && bgLeft_.visual) {
+            if (bgLeftClip_.clip) {
+                bgLeftClip_.visual->SetClip(nullptr);
+                bgLeftClip_.clip = nullptr;
+            }
+            bgLeft_.visual->SetOffsetX(std::floor(l.ring.left));
+            bgLeft_.visual->SetOffsetY(std::floor(l.ring.top));
+            if (bgRight_.visual) renderer_.SetVisible(bgRight_, false);
+            ringShown_ = true;
+            bgLeftX_ = bgRightX_ = Tween{0.0f, 0.0f, now, 0.0, true};
+        }
+    } else if (!bgLeftX_.valid) {
+        if (ringShown_ && bgRight_.visual) renderer_.SetVisible(bgRight_, true);  // after a ring
+        ringShown_ = false;
         // Static parts, re-applied after a snap (layout change) or a background redraw. The seam
         // clips the halves on the main axis.
         renderer_.SetClip(bgLeftClip_, l.vertical ? D2D1::RectF(-1e5f, -1e5f, 1e5f, l.seamX)
@@ -2856,12 +3273,12 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
         if (bgLeft_.visual) SetCrossOffset(bgLeft_.visual.get(), barCross);
         if (bgRight_.visual) SetCrossOffset(bgRight_.visual.get(), barCross);
     }
-    if (bgLeft_.visual) {
+    if (bgLeft_.visual && !l.polar.on) {
         renderer_.Drive(
             bgLeftX_, bgLeftTarget_, duration, now, [&](auto v) { return SetMainOffset(bgLeft_.visual.get(), v); },
             posEpsilon, easing);
     }
-    if (bgRight_.visual) {
+    if (bgRight_.visual && !l.polar.on) {
         renderer_.Drive(
             bgRightX_, bgRightTarget_, duration, now, [&](auto v) { return SetMainOffset(bgRight_.visual.get(), v); },
             posEpsilon, easing);
@@ -2880,6 +3297,42 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
     placedDriven_ = placedSkipped_ = 0;
     for (size_t index = 0; index < items_.size(); ++index) {
         DockItem& item = items_[index];
+        if (l.polar.on) {
+            // A ring: the slot's u follows its tween (bookkeeping), its visuals follow the ring.
+            if (!item.layer.visual || (!item.IsWidget() && (!item.layer.translate || !item.layer.scale))) continue;
+            if (scrolledOut(item)) {
+                const bool moved = renderer_.Track(item.tx, item.targetX, duration, now, posEpsilon, easing);
+                const bool scaled = renderer_.Track(item.ts, item.targetScale, duration, now, scaleEpsilon, easing);
+                if (moved || scaled) item.placementStale = true;
+                ++placedSkipped_;
+                continue;
+            }
+            const bool fresh = !item.tx.valid || item.placementStale;
+            const bool moved = renderer_.Track(item.tx, item.targetX, duration, now, posEpsilon, easing);
+            if (fresh || moved) PlaceOnRing(item, now, fresh);
+            if (!item.IsWidget()) {
+                IDCompositionScaleTransform* scale = item.layer.scale.get();
+                if (item.placementStale) {
+                    renderer_.Resume(item.ts, now, [&](auto v) {
+                        HRESULT hr = scale->SetScaleX(v);
+                        if (SUCCEEDED(hr)) hr = scale->SetScaleY(v);
+                        return hr;
+                    });
+                }
+                renderer_.Drive(
+                    item.ts, item.targetScale, duration, now,
+                    [&](auto v) {
+                        HRESULT hr = scale->SetScaleX(v);
+                        if (SUCCEEDED(hr)) hr = scale->SetScaleY(v);
+                        return hr;
+                    },
+                    scaleEpsilon, easing);
+            }
+            item.placementStale = false;
+            ++placedDriven_;
+            DriveEdgeFade(item, index, now);
+            continue;
+        }
         if (item.IsWidget() && item.layer.visual) {
             // A widget: the visual's own offsets. Its height can change without a snap (the first
             // weather data arriving): follow it here.
@@ -2968,9 +3421,17 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
         if (gap < items_.size() && !items_[gap].IsWidget()) gapLeft += items_[gap].lead;
         const float markerMain = static_cast<float>(l.vertical ? marker_.height : marker_.width);
         const float x = gapLeft + std::floor(l.gap / 2.0f) + std::round((l.iconPx - markerMain) / 2.0f);
-        if (!markerX_.valid) SetCrossOffset(marker_.visual.get(), l.CrossOrigin(l.itemTop, l.iconPx));
-        renderer_.Drive(
-            markerX_, x, duration, now, [&](auto v) { return SetMainOffset(marker_.visual.get(), v); }, 0.01f, easing);
+        if (l.polar.on) {
+            // Upright, centred on the gap's place on the ring.
+            const D2D1_POINT_2F c = l.polar.Point(x + markerMain / 2.0f, l.itemTop + l.iconPx / 2.0f);
+            marker_.visual->SetOffsetX(std::round(c.x - static_cast<float>(marker_.width) / 2.0f));
+            marker_.visual->SetOffsetY(std::round(c.y - static_cast<float>(marker_.height) / 2.0f));
+            markerX_ = Tween{x, x, now, 0.0, true};
+        } else {
+            if (!markerX_.valid) SetCrossOffset(marker_.visual.get(), l.CrossOrigin(l.itemTop, l.iconPx));
+            renderer_.Drive(
+                markerX_, x, duration, now, [&](auto v) { return SetMainOffset(marker_.visual.get(), v); }, 0.01f, easing);
+        }
     }
 
     if (labelShown_ && label_.visual) {
@@ -3078,7 +3539,8 @@ bool DockWindow::InZone(POINT pt) const {
     const float y = c.y;
     if (x < l.bar.left || x >= l.bar.right) return false;
     const float top = magnifying_ ? std::min(l.magTop, l.bar.top) : l.bar.top;
-    return y >= top && y < l.stageCross;
+    // A ring: its band (and the magnified icons beyond it); its hole is not the dock.
+    return y >= top && y < (l.polar.on ? l.bar.bottom : l.stageCross);
 }
 
 bool DockWindow::CursorInZone() const {
@@ -3309,9 +3771,8 @@ void DockWindow::ShowPreview(int index, bool keepAnchor) {
     style.closeHover = theme.closeHover;
     style.cornerRadiusDip = theme.cornerRadius;
     style.monitor = l.work;
-    if (!keepAnchor) previewAnchor_ = PopupAnchorAt(item.targetX + BoxW(item) / 2.0f).along;
-    PopupAnchor anchor = PopupAnchorAt(0.0f);
-    anchor.along = previewAnchor_;
+    if (!keepAnchor) previewAnchor_ = PopupAnchorAt(item.targetX + BoxW(item) / 2.0f);
+    const PopupAnchor anchor = previewAnchor_;
     const AppKey key = item.key;
     const HWND window = item.window;
     if (!preview_.Show(content, style, anchor)) {
@@ -3922,7 +4383,7 @@ void DockWindow::OnWidgetPopupRequests() {
                 }
                 DismissClickPopups(false, false);
                 const DockItem& item = items_[static_cast<size_t>(slot)];
-                previewAnchor_ = PopupAnchorAt(item.x + item.slotW / 2.0f).along;
+                previewAnchor_ = PopupAnchorAt(item.x + item.slotW / 2.0f);
                 ShowPreview(app, true);
                 if (preview_.Visible()) previewOpener_ = key;
                 break;
@@ -4022,7 +4483,7 @@ void DockWindow::UpdateAcrylic() {
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
     if (acrylic_) {
-        acrylicRadiusDip_ = backdrop_.SetCornerRadius(DockCfg().fullWidth ? 0.0f : DockTheme().cornerRadius);
+        acrylicRadiusDip_ = backdrop_.SetCornerRadius(DockCfg().fullWidth || DockCfg().Polar() ? 0.0f : DockTheme().cornerRadius);
         return;
     }
     if (backdropPending_) {
@@ -4054,7 +4515,7 @@ void DockWindow::SyncBackdrop() {
         // The slide is a physical offset on the cross axis (signed: toward the edge).
         const float dy = value(rootY_, shown ? 0.0f : DockGeometry::OutwardSign(l.edge) * l.hiddenSlide);
         D2D1_RECT_F p = l.PhysRect(left, l.bar.top, right, l.bar.bottom);
-        if (l.vertical) {
+        if (IsVertical(l.edge)) {
             p.left += dy;
             p.right += dy;
         } else {
@@ -4079,6 +4540,31 @@ void DockWindow::SyncBackdrop() {
         r.top = std::max(r.top, l.monitor.top);
         r.bottom = std::min(r.bottom, l.monitor.bottom);
         if (r.right <= r.left || r.bottom <= r.top) r = RECT{};
+    }
+    if (l.polar.on) {
+        // A ring: the blur window is the ring's box (an arc sliding with it into its edge; a circle
+        // without blur while it shrinks to its hub), cut to the band by a window region.
+        r = RECT{};
+        const bool still = hideState_ == HideState::Shown || (l.shape == DockShape::Arc && hideState_ != HideState::Hidden);
+        if (still && IsWindowVisible(hwnd_)) {
+            r = RingScreenRect();
+            const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
+            const LONG d = std::lround(value(rootY_, shown ? 0.0f : DockGeometry::OutwardSign(l.edge) * l.hiddenSlide));
+            if (IsVertical(l.edge)) OffsetRect(&r, d, 0); else OffsetRect(&r, 0, d);
+            RECT cut{};
+            if (!IntersectRect(&cut, &r, &l.monitor)) cut = RECT{};
+            if (!EqualRect(&cut, &backdropRegion_) && backdrop_.Hwnd()) {
+                backdropRegion_ = cut;
+                HRGN rgn = RingRegion(l.polar, l.bar.right, l.ringIn, l.ringOut,
+                                      static_cast<float>(l.window.left - cut.left), static_cast<float>(l.window.top - cut.top + (IsVertical(l.edge) ? 0 : d)));
+                if (IsVertical(l.edge) && rgn) OffsetRgn(rgn, d, 0);
+                if (rgn && !SetWindowRgn(backdrop_.Hwnd(), rgn, TRUE)) DeleteObject(rgn);
+            }
+            r = cut;
+        }
+    } else if (backdropRegion_.right > backdropRegion_.left && backdrop_.Hwnd()) {
+        SetWindowRgn(backdrop_.Hwnd(), nullptr, TRUE);  // a bar again
+        backdropRegion_ = RECT{};
     }
     backdrop_.Place(hwnd_, r);
     if (animating && !backdropPending_) {
@@ -4188,6 +4674,7 @@ void DockWindow::StartHide() {
         return S_OK;
     });
     SetTimer(hwnd_, kSlideTimerId, TimerMs(duration + 0.02), nullptr);
+    UpdateWindowRegion();  // a ring: no band region while it moves
 }
 
 void DockWindow::StartShow() {
@@ -4207,6 +4694,7 @@ void DockWindow::StartShow() {
         return S_OK;
     });
     SetTimer(hwnd_, kSlideTimerId, TimerMs(duration + 0.02), nullptr);
+    UpdateWindowRegion();  // a ring: no band region while it moves
 }
 
 void DockWindow::OnSlideTimer() {
@@ -4236,6 +4724,7 @@ void DockWindow::OnSlideTimer() {
         SyncBackdrop();      // hideStyle "fade": the blur comes back now
         if (!onDock) LeaveZone();  // revealed but the mouse is not on the dock
     }
+    UpdateWindowRegion();  // a ring at rest again: its band
 }
 
 void DockWindow::OnRevealTimer() {
@@ -4276,7 +4765,7 @@ bool DockWindow::ForegroundOverlaps() const {
     // The bar's column from the resting bar's top to the screen edge (the edge margin included:
     // a window there sits between the bar and the reveal strip).
     const Layout& l = layout_;
-    const RECT dock = StageToScreen(l.bar.left, l.bar.top, l.bar.right, l.stageCross, true);
+    const RECT dock = l.polar.on ? RingScreenRect() : StageToScreen(l.bar.left, l.bar.top, l.bar.right, l.stageCross, true);
     RECT hit{};
     return IntersectRect(&hit, &r, &dock) != FALSE;
 }
@@ -4398,6 +4887,24 @@ double DockWindow::ApplyRootPose(double duration) {
     if (!rootY_.valid) ApplyStageTransform();  // a fresh root (device recovery)
     const HideStyle style = motion_.hide;
     if (style == HideStyle::None) duration = 0.0;
+    if (layout_.shape == DockShape::Circle && layout_.polar.on && rootScale_) {
+        // A circle does not slide: it shrinks about its centre to the hub (kept a little
+        // transparent) and grows back; the hidden window is the hub (HiddenRect).
+        const bool shown = hideState_ == HideState::Shown || hideState_ == HideState::Showing;
+        const double now = Renderer::Now();
+        rootY_ = Tween{0.0f, 0.0f, now, 0.0, true};
+        renderer_.Drive(rootScaleT_, shown ? 1.0f : layout_.hubScale, duration, now, [&](auto v) {
+            HRESULT hr = rootScale_->SetScaleX(v);
+            if (SUCCEEDED(hr)) hr = rootScale_->SetScaleY(v);
+            return hr;
+        }, 0.0005f, renderer_.FadeEasing());
+        if (IDCompositionVisual3* root3 = renderer_.Root3()) {
+            renderer_.Drive(
+                rootOpacity_, shown ? 1.0f : kHubOpacity, duration, now, [&](auto v) { return root3->SetOpacity(v); },
+                0.001f, renderer_.FadeEasing());
+        }
+        return duration;
+    }
     // With a peek strip the dock always moves to it (also with "fade").
     const bool peek = layout_.peek > 0.0f;
     const bool moves = style != HideStyle::Fade || peek;                     // slide, slideOnly, none
@@ -4428,7 +4935,9 @@ double DockWindow::ApplyRootPose(double duration) {
     }
     const double durationY = moves ? duration : 0.0;
     const double durationOpacity = fades ? duration : 0.0;
-    renderer_.Drive(rootY_, targetY, durationY, now, [&](auto v) { return SetCrossOffset(root, v); });
+    // The slide is on the edge's own axis (a ring is laid out horizontally whatever its edge).
+    const bool slideX = IsVertical(layout_.edge);
+    renderer_.Drive(rootY_, targetY, durationY, now, [&](auto v) { return slideX ? root->SetOffsetX(v) : root->SetOffsetY(v); });
     if (IDCompositionVisual3* root3 = renderer_.Root3()) {
         renderer_.Drive(
             rootOpacity_, targetOpacity, durationOpacity, now, [&](auto v) { return root3->SetOpacity(v); }, 0.001f,
@@ -4627,7 +5136,7 @@ D2D1_RECT_F DockWindow::SlotScreenBox(int slot) const {
     const DockItem& item = items_[static_cast<size_t>(slot)];
     // Widgets do not scale: their box is where the layout targets it now (it moves with the bar's
     // ends while the dock magnifies).
-    const D2D1_RECT_F r = layout_.PhysRect(item.targetX, item.y, item.targetX + BoxW(item), item.y + BoxCross(item));
+    const D2D1_RECT_F r = layout_.BoxRect(item.targetX, item.y, item.targetX + BoxW(item), item.y + BoxCross(item));
     const float x0 = static_cast<float>(layout_.window.left), y0 = static_cast<float>(layout_.window.top);
     return D2D1::RectF(x0 + r.left, y0 + r.top, x0 + r.right, y0 + r.bottom);
 }
@@ -6136,7 +6645,8 @@ void DockWindow::UpdateAppBar() {
     const DockConfig& d = DockCfg();
     // Any edge, full width or not; only a dock that does not auto-hide reserves space.
     // (Not on the desktop layer: that dock is only shown when no window is in the way.)
-    const bool wanted = hwnd_ && appBarAllowed_ && d.reserveSpace && !d.AutoHideOn() && d.layer == DockLayer::Normal;
+    const bool wanted = hwnd_ && appBarAllowed_ && d.reserveSpace && !d.AutoHideOn() && d.layer == DockLayer::Normal &&
+                        !d.Polar();  // a ring reserves no band (it does not span its edge)
     if (!wanted) {
         RemoveAppBar();
         return;
@@ -6256,6 +6766,7 @@ void DockWindow::BeginDockDrag() {
     dockPress_ = false;
     dockDrag_ = true;
     dockShift_ = 0;
+    dockShiftY_ = 0;
     dockZone_ = layout_.edge;
     pressed_ = -1;
     GetAsyncKeyState(VK_ESCAPE);  // clears the "pressed since the last call" bit
@@ -6287,16 +6798,37 @@ void DockWindow::UpdateDockDrag() {
     POINT pt{};
     if (!GetCursorPos(&pt)) return;
     Layout& l = layout_;
-    // Along the edge: follow the pointer, the bar kept on the monitor (a full-width bar stays).
+    if (l.shape == DockShape::Circle && l.polar.on) {
+        // A circle floats: it follows the pointer anywhere on its monitor (its ring kept on it).
+        const RECT ring = RingScreenRect();
+        const LONG x0 = ring.left - dockShift_, x1 = ring.right - dockShift_, y0 = ring.top - dockShiftY_, y1 = ring.bottom - dockShiftY_;
+        const LONG sx = std::clamp(pt.x - dockPressScreen_.x, std::min(0L, l.monitor.left - x0), std::max(0L, l.monitor.right - x1));
+        const LONG sy = std::clamp(pt.y - dockPressScreen_.y, std::min(0L, l.monitor.top - y0), std::max(0L, l.monitor.bottom - y1));
+        if (sx != dockShift_ || sy != dockShiftY_) {
+            OffsetRect(&l.window, sx - dockShift_, sy - dockShiftY_);
+            OffsetRect(&winRect_, sx - dockShift_, sy - dockShiftY_);
+            dockShift_ = sx;
+            dockShiftY_ = sy;
+            SetWindowPos(hwnd_, nullptr, winRect_.left, winRect_.top, 0, 0,
+                         SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+            SyncBackdrop();
+        }
+        return;
+    }
+    // Along the edge: follow the pointer, the bar kept on the monitor (a full-width bar stays). An
+    // arc: its box along the edge (its layout is horizontal whatever the edge).
+    const bool vertical = IsVertical(l.edge);
     const LONG mStart = DockGeometry::MainStart(l.edge, l.monitor), mEnd = DockGeometry::MainEnd(l.edge, l.monitor);
-    const LONG origin = (l.vertical ? l.window.top : l.window.left) - dockShift_;  // the stage before the drag
-    const LONG barStart = origin + static_cast<LONG>(l.bar.left), barEnd = origin + static_cast<LONG>(l.bar.right);
-    const LONG delta = l.vertical ? pt.y - dockPressScreen_.y : pt.x - dockPressScreen_.x;
+    const LONG origin = (vertical ? l.window.top : l.window.left) - dockShift_;  // the stage before the drag
+    const float lo = l.polar.on ? (vertical ? l.ring.top : l.ring.left) : l.bar.left;
+    const float hi = l.polar.on ? (vertical ? l.ring.bottom : l.ring.right) : l.bar.right;
+    const LONG barStart = origin + static_cast<LONG>(lo), barEnd = origin + static_cast<LONG>(hi);
+    const LONG delta = vertical ? pt.y - dockPressScreen_.y : pt.x - dockPressScreen_.x;
     const LONG shift = std::clamp(delta, std::min(0L, mStart - barStart), std::max(0L, mEnd - barEnd));
     if (shift != dockShift_) {
         const LONG d = shift - dockShift_;
-        OffsetRect(&l.window, l.vertical ? 0 : d, l.vertical ? d : 0);
-        OffsetRect(&winRect_, l.vertical ? 0 : d, l.vertical ? d : 0);
+        OffsetRect(&l.window, vertical ? 0 : d, vertical ? d : 0);
+        OffsetRect(&winRect_, vertical ? 0 : d, vertical ? d : 0);
         dockShift_ = shift;
         SetWindowPos(hwnd_, nullptr, winRect_.left, winRect_.top, 0, 0,
                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
@@ -6336,6 +6868,21 @@ void DockWindow::EndDockDrag(bool commit) {
     });
     const DockConfig& d = DockCfg();
     POINT pt{};
+    if (layout_.shape == DockShape::Circle && layout_.polar.on) {
+        // A circle: its centre, in DIPs from the work area's top-left.
+        const Layout& l = layout_;
+        if (!commit || !pinRequests_.moveCircle || (dockShift_ == 0 && dockShiftY_ == 0)) {
+            Relayout();
+            SetHold(false);
+            return;
+        }
+        const float cx = static_cast<float>(l.window.left) + l.polar.cx, cy = static_cast<float>(l.window.top) + l.polar.cy;
+        const int x = static_cast<int>(std::lround((cx - static_cast<float>(l.work.left)) / l.scale));
+        const int y = static_cast<int>(std::lround((cy - static_cast<float>(l.work.top)) / l.scale));
+        SetHold(false);
+        pinRequests_.moveCircle(x, y);
+        return;
+    }
     if (!commit || !pinRequests_.moveDock || !GetCursorPos(&pt)) {
         Relayout();  // back to where it was
         SetHold(false);
@@ -6352,11 +6899,18 @@ void DockWindow::EndDockDrag(bool commit) {
         const bool vertical = IsVertical(edge);
         const float s = l.scale;
         const LONG mStart = DockGeometry::MainStart(edge, l.monitor), mEnd = DockGeometry::MainEnd(edge, l.monitor);
-        const LONG len = static_cast<LONG>(l.bar.right - l.bar.left);  // on another edge it differs a little
+        // (An arc: its diameter is the bar, as ComputeLayoutAt places it.)
+        const LONG len = l.polar.on ? static_cast<LONG>(std::ceil(2.0f * l.ringOut))
+                                    : static_cast<LONG>(l.bar.right - l.bar.left);  // on another edge it differs a little
         const LONG slack = static_cast<LONG>(l.slack);
         const LONG margin = static_cast<LONG>(std::round(kBottomMargin * s));
         LONG start = (vertical ? pt.y : pt.x) - len / 2;
-        if (edge == l.edge) start = (l.vertical ? l.window.top : l.window.left) + static_cast<LONG>(l.bar.left);
+        if (edge == l.edge) {
+            const bool was = IsVertical(l.edge);
+            start = l.polar.on ? (was ? l.window.top : l.window.left) +
+                                     static_cast<LONG>(std::lround((was ? l.polar.cy : l.polar.cx) - static_cast<float>(len) / 2.0f))
+                               : (l.vertical ? l.window.top : l.window.left) + static_cast<LONG>(l.bar.left);
+        }
         start = std::clamp(start, mStart, std::max(mStart, mEnd - len));
         const LONG places[3] = {mStart + ((mEnd - mStart) - (len + 2 * slack)) / 2 + slack, mStart + margin,
                                 mEnd - margin - len};  // DockAlign order
@@ -6426,7 +6980,10 @@ LRESULT DockWindow::QueryItemPoint(WPARAM wp, LPARAM lp) const {
     const DockItem& item = items_[static_cast<size_t>(index)];
     // Rest layout, relative to the shown window position (also while hidden).
     const D2D1_POINT_2F c = layout_.Phys(item.x + BoxW(item) / 2.0f, item.y + BoxCross(item) / 2.0f);
-    POINT pt{layout_.window.left + static_cast<LONG>(c.x), layout_.window.top + static_cast<LONG>(c.y)};
+    // (A ring's points are rounded; a bar's truncated, as always.)
+    const LONG cx = layout_.polar.on ? std::lround(c.x) : static_cast<LONG>(c.x);
+    const LONG cy = layout_.polar.on ? std::lround(c.y) : static_cast<LONG>(c.y);
+    POINT pt{layout_.window.left + cx, layout_.window.top + cy};
     return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(pt.x), static_cast<WORD>(pt.y)));
 }
 
@@ -6808,6 +7365,40 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const DockItem& it = items_[static_cast<size_t>(lp)];
             return wp == 142 ? std::lround(it.targetX) : std::lround(it.targetScale * 1000.0f);
         }
+        // --- rings (round 4 phase 11b) ---
+        case 145:  // docks[].shape as laid out (0 bar, 1 arc, 2 circle)
+            return layout_.polar.on ? static_cast<LRESULT>(layout_.shape) : 0;
+        case 146:  // the ring's radius (px, the icons' centre line; 0: a bar)
+            return layout_.polar.on ? std::lround(layout_.polar.R) : 0;
+        case 147:    // slot lp's angle at rest (degrees x 10, 0 - 3599, 0 = right, counter-clockwise; -1: none / a bar)
+        case 149: {  // ... where it is targeted now (magnified / dragged)
+            if (!layout_.polar.on || lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            const DockItem& it = items_[static_cast<size_t>(lp)];
+            const float u = (wp == 147 ? it.x : it.targetX) + BoxW(it) / 2.0f;
+            float deg = layout_.polar.Angle(u) * 180.0f / kPi;
+            deg = std::fmod(deg, 360.0f);
+            if (deg < 0.0f) deg += 360.0f;
+            return std::lround(deg * 10.0f) % 3600;
+        }
+        case 148:  // the ring's centre on screen, MAKELONG(x, y) (-1: a bar)
+            if (!layout_.polar.on) return -1;
+            return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(layout_.window.left + std::lround(layout_.polar.cx)),
+                                                 static_cast<WORD>(layout_.window.top + std::lround(layout_.polar.cy))));
+        case 150:  // the ring's inner / outer radius (px): inner in the low word, outer in the high word
+            return layout_.polar.on ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(std::lround(layout_.ringIn)),
+                                                                    static_cast<WORD>(std::lround(layout_.ringOut))))
+                                    : 0;
+        case 151:  // slot lp's turn (rotateIcons; degrees x 10, clockwise; 0 upright)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return std::lround(items_[static_cast<size_t>(lp)].turn * 10.0f);
+        case 152:  // 1 while the window region is the ring's band
+            return regionSet_ ? 1 : 0;
+        case 153:  // the hover label's target place on screen, MAKELONG(x, y) of its top-left (-1: not shown)
+        case 154:  // ... its size, MAKELONG(width, height)
+            if (!labelShown_ || !label_.width) return -1;
+            if (wp == 154) return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(label_.width), static_cast<WORD>(label_.height)));
+            return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(layout_.window.left + std::lround(labelXTarget_)),
+                                                 static_cast<WORD>(layout_.window.top + std::lround(labelYTarget_))));
         case 144:  // the stage's screen coordinate along the main axis (stage main 0; QueryState 142, ItemCommand 834)
             return layout_.vertical ? layout_.window.top : layout_.window.left;
         case 141: {  // the edge-fade opacity x 100 of slot lp at rest (100: none; -1 no such slot)

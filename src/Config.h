@@ -1,5 +1,7 @@
 #pragma once
 
+#include <climits>
+
 #include <cstdint>
 #include <string>
 #include <string_view>
@@ -103,6 +105,10 @@ enum class ThumbnailMode { Off, Live, Snapshots };
 // wheel, a drag on the bar and edge fades), "shrink" (the icons get smaller until it fits, 16 DIP
 // at least) or "clip" (the run goes on past the monitor's end, as before round 4 phase 11).
 enum class OverflowMode { Scroll, Shrink, Clip };
+// The dock's shape (round 4 phase 11b): "bar" (default), "arc" (a half ring whose diameter lies
+// on the screen edge, the items along the arc) or "circle" (a full ring floating on the monitor at
+// x / y; it ignores the edge, alignment and offset).
+enum class DockShape { Bar, Arc, Circle };
 
 // Every field is listed in Theme::Fields() (Theme.h), which drives reading, writing and the UI.
 // The defaults are the built-in "dark" preset.
@@ -236,6 +242,17 @@ struct DockConfig {
     // Round 4 phase 11a: a run longer than the edge scrolls / shrinks / is clipped. Saved only when
     // not "scroll".
     OverflowMode overflow = OverflowMode::Scroll;
+    // Round 4 phase 11b: the shape, the ring's radius (DIPs to the icons' centre line; 0 = from the
+    // items so they do not overlap, else 60 - 2000, both kept on the monitor), icons turned with
+    // the ring (default upright), and a circle's centre in DIPs from its monitor's work area's
+    // top-left (kCentred: the work area's middle). Each is written only when not the default.
+    static constexpr int kCentred = INT_MIN;
+    DockShape shape = DockShape::Bar;
+    int radius = 0;
+    bool rotateIcons = false;
+    int x = kCentred;
+    int y = kCentred;
+    bool Polar() const { return shape != DockShape::Bar; }
 
     // Not saved: `themePreset` resolved (Config::ResolveDockThemes); ownTheme false = use the
     // global theme.
@@ -346,6 +363,8 @@ const wchar_t* ToString(ThumbnailMode v);
 bool FromString(std::wstring_view s, ThumbnailMode& v);
 const wchar_t* ToString(OverflowMode v);
 bool FromString(std::wstring_view s, OverflowMode& v);
+const wchar_t* ToString(DockShape v);
+bool FromString(std::wstring_view s, DockShape& v);
 const wchar_t* ToString(ItemView v);
 bool FromString(std::wstring_view s, ItemView& v);
 bool FromString(std::wstring_view s, WindowsMode& v);

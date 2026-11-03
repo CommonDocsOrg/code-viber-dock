@@ -504,8 +504,9 @@ sessions, not DND, and was not tried unpackaged), so the centre has no toggle.
 
 ## Phase 11: shapes and overflow
 
-Status: 11a (scrollable docks: `overflow` scroll / shrink / clip, the viewport transform in
-DockGeometry) done 2026-11-03; see STATUS.md.
+Status: done 2026-11-03: 11a (scrollable docks: `overflow` scroll / shrink / clip, the viewport
+transform in DockGeometry) and 11b (`shape` arc / circle: the polar mapping in DockGeometry,
+`radius`, `rotateIcons`, a circle at `x` / `y`); see STATUS.md.
 
 - Scrollable docks: when the items exceed the edge, the item run scrolls (wheel, drag, edge
   fade); magnification stays correct inside the viewport.

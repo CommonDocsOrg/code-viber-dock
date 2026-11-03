@@ -109,6 +109,14 @@ inline constexpr int kLayerCombo = 2165;  // 0 normal (above windows), 1 desktop
 // Round 4 phase 11a: docks[].overflow.
 inline constexpr int kOverflowLabel = 2166;
 inline constexpr int kOverflowCombo = 2167;  // 0 scroll, 1 shrink, 2 clip (OverflowMode order)
+// Round 4 phase 11b: docks[].shape / radius / rotateIcons.
+inline constexpr int kShapeLabel = 2168;
+inline constexpr int kShapeCombo = 2169;     // 0 bar, 1 half circle (arc), 2 circle (DockShape order)
+inline constexpr int kRadiusLabel = 2170;
+inline constexpr int kRadiusEdit = 2171;     // docks[].radius DIPs, 0 = automatic, 60 - 2000
+inline constexpr int kRadiusSpin = 2172;
+inline constexpr int kRotateIcons = 2173;    // check box (+ caption 2174)
+inline constexpr int kRotateIconsCaption = 2174;
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;

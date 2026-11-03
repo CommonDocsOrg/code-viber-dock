@@ -193,6 +193,15 @@ void App::SetUpDock(DockWindow& dock) {
     requests.unpinTray = [this, d](const std::wstring& key) { UnpinTray(d->ConfigIndex(), key); };
     requests.trayHide = [this, d](size_t item, const std::wstring& key, bool hide) { TrayHide(d->ConfigIndex(), item, key, hide); };
     requests.traySettings = [this] { OpenSettings(SettingsIds::kPageTray); };
+    requests.moveCircle = [this, d](int x, int y) {
+        const size_t cfg = d->ConfigIndex();
+        DockConfig& c = config_.docks[cfg];
+        c.x = x;
+        c.y = y;
+        docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyConfig(); });
+        RequestSave();
+        RefreshSettings();
+    };
     requests.moveDock = [this, d](DockEdge edge, DockAlign align, int offset) {
         const size_t cfg = d->ConfigIndex();
         DockConfig& c = config_.docks[cfg];

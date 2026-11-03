@@ -339,6 +339,49 @@ whole edge minus the padding). A dock that fits is not affected at all (same lay
 Settings > General > Position > **When the icons do not fit**. The key is written only when it is not
 `"scroll"`. Automation: `QueryState` 128 - 144, `ItemCommand` 831 - 834 (see Automation).
 
+**Shape: half circle and circle** (`shape`, round 4 phase 11b; default `"bar"`):
+
+- `"arc"`: a half ring whose diameter lies on the screen edge (`edge`), placed along it by `align`
+  / `offset` like a bar (its diameter is the bar), the items in config order along the arc: on a
+  bottom dock from the left end over the top to the right end, on a top dock from the left over the
+  bottom, on a left dock from the top over the right, on a right dock from the top over the left.
+- `"circle"`: a full ring that floats on its monitor; `x` / `y` (DIPs) put its centre that far from
+  the work area's top-left corner (missing: the middle of the work area); it ignores `edge`,
+  `align`, `offset`. The items start at the top and run clockwise, with a gap of a slot and a quarter
+  at the top where the run's ends meet. **Ctrl + drag** moves it anywhere on the monitor (saved as
+  `x` / `y`; an arc moves along its edge or onto another edge, like a bar); dragging it on the
+  Settings > Layout canvas sets `x` / `y` too.
+- `radius` (DIPs from the centre to the icons' centre line; default 0 = automatic: just large enough
+  for the items, so they never overlap; otherwise 60 - 2000), both kept between a minimum (a hole of
+  24 DIP, 1.5 icons) and what the monitor holds (the work area for a circle). `rotateIcons` (default
+  `false`): the icons turn with the ring, their tops facing outward; otherwise they stay upright.
+  Widgets and text are always upright.
+- **Layout**: the run is laid out exactly as for a horizontal bar and wrapped onto the ring
+  (`DockGeometry::Polar`: arc length along the ring is the main axis, the radial distance the cross
+  axis), so magnification, the drag maths, drops, the scroll viewport and the fades are those of a
+  bar: the hovered icon keeps its angle and grows outward (it scales about its side facing the
+  centre), its neighbours move apart along the arc. The dots are on the inside of the ring. More
+  items than the ring holds at its largest radius scroll along it (`overflow` `"scroll"`, also for
+  `"shrink"`: a ring grows instead of shrinking its icons; the slots fade out at the ends, there is
+  no thumb), `"clip"` lets them run on past the ring's end.
+- **Look**: the ring / half ring in the theme's fill with its edges as the hairlines (the glass
+  shelf is not drawn); acrylic is the ring's box cut to the band by a window region; no
+  reflections, no perspective tilt, no titles under the icons, no peek strip. The hover label
+  opens outside the ring at the icon's angle; the title (`title`) sits in the middle of a circle and
+  outside the middle of an arc. Popups open outward from the slot: on the side the outward
+  direction mostly points to, with their near corner at the slot when it points diagonally, kept
+  on the work area. A launch bounce still goes up.
+- **Windows**: at rest the dock's window is the ring's box with a window region of the band, so
+  clicks in the hole (and around a half ring) go to the windows below. A ring reserves no screen
+  space (`reserveSpace` is ignored) and is never full width.
+- **Auto-hide**: an arc slides into its edge (the 1 px strip along the edge reveals it, as for a
+  bar); a circle shrinks about its centre to a hub of 44 DIP (at 90 % opacity) that stays on screen,
+  and hovering the hub grows it back.
+
+Settings > General > Position: **Shape** (Bar / Half circle / Circle, 2169), **Radius** (2171, 0 =
+automatic), **Turn the icons with the ring** (2173). Each key is written only when not the default.
+Automation: `QueryState` 145 - 154 (see Automation).
+
 ### Dock items
 
 - Left click: launches the app if it has no windows; otherwise activates, minimizes, or cycles
@@ -1106,6 +1149,10 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     `thumbnailFps` (default 10, 1 - 60): window thumbnails as dock items, same section.
   - `overflow` (default `"scroll"`; `"shrink"`, `"clip"`; written only when not `"scroll"`): a run
     of items longer than the edge, see [Position](#position-edge-alignment-offset).
+  - `shape` (default `"bar"`; `"arc"`, `"circle"`), `radius` (DIPs, default 0 = automatic, 60 -
+    2000), `rotateIcons` (default `false`), `x` / `y` (a circle's centre in DIPs from the work
+    area's top-left; default: its middle): see [Position](#position-edge-alignment-offset); each is
+    written only when not the default.
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
     `hideDelayMs`, `revealDelayMs`, `previews`, `previewsSingleWindow`, `previewDelayMs`,
     `middleClick`, `wheel`, `monitor`.
@@ -1422,8 +1469,20 @@ always there, also when every dock is parked) handle these registered messages:
   same with the wheel's glide, 833 scrolls just far enough to show slot `LOWORD(lParam)` (each 1
   when the run scrolls), 834 magnifies as if the pointer rested at stage main coordinate
   `HIWORD(wParam)` (0xFFFF: as if it left; any dock; the targets only, the window does not expand:
-  for checking the magnified layout without a real pointer, e.g. while the session is locked).
+  for checking the magnified layout without a real pointer, e.g. while the session is locked; it
+  also hovers the icon slot there, so the name label appears after its delay).
   Settings: 2167 the overflow combo (0 scroll, 1 shrink, 2 clip).
+- **Rings** (round 4 phase 11b; main coordinates are arc length along the ring): `QueryState` 145 =
+  the shape laid out (0 bar, 1 arc, 2 circle), 146 = the radius in px (to the icons' centre line;
+  0 a bar), 147 = slot `lParam`'s angle at rest in degrees x 10 (0 - 3599; 0 = right,
+  counter-clockwise, as on a clock face turned: 900 = straight up; -1 a bar), 148 = the ring's centre
+  on screen as `MAKELONG(x, y)`, 149 = slot `lParam`'s angle where it is targeted now (magnified,
+  dragged), 150 = the inner (low word) and outer (high word) radius of the band in px, 151 = slot
+  `lParam`'s turn with `rotateIcons` (degrees x 10, clockwise; 0 upright), 152 = 1 while the window
+  region is the band, 153 = the hover label's target top-left on screen as `MAKELONG(x, y)` (-1: not
+  shown), 154 = its size as `MAKELONG(width, height)`. `QueryItemPoint` of a ring's slot is rounded
+  (a bar's is truncated, as before). Settings: 2169 shape combo, 2171 / 2172 radius, 2173 rotate
+  icons.
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide

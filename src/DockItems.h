@@ -171,6 +171,8 @@ struct DockItem {
     // The slot was outside the viewport at its last placement: only its tweens' bookkeeping
     // followed (no visual was touched); its visuals are re-placed before they are driven again.
     bool placementStale = false;
+    // A ring with rotateIcons: the icon's turn (degrees clockwise; 0 upright) its surfaces show.
+    float turn = 0.0f;
 
     // Launch feedback (animation.launchStyle): the icon bounces / hops / pulses until a new
     // window appears (or a timeout), then finishes the current bounce (or fades back to opaque).

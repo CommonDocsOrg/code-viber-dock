@@ -177,6 +177,8 @@ public:
         std::function<void(size_t from, size_t to)> moveItem;
         // The dock was dragged (Ctrl + drag): put it on `edge` at `align` + `offset` DIPs.
         std::function<void(DockEdge edge, DockAlign align, int offset)> moveDock;
+        // A circle was dragged: its centre goes to x / y DIPs from the work area's top-left.
+        std::function<void(int x, int y)> moveCircle;
         // Shortcut groups. `source` (a pin or a running app) held over `target`: a group of the two
         // at the target's place, or `source` added to `target` when that is a group.
         std::function<void(const AppKey& source, const AppKey& target)> group;
@@ -439,17 +441,43 @@ private:
         // iconDip: the icon size laid out (docks[].iconSize, smaller with "shrink").
         DockGeometry::Viewport view;
         int iconDip = 0;
+        // docks[].shape (round 4 phase 11b): the run wrapped onto a ring (polar.on), the ring at
+        // rest (physical stage rect of its band), its inner / outer radius, the hub a hidden circle
+        // shrinks to (physical stage rect; empty for an arc) and the scale that takes it there.
+        DockShape shape = DockShape::Bar;
+        DockGeometry::Polar polar;
+        D2D1_RECT_F ring{};
+        float ringIn = 0.0f, ringOut = 0.0f;
+        D2D1_RECT_F hub{};
+        float hubScale = 1.0f;
+        bool rotateIcons = false;
 
-        D2D1_POINT_2F Phys(float u, float v) const { return DockGeometry::Point(edge, u, v, stageCross); }
-        D2D1_RECT_F PhysRect(float u0, float v0, float u1, float v1) const {
-            return DockGeometry::Rect(edge, u0, v0, u1, v1, stageCross);
+        // The mappings (DockGeometry.h): the edge mapping for a bar, the ring for "arc" / "circle".
+        D2D1_POINT_2F Phys(float u, float v) const {
+            return polar.on ? polar.Point(u, v) : DockGeometry::Point(edge, u, v, stageCross);
         }
-        // Physical cross offset (y, or x on vertical docks) of the band [v, v + length].
+        // A canonical rect's physical bounds (a ring sector's bounding box on a polar dock).
+        D2D1_RECT_F PhysRect(float u0, float v0, float u1, float v1) const {
+            return polar.on ? polar.Bounds(u0, v0, u1, v1) : DockGeometry::Rect(edge, u0, v0, u1, v1, stageCross);
+        }
+        // An upright box [u0, u1] x [v0, v1] (an icon, a widget, the label): on a bar its PhysRect,
+        // on a ring the box's size centred on its mapped centre.
+        D2D1_RECT_F BoxRect(float u0, float v0, float u1, float v1) const {
+            return polar.on ? polar.Box((u0 + u1) / 2.0f, (v0 + v1) / 2.0f, u1 - u0, v1 - v0) : PhysRect(u0, v0, u1, v1);
+        }
+        // Physical cross offset (y, or x on vertical docks) of the band [v, v + length] (bars only).
         float CrossOrigin(float v, float length) const { return DockGeometry::CrossOrigin(edge, v, length, stageCross); }
         // A stage pixel -> canonical.
-        D2D1_POINT_2F Canon(POINT stagePt) const { return DockGeometry::Canon(edge, stagePt.x, stagePt.y, stageCross); }
-        // Physical size of a box main x cross long.
-        D2D1_SIZE_F PhysSize(float main, float cross) const { return DockGeometry::Size(edge, main, cross); }
+        D2D1_POINT_2F Canon(POINT stagePt) const {
+            return polar.on ? polar.Canon(static_cast<float>(stagePt.x) + 0.5f, static_cast<float>(stagePt.y) + 0.5f)
+                            : DockGeometry::Canon(edge, stagePt.x, stagePt.y, stageCross);
+        }
+        // Physical size of a box main x cross long (upright on a ring: main is its width).
+        D2D1_SIZE_F PhysSize(float main, float cross) const {
+            return polar.on ? D2D1::SizeF(main, cross) : DockGeometry::Size(edge, main, cross);
+        }
+        // The edge surfaces are drawn for (DrawCanonical): a ring's are drawn as for a bottom dock.
+        DockEdge DrawEdge() const { return polar.on ? DockEdge::Bottom : edge; }
     };
     // A canonical stage rect -> screen (truncating, like the bottom dock always did; `outer`: floor /
     // ceil so the rect covers the box).
@@ -506,6 +534,20 @@ private:
     // non-scrolling dock touches nothing unless an earlier layout faded the slot).
     void DriveEdgeFade(DockItem& item, size_t index, double now);
     void SetEdgeOpacity(DockItem& item, float value, IDCompositionAnimation* anim);
+
+    // --- rings (docks[].shape "arc" / "circle"; layout_.polar) ---
+    // Places slot `item`'s visuals (the icon container or the widget, the dot) on the ring for its
+    // `tx` curve: upright boxes centred on the mapped centre, moving along the arc (sampled curves,
+    // DockGeometry::PathSegments), or set at once. `fresh`: also its scale centre (the side facing
+    // the ring's centre, so it grows outward) and, with rotateIcons, its turn.
+    void PlaceOnRing(DockItem& item, double now, bool fresh);
+    // A ring at rest: the window region is the band, so the hole inside it goes to the windows
+    // below (no region otherwise).
+    void UpdateWindowRegion();
+    // The ring's box at rest on screen.
+    RECT RingScreenRect() const;
+    // rotateIcons: the icon surfaces' turn (item.turn) about the box centre.
+    void ApplyIconTurn(DockItem& item);
     // Registers / moves / removes the app bar per config (after a layout pass).
     void UpdateAppBar();
     void RemoveAppBar();
@@ -1166,7 +1208,7 @@ private:
     int previewItem_ = -1;              // item the popup shows
     AppKey previewKey_;
     HWND previewWindow_ = nullptr;      // ... and its window slot's window (null: an app's slot)
-    int previewAnchor_ = 0;             // screen coordinate along the edge the popup is centred on
+    PopupAnchor previewAnchor_{};       // where the popup opens (centred on its `along`)
     // Dismissed by a click or a menu while the mouse stays on the item: no popup for that item
     // again until the mouse hovers another item or leaves the dock.
     bool previewSuppressed_ = false;
@@ -1265,4 +1307,15 @@ private:
     bool hintPending_ = false;
     // Slot placements driven / only tracked (scrolled out) in the last ApplyTargets (QueryState 137).
     size_t placedDriven_ = 0, placedSkipped_ = 0;
+
+    // Rings: a circle's root transform (scale about its centre, then the stage translation) and
+    // its scale's curve; the window region is set.
+    winrt::com_ptr<IDCompositionScaleTransform> rootScale_;
+    winrt::com_ptr<IDCompositionTranslateTransform> rootTranslate_;
+    Tween rootScaleT_;
+    bool regionSet_ = false;
+    bool ringShown_ = false;    // the background shows a ring (its right half is hidden)
+    bool bgRing_ = false;       // the background surface was drawn as a ring
+    RECT backdropRegion_{};     // the blur window's rect its ring region was made for
+    LONG dockShiftY_ = 0;  // a circle dragged (Ctrl + drag): the vertical part of its move
 };

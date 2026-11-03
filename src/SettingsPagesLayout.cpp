@@ -86,6 +86,9 @@ private:
         DockEdge edge = DockEdge::Bottom;
         DockAlign align = DockAlign::Center;
         int offsetDip = 0;
+        // A circle (docks[].shape): its centre in DIPs from the work area's top-left instead.
+        bool circle = false;
+        int xDip = 0, yDip = 0;
         RECT ghost{};  // screen
     };
 
@@ -273,6 +276,21 @@ LayoutCanvas::Target LayoutCanvas::TargetFor(POINT canvasPt) const {
     if (mons_.empty()) return t;
     const Mon& m = mons_[static_cast<size_t>(t.monitor)];
     const RECT& r = m.rc;
+    if (dc.shape == DockShape::Circle) {
+        // A circle floats: its centre goes where the dragged centre is (on that monitor).
+        const float s = static_cast<float>(m.dpi) / 96.0f;
+        const LONG w = d.bar.right - d.bar.left, h = d.bar.bottom - d.bar.top;
+        const LONG cx = std::clamp(c.x, r.left + w / 2, std::max(r.left + w / 2, r.right - w / 2));
+        const LONG cy = std::clamp(c.y, r.top + h / 2, std::max(r.top + h / 2, r.bottom - h / 2));
+        t.circle = true;
+        t.xDip = static_cast<int>(std::lround(static_cast<float>(cx - m.work.left) / s));
+        t.yDip = static_cast<int>(std::lround(static_cast<float>(cy - m.work.top) / s));
+        t.edge = dc.edge;
+        t.align = dc.align;
+        t.offsetDip = dc.offset;
+        t.ghost = RECT{cx - w / 2, cy - h / 2, cx - w / 2 + w, cy - h / 2 + h};
+        return t;
+    }
     const LONG cx = std::clamp(c.x, r.left, r.right - 1), cy = std::clamp(c.y, r.top, r.bottom - 1);
     // The edge nearest to the centre.
     const LONG dist[4] = {r.bottom - cy, cy - r.top, cx - r.left, r.right - cx};  // DockEdge order
@@ -337,6 +355,16 @@ void LayoutCanvas::Drop(const Target& t) {
     // "each" stays on every monitor; "primary" stays "primary" on the primary.
     int monitor = dc.monitor;
     if (!dc.Each() && !(dc.monitor == DockConfig::kMonitorPrimary && t.monitor == 0)) monitor = t.monitor;
+    if (t.circle) {
+        if (dc.x == t.xDip && dc.y == t.yDip && dc.monitor == monitor) return;
+        dc.x = t.xDip;
+        dc.y = t.yDip;
+        dc.monitor = monitor;
+        c.editDock = d.cfg;
+        page_.Apply();
+        page_.Win().Refresh();
+        return;
+    }
     if (dc.edge == t.edge && dc.align == t.align && dc.offset == t.offsetDip && dc.monitor == monitor) return;
     dc.edge = t.edge;
     dc.align = t.align;

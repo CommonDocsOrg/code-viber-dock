@@ -139,7 +139,7 @@ bool PopupWindow::ShowAt(const Frame& frame, const PopupAnchor& anchor) {
     const LONG mainSize = vertical ? size_.cy : size_.cx;
     const LONG crossSize = vertical ? size_.cx : size_.cy;
     const LONG mainLo = vertical ? m.top : m.left, mainHi = vertical ? m.bottom : m.right;
-    LONG along = static_cast<LONG>(anchor.along) - mainSize / 2;
+    LONG along = static_cast<LONG>(anchor.along) - mainSize / 2 + static_cast<LONG>(std::lround(anchor.alongBias * static_cast<float>(mainSize) / 2.0f));
     const LONG side = static_cast<LONG>(anchor.side);
     // Shrunk while the mouse is in it (e.g. a window closed): keep the cursor inside instead of
     // re-centring away from it, so a hover popup does not dismiss itself under a still mouse. A

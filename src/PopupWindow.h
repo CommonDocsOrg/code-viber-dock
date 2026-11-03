@@ -17,6 +17,9 @@ struct PopupAnchor {
     DockEdge edge = DockEdge::Bottom;
     int along = 0;
     int side = 0;
+    // Shifts the popup along by this fraction of half its length (-1 .. 1; 0: centred on `along`):
+    // a ring's slot whose outward direction is diagonal gets the popup's near corner at the anchor.
+    float alongBias = 0.0f;
 };
 
 // Base of the dock's popups (window previews; later folder contents, weather, calendar): a
