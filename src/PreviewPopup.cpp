@@ -91,6 +91,22 @@ void PreviewPopup::SyncCards(const std::vector<HWND>& windows) {
     cards_ = std::move(next);
 }
 
+bool PreviewPopup::UpdateTitles(const std::vector<HWND>& windows) {
+    if (!OnScreen()) return false;
+    bool changed = false;
+    for (Card& c : cards_) {
+        if (std::find(windows.begin(), windows.end(), c.window) == windows.end()) continue;
+        wchar_t buf[256]{};
+        GetWindowTextW(c.window, buf, static_cast<int>(std::size(buf)));  // cached caption, never blocks
+        if (c.title == buf) continue;
+        c.title = buf;
+        changed = true;
+    }
+    // The card layout does not depend on the title (ellipsized in its row): repaint only.
+    if (changed) Redraw();
+    return changed;
+}
+
 bool PreviewPopup::Show(const Content& content, const Style& style, const PopupAnchor& anchor) {
     if (content.windows.empty()) return false;
     style_ = style;

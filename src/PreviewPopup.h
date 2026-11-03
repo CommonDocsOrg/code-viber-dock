@@ -54,6 +54,13 @@ public:
 
     size_t CardCount() const { return OnScreen() ? cards_.size() : 0; }
     HWND CardWindow(size_t card) const { return OnScreen() && card < cards_.size() ? cards_[card].window : nullptr; }
+    // Characters in a card's title (-1: no such card).
+    long CardTitleLength(size_t card) const {
+        return OnScreen() && card < cards_.size() ? static_cast<long>(cards_[card].title.size()) : -1;
+    }
+    // These windows' captions changed: re-reads the titles of their cards and repaints (the caller
+    // commits). True if a card changed.
+    bool UpdateTitles(const std::vector<HWND>& windows);
 
 protected:
     SIZE Measure() override;

@@ -68,6 +68,14 @@ struct DockItem {
     bool pinned = false;
     std::vector<HWND> windows;               // running windows, first-seen order
     bool wantsAttention = false;             // a window flashed (HSHELL_FLASH) and is not active
+    // A window slot (docks[].windows "unstacked"): the one window this slot shows (`windows` is
+    // {window} while it exists); null for every other slot. Slots are matched by key + window.
+    HWND window = nullptr;
+    bool minimized = false;                  // a window slot's window is minimized (no dot)
+    std::wstring windowTitle;                // a window slot's caption (hover label, title under the icon)
+    // The text under the icon (docks[].titles; empty: none) as last drawn into `caption`.
+    std::wstring captionText;
+    bool captionDirty = true;
 
     // --- render state ---
     // `layer` is a content-less container carrying the placement transform (magnification
@@ -88,6 +96,11 @@ struct DockItem {
     Layer icon;
     Layer iconBig;
     Layer dot;
+    // The title under the icon (docks[].titles): like the dot a separate, unscaled layer in front
+    // of the icon container that follows the icon box along the bar (the same tween drives both);
+    // it never scales with magnification, so the text stays crisp and is never redrawn while the
+    // dock magnifies. No visual while titles are off.
+    Layer caption;
     Tween glowOpacity;
     bool active = false;    // owns the foreground window
     bool dirty = true;      // icon surfaces must be redrawn

@@ -71,6 +71,37 @@ public:
         item.iconFile = pin.iconFile;
         item.iconIndex = pin.iconIndex;
         item.missing = pin.missing;
+        // Unstacked: the pin slot stays as it is (its click launches / activates the app, its
+        // dot and preview are the app's) and every window of the app follows it as a slot of
+        // its own, in the app's first-seen window order.
+        if (!out.unstacked || pin.kind != DockItem::Kind::App) return;
+        const WindowTracker::Group* group = nullptr;
+        for (const WindowTracker::Group& g : out.Snapshot().groups) {
+            if (g.key == pin.key) group = &g;
+        }
+        if (!group) return;
+        for (HWND w : group->windows) {
+            DockItem& slot = out.Add(pin.key, nullptr, w);
+            CopyAppData(pin, slot);
+        }
+    }
+
+    // A window slot of a pinned app looks like the pin (icon, launch data) but is not a pin.
+    static void CopyAppData(const AppIdentity::ResolvedPin& pin, DockItem& slot) {
+        if (slot.kind != DockItem::Kind::App || slot.iconFile != pin.iconFile || slot.iconIndex != pin.iconIndex ||
+            slot.customIcon != pin.customIcon) {
+            slot.dirty = true;
+        }
+        slot.pinned = false;
+        slot.kind = DockItem::Kind::App;
+        slot.customIcon = pin.customIcon;
+        slot.displayName = pin.displayName;
+        slot.launchPath = pin.launchPath.empty() ? std::nullopt : std::optional<std::wstring>(pin.launchPath);
+        slot.workingDir = pin.workingDir;
+        slot.targetPath = pin.targetPath;
+        slot.iconFile = pin.iconFile;
+        slot.iconIndex = pin.iconIndex;
+        slot.missing = false;
     }
 
     ElementSize Measure(const LayoutContext& ctx) override {
@@ -139,13 +170,21 @@ public:
             for (const WindowTracker::Group* g : groups) order.push_back(g->key);
         }
         for (const WindowTracker::Group* g : groups) {
-            bool fresh = false;
-            DockItem& item = out.Add(g->key, &fresh);
-            if (fresh) item.displayName = AppIdentity::DisplayNameFor(g->key);
-            item.pinned = false;  // was unpinned while running
-            if (item.kind != DockItem::Kind::App) {
-                item.kind = DockItem::Kind::App;
-                item.dirty = true;
+            // Unstacked: one slot per window, the app's windows next to each other.
+            const size_t slots = out.unstacked ? g->windows.size() : 1;
+            std::wstring name;
+            for (size_t k = 0; k < slots; ++k) {
+                bool fresh = false;
+                DockItem& item = out.Add(g->key, &fresh, out.unstacked ? g->windows[k] : nullptr);
+                if (fresh) {
+                    if (name.empty()) name = AppIdentity::DisplayNameFor(g->key);
+                    item.displayName = name;
+                }
+                item.pinned = false;  // was unpinned while running
+                if (item.kind != DockItem::Kind::App) {
+                    item.kind = DockItem::Kind::App;
+                    item.dirty = true;
+                }
             }
         }
     }
@@ -176,13 +215,13 @@ bool SlotBuilder::IsPinnedApp(const AppKey& key) const {
 }
 
 bool SlotBuilder::Has(const AppKey& key) const {
-    return std::any_of(next_.begin(), next_.end(), [&](const DockItem& i) { return i.key == key; });
+    return std::any_of(next_.begin(), next_.end(), [&](const DockItem& i) { return !i.window && i.key == key; });
 }
 
-DockItem& SlotBuilder::Add(const AppKey& key, bool* fresh) {
+DockItem& SlotBuilder::Add(const AppKey& key, bool* fresh, HWND window) {
     bool reused = false;
     for (size_t i = 0; i < previous_.size(); ++i) {
-        if (!taken_[i] && previous_[i].key == key) {
+        if (!taken_[i] && previous_[i].window == window && previous_[i].key == key) {
             taken_[i] = true;
             next_.push_back(std::move(previous_[i]));
             reused = true;
@@ -192,6 +231,7 @@ DockItem& SlotBuilder::Add(const AppKey& key, bool* fresh) {
     if (!reused) {
         next_.emplace_back();
         next_.back().key = key;
+        next_.back().window = window;
     }
     if (fresh) *fresh = !reused;
     DockItem& item = next_.back();

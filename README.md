@@ -437,6 +437,33 @@ original taskbar state. If the dock is killed or crashes, the next start (or
 `WinDock.exe --restore-taskbar`, which works without a running dock) restores from it. The Start
 menu still opens with the Win key while the taskbar is hidden.
 
+### Running apps: windows and titles
+
+- **One slot per window** (`windows`: `"stacked"` (default, one slot per app) or `"unstacked"`):
+  every window gets a slot of its own with its app's icon, grouped by app in the app order the
+  dock already uses (first seen; the windows in the order they appeared). Its hover label shows
+  the window title, a click activates that window (minimizes it when it is already in front), the
+  preview popup shows that one window (whatever `previewsSingleWindow` says), a middle click acts
+  on that window, and the dot marks it: bright while it is the active window, none while it is
+  minimized. **Minimize to dock**: a minimized window keeps its slot (its dot goes away) until it
+  is closed. **A pinned app keeps its pin slot**, which works as before (a click launches the app or
+  activates / cycles its windows, its dot and preview are the app's); its windows follow it as
+  extra slots right after it. Window slots cannot be dragged (the order is the app order); their
+  item menu is the app's (Close lists that one window).
+- **Titles under icons** (`titles`: `"off"` (default), `"one"`, `"two"` lines): the window title
+  in a window slot, else the app's (or folder's, or the Recycle Bin's) name, in the label's font
+  (Segoe UI) at 10 DIP in `theme.clockText`, centred in the icon's slot and ellipsized (one line is
+  about 8 characters at the default 48 DIP icon, two lines about 16). The bar gets taller by the
+  text (2 DIP + one or two lines). With reflections the title sits under the reflection, which is
+  unchanged. On left / right docks (`titlesVertical`: `"beside"` (default) or `"off"`) the title is
+  a 76 DIP column beside the icon on the screen-edge side (right-aligned toward the icon on a left
+  dock), which widens the bar. **Magnification**: titles do not scale; each title is a separate
+  layer that follows its icon along the bar with the same animation as the dot, so it stays under
+  its icon, is never redrawn while the dock magnifies, and the magnified icon grows away from it.
+- **Live titles**: when a window's caption changes (the shell's `HSHELL_REDRAW`, coalesced with
+  the window-list updates, no polling), its window slot's title, the hover label and the preview
+  popup's card follow at once; the preview popup does that for stacked apps too.
+
 ### Weather and calendar
 
 **Weather widget** (a `weather` item, off by default; Settings > Weather): where its item stands
@@ -600,7 +627,9 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   window previews on / off, **Show window previews for apps with a single window**, the preview
   delay, and **Mouse**: what a middle click on an app does (start a new instance, minimize its
   windows, close its windows, nothing) and what the mouse wheel over an app does (nothing, switch
-  between its windows).
+  between its windows), and **Running apps**: **Windows** (Stacked / One slot per window),
+  **Titles under icons** (Off / One line / Two lines), **Titles on vertical docks** (Off / Beside
+  the icon); see [Running apps: windows and titles](#running-apps-windows-and-titles).
 - **Animation**: speed (Off, then 0.25× to 4× on a logarithmic slider), hide style (slide and
   fade, slide, fade, none), launch feedback (bounce until the app opens, hop once, pulse, none),
   magnification falloff (smooth / linear), easing (ease out, linear, spring), the name label fade
@@ -705,7 +734,8 @@ with the defaults and leaves the file untouched.
       "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
       "previews": true, "previewsSingleWindow": false, "previewDelayMs": 600,
       "middleClick": "newInstance", "wheel": "none",
-      "monitor": 0, "runningFilter": "all", "themePreset": "", "layer": "normal"
+      "monitor": 0, "runningFilter": "all", "themePreset": "", "layer": "normal",
+      "windows": "stacked", "titles": "off", "titlesVertical": "beside"
     }
   ],
   "hideTaskbar": true,
@@ -787,6 +817,10 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     (default `""`): see Position.
   - `locked` (default `false`): no dragging, no pinning by dropping files, no Add separator / Add
     widget from the dock menu (see Dock items).
+  - `windows` (default `"stacked"`; `"unstacked"`: one slot per window), `titles` (default
+    `"off"`; `"one"`, `"two"`), `titlesVertical` (default `"beside"`; `"off"`): see
+    [Running apps: windows and titles](#running-apps-windows-and-titles). Unknown text keeps the
+    default.
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
     `hideDelayMs`, `revealDelayMs`, `previews`, `previewsSingleWindow`, `previewDelayMs`,
     `middleClick`, `wheel`, `monitor`.
@@ -1018,7 +1052,9 @@ always there, also when every dock is parked) handle these registered messages:
   window (`QueryItemPoint` with an HWND in `wParam` looks in dock `HIWORD(lParam)`).
 - **Item indexes** (`QueryItemPoint`, `ItemCommand`, `QueryState` 2 / 9 / 24 / 25 / 33 / 34 / 35)
   count every slot of the dock in its order: icons, separators and the clock / weather widgets
-  (one slot each; the `running` item one slot per unpinned running app). Before 1b the widgets
+  (one slot each; the `running` item one slot per unpinned running app; with `windows`
+  `"unstacked"` one per window, a pinned app's windows right after its pin). `QueryItemPoint` /
+  `ItemCommand` with a window handle find that window's own slot on an unstacked dock. Before 1b the widgets
   were not items; with the default order (`[pins..., running, weather, clock]`) the indexes of
   the pins and running apps are unchanged because the widgets come last.
 - `WinDock.QueryItemPoint`: `wParam` = a top-level HWND, or 0 with `lParam` = item index.
@@ -1103,7 +1139,16 @@ always there, also when every dock is parked) handle these registered messages:
   widgets' audio provider: change notifications handled since the start (-1 while it is not
   running: no widget uses `audio`). 68 = the media provider: session snapshots received (-1 not
   running). 69 = the media provider's current session: 0 none, 1 stopped, 2 paused, 3 playing (-1
-  not running). 26 reports 4
+  not running). Task list (phase 6): 70 = the slots were built unstacked (1, `windows`
+  `"unstacked"`) or stacked (0). 71 = `titles` (0 off, 1 one line, 2 two lines). 72 = lines of
+  title text actually laid out under / beside the icons (0: none, also on a vertical dock with
+  `titlesVertical` `"off"`). 73 = the window handle of window slot `lParam` (0 for an app-level
+  slot such as a pin, -1 if there is no such slot). 74 = the length in characters of the text the
+  hover label shows (-1 while no label is shown). 75 = the length of preview card `lParam`'s
+  title (-1 no such card). 76 = how many live title changes this dock has applied (slot titles,
+  the label, preview cards). 77 = the length of slot `lParam`'s title under the icon (0: none).
+  78 = slot `lParam`'s dot (0 none, also for a minimized window slot; 1 running, 2 the active
+  window / app, 3 wants attention). 26 reports 4
   while files are dragged over a script widget that takes them (`onDrop`). Per dock: 14 / 36 /
   39 / 40 / 42 and 37 refer to that dock's own config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
@@ -1119,7 +1164,9 @@ always there, also when every dock is parked) handle these registered messages:
   seconds, 2135 Clicking the clock opens, 2137 App or URL, 2138 Browse…; Position 2140 - 2148: 2142 screen edge and 2144 alignment drop-downs in DockEdge /
   DockAlign order, 2146 / 2147 offset box and up-down, 2149 Full width, 2151 Reserve screen space,
   2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied on Enter / focus loss); Behaviour added 2223
-  single-window previews, 2227 middle click, 2229 mouse wheel; phase 3: General 2162 "Show only
+  single-window previews, 2227 middle click, 2229 mouse wheel, and in phase 6 2232 Windows (0
+  stacked, 1 one slot per window), 2234 Titles under icons (0 off, 1 one line, 2 two lines), 2236
+  Titles on vertical docks (0 off, 1 beside the icon; disabled while titles are off); phase 3: General 2162 "Show only
   the windows on this dock's display" (`runningFilter`), the Display drop-down 2111 ends with
   "Every display" (`"each"`), Appearance 2420 "This dock's theme" (0 = same as all docks, then the
   theme list), Docks page 2800 list (Dock, Edge, Display, Windows; selecting a row makes it the dock
@@ -1147,8 +1194,10 @@ always there, also when every dock is parked) handle these registered messages:
   posted, the command is posted back to the dock so the call returns at once), 805 Reset icon
   (removes the pin's `icon`; scriptable), 806 show / hide a folder's popup, 807 empty the Recycle
   Bin (the shell's confirmation appears; it runs on a thread of its own, so the call returns at
-  once), 809 reload a script widget (its package and script; nothing for other slots), 900 close
-  all windows),
+  once), 809 reload a script widget (its package and script; nothing for other slots), 810 what a
+  left click on the slot does (activates / minimizes a window slot's window, activates / launches
+  an app, opens a folder's or widget's popup; by slot index, so it reaches each window slot of an
+  unstacked app), 900 close all windows),
   `lParam` = item index or a window handle of the item. Returns 1 if the item was found. A folder
   popup opened this way usually cannot take the foreground (the dock did not get the click), so
   Escape does not reach it; it still closes when another window comes to the foreground, on a dock

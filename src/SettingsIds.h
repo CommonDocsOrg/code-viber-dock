@@ -135,6 +135,15 @@ inline constexpr int kMiddleClickLabel = 2226;
 inline constexpr int kMiddleClickCombo = 2227;     // middleClick: 0 newInstance, 1 minimize, 2 close, 3 none
 inline constexpr int kWheelLabel = 2228;
 inline constexpr int kWheelCombo = 2229;           // wheel: 0 none, 1 cycle
+// Round 4 phase 6: task list options.
+inline constexpr int kSectionTaskList = 2230;
+inline constexpr int kWindowsLabel = 2231;
+inline constexpr int kWindowsCombo = 2232;         // docks[].windows: 0 stacked, 1 unstacked
+inline constexpr int kTitlesLabel = 2233;
+inline constexpr int kTitlesCombo = 2234;          // docks[].titles: 0 off, 1 one line, 2 two lines
+inline constexpr int kTitlesVerticalLabel = 2235;
+inline constexpr int kTitlesVerticalCombo = 2236;  // docks[].titlesVertical: 0 off, 1 beside
+inline constexpr int kTaskListNote = 2237;
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;

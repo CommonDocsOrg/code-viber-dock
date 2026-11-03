@@ -1095,6 +1095,9 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         if (index >= 0 && (cmd == ContextMenu::kChooseIcon || cmd == ContextMenu::kChooseImage) && InSendMessage()) {
             // A modal dialog would block the sender until it closes: run it after the call.
             PostMessageW(dock->Hwnd(), msgItemCommand_, wp, static_cast<LPARAM>((dockIndex << 16) | static_cast<size_t>(index)));
+        } else if (index >= 0 && cmd == ContextMenu::kClickSlot) {
+            // By slot, not by key: an unstacked app has one slot per window.
+            dock->ClickSlot(index);
         } else if (index >= 0) {
             const DockItem& item = dock->Items()[static_cast<size_t>(index)];
             const AppKey key = item.key;

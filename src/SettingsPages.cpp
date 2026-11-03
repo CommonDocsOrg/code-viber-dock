@@ -529,6 +529,22 @@ protected:
         Label(kWheelLabel, L"Mouse wheel over an app");
         Combo(kWheelCombo, kColX, right - kColX, false);
         NextRow();
+
+        Section(kSectionTaskList, L"Running apps");
+        Label(kWindowsLabel, L"Windows");
+        Combo(kWindowsCombo, kColX, right - kColX, false);
+        NextRow();
+        Label(kTitlesLabel, L"Titles under icons");
+        Combo(kTitlesCombo, kColX, right - kColX, false);
+        NextRow();
+        Label(kTitlesVerticalLabel, L"Titles on vertical docks");
+        Combo(kTitlesVerticalCombo, kColX, right - kColX, false);
+        NextRow(kRowH);
+        Text(kTaskListNote, CtlKind::Note,
+             L"One slot per window: a pinned app keeps its icon and its windows follow it. Titles show the "
+             L"window title, or the app's name.",
+             kMargin, right - kMargin, 36);
+        NextRow(36);
     }
 
     void Created() override {
@@ -538,6 +554,13 @@ protected:
         ComboAdd(kMiddleClickCombo, L"Nothing");
         ComboAdd(kWheelCombo, L"Nothing");  // WheelAction order
         ComboAdd(kWheelCombo, L"Switch between its windows");
+        ComboAdd(kWindowsCombo, L"Stacked (one slot per app)");  // WindowsMode order
+        ComboAdd(kWindowsCombo, L"One slot per window");
+        ComboAdd(kTitlesCombo, L"Off");  // TitlesMode order
+        ComboAdd(kTitlesCombo, L"One line");
+        ComboAdd(kTitlesCombo, L"Two lines");
+        ComboAdd(kTitlesVerticalCombo, L"Off");  // TitlesVertical order
+        ComboAdd(kTitlesVerticalCombo, L"Beside the icon");
     }
 
     void Load() override {
@@ -550,6 +573,9 @@ protected:
         SetCheck(kPreviewSingle, c.Edit().previewSingle);
         SetComboSel(kMiddleClickCombo, static_cast<int>(c.Edit().middleClick));
         SetComboSel(kWheelCombo, static_cast<int>(c.Edit().wheel));
+        SetComboSel(kWindowsCombo, static_cast<int>(c.Edit().windows));
+        SetComboSel(kTitlesCombo, static_cast<int>(c.Edit().titles));
+        SetComboSel(kTitlesVerticalCombo, static_cast<int>(c.Edit().titlesVertical));
         EnableDependents();
     }
 
@@ -564,6 +590,17 @@ protected:
             } else if (id == kWheelCombo && sel >= 0 && sel <= 1 && static_cast<WheelAction>(sel) != c.Edit().wheel) {
                 c.Edit().wheel = static_cast<WheelAction>(sel);
                 Changed(SettingsScope::SaveOnly);
+            } else if (id == kWindowsCombo && sel >= 0 && sel <= 1 && static_cast<WindowsMode>(sel) != c.Edit().windows) {
+                c.Edit().windows = static_cast<WindowsMode>(sel);
+                Changed(SettingsScope::Appearance);  // the dock rebuilds its slots
+            } else if (id == kTitlesCombo && sel >= 0 && sel <= 2 && static_cast<TitlesMode>(sel) != c.Edit().titles) {
+                c.Edit().titles = static_cast<TitlesMode>(sel);
+                EnableDependents();
+                Changed(SettingsScope::Appearance);  // relayout: the bar grows by the titles
+            } else if (id == kTitlesVerticalCombo && sel >= 0 && sel <= 1 &&
+                       static_cast<TitlesVertical>(sel) != c.Edit().titlesVertical) {
+                c.Edit().titlesVertical = static_cast<TitlesVertical>(sel);
+                Changed(SettingsScope::Appearance);
             }
             return;
         }
@@ -602,6 +639,7 @@ private:
         Enable(kRevealDelayEdit, c.Edit().AutoHideOn());
         Enable(kPreviewDelayEdit, c.Edit().previews);
         Enable(kPreviewSingle, c.Edit().previews);
+        Enable(kTitlesVerticalCombo, c.Edit().titles != TitlesMode::Off);
     }
 };
 

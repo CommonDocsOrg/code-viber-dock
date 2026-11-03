@@ -57,6 +57,16 @@ enum class RunningFilter { All, Monitor };
 // Where a dock lives in the z-order: "normal" (topmost, default), or "desktop": shown only while
 // the desktop is visible (no window in the foreground), at the bottom of the z-order.
 enum class DockLayer { Normal, Desktop };
+// How a dock shows running windows: "stacked" (default: one slot per app, its windows behind it)
+// or "unstacked" (one slot per window, grouped by app; a pinned app keeps its pin slot and its
+// windows follow it as extra slots).
+enum class WindowsMode { Stacked, Unstacked };
+// Text under each icon: "off" (default), "one" (one line) or "two" (two lines), ellipsized; the
+// window title for a window slot, else the app / item name.
+enum class TitlesMode { Off, One, Two };
+// Titles on left / right docks: "beside" (default: next to the icon, toward the screen edge) or
+// "off".
+enum class TitlesVertical { Off, Beside };
 
 // Every field is listed in Theme::Fields() (Theme.h), which drives reading, writing and the UI.
 // The defaults are the built-in "dark" preset.
@@ -170,6 +180,9 @@ struct DockConfig {
     // fields still apply on top of it.
     std::wstring themePreset;
     DockLayer layer = DockLayer::Normal;
+    WindowsMode windows = WindowsMode::Stacked;
+    TitlesMode titles = TitlesMode::Off;
+    TitlesVertical titlesVertical = TitlesVertical::Beside;
 
     // Not saved: `themePreset` resolved (Config::ResolveDockThemes); ownTheme false = use the
     // global theme.
@@ -273,6 +286,12 @@ const wchar_t* ToString(DockEdge v);
 const wchar_t* ToString(DockAlign v);
 const wchar_t* ToString(RunningFilter v);
 const wchar_t* ToString(DockLayer v);
+const wchar_t* ToString(WindowsMode v);
+const wchar_t* ToString(TitlesMode v);
+const wchar_t* ToString(TitlesVertical v);
+bool FromString(std::wstring_view s, WindowsMode& v);
+bool FromString(std::wstring_view s, TitlesMode& v);
+bool FromString(std::wstring_view s, TitlesVertical& v);
 bool FromString(std::wstring_view s, RunningFilter& v);
 bool FromString(std::wstring_view s, DockLayer& v);
 bool FromString(std::wstring_view s, DockEdge& v);

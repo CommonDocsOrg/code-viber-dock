@@ -52,6 +52,7 @@ enum Command : UINT {
     kEmptyRecycleBin = 807,     // the Recycle Bin: empty it (the shell's confirmation)
     kChooseImage = 808,         // pins: an open-file dialog for an image / icon file
     kReloadWidget = 809,        // a script widget: reload its package and script (automation)
+    kClickSlot = 810,           // a left click on the slot (automation; e.g. activate a window slot)
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

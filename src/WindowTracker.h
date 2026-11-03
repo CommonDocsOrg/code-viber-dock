@@ -3,6 +3,7 @@
 #include <windows.h>
 
 #include <functional>
+#include <string>
 #include <unordered_map>
 #include <unordered_set>
 #include <vector>
@@ -10,10 +11,13 @@
 #include "DockItems.h"
 
 // Tracks the taskbar-worthy top-level windows and groups them by application.
-// Event driven: the shell hook (same feed the Explorer taskbar uses) plus an EVENT_OBJECT_UNCLOAKED
-// WinEvent hook (UWP windows appear cloaked). Every event (re)starts a 50 ms one-shot timer; when
-// it fires, the window list is reconciled with EnumWindows and the change callback runs only if
-// the grouped result changed. No polling.
+// Event driven: the shell hook (same feed the Explorer taskbar uses) plus out-of-context WinEvent
+// hooks for EVENT_OBJECT_UNCLOAKED (UWP windows appear cloaked) and EVENT_SYSTEM_MINIMIZESTART /
+// END (the minimized state is part of the snapshot). Every event (re)starts a 50 ms one-shot
+// timer; when it fires, the window list is reconciled with EnumWindows and the change callback
+// runs only if the grouped result changed. Title changes (HSHELL_REDRAW) of tracked windows are
+// collected and reported, coalesced by the same timer, through the title callback with the windows
+// whose caption text really changed. No polling.
 class WindowTracker {
 public:
     struct Group {
@@ -22,6 +26,9 @@ public:
         // Parallel to `windows`: the monitor each window's centre is on (its restored rect while
         // minimized). A window moving to another monitor changes the snapshot (HSHELL_MONITORCHANGED).
         std::vector<HMONITOR> monitors;
+        // Parallel to `windows`: minimized (IsIconic), flashing for attention.
+        std::vector<bool> minimized;
+        std::vector<bool> attention;
         bool wantsAttention = false;
         bool operator==(const Group&) const = default;
     };
@@ -31,6 +38,8 @@ public:
         bool operator==(const Snapshot&) const = default;
     };
     using ChangeFn = std::function<void(const Snapshot&)>;
+    // Tracked windows whose caption text changed (after the change callback, if both happened).
+    using TitleFn = std::function<void(const std::vector<HWND>&)>;
 
     static constexpr UINT_PTR kCoalesceTimerId = 3;
     static constexpr UINT kCoalesceMs = 50;
@@ -44,6 +53,7 @@ public:
     // (the callback fires before Start returns).
     void Start(HWND owner, ChangeFn onChange);
     void Stop();
+    void SetTitleCallback(TitleFn onTitles) { onTitles_ = std::move(onTitles); }
 
     // Feed every message of the owner window. Returns true if consumed.
     bool HandleMessage(UINT msg, WPARAM wp, LPARAM lp);
@@ -56,11 +66,14 @@ public:
     // Shell windows that are never apps: the desktop (Progman / WorkerW), the taskbars, and
     // Windows.UI.Core.CoreWindow (Start, Search, Action Center and other shell flyouts).
     static bool IsExcludedClass(HWND hwnd);
+    // A window's caption (at most 255 characters; another process's window: its cached caption).
+    static std::wstring WindowTitle(HWND hwnd);
 
 private:
     struct Tracked {
         HWND hwnd;
         AppKey key;
+        std::wstring title;  // the caption as last reported (title changes)
     };
 
     static void CALLBACK WinEventProc(HWINEVENTHOOK, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD,
@@ -77,6 +90,9 @@ private:
     UINT shellHookMsg_ = 0;
     bool registered_ = false;
     HWINEVENTHOOK cloakHook_ = nullptr;
+    HWINEVENTHOOK minimizeHook_ = nullptr;
+    TitleFn onTitles_;
+    std::unordered_set<HWND> titleChanged_;  // HSHELL_REDRAW since the last reconcile
 
     std::vector<Tracked> windows_;               // first-seen order
     std::unordered_map<HWND, size_t> index_;     // hwnd -> position in windows_ (rebuilt on change)

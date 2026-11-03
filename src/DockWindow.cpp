@@ -64,6 +64,13 @@ constexpr float kDropScale = 1.15f;          // an app / the bin under a file dr
 constexpr float kDropEdge = 0.15f;           // slot fraction per side that still means "between items"
 constexpr UINT kRecycleBinCoalesceMs = 200;  // bursts of bin change notifications -> one redraw
 constexpr float kDockSnapDip = 24.0f;        // a dragged dock snaps to the centre / an end this close
+// Titles under the icons (docks[].titles): the label's font at this size, this far under the icon
+// (horizontal docks: in the icon's slot width; vertical docks: beside the icon, this wide).
+constexpr float kCaptionFontSize = 10.0f;
+constexpr float kCaptionGap = 2.0f;
+constexpr float kCaptionBesideGap = 4.0f;
+constexpr float kCaptionBesideWidth = 76.0f;
+constexpr float kCaptionPad = 2.0f;          // text inset at the ends of a caption box
 constexpr float kPi = 3.14159265358979f;
 
 void Log(const wchar_t* what, HRESULT hr) {
@@ -268,6 +275,34 @@ void DockWindow::OnSnapshot(const WindowTracker::Snapshot& snap) {
     if (tracking_ && hwnd_) RebuildFrom(snap);
 }
 
+void DockWindow::OnWindowTitles(const std::vector<HWND>& windows) {
+    if (!tracking_ || !hwnd_ || windows.empty()) return;
+    bool changed = false;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        DockItem& item = items_[i];
+        if (!item.window || std::find(windows.begin(), windows.end(), item.window) == windows.end()) continue;
+        std::wstring title = WindowTracker::WindowTitle(item.window);
+        if (title == item.windowTitle) continue;
+        item.windowTitle = std::move(title);
+        changed = true;
+        if (layout_.captionLines > 0 && CaptionFor(item) != item.captionText) item.captionDirty = true;
+        if (static_cast<int>(i) == hovered_) labelDirty_ = true;  // the label shows the new title
+    }
+    // The preview popup's cards show the window titles of every slot kind.
+    if (preview_.UpdateTitles(windows)) changed = true;
+    if (!changed) return;
+    ++titleUpdates_;
+    // Redraws only the dirty captions and the label (re-placed if its width changed); commits the
+    // popup's repaint too (one device).
+    RenderWithRecovery([this] { return DrawFrame(false); });
+}
+
+bool DockWindow::ClickSlot(int index) {
+    if (index < 0 || index >= static_cast<int>(items_.size())) return false;
+    ElementOf(static_cast<size_t>(index)).OnClick(index, false);
+    return true;
+}
+
 void DockWindow::RebuildFrom(const WindowTracker::Snapshot& snap) {
     if (DockCfg().runningFilter != RunningFilter::Monitor) {
         Rebuild(snap);
@@ -302,11 +337,16 @@ void DockWindow::ApplyConfig() {
     DismissClickPopups(false, false);
     FinishLabelFade();             // its text / position may no longer match
     SyncElements();                // the clock may have been turned on / off; config re-read, timers
+    // docks[].windows changed: the slots change (one per app <-> one per window).
+    if (tracking_ && builtUnstacked_ != (DockCfg().windows == WindowsMode::Unstacked)) {
+        RebuildFrom(shared_->Tracker().Current());
+    }
     // The drop marker is only redrawn when its size changes: force it (the accent may differ).
     if (marker_.visual) renderer_.DrawLayer(marker_, 0, 0, {});
     for (DockItem& item : items_) {
         item.dirty = true;
         item.dotDirty = true;
+        item.captionDirty = true;
     }
     labelDirty_ = true;
     labelFormat_ = nullptr;  // theme / size may have changed
@@ -370,11 +410,36 @@ void DockWindow::ComputeLayout() {
     const GlowMode glow = GlowOf(t);
     l.glowPad = glow != GlowMode::Off ? std::ceil(t.glowRadius * s) + 1.0f : 0.0f;
 
-    const float iconBarH = std::round(l.iconPx + kBarExtraHeight * s);  // the bar without reflections
+    // Titles under the icons: a band between the icon (and its reflection) and the dots, the
+    // label's font at kCaptionFontSize; on vertical docks a column beside the icon (toward the
+    // screen edge) or none (titlesVertical "off"). The bar's cross size grows by the band.
+    int lines = d.titles == TitlesMode::One ? 1 : d.titles == TitlesMode::Two ? 2 : 0;
+    if (l.vertical && d.titlesVertical == TitlesVertical::Off) lines = 0;
+    if (lines && !EnsureCaptionFormat(s)) lines = 0;
+    l.captionLines = lines;
+    float captionGap = 0.0f;
+    if (lines) {
+        const float textH = std::ceil(captionLineH_ * static_cast<float>(lines));
+        if (l.vertical) {
+            captionGap = std::round(kCaptionBesideGap * s);
+            l.captionCross = std::round(kCaptionBesideWidth * s);
+            l.captionMain = l.iconPx;
+            l.captionShift = 0.0f;
+        } else {
+            captionGap = std::round(kCaptionGap * s);
+            l.captionCross = textH;
+            l.captionMain = l.iconPx + std::round(kGap * s);  // the icon's slot
+            l.captionShift = -std::floor(std::round(kGap * s) / 2.0f);
+        }
+        l.captionBand = captionGap + l.captionCross;
+    }
+
+    // The bar without reflections (the icon row and the titles).
+    const float iconBarH = std::round(l.iconPx + kBarExtraHeight * s) + l.captionBand;
     const float barH = iconBarH + l.reflH;
     const float margin = l.fullWidth ? 0.0f : std::round(kBottomMargin * s);
     float winH = std::round(l.iconPx * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
-                 l.reflH;
+                 l.reflH + l.captionBand;
     winH = std::max(winH, barH + margin);
     // The title (docks[].title): upright, in the label's font, kLabelGap beyond the bar's far side.
     float titleMain = 0.0f, titleCross = 0.0f;
@@ -516,6 +581,7 @@ void DockWindow::ComputeLayout() {
 
     l.bar = D2D1::RectF(barLeft, winH - margin - barH, barLeft + barW, winH - margin);
     l.itemTop = l.bar.top + std::round(kIconTop * s);
+    l.captionTop = l.itemTop + l.iconPx + l.reflH + captionGap;  // under the icon and its reflection
     l.growRoomStart = l.bar.left;
     l.growRoomEnd = l.stageMain - l.bar.right;
 
@@ -833,6 +899,8 @@ void DockWindow::ResetLayers() {
         item.icon.Reset();
         item.iconBig.Reset();
         item.dot.Reset();
+        item.caption.Reset();
+        item.captionDirty = true;
     }
 }
 
@@ -878,6 +946,8 @@ HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
     item.icon.Reset();
     item.iconBig.Reset();
     item.dot.Reset();
+    item.caption.Reset();  // created by RenderCaption while titles are on
+    item.captionDirty = true;
     // A widget is one plain visual in widgetsGroup_ (behind the icons): its content is drawn into
     // `layer` itself and it is placed with the visual's offsets (it never scales or bounces).
     if (item.IsWidget()) {
@@ -1279,7 +1349,8 @@ HRESULT DockWindow::RenderDotSources() {
 
 HRESULT DockWindow::RenderDot(DockItem& item) {
     const Layer none{};  // no surface: no dot
-    const Layer& source = item.windows.empty() ? none
+    // A window slot's minimized window has no dot (it stays on the dock: minimize to dock).
+    const Layer& source = item.windows.empty() || (item.window && item.minimized) ? none
                           : item.wantsAttention ? dotSources_[2]
                           : item.active         ? dotSources_[1]
                                                 : dotSources_[0];
@@ -1297,9 +1368,8 @@ HRESULT DockWindow::RenderLabel() {
     if (!labelDirty_ && labelItem_ == hovered_ && label_.width) return S_OK;
 
     const DockItem& item = items_[static_cast<size_t>(hovered_)];
-    const std::wstring text = item.kind == DockItem::Kind::RecycleBin ? RecycleBinLabel()
-                              : item.displayName.empty()             ? item.key.Source()
-                                                                     : item.displayName;
+    const std::wstring text = SlotTitle(item);
+    labelChars_ = text.size();
     const float s = layout_.scale;
     IDWriteFactory* dw = renderer_.DWrite();
     if (!EnsureLabelFormat(s)) return S_OK;
@@ -1363,6 +1433,138 @@ bool DockWindow::EnsureLabelFormat(float s) {
     return true;
 }
 
+std::wstring DockWindow::SlotTitle(const DockItem& item) const {
+    if (item.kind == DockItem::Kind::RecycleBin) return RecycleBinLabel();
+    if (item.window && !item.windowTitle.empty()) return item.windowTitle;
+    return item.displayName.empty() ? item.key.Source() : item.displayName;
+}
+
+std::wstring DockWindow::CaptionFor(const DockItem& item) const {
+    if (item.IsWidget() || item.kind == DockItem::Kind::Separator) return {};
+    if (item.window && !item.windowTitle.empty()) return item.windowTitle;
+    if (!item.displayName.empty()) return item.displayName;
+    // No display name: the file name of the path behind the key (never a whole path).
+    const std::wstring& src = item.key.Source();
+    const size_t slash = src.find_last_of(L"\\/");
+    return slash == std::wstring::npos ? src : src.substr(slash + 1);
+}
+
+int DockWindow::CaptionLines() const { return layout_.captionLines; }
+
+bool DockWindow::EnsureCaptionFormat(float s) {
+    IDWriteFactory* dw = renderer_.DWrite();
+    if (!dw) return false;
+    if (captionFormat_ && captionScale_ == s) return true;
+    captionFormat_ = nullptr;
+    captionEllipsis_ = nullptr;
+    captionLineH_ = 0.0f;
+    // The label's font (Segoe UI), smaller.
+    if (FAILED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                    DWRITE_FONT_STRETCH_NORMAL, kCaptionFontSize * s, L"", captionFormat_.put()))) {
+        captionFormat_ = nullptr;
+        return false;
+    }
+    if (SUCCEEDED(dw->CreateEllipsisTrimmingSign(captionFormat_.get(), captionEllipsis_.put()))) {
+        const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+        captionFormat_->SetTrimming(&trimming, captionEllipsis_.get());
+    }
+    winrt::com_ptr<IDWriteTextLayout> probe;
+    DWRITE_TEXT_METRICS m{};
+    if (SUCCEEDED(dw->CreateTextLayout(L"Ag", 2, captionFormat_.get(), 1000.0f, 1000.0f, probe.put())) &&
+        SUCCEEDED(probe->GetMetrics(&m))) {
+        captionLineH_ = std::ceil(m.height);
+    }
+    if (captionLineH_ <= 0.0f) captionLineH_ = std::ceil(kCaptionFontSize * 1.33f * s);
+    captionScale_ = s;
+    return true;
+}
+
+HRESULT DockWindow::RenderCaption(DockItem& item) {
+    const Layout& l = layout_;
+    std::wstring text = l.captionLines > 0 ? CaptionFor(item) : std::wstring();
+    IDWriteFactory* dw = renderer_.DWrite();
+    if (text.empty() || !dw || !EnsureCaptionFormat(l.scale)) {
+        // Titles off (or nothing to show): no visual at all.
+        if (item.caption.visual) renderer_.DestroyLayer(item.caption);
+        item.caption.Reset();
+        item.captionText.clear();
+        item.captionDirty = false;
+        return S_OK;
+    }
+    if (!item.caption.visual) {
+        const HRESULT hr = renderer_.CreateLayer(item.caption, &itemsGroup_);
+        if (FAILED(hr)) return hr;
+        item.tx.valid = false;  // ApplyTargets places it (cross offset, then the main tween with the icon)
+    }
+    // Physical box: under the icon on horizontal docks (the slot's width), beside it on vertical
+    // ones (the text stays upright).
+    const float s = l.scale;
+    const float pad = std::round(kCaptionPad * s);
+    const D2D1_SIZE_F box = l.PhysSize(l.captionMain, l.captionCross);
+    const float textW = std::max(1.0f, box.width - 2.0f * pad);
+    const float textH = l.vertical ? box.height : std::ceil(captionLineH_ * static_cast<float>(l.captionLines));
+    winrt::com_ptr<IDWriteTextLayout> layout;
+    auto make = [&](const std::wstring& t) {
+        layout = nullptr;
+        if (FAILED(dw->CreateTextLayout(t.c_str(), static_cast<UINT32>(t.size()), captionFormat_.get(), textW,
+                                        l.captionLines == 1 ? textH : 10000.0f, layout.put()))) {
+            layout = nullptr;
+            return;
+        }
+        layout->SetWordWrapping(l.captionLines == 1 ? DWRITE_WORD_WRAPPING_NO_WRAP : DWRITE_WORD_WRAPPING_EMERGENCY_BREAK);
+        // Horizontal docks: centred under the icon. Vertical: toward the icon (right-aligned on a
+        // left dock, whose titles sit between the icon and the screen edge).
+        layout->SetTextAlignment(!l.vertical ? DWRITE_TEXT_ALIGNMENT_CENTER
+                                 : l.edge == DockEdge::Left ? DWRITE_TEXT_ALIGNMENT_TRAILING
+                                                            : DWRITE_TEXT_ALIGNMENT_LEADING);
+    };
+    make(text);
+    if (layout && l.captionLines > 1) {
+        // Two lines at most: cut what the wrap puts beyond them and end the second line in an
+        // ellipsis (DirectWrite trims by width only).
+        UINT32 count = 0;
+        layout->GetLineMetrics(nullptr, 0, &count);
+        if (count > static_cast<UINT32>(l.captionLines)) {
+            std::vector<DWRITE_LINE_METRICS> lm(count);
+            layout->GetLineMetrics(lm.data(), count, &count);
+            size_t keep = 0;
+            for (int k = 0; k < l.captionLines; ++k) keep += lm[static_cast<size_t>(k)].length;
+            keep = std::min(keep, text.size());
+            for (int tries = 0; tries < 64 && keep > 0; ++tries) {
+                std::wstring cut = text.substr(0, keep);
+                while (!cut.empty() && std::iswspace(cut.back())) cut.pop_back();
+                cut += L"\x2026";
+                make(cut);
+                if (!layout) break;
+                UINT32 n = 0;
+                layout->GetLineMetrics(nullptr, 0, &n);
+                if (n <= static_cast<UINT32>(l.captionLines)) break;
+                --keep;
+            }
+        }
+    }
+    if (!layout) return S_OK;
+    DWRITE_TEXT_METRICS m{};
+    layout->GetMetrics(&m);
+    const float y = l.vertical ? std::round((box.height - std::min(m.height, box.height)) / 2.0f) : 0.0f;
+    const D2D1_COLOR_F color = Theme::ToColor(DockTheme().clockText);  // drawn on the bar, like the clock
+    HRESULT hr = renderer_.DrawLayer(item.caption, static_cast<UINT>(box.width), static_cast<UINT>(box.height),
+                                     [&](ID2D1DeviceContext* dc) {
+                                         winrt::com_ptr<ID2D1SolidColorBrush> brush;
+                                         if (FAILED(dc->CreateSolidColorBrush(color, brush.put()))) return;
+                                         dc->DrawTextLayout(D2D1::Point2F(pad, y), layout.get(), brush.get(),
+                                                            D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                                     });
+    if (FAILED(hr)) return hr;
+    // The box sits captionShift along the bar from the icon box (the slot's left edge on horizontal
+    // docks); the icon's main tween drives the visual's own offset.
+    renderer_.SetStaticTransform(item.caption, l.vertical ? D2D1::Matrix3x2F::Translation(0.0f, l.captionShift)
+                                                          : D2D1::Matrix3x2F::Translation(l.captionShift, 0.0f));
+    item.captionText = std::move(text);
+    item.captionDirty = false;
+    return S_OK;
+}
+
 HRESULT DockWindow::RenderTitle() {
     // Like the name label: the label's pill, font and colours.
     const Layout& l = layout_;
@@ -1424,6 +1626,8 @@ HRESULT DockWindow::DrawFrame(bool all) {
         if (!item.layer.visual) hr = CreateItemVisuals(item);
         if (SUCCEEDED(hr) && (all || item.dirty)) hr = RenderItem(item);
         if (SUCCEEDED(hr) && (all || item.dotDirty) && !item.IsWidget()) hr = RenderDot(item);  // widgets: no dot
+        // Titles under the icons (none while off: the caption visual only exists while shown).
+        if (SUCCEEDED(hr) && !item.IsWidget() && (all || item.captionDirty)) hr = RenderCaption(item);
     }
     if (SUCCEEDED(hr) && labelShown_ && (all || labelDirty_)) hr = RenderLabel();
     const UINT titleW = static_cast<UINT>(layout_.title.right - layout_.title.left);
@@ -1769,16 +1973,22 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
             if (item.dot.visual) {
                 SetCrossOffset(item.dot.visual.get(), l.CrossOrigin(l.dotTop, static_cast<float>(l.dotHeight)));
             }
+            if (item.caption.visual) {
+                SetCrossOffset(item.caption.visual.get(), l.CrossOrigin(l.captionTop, l.captionCross));
+            }
         }
         IDCompositionTranslateTransform* translate = item.layer.translate.get();
         IDCompositionScaleTransform* scale = item.layer.scale.get();
         IDCompositionVisual2* dot = item.dot.visual.get();
-        // The dot follows the icon box along the bar: one animation object drives both.
+        IDCompositionVisual2* caption = item.caption.visual.get();
+        // The dot and the title follow the icon box along the bar: one animation object drives all.
+        // (The title does not scale: magnification grows the icon away from it.)
         renderer_.Drive(
             item.tx, item.targetX, duration, now,
             [&](auto v) {
                 HRESULT hr = SetMainOffset(translate, v);
                 if (SUCCEEDED(hr) && dot) hr = SetMainOffset(dot, v);
+                if (SUCCEEDED(hr) && caption) hr = SetMainOffset(caption, v);
                 return hr;
             },
             posEpsilon, easing);
@@ -2028,7 +2238,8 @@ void DockWindow::DriveLabelOpacity(float to, double duration) {
 bool DockWindow::PreviewEligible(int index) const {
     if (!DockCfg().previews || index < 0 || index >= static_cast<int>(items_.size())) return false;
     const DockItem& item = items_[static_cast<size_t>(index)];
-    const size_t minWindows = DockCfg().previewSingle ? 1 : 2;
+    // A window slot shows its one window (it never has more).
+    const size_t minWindows = DockCfg().previewSingle || item.window ? 1 : 2;
     if (item.kind != DockItem::Kind::App || item.windows.size() < minWindows) return false;
     // Showing counts: the hover usually starts while the dock slides in (OnPreviewTimer requires
     // Shown).
@@ -2054,7 +2265,8 @@ void DockWindow::UpdatePreviewHover() {
         }
         return;
     }
-    if (previewSuppressed_ && hovered_ >= 0 && items_[static_cast<size_t>(hovered_)].key != previewSuppressKey_) {
+    if (previewSuppressed_ && hovered_ >= 0 && (items_[static_cast<size_t>(hovered_)].key != previewSuppressKey_ ||
+                               items_[static_cast<size_t>(hovered_)].window != previewSuppressWindow_)) {
         previewSuppressed_ = false;  // moved on to another item
     }
     if (hovered_ >= 0 && !previewSuppressed_ && PreviewEligible(hovered_) && hwnd_) {
@@ -2132,12 +2344,14 @@ void DockWindow::ShowPreview(int index, bool keepAnchor) {
     PopupAnchor anchor = PopupAnchorAt(0.0f);
     anchor.along = previewAnchor_;
     const AppKey key = item.key;
+    const HWND window = item.window;
     if (!preview_.Show(content, style, anchor)) {
         DismissPreview(false);
         return;
     }
     previewItem_ = index;
     previewKey_ = key;
+    previewWindow_ = window;
     TakePopupHold(kHoldPreview);
     HideLabel();
     RenderWithRecovery([] { return S_OK; });  // commit the label hide
@@ -2152,6 +2366,7 @@ void DockWindow::DismissPreview(bool animate, bool leaveCheck) {
     preview_.Hide(animate);
     previewItem_ = -1;
     previewKey_ = AppKey{};
+    previewWindow_ = nullptr;
     previewOpener_.clear();
     ReleasePopupHold(kHoldPreview, leaveCheck);
 }
@@ -2174,6 +2389,7 @@ void DockWindow::SuppressPreview() {
     if (hovered_ >= 0 && hovered_ < static_cast<int>(items_.size())) {
         previewSuppressed_ = true;
         previewSuppressKey_ = items_[static_cast<size_t>(hovered_)].key;
+        previewSuppressWindow_ = items_[static_cast<size_t>(hovered_)].window;
     }
     DismissPreview(!hold_, false);
 }
@@ -2182,7 +2398,7 @@ void DockWindow::RefreshPreview() {
     if (!preview_.Visible()) return;
     int index = -1;
     for (size_t i = 0; i < items_.size() && index < 0; ++i) {
-        if (items_[i].key == previewKey_) index = static_cast<int>(i);
+        if (items_[i].key == previewKey_ && items_[i].window == previewWindow_) index = static_cast<int>(i);
     }
     if (index < 0 || items_[static_cast<size_t>(index)].windows.empty()) {
         DismissPreview(true);  // the last window closed
@@ -3262,8 +3478,13 @@ LayoutContext DockWindow::Context() const {
 
 void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     std::vector<AppKey> oldKeys;
+    std::vector<HWND> oldWindows;  // window slots: key + window identify a slot
     oldKeys.reserve(items_.size());
-    for (const DockItem& it : items_) oldKeys.push_back(it.key);
+    oldWindows.reserve(items_.size());
+    for (const DockItem& it : items_) {
+        oldKeys.push_back(it.key);
+        oldWindows.push_back(it.window);
+    }
 
     // 1. Every element's slots, in config order: a pin's slot (entries that resolve to the same
     //    app show once), the unpinned running apps for the `running` element (first-seen order, or
@@ -3272,6 +3493,8 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     std::vector<DockItem> next;
     next.reserve(pins_.size() + snap.groups.size() + elements_.size());
     SlotBuilder builder(snap, pins_, runningOrder_, items_, next);
+    builder.unstacked = DockCfg().windows == WindowsMode::Unstacked;
+    builtUnstacked_ = builder.unstacked;
     for (size_t i = 0; i < elements_.size(); ++i) {
         if (!elements_[i]) continue;
         builder.SetElement(i);
@@ -3291,25 +3514,46 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
                 }
             }
         }
-        std::vector<HWND> windows = g ? g->windows : std::vector<HWND>{};
+        std::vector<HWND> windows;
+        bool attention = false, minimized = false;
+        if (g && item.window) {
+            // A window slot: its own window, its own attention and minimized state.
+            const auto it = std::find(g->windows.begin(), g->windows.end(), item.window);
+            if (it != g->windows.end()) {
+                const size_t k = static_cast<size_t>(it - g->windows.begin());
+                windows.push_back(item.window);
+                attention = k < g->attention.size() && g->attention[k];
+                minimized = k < g->minimized.size() && g->minimized[k];
+            }
+        } else if (g) {
+            windows = g->windows;
+            attention = g->wantsAttention;
+        }
         if (item.windows.empty() != windows.empty()) {
             item.dotDirty = true;           // indicator dot
             if (item.missing) item.dirty = true;  // placeholder <-> live icon
         }
         item.windows = std::move(windows);
-        const bool attention = g && g->wantsAttention;
         if (item.wantsAttention != attention) {
             item.wantsAttention = attention;
             item.dotDirty = true;
         }
+        if (item.minimized != minimized) {
+            item.minimized = minimized;
+            item.dotDirty = true;  // a minimized window slot has no dot
+        }
+        if (item.window) item.windowTitle = WindowTracker::WindowTitle(item.window);
+        if (layout_.captionLines > 0 && CaptionFor(item) != item.captionText) item.captionDirty = true;
         const bool active = snap.foreground &&
                             std::find(item.windows.begin(), item.windows.end(), snap.foreground) != item.windows.end();
         if (item.active != active) {
             item.active = active;
             item.dotDirty = true;
         }
-        // The launched app's window appeared: let the icon land.
-        if (item.bounce == DockItem::Bounce::Bouncing && item.windows.size() > item.bounceWindowCount) {
+        // The launched app's window appeared (any of its windows: an unstacked app has one per
+        // slot): let the icon land.
+        const size_t appWindows = g ? g->windows.size() : 0;
+        if (item.bounce == DockItem::Bounce::Bouncing && appWindows > item.bounceWindowCount) {
             FinishBounce(item);
             if (item.bounce == DockItem::Bounce::None) landed = true;
         }
@@ -3319,6 +3563,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     for (size_t i = 0; i < items_.size(); ++i) {
         if (builder.Taken(i)) continue;
         renderer_.DestroyLayer(items_[i].dot);
+        renderer_.DestroyLayer(items_[i].caption);
         renderer_.DestroyLayer(items_[i].layer);
         items_[i].glow.Reset();
         items_[i].reflection.Reset();
@@ -3326,8 +3571,10 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
         items_[i].iconBig.Reset();
     }
 
-    bool structural = next.size() != oldKeys.size();
-    for (size_t i = 0; !structural && i < next.size(); ++i) structural = next[i].key != oldKeys[i];
+    bool structural = next.size() != oldKeys.size() || next.size() != oldWindows.size();
+    for (size_t i = 0; !structural && i < next.size(); ++i) {
+        structural = next[i].key != oldKeys[i] || next[i].window != oldWindows[i];
+    }
 
     items_ = std::move(next);
     // Active-app glow follows the foreground (committed by the redraw below).
@@ -3363,6 +3610,10 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
 }
 
 int DockWindow::IndexOfWindow(HWND hwnd) const {
+    // Unstacked: the window's own slot (a pinned app's pin slot lists the window too).
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (hwnd && items_[i].window == hwnd) return static_cast<int>(i);
+    }
     for (size_t i = 0; i < items_.size(); ++i) {
         if (std::find(items_[i].windows.begin(), items_[i].windows.end(), hwnd) != items_[i].windows.end()) {
             return static_cast<int>(i);
@@ -3385,7 +3636,20 @@ bool DockWindow::LaunchItem(int index, bool newInstance) {
     copy.kind = target.kind;
     copy.launchPath = target.launchPath;
     copy.workingDir = target.workingDir;
-    const size_t windowsBefore = target.windows.size();
+    // The app's windows (a window slot holds one of them; an unstacked app has a slot per window).
+    auto appWindows = [this](const AppKey& key) {
+        size_t app = 0, slots = 0;
+        for (const DockItem& i : items_) {
+            if (i.key != key) continue;
+            if (i.window) {
+                ++slots;
+            } else {
+                app = std::max(app, i.windows.size());
+            }
+        }
+        return std::max(app, slots);
+    };
+    const size_t windowsBefore = appWindows(target.key);
     if (!Launcher::Launch(copy)) {
         MessageBeep(MB_ICONWARNING);
         return false;
@@ -3393,9 +3657,10 @@ bool DockWindow::LaunchItem(int index, bool newInstance) {
     // Folders and the Recycle Bin open in Explorer, whose windows belong to explorer.exe: no
     // window of this item will ever appear, so there is no launch feedback.
     if (copy.kind != DockItem::Kind::App) return true;
+    const size_t windowsNow = appWindows(copy.key);
     for (DockItem& item : items_) {
         if (item.key != copy.key) continue;
-        if (item.windows.size() <= windowsBefore) StartBounce(item, windowsBefore);
+        if (windowsNow <= windowsBefore) StartBounce(item, windowsBefore);
         break;
     }
     return true;
@@ -4653,12 +4918,7 @@ int DockWindow::MenuIndexAt(POINT clientPt) const {
 LRESULT DockWindow::QueryItemPoint(WPARAM wp, LPARAM lp) const {
     int index = -1;
     if (wp) {
-        HWND target = reinterpret_cast<HWND>(wp);
-        for (size_t i = 0; i < items_.size() && index < 0; ++i) {
-            if (std::find(items_[i].windows.begin(), items_[i].windows.end(), target) != items_[i].windows.end()) {
-                index = static_cast<int>(i);
-            }
-        }
+        index = IndexOfWindow(reinterpret_cast<HWND>(wp));
     } else if (lp >= 0 && lp < static_cast<LPARAM>(items_.size())) {
         index = static_cast<int>(lp);
     }
@@ -4795,6 +5055,32 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             if (!m.Active()) return -1;
             return m.Get().session ? static_cast<LRESULT>(m.Get().status) : 0;
         }
+        case 70:  // docks[].windows: 0 stacked, 1 unstacked (as the slots were last built)
+            return builtUnstacked_ ? 1 : 0;
+        case 71:  // docks[].titles: 0 off, 1 one line, 2 two lines
+            return static_cast<LRESULT>(DockCfg().titles);
+        case 72:  // lines of title text actually laid out under / beside the icons (0: none)
+            return layout_.captionLines;
+        case 73:  // the window of window slot lp (0: an app-level slot; -1 no such slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return reinterpret_cast<LRESULT>(items_[static_cast<size_t>(lp)].window);
+        case 74:  // characters in the text the hover label shows (-1: no label)
+            return labelShown_ && label_.width ? static_cast<LRESULT>(labelChars_) : -1;
+        case 75:  // characters in popup card lp's title (-1: no such card)
+            return preview_.CardTitleLength(static_cast<size_t>(lp));
+        case 76:  // live title changes applied (slot titles, label, preview cards)
+            return static_cast<LRESULT>(titleUpdates_);
+        case 78: {  // slot lp's dot: 0 none, 1 running, 2 active, 3 attention (-1 no such slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            const DockItem& item = items_[static_cast<size_t>(lp)];
+            if (item.IsWidget() || item.windows.empty() || (item.window && item.minimized)) return 0;
+            return item.wantsAttention ? 3 : item.active ? 2 : 1;
+        }
+        case 77:  // slot lp's title under the icon: characters of its text (0: none; -1 no such slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return items_[static_cast<size_t>(lp)].caption.visual
+                       ? static_cast<LRESULT>(items_[static_cast<size_t>(lp)].captionText.size())
+                       : 0;
         case 65:  // a script widget's popup is visible
             return widgetPopup_.Visible() ? 1 : 0;
         case 66:  // the widget popup's size in px, MAKELONG(w, h) (0 hidden)

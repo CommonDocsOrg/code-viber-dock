@@ -66,6 +66,10 @@ void WindowTracker::Start(HWND owner, ChangeFn onChange) {
     // may report them before that. Out-of-context, so the callback runs on this thread.
     cloakHook_ = SetWinEventHook(EVENT_OBJECT_UNCLOAKED, EVENT_OBJECT_UNCLOAKED, nullptr, &WindowTracker::WinEventProc,
                                  0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    // Minimize / restore: the snapshot carries each window's minimized state (one slot per window
+    // shows it). The shell hook reports no minimize of its own.
+    minimizeHook_ = SetWinEventHook(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, nullptr,
+                                    &WindowTracker::WinEventProc, 0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
 
     Reconcile();
 }
@@ -80,6 +84,11 @@ void WindowTracker::Stop() {
         UnhookWinEvent(cloakHook_);
         cloakHook_ = nullptr;
     }
+    if (minimizeHook_) {
+        UnhookWinEvent(minimizeHook_);
+        minimizeHook_ = nullptr;
+    }
+    titleChanged_.clear();
     if (s_instance == this) s_instance = nullptr;
     owner_ = nullptr;
     onChange_ = nullptr;
@@ -129,6 +138,8 @@ void WindowTracker::OnShellEvent(WPARAM code, HWND hwnd) {
             }
             break;
         case HSHELL_REDRAW:          // title/icon change: cached identity stays valid
+            if (hwnd && index_.contains(hwnd)) titleChanged_.insert(hwnd);  // compared at the reconcile
+            break;
         case HSHELL_WINDOWREPLACED:
         case HSHELL_WINDOWREPLACING:
         case HSHELL_MONITORCHANGED:
@@ -194,8 +205,21 @@ void WindowTracker::Reconcile() {
         std::optional<AppKey> key = AppIdentity::IdentifyWindow(hwnd);
         if (!key) continue;  // retried on the next event
         index_[hwnd] = windows_.size();
-        windows_.push_back(Tracked{hwnd, std::move(*key)});
+        windows_.push_back(Tracked{hwnd, std::move(*key), WindowTitle(hwnd)});
     }
+
+    // 2b. Title changes of tracked windows (HSHELL_REDRAW also means an icon / flash redraw: only
+    //     a caption that differs from the last one counts).
+    std::vector<HWND> retitled;
+    for (HWND hwnd : titleChanged_) {
+        auto it = index_.find(hwnd);
+        if (it == index_.end()) continue;
+        std::wstring title = WindowTitle(hwnd);
+        if (title == windows_[it->second].title) continue;
+        windows_[it->second].title = std::move(title);
+        retitled.push_back(hwnd);
+    }
+    titleChanged_.clear();
 
     // 3. Attention state: only for tracked, non-foreground windows.
     const HWND fgOwner = TrackedOwnerOf(GetForegroundWindow());
@@ -219,12 +243,24 @@ void WindowTracker::Reconcile() {
             if (t.key != k) continue;
             g.windows.push_back(t.hwnd);
             g.monitors.push_back(MonitorOfWindow(t.hwnd));
-            if (flashing_.contains(t.hwnd)) g.wantsAttention = true;
+            g.minimized.push_back(IsIconic(t.hwnd) != FALSE);
+            const bool flashing = flashing_.contains(t.hwnd);
+            g.attention.push_back(flashing);
+            if (flashing) g.wantsAttention = true;
         }
         snap.groups.push_back(std::move(g));
     }
 
-    if (snap == current_) return;
-    current_ = std::move(snap);
-    if (onChange_) onChange_(current_);
+    if (!(snap == current_)) {
+        current_ = std::move(snap);
+        if (onChange_) onChange_(current_);
+    }
+    // The change callback may have stopped the tracker (quit from inside it).
+    if (!retitled.empty() && owner_ && onTitles_) onTitles_(retitled);
+}
+
+std::wstring WindowTracker::WindowTitle(HWND hwnd) {
+    wchar_t buf[256]{};
+    GetWindowTextW(hwnd, buf, static_cast<int>(std::size(buf)));  // another process: the cached caption, never blocks
+    return buf;
 }

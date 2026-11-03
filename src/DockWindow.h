@@ -179,6 +179,12 @@ public:
     void SetMonitor(HMONITOR monitor);
     // DockManager: the tracker's snapshot changed / the foreground watch fired / the weather changed.
     void OnSnapshot(const WindowTracker::Snapshot& snap);
+    // The tracker saw these windows' captions change: window slots (their hover label and title
+    // under the icon) and the open preview popup's cards follow.
+    void OnWindowTitles(const std::vector<HWND>& windows);
+    // Automation (ItemCommand 810): what a left click on slot `index` does (activate / minimize its
+    // window or app, launch, open its popup). False without such a slot.
+    bool ClickSlot(int index);
     void OnWatchEvent();
     // The weather service's data or status changed: the weather elements redraw (DockEvent), the
     // popup updates.
@@ -237,7 +243,8 @@ public:
     // A right click at a client-area point: the index of the item whose item menu opens, or -1
     // for the dock menu (no item there, or a widget).
     int MenuIndexAt(POINT clientPt) const;
-    // Index of the item owning a tracked top-level window, or -1.
+    // Index of the item owning a tracked top-level window (its window slot when the dock is
+    // unstacked), or -1.
     int IndexOfWindow(HWND hwnd) const;
     const std::vector<DockItem>& Items() const { return items_; }
 
@@ -339,6 +346,15 @@ private:
         float hiddenSlide = 0.0f; // slide distance of the hidden pose (`slide`, or to the peek strip)
         bool reflClip = false;    // reflections are clipped at the bar's edge (theme.reflectionClip)
         D2D1_RECT_F title{};      // the title's physical stage rect (empty: none)
+        // Titles under the icons (docks[].titles; 0 lines: none). Each slot's caption box is
+        // captionMain x captionCross (canonical), captionTop on the cross axis (under the icon and
+        // any reflection, toward the screen edge), along the bar at the icon box + captionShift.
+        int captionLines = 0;
+        float captionTop = 0.0f;
+        float captionMain = 0.0f;
+        float captionCross = 0.0f;
+        float captionShift = 0.0f;
+        float captionBand = 0.0f;  // what the captions add to the bar's cross size
 
         D2D1_POINT_2F Phys(float u, float v) const { return DockGeometry::Point(edge, u, v, stageCross); }
         D2D1_RECT_F PhysRect(float u0, float v0, float u1, float v1) const {
@@ -442,6 +458,17 @@ private:
     HRESULT RenderSeparator(DockItem& item);
     HRESULT RenderDotSources();
     HRESULT RenderDot(DockItem& item);
+    // --- titles under the icons (docks[].titles) ---
+    // The text a slot shows under its icon / in its hover label: a window slot's caption, else the
+    // app / item name (the Recycle Bin's label has its count; separators and widgets: none).
+    std::wstring SlotTitle(const DockItem& item) const;
+    std::wstring CaptionFor(const DockItem& item) const;
+    // Lines of title text under the icons for this layout (0: off; vertical docks with
+    // titlesVertical "off": 0).
+    int CaptionLines() const;
+    bool EnsureCaptionFormat(float s);
+    // Creates / removes the item's caption visual (titles on / off) and draws its text.
+    HRESULT RenderCaption(DockItem& item);
     HRESULT RenderLabel();
     // Redraws every layer (all) or only dirty ones, and positions everything.
     HRESULT DrawFrame(bool all);
@@ -705,8 +732,11 @@ private:
     // An item a pin / running-app drag can be dropped on (a pin or an unpinned running app; not a
     // widget).
     bool Droppable(size_t index) const { return !items_[index].IsWidget(); }
-    // A press on slot `index` may start a drag: every slot, unless the dock is locked.
-    bool Draggable(size_t index) const { return index < items_.size() && !DockCfg().locked; }
+    // A press on slot `index` may start a drag: every slot but a window slot (unstacked docks
+    // keep their app order), unless the dock is locked.
+    bool Draggable(size_t index) const {
+        return index < items_.size() && !DockCfg().locked && !items_[index].window;
+    }
     // Gap slot (an index into items_, at most items_.size()) for an external drop at stage x: before
     // a pin, after the last pin, or (no pins) before the first running app; -1 if there is none.
     int DropGapIndex(float stageX) const;
@@ -867,6 +897,17 @@ private:
     float labelScale_ = 0.0f;
     winrt::com_ptr<IDWriteTextFormat> labelFormat_;
     winrt::com_ptr<IDWriteInlineObject> labelEllipsis_;
+    size_t labelChars_ = 0;       // length of the text the label shows (QueryState 74)
+
+    // Titles under the icons (docks[].titles): the format (the label's font, smaller), its line
+    // height, and the caption band in the layout (canonical: from captionTop, captionCross long;
+    // main length captionMain per slot, centred on the icon box).
+    winrt::com_ptr<IDWriteTextFormat> captionFormat_;
+    winrt::com_ptr<IDWriteInlineObject> captionEllipsis_;
+    float captionScale_ = 0.0f;
+    float captionLineH_ = 0.0f;
+    bool builtUnstacked_ = false;  // the last Rebuild made window slots (docks[].windows)
+    size_t titleUpdates_ = 0;      // live caption changes applied (QueryState 76)
 
     // Acrylic backdrop
     Backdrop backdrop_;
@@ -932,11 +973,13 @@ private:
     bool previewLeavePending_ = false;  // kPreviewLeaveTimerId running
     int previewItem_ = -1;              // item the popup shows
     AppKey previewKey_;
+    HWND previewWindow_ = nullptr;      // ... and its window slot's window (null: an app's slot)
     int previewAnchor_ = 0;             // screen coordinate along the edge the popup is centred on
     // Dismissed by a click or a menu while the mouse stays on the item: no popup for that item
     // again until the mouse hovers another item or leaves the dock.
     bool previewSuppressed_ = false;
     AppKey previewSuppressKey_;
+    HWND previewSuppressWindow_ = nullptr;
 
     // Folder popup
     FolderPopup folder_;

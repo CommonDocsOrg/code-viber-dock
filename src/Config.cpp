@@ -48,6 +48,9 @@ const wchar_t* const kEdgeNames[] = {L"bottom", L"top", L"left", L"right"};
 const wchar_t* const kAlignNames[] = {L"center", L"start", L"end"};
 const wchar_t* const kRunningFilterNames[] = {L"all", L"monitor"};
 const wchar_t* const kLayerNames[] = {L"normal", L"desktop"};
+const wchar_t* const kWindowsModeNames[] = {L"stacked", L"unstacked"};
+const wchar_t* const kTitlesNames[] = {L"off", L"one", L"two"};
+const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather", L"widget"};
 
@@ -108,6 +111,16 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     s.clear();
     ReadString(o, L"layer", s);
     if (!s.empty()) FromString(s, d.layer);  // unknown text: normal
+    // Unknown text keeps the default.
+    s.clear();
+    ReadString(o, L"windows", s);
+    if (!s.empty()) FromString(s, d.windows);
+    s.clear();
+    ReadString(o, L"titles", s);
+    if (!s.empty()) FromString(s, d.titles);
+    s.clear();
+    ReadString(o, L"titlesVertical", s);
+    if (!s.empty()) FromString(s, d.titlesVertical);
 }
 
 // docks[].monitor as JSON: the index, or "primary" / "each".
@@ -164,6 +177,12 @@ const wchar_t* ToString(RunningFilter v) { return EnumToString(v, kRunningFilter
 const wchar_t* ToString(DockLayer v) { return EnumToString(v, kLayerNames); }
 bool FromString(std::wstring_view s, RunningFilter& v) { return EnumFromString(s, v, kRunningFilterNames); }
 bool FromString(std::wstring_view s, DockLayer& v) { return EnumFromString(s, v, kLayerNames); }
+const wchar_t* ToString(WindowsMode v) { return EnumToString(v, kWindowsModeNames); }
+const wchar_t* ToString(TitlesMode v) { return EnumToString(v, kTitlesNames); }
+const wchar_t* ToString(TitlesVertical v) { return EnumToString(v, kTitlesVerticalNames); }
+bool FromString(std::wstring_view s, WindowsMode& v) { return EnumFromString(s, v, kWindowsModeNames); }
+bool FromString(std::wstring_view s, TitlesMode& v) { return EnumFromString(s, v, kTitlesNames); }
+bool FromString(std::wstring_view s, TitlesVertical& v) { return EnumFromString(s, v, kTitlesVerticalNames); }
 bool FromString(std::wstring_view s, DockEdge& v) { return EnumFromString(s, v, kEdgeNames); }
 bool FromString(std::wstring_view s, DockAlign& v) { return EnumFromString(s, v, kAlignNames); }
 bool FromString(std::wstring_view s, MiddleClickAction& v) { return EnumFromString(s, v, kMiddleClickNames); }
@@ -410,6 +429,11 @@ void Config::Sanitize() {
             d.runningFilter = RunningFilter::All;
         }
         if (static_cast<unsigned>(d.layer) > static_cast<unsigned>(DockLayer::Desktop)) d.layer = DockLayer::Normal;
+        if (static_cast<unsigned>(d.windows) > static_cast<unsigned>(WindowsMode::Unstacked)) d.windows = WindowsMode::Stacked;
+        if (static_cast<unsigned>(d.titles) > static_cast<unsigned>(TitlesMode::Two)) d.titles = TitlesMode::Off;
+        if (static_cast<unsigned>(d.titlesVertical) > static_cast<unsigned>(TitlesVertical::Beside)) {
+            d.titlesVertical = TitlesVertical::Beside;
+        }
         // A file stem inside the themes folder, like theme.preset: no paths.
         if (d.themePreset.size() > 64 || d.themePreset.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos ||
             d.themePreset == L"." || d.themePreset == L"..") {
@@ -679,7 +703,9 @@ bool Config::Save() const {
                  L",\n";
             o += L"      \"monitor\": " + MonitorJson(d.monitor) + L", \"runningFilter\": " +
                  Quote(ToString(d.runningFilter)) + L", \"themePreset\": " + Quote(d.themePreset) + L", \"layer\": " +
-                 Quote(ToString(d.layer)) + L"\n    }";
+                 Quote(ToString(d.layer)) + L",\n";
+            o += L"      \"windows\": " + Quote(ToString(d.windows)) + L", \"titles\": " + Quote(ToString(d.titles)) +
+                 L", \"titlesVertical\": " + Quote(ToString(d.titlesVertical)) + L"\n    }";
         }
         o += docks.empty() ? L"],\n" : L"\n  ],\n";
         o += L"  \"hideTaskbar\": " + Bool(hideTaskbar) + L",\n";

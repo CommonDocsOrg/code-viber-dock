@@ -33,6 +33,9 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
         if (callbacks_.weatherChanged) callbacks_.weatherChanged();
     });
     // The window list for every dock (the initial enumeration runs now, before any dock exists).
+    tracker_.SetTitleCallback([this](const std::vector<HWND>& windows) {
+        ForEach([&](DockWindow& w) { w.OnWindowTitles(windows); });
+    });
     tracker_.Start(owner_, [this](const WindowTracker::Snapshot& snap) {
         ForEach([&](DockWindow& w) { w.OnSnapshot(snap); });
     });
