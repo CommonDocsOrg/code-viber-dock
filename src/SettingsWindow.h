@@ -22,6 +22,7 @@ enum class SettingsScope {
     Taskbar,     // config.hideTaskbar: TaskbarController::SetEnabled
     Autostart,   // config.startWithWindows: the HKCU Run value
     Weather,     // config.weather: DockWindow::ApplyWeather
+    Notifications,  // config.notifications, docks[].badges: DockManager::SyncNotifications
     SaveOnly,    // read from the config when used (delays, renderer): just save
 };
 

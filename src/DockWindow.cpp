@@ -983,6 +983,9 @@ void DockWindow::ResetLayers() {
         item.caption.Reset();
         item.captionDirty = true;
         item.dotShift = D2D1_POINT_2F{};
+        item.badge.Reset();
+        item.badgeBig.Reset();
+        item.badgeDirty = item.badgeCount > 0;
     }
 }
 
@@ -1030,6 +1033,9 @@ HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
     item.dot.Reset();
     item.caption.Reset();  // created by RenderCaption while titles are on
     item.captionDirty = true;
+    item.badge.Reset();    // created by RenderBadge when a count shows
+    item.badgeBig.Reset();
+    item.badgeDirty = item.badgeCount > 0;
     item.dotShift = D2D1_POINT_2F{};  // a fresh dot visual has no transform
     // A widget is one plain visual in widgetsGroup_ (behind the icons): its content is drawn into
     // `layer` itself and it is placed with the visual's offsets (it never scales or bounces).
@@ -1563,6 +1569,145 @@ HRESULT DockWindow::RenderDot(DockItem& item) {
     return hr;
 }
 
+// --- notification badges (docks[].badges, round 4 phase 9) -----------------------------------
+
+bool DockWindow::UpdateBadges() {
+    const bool on = DockCfg().badges && shared_ && shared_->Notifications().Active();
+    const NotificationService* svc = shared_ ? &shared_->Notifications() : nullptr;
+    const std::vector<std::wstring>& excluded = config_->notifications.excluded;
+    auto countFor = [&](const AppKey& k) -> int {
+        if (k.id.empty() || std::find(excluded.begin(), excluded.end(), k.id) != excluded.end()) return 0;
+        return static_cast<int>(svc->UnreadFor(k));
+    };
+    bool changed = false;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        DockItem& item = items_[i];
+        int n = 0;
+        if (on && item.kind == DockItem::Kind::App) {
+            if (!item.window) {
+                n = countFor(item.key);
+            } else {
+                // Unstacked: the badge sits on the app's pin slot; an app without one shows it on
+                // its first window slot.
+                bool shown = false;
+                for (size_t j = 0; j < items_.size() && !shown; ++j) {
+                    if (j == i || items_[j].key != item.key || items_[j].kind != DockItem::Kind::App) continue;
+                    shown = !items_[j].window || j < i;
+                }
+                if (!shown) n = countFor(item.key);
+            }
+        } else if (on && item.kind == DockItem::Kind::Group) {
+            for (const DockItem::Member& m : item.members) n += countFor(m.key);
+        }
+        if (n != item.badgeCount) {
+            item.badgeCount = n;
+            item.badgeDirty = true;
+            changed = true;
+        }
+    }
+    return changed;
+}
+
+HRESULT DockWindow::RenderBadge(DockItem& item) {
+    item.badgeDirty = false;
+    if (item.badgeCount <= 0) {
+        HRESULT hr = S_OK;
+        if (item.badge.visual) hr = renderer_.DrawLayer(item.badge, 0, 0, {});
+        if (SUCCEEDED(hr) && item.badgeBig.visual) hr = renderer_.DrawLayer(item.badgeBig, 0, 0, {});
+        return hr;
+    }
+    if (!item.layer.visual || !renderer_.DWrite()) return S_OK;
+    HRESULT hr = S_OK;
+    if (!item.badge.visual) hr = renderer_.CreateLayer(item.badge, &item.layer);  // in front of the icon
+    if (SUCCEEDED(hr) && !item.badgeBig.visual) hr = renderer_.CreateLayer(item.badgeBig, &item.layer);
+    if (FAILED(hr)) return hr;
+    const Layout& l = layout_;
+    const ThemeConfig& t = DockTheme();
+    const std::wstring text = item.badgeCount > 99 ? L"99+" : std::to_wstring(item.badgeCount);
+    // The bubble at rest size: badgeSize of the icon tall (at least 12 DIPs), a pill as wide as the text needs.
+    const float h = std::max(std::round(l.iconPx * t.badgeSize), std::round(12.0f * l.scale));
+    winrt::com_ptr<IDWriteTextFormat> format;
+    winrt::com_ptr<IDWriteTextLayout> layout;
+    float textW = 0.0f;
+    if (SUCCEEDED(renderer_.DWrite()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                                                       DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL, h * 0.66f,
+                                                       L"", format.put())) &&
+        SUCCEEDED(renderer_.DWrite()->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format.get(),
+                                                       1000.0f, h, layout.put()))) {
+        DWRITE_TEXT_METRICS m{};
+        if (SUCCEEDED(layout->GetMetrics(&m))) textW = m.widthIncludingTrailingWhitespace;
+    }
+    const float w = std::max(h, std::ceil(textW + h * 0.62f));
+    auto draw = [&](ID2D1DeviceContext* dc, float k) {
+        const float bw = w * k, bh = h * k;
+        winrt::com_ptr<ID2D1SolidColorBrush> brush;
+        if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(t.badgeFill), brush.put()))) return;
+        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, bw, bh), bh / 2.0f, bh / 2.0f), brush.get());
+        winrt::com_ptr<IDWriteTextFormat> f;
+        if (FAILED(renderer_.DWrite()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                                                        DWRITE_FONT_STYLE_NORMAL, DWRITE_FONT_STRETCH_NORMAL,
+                                                        h * 0.66f * k, L"", f.put()))) {
+            return;
+        }
+        f->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+        f->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        f->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        brush->SetColor(Theme::ToColor(t.badgeText));
+        dc->DrawText(text.c_str(), static_cast<UINT32>(text.size()), f.get(), D2D1::RectF(0, -bh * 0.04f, bw, bh),
+                     brush.get());
+    };
+    const UINT restW = static_cast<UINT>(w), restH = static_cast<UINT>(h);
+    hr = renderer_.DrawLayer(item.badge, restW, restH, [&](ID2D1DeviceContext* dc) { draw(dc, 1.0f); });
+    // Crisp while magnified: the same bubble at the magnified bitmap size, scaled down.
+    const float k = l.bitmapPx > static_cast<UINT>(l.iconPx) ? static_cast<float>(l.bitmapPx) / l.iconPx : 0.0f;
+    if (SUCCEEDED(hr)) {
+        hr = k > 0.0f ? renderer_.DrawLayer(item.badgeBig, static_cast<UINT>(std::ceil(w * k)), static_cast<UINT>(std::ceil(h * k)),
+                                            [&](ID2D1DeviceContext* dc) { draw(dc, k); })
+                      : renderer_.DrawLayer(item.badgeBig, 0, 0, {});
+    }
+    if (FAILED(hr)) return hr;
+    // At the icon's outer corner (away from the screen edge), overhanging it a little: top right on
+    // bottom and left docks, bottom right on top docks, top left on right docks.
+    const D2D1_SIZE_F box = l.PhysSize(BoxW(item), l.iconPx);
+    const float o = std::round(h * 0.18f);
+    float x = box.width - w + o, y = -o;
+    if (l.edge == DockEdge::Top) y = box.height - h + o;
+    if (l.edge == DockEdge::Right) x = -o;
+    x = std::round(x);
+    y = std::round(y);
+    renderer_.SetStaticTransform(item.badge, D2D1::Matrix3x2F::Translation(x, y));
+    if (k > 0.0f) renderer_.SetStaticTransform(item.badgeBig, D2D1::Matrix3x2F::Scale(1.0f / k, 1.0f / k) * D2D1::Matrix3x2F::Translation(x, y));
+    const bool big = bigIcons_ && item.badgeBig.width > 0;
+    renderer_.SetVisible(item.badge, !big);
+    renderer_.SetVisible(item.badgeBig, big);
+    return S_OK;
+}
+
+void DockWindow::OnNotificationsChanged() {
+    if (!hwnd_ || !tracking_) return;
+    if (UpdateBadges()) RenderWithRecovery([this] { return DrawFrame(false); });
+}
+
+bool DockWindow::ActivateKey(const AppKey& key) {
+    int slot = -1;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        const DockItem& item = items_[i];
+        if (item.kind != DockItem::Kind::App || item.key != key) continue;
+        if (!item.window) {
+            slot = static_cast<int>(i);
+            break;
+        }
+        if (slot < 0) slot = static_cast<int>(i);
+    }
+    if (slot < 0) return false;
+    ActivateOrLaunch(slot);
+    return true;
+}
+
+bool DockWindow::WidgetActivateNotification(uint32_t id) { return shared_ && shared_->ActivateNotification(id); }
+
+bool DockWindow::WidgetOpenCentre(WidgetInstance&) { return false; }
+
 HRESULT DockWindow::RenderLabel() {
     if (hovered_ < 0 || hovered_ >= static_cast<int>(items_.size()) || !renderer_.DWrite()) {
         labelShown_ = false;
@@ -1836,6 +1981,10 @@ HRESULT DockWindow::DrawFrame(bool all) {
         if (!item.layer.visual) hr = CreateItemVisuals(item);
         if (SUCCEEDED(hr) && (all || item.dirty)) hr = RenderItem(item);
         if (SUCCEEDED(hr) && (all || item.dotDirty) && !item.IsWidget()) hr = RenderDot(item);  // widgets: no dot
+        // Notification badges (only slots that show or showed one).
+        if (SUCCEEDED(hr) && item.Magnifies() && (item.badgeDirty || (all && (item.badgeCount > 0 || item.badge.visual)))) {
+            hr = RenderBadge(item);
+        }
         // Titles under the icons (none while off: the caption visual only exists while shown).
         if (SUCCEEDED(hr) && !item.IsWidget() && (all || item.captionDirty)) hr = RenderCaption(item);
     }
@@ -2308,6 +2457,11 @@ void DockWindow::SetBigIcons(bool big) {
         const bool useBig = big && item.iconBig.width > 0;
         renderer_.SetVisible(item.icon, !useBig);
         renderer_.SetVisible(item.iconBig, useBig);
+        if (item.badge.visual && item.badgeBig.visual) {
+            const bool bigBadge = big && item.badgeBig.width > 0;
+            renderer_.SetVisible(item.badge, !bigBadge);
+            renderer_.SetVisible(item.badgeBig, bigBadge);
+        }
     }
 }
 
@@ -4079,6 +4233,8 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
         items_[i].reflection.Reset();
         items_[i].icon.Reset();
         items_[i].iconBig.Reset();
+        items_[i].badge.Reset();
+        items_[i].badgeBig.Reset();
     }
 
     bool structural = next.size() != oldKeys.size() || next.size() != oldWindows.size() || tilesChanged;
@@ -4087,6 +4243,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     }
 
     items_ = std::move(next);
+    UpdateBadges();  // a slot came, went or changed its windows (drawn by the redraw below)
     // Active-app glow follows the foreground (committed by the redraw below).
     if (GlowOf(DockTheme()) == GlowMode::Active) UpdateGlows(motion_.labelFade);
     // Indices changed under a drag: drop it (no animation; the icons settle in the new layout).
@@ -4182,11 +4339,16 @@ bool DockWindow::LaunchItem(int index, bool newInstance) {
 void DockWindow::ActivateOrLaunch(int slot) {
     if (slot < 0 || slot >= static_cast<int>(items_.size())) return;
     const std::vector<HWND> windows = items_[static_cast<size_t>(slot)].windows;  // copy
+    const AppKey key = items_[static_cast<size_t>(slot)].key;
+    const bool app = items_[static_cast<size_t>(slot)].kind == DockItem::Kind::App;
     if (windows.empty()) {
         LaunchItem(slot, false);
     } else {
         Activation::ActivateItem(windows);
     }
+    // notifications.clearOnActivate: its notifications are read (the badge goes; nothing is
+    // removed from Windows' notification centre).
+    if (app && shared_ && config_->notifications.clearOnActivate) shared_->Notifications().MarkRead(key);
 }
 
 // --- Launch bounce ---------------------------------------------------------------------------
@@ -5697,6 +5859,29 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                 return -1;
             }
             return items_[static_cast<size_t>(lp)].missing ? 0 : 1;
+        // --- notifications (round 4 phase 9) ---
+        case 113:  // the notification service: 0 off, 1 polling, 2 denied (or not available)
+            return shared_ ? static_cast<LRESULT>(shared_->Notifications().GetState()) : 0;
+        case 114:  // unread notifications (every app)
+            return shared_ ? static_cast<LRESULT>(shared_->Notifications().Unread()) : 0;
+        case 115:  // the badge count of slot lp (0 none; -1 no such slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return items_[static_cast<size_t>(lp)].badgeCount;
+        case 116:  // ms since the last poll (-1: none / off)
+            return shared_ ? static_cast<LRESULT>(shared_->Notifications().LastPollAgeMs()) : -1;
+        case 117:  // polls done since the service started
+            return shared_ ? static_cast<LRESULT>(shared_->Notifications().Polls()) : 0;
+        case 118:  // the interval the worker waits now (ms; 0 off)
+            return shared_ ? static_cast<LRESULT>(shared_->Notifications().IntervalMs()) : 0;
+        case 119:  // notifications listed (read ones and balloons included)
+            return shared_ ? static_cast<LRESULT>(shared_->Notifications().Items().size()) : 0;
+        case 120:  // balloons whose NIF_INFO was stripped from the copy mirrored to Explorer
+            return shared_ ? static_cast<LRESULT>(shared_->TrayService().BalloonsStripped()) : 0;
+        case 122:  // CPU time of the notification worker thread so far (µs; 0 off)
+            return shared_ ? static_cast<LRESULT>(shared_->Notifications().WorkerCpuUs()) : 0;
+        case 121:  // width in px of slot lp's drawn badge surface (rest size; 0 none, -1 no such slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return static_cast<LRESULT>(items_[static_cast<size_t>(lp)].badge.width);
         case 109:  // TaskbarCreated broadcasts repeated after Explorer raised its tray above ours
             return shared_ ? static_cast<LRESULT>(shared_->TrayService().Rebroadcasts()) : 0;
         case 105:  // balloons (NIF_INFO) captured so far

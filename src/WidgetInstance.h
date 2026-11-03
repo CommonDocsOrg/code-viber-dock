@@ -45,6 +45,10 @@ public:
         virtual void WidgetPopupRequest(WidgetInstance& widget) = 0;
         // The widget's script popup is on screen.
         virtual bool WidgetPopupShown(const WidgetInstance& widget) const = 0;
+        // notifications.activate(id): the app of notification `id` to the front (or started).
+        virtual bool WidgetActivateNotification(uint32_t id) = 0;
+        // notifications.openCentre(): the dock's notification centre popup over the widget (toggles).
+        virtual bool WidgetOpenCentre(WidgetInstance& widget) = 0;
 
     protected:
         ~Client() = default;
@@ -178,6 +182,8 @@ private:
     bool MediaGet(std::string& json, std::wstring& error) override;
     bool MediaCommand(const std::string& command, std::wstring& error) override;
     bool MediaArt(std::string& token, std::wstring& error) override;
+    bool NotificationsGet(std::string& json, std::wstring& error) override;
+    bool NotificationsCommand(const std::string& command, double id, std::wstring& error) override;
     bool PopupOpen(float w, float h, std::wstring& error) override;
     void PopupClose() override;
     bool PopupShown() const override { return client_.WidgetPopupShown(*this); }

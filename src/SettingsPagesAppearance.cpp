@@ -43,6 +43,7 @@ std::vector<FieldGroup> FieldGroups() {
         {kSectionFieldsLabel, L"Name label",
          {Field::LabelBackground, Field::LabelText, Field::LabelBorder, Field::LabelCornerRadius}},
         {kSectionFieldsDots, L"Indicator dots", {Field::DotRunning, Field::DotActive, Field::DotAttention}},
+        {kSectionFieldsBadges, L"Notification badges", {Field::BadgeFill, Field::BadgeText, Field::BadgeSize}},
         {kSectionFieldsClock, L"Clock", {Field::ClockText, Field::ClockDateText}},
         {kSectionFieldsIcons, L"Placeholder icon", {Field::PlaceholderFill, Field::PlaceholderText}},
         {kSectionFieldsPreviews, L"Window previews",

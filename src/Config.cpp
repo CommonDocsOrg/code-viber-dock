@@ -130,6 +130,7 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadInt(o, L"thumbnailIntervalS", d.thumbnailIntervalS);
     ReadInt(o, L"thumbnailSize", d.thumbnailSize);
     ReadInt(o, L"thumbnailFps", d.thumbnailFps);
+    ReadBool(o, L"badges", d.badges);
 }
 
 // docks[].monitor as JSON: the index, or "primary" / "each".
@@ -455,6 +456,7 @@ void Config::Sanitize() {
         d.thumbnailIntervalS = std::clamp(d.thumbnailIntervalS, 1, 3600);
         d.thumbnailSize = d.thumbnailSize <= 0 ? 0 : std::clamp(d.thumbnailSize, 16, 512);
         d.thumbnailFps = std::clamp(d.thumbnailFps, 1, 60);
+        notifications.pollS = std::clamp(notifications.pollS, 1, 60);
         for (DockItemEntry& e : d.items) {
             if (e.Kind() != ItemKind::Tray) continue;
             e.rows = std::clamp(e.rows, 1, 2);
@@ -537,7 +539,7 @@ Config::LoadResult Config::LoadFile() {
             L"docks",         L"hideTaskbar", L"startWithWindows", L"renderer",       L"clock",
             L"theme",         L"animation",   L"weather",          L"pinned",         L"iconSize",
             L"magnification", L"magnifyRange", L"autoHide",        L"hideDelayMs",    L"revealDelayMs",
-            L"previews",      L"previewDelayMs", L"monitor",       L"tray",
+            L"previews",      L"previewDelayMs", L"monitor",       L"tray",           L"notifications",
         };
         for (const auto& kv : root) {
             const std::wstring key(kv.Key());
@@ -695,6 +697,15 @@ Config::LoadResult Config::LoadFile() {
             ReadEnum(a, L"reduceMotion", animation.reduceMotion);
         }
         if (auto t = ReadObject(root, L"tray")) ReadBool(t, L"enabled", tray.enabled);
+        if (auto n = ReadObject(root, L"notifications")) {
+            ReadInt(n, L"pollS", notifications.pollS);
+            ReadBool(n, L"clearOnActivate", notifications.clearOnActivate);
+            ReadBool(n, L"balloons", notifications.balloons);
+            ReadStrings(n, L"excluded", notifications.excluded);
+            for (std::wstring& k : notifications.excluded) {
+                if (!k.empty()) CharLowerBuffW(k.data(), static_cast<DWORD>(k.size()));
+            }
+        }
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
         *this = Config{};
@@ -794,7 +805,7 @@ bool Config::Save() const {
                  L", \"titlesVertical\": " + Quote(ToString(d.titlesVertical)) + L",\n";
             o += L"      \"thumbnails\": " + Quote(ToString(d.thumbnails)) + L", \"thumbnailIntervalS\": " +
                  Num(d.thumbnailIntervalS) + L", \"thumbnailSize\": " + Num(d.thumbnailSize) + L", \"thumbnailFps\": " +
-                 Num(d.thumbnailFps) + L"\n    }";
+                 Num(d.thumbnailFps) + (d.badges ? L",\n      \"badges\": true" : L"") + L"\n    }";
         }
         o += docks.empty() ? L"],\n" : L"\n  ],\n";
         o += L"  \"hideTaskbar\": " + Bool(hideTaskbar) + L",\n";
@@ -818,6 +829,13 @@ bool Config::Save() const {
              Quote(weather.location) + L", \"units\": " + Quote(ToString(weather.units)) +
              L", \"refreshMinutes\": " + Num(weather.refreshMinutes) + L" }";
         if (tray.enabled) o += L",\n  \"tray\": { \"enabled\": true }";
+        if (notifications != NotificationsConfig{}) {
+            std::wstring ex;
+            for (size_t k = 0; k < notifications.excluded.size(); ++k) ex += (k ? L", " : L"") + Quote(notifications.excluded[k]);
+            o += L",\n  \"notifications\": { \"pollS\": " + Num(notifications.pollS) + L", \"clearOnActivate\": " +
+                 Bool(notifications.clearOnActivate) + L", \"balloons\": " + Bool(notifications.balloons) +
+                 L", \"excluded\": [" + ex + L"] }";
+        }
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";
         return WriteFileAtomic(FilePath(), WideToUtf8(o));

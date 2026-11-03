@@ -238,7 +238,7 @@ constexpr char kPrelude[] = R"JS(
     },
   });
   // Providers: onChange listeners kept here; the host calls the returned emit(channel).
-  const listeners = { audio: [], media: [] };
+  const listeners = { audio: [], media: [], notifications: [] };
   const onChange = (ch) => (cb) => {
     if (typeof cb !== 'function') throw new TypeError(ch + '.onChange: the argument must be a function');
     listeners[ch].push(cb);
@@ -263,10 +263,26 @@ constexpr char kPrelude[] = R"JS(
     previous: () => p.mediaCmd('previous'),
     onChange: onChange('media'),
   });
+  // notifications (phase 9): get() the list (newest first), count() the unread ones.
+  g.notifications = Object.freeze({
+    get: () => p.notifGet().items,
+    state: () => { const s = p.notifGet(); return { state: s.state, reason: s.reason }; },
+    count: () => p.notifGet().unread,
+    countFor: (key) => {
+      const k = String(key ?? '').toLowerCase();
+      return p.notifGet().items.filter((n) => n.unread && n.appKey === k).length;
+    },
+    dismiss: (id) => p.notifCmd('dismiss', Number(id)),
+    dismissAll: () => p.notifCmd('dismissAll', 0),
+    markRead: (id) => p.notifCmd('markRead', Number(id)),
+    activate: (id) => p.notifCmd('activate', Number(id)),
+    openCentre: () => p.notifCmd('openCentre', 0),
+    onChange: onChange('notifications'),
+  });
   return (ch) => {
     const l = listeners[ch];
     if (!l || !l.length) return;
-    const state = ch === 'audio' ? p.audioGet() : p.mediaGet();
+    const state = ch === 'audio' ? p.audioGet() : ch === 'media' ? p.mediaGet() : p.notifGet().items;
     for (const cb of l.slice()) cb(state);
   };
 })(globalThis, globalThis.__windock);
@@ -1552,6 +1568,23 @@ JSValue MediaArtFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
     if (!Self(ctx)->host_.MediaArt(token, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
     return token.empty() ? JS_NULL : NewString(ctx, token);
 }
+JSValue NotifGetFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    std::string json;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.NotificationsGet(json, error);
+    return JsonResult(ctx, ok, json, error, "<notifications>");
+}
+// notifCmd(command, id)
+JSValue NotifCmdFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string cmd = WideToUtf8(a.S(0));
+    double id = 0.0;
+    if (argc > 1 && JS_ToFloat64(ctx, &id, argv[1]) < 0) return JS_EXCEPTION;
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    if (!Self(ctx)->host_.NotificationsCommand(cmd, id, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
 
 // canvas.fileIcon(path, x, y, size): the shell's icon of a file or folder (permission "shell").
 JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
@@ -1669,6 +1702,8 @@ const JSCFunctionListEntry kProviderFuncs[] = {
     JS_CFUNC_DEF("mediaGet", 0, Guard<MediaGetFn>),
     JS_CFUNC_DEF("mediaCmd", 1, Guard<MediaCmdFn>),
     JS_CFUNC_DEF("mediaArt", 0, Guard<MediaArtFn>),
+    JS_CFUNC_DEF("notifGet", 0, Guard<NotifGetFn>),
+    JS_CFUNC_DEF("notifCmd", 2, Guard<NotifCmdFn>),
 };
 
 const JSCFunctionListEntry kPopupFuncs[] = {

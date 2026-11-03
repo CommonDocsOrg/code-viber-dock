@@ -35,6 +35,15 @@ AppKey MakePathKey(const std::wstring& path);
 // returned unchanged. IdentifyWindow and ResolvePin already return canonical keys.
 AppKey Canonicalize(AppKey key);
 
+// The dock key a notification's AppUserModelId (UserNotification.AppInfo) maps to, matched
+// case-insensitively against slot keys like a window's:
+//   "PackageFamilyName!App"                  -> that AUMID key (packaged apps);
+//   "{KnownFolderGUID}\rest\app.exe" (or "/") -> the exe path key (the folder from SHGetKnownFolderPath);
+//   a full path ("C:\...\app.exe")            -> the path key;
+//   anything else ("Chrome", "Microsoft.Windows.Explorer") -> that explicit id as an AUMID key.
+// All through Canonicalize (the explorer alias). Empty input: an empty key.
+AppKey KeyForNotificationAumid(const std::wstring& aumid);
+
 // True if a package of the AUMID's family ("Family_hash!App") is installed. Cheap (no shell).
 bool AumidInstalled(const std::wstring& aumid);
 

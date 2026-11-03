@@ -39,11 +39,13 @@ struct TrayIcon {
     std::wstring Title() const;
 };
 
-// A balloon notification (NIF_INFO) an app showed. Phase 9 routes them into the notification
-// centre (SetBalloonSink); until then they are only queued: Explorer, which gets every message
-// mirrored, still shows them as toasts.
+// A balloon notification (NIF_INFO) an app showed. The sink (SetBalloonSink, round 4 phase 9) hands
+// it to the NotificationService. Explorer gets every message mirrored and shows the balloon as a
+// toast too, unless SetStripBalloons is on (notifications.balloons): then NIF_INFO is cleared in the
+// copy Explorer gets, so the balloon is shown only in the dock's notification centre.
 struct TrayBalloon {
     std::wstring key;
+    std::wstring exe;     // the owner's process image (full path; may be empty)
     std::wstring title;
     std::wstring text;
     DWORD infoFlags = 0;  // NIIF_*
@@ -111,6 +113,10 @@ public:
     void SetBalloonSink(std::function<void(const TrayBalloon&)> sink) { balloonSink_ = std::move(sink); }
     const std::deque<TrayBalloon>& Balloons() const { return balloons_; }
     size_t BalloonCount() const { return balloonCount_; }
+    // Explorer no longer gets the balloons (NIF_INFO cleared in what is mirrored to it).
+    void SetStripBalloons(bool strip) { stripBalloons_ = strip; }
+    bool StripBalloons() const { return stripBalloons_; }
+    size_t BalloonsStripped() const { return balloonsStripped_; }
 
     // --- input forwarded to an icon's owner (version 3 / 4 semantics) ---
     // `anchor`: screen px (version 4 sends it in wParam; apps place their menu there). The
@@ -206,6 +212,8 @@ private:
     std::function<void(const TrayBalloon&)> balloonSink_;
     std::deque<TrayBalloon> balloons_;
     size_t balloonCount_ = 0;
+    bool stripBalloons_ = false;
+    size_t balloonsStripped_ = 0;
     size_t rectQueries_ = 0;
     size_t raises_ = 0;
     uint64_t popupOpen_ = 0;  // the icon NIN_POPUPOPEN was sent to (0: none)

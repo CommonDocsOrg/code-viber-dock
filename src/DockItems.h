@@ -130,6 +130,14 @@ struct DockItem {
     // it never scales with magnification, so the text stays crisp and is never redrawn while the
     // dock magnifies. No visual while titles are off.
     Layer caption;
+    // The notification badge (docks[].badges, round 4 phase 9): the unread count of the slot's app
+    // (a group: the sum of its members'), drawn as a bubble by two more children of `layer` in front
+    // of the icon (the rest size and the magnified size, toggled with icon / iconBig), so the
+    // bubble magnifies and bounces with the icon. Created the first time a count shows.
+    int badgeCount = 0;
+    bool badgeDirty = false;
+    Layer badge;
+    Layer badgeBig;
     Tween glowOpacity;
     bool active = false;    // owns the foreground window
     bool dirty = true;      // icon surfaces must be redrawn

@@ -981,6 +981,15 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             RequestSave();
             RefreshSettings();
             break;
+        case ContextMenu::kPollNotifications:
+            docks_.Notifications().PollNow();
+            break;
+        case ContextMenu::kToggleBadges:
+            d.badges = !d.badges;
+            docks_.SyncNotifications();  // starts / stops the service, redraws the badges
+            RequestSave();
+            RefreshSettings();
+            break;
         case ContextMenu::kAddClock:
         case ContextMenu::kAddWeather:
         case ContextMenu::kAddRunning:
@@ -1295,6 +1304,9 @@ void App::OnSettingsChanged(SettingsScope scope) {
             break;
         case SettingsScope::Weather:
             docks_.ForEach([](DockWindow& w) { w.ApplyWeather(); });
+            break;
+        case SettingsScope::Notifications:
+            docks_.SyncNotifications();
             break;
         case SettingsScope::SaveOnly:
             break;

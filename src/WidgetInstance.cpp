@@ -12,6 +12,7 @@
 #include <cwctype>
 
 #include "JsonUtil.h"
+#include "NotificationService.h"
 #include "WidgetRuntime.h"
 
 namespace {
@@ -582,6 +583,7 @@ bool WidgetInstance::Permitted(Permission p) const {
         case Permission::Shell: return package_->manifest.shell;
         case Permission::Audio: return package_->manifest.audio;
         case Permission::Media: return package_->manifest.media;
+        case Permission::Notifications: return package_->manifest.notifications;
         case Permission::Http:
         default: return package_->manifest.http;
     }
@@ -759,7 +761,8 @@ bool WidgetInstance::ShellList(const std::wstring& folder, std::string& json, st
 
 void WidgetInstance::ProviderChanged(const char* channel) {
     if (state_ != State::Ok || !engine_) return;
-    Check(engine_->Emit(channel), channel[0] == 'a' ? "audio.onChange" : "media.onChange");
+    const std::string what = std::string(channel) + ".onChange";
+    Check(engine_->Emit(channel), what.c_str());
 }
 
 namespace {
@@ -955,5 +958,68 @@ bool WidgetInstance::MediaArt(std::string& token, std::wstring& error) {
     const MediaService* m = runtime_.UseMedia(this);
     token.clear();
     if (m && m->Get().art && m->Get().artSerial) token = kArtToken + std::to_string(m->Get().artSerial);
+    return true;
+}
+
+// --- round 4 phase 9: notifications ------------------------------------------------------------
+
+bool WidgetInstance::NotificationsGet(std::string& json, std::wstring& error) {
+    if (!Permitted(Permission::Notifications)) {
+        error = L"notifications needs the \"notifications\" permission";
+        return false;
+    }
+    const NotificationService* n = runtime_.UseNotifications(this);
+    if (!n) {
+        error = L"notifications: the notification service is not available";
+        return false;
+    }
+    static const char* const kStates[] = {"off", "polling", "denied"};
+    json = std::string("{\"state\":\"") + kStates[static_cast<int>(n->GetState())] + "\",\"reason\":" + J(n->StateReason()) +
+           ",\"unread\":" + std::to_string(n->Unread()) + ",\"items\":[";
+    bool first = true;
+    for (const NotificationItem& it : n->Items()) {
+        json += first ? "{" : ",{";
+        first = false;
+        json += "\"id\":" + std::to_string(it.id) + ",\"app\":" + J(it.app) + ",\"appKey\":" + J(it.key.id) +
+                ",\"aumid\":" + J(it.aumid) + ",\"title\":" + J(it.title) + ",\"body\":" + J(it.body) +
+                ",\"time\":" + std::to_string(it.time) + ",\"unread\":" + Bool(it.unread) + ",\"balloon\":" +
+                Bool(it.balloon) + "}";
+    }
+    json += "]}";
+    return true;
+}
+
+bool WidgetInstance::NotificationsCommand(const std::string& command, double id, std::wstring& error) {
+    if (!Permitted(Permission::Notifications)) {
+        error = L"notifications needs the \"notifications\" permission";
+        return false;
+    }
+    NotificationService* n = runtime_.UseNotifications(this);
+    if (!n) {
+        error = L"notifications: the notification service is not available";
+        return false;
+    }
+    const uint32_t nid = id >= 0.0 && id <= 4294967295.0 ? static_cast<uint32_t>(id) : 0;
+    if (command == "dismiss") {
+        n->Dismiss(nid);
+    } else if (command == "dismissAll") {
+        n->DismissAll();
+    } else if (command == "markRead") {
+        n->MarkRead(nid);
+    } else if (command == "activate") {
+        if (!client_.WidgetActivateNotification(nid)) {
+            error = L"notifications.activate: no such notification";
+            return false;
+        }
+    } else if (command == "openCentre") {
+        if (!client_.WidgetOpenCentre(*this)) {
+            error = L"notifications.openCentre: the dock cannot show its notification centre";
+            return false;
+        }
+    } else {
+        error = L"notifications: unknown command";
+        return false;
+    }
+    Log(ScriptLogLevel::Info, L"notifications." + JsonUtil::Utf8ToWide(command));
     return true;
 }

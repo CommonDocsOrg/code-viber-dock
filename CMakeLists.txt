@@ -87,6 +87,7 @@ add_executable(WinDock WIN32
   src/SettingsPagesItems.cpp
   src/AudioService.cpp
   src/MediaService.cpp
+  src/NotificationService.cpp
   src/Thumbnails.cpp
   res/app.rc
   res/app.manifest

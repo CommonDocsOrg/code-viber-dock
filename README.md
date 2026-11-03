@@ -603,8 +603,9 @@ write and edit without compiling anything. The full reference (every call, every
   session's art, title and artist (Spotify, browsers, Media Player ...); hover the art for previous /
   play-pause / next, click the text for a popup; optionally the wheel changes the volume), **Start**
   (`start`: the Windows logo or your icon, opens Start), **Search** (`search`: opens Windows Search)
-  and **Notifications** (`notification-bell`: a bell that opens the notification centre; its badge is
-  a placeholder until notifications are read). A folder with a built-in's id replaces the built-in; your own clock faces
+  and **Notifications** (`notification-bell`: a bell that opens Windows' notification centre (Win+N);
+  with its "Show the unread count" setting on (off by default: nothing polls) the badge is the
+  number of unread notifications). A folder with a built-in's id replaces the built-in; your own clock faces
   go into an exported `analog-clock\faces` folder.
 - **Adding one**: Settings > Dock contents > **Add widget ▾** lists the installed widgets after
   Clock / Weather / Running apps, or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
@@ -718,8 +719,10 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
 - **Where the icon is**: `Shell_NotifyIconGetRect` (apps place their windows by it) answers the
   icon's cell, the drawer's cell while the drawer shows it, or the chevron when it is only in the
   drawer.
-- **Balloons** (`NIF_INFO`) are captured (the last 32, for the notification centre of round 4
-  phase 9); Explorer, which gets every message too, still shows them as toasts.
+- **Balloons** (`NIF_INFO`) are captured (the last 32). Explorer, which gets every message too,
+  shows them as Windows toasts, unless `notifications.balloons` is on (see Notifications and
+  badges): then the copy Explorer gets has `NIF_INFO` cleared and the balloon goes to the dock's
+  notification list only.
 - **Icon owners that quit** without removing their icons: each owner process is waited on (a
   thread-pool wait, no polling) and its icons go when it exits; a click that cannot be delivered
   removes the icon as well.
@@ -730,6 +733,51 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   it explicitly). Explorer may raise its hidden taskbar above the dock's window (seen once right
   after it is hidden): the dock raises its own again and repeats the broadcast 1.5 s later (at most
   three times a minute), so for a moment some apps may talk to Explorer only.
+
+### Notifications and badges
+
+Off by default (round 4 phase 9). The dock reads Windows' notification centre through
+`UserNotificationListener`: every toast with its app, title, text and time. Windows allows an
+unpackaged app to read it without a prompt as long as Settings > Privacy & security >
+Notifications ("Let apps access your notifications") is on; the access is checked on every poll.
+
+- **Badges** (per dock `badges`, default off; DockCommand 132 toggles it): a bubble with the
+  number of unread notifications of each app on its slot, at the icon's outer corner (top right
+  on bottom and left docks, bottom right on top docks, top left on right docks). It is part of the
+  icon: it magnifies and bounces with it. "99+" above 99. A shortcut group shows the sum of its
+  members'; on an unstacked dock the badge sits on the app's pin slot (an app without one: its
+  first window slot). Theme keys `badgeFill`, `badgeText`, `badgeSize` (see Themes).
+- **Which app**: a toast's AppUserModelId is matched against the dock's app keys
+  (case-insensitive): `PackageFamilyName!App` (packaged apps) as that AUMID; an explicit id such as
+  `Chrome` as that id (it matches windows and pins with the same AppUserModelId: Chrome's windows
+  and an `"aumid": "Chrome"` pin); `{KnownFolderGUID}\path\app.exe` (or with `/`) as the exe's
+  full path (the folder resolved with `SHGetKnownFolderPath`), which matches a pinned / running
+  exe; a full path as that path; `Microsoft.Windows.Explorer` as `explorer.exe` (the dock's alias
+  table). Toasts whose app cannot be read (Windows throws for some) count for no slot.
+- **Unread / read**: a notification counts until it is dismissed in Windows (the next poll sees it
+  gone) or its app is activated from the dock (`notifications.clearOnActivate`, default on: a
+  click on the slot marks that app's notifications read; nothing is removed from Windows).
+- **Polling**: Windows offers no change event to an unpackaged app (`NotificationChanged` throws
+  without package identity), so while the feature is on a worker thread asks for the list every
+  `notifications.pollS` seconds (default 2), every max(pollS, 5) s once nothing changed for a
+  minute, every second while the notification centre popup is open, and goes back to pollS on any
+  change. Only the ids are compared; a new toast's details are read once. The worker exists only
+  while something needs it: a dock with `badges`, a widget that uses the `notifications` provider,
+  or the open centre; otherwise nothing polls. Cost measured here with 46 notifications in the
+  centre: about 25 ms of CPU per poll, almost all of it inside Windows' `GetNotificationsAsync`
+  (1.3 % of one core at the 2 s cadence, 0.5 % at 5 s; it grows with the number of notifications).
+- **Access denied**: the service stays idle apart from checking the access at the same cadence;
+  QueryState 113 reports 2.
+- **Tray balloons**: with `notifications.balloons` (and the tray takeover running) a tray icon's
+  balloon is a notification of the dock's list (attributed to the icon's exe: it badges that app)
+  and Explorer no longer shows it as a toast. Off (default), Explorer shows it as a toast, which the
+  dock reads like any other.
+- **Overlay icons and progress** (`ITaskbarList3`) do not reach the dock: they are not window
+  messages to `Shell_TrayWnd` (checked with the tray takeover's window above Explorer's, nothing
+  arrived). While the takeover runs apps' `ITaskbarList3::HrInit` fails with `E_NOTIMPL` and
+  `SetOverlayIcon` with `E_FAIL` (the taskbar they would draw on is hidden anyway).
+- **Widgets**: the `notifications` provider (permission `"notifications"`, docs/widgets.md) and
+  the Notifications widget's unread count.
 
 ## Settings
 
@@ -1067,6 +1115,12 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
 - `animation`: see Animation below.
 - `tray`: `{ "enabled": false }` (default; the key is written only while on): the notification
   area takeover (see System tray). It runs while `enabled` is on and some dock has a `tray` item.
+- `notifications`: `{ "pollS": 2, "clearOnActivate": true, "balloons": false, "excluded": [] }`
+  (the defaults; the object is written only when something differs): `pollS` seconds between
+  polls (1 - 60), `clearOnActivate` activating an app from the dock marks its notifications read,
+  `balloons` tray balloons go to the dock's notification list instead of Windows toasts,
+  `excluded` app keys (lower-case exe paths or AppUserModelIDs) that never show a badge. See
+  Notifications and badges. Per dock: `badges` (default `false`; written only when on).
 
 ### Themes
 
@@ -1135,6 +1189,9 @@ Theme keys (colours are `#AARRGGBB` or `#RRGGBB`; defaults are the `dark` preset
 | `reflectionClip` | `false` | clip the reflection at the bar's edge instead of growing the bar: the dock keeps its height and shows the part of the reflection that fits |
 | `perspective` | `false` | tilt the bar, the icons and the clock back about the bar's bottom edge (3D); acrylic is not used |
 | `perspectiveAngle` | `18` | tilt in degrees, 0 - 35 |
+| `badgeFill` | `#FFFF3B30` | notification badge bubble (light `#FFE5342A`, contrast `#FFFFD400`) |
+| `badgeText` | `#FFFFFFFF` | the badge's count (contrast `#FF000000`) |
+| `badgeSize` | `0.36` | the bubble's height as a fraction of the icon size, 0.2 - 0.6 (at least 12 DIPs) |
 
 #### Icon effects
 
@@ -1257,6 +1314,17 @@ always there, also when every dock is parked) handle these registered messages:
   Explorer, 4114 Put the tray in its own dock (8b), 4116 Add a tray to this dock. The tray menu
   (Ctrl + right click) is a `#32768` of the WinDock process with the ids 1 Hide / Show, 2 Pin, 3
   Unpin, 4 Tray settings….
+- **Notifications** (round 4 phase 9): `QueryState` 113 = the notification service (0 off, 1
+  polling, 2 access denied / not available), 114 = unread notifications (every app), 115 = the
+  badge count of slot `lParam` (-1 no such slot), 116 = ms since the last poll (-1 none), 117 =
+  polls since the service started, 118 = the interval the worker waits now (ms; 0 off), 119 =
+  notifications listed (read ones and balloons included), 120 = balloons whose `NIF_INFO` was
+  stripped from the copy mirrored to Explorer, 121 = the width in px of slot `lParam`'s badge
+  surface (0 none), 122 = the worker thread's own CPU time (µs). `DockCommand` 131 = poll now, 132
+  = toggle this dock's `badges` (saved). Test hooks (environment of the dock process, read when
+  the service starts): `WINDOCK_NOTIFY_FILTER=text;text` lists only toasts whose AUMID (balloons:
+  whose exe path) contains one of the parts, so tests never touch other notifications;
+  `WINDOCK_NOTIFY_DENIED=1` behaves as if access were denied.
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide

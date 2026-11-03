@@ -58,7 +58,7 @@ public:
     virtual void SetRefresh(uint32_t ms) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell, Audio, Media };
+    enum class Permission { Http, Shell, Audio, Media, Notifications };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -91,6 +91,13 @@ public:
     virtual bool MediaCommand(const std::string& command, std::wstring& error) = 0;
     // The current art as an image token for canvas.image ("" none).
     virtual bool MediaArt(std::string& token, std::wstring& error) = 0;
+
+    // --- notifications (permission "notifications", round 4 phase 9) ---
+    // { state: "off" | "polling" | "denied", reason, unread, items: [ { id, app, appKey, title, body,
+    // time, unread, balloon } ] } (newest first).
+    virtual bool NotificationsGet(std::string& json, std::wstring& error) = 0;
+    // "dismiss" / "activate" / "markRead" (`id`), "dismissAll", "openCentre".
+    virtual bool NotificationsCommand(const std::string& command, double id, std::wstring& error) = 0;
 
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs.
@@ -170,7 +177,8 @@ public:
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).
     virtual size_t HeapBytes() = 0;
-    // A provider changed ("audio", "media"): its onChange listeners run with its new state.
+    // A provider changed ("audio", "media", "notifications"): its onChange listeners run with its
+    // new state.
     virtual ScriptResult Emit(const std::string& channel) = 0;
 };
 

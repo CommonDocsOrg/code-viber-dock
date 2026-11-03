@@ -20,6 +20,7 @@
 #include "FolderPopup.h"
 #include "ForegroundWatch.h"
 #include "IconCache.h"
+#include "NotificationService.h"
 #include "PreviewPopup.h"
 #include "Renderer.h"
 #include "ScriptPopup.h"
@@ -51,6 +52,10 @@ public:
     virtual WidgetRuntime& Widgets() = 0;
     // The tray takeover (shared: one Shell_TrayWnd per process). Running() only while enabled.
     virtual TrayHost& TrayService() = 0;
+    // Windows' notifications (round 4 phase 9). Active() only while some consumer wants it.
+    virtual NotificationService& Notifications() = 0;
+    virtual bool ActivateNotification(uint32_t id) = 0;
+    virtual void SetCentreOpen(bool open) = 0;
 
 protected:
     ~DockShared() = default;
@@ -333,6 +338,14 @@ public:
     // The drawer's icons of the tray slot `slot` (empty: not a tray slot / the tray is off).
     std::vector<const TrayIcon*> TrayDrawerIcons(int slot) const;
 
+    // --- notifications (round 4 phase 9) ---
+    // The notification list or the service's state changed (or docks[].badges / the exclusions):
+    // the badges follow.
+    void OnNotificationsChanged();
+    // Brings the app with this key to the front from its slot (the app-level slot, else its first
+    // window slot): as a click on it does. False: this dock has no slot for it.
+    bool ActivateKey(const AppKey& key);
+
 private:
     class DropTarget;
     friend class DropTarget;
@@ -519,6 +532,12 @@ private:
     void OnThumbnailFrames(const std::vector<HWND>& windows);
     HRESULT RenderDotSources();
     HRESULT RenderDot(DockItem& item);
+    // --- notification badges (docks[].badges) ---
+    // Recomputes every slot's badgeCount from the notification service (marks changed slots
+    // badgeDirty). True if any changed.
+    bool UpdateBadges();
+    // The slot's badge surfaces: the count in a bubble at the icon's outer corner, or nothing.
+    HRESULT RenderBadge(DockItem& item);
     // --- titles under the icons (docks[].titles) ---
     // The text a slot shows under its icon / in its hover label: a window slot's caption, else the
     // app / item name (the Recycle Bin's label has its count; separators and widgets: none).
@@ -775,6 +794,8 @@ private:
     void WidgetChanged(WidgetInstance& widget) override;
     void WidgetPopupRequest(WidgetInstance& widget) override;
     bool WidgetPopupShown(const WidgetInstance& widget) const override;
+    bool WidgetActivateNotification(uint32_t id) override;
+    bool WidgetOpenCentre(WidgetInstance& widget) override;
     // The pointer is over widget slot `index` now (-1: none): onHover leave / enter.
     void UpdateWidgetHover(int index);
 

@@ -431,6 +431,34 @@ bool AumidInstalled(const std::wstring& aumid) {
     return (rc == ERROR_SUCCESS || rc == ERROR_INSUFFICIENT_BUFFER) && count > 0;
 }
 
+AppKey KeyForNotificationAumid(const std::wstring& aumid) {
+    if (aumid.empty()) return AppKey{};
+    // "{GUID}\rest" / "{GUID}/rest": a known folder (FOLDERID_*) and a path inside it.
+    if (aumid.size() > 39 && aumid[0] == L'{' && aumid[37] == L'}' && (aumid[38] == L'\\' || aumid[38] == L'/')) {
+        GUID id{};
+        if (SUCCEEDED(CLSIDFromString(aumid.substr(0, 38).c_str(), &id))) {
+            PWSTR base = nullptr;
+            if (SUCCEEDED(SHGetKnownFolderPath(id, KF_FLAG_DONT_VERIFY, nullptr, &base)) && base) {
+                std::wstring path = base;
+                CoTaskMemFree(base);
+                std::wstring rest = aumid.substr(39);
+                for (wchar_t& c : rest) {
+                    if (c == L'/') c = L'\\';
+                }
+                if (!path.empty() && path.back() != L'\\') path += L'\\';
+                return Canonicalize(MakePathKey(path + rest));
+            }
+            if (base) CoTaskMemFree(base);
+        }
+    }
+    // A full path (some apps use their exe path as the id).
+    if (aumid.size() > 3 && ((aumid[1] == L':' && aumid[2] == L'\\') || aumid.rfind(L"\\\\", 0) == 0)) {
+        return Canonicalize(MakePathKey(aumid));
+    }
+    // A package's "Family!App", or an explicit id such as "Chrome".
+    return Canonicalize(MakeAumidKey(aumid));
+}
+
 namespace {
 
 AppKey SyntheticKey(const std::wstring& id) {

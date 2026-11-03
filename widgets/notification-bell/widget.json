@@ -1,17 +1,22 @@
 {
   "name": "Notifications",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "author": "WinDock",
-  "description": "A bell that opens the notification centre (Win+N, sent with SendInput). A placeholder: the unread count comes with WinDock's notification support (roadmap phase 9); until then the badge setting shows a fixed number.",
+  "description": "A bell with the unread notification count (WinDock's notifications provider) that opens the notification centre: Windows' (Win+N, sent with SendInput) or WinDock's own popup. With \"Show the unread count\" off nothing polls; the fixed badge number is then shown instead.",
   "api": 1,
   "size": {
     "horizontal": { "main": 48, "cross": 48 },
     "vertical": { "main": 48, "cross": 48 }
   },
-  "permissions": ["shell"],
+  "permissions": ["shell", "notifications"],
   "settings": [
-    { "key": "badge", "type": "int", "label": "Badge (a fixed number for now; 0: none)", "min": 0, "max": 99, "default": 0,
-      "description": "A stub: phase 9 fills the badge with the unread notification count." },
+    { "key": "unread", "type": "bool", "label": "Show the unread count", "default": false,
+      "description": "Reads Windows' notifications (WinDock then polls the notification list every few seconds). Off: the fixed number below." },
+    { "key": "click", "type": "choice", "label": "A click opens", "default": "windows",
+      "choices": [ { "value": "windows", "label": "Windows' notification centre (Win+N)" },
+                   { "value": "centre", "label": "WinDock's notification centre" } ] },
+    { "key": "badge", "type": "int", "label": "Fixed badge (0: none)", "min": 0, "max": 99, "default": 0,
+      "description": "Shown while the unread count is off." },
     { "key": "badgeColor", "type": "colour", "label": "Badge colour", "default": "#FFE0453A" },
     { "key": "image", "type": "string", "label": "Image instead of the bell", "default": "",
       "description": "A file of the widget (after exporting it) or the full path of any file, whose shell icon is drawn." }

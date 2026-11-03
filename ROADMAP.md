@@ -466,6 +466,22 @@ Learned while building 8a (same build):
   signed, `Add-AppxPackage -ExternalLocation`) would restore the event but costs signing and
   installer work; not planned. No public API reads another app's badge or overlay icon; the
   per-AUMID toast count is the badge. Harness: scratchpad `notify-spike\harness.cpp`.
+- Learned while building 9a (same build): the poll costs about 25 ms of CPU per
+  `GetNotificationsAsync` with 46 notifications in the centre (the spike harness alone: 24 ms per
+  call), i.e. ~1.3 % of one core at the 2 s cadence and ~0.5 % at 5 s; it grows with the number of
+  notifications. The notification database folder (`%LocalAppData%\Microsoft\Windows\Notifications`,
+  `wpndatabase.db` + WAL) raised no directory change notification for a toast arriving or going, so
+  it is no cheaper change signal. A test toast needs a registered AUMID
+  (`HKCU\Software\Classes\AppUserModelId\<id>` with a `DisplayName`, or a Start menu shortcut):
+  unregistered, `AppInfo` throws for it; a registered id containing backslashes is reported by its
+  last segment only, so the `{KnownFolderGUID}\...` format was verified on a real app's toasts
+  (FanControl: `{7C5A40EF-...}/FanControl/FanControl.exe` -> `C:\Program Files (x86)\FanControl\FanControl.exe`).
+- `ITaskbarList3` overlay icons and progress (checked with the p8 spike's `Shell_TrayWnd` above
+  Explorer's, a test window calling `HrInit`, `SetProgressState` / `SetProgressValue`,
+  `SetOverlayIcon`): nothing reaches our window (no message at all); with our window found first,
+  `HrInit` fails with `E_NOTIMPL` and `SetOverlayIcon` with `E_FAIL` (all succeed with Explorer's
+  tray first). Overlays / progress are therefore not available as badges, and while the tray
+  takeover runs apps' taskbar-list calls fail (harmless: the taskbar they target is hidden).
 - Notification centre element: unread count, popup listing notifications (app icon, title,
   body, time), click activates the app, dismiss one / all.
 - Badges on app slots: per-app unread notification count (the listener groups by AUMID / exe),

@@ -67,7 +67,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time. |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). Unknown entries are logged and ignored. |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `settings` | [] | The widget's settings schema, see below. |
 
@@ -331,6 +331,27 @@ state); nothing polls and the timeline is not followed.
 | `media.play()`, `pause()`, `toggle()`, `next()`, `previous()` | Sent to the current session (asynchronously; `onChange` reports the result). |
 | `media.onChange(fn)` | `fn(state)` (the `get()` object) when the session, the track, the playback state or the art change. Returns a remover. |
 
+### notifications
+
+Needs `"notifications"` in `permissions`. Windows' notification centre as the dock reads it
+(README "Notifications and badges"): the toasts of every app, newest first, plus captured tray
+balloons when `notifications.balloons` is on. The first call of a widget makes the dock's
+notification service run (it polls the list every few seconds: Windows has no change event for
+the dock) until the widget goes or reloads; while it runs every change calls `onChange`.
+
+| Call | |
+|---|---|
+| `notifications.get()` | `[{ id, app, appKey, aumid, title, body, time, unread, balloon }]`: `app` the app's display name, `appKey` the dock key it maps to (a lower-case AUMID or exe path; `""` unknown), `title` the first text line, `body` the others joined with `\n`, `time` ms since 1970 (UTC), `unread` false once its app was activated from the dock. Empty while the service is off or denied. |
+| `notifications.state()` | `{ state, reason }`: `state` `"polling"`, `"denied"` (no access: `reason` says why) or `"off"`. |
+| `notifications.count()` | The unread notifications (every app). |
+| `notifications.countFor(appKey)` | The unread ones of one app key (case-insensitive). |
+| `notifications.dismiss(id)` | Removes it from Windows' notification centre (a balloon: from the list). |
+| `notifications.dismissAll()` | Every notification of the dock's list. |
+| `notifications.markRead(id)` | Marks it read (its badge goes; it stays in Windows). |
+| `notifications.activate(id)` | Brings its app to the front from the dock (its slot's windows, or starts it: shell:AppsFolder for an AUMID, the exe for a path) and marks its notifications read. Windows does not let another app activate the toast itself. |
+| `notifications.openCentre()` | Toggles the dock's own notification centre popup over the widget (throws when the dock cannot show it). |
+| `notifications.onChange(fn)` | `fn(list)` (the `get()` array) when notifications come, go or change state. Returns a remover. |
+
 ### popup
 
 A widget can open one popup at a time, anchored on its slot beside the dock (above a bottom dock,
@@ -508,7 +529,8 @@ widget's globals. Without permissions there is no file system, process or networ
 `"http"` opens requests to the listed hosts only; `"shell"` opens files and URLs, lists folders,
 draws file icons, opens the folder popup, receives file drops and presses the `sendKeys`
 allow-list; `"audio"` reads and changes the system volume / mutes / the default output; `"media"`
-reads the current media session and controls its playback. Modules and images are read
+reads the current media session and controls its playback; `"notifications"` reads Windows'
+notifications and dismisses them. Modules and images are read
 only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
 - `import` / `import()` specifiers are package paths: `"./x.js"` and `"../x.js"` relative to the
@@ -594,8 +616,10 @@ The built-ins are the examples:
   Windows refuses the input; `icon` `windows` / `mono` / `image` with `image` (a package file, or
   any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot).
 - `widgets/search`: `shell.sendKeys('win+s')`; `showLabel`, `label`, `image`.
-- `widgets/notification-bell` ("Notifications", a placeholder): `shell.sendKeys('win+n')`; `badge` (a
-  fixed number until phase 9 reads notifications), `badgeColor`, `image`.
+- `widgets/notification-bell` ("Notifications"): a bell; `unread` (default off: then nothing polls
+  and the fixed `badge` number shows) draws `notifications.count()` and redraws on
+  `notifications.onChange`; `click` `windows` (default: `shell.sendKeys('win+n')`) or `centre`
+  (`notifications.openCentre()`); `badgeColor`, `image`. Permissions `shell`, `notifications`.
 
 A minimal widget:
 

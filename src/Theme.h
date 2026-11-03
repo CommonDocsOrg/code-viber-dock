@@ -30,6 +30,7 @@ enum class Field : uint32_t {
     Shelf, ShelfSlant, ShelfEdge,
     Glow, GlowColor, GlowRadius, GlowStrength, Reflection, ReflectionHeight, ReflectionOpacity, Perspective,
     PerspectiveAngle, ReflectionClip,
+    BadgeFill, BadgeText, BadgeSize,
     Count
 };
 static_assert(static_cast<uint32_t>(Field::Count) <= 64, "one override bit per field");

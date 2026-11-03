@@ -148,6 +148,11 @@ struct ThemeConfig {
     // the untilted layout). Acrylic is not used with it.
     bool perspective = false;
     float perspectiveAngle = 18.0f;         // degrees, 0 - 35
+    // Notification badges on app slots (docks[].badges, round 4 phase 9): the bubble's fill, its
+    // count's colour, and its height as a fraction of the icon size.
+    uint32_t badgeFill = 0xFFFF3B30;
+    uint32_t badgeText = 0xFFFFFFFF;
+    float badgeSize = 0.36f;                // 0.2 - 0.6 of the icon
 };
 
 // ThemeConfig::glow (the "glow" key: "off", "hover", "active", "always").
@@ -219,6 +224,9 @@ struct DockConfig {
     int thumbnailIntervalS = 5;  // snapshots: seconds between pictures (1 - 3600)
     int thumbnailSize = 0;       // the tile's length along the dock in DIPs (0: twice iconSize; 16 - 512)
     int thumbnailFps = 10;       // live: at most this many frames a second per window (1 - 60)
+    // Round 4 phase 9: a bubble with the unread notification count on the app slots
+    // (NotificationService; the per-app toast count). Saved only when on.
+    bool badges = false;
 
     // Not saved: `themePreset` resolved (Config::ResolveDockThemes); ownTheme false = use the
     // global theme.
@@ -364,6 +372,20 @@ struct TrayConfig {
     bool enabled = false;
 };
 
+// Windows' notifications (round 4 phase 9: NotificationService). The service runs only while some
+// dock shows badges or a notifications element, a widget uses the `notifications` provider or the
+// centre popup is open. Saved only when something differs from the defaults.
+struct NotificationsConfig {
+    int pollS = 2;               // seconds between polls of the notification list (1 - 60; see NotificationService.h)
+    bool clearOnActivate = true; // activating an app from the dock marks its notifications read (its badge goes)
+    // Tray balloons (NIF_INFO) go to the dock's notification centre only: Explorer gets them
+    // without NIF_INFO, so Windows does not show them as toasts too.
+    bool balloons = false;
+    // App keys (AppKey ids: a lower-case exe path or AppUserModelID) that never show a badge.
+    std::vector<std::wstring> excluded;
+    bool operator==(const NotificationsConfig&) const = default;
+};
+
 struct Config {
     // At least one dock after LoadFile / Sanitize; ids are unique (Sanitize). Every dock is shown
     // (DockManager), docks[].monitor "each" once per monitor.
@@ -386,6 +408,7 @@ struct Config {
     bool themeResolveFailed = false;  // the last ResolveTheme() fell back to dark (not saved)
     AnimationConfig animation;
     TrayConfig tray;
+    NotificationsConfig notifications;
     // Top-level keys this version does not know, kept verbatim (compact JSON) so a save does not
     // drop them. Unknown keys inside known objects (docks, items, clock, theme, animation, weather)
     // are not kept, nor are the legacy pre-`docks` keys.

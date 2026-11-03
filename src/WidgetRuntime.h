@@ -14,6 +14,8 @@
 #include "HttpClient.h"
 #include "MediaService.h"
 
+class NotificationService;
+
 class WidgetInstance;
 
 // The process-wide part of the widget runtime (owned by DockManager, bound to the app's hidden
@@ -107,6 +109,17 @@ public:
     void ReleaseProviders(WidgetInstance* w);
     const AudioService& Audio() const { return audio_; }
     const MediaService& Media() const { return media_; }
+    // `notifications` (phase 9): the service is DockManager's; a widget that uses it counts as a
+    // consumer (the manager starts the service while there is one: `demand` asks it to re-check).
+    void SetNotifications(NotificationService* service, std::function<void()> demand) {
+        notifications_ = service;
+        notificationsDemand_ = std::move(demand);
+    }
+    NotificationService* UseNotifications(WidgetInstance* w);
+    NotificationService* Notifications() const { return notifications_; }
+    size_t NotificationUsers() const { return notificationUsers_.size(); }
+    // The notification list changed: the widgets that used the provider hear onChange.
+    void NotifyNotifications() { NotifyProvider(notificationUsers_, "notifications"); }
 
 private:
     struct Entry {
@@ -158,7 +171,9 @@ private:
     std::function<void()> changedListener_;
     AudioService audio_;
     MediaService media_;
-    std::set<WidgetInstance*> audioUsers_, mediaUsers_;
+    std::set<WidgetInstance*> audioUsers_, mediaUsers_, notificationUsers_;
+    NotificationService* notifications_ = nullptr;
+    std::function<void()> notificationsDemand_;
     void NotifyProvider(std::set<WidgetInstance*>& users, const char* channel);
 };
 

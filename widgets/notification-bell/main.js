@@ -1,9 +1,12 @@
-// Notifications (placeholder): a bell that opens the notification centre with Win+N
-// (shell.sendKeys('win+n')). The badge is a fixed number from the settings until WinDock reads
-// notifications itself (roadmap phase 9). Idle: nothing runs.
+// Notifications: a bell with the unread count (the `notifications` provider, round 4 phase 9) that
+// opens a notification centre: Windows' (Win+N, shell.sendKeys) or WinDock's own popup
+// (notifications.openCentre()). With "Show the unread count" off the provider is never called, so
+// WinDock does not read notifications for this widget (the fixed badge number shows instead).
+// Idle: nothing runs; a change of the list calls onChange, which redraws.
 
 let hovered = false;
 let warned = false;
+let listening = null;  // the unsubscribe of the onChange listener while the count is shown
 
 export function measure(canvas, dock) {
   const s = Math.round(dock.iconSize);
@@ -35,11 +38,36 @@ function image(canvas, x, y, g) {
   }
 }
 
+// Subscribes while the unread count is on (the first call starts WinDock's notification service).
+function follow() {
+  if (settings.unread && !listening) {
+    try {
+      listening = notifications.onChange(() => requestRedraw());
+    } catch (e) {
+      if (!warned) console.warn('notifications: ' + e.message);
+      warned = true;
+    }
+  } else if (!settings.unread && listening) {
+    listening();
+    listening = null;
+  }
+}
+
+function count() {
+  if (!settings.unread) return settings.badge | 0;
+  try {
+    return notifications.count();
+  } catch (e) {
+    return 0;
+  }
+}
+
 export function draw(canvas, dock) {
+  follow();
   const w = canvas.width, h = canvas.height, s = Math.min(w, h), g = s * 0.56;
   if (hovered) canvas.fillRoundRect(2, 2, w - 4, h - 4, s * 0.22, '#26FFFFFF');
   if (!image(canvas, (w - g) / 2, (h - g) / 2, g)) bell(canvas, w / 2, h / 2, g, dock.theme.text);
-  const n = settings.badge | 0;
+  const n = count();
   if (n > 0) {
     const text = n > 9 ? '9+' : String(n), r = s * 0.15;
     const bx = w / 2 + g * 0.38, by = h / 2 - g * 0.38;
@@ -50,6 +78,7 @@ export function draw(canvas, dock) {
 
 export function onSettingsChanged() {
   warned = false;
+  follow();
 }
 
 export function onHover(e) {
@@ -58,5 +87,13 @@ export function onHover(e) {
 }
 
 export function onClick() {
+  if (settings.click === 'centre') {
+    try {
+      notifications.openCentre();
+      return;
+    } catch (e) {
+      console.warn('openCentre: ' + e.message);
+    }
+  }
   shell.sendKeys('win+n');
 }

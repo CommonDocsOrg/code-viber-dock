@@ -161,6 +161,8 @@ void ReadPermissions(const json::JsonObject& root, Manifest& m) {
                 m.audio = true;
             } else if (s == L"media") {
                 m.media = true;
+            } else if (s == L"notifications") {
+                m.notifications = true;
             } else if (s == L"http") {
                 m.http = true;  // no hosts: every request is refused (name the hosts)
             } else if (s.rfind(L"http:", 0) == 0) {

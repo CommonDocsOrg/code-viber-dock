@@ -135,6 +135,8 @@ uint32_t WidgetAlignedDelay(uint32_t period) {
 void WidgetRuntime::Shutdown() {
     audioUsers_.clear();
     mediaUsers_.clear();
+    notificationUsers_.clear();
+    notificationsDemand_ = nullptr;
     audio_.Stop();
     media_.Stop();
     FlushStorage();
@@ -529,9 +531,18 @@ MediaService* WidgetRuntime::UseMedia(WidgetInstance* w) {
     return &media_;
 }
 
+NotificationService* WidgetRuntime::UseNotifications(WidgetInstance* w) {
+    if (!notifications_) return nullptr;
+    if (notificationUsers_.insert(w).second && notificationUsers_.size() == 1 && notificationsDemand_) {
+        notificationsDemand_();  // the first user: the service starts
+    }
+    return notifications_;
+}
+
 void WidgetRuntime::ReleaseProviders(WidgetInstance* w) {
     if (audioUsers_.erase(w) && audioUsers_.empty()) audio_.Stop();
     if (mediaUsers_.erase(w) && mediaUsers_.empty()) media_.Stop();
+    if (notificationUsers_.erase(w) && notificationUsers_.empty() && notificationsDemand_) notificationsDemand_();
 }
 
 void WidgetRuntime::NotifyProvider(std::set<WidgetInstance*>& users, const char* channel) {

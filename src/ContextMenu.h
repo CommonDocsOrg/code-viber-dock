@@ -44,7 +44,9 @@ enum Command : UINT {
     kAddTray = 128,             // Add widget > Tray (a "tray" item; also turns tray.enabled on)
     kTrayEnable = 129,          // tray.enabled on: the dock takes the notify icons over (with a tray item)
     kTrayDisable = 130,         // tray.enabled off: the icons go back to Explorer ("Reset to Explorer")
-    kLastDockCommand = kTrayDisable,
+    kPollNotifications = 131,   // the notification service polls now (no-op while it is off)
+    kToggleBadges = 132,        // docks[].badges of the dock the message is for (on / off)
+    kLastDockCommand = kToggleBadges,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>

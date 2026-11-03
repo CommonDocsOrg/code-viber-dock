@@ -582,6 +582,7 @@ LRESULT TrayHost::OnNotifyIcon(HWND sender, const COPYDATASTRUCT& cds) {
                 if ((n.uFlags & NIF_INFO) && n.szInfo[0]) {
                     TrayBalloon b;
                     b.key = t.key;
+                    b.exe = t.exe;
                     b.title = Bounded(n.szInfoTitle, std::size(n.szInfoTitle));
                     b.text = Bounded(n.szInfo, std::size(n.szInfo));
                     b.infoFlags = n.dwInfoFlags;
@@ -638,6 +639,18 @@ void TrayHost::QueueMirror(HWND sender, const COPYDATASTRUCT& cds) {
     Mirror m;
     m.sender = sender;
     m.data.assign(static_cast<const BYTE*>(cds.lpData), static_cast<const BYTE*>(cds.lpData) + cds.cbData);
+    // notifications.balloons (phase 9): the balloon goes to the dock's centre only, not to Explorer
+    // (which would show it as a Windows toast); the rest of the message is mirrored as it is.
+    constexpr size_t kFlagsAt = offsetof(TrayNotifyData, nid) + offsetof(NotifyIconData32, uFlags);
+    if (stripBalloons_ && m.data.size() >= kFlagsAt + sizeof(UINT)) {
+        UINT flags = 0;
+        std::memcpy(&flags, m.data.data() + kFlagsAt, sizeof(flags));
+        if (flags & NIF_INFO) {
+            flags &= ~static_cast<UINT>(NIF_INFO);
+            std::memcpy(m.data.data() + kFlagsAt, &flags, sizeof(flags));
+            ++balloonsStripped_;
+        }
+    }
     mirrors_.push_back(std::move(m));
     if (!mirrorPosted_ && hwnd_) mirrorPosted_ = PostMessageW(hwnd_, kMirrorMessage, 0, 0) != FALSE;
 }

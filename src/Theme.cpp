@@ -68,6 +68,9 @@ const FieldInfo kFields[] = {
     WD_FIELD(Perspective, perspective, L"3D perspective", Bool, 0.0f, 0.0f),
     WD_FLOAT(PerspectiveAngle, perspectiveAngle, L"Perspective angle", 0.0f, 35.0f, L"degrees", 1.0f),
     WD_FIELD(ReflectionClip, reflectionClip, L"Clip the reflection to the bar", Bool, 0.0f, 0.0f),
+    WD_FIELD(BadgeFill, badgeFill, L"Badge", Color, 0.0f, 0.0f),
+    WD_FIELD(BadgeText, badgeText, L"Badge count", Color, 0.0f, 0.0f),
+    WD_FLOAT(BadgeSize, badgeSize, L"Badge size", 0.2f, 0.6f, L"% of icon", 100.0f),
 };
 
 #undef WD_FIELD
@@ -115,6 +118,8 @@ ThemeConfig MakeLight() {
     t.dotRunning = 0x99000000;
     t.dotActive = 0xFF1B1B1B;
     t.dotAttention = 0xFFD9780A;
+    t.badgeFill = 0xFFE5342A;
+    t.badgeText = 0xFFFFFFFF;
     t.clockText = 0xF21B1B1B;
     t.clockDateText = 0xBF1B1B1B;
     t.placeholderFill = 0xFF8A93A6;
@@ -206,6 +211,8 @@ ThemeConfig MakeContrast() {
     t.dotRunning = 0xFFB0B0B0;
     t.dotActive = 0xFFFFFFFF;
     t.dotAttention = 0xFFFFD400;
+    t.badgeFill = 0xFFFFD400;
+    t.badgeText = 0xFF000000;
     t.clockText = 0xFFFFFFFF;
     t.clockDateText = 0xFFFFFFFF;
     t.placeholderFill = 0xFF000000;

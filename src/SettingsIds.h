@@ -198,6 +198,7 @@ inline constexpr int kEffectsNote = 2418;
 // Round 4 phase 3: the edited dock's own theme preset (docks[].themePreset).
 inline constexpr int kDockThemeLabel = 2419;
 inline constexpr int kDockThemeCombo = 2420;     // 0 "Same as all docks" (""), then the presets / theme files of kThemeCombo
+inline constexpr int kSectionFieldsBadges = 2421; // round 4 phase 9: "Notification badges" (badgeFill, badgeText, badgeSize)
 
 // One row per Theme::Field (Theme::Fields() order): id = FieldRow(field index, part).
 inline constexpr int kFieldRowBase = 3000;

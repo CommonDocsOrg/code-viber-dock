@@ -10,6 +10,7 @@
 #include "Config.h"
 #include "DockWindow.h"
 #include "ForegroundWatch.h"
+#include "NotificationService.h"
 #include "TrayHost.h"
 #include "Weather.h"
 #include "WindowTracker.h"
@@ -42,6 +43,7 @@ public:
         DockWindow::MessageHook hook;                // every dock window's message hook (App)
         std::function<void(DockWindow&)> setup;      // a dock window was created (pin requests ...)
         std::function<void()> weatherChanged;        // the weather data / status changed (once per change)
+        std::function<void()> notificationsChanged;  // the notification list / service state changed
     };
 
     DockManager() = default;
@@ -111,6 +113,20 @@ public:
     void SetWatching(DockWindow* dock, bool on) override;
     WidgetRuntime& Widgets() override { return widgets_; }
     TrayHost& TrayService() override { return tray_; }
+    NotificationService& Notifications() override { return notifications_; }
+    const NotificationService& Notifications() const { return notifications_; }
+    // The app of notification `id` to the front (its slot on the first dock showing it, else a
+    // launch of its AUMID / exe), its notifications marked read. False: unknown id.
+    bool ActivateNotification(uint32_t id) override;
+    // The centre popup opened / closed (it polls every second while open, and keeps the service
+    // running even when nothing else needs it).
+    void SetCentreOpen(bool open) override;
+
+    // The notification service runs while it is wanted (NotificationsWanted): some shown dock has
+    // badges on, a widget uses the provider, or the centre popup is open. Sync, the settings and
+    // the widget runtime call it; it also applies notifications.pollS / .balloons.
+    void SyncNotifications();
+    bool NotificationsWanted() const;
 
     // The tray takeover runs while config tray.enabled is on and any dock has a "tray" or
     // "trayApp" item (Sync and every item change call it). Starting is posted (kTrayStartMessage):
@@ -141,6 +157,8 @@ private:
     WindowTracker tracker_;
     WeatherService weather_;
     TrayHost tray_;
+    NotificationService notifications_;
+    bool centreOpen_ = false;
     ForegroundWatch watch_;
     std::vector<DockWindow*> watchers_;  // docks subscribed to watch_ (autoHide "intelligent")
 };

@@ -2,6 +2,8 @@
 
 #include <algorithm>
 
+#include "Launcher.h"
+
 namespace {
 
 BOOL CALLBACK CollectMonitor(HMONITOR mon, HDC, LPRECT, LPARAM lp) {
@@ -42,6 +44,19 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     // The tray: icon changes reach every dock (posted and coalesced by TrayHost); an app asking
     // where its icon is gets the first dock that shows it.
     tray_.SetChangedCallback([this] { ForEach([](DockWindow& w) { w.OnTrayChanged(); }); });
+    // Notifications (phase 9): every change reaches every dock (badges, the centre element), the
+    // widgets that use the provider, and the settings window; tray balloons join the list.
+    notifications_.SetChanged([this] {
+        ForEach([](DockWindow& w) { w.OnNotificationsChanged(); });
+        widgets_.NotifyNotifications();
+        if (callbacks_.notificationsChanged) callbacks_.notificationsChanged();
+    });
+    // Balloons join the list only while they are kept from Explorer (notifications.balloons):
+    // otherwise Explorer shows them as toasts, which the listener reads like any other.
+    tray_.SetBalloonSink([this](const TrayBalloon& b) {
+        if (config_ && config_->notifications.balloons && tray_.StripBalloons()) notifications_.AddBalloon(b);
+    });
+    widgets_.SetNotifications(&notifications_, [this] { SyncNotifications(); });
     tray_.SetRectResolver([this](const TrayIcon& icon, RECT& r) {
         for (Instance& i : instances_) {
             if (i.window && i.window->TrayIconRect(icon.id, r)) return true;
@@ -69,7 +84,11 @@ void DockManager::Shutdown() {
     if (!config_) return;
     // The icons go back to Explorer first (no dock redraws for it).
     tray_.SetChangedCallback(nullptr);
+    tray_.SetBalloonSink(nullptr);
     tray_.Stop();
+    notifications_.SetChanged(nullptr);
+    widgets_.SetNotifications(nullptr, nullptr);  // the widgets going below must not restart it
+    notifications_.Stop();
     for (Instance& i : instances_) {
         if (i.window) Close(std::move(i.window));
     }
@@ -100,6 +119,7 @@ bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (tracker_.HandleMessage(msg, wp, lp)) return true;
     if (watch_.HandleMessage(msg, wp, lp)) return true;
     if (widgets_.HandleMessage(msg, wp, lp)) return true;  // the widget timers
+    if (notifications_.HandleMessage(msg, wp, lp)) return true;
     return weather_.HandleMessage(msg, wp, lp);  // fetch results, the refresh timer
 }
 
@@ -190,6 +210,7 @@ HRESULT DockManager::Sync() {
     ConfigureWeather();
     syncing_ = false;
     SyncTray();
+    SyncNotifications();
     return first;
 }
 
@@ -270,4 +291,58 @@ void DockManager::SetWatching(DockWindow* dock, bool on) {
     }
     if (it != watchers_.end()) watchers_.erase(it);
     if (watchers_.empty()) watch_.Stop();  // no dock hides intelligently: no hooks at all
+}
+
+bool DockManager::NotificationsWanted() const {
+    if (!config_) return false;
+    if (centreOpen_ || widgets_.NotificationUsers() > 0) return true;
+    for (const Instance& i : instances_) {
+        if (!i.window || i.cfg >= config_->docks.size()) continue;  // a parked dock shows nothing
+        if (config_->docks[i.cfg].badges) return true;
+    }
+    return false;
+}
+
+void DockManager::SyncNotifications() {
+    if (!config_ || syncing_) return;
+    const bool wanted = NotificationsWanted();
+    if (wanted && !notifications_.Active()) {
+        if (!notifications_.Start(owner_, config_->notifications.pollS)) {
+            OutputDebugStringW(L"WinDock: the notification service could not start\n");
+        }
+    } else if (!wanted && notifications_.Active()) {
+        notifications_.Stop();  // tells the docks (their badges go)
+    }
+    notifications_.SetPollSeconds(config_->notifications.pollS);
+    notifications_.SetFast(centreOpen_);
+    // Balloons go to the centre only while the service runs to take them.
+    tray_.SetStripBalloons(notifications_.Active() && config_->notifications.balloons);
+    ForEach([](DockWindow& w) { w.OnNotificationsChanged(); });  // badges on / off, exclusions
+}
+
+void DockManager::SetCentreOpen(bool open) {
+    if (centreOpen_ == open) return;
+    centreOpen_ = open;
+    SyncNotifications();
+    if (open) notifications_.PollNow();
+}
+
+bool DockManager::ActivateNotification(uint32_t id) {
+    const NotificationItem* n = notifications_.ById(id);
+    if (!n) return false;
+    const AppKey key = n->key;
+    notifications_.MarkRead(id);
+    if (key.id.empty()) return true;  // an app we cannot name: read, nothing to bring up
+    for (Instance& i : instances_) {
+        if (i.window && i.window->ActivateKey(key)) {
+            notifications_.MarkRead(key);
+            return true;
+        }
+    }
+    // Not on any dock: start it (an AUMID through shell:AppsFolder, an exe by its path).
+    DockItem item;
+    item.key = key;
+    if (!Launcher::Launch(item)) MessageBeep(MB_ICONWARNING);
+    notifications_.MarkRead(key);
+    return true;
 }
