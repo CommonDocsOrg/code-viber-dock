@@ -27,7 +27,8 @@ inline constexpr int kPageItemSettings = 11;   // round 4 phase 7: a folder / gr
 inline constexpr int kPageTray = 12;           // round 4 phase 8: the notify icons (tray.enabled, the dock's tray item)
 inline constexpr int kPageNotifications = 13;  // round 4 phase 9: badges, the centre, balloons, access
 inline constexpr int kPageCalendar = 14;       // round 4 phase 13: the ICS feeds
-inline constexpr int kPageCount = 15;
+inline constexpr int kPageFolderWindow = 15;   // round 4 phase 12b: the folder window selected on the Docks page
+inline constexpr int kPageCount = 16;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -321,6 +322,7 @@ inline constexpr int kDockEditing = 2805;     // "The other pages edit: <id>"
 inline constexpr int kLockAllDocks = 2806;    // "Lock all docks" (= DockCommand 124)
 inline constexpr int kUnlockAllDocks = 2807;  // "Unlock all docks" (= DockCommand 125)
 inline constexpr int kDockAddFolder = 2808;   // "Add folder window…" (= DockCommand 139: a folder picker; round 4 phase 12)
+inline constexpr int kDockFolderSettings = 2809;  // "Folder window settings…": the Folder window page (enabled for a folder window row; 12b)
 
 // Layout (2900 - 2999; round 4 phase 3b)
 inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation)
@@ -454,5 +456,52 @@ inline constexpr int kCalDefaultReminderEdit = 4330;  // calendars.defaultRemind
 inline constexpr int kCalDefaultReminderSpin = 4331;
 inline constexpr int kCalDefaultReminderUnit = 4332;
 inline constexpr int kCalReminderNote = 4333;
+
+// Folder window (4400 - 4499; round 4 phase 12b): config.Edit() when it is a folder window.
+inline constexpr int kFwInfo = 4400;            // which folder window (or "select one on the Docks page")
+inline constexpr int kFwFolderSection = 4401;
+inline constexpr int kFwPathLabel = 4402;
+inline constexpr int kFwPathEdit = 4403;        // folder.path (commit on Enter / focus loss)
+inline constexpr int kFwBrowse = 4404;          // a folder picker
+inline constexpr int kFwTitleLabel = 4405;
+inline constexpr int kFwTitleEdit = 4406;       // title
+inline constexpr int kFwContentsSection = 4407;
+inline constexpr int kFwViewLabel = 4408;
+inline constexpr int kFwViewCombo = 4409;       // 0 auto, 1 grid, 2 list
+inline constexpr int kFwIconLabel = 4410;
+inline constexpr int kFwIconEdit = 4411;        // iconSize 32 - 96
+inline constexpr int kFwIconSpin = 4412;
+inline constexpr int kFwIconUnit = 4413;
+inline constexpr int kFwSortLabel = 4414;
+inline constexpr int kFwSortCombo = 4415;       // 0 name, 1 date, 2 type, 3 size
+inline constexpr int kFwHidden = 4416;          // showHidden (+ caption 4417)
+inline constexpr int kFwHiddenCaption = 4417;
+inline constexpr int kFwSingleClick = 4418;     // singleClick (+ caption 4419)
+inline constexpr int kFwSingleClickCaption = 4419;
+inline constexpr int kFwCollapsed = 4420;       // collapsed (+ caption 4421)
+inline constexpr int kFwCollapsedCaption = 4421;
+inline constexpr int kFwLookSection = 4422;
+inline constexpr int kFwOpacityLabel = 4423;
+inline constexpr int kFwOpacityEdit = 4424;     // opacity in % (20 - 100)
+inline constexpr int kFwOpacitySpin = 4425;
+inline constexpr int kFwOpacityUnit = 4426;
+inline constexpr int kFwTitleColorLabel = 4427;
+inline constexpr int kFwTitleColorEdit = 4428;  // titleColor "#AARRGGBB" ("": the theme's)
+inline constexpr int kFwTitleColorNote = 4429;
+inline constexpr int kFwLinesLabel = 4430;
+inline constexpr int kFwLinesCombo = 4431;      // labelLines: 0 one, 1 two
+inline constexpr int kFwHideTitle = 4432;       // hideTitle (+ caption 4433)
+inline constexpr int kFwHideTitleCaption = 4433;
+inline constexpr int kFwTransparent = 4434;     // transparentBackground (+ caption 4435)
+inline constexpr int kFwTransparentCaption = 4435;
+inline constexpr int kFwRollUp = 4436;          // rollUpOnHover (+ caption 4437)
+inline constexpr int kFwRollUpCaption = 4437;
+inline constexpr int kFwRulesSection = 4438;
+inline constexpr int kFwRulesLabel = 4439;
+inline constexpr int kFwRulesEdit = 4440;       // rules ("*.png;*.jpg")
+inline constexpr int kFwAutoSort = 4441;        // autoSort (+ caption 4442)
+inline constexpr int kFwAutoSortCaption = 4442;
+inline constexpr int kFwSortNow = 4443;         // "Sort desktop now" (= DockCommand 140)
+inline constexpr int kFwRulesNote = 4444;
 
 }  // namespace SettingsIds

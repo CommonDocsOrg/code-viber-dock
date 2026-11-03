@@ -2,8 +2,12 @@
 
 #include <algorithm>
 
+#include <shlobj.h>
+#include <shlwapi.h>
+
 #include "DesktopLayer.h"
 #include "Launcher.h"
+#include "ShellFiles.h"
 
 namespace {
 
@@ -108,6 +112,10 @@ void DockManager::Shutdown() {
     }
     instances_.clear();
     folderGraveyard_.clear();
+    if (desktopNotify_) SHChangeNotifyDeregister(desktopNotify_);
+    desktopNotify_ = 0;
+    if (desktopTimer_ && owner_) KillTimer(owner_, kDesktopTimer);
+    desktopTimer_ = false;
     if (folderRendererReady_) folderRenderer_.Shutdown();
     folderRendererReady_ = false;
     watchers_.clear();
@@ -212,9 +220,119 @@ size_t DockManager::FolderCount() const {
 
 void DockManager::OnExplorerRestarted() { DesktopLayer::Reassert(); }
 
+std::wstring DockManager::DesktopFolder() {
+    wchar_t buf[MAX_PATH * 2]{};
+    const DWORD n = GetEnvironmentVariableW(L"WINDOCK_DESKTOP_DIR", buf, static_cast<DWORD>(std::size(buf)));
+    if (n > 0 && n < std::size(buf)) return ShellFiles::Normalize(buf);
+    PWSTR path = nullptr;
+    std::wstring dir;
+    if (SUCCEEDED(SHGetKnownFolderPath(FOLDERID_Desktop, 0, nullptr, &path)) && path) dir = path;
+    if (path) CoTaskMemFree(path);
+    return dir;
+}
+
+void DockManager::SyncDesktopRules() {
+    const bool want = config_ && std::any_of(config_->docks.begin(), config_->docks.end(), [](const DockConfig& d) {
+                          return d.IsFolderWindow() && d.folder.autoSort && d.folder.RuleCount() > 0;
+                      });
+    if (want && !desktopNotify_) {
+        desktopDir_ = DesktopFolder();
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (!desktopDir_.empty() && SUCCEEDED(SHParseDisplayName(desktopDir_.c_str(), nullptr, &pidl, 0, nullptr)) && pidl) {
+            SHChangeNotifyEntry entry{pidl, FALSE};
+            desktopNotify_ = SHChangeNotifyRegister(owner_, SHCNRF_InterruptLevel | SHCNRF_ShellLevel | SHCNRF_NewDelivery,
+                                                    SHCNE_CREATE | SHCNE_RENAMEITEM | SHCNE_UPDATEDIR, kDesktopChange, 1, &entry);
+            CoTaskMemFree(pidl);
+        }
+        // Files already there when the watch starts follow the rules too.
+        if (desktopNotify_ && !desktopTimer_) desktopTimer_ = SetTimer(owner_, kDesktopTimer, 500, nullptr) != 0;
+    } else if (!want && desktopNotify_) {
+        SHChangeNotifyDeregister(desktopNotify_);
+        desktopNotify_ = 0;
+        if (desktopTimer_) KillTimer(owner_, kDesktopTimer);
+        desktopTimer_ = false;
+    }
+}
+
+size_t DockManager::SortDesktop(bool onlyAuto) {
+    if (!config_) return 0;
+    if (rulesJobs_ > 0) {
+        sortAgain_ = true;  // the files still moving would be found again
+        return 0;
+    }
+    const std::wstring dir = desktopNotify_ ? desktopDir_ : DesktopFolder();
+    if (dir.empty()) return 0;
+    std::vector<std::wstring> names;
+    WIN32_FIND_DATAW fd{};
+    HANDLE find = FindFirstFileExW(ShellFiles::Join(dir, L"*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr, 0);
+    if (find == INVALID_HANDLE_VALUE) return 0;
+    do {
+        if (fd.dwFileAttributes & (FILE_ATTRIBUTE_DIRECTORY | FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
+        names.emplace_back(fd.cFileName);
+    } while (names.size() < 20000 && FindNextFileW(find, &fd));
+    FindClose(find);
+    size_t queued = 0;
+    for (const DockConfig& d : config_->docks) {
+        if (!d.IsFolderWindow() || d.folder.RuleCount() == 0 || names.empty() || (onlyAuto && !d.folder.autoSort)) continue;
+        wchar_t buf[MAX_PATH * 2];
+        const DWORD n = ExpandEnvironmentStringsW(d.folder.path.c_str(), buf, static_cast<DWORD>(std::size(buf)));
+        const std::wstring dest = ShellFiles::Normalize(n > 0 && n <= std::size(buf) ? std::wstring(buf) : d.folder.path);
+        const DWORD attr = GetFileAttributesW(dest.c_str());
+        if (dest.empty() || attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY) || ShellFiles::SamePath(dest, dir)) {
+            continue;  // no folder, or the Desktop itself
+        }
+        ShellFiles::Job job;
+        job.op = ShellFiles::Op::Move;
+        job.dest = dest;
+        job.notify = owner_;
+        job.message = kRulesJobDone;
+        for (auto it = names.begin(); it != names.end();) {
+            if (PathMatchSpecExW(it->c_str(), d.folder.rules.c_str(), PMSF_MULTIPLE) == S_OK) {
+                job.files.push_back(ShellFiles::Join(dir, *it));
+                // Never over a file of the same name: "name (2).ext" (none of this batch's names either).
+                job.newNames.push_back(ShellFiles::FreeName(dest, *it, job.newNames));
+                it = names.erase(it);  // the first matching window takes it
+            } else {
+                ++it;
+            }
+        }
+        if (job.files.empty()) continue;
+        const size_t count = job.files.size();
+        if (ShellFiles::Start(std::move(job))) {
+            ++rulesJobs_;
+            queued += count;
+            rulesMoved_ += count;
+        }
+    }
+    return queued;
+}
+
 bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == kFolderDeviceLost) {
         RecoverFolderDevice();
+        return true;
+    }
+    if (msg == kDesktopChange) {
+        PIDLIST_ABSOLUTE* pidls = nullptr;
+        LONG event = 0;
+        if (HANDLE lock = SHChangeNotification_Lock(reinterpret_cast<HANDLE>(wp), static_cast<DWORD>(lp), &pidls, &event)) {
+            SHChangeNotification_Unlock(lock);
+        }
+        if (desktopNotify_ && !desktopTimer_) desktopTimer_ = SetTimer(owner_, kDesktopTimer, 500, nullptr) != 0;
+        return true;
+    }
+    if (msg == WM_TIMER && wp == kDesktopTimer) {
+        KillTimer(owner_, kDesktopTimer);  // one-shot
+        desktopTimer_ = false;
+        SortDesktop(true);
+        return true;
+    }
+    if (msg == kRulesJobDone) {
+        if (rulesJobs_ > 0) --rulesJobs_;
+        if (rulesJobs_ == 0 && sortAgain_) {
+            sortAgain_ = false;
+            if (!desktopTimer_) desktopTimer_ = SetTimer(owner_, kDesktopTimer, 500, nullptr) != 0;
+        }
         return true;
     }
     if (msg == kTrayStartMessage) {
@@ -360,6 +478,7 @@ HRESULT DockManager::Sync() {
     syncing_ = false;
     SyncTray();
     SyncNotifications();
+    SyncDesktopRules();
     return first;
 }
 

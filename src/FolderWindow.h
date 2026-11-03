@@ -31,6 +31,10 @@
 //   icons from the system image list (IShellItemImageFactory above 48 px), loaded as rows come
 //   into view; auto view = a grid up to 48 entries, a list above. Live: SHChangeNotifyRegister on
 //   the folder, coalesced by one 250 ms one-shot timer (no polling).
+// - 12b: rules (Desktop files matching `rules` are moved here by DockManager: SortDesktop), the
+//   appearance keys (opacity, titleColor, hideTitle, labelLines, transparentBackground,
+//   rollUpOnHover) and the clipboard (Ctrl+C / Ctrl+X: the shell data object with "Preferred
+//   DropEffect"; Ctrl+V pastes CF_HDROP files like Explorer).
 // - Input: a click selects (Ctrl / Shift: several), a double click or Enter opens with the shell's
 //   default verb (singleClick: a click opens), F2 renames inline, Delete recycles (IFileOperation;
 //   Explorer's confirmation setting applies), Ctrl+A / arrows / Home / End / typing select, the
@@ -89,6 +93,7 @@ private:
     static constexpr UINT kJobDoneMessage = WM_APP + 11;  // a file operation finished
     static constexpr UINT kMenuMessage = WM_APP + 12;     // posted: the context menu (automation)
     static constexpr UINT_PTR kRefreshTimer = 1;          // 250 ms one-shot after a change notification
+    static constexpr UINT_PTR kRollTimer = 2;             // rollUpOnHover: 400 ms after the pointer left
     static constexpr UINT_PTR kViewTimerBase = 100;       // the view's (100, 101)
 
     enum class Grab { None, Move, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
@@ -106,6 +111,15 @@ private:
 
     const DockConfig& Cfg() const { return config_->docks[cfg_]; }
     DockConfig& Cfg() { return config_->docks[cfg_]; }
+    // Shown collapsed: the config's `collapsed`, unless rolled down by the pointer (rollUpOnHover).
+    bool Collapsed() const { return Cfg().folder.collapsed && !peek_; }
+    // The title bar's height in DIPs (hideTitle: a thin strip to move the window by).
+    float TitleDip() const { return Cfg().folder.hideTitle ? 10.0f : 30.0f; }
+    // rollUpOnHover: a collapsed window shown expanded while the pointer is over it (not saved).
+    void Peek(bool on);
+    // --- the clipboard (12b) ---
+    void CopySelection(bool cut);
+    void Paste();
     float Px(float dip) const { return std::round(dip * scale_); }
     // --- placement ---
     RECT WorkArea() const;
@@ -200,6 +214,8 @@ private:
     RECT grabRect_{};
     bool grabMoved_ = false;
     bool tracking_ = false;  // TrackMouseEvent
+    bool peek_ = false;      // rolled down by the pointer (rollUpOnHover)
+    bool rollPending_ = false;
 
     // Menus, rename, drops.
     winrt::com_ptr<IContextMenu2> menu2_;

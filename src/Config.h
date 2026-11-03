@@ -130,6 +130,23 @@ struct FolderWindowConfig {
     bool showHidden = false;     // hidden entries too (never the protected system ones)
     bool collapsed = false;      // only the title bar (double-click the title)
     bool singleClick = false;    // a single click opens an entry (default: a double click)
+    // Round 4 phase 12b. Rules: file patterns ("*.png;*.jpg", PathMatchSpec) for files on the
+    // Desktop that belong in this window's folder; autoSort moves them there whenever the Desktop
+    // changes (off: only "Sort desktop now"). Moves are undoable and never overwrite ("name (2)").
+    std::wstring rules;
+    bool autoSort = false;
+    // Appearance: the whole panel's opacity (0.2 - 1), the title's colour (ARGB; 0 = the theme's
+    // clock text), no title text (a 10 DIP strip to move it by), 1 or 2 lines of name under a grid
+    // icon, no fill and no acrylic (the entries over the wallpaper, their text shadowed), and a
+    // collapsed window that expands while the pointer is over it.
+    double opacity = 1.0;
+    uint32_t titleColor = 0;
+    bool hideTitle = false;
+    int labelLines = 2;
+    bool transparentBackground = false;
+    bool rollUpOnHover = false;
+    // The number of patterns in `rules`.
+    size_t RuleCount() const;
     bool operator==(const FolderWindowConfig&) const = default;
 };
 

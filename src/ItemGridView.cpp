@@ -448,14 +448,20 @@ HRESULT ItemGridView::DrawRow(Row& row) {
                 }
                 if (dw && gridFormat_ && !item.label.empty()) {
                     const float textW = (cell.right - cell.left) - 2.0f * std::round(kTextPadX * s);
-                    const float textH = std::round(2.0f * kLineH * s);
+                    const float textH = std::round(static_cast<float>(std::clamp(style_.labelLines, 1, 2)) * kLineH * s);
                     winrt::com_ptr<IDWriteTextLayout> layout;
                     if (SUCCEEDED(dw->CreateTextLayout(item.label.c_str(), static_cast<UINT32>(item.label.size()),
                                                        gridFormat_.get(), textW, textH, layout.put()))) {
+                        const D2D1_POINT_2F at = D2D1::Point2F(cell.left + std::round(kTextPadX * s),
+                                                               iy + iconPx + std::round(kTextGap * s));
+                        if (style_.textShadow) {
+                            const float d = std::max(1.0f, std::round(s));
+                            brush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.75f));
+                            dc->DrawTextLayout(D2D1::Point2F(at.x + d, at.y + d), layout.get(), brush.get(),
+                                               D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                        }
                         brush->SetColor(Theme::ToColor(style_.text, lit ? 1.0f : 0.9f));
-                        dc->DrawTextLayout(D2D1::Point2F(cell.left + std::round(kTextPadX * s),
-                                                         iy + iconPx + std::round(kTextGap * s)),
-                                           layout.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                        dc->DrawTextLayout(at, layout.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
                     }
                 }
                 continue;
@@ -545,6 +551,12 @@ HRESULT ItemGridView::DrawRow(Row& row) {
                 if (SUCCEEDED(dw->CreateTextLayout(item.label.c_str(), static_cast<UINT32>(item.label.size()),
                                                    listFormat_.get(), nameRight - nameX, cell.bottom - cell.top,
                                                    layout.put()))) {
+                    if (style_.textShadow) {
+                        const float d = std::max(1.0f, std::round(s));
+                        brush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.75f));
+                        dc->DrawTextLayout(D2D1::Point2F(nameX + d, cell.top + d), layout.get(), brush.get(),
+                                           D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    }
                     brush->SetColor(Theme::ToColor(style_.text, lit ? 1.0f : 0.92f));
                     dc->DrawTextLayout(D2D1::Point2F(nameX, cell.top), layout.get(), brush.get(),
                                        D2D1_DRAW_TEXT_OPTIONS_CLIP);

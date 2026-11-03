@@ -34,13 +34,15 @@ DWORD WINAPI JobThread(void* param) {
             const bool needsDest = job->op == Op::Copy || job->op == Op::Move;
             if (!needsDest || SUCCEEDED(SHCreateItemFromParsingName(job->dest.c_str(), nullptr, IID_PPV_ARGS(dest.put())))) {
                 size_t queued = 0;
-                for (const std::wstring& f : job->files) {
+                for (size_t i = 0; i < job->files.size(); ++i) {
+                    const std::wstring& f = job->files[i];
+                    const wchar_t* newName = i < job->newNames.size() && !job->newNames[i].empty() ? job->newNames[i].c_str() : nullptr;
                     winrt::com_ptr<IShellItem> item;
                     if (FAILED(SHCreateItemFromParsingName(f.c_str(), nullptr, IID_PPV_ARGS(item.put())))) continue;
                     HRESULT hr = E_FAIL;
                     switch (job->op) {
-                        case Op::Copy: hr = op->CopyItem(item.get(), dest.get(), nullptr, nullptr); break;
-                        case Op::Move: hr = op->MoveItem(item.get(), dest.get(), nullptr, nullptr); break;
+                        case Op::Copy: hr = op->CopyItem(item.get(), dest.get(), newName, nullptr); break;
+                        case Op::Move: hr = op->MoveItem(item.get(), dest.get(), newName, nullptr); break;
                         case Op::Recycle: hr = op->DeleteItem(item.get(), nullptr); break;
                         case Op::Rename: hr = op->RenameItem(item.get(), job->dest.c_str(), nullptr); break;
                     }
@@ -109,12 +111,16 @@ std::wstring Extension(const std::wstring& name) {
 
 std::wstring Stem(const std::wstring& name) { return name.substr(0, name.size() - Extension(name).size()); }
 
-std::wstring FreeName(const std::wstring& dir, const std::wstring& name) {
-    if (GetFileAttributesW(Join(dir, name).c_str()) == INVALID_FILE_ATTRIBUTES) return name;
+std::wstring FreeName(const std::wstring& dir, const std::wstring& name, const std::vector<std::wstring>& reserved) {
+    auto taken = [&](const std::wstring& n) {
+        return GetFileAttributesW(Join(dir, n).c_str()) != INVALID_FILE_ATTRIBUTES ||
+               std::any_of(reserved.begin(), reserved.end(), [&](const std::wstring& r) { return SamePath(r, n); });
+    };
+    if (!taken(name)) return name;
     const std::wstring stem = Stem(name), ext = Extension(name);
     for (int n = 2; n < 10000; ++n) {
         std::wstring candidate = stem + L" (" + std::to_wstring(n) + L")" + ext;
-        if (GetFileAttributesW(Join(dir, candidate).c_str()) == INVALID_FILE_ATTRIBUTES) return candidate;
+        if (!taken(candidate)) return candidate;
     }
     return name;
 }

@@ -24,7 +24,6 @@ using ShellFiles::Parent;
 using ShellFiles::SamePath;
 
 // Layout (DIPs).
-constexpr float kTitleH = 30.0f;
 constexpr float kPad = 6.0f;          // panel edge -> view
 constexpr float kTitlePadX = 12.0f;
 constexpr float kChevronW = 26.0f;
@@ -36,7 +35,6 @@ constexpr float kMinH = 80.0f;
 constexpr float kRadius = 8.0f;
 constexpr float kTitleFont = 13.0f;
 constexpr float kMessageFont = 12.0f;
-constexpr float kLabelLines = 2.0f;
 constexpr float kLineH = 16.0f;       // ItemGridView's name line
 constexpr size_t kAutoGridMax = 48;   // auto view: a grid up to this many entries (as the folder popup)
 constexpr size_t kMaxEntries = 20000;
@@ -140,6 +138,9 @@ void FolderWindow::Destroy() {
     }
     if (refreshPending_ && hwnd_) KillTimer(hwnd_, kRefreshTimer);
     refreshPending_ = false;
+    if (rollPending_ && hwnd_) KillTimer(hwnd_, kRollTimer);
+    rollPending_ = false;
+    peek_ = false;
     if (hwnd_) DesktopLayer::Unregister(hwnd_);
     view_.Detach();
     viewReady_ = false;
@@ -212,7 +213,7 @@ HRESULT FolderWindow::EnsureTarget() {
         view_.SetDragOut(true);
         viewReady_ = true;
     }
-    if (!Cfg().folder.collapsed && !view_.Attached()) view_.Attach(root_);
+    if (!Collapsed() && !view_.Attached()) view_.Attach(root_);
     return S_OK;
 }
 
@@ -230,8 +231,8 @@ RECT FolderWindow::RectFromConfig() const {
     const RECT work = WorkArea();
     const LONG workW = work.right - work.left, workH = work.bottom - work.top;
     const LONG w = std::min<LONG>(static_cast<LONG>(Px(static_cast<float>(d.folder.w))), std::max<LONG>(1, workW));
-    const LONG titleH = static_cast<LONG>(Px(kTitleH));
-    const LONG h = d.folder.collapsed ? titleH
+    const LONG titleH = static_cast<LONG>(Px(TitleDip()));
+    const LONG h = Collapsed() ? titleH
                                       : std::min<LONG>(static_cast<LONG>(Px(static_cast<float>(d.folder.h))), std::max<LONG>(titleH, workH));
     LONG x = d.x == DockConfig::kCentred ? work.left + (workW - w) / 2 : work.left + static_cast<LONG>(Px(static_cast<float>(d.x)));
     LONG y = d.y == DockConfig::kCentred ? work.top + (workH - h) / 2 : work.top + static_cast<LONG>(Px(static_cast<float>(d.y)));
@@ -248,7 +249,7 @@ void FolderWindow::StoreRect() {
     d.x = static_cast<int>(std::lround(static_cast<float>(rect_.left - work.left) / scale_));
     d.y = static_cast<int>(std::lround(static_cast<float>(rect_.top - work.top) / scale_));
     d.folder.w = std::max(static_cast<int>(kMinW), static_cast<int>(std::lround(static_cast<float>(rect_.right - rect_.left) / scale_)));
-    if (!d.folder.collapsed) {
+    if (!Collapsed()) {
         d.folder.h = std::max(static_cast<int>(kMinH), static_cast<int>(std::lround(static_cast<float>(rect_.bottom - rect_.top) / scale_)));
     }
     applied_ = d;
@@ -282,7 +283,7 @@ void FolderWindow::SetMonitor(HMONITOR monitor) {
 FolderWindow::Grab FolderWindow::GrabAt(POINT pt) const {
     const LONG w = rect_.right - rect_.left, h = rect_.bottom - rect_.top;
     const LONG e = static_cast<LONG>(Px(kGrabEdge)), c = static_cast<LONG>(Px(kGrabCorner));
-    const bool collapsed = Cfg().folder.collapsed;
+    const bool collapsed = Collapsed();
     const bool left = pt.x < e, right = pt.x >= w - e;
     const bool top = !collapsed && pt.y < e, bottom = !collapsed && pt.y >= h - e;
     const bool nearL = pt.x < c, nearR = pt.x >= w - c, nearT = pt.y < c, nearB = pt.y >= h - c;
@@ -360,7 +361,13 @@ void FolderWindow::SnapEdges(RECT& r, Grab g) const {
 
 void FolderWindow::SetCollapsed(bool collapsed) {
     DockConfig& d = Cfg();
-    if (d.folder.collapsed == collapsed) return;
+    if (d.folder.collapsed == collapsed && !peek_) return;
+    if (peek_) {
+        // Rolled down by the pointer: collapsing keeps it collapsed for good, expanding saves it.
+        peek_ = false;
+        if (rollPending_ && hwnd_) KillTimer(hwnd_, kRollTimer);
+        rollPending_ = false;
+    }
     if (!collapsed) {
         d.folder.collapsed = false;
     } else {
@@ -374,9 +381,26 @@ void FolderWindow::SetCollapsed(bool collapsed) {
         view_.Attach(root_);
     }
     RECT r = rect_;
-    r.bottom = r.top + (collapsed ? static_cast<LONG>(Px(kTitleH)) : static_cast<LONG>(Px(static_cast<float>(d.folder.h))));
+    r.bottom = r.top + (collapsed ? static_cast<LONG>(Px(TitleDip())) : static_cast<LONG>(Px(static_cast<float>(d.folder.h))));
     Place(r, true);
     if (host_.changed) host_.changed();
+}
+
+void FolderWindow::Peek(bool on) {
+    if (peek_ == on || !hwnd_) return;
+    peek_ = on;
+    if (!on && rollPending_) {
+        KillTimer(hwnd_, kRollTimer);
+        rollPending_ = false;
+    }
+    if (on) {
+        if (target_ && !view_.Attached()) view_.Attach(root_);
+    } else {
+        view_.Detach();
+    }
+    RECT r = rect_;
+    r.bottom = r.top + (on ? static_cast<LONG>(Px(static_cast<float>(Cfg().folder.h))) : static_cast<LONG>(Px(TitleDip())));
+    Place(r, true);
 }
 
 void FolderWindow::ApplyConfig() {
@@ -386,10 +410,15 @@ void FolderWindow::ApplyConfig() {
     const FolderWindowConfig& f = d.folder;
     const bool pathChanged = f.path != a.path;
     const bool listChanged = pathChanged || f.showHidden != a.showHidden || f.sort != a.sort || f.view != a.view ||
-                             f.iconSize != a.iconSize;
-    const bool collapsedChanged = f.collapsed != a.collapsed;
+                             f.iconSize != a.iconSize || f.labelLines != a.labelLines;
+    const bool collapsedChanged = f.collapsed != a.collapsed || (!f.rollUpOnHover && peek_);
     const bool rectChanged = collapsedChanged || f.w != a.w || f.h != a.h || d.x != applied_.x || d.y != applied_.y ||
-                             d.monitor != applied_.monitor;
+                             d.monitor != applied_.monitor || f.hideTitle != a.hideTitle;
+    if (collapsedChanged) {
+        peek_ = false;
+        if (rollPending_) KillTimer(hwnd_, kRollTimer);
+        rollPending_ = false;
+    }
     applied_ = d;
     if (pathChanged) {
         Unwatch();
@@ -397,7 +426,7 @@ void FolderWindow::ApplyConfig() {
         Watch();
     }
     if (collapsedChanged) {
-        if (f.collapsed) {
+        if (Collapsed()) {
             view_.Detach();
         } else if (target_ && !view_.Attached()) {
             view_.Attach(root_);
@@ -416,10 +445,17 @@ void FolderWindow::ApplyConfig() {
 void FolderWindow::Relayout() {
     if (!hwnd_ || !target_) return;
     const LONG w = rect_.right - rect_.left, h = rect_.bottom - rect_.top;
-    const LONG titleH = static_cast<LONG>(Px(kTitleH)), pad = static_cast<LONG>(Px(kPad));
+    const LONG titleH = static_cast<LONG>(Px(TitleDip())), pad = static_cast<LONG>(Px(kPad));
     titleRect_ = RECT{0, 0, w, titleH};
-    chevronRect_ = RECT{w - static_cast<LONG>(Px(kChevronW + 4.0f)), 0, w - static_cast<LONG>(Px(4.0f)), titleH};
-    const bool collapsed = Cfg().folder.collapsed;
+    chevronRect_ = Cfg().folder.hideTitle
+                       ? RECT{}
+                       : RECT{w - static_cast<LONG>(Px(kChevronW + 4.0f)), 0, w - static_cast<LONG>(Px(4.0f)), titleH};
+    const bool collapsed = Collapsed();
+    // The whole panel's opacity (the acrylic blur window behind it is not faded).
+    winrt::com_ptr<IDCompositionVisual3> root3;
+    if (root_.visual && SUCCEEDED(root_.visual->QueryInterface(IID_PPV_ARGS(root3.put())))) {
+        root3->SetOpacity(static_cast<float>(Cfg().folder.opacity));
+    }
     contentRect_ = collapsed ? RECT{} : RECT{pad, titleH + static_cast<LONG>(Px(2.0f)), w - pad, std::max(titleH, h - pad)};
     if (!collapsed && view_.Attached()) {
         const ItemGridView::Style style = ViewStyle();
@@ -484,7 +520,9 @@ ItemGridView::Style FolderWindow::ViewStyle() const {
     v.scrollbar = (t.labelText & 0x00FFFFFF) | 0x80000000;
     v.iconDip = static_cast<float>(f.iconSize);
     v.cellW = std::max(80.0f, v.iconDip + 32.0f);
-    v.cellH = v.iconDip + 6.0f + 4.0f + kLabelLines * kLineH + 4.0f;
+    v.labelLines = std::clamp(f.labelLines, 1, 2);
+    v.cellH = v.iconDip + 6.0f + 4.0f + static_cast<float>(v.labelLines) * kLineH + 4.0f;
+    v.textShadow = f.transparentBackground;
     v.listIconDip = std::clamp(std::round(v.iconDip / 2.0f), 16.0f, 32.0f);
     v.rowH = v.listIconDip + 12.0f;
     v.scrollSeconds = 0.16;
@@ -498,8 +536,11 @@ void FolderWindow::DrawPanel() {
     const UINT w = static_cast<UINT>(std::max<LONG>(1, rect_.right - rect_.left));
     const UINT h = static_cast<UINT>(std::max<LONG>(1, rect_.bottom - rect_.top));
     const ThemeConfig& t = config_->ThemeOf(Cfg());
-    const bool collapsed = Cfg().folder.collapsed;
-    const std::wstring title = TitleText();
+    const FolderWindowConfig& fc = Cfg().folder;
+    const bool collapsed = Collapsed();
+    const bool clear = fc.transparentBackground;
+    const uint32_t titleColor = fc.titleColor ? fc.titleColor : t.clockText;
+    const std::wstring title = fc.hideTitle ? std::wstring() : TitleText();
     IDWriteFactory* dw = host_.renderer->DWrite();
     host_.renderer->DrawLayer(panel_, w, h, [&](ID2D1DeviceContext* dc) {
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
@@ -508,24 +549,39 @@ void FolderWindow::DrawPanel() {
         const float radius = Px(kRadius);
         const float stroke = std::max(1.0f, std::round(scale_));
         const float inset = stroke / 2.0f;
-        dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, fw, fh), radius, radius), brush.get());
-        brush->SetColor(Theme::ToColor(t.barBorder));
-        dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, fw - inset, fh - inset), radius - inset,
-                                                   radius - inset),
-                                 brush.get(), stroke);
+        if (!clear) {
+            dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(0, 0, fw, fh), radius, radius), brush.get());
+            brush->SetColor(Theme::ToColor(t.barBorder));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, fw - inset, fh - inset), radius - inset,
+                                                       radius - inset),
+                                     brush.get(), stroke);
+        }
+        if (fc.hideTitle) {
+            // No title: a short grip in the strip shows where to take it (dimmer without a panel).
+            brush->SetColor(Theme::ToColor(titleColor, clear ? 0.55f : 0.35f));
+            const float gy = std::round(static_cast<float>(titleRect_.bottom) / 2.0f);
+            dc->DrawLine(D2D1::Point2F(fw / 2.0f - Px(14.0f), gy), D2D1::Point2F(fw / 2.0f + Px(14.0f), gy), brush.get(),
+                         std::max(1.0f, 2.0f * scale_));
+        }
         // Title.
         const float left = Px(kTitlePadX), right = static_cast<float>(chevronRect_.left) - Px(2.0f);
         winrt::com_ptr<IDWriteTextLayout> layout;
         if (dw && titleFormat_ && right > left &&
             SUCCEEDED(dw->CreateTextLayout(title.c_str(), static_cast<UINT32>(title.size()), titleFormat_.get(), right - left,
                                            static_cast<float>(titleRect_.bottom), layout.put()))) {
-            brush->SetColor(Theme::ToColor(t.clockText));
+            if (clear) {
+                brush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.75f));
+                const float d = std::max(1.0f, std::round(scale_));
+                dc->DrawTextLayout(D2D1::Point2F(left + d, d), layout.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+            brush->SetColor(Theme::ToColor(titleColor));
             dc->DrawTextLayout(D2D1::Point2F(left, 0.0f), layout.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
         }
+        if (fc.hideTitle) return;  // no chevron, no hairline; the entries are the view's
         // Chevron: down while expanded, right while collapsed.
         const float cx = (chevronRect_.left + chevronRect_.right) / 2.0f, cy = titleRect_.bottom / 2.0f;
         const float g = Px(4.0f);
-        brush->SetColor(Theme::ToColor(t.clockText, 0.7f));
+        brush->SetColor(Theme::ToColor(titleColor, 0.7f));
         const float gs = std::max(1.0f, 1.5f * scale_);
         if (collapsed) {
             dc->DrawLine(D2D1::Point2F(cx - g / 2.0f, cy - g), D2D1::Point2F(cx + g / 2.0f, cy), brush.get(), gs);
@@ -534,7 +590,7 @@ void FolderWindow::DrawPanel() {
             dc->DrawLine(D2D1::Point2F(cx - g, cy - g / 2.0f), D2D1::Point2F(cx, cy + g / 2.0f), brush.get(), gs);
             dc->DrawLine(D2D1::Point2F(cx, cy + g / 2.0f), D2D1::Point2F(cx + g, cy - g / 2.0f), brush.get(), gs);
             // Hairline under the title.
-            brush->SetColor(Theme::ToColor(t.barBorder));
+            brush->SetColor(Theme::ToColor(clear ? (titleColor & 0x00FFFFFF) | 0x40000000 : t.barBorder));
             const float y = static_cast<float>(titleRect_.bottom) - inset;
             dc->DrawLine(D2D1::Point2F(Px(kPad), y), D2D1::Point2F(fw - Px(kPad), y), brush.get(), stroke);
             if (entries_.empty() && messageFormat_) {
@@ -554,7 +610,8 @@ void FolderWindow::Commit() {
 
 void FolderWindow::UpdateBackdrop() {
     if (!hwnd_) return;
-    const bool want = config_->ThemeOf(Cfg()).acrylic && Backdrop::SystemAllowsTransparency();
+    const bool want = config_->ThemeOf(Cfg()).acrylic && !Cfg().folder.transparentBackground &&
+                      Backdrop::SystemAllowsTransparency();
     acrylic_ = want && (backdrop_.Exists() || backdrop_.Create(instance_));
     if (acrylic_) {
         backdrop_.SetCornerRadius(kRadius);
@@ -872,13 +929,14 @@ void FolderWindow::ShellMenu(const std::vector<std::wstring>& paths, int index, 
 void FolderWindow::BackgroundMenu(POINT screen) {
     enum : UINT {
         kOpen = 1, kRefresh, kViewAuto = 10, kViewGrid, kViewList, kSortName = 20, kSortDate, kSortType, kSortSize,
-        kHidden = 30, kSingle, kCollapse = 40, kRemove = 50, kNew,
+        kHidden = 30, kSingle, kCollapse = 40, kRemove = 50, kNew, kPaste = 60,
     };
     const FolderWindowConfig f = Cfg().folder;
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
     AppendMenuW(menu, MF_STRING | (readable_ ? 0 : MF_GRAYED), kOpen, L"Open in Explorer");
     AppendMenuW(menu, MF_STRING, kRefresh, L"Refresh");
+    AppendMenuW(menu, MF_STRING | (readable_ && IsClipboardFormatAvailable(CF_HDROP) ? 0 : MF_GRAYED), kPaste, L"Paste");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     if (HMENU sub = CreatePopupMenu()) {
         AppendMenuW(sub, MF_STRING, kViewAuto, L"Automatic");
@@ -914,6 +972,7 @@ void FolderWindow::BackgroundMenu(POINT screen) {
     switch (cmd) {
         case kOpen: Open(folder_, L"open"); changed = false; break;
         case kRefresh: Reload(); changed = false; break;
+        case kPaste: Paste(); changed = false; break;
         case kViewAuto: case kViewGrid: case kViewList: c.view = static_cast<ItemView>(cmd - kViewAuto); break;
         case kSortName: case kSortDate: case kSortType: case kSortSize: c.sort = static_cast<FolderSort>(cmd - kSortName); break;
         case kHidden: c.showHidden = !c.showHidden; break;
@@ -960,7 +1019,7 @@ LRESULT CALLBACK FolderWindow::EditProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM l
 
 void FolderWindow::BeginRename(int index) {
     CancelRename();
-    if (index < 0 || static_cast<size_t>(index) >= entries_.size() || Cfg().folder.collapsed || !view_.Attached()) return;
+    if (index < 0 || static_cast<size_t>(index) >= entries_.size() || Collapsed() || !view_.Attached()) return;
     view_.Select(index, true);
     const Entry& e = entries_[static_cast<size_t>(index)];
     const ItemGridView::Style style = ViewStyle();
@@ -1063,6 +1122,84 @@ void FolderWindow::BeginDrag(size_t index, POINT) {
     dragging_ = false;
 }
 
+// --- the clipboard (12b) ---------------------------------------------------------------------------
+
+void FolderWindow::CopySelection(bool cut) {
+    const std::vector<std::wstring> paths = SelectedPaths();
+    winrt::com_ptr<IDataObject> data = ShellFiles::DataObjectFor(paths);
+    if (!data) {
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    // What a paste should do (Explorer's "Preferred DropEffect"): a cut moves.
+    static const CLIPFORMAT kPreferred = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT));
+    if (HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, sizeof(DWORD))) {
+        if (auto* p = static_cast<DWORD*>(GlobalLock(mem))) {
+            *p = cut ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
+            GlobalUnlock(mem);
+        }
+        FORMATETC fmt{kPreferred, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+        STGMEDIUM medium{};
+        medium.tymed = TYMED_HGLOBAL;
+        medium.hGlobal = mem;
+        if (FAILED(data->SetData(&fmt, &medium, TRUE))) GlobalFree(mem);
+    }
+    if (FAILED(OleSetClipboard(data.get()))) {
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    OleFlushClipboard();  // the formats stay on the clipboard after the dock quits
+}
+
+void FolderWindow::Paste() {
+    if (!readable_ || folder_.empty()) return;
+    winrt::com_ptr<IDataObject> data;
+    if (FAILED(OleGetClipboard(data.put())) || !data) return;
+    std::vector<std::wstring> files = ShellFiles::FilesOf(data.get());
+    if (files.empty()) {
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    DWORD effect = DROPEFFECT_COPY;
+    static const CLIPFORMAT kPreferred = static_cast<CLIPFORMAT>(RegisterClipboardFormatW(CFSTR_PREFERREDDROPEFFECT));
+    FORMATETC fmt{kPreferred, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
+    STGMEDIUM medium{};
+    if (SUCCEEDED(data->GetData(&fmt, &medium))) {
+        if (const auto* p = static_cast<const DWORD*>(GlobalLock(medium.hGlobal))) {
+            if (*p & DROPEFFECT_MOVE) effect = DROPEFFECT_MOVE;
+            GlobalUnlock(medium.hGlobal);
+        }
+        ReleaseStgMedium(&medium);
+    }
+    data = nullptr;
+    const bool move = effect == DROPEFFECT_MOVE;
+    if (move) std::erase_if(files, [&](const std::wstring& f) { return SamePath(Parent(f), folder_); });
+    if (files.empty()) return;  // a cut pasted where it is: nothing to do
+    // A copy into the folder the files are in gets "name - Copy" (as in Explorer); elsewhere the
+    // shell asks about conflicts.
+    const bool here = std::any_of(files.begin(), files.end(), [&](const std::wstring& f) { return SamePath(Parent(f), folder_); });
+    selectAfterLoad_.clear();
+    for (const std::wstring& f : files) selectAfterLoad_.push_back(Join(folder_, LastComponent(f)));
+    ShellFiles::Job job;
+    job.op = move ? ShellFiles::Op::Move : ShellFiles::Op::Copy;
+    job.files = std::move(files);
+    job.dest = folder_;
+    job.renameOnCollision = !move && here;
+    job.notify = hwnd_;
+    job.message = kJobDoneMessage;
+    job.owner = hwnd_;
+    if (!ShellFiles::Start(std::move(job))) {
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    ++jobs_;
+    // After a cut is pasted the clipboard's files are gone from where it says (Explorer clears it).
+    if (move && OpenClipboard(hwnd_)) {
+        EmptyClipboard();
+        CloseClipboard();
+    }
+}
+
 // --- drops ---------------------------------------------------------------------------------------
 
 void FolderWindow::RegisterDrop() {
@@ -1158,12 +1295,12 @@ LRESULT FolderWindow::QueryState(WPARAM what, LPARAM arg) const {
         case 187: return rect_.right - rect_.left;
         case 188: return rect_.bottom - rect_.top;
         case 189: return static_cast<LRESULT>(entries_.size());
-        case 190: return Cfg().folder.collapsed ? 1 : 0;
+        case 190: return Cfg().folder.collapsed ? 1 : 0;  // the setting (209 bit 3: rolled down by the pointer)
         case 191: return view_.Selected();
         case 192: return view_.ScrollOffset();
         case 193: return static_cast<LRESULT>(view_.LiveRows());
         case 194: return static_cast<LRESULT>(refreshes_);
-        case 195: return (refreshPending_ ? 1 : 0) + (view_.TimerPending() ? 1 : 0);
+        case 195: return (refreshPending_ ? 1 : 0) + (view_.TimerPending() ? 1 : 0) + (rollPending_ ? 1 : 0);
         case 196: return static_cast<LRESULT>(resolved_);
         case 197: return edit_ ? 1 : 0;
         case 198: return view_.GetMode() == ItemGridView::Mode::List ? 1 : 0;
@@ -1176,6 +1313,13 @@ LRESULT FolderWindow::QueryState(WPARAM what, LPARAM arg) const {
         case 203: return view_.Attached() ? static_cast<LRESULT>(view_.Columns()) : 0;
         case 204: return jobs_;
         case 205: return static_cast<LRESULT>(view_.MarkedCount());
+        case 206: return static_cast<LRESULT>(Cfg().folder.RuleCount());
+        case 209:  // appearance applied: bit 0 acrylic, 1 transparent background, 2 title hidden, 3 rolled down
+            return (acrylic_ ? 1 : 0) | (Cfg().folder.transparentBackground ? 2 : 0) | (Cfg().folder.hideTitle ? 4 : 0) |
+                   (peek_ ? 8 : 0);
+        case 210: return static_cast<LRESULT>(std::lround(Cfg().folder.opacity * 100.0));
+        case 211: return view_.GetStyle().labelLines;
+        case 212: return static_cast<LRESULT>(Cfg().folder.titleColor ? Cfg().folder.titleColor : config_->ThemeOf(Cfg()).clockText);
         default: return -1;
     }
 }
@@ -1226,6 +1370,14 @@ LRESULT FolderWindow::Command(UINT cmd, int arg, int high) {
         case 847:
             view_.SelectAll();
             return 1;
+        case 851:
+        case 852:
+            if (view_.MarkedCount() == 0) return 0;
+            CopySelection(cmd == 852);
+            return 1;
+        case 853:
+            Paste();
+            return 1;
         case 849:
         case 850: {
             wchar_t buf[256]{};
@@ -1261,7 +1413,7 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         if (menu2_ && SUCCEEDED(menu2_->HandleMenuMsg(msg, wp, lp))) return msg == WM_INITMENUPOPUP ? 0 : TRUE;
     }
     const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-    const bool collapsed = cfg_ < config_->docks.size() && Cfg().folder.collapsed;
+    const bool collapsed = cfg_ < config_->docks.size() && Collapsed();
     switch (msg) {
         case WM_WINDOWPOSCHANGING:
             DesktopLayer::FilterPosChanging(hwnd_, reinterpret_cast<WINDOWPOS*>(lp));
@@ -1306,6 +1458,14 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (!tracking_) {
                 TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd_, 0};
                 tracking_ = TrackMouseEvent(&tme) != FALSE;
+            }
+            if (rollPending_) {
+                KillTimer(hwnd_, kRollTimer);  // back over it
+                rollPending_ = false;
+            }
+            if (Cfg().folder.collapsed && Cfg().folder.rollUpOnHover && !peek_ && grab_ == Grab::None) {
+                Peek(true);
+                return 0;
             }
             if (grab_ != Grab::None) {
                 POINT s = pt;
@@ -1385,6 +1545,7 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_MOUSELEAVE:
             tracking_ = false;
             if (!collapsed) view_.MouseLeave();
+            if (peek_ && !rollPending_) rollPending_ = SetTimer(hwnd_, kRollTimer, 400, nullptr) != 0;
             return 0;
         case WM_MOUSEWHEEL: {
             POINT c = pt;
@@ -1410,8 +1571,23 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 case VK_DELETE: RecycleSelection(); return 0;
                 case VK_F5: Reload(); return 0;
                 case VK_ESCAPE: view_.SelectWith(-1, false, false, false); return 0;
-                default: view_.KeyDown(static_cast<UINT>(wp)); return 0;
+                case 'C':
+                case 'X':
+                    if (GetKeyState(VK_CONTROL) < 0) {
+                        CopySelection(wp == 'X');
+                        return 0;
+                    }
+                    break;
+                case 'V':
+                    if (GetKeyState(VK_CONTROL) < 0) {
+                        Paste();
+                        return 0;
+                    }
+                    break;
+                default: break;
             }
+            view_.KeyDown(static_cast<UINT>(wp));
+            return 0;
         case WM_SYSKEYDOWN:
             if (!collapsed && wp == VK_F10 && GetKeyState(VK_SHIFT) < 0) {
                 view_.KeyDown(VK_F10);
@@ -1432,6 +1608,19 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 refreshPending_ = false;
                 ++refreshes_;
                 Reload();
+                return 0;
+            }
+            if (wp == kRollTimer) {
+                KillTimer(hwnd_, kRollTimer);
+                rollPending_ = false;
+                POINT c{};
+                GetCursorPos(&c);
+                if (!peek_ || PtInRect(&rect_, c)) return 0;  // back over it (its next leave re-arms)
+                if (menuOpen_ || edit_ || dragging_ || grab_ != Grab::None) {
+                    rollPending_ = SetTimer(hwnd_, kRollTimer, 400, nullptr) != 0;  // busy: later
+                    return 0;
+                }
+                Peek(false);
                 return 0;
             }
             view_.Timer(wp);
@@ -1455,7 +1644,7 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case kMenuMessage: {
             const int index = static_cast<int>(wp) == 0xFFFF ? -1 : static_cast<int>(wp);
-            POINT s{rect_.left + (rect_.right - rect_.left) / 2, rect_.top + static_cast<LONG>(Px(kTitleH)) * 2};
+            POINT s{rect_.left + (rect_.right - rect_.left) / 2, rect_.top + static_cast<LONG>(Px(TitleDip())) * 2};
             if (index >= 0 && view_.Attached()) {
                 const RECT r = view_.ItemRect(static_cast<size_t>(index));
                 s = POINT{(r.left + r.right) / 2, (r.top + r.bottom) / 2};

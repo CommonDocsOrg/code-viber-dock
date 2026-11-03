@@ -992,6 +992,27 @@ Docks (**Add folder window…**); each is a `docks[]` entry of kind `"folderWind
   volume) or copied (another volume; Ctrl copies, Shift moves) into its folder, or into the
   sub-folder under the pointer, with Explorer's file operation (progress and conflict dialogs,
   undoable). A drop onto another folder window moves like Explorer.
+- **Several entries** (12b): Ctrl / Shift selections drag, open, delete and copy as a whole. **Ctrl+C**
+  / **Ctrl+X** put the selection on the clipboard as the shell's data object with Explorer's
+  "Preferred DropEffect" (copy / move), so Explorer pastes them; **Ctrl+V** (or Paste in the
+  window's menu) pastes files copied or cut in Explorer or another folder window (a copy into the
+  same folder becomes "name - Copy"; after a cut is pasted the clipboard is emptied, as Explorer
+  does).
+- **Desktop rules** (12b): `rules` are file patterns (`*.png;*.jpg`): files on your Desktop matching
+  them belong in this window's folder. With `autoSort` they are moved there whenever the Desktop
+  changes (and once when the watch starts); without it only **Sort desktop now** (Settings >
+  Folder window, `DockCommand` 140) moves them. The first folder window whose rules match takes a
+  file; folders, hidden and system files never move; a move never overwrites (a file of the same
+  name makes it "name (2).ext") and is one undoable Explorer operation. The Desktop is watched
+  (one `SHChangeNotifyRegister`, changes coalesced by 500 ms) only while some folder window has
+  rules with `autoSort`.
+- **Appearance** (12b): `opacity` (the panel, title and entries; the acrylic blur behind stays),
+  `titleColor`, `hideTitle` (no title text: a 10 DIP strip with a grip to move it by),
+  `labelLines` (1 or 2 lines of name in the grid), `transparentBackground` (no panel, no acrylic:
+  the entries over the wallpaper, their names and the title with a dark shadow), `rollUpOnHover`
+  (a collapsed window expands while the pointer is over it and collapses again 400 ms after it
+  left; not saved). **Settings > Folder window** edits all of a window's keys (pick the window on
+  the Docks page, then **Folder window settings…**); changes apply at once.
 - **Where it lives**: the window is a top-level window directly above the desktop window
   (Progman). Its z-order is locked: activation, a click and `SetWindowPos(HWND_TOP)` leave it where
   it is; it goes back above the desktop when the desktop takes the foreground and after Explorer
@@ -1087,6 +1108,11 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   fields to add a feed or edit the selected one (name, address or file, colour `#AARRGGBB`, the
   refresh interval, the reminder minutes, enabled) with **Add feed** / **Save changes**, **Remove**,
   **Refresh now**, **Show dots on days with events** and the **Default reminder**.
+- **Folder window** (round 4 phase 12b): the folder window picked on the Docks page (**Folder window
+  settings…**): its folder (Browse…), title, view, icon size, sort, show hidden items, single
+  click, collapsed; opacity, title colour, lines of name, hide the title, transparent background,
+  roll up on hover; the Desktop rules (patterns, move automatically, **Sort desktop now**). See
+  [Desktop folder windows](#desktop-folder-windows).
 - **Folders and groups**: one folder or shortcut group of the dock (a drop-down picks it;
   **Settings…** on its row of Dock contents opens it): **Show the contents as** Automatic (a grid
   up to 48 entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose
@@ -1288,6 +1314,11 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     "reserveSpace": false` so that a version before phase 12 (which reads it as a dock) shows only
     an empty, auto-hidden desktop dock (if such a version saves, the folder window's keys are lost).
     A `docks[]` entry with a `kind` this version does not know is kept as it is and not shown.
+    12b keys (each written only when not the default): `rules` (default `""`; file patterns
+    separated by `;`), `autoSort` (default `false`), `opacity` (default 1, 0.2 - 1),
+    `titleColor` (`"#AARRGGBB"`, default none: the theme's clock text colour), `hideTitle`,
+    `labelLines` (default 2; 1 - 2), `transparentBackground`, `rollUpOnHover` (each default
+    `false`).
 
   ```json
   "items": [
@@ -1686,6 +1717,19 @@ always there, also when every dock is parked) handle these registered messages:
   drag it, a press 6 DIPs inside an edge resizes it, a double click on the title collapses it (the
   snapping and the saved config are the same as for a real drag). Settings > Docks 2808 = Add
   folder window…; the Layout canvas's window text lists folder windows with their rects too.
+  12b: `QueryState` 205 = entries selected, 206 = the window's rule patterns, 207 = files moved by
+  Desktop rules this session (any `lParam`), 208 = 1 while the Desktop is watched (rules with
+  `autoSort`; any `lParam`), 209 = appearance applied (bit 0 acrylic, 1 transparent background, 2
+  title hidden, 3 rolled down by the pointer), 210 = opacity x 100, 211 = lines of name, 212 = the
+  title's colour (ARGB). `DockCommand` 140 = Sort desktop now (returns the files queued; 0 while an
+  earlier sort's moves still run). `ItemCommand` 851 / 852 = Ctrl+C / Ctrl+X on the selection, 853 =
+  Ctrl+V. Test hook: the environment variable `WINDOCK_DESKTOP_DIR` of the dock process replaces
+  the Desktop folder the rules watch and sort (tests point it at a scratch folder). Settings page
+  15 Folder window: 4400 which window, 4403 folder, 4404 Browse…, 4406 title, 4409 view (0 auto,
+  1 grid, 2 list), 4411 / 4412 icon size, 4415 sort (0 name, 1 date, 2 type, 3 size), 4416 show
+  hidden, 4418 single click, 4420 collapsed, 4424 / 4425 opacity %, 4428 title colour, 4431 lines
+  (0 one, 1 two), 4432 hide title, 4434 transparent background, 4436 roll up on hover, 4440 rules,
+  4441 move automatically, 4443 Sort desktop now; Docks 2809 Folder window settings….
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
@@ -1696,8 +1740,8 @@ always there, also when every dock is parked) handle these registered messages:
   120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right, 124 Lock all docks,
   125 Unlock all docks, 126 Reload widgets (every script widget of every dock reloads its package
   and script), 127 open (or activate) the widget Console; 128 - 134 see Tray / Notifications above,
-  135 refresh the calendar feeds, 136 - 139 see Folder windows above (139 New folder window…); saved
-  like the menu).
+  135 refresh the calendar feeds, 136 - 140 see Folder windows above (139 New folder window…, 140
+  Sort desktop now); saved like the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup

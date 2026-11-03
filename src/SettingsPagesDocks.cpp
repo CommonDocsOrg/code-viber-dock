@@ -58,6 +58,8 @@ protected:
         Button(kDockRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW);
         Button(kDockAddFolder, L"Add folder window…", kMargin + 3 * kButtonStep, kButtonW + 20);
         NextRow(kRowH + 4);
+        Button(kDockFolderSettings, L"Folder window settings…", kMargin, kButtonW + 60);
+        NextRow(kRowH + 4);
         Button(kLockAllDocks, L"Lock all docks", kMargin, kButtonW);
         Button(kUnlockAllDocks, L"Unlock all docks", kMargin + kButtonStep, kButtonW);
         NextRow(kRowH + 4);
@@ -137,6 +139,9 @@ protected:
             case kDockAddFolder:
                 if (Host().command) Host().command(ContextMenu::kNewFolderWindow);  // the picker, then a refresh
                 break;
+            case kDockFolderSettings:
+                if (c.Edit().IsFolderWindow()) Window().ShowPage(kPageFolderWindow);
+                break;
             case kLockAllDocks:
             case kUnlockAllDocks:
                 if (Host().command) {
@@ -202,6 +207,7 @@ private:
                                           : L"The other pages edit: " + c.docks[static_cast<size_t>(sel)].id);
         const auto plainDocks = std::count_if(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });
         Enable(kDockRemove, n > 1 && (folderSel || plainDocks > 1));
+        Enable(kDockFolderSettings, folderSel);
         bool anyLocked = false, anyUnlocked = false;
         for (const DockConfig& d : c.docks) (d.locked ? anyLocked : anyUnlocked) = true;
         Enable(kLockAllDocks, anyUnlocked);

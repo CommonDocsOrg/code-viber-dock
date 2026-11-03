@@ -80,6 +80,10 @@ public:
         // false (the desktop folder windows): a left click selects, a double click (DoubleClick)
         // or Enter activates.
         bool clickActivates = true;
+        // Grid: lines of name under the icon (1 or 2; make cellH fit them).
+        int labelLines = 2;
+        // Names drawn with a dark shadow (entries over the wallpaper, no panel behind them).
+        bool textShadow = false;
     };
 
     struct Callbacks {

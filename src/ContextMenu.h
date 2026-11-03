@@ -54,7 +54,8 @@ enum Command : UINT {
     kRemoveFolderWindow = 137,  // automation: removes the folder window HIWORD(lParam)
     kSimulateExplorerRestart = 138,  // test hook: every folder window pushed under the desktop, then the restart recovery
     kNewFolderWindow = 139,     // "New folder window…": a folder picker, then a folder window at the pointer
-    kLastDockCommand = kNewFolderWindow,
+    kSortDesktopNow = 140,      // 12b: the Desktop's files matching folder windows' rules move into their folders (once)
+    kLastDockCommand = kSortDesktopNow,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -112,6 +113,9 @@ enum Command : UINT {
     kFolderDropOn = 848,        // test hook: the selection dropped onto folder window HIWORD(wParam) (no OLE loop)
     kFolderDropPath = 849,      // test hook: the path in the atom HIWORD(wParam) dropped on entry LOWORD(lParam) (0xFFFF: background)
     kFolderDropPathCopy = 850,  // ... with Ctrl held (a copy)
+    kFolderCopy = 851,          // 12b: Ctrl+C on the selection (the shell data object, "Preferred DropEffect" copy)
+    kFolderCut = 852,           // Ctrl+X (a move when pasted)
+    kFolderPaste = 853,         // Ctrl+V: the clipboard's files into the folder
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

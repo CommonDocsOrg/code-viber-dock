@@ -32,8 +32,9 @@ std::wstring VolumeOf(const std::wstring& path);
 std::wstring Stem(const std::wstring& name);
 // The extension with its dot ("" for none).
 std::wstring Extension(const std::wstring& name);
-// A name not taken in `dir`: `name`, else "stem (2).ext", "stem (3).ext" ...
-std::wstring FreeName(const std::wstring& dir, const std::wstring& name);
+// A name not taken in `dir` (nor in `reserved`, compared case-insensitively): `name`, else
+// "stem (2).ext", "stem (3).ext" ...
+std::wstring FreeName(const std::wstring& dir, const std::wstring& name, const std::vector<std::wstring>& reserved = {});
 // "12.3 KB  ·  02/11/2026" (folders: the date only).
 std::wstring SizeAndDate(bool folder, ULONGLONG size, const FILETIME& modified);
 
@@ -54,7 +55,9 @@ struct Job {
     Op op = Op::Copy;
     std::vector<std::wstring> files;
     std::wstring dest;       // Copy / Move: the target folder; Rename: the new name
-    bool renameOnCollision = false;  // Copy / Move: "name (2)" instead of the conflict dialog
+    bool renameOnCollision = false;  // Copy / Move: the shell's "name - Copy" instead of the conflict dialog
+    // Copy / Move: the name each file gets in `dest` (parallel to `files`; empty: its own name).
+    std::vector<std::wstring> newNames;
     HWND notify = nullptr;   // gets `message` (wParam: the job's tag) when the operation is done
     UINT message = 0;
     WPARAM tag = 0;

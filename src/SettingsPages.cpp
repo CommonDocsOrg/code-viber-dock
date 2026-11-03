@@ -841,5 +841,6 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
     pages.push_back(MakeTrayPage(window));            // kPageTray
     pages.push_back(MakeNotificationsPage(window));   // kPageNotifications
     pages.push_back(MakeCalendarPage(window));        // kPageCalendar
+    pages.push_back(MakeFolderWindowPage(window));    // kPageFolderWindow
     return pages;
 }

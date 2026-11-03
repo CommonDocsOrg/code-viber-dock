@@ -515,9 +515,10 @@ transform in DockGeometry) and 11b (`shape` arc / circle: the polar mapping in D
 
 ## Phase 12: desktop folder docks (Fences-like)
 
-Status: 12a done 2026-11-03 (`FolderWindow` on the extended `DesktopLayer`, ItemGridView with
-multiple selection and double-click activation, SHChangeNotify, the shell menu, drops); see
-STATUS.md.
+Status: done 2026-11-03 as 12a (`FolderWindow` on the extended `DesktopLayer`, ItemGridView with
+multiple selection and double-click activation, SHChangeNotify, the shell menu, drops) and 12b
+(Desktop rules, appearance keys, the Folder window settings page, the clipboard); see STATUS.md.
+Out of scope: Fences' "Peek" (double-click the desktop to hide every window).
 
 Desktop-layer spike (12a, Windows 11 build 26300; harness in the session scratchpad
 `p12\spike\spike.cpp`, `spike.exe T|C`; the session was locked, so foreground changes by script

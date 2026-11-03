@@ -197,6 +197,16 @@ void ReadFolderWindowFields(const json::JsonObject& o, DockConfig& d) {
     ReadBool(o, L"showHidden", f.showHidden);
     ReadBool(o, L"collapsed", f.collapsed);
     ReadBool(o, L"singleClick", f.singleClick);
+    ReadString(o, L"rules", f.rules);
+    ReadBool(o, L"autoSort", f.autoSort);
+    ReadNumber(o, L"opacity", f.opacity);
+    std::wstring color;
+    ReadString(o, L"titleColor", color);
+    if (!color.empty() && !ParseArgbColor(color, f.titleColor)) f.titleColor = 0;
+    ReadBool(o, L"hideTitle", f.hideTitle);
+    ReadInt(o, L"labelLines", f.labelLines);
+    ReadBool(o, L"transparentBackground", f.transparentBackground);
+    ReadBool(o, L"rollUpOnHover", f.rollUpOnHover);
     d.monitor = 0;
     if (auto m = Find(o, L"monitor")) {
         if (m.ValueType() == json::JsonValueType::String) {
@@ -241,6 +251,18 @@ bool FromString(std::wstring_view s, DockShape& v) { return EnumFromString(s, v,
 const wchar_t* ToString(ItemView v) { return EnumToString(v, kItemViewNames); }
 bool FromString(std::wstring_view s, ItemView& v) { return EnumFromString(s, v, kItemViewNames); }
 const wchar_t* ToString(FolderSort v) { return EnumToString(v, kFolderSortNames); }
+
+size_t FolderWindowConfig::RuleCount() const {
+    size_t n = 0;
+    size_t start = 0;
+    while (start <= rules.size()) {
+        const size_t end = std::min(rules.find(L';', start), rules.size());
+        const std::wstring part = rules.substr(start, end - start);
+        if (part.find_first_not_of(L" \t") != std::wstring::npos) ++n;
+        start = end + 1;
+    }
+    return n;
+}
 bool FromString(std::wstring_view s, FolderSort& v) { return EnumFromString(s, v, kFolderSortNames); }
 bool FromString(std::wstring_view s, DockEdge& v) { return EnumFromString(s, v, kEdgeNames); }
 bool FromString(std::wstring_view s, DockAlign& v) { return EnumFromString(s, v, kAlignNames); }
@@ -494,6 +516,9 @@ void Config::Sanitize() {
             if (d.x != DockConfig::kCentred) d.x = std::clamp(d.x, -16000, 16000);
             if (d.y != DockConfig::kCentred) d.y = std::clamp(d.y, -16000, 16000);
             if (d.monitor < DockConfig::kMonitorPrimary) d.monitor = DockConfig::kMonitorPrimary;
+            if (f.rules.size() > 1024) f.rules.resize(1024);
+            f.opacity = std::isfinite(f.opacity) ? std::clamp(f.opacity, 0.2, 1.0) : 1.0;
+            f.labelLines = std::clamp(f.labelLines, 1, 2);
             d.items.clear();
             continue;
         }
@@ -872,6 +897,17 @@ bool Config::Save() const {
                 o += L"      \"view\": " + Quote(ToString(f.view)) + L", \"iconSize\": " + Num(f.iconSize) +
                      L", \"sort\": " + Quote(ToString(f.sort)) + L", \"showHidden\": " + Bool(f.showHidden) +
                      L", \"collapsed\": " + Bool(f.collapsed) + (f.singleClick ? L", \"singleClick\": true" : L"") + L",\n";
+                // 12b keys, each only when not the default.
+                std::wstring more;
+                if (!f.rules.empty()) more += L", \"rules\": " + Quote(f.rules);
+                if (f.autoSort) more += L", \"autoSort\": true";
+                if (f.opacity != 1.0) more += L", \"opacity\": " + Num(f.opacity);
+                if (f.titleColor != 0) more += L", \"titleColor\": " + Quote(FormatArgbColor(f.titleColor));
+                if (f.hideTitle) more += L", \"hideTitle\": true";
+                if (f.labelLines != 2) more += L", \"labelLines\": " + Num(f.labelLines);
+                if (f.transparentBackground) more += L", \"transparentBackground\": true";
+                if (f.rollUpOnHover) more += L", \"rollUpOnHover\": true";
+                if (!more.empty()) o += L"      " + more.substr(2) + L",\n";
                 o += L"      \"items\": [], \"layer\": \"desktop\", \"autoHide\": \"always\", \"reserveSpace\": false\n    }";
                 continue;
             }

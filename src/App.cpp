@@ -1019,6 +1019,9 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kRefreshCalendars:
             docks_.Calendar().RefreshNow();
             break;
+        case ContextMenu::kSortDesktopNow:
+            if (docks_.SortDesktop() == 0) MessageBeep(MB_OK);  // nothing matched (or a sort is running)
+            break;
         case ContextMenu::kNewFolderWindow:
             NewFolderWindow(settings_ && settings_->Hwnd() && GetForegroundWindow() == settings_->Hwnd()
                                 ? settings_->Hwnd()
@@ -1523,6 +1526,10 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return static_cast<LRESULT>(docks_.FolderCount());  // folder windows (not parked)
         case 184:
             return inst ? (inst->isFolder ? 1 : 0) : -1;  // the kind of docks[] entry behind index HIWORD(lParam)
+        case 207:
+            return static_cast<LRESULT>(docks_.RulesMoved());  // files moved by Desktop rules this session
+        case 208:
+            return docks_.DesktopWatched() ? 1 : 0;  // the Desktop is watched (rules with autoSort)
         case 202:
             if (inst && inst->folder) break;  // the window's own answer
             return static_cast<LRESULT>(DesktopLayer::Count());
@@ -1580,6 +1587,10 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         if (result) RefreshSettings();
         return true;
     }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kSortDesktopNow) {
+        result = static_cast<LRESULT>(docks_.SortDesktop());  // the files queued
+        return true;
+    }
     if (msg == msgDockCommand_ && wp == ContextMenu::kSimulateExplorerRestart) {
         result = DesktopLayer::SimulateExplorerRestart();
         return true;
@@ -1598,7 +1609,7 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         if (known) OnCommand(cmd, inst->cfg, inst->window.get());  // after setting result: kQuit closes the docks
         return true;
     }
-    if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kFolderSelect && (wp & 0xFFFF) <= ContextMenu::kFolderDropPathCopy) {
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kFolderSelect && (wp & 0xFFFF) <= ContextMenu::kFolderPaste) {
         // A folder window (phase 12): the entry / argument in LOWORD(lParam), more in HIWORD(wParam).
         const UINT cmd = static_cast<UINT>(wp & 0xFFFF);
         const int high = static_cast<int>((wp >> 16) & 0xFFFF);

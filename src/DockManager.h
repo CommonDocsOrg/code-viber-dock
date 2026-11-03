@@ -103,6 +103,21 @@ public:
     size_t FolderCount() const;
     // Explorer restarted (TaskbarCreated): the desktop windows go back above the new desktop.
     void OnExplorerRestarted();
+    // --- desktop rules (12b) ---
+    // The Desktop's files (not folders, not hidden / system ones) matching some folder window
+    // entry's `rules` move into its folder (docks[] order: the first match wins), renamed rather
+    // than overwritten; one undoable IFileOperation per folder. Returns the files queued (0 while
+    // an earlier sort's moves are still running: it sorts again when they end). `onlyAuto` (the
+    // Desktop watch): only the windows with autoSort.
+    size_t SortDesktop(bool onlyAuto = false);
+    // Watches the Desktop (SHChangeNotifyRegister on the owner window, coalesced by a 500 ms
+    // one-shot) while some folder window has rules with autoSort; nothing otherwise.
+    void SyncDesktopRules();
+    size_t RulesMoved() const { return rulesMoved_; }
+    bool DesktopWatched() const { return desktopNotify_ != 0; }
+    // The Desktop folder: the environment variable WINDOCK_DESKTOP_DIR (tests: a scratch folder,
+    // never the real Desktop), else the user's Desktop (FOLDERID_Desktop).
+    static std::wstring DesktopFolder();
     template <class F>
     void ForEach(F&& f) {
         for (Instance& i : instances_) {
@@ -166,6 +181,9 @@ private:
     bool EnsureFolderRenderer();
     void RecoverFolderDevice();
     static constexpr UINT kFolderDeviceLost = WM_APP + 52;  // posted to the owner window
+    static constexpr UINT kDesktopChange = WM_APP + 53;     // SHChangeNotify on the Desktop (rules)
+    static constexpr UINT kRulesJobDone = WM_APP + 54;      // a rules move finished
+    static constexpr UINT_PTR kDesktopTimer = 43;           // owner timer: coalesces Desktop changes
     // Closes the window now (DestroyWindow) and keeps the object until Reap / the destructor.
     void Close(std::unique_ptr<DockWindow> window);
 
@@ -182,6 +200,12 @@ private:
     Renderer folderRenderer_;   // every folder window's composition device (on the owner window)
     bool folderRendererReady_ = false;
     bool folderRecoveryPosted_ = false;
+    ULONG desktopNotify_ = 0;   // the Desktop watch (rules with autoSort)
+    std::wstring desktopDir_;
+    bool desktopTimer_ = false;
+    size_t rulesMoved_ = 0;     // files moved by rules this session (QueryState 207)
+    LONG rulesJobs_ = 0;
+    bool sortAgain_ = false;
     bool appBarAllowed_ = false;
     bool syncing_ = false;
     bool trayStartPosted_ = false;

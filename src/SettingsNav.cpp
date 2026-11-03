@@ -65,8 +65,11 @@ LRESULT CALLBACK SettingsWindow::NavProcThunk(HWND hwnd, UINT msg, WPARAM wp, LP
 }
 
 RECT SettingsWindow::NavItemRect(int index) const {
-    const int top = Px(kNavTopDip) + index * Px(kNavItemDip);
-    return RECT{Px(6), top + Px(2), Px(kNavWidthDip) - Px(6), top + Px(kNavItemDip) - Px(2)};
+    // 36 DIPs a page, less once the pages would not fit the window's height (16 pages: 34).
+    const int count = std::max(1, static_cast<int>(pages_.size()));
+    const int itemDip = std::min(kNavItemDip, (kHeightDip - kNavTopDip - 4) / count);
+    const int top = Px(kNavTopDip) + index * Px(itemDip);
+    return RECT{Px(6), top + Px(2), Px(kNavWidthDip) - Px(6), top + Px(itemDip) - Px(2)};
 }
 
 int SettingsWindow::NavHitTest(POINT pt) const {
