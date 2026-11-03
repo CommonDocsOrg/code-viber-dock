@@ -15,6 +15,10 @@ namespace {
 constexpr DWORD kStyle = WS_POPUP;
 constexpr DWORD kHoverExStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
 constexpr DWORD kClickExStyle = WS_EX_TOOLWINDOW | WS_EX_TOPMOST | WS_EX_NOREDIRECTIONBITMAP;
+// Mouse-transparent popups (SetMouseTransparent): hit-testing skips a top-level window only when it
+// is layered AND transparent (WS_EX_TRANSPARENT alone still takes the mouse). The layer is fully
+// opaque (SetLayeredWindowAttributes 255); the content is the composition target's as before.
+constexpr DWORD kTransparentExStyle = WS_EX_TRANSPARENT | WS_EX_LAYERED;
 constexpr float kMonitorMargin = 8.0f;  // DIPs between the popup and the monitor edge
 constexpr float kKeepCursorDip = 20.0f; // a shrinking popup keeps this much of itself under the cursor
 constexpr float kMaxPlainRadiusDip = 12.0f;
@@ -40,9 +44,10 @@ bool PopupWindow::EnsureWindow() {
         wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
         wc.lpszClassName = className_;
         if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
-        hwnd_ = CreateWindowExW(mode_ == Mode::Hover ? kHoverExStyle : kClickExStyle, className_, title_, kStyle, 0, 0,
-                                1, 1, nullptr, nullptr, instance_, this);
+        const DWORD ex = (mode_ == Mode::Hover ? kHoverExStyle : kClickExStyle) | (mouseTransparent_ ? kTransparentExStyle : 0);
+        hwnd_ = CreateWindowExW(ex, className_, title_, kStyle, 0, 0, 1, 1, nullptr, nullptr, instance_, this);
         if (!hwnd_) return false;
+        if (mouseTransparent_) SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
         // Shown and hidden instantly; the fade is ours.
         const BOOL off = TRUE;
         DwmSetWindowAttribute(hwnd_, DWMWA_TRANSITIONS_FORCEDISABLED, &off, sizeof(off));
@@ -121,7 +126,7 @@ bool PopupWindow::ShowAt(const Frame& frame, const PopupAnchor& anchor) {
     if (!EnsureWindow()) return false;
     const bool wasHidden = state_ == State::Hidden;
     frame_ = frame;
-    if (frame_.acrylic && !backdrop_.Exists() && !backdrop_.Create(instance_)) frame_.acrylic = false;
+    if (frame_.acrylic && !backdrop_.Exists() && !backdrop_.Create(instance_, mouseTransparent_)) frame_.acrylic = false;
     if (frame_.acrylic) {
         frame_.cornerRadiusDip = backdrop_.SetCornerRadius(8.0f);
     } else {

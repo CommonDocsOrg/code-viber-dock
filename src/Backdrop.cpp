@@ -41,7 +41,7 @@ LRESULT CALLBACK Backdrop::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     return DefWindowProcW(hwnd, msg, wp, lp);
 }
 
-bool Backdrop::Create(HINSTANCE instance) {
+bool Backdrop::Create(HINSTANCE instance, bool mouseTransparent) {
     if (hwnd_) return true;
     WNDCLASSEXW wc{sizeof(wc)};
     wc.lpfnWndProc = &Backdrop::WndProc;
@@ -49,9 +49,10 @@ bool Backdrop::Create(HINSTANCE instance) {
     wc.lpszClassName = kClassName;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
 
-    hwnd_ = CreateWindowExW(kExStyle, kClassName, L"WinDock backdrop", kStyle, 0, 0, 1, 1, nullptr, nullptr, instance,
-                            nullptr);
+    const DWORD ex = kExStyle | (mouseTransparent ? WS_EX_TRANSPARENT | WS_EX_LAYERED : 0);
+    hwnd_ = CreateWindowExW(ex, kClassName, L"WinDock backdrop", kStyle, 0, 0, 1, 1, nullptr, nullptr, instance, nullptr);
     if (!hwnd_) return false;
+    if (mouseTransparent) SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
 
     // Acrylic first; older builds that only know Mica-style backdrops get those; builds without
     // system backdrops (before 22H2) reject the attribute and we fall back to the plain tint.

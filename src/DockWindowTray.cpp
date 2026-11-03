@@ -323,6 +323,7 @@ void DockWindow::OnTrayChanged() {
 void DockWindow::ShowTrayDrawer(int index, float anchor) {
     if (!Tray() || index < 0 || index >= static_cast<int>(items_.size())) return;
     DismissWidgetPopup(false, false);
+    DismissWidgetPassive(false);
     DismissPreview(false, false);
     DismissWeatherPopup(false, false);
     DismissCalendarPopup(false, false);

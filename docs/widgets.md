@@ -138,9 +138,9 @@ available), then calls its exports:
 | `onHover(e)` | The pointer entered / left the widget. | `{ x, y, inside }` | |
 | `onDrop(e)` | Files were dropped on the widget (only with the `shell` permission and this export; the dock then shows the drop as allowed over the whole widget instead of pinning). | `{ x, y, files: [paths] }` | |
 | `onSettingsChanged(settings)` | The item's settings changed (Settings, config.json reload). The global `settings` is the new object already. | the settings | |
-| `drawPopup(canvas, dock)` | The widget's popup (`popup.open`) is shown or redrawn (`popup.redraw()`). The canvas is the popup's (`canvas.width` / `height`: its size in DIPs), over the theme's panel. | the canvas, the dock | |
-| `onPopupClick(e)` | A click in the popup. | `{ x, y, button }`: DIPs from the popup's top-left; `button` `"left"`, `"middle"`, `"right"` | |
-| `onPopupClose(e)` | The popup closed (Escape, another window came forward, a click on the dock, `popup.close()`, a reload). | `{}` | |
+| `drawPopup(canvas, dock)` | The widget's popup (`popup.open`) is shown or redrawn (`popup.redraw()`). The canvas is the popup's (`canvas.width` / `height`: its size in DIPs), over the theme's panel. It draws both kinds, the ordinary popup and a passive one: the module tells them apart by what it opened (e.g. `canvas.width`). | the canvas, the dock | |
+| `onPopupClick(e)` | A click in the popup (never in a passive one). | `{ x, y, button }`: DIPs from the popup's top-left; `button` `"left"`, `"middle"`, `"right"` | |
+| `onPopupClose(e)` | The popup closed (Escape, another window came forward, a click on the dock, `popup.close()`, a reload; a passive one: see `popup.open`). | `{ passive }`: true when the passive popup closed | |
 | `onVisibilityChange(e)` | The dock went off screen (auto-hide hid it, a desktop dock lost the desktop) or came back. Stop animations while hidden (see [Animation](#animation)). | `{ visible }` | |
 
 Every export also gets `dock` as its last argument; it is the same object as the global `dock`.
@@ -437,10 +437,10 @@ widget reloads.
 
 | Call | |
 |---|---|
-| `popup.open(width, height)` (or `popup.open({ width, height })`) | A popup of that size in DIPs (16 - 1600 x 16 - 1200) that the module draws in `drawPopup(canvas, dock)` over the theme's panel; clicks in it go to `onPopupClick`. Opening it again resizes and redraws it. |
-| `popup.redraw()` | Calls `drawPopup` again. |
-| `popup.close()` | |
-| `popup.isOpen` | The widget's popup (of any kind) is on screen. |
+| `popup.open(width, height[, { passive }])` (or `popup.open({ width, height, passive })`) | A popup of that size in DIPs (16 - 1600 x 16 - 1200) that the module draws in `drawPopup(canvas, dock)` over the theme's panel; clicks in it go to `onPopupClick`. Opening it again resizes and redraws it. `passive: true` (default false): a passive popup: it never takes the focus, the mouse passes through it, clicks never reach `onPopupClick`, it does not keep the dock shown and it does not count for `popup.isOpen` or `closedPopup`. It closes on `popup.close()`, when the widget opens its ordinary popup, when the dock hides and when the widget goes. Opening it again resizes and redraws it in place: a wheel handler can open it on every notch. One passive popup per dock at a time; while the widget's ordinary popup is open, a passive open redraws that popup instead. |
+| `popup.redraw()` | Calls `drawPopup` again (for whichever of the two is on screen). |
+| `popup.close()` | Closes the ordinary popup and the passive one. |
+| `popup.isOpen` | The widget's ordinary popup (of any kind, not a passive one) is on screen. |
 | `popup.folder(path[, view])` | The dock's own folder popup (the folder's contents, scrolling, keyboard, navigation into sub-folders, file drops, Open in Explorer) for that folder, anchored on the widget. `view`: `"auto"` (default: a grid up to 48 entries, a list above), `"grid"` or `"list"`; anything else throws. Needs `"shell"`. |
 | `popup.calendar()` | The dock's own month calendar (the clock's popup: locale weekday names, first day of the week, today marked), anchored on the widget. A second call while it is open does nothing; a click on the widget closes it (`closedPopup`). |
 | `popup.previews(app)` | The window previews of an app the dock shows (its exe path, e.g. `"C:\\Windows\\explorer.exe"`, or its AppUserModelID; any case), anchored on the widget; nothing (a log line) when the app has no window on the dock. |
@@ -789,13 +789,18 @@ built-ins are worked examples too:
   steps `settings.step` % (default 2) on the step grid and unmutes on the way up; `onMiddleClick`
   mutes (`middleClick`: `mute` / `none`); the popup (`drawPopup` with hit rectangles for
   `onPopupClick`): slider, Mute, Mute microphone, the outputs (`audio.setDevice`), Sound settings
-  (`shell.open('ms-settings:sound')`). Settings `showPercent`, `step`, `middleClick`. Permissions
+  (`shell.open('ms-settings:sound')`). Each notch also opens the volume bar, a passive popup
+  (`popup.open(44, 150, { passive: true })`, told apart in `drawPopup` by its size) that one
+  `setTimeout` closes 1.2 s after the last notch; with the ordinary popup open the wheel redraws
+  that one instead. Settings `showPercent`, `step`, `wheelBar`, `middleClick`. Permissions
   `audio`, `shell`.
 - `widgets/media` ("Now playing"): `media.art()` drawn with `canvas.image` in a rounded clip, the
   note glyph when there is no art, title / artist beside it (faded at the edge; a marquee at 30
-  frames a second only while hovered); hovering shows previous / play-pause / next over the art;
-  a click on the text opens a popup with the album and the controls. Settings `showText`,
-  `textWidth`, `marquee`, `wheelVolume`. Permissions `media`, `audio`.
+  frames a second only while hovered); hovering shows previous / play-pause / next over the whole
+  face, art and text alike; a middle click opens a popup with the album and the controls; the
+  wheel changes the volume in 2 % steps and shows the same volume bar as `widgets/volume` (its own
+  copy of the drawing: widgets cannot import each other). Settings `showText`, `textWidth`,
+  `marquee`, `wheelVolume` (default on). Permissions `media`, `audio`.
 - `widgets/start`: `shell.sendKeys('win')`, falling back to `shell.open('shell:AppsFolder')` when
   Windows refuses the input; `icon` `windows` / `mono` / `image` with `image` (a package file, or
   any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot).

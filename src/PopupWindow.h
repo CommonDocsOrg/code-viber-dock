@@ -74,6 +74,10 @@ public:
     void SetHoverCallback(std::function<void(bool inside)> cb) { hoverCallback_ = std::move(cb); }
     // Click popups: hidden by itself (deactivated, Escape). Not called for Hide().
     void SetClosedCallback(std::function<void()> cb) { closedCallback_ = std::move(cb); }
+    // The window never receives mouse input (WS_EX_TRANSPARENT | WS_EX_LAYERED, fully opaque): wheel
+    // and clicks go to whatever is beneath it. Set before the first Show (applied when the window
+    // is created; its acrylic Backdrop window gets the same styles). Meant for hover popups.
+    void SetMouseTransparent(bool on) { mouseTransparent_ = on; }
 
     // Fades out (animate) or hides at once.
     void Hide(bool animate);
@@ -183,6 +187,7 @@ private:
     const wchar_t* className_;
     const wchar_t* title_;
     Mode mode_;
+    bool mouseTransparent_ = false;
     HINSTANCE instance_ = nullptr;
     Renderer* renderer_ = nullptr;
     std::function<void(bool)> hoverCallback_;

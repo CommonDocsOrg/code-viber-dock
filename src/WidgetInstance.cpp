@@ -76,7 +76,7 @@ std::wstring WidgetInstance::Name() const {
 void WidgetInstance::Reload() {
     runtime_.CancelAll(this);
     runtime_.ReleaseProviders(this);
-    if (PopupShown()) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
+    if (PopupShown() || client_.WidgetPassiveShown(*this)) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
     engine_.reset();
     canvas_.ReleaseImages();
     state_ = State::Ok;
@@ -394,7 +394,7 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
     engine_.reset();
     ++generation_;
     requests_ = 0;
-    if (PopupShown()) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
+    if (PopupShown() || client_.WidgetPassiveShown(*this)) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
     runtime_.NotifyChanged();
     Log(ScriptLogLevel::Error, (state == State::Suspended ? L"suspended: " : L"error: ") + message);
     measured_ = false;
@@ -490,7 +490,7 @@ void WidgetInstance::RequestPopup(PopupRequest r) {
     client_.WidgetPopupRequest(*this);
 }
 
-bool WidgetInstance::PopupOpen(float w, float h, std::wstring& error) {
+bool WidgetInstance::PopupOpen(float w, float h, bool passive, std::wstring& error) {
     if (!engine_ || !engine_->Has(ScriptEngine::Fn::DrawPopup)) {
         error = L"popup.open: the module does not export drawPopup(canvas, dock)";
         return false;
@@ -503,6 +503,7 @@ bool WidgetInstance::PopupOpen(float w, float h, std::wstring& error) {
     r.kind = PopupRequest::Kind::Open;
     r.width = w;
     r.height = h;
+    r.passive = passive;
     RequestPopup(std::move(r));
     return true;
 }
@@ -580,9 +581,10 @@ void WidgetInstance::PopupClick(float x, float y, int button) {
           FnName(ScriptEngine::Fn::OnPopupClick));
 }
 
-void WidgetInstance::PopupClosed() {
+void WidgetInstance::PopupClosed(bool passive) {
     if (state_ != State::Ok || !engine_) return;
-    Check(engine_->Call(ScriptEngine::Fn::OnPopupClose, "{}"), FnName(ScriptEngine::Fn::OnPopupClose));
+    Check(engine_->Call(ScriptEngine::Fn::OnPopupClose, passive ? "{\"passive\":true}" : "{\"passive\":false}"),
+          FnName(ScriptEngine::Fn::OnPopupClose));
 }
 
 bool WidgetInstance::WatchFolder(std::wstring& id, std::wstring& folder) const {

@@ -767,6 +767,10 @@ private:
     // --- script widget popups (posted requests, see DockWindow.cpp) ---
     void OnWidgetPopupRequests();
     void DismissWidgetPopup(bool animate, bool leaveCheck = true);
+    // Hides the passive script popup and tells its widget (onPopupClose({ passive: true })).
+    void DismissWidgetPassive(bool animate);
+    // The script popups' panel style (the dock's theme, the click popups' look).
+    ScriptPopup::Style WidgetPopupStyle() const;
     void ShowFolderPopupAt(const std::wstring& path, const std::wstring& name, float anchor, const AppKey& key,
                            ItemView view);
     // The slot that shows widget `w` (-1: none) / the instance with this key (null: none).
@@ -919,6 +923,7 @@ private:
     void WidgetChanged(WidgetInstance& widget) override;
     void WidgetPopupRequest(WidgetInstance& widget) override;
     bool WidgetPopupShown(const WidgetInstance& widget) const override;
+    bool WidgetPassiveShown(const WidgetInstance& widget) const override;
     bool WidgetActivateNotification(uint32_t id) override;
     bool WidgetOpenCentre(WidgetInstance& widget) override;
     // The pointer is over widget slot `index` now (-1: none): onHover leave / enter.
@@ -1109,7 +1114,11 @@ private:
     AppKey hoverWidget_;                        // the widget slot under the pointer (empty: none)
     ScriptPopup widgetPopup_;                   // the script popup (one at a time)
     std::wstring popupWidget_;                  // the instance key it belongs to ("" none)
-    std::wstring previewOpener_;                // the widget that opened the preview popup (popup.previews)
+    // The passive script popup (popup.open(w, h, { passive: true }), one at a time): hover mode,
+    // mouse-transparent, no popup hold; not a click popup (ClickPopupOnScreen, WidgetPopupShown).
+    ScriptPopup widgetPassive_{PopupWindow::Mode::Hover, ScriptPopup::kPassiveClassName};
+    std::wstring passiveWidget_;                // the instance key it belongs to ("" none)
+    std::wstring previewOpener_;               // the widget that opened the preview popup (popup.previews)
     std::wstring calendarOpener_;               // the widget that opened the calendar popup (popup.calendar)
     float calendarAnchor_ = 0.0f;               // the stage anchor it opened at
     std::vector<std::wstring> popupRequests_;   // instance keys with a pending popup request

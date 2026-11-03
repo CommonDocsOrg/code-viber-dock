@@ -1,11 +1,15 @@
 // Now playing: the system's current media session (the `media` provider): album art, title and
-// artist. Hovering the art shows previous / play-pause / next over it (a click on one sends it);
-// a click on the text opens a popup with a larger art, the album and the controls. A long title
+// artist. Hovering the widget shows previous / play-pause / next over the whole face, art and text
+// alike (a click on one sends it); a middle click opens a popup with a larger art, the album and
+// the controls. A long title
 // scrolls (marquee) while the pointer is over the widget: 30 frames a second only then, never with
-// reduce motion; otherwise it fades out at the edge. Event-driven: media.onChange redraws when the
-// track, the playback state or the art change; nothing ticks.
+// reduce motion; otherwise it fades out at the edge. The wheel changes the volume (a setting) and
+// shows the Volume widget's bar beside the dock (a passive popup) until 1.2 s after the last notch.
+// Event-driven: media.onChange redraws when the track, the playback state or the art change;
+// nothing ticks.
 
 const POPUP_W = 320, POPUP_H = 140;
+const BAR_W = 44, BAR_H = 150, BAR_MS = 1200;
 const MARQUEE_PX_S = 28, MARQUEE_GAP = 36, FRAME_MS = 33;
 
 let m = media.get();
@@ -13,6 +17,8 @@ let art = media.art();
 let hovered = false;
 let marquee = null;  // { start, timer } while the title scrolls
 let hits = [];
+let bar = false;  // the volume bar (the passive popup) is up
+let barTimer = 0;
 
 media.onChange((s) => {
   m = s;
@@ -122,19 +128,18 @@ function lineText(canvas, text, x, y, w, style, color, scroll) {
 export function draw(canvas, dock) {
   const s = Math.min(canvas.height, vertical() ? canvas.width : canvas.height);
   const ax = vertical() ? (canvas.width - s) / 2 : 0, ay = (canvas.height - s) / 2;
-  drawArt(canvas, ax, ay, s, dock, hovered && m.session);
-  if (hovered && m.session) {
-    canvas.fillRoundRect(ax, ay, s, s, s * 0.16, '#99000000');
-    const g = s * 0.22;
-    control(canvas, 'previous', ax + s * 0.2, ay + s / 2, g * 0.8, m.canPrevious ? '#FFFFFFFF' : '#60FFFFFF');
-    control(canvas, 'toggle', ax + s / 2, ay + s / 2, g, '#FFFFFFFF');
-    control(canvas, 'next', ax + s * 0.8, ay + s / 2, g * 0.8, m.canNext ? '#FFFFFFFF' : '#60FFFFFF');
-  } else if (m.session && m.status !== 'playing' && !textShown()) {
+  const controls = hovered && m.session;
+  drawArt(canvas, ax, ay, s, dock, controls);
+  if (m.session && m.status !== 'playing' && !textShown() && !controls) {
     canvas.fillCircle(ax + s - 9, ay + s - 9, 7, '#C0000000');
     pauseGlyph(canvas, ax + s - 9, ay + s - 9, 7, '#FFFFFFFF');
   }
   updateMarquee(canvas);
-  if (!textShown()) return;
+  if (textShown()) drawText(canvas, dock, s);
+  if (controls) drawControls(canvas, ax, ay, s);
+}
+
+function drawText(canvas, dock, s) {
   const tx = s + 8, w = settings.textWidth;
   const ink = dock.theme.text, dim = dock.theme.dateText;
   if (!m.session) {
@@ -148,6 +153,20 @@ export function draw(canvas, dock) {
   lineText(canvas, m.title || '(no title)', tx, top, w, titleStyle, ink, marquee);
   lineText(canvas, m.artist || m.album || '', tx, top + 18, w, artistStyle, dim, null);
   canvas.restore();
+}
+
+// The three controls over the whole widget (art and text alike): a dark rounded panel across the
+// face, the buttons spread over its width, each the height of the tile.
+function drawControls(canvas, ax, ay, s) {
+  const full = textShown();
+  const x = full ? 0 : ax, y = full ? 0 : ay;
+  const w = full ? canvas.width : s, h = full ? canvas.height : s;
+  canvas.fillRoundRect(x, y, w, h, s * 0.16, '#B3000000');
+  const g = Math.min(s * 0.5, w / 5);
+  const cy = y + h / 2;
+  control(canvas, 'previous', x + w / 6, cy, g * 0.8, m.canPrevious ? '#FFFFFFFF' : '#60FFFFFF');
+  control(canvas, 'toggle', x + w / 2, cy, g, '#FFFFFFFF');
+  control(canvas, 'next', x + (w * 5) / 6, cy, g * 0.8, m.canNext ? '#FFFFFFFF' : '#60FFFFFF');
 }
 
 export function onHover(e) {
@@ -173,21 +192,89 @@ function send(kind) {
 }
 
 export function onClick(e) {
+  if (!m.session || e.closedPopup) return;  // the press closed the popup: that is the click's job
   const s = Math.min(dock.height, vertical() ? dock.width : dock.height);
-  const onArt = !textShown() || e.x < s;
-  if (onArt && m.session) {
-    send(e.x < s / 3 ? 'previous' : e.x > (s * 2) / 3 ? 'next' : 'toggle');
-    return;
-  }
-  if (!e.closedPopup && m.session) popup.open(POPUP_W, POPUP_H);
+  const w = textShown() ? s + 8 + settings.textWidth : s;
+  send(e.x < w / 3 ? 'previous' : e.x > (w * 2) / 3 ? 'next' : 'toggle');
 }
 
+export function onMiddleClick() {
+  if (!m.session) return;
+  endBar();  // the ordinary popup replaces the bar (the host closes it)
+  popup.open(POPUP_W, POPUP_H);  // the press already closed an open popup
+}
+
+// 2 % a notch on the 2 % grid, unmuting on the way up (as the Volume widget does).
 export function onWheel(e) {
   if (!settings.wheelVolume) return false;
   const a = audio.get();
   if (!a.available) return false;
-  audio.setVolume(Math.min(1, Math.max(0, Math.round(a.volume * 50) / 50 + Math.sign(e.notches) * 0.02)));
+  const step = 0.02;
+  const base = Math.round(a.volume / step) * step;
+  audio.setVolume(Math.min(1, Math.max(0, base + Math.sign(e.notches) * Math.max(1, Math.round(Math.abs(e.notches))) * step)));
+  if (a.muted && e.notches > 0) audio.setMuted(false);
+  if (popup.isOpen) popup.redraw();  // the now-playing popup is open: no bar over it
+  else showBar();
   return true;
+}
+
+// --- the volume bar (a passive popup) -------------------------------------------------------------
+
+function endBar() {
+  if (barTimer) clearTimeout(barTimer);
+  barTimer = 0;
+  bar = false;
+}
+
+// Opens the bar (or redraws it in place) and starts its 1.2 s again.
+function showBar() {
+  bar = true;
+  popup.open(BAR_W, BAR_H, { passive: true });
+  if (barTimer) clearTimeout(barTimer);
+  barTimer = setTimeout(() => {
+    barTimer = 0;
+    if (bar) popup.close();
+  }, BAR_MS);
+}
+
+export function onPopupClose(e) {
+  if (e.passive) endBar();
+}
+
+// A speaker in a g x g box at (x, y): waves 0 - 3, or a cross (the Volume widget's glyph).
+function speaker(canvas, x, y, g, waves, muted, color) {
+  canvas.fill(canvas.path().moveTo(x + 0.06 * g, y + 0.36 * g).lineTo(x + 0.24 * g, y + 0.36 * g)
+    .lineTo(x + 0.48 * g, y + 0.14 * g).lineTo(x + 0.48 * g, y + 0.86 * g).lineTo(x + 0.24 * g, y + 0.64 * g)
+    .lineTo(x + 0.06 * g, y + 0.64 * g).close(), color);
+  const st = { width: Math.max(1.2, g * 0.075), cap: 'round' };
+  if (muted) {
+    canvas.line(x + 0.62 * g, y + 0.38 * g, x + 0.88 * g, y + 0.62 * g, color, st);
+    canvas.line(x + 0.88 * g, y + 0.38 * g, x + 0.62 * g, y + 0.62 * g, color, st);
+    return;
+  }
+  const cx = x + 0.48 * g, cy = y + 0.5 * g;
+  for (let i = 1; i <= 3; i++) {
+    const r = 0.13 * g * i + 0.04 * g;
+    canvas.stroke(canvas.path().arc(cx, cy, r, -0.85, 0.85), i <= waves ? color : '#30808080', st);
+  }
+}
+
+// The level on top, a vertical track filled from the bottom with a knob, the speaker under it.
+function drawBar(canvas, dock) {
+  const W = canvas.width, H = canvas.height;
+  const ink = dock.theme.labelText;
+  const a = audio.get();
+  const v = a.volume || 0, off = a.muted || !a.available;
+  canvas.text(off ? 'Muted' : Math.round(v * 100) + '%', W / 2, 9,
+    { size: 11, weight: 'semibold', align: 'center', color: ink });
+  const tw = 8, tx = (W - tw) / 2, t0 = 32, t1 = H - 38;
+  canvas.fillRoundRect(tx, t0, tw, t1 - t0, tw / 2, '#40808080');
+  const ky = t1 - (t1 - t0) * v;
+  canvas.fillRoundRect(tx, ky, tw, Math.max(tw, t1 - ky), tw / 2, off ? '#80808080' : dock.theme.accent);
+  canvas.fillCircle(W / 2, ky, 6, '#FFFFFFFF');
+  canvas.strokeCircle(W / 2, ky, 6, '#30000000', 1);
+  const waves = v <= 0.005 ? 0 : v < 0.34 ? 1 : v < 0.67 ? 2 : 3;
+  speaker(canvas, (W - 20) / 2, H - 28, 20, waves, off, ink);
 }
 
 // --- the popup ------------------------------------------------------------------------------------
@@ -195,6 +282,10 @@ export function onWheel(e) {
 const clock = (t) => (t == null ? '' : Math.floor(t / 60) + ':' + String(Math.floor(t % 60)).padStart(2, '0'));
 
 export function drawPopup(canvas, dock) {
+  if (bar && canvas.width === BAR_W && canvas.height === BAR_H) {
+    drawBar(canvas, dock);
+    return;
+  }
   hits = [];
   const ink = dock.theme.labelText, dim = dock.theme.dateText;
   drawArt(canvas, 16, 16, 100, dock);

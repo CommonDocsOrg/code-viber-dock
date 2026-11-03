@@ -352,6 +352,17 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                               if (WidgetInstance* widget = WidgetByKey(key)) widget->PopupClosed();
                           },
                       });
+    // The passive one: drawn by the same drawPopup; it never sees the mouse and never closes
+    // itself (a hover popup), so its click / closed callbacks stay empty.
+    widgetPassive_.SetMouseTransparent(true);
+    widgetPassive_.Init(instance, &renderer_,
+                        ScriptPopup::Callbacks{
+                            [this](ID2D1DeviceContext* dc, float w, float h, float scale) {
+                                if (WidgetInstance* widget = WidgetByKey(passiveWidget_)) widget->RenderPopup(dc, w, h, scale);
+                            },
+                            {},
+                            {},
+                        });
 
     // File drops (OLE: needs OleInitialize on this thread, see main.cpp).
     dropTarget_ = new DropTarget(this);
@@ -455,6 +466,7 @@ void DockWindow::ApplyConfig() {
     RefreshMotion();
     DismissPreview(false, false);  // previews / theme / sizes may have changed
     DismissClickPopups(false, false);
+    DismissWidgetPassive(false);
     FinishLabelFade();             // its text / position may no longer match
     SyncElements();                // the clock may have been turned on / off; config re-read, timers
     // docks[].windows changed: the slots change (one per app <-> one per window).
@@ -2969,12 +2981,14 @@ bool DockWindow::RecoverDevice() {
     // because a driver update can keep the adapter unavailable for a moment.
     DismissPreview(false, false);
     DismissClickPopups(false, false);
+    DismissWidgetPassive(false);
     preview_.Destroy();  // its composition target belongs to the lost device; recreated on demand
     folder_.Destroy();
     weatherPopup_.Destroy();
     calendar_.Destroy();
     reminder_.Destroy();
     widgetPopup_.Destroy();
+    widgetPassive_.Destroy();
     centre_.Destroy();
     thumbs_.Reset();  // the frames and the capture device belong to the lost device
     for (int attempt = 0; attempt < 3; ++attempt) {
@@ -3880,6 +3894,7 @@ void DockWindow::ShowFolderPopup(int index, float anchor) {
 void DockWindow::ShowFolderPopupAt(const std::wstring& path, const std::wstring& name, float anchor, const AppKey& key,
                                    ItemView view) {
     DismissWidgetPopup(false, false);
+    DismissWidgetPassive(false);
     DismissPreview(false, false);
     DismissWeatherPopup(false, false);
     DismissCalendarPopup(false, false);
@@ -3950,6 +3965,7 @@ void DockWindow::ShowGroupPopup(int index, float anchor) {
     const AppIdentity::ResolvedPin* group = item.kind == DockItem::Kind::Group ? GroupPin(item.key) : nullptr;
     if (!group) return;
     DismissWidgetPopup(false, false);
+    DismissWidgetPassive(false);
     DismissPreview(false, false);
     DismissWeatherPopup(false, false);
     DismissCalendarPopup(false, false);
@@ -4156,6 +4172,7 @@ void DockWindow::ShowWeatherPopup(float anchor) {
     DismissFolderPopup(false, false);
     DismissCalendarPopup(false, false);
     DismissWidgetPopup(false, false);
+    DismissWidgetPassive(false);
     DismissCentre(false, false);
     if (!weatherPopup_.Show(WeatherPopupStyle(), PopupAnchorAt(anchor))) {
         DismissWeatherPopup(false);
@@ -4180,6 +4197,7 @@ void DockWindow::ShowCalendarPopup(float anchor, int64_t day) {
     DismissFolderPopup(false, false);
     DismissWeatherPopup(false, false);
     DismissWidgetPopup(false, false);
+    DismissWidgetPassive(false);
     DismissCentre(false, false);
     const Layout& l = layout_;
     const ThemeConfig& theme = DockTheme();
@@ -4254,6 +4272,7 @@ void DockWindow::ShowCentre(float anchor) {
     DismissWeatherPopup(false, false);
     DismissCalendarPopup(false, false);
     DismissWidgetPopup(false, false);
+    DismissWidgetPassive(false);
     shared_->SetCentreOpen(true);  // the service runs (and polls every second) while it is open
     if (!centre_.Show(CentreStyle(), PopupAnchorAt(anchor), shared_->Notifications())) {
         DismissCentre(false);
@@ -4407,6 +4426,23 @@ bool DockWindow::WidgetPopupShown(const WidgetInstance& w) const {
     return slot >= 0 && folder_.Visible() && folderKey_ == items_[static_cast<size_t>(slot)].key;
 }
 
+bool DockWindow::WidgetPassiveShown(const WidgetInstance& w) const {
+    return widgetPassive_.OnScreen() && passiveWidget_ == w.Key();
+}
+
+ScriptPopup::Style DockWindow::WidgetPopupStyle() const {
+    const Layout& l = layout_;
+    const ThemeConfig& theme = DockTheme();
+    ScriptPopup::Style style;
+    style.scale = l.scale;
+    style.acrylic = acrylic_;
+    style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
+    style.border = theme.barBorder;
+    style.cornerRadiusDip = theme.cornerRadius;
+    style.monitor = l.work;
+    return style;
+}
+
 void DockWindow::OnWidgetPopupRequests() {
     popupRequestPosted_ = false;
     const std::vector<std::wstring> keys = std::move(popupRequests_);
@@ -4419,6 +4455,7 @@ void DockWindow::OnWidgetPopupRequests() {
         using Kind = WidgetInstance::PopupRequest::Kind;
         switch (r.kind) {
             case Kind::Close:
+                if (passiveWidget_ == key) DismissWidgetPassive(true);
                 if (popupWidget_ == key) DismissWidgetPopup(true);
                 if (previewOpener_ == key) DismissPreview(true);
                 if (slot >= 0 && folderKey_ == items_[static_cast<size_t>(slot)].key) DismissFolderPopup(true);
@@ -4426,23 +4463,33 @@ void DockWindow::OnWidgetPopupRequests() {
                 break;
             case Kind::Redraw:
                 if (popupWidget_ == key && widgetPopup_.OnScreen()) widgetPopup_.Repaint();
+                if (passiveWidget_ == key && widgetPassive_.OnScreen()) widgetPassive_.Repaint();
                 break;
             case Kind::Open: {
+                if (r.passive) {
+                    // The passive popup: no focus, no hold, no label change. Opened again while
+                    // shown, it is resized and redrawn in place (a wheel handler opens it per notch).
+                    if (slot < 0 || hideState_ != HideState::Shown) break;
+                    if (popupWidget_ == key && widgetPopup_.OnScreen()) {
+                        widgetPopup_.Repaint();  // its ordinary popup is open: that one shows the change
+                        break;
+                    }
+                    if (!passiveWidget_.empty() && passiveWidget_ != key) DismissWidgetPassive(false);
+                    const DockItem& item = items_[static_cast<size_t>(slot)];
+                    passiveWidget_ = key;
+                    if (!widgetPassive_.Show(r.width, r.height, WidgetPopupStyle(), PopupAnchorAt(item.x + item.slotW / 2.0f))) {
+                        passiveWidget_.clear();
+                        widgetPassive_.Hide(false);
+                    }
+                    break;
+                }
                 if (slot < 0 || hideState_ != HideState::Shown) break;
+                if (passiveWidget_ == key) DismissWidgetPassive(false);  // the ordinary popup replaces it
                 DismissPreview(false, false);
                 if (popupWidget_ != key) DismissClickPopups(false, false);
                 const DockItem& item = items_[static_cast<size_t>(slot)];
-                const Layout& l = layout_;
-                const ThemeConfig& theme = DockTheme();
-                ScriptPopup::Style style;
-                style.scale = l.scale;
-                style.acrylic = acrylic_;
-                style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
-                style.border = theme.barBorder;
-                style.cornerRadiusDip = theme.cornerRadius;
-                style.monitor = l.work;
                 popupWidget_ = key;
-                if (!widgetPopup_.Show(r.width, r.height, style, PopupAnchorAt(item.x + item.slotW / 2.0f))) {
+                if (!widgetPopup_.Show(r.width, r.height, WidgetPopupStyle(), PopupAnchorAt(item.x + item.slotW / 2.0f))) {
                     popupWidget_.clear();
                     MessageBeep(MB_ICONWARNING);
                     break;
@@ -4511,6 +4558,14 @@ void DockWindow::DismissWidgetPopup(bool animate, bool leaveCheck) {
     popupWidget_.clear();
     ReleasePopupHold(kHoldWidget, leaveCheck);
     if (WidgetInstance* w = WidgetByKey(key)) w->PopupClosed();
+}
+
+void DockWindow::DismissWidgetPassive(bool animate) {
+    if (passiveWidget_.empty() && !widgetPassive_.OnScreen()) return;
+    widgetPassive_.Hide(animate);
+    const std::wstring key = std::move(passiveWidget_);
+    passiveWidget_.clear();
+    if (WidgetInstance* w = WidgetByKey(key)) w->PopupClosed(true);
 }
 
 // --- Recycle Bin item --------------------------------------------------------------------------
@@ -4743,6 +4798,7 @@ void DockWindow::StartHide() {
     CancelHide();
     DismissPreview(false, false);
     DismissClickPopups(false, false);
+    DismissWidgetPassive(false);
     if (magnifyPending_) {
         KillTimer(hwnd_, kMagnifyTimerId);
         magnifyPending_ = false;
@@ -4908,6 +4964,7 @@ void DockWindow::UpdateDesktopShown() {
         // Another window came to the foreground: the dock leaves with its popups and hover state.
         DismissPreview(false, false);
         DismissClickPopups(false, false);
+        DismissWidgetPassive(false);
         if (dragPhase_ == DragPhase::Dragging) EndDrag(false);
         if (dockDrag_) EndDockDrag(false);
         ShowWindow(hwnd_, SW_HIDE);
@@ -5181,6 +5238,7 @@ void DockWindow::BuildElements() {
     });
     widgetsClaimed_.clear();
     if (!popupWidget_.empty() && !WidgetByKey(popupWidget_)) DismissWidgetPopup(false);  // its widget went
+    if (!passiveWidget_.empty() && !WidgetByKey(passiveWidget_)) DismissWidgetPassive(false);
 }
 
 WidgetInstance* DockWindow::AcquireWidget(const DockItemEntry& entry, size_t ordinal) {
@@ -7374,6 +7432,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return widgetPopup_.Visible() ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(std::lround(widgetPopup_.WidthDip() * layout_.scale)),
                                                                          static_cast<WORD>(std::lround(widgetPopup_.HeightDip() * layout_.scale))))
                                           : 0;
+        case 218:  // a script widget's passive popup (popup.open(w, h, { passive: true })) is visible
+            return widgetPassive_.Visible() ? 1 : 0;
         case 61:  // slot lp's box along the dock (px; icons: the icon) ...
         case 62:  // ... and across it
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
@@ -8011,12 +8071,14 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             labelDirty_ = true;
             DismissPreview(false, false);
             DismissClickPopups(false, false);
+            DismissWidgetPassive(false);
             Relayout();
             return 0;
 
         case WM_DISPLAYCHANGE:
             DismissPreview(false, false);
             DismissClickPopups(false, false);
+            DismissWidgetPassive(false);
             Relayout();  // re-picks the monitor (falls back to the primary) and re-centres
             return 0;
 
@@ -8084,10 +8146,12 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             weatherPopup_.Destroy();
             calendar_.Destroy();
             widgetPopup_.Destroy();
+            widgetPassive_.Destroy();
             if (centre_.OnScreen() && shared_) shared_->SetCentreOpen(false);
             centre_.Destroy();
             centreOpener_.clear();
             popupWidget_.clear();
+            passiveWidget_.clear();
             previewOpener_.clear();
             popupRequests_.clear();
             acrylic_ = false;

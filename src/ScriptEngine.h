@@ -111,8 +111,9 @@ public:
     virtual bool WeatherCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) = 0;
 
     // --- popups (anchored on the widget's slot, beside the dock) ---
-    // A popup the script draws (drawPopup) of w x h DIPs.
-    virtual bool PopupOpen(float w, float h, std::wstring& error) = 0;
+    // A popup the script draws (drawPopup) of w x h DIPs. `passive`: the passive kind (never takes
+    // the focus, the mouse passes through it, not counted by PopupShown; e.g. a wheel's level bar).
+    virtual bool PopupOpen(float w, float h, bool passive, std::wstring& error) = 0;
     virtual void PopupClose() = 0;
     virtual bool PopupShown() const = 0;
     virtual void PopupRedraw() = 0;

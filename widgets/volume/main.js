@@ -2,19 +2,43 @@
 // with one to three waves (a cross when muted) and the level in percent under it. The wheel
 // changes the level by settings.step percent a notch (unmuting on the way up), a middle click
 // mutes, a click opens a popup: the level slider, Mute, Mute microphone, the output devices (a
-// click makes one the default) and Sound settings. Event-driven: audio.onChange redraws when the
-// level, the mute state or the devices change (also when changed elsewhere: the volume keys, the
-// quick settings); no timers.
+// click makes one the default) and Sound settings. While the wheel turns, a volume bar (a passive
+// popup: no focus, the mouse passes through it) stands beside the dock and goes 1.2 s after the
+// last notch. Event-driven: audio.onChange redraws when the level, the mute state or the devices
+// change (also when changed elsewhere: the volume keys, the quick settings); the bar's one-shot
+// is the only timer, and only while the bar is up.
 
 const POPUP_W = 300;
+const BAR_W = 44, BAR_H = 150, BAR_MS = 1200;
 let state = audio.get();
 let hits = [];  // the popup's click targets: { x, y, w, h, act }
+let bar = false;  // the volume bar (the passive popup) is up
+let barTimer = 0;
 
 audio.onChange((s) => {
   state = s;
   requestRedraw();
   if (popup.isOpen) popup.open(POPUP_W, popupHeight());  // resizes (the device list) and redraws
+  else if (bar) popup.redraw();
 });
+
+// The bar's state goes (it closed, or the ordinary popup replaces it); the host closes the window.
+function endBar() {
+  if (barTimer) clearTimeout(barTimer);
+  barTimer = 0;
+  bar = false;
+}
+
+// Opens the bar (or redraws it in place) and starts its 1.2 s again.
+function showBar() {
+  bar = true;
+  popup.open(BAR_W, BAR_H, { passive: true });
+  if (barTimer) clearTimeout(barTimer);
+  barTimer = setTimeout(() => {
+    barTimer = 0;
+    if (bar) popup.close();  // the bar is the one on screen: the ordinary popup ended it
+  }, BAR_MS);
+}
 
 const percent = (v) => Math.round((v || 0) * 100);
 
@@ -22,7 +46,7 @@ const percent = (v) => Math.round((v || 0) * 100);
 // second to arrive (the onChange that follows confirms it).
 function changed() {
   requestRedraw();
-  if (popup.isOpen) popup.redraw();
+  if (popup.isOpen || bar) popup.redraw();
 }
 function setVolume(v) {
   audio.setVolume(v);
@@ -97,6 +121,8 @@ export function onWheel(e) {
   const v = Math.min(1, Math.max(0, base + Math.sign(e.notches) * Math.max(1, Math.round(Math.abs(e.notches))) * step));
   setVolume(v);
   if (state.muted && e.notches > 0) setMuted(false);
+  // The bar, unless the ordinary popup is open (changed() redrew that one with the new level).
+  if (settings.wheelBar && !popup.isOpen) showBar();
   return true;
 }
 
@@ -105,7 +131,13 @@ export function onMiddleClick() {
 }
 
 export function onClick(e) {
-  if (!e.closedPopup) popup.open(POPUP_W, popupHeight());
+  if (e.closedPopup) return;
+  endBar();  // the ordinary popup replaces the bar (the host closes it)
+  popup.open(POPUP_W, popupHeight());
+}
+
+export function onPopupClose(e) {
+  if (e.passive) endBar();
 }
 
 function popupHeight() {
@@ -127,7 +159,28 @@ function checkbox(canvas, x, y, on, label, dock, act) {
   hits.push({ x: x - 4, y, w: POPUP_W - 2 * (x - 4), h: 24, act });
 }
 
+// The volume bar: the level on top, a vertical track filled from the bottom with a knob at the
+// fill's top, the speaker under it.
+function drawBar(canvas, dock) {
+  const W = canvas.width, H = canvas.height;
+  const ink = dock.theme.labelText;
+  const v = state.volume || 0, off = state.muted || !state.available;
+  canvas.text(off ? 'Muted' : percent(v) + '%', W / 2, 9,
+    { size: 11, weight: 'semibold', align: 'center', color: ink });
+  const tw = 8, tx = (W - tw) / 2, t0 = 32, t1 = H - 38;
+  canvas.fillRoundRect(tx, t0, tw, t1 - t0, tw / 2, '#40808080');
+  const ky = t1 - (t1 - t0) * v;
+  canvas.fillRoundRect(tx, ky, tw, Math.max(tw, t1 - ky), tw / 2, off ? '#80808080' : dock.theme.accent);
+  canvas.fillCircle(W / 2, ky, 6, '#FFFFFFFF');
+  canvas.strokeCircle(W / 2, ky, 6, '#30000000', 1);
+  speaker(canvas, (W - 20) / 2, H - 28, 20, wavesFor(v), off, ink);
+}
+
 export function drawPopup(canvas, dock) {
+  if (bar && canvas.width === BAR_W && canvas.height === BAR_H) {
+    drawBar(canvas, dock);
+    return;
+  }
   hits = [];
   const W = canvas.width;
   const ink = dock.theme.labelText, dim = dock.theme.dateText, accent = dock.theme.accent;

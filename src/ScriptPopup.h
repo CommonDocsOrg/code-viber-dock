@@ -13,9 +13,13 @@
 // widget's slot beside the dock like the dock's own popups, with the theme's panel behind the
 // script's drawing. Clicks go back to the script (onPopupClick) with DIP coordinates; it closes on
 // Escape, when another window comes forward, on a dock click and by popup.close().
+// The passive kind (popup.open(w, h, { passive: true }), class WinDockWidgetPassivePopup) is the
+// same drawing in a hover-mode window made mouse-transparent: it never takes the focus and never
+// sees the mouse (a level bar beside the dock while the wheel turns); the dock alone closes it.
 class ScriptPopup : public PopupWindow {
 public:
     static constexpr wchar_t kClassName[] = L"WinDockWidgetPopup";
+    static constexpr wchar_t kPassiveClassName[] = L"WinDockWidgetPassivePopup";
 
     struct Callbacks {
         // Draw the script's content (DIPs w x h at `scale`; the panel is drawn already).
@@ -32,7 +36,8 @@ public:
         RECT monitor{};
     };
 
-    ScriptPopup() : PopupWindow(kClassName, L"WinDock widget popup", Mode::Click) {}
+    explicit ScriptPopup(Mode mode = Mode::Click, const wchar_t* className = kClassName)
+        : PopupWindow(className, mode == Mode::Click ? L"WinDock widget popup" : L"WinDock widget passive popup", mode) {}
     ~ScriptPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, Callbacks callbacks);

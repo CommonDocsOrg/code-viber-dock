@@ -1667,15 +1667,20 @@ JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
 JSValue PopupOpenFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     Args a{ctx, argc, argv};
     float w = 0, h = 0;
+    bool passive = false;  // { passive: true }: the passive kind (no focus, mouse-transparent)
     if (JS_IsObject(a.At(0))) {
-        if (!PropF(ctx, a.At(0), "width", w) || !PropF(ctx, a.At(0), "height", h)) return JS_EXCEPTION;
+        if (!PropF(ctx, a.At(0), "width", w) || !PropF(ctx, a.At(0), "height", h) ||
+            !PropB(ctx, a.At(0), "passive", passive)) {
+            return JS_EXCEPTION;
+        }
     } else {
         w = a.F(0);
         h = a.F(1);
         if (a.failed) return JS_EXCEPTION;
+        if (JS_IsObject(a.At(2)) && !PropB(ctx, a.At(2), "passive", passive)) return JS_EXCEPTION;
     }
     std::wstring error;
-    if (!Self(ctx)->host_.PopupOpen(w, h, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    if (!Self(ctx)->host_.PopupOpen(w, h, passive, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
     return JS_UNDEFINED;
 }
 JSValue PopupCloseFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {

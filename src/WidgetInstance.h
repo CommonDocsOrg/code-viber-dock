@@ -44,8 +44,10 @@ public:
         // The widget asked for a popup to open / close / redraw (TakePopupRequest). Called from
         // inside script calls: the dock defers it.
         virtual void WidgetPopupRequest(WidgetInstance& widget) = 0;
-        // The widget's script popup is on screen.
+        // The widget's script popup is on screen (not counting a passive one).
         virtual bool WidgetPopupShown(const WidgetInstance& widget) const = 0;
+        // The widget's passive popup (popup.open(w, h, { passive: true })) is on screen.
+        virtual bool WidgetPassiveShown(const WidgetInstance& widget) const = 0;
         // notifications.activate(id): the app of notification `id` to the front (or started).
         virtual bool WidgetActivateNotification(uint32_t id) = 0;
         // notifications.openCentre(): the dock's notification centre popup over the widget (toggles).
@@ -60,6 +62,7 @@ public:
         enum class Kind { None, Open, Close, Redraw, Folder, Previews, Calendar, WeatherSettings };
         Kind kind = Kind::None;
         float width = 0, height = 0;  // Open: DIPs
+        bool passive = false;         // Open: the passive kind (ScriptPopup in hover mode, mouse-transparent)
         std::wstring arg;             // Folder: the path; Previews: the app
         int64_t day = INT64_MIN;      // Calendar: the local day to show (INT64_MIN: today)
         std::wstring view;            // Folder: "auto" / "grid" / "list" ("" auto)
@@ -128,8 +131,8 @@ public:
     // drawPopup(canvas, dock) into the popup's surface (w x h DIPs at `scale`).
     void RenderPopup(ID2D1DeviceContext* dc, float w, float h, float scale);
     void PopupClick(float x, float y, int button);
-    // The popup closed (by itself, or the dock closed it): onPopupClose.
-    void PopupClosed();
+    // The popup closed (by itself, or the dock closed it): onPopupClose({ passive }).
+    void PopupClosed(bool passive = false);
 
     // WidgetRuntime: a provider this widget used changed ("audio", "media").
     void ProviderChanged(const char* channel, const std::string& payload = {});
@@ -189,7 +192,7 @@ private:
     bool MediaArt(std::string& token, std::wstring& error) override;
     bool NotificationsGet(std::string& json, std::wstring& error) override;
     bool NotificationsCommand(const std::string& command, double id, std::wstring& error) override;
-    bool PopupOpen(float w, float h, std::wstring& error) override;
+    bool PopupOpen(float w, float h, bool passive, std::wstring& error) override;
     void PopupClose() override;
     bool PopupShown() const override { return client_.WidgetPopupShown(*this); }
     void PopupRedraw() override;

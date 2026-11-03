@@ -23,7 +23,9 @@ public:
 
     // Creates the (hidden) window and applies the system backdrop. Returns false if this build
     // of Windows does not support system backdrops (the window is not kept then).
-    bool Create(HINSTANCE instance);
+    // `mouseTransparent`: layered + WS_EX_TRANSPARENT (fully opaque), so the mouse passes through
+    // it to other apps' windows too (a mouse-transparent popup's blur).
+    bool Create(HINSTANCE instance, bool mouseTransparent = false);
     void Destroy();
     bool Exists() const { return hwnd_ != nullptr; }
     HWND Hwnd() const { return hwnd_; }

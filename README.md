@@ -793,10 +793,12 @@ write and edit without compiling anything. The full reference (every call, every
   sweep-in animation) and **Calendar page** (`analog-date`: today's date as a flip-calendar or flat
   page with the month or weekday in a coloured header; a click opens the month calendar; it wakes
   once a day, at midnight), **Volume** (`volume`: the output level with a percentage; the wheel
-  changes it in 2 % steps, a middle click mutes, a click opens a popup with a slider, Mute, Mute
-  microphone, the output devices and Sound settings), **Now playing** (`media`: the current media
-  session's art, title and artist (Spotify, browsers, Media Player ...); hover the art for previous /
-  play-pause / next, click the text for a popup; optionally the wheel changes the volume), **Start**
+  changes it in 2 % steps and shows a volume bar beside the dock until a moment after the last
+  notch, a middle click mutes, a click opens a popup with a slider, Mute, Mute microphone, the
+  output devices and Sound settings), **Now playing** (`media`: the current media session's art,
+  title and artist (Spotify, browsers, Media Player ...); hover it for previous / play-pause / next
+  over the whole face, middle-click for a popup; the wheel changes the volume with the same volume
+  bar (a setting)), **Start**
   (`start`: the Windows logo or your icon, opens Start), **Search** (`search`: opens Windows Search)
   and **Notifications** (`notification-bell`: a bell that opens Windows' notification centre (Win+N)
   or, with its "A click opens" setting, WinDock's own centre; with its "Show the unread count"
@@ -1831,6 +1833,10 @@ always there, also when every dock is parked) handle these registered messages:
   folder, 2178 its note; Widget settings: field k's controls are 3700 + 10 k + part (0 label, 1 the
   control, 2 its caption / spin, 3 description, 4 the group header before it, 5 its unit); a field
   hidden by `visibleIf` has none.
+- **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
+  (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
+  `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.
+  QueryState 65 / 66 never count it.
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
