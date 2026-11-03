@@ -7,6 +7,7 @@
 
 #include <winrt/base.h>
 
+#include <functional>
 #include <string>
 
 #include "Clock.h"
@@ -28,6 +29,12 @@ public:
 
     bool Create(HINSTANCE instance, HWND parent, int id, const Config* config, UINT dpi);
     HWND Hwnd() const { return hwnd_; }
+    // The dock it draws (its items and sizes; looked up at every paint; null: docks[0]) and whether
+    // in the global theme (the Global window's Themes / Animation pages) or the dock's own.
+    void SetDock(std::function<const DockConfig*()> dock, bool globalTheme) {
+        dock_ = std::move(dock);
+        globalTheme_ = globalTheme;
+    }
     // Background colours of the strip (the settings window's content layer and a divider).
     void SetColors(COLORREF layer, COLORREF divider);
     // The window moved to a monitor with another DPI: re-create the target at that DPI.
@@ -48,6 +55,8 @@ private:
 
     HWND hwnd_ = nullptr;
     const Config* config_ = nullptr;
+    std::function<const DockConfig*()> dock_;
+    bool globalTheme_ = false;
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
     COLORREF layer_ = RGB(0x2B, 0x2B, 0x2B);
     COLORREF divider_ = RGB(0x3A, 0x3A, 0x3A);

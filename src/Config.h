@@ -510,8 +510,6 @@ struct Config {
     // At least one dock after LoadFile / Sanitize; ids are unique (Sanitize). Every dock is shown
     // (DockManager), docks[].monitor "each" once per monitor.
     std::vector<DockConfig> docks = std::vector<DockConfig>(1);
-    // Not saved: the dock the settings window edits (its Docks page selects it; Edit()).
-    size_t editDock = 0;
     bool hideTaskbar = true;
     bool startWithWindows = false;
     // "auto": hardware D3D11 device, WARP if that fails. "software": WARP only, which avoids the
@@ -547,8 +545,6 @@ struct Config {
 
     DockConfig& Main() { return docks.front(); }
     const DockConfig& Main() const { return docks.front(); }
-    DockConfig& Edit() { return docks[editDock < docks.size() ? editDock : 0]; }
-    const DockConfig& Edit() const { return docks[editDock < docks.size() ? editDock : 0]; }
     // The theme a dock draws with: its own preset's (DockConfig::ownTheme), else the global one.
     const ThemeConfig& ThemeOf(const DockConfig& d) const { return d.ownTheme ? d.theme : theme; }
     // A dock id that no dock has yet: `base`, else base2, base3 ...

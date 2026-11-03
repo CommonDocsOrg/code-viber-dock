@@ -12,7 +12,14 @@ void Append(HMENU menu, UINT id, const wchar_t* text, bool enabled, bool checked
 }
 
 void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
-    Append(menu, kOpenSettings, L"Settings…", true);
+    if (!state.itemSettings.empty()) {
+        // Over a widget / clock / weather slot: that item's own settings window.
+        Append(menu, kOpenItemSettings, state.itemSettings.c_str(), true);
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    }
+    // Round 5 phase B: this dock's own settings window, then the one for every dock.
+    Append(menu, kDockSettings, L"Dock settings…", true);
+    Append(menu, kOpenSettings, L"Global settings…", true);
     Append(menu, kLockDock, L"Lock dock", true, state.locked);
     if (state.dockCount > 1) {
         Append(menu, kLockAllDocks, L"Lock all docks", state.anyUnlocked);
@@ -144,6 +151,7 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
                 AppendIconEntries(menu, item);
                 Append(menu, kOpenInExplorer, L"Open in Explorer", true);
                 AppendViewMenu(menu, item);
+                Append(menu, kOpenItemSettings, L"Settings…", item.pinned);  // its own window
                 break;
             case DockItem::Kind::Separator:
                 Append(menu, kTogglePin, L"Remove", item.pinned);
@@ -163,6 +171,7 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
                 Append(menu, kTogglePin, unpin.c_str(), item.pinned);
                 AppendIconEntries(menu, item);
                 AppendViewMenu(menu, item);
+                Append(menu, kOpenItemSettings, L"Settings…", item.pinned);  // its own window
                 break;
             }
             case DockItem::Kind::RecycleBin:

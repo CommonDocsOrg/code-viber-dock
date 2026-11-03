@@ -19,7 +19,8 @@ public:
     using SettingsPage::SettingsPage;
 
 protected:
-    using IntRef = int& (*)(Config&);
+    // The bound int of the config or of the window's dock (Dock(); round 5 phase B).
+    using IntRef = int& (*)(Config&, DockConfig&);
     struct IntField {
         int edit;
         int spin;
@@ -29,21 +30,21 @@ protected:
         SettingsScope scope;
     };
 
-    // `field` returns the bound int (a captureless lambda, e.g. [](Config& c) -> int& { return c.x; }).
+    // `field` returns the bound int (a captureless lambda, e.g. [](Config&, DockConfig& d) -> int& { return d.x; }).
     void IntSpin(int edit, int spin, int x, int w, int lo, int hi, int step, IntRef field, SettingsScope scope) {
         Spin(edit, spin, x, w, lo, hi, step);
         ints_.push_back(IntField{edit, spin, lo, hi, field, scope});
     }
 
     void LoadInts() {
-        for (const IntField& f : ints_) SetSpin(f.spin, f.field(Cfg()));
+        for (const IntField& f : ints_) SetSpin(f.spin, f.field(Cfg(), Dock()));
     }
 
     // Applies `value` to the field (if it changed) and tells the host.
     void SetInt(const IntField& f, int value) {
         value = std::clamp(value, f.lo, f.hi);
         SetSpin(f.spin, value);
-        int& field = f.field(Cfg());
+        int& field = f.field(Cfg(), Dock());
         if (field != value) {
             field = value;
             Changed(f.scope);
@@ -80,7 +81,7 @@ protected:
                 if (ReadInt(f.edit, f.lo, f.hi, value)) {
                     SetInt(f, value);
                 } else {
-                    SetSpin(f.spin, f.field(Cfg()));  // not a number: back to the current value
+                    SetSpin(f.spin, f.field(Cfg(), Dock()));  // not a number: back to the current value
                 }
                 return;
             }
@@ -116,11 +117,11 @@ private:
 };
 
 // Page factories (one source file each, besides SettingsPages.cpp).
-std::unique_ptr<SettingsPage> MakeAppearancePage(SettingsWindow& window);  // SettingsPagesAppearance.cpp
+std::unique_ptr<SettingsPage> MakeAppearancePage(SettingsWindow& window);  // SettingsPagesAppearance.cpp (Global > Themes)
+std::unique_ptr<SettingsPage> MakeDockThemePage(SettingsWindow& window);   // SettingsPagesAppearance.cpp (Dock > Theme)
 std::unique_ptr<SettingsPage> MakeAnimationPage(SettingsWindow& window);   // SettingsPagesMore.cpp
-std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window);      // SettingsPagesMore.cpp ("Dock contents")
-std::unique_ptr<SettingsPage> MakeDocksPage(SettingsWindow& window);       // SettingsPagesDocks.cpp
-std::unique_ptr<SettingsPage> MakeLayoutPage(SettingsWindow& window);      // SettingsPagesLayout.cpp
+std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window);      // SettingsPagesMore.cpp (Dock > Contents)
+std::unique_ptr<SettingsPage> MakeLayoutPage(SettingsWindow& window);      // SettingsPagesLayout.cpp (Global > Docks and displays)
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window);     // SettingsPagesWidgets.cpp
 std::unique_ptr<SettingsPage> MakeWidgetSettingsPage(SettingsWindow& window);  // SettingsPagesWidgets.cpp
 std::unique_ptr<SettingsPage> MakeTrayPage(SettingsWindow& window);            // SettingsPagesTray.cpp
@@ -133,3 +134,8 @@ std::unique_ptr<SettingsPage> MakeFolderWindowPage(SettingsWindow& window);    /
 // SettingsPagesWidgets.cpp): "%H:%M, date, Tokyo Standard Time, “Tokyo”" / "Seattle, °C".
 std::wstring ClockDetail(const ClockConfig& c);
 std::wstring WeatherDetail(const WeatherConfig& w);
+
+// The icon of a pin entry as the Dock contents list shows it (its custom icon, a shortcut's icon,
+// the file's / app's icon, the Recycle Bin's), `px` square; null for kinds without one (separators,
+// a group without an icon of its own). The caller destroys it (SettingsPagesMore.cpp).
+HICON SettingsItemIcon(const AppIdentity::ResolvedPin* pin, const DockItemEntry& e, int px);

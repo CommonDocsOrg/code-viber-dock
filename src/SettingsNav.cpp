@@ -1,5 +1,7 @@
-// The settings window's navigation column (WinDock.SettingsNav): one row per page, painted with
-// per-pixel alpha so the Mica backdrop of the extended frame shows through.
+// The Global settings window's navigation column (WinDock.SettingsNav): one row per page, painted
+// with per-pixel alpha so the Mica backdrop of the extended frame shows through. And a Dock window's
+// tab strip (WinDock.SettingsTabs, round 5 phase B): one tab per page, the selected one underlined
+// in the dock's colour.
 
 #include <windows.h>
 #include <uxtheme.h>
@@ -74,7 +76,7 @@ RECT SettingsWindow::NavItemRect(int index) const {
         ++count;
     }
     if (index < 0 || index >= static_cast<int>(pages_.size()) || !pages_[static_cast<size_t>(index)]->InNav()) return RECT{};
-    const int itemDip = std::min(kNavItemDip, (kHeightDip - kNavTopDip - 4) / std::max(1, count));
+    const int itemDip = std::min(kNavItemDip, (static_cast<int>(ClientDip().cy) - kNavTopDip - 4) / std::max(1, count));
     const int top = Px(kNavTopDip) + row * Px(itemDip);
     return RECT{Px(6), top + Px(2), Px(kNavWidthDip) - Px(6), top + Px(itemDip) - Px(2)};
 }
@@ -242,5 +244,187 @@ void SettingsWindow::PaintNav(HWND hwnd, HDC hdc) {
     }
     if (theme) CloseThemeData(theme);
     if (buffer) EndBufferedPaint(buffer, TRUE);
+}
+
+// --- tab strip -------------------------------------------------------------------------------
+
+LRESULT CALLBACK SettingsWindow::TabsProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    SettingsWindow* self = nullptr;
+    if (msg == WM_NCCREATE) {
+        self = static_cast<SettingsWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+    } else {
+        self = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    }
+    if (!self) return DefWindowProcW(hwnd, msg, wp, lp);
+    if (msg == WM_NCDESTROY) SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+    return self->TabsProc(hwnd, msg, wp, lp);
+}
+
+RECT SettingsWindow::TabRect(int index) const {
+    // Left to right from the margin, each as wide as its name plus padding.
+    if (!tabs_ || index < 0 || index >= static_cast<int>(pages_.size())) return RECT{};
+    RECT client{};
+    GetClientRect(tabs_, &client);
+    HDC dc = GetDC(tabs_);
+    HGDIOBJ old = dc ? SelectObject(dc, font_) : nullptr;
+    int x = Px(16);
+    RECT r{};
+    for (int i = 0; i <= index; ++i) {
+        const std::wstring& name = pages_[static_cast<size_t>(i)]->Name();
+        SIZE ext{};
+        if (dc) GetTextExtentPoint32W(dc, name.c_str(), static_cast<int>(name.size()), &ext);
+        const int w = ext.cx + Px(28);
+        r = RECT{x, Px(4), x + w, client.bottom - Px(2)};
+        x += w + Px(4);
+    }
+    if (dc) {
+        SelectObject(dc, old);
+        ReleaseDC(tabs_, dc);
+    }
+    return r;
+}
+
+int SettingsWindow::TabHitTest(POINT pt) const {
+    for (int i = 0; i < static_cast<int>(pages_.size()); ++i) {
+        const RECT r = TabRect(i);
+        if (PtInRect(&r, pt)) return i;
+    }
+    return -1;
+}
+
+LRESULT SettingsWindow::TabsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+        case WM_GETDLGCODE:
+            return DLGC_WANTARROWS;
+        case WM_KEYDOWN:
+            switch (wp) {
+                case VK_LEFT:
+                    SelectPage(NavStep(active_, -1));
+                    return 0;
+                case VK_RIGHT:
+                    SelectPage(NavStep(active_, 1));
+                    return 0;
+                case VK_HOME:
+                    SelectPage(NavStep(-1, 1));
+                    return 0;
+                case VK_END:
+                    SelectPage(NavStep(static_cast<int>(pages_.size()), -1));
+                    return 0;
+                default:
+                    break;
+            }
+            break;
+        case WM_LBUTTONDOWN: {
+            SetFocus(hwnd);
+            const int i = TabHitTest(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
+            if (i >= 0) SelectPage(i);
+            return 0;
+        }
+        case WM_MOUSEMOVE: {
+            if (!tabsTracking_) {
+                TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
+                tabsTracking_ = TrackMouseEvent(&tme) != FALSE;
+            }
+            const int hot = TabHitTest(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
+            if (hot != tabHot_) {
+                tabHot_ = hot;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_MOUSELEAVE:
+            tabsTracking_ = false;
+            if (tabHot_ != -1) {
+                tabHot_ = -1;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        case WM_UPDATEUISTATE: {
+            const LRESULT r = DefWindowProcW(hwnd, msg, wp, lp);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return r;
+        }
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            PaintTabs(hwnd, dc);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_PRINTCLIENT:
+            PaintTabs(hwnd, reinterpret_cast<HDC>(wp));
+            return 0;
+        default:
+            break;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+void SettingsWindow::PaintTabs(HWND hwnd, HDC hdc) {
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    // Double-buffered GDI on the content layer (no alpha: nothing shows through here).
+    HDC dc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
+    HGDIOBJ oldBmp = SelectObject(dc, bmp);
+    FillRect(dc, &rc, layerBrush_);
+    auto mix = [](COLORREF a, COLORREF b, int pa) {
+        auto ch = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pa + y * (100 - pa)) / 100); };
+        return RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
+    };
+    // A hairline under the strip.
+    {
+        HBRUSH line = CreateSolidBrush(mix(palette_.text, palette_.layer, 14));
+        RECT r{0, rc.bottom - std::max(1, Px(1)), rc.right, rc.bottom};
+        FillRect(dc, &r, line);
+        DeleteObject(line);
+    }
+    const COLORREF accent = palette_.highContrast ? palette_.accent : DockColor();
+    const bool focused = GetFocus() == hwnd && !FocusCuesHidden(hwnd);
+    HGDIOBJ oldFont = SelectObject(dc, font_);
+    SetBkMode(dc, TRANSPARENT);
+    for (int i = 0; i < static_cast<int>(pages_.size()); ++i) {
+        const RECT r = TabRect(i);
+        const bool selected = i == active_;
+        if (selected || i == tabHot_) {
+            HBRUSH pill = CreateSolidBrush(mix(palette_.text, palette_.layer, selected ? 9 : 5));
+            HPEN pen = CreatePen(PS_SOLID, 1, mix(palette_.text, palette_.layer, selected ? 9 : 5));
+            HGDIOBJ ob = SelectObject(dc, pill);
+            HGDIOBJ op = SelectObject(dc, pen);
+            RoundRect(dc, r.left, r.top, r.right, r.bottom - Px(4), Px(8), Px(8));
+            SelectObject(dc, ob);
+            SelectObject(dc, op);
+            DeleteObject(pen);
+            DeleteObject(pill);
+        }
+        if (selected) {
+            HBRUSH bar = CreateSolidBrush(accent);
+            RECT u{r.left + Px(10), r.bottom - Px(4), r.right - Px(10), r.bottom - Px(1)};
+            FillRect(dc, &u, bar);
+            DeleteObject(bar);
+        }
+        const std::wstring& name = pages_[static_cast<size_t>(i)]->Name();
+        SetTextColor(dc, selected ? palette_.text : palette_.textSecondary);
+        RECT tr{r.left, r.top, r.right, r.bottom - Px(4)};
+        DrawTextW(dc, name.c_str(), static_cast<int>(name.size()), &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        if (selected && focused) {
+            RECT fr{r.left + Px(2), r.top + Px(2), r.right - Px(2), r.bottom - Px(6)};
+            SetTextColor(dc, palette_.text);
+            SetBkColor(dc, palette_.layer);
+            DrawFocusRect(dc, &fr);
+        }
+    }
+    SelectObject(dc, oldFont);
+    BitBlt(hdc, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+    SelectObject(dc, oldBmp);
+    DeleteObject(bmp);
+    DeleteDC(dc);
 }
 

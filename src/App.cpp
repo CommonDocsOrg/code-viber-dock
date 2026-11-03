@@ -144,14 +144,15 @@ bool App::Initialize(HINSTANCE instance) {
         return OnDockMessage(hwnd, msg, wp, lp, r);
     };
     callbacks.setup = [this](DockWindow& dock) { SetUpDock(dock); };
+    // Every open settings window (index loops: a page may open a window from a notification).
     callbacks.weatherChanged = [this] {
-        if (settings_) settings_->WeatherChanged();  // the Weather page's status line
+        for (size_t i = 0; i < settings_.size(); ++i) settings_[i]->WeatherChanged();  // the Place fields' status lines
     };
     callbacks.notificationsChanged = [this] {
-        if (settings_) settings_->NotificationsChanged();  // the Notifications page's status and counts
+        for (size_t i = 0; i < settings_.size(); ++i) settings_[i]->NotificationsChanged();  // the Notifications page
     };
     callbacks.calendarChanged = [this] {
-        if (settings_) settings_->CalendarChanged();  // the Calendar page's feed status
+        for (size_t i = 0; i < settings_.size(); ++i) settings_[i]->CalendarChanged();  // the Calendar feeds page
     };
     // Folder windows (phase 12): moved / resized / collapsed / a menu setting -> saved; their own
     // menu's Remove (posted: the window is in one of its own messages) and New folder window….
@@ -244,7 +245,7 @@ void App::SetUpDock(DockWindow& dock) {
     DockWindow::WeatherCallbacks weather;
     weather.openSettings = [this, d](size_t item) { OpenItemSettings(d->ConfigIndex(), item); };
     dock.SetWeatherCallbacks(std::move(weather));
-    if (keepShown_) dock.SetKeepShown(true);
+    if (KeepShownFor(dock.ConfigIndex())) dock.SetKeepShown(true);  // its dock / item window is active
 }
 
 void App::UpdateReservedMonitors() {
@@ -758,6 +759,12 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
         case ContextMenu::kReloadWidget:
             dock.ReloadWidget(IndexOfKey(dock, key));
             return;
+        case ContextMenu::kOpenItemSettings: {
+            // The item's own settings window (the slot's config item).
+            const int index = IndexOfKey(dock, key);
+            if (index >= 0) OpenItemSettings(dock.ConfigIndex(), dock.Items()[static_cast<size_t>(index)].element);
+            return;
+        }
         case ContextMenu::kEmptyRecycleBin: {
             const int index = IndexOfKey(dock, key);
             if (index < 0 || dock.Items()[static_cast<size_t>(index)].kind != DockItem::Kind::RecycleBin) return;
@@ -789,10 +796,16 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
 
 void App::Shutdown() {
     if (shutDown_) return;
-    // First: closing it may commit a pending edit (focus loss), which must still be saved.
-    settings_.reset();
+    // First: closing them may commit a pending edit (focus loss), which must still be saved.
+    {
+        std::vector<std::unique_ptr<SettingsWindow>> windows = std::move(settings_);
+        settings_.clear();
+        windows.clear();
+    }
+    activeSettings_ = nullptr;
     console_.reset();  // before the docks: it listens to the widget runtime
     geocodeDone_ = nullptr;
+    geocodeOwner_ = nullptr;
     shutDown_ = true;
     FlushSave();
     docks_.AllowAppBar(false);  // first: the restored work area must not keep our bands
@@ -881,13 +894,39 @@ void App::EndModal() {
     if (modalDepth_ == 0 && syncPending_ && hwnd_) PostMessageW(hwnd_, kDisplaySync, 0, 0);
 }
 
-void App::ShowMenu(DockWindow* dock, POINT pt) {
+void App::ShowMenu(DockWindow* dock, POINT pt, int slot) {
     if (!dock) dock = docks_.First();
     const size_t cfg = dock ? dock->ConfigIndex() : 0;
     const HWND owner = dock ? dock->Hwnd() : hwnd_;
-    const ContextMenu::TrayMenuState state = MenuState(cfg);
+    ContextMenu::TrayMenuState state = MenuState(cfg);
+    // Over a widget / clock / weather slot: "<its name> settings…" first (its Item window).
+    size_t item = SIZE_MAX;
+    DockItemEntry entry;
+    if (dock && slot >= 0 && slot < static_cast<int>(dock->Items().size()) && cfg < config_.docks.size()) {
+        const size_t element = dock->Items()[static_cast<size_t>(slot)].element;
+        const auto& items = config_.docks[cfg].items;
+        if (element < items.size()) {
+            const ItemKind k = items[element].Kind();
+            if (k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Widget) {
+                item = element;
+                entry = items[element];
+                state.itemSettings = k == ItemKind::Clock     ? std::wstring(L"Clock settings…")
+                                     : k == ItemKind::Weather ? std::wstring(L"Weather settings…")
+                                                              : Widgets::DisplayName(entry.id) + L" settings…";
+            }
+        }
+    }
     const UINT cmd = RunMenu(dock, [&] { return ContextMenu::ShowTrayMenu(owner, pt, state); });
     if (cmd == ContextMenu::kNone || shutDown_) return;
+    if (cmd == ContextMenu::kOpenItemSettings) {
+        // The items may have changed while the menu was open: only the same entry.
+        if (cfg < config_.docks.size() && item < config_.docks[cfg].items.size() && config_.docks[cfg].items[item] == entry) {
+            OpenItemSettings(cfg, item);
+        } else {
+            MessageBeep(MB_ICONWARNING);
+        }
+        return;
+    }
     OnCommand(cmd, cfg, dock ? docks_.ByHwnd(owner) : nullptr);
 }
 
@@ -981,18 +1020,24 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         }
         case ContextMenu::kOpenSettings:
-            OpenSettings();
+            OpenSettings();  // the Global window
+            break;
+        case ContextMenu::kDockSettings:
+            OpenDockSettings(cfg);
+            break;
+        case ContextMenu::kFlashDock:
+            FlashDock(cfg);
             break;
         case ContextMenu::kRefreshWeather:
             docks_.RefreshWeather(nullptr);  // every place
             break;
         case ContextMenu::kWeatherSettings: {
-            // The dock's first weather item's settings (round 5: per item; none: the generated page).
+            // The dock's first weather item's settings window (none: the dock's Contents tab).
             const auto it = std::find_if(d.items.begin(), d.items.end(), [](const DockItemEntry& e) { return e.Kind() == ItemKind::Weather; });
             if (it != d.items.end()) {
                 OpenItemSettings(cfg, static_cast<size_t>(it - d.items.begin()));
             } else {
-                OpenSettings(SettingsIds::kPageWidgetSettings);
+                OpenDockSettings(cfg, SettingsIds::kTabContents);
             }
             break;
         }
@@ -1035,11 +1080,15 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kSortDesktopNow:
             if (docks_.SortDesktop() == 0) MessageBeep(MB_OK);  // nothing matched (or a sort is running)
             break;
-        case ContextMenu::kNewFolderWindow:
-            NewFolderWindow(settings_ && settings_->Hwnd() && GetForegroundWindow() == settings_->Hwnd()
-                                ? settings_->Hwnd()
-                                : dock ? dock->Hwnd() : hwnd_);
+        case ContextMenu::kNewFolderWindow: {
+            // The picker is owned by the settings window it was asked from (the foreground one).
+            HWND owner = dock ? dock->Hwnd() : hwnd_;
+            for (const auto& w : settings_) {
+                if (w->Hwnd() && GetForegroundWindow() == w->Hwnd()) owner = w->Hwnd();
+            }
+            NewFolderWindow(owner);
             break;
+        }
         case ContextMenu::kToggleCentre:
             if (dock) dock->TogglePopup(ItemKind::Notifications);
             break;
@@ -1160,7 +1209,6 @@ void App::ReloadConfig() {
         savePending_ = false;
     }
     fresh.renderer = config_.renderer;  // the device type is chosen at startup only
-    fresh.editDock = config_.editDock < fresh.docks.size() ? config_.editDock : 0;
     config_ = std::move(fresh);
     if (config_.migrated) RequestSave();  // a legacy file was loaded: rewrite it as docks[]
     if (config_.Main().AutoHideOn()) lastOnMode_ = config_.Main().autoHide;
@@ -1177,69 +1225,237 @@ void App::ReloadConfig() {
     RefreshSettings();
 }
 
-void App::RefreshSettings() {
-    if (settings_) settings_->Refresh();
+void App::RefreshSettings(SettingsWindow* except) {
+    SyncSettingsTargets();
+    // Index loop: nothing below adds or frees windows (closed ones are freed by kSettingsClosed).
+    for (size_t i = 0; i < settings_.size(); ++i) {
+        SettingsWindow* w = settings_[i].get();
+        if (w == except || !w->Hwnd()) continue;
+        w->Refresh();
+    }
 }
 
-void App::OpenSettings(int page) {
-    if (shutDown_) return;
-    if (settings_ && settings_->Hwnd()) {
-        if (page >= 0) settings_->ShowPage(page);
-        settings_->Activate();
-        return;
+bool App::PreTranslateMessage(MSG& msg) {
+    // A window may open another one from inside its own message: the index loop and raw pointer
+    // stay valid (the objects themselves never move).
+    for (size_t i = 0; i < settings_.size(); ++i) {
+        if (SettingsWindow* w = settings_[i].get(); w->Hwnd() && w->PreTranslateMessage(msg)) return true;
     }
+    return false;
+}
+
+size_t App::DockIndexOf(const std::wstring& id) const {
+    for (size_t i = 0; i < config_.docks.size(); ++i) {
+        if (config_.docks[i].id == id) return i;
+    }
+    return SIZE_MAX;
+}
+
+SettingsWindow* App::FindSettings(SettingsKind kind, const std::wstring& dock, size_t item) const {
+    for (const auto& w : settings_) {
+        if (!w->Hwnd() || w->Kind() != kind) continue;
+        if (kind == SettingsKind::Global) return w.get();
+        if (w->DockId() != dock) continue;
+        if (kind == SettingsKind::Dock || w->ItemIndex() == item) return w.get();
+    }
+    return nullptr;
+}
+
+int App::CountSettings(SettingsKind kind) const {
+    int n = 0;
+    for (const auto& w : settings_) {
+        if (w->Hwnd() && w->Kind() == kind) ++n;
+    }
+    return n;
+}
+
+bool App::KeepShownFor(size_t cfg) const {
+    // The active settings window is a Dock / Item window of this dock (the Global one keeps nothing shown).
+    return activeSettings_ && activeSettings_->Hwnd() && activeSettings_->Kind() != SettingsKind::Global &&
+           activeSettings_->DockIndex() == cfg;
+}
+
+void App::UpdateKeepShown() {
+    if (shutDown_) return;
+    docks_.ForEach([&](DockWindow& w) { w.SetKeepShown(KeepShownFor(w.ConfigIndex())); });
+}
+
+void App::OnSettingsActivated(SettingsWindow* w, bool active) {
+    if (active) {
+        activeSettings_ = w;
+    } else if (activeSettings_ == w) {
+        activeSettings_ = nullptr;
+    }
+    UpdateKeepShown();
+}
+
+void App::FlashDock(size_t cfg) {
+    if (cfg >= config_.docks.size()) return;
+    const uint32_t color = config_.DockColor(cfg);
+    bool any = false;
+    docks_.ForConfig(cfg, [&](DockWindow& w) {
+        w.Flash(color);
+        any = true;
+    });
+    if (!any) MessageBeep(MB_OK);  // parked, or a folder window
+}
+
+bool App::HasItemWindow(size_t cfg, size_t item) {
+    if (cfg >= config_.docks.size() || item >= config_.docks[cfg].items.size()) return false;
+    const DockItemEntry& e = config_.docks[cfg].items[item];
+    switch (e.Kind()) {
+        case ItemKind::Widget:
+        case ItemKind::Clock:
+        case ItemKind::Weather:
+        case ItemKind::Folder:
+        case ItemKind::Group:
+            return true;
+        case ItemKind::App: {
+            // A shortcut to a folder is a folder item too (its popup's layout).
+            DockWindow* d = docks_.FirstOf(cfg);
+            if (!d) return false;
+            const std::vector<size_t> idx = config_.docks[cfg].PinIndexes();
+            const auto& pins = d->Pins();
+            for (size_t k = 0; k < idx.size() && k < pins.size(); ++k) {
+                if (idx[k] == item) return pins[k].kind == AppIdentity::PinKind::Folder;
+            }
+            return false;
+        }
+        default:
+            return false;
+    }
+}
+
+namespace {
+// The same item as far as re-finding it goes: kind and what it points at (not its settings, icon,
+// view or name, which an edit in place may change).
+bool SameIdentity(const DockItemEntry& a, const DockItemEntry& b) {
+    return a.kind == b.kind && a.path == b.path && a.aumid == b.aumid && a.id == b.id;
+}
+}  // namespace
+
+void App::SyncSettingsTargets() {
+    for (size_t i = 0; i < settings_.size(); ++i) {
+        SettingsWindow* w = settings_[i].get();
+        if (!w->Hwnd()) continue;
+        const size_t d = DockIndexOf(w->DockId());
+        if (w->Kind() == SettingsKind::Global) {
+            if (d == SIZE_MAX && !config_.docks.empty()) w->SelectDock(config_.docks.front().id);
+            continue;
+        }
+        if (d == SIZE_MAX) {
+            DestroyWindow(w->Hwnd());  // its dock was removed (freed by kSettingsClosed)
+            continue;
+        }
+        if (w->Kind() != SettingsKind::Item) continue;
+        const auto& items = config_.docks[d].items;
+        const size_t at = w->ItemIndex();
+        const DockItemEntry& copy = w->ItemCopy();
+        size_t found = SIZE_MAX;
+        if (at < items.size() && items[at] == copy) {
+            found = at;
+        } else {
+            // The equal entry elsewhere (moved): the nearest one.
+            size_t best = SIZE_MAX;
+            for (size_t k = 0; k < items.size(); ++k) {
+                if (!(items[k] == copy)) continue;
+                const size_t dist = k > at ? k - at : at - k;
+                if (best == SIZE_MAX || dist < best) {
+                    best = dist;
+                    found = k;
+                }
+            }
+            // Edited in place (by another window or the dock itself): nothing came or went.
+            if (found == SIZE_MAX && items.size() == w->ItemCountCopy() && at < items.size() && SameIdentity(items[at], copy)) {
+                found = at;
+            }
+        }
+        if (found == SIZE_MAX) {
+            DestroyWindow(w->Hwnd());  // its item was removed
+            continue;
+        }
+        w->SetItemCopy(items[found], items.size());
+        if (found != at) w->Retarget(found);
+    }
+}
+
+SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     static const std::vector<AppIdentity::ResolvedPin> kNoPins;
     SettingsHost host;
     host.config = &config_;
-    host.changed = [this](SettingsScope scope) { OnSettingsChanged(scope); };
-    // "The dock": the first window of the dock the pages edit (config.Edit()).
-    host.pins = [this]() -> const std::vector<AppIdentity::ResolvedPin>& {
-        DockWindow* d = docks_.FirstOf(config_.editDock);
+    // "The dock": the first window of the window's dock (by id, every time).
+    auto dockOf = [this, w]() -> size_t { return w->DockIndex(); };
+    host.changed = [this, w](SettingsScope scope, size_t dock) { OnSettingsChanged(scope, dock, w); };
+    host.pins = [this, dockOf]() -> const std::vector<AppIdentity::ResolvedPin>& {
+        DockWindow* d = dockOf() != SIZE_MAX ? docks_.FirstOf(dockOf()) : nullptr;
         return d ? d->Pins() : kNoPins;
     };
-    host.pinFiles = [this](const std::vector<std::wstring>& paths) {
-        DockWindow* d = docks_.FirstOf(config_.editDock);
-        PinFiles(config_.editDock, d ? d->Pins() : kNoPins, paths, SIZE_MAX);
+    host.pinFiles = [this, dockOf](const std::vector<std::wstring>& paths) {
+        const size_t cfg = dockOf();
+        if (cfg == SIZE_MAX) return;
+        DockWindow* d = docks_.FirstOf(cfg);
+        PinFiles(cfg, d ? d->Pins() : kNoPins, paths, SIZE_MAX);
     };
-    host.command = [this](UINT cmd) { OnCommand(cmd, config_.editDock, docks_.FirstOf(config_.editDock)); };
+    host.command = [this, dockOf](UINT cmd) {
+        const size_t cfg = dockOf() != SIZE_MAX ? dockOf() : 0;
+        OnCommand(cmd, cfg, docks_.FirstOf(cfg));
+    };
     host.usingWarp = [this] {
         DockWindow* d = docks_.First();
         return d && d->UsingWarp();
     };
-    host.dockMonitor = [this] {
-        if (DockWindow* d = docks_.FirstOf(config_.editDock)) return d->MonitorRect();
+    host.dockMonitor = [this, dockOf] {
+        const size_t cfg = dockOf();
+        if (DockWindow* d = cfg != SIZE_MAX ? docks_.FirstOf(cfg) : nullptr) return d->MonitorRect();
+        if (FolderWindow* f = cfg != SIZE_MAX ? docks_.FolderOf(cfg) : nullptr) {
+            const RECT r = f->ScreenRect();
+            MONITORINFO mi{sizeof(mi)};
+            GetMonitorInfoW(MonitorFromRect(&r, MONITOR_DEFAULTTOPRIMARY), &mi);
+            return mi.rcMonitor;
+        }
         if (DockWindow* d = docks_.First()) return d->MonitorRect();
         MONITORINFO mi{sizeof(mi)};
         GetMonitorInfoW(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi);
         return mi.rcMonitor;
     };
-    host.dockDpi = [this] {
-        DockWindow* d = docks_.FirstOf(config_.editDock);
+    host.dockDpi = [this, dockOf] {
+        DockWindow* d = dockOf() != SIZE_MAX ? docks_.FirstOf(dockOf()) : nullptr;
         if (!d) d = docks_.First();
         return d ? d->Dpi() : GetDpiForSystem();
     };
-    host.keepDockShown = [this](bool keep) {
-        if (shutDown_) return;
-        keepShown_ = keep;
-        docks_.ForEach([&](DockWindow& w) { w.SetKeepShown(keep); });
-    };
-    host.dockBar = [this] {
-        DockWindow* d = docks_.FirstOf(config_.editDock);
+    host.activated = [this, w](bool active) { OnSettingsActivated(w, active); };
+    host.dockBar = [this, dockOf] {
+        DockWindow* d = dockOf() != SIZE_MAX ? docks_.FirstOf(dockOf()) : nullptr;
         return d ? d->RestBarRect() : RECT{};
+    };
+    host.openDock = [this](size_t dock, int tab) { OpenDockSettings(dock, tab); };
+    host.openItem = [this](size_t dock, size_t item) { OpenItemSettings(dock, item); };
+    host.openGlobal = [this](int page) { OpenSettings(page); };
+    host.flashDock = [this, dockOf] {
+        if (dockOf() != SIZE_MAX) FlashDock(dockOf());
+    };
+    host.anchor = [this, w] {
+        // An Item window: 40 DIPs from its dock's window, when that is open (and not minimized).
+        RECT r{};
+        if (SettingsWindow* d = FindSettings(SettingsKind::Dock, w->DockId()); d && !IsIconic(d->Hwnd())) {
+            GetWindowRect(d->Hwnd(), &r);
+        }
+        return r;
     };
     host.taskbarHidden = [this] { return taskbar_.Enabled(); };
     host.autostartEnabled = [] { return AutostartEnabled(); };
     host.weatherStatus = [this](const WeatherConfig& place) -> std::wstring {
         if (!place.Configured()) return L"Not configured";
-        const WeatherService* w = docks_.FindWeather(place);
-        return w ? w->StatusText() : std::wstring(L"Not shown on a dock");
+        const WeatherService* ws = docks_.FindWeather(place);
+        return ws ? ws->StatusText() : std::wstring(L"Not shown on a dock");
     };
     host.refreshWeather = [this](const WeatherConfig& place) { docks_.RefreshWeather(&place); };
-    host.geocode = [this](const std::wstring& query,
-                          std::function<void(const std::vector<WeatherService::Place>&, const std::wstring&)> done) {
-        // A newer search replaces an older one (its result is dropped when it arrives).
+    host.geocode = [this, w](const std::wstring& query,
+                             std::function<void(const std::vector<WeatherService::Place>&, const std::wstring&)> done) {
+        // A newer search (of any window) replaces an older one (its result is dropped when it arrives).
         if (!WeatherService::Geocode(query, hwnd_, WeatherService::kGeocodeMessage, ++geocodeTag_)) return false;
         geocodeDone_ = std::move(done);
+        geocodeOwner_ = w;
         return true;
     };
     host.destroyed = [this] {
@@ -1290,7 +1506,7 @@ void App::OpenSettings(int page) {
         for (size_t i = 0; i < c.Feeds().size(); ++i) feeds.push_back(SettingsCalendarFeed{c.StatusText(i)});
         return feeds;
     };
-    host.notificationApps = [this] {
+    host.notificationApps = [this, dockOf] {
         std::vector<SettingsNotificationApp> apps;
         auto add = [&](const AppKey& key, const std::wstring& name) {
             if (key.id.empty() || key.IsSynthetic()) return;
@@ -1298,7 +1514,7 @@ void App::OpenSettings(int page) {
             apps.push_back(SettingsNotificationApp{key.id, name.empty() ? key.Source() : name,
                                                    docks_.Notifications().UnreadFor(key)});
         };
-        if (DockWindow* d = docks_.FirstOf(config_.editDock)) {
+        if (DockWindow* d = dockOf() != SIZE_MAX ? docks_.FirstOf(dockOf()) : nullptr) {
             for (const AppIdentity::ResolvedPin& p : d->Pins()) {
                 if (p.kind == AppIdentity::PinKind::App) add(p.key, p.displayName);
                 for (const AppIdentity::ResolvedPin& m : p.members) {
@@ -1309,29 +1525,67 @@ void App::OpenSettings(int page) {
         for (const NotificationItem& n : docks_.Notifications().Items()) add(n.key, n.app);
         return apps;
     };
-    settings_ = std::make_unique<SettingsWindow>(std::move(host));
-    if (!settings_->Create(instance_)) {
-        settings_.reset();
+    return host;
+}
+
+bool App::AddSettingsWindow(std::unique_ptr<SettingsWindow> w) {
+    SettingsWindow* raw = w.get();
+    raw->Host() = MakeSettingsHost(raw);
+    if (!raw->Create(instance_)) {
+        if (activeSettings_ == raw) activeSettings_ = nullptr;
+        if (geocodeOwner_ == raw) {
+            geocodeOwner_ = nullptr;
+            geocodeDone_ = nullptr;
+        }
         MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    settings_.push_back(std::move(w));
+    return true;
+}
+
+void App::OpenSettings(int page) {
+    if (shutDown_) return;
+    if (SettingsWindow* w = FindSettings(SettingsKind::Global)) {
+        if (page >= 0) w->ShowPage(page);
+        w->Activate();
         return;
     }
-    if (page >= 0) settings_->ShowPage(page);
+    // The Docks and displays page starts on the first dock.
+    auto w = std::make_unique<SettingsWindow>(SettingsHost{}, SettingsKind::Global,
+                                              config_.docks.empty() ? std::wstring() : config_.docks.front().id);
+    SettingsWindow* raw = w.get();
+    if (AddSettingsWindow(std::move(w)) && page >= 0) raw->ShowPage(page);
+}
+
+void App::OpenDockSettings(size_t dock, int tab) {
+    if (shutDown_ || dock >= config_.docks.size()) return;
+    const std::wstring id = config_.docks[dock].id;
+    if (SettingsWindow* w = FindSettings(SettingsKind::Dock, id)) {
+        if (tab >= 0) w->ShowPage(tab);
+        w->Activate();
+        return;
+    }
+    auto w = std::make_unique<SettingsWindow>(SettingsHost{}, SettingsKind::Dock, id);
+    SettingsWindow* raw = w.get();
+    if (AddSettingsWindow(std::move(w)) && tab >= 0) raw->ShowPage(tab);
 }
 
 void App::OpenItemSettings(size_t dock, size_t item) {
     if (shutDown_ || dock >= config_.docks.size() || item >= config_.docks[dock].items.size()) return;
-    // Phase A: the one settings window, editing that dock, on the generated page of that item.
-    const bool otherDock = config_.editDock != dock;
-    config_.editDock = dock;
-    OpenSettings();
-    if (!settings_ || !settings_->Hwnd()) return;
-    if (otherDock) settings_->Refresh();  // the other pages show that dock now
-    const ItemKind kind = config_.docks[dock].items[item].Kind();
-    if (kind == ItemKind::Folder || kind == ItemKind::Group) {
-        settings_->ShowItemSettings(static_cast<int>(item));
-    } else {
-        settings_->ShowWidgetSettings(static_cast<int>(item));
+    // Round 5 phase B: the item's own window (an item without settings: its dock's window).
+    if (!HasItemWindow(dock, item)) {
+        OpenDockSettings(dock, SettingsIds::kTabContents);
+        return;
     }
+    const std::wstring id = config_.docks[dock].id;
+    if (SettingsWindow* w = FindSettings(SettingsKind::Item, id, item)) {
+        w->Activate();
+        return;
+    }
+    auto w = std::make_unique<SettingsWindow>(SettingsHost{}, SettingsKind::Item, id, item);
+    w->SetItemCopy(config_.docks[dock].items[item], config_.docks[dock].items.size());
+    AddSettingsWindow(std::move(w));
 }
 
 bool App::EditDocks(SettingsDockEdit edit, size_t index) {
@@ -1344,15 +1598,14 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             d.id = config_.UniqueDockId(L"dock");
             d.monitor = DockConfig::kMonitorPrimary;
             list.push_back(std::move(d));
-            config_.editDock = list.size() - 1;
             break;
         }
         case SettingsDockEdit::Duplicate: {
             if (index >= list.size()) return false;
             DockConfig d = list[index];
             d.id = config_.UniqueDockId(d.id);
+            d.color = 0;  // its own colour (the palette by index), not the copied dock's
             list.insert(list.begin() + static_cast<ptrdiff_t>(index) + 1, std::move(d));
-            config_.editDock = index + 1;
             break;
         }
         case SettingsDockEdit::TrayDock: {
@@ -1377,10 +1630,10 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             d.items = {std::move(tray)};
             config_.tray.enabled = true;
             list.push_back(std::move(d));
-            config_.editDock = list.size() - 1;
             SyncDocks();        // the new dock's window
             ReloadPins(index);  // the source dock without its tray (Sync does not reload items)
             RequestSave();
+            RefreshSettings();  // the source dock's item windows (its tray moved), headers
             return true;
         }
         case SettingsDockEdit::Remove: {
@@ -1388,14 +1641,12 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             const auto docks = std::count_if(list.begin(), list.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });
             if (!list[index].IsFolderWindow() && docks <= 1) return false;  // folder windows need a dock beside them
             list.erase(list.begin() + static_cast<ptrdiff_t>(index));
-            if (config_.editDock > index || config_.editDock >= list.size()) {
-                config_.editDock = config_.editDock > 0 ? config_.editDock - 1 : 0;
-            }
             break;
         }
     }
     SyncDocks();
     RequestSave();
+    RefreshSettings();  // a removed dock's windows close; every window's header (indexes and colours moved)
     return true;
 }
 
@@ -1452,7 +1703,8 @@ size_t App::AddFolderWindow(const std::wstring& path, POINT at) {
     d.x = std::clamp(static_cast<int>(std::lround((at.x - w.left) / s)), 0, std::max(0, workW - d.folder.w));
     d.y = std::clamp(static_cast<int>(std::lround((at.y - w.top) / s)), 0, std::max(0, workH - d.folder.h));
     config_.docks.push_back(std::move(d));
-    config_.editDock = config_.docks.size() - 1;
+    // The Global window's Docks and displays page selects the new folder window.
+    if (SettingsWindow* g = FindSettings(SettingsKind::Global)) g->SelectDock(config_.docks.back().id);
     SyncDocks();
     RequestSave();
     RefreshSettings();
@@ -1465,16 +1717,16 @@ size_t App::AddFolderWindow(const std::wstring& path, POINT at) {
 
 void App::RemoveFolderWindow(size_t cfg) {
     if (cfg >= config_.docks.size() || !config_.docks[cfg].IsFolderWindow()) return;
-    if (!EditDocks(SettingsDockEdit::Remove, cfg)) {
-        MessageBeep(MB_ICONWARNING);
-        return;
-    }
-    RefreshSettings();
+    if (!EditDocks(SettingsDockEdit::Remove, cfg)) MessageBeep(MB_ICONWARNING);  // EditDocks refreshes the settings windows
 }
 
-void App::OnSettingsChanged(SettingsScope scope) {
+void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* source) {
     if (shutDown_) return;
-    const size_t cfg = config_.editDock < config_.docks.size() ? config_.editDock : 0;
+    if (cfg >= config_.docks.size()) cfg = 0;
+    // An Item window edited its own item: what it is now is what to find again.
+    if (source && source->Kind() == SettingsKind::Item) {
+        if (const DockItemEntry* e = source->TargetItem()) source->SetItemCopy(*e, source->Dock().items.size());
+    }
     switch (scope) {
         case SettingsScope::Appearance:
             // Sizes, position, monitor, theme, clock: the theme may be per dock, the monitor
@@ -1485,7 +1737,7 @@ void App::OnSettingsChanged(SettingsScope scope) {
             break;
         case SettingsScope::AutoHide:
             SetAutoHide(cfg, config_.docks[cfg].autoHide);  // keeps lastOnMode_ in step; saves
-            return;
+            break;
         case SettingsScope::Pins:
             ReloadPins(cfg);
             break;
@@ -1513,6 +1765,10 @@ void App::OnSettingsChanged(SettingsScope scope) {
             break;
     }
     RequestSave();
+    // The other windows follow (their pages, headers; a removed item's window closes); the source
+    // window keeps its controls (a half-typed value stays) and updates its header.
+    RefreshSettings(source);
+    if (source) source->UpdateIdentity();
 }
 
 void App::OpenConsole() {
@@ -1544,8 +1800,25 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
     const LPARAM arg = ArgOfParam(lp);
     const DockManager::Instance* inst = docks_.At(index);
     switch (wp) {
-        case 16:
-            return settings_ && settings_->Hwnd() ? 1 : 0;  // the settings window exists
+        case 16:  // some settings window is open (any kind)
+            return CountSettings(SettingsKind::Global) + CountSettings(SettingsKind::Dock) + CountSettings(SettingsKind::Item) > 0 ? 1 : 0;
+        case 222:  // round 5 phase B: open Global windows (0 / 1)
+            return CountSettings(SettingsKind::Global);
+        case 223:  // open Dock windows (folder window entries' included)
+            return CountSettings(SettingsKind::Dock);
+        case 224:  // open Item windows
+            return CountSettings(SettingsKind::Item);
+        case 225: {  // the Dock window of dock HIWORD(lParam) is open: 1 (LOWORD(lParam) 1: its HWND), else 0
+            SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
+            if (!w) return 0;
+            return arg == 1 ? reinterpret_cast<LRESULT>(w->Hwnd()) : 1;
+        }
+        case 227: {  // the HWND of the Item window of item LOWORD(lParam) of dock HIWORD(lParam) (0: none open)
+            SettingsWindow* w = inst && inst->cfg < config_.docks.size() && arg >= 0
+                                    ? FindSettings(SettingsKind::Item, config_.docks[inst->cfg].id, static_cast<size_t>(arg))
+                                    : nullptr;
+            return w ? reinterpret_cast<LRESULT>(w->Hwnd()) : 0;
+        }
         case 47:
             return static_cast<LRESULT>(docks_.Count());  // dock instances (parked ones included)
         case 48:
@@ -1852,7 +2125,7 @@ bool App::OnDockMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT& resu
             if (const int index = dock->MenuIndexAt(client); index >= 0) {
                 ShowItemMenu(*dock, index, pt);
             } else {
-                ShowMenu(dock, pt);
+                ShowMenu(dock, pt, dock->IndexAt(client));  // over a widget: its settings entry too
             }
             return true;
         }
@@ -1903,10 +2176,13 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == kSettingsClosed) {
         // The window is gone (its WM_NCDESTROY posted this); a newly opened one is kept.
-        if (settings_ && !settings_->Hwnd()) {
-            settings_.reset();
+        // A closed window is gone (its WM_NCDESTROY posted this); open ones are kept.
+        if (geocodeOwner_ && !geocodeOwner_->Hwnd()) {
+            geocodeOwner_ = nullptr;
             geocodeDone_ = nullptr;
         }
+        if (activeSettings_ && !activeSettings_->Hwnd()) activeSettings_ = nullptr;
+        std::erase_if(settings_, [](const std::unique_ptr<SettingsWindow>& w) { return !w->Hwnd(); });
         return 0;
     }
     if (msg == kDisplaySync) {
@@ -1927,12 +2203,13 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WeatherService::kGeocodeMessage) {
         // A place search of the settings window finished (posted by its worker; ours to free).
         std::unique_ptr<WeatherService::Response> response(reinterpret_cast<WeatherService::Response*>(lp));
-        if (wp != geocodeTag_ || !geocodeDone_ || !settings_ || !response) return 0;  // superseded / closed
+        if (wp != geocodeTag_ || !geocodeDone_ || !geocodeOwner_ || !geocodeOwner_->Hwnd() || !response) return 0;  // superseded / closed
         std::vector<WeatherService::Place> places;
         std::wstring error;
         WeatherService::ParsePlaces(*response, places, error);
         auto done = std::move(geocodeDone_);
         geocodeDone_ = nullptr;
+        geocodeOwner_ = nullptr;
         done(places, error);
         return 0;
     }

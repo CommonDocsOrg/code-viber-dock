@@ -123,10 +123,10 @@ protected:
     }
 
     void Load() override {
-        const DockConfig& d = Cfg().Edit();
+        const DockConfig& d = Dock();
         const bool fw = d.IsFolderWindow();
-        SetText(kFwInfo, fw ? L"The folder window " + d.id + L" (Settings > Docks picks another one)."
-                            : L"Select a folder window on the Docks page to edit it here.");
+        SetText(kFwInfo, fw ? L"The folder window " + d.id + L": its folder, contents, look and desktop rules."
+                            : L"This is not a folder window.");
         for (int id : {kFwPathEdit, kFwBrowse, kFwTitleEdit, kFwViewCombo, kFwIconEdit, kFwIconSpin, kFwSortCombo, kFwHidden,
                        kFwSingleClick, kFwCollapsed, kFwOpacityEdit, kFwOpacitySpin, kFwTitleColorEdit, kFwLinesCombo,
                        kFwHideTitle, kFwTransparent, kFwRollUp, kFwRulesEdit, kFwAutoSort, kFwSortNow}) {
@@ -152,7 +152,7 @@ protected:
     }
 
     void OnCommand(int id, int code, HWND) override {
-        DockConfig& d = Cfg().Edit();
+        DockConfig& d = Dock();
         if (!d.IsFolderWindow()) return;
         FolderWindowConfig& f = d.folder;
         if (code == CBN_SELCHANGE) {
@@ -191,7 +191,7 @@ protected:
     void Spun(int spin, int pos) override { SetNumber(spin, pos); }
 
     void Commit(int id) override {
-        DockConfig& d = Cfg().Edit();
+        DockConfig& d = Dock();
         if (!d.IsFolderWindow()) return;
         FolderWindowConfig& f = d.folder;
         switch (id) {
@@ -244,7 +244,7 @@ protected:
 
 private:
     void SetNumber(int spin, int value) {
-        DockConfig& d = Cfg().Edit();
+        DockConfig& d = Dock();
         if (!d.IsFolderWindow()) return;
         FolderWindowConfig& f = d.folder;
         if (spin == kFwIconSpin) {

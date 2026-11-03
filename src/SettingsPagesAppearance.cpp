@@ -108,20 +108,34 @@ void EnsureThemesFolder() {
     CreateDirectoryW(Theme::Directory().c_str(), nullptr);
 }
 
+// Global > Themes (the global theme and its per-field overrides), or with `dockOnly` a Dock
+// window's Theme tab: only that dock's preset (docks[].themePreset) and a pointer to Themes.
 class AppearancePage : public FormPage {
 public:
-    explicit AppearancePage(SettingsWindow& w) : FormPage(w, L"Appearance", L'\xE790') {}
+    AppearancePage(SettingsWindow& w, bool dockOnly)
+        : FormPage(w, dockOnly ? L"Theme" : L"Themes", L'\xE790'), dockOnly_(dockOnly) {}
 
 protected:
     void Build() override {
         const int right = Width() - kMargin;
-        Title(L"Appearance");
+        if (dockOnly_) {
+            Title(L"Theme");
+            Label(kDockThemeLabel, L"This dock's theme");
+            Combo(kDockThemeCombo, kColX, right - kColX, false);
+            NextRow(kRowH + 4);
+            Text(kDockThemeNote, CtlKind::Note,
+                 L"\"Same as all docks\" uses the global theme. The theme's fields (colours, sizes, effects) are in "
+                 L"Global settings > Themes: they apply to every dock, on top of this dock's preset.",
+                 kMargin, right - kMargin, 40);
+            NextRow(44);
+            Link(kDockThemeLink, L"<a>Open Global settings > Themes</a>", kMargin, right - kMargin);
+            NextRow();
+            return;
+        }
+        Title(L"Themes");
         Section(kSectionTheme, L"Theme");
         Label(kThemeLabel, L"Theme");
         Combo(kThemeCombo, kColX, right - kColX, false);
-        NextRow();
-        Label(kDockThemeLabel, L"This dock's theme");
-        Combo(kDockThemeCombo, kColX, right - kColX, false);
         NextRow();
         Button(kExportTheme, L"Export current theme…", kColX, 176);
         Link(kThemesFolderLink, L"<a>Open themes folder</a>", kColX + 188, right - kColX - 188);
@@ -131,7 +145,7 @@ protected:
         Text(kThemeNote, CtlKind::Note,
              L"A change below overrides the theme (saved in config.json); Reset brings back the theme's value. "
              L"Colours are #AARRGGBB, the number next to them is the alpha (0 clear, 255 opaque). A dock with a theme "
-             L"of its own (Docks page: the dock selected there) uses it under these changes, which apply to every dock.",
+             L"of its own (its Dock settings > Theme) uses it under these changes, which apply to every dock.",
              kMargin, right - kMargin, 54);
         NextRow(54);
 
@@ -147,9 +161,11 @@ protected:
 
     void Load() override {
         FillThemes();
+        if (dockOnly_) return;
         for (size_t i = 0; i < Theme::FieldCount(); ++i) UpdateRow(static_cast<int>(i));
         Enable(kResetAllTheme, Cfg().themeOverrides != 0);
     }
+
 
     void OnCommand(int id, int code, HWND) override {
         if (int field = 0, part = 0; code == CBN_SELCHANGE && SplitId(id, field, part) && part == kFieldValue &&
@@ -211,6 +227,9 @@ protected:
             EnsureThemesFolder();
             AllowSetForegroundWindow(ASFW_ANY);
             ShellExecuteW(nullptr, L"explore", Theme::Directory().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        if (static_cast<int>(nm.idFrom) == kDockThemeLink && (nm.code == NM_CLICK || nm.code == NM_RETURN)) {
+            if (Host().openGlobal) Host().openGlobal(kPageThemes);
         }
         return 0;
     }
@@ -462,7 +481,8 @@ private:
     // "<id> (missing)" so the user sees what config.json names.
     void FillThemes() {
         HWND combo = Item(kThemeCombo);
-        if (!combo) return;
+        HWND dock = Item(kDockThemeCombo);  // Dock > Theme (only it)
+        if (!combo && !dock) return;
         const std::wstring& current = Cfg().themePreset;
         std::vector<std::wstring> names;
         themeIds_.clear();
@@ -488,17 +508,18 @@ private:
             names.push_back(current.empty() ? std::wstring(L"None (dark defaults)") : current + L" (missing)");
             sel = static_cast<int>(themeIds_.size()) - 1;
         }
-        SendMessageW(combo, WM_SETREDRAW, FALSE, 0);
-        SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-        for (const std::wstring& n : names) ComboAdd(kThemeCombo, n.c_str());
-        SetComboSel(kThemeCombo, sel);
-        SendMessageW(combo, WM_SETREDRAW, TRUE, 0);
-        InvalidateRect(combo, nullptr, TRUE);
+        if (combo) {
+            SendMessageW(combo, WM_SETREDRAW, FALSE, 0);
+            SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+            for (const std::wstring& n : names) ComboAdd(kThemeCombo, n.c_str());
+            SetComboSel(kThemeCombo, sel);
+            SendMessageW(combo, WM_SETREDRAW, TRUE, 0);
+            InvalidateRect(combo, nullptr, TRUE);
+        }
 
         // This dock's theme: "Same as all docks", then the same list (an unknown id: "(missing)").
-        HWND dock = Item(kDockThemeCombo);
         if (!dock) return;
-        const std::wstring& own = Cfg().Edit().themePreset;
+        const std::wstring& own = Dock().themePreset;
         int dockSel = 0;
         for (size_t i = 0; i < themeIds_.size() && !own.empty(); ++i) {
             if (EqualsNoCase(themeIds_[i], own)) {
@@ -517,11 +538,11 @@ private:
         SetComboSel(kDockThemeCombo, dockSel);
     }
 
-    // The edited dock's own preset (docks[].themePreset; "" = the global theme).
+    // The window's dock's own preset (docks[].themePreset; "" = the global theme).
     void SelectDockPreset(const std::wstring& id) {
         Config& c = Cfg();
-        if (id == c.Edit().themePreset) return;
-        c.Edit().themePreset = id;
+        if (id == Dock().themePreset) return;
+        Dock().themePreset = id;
         c.ResolveDockThemes();
         Changed(SettingsScope::Appearance);
     }
@@ -578,10 +599,15 @@ private:
     }
 
     std::vector<std::wstring> themeIds_;  // parallel to the combo items
+    bool dockOnly_ = false;
 };
 
 }  // namespace
 
 std::unique_ptr<SettingsPage> MakeAppearancePage(SettingsWindow& window) {
-    return std::make_unique<AppearancePage>(window);
+    return std::make_unique<AppearancePage>(window, false);
+}
+
+std::unique_ptr<SettingsPage> MakeDockThemePage(SettingsWindow& window) {
+    return std::make_unique<AppearancePage>(window, true);
 }

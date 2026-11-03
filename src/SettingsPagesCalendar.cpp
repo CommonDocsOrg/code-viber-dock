@@ -24,12 +24,12 @@ constexpr int kNumberW = 72;
 
 class CalendarPage : public FormPage {
 public:
-    explicit CalendarPage(SettingsWindow& w) : FormPage(w, L"Calendar", L'\xE787') {}
+    explicit CalendarPage(SettingsWindow& w) : FormPage(w, L"Calendar feeds", L'\xE787') {}
 
 protected:
     void Build() override {
         const int right = Width() - kMargin;
-        Title(L"Calendar");
+        Title(L"Calendar feeds");
         Text(kCalNote, CtlKind::Note,
              L"Calendars as ICS feeds: a web address (https://, http:// or webcal://, such as Google Calendar's "
              L"\"secret address in iCal format\" or Outlook's published calendar), or an .ics file on this PC (re-read "

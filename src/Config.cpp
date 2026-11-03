@@ -734,7 +734,6 @@ void Config::Sanitize() {
                                           [&](const DockConfig& d) { return d.id == docks[i].id; });
         if (repeated) docks[i].id = UniqueDockId(docks[i].id);
     }
-    if (editDock >= docks.size()) editDock = 0;
     if (!(theme.cornerRadius >= 0.0f)) theme.cornerRadius = 0.0f;
     theme.cornerRadius = std::min(theme.cornerRadius, 64.0f);
     if (!(theme.labelCornerRadius >= 0.0f)) theme.labelCornerRadius = 0.0f;

@@ -61,22 +61,26 @@ public:
     // Returns false (after telling the user) if the dock can't start.
     bool Initialize(HINSTANCE instance);
     void Shutdown();
-    // Opens the settings window, or activates it if it is open; `page` >= 0 selects that page
-    // (SettingsIds::kPage*).
+    // Round 5 phase B: three kinds of settings window (SettingsKind), any number open at once.
+    // Opens the Global settings window, or activates it if it is open; `page` >= 0 selects that
+    // page (SettingsIds::kPage*). DockCommand 107, the tray / dock menu's Global settings…, --settings.
     void OpenSettings(int page = -1);
-    // The settings of item `item` of docks[`dock`] (round 5 phase A: the settings window on the
-    // generated page for that item, the dock made the one the pages edit; Phase B gives it a window
-    // of its own). The one way in: Dock contents > Settings…, the weather widget's map pin,
-    // weather.openSettings(), DockCommand 113 / 142.
+    // The settings window of docks[`dock`] (a dock, or a folder window entry), or activates it;
+    // `tab` >= 0 selects that tab (SettingsIds::kTab*). The dock menu's Dock settings…, DockCommand 143.
+    void OpenDockSettings(size_t dock, int tab = -1);
+    // The settings window of item `item` of docks[`dock`] (a widget, clock, weather, folder or
+    // group item; another kind opens the dock's window), or activates it. The one way in: the item
+    // menu's Settings…, Contents > Settings…, the weather widget's map pin, weather.openSettings(),
+    // DockCommand 113 / 142, ItemCommand 854.
     void OpenItemSettings(size_t dock, size_t item);
-    // Called by the message loop for every message: keyboard navigation in the settings window.
+    // Called by the message loop for every message: keyboard navigation in the settings windows.
     // Returns true if the message was handled (do not translate / dispatch it).
-    bool PreTranslateMessage(MSG& msg) { return settings_ && settings_->PreTranslateMessage(msg); }
+    bool PreTranslateMessage(MSG& msg);
 
 private:
     static constexpr UINT kTrayCallback = WM_APP + 1;
     static constexpr UINT kTrayId = 1;
-    static constexpr UINT kSettingsClosed = WM_APP + 2;  // posted: delete the destroyed settings window
+    static constexpr UINT kSettingsClosed = WM_APP + 2;  // posted: delete the destroyed settings windows
     static constexpr UINT kDialogActivated = WM_APP + 3;  // posted (wParam = window): ChooseItemIcon's focus fix
     static constexpr UINT kDisplaySync = WM_APP + 4;      // posted: re-enumerate the monitors (coalesced)
     static constexpr UINT kConsoleClosed = WM_APP + 6;    // posted: delete the destroyed widget Console (WM_APP + 5: kReapMessage)
@@ -96,8 +100,9 @@ private:
 
     void AddTrayIcon();
     void RemoveTrayIcon();
-    // The dock / tray menu of `dock` (null: the first dock, or none at all).
-    void ShowMenu(DockWindow* dock, POINT screenPt);
+    // The dock / tray menu of `dock` (null: the first dock, or none at all). `slot`: the slot the
+    // right click was on (a widget / clock / weather slot adds its "settings…" entry; -1 none).
+    void ShowMenu(DockWindow* dock, POINT screenPt, int slot = -1);
     void ShowItemMenu(DockWindow& dock, int index, POINT screenPt);
     // Runs a per-item command on the item with `key` of `dock` (looked up again: the item list may
     // have changed while a menu was open). `windows` are the windows the menu listed.
@@ -178,8 +183,32 @@ private:
     void OpenConfigFile();
     // The widget Console (DockCommand 127, Settings > Widgets): opens or activates it.
     void OpenConsole();
-    // A setting was changed in the settings window: apply it to the docks, then save (debounced).
-    void OnSettingsChanged(SettingsScope scope);
+    // A setting was changed in settings window `source` about config dock `cfg`: apply it to the
+    // docks, save (debounced), then the other settings windows follow (SettingsChangedElsewhere).
+    void OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* source);
+    // --- the settings windows (round 5 phase B) ---
+    // The host of window `w`: every callback bound to that window (its dock by id each time).
+    SettingsHost MakeSettingsHost(SettingsWindow* w);
+    // Creates, shows and keeps `w` (false: it could not be created).
+    bool AddSettingsWindow(std::unique_ptr<SettingsWindow> w);
+    // An open window of that kind (Dock: of dock id `dock`; Item: of (dock, item)); null: none.
+    SettingsWindow* FindSettings(SettingsKind kind, const std::wstring& dock = {}, size_t item = SIZE_MAX) const;
+    int CountSettings(SettingsKind kind) const;
+    size_t DockIndexOf(const std::wstring& id) const;
+    // After the config changed: Dock / Item windows whose dock is gone close, Item windows find
+    // their item again (same index and equal entry, else the equal entry elsewhere, else (the
+    // same number of items) the same index with the same identity: an edit in place; else they
+    // close), the Global window's selected dock falls back to the first.
+    void SyncSettingsTargets();
+    // A window became (in)active: the dock of the active Dock / Item window is kept shown.
+    void OnSettingsActivated(SettingsWindow* w, bool active);
+    void UpdateKeepShown();
+    bool KeepShownFor(size_t cfg) const;
+    // Flash this dock: every window of config dock `cfg` (DockWindow::Flash in its colour).
+    void FlashDock(size_t cfg);
+    // An item kind with an Item window (widget, clock, weather, folder, group, an app that
+    // resolves to a folder).
+    bool HasItemWindow(size_t cfg, size_t item);
     // Docks page: add / duplicate / remove a config dock (refused while a menu or dialog is open).
     bool EditDocks(SettingsDockEdit edit, size_t index);
     // --- desktop folder windows (round 4 phase 12) ---
@@ -191,8 +220,9 @@ private:
     // Removes config entry `cfg` when it is a folder window (posted from its own menu).
     void RemoveFolderWindow(size_t cfg);
     static constexpr UINT kRemoveFolderMessage = WM_APP + 7;  // posted: wParam = config index
-    // Reloads the settings window's controls from the config (no-op while it is closed).
-    void RefreshSettings();
+    // After the config changed outside the settings windows: SyncSettingsTargets, then every open
+    // window (but `except`) reloads its controls from the config.
+    void RefreshSettings(SettingsWindow* except = nullptr);
     void Quit();
 
     HINSTANCE instance_ = nullptr;
@@ -217,11 +247,15 @@ private:
     bool shutDown_ = false;
     int modalDepth_ = 0;          // menus / dialogs open (RunMenu, ChooseItemIcon)
     bool syncPending_ = false;    // a display sync is posted or waits for the modal loop to end
-    bool keepShown_ = false;      // the settings window keeps the docks shown (new docks too)
-    std::unique_ptr<SettingsWindow> settings_;  // null (nothing allocated) while closed
+    // The open settings windows (none allocated while none is open): at most one Global, one Dock
+    // window per dock id, one Item window per (dock, item). Closed ones are freed by a posted
+    // kSettingsClosed.
+    std::vector<std::unique_ptr<SettingsWindow>> settings_;
+    SettingsWindow* activeSettings_ = nullptr;  // the settings window that is the active window
     std::unique_ptr<WidgetConsole> console_;    // null while closed
-    // The settings window's place search in flight (host.geocode): its tag and where its result
-    // goes (cleared when the window closes, so a late result is dropped).
+    // The place search in flight (host.geocode): its tag, its window and where its result goes
+    // (cleared when that window closes, so a late result is dropped).
     WPARAM geocodeTag_ = 0;
+    SettingsWindow* geocodeOwner_ = nullptr;
     std::function<void(const std::vector<WeatherService::Place>&, const std::wstring&)> geocodeDone_;
 };

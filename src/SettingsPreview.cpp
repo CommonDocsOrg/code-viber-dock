@@ -191,7 +191,10 @@ void SettingsPreview::Paint() {
 
 void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const Config& c = *config_;
-    const ThemeConfig& t = c.ThemeOf(c.Edit());  // the edited dock's theme
+    const DockConfig* shown = dock_ ? dock_() : nullptr;
+    const DockConfig& dk = shown ? *shown : c.Main();
+    // The global theme (Global > Themes / Animation) or the dock's own (a Dock window).
+    const ThemeConfig& t = globalTheme_ ? c.theme : c.ThemeOf(dk);
     const float s = static_cast<float>(dpi_) / USER_DEFAULT_SCREEN_DPI;
     auto px = [s](float dip) { return std::round(dip * s); };
     RECT rc{};
@@ -257,8 +260,8 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     };
 
     // --- geometry (pixels) ---
-    const bool clockShown = c.Edit().Has(ItemKind::Clock), weatherShown = c.Edit().Has(ItemKind::Weather);
-    const float mag = static_cast<float>(std::clamp(c.Edit().magnification, 1.0, 2.5));
+    const bool clockShown = dk.Has(ItemKind::Clock), weatherShown = dk.Has(ItemKind::Weather);
+    const float mag = static_cast<float>(std::clamp(dk.magnification, 1.0, 2.5));
     const float wallH = (wall.bottom - wall.top) / s;
     const float reflFrac = t.reflection ? t.reflectionHeight : 0.0f;  // the bar grows by the reflections
     const float b = std::clamp((wallH - kBarBottom - kTopRoom - kLabelGap - kLabelH) / (11.0f + 48.0f * (mag + reflFrac)),
@@ -279,7 +282,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     if (clockShown && dwrite_) {
         // The dock's first clock item (round 5: each clock has its own settings).
         ClockConfig cc = c.clock;
-        for (const DockItemEntry& e : c.Edit().items) {
+        for (const DockItemEntry& e : dk.items) {
             if (e.Kind() != ItemKind::Clock) continue;
             cc = ClockOf(c, e);
             break;
@@ -322,7 +325,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     // Magnification about the focus (the cursor, else the default app), as DockWindow::ComputeTargets.
     const float focusX = mouseX_ >= 0 ? static_cast<float>(mouseX_)
                                       : itemsLeft + (static_cast<float>(kDefaultFocus) + 0.5f) * stride;
-    const float range = static_cast<float>(c.Edit().magnifyRange) * stride;
+    const float range = static_cast<float>(dk.magnifyRange) * stride;
     float scales[kAppCount];
     float delta = 0.0f;
     for (int i = 0; i < kAppCount; ++i) {

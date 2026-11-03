@@ -1452,8 +1452,9 @@ HRESULT DockWindow::RenderBackground() {
             winrt::com_ptr<ID2D1SolidColorBrush> brush;
             if (FAILED(dc->CreateSolidColorBrush(fill, brush.put()))) return;
             dc->FillGeometry(geo.get(), brush.get());
-            brush->SetColor(Theme::ToColor(theme.barBorder));
-            dc->DrawGeometry(geo.get(), brush.get(), stroke);
+            // Flash this dock: the edges in the dock's colour, twice as thick, in its lit steps.
+            brush->SetColor(Theme::ToColor(FlashLit() ? flashColor_ : theme.barBorder));
+            dc->DrawGeometry(geo.get(), brush.get(), FlashLit() ? stroke * 2.0f : stroke);
         });
         if (FAILED(hr)) return hr;
         bgSeparators_[0] = l.separatorX;
@@ -1478,6 +1479,12 @@ HRESULT DockWindow::RenderBackground() {
         if (theme.shelf) {
             Theme::DrawShelf(dc, D2D1::RectF(0, 0, static_cast<float>(w), static_cast<float>(h)), theme, l.scale,
                              stroke, separatorX, l.reflH, leftSeparatorX);
+            if (FlashLit()) {
+                winrt::com_ptr<ID2D1SolidColorBrush> lit;
+                if (SUCCEEDED(dc->CreateSolidColorBrush(Theme::ToColor(flashColor_), lit.put()))) {
+                    dc->DrawRoundedRectangle(D2D1_ROUNDED_RECT{D2D1::RectF(stroke, stroke, static_cast<float>(w) - stroke, static_cast<float>(h) - stroke), radius, radius}, lit.get(), stroke * 2.0f);
+                }
+            }
             return;
         }
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
@@ -1489,8 +1496,16 @@ HRESULT DockWindow::RenderBackground() {
         const D2D1_ROUNDED_RECT edge{
             D2D1::RectF(inset, inset, static_cast<float>(w) - inset, static_cast<float>(h) - inset),
             std::max(0.0f, radius - inset), std::max(0.0f, radius - inset)};
-        brush->SetColor(Theme::ToColor(theme.barBorder));
-        dc->DrawRoundedRectangle(edge, brush.get(), stroke);
+        if (FlashLit()) {
+            // Flash this dock: the border in the dock's colour, twice as thick.
+            const D2D1_ROUNDED_RECT lit{D2D1::RectF(stroke, stroke, static_cast<float>(w) - stroke, static_cast<float>(h) - stroke),
+                                        std::max(0.0f, radius - stroke), std::max(0.0f, radius - stroke)};
+            brush->SetColor(Theme::ToColor(flashColor_));
+            dc->DrawRoundedRectangle(lit, brush.get(), stroke * 2.0f);
+        } else {
+            brush->SetColor(Theme::ToColor(theme.barBorder));
+            dc->DrawRoundedRectangle(edge, brush.get(), stroke);
+        }
         // Hairlines between the app icons and the widgets.
         const float vInset = std::round(rowH * 0.22f);
         brush->SetColor(Theme::ToColor(theme.separator));
@@ -5200,6 +5215,29 @@ void DockWindow::ApplyAutoHide() {
     }
 }
 
+void DockWindow::Flash(uint32_t argb) {
+    if (!hwnd_) return;
+    flashColor_ = argb | 0xFF000000u;
+    flashSteps_ = kFlashSteps;  // again from the start if it was flashing
+    // Revealed as SetKeepShown does (Held() holds it while the steps run).
+    CancelHide();
+    if ((hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) && !RevealSuppressed()) StartShow();
+    RenderWithRecovery([this] { return RenderBackground(); });
+    SetTimer(hwnd_, kFlashTimerId, kFlashStepMs, nullptr);  // replaces a running step
+}
+
+void DockWindow::OnFlashTimer() {
+    KillTimer(hwnd_, kFlashTimerId);  // one-shot, re-armed per step
+    if (flashSteps_ <= 0) return;
+    --flashSteps_;
+    RenderWithRecovery([this] { return RenderBackground(); });
+    if (flashSteps_ > 0) {
+        SetTimer(hwnd_, kFlashTimerId, kFlashStepMs, nullptr);
+        return;
+    }
+    ApplyAutoHide();  // over: hides after the delay if auto-hide wants it now
+}
+
 void DockWindow::SetKeepShown(bool keep) {
     if (keep == keepShown_ || !hwnd_) return;
     keepShown_ = keep;
@@ -7223,7 +7261,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                    (weatherPopup_.FadePending() ? 1 : 0) +
                    (calendar_.FadePending() ? 1 : 0) + (binPending_ ? 1 : 0) + (groupHoldPending_ ? 1 : 0) +
                    (watching_ && shared_->Watch().Pending() ? 1 : 0) + (hintPending_ ? 1 : 0) +
-                   (autoScrollPending_ ? 1 : 0);
+                   (autoScrollPending_ ? 1 : 0) + (flashSteps_ > 0 ? 1 : 0);
         case 6:
             return acrylic_ ? 1 : 0;
         case 7:
@@ -7399,6 +7437,10 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const WeatherService* weather = WeatherOfItem(lp);
             return weather && weather->Active() ? static_cast<LRESULT>(weather->Age()) : -1;
         }
+        case 226:  // Flash: steps left (0: not flashing; round 5 phase B)
+            return flashSteps_;
+        case 228:  // kept shown by its own settings window being active (SetKeepShown; round 5 phase B)
+            return keepShown_ ? 1 : 0;
         case 219: {  // the zone offset of clock item lp (minutes ahead of the local time; INT_MIN: not a clock)
             for (size_t i = 0; i < items_.size(); ++i) {
                 const size_t e = items_[i].element;
@@ -8125,6 +8167,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                     return 0;
                 case kAutoScrollTimerId:
                     OnAutoScrollTimer();
+                    return 0;
+                case kFlashTimerId:
+                    OnFlashTimer();
                     return 0;
                 case kRestTimerId:
                     KillTimer(hwnd_, kRestTimerId);

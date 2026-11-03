@@ -23,12 +23,12 @@ const int kIconSizes[] = {16, 20, 24};
 
 class TrayPage : public FormPage {
 public:
-    explicit TrayPage(SettingsWindow& w) : FormPage(w, L"Tray", L'\xE7F4') {}
+    explicit TrayPage(SettingsWindow& w) : FormPage(w, L"Tray icons", L'\xE7F4') {}
 
 protected:
     void Build() override {
         const int right = Width() - kMargin;
-        Title(L"Tray");
+        Title(L"Tray icons");
         Check(kTrayEnabled, kTrayEnabledCaption, L"Show the notification area icons in the dock");
         NextRow();
         Text(kTrayEnabledNote, CtlKind::Note,
@@ -39,6 +39,8 @@ protected:
              L"Tray item on a dock (Add widget > Tray).",
              kMargin, right - kMargin, 76);
         NextRow(80);
+        Text(kTrayDockLine, CtlKind::Note, L"", kMargin, right - kMargin, 20);
+        NextRow(22);
         Text(kTrayNoItem, CtlKind::Value, L"", kMargin, right - kMargin - kButtonW - 8, 22);
         Button(kTrayAddItem, L"Add a tray to this dock", right - kButtonW, kButtonW);
         NextRow(kRowH + 4);
@@ -111,6 +113,7 @@ protected:
     void Load() override {
         SetCheck(kTrayEnabled, Cfg().tray.enabled);
         DockItemEntry* e = TrayItem();
+        SetText(kTrayDockLine, L"The tray settings below are about the dock selected on Docks and displays: " + Dock().id + L".");
         SetText(kTrayNoItem, e ? L"This dock has a tray." : L"This dock has no tray.");
         Enable(kTrayAddItem, !e);
         for (int id : {kTrayRowsEdit, kTrayRowsSpin, kTrayColumnsEdit, kTrayColumnsSpin, kTrayIconSizeCombo, kTrayIconList}) {
@@ -139,18 +142,19 @@ protected:
             return;
         }
         if (id == kTrayOwnDock && code == BN_CLICKED) {
-            if (!Host().editDocks || !Host().editDocks(SettingsDockEdit::TrayDock, Cfg().editDock)) {
+            if (!Host().editDocks || !Host().editDocks(SettingsDockEdit::TrayDock, DockIndex())) {
                 MessageBeep(MB_ICONWARNING);
                 return;
             }
-            Window().Refresh();  // every page now edits the new tray dock
+            Window().SelectDock(Cfg().docks.back().id);  // the new tray dock (appended)
+            Window().Refresh();
             Window().ConfigApplied();
             return;
         }
         if (id == kTrayAddItem && code == BN_CLICKED) {
             if (TrayItem()) return;
             Cfg().tray.enabled = true;
-            Cfg().Edit().AddWidget(ItemKind::Tray);
+            Dock().AddWidget(ItemKind::Tray);
             Changed(SettingsScope::Pins);  // reloads the dock; the host starts with the item
             Window().Refresh();
             return;
@@ -200,7 +204,7 @@ protected:
 private:
     // The edited dock's first tray item (null: none).
     DockItemEntry* TrayItem() {
-        for (DockItemEntry& e : Cfg().Edit().items) {
+        for (DockItemEntry& e : Dock().items) {
             if (e.Kind() == ItemKind::Tray) return &e;
         }
         return nullptr;

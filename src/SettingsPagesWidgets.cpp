@@ -38,12 +38,12 @@ constexpr int kButtonStep = 158;
 
 class WidgetsPage : public FormPage {
 public:
-    explicit WidgetsPage(SettingsWindow& w) : FormPage(w, L"Widgets", L'\xEA86') {}
+    explicit WidgetsPage(SettingsWindow& w) : FormPage(w, L"Widget library", L'\xEA86') {}
 
 protected:
     void Build() override {
         const int right = Width() - kMargin;
-        Title(L"Widgets");
+        Title(L"Widget library");
         Add(kWidgetsList, CtlKind::List, WC_LISTVIEWW, L"Installed widgets",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
@@ -61,7 +61,8 @@ protected:
         Text(kWidgetsNote, CtlKind::Note,
              L"A widget is a folder in " + Widgets::Directory() +
                  L" with a widget.json and a main.js (see docs/widgets.md). A folder with a built-in's id replaces "
-                 L"the built-in: export one to edit it. Each widget item's settings are on the Widget settings page.",
+                 L"the built-in: export one to edit it. Each widget item has its own settings window (right-click it on "
+                 L"the dock, or Settings… on its dock's Contents tab).",
              kMargin, right - kMargin, 52);
         NextRow(52);
     }
@@ -104,10 +105,13 @@ protected:
             case kWidgetsAddToDock: {
                 if (!sel) return;
                 const std::wstring wid = sel->id, name = sel->name;  // Refresh refills the catalog
-                Cfg().Edit().AddScriptWidget(wid);
-                Changed(SettingsScope::Pins);
+                const size_t dock = PickDock();
+                if (dock == SIZE_MAX) return;  // cancelled
+                Cfg().docks[dock].AddScriptWidget(wid);
+                const std::wstring dockId = Cfg().docks[dock].id;
+                ChangedFor(SettingsScope::Pins, dock);
                 Window().Refresh();
-                SetText(kWidgetsStatus, L"Added " + name + L" to the dock " + Cfg().Edit().id + L".");
+                SetText(kWidgetsStatus, L"Added " + name + L" to the dock " + dockId + L".");
                 break;
             }
             case kWidgetsAddFolder:
@@ -146,6 +150,31 @@ protected:
     }
 
 private:
+    // "Add to dock": the only dock, or (with several) the one chosen in a small menu of dock ids
+    // under the button. SIZE_MAX: cancelled / none.
+    size_t PickDock() {
+        const auto& docks = Cfg().docks;
+        std::vector<size_t> plain;
+        for (size_t i = 0; i < docks.size(); ++i) {
+            if (!docks[i].IsFolderWindow()) plain.push_back(i);
+        }
+        if (plain.size() <= 1) return plain.empty() ? SIZE_MAX : plain.front();
+        HWND button = Item(kWidgetsAddToDock);
+        HMENU menu = CreatePopupMenu();
+        if (!button || !menu) return SIZE_MAX;
+        for (size_t k = 0; k < plain.size() && k < 200; ++k) {
+            const DockConfig& d = docks[plain[k]];
+            const std::wstring text = d.id + (d.title.empty() ? L"" : L" (" + d.title + L")");
+            AppendMenuW(menu, MF_STRING, 1 + static_cast<UINT>(k), text.c_str());
+        }
+        RECT r{};
+        GetWindowRect(button, &r);
+        const UINT cmd = static_cast<UINT>(
+            TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, r.left, r.bottom, Owner(), nullptr));
+        DestroyMenu(menu);
+        return cmd >= 1 && cmd - 1 < plain.size() && plain[cmd - 1] < Cfg().docks.size() ? plain[cmd - 1] : SIZE_MAX;
+    }
+
     const Widgets::CatalogEntry* Selected() const {
         HWND list = Item(kWidgetsList);
         const int sel = list ? ListView_GetNextItem(list, -1, LVNI_SELECTED) : -1;
@@ -272,7 +301,7 @@ class WidgetSettingsPage : public FormPage {
 public:
     explicit WidgetSettingsPage(SettingsWindow& w) : FormPage(w, L"Widget settings", L'\xE713') {}
 
-    void SelectItem(int item) override { item_ = item; }
+    void SelectItem(int item) override { asked_ = item; }
 
 protected:
     void Build() override {
@@ -296,13 +325,10 @@ protected:
         Title(kind == ItemKind::Widget && pkg_ ? (L"Widget: " + pkg_->manifest.name).c_str()
               : m                              ? m->name.c_str()
                                                : L"Widget settings");
-        Label(kWidgetPickLabel, L"Item");
-        Combo(kWidgetPick, kColX, right - kColX, false);
-        NextRow();
+        // Round 5 phase B: the window is the item (no picker); Reset to defaults is in its footer.
         std::wstring note;
         if (item_ < 0) {
-            note = L"The dock " + Cfg().Edit().id +
-                   L" has no clock, weather or widget item. Add one on Dock contents (Add widget) or Widgets.";
+            note = L"This item has no settings.";
         } else if (!m) {
             note = L"Not installed: " + error;
         } else if (m->settings.empty()) {
@@ -369,14 +395,17 @@ protected:
                     break;
             }
             if (!f.description.empty() && f.type != T::Place) {
-                Text(base + 3, CtlKind::Note, f.description, kColX, right - kColX, 20);
-                NextRow(22);
+                // As many lines as the text needs in the control column (the Item window is
+                // narrow): about 6.3 DIPs a character of the message font.
+                const int w = std::max(40, right - kColX);
+                const int lines = std::clamp(static_cast<int>(std::ceil(static_cast<double>(f.description.size()) * 6.3 / w)), 1, 6);
+                Text(base + 3, CtlKind::Note, f.description, kColX, w, 18 * lines + 2);
+                NextRow(18 * lines + 4);
             }
         }
-        if (!fields.empty()) {
+        if (!fields.empty() && kind == ItemKind::Clock) {
             NextRow(6);
-            Button(kWidgetReset, L"Reset to defaults", kMargin, 150);
-            if (kind == ItemKind::Clock) Button(kClockFacesFolder, L"Open faces folder", kMargin + 158, 150);
+            Button(kClockFacesFolder, L"Open faces folder", kMargin, 150);
             NextRow();
         }
     }
@@ -440,18 +469,6 @@ protected:
             Window().RequestRebuild(*this);
             return;
         }
-        HWND pick = Item(kWidgetPick);
-        SendMessageW(pick, CB_RESETCONTENT, 0, 0);
-        picks_.clear();
-        const auto& items = Cfg().Edit().items;
-        for (size_t i = 0; i < items.size(); ++i) {
-            if (!HasSettings(items[i].Kind())) continue;
-            const std::wstring text = PickText(items[i]) + L" (item " + std::to_wstring(i + 1) + L")";
-            SendMessageW(pick, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
-            if (static_cast<int>(i) == item_) SetComboSel(kWidgetPick, static_cast<int>(picks_.size()));
-            picks_.push_back(static_cast<int>(i));
-        }
-        Enable(kWidgetPick, !picks_.empty());
         const Widgets::Manifest* m = Schema();
         if (!m || item_ < 0) return;
         const json::JsonObject values = Values();
@@ -510,15 +527,7 @@ protected:
     }
 
     void OnCommand(int id, int code, HWND) override {
-        if (id == kWidgetPick && code == CBN_SELCHANGE) {
-            const int sel = ComboSel(kWidgetPick);
-            if (sel >= 0 && sel < static_cast<int>(picks_.size()) && picks_[static_cast<size_t>(sel)] != item_) {
-                item_ = picks_[static_cast<size_t>(sel)];
-                Window().RequestRebuild(*this);
-            }
-            return;
-        }
-        if (id == kWidgetReset && code == BN_CLICKED) {
+        if (id == kWidgetReset && code == BN_CLICKED) {  // the footer's Reset to defaults
             if (item_ < 0) return;
             // A clock / weather item: the defaults' values (config.clock / config.weather); a
             // widget: no settings (its schema's defaults).
@@ -656,9 +665,9 @@ protected:
     }
 
 private:
-    DockItemEntry& Entry() { return Cfg().Edit().items[static_cast<size_t>(item_)]; }
+    DockItemEntry& Entry() { return Dock().items[static_cast<size_t>(item_)]; }
     ItemKind Kind() {
-        const auto& items = Cfg().Edit().items;
+        const auto& items = Dock().items;
         return item_ >= 0 && item_ < static_cast<int>(items.size()) ? items[static_cast<size_t>(item_)].Kind() : ItemKind::Unknown;
     }
 
@@ -668,37 +677,21 @@ private:
         return builtIn_.settings.empty() ? nullptr : &builtIn_;
     }
 
-    // "Clock: %H:%M, Tokyo Standard Time", "Weather: Seattle", "Analog clock".
-    std::wstring PickText(const DockItemEntry& e) {
-        switch (e.Kind()) {
-            case ItemKind::Clock: return L"Clock: " + ClockDetail(ClockOf(Cfg(), e));
-            case ItemKind::Weather: return L"Weather: " + WeatherDetail(WeatherOf(Cfg(), e));
-            default: return Widgets::DisplayName(e.id);
-        }
-    }
-
-    // item_ names a clock, weather or widget item of the edited dock (else the first one, or -1).
+    // item_ (the Item window's item, SelectItem) names a clock, weather or widget item of the
+    // window's dock, else -1.
     void ResolveItem() {
-        const auto& items = Cfg().Edit().items;
-        if (item_ >= 0 && item_ < static_cast<int>(items.size()) && HasSettings(items[static_cast<size_t>(item_)].Kind())) {
-            return;
-        }
-        item_ = -1;
-        for (size_t i = 0; i < items.size(); ++i) {
-            if (HasSettings(items[i].Kind())) {
-                item_ = static_cast<int>(i);
-                return;
-            }
+        item_ = asked_;
+        const auto& items = Dock().items;
+        if (item_ < 0 || item_ >= static_cast<int>(items.size()) || !HasSettings(items[static_cast<size_t>(item_)].Kind())) {
+            item_ = -1;
         }
     }
 
-    // What the table was generated for: the dock, the items with settings and the chosen one.
+    // What the table was generated for: the dock, the item and its kind / widget id.
     std::wstring Signature() {
         ResolveItem();
-        std::wstring s = std::to_wstring(Cfg().editDock) + L"|" + std::to_wstring(item_);
-        for (const DockItemEntry& e : Cfg().Edit().items) {
-            if (HasSettings(e.Kind())) s += L"|" + e.kind + L":" + e.id;
-        }
+        std::wstring s = Window().DockId() + L"|" + std::to_wstring(item_);
+        if (item_ >= 0) s += L"|" + Entry().kind + L":" + Entry().id;
         return s;
     }
 
@@ -721,7 +714,7 @@ private:
             if (!json::JsonObject::TryParse(text, values)) values = nullptr;
             if (values && e.Kind() == ItemKind::Widget && HasPlaceField()) {
                 // The place keys it does not set itself: what its weather provider uses.
-                const WeatherConfig place = ScriptWeatherOf(Cfg(), Cfg().Edit(), e);
+                const WeatherConfig place = ScriptWeatherOf(Cfg(), Dock(), e);
                 json::JsonObject own{nullptr};
                 if (e.settings.empty() || !json::JsonObject::TryParse(e.settings, own) || !own) own = json::JsonObject();
                 const bool hasPlace = SettingsHavePlace(e.settings);
@@ -751,7 +744,7 @@ private:
     WeatherConfig PlaceNow() {
         if (item_ < 0) return Cfg().weather;
         const DockItemEntry& e = Entry();
-        return e.Kind() == ItemKind::Weather ? WeatherOf(Cfg(), e) : ScriptWeatherOf(Cfg(), Cfg().Edit(), e);
+        return e.Kind() == ItemKind::Weather ? WeatherOf(Cfg(), e) : ScriptWeatherOf(Cfg(), Dock(), e);
     }
 
     void LoadPlace(const json::JsonObject& values) {
@@ -766,7 +759,7 @@ private:
         if (Kind() == ItemKind::Widget) {
             const DockItemEntry& e = Entry();
             const bool own = SettingsHavePlace(e.settings);
-            const bool dockItem = std::any_of(Cfg().Edit().items.begin(), Cfg().Edit().items.end(),
+            const bool dockItem = std::any_of(Dock().items.begin(), Dock().items.end(),
                                               [](const DockItemEntry& i) { return i.Kind() == ItemKind::Weather; });
             SetText(kPlaceNote, own ? L"This widget has a place of its own."
                                 : dockItem ? L"No place of its own: it shows the place of this dock's first Weather item. "
@@ -882,11 +875,11 @@ private:
         return true;
     }
 
-    int item_ = -1;
+    int asked_ = -1;  // the Item window's item (SelectItem)
+    int item_ = -1;   // asked_ when it is a clock, weather or widget item, else -1
     std::wstring builtFor_;
     std::shared_ptr<const Widgets::Package> pkg_;
     Widgets::Manifest builtIn_;  // a clock / weather item: Widgets::BuiltInSchema
-    std::vector<int> picks_;     // combo rows -> item indexes
     int placeField_ = -1;        // the schema's (first) Place field, -1 none
     std::vector<WeatherService::Place> places_;  // the last search's results
     std::vector<std::pair<std::wstring, std::wstring>> zones_;  // time zone rows: key, display name

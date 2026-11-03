@@ -93,7 +93,7 @@ protected:
         NextRow();
         Label(kLabelFadeLabel, L"Name label fade");
         IntSpin(kLabelFadeEdit, kLabelFadeSpin, kColX, 90, 0, 1000, 20,
-                [](Config& c) -> int& { return c.animation.labelFadeMs; }, SettingsScope::Appearance);
+                [](Config& c, DockConfig&) -> int& { return c.animation.labelFadeMs; }, SettingsScope::Appearance);
         Text(kLabelFadeUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
 
@@ -228,7 +228,7 @@ const wchar_t* KindLabel(ItemKind k) {
 
 class DockContentsPage : public FormPage {
 public:
-    explicit DockContentsPage(SettingsWindow& w) : FormPage(w, L"Dock contents", L'\xE718') {}
+    explicit DockContentsPage(SettingsWindow& w) : FormPage(w, L"Contents", L'\xE718') {}
     ~DockContentsPage() override {
         if (images_) ImageList_Destroy(images_);  // LVS_SHAREIMAGELISTS: the list never frees it
     }
@@ -307,7 +307,7 @@ protected:
     }
 
     void Load() override {
-        SetCheck(kLockDock, Cfg().Edit().locked);
+        SetCheck(kLockDock, Dock().locked);
         FillList(Selected());
     }
 
@@ -318,7 +318,7 @@ protected:
 
     void OnCommand(int id, int code, HWND) override {
         if (code != BN_CLICKED) return;
-        DockConfig& dock = Cfg().Edit();
+        DockConfig& dock = Dock();
         const int sel = Selected();
         const int n = static_cast<int>(dock.items.size());
         const bool valid = sel >= 0 && sel < n;
@@ -344,7 +344,7 @@ protected:
                 break;
             case kPinChooseIcon:
             case kPinChooseImage:
-                if (valid && Cfg().Edit().items[static_cast<size_t>(sel)].IsPin()) ChooseIcon(sel, id == kPinChooseImage);
+                if (valid && Dock().items[static_cast<size_t>(sel)].IsPin()) ChooseIcon(sel, id == kPinChooseImage);
                 break;
             case kPinResetIcon:
                 if (!valid || !dock.items[static_cast<size_t>(sel)].IsPin() || dock.items[static_cast<size_t>(sel)].icon.empty()) {
@@ -395,12 +395,12 @@ private:
 
     // The row of pin k (DockConfig::PinIndexes), or -1.
     int RowOfPin(size_t k) {
-        const std::vector<size_t> idx = Cfg().Edit().PinIndexes();
+        const std::vector<size_t> idx = Dock().PinIndexes();
         return k < idx.size() ? static_cast<int>(idx[k]) : -1;
     }
     // The pin index of row `row` (a pin kind), or SIZE_MAX.
     size_t PinOfRow(int row) {
-        const std::vector<size_t> idx = Cfg().Edit().PinIndexes();
+        const std::vector<size_t> idx = Dock().PinIndexes();
         for (size_t k = 0; k < idx.size(); ++k) {
             if (static_cast<int>(idx[k]) == row) return k;
         }
@@ -430,7 +430,7 @@ private:
 
     void UpdateButtons() {
         const int sel = Selected();
-        const DockConfig& dock = Cfg().Edit();
+        const DockConfig& dock = Dock();
         const int n = static_cast<int>(dock.items.size());
         const DockItemEntry* e = sel >= 0 && sel < n ? &dock.items[static_cast<size_t>(sel)] : nullptr;
         const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
@@ -447,28 +447,34 @@ private:
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kPinnedList));
     }
 
-    // Settings… of a row: a clock / weather / script widget -> its generated settings page (round 5:
-    // each clock and weather item has its own settings), the running apps -> Behaviour (previews,
-    // middle click, wheel), a folder -> Folders and groups (layout, icon), an app / the Recycle Bin
-    // -> Choose icon….
+    // Settings… of a row: a clock / weather / script widget / folder / group -> its own Item window
+    // (round 5 phase B), the running apps -> the Running apps tab, the tray / notification centre
+    // -> their Global pages, an app / the Recycle Bin -> Choose icon….
     void OpenItemSettings(int row) {
-        switch (Cfg().Edit().items[static_cast<size_t>(row)].Kind()) {
+        auto openItem = [&] {
+            if (Host().openItem && DockIndex() != SIZE_MAX) Host().openItem(DockIndex(), static_cast<size_t>(row));
+        };
+        switch (Dock().items[static_cast<size_t>(row)].Kind()) {
             case ItemKind::Clock:
             case ItemKind::Weather:
-            case ItemKind::Widget: Window().ShowWidgetSettings(row); break;
-            case ItemKind::Running: Window().ShowPage(kPageBehaviour); break;
-            case ItemKind::Tray:
-            case ItemKind::TrayApp: Window().ShowPage(kPageTray); break;
-            case ItemKind::Notifications: Window().ShowPage(kPageNotifications); break;
+            case ItemKind::Widget:
             case ItemKind::Folder:
-            case ItemKind::Group: Window().ShowItemSettings(row); break;
+            case ItemKind::Group: openItem(); break;
+            case ItemKind::Running: Window().ShowPage(kTabRunning); break;
+            case ItemKind::Tray:
+            case ItemKind::TrayApp:
+                if (Host().openGlobal) Host().openGlobal(kPageTray);
+                break;
+            case ItemKind::Notifications:
+                if (Host().openGlobal) Host().openGlobal(kPageNotifications);
+                break;
             case ItemKind::App: {
                 // A shortcut to a folder is a folder item too (its popup's layout); an app: Choose icon….
                 static const std::vector<AppIdentity::ResolvedPin> kNone;
                 const auto& pins = Host().pins ? Host().pins() : kNone;
                 const size_t k = PinOfRow(row);
                 if (k < pins.size() && pins[k].kind == AppIdentity::PinKind::Folder) {
-                    Window().ShowItemSettings(row);
+                    openItem();
                 } else {
                     ChooseIcon(row, false);
                 }
@@ -488,9 +494,9 @@ private:
         constexpr UINT kClock = 1, kWeather = 2, kRunning = 3, kTray = 4, kBell = 5, kScript = 100;
         AppendMenuW(menu, MF_STRING, kClock, L"Clock");
         AppendMenuW(menu, MF_STRING, kWeather, L"Weather");
-        AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Running) ? MF_GRAYED : 0), kRunning, L"Running apps");
-        AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Tray) ? MF_GRAYED : 0), kTray, L"Tray (notify icons)");
-        AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Notifications) ? MF_GRAYED : 0), kBell, L"Notification centre");
+        AppendMenuW(menu, MF_STRING | (Dock().Has(ItemKind::Running) ? MF_GRAYED : 0), kRunning, L"Running apps");
+        AppendMenuW(menu, MF_STRING | (Dock().Has(ItemKind::Tray) ? MF_GRAYED : 0), kTray, L"Tray (notify icons)");
+        AppendMenuW(menu, MF_STRING | (Dock().Has(ItemKind::Notifications) ? MF_GRAYED : 0), kBell, L"Notification centre");
         const std::vector<Widgets::CatalogEntry> installed = Widgets::Catalog();
         if (!installed.empty()) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         for (size_t i = 0; i < installed.size() && i < 200; ++i) {
@@ -506,7 +512,7 @@ private:
         DestroyMenu(menu);
         if (cmd == 0) return;
         if (cmd >= kScript && cmd - kScript < installed.size()) {
-            const size_t at = Cfg().Edit().AddScriptWidget(installed[cmd - kScript].id);
+            const size_t at = Dock().AddScriptWidget(installed[cmd - kScript].id);
             Changed(SettingsScope::Pins);
             FillList(static_cast<int>(at));
             return;
@@ -517,7 +523,7 @@ private:
                               : cmd == kBell    ? ItemKind::Notifications
                                                 : ItemKind::Running;
         if (kind == ItemKind::Tray) Cfg().tray.enabled = true;  // as the dock menu's Add widget > Tray
-        const size_t at = Cfg().Edit().AddWidget(kind);
+        const size_t at = Dock().AddWidget(kind);
         if (at == SIZE_MAX) {
             MessageBeep(MB_ICONWARNING);
             return;
@@ -528,51 +534,7 @@ private:
 
     int AddIcon(const AppIdentity::ResolvedPin* pin, const DockItemEntry& e) {
         if (!images_) return -1;
-        const ItemKind special = e.Kind();
-        if (special == ItemKind::Separator) return -1;  // no icon: the name says "Separator"
-        if (special == ItemKind::Group && (!pin || pin->iconFile.empty())) return -1;  // the dock composes its icon
-        HICON icon = nullptr;
-        // The custom icon (or a shortcut's icon location) first: an image, else an icon resource.
-        if (pin && !pin->iconFile.empty()) {
-            if (IconUtil::IsImageFile(pin->iconFile)) {
-                icon = IconUtil::HiconFromImageFile(pin->iconFile, iconPx_);
-            } else {
-                SHDefExtractIconW(pin->iconFile.c_str(), pin->iconIndex, 0, &icon, nullptr,
-                                  MAKELONG(iconPx_, iconPx_));
-            }
-        }
-        if (!icon && special == ItemKind::RecycleBin) {
-            PIDLIST_ABSOLUTE pidl = nullptr;
-            SHFILEINFOW sfi{};
-            if (SUCCEEDED(SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, nullptr, &pidl)) && pidl) {
-                if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi, sizeof(sfi),
-                                   SHGFI_PIDL | SHGFI_ICON | SHGFI_SMALLICON)) {
-                    icon = sfi.hIcon;
-                }
-                CoTaskMemFree(pidl);
-            }
-            if (!icon) return -1;
-        }
-        SHFILEINFOW sfi{};
-        if (!icon && !e.path.empty()) {
-            UINT flags = SHGFI_ICON | SHGFI_SMALLICON;
-            if (pin && pin->missing) flags |= SHGFI_USEFILEATTRIBUTES;  // the generic icon of its type
-            if (SHGetFileInfoW(e.path.c_str(), FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi), flags)) icon = sfi.hIcon;
-        }
-        if (!icon && !e.aumid.empty()) {
-            PIDLIST_ABSOLUTE pidl = nullptr;
-            if (SUCCEEDED(SHParseDisplayName((L"shell:AppsFolder\\" + e.aumid).c_str(), nullptr, &pidl, 0, nullptr))) {
-                if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi, sizeof(sfi),
-                                   SHGFI_PIDL | SHGFI_ICON | SHGFI_SMALLICON)) {
-                    icon = sfi.hIcon;
-                }
-                CoTaskMemFree(pidl);
-            }
-        }
-        if (!icon && SHGetFileInfoW(L".exe", FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi),
-                                    SHGFI_USEFILEATTRIBUTES | SHGFI_ICON | SHGFI_SMALLICON)) {
-            icon = sfi.hIcon;
-        }
+        HICON icon = SettingsItemIcon(pin, e, iconPx_);
         if (!icon) return -1;
         const int index = ImageList_AddIcon(images_, icon);  // scaled to the list's size if needed
         DestroyIcon(icon);
@@ -661,7 +623,7 @@ private:
         if (!list) return;
         static const std::vector<AppIdentity::ResolvedPin> kNone;
         const auto& pins = Host().pins ? Host().pins() : kNone;
-        const std::vector<DockItemEntry>& items = Cfg().Edit().items;
+        const std::vector<DockItemEntry>& items = Dock().items;
         SendMessageW(list, WM_SETREDRAW, FALSE, 0);
         ListView_DeleteAllItems(list);
         if (images_) ImageList_RemoveAll(images_);
@@ -765,17 +727,17 @@ private:
     // Pins the paths after the last pin (skipping apps already pinned) and selects the last new one.
     void PinPaths(const std::vector<std::wstring>& paths) {
         if (paths.empty() || !Host().pinFiles) return;
-        const size_t before = Cfg().Edit().PinCount();
+        const size_t before = Dock().PinCount();
         Host().pinFiles(paths);  // reloads the dock and saves
         Window().ConfigApplied();
-        const size_t after = Cfg().Edit().PinCount();
+        const size_t after = Dock().PinCount();
         FillList(after > before ? RowOfPin(after - 1) : Selected());
     }
 
     // Choose icon… / Choose image… for the pin in row `row` (not separators).
     void ChooseIcon(int row, bool image) {
         const size_t k = PinOfRow(row);
-        const std::vector<DockItemEntry> pinned = Cfg().Edit().Pins();
+        const std::vector<DockItemEntry> pinned = Dock().Pins();
         if (k >= pinned.size()) return;
         const DockItemEntry before = pinned[k];
         if (before.Kind() == ItemKind::Separator) return;
@@ -794,7 +756,7 @@ private:
         if (!ok) return;
         // The list may have changed while the dialog was open (a drag on the dock): only the
         // same entry at the same place gets the icon.
-        DockConfig& now = Cfg().Edit();
+        DockConfig& now = Dock();
         if (k >= now.PinCount()) return;
         DockItemEntry& e = now.PinAt(k);
         if (e.path != before.path || e.aumid != before.aumid || e.kind != before.kind) {
@@ -818,4 +780,56 @@ std::unique_ptr<SettingsPage> MakeAnimationPage(SettingsWindow& window) {
 
 std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window) {
     return std::make_unique<DockContentsPage>(window);
+}
+
+// The icon of a pin entry as the Dock contents list (and an Item window's header) shows it.
+HICON SettingsItemIcon(const AppIdentity::ResolvedPin* pin, const DockItemEntry& e, int px) {
+    const UINT iconSize = px > GetSystemMetrics(SM_CXSMICON) ? SHGFI_LARGEICON : SHGFI_SMALLICON;
+    const ItemKind special = e.Kind();
+    if (special == ItemKind::Separator) return nullptr;  // no icon: the name says "Separator"
+    if (special == ItemKind::Group && (!pin || pin->iconFile.empty())) return nullptr;  // the dock composes its icon
+    HICON icon = nullptr;
+    // The custom icon (or a shortcut's icon location) first: an image, else an icon resource.
+    if (pin && !pin->iconFile.empty()) {
+        if (IconUtil::IsImageFile(pin->iconFile)) {
+            icon = IconUtil::HiconFromImageFile(pin->iconFile, px);
+        } else {
+            SHDefExtractIconW(pin->iconFile.c_str(), pin->iconIndex, 0, &icon, nullptr,
+                              MAKELONG(px, px));
+        }
+    }
+    if (!icon && special == ItemKind::RecycleBin) {
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        SHFILEINFOW sfi{};
+        if (SUCCEEDED(SHGetKnownFolderIDList(FOLDERID_RecycleBinFolder, KF_FLAG_DEFAULT, nullptr, &pidl)) && pidl) {
+            if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi, sizeof(sfi),
+                               SHGFI_PIDL | SHGFI_ICON | iconSize)) {
+                icon = sfi.hIcon;
+            }
+            CoTaskMemFree(pidl);
+        }
+        if (!icon) return nullptr;
+    }
+    SHFILEINFOW sfi{};
+    if (!icon && !e.path.empty()) {
+        UINT flags = SHGFI_ICON | iconSize;
+        if (pin && pin->missing) flags |= SHGFI_USEFILEATTRIBUTES;  // the generic icon of its type
+        if (SHGetFileInfoW(e.path.c_str(), FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi), flags)) icon = sfi.hIcon;
+    }
+    if (!icon && !e.aumid.empty()) {
+        PIDLIST_ABSOLUTE pidl = nullptr;
+        if (SUCCEEDED(SHParseDisplayName((L"shell:AppsFolder\\" + e.aumid).c_str(), nullptr, &pidl, 0, nullptr))) {
+            if (SHGetFileInfoW(reinterpret_cast<LPCWSTR>(pidl), 0, &sfi, sizeof(sfi),
+                               SHGFI_PIDL | SHGFI_ICON | iconSize)) {
+                icon = sfi.hIcon;
+            }
+            CoTaskMemFree(pidl);
+        }
+    }
+    if (!icon && SHGetFileInfoW(L".exe", FILE_ATTRIBUTE_NORMAL, &sfi, sizeof(sfi),
+                                SHGFI_USEFILEATTRIBUTES | SHGFI_ICON | iconSize)) {
+        icon = sfi.hIcon;
+    }
+    if (!icon) return nullptr;
+    return icon;
 }

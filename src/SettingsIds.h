@@ -6,29 +6,44 @@
 // clickable caption next to them is a separate static (id + 1) that forwards clicks.
 namespace SettingsIds {
 
-// Frame (children of the WinDock.Settings window).
-inline constexpr int kNav = 100;        // WinDock.SettingsNav; window text = selected page name
-inline constexpr int kPageBase = 200;   // page windows: kPageBase + page index (see kPage*)
+// Frame (children of a WinDock.Settings window; round 5 phase B: three kinds of window, see
+// SettingsKind).
+inline constexpr int kNav = 100;        // Global: WinDock.SettingsNav; window text = selected page name
+inline constexpr int kPageBase = 200;   // page windows: kPageBase + page index (see kPage* / kTab* / kItemPage)
+inline constexpr int kHeader = 102;     // WinDock.SettingsBand: Global the subtitle line, Dock / Item the identity header (window text: its summary)
+inline constexpr int kTabs = 103;       // Dock: WinDock.SettingsTabs, the tab strip; window text = selected tab name
+inline constexpr int kFooter = 104;     // Item: WinDock.SettingsBand, the footer
+// Children of the header / footer bands.
+inline constexpr int kHeaderFlash = 110;    // Dock: "Flash this dock"
+inline constexpr int kHeaderLock = 111;     // Dock: "Lock dock" / "Unlock dock" (docks[].locked)
+inline constexpr int kHeaderGlobal = 112;   // Dock: SysLink "Global settings"
+inline constexpr int kHeaderDockLink = 113; // Item: SysLink "on <dock id>" (opens / activates the dock window)
+inline constexpr int kFooterReset = 114;    // Item (widget / clock / weather): "Reset to defaults"
+inline constexpr int kFooterConsole = 115;  // Item (widget): "Console…"
 
-// Page indices (nav order).
-inline constexpr int kPageGeneral = 0;
-inline constexpr int kPageAppearance = 1;
-inline constexpr int kPageBehaviour = 2;
-inline constexpr int kPageAnimation = 3;
-inline constexpr int kPagePinned = 4;   // "Dock contents" (was "Pinned apps")
-inline constexpr int kPageDockContents = kPagePinned;
-inline constexpr int kPageAbout = 5;
-inline constexpr int kPageWeather = 6;  // retired in round 5 phase A (per-item weather: the generated page); never listed
-inline constexpr int kPageDocks = 7;    // round 4 phase 3: the list of docks; picks the dock the other pages edit
-inline constexpr int kPageLayout = 8;   // round 4 phase 3b: the monitor canvas (drag the docks)
-inline constexpr int kPageWidgets = 9;  // round 4 phase 4b: installed widgets, Console, export
-inline constexpr int kPageWidgetSettings = 10;  // phase 4b: one widget item's settings, generated from its schema
-inline constexpr int kPageItemSettings = 11;   // round 4 phase 7: a folder / group item's settings
-inline constexpr int kPageTray = 12;           // round 4 phase 8: the notify icons (tray.enabled, the dock's tray item)
-inline constexpr int kPageNotifications = 13;  // round 4 phase 9: badges, the centre, balloons, access
-inline constexpr int kPageCalendar = 14;       // round 4 phase 13: the ICS feeds
-inline constexpr int kPageFolderWindow = 15;   // round 4 phase 12b: the folder window selected on the Docks page
-inline constexpr int kPageCount = 16;
+// Page indices of the Global window (nav order; round 5 phase B renumbered them).
+inline constexpr int kPageGeneral = 0;        // startup, taskbar, renderer, config file
+inline constexpr int kPageThemes = 1;         // the global theme (was Appearance)
+inline constexpr int kPageAppearance = kPageThemes;
+inline constexpr int kPageAnimation = 2;
+inline constexpr int kPageCalendar = 3;       // round 4 phase 13: the ICS feeds
+inline constexpr int kPageTray = 4;           // round 4 phase 8: the notify icons (tray.enabled, the selected dock's tray item)
+inline constexpr int kPageNotifications = 5;  // round 4 phase 9: badges, the centre, balloons, access
+inline constexpr int kPageWidgets = 6;        // "Widget library": installed widgets, Console, export
+inline constexpr int kPageDocks = 7;          // "Docks and displays": the monitor canvas and the list of docks
+inline constexpr int kPageLayout = kPageDocks;
+inline constexpr int kPageAbout = 8;
+inline constexpr int kPageCount = 9;
+// Tab indices of a Dock window (a folder window entry's window has the one page kTabFolderWindow).
+inline constexpr int kTabContents = 0;   // was the Dock contents page
+inline constexpr int kTabPosition = 1;
+inline constexpr int kTabBehaviour = 2;
+inline constexpr int kTabRunning = 3;
+inline constexpr int kTabTheme = 4;
+inline constexpr int kTabCount = 5;
+inline constexpr int kTabFolderWindow = 0;
+// The one page of an Item window (the generated schema page or Folders and groups).
+inline constexpr int kItemPage = 0;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -105,6 +120,18 @@ inline constexpr int kRotateIcons = 2173;    // check box (+ caption 2174)
 inline constexpr int kRotateIconsCaption = 2174;
 // 2175 - 2178: the clock face drop-down, Open faces folder and its note (round 4 phase 14 until
 // round 5 phase A: the clock item's generated page); reserved.
+// Round 5 phase B: the Position tab's circle centre (docks[].x / y; empty: centred) and sections,
+// the Global General page's config buttons.
+inline constexpr int kCircleXLabel = 2179;
+inline constexpr int kCircleXEdit = 2180;     // DIPs from the work area's left (empty: centred)
+inline constexpr int kCircleYLabel = 2181;
+inline constexpr int kCircleYEdit = 2182;     // DIPs from the work area's top (empty: centred)
+inline constexpr int kCircleNote = 2183;
+inline constexpr int kGeneralOpenConfig = 2184;    // = tray "Open config file"
+inline constexpr int kGeneralReloadConfig = 2185;  // = tray "Reload config"
+inline constexpr int kSectionDisplay = 2186;
+inline constexpr int kSectionShape = 2187;
+inline constexpr int kSectionConfigFile = 2188;
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;
@@ -199,6 +226,9 @@ inline constexpr int kEffectsNote = 2418;
 inline constexpr int kDockThemeLabel = 2419;
 inline constexpr int kDockThemeCombo = 2420;     // 0 "Same as all docks" (""), then the presets / theme files of kThemeCombo
 inline constexpr int kSectionFieldsBadges = 2421; // round 4 phase 9: "Notification badges" (badgeFill, badgeText, badgeSize)
+// Round 5 phase B: the Dock window's Theme tab (kDockThemeCombo, then these).
+inline constexpr int kDockThemeNote = 2422;
+inline constexpr int kDockThemeLink = 2423;      // SysLink: opens Global settings > Themes
 
 // One row per Theme::Field (Theme::Fields() order): id = FieldRow(field index, part).
 inline constexpr int kFieldRowBase = 3000;
@@ -272,20 +302,21 @@ inline constexpr int kLockDockCaption = 2615;
 // Weather (2700 - 2799): the Weather page until round 5 phase A (retired: each weather item's place
 // is a Place field of the generated page, 3610 - 3629); reserved.
 
-// Docks (2800 - 2899; round 4 phase 3)
-inline constexpr int kDocksList = 2800;       // SysListView32 (report): Id, Edge, Display, Windows; one row per docks[]; the selected row is the dock the other pages edit
+// Docks and displays (2800 - 2999; round 4 phase 3 Docks + 3b Layout, one page since round 5 phase B)
+inline constexpr int kDocksList = 2800;       // SysListView32 (report): Id (with the dock's colour dot), Edge, Display, Windows; one row per docks[]; the selected row is the dock the Tray / Notifications pages are about
 inline constexpr int kDockAdd = 2801;         // "Add dock" (bottom, primary display, running apps + clock)
 inline constexpr int kDockDuplicate = 2802;   // copies the selected dock (new id)
 inline constexpr int kDockRemove = 2803;      // removes the selected dock (disabled for the last one)
 inline constexpr int kDocksNote = 2804;
-inline constexpr int kDockEditing = 2805;     // "The other pages edit: <id>"
+// 2805: "The other pages edit: <id>" until round 5 phase B (the canvas's kLayoutSelected line says it); reserved.
 inline constexpr int kLockAllDocks = 2806;    // "Lock all docks" (= DockCommand 124)
 inline constexpr int kUnlockAllDocks = 2807;  // "Unlock all docks" (= DockCommand 125)
 inline constexpr int kDockAddFolder = 2808;   // "Add folder window…" (= DockCommand 139: a folder picker; round 4 phase 12)
-inline constexpr int kDockFolderSettings = 2809;  // "Folder window settings…": the Folder window page (enabled for a folder window row; 12b)
+// 2809: "Folder window settings…" until round 5 phase B (kDocksOpen opens a folder window's own window); reserved.
+inline constexpr int kDocksOpen = 2810;       // "Open dock settings" / "Open window settings" (the selected row's own window; = a double click)
 
-// Layout (2900 - 2999; round 4 phase 3b)
-inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation)
+// The canvas (round 4 phase 3b)
+inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation); a click selects the row, a double click opens the dock's window
 inline constexpr int kLayoutNote = 2901;
 inline constexpr int kLayoutSelected = 2902;  // the selected dock and where a drop would put it
 
@@ -303,10 +334,9 @@ inline constexpr int kWidgetsStatus = 3508;    // the last action's result ("Exp
 // Widget settings (3600 - 3999; phase 4b). The fixed controls, then per schema field k
 // (widget.json "settings" order) 3700 + 10 * k + part: 0 label, 1 the control (check box, edit,
 // drop-down), 2 its caption (check box) or up-down (int), 3 the field's note.
-inline constexpr int kWidgetPickLabel = 3600;
-inline constexpr int kWidgetPick = 3601;       // drop-down: the dock's widget, clock and weather items ("Kind: detail (item n)")
+// 3600 / 3601: the item picker until round 5 phase B (the Item window is the item); reserved.
 inline constexpr int kWidgetSettingsNote = 3602;
-inline constexpr int kWidgetReset = 3603;      // "Reset to defaults" (removes the item's settings)
+inline constexpr int kWidgetReset = 3603;      // "Reset to defaults" (since phase B the footer's kFooterReset; the page handles this id)
 // Round 5 phase A: the controls of a Place field (the first one of the schema: the weather item's
 // place, the script weather widget's own) and the clock's extra button.
 inline constexpr int kPlaceSearchLabel = 3610;
@@ -330,9 +360,8 @@ inline constexpr int kClockFacesFolder = 3627;    // a clock item: "Open faces f
 inline constexpr int kWidgetFieldBase = 3700;
 inline constexpr int kWidgetFieldMax = 30;     // fields shown per widget
 
-// Folders and groups (4000 - 4099; round 4 phase 7): the selected folder / group item of the edited dock.
-inline constexpr int kItemPickLabel = 4000;
-inline constexpr int kItemPick = 4001;         // drop-down: the dock's folder (and group) items ("Folder: Name (item n)")
+// Folders and groups (4000 - 4099; round 4 phase 7): the Item window's folder / group item.
+// 4000 / 4001: the item picker until round 5 phase B; reserved.
 inline constexpr int kItemViewLabel = 4002;
 inline constexpr int kItemViewCombo = 4003;    // 0 automatic, 1 grid, 2 list (the item's `view`)
 inline constexpr int kItemViewNote = 4004;
@@ -374,6 +403,7 @@ inline constexpr int kTrayGridSection = 4118;
 inline constexpr int kTrayGridNote = 4119;
 inline constexpr int kTrayIconsNote = 4120;
 inline constexpr int kTrayResetNote = 4121;
+inline constexpr int kTrayDockLine = 4122;      // round 5 phase B: which dock the tray item settings are about
 
 // Notifications (4200 - 4299; round 4 phase 9): the edited dock's badges / centre, config.notifications.
 inline constexpr int kNotifBadges = 4200;          // check box: docks[].badges (+ caption 4201)
@@ -399,6 +429,7 @@ inline constexpr int kNotifDndNote = 4219;
 inline constexpr int kNotifAppsSection = 4220;
 inline constexpr int kNotifAppList = 4221;         // SysListView32 (report, check boxes): App, Unread, Key; unchecked = in notifications.excluded
 inline constexpr int kNotifAppsNote = 4222;
+inline constexpr int kNotifDockLine = 4223;        // round 5 phase B: which dock the badge / centre check boxes are about
 
 // Calendar (4300 - 4399; round 4 phase 13): config.calendars.
 inline constexpr int kCalFeedList = 4300;       // SysListView32 (report, check boxes): Name, URL, Every, Status; checked = enabled
@@ -437,8 +468,8 @@ inline constexpr int kCalDefaultReminderSpin = 4331;
 inline constexpr int kCalDefaultReminderUnit = 4332;
 inline constexpr int kCalReminderNote = 4333;
 
-// Folder window (4400 - 4499; round 4 phase 12b): config.Edit() when it is a folder window.
-inline constexpr int kFwInfo = 4400;            // which folder window (or "select one on the Docks page")
+// Folder window (4400 - 4499; round 4 phase 12b): the folder window entry's own window.
+inline constexpr int kFwInfo = 4400;            // which folder window
 inline constexpr int kFwFolderSection = 4401;
 inline constexpr int kFwPathLabel = 4402;
 inline constexpr int kFwPathEdit = 4403;        // folder.path (commit on Enter / focus loss)

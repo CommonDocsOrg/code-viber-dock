@@ -20,13 +20,13 @@ enum Command : UINT {
     kRestoreTaskbar,  // show the taskbar for this session (unchecks "Hide taskbar"; config unchanged)
     kQuit,
     kReloadConfig,
-    kOpenSettings = 107,  // opens (or activates) the settings window
+    kOpenSettings = 107,  // opens (or activates) the Global settings window ("Global settings…")
     kAutoHideOff = 108,
     kAutoHideAlways = 109,
     kAutoHideIntelligent = 110,
     kRefreshWeather = 111,  // fetches the weather now
     kAddSeparator = 112,  // appends a separator item to the pinned list
-    kWeatherSettings = 113,     // opens the settings window on the Weather page
+    kWeatherSettings = 113,     // the dock's first weather item's settings window (none: the dock's window)
     kToggleCalendar = 114,      // shows / hides the month calendar over the clock
     kToggleWeatherPopup = 115,  // shows / hides the forecast popup over the weather widget
     kLockDock = 116,            // toggles docks[].locked of the dock the menu / message is for
@@ -58,8 +58,11 @@ enum Command : UINT {
     // Widgets (round 4 phase 14):
     kInstallWidgetFolder = 141,  // automation: Settings > Widgets > Add from folder… for the path in the global atom LOWORD(lParam)
     // Round 5 phase A:
-    kItemSettings = 142,        // automation: the settings of item LOWORD(lParam) of dock HIWORD(lParam) (App::OpenItemSettings)
-    kLastDockCommand = kItemSettings,
+    kItemSettings = 142,        // automation: the settings window of item LOWORD(lParam) of dock HIWORD(lParam) (App::OpenItemSettings)
+    // Round 5 phase B:
+    kDockSettings = 143,        // "Dock settings…": the settings window of dock HIWORD(lParam) (the dock whose menu it is)
+    kFlashDock = 144,           // "Flash this dock": dock HIWORD(lParam) reveals and pulses its border in its colour (~1.5 s)
+    kLastDockCommand = kFlashDock,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -120,6 +123,8 @@ enum Command : UINT {
     kFolderCopy = 851,          // 12b: Ctrl+C on the selection (the shell data object, "Preferred DropEffect" copy)
     kFolderCut = 852,           // Ctrl+X (a move when pasted)
     kFolderPaste = 853,         // Ctrl+V: the clipboard's files into the folder
+    // Round 5 phase B: "Settings…" of a widget / clock / weather / folder / group slot (its Item window).
+    kOpenItemSettings = 854,
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
@@ -139,6 +144,9 @@ struct TrayMenuState {
     bool hasWidgets = false;        // some dock shows a script widget: Reload widgets
     bool hasTray = false;           // the dock has a tray item (Add widget > Tray greyed)
     bool hasNotifications = false;  // the dock has a notifications item (Add widget > Notification centre greyed)
+    // The dock menu opened over a widget / clock / weather slot: its "<name> settings…" entry
+    // (kOpenItemSettings) at the top; empty: none.
+    std::wstring itemSettings;
 };
 
 // Shows the dock/tray menu at a screen point and returns the chosen Command (kNone if dismissed).
@@ -161,8 +169,8 @@ struct ItemMenuState {
 // entries (pinned apps only), New window (Open when not running), Open file location, one
 // "Close <title>" entry per window (kCloseWindowBase + index), "Close all windows" when there
 // are several. Folders: the name, Unpin, the icon entries, Open in Explorer, View (Automatic /
-// Grid / List). Groups: the name, Show contents, Rename…, Ungroup, Unpin group (with its members),
-// the icon entries, View. Separators: Remove.
+// Grid / List), Settings… (its Item window). Groups: the name, Show contents, Rename…, Ungroup,
+// Unpin group (with its members), the icon entries, View, Settings…. Separators: Remove.
 // The Recycle Bin: Open, Empty Recycle Bin, Unpin, the icon entries. The icon entries: Choose
 // icon…, Choose image…, Reset icon.
 UINT ShowItemMenu(HWND owner, POINT screenPt, const std::wstring& appName, const std::vector<std::wstring>& windowTitles,

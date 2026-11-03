@@ -17,8 +17,8 @@
 // What a settings change affects; the host applies it to the dock, then saves (debounced).
 enum class SettingsScope {
     Appearance,  // sizes, magnification, theme, clock, monitor: DockWindow::ApplyConfig
-    AutoHide,    // config.Edit().autoHide: DockWindow::ApplyAutoHide
-    Pins,        // the items of config.Edit() (Dock contents): DockWindow::ReloadPins
+    AutoHide,    // the window's dock's autoHide: DockWindow::ApplyAutoHide
+    Pins,        // the items of the window's dock (Contents, an Item window): DockWindow::ReloadPins
     Taskbar,     // config.hideTaskbar: TaskbarController::SetEnabled
     Autostart,   // config.startWithWindows: the HKCU Run value
     Weather,     // the weather items / config.weather: DockWindow::ApplyWeather (the services follow)
@@ -27,7 +27,7 @@ enum class SettingsScope {
     SaveOnly,    // read from the config when used (delays, renderer): just save
 };
 
-// Docks page edits of config.docks (SettingsHost::editDocks).
+// Docks and displays page edits of config.docks (SettingsHost::editDocks).
 // TrayDock (8b): a new dock holding only a tray item at the bottom right (the edited dock's tray
 // item moves into it), the takeover turned on.
 enum class SettingsDockEdit { Add, Duplicate, Remove, TrayDock };
@@ -67,18 +67,30 @@ struct SettingsCalendarFeed {
     std::wstring status;  // "Updated 10:15, 42 events", "Error: HTTP 404; retry in 2 min", "Off"
 };
 
-// Everything the settings window may use of the app, so it never sees App internals. "The dock"
-// below is config.Edit() (config.editDock, chosen on the Docks page): its first window.
+// Everything a settings window may use of the app, so it never sees App internals. App binds one
+// host per window (round 5 phase B): "the dock" below is the window's own dock (SettingsWindow::
+// DockIndex(), looked up by id each time; the Global window: the dock selected on its Docks and
+// displays page), its first window.
 struct SettingsHost {
     Config* config = nullptr;                              // &App::config_, edited in place (stable address)
-    std::function<void(SettingsScope)> changed;
+    // A setting changed: App applies it and saves. `dock` is the config dock it is about (the
+    // window's dock unless the page says otherwise, SettingsPage::ChangedFor).
+    std::function<void(SettingsScope, size_t dock)> changed;
     std::function<const std::vector<AppIdentity::ResolvedPin>&()> pins;
     std::function<void(const std::vector<std::wstring>&)> pinFiles;  // App::PinFiles(paths, end)
-    std::function<void(UINT)> command;                     // App::OnCommand (ContextMenu ids)
+    std::function<void(UINT)> command;                     // App::OnCommand (ContextMenu ids) for the dock
     std::function<bool()> usingWarp;
     std::function<RECT()> dockMonitor;
     std::function<UINT()> dockDpi;
-    std::function<void(bool)> keepDockShown;               // DockWindow::SetKeepShown
+    // The window became the active window (true; not while minimized) or stopped being it / is
+    // destroyed (false). App keeps a dock shown while its own dock or item window is active.
+    std::function<void(bool active)> activated;
+    // Round 5 phase B: the other windows.
+    std::function<void(size_t dock, int tab)> openDock;     // a config dock's (or folder window's) own window (tab < 0: as it is)
+    std::function<void(size_t dock, size_t item)> openItem; // an item's own window (App::OpenItemSettings)
+    std::function<void(int page)> openGlobal;               // the Global window (page < 0: as it is)
+    std::function<void()> flashDock;                        // "Flash this dock" (DockWindow::Flash)
+    std::function<RECT()> anchor;                           // an Item window: its dock's window (empty: not open)
     // Beyond the plan's interface:
     std::function<RECT()> dockBar;            // the dock's bar at rest (screen px): stay above it
     std::function<bool()> taskbarHidden;      // the taskbar controller is enabled (session state)
@@ -94,8 +106,9 @@ struct SettingsHost {
     std::function<bool(const std::wstring& query,
                        std::function<void(const std::vector<WeatherService::Place>&, const std::wstring& error)> done)>
         geocode;
-    // Docks page. Adds a dock (index ignored), duplicates / removes docks[index] (never the last
-    // one); the app re-syncs the dock windows and saves. False if refused.
+    // Docks and displays page. Adds a dock (index ignored; appended), duplicates (inserted after
+    // it) / removes docks[index] (never the last one); the app re-syncs the dock windows, closes
+    // the windows of a removed dock, refreshes every settings window and saves. False if refused.
     std::function<bool(SettingsDockEdit, size_t index)> editDocks;
     // The dock windows of docks[index] (0: parked, its monitor is not connected).
     std::function<int(size_t index)> dockWindows;
@@ -113,6 +126,17 @@ struct SettingsHost {
 
 class SettingsWindow;
 class SettingsPreview;
+
+// The three kinds of settings window (round 5 phase B), each a top-level WinDock.Settings window:
+// Global (at most one: a nav column of the pages that apply to every dock), Dock (one per config
+// dock id, a folder window entry included: an identity header and a tab strip of that dock's
+// pages) and Item (one per (dock, item): a header, the item's one page and a footer).
+enum class SettingsKind { Global, Dock, Item };
+
+// "Bottom" ... and "Primary" / "Display 2" / "Every display", as the Docks and displays list
+// shows them (SettingsBands.cpp).
+const wchar_t* SettingsEdgeName(DockEdge edge);
+std::wstring SettingsDisplayName(int monitor);
 
 // What a control is: decides its font, colours and visual-style class.
 enum class CtlKind {
@@ -172,7 +196,6 @@ public:
 
 protected:
     friend class SettingsWindow;
-class SettingsPreview;
 
     // --- content (SettingsPages.cpp) ---
     // Fills the control table with the builders below. Called once, before the controls exist.
@@ -201,7 +224,8 @@ class SettingsPreview;
     virtual void OnNotificationsChanged() {}
     // The calendar feeds' status changed (SettingsWindow::CalendarChanged).
     virtual void OnCalendarChanged() {}
-    // SettingsWindow::ShowWidgetSettings: the item (of the edited dock) the page is about to show.
+    // An Item window's page: the item (an index into the window's dock's items) it shows; called
+    // before the first Build and when App re-points the window (the item moved).
     virtual void SelectItem(int /*item*/) {}
 
     // --- layout table builders (DIPs; the cursor y_ moves down row by row) ---
@@ -238,8 +262,14 @@ class SettingsPreview;
     Config& Cfg();
     SettingsHost& Host();
     SettingsWindow& Window() { return window_; }
+    // The window's dock (SettingsWindow::Dock / DockIndex).
+    DockConfig& Dock();
+    size_t DockIndex() const;
     bool Loading() const;
+    // Tells the host (about the window's dock) and repaints the preview.
     void Changed(SettingsScope scope);
+    // ... about config dock `dock` (a page of the Global window editing another dock).
+    void ChangedFor(SettingsScope scope, size_t dock);
     void SetText(int id, const std::wstring& text);
     std::wstring GetText(int id) const;
     void SetCheck(int id, bool checked);
@@ -266,47 +296,81 @@ private:
     int scrollPx_ = 0;
 };
 
-// The settings window (WinDock.Settings): a fixed-size top-level window with a navigation column
-// (WinDock.SettingsNav, Mica behind it where available) and one page visible at a time on a solid
-// content layer. Nothing of it exists while it is closed: no timers, fonts, brushes or windows.
+// A settings window (WinDock.Settings; round 5 phase B: one of three kinds, SettingsKind): a
+// fixed-size top-level window showing one page at a time on a solid content layer. Global: a
+// navigation column (WinDock.SettingsNav, Mica behind it where available) and a subtitle band;
+// Dock: an identity header (WinDock.SettingsBand) and a tab strip (WinDock.SettingsTabs); Item: a
+// header, the one page and a footer. Windows share nothing but the Config: each finds its dock by
+// id every time (DockIndex) and an Item window its item by index (App re-points it). Nothing of a
+// window exists while it is closed: no timers, fonts, brushes or windows.
 class SettingsWindow {
 public:
     static constexpr wchar_t kClassName[] = L"WinDock.Settings";
     static constexpr wchar_t kNavClassName[] = L"WinDock.SettingsNav";
     static constexpr wchar_t kPageClassName[] = L"WinDock.SettingsPage";
+    static constexpr wchar_t kBandClassName[] = L"WinDock.SettingsBand";
+    static constexpr wchar_t kTabsClassName[] = L"WinDock.SettingsTabs";
 
-    explicit SettingsWindow(SettingsHost host);
+    // `dock`: the config dock id (Global: the dock its Docks and displays page selects first);
+    // `item`: an Item window's index into that dock's items.
+    SettingsWindow(SettingsHost host, SettingsKind kind, std::wstring dock, size_t item = SIZE_MAX);
     ~SettingsWindow();
     SettingsWindow(const SettingsWindow&) = delete;
     SettingsWindow& operator=(const SettingsWindow&) = delete;
 
-    // Creates and shows the window (centred on the dock's monitor, above the bar) and activates
-    // it. Returns false if the window could not be created.
+    // Creates and shows the window (Global / Dock: centred on the dock's monitor, above its bar;
+    // Item: 40 DIPs right / down of its dock's window, else like a Dock window) and activates it.
+    // Returns false if the window could not be created.
     bool Create(HINSTANCE instance);
     // Restores (if minimized) and activates the existing window.
     void Activate();
     HWND Hwnd() const { return hwnd_; }
-    // Keyboard navigation (IsDialogMessage) for messages to this window or its children.
-    // Returns true if the message was handled (do not translate / dispatch it).
+    // Keyboard navigation (IsDialogMessage; Ctrl+Tab / Ctrl+Shift+Tab: the next / previous page)
+    // for messages to this window or its children. Returns true if the message was handled.
     bool PreTranslateMessage(MSG& msg);
-    // Reloads every control from *host.config (after tray toggles, Reload config).
+    // Reloads every control from *host.config (after tray toggles, Reload config) and the header.
     void Refresh();
-    // Selects a page (SettingsIds::kPage*), as a click in the nav column would.
+    // Selects a page (Global: SettingsIds::kPage*, Dock: kTab*), as a click in the nav / tabs would.
     void ShowPage(int index);
+    int ActivePageIndex() const { return active_; }
     // The dock's weather data / status changed: pages update what shows it (no config reload).
     void WeatherChanged();
     // The notification list or service state changed: the Notifications page's status line.
     void NotificationsChanged();
     // The calendar feeds' data / status changed: the Calendar page's status column.
     void CalendarChanged();
-    // Settings > Widget settings for item `item` of the edited dock (a `widget`, `clock` or
-    // `weather` item: the page generated from its schema).
-    void ShowWidgetSettings(int item);
-    // Settings > Folders and groups for item `item` of the edited dock (a folder or group item).
-    void ShowItemSettings(int item);
     // A page whose controls depend on the config (the generated widget settings page) builds its
     // table again: posted, so a page may ask from inside its own notification.
     void RequestRebuild(const SettingsPage& page);
+
+    // --- the target ---
+    SettingsKind Kind() const { return kind_; }
+    const std::wstring& DockId() const { return dockId_; }
+    // The window's config dock (by id; SIZE_MAX: it is gone, App closes the window; the Global
+    // window falls back to docks[0]).
+    size_t DockIndex() const;
+    // That dock (a gone dock: a scratch entry nobody reads).
+    DockConfig& Dock();
+    // A Dock window of a folder window entry (round 4 phase 12: only the Folder window page).
+    bool IsFolderWindow() const;
+    // The Global window: the dock its Docks and displays / Tray / Notifications pages are about.
+    void SelectDock(const std::wstring& id);
+    // An Item window's item: its index, the entry (null: out of range).
+    size_t ItemIndex() const { return item_; }
+    DockItemEntry* TargetItem();
+    // App: the item moved to index `item` (its pages show it there; nothing else changes).
+    void Retarget(size_t item);
+    // App: what the Item window's item looked like after the last change, and how many items its
+    // dock had then (re-finding the item after the dock's items changed).
+    const DockItemEntry& ItemCopy() const { return itemCopy_; }
+    size_t ItemCountCopy() const { return itemCount_; }
+    void SetItemCopy(const DockItemEntry& entry, size_t count) {
+        itemCopy_ = entry;
+        itemCount_ = count;
+    }
+    // The title bar, the caption / border colour, the header and the tab strip follow the config
+    // (the dock's id, edge, display, items, lock; the item's name and place).
+    void UpdateIdentity();
 
     // --- for pages ---
     SettingsHost& Host() { return host_; }
@@ -316,19 +380,29 @@ public:
     const DarkMode::Palette& Colors() const { return palette_; }
     // A setting was applied to the dock: repaint the preview strip.
     void ConfigApplied();
-    static constexpr int ContentWidthDip() { return kWidthDip - kNavWidthDip; }
+    // The pages' width in DIPs (the client width less the nav column).
+    int ContentWidthDip() const { return ClientDip().cx - (kind_ == SettingsKind::Global ? kNavWidthDip : 0); }
+    // The dock's identity colour (Config::DockColor) as a COLORREF.
+    COLORREF DockColor() const;
 
 private:
     friend class SettingsPage;
 
-    static constexpr int kWidthDip = 760;     // client size
-    static constexpr int kHeightDip = 560;
+    // Client sizes in DIPs: Global 760 x 560, Dock 860 x 620, Item 480 x 560.
+    SIZE ClientDip() const;
     static constexpr int kNavWidthDip = 200;
     static constexpr int kNavTopDip = 12;
     static constexpr int kNavItemDip = 36;
-    static constexpr int kAboveBarDip = 24;   // gap between the window and the dock's bar
-    // The dock preview strip (SettingsPreview) under every page, content-pane wide.
+    static constexpr int kAboveBarDip = 24;    // gap between the window and the dock's bar
+    static constexpr int kItemOffsetDip = 40;  // an Item window from its dock's window
+    // The dock preview strip (SettingsPreview) under the Global Themes / Animation pages and every
+    // tab of a Dock window, content-pane wide.
     static constexpr int kFooterDip = 96;
+    static constexpr int kSubtitleDip = 34;     // Global: the subtitle band over the pages
+    static constexpr int kDockHeaderDip = 128;  // Dock: the identity header
+    static constexpr int kItemHeaderDip = 88;   // Item: the header
+    static constexpr int kTabsDip = 42;         // Dock: the tab strip
+    static constexpr int kItemFooterDip = 52;   // Item: the footer
     // Set to false to drop the Mica nav column (frame extension) if a driver misbehaves: the
     // nav column is then painted solid, as when transparency effects are off.
     static constexpr bool kNavMica = true;
@@ -337,9 +411,13 @@ private:
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
     static LRESULT CALLBACK NavProcThunk(HWND, UINT, WPARAM, LPARAM);
     static LRESULT CALLBACK PageProcThunk(HWND, UINT, WPARAM, LPARAM);
+    static LRESULT CALLBACK BandProcThunk(HWND, UINT, WPARAM, LPARAM);
+    static LRESULT CALLBACK TabsProcThunk(HWND, UINT, WPARAM, LPARAM);
     LRESULT WndProc(UINT msg, WPARAM wp, LPARAM lp);
     LRESULT NavProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     LRESULT PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM lp);
+    LRESULT BandProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+    LRESULT TabsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
 
     static bool RegisterClasses(HINSTANCE instance);
     RECT InitialRect() const;
@@ -353,28 +431,52 @@ private:
     void DestroyFonts();
     void CreateBrushes();
     void DestroyBrushes();
+    COLORREF BandColorFor() const;
     void UpdateIcons();
     void DestroyIcons();
     // Dark / light, high contrast, Mica, palette, control themes; repaints everything.
     void ApplyTheme();
     void ApplyBackdrop();
+    // DWMWA_CAPTION_COLOR / DWMWA_BORDER_COLOR / DWMWA_TEXT_COLOR in the dock's colour (Dock and
+    // Item windows; Windows 11, failures ignored).
+    void ApplyCaptionColor();
     void Layout();
     void LayoutPage(SettingsPage& page);
     void ScrollPage(SettingsPage& page, int px);
     void EnsureVisible(HWND control);
     void SelectPage(int index);
+    // The preview strip shows under page `index`.
+    bool PreviewOn(int index) const;
+    // Where the keyboard focus goes when nothing in a page has it: the nav column / the tab strip
+    // / the page's first control.
+    HWND DefaultFocus() const;
     int CheckGlyphPx(bool radio) const;
     SettingsPage* ActivePage() const;
     SettingsPage* PageOf(HWND control) const;
     void OnEnterKey();
 
-    // Nav pane (SettingsNav.cpp)
+    // Nav pane and tab strip (SettingsNav.cpp)
     static bool FocusCuesHidden(HWND hwnd);
     RECT NavItemRect(int index) const;
     // The next listed page from `from` in direction `step` (+1 / -1); `from` when there is none.
     int NavStep(int from, int step) const;
     int NavHitTest(POINT pt) const;
     void PaintNav(HWND hwnd, HDC hdc);
+    RECT TabRect(int index) const;  // tab strip client px
+    int TabHitTest(POINT pt) const;
+    void PaintTabs(HWND hwnd, HDC hdc);
+    // Header / footer bands (SettingsBands.cpp). The header before the pages, the footer after them
+    // (the tab order follows the creation order).
+    void CreateBands(bool footer);
+    void LayoutBands();
+    void PaintBand(HWND hwnd, HDC hdc);
+    void OnBandCommand(int id);
+    // The header's chips and summary: "Bottom edge", "Primary", "5 items", "Shown".
+    std::vector<std::wstring> HeaderChips();
+    std::wstring WindowTitle();
+    std::wstring ItemName();
+    // The item's icon for the header (the same source as the Dock contents list; null: a letter tile).
+    void UpdateItemIcon();
     // Page colours
     LRESULT CtlColor(UINT msg, HDC hdc, HWND control, const SettingsPage& page);
     void DrawCaption(const SettingsPage& page, const DRAWITEMSTRUCT& di);
@@ -385,31 +487,51 @@ private:
     void StyleChanged();
 
     SettingsHost host_;
+    SettingsKind kind_ = SettingsKind::Global;
+    std::wstring dockId_;
+    size_t item_ = SIZE_MAX;
+    DockItemEntry itemCopy_;
+    size_t itemCount_ = 0;
+    DockConfig scratch_;  // Dock() of a window whose dock is gone (until App closes it)
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
-    HWND nav_ = nullptr;
+    HWND nav_ = nullptr;     // Global
+    HWND tabs_ = nullptr;    // Dock with more than one page
+    HWND header_ = nullptr;  // every kind (Global: the subtitle)
+    HWND footer_ = nullptr;  // Item
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
     std::vector<std::unique_ptr<SettingsPage>> pages_;
     std::unique_ptr<SettingsPreview> preview_;  // the strip under the pages; freed with the window
     int active_ = 0;
     int navHot_ = -1;
     bool navTracking_ = false;
+    int tabHot_ = -1;
+    bool tabsTracking_ = false;
     HWND lastFocus_ = nullptr;
     bool loading_ = false;
     bool mica_ = false;        // Mica behind the caption and the nav column (frame extended)
-    bool darkPopups_ = false;  // DarkMode::TryEnableDarkPopups succeeded (undone on close)
+    bool darkPopups_ = false;  // DarkMode::TryEnableDarkPopups succeeded (undone when the last window closes)
 
     DarkMode::Palette palette_;
+    COLORREF bandColor_ = 0;       // the header / footer background
     HFONT font_ = nullptr;         // message font
     HFONT fontSemibold_ = nullptr; // section headers
-    HFONT fontTitle_ = nullptr;    // page titles
+    HFONT fontTitle_ = nullptr;    // page titles, the header's id / name
     HFONT fontIcons_ = nullptr;    // nav glyphs (Segoe Fluent Icons / MDL2 Assets); null if absent
     HBRUSH layerBrush_ = nullptr;
     HBRUSH baseBrush_ = nullptr;
     HBRUSH controlBrush_ = nullptr;
+    HBRUSH bandBrush_ = nullptr;
     HICON iconSmall_ = nullptr;
     HICON iconBig_ = nullptr;
+    HICON itemIcon_ = nullptr;     // Item: the header's icon (null: a letter tile)
+    DockItemEntry iconFor_;        // the entry itemIcon_ was made for
+    bool iconValid_ = false;
+    UINT iconDpi_ = 0;
+    std::wstring widgetLine_;      // Item (a widget): "id · version"
+    std::wstring widgetLineFor_;   // the widget id it was read for
 };
 
-// The pages in nav order (SettingsPages.cpp); index = SettingsIds::kPage*.
+// The pages of a window (SettingsPages.cpp): Global in nav order (SettingsIds::kPage*), Dock in tab
+// order (kTab*; a folder window entry: its one page), Item: its one page (kItemPage).
 std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& window);

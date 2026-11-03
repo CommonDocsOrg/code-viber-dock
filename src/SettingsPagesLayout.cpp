@@ -1,10 +1,13 @@
-// The Layout page: a scaled drawing of every monitor (its work area shaded) with every dock on its
-// edge, labelled with its id (and title). Click a dock to make it the one the other pages edit;
-// drag it along its edge (it snaps to the start / centre / end like Ctrl+drag on the dock), onto
-// another edge or onto another monitor. A drop applies at once and saves (edge, align, offset,
-// monitor). Owner-drawn with GDI in the palette colours; it repaints only when something changed.
+// The Docks and displays page of the Global window (round 5 phase B: the Docks list and the Layout
+// canvas of round 4 on one page). The canvas: a scaled drawing of every monitor (its work area
+// shaded) with every dock on its edge in the dock's colour, labelled with its id (and title).
+// Click a dock to select it (and its row), double-click it to open its own window; drag it along
+// its edge (it snaps to the start / centre / end like Ctrl+drag on the dock), onto another edge or
+// onto another monitor. A drop applies at once and saves (edge, align, offset, monitor).
+// Owner-drawn with GDI in the palette colours; it repaints only when something changed.
 
 #include <windows.h>
+#include <commctrl.h>
 #include <shellscalingapi.h>
 #include <windowsx.h>
 
@@ -14,6 +17,7 @@
 #include <string>
 #include <vector>
 
+#include "ContextMenu.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
 
@@ -22,7 +26,13 @@ namespace {
 using namespace SettingsIds;
 
 constexpr wchar_t kCanvasClass[] = L"WinDock.LayoutCanvas";
-constexpr int kCanvasH = 300;          // DIPs
+constexpr int kCanvasH = 230;          // DIPs
+constexpr int kListH = 132;            // the list of docks
+constexpr int kIdColDip = 170;
+constexpr int kEdgeColDip = 110;
+constexpr int kDisplayColDip = 130;
+constexpr int kButtonW = 122;
+constexpr int kButtonStep = 130;
 constexpr float kMarginDip = 8.0f;     // the dock's distance from the monitor edge (DockWindow kBottomMargin)
 constexpr float kSnapDip = 24.0f;      // snaps to the centre / an end this close (DockWindow kDockSnapDip)
 
@@ -122,15 +132,39 @@ private:
     Target target_;
 };
 
+// Global > Docks and displays (round 5 phase B: the Docks list of round 4 phase 3 and the Layout
+// canvas of 3b on one page). The canvas on top, the list of docks (with each dock's colour dot)
+// under it. The selected row (= the dock clicked on the canvas) is the dock the Tray and
+// Notifications pages are about (SettingsWindow::SelectDock); a double click on the canvas or the
+// list, or Open dock settings, opens that dock's own window.
 class LayoutPage : public FormPage {
 public:
-    explicit LayoutPage(SettingsWindow& w) : FormPage(w, L"Layout", L'\xE7F4'), canvas_(*this) {}
+    explicit LayoutPage(SettingsWindow& w) : FormPage(w, L"Docks and displays", L'\xE7F4'), canvas_(*this) {}
+    ~LayoutPage() override {
+        if (images_) ImageList_Destroy(images_);  // LVS_SHAREIMAGELISTS: the list never frees it
+    }
 
     Config& Config_() { return Cfg(); }
     SettingsWindow& Win() { return Window(); }
     SettingsHost& HostRef() { return Host(); }
     void Apply() { Changed(SettingsScope::Appearance); }
     void SetSelectedText(const std::wstring& text) { SetText(kLayoutSelected, text); }
+    // The selected config dock (the window's dock).
+    size_t SelectedCfg() const { return const_cast<LayoutPage*>(this)->DockIndex(); }
+    // Selects config dock `cfg` (every page of the window follows when `refresh`).
+    void SelectCfg(size_t cfg, bool refresh = true) {
+        Config& c = Cfg();
+        if (cfg >= c.docks.size() || cfg == SelectedCfg()) return;
+        Window().SelectDock(c.docks[cfg].id);
+        if (refresh) {
+            Window().Refresh();  // the Tray / Notifications pages and this list and canvas
+            Window().ConfigApplied();
+        }
+    }
+    // Its own window (a dock's or a folder window's).
+    void OpenCfg(size_t cfg) {
+        if (Host().openDock && cfg < Cfg().docks.size()) Host().openDock(cfg, -1);
+    }
 
 protected:
     void Build() override {
@@ -141,31 +175,242 @@ protected:
             wc.hInstance = GetModuleHandleW(nullptr);
             wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
             wc.lpszClassName = kCanvasClass;
-            wc.style = CS_HREDRAW | CS_VREDRAW;
+            wc.style = CS_HREDRAW | CS_VREDRAW | CS_DBLCLKS;
             registered = RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
         }
         const int right = Width() - kMargin;
-        Title(L"Layout");
+        Title(L"Docks and displays");
         Add(kLayoutCanvas, CtlKind::Custom, kCanvasClass, L"", WS_TABSTOP, RECT{kMargin, y_, right, y_ + kCanvasH});
-        NextRow(kCanvasH + 8);
+        NextRow(kCanvasH + 6);
         Text(kLayoutSelected, CtlKind::Value, L"", kMargin, right - kMargin, 22);
         NextRow(26);
-        Text(kLayoutNote, CtlKind::Note,
-             L"Every display with its docks (the shaded part is its work area). Click a dock to edit it on the other "
-             L"pages; drag it along its edge (it snaps to the centre and the ends), onto another edge or onto "
-             L"another display. The dock moves when you let go.",
-             kMargin, right - kMargin, 54);
-        NextRow(54);
+        Add(kDocksList, CtlKind::List, WC_LISTVIEWW, L"Docks",
+            WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | LVS_SHAREIMAGELISTS,
+            RECT{kMargin, y_, right, y_ + kListH});
+        NextRow(kListH + 8);
+        Button(kDockAdd, L"Add dock", kMargin, kButtonW);
+        Button(kDockDuplicate, L"Duplicate", kMargin + kButtonStep, kButtonW);
+        Button(kDockRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW);
+        Button(kDockAddFolder, L"Add folder window…", kMargin + 3 * kButtonStep, kButtonW + 20);
+        NextRow(kRowH + 4);
+        Button(kDocksOpen, L"Open dock settings", kMargin, kButtonW + 28);
+        Button(kLockAllDocks, L"Lock all docks", kMargin + kButtonStep + 28, kButtonW);
+        Button(kUnlockAllDocks, L"Unlock all docks", kMargin + 2 * kButtonStep + 28, kButtonW);
+        NextRow(kRowH + 4);
+        Text(kDocksNote, CtlKind::Note,
+             L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
+             L"it (or its row) to open its own settings window; drag it along its edge (it snaps to the centre and the "
+             L"ends), onto another edge or onto another display: it moves when you let go. A new dock starts at the "
+             L"bottom of the primary display with the running apps and the clock. A dock whose display is not "
+             L"connected is parked until it is; \"Every display\" shows one copy on each. A folder window shows a "
+             L"folder on the desktop, under your windows.",
+             kMargin, right - kMargin, 104);
+        NextRow(104);
     }
+
     void Created() override {
         if (HWND c = Item(kLayoutCanvas)) canvas_.Attach(c);
+        HWND list = Item(kDocksList);
+        if (!list) return;
+        LVCOLUMNW col{};
+        col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
+        const wchar_t* names[] = {L"Dock", L"Edge", L"Display", L"Windows"};
+        for (int i = 0; i < 4; ++i) {
+            col.pszText = const_cast<wchar_t*>(names[i]);
+            col.cx = 100;
+            col.iSubItem = i;
+            ListView_InsertColumn(list, i, &col);
+        }
     }
-    void Load() override { canvas_.Reload(); }
-    void OnDisplayChange() override { canvas_.Reload(); }
-    void OnStyleChanged() override { canvas_.Reload(); }
+
+    void Load() override {
+        FillList();
+        canvas_.Reload();
+    }
+    void OnDisplayChange() override {
+        FillList();
+        canvas_.Reload();
+    }
+
+    void OnStyleChanged() override {
+        canvas_.Reload();
+        HWND list = Item(kDocksList);
+        if (!list) return;
+        const Ctl* c = Find(kDocksList);
+        const int scrollBar = GetSystemMetricsForDpi(SM_CXVSCROLL, Window().Dpi());
+        const int total = Window().Px(c->dip.right - c->dip.left) - scrollBar - 4;
+        const int id = Window().Px(kIdColDip), edge = Window().Px(kEdgeColDip), display = Window().Px(kDisplayColDip);
+        ListView_SetColumnWidth(list, 0, id);
+        ListView_SetColumnWidth(list, 1, edge);
+        ListView_SetColumnWidth(list, 2, display);
+        ListView_SetColumnWidth(list, 3, std::max(Window().Px(60), total - id - edge - display));
+        // The colour dots at the current DPI.
+        const int px = GetSystemMetricsForDpi(SM_CXSMICON, Window().Dpi());
+        if (images_ && px == dotPx_) return;
+        HIMAGELIST old = images_;
+        dotPx_ = px;
+        images_ = ImageList_Create(px, px, ILC_COLOR32 | ILC_MASK, 4, 4);
+        ListView_SetImageList(list, images_, LVSIL_SMALL);
+        if (old) ImageList_Destroy(old);
+        FillList();
+    }
+
+    LRESULT OnNotify(const NMHDR& nm) override {
+        if (static_cast<int>(nm.idFrom) != kDocksList) return 0;
+        if (nm.code == NM_DBLCLK) {
+            const auto& item = reinterpret_cast<const NMITEMACTIVATE&>(nm);
+            if (item.iItem >= 0) OpenCfg(static_cast<size_t>(item.iItem));
+            return 0;
+        }
+        if (nm.code != LVN_ITEMCHANGED || Loading() || filling_) return 0;
+        const auto& change = reinterpret_cast<const NMLISTVIEW&>(nm);
+        if (!(change.uChanged & LVIF_STATE) || !(change.uNewState & LVIS_SELECTED)) return 0;
+        if (change.iItem >= 0) SelectCfg(static_cast<size_t>(change.iItem));
+        return 0;
+    }
+
+    void OnCommand(int id, int code, HWND) override {
+        if (code != BN_CLICKED) return;
+        Config& c = Cfg();
+        const size_t sel = SelectedCfg();
+        switch (id) {
+            case kDockAdd:
+            case kDockDuplicate:
+            case kDockRemove: {
+                const SettingsDockEdit edit = id == kDockAdd         ? SettingsDockEdit::Add
+                                              : id == kDockDuplicate ? SettingsDockEdit::Duplicate
+                                                                     : SettingsDockEdit::Remove;
+                if (!Host().editDocks || !Host().editDocks(edit, sel)) {
+                    MessageBeep(MB_ICONWARNING);
+                    return;
+                }
+                // The new dock (appended / right after the copied one), or the removed one's neighbour.
+                const size_t next = edit == SettingsDockEdit::Add         ? c.docks.size() - 1
+                                    : edit == SettingsDockEdit::Duplicate ? sel + 1
+                                                                          : std::min(sel, c.docks.size() - 1);
+                if (next < c.docks.size()) Window().SelectDock(c.docks[next].id);
+                Window().Refresh();
+                Window().ConfigApplied();
+                break;
+            }
+            case kDockAddFolder:
+                if (Host().command) Host().command(ContextMenu::kNewFolderWindow);  // the picker, then a refresh
+                break;
+            case kDocksOpen:
+                OpenCfg(sel);
+                break;
+            case kLockAllDocks:
+            case kUnlockAllDocks:
+                if (Host().command) {
+                    Host().command(id == kLockAllDocks ? ContextMenu::kLockAllDocks : ContextMenu::kUnlockAllDocks);
+                }
+                break;
+            default:
+                break;
+        }
+    }
 
 private:
+    // A filled circle in the dock's colour (the list's dot) as an image list entry.
+    void AddDot(COLORREF color) {
+        HDC screen = GetDC(nullptr);
+        HDC dc = CreateCompatibleDC(screen);
+        HBITMAP bmp = CreateCompatibleBitmap(screen, dotPx_, dotPx_);
+        ReleaseDC(nullptr, screen);
+        HGDIOBJ old = SelectObject(dc, bmp);
+        const COLORREF key = RGB(255, 0, 255);
+        RECT r{0, 0, dotPx_, dotPx_};
+        HBRUSH back = CreateSolidBrush(key);
+        FillRect(dc, &r, back);
+        DeleteObject(back);
+        HBRUSH fill = CreateSolidBrush(color);
+        HPEN pen = CreatePen(PS_SOLID, 1, color);
+        HGDIOBJ ob = SelectObject(dc, fill);
+        HGDIOBJ op = SelectObject(dc, pen);
+        const int inset = std::max(1, dotPx_ / 5);
+        Ellipse(dc, inset, inset, dotPx_ - inset, dotPx_ - inset);
+        SelectObject(dc, ob);
+        SelectObject(dc, op);
+        DeleteObject(pen);
+        DeleteObject(fill);
+        SelectObject(dc, old);
+        DeleteDC(dc);
+        ImageList_AddMasked(images_, bmp, key);
+        DeleteObject(bmp);
+    }
+
+    void FillList() {
+        HWND list = Item(kDocksList);
+        if (!list) return;
+        const Config& c = Cfg();
+        const int n = static_cast<int>(c.docks.size());
+        filling_ = true;
+        // Updated in place while the row count stays (a selection change refreshes every page,
+        // this one included, from inside the list's own notification).
+        const bool rebuild = ListView_GetItemCount(list) != n;
+        if (rebuild) {
+            SendMessageW(list, WM_SETREDRAW, FALSE, 0);
+            ListView_DeleteAllItems(list);
+        }
+        if (images_) {
+            ImageList_RemoveAll(images_);
+            for (int i = 0; i < n; ++i) {
+                const uint32_t argb = c.DockColor(static_cast<size_t>(i));
+                AddDot(RGB((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF));
+            }
+        }
+        for (int i = 0; i < n; ++i) {
+            const DockConfig& d = c.docks[static_cast<size_t>(i)];
+            std::wstring id = d.id + (d.title.empty() ? L"" : L" (" + d.title + L")");
+            const std::wstring edge = d.IsFolderWindow() ? std::wstring(L"Folder window")
+                                                         : std::wstring(SettingsEdgeName(d.edge)) + (d.fullWidth ? L", full" : L"");
+            const std::wstring display = SettingsDisplayName(d.monitor);
+            const int windows = Host().dockWindows ? Host().dockWindows(static_cast<size_t>(i)) : 1;
+            std::wstring state = windows == 0 ? L"Parked (display not connected)"
+                                 : d.Each()   ? std::to_wstring(windows) + L" (one per display)"
+                                              : L"Shown";
+            if (d.locked && !d.IsFolderWindow()) state += L", locked";
+            if (d.IsFolderWindow()) state += L": " + d.folder.path;
+            LVITEMW item{};
+            item.mask = LVIF_TEXT | LVIF_IMAGE;
+            item.iItem = i;
+            item.pszText = id.data();
+            item.iImage = images_ ? i : -1;
+            if (rebuild) {
+                ListView_InsertItem(list, &item);
+            } else {
+                ListView_SetItem(list, &item);
+            }
+            ListView_SetItemText(list, i, 1, const_cast<wchar_t*>(edge.c_str()));
+            ListView_SetItemText(list, i, 2, const_cast<wchar_t*>(display.c_str()));
+            ListView_SetItemText(list, i, 3, state.data());
+        }
+        const int sel = std::clamp(static_cast<int>(SelectedCfg() == SIZE_MAX ? 0 : SelectedCfg()), 0, std::max(0, n - 1));
+        if (n > 0 && ListView_GetNextItem(list, -1, LVNI_SELECTED) != sel) {
+            ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+            ListView_SetItemState(list, sel, LVIS_SELECTED | LVIS_FOCUSED, LVIS_SELECTED | LVIS_FOCUSED);
+        }
+        if (n > 0) ListView_EnsureVisible(list, sel, FALSE);
+        if (rebuild) {
+            SendMessageW(list, WM_SETREDRAW, TRUE, 0);
+        }
+        InvalidateRect(list, nullptr, TRUE);
+        filling_ = false;
+        const bool folderSel = n > 0 && c.docks[static_cast<size_t>(sel)].IsFolderWindow();
+        SetText(kDocksOpen, folderSel ? L"Open window settings" : L"Open dock settings");
+        const auto plainDocks = std::count_if(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });
+        Enable(kDockRemove, n > 1 && (folderSel || plainDocks > 1));
+        bool anyLocked = false, anyUnlocked = false;
+        for (const DockConfig& d : c.docks) (d.locked ? anyLocked : anyUnlocked) = true;
+        Enable(kLockAllDocks, anyUnlocked);
+        Enable(kUnlockAllDocks, anyLocked);
+        if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(list);
+    }
+
     LayoutCanvas canvas_;
+    HIMAGELIST images_ = nullptr;
+    int dotPx_ = 0;
+    bool filling_ = false;
 };
 
 LRESULT CALLBACK LayoutCanvas::Proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -379,7 +624,7 @@ void LayoutCanvas::Drop(const Target& t) {
         dc.x = t.xDip;
         dc.y = t.yDip;
         dc.monitor = t.monitor;
-        c.editDock = d.cfg;
+        page_.SelectCfg(d.cfg, false);
         page_.Apply();  // Sync re-places it (and saves)
         page_.Win().Refresh();
         return;
@@ -389,7 +634,7 @@ void LayoutCanvas::Drop(const Target& t) {
         dc.x = t.xDip;
         dc.y = t.yDip;
         dc.monitor = monitor;
-        c.editDock = d.cfg;
+        page_.SelectCfg(d.cfg, false);
         page_.Apply();
         page_.Win().Refresh();
         return;
@@ -399,7 +644,7 @@ void LayoutCanvas::Drop(const Target& t) {
     dc.align = t.align;
     dc.offset = t.offsetDip;
     dc.monitor = monitor;
-    c.editDock = d.cfg;
+    page_.SelectCfg(d.cfg, false);
     page_.Apply();        // the dock moves (and is saved)
     page_.Win().Refresh();  // the other pages show the new position (and this canvas reloads)
 }
@@ -427,11 +672,11 @@ void LayoutCanvas::Publish() {
         line = L"Drop: " + std::wstring(EdgeWord(target_.edge)) + L", " + AlignWord(target_.align) +
                (target_.offsetDip ? (target_.offsetDip > 0 ? L" +" : L" ") + std::to_wstring(target_.offsetDip) : L"") +
                L", display " + std::to_wstring(target_.monitor + 1);
-    } else if (c.editDock < c.docks.size() && c.docks[c.editDock].IsFolderWindow()) {
-        const DockConfig& d = c.docks[c.editDock];
+    } else if (const size_t selCfg = page_.SelectedCfg(); selCfg < c.docks.size() && c.docks[selCfg].IsFolderWindow()) {
+        const DockConfig& d = c.docks[selCfg];
         line = L"Selected: the folder window " + d.id + L" (" + d.folder.path + L")";
-    } else if (c.editDock < c.docks.size()) {
-        const DockConfig& d = c.docks[c.editDock];
+    } else if (page_.SelectedCfg() < c.docks.size()) {
+        const DockConfig& d = c.docks[page_.SelectedCfg()];
         line = L"Selected: " + d.id + L" (" + EdgeWord(d.edge) + L", " + AlignWord(d.align) +
                (d.offset ? (d.offset > 0 ? L" +" : L" ") + std::to_wstring(d.offset) : L"") + L")";
     }
@@ -482,13 +727,26 @@ void LayoutCanvas::Paint(HDC hdc) {
     for (size_t i = 0; i < docks_.size(); ++i) {
         const Dock& d = docks_[i];
         if (d.monitor < 0 || d.cfg >= c.docks.size()) continue;
-        const bool selected = d.cfg == c.editDock;
+        const bool selected = d.cfg == page_.SelectedCfg();
         const bool moving = dragging_ && static_cast<int>(i) == pressed_;
-        HBRUSH f = CreateSolidBrush(selected ? pal.accent : pal.textSecondary);
+        // Every dock in its identity colour (round 5 phase B); the selected one outlined.
+        const uint32_t argb = c.DockColor(d.cfg);
+        const COLORREF color = pal.highContrast ? (selected ? pal.accent : pal.textSecondary)
+                                                : RGB((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
+        HBRUSH f = CreateSolidBrush(color);
         RECT r = d.canvas;
+        if (selected && !moving) {
+            RECT o = r;
+            InflateRect(&o, 3, 3);
+            HBRUSH ring = CreateSolidBrush(pal.text);
+            FrameRect(hdc, &o, ring);
+            InflateRect(&o, -1, -1);
+            FrameRect(hdc, &o, ring);
+            DeleteObject(ring);
+        }
         if (d.folder) {
             // A folder window: an outlined rectangle with a title strip and its name inside.
-            HBRUSH fill = CreateSolidBrush(mix(selected ? pal.accent : pal.textSecondary, pal.layer, moving ? 15 : 30));
+            HBRUSH fill = CreateSolidBrush(mix(color, pal.layer, moving ? 15 : 30));
             FillRect(hdc, &r, fill);
             DeleteObject(fill);
             FrameRect(hdc, &r, f);
@@ -503,7 +761,7 @@ void LayoutCanvas::Paint(HDC hdc) {
             continue;
         }
         if (moving) {
-            HBRUSH dim = CreateSolidBrush(mix(selected ? pal.accent : pal.textSecondary, pal.layer, 40));
+            HBRUSH dim = CreateSolidBrush(mix(color, pal.layer, 40));
             FillRect(hdc, &r, dim);
             DeleteObject(dim);
         } else {
@@ -584,6 +842,12 @@ LRESULT LayoutCanvas::OnMessage(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_GETDLGCODE:
             return dragging_ ? DLGC_WANTALLKEYS : 0;
+        case WM_LBUTTONDBLCLK: {
+            // A double click on a dock: its own settings window.
+            const int hit = HitDock(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
+            if (hit >= 0) page_.OpenCfg(docks_[static_cast<size_t>(hit)].cfg);
+            return 0;
+        }
         case WM_LBUTTONDOWN: {
             SetFocus(hwnd_);
             const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
@@ -625,13 +889,7 @@ LRESULT LayoutCanvas::OnMessage(UINT msg, WPARAM wp, LPARAM lp) {
                 Drop(t);
             } else {
                 // A click: this dock is the one the other pages edit.
-                Config& c = page_.Config_();
-                const size_t cfg = docks_[static_cast<size_t>(index)].cfg;
-                if (c.editDock != cfg) {
-                    c.editDock = cfg;
-                    page_.Win().Refresh();
-                    page_.Win().ConfigApplied();
-                }
+                page_.SelectCfg(docks_[static_cast<size_t>(index)].cfg);
             }
             pressed_ = -1;
             target_ = Target{};

@@ -94,9 +94,6 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Folders and groups");
-        Label(kItemPickLabel, L"Item");
-        Combo(kItemPick, kColX, right - kColX, false);
-        NextRow();
         Label(kGroupNameLabel, L"Name");
         EditBox(kGroupNameEdit, kColX, 260, 128);
         NextRow();
@@ -158,28 +155,9 @@ protected:
     }
 
     void Load() override {
-        HWND pick = Item(kItemPick);
-        SendMessageW(pick, CB_RESETCONTENT, 0, 0);
-        picks_.clear();
-        const auto& items = Cfg().Edit().items;
-        // The selected item: the one asked for, else the first folder / group of the dock.
-        if (item_ < 0 || static_cast<size_t>(item_) >= items.size() || !Editable(items[static_cast<size_t>(item_)], item_)) {
-            item_ = -1;
-        }
-        for (size_t i = 0; i < items.size(); ++i) {
-            if (!Editable(items[i], static_cast<int>(i))) continue;
-            const bool group = items[i].Kind() == ItemKind::Group;
-            std::wstring name = group ? (items[i].name.empty() ? std::wstring(L"Group") : items[i].name) : PinName(static_cast<int>(i));
-            if (name.empty()) name = StemOf(items[i].path);
-            const std::wstring text = (group ? L"Group: " : L"Folder: ") + name + L" (item " + std::to_wstring(i + 1) + L")";
-            SendMessageW(pick, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
-            if (item_ < 0) item_ = static_cast<int>(i);
-            if (static_cast<int>(i) == item_) SetComboSel(kItemPick, static_cast<int>(picks_.size()));
-            picks_.push_back(static_cast<int>(i));
-        }
+        // The Item window's item (SelectItem); Entry() is null when it is not a folder / group.
         const DockItemEntry* e = Entry();
         const bool group = e && e->Kind() == ItemKind::Group;
-        Enable(kItemPick, !picks_.empty());
         Enable(kItemViewCombo, e != nullptr);
         Enable(kItemChooseIcon, e != nullptr);
         Enable(kItemChooseImage, e != nullptr);
@@ -191,9 +169,7 @@ protected:
         }
         SetText(kGroupNameEdit, group ? (e->name.empty() ? std::wstring(L"Group") : e->name) : std::wstring());
         if (!e) {
-            SetText(kItemNote, L"The dock " + Cfg().Edit().id +
-                                   L" has no folder or group. Add a folder on Dock contents (Add folder…); make a group by "
-                                   L"dragging an icon onto another one on the dock and holding it there.");
+            SetText(kItemNote, L"This item is not a folder or a group any more.");
         } else if (group) {
             SetText(kItemNote, std::to_wstring(e->members.size()) +
                                    (e->members.size() == 1 ? L" shortcut." : L" shortcuts.") +
@@ -223,13 +199,6 @@ protected:
     }
 
     void OnCommand(int id, int code, HWND) override {
-        if (id == kItemPick && code == CBN_SELCHANGE) {
-            const int sel = ComboSel(kItemPick);
-            if (sel >= 0 && static_cast<size_t>(sel) < picks_.size()) item_ = picks_[static_cast<size_t>(sel)];
-            memberSel_ = 0;
-            Window().Refresh();
-            return;
-        }
         DockItemEntry* e = Entry();
         if (!e) return;
         if (id == kItemViewCombo && code == CBN_SELCHANGE) {
@@ -283,7 +252,7 @@ private:
     // The resolved pin of row `row` (an index into the edited dock's items; null: none).
     const AppIdentity::ResolvedPin* PinOf(int row) {
         if (!Host().pins) return nullptr;
-        const std::vector<size_t> pinIdx = Cfg().Edit().PinIndexes();
+        const std::vector<size_t> pinIdx = Dock().PinIndexes();
         const auto& pins = Host().pins();
         for (size_t k = 0; k < pinIdx.size() && k < pins.size(); ++k) {
             if (static_cast<int>(pinIdx[k]) == row) return &pins[k];
@@ -305,7 +274,7 @@ private:
     }
 
     DockItemEntry* Entry() {
-        auto& items = Cfg().Edit().items;
+        auto& items = Dock().items;
         if (item_ < 0 || static_cast<size_t>(item_) >= items.size() || !Editable(items[static_cast<size_t>(item_)], item_)) {
             return nullptr;
         }
@@ -416,9 +385,8 @@ private:
         Window().Refresh();
     }
 
-    int item_ = -1;           // index into the edited dock's items (-1: none)
+    int item_ = -1;           // the Item window's item: an index into its dock's items (-1: none)
     int memberSel_ = 0;       // the selected member row (kept across reloads)
-    std::vector<int> picks_;  // the pick list's rows -> item indexes
 };
 
 }  // namespace

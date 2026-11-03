@@ -78,7 +78,7 @@ const Ctl* SettingsPage::Find(HWND hwnd) const {
     return nullptr;
 }
 
-int SettingsPage::Width() const { return SettingsWindow::ContentWidthDip(); }
+int SettingsPage::Width() const { return window_.ContentWidthDip(); }
 
 Ctl& SettingsPage::Add(int id, CtlKind kind, const wchar_t* cls, std::wstring text, DWORD style, RECT dip) {
     Ctl c;
@@ -184,11 +184,15 @@ void SettingsPage::Link(int id, std::wstring markup, int x, int w) {
 
 Config& SettingsPage::Cfg() { return *window_.Host().config; }
 SettingsHost& SettingsPage::Host() { return window_.Host(); }
+DockConfig& SettingsPage::Dock() { return window_.Dock(); }
+size_t SettingsPage::DockIndex() const { return window_.DockIndex(); }
 bool SettingsPage::Loading() const { return window_.Loading(); }
 
-void SettingsPage::Changed(SettingsScope scope) {
+void SettingsPage::Changed(SettingsScope scope) { ChangedFor(scope, window_.DockIndex()); }
+
+void SettingsPage::ChangedFor(SettingsScope scope, size_t dock) {
     if (window_.Loading()) return;
-    if (window_.Host().changed) window_.Host().changed(scope);
+    if (window_.Host().changed) window_.Host().changed(scope, dock);
     window_.ConfigApplied();
 }
 
@@ -270,7 +274,15 @@ bool SettingsPage::ReadInt(int editId, int lo, int hi, int& value) {
 
 // --- SettingsWindow: creation ----------------------------------------------------------------
 
-SettingsWindow::SettingsWindow(SettingsHost host) : host_(std::move(host)) {}
+namespace {
+// DarkMode::TryEnableDarkPopups is process-wide: on while any settings window is open.
+int g_darkPopupWindows = 0;
+}  // namespace
+
+SettingsWindow::SettingsWindow(SettingsHost host, SettingsKind kind, std::wstring dock, size_t item)
+    : host_(std::move(host)), kind_(kind), dockId_(std::move(dock)), item_(item) {
+    scratch_.items.clear();
+}
 
 bool SettingsWindow::FocusCuesHidden(HWND hwnd) {
     return (SendMessageW(hwnd, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS) != 0;
@@ -278,6 +290,81 @@ bool SettingsWindow::FocusCuesHidden(HWND hwnd) {
 
 SettingsWindow::~SettingsWindow() {
     if (hwnd_) DestroyWindow(hwnd_);  // WM_DESTROY / WM_NCDESTROY release everything
+}
+
+size_t SettingsWindow::DockIndex() const {
+    const Config* c = host_.config;
+    if (!c) return SIZE_MAX;
+    for (size_t i = 0; i < c->docks.size(); ++i) {
+        if (c->docks[i].id == dockId_) return i;
+    }
+    return kind_ == SettingsKind::Global && !c->docks.empty() ? 0 : SIZE_MAX;
+}
+
+DockConfig& SettingsWindow::Dock() {
+    const size_t i = DockIndex();
+    return i != SIZE_MAX ? host_.config->docks[i] : scratch_;
+}
+
+bool SettingsWindow::IsFolderWindow() const {
+    const size_t i = DockIndex();
+    return kind_ == SettingsKind::Dock && i != SIZE_MAX && host_.config->docks[i].IsFolderWindow();
+}
+
+void SettingsWindow::SelectDock(const std::wstring& id) {
+    if (kind_ != SettingsKind::Global || id == dockId_) return;
+    dockId_ = id;
+    if (preview_) preview_->Invalidate();
+}
+
+DockItemEntry* SettingsWindow::TargetItem() {
+    if (kind_ != SettingsKind::Item) return nullptr;
+    DockConfig& d = Dock();
+    return item_ < d.items.size() ? &d.items[item_] : nullptr;
+}
+
+void SettingsWindow::Retarget(size_t item) {
+    if (kind_ != SettingsKind::Item || item == item_) return;
+    item_ = item;
+    if (!hwnd_) return;
+    for (size_t i = 0; i < pages_.size(); ++i) {
+        pages_[i]->SelectItem(static_cast<int>(item));
+        RebuildPage(static_cast<int>(i));
+    }
+    UpdateIdentity();
+}
+
+COLORREF SettingsWindow::DockColor() const {
+    const size_t i = DockIndex();
+    const uint32_t argb = i != SIZE_MAX ? host_.config->DockColor(i) : DockPaletteColor(0);
+    return RGB((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
+}
+
+SIZE SettingsWindow::ClientDip() const {
+    switch (kind_) {
+        case SettingsKind::Dock: return SIZE{860, 620};
+        case SettingsKind::Item: return SIZE{480, 560};
+        case SettingsKind::Global:
+        default: return SIZE{760, 560};
+    }
+}
+
+bool SettingsWindow::PreviewOn(int index) const {
+    switch (kind_) {
+        case SettingsKind::Global: return index == SettingsIds::kPageThemes || index == SettingsIds::kPageAnimation;
+        case SettingsKind::Dock: return !IsFolderWindow();
+        case SettingsKind::Item:
+        default: return false;
+    }
+}
+
+HWND SettingsWindow::DefaultFocus() const {
+    if (nav_) return nav_;
+    if (tabs_) return tabs_;
+    if (SettingsPage* page = ActivePage(); page && page->hwnd_) {
+        if (HWND first = GetNextDlgTabItem(page->hwnd_, nullptr, FALSE)) return first;
+    }
+    return hwnd_;
 }
 
 bool SettingsWindow::RegisterClasses(HINSTANCE instance) {
@@ -304,13 +391,28 @@ bool SettingsWindow::RegisterClasses(HINSTANCE instance) {
     page.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     page.lpszClassName = kPageClassName;
     if (!RegisterClassExW(&page) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+
+    WNDCLASSEXW band{sizeof(band)};
+    band.lpfnWndProc = BandProcThunk;
+    band.hInstance = instance;
+    band.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    band.lpszClassName = kBandClassName;
+    if (!RegisterClassExW(&band) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+
+    WNDCLASSEXW tabs{sizeof(tabs)};
+    tabs.lpfnWndProc = TabsProcThunk;
+    tabs.hInstance = instance;
+    tabs.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    tabs.lpszClassName = kTabsClassName;
+    if (!RegisterClassExW(&tabs) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
     registered = true;
     return true;
 }
 
 SIZE SettingsWindow::WindowSizeFor(UINT dpi) const {
-    RECT r{0, 0, MulDiv(kWidthDip, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI),
-           MulDiv(kHeightDip, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI)};
+    const SIZE c = ClientDip();
+    RECT r{0, 0, MulDiv(c.cx, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI),
+           MulDiv(c.cy, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI)};
     AdjustWindowRectExForDpi(&r, kStyle, FALSE, 0, dpi);
     return SIZE{r.right - r.left, r.bottom - r.top};
 }
@@ -320,16 +422,40 @@ RECT SettingsWindow::InitialRect() const {
     RECT mon = host_.dockMonitor ? host_.dockMonitor() : RECT{};
     HMONITOR hmon = IsRectEmpty(&mon) ? MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY)
                                       : MonitorFromRect(&mon, MONITOR_DEFAULTTOPRIMARY);
+    // An Item window: 40 DIPs right / down of its dock's window when that is open.
+    const RECT anchor = kind_ == SettingsKind::Item && host_.anchor ? host_.anchor() : RECT{};
+    if (!IsRectEmpty(&anchor)) hmon = MonitorFromRect(&anchor, MONITOR_DEFAULTTONEAREST);
     MONITORINFO mi{sizeof(mi)};
     GetMonitorInfoW(hmon, &mi);
     const RECT& work = mi.rcWork;  // the full monitor while the dock hides the taskbar
     int x = work.left + (work.right - work.left - s.cx) / 2;
     int y = work.top + (work.bottom - work.top - s.cy) / 2;
-    // Never over the dock: the bottom stays kAboveBarDip above the bar at rest.
-    if (host_.dockBar) {
+    if (!IsRectEmpty(&anchor)) {
+        x = anchor.left + Px(kItemOffsetDip);
+        y = anchor.top + Px(kItemOffsetDip);
+        x = std::min(x, static_cast<int>(work.right) - static_cast<int>(s.cx));
+        y = std::min(y, static_cast<int>(work.bottom) - static_cast<int>(s.cy));
+    } else if (host_.dockBar) {
+        // Never over the dock: kAboveBarDip from the bar at rest, on the side toward the middle
+        // of the monitor (above a bottom dock, below a top one, beside a left / right one).
         const RECT bar = host_.dockBar();
-        if (!IsRectEmpty(&bar) && bar.top > work.top) y = std::min(y, static_cast<int>(bar.top - s.cy) - Px(kAboveBarDip));
+        if (!IsRectEmpty(&bar)) {
+            const int gap = Px(kAboveBarDip);
+            if (bar.right - bar.left >= bar.bottom - bar.top) {
+                if (bar.top > (work.top + work.bottom) / 2) {
+                    y = std::min(y, static_cast<int>(bar.top - s.cy) - gap);
+                } else {
+                    y = std::max(y, static_cast<int>(bar.bottom) + gap);
+                }
+            } else if (bar.left > (work.left + work.right) / 2) {
+                x = std::min(x, static_cast<int>(bar.left - s.cx) - gap);
+            } else {
+                x = std::max(x, static_cast<int>(bar.right) + gap);
+            }
+        }
     }
+    x = std::min(x, static_cast<int>(work.right) - static_cast<int>(s.cx));
+    y = std::min(y, static_cast<int>(work.bottom) - static_cast<int>(s.cy));
     y = std::max(y, static_cast<int>(work.top));
     x = std::max(x, static_cast<int>(work.left));
     return RECT{x, y, x + s.cx, y + s.cy};
@@ -344,17 +470,24 @@ bool SettingsWindow::Create(HINSTANCE instance) {
         commonControls = InitCommonControlsEx(&icc) != FALSE;
     }
     if (!RegisterClasses(instance)) return false;
+    if (kind_ == SettingsKind::Item) {
+        // The page is chosen by the item's kind: it must exist.
+        if (!TargetItem()) return false;
+    } else if (kind_ == SettingsKind::Dock && DockIndex() == SIZE_MAX) {
+        return false;
+    }
 
     // Process-wide (undocumented, optional): popups of windows allowed dark follow the app mode.
-    darkPopups_ = DarkMode::TryEnableDarkPopups(true);
+    darkPopups_ = g_darkPopupWindows > 0 || DarkMode::TryEnableDarkPopups(true);
+    if (darkPopups_) ++g_darkPopupWindows;
 
     dpi_ = host_.dockDpi ? std::max<UINT>(host_.dockDpi(), USER_DEFAULT_SCREEN_DPI / 2) : USER_DEFAULT_SCREEN_DPI;
     RECT r = InitialRect();
     // No owner: an owned window of the topmost, non-activating dock would inherit topmost.
-    CreateWindowExW(0, kClassName, L"WinDock Settings", kStyle, r.left, r.top, r.right - r.left, r.bottom - r.top,
+    CreateWindowExW(0, kClassName, L"WinDock settings", kStyle, r.left, r.top, r.right - r.left, r.bottom - r.top,
                     nullptr, nullptr, instance, this);
     if (!hwnd_) {
-        if (darkPopups_) DarkMode::TryEnableDarkPopups(false);
+        if (darkPopups_ && --g_darkPopupWindows == 0) DarkMode::TryEnableDarkPopups(false);
         darkPopups_ = false;
         return false;
     }
@@ -369,19 +502,35 @@ bool SettingsWindow::Create(HINSTANCE instance) {
     CreateBrushes();
     UpdateIcons();
 
-    nav_ = CreateWindowExW(0, kNavClassName, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP, 0, 0, 0, 0, hwnd_,
-                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kNav)), instance, this);
+    if (kind_ == SettingsKind::Global) {
+        nav_ = CreateWindowExW(0, kNavClassName, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP, 0, 0, 0, 0, hwnd_,
+                               reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kNav)), instance, this);
+    }
+    CreateBands(false);
     pages_ = CreateSettingsPages(*this);
+    if (kind_ == SettingsKind::Dock && pages_.size() > 1) {
+        tabs_ = CreateWindowExW(0, kTabsClassName, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP, 0, 0, 0, 0, hwnd_,
+                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kTabs)), instance, this);
+    }
     for (size_t i = 0; i < pages_.size(); ++i) {
+        if (kind_ == SettingsKind::Item) pages_[i]->SelectItem(static_cast<int>(item_));
         if (!CreatePage(*pages_[i], static_cast<int>(i))) {
             DestroyWindow(hwnd_);
             return false;
         }
     }
-    preview_ = std::make_unique<SettingsPreview>();
-    if (!preview_->Create(instance, hwnd_, SettingsIds::kPreview, host_.config, dpi_)) {
-        preview_.reset();  // the window works without it
+    if (kind_ == SettingsKind::Global || PreviewOn(0)) {
+        preview_ = std::make_unique<SettingsPreview>();
+        if (preview_->Create(instance, hwnd_, SettingsIds::kPreview, host_.config, dpi_)) {
+            // Global: the global theme (on the selected dock's items); a Dock window: its dock.
+            preview_->SetDock([this]() -> const DockConfig* { return DockIndex() != SIZE_MAX ? &Dock() : nullptr; },
+                              kind_ == SettingsKind::Global);
+        } else {
+            preview_.reset();  // the window works without it
+        }
     }
+    if (kind_ == SettingsKind::Item) CreateBands(true);
+    UpdateItemIcon();
     CreateFonts();  // also hands them to the controls
     ApplyTheme();
     Layout();
@@ -390,7 +539,7 @@ bool SettingsWindow::Create(HINSTANCE instance) {
     SelectPage(0);
     ShowWindow(hwnd_, SW_SHOWNORMAL);
     SetForegroundWindow(hwnd_);
-    if (!lastFocus_) SetFocus(nav_);
+    if (!lastFocus_) SetFocus(DefaultFocus());
     return true;
 }
 
@@ -459,6 +608,7 @@ void SettingsWindow::Refresh() {
     for (auto& page : pages_) page->Load();
     loading_ = false;
     if (preview_) preview_->Invalidate();
+    UpdateIdentity();
 }
 
 void SettingsWindow::ShowPage(int index) {
@@ -538,6 +688,12 @@ void SettingsWindow::CreateFonts() {
             SendMessageW(c.hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(f), FALSE);
         }
     }
+    // The header / footer bands' buttons and links.
+    for (HWND band : {header_, footer_}) {
+        for (HWND c = band ? GetWindow(band, GW_CHILD) : nullptr; c; c = GetWindow(c, GW_HWNDNEXT)) {
+            SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font_), FALSE);
+        }
+    }
     for (HFONT f : {oldFont, oldSemibold, oldTitle, oldIcons}) {
         if (f) DeleteObject(f);
     }
@@ -555,10 +711,21 @@ void SettingsWindow::CreateBrushes() {
     layerBrush_ = CreateSolidBrush(palette_.layer);
     baseBrush_ = CreateSolidBrush(palette_.base);
     controlBrush_ = CreateSolidBrush(palette_.control);
+    bandColor_ = BandColorFor();
+    bandBrush_ = CreateSolidBrush(bandColor_);
+}
+
+COLORREF SettingsWindow::BandColorFor() const {
+    // The bands: the content layer, tinted with the dock's colour in a Dock / Item window.
+    if (kind_ == SettingsKind::Global || palette_.highContrast) return palette_.layer;
+    const COLORREF a = DockColor(), b = palette_.layer;
+    const int pa = palette_.dark ? 14 : 10;
+    auto ch = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pa + y * (100 - pa)) / 100); };
+    return RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
 }
 
 void SettingsWindow::DestroyBrushes() {
-    for (HBRUSH* b : {&layerBrush_, &baseBrush_, &controlBrush_}) {
+    for (HBRUSH* b : {&layerBrush_, &baseBrush_, &controlBrush_, &bandBrush_}) {
         if (*b) DeleteObject(*b);
         *b = nullptr;
     }
@@ -592,7 +759,13 @@ void SettingsWindow::ApplyTheme() {
         DarkMode::AllowDarkForWindow(hwnd_, dark);
     }
     DarkMode::SetDarkCaption(hwnd_, dark);
+    ApplyCaptionColor();
     ApplyBackdrop();
+    for (HWND band : {header_, footer_}) {
+        for (HWND c = band ? GetWindow(band, GW_CHILD) : nullptr; c; c = GetWindow(c, GW_HWNDNEXT)) {
+            DarkMode::ThemeControl(c, dark);  // buttons and links
+        }
+    }
     for (auto& page : pages_) {
         if (!page->hwnd_) continue;
         DarkMode::ThemeScrollBars(page->hwnd_, dark);
@@ -727,7 +900,9 @@ LRESULT SettingsWindow::DrawTrackbar(NMCUSTOMDRAW& cd) {
 void SettingsWindow::ApplyBackdrop() {
     // Mica shows only where the client area is transparent (frame extended), and GDI controls
     // cannot paint alpha: so Mica behind the caption and the nav column only.
-    const bool want = kNavMica && !palette_.highContrast && Backdrop::SystemAllowsTransparency();
+    // Dock / Item windows have no nav column (their caption has the dock's colour).
+    const bool want = kind_ == SettingsKind::Global && kNavMica && !palette_.highContrast &&
+                      Backdrop::SystemAllowsTransparency();
     bool mica = want && DarkMode::SetMicaBackdrop(hwnd_, true);
     if (!mica) DarkMode::SetMicaBackdrop(hwnd_, false);
     MARGINS margins{mica ? Px(kNavWidthDip) : 0, 0, 0, 0};
@@ -755,19 +930,41 @@ void SettingsWindow::Layout() {
     if (!hwnd_) return;
     RECT rc{};
     GetClientRect(hwnd_, &rc);
-    const int navW = Px(kNavWidthDip);
-    SetWindowPos(nav_, nullptr, 0, 0, navW, rc.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+    // Global: the nav column on the left, the subtitle band over the pages. Dock: the header and
+    // the tab strip over the pages. Item: the header over, the footer under the page.
+    const int navW = nav_ ? Px(kNavWidthDip) : 0;
+    if (nav_) SetWindowPos(nav_, nullptr, 0, 0, navW, rc.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+    int top = 0;
+    int bottom = rc.bottom;
+    if (header_) {
+        const int h = Px(kind_ == SettingsKind::Global ? kSubtitleDip
+                         : kind_ == SettingsKind::Dock ? kDockHeaderDip
+                                                       : kItemHeaderDip);
+        SetWindowPos(header_, nullptr, navW, 0, std::max(0, static_cast<int>(rc.right) - navW), h, SWP_NOZORDER | SWP_NOACTIVATE);
+        top = h;
+    }
+    if (tabs_) {
+        SetWindowPos(tabs_, nullptr, 0, top, rc.right, Px(kTabsDip), SWP_NOZORDER | SWP_NOACTIVATE);
+        top += Px(kTabsDip);
+    }
+    if (footer_) {
+        const int h = std::min(Px(kItemFooterDip), bottom - top);
+        SetWindowPos(footer_, nullptr, 0, bottom - h, rc.right, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        bottom -= h;
+    }
+    const int strip = std::min(Px(kFooterDip), std::max(0, bottom - top));
     if (preview_) {
-        const int footer = std::min(Px(kFooterDip), static_cast<int>(rc.bottom));
-        SetWindowPos(preview_->Hwnd(), nullptr, navW, rc.bottom - footer, std::max(0, static_cast<int>(rc.right) - navW),
-                     footer, SWP_NOZORDER | SWP_NOACTIVATE);
-    }
-    for (auto& page : pages_) {
-        if (!page->hwnd_) continue;
-        SetWindowPos(page->hwnd_, nullptr, navW, 0, rc.right - navW, std::max(0, static_cast<int>(rc.bottom) - Px(kFooterDip)),
+        SetWindowPos(preview_->Hwnd(), nullptr, navW, bottom - strip, std::max(0, static_cast<int>(rc.right) - navW), strip,
                      SWP_NOZORDER | SWP_NOACTIVATE);
-        LayoutPage(*page);
     }
+    for (size_t i = 0; i < pages_.size(); ++i) {
+        SettingsPage& page = *pages_[i];
+        if (!page.hwnd_) continue;
+        const int h = std::max(0, bottom - top - (preview_ && PreviewOn(static_cast<int>(i)) ? strip : 0));
+        SetWindowPos(page.hwnd_, nullptr, navW, top, rc.right - navW, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        LayoutPage(page);
+    }
+    LayoutBands();
     InvalidateRect(hwnd_, nullptr, TRUE);
 }
 
@@ -868,9 +1065,14 @@ void SettingsWindow::SelectPage(int index) {
     SettingsPage* page = ActivePage();
     ShowWindow(page->hwnd_, SW_SHOWNA);
     if (old) ShowWindow(old->hwnd_, SW_HIDE);
-    if (focusInOld) SetFocus(nav_);
-    SetWindowTextW(nav_, page->Name().c_str());  // accessibility: the nav's name is the selection
-    InvalidateRect(nav_, nullptr, TRUE);
+    if (preview_) ShowWindow(preview_->Hwnd(), PreviewOn(index) ? SW_SHOWNA : SW_HIDE);
+    if (focusInOld) SetFocus(DefaultFocus());
+    // Accessibility: the nav's / tab strip's name is the selection.
+    for (HWND selector : {nav_, tabs_}) {
+        if (!selector) continue;
+        SetWindowTextW(selector, page->Name().c_str());
+        InvalidateRect(selector, nullptr, TRUE);
+    }
 }
 
 void SettingsWindow::OnEnterKey() {
@@ -884,6 +1086,14 @@ void SettingsWindow::OnEnterKey() {
 
 bool SettingsWindow::PreTranslateMessage(MSG& msg) {
     if (!hwnd_ || !msg.hwnd || (msg.hwnd != hwnd_ && !IsChild(hwnd_, msg.hwnd))) return false;
+    if (msg.message == WM_KEYDOWN && msg.wParam == VK_TAB && GetKeyState(VK_CONTROL) < 0 && pages_.size() > 1) {
+        // Ctrl+Tab / Ctrl+Shift+Tab: the next / previous page (tab), wrapping around.
+        const int step = GetKeyState(VK_SHIFT) < 0 ? -1 : 1;
+        int next = NavStep(active_, step);
+        if (next == active_) next = NavStep(step > 0 ? -1 : static_cast<int>(pages_.size()), step);
+        SelectPage(next);
+        return true;
+    }
     if (!IsDialogMessageW(hwnd_, &msg)) return false;
     if (hwnd_ && msg.message == WM_KEYDOWN && msg.wParam == VK_TAB) EnsureVisible(GetFocus());
     return true;
@@ -910,25 +1120,15 @@ void SettingsWindow::RequestRebuild(const SettingsPage& page) {
     }
 }
 
-void SettingsWindow::ShowWidgetSettings(int item) {
-    if (!hwnd_ || SettingsIds::kPageWidgetSettings >= static_cast<int>(pages_.size())) return;
-    pages_[SettingsIds::kPageWidgetSettings]->SelectItem(item);
-    RebuildPage(SettingsIds::kPageWidgetSettings);
-    SelectPage(SettingsIds::kPageWidgetSettings);
-}
-
-void SettingsWindow::ShowItemSettings(int item) {
-    if (!hwnd_ || SettingsIds::kPageItemSettings >= static_cast<int>(pages_.size())) return;
-    pages_[SettingsIds::kPageItemSettings]->SelectItem(item);
-    RebuildPage(SettingsIds::kPageItemSettings);
-    SelectPage(SettingsIds::kPageItemSettings);
-}
-
 void SettingsWindow::RebuildPage(int index) {
     if (!hwnd_ || index < 0 || index >= static_cast<int>(pages_.size())) return;
     SettingsPage& page = *pages_[static_cast<size_t>(index)];
     if (!page.hwnd_) return;
-    if (HWND f = GetFocus(); f && IsChild(page.hwnd_, f)) SetFocus(nav_);
+    const bool focusIn = [&] {
+        HWND f = GetFocus();
+        return f && IsChild(page.hwnd_, f);
+    }();
+    if (focusIn) SetFocus(nav_ ? nav_ : tabs_ ? tabs_ : hwnd_);
     if (lastFocus_ && IsChild(page.hwnd_, lastFocus_)) lastFocus_ = nullptr;
     for (Ctl& c : page.table_) {
         if (c.hwnd) DestroyWindow(c.hwnd);
@@ -971,7 +1171,9 @@ void SettingsWindow::RebuildPage(int index) {
     loading_ = false;
     page.OnStyleChanged();
     RedrawWindow(page.hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
-    InvalidateRect(nav_, nullptr, TRUE);  // a page name may have changed
+    if (nav_) InvalidateRect(nav_, nullptr, TRUE);  // a page name may have changed
+    if (tabs_) InvalidateRect(tabs_, nullptr, TRUE);
+    if (focusIn && !nav_ && !tabs_ && index == active_) SetFocus(DefaultFocus());  // an Item window: its first control
 }
 
 LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
@@ -984,23 +1186,26 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_ACTIVATE:
             if (LOWORD(wp) == WA_INACTIVE) {
                 if (HWND f = GetFocus(); f && IsChild(hwnd_, f)) lastFocus_ = f;
-                if (host_.keepDockShown) host_.keepDockShown(false);
+                if (host_.activated) host_.activated(false);
             } else {
-                // Active: the dock stays shown so changes are visible (auto-hide resumes once
-                // another window is activated).
-                if (host_.keepDockShown) host_.keepDockShown(!HIWORD(wp));  // not while minimized
+                // Active: App keeps this window's dock shown so changes are visible (auto-hide
+                // resumes once another window is activated). Not while minimized.
+                if (host_.activated) host_.activated(!HIWORD(wp));
                 if (!HIWORD(wp)) {
                     HWND f = lastFocus_ && IsWindow(lastFocus_) && IsWindowVisible(lastFocus_) &&
                                      IsWindowEnabled(lastFocus_)
                                  ? lastFocus_
-                                 : nav_;
+                                 : DefaultFocus();
                     SetFocus(f);
                 }
             }
             return 0;
 
         case WM_SETFOCUS:
-            SetFocus(lastFocus_ && IsWindow(lastFocus_) && IsWindowVisible(lastFocus_) ? lastFocus_ : nav_);
+            if (HWND f = lastFocus_ && IsWindow(lastFocus_) && IsWindowVisible(lastFocus_) ? lastFocus_ : DefaultFocus();
+                f != hwnd_) {
+                SetFocus(f);
+            }
             return 0;
 
         case WM_COMMAND:
@@ -1024,6 +1229,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             for (auto& page : pages_) page->scrollPx_ = MulDiv(page->scrollPx_, static_cast<int>(dpi_), static_cast<int>(old));
             CreateFonts();
             UpdateIcons();
+            UpdateItemIcon();
             if (preview_) preview_->SetDpi(dpi_);
             const RECT* r = reinterpret_cast<const RECT*>(lp);
             SetWindowPos(hwnd_, nullptr, r->left, r->top, r->right - r->left, r->bottom - r->top,
@@ -1078,8 +1284,8 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             HDC dc = BeginPaint(hwnd_, &ps);
             RECT rc{};
             GetClientRect(hwnd_, &rc);
-            RECT nav{0, 0, Px(kNavWidthDip), rc.bottom};
-            FillRect(dc, &nav, mica_ ? static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)) : baseBrush_);
+            RECT nav{0, 0, nav_ ? Px(kNavWidthDip) : 0, rc.bottom};
+            if (nav_) FillRect(dc, &nav, mica_ ? static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)) : baseBrush_);
             RECT content{nav.right, 0, rc.right, rc.bottom};
             FillRect(dc, &content, layerBrush_);
             EndPaint(hwnd_, &ps);
@@ -1087,14 +1293,19 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         }
 
         case WM_DESTROY:
-            if (host_.keepDockShown) host_.keepDockShown(false);
+            if (host_.activated) host_.activated(false);
             return 0;
 
         case WM_NCDESTROY: {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             hwnd_ = nullptr;
             nav_ = nullptr;
+            tabs_ = nullptr;
+            header_ = nullptr;
+            footer_ = nullptr;
             lastFocus_ = nullptr;
+            if (itemIcon_) DestroyIcon(itemIcon_);
+            itemIcon_ = nullptr;
             for (auto& page : pages_) {
                 page->hwnd_ = nullptr;
                 for (Ctl& c : page->table_) c.hwnd = nullptr;
@@ -1103,7 +1314,8 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             DestroyFonts();
             DestroyBrushes();
             DestroyIcons();
-            if (darkPopups_) DarkMode::TryEnableDarkPopups(false);  // the dock's menus as before
+            // The last settings window: the dock's menus as before.
+            if (darkPopups_ && --g_darkPopupWindows == 0) DarkMode::TryEnableDarkPopups(false);
             darkPopups_ = false;
             if (host_.destroyed) host_.destroyed();
             return DefWindowProcW(hwnd, msg, wp, lp);

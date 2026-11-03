@@ -104,6 +104,9 @@ public:
     static constexpr UINT_PTR kGroupHoldTimerId = 23;     // a dragged icon held over a pin: make a group
     static constexpr UINT_PTR kScrollHintTimerId = 24;    // a scrolling dock: fade the scroll thumb out
     static constexpr UINT_PTR kAutoScrollTimerId = 25;    // a drag held near a viewport end scrolls the run
+    static constexpr UINT_PTR kFlashTimerId = 26;         // Flash: the next border pulse step (one-shot)
+    static constexpr int kFlashSteps = 6;                 // lit, dark, lit, dark, lit, dark
+    static constexpr UINT kFlashStepMs = 250;
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);
     // a dropped file's open-with / recycle action (run after the OLE Drop call has returned).
     // WM_APP + 20 = WeatherService::kResultMessage (a forecast fetch finished; handled here) and
@@ -281,6 +284,12 @@ public:
     // hidden (unless a fullscreen app runs). Unlike SetHold it does not keep the HWND at stage
     // size and does not suppress the label or previews. Releasing it re-applies auto-hide.
     void SetKeepShown(bool keep);
+    // "Flash this dock" (round 5 phase B, the dock's settings window): reveals the dock (as kept
+    // shown, unless a fullscreen app runs) and pulses the bar's border in `argb` for about 1.5 s:
+    // kFlashSteps one-shot timer steps of kFlashStepMs, each redrawing only the background surface.
+    // Nothing runs afterwards (auto-hide is re-applied).
+    void Flash(uint32_t argb);
+    int FlashSteps() const { return flashSteps_; }
 
     // The monitor the dock is on (screen px), its DPI, and the bar at rest (screen px).
     RECT MonitorRect() const { return layout_.monitor; }
@@ -817,7 +826,10 @@ private:
     // Releases it. With `leaveCheck`, once no hold remains a cursor outside the dock counts as
     // having left it (return to rest, compact, start the hide delay).
     void ReleasePopupHold(uint32_t bit, bool leaveCheck);
-    bool Held() const { return hold_ || popupHolds_ != 0 || keepShown_; }
+    bool Held() const { return hold_ || popupHolds_ != 0 || keepShown_ || flashSteps_ > 0; }
+    // Flash: the border is lit in this step (even steps left).
+    bool FlashLit() const { return flashSteps_ > 0 && flashSteps_ % 2 == 0; }
+    void OnFlashTimer();
 
     // --- acrylic backdrop ---
     // Creates / destroys the backdrop window per config and system settings (call before a
@@ -1205,6 +1217,8 @@ private:
     Tween rootY_, rootOpacity_;
     bool hold_ = false;
     bool keepShown_ = false;      // SetKeepShown: part of Held(), not of NeedsStage()
+    int flashSteps_ = 0;          // Flash: steps left (part of Held() while > 0)
+    uint32_t flashColor_ = 0;     // Flash: ARGB
     uint32_t popupHolds_ = 0;     // PopupHold bits of the popups that keep the dock shown
     bool hidePending_ = false;
     bool revealPending_ = false;

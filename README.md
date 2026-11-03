@@ -54,7 +54,7 @@ DWM, common controls, `windowsapp` for the JSON parser, `winhttp` for the weathe
 build\x64-release\WinDock.exe                     :: start the dock (only one instance runs)
 build\x64-release\WinDock.exe --quit              :: ask the running dock to exit
 build\x64-release\WinDock.exe --restore-taskbar   :: bring the Explorer taskbar back
-build\x64-release\WinDock.exe --settings          :: open the settings window (starts the dock if needed)
+build\x64-release\WinDock.exe --settings          :: open the Global settings window (starts the dock if needed)
 build\x64-release\WinDock.exe --validate-widget examples\minimal   :: check a widget folder's manifest, print, exit
 ```
 
@@ -64,7 +64,7 @@ fields and fixes and exits with 0 (no errors), 1 (errors) or 2 (not a widget fol
 
 Right-click the tray icon or an empty part of the dock for the menu:
 
-- **Settings…**: opens the settings window (see Settings), or brings it to the front.
+- **Dock settings…** / **Global settings…**: opens this dock's own settings window / the Global one (see Settings), or brings it to the front; over a widget, clock or weather item the menu starts with **<name> settings…** (its own window).
 - **Position on screen** submenu (radio items): **Bottom**, **Top**, **Left**, **Right**. Moves the
   dock to that edge of its monitor (`edge`; alignment and offset are kept) and saves it. The
   submenu ends with a reminder that **Ctrl+drag** moves the dock (see Position). See
@@ -196,7 +196,7 @@ share the window list, the weather data and the foreground watch; each has its o
 icon cache and popups). Per dock:
 
 - `monitor`: `0` (default) = the primary monitor, `1`, `2` ... = the other monitors in
-  `EnumDisplayMonitors` order (Settings > General > Display lists them), `"primary"` (the same as
+  `EnumDisplayMonitors` order (a dock window's Position > Display lists them), `"primary"` (the same as
   `0`, spelled out), or `"each"`: one copy of the dock on every connected monitor, all showing the
   same config (a change on one copy, such as a pin or a move, changes them all; state that is not
   saved, such as the order of the running apps after a drag, is per copy). A dock whose monitor is
@@ -212,36 +212,40 @@ icon cache and popups). Per dock:
 
 - `layer`: `"normal"` (default: topmost, above windows) or `"desktop"`: the dock is shown only
   while the desktop is the foreground (after Win+D or a click on the wallpaper; also while one of
-  WinDock's own windows, such as its popups or the settings window, is in front) and hides as soon
+  WinDock's own windows, such as its popups or a settings window, is in front) and hides as soon
   as another window comes to the foreground; while shown it sits at the bottom of the z-order,
   directly above the desktop window (never topmost), so every window stays above it. It follows
   the same WinEvent hooks as intelligent auto-hide (no polling). A desktop dock reserves no
   screen space and draws its bar without the acrylic blur. `WinDock.QueryState` 52 / 53.
 
-Docks on the same edge of one monitor overlap; move one (Position, Ctrl+drag, or Settings >
-Layout).
+Docks on the same edge of one monitor overlap; move one (its window's Position tab, Ctrl+drag, or
+Global settings > Docks and displays).
 
-**Settings > Layout** draws every monitor to scale (its work area shaded) with every dock on its
-edge at its alignment / offset (full width across the edge), labelled with its id (and title).
-Click a dock to make it the dock the other pages edit; drag it along its edge (it snaps to the
+**Global settings > Docks and displays** draws every monitor to scale (its work area shaded) with
+every dock on its edge at its alignment / offset (full width across the edge) in the dock's
+identity colour, labelled with its id (and title). Click a dock to select it (its row in the list
+below); double-click it to open its own settings window; drag it along its edge (it snaps to the
 start, centre or end within 24 DIP, like Ctrl+drag on the dock; otherwise the nearest alignment
 plus the offset), onto another edge (the edge nearest to the dragged dock's centre) or onto another
 monitor (its `monitor` index; an `"each"` dock stays on every monitor, `"primary"` stays
 `"primary"`). An outline shows where it will go; the dock moves and the config is saved when the
 button is released (Escape or a lost capture cancels). A full-width dock only changes edge /
-monitor. Settings > Docks
-lists the docks (id, edge, display, whether it is shown or parked), adds one (`id` `"dock"`,
-`"dock2"` ..., bottom of the primary monitor, the running apps and the clock), duplicates or removes
-the selected one (never the last), and **the selected dock is the one the other pages edit**
-(General, Behaviour, Dock contents, the "This dock's theme" combo on Appearance). The dock menu
-of each dock (and the tray menu, for the first dock) acts on that dock; with more than one dock
-it also has **Lock all docks** / **Unlock all docks** (`WinDock.DockCommand` 124 / 125; Settings >
-Docks has the same buttons). Folder windows (round 4 phase 12, [Desktop folder
-windows](#desktop-folder-windows)) are `docks[]` entries too: the Docks page lists them (Edge:
-"Folder window", the folder after the state) with **Add folder window…** and Remove (the last
-plain dock cannot be removed while folder windows remain), and the Layout canvas draws them as
-rectangles that can be dragged to another place or display (moving only; they are resized on the
-desktop).
+monitor. The list under the drawing shows the docks (a dot in the dock's colour, id, edge,
+display, whether it is shown or parked), adds one (`id` `"dock"`, `"dock2"` ..., bottom of the
+primary monitor, the running apps and the clock), duplicates or removes the selected one (never the
+last) and opens its window (**Open dock settings**, or a double click on the row). **Each dock is
+edited in its own window** (round 5: Dock settings…; its items, position, behaviour, running apps
+and theme preset); the selected row is only the dock the Tray icons and Notifications pages'
+per-dock settings are about. Each dock has an identity colour (`docks[].color`, `#AARRGGBB`; not
+set: blue, orange, green, purple, pink, teal by its place in `docks`, repeating) used by its
+window's header and caption, its row and its drawing. The dock menu of each dock (and the tray
+menu, for the first dock) acts on that dock; with more than one dock it also has **Lock all docks**
+/ **Unlock all docks** (`WinDock.DockCommand` 124 / 125; Docks and displays has the same buttons).
+Folder windows (round 4 phase 12, [Desktop folder windows](#desktop-folder-windows)) are `docks[]`
+entries too: the list shows them (Edge: "Folder window", the folder after the state) with **Add
+folder window…**, Remove (the last plain dock cannot be removed while folder windows remain) and
+**Open window settings**, and the drawing shows them as rectangles that can be dragged to another
+place or display (moving only; they are resized on the desktop).
 
 ### Position: edge, alignment, offset
 
@@ -251,7 +255,7 @@ bottom / top dock, the top end of a left / right one; `"end"`: the other end, bo
 monitor's end), and `offset` (DIPs, i.e. pixels at 100 % scaling, default 0, -16000 - 16000) moves
 it from there along the edge, toward the right / bottom when positive. The dock never leaves its
 monitor: an offset that would push it off is cut at the monitor's end. The dock menu's
-**Position on screen**, Settings > General > Position and `WinDock.DockCommand` 120 - 123 set the
+**Position on screen**, Dock settings > Position and `WinDock.DockCommand` 120 - 123 set the
 edge; missing keys mean the defaults, and every save writes all three.
 
 The layout is computed once for every edge in "main" (along the dock) and "cross" (across it,
@@ -366,7 +370,7 @@ whole edge minus the padding). A dock that fits is not affected at all (same lay
 - `"clip"`: as before this option existed: the bar starts at the monitor's start and runs past its
   end, which cuts it off.
 
-Settings > General > Position > **When the icons do not fit**. The key is written only when it is not
+Dock settings > Position > **When the icons do not fit**. The key is written only when it is not
 `"scroll"`. Automation: `QueryState` 128 - 144, `ItemCommand` 831 - 834 (see Automation).
 
 **Shape: half circle and circle** (`shape`, round 4 phase 11b; default `"bar"`):
@@ -380,7 +384,7 @@ Settings > General > Position > **When the icons do not fit**. The key is writte
   `align`, `offset`. The items start at the top and run clockwise, with a gap of a slot and a quarter
   at the top where the run's ends meet. **Ctrl + drag** moves it anywhere on the monitor (saved as
   `x` / `y`; an arc moves along its edge or onto another edge, like a bar); dragging it on the
-  Settings > Layout canvas sets `x` / `y` too.
+  Global settings > Docks and displays (the drawing) sets `x` / `y` too.
 - `radius` (DIPs from the centre to the icons' centre line; default 0 = automatic: just large enough
   for the items, so they never overlap; otherwise 60 - 2000), both kept between a minimum (a hole of
   24 DIP, 1.5 icons) and what the monitor holds (the work area for a circle). `rotateIcons` (default
@@ -409,7 +413,7 @@ Settings > General > Position > **When the icons do not fit**. The key is writte
   bar); a circle shrinks about its centre to a hub of 44 DIP (at 90 % opacity) that stays on screen,
   and hovering the hub grows it back.
 
-Settings > General > Position: **Shape** (Bar / Half circle / Circle, 2169), **Radius** (2171, 0 =
+Dock settings > Position: **Shape** (Bar / Half circle / Circle, 2169), **Radius** (2171, 0 =
 automatic), **Turn the icons with the ring** (2173). Each key is written only when not the default.
 Automation: `QueryState` 145 - 154 (see Automation).
 
@@ -418,11 +422,11 @@ Automation: `QueryState` 145 - 154 (see Automation).
 - Left click: launches the app if it has no windows; otherwise activates, minimizes, or cycles
   through its windows. While an app is launching its icon bounces, until a new window shows up or
   5 s pass (`animation.launchStyle` can make it a single hop, an opacity pulse, or nothing).
-- Middle click on an app (`middleClick`, Settings > Behaviour): starts a new instance (the
+- Middle click on an app (`middleClick`, Dock settings > Behaviour): starts a new instance (the
   default; it bounces until its window appears), minimizes all its windows, closes all its
   windows (each gets a normal close request, so apps can still ask to save), or does nothing.
   Folders and the Recycle Bin always open in Explorer.
-- Mouse wheel over an app (`wheel`, Settings > Behaviour): nothing (the default), or switch
+- Mouse wheel over an app (`wheel`, Dock settings > Behaviour): nothing (the default), or switch
   between its windows: each notch towards you brings the next window to the front (in the order
   the windows appeared, wrapping around), away from you the previous one; with one window it is
   brought to the front.
@@ -435,7 +439,7 @@ Automation: `QueryState` 145 - 154 (see Automation).
   **Add widget >** **Clock** (added at the end), **Weather** (before a clock that ends the list,
   else at the end) and **Running apps** (after the last pin; greyed while the dock has a running
   apps item). Several clocks or weather widgets are allowed.
-- **Lock dock** (`locked` in the dock's config, also a check box on Settings > Dock contents):
+- **Lock dock** (`locked` in the dock's config, also a check box on Dock settings > Contents):
   while locked nothing can be dragged (no reordering, no unpinning by dragging an icon away),
   files dropped between icons are not pinned (the pointer shows "no drop"; dropping a file on an
   app to open it, or on the Recycle Bin, still works) and the dock menu's Add separator and Add
@@ -461,7 +465,7 @@ Automation: `QueryState` 145 - 154 (see Automation).
     (saved within 300 ms). It goes in front of the first item whose centre is right of the
     pointer; the running apps count as one block, so a widget released over them lands before or
     after the whole block, whichever side of the block's centre the pointer is on. (Move the
-    running apps block itself on Settings > Dock contents.) A widget cannot be dragged off the
+    running apps block itself on Dock settings > Contents.) A widget cannot be dragged off the
     dock; remove it in Settings. When the widget's new place changes the dock's width (the gaps
     around widgets move with it), the dock settles at once instead of animating the landing.
 - Drag files onto the dock. What a drop does depends on where the pointer is:
@@ -497,8 +501,8 @@ Automation: `QueryState` 145 - 154 (see Automation).
     right dock); clicking the icon again closes it. The popup shows the folder's name, an **Open
     in Explorer** button and its entries: sub-folders first, then files, in Explorer's name order
     ("file2" before "file10"), hidden and system entries left out, with the shell's icons. Two
-    layouts, chosen per folder item with `"view"` (right click > **View**, or Settings > Folders
-    and groups):
+    layouts, chosen per folder item with `"view"` (right click > **View**, or the folder's own
+    settings window: right click > **Settings…**):
     - `"grid"`: cells with the icon and a two-line name, up to 6 columns and 8 rows visible;
     - `"list"`: a scrolling list ("stack list") 340 DIPs wide, up to 14 rows visible: icon, name,
       and the size and date at the right (folders: the date);
@@ -549,8 +553,8 @@ Automation: `QueryState` 145 - 154 (see Automation).
     usual with the dock's `running` item (they are not pins); the group has no window previews.
   - Right click the group: **Show contents**, **Rename…** (a small dialog), **Ungroup** (the
     members become pins at its place), **Unpin group and its N shortcuts**, the icon entries and
-    **View**. Settings > Folders and groups edits the name, the view and the members (Add app…,
-    Add folder…, Remove, Move up / down); Dock contents shows a group as "Group" with its members.
+    **View**. The group's own settings window (**Settings…** in its menu) edits the name, the view and the members (Add app…,
+    Add folder…, Remove, Move up / down); Dock settings > Contents shows a group as "Group" with its members.
   - Older versions (before round 4 phase 7) do not show a group; they keep its `kind` and `icon`
     but drop its name and members if they save the file.
 - **Recycle Bin** (`{ "kind": "recycleBin" }` in the dock's `items`, or **Add Recycle Bin** on the Dock
@@ -560,7 +564,7 @@ Automation: `QueryState` 145 - 154 (see Automation).
   recycled. Right click: **Open**, **Empty Recycle Bin** (the shell's own confirmation; greyed when
   the bin is empty), **Unpin from dock**, the icon entries, then the dock menu.
 - **Separators** (`{ "kind": "separator" }` in the dock's `items`, any number; **Add separator** in the dock
-  menu or on the Dock contents page): a thin vertical line in `theme.separator` in a narrow slot
+  menu or on Dock settings > Contents): a thin vertical line in `theme.separator` in a narrow slot
   (12 DIPs). It has no name label and no dot, is never magnified (its neighbours are) and does not
   react to clicks. It can be dragged to another place or off the dock like any pin; right click
   shows **Remove**, then the dock menu.
@@ -576,7 +580,7 @@ Automation: `QueryState` 145 - 154 (see Automation).
 
   Both dialogs belong to the dock: they open in front of it, and the dock does not auto-hide
   while one is open. What the dialog returned is stored as an absolute path (`"file,index"` for
-  an icon in an `.exe` / `.dll`), saved within 300 ms and drawn at once; the Dock contents page in
+  an icon in an `.exe` / `.dll`), saved within 300 ms and drawn at once; Dock settings > Contents in
   Settings has the same three buttons. Editing `"icon"` by hand and choosing **Reload config**
   also redraws the icon at once.
 
@@ -650,7 +654,7 @@ menu still opens with the Win key while the taskbar is hidden.
 
 ### Weather and calendar
 
-**Weather widget** (a `weather` item, off by default; Dock contents > Add widget > Weather): where
+**Weather widget** (a `weather` item, off by default; Dock settings > Contents > Add widget > Weather): where
 its item stands in the dock's list (by default left of the clock, after the separator), the current
 conditions as a small glyph (sun or moon, partly cloudy, overcast, fog, drizzle, rain, snow,
 thunder; drawn as vector shapes, so they stay sharp at any DPI), the temperature in the clock's
@@ -660,8 +664,8 @@ a map-pin glyph, and a click on it opens that item's settings.
 
 **Per item** (round 5): every weather item has its own place, units, refresh interval and label
 (its `settings` object, see Configuration), so a dock can show Seattle and Tokyo side by side. Its
-settings are on the generated settings page (Dock contents > **Settings…** on its row, the map pin,
-Settings > Widget settings with the item picked). The dock runs **one forecast service per place**
+settings are in its own settings window (**Weather settings…** in the dock menu over it, Dock
+settings > Contents > **Settings…** on its row, the map pin). The dock runs **one forecast service per place**
 (latitude, longitude, units and interval): two items of the same place share one, a place nobody
 shows any more is stopped and dropped at once.
 
@@ -702,7 +706,7 @@ shows any more is stopped and dropped at once.
   temperature, a glyph-only compact mode, what a click opens, and the popup's days and hours.
   Without a place of its own it shows the place of its dock's first `weather` item (else the
   defaults). The native `weather` item stays as it is (the fallback). **Migration**: to use the
-  script version, open Settings > Dock contents, select the Weather row and **Remove** it, then
+  script version, open Dock settings > Contents, select the Weather row and **Remove** it, then
   **Add widget ▾ > Weather (script)** (or replace `{ "kind": "weather" }` with
   `{ "kind": "widget", "id": "weather" }` in config.json, moving its settings along).
 
@@ -721,7 +725,7 @@ the locale starting on its first day of the week, and six weeks of days with tod
 accent-coloured disc. Escape or clicking anywhere else closes it. With calendar feeds (below) it
 also shows events.
 
-**Calendar feeds** (round 4 phase 13; Settings > Calendar, config `calendars`): ICS feeds only (no
+**Calendar feeds** (round 4 phase 13; Global settings > Calendar feeds, config `calendars`): ICS feeds only (no
 Google / Microsoft sign-in): a web address (`https://`, `http://`, or `webcal://`, which is fetched
 over https; for example Google Calendar's "secret address in iCal format" or an Outlook published
 calendar) or an `.ics` file on this PC (a full path or a `file:///` URL).
@@ -833,7 +837,7 @@ write and edit without compiling anything. The full reference (every call, every
   (`weather`: the weather item and its forecast popup on the `weather` provider, see Weather and
   calendar above). A folder with a built-in's id replaces the built-in; your own clock faces
   go into an exported `analog-clock\faces` folder.
-- **Adding one**: Settings > Dock contents > **Add widget ▾** lists the installed widgets after
+- **Adding one**: Dock settings > Contents > **Add widget ▾** lists the installed widgets after
   Clock / Weather / Running apps, or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
   (with an optional `"settings": { ... }` object). A widget can be dragged on the dock like the
   clock; a right click opens the dock menu, which then has **Reload widgets**.
@@ -876,19 +880,19 @@ write and edit without compiling anything. The full reference (every call, every
   and `"weather"` for the providers. Without them
   those calls throw. The audio and media providers run only while a widget uses them and never
   poll (Core Audio and media-session events).
-- **Settings**: Settings > **Widget settings** is generated from each widget item's schema (pick
-  the item at the top, or press Settings… on its Dock contents row); changes apply at once.
-  Settings > **Widgets** lists the installed widgets (built-in / folder) with **Add to dock**,
+- **Settings**: each widget item's own settings window is generated from its schema (**<name>
+  settings…** in the dock menu over it, or Settings… on its Dock settings > Contents row); changes apply at once.
+  Global settings > **Widget library** lists the installed widgets (built-in / folder) with **Add to dock**,
   **Add from folder…**, **Export built-in to folder** (to edit a copy), **Reload widgets**, **Open
   widgets folder** and **Console…**.
 - **Developing**: `"watch": true` reloads a folder widget when one of its files changes (no
-  polling); the **Console** (Settings > Widgets, the dock menu's Widget console…) shows every
+  polling); the **Console** (Global settings > Widget library, the dock menu's Widget console…) shows every
   widget's state and log with Reload / Open folder / Clear. **Export built-in to folder** copies a
   built-in with its sub-folders (the analog clock's `faces\`) and a README.md stub.
 - **Examples**: this repository's `examples\` folder: `minimal` (one line of text), `http-json` (a
   public JSON API behind a host allow-list, on a refresh timer) and `popup-list` (a list in a
   script popup with the shell's icons and clicks), each annotated and with a README. They are not
-  built in: Settings > Widgets > **Add from folder…** installs one (into the widgets folder), then
+  built in: Global settings > Widget library > **Add from folder…** installs one (into the widgets folder), then
   **Add to dock**.
 - **Validation**: the manifest is checked whenever a widget loads; an error (a missing main module,
   a bad size, an unknown permission, a bad settings entry, a `choiceFrom` glob that matches nothing)
@@ -906,7 +910,7 @@ write and edit without compiling anything. The full reference (every call, every
 
 ### System tray (notify icons)
 
-Off by default. **Settings > Tray > Show the notification area icons in the dock** (or the dock
+Off by default. **Global settings > Tray icons > Show the notification area icons in the dock** (or the dock
 menu's **Add widget > Tray**, which also turns it on) makes the dock take over the notification
 area: it owns a hidden window of class `Shell_TrayWnd` above Explorer's, so every app's
 `Shell_NotifyIcon` (and `Shell_NotifyIconGetRect`, `SHAppBarMessage`) reaches the dock first; a
@@ -919,7 +923,7 @@ taskbar's private messages go on to Explorer and are answered by it. Explorer's 
 Explorer, whose taskbar the dock hides anyway; the volume, media and date widgets cover them.
 
 - **The `tray` item** (`{ "kind": "tray", "rows": 1, "columns": 8, "iconSize": 20 }`, one per
-  dock; Add widget > Tray, Settings > Dock contents > Add widget): the icons as a grid in one
+  dock; Add widget > Tray, Dock settings > Contents > Add widget): the icons as a grid in one
   widget slot (it does not magnify, like the clock), in registration order (`order`: icon keys
   shown first; 8b lets the grid be reordered by dragging). Columns run along the dock and rows
   across it: on a left / right dock the grid is `rows` wide and `columns` tall. Cells are the icon
@@ -935,7 +939,7 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   it out of the grid or the drawer onto the dock's icon row to pin it there as a **`trayApp`**
   item at the insertion marker. **Ctrl + right click** on an icon (plain right click is its app's)
   opens the tray menu: Hide from / Show in the tray grid, Pin to the dock / Unpin from the dock,
-  Tray settings…. Settings > Tray lists every icon with a Show check box too.
+  Tray settings…. Global settings > Tray icons lists every icon with a Show check box too.
 - **Pinned tray icons** (`{ "kind": "trayApp", "id": "<icon key>" }`): one icon as a full-size dock
   icon that magnifies like an app (its picture drawn at the icon size: the icon's own resource at
   that size when Windows still knows it, else the app's handle scaled). Its tooltip is the label;
@@ -943,11 +947,11 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   click > Unpin from the dock puts it back into the grid. While it is pinned the grid leaves the
   icon out (the drawer still lists it). When its app is not running the slot keeps its place
   with the placeholder icon and comes back to life when the app registers the same key again.
-  It is not dragged on the dock (Settings > Dock contents moves it).
-- **A dock of its own** (8b): Settings > Tray > **Put the tray in its own dock** makes a new dock
+  It is not dragged on the dock (Dock settings > Contents moves it).
+- **A dock of its own** (8b): Global settings > Tray icons > **Put the tray in its own dock** makes a new dock
   (id `tray`) at the bottom right of the same display holding only this dock's tray item (with its
   rows, columns, hidden icons and order), with the same theme, always shown and reserving no
-  screen space; the Docks page moves or removes it (`docks[]` like any other).
+  screen space; Global settings > Docks and displays moves or removes it (`docks[]` like any other).
 - **Input** goes to the icon's app exactly as Explorer delivers it (`uVersion` 3 / 4 semantics:
   version 4 gets the anchor point in `wParam` and `MAKELPARAM(event, uID)`): a left click sends
   button down / up and `NIN_SELECT`, a double click `WM_LBUTTONDBLCLK`, a right click button down
@@ -984,7 +988,7 @@ unpackaged app to read it without a prompt as long as Settings > Privacy & secur
 Notifications ("Let apps access your notifications") is on; the access is checked on every poll.
 
 - **The notification centre** (`{ "kind": "notifications" }`, one per dock; dock menu Add widget >
-  Notification centre, Settings > Notifications or Dock contents > Add widget): a bell with the
+  Notification centre, Global settings > Notifications or Dock contents > Add widget): a bell with the
   unread count in a bubble (theme `badgeFill` / `badgeText` / `badgeSize`; dimmed while access is
   denied). A click opens the centre above the bell (beside a vertical dock): one row per
   notification, newest first, with the app's icon, the title, two lines of text and the relative
@@ -1037,7 +1041,7 @@ Notifications ("Let apps access your notifications") is on; the access is checke
   `SetOverlayIcon` with `E_FAIL` (the taskbar they would draw on is hidden anyway).
 - **Widgets**: the `notifications` provider (permission `"notifications"`, docs/widgets.md) and
   the Notifications widget's unread count.
-- **Settings > Notifications**: Show notification badges on this dock's apps, Show the notification
+- **Global settings > Notifications**: Show notification badges on this dock's apps, Show the notification
   centre on this dock (adds / removes the item), Show tray balloons in the centre instead of
   Windows toasts, Clear an app's badge when it is opened from the dock, the poll interval
   (seconds), the access status with **Open Windows settings**, and **Badges per app**: this dock's
@@ -1102,8 +1106,8 @@ Docks (**Add folder window…**); each is a `docks[]` entry of kind `"folderWind
   `labelLines` (1 or 2 lines of name in the grid), `transparentBackground` (no panel, no acrylic:
   the entries over the wallpaper, their names and the title with a dark shadow), `rollUpOnHover`
   (a collapsed window expands while the pointer is over it and collapses again 400 ms after it
-  left; not saved). **Settings > Folder window** edits all of a window's keys (pick the window on
-  the Docks page, then **Folder window settings…**); changes apply at once.
+  left; not saved). The folder window's own settings window edits all of its keys (Global settings > Docks and
+  displays: **Open window settings**, or WinDock.DockCommand 143); changes apply at once.
 - **Where it lives**: the window is a top-level window directly above the desktop window
   (Progman). Its z-order is locked: activation, a click and `SetWindowPos(HWND_TOP)` leave it where
   it is; it goes back above the desktop when the desktop takes the foreground and after Explorer
@@ -1112,78 +1116,144 @@ Docks (**Add folder window…**); each is a `docks[]` entry of kind `"folderWind
 
 ## Settings
 
-**Settings…** in the tray / dock menu, `WinDock.exe --settings` (asks the running dock to open it,
-or starts the dock and opens it) and `WinDock.DockCommand` 107 open the settings window. There is
-only ever one; opening it again brings it to the front. It appears centred on the dock's monitor,
-above the dock, and is a normal window (Alt+Tab, minimize; the dock stays the topmost window).
+Settings live in three kinds of window (round 5), each a normal top-level window (Alt+Tab,
+minimize; the dock stays the topmost window). Any number can be open at once, they share nothing
+but the configuration, and opening one that is already open brings it to the front:
 
-Pages (left column; Up / Down / Home / End switch pages while it has the focus, Tab moves into
-the page, Esc closes the window, Enter applies the text in an edit box):
+- **Global settings** (at most one): what applies to every dock. **Global settings…** in the dock
+  / tray menu, `WinDock.exe --settings` (asks the running dock to open it, or starts the dock and
+  opens it), `WinDock.DockCommand` 107 and the **Global settings** link of a dock's window open it.
+  Its title bar reads "WinDock settings", a line over the pages "Global · applies to every dock".
+- **Dock settings** (one per dock; any number open): one dock only. **Dock settings…** in that
+  dock's menu, **Open dock settings** (or a double click) on Global > Docks and displays, and
+  `WinDock.DockCommand` 143 open it. A desktop folder window has the same kind of window (**Open
+  window settings**) with only its Folder window page.
+- **Item settings** (one per item; any number open): one widget, clock, weather, folder or group
+  item. **Settings…** in a folder's / group's menu, **<name> settings…** at the top of the dock menu
+  opened over a widget, clock or weather item, **Settings…** on the dock window's Contents tab, the
+  weather item's map pin, a widget's `weather.openSettings()`, `WinDock.DockCommand` 113 / 142 and
+  `WinDock.ItemCommand` 854 open it.
 
-- **General**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
-  magnification range (1-4 icons), **Position**: screen edge, alignment and offset (pixels at
-  100 % scale; applied on Enter or focus loss), Full width, Reserve screen space (enabled with
-  full width), Peek when hidden (pixels), Peek opacity (%) and Title (see Position), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
-  dock's order), Start with Windows, Hide the Windows taskbar, and the renderer (`auto` /
-  `software`; takes effect after WinDock restarts, the page shows the one in use). The clock's
-  controls moved to each clock item's settings page in round 5 (below).
-- **Appearance**: the theme (the built-in presets, then your theme files from the themes folder by
-  name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
+A Dock or Item window opens centred on its dock's display, beside the dock (never over its bar);
+an Item window opens 40 DIPs right of and below its dock's window when that is open. Sizes (client
+area, DIPs): Global 760 × 560, Dock 860 × 620, Item 480 × 560; pages scroll.
+
+Keyboard: the Global window's page list switches pages with Up / Down / Home / End while it has
+the focus, a Dock window's tab strip with Left / Right / Home / End; **Ctrl+Tab** / **Ctrl+Shift+Tab**
+go to the next / previous page or tab from anywhere in the window. Tab moves into the page, Esc
+closes the window, Enter applies the text in an edit box.
+
+**The Global window** (pages in its left column):
+
+- **General**: Start with Windows, Hide the Windows taskbar, the renderer (`auto` / `software`;
+  takes effect after WinDock restarts, the page shows the one in use), **Open config file**,
+  **Reload config**.
+- **Themes**: the global theme (the built-in presets, then your theme files from the themes folder
+  by name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
   **Open themes folder**, **Reset all to preset**, and one row per theme field (see
   [Themes](#themes)) grouped as Bar, Name label, Indicator dots, Clock, Placeholder icon, Window
-  previews and Icon effects. A colour row has a swatch (click it for the Windows colour picker; it
-  replaces the colour and keeps the alpha), the `#AARRGGBB` value (applied on Enter or when the
-  box loses the focus; an invalid value beeps and goes back) and the alpha 0-255. On / off keys
-  are check boxes, numbers are number boxes with their unit (DIPs; percent for the 0 - 1 values
-  such as the glow strength; degrees for the perspective angle), and the glow mode is a drop-down
-  (Off, While hovered, Active app, Always). **Icon effects** holds the glow (mode, colour, radius,
-  strength), the reflection (on / off, **Clip the reflection to the bar** right under it, height, opacity)
-  and the 3D perspective (on / off, angle);
-  see [Icon effects](#icon-effects). The preview strip under every page shows them on its
-  placeholder icons (the perspective as the shelf's trapezoid with the icons a little shorter).
-- **Behaviour**: auto-hide Off / Always / When a window overlaps the dock, hide and reveal delays,
-  window previews on / off, **Show window previews for apps with a single window**, the preview
-  delay, and **Mouse**: what a middle click on an app does (start a new instance, minimize its
-  windows, close its windows, nothing) and what the mouse wheel over an app does (nothing, switch
-  between its windows), and **Running apps**: **Windows** (Stacked / One slot per window),
-  **Titles under icons** (Off / One line / Two lines), **Titles on vertical docks** (Off / Beside
-  the icon), **Window thumbnails** (Off / Live (GPU capture) / Snapshots (every N seconds), with the
-  trade-off explained under it), the snapshot interval, the live frames per second and the tile
-  length; see [Running apps: windows and titles](#running-apps-windows-and-titles).
+  previews, Icon effects and Notification badges. A colour row has a swatch (click it for the
+  Windows colour picker; it replaces the colour and keeps the alpha), the `#AARRGGBB` value
+  (applied on Enter or when the box loses the focus; an invalid value beeps and goes back) and the
+  alpha 0-255. On / off keys are check boxes, numbers are number boxes with their unit (DIPs;
+  percent for the 0 - 1 values such as the glow strength; degrees for the perspective angle), and
+  the glow mode is a drop-down (Off, While hovered, Active app, Always). **Icon effects** holds the
+  glow (mode, colour, radius, strength), the reflection (on / off, **Clip the reflection to the
+  bar** right under it, height, opacity) and the 3D perspective (on / off, angle); see
+  [Icon effects](#icon-effects). A dock's own preset is on its window's Theme tab.
 - **Animation**: speed (Off, then 0.25× to 4× on a logarithmic slider), hide style (slide and
   fade, slide, fade, none), launch feedback (bounce until the app opens, hop once, pulse, none),
   magnification falloff (smooth / linear), easing (ease out, linear, spring), the name label fade
   (0-1000 ms) and reduce motion (follow Windows, on, off; the page shows whether Windows'
   animation effects are on). See [Animation](#animation).
-- **Dock contents** (was "Pinned apps"): every item of the dock in its order, one row each: the
-  name (with the icon for apps, folders and the Recycle Bin; "(missing)" when the file is gone),
-  the kind (App, Folder, Group, Separator, Recycle Bin, Running apps, Clock, Weather) and details (the
-  target; the clock's format; the weather's place; a second running apps item reads "Not shown:
-  only the first running apps item is used"; a kind this version does not know is listed as
-  written). Buttons: **Add app…** (pick one or more `.lnk` / `.exe` files; a shortcut is pinned as
-  the shortcut, apps that are already pinned are skipped), **Add folder…** (a folder picker),
-  **Add separator** (after the last pin), **Add widget ▾** (a menu: Clock, Weather, Running apps,
-  placed as the dock menu's Add widget does; Running apps is greyed while the dock has one),
-  **Move up** / **Move down** (any item past any other, the running apps block included),
-  **Remove** (any item; without a running apps item, running apps that are not pinned are not
-  shown, add it back with Add widget > Running apps), **Settings…** for the selected item (a
-  clock, a weather item or a script widget: its generated settings page; the running apps: the Behaviour page;
-  a folder (or a shortcut to one) or a group: the Folders and groups page; an app or the Recycle Bin:
-  Choose icon…; greyed for a separator), **Choose icon…**,
-  **Choose image…**, **Reset icon** (as in the dock's menu, see Custom icons; for apps, folders
-  and the Recycle Bin, Reset only when the entry has an `icon`), **Add Recycle Bin** (greyed
-  while the bin is on the dock) and **Lock the dock**. Every change applies to the dock at once;
-  changes from the dock itself (drags, drops, the menus) show up in the list at once.
+- **Calendar feeds** (round 4 phase 13): the calendar feeds (a check box enables / disables each;
+  the status per feed: when it was updated and how many events, or the error and when it retries),
+  fields to add a feed or edit the selected one (name, address or file, colour `#AARRGGBB`, the
+  refresh interval, the reminder minutes, enabled) with **Add feed** / **Save changes**,
+  **Remove**, **Refresh now**, **Show dots on days with events** and the **Default reminder**.
+- **Tray icons** (round 4 phase 8): show the notification area icons in the dock, Reset to
+  Explorer; for the dock selected on Docks and displays (the page names it): its tray item's rows,
+  columns, icon size and icons (hide, order), Add a tray to this dock, Put the tray in its own dock.
+- **Notifications** (round 4 phase 9): tray balloons in the centre, clear on activate, the poll
+  interval, Windows' access status, badges per app (see Notifications and badges); for the dock
+  selected on Docks and displays (the page names it): its badges and its notification centre.
+- **Widget library**: the installed script widgets (name, id, built-in / folder, version) with
+  **Add to dock** (with several docks a small menu asks which), **Add from folder…**, **Export
+  built-in to folder**, **Reload widgets**, **Open widgets folder** and **Console…** (see
+  **Widgets** above).
+- **Docks and displays**: a drawing of every display (its work area shaded) with every dock on its
+  edge in the dock's colour and every folder window, and under it the list of docks and folder
+  windows (a dot in the dock's colour, id and title, edge, display, state: shown / parked /
+  locked). Click a dock in the drawing to select it and its row, double-click it (or its row) to
+  open its own window; drag it along its edge (it snaps to the centre and the ends), onto another
+  edge or onto another display: it moves when you let go. Buttons: **Add dock**, **Duplicate**,
+  **Remove**, **Add folder window…**, **Open dock settings** (**Open window settings** for a folder
+  window), **Lock all docks**, **Unlock all docks**.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
-- **Widgets**: the installed script widgets (name, id, built-in / folder, version) with **Add to
-  dock**, **Add from folder…**, **Export built-in to folder**, **Reload widgets**, **Open widgets
-  folder** and **Console…** (see **Widgets** above).
-- **Widget settings**: the settings of one clock, weather or script widget item of the dock,
-  generated from its schema (a script widget's widget.json; the clock's and the weather's built-in
-  schemas, round 5); a drop-down at the top picks the item ("Clock: %H:%M, Tokyo Standard Time",
-  "Weather: Seattle, °C", a widget's name, with its item number); **Settings…** on its row of Dock
-  contents, the weather's map pin and `weather.openSettings()` open it: check boxes, steppers with
+
+The Themes and Animation pages have the **preview strip** under them (the global theme).
+
+**A Dock window** edits exactly one dock. Its **header** never scrolls: a strip and the id in the
+dock's identity colour (`docks[].color`, else a palette by the dock's place in `docks`), "You are
+editing this dock only", chips (its edge, its display, how many items, Shown / Parked, Locked), a
+small monitor with the dock drawn on its edge, **Flash this dock** (the dock shows itself and its
+border pulses in its colour for about 1.5 s), **Lock dock** / **Unlock dock** and a **Global
+settings** link; the title bar ("main · Dock settings · Bottom · Primary") and the window border
+take the dock's colour (Windows 11). Tabs:
+
+- **Contents** (the Dock contents page of earlier versions): every item of the dock in its order,
+  one row each: the name (with the icon for apps, folders and the Recycle Bin; "(missing)" when
+  the file is gone), the kind (App, Folder, Group, Separator, Recycle Bin, Running apps, Clock,
+  Weather, Widget, Tray, Notification centre) and details (the target; the clock's format; the
+  weather's place; a second running apps item reads "Not shown: only the first running apps item
+  is used"; a kind this version does not know is listed as written). Buttons: **Add app…** (pick
+  one or more `.lnk` / `.exe` files; a shortcut is pinned as the shortcut, apps that are already
+  pinned are skipped), **Add folder…**, **Add separator** (after the last pin), **Add widget ▾**
+  (Clock, Weather, Running apps, Tray, Notification centre and the installed script widgets,
+  placed as the dock menu's Add widget does), **Move up** / **Move down**, **Remove**,
+  **Settings…** for the selected item (a clock, weather, script widget, folder (or a shortcut to
+  one) or group: its Item window; the running apps: the Running apps tab; the tray / notification
+  centre: their Global pages; an app or the Recycle Bin: Choose icon…; greyed for a separator),
+  **Choose icon…**, **Choose image…**, **Reset icon** (as in the dock's menu, see Custom icons),
+  **Add Recycle Bin** and **Lock the dock**. Changes from the dock itself (drags, drops, the menus)
+  show up in the list at once.
+- **Position**: display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the dock's order, or
+  Every display), layer, screen edge, alignment and offset (pixels at 100 % scale), Full width,
+  Reserve screen space, Peek when hidden (pixels), Peek opacity (%), Title (see Position), the
+  shape (bar, half circle, circle), the ring's radius, Turn the icons with the ring, a circle's
+  centre x / y (DIPs from the work area's top-left; empty: the middle) and what happens when the
+  icons do not fit.
+- **Behaviour**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
+  magnification range (1-4 icons), auto-hide Off / Always / When a window overlaps the dock, hide
+  and reveal delays, window previews on / off, **Show window previews for apps with a single
+  window**, the preview delay, what a middle click on an app does and what the mouse wheel over an
+  app does.
+- **Running apps**: **Windows** (Stacked / One slot per window), **Show only the windows on this
+  dock's display**, **Titles under icons** (Off / One line / Two lines), **Titles on vertical
+  docks** (Off / Beside the icon), **Window thumbnails** (Off / Live (GPU capture) / Snapshots
+  (every N seconds)), the snapshot interval, the live frames per second and the tile length; see
+  [Running apps: windows and titles](#running-apps-windows-and-titles).
+- **Theme**: this dock's own theme preset ("Same as all docks", the presets and theme files) and a
+  link to Global > Themes, where the theme's fields are (they apply to every dock, on top of a
+  dock's own preset).
+
+The preview strip under the tabs draws this dock (its theme, sizes and items).
+
+**A folder window's window** has the same header (its colour, id, display, Shown / Parked) and its
+one page, **Folder window** (round 4 phase 12b): its folder (Browse…), title, view, icon size,
+sort, show hidden items, single click, collapsed; opacity, title colour, lines of name, hide the
+title, transparent background, roll up on hover; the Desktop rules (patterns, move automatically,
+**Sort desktop now**). See [Desktop folder windows](#desktop-folder-windows).
+
+**An Item window** has no page list: a header (the item's icon (a letter tile for a widget, clock
+or weather item), its name, "on <dock>" (a link to that dock's window), "item k of n", and for a
+script widget its id and version; the caption in its dock's colour), the item's page, and a
+footer ("Changes apply at once", **Reset to defaults** for a widget, clock or weather item,
+**Console…** for a widget):
+
+- a **widget, clock or weather item**: its settings generated from its schema (a script widget's
+  widget.json; the clock's and the weather's built-in schemas, round 5): check boxes, steppers with
   their units, drop-downs, edit boxes, a description under a field, section headers from the
   schema's groups, fields that appear only for some value of another (`visibleIf`: the analog
   clock's motion only with a second hand; the clock's App or URL only for "launch"), a **Place**
@@ -1192,53 +1262,36 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   an invalid value beeps and goes back), the status of that place's service ("Updated 10:15",
   "(stale)", "Updating…", "Not configured", "Not shown on a dock", "Error: …"), **Refresh now** and
   the Open-Meteo credit; a script widget without a place of its own says whose place it shows), a
-  **Time zone** drop-down (Local time, then every zone), **Reset to defaults** (a clock / weather
-  item: the top-level `clock` / `weather` defaults; a widget: its schema's) and, for a clock, **Open
-  faces folder**. The Weather page of earlier versions is gone (its place search is the Place
-  field).
-- **Docks** (round 4 phase 3): every dock and folder window (id, edge, display, layer, state) with
-  Add / Duplicate / Remove, Lock all / Unlock all, New folder window…, Folder window settings….
-- **Layout** (round 4 phase 3): the displays with every dock drawn on them; drag a dock to another
-  edge, place or display.
-- **Tray** (round 4 phase 8): show the notification area icons in the dock, the icon list (hide,
-  order), Reset to Explorer, Put the tray in its own dock.
-- **Notifications** (round 4 phase 9): badges and the notification centre on the dock it edits, tray
-  balloons in the centre, clear on activate, the poll interval, Windows' access status, badges per
-  app (see Notifications and badges).
-- **Calendar** (round 4 phase 13): the calendar feeds (a check box enables / disables each; the
-  status per feed: when it was updated and how many events, or the error and when it retries),
-  fields to add a feed or edit the selected one (name, address or file, colour `#AARRGGBB`, the
-  refresh interval, the reminder minutes, enabled) with **Add feed** / **Save changes**, **Remove**,
-  **Refresh now**, **Show dots on days with events** and the **Default reminder**.
-- **Folder window** (round 4 phase 12b): the folder window picked on the Docks page (**Folder window
-  settings…**): its folder (Browse…), title, view, icon size, sort, show hidden items, single
-  click, collapsed; opacity, title colour, lines of name, hide the title, transparent background,
-  roll up on hover; the Desktop rules (patterns, move automatically, **Sort desktop now**). See
-  [Desktop folder windows](#desktop-folder-windows).
-- **Folders and groups**: one folder or shortcut group of the dock (a drop-down picks it;
-  **Settings…** on its row of Dock contents opens it): **Show the contents as** Automatic (a grid
-  up to 48 entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose
-  image…, Reset icon); for a group also its **Name** and its shortcuts (Add app…, Add folder…,
-  Remove, Move up / down).
+  **Time zone** drop-down (Local time, then every zone) and, for a clock, **Open faces folder**.
+  **Reset to defaults**: a clock / weather item takes the top-level `clock` / `weather` defaults, a
+  widget its schema's.
+- a **folder** (or a shortcut to one) or a **group**: **Show the contents as** Automatic (a grid up
+  to 48 entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose image…,
+  Reset icon); for a group also its **Name** and its shortcuts (Add app…, Add folder…, Remove,
+  Move up / down).
+
+An Item window follows its item when the dock's items change: moved (by a drag on the dock, Move
+up / down, ...) it keeps editing it at its new place; removed, its window closes. Removing a dock
+closes its window and its items' windows.
 
 Every change applies to the dock at once (sliders when you release them, number boxes on each
 arrow step, on Enter or when the box loses the focus) and is saved within 300 ms, exactly like the
-menu toggles. The tray menu and **Reload config** update an open settings window. While the
-settings window is the active window the dock stays shown, so you can watch your changes; auto-hide
-resumes as soon as another window is activated.
+menu toggles; the other open settings windows show it at once. The tray menu and **Reload config**
+update every open settings window. While a dock's own window (or one of its items' windows) is the
+active window that dock stays shown, so you can watch your changes; auto-hide resumes as soon as
+another window is activated. The Global window keeps no dock shown.
 
-Under every page a **preview strip** draws a small dock from the current settings: the bar with
-its border, acrylic tint (over a stand-in wallpaper) or background, corner radius, six placeholder
-apps with the three indicator dot states (running, active, attention), the separator and the clock,
-a sun standing in for the weather widget (when it is on; the clock is the dock's first clock item),
-the name label above the magnified app,
-and a sample window-preview popup with a hovered card and
-its hovered close button. Move the mouse over it and the magnification follows the pointer, with
-the configured magnification, range and falloff. It repaints only when a setting changes or the
-mouse moves over it (no timers).
+The **preview strip** draws a small dock from the current settings: the bar with its border,
+acrylic tint (over a stand-in wallpaper) or background, corner radius, six placeholder apps with
+the three indicator dot states (running, active, attention), the separator and the clock, a sun
+standing in for the weather widget (when it is on; the clock is the dock's first clock item), the
+name label above the magnified app, and a sample window-preview popup with a hovered card and its
+hovered close button. Move the mouse over it and the magnification follows the pointer, with the
+configured magnification, range and falloff. It repaints only when a setting changes or the mouse
+moves over it (no timers).
 
 **Theme overrides.** Choosing a theme sets `theme.preset` and clears every override. A theme field
-you change on the Appearance page becomes an override: it is saved inline in config.json next to
+you change on the Themes page becomes an override: it is saved inline in config.json next to
 `"preset"` (only overridden fields are saved) and its **Reset** button appears; Reset copies the
 preset's value back and removes the field from config.json. **Reset all to preset** does that for
 every field. **Export current theme…** saves all 33 resolved values plus a `name` (the file name)
@@ -1246,15 +1299,16 @@ as a theme file, by default into the themes folder (created on demand); a file s
 the preset at once, with no overrides left. A theme file named after a built-in id (`dark.json`,
 ...) is ignored, so for a built-in preset the suggested name is `my-<id>`.
 
-The window follows the Windows app mode (Settings > Personalization > Colors > Choose your app
-mode) and switches live: dark or light title bar, Mica behind the title bar and the page list
-(when transparency effects are on; otherwise solid colours), dark buttons, boxes, lists, the Dock
-contents list and its header, and scroll bars; sliders have no dark style in Windows, so the window
-paints their track and thumb itself in dark mode. The colour picker (`ChooseColor`) and the file
-dialogs are system dialogs; the colour picker is always light. Dark context menus and drop-down
-lists use undocumented Windows functions when they are available; without them those popups are
-light. High contrast uses the system colours. Closing the window frees everything it used (the
-preview's Direct2D objects included); nothing of it runs while it is closed.
+The windows follow the Windows app mode (Settings > Personalization > Colors > Choose your app
+mode) and switch live: dark or light title bar (a Dock / Item window's is in the dock's colour on
+Windows 11), Mica behind the Global window's title bar and page list (when transparency effects are
+on; otherwise solid colours), dark buttons, boxes, lists, the list headers, the tab strip and the
+headers, and scroll bars; sliders have no dark style in Windows, so the windows paint their track
+and thumb themselves in dark mode. The colour picker (`ChooseColor`) and the file dialogs are
+system dialogs; the colour picker is always light. Dark context menus and drop-down lists use
+undocumented Windows functions when they are available; without them those popups are light. High
+contrast uses the system colours. Closing a window frees everything it used (the preview's
+Direct2D objects included); nothing of a settings window runs while it is closed.
 
 ## Configuration
 
@@ -1396,7 +1450,7 @@ items that exist. A file whose items have settings already is left alone.
     while icons magnify. Dragging an icon reorders the pins among the pins' places in the list
     (pin k always takes the place of the k-th pin item, so a pin can move past a widget) and the
     running apps among themselves; dragging the clock or the weather widget moves its own item
-    (see Dock items; the running apps count as one block). Settings > Dock contents moves any
+    (see Dock items; the running apps count as one block). Dock settings > Contents moves any
     item. A file dropped on the dock is pinned before a pin, after the last pin, or (no pins)
     before the running apps, whichever place is nearest.
   - `edge` (default `"bottom"`; `"top"`, `"left"`, `"right"`), `align` (default `"center"`;
@@ -1847,7 +1901,7 @@ always there, also when every dock is parked) handle these registered messages:
   0xFFFF the background) without / with Ctrl (returns the effect: 1 copy, 2 move). The window
   (class `WinDockFolderWindow`) takes sent mouse messages: a press on the title bar and moves
   drag it, a press 6 DIPs inside an edge resizes it, a double click on the title collapses it (the
-  snapping and the saved config are the same as for a real drag). Settings > Docks 2808 = Add
+  snapping and the saved config are the same as for a real drag). Global settings > Docks and displays 2808 = Add
   folder window…; the Layout canvas's window text lists folder windows with their rects too.
   12b: `QueryState` 205 = entries selected, 206 = the window's rule patterns, 207 = files moved by
   Desktop rules this session (any `lParam`), 208 = 1 while the Desktop is watched (rules with
@@ -1861,7 +1915,7 @@ always there, also when every dock is parked) handle these registered messages:
   1 grid, 2 list), 4411 / 4412 icon size, 4415 sort (0 name, 1 date, 2 type, 3 size), 4416 show
   hidden, 4418 single click, 4420 collapsed, 4424 / 4425 opacity %, 4428 title colour, 4431 lines
   (0 one, 1 two), 4432 hide title, 4434 transparent background, 4436 roll up on hover, 4440 rules,
-  4441 move automatically, 4443 Sort desktop now; Docks 2809 Folder window settings….
+  4441 move automatically, 4443 Sort desktop now (since round 5 phase B the page of the folder window's own window, page 0: DockCommand 143 with its index opens it).
 - **Weather provider** (round 4 phase 14; any `lParam`): `QueryState` 213 = script widgets using
   the `weather` provider, 214 = forecast requests started since the dock started (every place's
   service; = 221), 215 = weather `onChange` deliveries to widgets.
@@ -1873,10 +1927,11 @@ always there, also when every dock is parked) handle these registered messages:
   `INT_MIN` not a clock), 220 = weather services alive in the process (one per place shown; any
   `lParam`), 221 = forecast requests started by every service since the start (any `lParam`).
   `DockCommand` 142 = the settings of item `LOWORD(lParam)` (its index in `docks[].items`) of dock
-  `HIWORD(lParam)`: the settings window opens (or comes to the front) editing that dock, on the
-  generated page for that item (a folder / group: Folders and groups); returns 1 (0: no such
-  item). 113 (Weather settings…) opens the dock's first weather item's page. Settings > Widget
-  settings: the Place field's controls are 3611 the search box, 3612 Search, 3614 the results
+  `HIWORD(lParam)`: that item's Item window opens (or comes to the front; round 5 phase B: its own
+  window, the generated page; a folder / group: Folders and groups; an item without settings: the
+  dock's window); returns 1 (0: no such item). 113 (Weather settings…) opens the dock's first
+  weather item's window (none: the dock's window). The generated page (an Item window's page 0):
+  the Place field's controls are 3611 the search box, 3612 Search, 3614 the results
   drop-down, 3615 the search note, 3617 the name shown, 3619 / 3621 latitude / longitude
   (committed on `EN_KILLFOCUS`), 3623 the status, 3624 Refresh now, 3625 the credit, 3626 (a script
   widget) whose place it shows; 3627 a clock's Open faces folder; a TimeZone field's drop-down is
@@ -1892,11 +1947,11 @@ always there, also when every dock is parked) handle these registered messages:
 - **Clock faces, widget folders** (round 4 phase 14): `QueryState` 216 = the face of dock
   `HIWORD(lParam)`'s first clock item (round 5; else `clock.face`): 0 `"digital"`, 1 a face file the
   clock draws, -1 a face that cannot be read (the clock draws digital); 217 = the faces offered
-  (shipped + readable user files). `DockCommand` 141 = Settings > Widgets > Add from folder…
+  (shipped + readable user files). `DockCommand` 141 = Global settings > Widget library > Add from folder…
   without its dialog: the path in the global atom `LOWORD(lParam)` (returns 1 installed, 0
   refused: no widget.json, an invalid folder name, the id taken). The clock's Face is field 5 of
   the clock schema (0 Digital, then the faces in `QueryState` 217's order; General 2175 - 2178 are
-  retired); Widget settings: field k's controls are 3700 + 10 k + part (0 label, 1 the
+  retired); the generated page (an Item window): field k's controls are 3700 + 10 k + part (0 label, 1 the
   control, 2 its caption / spin, 3 description, 4 the group header before it, 5 its unit); a field
   hidden by `visibleIf` has none.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
@@ -1906,17 +1961,20 @@ always there, also when every dock is parked) handle these registered messages:
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
-  always, 110 Auto-hide when a window overlaps, 107 open or activate the settings window,
-  111 Refresh weather (every place), 112 Add separator, 113 Weather settings… (the settings window
-  on the dock's first weather item's page), 114 show / hide the calendar popup, 115 show / hide the weather popup, 116 Lock
+  always, 110 Auto-hide when a window overlaps, 107 open or activate the Global settings window,
+  111 Refresh weather (every place), 112 Add separator, 113 Weather settings… (the dock's first
+  weather item's Item window), 114 show / hide the calendar popup, 115 show / hide the weather popup, 116 Lock
   dock toggle, 117 Add widget > Clock, 118 Add widget > Weather, 119 Add widget > Running apps,
   120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right, 124 Lock all docks,
   125 Unlock all docks, 126 Reload widgets (every script widget of every dock reloads its package
   and script), 127 open (or activate) the widget Console; 128 - 134 see Tray / Notifications above,
   135 refresh the calendar feeds, 136 - 140 see Folder windows above (139 New folder window…, 140
   Sort desktop now), 141 install a widget folder (the path in a global atom, see Clock faces, widget
-  folders above), 142 the settings of an item (see Per-item clocks and weather above); saved like
-  the menu).
+  folders above), 142 the settings of an item (see Per-item clocks and weather above), 143 Dock
+  settings… (the Dock window of dock `HIWORD(lParam)`, like 142 the dock in the high word; a folder
+  window's index opens its window), 144 Flash this dock (dock `HIWORD(lParam)` shows itself and its
+  border pulses in its colour for about 1.5 s: 6 steps of 250 ms, `QueryState` 226; a parked dock or
+  a folder window beeps); saved like the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -1932,8 +1990,8 @@ always there, also when every dock is parked) handle these registered messages:
   the window-preview popup is visible. 12 = number of cards in the popup (0 when hidden).
   13 = the window handle shown by popup card `lParam` (0-based; 0 if there is none).
   14 = auto-hide mode (0 off, 1 always, 2 intelligent). 15 = 1 while the foreground window
-  overlaps the dock (`"intelligent"` only; always 0 in the other modes). 16 = 1 while the
-  settings window exists. 17 = 1 while
+  overlaps the dock (`"intelligent"` only; always 0 in the other modes). 16 = 1 while some
+  settings window (any kind) exists. 17 = 1 while
   reduce-motion is in effect (`animation.reduceMotion` `"on"`, or `"system"` with Windows'
   animation effects off). 19 = number of window events the intelligent-hide hooks accepted
   since the dock started (foreground changes, moves, minimize / restore of the foreground
@@ -2009,50 +2067,79 @@ always there, also when every dock is parked) handle these registered messages:
   while files are dragged over a script widget that takes them (`onDrop`). Per dock: 14 / 36 /
   39 / 40 / 42 and 37 refer to that dock's own config entry. `QueryItemPoint`
   answers for every edge (on a vertical dock the slots' y grows along the dock). While a widget is dragged, 7 is 1 and 9 is the slot index it would land at.
-- `WinDock.OpenSettings` (posted, no parameters): opens or activates the settings window; this is
-  what `WinDock.exe --settings` sends to a running dock.
-- Settings window (class `WinDock.Settings`, title "WinDock Settings"): the page list is the child
-  `WinDock.SettingsNav` (control id 100; its window text is the selected page's name); the pages
-  are `WinDock.SettingsPage` children with ids 200 + page index (0 General, 1 Appearance,
-  2 Behaviour, 3 Animation, 4 Dock contents, 5 About, 6 retired (the Weather page until round 5:
-  an empty page that is never listed or selected), 7 Docks, 8 Layout), and every control on them has the stable id
-  listed in `src/SettingsIds.h` (the Dock contents page kept the Pinned apps ids 2600 - 2611 and
-  added 2612 Add widget, 2613 Settings…, 2614 Lock the dock; its list 2600 has one row per config
-  item, columns Name, Kind, Details; the General page's clock controls 2112 - 2118, 2127, 2130 -
-  2139 and 2175 - 2178 and the Weather page's 2700 - 2727 are retired (round 5: the generated
-  page); Position 2140 - 2148: 2142 screen edge and 2144 alignment drop-downs in DockEdge /
-  DockAlign order, 2146 / 2147 offset box and up-down, 2149 Full width, 2151 Reserve screen space,
-  2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied on Enter / focus loss); Behaviour added 2223
-  single-window previews, 2227 middle click, 2229 mouse wheel, and in phase 6 2232 Windows (0
-  stacked, 1 one slot per window), 2234 Titles under icons (0 off, 1 one line, 2 two lines), 2236
-  Titles on vertical docks (0 off, 1 beside the icon; disabled while titles are off), 2239 Window
-  thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the trade-off), 2242 / 2243 snapshot
-  interval (s), 2246 / 2247 live frames per second, 2250 / 2251 tile length (DIPs, 0 = twice the
-  icon); phase 3: General 2162 "Show only
-  the windows on this dock's display" (`runningFilter`), the Display drop-down 2111 ends with
-  "Every display" (`"each"`), Appearance 2420 "This dock's theme" (0 = same as all docks, then the
-  theme list), Docks page 2800 list (Dock, Edge, Display, Windows; selecting a row makes it the dock
-  the other pages edit), 2801 Add dock, 2802 Duplicate, 2803 Remove, 2805 "The other pages edit:
-  (id)", 2806 Lock all docks, 2807 Unlock all docks, 2808 Add folder window… (phase 12); phase 3b: General 2165 Layer (0 above
-  windows, 1 desktop only), Layout page 2900 the canvas (class `WinDock.LayoutCanvas`; its window
+- `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
+  this is what `WinDock.exe --settings` sends to a running dock.
+- **Settings windows** (round 5 phase B): every kind is a top-level window of class
+  `WinDock.Settings`; find them with `EnumWindows` by class (several may be open). Titles: Global
+  "WinDock settings"; a dock's "<id> · Dock settings · <Edge> · <display>" (e.g. "main · Dock
+  settings · Bottom · Primary"); a folder window's "<id> · Folder window settings · <display>"; an
+  item's "<name> · <dock id> · Item settings" (e.g. "Clock · Two · main · Item settings": a clock /
+  weather item's name carries its label / place). `QueryState` 222 / 223 / 224 = the open Global /
+  Dock (folder windows' included) / Item windows; 225 = 1 while the Dock window of dock
+  `HIWORD(lParam)` is open (`LOWORD(lParam)` 1: its window handle; 0 none); 227 = the window
+  handle of the Item window of item `LOWORD(lParam)` (its index in `docks[].items`) of dock
+  `HIWORD(lParam)` (0 none; it follows its item when the items move); 226 = Flash steps left on the
+  dock (0 not flashing; QueryState 5 counts a running flash); 228 = 1 while the dock is kept shown
+  by its own Dock / Item window being the active window (never by the Global one).
+  `DockCommand` 107 / 143 / 142 open them, `ItemCommand` 854 an item's from its slot. The frame's
+  children: 100 the Global page list (`WinDock.SettingsNav`; its window text is the selected
+  page's name), 102 the header band (`WinDock.SettingsBand`; its window text is the header's
+  summary: Global "Global · applies to every dock", a dock "main · Bottom edge · Primary · 4
+  items · Shown[ · Locked]", an item "Clock · Two · on main · item 3 of 4"), 103 a Dock window's
+  tab strip (`WinDock.SettingsTabs`; window text = the selected tab), 104 an Item window's footer
+  (a band), 101 the preview strip (`WinDock.SettingsPreview`; the Global Themes / Animation pages,
+  every tab of a Dock window). Header / footer children: 110 Flash this dock, 111 Lock dock /
+  Unlock dock (buttons: `WM_COMMAND(id, BN_CLICKED)` to the band), 112 the Global settings link,
+  113 an Item window's "on <dock>" link (SysLinks: `NM_CLICK`), 114 Reset to defaults, 115
+  Console…. Keyboard: Ctrl+Tab / Ctrl+Shift+Tab switch pages / tabs; the tab strip takes Left /
+  Right / Home / End. The pages are `WinDock.SettingsPage` children with ids 200 + page index:
+  the Global window 0 General, 1 Themes, 2 Animation, 3 Calendar feeds, 4 Tray icons, 5
+  Notifications, 6 Widget library, 7 Docks and displays, 8 About (`SettingsIds::kPage*`); a Dock
+  window 0 Contents, 1 Position, 2 Behaviour, 3 Running apps, 4 Theme (`kTab*`; a folder window's
+  window: 0 Folder window); an Item window 0 its page (the generated one or Folders and groups).
+  Every control on them has the stable id listed in `src/SettingsIds.h`; pages that moved kept
+  their ids: Contents = the Dock contents page (Pinned apps ids 2600 - 2611, 2612 Add widget, 2613
+  Settings…, 2614 Lock the dock; its list 2600 has one row per config item, columns Name, Kind,
+  Details); Position = the General page's dock controls (2111 Display, ending with "Every display"
+  (`"each"`), 2165 Layer (0 above windows, 1 desktop only), 2142 screen edge and 2144 alignment
+  drop-downs in DockEdge / DockAlign order, 2146 / 2147 offset box and up-down, 2149 Full width,
+  2151 Reserve screen space, 2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied
+  on Enter / focus loss), 2169 shape, 2171 / 2172 radius, 2173 rotate icons, new 2180 / 2182 a
+  circle's centre x / y (edit boxes, empty = centred; committed on `EN_KILLFOCUS`), 2167 overflow);
+  Behaviour = 2101 - 2109 (icon size, magnification, range) and the Behaviour page's auto-hide,
+  previews and mouse controls (2201 - 2229, 2223 single-window previews, 2227 middle click, 2229
+  mouse wheel); Running apps = 2162 "Show only the windows on this dock's display"
+  (`runningFilter`), 2232 Windows (0 stacked, 1 one slot per window), 2234 Titles under icons (0
+  off, 1 one line, 2 two lines), 2236 Titles on vertical docks (0 off, 1 beside the icon; disabled
+  while titles are off), 2239 Window thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the
+  trade-off), 2242 / 2243 snapshot interval (s), 2246 / 2247 live frames per second, 2250 / 2251
+  tile length (DIPs, 0 = twice the icon); Theme = 2420 "This dock's theme" (0 = same as all docks,
+  then the theme list), 2422 its note, 2423 the link to Global > Themes; Global General = 2119 /
+  2121 Start with Windows / Hide the Windows taskbar, 2124 renderer, 2184 Open config file, 2185
+  Reload config; Docks and displays = 2900 the canvas (class `WinDock.LayoutCanvas`; its window
   text lists every dock instance as `index:config index:monitor:left,top,right,bottom;` in canvas
-  client pixels, `-` for a parked one), 2902 the selected dock / where a drag would drop it;
-  phase 4b: page 9 Widgets (3500 list: Name, Id, Source, Version; 3501 Add from folder…, 3502
-  Export built-in to folder, 3503 Reload widgets, 3504 Open widgets folder, 3505 Console…, 3506
-  Add to dock, 3508 the last action's result), page 10 Widget settings (3601 the item drop-down:
-  the dock's clock, weather and widget items; then per schema field k `3700 + 10 * k + part`: 0 label, 1 the control (check box,
-  edit, drop-down), 2 the check box's caption or the int's up-down, 3 the field's note; 3603 Reset
-  to defaults; the page's controls are rebuilt when another item is picked; its title 2000 reads
-  "Widget: <name>"); Dock contents 2613 Settings… on a widget row opens page 10 for it);
-  phase 7: page 11 Folders and groups (4001 the item drop-down: the edited dock's folder items,
-  shortcuts to folders included; 4003 Show the contents as: 0 Automatic, 1 Grid, 2 List; 4005
-  Choose icon…, 4006 Choose image…, 4007 Reset icon; 4008 the folder's path); Dock contents 2613
-  Settings… on a folder row opens page 11 for it; phase 7b: groups on page 11 too (4010 the name,
-  committed on `EN_KILLFOCUS`; 4012 the members list (Name, Target); 4013 Add app…, 4014 Add
-  folder…, 4015 Remove, 4016 Move up, 4017 Move down; hidden for a folder).
+  client pixels, `-` for a parked one; a click selects the row, a double click opens the dock's
+  window), 2902 the selected dock / where a drag would drop it, 2800 the list (Dock with the
+  colour dot, Edge, Display, Windows; selecting a row selects the dock the Tray icons /
+  Notifications pages are about; a double click opens its window), 2801 Add dock, 2802 Duplicate,
+  2803 Remove, 2806 Lock all docks, 2807 Unlock all docks, 2808 Add folder window…, 2810 Open dock
+  settings / Open window settings (2805 and 2809 are retired); Tray icons 4122 / Notifications
+  4223 name the selected dock; Widget library = the Widgets page (3500 list: Name, Id, Source,
+  Version; 3501 Add from folder…, 3502 Export built-in to folder, 3503 Reload widgets, 3504 Open
+  widgets folder, 3505 Console…, 3506 Add to dock (with several docks a popup menu of dock ids:
+  press it with `PostMessage`), 3508 the last action's result); the generated page (an Item
+  window of a widget, clock or weather item; per schema field k `3700 + 10 * k + part`: 0 label, 1
+  the control (check box, edit, drop-down), 2 the check box's caption or the int's up-down, 3 the
+  field's note; its title 2000 reads "Widget: <name>", "Clock" or "Weather"; the item picker 3601
+  and the page's own Reset 3603 are gone: the window is the item, Reset is the footer's 114);
+  Folders and groups (an Item window of a folder, a shortcut to a folder or a group: 4003 Show the
+  contents as: 0 Automatic, 1 Grid, 2 List; 4005 Choose icon…, 4006 Choose image…, 4007 Reset
+  icon; 4008 the folder's path; groups: 4010 the name, committed on `EN_KILLFOCUS`; 4012 the
+  members list (Name, Target); 4013 Add app…, 4014 Add folder…, 4015 Remove, 4016 Move up, 4017
+  Move down; hidden for a folder; the picker 4001 is gone).
   "Add widget ▾" opens a popup menu
   (items 1 Clock, 2 Weather, 3 Running apps, then the installed widgets 100 + n), so press it with `PostMessage`. Check boxes and radio buttons carry no visible text of their own:
-  their caption is a separate static (id + 1) that forwards clicks. The Appearance page's theme
+  their caption is a separate static (id + 1) that forwards clicks. The Themes page's theme
   field rows use `3000 + 10 * field index + part` (ids 3000 - 3399; field index in
   `Theme::Fields()` order; part 0 label, 1 swatch / check box, 2 hex box / check box caption,
   3 alpha or value box (the glow mode's drop-down), 4 its up-down, 5 Reset, 6 unit). The preview strip is the child `WinDock.SettingsPreview` (control id 101).
@@ -2071,7 +2158,9 @@ always there, also when every dock is parked) handle these registered messages:
   819 / 820 / 821 with an argument in the high word of `wParam` (the low word is the command):
   819 slot `lParam` onto slot `HIWORD(wParam)` (a group of the two, or added to that group), 820
   group slot `lParam`'s member `HIWORD(wParam)` out (a pin right after the group), 821 that member
-  removed; 800 on a group unpins it with its members, 806 shows / hides its popup, 900 close all windows),
+  removed; 800 on a group unpins it with its members, 806 shows / hides its popup, 854 Settings…:
+  the slot's config item's Item window (a widget, clock, weather, folder or group; another item:
+  its dock's window; round 5 phase B), 900 close all windows),
   `lParam` = item index or a window handle of the item. Returns 1 if the item was found. A folder
   popup opened this way usually cannot take the foreground (the dock did not get the click), so
   Escape does not reach it; it still closes when another window comes to the foreground, on a dock

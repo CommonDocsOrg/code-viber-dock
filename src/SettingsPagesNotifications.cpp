@@ -29,6 +29,8 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Notifications");
+        Text(kNotifDockLine, CtlKind::Note, L"", kMargin, right - kMargin, 20);
+        NextRow(22);
         Check(kNotifBadges, kNotifBadgesCaption, L"Show notification badges on this dock's apps");
         NextRow();
         Check(kNotifCentre, kNotifCentreCaption, L"Show the notification centre on this dock");
@@ -106,7 +108,8 @@ protected:
     }
 
     void Load() override {
-        const DockConfig& d = Cfg().Edit();
+        const DockConfig& d = Dock();
+        SetText(kNotifDockLine, L"The two check boxes below are about the dock selected on Docks and displays: " + d.id + L".");
         SetCheck(kNotifBadges, d.badges);
         SetCheck(kNotifCentre, d.Has(ItemKind::Notifications));
         SetCheck(kNotifBalloons, Cfg().notifications.balloons);
@@ -126,11 +129,11 @@ protected:
         NotificationsConfig& n = Cfg().notifications;
         switch (id) {
             case kNotifBadges:
-                Cfg().Edit().badges = GetCheck(kNotifBadges);
+                Dock().badges = GetCheck(kNotifBadges);
                 Changed(SettingsScope::Notifications);
                 break;
             case kNotifCentre: {
-                DockConfig& d = Cfg().Edit();
+                DockConfig& d = Dock();
                 if (GetCheck(kNotifCentre)) {
                     if (!d.Has(ItemKind::Notifications)) d.AddWidget(ItemKind::Notifications);
                 } else {
