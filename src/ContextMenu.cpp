@@ -46,6 +46,7 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
         Append(menu, kRefreshWeather, L"Refresh weather", state.weatherConfigured);
         Append(menu, kWeatherSettings, L"Weather settings…", true);
     }
+    Append(menu, kNewFolderWindow, L"New folder window…", true);
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     if (HMENU sub = CreatePopupMenu()) {  // destroyed with its parent
         Append(sub, kAutoHideOff, L"Off", true);

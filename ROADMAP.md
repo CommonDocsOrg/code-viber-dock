@@ -515,6 +515,42 @@ transform in DockGeometry) and 11b (`shape` arc / circle: the polar mapping in D
 
 ## Phase 12: desktop folder docks (Fences-like)
 
+Status: 12a done 2026-11-03 (`FolderWindow` on the extended `DesktopLayer`, ItemGridView with
+multiple selection and double-click activation, SHChangeNotify, the shell menu, drops); see
+STATUS.md.
+
+Desktop-layer spike (12a, Windows 11 build 26300; harness in the session scratchpad
+`p12\spike\spike.cpp`, `spike.exe T|C`; the session was locked, so foreground changes by script
+were refused and only z-order / focus within our own thread could be checked):
+
+- **T, top-level with a z-order lock** (WS_POPUP + WS_EX_TOOLWINDOW + WS_EX_NOREDIRECTIONBITMAP, not
+  WS_EX_NOACTIVATE, placed directly above Progman; `WM_WINDOWPOSCHANGING` adds `SWP_NOZORDER` unless
+  the layer places it): a DirectComposition target renders (PrintWindow 25 / 25 samples), a normal
+  app window stays above it, `SetWindowPos(HWND_TOP)` and the activation's raise are both dropped
+  (2 blocked z changes) while `SetActiveWindow` makes it the active window and `SetFocus` gives it
+  the keyboard focus, `RegisterDragDrop` succeeds, `DWMWA_SYSTEMBACKDROP_TYPE` succeeds (so the
+  Backdrop acrylic window works beneath it). **Progman is pinned to the bottom of the z-order**: a
+  window sent to `HWND_BOTTOM` lands directly above it (z index 816 of 818, Progman 817), so a new
+  desktop window after an Explorer restart cannot end up above the folder windows; re-placing after
+  `TaskbarCreated` / when the desktop takes the foreground covers the rest. A cloaked CoreWindow
+  sometimes sits between a window and Progman: the layer test ignores cloaked and invisible
+  windows.
+- **C, a child of Progman above SHELLDLL_DefView** (Phase 3's candidate a'): renders and is
+  hit-tested, `SetFocus` works, `RegisterDragDrop` succeeds, but the child relation **attaches our
+  input queue to Explorer's thread** (Explorer's GUI thread reports our window as its focus window:
+  a hung Explorer would hang the dock's input and the reverse), `DWMWA_SYSTEMBACKDROP_TYPE` fails
+  with `E_HANDLE` (no acrylic on a child), and a child is destroyed with Progman when Explorer
+  restarts (would need re-creating).
+- Chosen: T, in `DesktopLayer` (Register / FilterPosChanging / Place / Reassert / AboveDesktop):
+  the desktop docks of Phase 3 keep `PlaceAboveDesktop`; folder windows register with the layer,
+  which keeps each one (and its backdrop window) directly above the desktop window or above the run
+  of our own windows there, and re-places them on `TaskbarCreated` and when the desktop takes the
+  foreground (one out-of-context `EVENT_SYSTEM_FOREGROUND` hook while a folder window exists).
+  Not verified: a real Win+D / Show desktop (it minimizes the user's windows) and a real Explorer
+  restart (closes the user's Explorer windows); the recovery path ran through DockCommand 138 (lift
+  out of the layer, then the recovery). `SetWindowPos(HWND_TOP)` from the dock's own process was
+  refused in the locked session (the hook inserts after another app's window instead).
+
 - Dock kind `folderWindow` on the desktop layer (Phase 3): a titled, resizable panel showing a
   folder through `ItemGridView` (Phase 7), live refresh via `SHChangeNotify`, drag / drop,
   the shell context menu, rename, delete.

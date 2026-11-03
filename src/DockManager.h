@@ -10,6 +10,7 @@
 #include "CalendarService.h"
 #include "Config.h"
 #include "DockWindow.h"
+#include "FolderWindow.h"
 #include "ForegroundWatch.h"
 #include "NotificationService.h"
 #include "TrayHost.h"
@@ -38,6 +39,11 @@ public:
         int monitorIndex = -1;    // index into Monitors() (-1: parked)
         bool failed = false;      // the window could not be created (counts as parked)
         std::unique_ptr<DockWindow> window;  // null while parked
+        // A docks[] entry of kind "folderWindow" (round 4 phase 12): its window instead (null while
+        // parked); `window` stays null. Automation addresses it by the same index.
+        bool isFolder = false;
+        std::unique_ptr<FolderWindow> folder;
+        bool Live() const { return window || folder; }
     };
 
     struct Callbacks {
@@ -46,6 +52,11 @@ public:
         std::function<void()> weatherChanged;        // the weather data / status changed (once per change)
         std::function<void()> notificationsChanged;  // the notification list / service state changed
         std::function<void()> calendarChanged;       // the calendar feeds' data / status changed
+        // Folder windows: one changed its config entry (moved, resized, collapsed, a menu
+        // setting); asks to remove config dock `cfg`; "New folder window…" from its menu.
+        std::function<void()> folderChanged;
+        std::function<void(size_t cfg)> folderRemove;
+        std::function<void()> folderNew;
     };
 
     DockManager() = default;
@@ -63,7 +74,7 @@ public:
     // Frees the windows Sync / Shutdown closed (their C++ objects outlive their HWNDs until then:
     // a dock may be closed from inside one of its own messages, e.g. Reload config in its menu).
     // Call from a posted message.
-    void Reap() { graveyard_.clear(); }
+    void Reap();
     // The owner window's messages for the shared services (tracker, watch, weather). True if handled.
     bool HandleMessage(UINT msg, WPARAM wp, LPARAM lp);
 
@@ -86,6 +97,12 @@ public:
     DockWindow* First();
     // The automation index of a window (SIZE_MAX: not ours).
     size_t IndexOf(const DockWindow* window) const;
+    // --- folder windows (round 4 phase 12) ---
+    FolderWindow* FolderAt(size_t index) { return index < instances_.size() ? instances_[index].folder.get() : nullptr; }
+    FolderWindow* FolderOf(size_t cfg);
+    size_t FolderCount() const;
+    // Explorer restarted (TaskbarCreated): the desktop windows go back above the new desktop.
+    void OnExplorerRestarted();
     template <class F>
     void ForEach(F&& f) {
         for (Instance& i : instances_) {
@@ -144,6 +161,11 @@ public:
 
 private:
     HRESULT CreateWindowFor(Instance& inst);
+    HRESULT CreateFolderFor(Instance& inst);
+    // The folder windows' shared device: made with the first folder window, released after the last.
+    bool EnsureFolderRenderer();
+    void RecoverFolderDevice();
+    static constexpr UINT kFolderDeviceLost = WM_APP + 52;  // posted to the owner window
     // Closes the window now (DestroyWindow) and keeps the object until Reap / the destructor.
     void Close(std::unique_ptr<DockWindow> window);
 
@@ -156,6 +178,10 @@ private:
     std::vector<HMONITOR> monitors_;
     std::vector<Instance> instances_;
     std::vector<std::unique_ptr<DockWindow>> graveyard_;  // closed windows, freed by Reap
+    std::vector<std::unique_ptr<FolderWindow>> folderGraveyard_;
+    Renderer folderRenderer_;   // every folder window's composition device (on the owner window)
+    bool folderRendererReady_ = false;
+    bool folderRecoveryPosted_ = false;
     bool appBarAllowed_ = false;
     bool syncing_ = false;
     bool trayStartPosted_ = false;

@@ -55,6 +55,7 @@ const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kOverflowNames[] = {L"scroll", L"shrink", L"clip"};
 const wchar_t* const kShapeNames[] = {L"bar", L"arc", L"circle"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
+const wchar_t* const kFolderSortNames[] = {L"name", L"date", L"type", L"size"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather", L"widget", L"group",
                                          L"tray",    L"trayApp", L"notifications"};
@@ -181,6 +182,32 @@ void ReadEnum(const json::JsonObject& o, const wchar_t* key, E& v) {
     if (!s.empty()) FromString(s, v);  // unknown text: keep the default
 }
 
+// A "folderWindow" docks[] entry (round 4 phase 12): its own keys; the dock keys are not read.
+void ReadFolderWindowFields(const json::JsonObject& o, DockConfig& d) {
+    FolderWindowConfig& f = d.folder;
+    ReadString(o, L"path", f.path);
+    ReadString(o, L"title", d.title);
+    ReadInt(o, L"x", d.x);
+    ReadInt(o, L"y", d.y);
+    ReadInt(o, L"w", f.w);
+    ReadInt(o, L"h", f.h);
+    ReadEnum(o, L"view", f.view);
+    ReadInt(o, L"iconSize", f.iconSize);
+    ReadEnum(o, L"sort", f.sort);
+    ReadBool(o, L"showHidden", f.showHidden);
+    ReadBool(o, L"collapsed", f.collapsed);
+    ReadBool(o, L"singleClick", f.singleClick);
+    d.monitor = 0;
+    if (auto m = Find(o, L"monitor")) {
+        if (m.ValueType() == json::JsonValueType::String) {
+            d.monitor = DockConfig::kMonitorPrimary;  // "primary" (a folder window is never "each")
+        } else {
+            ReadInt(o, L"monitor", d.monitor);
+            if (d.monitor < 0) d.monitor = DockConfig::kMonitorPrimary;
+        }
+    }
+}
+
 }  // namespace
 
 const wchar_t* ToString(AutoHideMode v) { return EnumToString(v, kAutoHideNames); }
@@ -213,6 +240,8 @@ const wchar_t* ToString(DockShape v) { return EnumToString(v, kShapeNames); }
 bool FromString(std::wstring_view s, DockShape& v) { return EnumFromString(s, v, kShapeNames); }
 const wchar_t* ToString(ItemView v) { return EnumToString(v, kItemViewNames); }
 bool FromString(std::wstring_view s, ItemView& v) { return EnumFromString(s, v, kItemViewNames); }
+const wchar_t* ToString(FolderSort v) { return EnumToString(v, kFolderSortNames); }
+bool FromString(std::wstring_view s, FolderSort& v) { return EnumFromString(s, v, kFolderSortNames); }
 bool FromString(std::wstring_view s, DockEdge& v) { return EnumFromString(s, v, kEdgeNames); }
 bool FromString(std::wstring_view s, DockAlign& v) { return EnumFromString(s, v, kAlignNames); }
 bool FromString(std::wstring_view s, MiddleClickAction& v) { return EnumFromString(s, v, kMiddleClickNames); }
@@ -446,9 +475,28 @@ std::wstring Config::UniqueDockId(const std::wstring& base) const {
 }
 
 void Config::Sanitize() {
-    if (docks.empty()) docks.emplace_back();
+    // At least one dock (folder windows alone are not enough: the menus, tray icon and automation
+    // need a dock).
+    if (std::none_of(docks.begin(), docks.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); })) {
+        docks.emplace(docks.begin());
+    }
     for (DockConfig& d : docks) {
-        if (d.id.empty()) d.id = L"main";
+        if (d.id.empty()) d.id = d.IsFolderWindow() ? L"folder" : L"main";
+        if (d.IsFolderWindow()) {
+            FolderWindowConfig& f = d.folder;
+            if (f.path.size() > 4096) f.path.resize(4096);
+            if (d.title.size() > 128) d.title.resize(128);
+            f.w = std::clamp(f.w, 160, 8000);
+            f.h = std::clamp(f.h, 80, 8000);
+            f.iconSize = std::clamp(f.iconSize, 32, 96);
+            if (static_cast<unsigned>(f.view) > static_cast<unsigned>(ItemView::List)) f.view = ItemView::Auto;
+            if (static_cast<unsigned>(f.sort) > static_cast<unsigned>(FolderSort::Size)) f.sort = FolderSort::Name;
+            if (d.x != DockConfig::kCentred) d.x = std::clamp(d.x, -16000, 16000);
+            if (d.y != DockConfig::kCentred) d.y = std::clamp(d.y, -16000, 16000);
+            if (d.monitor < DockConfig::kMonitorPrimary) d.monitor = DockConfig::kMonitorPrimary;
+            d.items.clear();
+            continue;
+        }
         if (d.id.size() > 64) d.id.resize(64);
         if (static_cast<unsigned>(d.edge) > static_cast<unsigned>(DockEdge::Right)) d.edge = DockEdge::Bottom;
         if (static_cast<unsigned>(d.align) > static_cast<unsigned>(DockAlign::End)) d.align = DockAlign::Center;
@@ -617,6 +665,19 @@ Config::LoadResult Config::LoadFile() {
                     const json::JsonObject obj = dv.GetObject();
                     DockConfig d;
                     ReadString(obj, L"id", d.id);
+                    std::wstring kind;
+                    ReadString(obj, L"kind", kind);
+                    if (!kind.empty() && CompareStringOrdinal(kind.c_str(), -1, L"dock", -1, TRUE) != CSTR_EQUAL) {
+                        if (CompareStringOrdinal(kind.c_str(), -1, L"folderWindow", -1, TRUE) != CSTR_EQUAL) {
+                            extraDocks.emplace_back(obj.Stringify());  // a kind this version does not know: kept, not shown
+                            continue;
+                        }
+                        d.dockKind = DockKind::FolderWindow;
+                        d.items.clear();
+                        ReadFolderWindowFields(obj, d);
+                        docks.push_back(std::move(d));
+                        continue;
+                    }
                     ReadBool(obj, L"locked", d.locked);
                     ReadDockFields(obj, d);
                     ReadDockOnlyFields(obj, d);
@@ -798,6 +859,22 @@ bool Config::Save() const {
         for (size_t di = 0; di < docks.size(); ++di) {
             const DockConfig& d = docks[di];
             o += di ? L",\n    {\n" : L"\n    {\n";
+            if (d.IsFolderWindow()) {
+                // The folder window's keys, then what makes an older version (which reads this as a
+                // dock) show nothing: no items, the desktop layer, auto-hidden, reserving nothing.
+                const FolderWindowConfig& f = d.folder;
+                o += L"      \"id\": " + Quote(d.id) + L", \"kind\": \"folderWindow\", \"path\": " + Quote(f.path) +
+                     L", \"title\": " + Quote(d.title) + L",\n";
+                // x / y only when placed (no key: centred on the work area).
+                o += L"      " + (d.x != DockConfig::kCentred ? L"\"x\": " + Num(d.x) + L", " : std::wstring()) +
+                     (d.y != DockConfig::kCentred ? L"\"y\": " + Num(d.y) + L", " : std::wstring()) + L"\"w\": " + Num(f.w) +
+                     L", \"h\": " + Num(f.h) + L", \"monitor\": " + MonitorJson(d.monitor) + L",\n";
+                o += L"      \"view\": " + Quote(ToString(f.view)) + L", \"iconSize\": " + Num(f.iconSize) +
+                     L", \"sort\": " + Quote(ToString(f.sort)) + L", \"showHidden\": " + Bool(f.showHidden) +
+                     L", \"collapsed\": " + Bool(f.collapsed) + (f.singleClick ? L", \"singleClick\": true" : L"") + L",\n";
+                o += L"      \"items\": [], \"layer\": \"desktop\", \"autoHide\": \"always\", \"reserveSpace\": false\n    }";
+                continue;
+            }
             o += L"      \"id\": " + Quote(d.id) + L",\n      \"items\": [";
             for (size_t i = 0; i < d.items.size(); ++i) {
                 const DockItemEntry& e = d.items[i];
@@ -871,7 +948,8 @@ bool Config::Save() const {
                  (d.x != DockConfig::kCentred ? L", \"x\": " + Num(d.x) : L"") +
                  (d.y != DockConfig::kCentred ? L", \"y\": " + Num(d.y) : L"") + L"\n    }";
         }
-        o += docks.empty() ? L"],\n" : L"\n  ],\n";
+        for (const std::wstring& extra : extraDocks) o += L",\n    " + extra;
+        o += docks.empty() && extraDocks.empty() ? L"],\n" : L"\n  ],\n";
         o += L"  \"hideTaskbar\": " + Bool(hideTaskbar) + L",\n";
         o += L"  \"startWithWindows\": " + Bool(startWithWindows) + L",\n";
         o += L"  \"renderer\": " + Quote(renderer) + L",\n";

@@ -36,7 +36,8 @@ enum class SettingsDockEdit { Add, Duplicate, Remove, TrayDock };
 struct SettingsDockRect {
     size_t cfg = 0;    // index into config.docks
     int monitor = -1;  // monitor index (DockManager order: primary first); -1 parked
-    RECT bar{};        // the bar at rest, screen px (empty when parked)
+    RECT bar{};        // the bar at rest, screen px (empty when parked); a folder window's rect
+    bool folderWindow = false;  // a desktop folder window (round 4 phase 12), not a dock
 };
 
 // A notify icon for the Tray page (SettingsHost::trayIcons).

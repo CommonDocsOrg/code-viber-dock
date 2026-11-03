@@ -56,6 +56,7 @@ protected:
         Button(kDockAdd, L"Add dock", kMargin, kButtonW);
         Button(kDockDuplicate, L"Duplicate", kMargin + kButtonStep, kButtonW);
         Button(kDockRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW);
+        Button(kDockAddFolder, L"Add folder window…", kMargin + 3 * kButtonStep, kButtonW + 20);
         NextRow(kRowH + 4);
         Button(kLockAllDocks, L"Lock all docks", kMargin, kButtonW);
         Button(kUnlockAllDocks, L"Unlock all docks", kMargin + kButtonStep, kButtonW);
@@ -64,9 +65,11 @@ protected:
              L"Select a dock to edit it on the other pages (General, Behaviour, Dock contents and the theme on "
              L"Appearance). A new dock starts at the bottom of the primary display with the running apps and the "
              L"clock: move it there (Position) or Ctrl+drag it. A dock whose display is not connected is parked "
-             L"until it is. \"Every display\" shows one copy of the dock on each display.",
-             kMargin, right - kMargin, 90);
-        NextRow(90);
+             L"until it is. \"Every display\" shows one copy of the dock on each display. A folder window shows a "
+             L"folder on the desktop, under your windows: move and resize it there (or on the Layout page), right-click "
+             L"its background for its options.",
+             kMargin, right - kMargin, 120);
+        NextRow(120);
     }
 
     void Created() override {
@@ -131,6 +134,9 @@ protected:
                 Window().ConfigApplied();
                 break;
             }
+            case kDockAddFolder:
+                if (Host().command) Host().command(ContextMenu::kNewFolderWindow);  // the picker, then a refresh
+                break;
             case kLockAllDocks:
             case kUnlockAllDocks:
                 if (Host().command) {
@@ -158,13 +164,15 @@ private:
         for (int i = 0; i < n; ++i) {
             const DockConfig& d = c.docks[static_cast<size_t>(i)];
             std::wstring id = d.id + (d.title.empty() ? L"" : L" (" + d.title + L")");
-            const std::wstring edge = std::wstring(EdgeName(d.edge)) + (d.fullWidth ? L", full" : L"");
+            const std::wstring edge = d.IsFolderWindow() ? std::wstring(L"Folder window")
+                                                         : std::wstring(EdgeName(d.edge)) + (d.fullWidth ? L", full" : L"");
             const std::wstring display = DisplayName(d.monitor);
             const int windows = Host().dockWindows ? Host().dockWindows(static_cast<size_t>(i)) : 1;
             std::wstring state = windows == 0 ? L"Parked (display not connected)"
                                  : d.Each()   ? std::to_wstring(windows) + L" (one per display)"
                                               : L"Shown";
-            if (d.locked) state += L", locked";
+            if (d.locked && !d.IsFolderWindow()) state += L", locked";
+            if (d.IsFolderWindow()) state += L": " + d.folder.path;
             if (rebuild) {
                 LVITEMW item{};
                 item.mask = LVIF_TEXT;
@@ -188,8 +196,12 @@ private:
             SendMessageW(list, WM_SETREDRAW, TRUE, 0);
             InvalidateRect(list, nullptr, TRUE);
         }
-        SetText(kDockEditing, n > 0 ? L"The other pages edit: " + c.docks[static_cast<size_t>(sel)].id : L"");
-        Enable(kDockRemove, n > 1);
+        const bool folderSel = n > 0 && c.docks[static_cast<size_t>(sel)].IsFolderWindow();
+        SetText(kDockEditing, n == 0     ? L""
+                              : folderSel ? L"Selected: the folder window " + c.docks[static_cast<size_t>(sel)].id
+                                          : L"The other pages edit: " + c.docks[static_cast<size_t>(sel)].id);
+        const auto plainDocks = std::count_if(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });
+        Enable(kDockRemove, n > 1 && (folderSel || plainDocks > 1));
         bool anyLocked = false, anyUnlocked = false;
         for (const DockConfig& d : c.docks) (d.locked ? anyLocked : anyUnlocked) = true;
         Enable(kLockAllDocks, anyUnlocked);

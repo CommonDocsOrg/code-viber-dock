@@ -77,6 +77,9 @@ public:
         // A close glyph at the right of the hovered row's first line (in place of `secondary`); a
         // click on it calls Callbacks::close instead of activate.
         bool closeButton = false;
+        // false (the desktop folder windows): a left click selects, a double click (DoubleClick)
+        // or Enter activates.
+        bool clickActivates = true;
     };
 
     struct Callbacks {
@@ -139,6 +142,16 @@ public:
     // Keyboard selection (-1 none); `reveal` scrolls it into view (animated).
     void Select(int index, bool reveal);
     int Selected() const { return selected_; }
+    // Multiple selection (the folder windows): on, a click selects one entry, Ctrl + click toggles
+    // one, Shift + click / Shift + arrows select the range from the anchor, Ctrl+A every entry and
+    // a click on the background none. Selected() is then the focused entry (the caret).
+    void SetMultiSelect(bool on) { multi_ = on; }
+    bool Marked(size_t index) const { return multi_ ? index < marked_.size() && marked_[index] : static_cast<int>(index) == selected_; }
+    size_t MarkedCount() const;
+    std::vector<size_t> MarkedIndexes() const;
+    // A click's selection on entry `index` with Ctrl / Shift held (automation; -1 with neither: none).
+    void SelectWith(int index, bool ctrl, bool shift, bool reveal);
+    void SelectAll();
     int Hot() const { return hot_; }
     // Scroll position in px (the target of a running animation).
     LONG ScrollOffset() const { return static_cast<LONG>(std::lround(target_)); }
@@ -165,6 +178,9 @@ public:
     // True when the press is the view's (inside it); it then gets the matching ButtonUp too.
     bool ButtonDown(Button button, POINT pt);
     bool ButtonUp(Button button, POINT pt);
+    // WM_LBUTTONDBLCLK: activates the entry under the point (Style::clickActivates false). True if
+    // it was on an entry.
+    bool DoubleClick(POINT pt);
     bool Pressed(Button button) const { return press_.active && press_.button == button; }
     // WM_MOUSEWHEEL (delta in WHEEL_DELTA units) at a client point; true if it scrolled the view.
     bool Wheel(int delta, POINT pt);
@@ -253,6 +269,9 @@ private:
 
     int hot_ = -1;
     int selected_ = -1;
+    bool multi_ = false;
+    std::vector<uint8_t> marked_;  // multiple selection, parallel to items_
+    int anchor_ = -1;              // Shift ranges start here
     int drop_ = -1;
     Press press_;
     std::wstring typed_;       // type-to-select prefix

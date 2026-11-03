@@ -49,7 +49,12 @@ enum Command : UINT {
     kToggleCentre = 133,        // shows / hides the notification centre over the first notifications item
     kAddNotifications = 134,    // Add widget > Notification centre (a "notifications" item; one per dock)
     kRefreshCalendars = 135,    // every calendar feed fetches / is read now (no-op while none is enabled)
-    kLastDockCommand = kRefreshCalendars,
+    // Desktop folder windows (round 4 phase 12):
+    kCreateFolderWindow = 136,  // automation: a folder window for the path in the global atom LOWORD(lParam), at the pointer
+    kRemoveFolderWindow = 137,  // automation: removes the folder window HIWORD(lParam)
+    kSimulateExplorerRestart = 138,  // test hook: every folder window pushed under the desktop, then the restart recovery
+    kNewFolderWindow = 139,     // "New folder window…": a folder picker, then a folder window at the pointer
+    kLastDockCommand = kNewFolderWindow,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -94,6 +99,19 @@ enum Command : UINT {
     kReminderFireNext = 836,    // the earliest pending reminder fires now (any dock: the service's)
     kReminderSnooze = 837,      // the dock's reminder banner: Snooze 5 min
     kReminderDismiss = 838,     // ... Dismiss
+    // A folder window (round 4 phase 12; lParam: the folder window's dock index in its high word):
+    kFolderSelect = 839,        // select entry LOWORD(lParam) (0xFFFF: none); HIWORD(wParam) 1 = Ctrl, 2 = Shift
+    kFolderOpen = 840,          // open entry LOWORD(lParam) as a double click does
+    kFolderScroll = 841,        // scroll to HIWORD(wParam) px
+    kFolderCollapse = 842,      // collapse / expand (as a double click on the title)
+    kFolderBeginRename = 843,   // F2 on entry LOWORD(lParam): the inline rename box opens
+    kFolderCommitRename = 844,  // commits it with the name in the global atom HIWORD(wParam) (0: the box's text)
+    kFolderRecycle = 845,       // Delete: the selection goes to the Recycle Bin
+    kFolderMenu = 846,          // the context menu of entry LOWORD(lParam) (0xFFFF: the background); posted
+    kFolderSelectAll = 847,     // Ctrl+A
+    kFolderDropOn = 848,        // test hook: the selection dropped onto folder window HIWORD(wParam) (no OLE loop)
+    kFolderDropPath = 849,      // test hook: the path in the atom HIWORD(wParam) dropped on entry LOWORD(lParam) (0xFFFF: background)
+    kFolderDropPathCopy = 850,  // ... with Ctrl held (a copy)
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

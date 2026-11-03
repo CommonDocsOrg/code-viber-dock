@@ -13,8 +13,7 @@
 #include "ItemGridView.h"
 #include "PopupWindow.h"
 #include "Renderer.h"
-
-class FolderDropTarget;
+#include "ShellFiles.h"
 
 // The contents of a pinned folder (a macOS "stack"): a click popup (PopupWindow, class
 // WinDockFolder) beside the dock with a header (the folder's name, or the path from the pinned
@@ -130,7 +129,6 @@ protected:
     bool OnMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) override;
 
 private:
-    friend class FolderDropTarget;
     // HitAt indices beyond the cells.
     static constexpr int kHitBack = 1000;
     static constexpr int kHitExplorer = 1001;
@@ -161,7 +159,7 @@ private:
     ItemGridView::Style ViewStyle() const;
     void Release();
 
-    // --- file drops (FolderDropTarget, on the UI thread) ---
+    // --- file drops (ShellFiles::DropTarget, on the UI thread) ---
     void RegisterDrop();
     DWORD DragEnter(IDataObject* data, POINT screen, DWORD keys, DWORD allowed);
     DWORD DragOver(POINT screen, DWORD keys, DWORD allowed);
@@ -208,6 +206,6 @@ private:
     winrt::com_ptr<IDWriteInlineObject> titleEllipsis_;
 
     // Drops
-    FolderDropTarget* dropTarget_ = nullptr;  // registered on the window (one reference held)
+    ShellFiles::DropTarget* dropTarget_ = nullptr;  // registered on the window (one reference held)
     std::vector<std::wstring> dragFiles_;     // the files of the drag over the popup
 };

@@ -109,6 +109,29 @@ enum class OverflowMode { Scroll, Shrink, Clip };
 // on the screen edge, the items along the arc) or "circle" (a full ring floating on the monitor at
 // x / y; it ignores the edge, alignment and offset).
 enum class DockShape { Bar, Arc, Circle };
+// What a docks[] entry is (round 4 phase 12, "kind"): "dock" (default) or "folderWindow" (a
+// titled panel on the desktop showing a folder's contents, FolderWindow). A docks[] entry with a
+// kind this version does not know is kept verbatim (Config::extraDocks) and not shown.
+enum class DockKind { Dock, FolderWindow };
+// A folder window's order: "name" (default; A-Z in Explorer's logical order), "date" (modified,
+// newest first), "type" (extension A-Z, then name), "size" (largest first). Folders come first.
+enum class FolderSort { Name, Date, Type, Size };
+
+// The keys of a folderWindow entry beyond id / title / x / y / monitor (DockConfig). Rects are
+// DIPs relative to the work area of its monitor; a folder window whose monitor is not connected
+// is parked like a dock.
+struct FolderWindowConfig {
+    std::wstring path;           // the folder (environment variables expanded)
+    int w = 400;                 // DIPs, 160 - 8000
+    int h = 300;                 // DIPs, 80 - 8000 (the expanded height; collapsed shows the title bar)
+    ItemView view = ItemView::Auto;  // auto: a grid up to 48 entries, a list above
+    int iconSize = 48;           // DIPs, 32 - 96 (grid icons; list icons are half, 16 - 32)
+    FolderSort sort = FolderSort::Name;
+    bool showHidden = false;     // hidden entries too (never the protected system ones)
+    bool collapsed = false;      // only the title bar (double-click the title)
+    bool singleClick = false;    // a single click opens an entry (default: a double click)
+    bool operator==(const FolderWindowConfig&) const = default;
+};
 
 // Every field is listed in Theme::Fields() (Theme.h), which drives reading, writing and the UI.
 // The defaults are the built-in "dark" preset.
@@ -178,6 +201,12 @@ inline GlowMode GlowOf(const ThemeConfig& t) {
 // one (docks[0], Config::Main()).
 struct DockConfig {
     std::wstring id = L"main";
+    // "dock" or "folderWindow" (round 4 phase 12). A folder window uses id, title (empty: the
+    // folder's name), x / y (DIPs from its monitor's work area's top-left; kCentred: centred),
+    // monitor and `folder`; it has no items and ignores the other dock keys.
+    DockKind dockKind = DockKind::Dock;
+    FolderWindowConfig folder;
+    bool IsFolderWindow() const { return dockKind == DockKind::FolderWindow; }
     // Defaults (first run, a malformed file, a dock object without "items"): the running apps and
     // the clock. The first run also seeds pins in front of them.
     std::vector<DockItemEntry> items = {DockItemEntry{L"running"}, DockItemEntry{L"clock"}};
@@ -367,6 +396,8 @@ const wchar_t* ToString(DockShape v);
 bool FromString(std::wstring_view s, DockShape& v);
 const wchar_t* ToString(ItemView v);
 bool FromString(std::wstring_view s, ItemView& v);
+const wchar_t* ToString(FolderSort v);
+bool FromString(std::wstring_view s, FolderSort& v);
 bool FromString(std::wstring_view s, WindowsMode& v);
 bool FromString(std::wstring_view s, TitlesMode& v);
 bool FromString(std::wstring_view s, TitlesVertical& v);
@@ -465,6 +496,9 @@ struct Config {
     // drop them. Unknown keys inside known objects (docks, items, clock, theme, animation, weather)
     // are not kept, nor are the legacy pre-`docks` keys.
     std::vector<std::pair<std::wstring, std::wstring>> extraFields;
+    // docks[] entries of a kind this version does not know (compact JSON), written back after the
+    // known ones.
+    std::vector<std::wstring> extraDocks;
     // The last LoadFile() built `docks` from the legacy keys (pinned, iconSize, clock.show ...):
     // the caller saves, so the file is rewritten in the current format. Not saved.
     bool migrated = false;

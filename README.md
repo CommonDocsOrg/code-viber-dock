@@ -211,7 +211,12 @@ the selected one (never the last), and **the selected dock is the one the other 
 (General, Behaviour, Dock contents, the "This dock's theme" combo on Appearance). The dock menu
 of each dock (and the tray menu, for the first dock) acts on that dock; with more than one dock
 it also has **Lock all docks** / **Unlock all docks** (`WinDock.DockCommand` 124 / 125; Settings >
-Docks has the same buttons).
+Docks has the same buttons). Folder windows (round 4 phase 12, [Desktop folder
+windows](#desktop-folder-windows)) are `docks[]` entries too: the Docks page lists them (Edge:
+"Folder window", the folder after the state) with **Add folder window…** and Remove (the last
+plain dock cannot be removed while folder windows remain), and the Layout canvas draws them as
+rectangles that can be dragged to another place or display (moving only; they are resized on the
+desktop).
 
 ### Position: edge, alignment, offset
 
@@ -948,6 +953,51 @@ Notifications ("Let apps access your notifications") is on; the access is checke
   apps and every app with a notification now, with a check box each (unchecked: in
   `notifications.excluded`, no badge on any dock).
 
+### Desktop folder windows
+
+A folder window (round 4 phase 12, Fences-like) shows a folder's contents in a titled panel on the
+desktop: under every window, above the wallpaper and the desktop icons. Add one from the dock or
+tray menu (**New folder window…**: pick a folder, the window opens at the pointer) or on Settings >
+Docks (**Add folder window…**); each is a `docks[]` entry of kind `"folderWindow"` (see
+[Configuration](#configuration)).
+
+- **The window**: the folder's name (or `title`) in the title bar, the theme's acrylic (the dock's
+  `WinDockBackdrop` window, kept directly beneath it) or its bar fill and hairline. Move it by the
+  title bar, resize it by its edges and corners (at least 160 x 80 DIPs); it snaps to the work
+  area's edges and to the other folder windows within 8 DIPs. A double click on the title (or a
+  click on its chevron) collapses it to the title bar and back. The position and size are saved in
+  DIPs relative to the work area of its display; a window whose display is not connected is parked
+  like a dock.
+- **Contents**: folders first, then the files by `sort` (name in Explorer's order, date modified
+  newest first, type, size largest first); hidden entries only with `showHidden` (never the
+  protected system files such as desktop.ini). `view` `"auto"` shows a grid up to 48 entries and a
+  list above (icon, name, size and date), like the folder popup. Icons come from the shell (the
+  system image list; above 48 px the shell's icon at that size) as rows scroll into view. The
+  window follows the folder live: one `SHChangeNotifyRegister` per window, changes coalesced into
+  one reload 250 ms after the last notification; nothing polls.
+- **Mouse and keyboard**: a click selects (Ctrl + click adds / removes one, Shift + click a range, a
+  click on the background selects nothing), a double click or Enter opens the entry with the shell's
+  default verb (folders open in Explorer; `singleClick`: a click opens). Ctrl+A, the arrows, Home /
+  End, Page Up / Down and typing a name select; F2 renames inline (Enter or a click elsewhere
+  commits, Escape cancels); Delete sends the selection to the Recycle Bin (with Explorer's
+  confirmation when it is turned on there); F5 reloads; Alt+Enter shows the properties. A click on
+  the window gives it the keyboard without bringing it in front of other windows.
+- **Context menus**: right-click an entry for the shell's own menu (Open, Open with, Send to, Cut,
+  Copy, Rename (inline), Delete, Properties, and every shell extension's entries); right-click the
+  background or the title for the window's menu: Open in Explorer, Refresh, View, Sort by, Show
+  hidden items, Open items with a single click, Collapse, New folder window…, Remove this folder
+  window.
+- **Drag and drop**: entries drag out as the shell's data object, so Explorer, the desktop, other
+  apps and other folder windows accept them; files dropped on a folder window are moved (same
+  volume) or copied (another volume; Ctrl copies, Shift moves) into its folder, or into the
+  sub-folder under the pointer, with Explorer's file operation (progress and conflict dialogs,
+  undoable). A drop onto another folder window moves like Explorer.
+- **Where it lives**: the window is a top-level window directly above the desktop window
+  (Progman). Its z-order is locked: activation, a click and `SetWindowPos(HWND_TOP)` leave it where
+  it is; it goes back above the desktop when the desktop takes the foreground and after Explorer
+  restarts (`TaskbarCreated`). It is not in Alt+Tab or on the taskbar, and Alt+F4 does not close
+  it (Remove this folder window does).
+
 ## Settings
 
 **Settings…** in the tray / dock menu, `WinDock.exe --settings` (asks the running dock to open it,
@@ -1226,6 +1276,18 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   - The dock settings described below: `iconSize`, `magnification`, `magnifyRange`, `autoHide`,
     `hideDelayMs`, `revealDelayMs`, `previews`, `previewsSingleWindow`, `previewDelayMs`,
     `middleClick`, `wheel`, `monitor`.
+  - `kind` (round 4 phase 12): `"dock"` (default; not written) or `"folderWindow"`: a
+    [desktop folder window](#desktop-folder-windows) instead of a dock, with its own keys: `id`,
+    `path` (the folder; `%VAR%` expanded), `title` (default `""`: the folder's name), `x` / `y` (its
+    top-left in DIPs from the work area's top-left; without them it is centred), `w` / `h` (DIPs,
+    default 400 x 300; 160 - 8000 x 80 - 8000; `h` is the expanded height), `view` (`"auto"` /
+    `"grid"` / `"list"`), `iconSize` (default 48, 32 - 96), `sort` (`"name"` / `"date"` / `"type"` /
+    `"size"`), `showHidden` (default `false`), `collapsed` (default `false`), `singleClick`
+    (default `false`, written only when on), `monitor` (an index or `"primary"`). The dock keys do
+    not apply to it; it is saved with `"items": [], "layer": "desktop", "autoHide": "always",
+    "reserveSpace": false` so that a version before phase 12 (which reads it as a dock) shows only
+    an empty, auto-hidden desktop dock (if such a version saves, the folder window's keys are lost).
+    A `docks[]` entry with a `kind` this version does not know is kept as it is and not shown.
 
   ```json
   "items": [
@@ -1588,6 +1650,42 @@ always there, also when every dock is parked) handle these registered messages:
   dock's banner: Snooze 5 min / Dismiss (1 when a banner was shown). The banner takes sent mouse
   clicks (`WM_LBUTTONDOWN` / `UP`): the buttons are at its bottom right, the rest is the body.
   The Agenda widget's state: the widget QueryStates (54, 58, 59) and its storage (`debugStore`).
+- **Folder windows** (round 4 phase 12): a folder window is a `docks[]` entry, so it has a dock
+  index like any dock (`QueryState` 47 counts it; 49 parked, 50 its config index and 51 its window
+  work for it); the dock values and commands answer -1 / nothing for it. `QueryState` 183 = folder
+  windows shown (any `lParam`), 184 = the kind of dock `HIWORD(lParam)` (0 a dock, 1 a folder
+  window, -1 none), 202 for a folder window = 1 while it is in the desktop layer (above Progman,
+  no visible window of another app between them, not topmost; for a dock: the desktop layer's
+  window count). For a folder window `HIWORD(lParam)`: 185 / 186 / 187 / 188 = its left / top /
+  width / height on screen (px), 189 = entries, 190 = collapsed, 191 = the focused (caret) entry
+  (-1 none), 192 = the scroll offset (px), 193 = rows with a visual, 194 = reloads after change
+  notifications, 195 = its pending timers (the coalescing timer, the view's scroll / scrollbar
+  one-shots; 0 when idle), 196 = entries resolved so far (icon and display name: lazy), 197 = 1
+  while the rename box is open, 198 = the view (0 grid, 1 list), 199 = the window, 200 = a hash of
+  entry `LOWORD(lParam)`'s file name (FNV-1a 32 over its UTF-16 code units, the top bit cleared;
+  -1 none), 201 = change notifications received, 203 = grid columns, 204 = its file operations in
+  flight, 205 = entries selected. `DockCommand` 136 = a folder window for the folder whose path is
+  the global atom `LOWORD(lParam)` (`GlobalAddAtom`), its top-left at the pointer; returns its dock
+  index + 1 (0 refused); 137 = removes folder window `HIWORD(lParam)` (1 done); 138 = test hook for
+  the Explorer restart recovery: every folder window is lifted out of the desktop layer (above the
+  first window of another app), then the recovery `TaskbarCreated` runs puts them back; returns bit
+  0 = none was in the layer after the lift, bit 1 = all are back (3 = both); 139 = New folder
+  window… (the folder picker; posted back when sent). `ItemCommand` on folder window
+  `HIWORD(lParam)` (returns -1 for a dock): 839 selects entry `LOWORD(lParam)` (0xFFFF: none) as a
+  click, `HIWORD(wParam)` 1 = with Ctrl, 2 = with Shift; 840 opens entry `LOWORD(lParam)` as a double
+  click; 841 scrolls to `HIWORD(wParam)` px; 842 collapses / expands; 843 = F2 on entry
+  `LOWORD(lParam)` (1: the box is open); 844 commits the rename with the name in the global atom
+  `HIWORD(wParam)` (0: the box's text); 845 = Delete (the selection to the Recycle Bin); 846 opens
+  the context menu of entry `LOWORD(lParam)` (0xFFFF: the window's menu; posted, the menu is a
+  `#32768` of the WinDock process: drive it with `MN_GETHMENU` and posted keys); 847 = Ctrl+A;
+  test hooks for drops (OLE's drag loop needs real input): 848 drops the selection onto folder
+  window `HIWORD(wParam)`'s background (the target's drop code, no OLE loop; returns the effect),
+  849 / 850 drop the path in the atom `HIWORD(wParam)` onto entry `LOWORD(lParam)` (a sub-folder;
+  0xFFFF the background) without / with Ctrl (returns the effect: 1 copy, 2 move). The window
+  (class `WinDockFolderWindow`) takes sent mouse messages: a press on the title bar and moves
+  drag it, a press 6 DIPs inside an edge resizes it, a double click on the title collapses it (the
+  snapping and the saved config are the same as for a real drag). Settings > Docks 2808 = Add
+  folder window…; the Layout canvas's window text lists folder windows with their rects too.
 - `WinDock.DockCommand`: `wParam` = a dock menu command (100 Auto-hide toggle between off and the
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
@@ -1598,7 +1696,8 @@ always there, also when every dock is parked) handle these registered messages:
   120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right, 124 Lock all docks,
   125 Unlock all docks, 126 Reload widgets (every script widget of every dock reloads its package
   and script), 127 open (or activate) the widget Console; 128 - 134 see Tray / Notifications above,
-  135 refresh the calendar feeds; saved like the menu).
+  135 refresh the calendar feeds, 136 - 139 see Folder windows above (139 New folder window…); saved
+  like the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -1713,7 +1812,7 @@ always there, also when every dock is parked) handle these registered messages:
   "Every display" (`"each"`), Appearance 2420 "This dock's theme" (0 = same as all docks, then the
   theme list), Docks page 2800 list (Dock, Edge, Display, Windows; selecting a row makes it the dock
   the other pages edit), 2801 Add dock, 2802 Duplicate, 2803 Remove, 2805 "The other pages edit:
-  (id)", 2806 Lock all docks, 2807 Unlock all docks; phase 3b: General 2165 Layer (0 above
+  (id)", 2806 Lock all docks, 2807 Unlock all docks, 2808 Add folder window… (phase 12); phase 3b: General 2165 Layer (0 above
   windows, 1 desktop only), Layout page 2900 the canvas (class `WinDock.LayoutCanvas`; its window
   text lists every dock instance as `index:config index:monitor:left,top,right,bottom;` in canvas
   client pixels, `-` for a parked one), 2902 the selected dock / where a drag would drop it;

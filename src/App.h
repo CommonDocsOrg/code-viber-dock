@@ -177,6 +177,15 @@ private:
     void OnSettingsChanged(SettingsScope scope);
     // Docks page: add / duplicate / remove a config dock (refused while a menu or dialog is open).
     bool EditDocks(SettingsDockEdit edit, size_t index);
+    // --- desktop folder windows (round 4 phase 12) ---
+    // "New folder window…": a folder picker owned by `owner`, then AddFolderWindow at the pointer.
+    void NewFolderWindow(HWND owner);
+    // Appends a folder window for `path` with its top-left at screen point `at` (on that monitor),
+    // syncs and saves. Returns its automation index (SIZE_MAX: refused).
+    size_t AddFolderWindow(const std::wstring& path, POINT at);
+    // Removes config entry `cfg` when it is a folder window (posted from its own menu).
+    void RemoveFolderWindow(size_t cfg);
+    static constexpr UINT kRemoveFolderMessage = WM_APP + 7;  // posted: wParam = config index
     // Reloads the settings window's controls from the config (no-op while it is closed).
     void RefreshSettings();
     void Quit();

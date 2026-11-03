@@ -100,7 +100,8 @@ void ItemGridView::SetStyle(const Style& style) {
 
 void ItemGridView::SetItems(std::vector<GridItem> items) {
     items_ = std::move(items);
-    hot_ = selected_ = drop_ = -1;
+    hot_ = selected_ = drop_ = anchor_ = -1;
+    marked_.assign(items_.size(), 0);
     typed_.clear();
     target_ = 0.0f;
     scrollY_.valid = thumbY_.valid = false;
@@ -432,10 +433,10 @@ HRESULT ItemGridView::DrawRow(Row& row) {
                 box(hl, style_.accent, 0.25f, style_.accent, true);
             } else if (isHot) {
                 box(hl, style_.hotBackground, 1.0f, style_.hotBorder, true);
-            } else if (index == selected_) {
+            } else if (Marked(i)) {
                 box(hl, style_.hotBackground, 1.0f, style_.accent, true);
             }
-            const bool lit = isHot || index == selected_ || index == drop_;
+            const bool lit = isHot || Marked(i) || index == drop_;
             if (mode_ == Mode::Grid) {
                 const float iconPx = std::round(style_.iconDip * s);
                 const float ix = std::round((cell.left + cell.right - iconPx) / 2.0f);
@@ -665,7 +666,70 @@ void ItemGridView::Reveal(size_t index) {
     }
 }
 
+size_t ItemGridView::MarkedCount() const {
+    if (!multi_) return selected_ >= 0 ? 1 : 0;
+    return static_cast<size_t>(std::count(marked_.begin(), marked_.end(), static_cast<uint8_t>(1)));
+}
+
+std::vector<size_t> ItemGridView::MarkedIndexes() const {
+    std::vector<size_t> out;
+    if (!multi_) {
+        if (selected_ >= 0) out.push_back(static_cast<size_t>(selected_));
+        return out;
+    }
+    for (size_t i = 0; i < marked_.size(); ++i) {
+        if (marked_[i]) out.push_back(i);
+    }
+    return out;
+}
+
+void ItemGridView::SelectWith(int index, bool ctrl, bool shift, bool reveal) {
+    if (!multi_) {
+        Select(index, reveal);
+        return;
+    }
+    const int n = static_cast<int>(items_.size());
+    if (index >= n) index = n - 1;
+    if (marked_.size() != items_.size()) marked_.assign(items_.size(), 0);
+    if (index < 0) {
+        if (!ctrl) std::fill(marked_.begin(), marked_.end(), static_cast<uint8_t>(0));
+        selected_ = -1;
+        anchor_ = -1;
+    } else if (shift && anchor_ >= 0 && anchor_ < n) {
+        if (!ctrl) std::fill(marked_.begin(), marked_.end(), static_cast<uint8_t>(0));
+        for (int i = std::min(anchor_, index); i <= std::max(anchor_, index); ++i) marked_[static_cast<size_t>(i)] = 1;
+        selected_ = index;
+    } else if (ctrl) {
+        marked_[static_cast<size_t>(index)] ^= 1;
+        selected_ = index;
+        anchor_ = index;
+    } else {
+        std::fill(marked_.begin(), marked_.end(), static_cast<uint8_t>(0));
+        marked_[static_cast<size_t>(index)] = 1;
+        selected_ = index;
+        anchor_ = index;
+    }
+    InvalidateAll();  // the rows that exist: a screenful
+    if (reveal && index >= 0) Reveal(static_cast<size_t>(index));
+    RedrawDirty();
+    Commit();
+}
+
+void ItemGridView::SelectAll() {
+    if (!multi_ || items_.empty()) return;
+    marked_.assign(items_.size(), 1);
+    if (selected_ < 0) selected_ = 0;
+    anchor_ = selected_;
+    InvalidateAll();
+    RedrawDirty();
+    Commit();
+}
+
 void ItemGridView::Select(int index, bool reveal) {
+    if (multi_) {
+        SelectWith(index, false, false, reveal);
+        return;
+    }
     if (index >= static_cast<int>(items_.size())) index = static_cast<int>(items_.size()) - 1;
     if (index < -1) index = -1;
     const int old = selected_;
@@ -787,11 +851,14 @@ bool ItemGridView::ButtonUp(Button button, POINT pt) {
     POINT screen = pt;
     if (host_) ClientToScreen(host_, &screen);
     if (button == Button::Right) {
-        if (index >= 0) Select(index, false);
+        if (index >= 0 && !Marked(static_cast<size_t>(index))) Select(index, false);
         if (callbacks_.contextMenu) callbacks_.contextMenu(index, screen);
         return true;
     }
-    if (index < 0) return true;
+    if (index < 0) {
+        if (button == Button::Left && multi_ && GetKeyState(VK_CONTROL) >= 0) SelectWith(-1, false, false, false);
+        return true;
+    }
     if (button == Button::Left && callbacks_.close && style_.closeButton) {
         const RECT cr = CloseRect(static_cast<size_t>(index));
         if (PtInRect(&cr, pt) && PtInRect(&cr, p.pt)) {
@@ -799,8 +866,18 @@ bool ItemGridView::ButtonUp(Button button, POINT pt) {
             return true;
         }
     }
-    if (button == Button::Left) Select(index, false);
+    if (button == Button::Left) {
+        SelectWith(index, GetKeyState(VK_CONTROL) < 0, GetKeyState(VK_SHIFT) < 0, false);
+        if (!style_.clickActivates) return true;  // a double click / Enter opens it
+    }
     if (callbacks_.activate) callbacks_.activate(static_cast<size_t>(index), button);  // may replace the items
+    return true;
+}
+
+bool ItemGridView::DoubleClick(POINT pt) {
+    const int index = HitTest(pt);
+    if (index < 0) return false;
+    if (callbacks_.activate) callbacks_.activate(static_cast<size_t>(index), Button::Left);
     return true;
 }
 
@@ -831,6 +908,10 @@ bool ItemGridView::KeyDown(UINT vk) {
         return true;
     }
     if (n == 0) return false;
+    if (vk == 'A' && multi_ && GetKeyState(VK_CONTROL) < 0) {
+        SelectAll();
+        return true;
+    }
     const int cols = static_cast<int>(Columns());
     const int pageRows = std::max(1, static_cast<int>(ViewHeight() / std::max<LONG>(1, RowHeight())));
     const int cur = selected_;
@@ -867,6 +948,11 @@ bool ItemGridView::KeyDown(UINT vk) {
             break;
         default:
             return false;
+    }
+    if (multi_ && shift) {
+        if (anchor_ < 0) anchor_ = cur < 0 ? next : cur;
+        SelectWith(next, false, true, true);
+        return true;
     }
     Select(next, true);
     return true;

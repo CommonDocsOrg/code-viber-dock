@@ -4,6 +4,8 @@
 
 #include <dbt.h>
 #include <shellapi.h>
+#include <shobjidl.h>
+#include <shellscalingapi.h>
 #include <windowsx.h>
 
 #include <algorithm>
@@ -12,6 +14,7 @@
 
 #include "AppIdentity.h"
 #include "ContextMenu.h"
+#include "DesktopLayer.h"
 #include "IconUtil.h"
 #include "SettingsIds.h"
 #include "resource.h"
@@ -146,6 +149,18 @@ bool App::Initialize(HINSTANCE instance) {
     };
     callbacks.calendarChanged = [this] {
         if (settings_) settings_->CalendarChanged();  // the Calendar page's feed status
+    };
+    // Folder windows (phase 12): moved / resized / collapsed / a menu setting -> saved; their own
+    // menu's Remove (posted: the window is in one of its own messages) and New folder window….
+    callbacks.folderChanged = [this] {
+        RequestSave();
+        RefreshSettings();
+    };
+    callbacks.folderRemove = [this](size_t cfg) {
+        if (hwnd_) PostMessageW(hwnd_, kRemoveFolderMessage, cfg, 0);
+    };
+    callbacks.folderNew = [this] {
+        if (hwnd_) PostMessageW(hwnd_, msgDockCommand_, ContextMenu::kNewFolderWindow, 0);
     };
     docks_.Initialize(instance, &config_, hwnd_, std::move(callbacks));
     const HRESULT hr = docks_.Sync();
@@ -1004,6 +1019,11 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kRefreshCalendars:
             docks_.Calendar().RefreshNow();
             break;
+        case ContextMenu::kNewFolderWindow:
+            NewFolderWindow(settings_ && settings_->Hwnd() && GetForegroundWindow() == settings_->Hwnd()
+                                ? settings_->Hwnd()
+                                : dock ? dock->Hwnd() : hwnd_);
+            break;
         case ContextMenu::kToggleCentre:
             if (dock) dock->TogglePopup(ItemKind::Notifications);
             break;
@@ -1205,7 +1225,7 @@ void App::OpenSettings(int page) {
     };
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
     host.dockWindows = [this](size_t index) {
-        int n = 0;
+        int n = docks_.FolderOf(index) ? 1 : 0;
         docks_.ForConfig(index, [&](DockWindow&) { ++n; });
         return n;
     };
@@ -1214,8 +1234,10 @@ void App::OpenSettings(int page) {
         for (const DockManager::Instance& i : docks_.Instances()) {
             SettingsDockRect r;
             r.cfg = i.cfg;
-            r.monitor = i.window ? i.monitorIndex : -1;
+            r.monitor = i.Live() ? i.monitorIndex : -1;
+            r.folderWindow = i.isFolder;
             if (i.window) r.bar = i.window->RestBarRect();
+            if (i.folder) r.bar = i.folder->ScreenRect();
             rects.push_back(r);
         }
         return rects;
@@ -1323,17 +1345,93 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             RequestSave();
             return true;
         }
-        case SettingsDockEdit::Remove:
+        case SettingsDockEdit::Remove: {
             if (index >= list.size() || list.size() <= 1) return false;  // never the last dock
+            const auto docks = std::count_if(list.begin(), list.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });
+            if (!list[index].IsFolderWindow() && docks <= 1) return false;  // folder windows need a dock beside them
             list.erase(list.begin() + static_cast<ptrdiff_t>(index));
             if (config_.editDock > index || config_.editDock >= list.size()) {
                 config_.editDock = config_.editDock > 0 ? config_.editDock - 1 : 0;
             }
             break;
+        }
     }
     SyncDocks();
     RequestSave();
     return true;
+}
+
+void App::NewFolderWindow(HWND owner) {
+    if (shutDown_ || modalDepth_ > 0) {
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    POINT at{};
+    GetCursorPos(&at);  // where the menu was chosen
+    std::wstring path;
+    ++modalDepth_;  // display syncs wait: the owner must not go away under the dialog
+    winrt::com_ptr<IFileOpenDialog> dialog;
+    if (SUCCEEDED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
+        FILEOPENDIALOGOPTIONS options = 0;
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST);
+        dialog->SetTitle(L"New folder window");
+        dialog->SetOkButtonLabel(L"Show on the desktop");
+        winrt::com_ptr<IShellItem> item;
+        PWSTR name = nullptr;
+        if (SUCCEEDED(dialog->Show(owner)) && SUCCEEDED(dialog->GetResult(item.put())) &&
+            SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &name)) && name) {
+            path = name;
+        }
+        if (name) CoTaskMemFree(name);
+    }
+    EndModal();
+    if (!path.empty() && !shutDown_ && AddFolderWindow(path, at) == SIZE_MAX) MessageBeep(MB_ICONWARNING);
+}
+
+size_t App::AddFolderWindow(const std::wstring& path, POINT at) {
+    if (shutDown_ || modalDepth_ > 0 || path.empty()) return SIZE_MAX;
+    const DWORD attr = GetFileAttributesW(path.c_str());
+    if (attr == INVALID_FILE_ATTRIBUTES || !(attr & FILE_ATTRIBUTE_DIRECTORY)) return SIZE_MAX;
+    // The monitor under the point, in DockManager's order; the window's top-left at the point,
+    // kept on the work area.
+    HMONITOR mon = MonitorFromPoint(at, MONITOR_DEFAULTTONEAREST);
+    const std::vector<HMONITOR>& monitors = docks_.Monitors();
+    const auto it = std::find(monitors.begin(), monitors.end(), mon);
+    MONITORINFO mi{sizeof(mi)};
+    GetMonitorInfoW(mon, &mi);
+    UINT dpiX = 96, dpiY = 96;
+    GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dpiX, &dpiY);
+    const float s = static_cast<float>(dpiX) / 96.0f;
+    DockConfig d;
+    d.dockKind = DockKind::FolderWindow;
+    d.items.clear();
+    d.id = config_.UniqueDockId(L"folder");
+    d.folder.path = path;
+    d.monitor = it == monitors.end() ? DockConfig::kMonitorPrimary : static_cast<int>(it - monitors.begin());
+    const RECT& w = mi.rcWork;
+    const int workW = static_cast<int>(std::lround((w.right - w.left) / s)), workH = static_cast<int>(std::lround((w.bottom - w.top) / s));
+    d.x = std::clamp(static_cast<int>(std::lround((at.x - w.left) / s)), 0, std::max(0, workW - d.folder.w));
+    d.y = std::clamp(static_cast<int>(std::lround((at.y - w.top) / s)), 0, std::max(0, workH - d.folder.h));
+    config_.docks.push_back(std::move(d));
+    config_.editDock = config_.docks.size() - 1;
+    SyncDocks();
+    RequestSave();
+    RefreshSettings();
+    for (size_t i = 0; i < docks_.Count(); ++i) {
+        const DockManager::Instance* inst = docks_.At(i);
+        if (inst && inst->cfg == config_.docks.size() - 1) return i;
+    }
+    return SIZE_MAX;
+}
+
+void App::RemoveFolderWindow(size_t cfg) {
+    if (cfg >= config_.docks.size() || !config_.docks[cfg].IsFolderWindow()) return;
+    if (!EditDocks(SettingsDockEdit::Remove, cfg)) {
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    RefreshSettings();
 }
 
 void App::OnSettingsChanged(SettingsScope scope) {
@@ -1415,11 +1513,19 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         case 48:
             return inst ? inst->monitorIndex : -2;  // the dock's monitor index (-1 parked, -2 no such dock)
         case 49:
-            return inst ? (inst->window ? 0 : 1) : -1;  // parked (no window)
+            return inst ? (inst->Live() ? 0 : 1) : -1;  // parked (no window)
         case 50:
             return inst ? static_cast<LRESULT>(inst->cfg) : -1;  // its index in docks[]
         case 51:
+            if (inst && inst->folder) return reinterpret_cast<LRESULT>(inst->folder->Hwnd());
             return inst && inst->window ? reinterpret_cast<LRESULT>(inst->window->Hwnd()) : 0;  // its window
+        case 183:
+            return static_cast<LRESULT>(docks_.FolderCount());  // folder windows (not parked)
+        case 184:
+            return inst ? (inst->isFolder ? 1 : 0) : -1;  // the kind of docks[] entry behind index HIWORD(lParam)
+        case 202:
+            if (inst && inst->folder) break;  // the window's own answer
+            return static_cast<LRESULT>(DesktopLayer::Count());
         case 63:  // the widget Console is open (1) / its window (lParam 1)
             if (!console_ || !console_->Hwnd()) return 0;
             return arg == 1 ? reinterpret_cast<LRESULT>(console_->Hwnd()) : 1;
@@ -1428,6 +1534,7 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         default:
             break;
     }
+    if (inst && inst->folder) return wp >= 185 ? inst->folder->QueryState(wp, arg) : -1;
     if (!inst || !inst->window) return -1;
     return inst->window->QueryState(wp, arg);
 }
@@ -1456,12 +1563,54 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         result = dock ? dock->QueryItemPoint(wp, ArgOfParam(lp)) : -1;
         return true;
     }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kCreateFolderWindow) {
+        // The path comes as a global atom (LOWORD(lParam)); the window opens at the pointer.
+        wchar_t buf[256]{};
+        POINT pt{};
+        GetCursorPos(&pt);
+        const size_t index = GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf)))
+                                 ? AddFolderWindow(buf, pt)
+                                 : SIZE_MAX;
+        result = index == SIZE_MAX ? 0 : static_cast<LRESULT>(index) + 1;  // the new automation index + 1
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kRemoveFolderWindow) {
+        DockManager::Instance* inst = docks_.At(DockOfParam(lp));
+        result = inst && inst->isFolder && EditDocks(SettingsDockEdit::Remove, inst->cfg) ? 1 : 0;
+        if (result) RefreshSettings();
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kSimulateExplorerRestart) {
+        result = DesktopLayer::SimulateExplorerRestart();
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kNewFolderWindow && InSendMessage()) {
+        // The folder picker is modal: after the call.
+        PostMessageW(hwnd_, msg, wp, lp);
+        result = 1;
+        return true;
+    }
     if (msg == msgDockCommand_) {
         const UINT cmd = static_cast<UINT>(wp);
         DockManager::Instance* inst = docks_.At(DockOfParam(lp));
         const bool known = inst && cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand;
         result = known ? 1 : 0;
         if (known) OnCommand(cmd, inst->cfg, inst->window.get());  // after setting result: kQuit closes the docks
+        return true;
+    }
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kFolderSelect && (wp & 0xFFFF) <= ContextMenu::kFolderDropPathCopy) {
+        // A folder window (phase 12): the entry / argument in LOWORD(lParam), more in HIWORD(wParam).
+        const UINT cmd = static_cast<UINT>(wp & 0xFFFF);
+        const int high = static_cast<int>((wp >> 16) & 0xFFFF);
+        FolderWindow* folder = docks_.FolderAt(DockOfParam(lp));
+        if (!folder) {
+            result = -1;
+        } else if (cmd == ContextMenu::kFolderDropOn) {
+            FolderWindow* to = docks_.FolderAt(static_cast<size_t>(high));
+            result = to && to != folder ? static_cast<LRESULT>(to->TestDrop(folder->SelectedPaths(), -1, 0)) : -1;
+        } else {
+            result = folder->Command(cmd, static_cast<int>(ArgOfParam(lp)), high);
+        }
         return true;
     }
     if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kCentreDismiss && (wp & 0xFFFF) <= ContextMenu::kCentreActivate) {
@@ -1680,6 +1829,10 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         docks_.Reap();
         return 0;
     }
+    if (msg == kRemoveFolderMessage) {
+        RemoveFolderWindow(static_cast<size_t>(wp));
+        return 0;
+    }
     if (msg == WeatherService::kGeocodeMessage) {
         // A place search of the settings window finished (posted by its worker; ours to free).
         std::unique_ptr<WeatherService::Response> response(reinterpret_cast<WeatherService::Response*>(lp));
@@ -1704,6 +1857,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         taskbar_.OnTaskbarCreated();
         docks_.AllowAppBar(!shutDown_);
         docks_.TrayService().OnExplorerRestarted();  // the apps registered with the new Explorer first
+        docks_.OnExplorerRestarted();  // the folder windows go back above the new desktop window
         return 0;
     }
 

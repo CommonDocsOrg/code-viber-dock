@@ -2,6 +2,7 @@
 
 #include <algorithm>
 
+#include "DesktopLayer.h"
 #include "Launcher.h"
 
 namespace {
@@ -103,8 +104,12 @@ void DockManager::Shutdown() {
     notifications_.Stop();
     for (Instance& i : instances_) {
         if (i.window) Close(std::move(i.window));
+        if (i.folder) i.folder->Destroy();
     }
     instances_.clear();
+    folderGraveyard_.clear();
+    if (folderRendererReady_) folderRenderer_.Shutdown();
+    folderRendererReady_ = false;
     watchers_.clear();
     watch_.Stop();
     tracker_.Stop();
@@ -118,7 +123,100 @@ void DockManager::Shutdown() {
     config_ = nullptr;
 }
 
+void DockManager::Reap() {
+    graveyard_.clear();
+    folderGraveyard_.clear();
+    // The folder windows' device goes with the last of them (tens of MB with a hardware device).
+    if (folderRendererReady_ && FolderCount() == 0) {
+        folderRenderer_.Shutdown();
+        folderRendererReady_ = false;
+    }
+}
+
+bool DockManager::EnsureFolderRenderer() {
+    if (folderRendererReady_) return true;
+    const bool software = config_ && config_->renderer == L"software";
+    if (FAILED(folderRenderer_.Initialize(owner_, software))) {
+        folderRenderer_.Shutdown();
+        return false;
+    }
+    folderRendererReady_ = true;
+    return true;
+}
+
+void DockManager::RecoverFolderDevice() {
+    folderRecoveryPosted_ = false;
+    if (!folderRendererReady_) return;
+    for (Instance& i : instances_) {
+        if (i.folder) i.folder->ReleaseDevice();
+    }
+    if (FAILED(folderRenderer_.RecreateDevice())) {
+        OutputDebugStringW(L"WinDock: the folder windows' device could not be recreated\n");
+        return;
+    }
+    for (Instance& i : instances_) {
+        if (i.folder) i.folder->RestoreDevice();
+    }
+}
+
+HRESULT DockManager::CreateFolderFor(Instance& inst) {
+    if (!EnsureFolderRenderer()) {
+        inst.failed = true;
+        return E_FAIL;
+    }
+    auto folder = std::make_unique<FolderWindow>();
+    FolderWindow::Host host;
+    host.renderer = &folderRenderer_;
+    host.changed = [this] {
+        if (callbacks_.folderChanged) callbacks_.folderChanged();
+    };
+    host.neighbours = [this](const FolderWindow* self) {
+        std::vector<RECT> rects;
+        for (const Instance& i : instances_) {
+            if (i.folder && i.folder.get() != self && i.folder->Hwnd()) rects.push_back(i.folder->ScreenRect());
+        }
+        return rects;
+    };
+    host.deviceLost = [this] {
+        if (!folderRecoveryPosted_) folderRecoveryPosted_ = PostMessageW(owner_, kFolderDeviceLost, 0, 0) != FALSE;
+    };
+    host.remove = [this](size_t cfg) {
+        if (callbacks_.folderRemove) callbacks_.folderRemove(cfg);
+    };
+    host.newWindow = [this] {
+        if (callbacks_.folderNew) callbacks_.folderNew();
+    };
+    const HRESULT hr = folder->Create(instance_, config_, inst.cfg, inst.monitor, std::move(host));
+    if (FAILED(hr)) {
+        folder->Destroy();
+        inst.failed = true;
+        return hr;
+    }
+    inst.failed = false;
+    inst.folder = std::move(folder);
+    return S_OK;
+}
+
+FolderWindow* DockManager::FolderOf(size_t cfg) {
+    for (Instance& i : instances_) {
+        if (i.folder && i.cfg == cfg) return i.folder.get();
+    }
+    return nullptr;
+}
+
+size_t DockManager::FolderCount() const {
+    size_t n = 0;
+    for (const Instance& i : instances_) n += i.folder ? 1 : 0;
+    return n;
+}
+
+void DockManager::OnExplorerRestarted() { DesktopLayer::Reassert(); }
+
 bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
+    if (msg == kFolderDeviceLost) {
+        RecoverFolderDevice();
+        return true;
+    }
     if (msg == kTrayStartMessage) {
         trayStartPosted_ = false;
         // Still wanted (the config may have changed meanwhile)?
@@ -170,6 +268,16 @@ HRESULT DockManager::Sync() {
     std::vector<Instance> next;
     for (size_t k = 0; k < config_->docks.size(); ++k) {
         const DockConfig& d = config_->docks[k];
+        if (d.IsFolderWindow()) {
+            Instance inst;
+            inst.id = d.id;
+            inst.cfg = k;
+            inst.isFolder = true;
+            inst.monitorIndex = MonitorIndexFor(d);
+            inst.monitor = inst.monitorIndex >= 0 ? monitors_[static_cast<size_t>(inst.monitorIndex)] : nullptr;
+            next.push_back(std::move(inst));
+            continue;
+        }
         if (d.Each()) {
             for (size_t m = 0; m < monitors_.size(); ++m) {
                 Instance inst;
@@ -192,6 +300,15 @@ HRESULT DockManager::Sync() {
 
     // Reuse the windows of matching instances (same dock id; "each": the same monitor too).
     for (Instance& want : next) {
+        if (want.isFolder) {
+            for (Instance& old : instances_) {
+                if (!old.folder || old.id != want.id || !want.monitor) continue;
+                want.folder = std::move(old.folder);
+                want.folder->SetConfigIndex(want.cfg);
+                break;
+            }
+            continue;
+        }
         for (Instance& old : instances_) {
             if (!old.window || old.id != want.id || old.each != want.each) continue;
             if (want.each && old.monitor != want.monitor) continue;
@@ -207,12 +324,25 @@ HRESULT DockManager::Sync() {
     instances_ = std::move(next);
     for (Instance& o : old) {
         if (o.window) Close(std::move(o.window));
+        if (o.folder) {
+            o.folder->Destroy();
+            folderGraveyard_.push_back(std::move(o.folder));
+        }
     }
     old.clear();
 
     HRESULT first = S_OK;
     for (Instance& inst : instances_) {
         if (!inst.monitor) continue;  // parked
+        if (inst.isFolder) {
+            if (inst.folder) {
+                inst.folder->SetMonitor(inst.monitor);
+                inst.folder->ApplyConfig();  // whatever changed in its entry (cheap when nothing did)
+            } else {
+                CreateFolderFor(inst);  // a failure leaves it parked (it does not stop the docks)
+            }
+            continue;
+        }
         if (inst.window) {
             inst.window->SetMonitor(inst.monitor);  // relayouts when it changed
             continue;

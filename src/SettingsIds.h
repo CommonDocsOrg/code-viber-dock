@@ -320,6 +320,7 @@ inline constexpr int kDocksNote = 2804;
 inline constexpr int kDockEditing = 2805;     // "The other pages edit: <id>"
 inline constexpr int kLockAllDocks = 2806;    // "Lock all docks" (= DockCommand 124)
 inline constexpr int kUnlockAllDocks = 2807;  // "Unlock all docks" (= DockCommand 125)
+inline constexpr int kDockAddFolder = 2808;   // "Add folder window…" (= DockCommand 139: a folder picker; round 4 phase 12)
 
 // Layout (2900 - 2999; round 4 phase 3b)
 inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation)

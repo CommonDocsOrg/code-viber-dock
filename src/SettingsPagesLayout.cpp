@@ -77,6 +77,7 @@ private:
     struct Dock {
         size_t cfg = 0;
         int monitor = -1;
+        bool folder = false;  // a desktop folder window (its rect, moved freely)
         RECT bar{};     // screen
         RECT canvas{};  // canvas px (inflated to at least 4 px thick)
     };
@@ -88,6 +89,8 @@ private:
         int offsetDip = 0;
         // A circle (docks[].shape): its centre in DIPs from the work area's top-left instead.
         bool circle = false;
+        // A folder window: its top-left in DIPs from the work area's top-left (xDip / yDip).
+        bool folder = false;
         int xDip = 0, yDip = 0;
         RECT ghost{};  // screen
     };
@@ -192,6 +195,7 @@ void LayoutCanvas::Reload() {
             d.cfg = r.cfg;
             d.monitor = r.monitor;
             d.bar = r.bar;
+            d.folder = r.folderWindow;
             docks_.push_back(d);
         }
     }
@@ -276,6 +280,21 @@ LayoutCanvas::Target LayoutCanvas::TargetFor(POINT canvasPt) const {
     if (mons_.empty()) return t;
     const Mon& m = mons_[static_cast<size_t>(t.monitor)];
     const RECT& r = m.rc;
+    if (d.folder) {
+        // A folder window goes where it is dragged (kept on that monitor's work area); no snapping.
+        const float s = static_cast<float>(m.dpi) / 96.0f;
+        const LONG w = d.bar.right - d.bar.left, h = d.bar.bottom - d.bar.top;
+        const LONG left = std::clamp(c.x - w / 2, m.work.left, std::max(m.work.left, m.work.right - w));
+        const LONG top = std::clamp(c.y - h / 2, m.work.top, std::max(m.work.top, m.work.bottom - h));
+        t.folder = true;
+        t.xDip = static_cast<int>(std::lround(static_cast<float>(left - m.work.left) / s));
+        t.yDip = static_cast<int>(std::lround(static_cast<float>(top - m.work.top) / s));
+        t.edge = dc.edge;
+        t.align = dc.align;
+        t.offsetDip = dc.offset;
+        t.ghost = RECT{left, top, left + w, top + h};
+        return t;
+    }
     if (dc.shape == DockShape::Circle) {
         // A circle floats: its centre goes where the dragged centre is (on that monitor).
         const float s = static_cast<float>(m.dpi) / 96.0f;
@@ -355,6 +374,16 @@ void LayoutCanvas::Drop(const Target& t) {
     // "each" stays on every monitor; "primary" stays "primary" on the primary.
     int monitor = dc.monitor;
     if (!dc.Each() && !(dc.monitor == DockConfig::kMonitorPrimary && t.monitor == 0)) monitor = t.monitor;
+    if (t.folder) {
+        if (dc.x == t.xDip && dc.y == t.yDip && dc.monitor == t.monitor) return;
+        dc.x = t.xDip;
+        dc.y = t.yDip;
+        dc.monitor = t.monitor;
+        c.editDock = d.cfg;
+        page_.Apply();  // Sync re-places it (and saves)
+        page_.Win().Refresh();
+        return;
+    }
     if (t.circle) {
         if (dc.x == t.xDip && dc.y == t.yDip && dc.monitor == monitor) return;
         dc.x = t.xDip;
@@ -391,10 +420,16 @@ void LayoutCanvas::Publish() {
     SetWindowTextW(hwnd_, text.c_str());
     const Config& c = page_.Config_();
     std::wstring line;
-    if (dragging_ && pressed_ >= 0) {
+    if (dragging_ && pressed_ >= 0 && target_.folder) {
+        line = L"Drop: " + std::to_wstring(target_.xDip) + L", " + std::to_wstring(target_.yDip) + L" on display " +
+               std::to_wstring(target_.monitor + 1);
+    } else if (dragging_ && pressed_ >= 0) {
         line = L"Drop: " + std::wstring(EdgeWord(target_.edge)) + L", " + AlignWord(target_.align) +
                (target_.offsetDip ? (target_.offsetDip > 0 ? L" +" : L" ") + std::to_wstring(target_.offsetDip) : L"") +
                L", display " + std::to_wstring(target_.monitor + 1);
+    } else if (c.editDock < c.docks.size() && c.docks[c.editDock].IsFolderWindow()) {
+        const DockConfig& d = c.docks[c.editDock];
+        line = L"Selected: the folder window " + d.id + L" (" + d.folder.path + L")";
     } else if (c.editDock < c.docks.size()) {
         const DockConfig& d = c.docks[c.editDock];
         line = L"Selected: " + d.id + L" (" + EdgeWord(d.edge) + L", " + AlignWord(d.align) +
@@ -451,6 +486,22 @@ void LayoutCanvas::Paint(HDC hdc) {
         const bool moving = dragging_ && static_cast<int>(i) == pressed_;
         HBRUSH f = CreateSolidBrush(selected ? pal.accent : pal.textSecondary);
         RECT r = d.canvas;
+        if (d.folder) {
+            // A folder window: an outlined rectangle with a title strip and its name inside.
+            HBRUSH fill = CreateSolidBrush(mix(selected ? pal.accent : pal.textSecondary, pal.layer, moving ? 15 : 30));
+            FillRect(hdc, &r, fill);
+            DeleteObject(fill);
+            FrameRect(hdc, &r, f);
+            RECT strip{r.left, r.top, r.right, std::min(r.bottom, r.top + std::max<LONG>(3, (r.bottom - r.top) / 6))};
+            FillRect(hdc, &strip, f);
+            DeleteObject(f);
+            const DockConfig& fc = c.docks[d.cfg];
+            const std::wstring name = fc.title.empty() ? fc.id : fc.title;
+            SetTextColor(hdc, selected ? pal.text : pal.textSecondary);
+            RECT tr{r.left + 3, strip.bottom + 1, r.right - 3, r.bottom - 1};
+            DrawTextW(hdc, name.c_str(), -1, &tr, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+            continue;
+        }
         if (moving) {
             HBRUSH dim = CreateSolidBrush(mix(selected ? pal.accent : pal.textSecondary, pal.layer, 40));
             FillRect(hdc, &r, dim);

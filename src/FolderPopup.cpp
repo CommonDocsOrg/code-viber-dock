@@ -12,6 +12,7 @@
 #include <algorithm>
 #include <cmath>
 
+#include "ShellFiles.h"
 #include "Theme.h"
 
 namespace {
@@ -51,178 +52,14 @@ D2D1_RECT_F ToRectF(const RECT& r) {
 
 bool Empty(const RECT& r) { return r.right <= r.left || r.bottom <= r.top; }
 
-std::wstring Join(const std::wstring& dir, const std::wstring& name) {
-    if (!dir.empty() && (dir.back() == L'\\' || dir.back() == L'/')) return dir + name;
-    return dir + L'\\' + name;
-}
-
-// "C:\Users\me\" -> "C:\Users\me"; a drive root keeps its backslash ("C:\").
-std::wstring Normalize(std::wstring path) {
-    while (path.size() > 3 && (path.back() == L'\\' || path.back() == L'/')) path.pop_back();
-    if (path.size() == 2 && path[1] == L':') path += L'\\';
-    return path;
-}
-
-std::wstring Parent(const std::wstring& path) {
-    const size_t slash = path.find_last_of(L"\\/");
-    if (slash == std::wstring::npos) return {};
-    return Normalize(path.substr(0, slash == 2 && path[1] == L':' ? 3 : slash));
-}
-
-std::wstring LastComponent(const std::wstring& path) {
-    const std::wstring p = Normalize(path);
-    if (p.size() == 3 && p[1] == L':') return p.substr(0, 2);
-    const size_t slash = p.find_last_of(L"\\/");
-    return slash == std::wstring::npos ? p : p.substr(slash + 1);
-}
-
-bool SamePath(const std::wstring& a, const std::wstring& b) {
-    return CompareStringOrdinal(a.c_str(), -1, b.c_str(), -1, TRUE) == CSTR_EQUAL;
-}
-
-// `path` is `dir` or inside it.
-bool IsInside(const std::wstring& path, const std::wstring& dir) {
-    if (SamePath(path, dir)) return true;
-    const std::wstring prefix = dir.empty() || dir.back() == L'\\' ? dir : dir + L'\\';
-    return path.size() > prefix.size() &&
-           CompareStringOrdinal(path.c_str(), static_cast<int>(prefix.size()), prefix.c_str(),
-                                static_cast<int>(prefix.size()), TRUE) == CSTR_EQUAL;
-}
-
-std::wstring VolumeOf(const std::wstring& path) {
-    wchar_t volume[MAX_PATH]{};
-    return GetVolumePathNameW(path.c_str(), volume, MAX_PATH) ? std::wstring(volume) : std::wstring();
-}
-
-// "12.3 KB · 02/11/2026" (folders: the date only).
-std::wstring Secondary(bool folder, ULONGLONG size, const FILETIME& modified) {
-    std::wstring text;
-    if (!folder) {
-        wchar_t buf[64]{};
-        if (SUCCEEDED(StrFormatByteSizeEx(size, SFBS_FLAGS_ROUND_TO_NEAREST_DISPLAYED_DIGIT, buf,
-                                          static_cast<UINT>(std::size(buf))))) {
-            text = buf;
-        }
-    }
-    FILETIME local{};
-    SYSTEMTIME st{};
-    if ((modified.dwHighDateTime || modified.dwLowDateTime) && FileTimeToLocalFileTime(&modified, &local) &&
-        FileTimeToSystemTime(&local, &st)) {
-        wchar_t date[64]{};
-        if (GetDateFormatEx(LOCALE_NAME_USER_DEFAULT, DATE_SHORTDATE, &st, nullptr, date, static_cast<int>(std::size(date)),
-                            nullptr) > 0) {
-            if (!text.empty()) text += L"  \u00B7  ";
-            text += date;
-        }
-    }
-    return text;
-}
-
-// The files of a CF_HDROP drag.
-std::vector<std::wstring> FilesOf(IDataObject* data) {
-    std::vector<std::wstring> files;
-    if (!data) return files;
-    FORMATETC fmt{CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
-    STGMEDIUM medium{};
-    if (FAILED(data->GetData(&fmt, &medium))) return files;
-    if (HDROP drop = static_cast<HDROP>(GlobalLock(medium.hGlobal))) {
-        const UINT n = DragQueryFileW(drop, 0xFFFFFFFF, nullptr, 0);
-        for (UINT i = 0; i < n; ++i) {
-            const UINT len = DragQueryFileW(drop, i, nullptr, 0);
-            std::wstring path(len, L'\0');
-            if (len && DragQueryFileW(drop, i, path.data(), len + 1)) files.push_back(std::move(path));
-        }
-        GlobalUnlock(medium.hGlobal);
-    }
-    ReleaseStgMedium(&medium);
-    return files;
-}
-
-// A move / copy of dropped files, run by IFileOperation on its own STA thread (it may show the
-// shell's progress / conflict UI); the popup is told when it is done.
-struct FileJob {
-    std::vector<std::wstring> files;
-    std::wstring dest;
-    bool move = false;
-    HWND notify = nullptr;
-};
-
-DWORD WINAPI FileJobThread(void* param) {
-    FileJob* job = static_cast<FileJob*>(param);
-    if (SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) {
-        winrt::com_ptr<IFileOperation> op;
-        winrt::com_ptr<IShellItem> dest;
-        if (SUCCEEDED(CoCreateInstance(CLSID_FileOperation, nullptr, CLSCTX_ALL, IID_PPV_ARGS(op.put()))) &&
-            SUCCEEDED(SHCreateItemFromParsingName(job->dest.c_str(), nullptr, IID_PPV_ARGS(dest.put())))) {
-            op->SetOperationFlags(FOF_ALLOWUNDO | FOF_NOCONFIRMMKDIR);
-            size_t queued = 0;
-            for (const std::wstring& f : job->files) {
-                winrt::com_ptr<IShellItem> item;
-                if (FAILED(SHCreateItemFromParsingName(f.c_str(), nullptr, IID_PPV_ARGS(item.put())))) continue;
-                const HRESULT hr = job->move ? op->MoveItem(item.get(), dest.get(), nullptr, nullptr)
-                                             : op->CopyItem(item.get(), dest.get(), nullptr, nullptr);
-                if (SUCCEEDED(hr)) ++queued;
-            }
-            if (queued) op->PerformOperations();
-        }
-        op = nullptr;
-        dest = nullptr;
-        CoUninitialize();
-    }
-    if (job->notify && IsWindow(job->notify)) PostMessageW(job->notify, FolderPopup::kDropDoneMessage, 0, 0);
-    delete job;
-    return 0;
-}
+using ShellFiles::IsInside;
+using ShellFiles::Join;
+using ShellFiles::LastComponent;
+using ShellFiles::Normalize;
+using ShellFiles::Parent;
+using ShellFiles::SamePath;
 
 }  // namespace
-
-// OLE drop target of the popup window (calls on the UI thread).
-class FolderDropTarget final : public IDropTarget {
-public:
-    explicit FolderDropTarget(FolderPopup* popup) : popup_(popup) {}
-    void Detach() { popup_ = nullptr; }
-
-    HRESULT STDMETHODCALLTYPE QueryInterface(REFIID riid, void** ppv) override {
-        if (!ppv) return E_POINTER;
-        if (riid == __uuidof(IUnknown) || riid == __uuidof(IDropTarget)) {
-            *ppv = static_cast<IDropTarget*>(this);
-            AddRef();
-            return S_OK;
-        }
-        *ppv = nullptr;
-        return E_NOINTERFACE;
-    }
-    ULONG STDMETHODCALLTYPE AddRef() override { return static_cast<ULONG>(InterlockedIncrement(&refs_)); }
-    ULONG STDMETHODCALLTYPE Release() override {
-        const LONG n = InterlockedDecrement(&refs_);
-        if (n == 0) delete this;
-        return static_cast<ULONG>(n);
-    }
-    HRESULT STDMETHODCALLTYPE DragEnter(IDataObject* data, DWORD keys, POINTL pt, DWORD* effect) override {
-        if (!effect) return E_INVALIDARG;
-        *effect = popup_ ? popup_->DragEnter(data, POINT{pt.x, pt.y}, keys, *effect) : DROPEFFECT_NONE;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE DragOver(DWORD keys, POINTL pt, DWORD* effect) override {
-        if (!effect) return E_INVALIDARG;
-        *effect = popup_ ? popup_->DragOver(POINT{pt.x, pt.y}, keys, *effect) : DROPEFFECT_NONE;
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE DragLeave() override {
-        if (popup_) popup_->DragLeave();
-        return S_OK;
-    }
-    HRESULT STDMETHODCALLTYPE Drop(IDataObject* data, DWORD keys, POINTL pt, DWORD* effect) override {
-        if (!effect) return E_INVALIDARG;
-        *effect = popup_ ? popup_->Drop(data, POINT{pt.x, pt.y}, keys, *effect) : DROPEFFECT_NONE;
-        return S_OK;
-    }
-
-private:
-    ~FolderDropTarget() = default;
-    FolderPopup* popup_;
-    LONG refs_ = 1;
-};
 
 void FolderPopup::Init(HINSTANCE instance, Renderer* renderer, IconCache* icons, Callbacks callbacks) {
     PopupWindow::Init(instance, renderer);
@@ -384,7 +221,7 @@ void FolderPopup::Load(const std::wstring& folder) {
         item.label = e.name;  // the shell's display name replaces it when the row is drawn
         item.id = i;
         item.flags = e.folder ? 1u : 0u;
-        if (list) item.secondary = Secondary(e.folder, e.size, e.modified);
+        if (list) item.secondary = ShellFiles::SizeAndDate(e.folder, e.size, e.modified);
         items.push_back(std::move(item));
     }
     view_.SetItems(std::move(items));
@@ -914,7 +751,12 @@ bool FolderPopup::OnMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
 
 void FolderPopup::RegisterDrop() {
     if (dropTarget_ || !Window()) return;
-    dropTarget_ = new FolderDropTarget(this);
+    dropTarget_ = new ShellFiles::DropTarget(ShellFiles::DropTarget::Sink{
+        [this](IDataObject* d, POINT s, DWORD k, DWORD a) { return DragEnter(d, s, k, a); },
+        [this](POINT s, DWORD k, DWORD a) { return DragOver(s, k, a); },
+        [this] { DragLeave(); },
+        [this](IDataObject* d, POINT s, DWORD k, DWORD a) { return Drop(d, s, k, a); },
+    });
     if (FAILED(RegisterDragDrop(Window(), dropTarget_))) {
         dropTarget_->Detach();
         dropTarget_->Release();
@@ -940,36 +782,12 @@ std::wstring FolderPopup::DropFolderAt(POINT screen, int* entry) const {
 }
 
 DWORD FolderPopup::EffectFor(const std::wstring& dest, DWORD keys, DWORD allowed) const {
-    if (dragFiles_.empty() || dest.empty() || !readable_) return DROPEFFECT_NONE;
-    // Nothing to do: every file is already there (a move), or a folder into itself.
-    const bool intoSelf =
-        std::any_of(dragFiles_.begin(), dragFiles_.end(), [&](const std::wstring& f) { return IsInside(dest, f); });
-    if (intoSelf) return DROPEFFECT_NONE;
-    DWORD effect = 0;
-    if (keys & MK_CONTROL) {
-        effect = DROPEFFECT_COPY;
-    } else if (keys & MK_SHIFT) {
-        effect = DROPEFFECT_MOVE;
-    } else {
-        // Explorer's default: a move on the same volume, a copy across volumes.
-        const std::wstring volume = VolumeOf(dest);
-        const bool same = !volume.empty() && std::all_of(dragFiles_.begin(), dragFiles_.end(), [&](const std::wstring& f) {
-            return SamePath(VolumeOf(f), volume);
-        });
-        effect = same ? DROPEFFECT_MOVE : DROPEFFECT_COPY;
-    }
-    if (effect == DROPEFFECT_MOVE) {
-        const bool already = std::all_of(dragFiles_.begin(), dragFiles_.end(), [&](const std::wstring& f) {
-            return SamePath(Parent(f), dest);
-        });
-        if (already) return DROPEFFECT_NONE;
-    }
-    if (!(allowed & effect)) effect = (allowed & DROPEFFECT_COPY) ? DROPEFFECT_COPY : (allowed & DROPEFFECT_MOVE);
-    return effect;
+    if (!readable_) return DROPEFFECT_NONE;
+    return ShellFiles::DropEffect(dragFiles_, dest, keys, allowed);
 }
 
 DWORD FolderPopup::DragEnter(IDataObject* data, POINT screen, DWORD keys, DWORD allowed) {
-    dragFiles_ = Visible() ? FilesOf(data) : std::vector<std::wstring>{};
+    dragFiles_ = Visible() ? ShellFiles::FilesOf(data) : std::vector<std::wstring>{};
     if (group_ && !dragFiles_.empty() && !(groupCallbacks_.accepts && groupCallbacks_.accepts(dragFiles_))) {
         dragFiles_.clear();  // nothing that can become a member: the no-drop cursor
     }
@@ -992,7 +810,7 @@ void FolderPopup::DragLeave() {
 }
 
 DWORD FolderPopup::Drop(IDataObject* data, POINT screen, DWORD keys, DWORD allowed) {
-    dragFiles_ = Visible() ? FilesOf(data) : std::vector<std::wstring>{};
+    dragFiles_ = Visible() ? ShellFiles::FilesOf(data) : std::vector<std::wstring>{};
     if (group_) {
         // Shortcuts / apps / folders become members (the owner decides); the files stay where they are.
         std::vector<std::wstring> files = std::move(dragFiles_);
@@ -1012,15 +830,18 @@ DWORD FolderPopup::Drop(IDataObject* data, POINT screen, DWORD keys, DWORD allow
         return DROPEFFECT_NONE;
     }
     // Done by us (also a move): the source is told "copied", so it never deletes anything itself.
-    FileJob* job = new FileJob{std::move(dragFiles_), dest, effect == DROPEFFECT_MOVE, Window()};
+    ShellFiles::Job job;
+    job.op = effect == DROPEFFECT_MOVE ? ShellFiles::Op::Move : ShellFiles::Op::Copy;
+    job.files = std::move(dragFiles_);
+    job.dest = dest;
+    job.notify = Window();
+    job.message = kDropDoneMessage;
+    job.owner = Window();
     dragFiles_.clear();
-    if (job->move) {
-        std::erase_if(job->files, [&](const std::wstring& f) { return SamePath(Parent(f), dest); });
+    if (job.op == ShellFiles::Op::Move) {
+        std::erase_if(job.files, [&](const std::wstring& f) { return SamePath(Parent(f), dest); });
     }
-    if (HANDLE thread = CreateThread(nullptr, 0, &FileJobThread, job, 0, nullptr)) {
-        CloseHandle(thread);
-    } else {
-        delete job;
+    if (!ShellFiles::Start(std::move(job))) {
         MessageBeep(MB_ICONWARNING);
         return DROPEFFECT_NONE;
     }
