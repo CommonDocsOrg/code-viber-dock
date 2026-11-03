@@ -2,7 +2,7 @@
   "name": "Weather (script)",
   "version": "1.0.0",
   "author": "WinDock",
-  "description": "The weather widget and its forecast popup written on the widget runtime: the dock's own forecast service (Open-Meteo, Settings > Weather) through the weather provider, the condition glyph and the temperature in the slot.",
+  "description": "The weather widget and its forecast popup written on the widget runtime: the dock's forecast service (Open-Meteo) through the weather provider, the condition glyph and the temperature in the slot. Without a place of its own it shows the place of its dock's first Weather item.",
   "api": 1,
   "size": {
     "horizontal": { "main": 56, "cross": 26 },
@@ -10,6 +10,16 @@
   },
   "permissions": ["weather", "shell"],
   "settings": [
+    { "key": "place", "type": "place", "label": "Place", "group": "Place" },
+    { "key": "label", "type": "string", "label": "Name on the dock", "default": "", "group": "Place",
+      "description": "Shown under the temperature (empty: none)." },
+    { "key": "units", "type": "choice", "label": "Units", "default": "metric", "group": "Place",
+      "choices": [
+        { "value": "metric", "label": "Metric (°C, km/h)" },
+        { "value": "imperial", "label": "Imperial (°F, mph)" }
+      ] },
+    { "key": "refreshMinutes", "type": "int", "label": "Refresh every", "min": 5, "max": 360, "step": 5, "default": 30,
+      "unit": "minutes", "group": "Place" },
     { "key": "showPlace", "type": "bool", "label": "Show the place under the temperature", "default": false, "group": "Slot" },
     { "key": "showHigh", "type": "bool", "label": "Show today's high", "default": false, "group": "Slot" },
     { "key": "showLow", "type": "bool", "label": "Show today's low", "default": false, "group": "Slot" },
@@ -18,7 +28,7 @@
     { "key": "clickOpens", "type": "choice", "label": "Clicking the widget opens", "default": "popup", "group": "Click",
       "choices": [
         { "value": "popup", "label": "The forecast popup" },
-        { "value": "settings", "label": "Settings > Weather" },
+        { "value": "settings", "label": "Its settings (the place)" },
         { "value": "none", "label": "Nothing" }
       ] },
     { "key": "days", "type": "int", "label": "Days in the popup", "min": 3, "max": 7, "step": 1, "default": 7,

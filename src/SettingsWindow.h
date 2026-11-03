@@ -21,7 +21,7 @@ enum class SettingsScope {
     Pins,        // the items of config.Edit() (Dock contents): DockWindow::ReloadPins
     Taskbar,     // config.hideTaskbar: TaskbarController::SetEnabled
     Autostart,   // config.startWithWindows: the HKCU Run value
-    Weather,     // config.weather: DockWindow::ApplyWeather
+    Weather,     // the weather items / config.weather: DockWindow::ApplyWeather (the services follow)
     Notifications,  // config.notifications, docks[].badges: DockManager::SyncNotifications
     Calendars,   // config.calendars: DockManager::ConfigureCalendar
     SaveOnly,    // read from the config when used (delays, renderer): just save
@@ -84,8 +84,11 @@ struct SettingsHost {
     std::function<bool()> taskbarHidden;      // the taskbar controller is enabled (session state)
     std::function<bool()> autostartEnabled;   // the HKCU Run value exists
     std::function<void()> destroyed;          // the window is gone: delete the object (posted)
-    // Weather page.
-    std::function<std::wstring()> weatherStatus;  // WeatherService::StatusText of the dock's service
+    // The generated settings page's Place field (round 5: per item): the status line of a place's
+    // service (WeatherService::StatusText; "Not shown on a dock" while none runs for it), and
+    // Refresh now for it.
+    std::function<std::wstring(const WeatherConfig& place)> weatherStatus;
+    std::function<void(const WeatherConfig& place)> refreshWeather;
     // Starts a place search; `done` gets the places (or an error) later, on the UI thread, unless
     // a newer search replaced it or the window closed. False if it could not be started.
     std::function<bool(const std::wstring& query,
@@ -159,6 +162,9 @@ public:
 
     const std::wstring& Name() const { return name_; }
     wchar_t Glyph() const { return glyph_; }  // Segoe Fluent Icons code point (0: none)
+    // Listed in the nav column. A retired page (round 5: Weather, index 6) keeps its index so the
+    // later pages keep theirs, but is never listed or selected.
+    virtual bool InNav() const { return true; }
     HWND Hwnd() const { return hwnd_; }
     HWND Item(int id) const;
     const Ctl* Find(int id) const;
@@ -293,7 +299,8 @@ public:
     void NotificationsChanged();
     // The calendar feeds' data / status changed: the Calendar page's status column.
     void CalendarChanged();
-    // Settings > Widget settings for item `item` of the edited dock (a `widget` item).
+    // Settings > Widget settings for item `item` of the edited dock (a `widget`, `clock` or
+    // `weather` item: the page generated from its schema).
     void ShowWidgetSettings(int item);
     // Settings > Folders and groups for item `item` of the edited dock (a folder or group item).
     void ShowItemSettings(int item);
@@ -364,6 +371,8 @@ private:
     // Nav pane (SettingsNav.cpp)
     static bool FocusCuesHidden(HWND hwnd);
     RECT NavItemRect(int index) const;
+    // The next listed page from `from` in direction `step` (+1 / -1); `from` when there is none.
+    int NavStep(int from, int step) const;
     int NavHitTest(POINT pt) const;
     void PaintNav(HWND hwnd, HDC hdc);
     // Page colours

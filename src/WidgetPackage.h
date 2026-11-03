@@ -7,6 +7,8 @@
 #include <string_view>
 #include <vector>
 
+#include "Config.h"
+
 // Widget packages (docs/widgets.md). A widget is a folder %LocalAppData%\WinDock\widgets\<id>\
 // with a manifest `widget.json`, its ES module `main.js` (plus any modules it imports) and its
 // assets, or a built-in shipped inside the exe as RCDATA resources (res/app.rc, the sources live in
@@ -26,7 +28,10 @@ struct SizeHint {
 
 // One setting of the manifest's `settings` schema.
 struct SettingField {
-    enum class Type { Bool, Int, Number, String, Choice, Color, Font };
+    // Round 5 phase A: Place (a geocoded place; its value is the item's `latitude`, `longitude` and
+    // `location` keys, not a key of its own) and TimeZone (a Windows time zone key name, "" = the
+    // local time).
+    enum class Type { Bool, Int, Number, String, Choice, Color, Font, Place, TimeZone };
     std::wstring key;
     std::wstring label;        // default: the key
     std::wstring description;  // optional note
@@ -147,7 +152,16 @@ bool InstallFolder(const std::wstring& source, std::wstring& id, std::wstring& e
 
 // The settings a script sees: the schema's defaults, overridden by the item's `settings` object
 // (`itemJson`, may be empty) where the value has the right type (ints / numbers clamped to the
-// range, choices checked); keys the schema does not know are passed through. UTF-8 JSON object.
+// range, choices checked); keys the schema does not know are passed through. A place field adds
+// no key of its own: the item's `latitude` / `longitude` (numbers in range, 4 decimals) and
+// `location` (a string) when it has them. UTF-8 JSON object.
 std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson);
+
+// The schemas of the built-in kinds that have item settings (round 5 phase A), for the generated
+// settings page: ItemKind::Clock (format, showSeconds, timeZone, showDate, label, face, click,
+// clickTarget) and ItemKind::Weather (place, label, units, refreshMinutes); empty for the others.
+// The clock's face choices are read now (Digital, then ClockFaces::List()). The keys are those of
+// ClockConfig / WeatherConfig (Config.h: ClockOf / WeatherOf read them).
+std::vector<SettingField> BuiltInSchema(ItemKind kind);
 
 }  // namespace Widgets

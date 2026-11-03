@@ -73,7 +73,6 @@ add_executable(WinDock WIN32
   src/SettingsPages.cpp
   src/SettingsPagesAppearance.cpp
   src/SettingsPagesMore.cpp
-  src/SettingsPagesWeather.cpp
   src/SettingsPagesDocks.cpp
   src/SettingsPagesLayout.cpp
   src/SettingsPagesTray.cpp

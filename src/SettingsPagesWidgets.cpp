@@ -1,5 +1,6 @@
-// The Widgets page (installed widgets, Console, export) and the Widget settings page (one widget
-// item's settings, generated from its manifest's schema).
+// The Widgets page (installed widgets, Console, export) and the Widget settings page (one widget,
+// clock or weather item's settings, generated from its schema; round 5: the Place and TimeZone
+// fields, the weather place search of the retired Weather page).
 
 #include <windows.h>
 #include <commctrl.h>
@@ -11,13 +12,17 @@
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
+#include <cwctype>
+#include <initializer_list>
 #include <string>
 #include <vector>
 
+#include "Clock.h"
 #include "ContextMenu.h"
 #include "JsonUtil.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
+#include "Weather.h"
 #include "WidgetPackage.h"
 
 namespace {
@@ -219,11 +224,49 @@ private:
 };
 
 // --- Widget settings -----------------------------------------------------------------------------
-// The controls are generated from the selected item's widget.json "settings" schema; the page
-// builds its table again (SettingsWindow::RequestRebuild) when another item is picked or the
-// item's widget changes. Values are written to the item's `settings` object (only the keys the
-// user changed) and applied at once (SettingsScope::Pins: the dock re-reads the item, the widget
-// gets onSettingsChanged).
+// The controls are generated from the selected item's schema: a script widget's widget.json
+// "settings", or (round 5 phase A) the built-in schema of a clock / weather item
+// (Widgets::BuiltInSchema). The page builds its table again (SettingsWindow::RequestRebuild) when
+// another item is picked or the item's widget changes. Values are written to the item's
+// `settings` object (only the keys the user changed; a clock / weather item has all of its keys
+// since it was made) and applied at once (SettingsScope::Pins: the dock re-reads the item, a
+// widget gets onSettingsChanged, a weather item moves to its new place's service).
+
+// 4 decimals (~11 m), trailing zeros dropped.
+std::wstring FormatCoord(double v) {
+    wchar_t buf[32];
+    swprintf_s(buf, L"%.4f", v);
+    std::wstring s = buf;
+    while (!s.empty() && s.back() == L'0') s.pop_back();
+    if (!s.empty() && s.back() == L'.') s.pop_back();
+    if (s == L"-0") s = L"0";
+    return s;
+}
+
+std::wstring Trim(std::wstring s) {
+    while (!s.empty() && std::iswspace(s.back())) s.pop_back();
+    size_t i = 0;
+    while (i < s.size() && std::iswspace(s[i])) ++i;
+    return s.substr(i);
+}
+
+double RoundCoord(double v) { return std::round(v * 1e4) / 1e4; }
+
+// "47.6", "-122,33" (a decimal comma is accepted) -> value in [lo, hi]. False if not a number.
+bool ParseCoord(std::wstring text, double lo, double hi, double& value) {
+    text = Trim(std::move(text));
+    for (wchar_t& c : text) {
+        if (c == L',') c = L'.';
+    }
+    if (text.empty()) return false;
+    wchar_t* end = nullptr;
+    const double v = std::wcstod(text.c_str(), &end);
+    if (!end || *end != L'\0' || !std::isfinite(v) || v < lo || v > hi) return false;
+    value = RoundCoord(v);
+    return true;
+}
+
+bool HasSettings(ItemKind k) { return k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather; }
 
 class WidgetSettingsPage : public FormPage {
 public:
@@ -237,34 +280,46 @@ protected:
         ResolveItem();
         builtFor_ = Signature();
         std::wstring error;
-        pkg_ = item_ >= 0 ? Widgets::Load(Cfg().Edit().items[static_cast<size_t>(item_)].id, error) : nullptr;
-        Title(pkg_ ? (L"Widget: " + pkg_->manifest.name).c_str() : L"Widget settings");
-        Label(kWidgetPickLabel, L"Widget");
+        pkg_ = nullptr;
+        builtIn_ = Widgets::Manifest{};
+        const ItemKind kind = Kind();
+        if (kind == ItemKind::Widget) {
+            pkg_ = Widgets::Load(Entry().id, error);
+        } else if (kind == ItemKind::Clock || kind == ItemKind::Weather) {
+            builtIn_.name = kind == ItemKind::Clock ? L"Clock" : L"Weather";
+            builtIn_.description = kind == ItemKind::Clock
+                                       ? L"This clock's own settings: other clocks on the docks keep theirs."
+                                       : L"This weather item's own place and units: other weather items keep theirs.";
+            builtIn_.settings = Widgets::BuiltInSchema(kind);
+        }
+        const Widgets::Manifest* m = Schema();
+        Title(kind == ItemKind::Widget && pkg_ ? (L"Widget: " + pkg_->manifest.name).c_str()
+              : m                              ? m->name.c_str()
+                                               : L"Widget settings");
+        Label(kWidgetPickLabel, L"Item");
         Combo(kWidgetPick, kColX, right - kColX, false);
         NextRow();
         std::wstring note;
         if (item_ < 0) {
-            note = L"The dock " + Cfg().Edit().id + L" has no widget. Add one on Dock contents (Add widget) or Widgets.";
-        } else if (!pkg_) {
+            note = L"The dock " + Cfg().Edit().id +
+                   L" has no clock, weather or widget item. Add one on Dock contents (Add widget) or Widgets.";
+        } else if (!m) {
             note = L"Not installed: " + error;
-        } else if (pkg_->manifest.settings.empty()) {
-            note = pkg_->manifest.name + L" has no settings.";
+        } else if (m->settings.empty()) {
+            note = m->name + L" has no settings.";
         } else {
-            note = pkg_->manifest.description;
+            note = m->description;
         }
         if (!note.empty()) {
             Text(kWidgetSettingsNote, CtlKind::Note, note, kMargin, right - kMargin, 36);
             NextRow(36);
         }
-        if (!pkg_) return;
-        const auto& fields = pkg_->manifest.settings;
+        placeField_ = -1;
+        if (!m) return;
+        const auto& fields = m->settings;
         // The values now: `visibleIf` hides the fields whose condition does not hold (the page is
         // generated again when a field others depend on changes).
-        json::JsonObject values{nullptr};
-        try {
-            json::JsonObject::TryParse(JsonUtil::Utf8ToWide(Widgets::MergeSettings(pkg_->manifest, Entry().settings)), values);
-        } catch (...) {
-        }
+        const json::JsonObject values = Values();
         std::wstring group;
         for (size_t k = 0; k < fields.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) {
             const Widgets::SettingField& f = fields[k];
@@ -287,9 +342,16 @@ protected:
                     break;
                 }
                 case T::Choice:
+                case T::TimeZone:
                     Label(base, f.label.c_str());
                     Combo(base + 1, kColX, right - kColX, false);
                     NextRow();
+                    break;
+                case T::Place:
+                    if (placeField_ < 0) {
+                        placeField_ = static_cast<int>(k);
+                        BuildPlace(right);
+                    }
                     break;
                 case T::Color:
                 case T::Number:
@@ -306,7 +368,7 @@ protected:
                     NextRow();
                     break;
             }
-            if (!f.description.empty()) {
+            if (!f.description.empty() && f.type != T::Place) {
                 Text(base + 3, CtlKind::Note, f.description, kColX, right - kColX, 20);
                 NextRow(22);
             }
@@ -314,21 +376,66 @@ protected:
         if (!fields.empty()) {
             NextRow(6);
             Button(kWidgetReset, L"Reset to defaults", kMargin, 150);
+            if (kind == ItemKind::Clock) Button(kClockFacesFolder, L"Open faces folder", kMargin + 158, 150);
             NextRow();
         }
     }
 
+    // The place block (moved from the Weather page of round 4): a geocoding search, the results,
+    // the name shown, latitude / longitude, the service's status and Refresh now.
+    void BuildPlace(int right) {
+        Label(kPlaceSearchLabel, L"Find a place");
+        EditBox(kPlaceSearchEdit, kColX, right - kColX - 112, 100);
+        Button(kPlaceSearch, L"Search", right - 104, 104);
+        NextRow();
+        Label(kPlaceResultsLabel, L"Results");
+        Combo(kPlaceResults, kColX, right - kColX, false);
+        NextRow(kRowH);
+        Text(kPlaceSearchNote, CtlKind::Note, L"Type a city and press Enter or Search.", kColX, right - kColX, 20);
+        NextRow(22);
+        Label(kPlaceLocationLabel, L"Name shown");
+        EditBox(kPlaceLocationEdit, kColX, right - kColX, 128);
+        NextRow();
+        Label(kPlaceLatLabel, L"Latitude");
+        EditBox(kPlaceLatEdit, kColX, 120, 16);
+        NextRow();
+        Label(kPlaceLonLabel, L"Longitude");
+        EditBox(kPlaceLonEdit, kColX, 120, 16);
+        NextRow();
+        if (Kind() == ItemKind::Widget) {
+            Text(kPlaceNote, CtlKind::Note, L"", kColX, right - kColX, 36);
+            NextRow(38);
+        }
+        Label(kPlaceStatusLabel, L"Status");
+        Text(kPlaceStatus, CtlKind::Value, L"", kColX, right - kColX);
+        NextRow();
+        Button(kPlaceRefreshNow, L"Refresh now", kColX, 130);
+        NextRow();
+        Link(kPlaceCredit, L"Weather data by <a>Open-Meteo.com</a> (CC BY 4.0)", kMargin, right - kMargin);
+        NextRow();
+    }
+
     void Created() override {
-        if (!pkg_) return;
-        const auto& fields = pkg_->manifest.settings;
+        const Widgets::Manifest* m = Schema();
+        if (!m) return;
+        const auto& fields = m->settings;
         for (size_t k = 0; k < fields.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) {
-            if (fields[k].type != Widgets::SettingField::Type::Choice) continue;
-            for (const auto& c : fields[k].choices) ComboAdd(kWidgetFieldBase + 10 * static_cast<int>(k) + 1, c.second.c_str());
+            const int id = kWidgetFieldBase + 10 * static_cast<int>(k) + 1;
+            if (fields[k].type == Widgets::SettingField::Type::Choice) {
+                for (const auto& c : fields[k].choices) ComboAdd(id, c.second.c_str());
+            } else if (fields[k].type == Widgets::SettingField::Type::TimeZone && Item(id)) {
+                // "Local time", then every zone of this Windows by display name, sorted by UTC offset.
+                if (zones_.empty()) {
+                    zones_.push_back({L"", L"Local time"});
+                    for (const Clock::TimeZoneInfo& z : Clock::TimeZones()) zones_.push_back({z.key, z.display});
+                }
+                for (const auto& z : zones_) ComboAdd(id, z.second.c_str());
+            }
         }
     }
 
     void Load() override {
-        // The dock's widget items may have changed (another dock picked, items added / removed).
+        // The dock's items may have changed (another dock picked, items added / removed).
         if (Signature() != builtFor_) {
             Window().RequestRebuild(*this);
             return;
@@ -338,27 +445,25 @@ protected:
         picks_.clear();
         const auto& items = Cfg().Edit().items;
         for (size_t i = 0; i < items.size(); ++i) {
-            if (items[i].Kind() != ItemKind::Widget) continue;
-            const std::wstring text = Widgets::DisplayName(items[i].id) + L" (item " + std::to_wstring(i + 1) + L")";
+            if (!HasSettings(items[i].Kind())) continue;
+            const std::wstring text = PickText(items[i]) + L" (item " + std::to_wstring(i + 1) + L")";
             SendMessageW(pick, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(text.c_str()));
             if (static_cast<int>(i) == item_) SetComboSel(kWidgetPick, static_cast<int>(picks_.size()));
             picks_.push_back(static_cast<int>(i));
         }
         Enable(kWidgetPick, !picks_.empty());
-        if (!pkg_ || item_ < 0) return;
-        json::JsonObject values{nullptr};
-        try {
-            json::JsonObject::TryParse(JsonUtil::Utf8ToWide(Widgets::MergeSettings(pkg_->manifest, Entry().settings)), values);
-        } catch (...) {
-        }
+        const Widgets::Manifest* m = Schema();
+        if (!m || item_ < 0) return;
+        const json::JsonObject values = Values();
         if (!values) return;
-        const auto& fields = pkg_->manifest.settings;
+        const auto& fields = m->settings;
         for (size_t k = 0; k < fields.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) {
             const Widgets::SettingField& f = fields[k];
             const int base = kWidgetFieldBase + 10 * static_cast<int>(k);
+            using T = Widgets::SettingField::Type;
+            if (f.type == T::Place) continue;  // LoadPlace
             const json::IJsonValue v = JsonUtil::Find(values, f.key.c_str());
             if (!v) continue;
-            using T = Widgets::SettingField::Type;
             switch (f.type) {
                 case T::Bool:
                     SetCheck(base + 1, v.ValueType() == json::JsonValueType::Boolean && v.GetBoolean());
@@ -377,11 +482,31 @@ protected:
                     }
                     break;
                 }
+                case T::TimeZone: {
+                    const std::wstring s = v.ValueType() == json::JsonValueType::String ? std::wstring(v.GetString()) : std::wstring();
+                    int sel = 0;  // local (also for a zone this Windows does not know: the clock shows local time)
+                    for (size_t z = 0; z < zones_.size(); ++z) {
+                        if (_wcsicmp(zones_[z].first.c_str(), s.c_str()) == 0) sel = static_cast<int>(z);
+                    }
+                    SetComboSel(base + 1, sel);
+                    break;
+                }
                 default:
                     if (v.ValueType() == json::JsonValueType::String) SetText(base + 1, std::wstring(v.GetString()));
                     break;
             }
         }
+        if (placeField_ >= 0) LoadPlace(values);
+    }
+
+    void OnWeatherChanged() override { UpdatePlaceStatus(); }
+
+    LRESULT OnNotify(const NMHDR& nm) override {
+        if (static_cast<int>(nm.idFrom) == kPlaceCredit && (nm.code == NM_CLICK || nm.code == NM_RETURN)) {
+            AllowSetForegroundWindow(ASFW_ANY);
+            ShellExecuteW(nullptr, L"open", L"https://open-meteo.com/", nullptr, nullptr, SW_SHOWNORMAL);
+        }
+        return 0;
     }
 
     void OnCommand(int id, int code, HWND) override {
@@ -395,9 +520,34 @@ protected:
         }
         if (id == kWidgetReset && code == BN_CLICKED) {
             if (item_ < 0) return;
-            Entry().settings.clear();
+            // A clock / weather item: the defaults' values (config.clock / config.weather); a
+            // widget: no settings (its schema's defaults).
+            DockItemEntry& e = Entry();
+            e.settings = Kind() == ItemKind::Clock     ? ClockSettingsJson(Cfg().clock)
+                         : Kind() == ItemKind::Weather ? WeatherSettingsJson(Cfg().weather)
+                                                       : std::wstring();
             Changed(SettingsScope::Pins);
             Window().RequestRebuild(*this);  // the defaults may show / hide visibleIf fields
+            return;
+        }
+        if (id == kClockFacesFolder && code == BN_CLICKED) {
+            const std::wstring dir = ClockFaces::Directory();
+            CreateDirectoryW(Config::Directory().c_str(), nullptr);
+            CreateDirectoryW(dir.c_str(), nullptr);
+            ShellExecuteW(Owner(), L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+            return;
+        }
+        if (id == kPlaceSearch && code == BN_CLICKED) {
+            StartSearch();
+            return;
+        }
+        if (id == kPlaceResults && code == CBN_SELCHANGE) {
+            ChoosePlace(ComboSel(id));
+            return;
+        }
+        if (id == kPlaceRefreshNow && code == BN_CLICKED) {
+            if (Host().refreshWeather) Host().refreshWeather(PlaceNow());
+            UpdatePlaceStatus();
             return;
         }
         const Widgets::SettingField* f = FieldOf(id);
@@ -410,6 +560,11 @@ protected:
             if (sel >= 0 && sel < static_cast<int>(f->choices.size())) {
                 Store(*f, json::JsonValue::CreateStringValue(f->choices[static_cast<size_t>(sel)].first));
             }
+        } else if (f->type == T::TimeZone && code == CBN_SELCHANGE) {
+            const int sel = ComboSel(id);
+            if (sel >= 0 && sel < static_cast<int>(zones_.size())) {
+                Store(*f, json::JsonValue::CreateStringValue(zones_[static_cast<size_t>(sel)].first));
+            }
         }
     }
 
@@ -419,6 +574,42 @@ protected:
     }
 
     void Commit(int id) override {
+        switch (id) {
+            case kPlaceSearchEdit:
+                if (GetKeyState(VK_RETURN) < 0) StartSearch();  // Enter searches; leaving the box does not
+                return;
+            case kPlaceLocationEdit: {
+                std::wstring name = Trim(GetText(id));
+                if (name.size() > 128) name.resize(128);
+                SetText(id, name);
+                const WeatherConfig now = PlaceNow();
+                if (name != now.location) StoreKeys({{L"location", json::JsonValue::CreateStringValue(name)}});
+                return;
+            }
+            case kPlaceLatEdit:
+            case kPlaceLonEdit: {
+                const bool lat = id == kPlaceLatEdit;
+                const WeatherConfig now = PlaceNow();
+                const double current = lat ? now.latitude : now.longitude;
+                double v = current;
+                if (!ParseCoord(GetText(id), lat ? -90.0 : -180.0, lat ? 90.0 : 180.0, v)) {
+                    SetText(id, FormatCoord(current));  // not a valid coordinate: back to the current one
+                    MessageBeep(MB_ICONWARNING);
+                    return;
+                }
+                SetText(id, FormatCoord(v));
+                // Both coordinates go into the item (a widget then has a place of its own).
+                const double other = lat ? now.longitude : now.latitude;
+                if (std::fabs(v - current) > 1e-9 || !SettingsHavePlace(Entry().settings)) {
+                    StoreKeys({{lat ? L"latitude" : L"longitude", json::JsonValue::CreateNumberValue(v)},
+                               {lat ? L"longitude" : L"latitude", json::JsonValue::CreateNumberValue(other)}});
+                }
+                UpdatePlaceStatus();
+                return;
+            }
+            default:
+                break;
+        }
         const Widgets::SettingField* f = FieldOf(id);
         if (!f) return;
         const std::wstring text = GetText(id);
@@ -454,6 +645,11 @@ protected:
                 break;
             }
             default:
+                // A clock's format may not be empty (it would hide the clock): back to the current one.
+                if (Kind() == ItemKind::Clock && f->key == L"format" && Trim(text).empty()) {
+                    Load();
+                    break;
+                }
                 Store(*f, json::JsonValue::CreateStringValue(text));
                 break;
         }
@@ -461,61 +657,213 @@ protected:
 
 private:
     DockItemEntry& Entry() { return Cfg().Edit().items[static_cast<size_t>(item_)]; }
+    ItemKind Kind() {
+        const auto& items = Cfg().Edit().items;
+        return item_ >= 0 && item_ < static_cast<int>(items.size()) ? items[static_cast<size_t>(item_)].Kind() : ItemKind::Unknown;
+    }
 
-    // item_ names a widget item of the edited dock (else the first one, or -1).
+    // The schema shown: the widget's manifest, the built-in kind's, or none.
+    const Widgets::Manifest* Schema() const {
+        if (pkg_) return &pkg_->manifest;
+        return builtIn_.settings.empty() ? nullptr : &builtIn_;
+    }
+
+    // "Clock: %H:%M, Tokyo Standard Time", "Weather: Seattle", "Analog clock".
+    std::wstring PickText(const DockItemEntry& e) {
+        switch (e.Kind()) {
+            case ItemKind::Clock: return L"Clock: " + ClockDetail(ClockOf(Cfg(), e));
+            case ItemKind::Weather: return L"Weather: " + WeatherDetail(WeatherOf(Cfg(), e));
+            default: return Widgets::DisplayName(e.id);
+        }
+    }
+
+    // item_ names a clock, weather or widget item of the edited dock (else the first one, or -1).
     void ResolveItem() {
         const auto& items = Cfg().Edit().items;
-        if (item_ >= 0 && item_ < static_cast<int>(items.size()) && items[static_cast<size_t>(item_)].Kind() == ItemKind::Widget) {
+        if (item_ >= 0 && item_ < static_cast<int>(items.size()) && HasSettings(items[static_cast<size_t>(item_)].Kind())) {
             return;
         }
         item_ = -1;
         for (size_t i = 0; i < items.size(); ++i) {
-            if (items[i].Kind() == ItemKind::Widget) {
+            if (HasSettings(items[i].Kind())) {
                 item_ = static_cast<int>(i);
                 return;
             }
         }
     }
 
-    // What the table was generated for: the dock, the widget items and the chosen one's id.
+    // What the table was generated for: the dock, the items with settings and the chosen one.
     std::wstring Signature() {
         ResolveItem();
         std::wstring s = std::to_wstring(Cfg().editDock) + L"|" + std::to_wstring(item_);
         for (const DockItemEntry& e : Cfg().Edit().items) {
-            if (e.Kind() == ItemKind::Widget) s += L"|" + e.id;
+            if (HasSettings(e.Kind())) s += L"|" + e.kind + L":" + e.id;
         }
         return s;
     }
 
-    const Widgets::SettingField* FieldOf(int id) const {
-        if (!pkg_ || id < kWidgetFieldBase) return nullptr;
-        const int k = (id - kWidgetFieldBase) / 10, part = (id - kWidgetFieldBase) % 10;
-        if (part != 1 || k >= static_cast<int>(pkg_->manifest.settings.size())) return nullptr;
-        return &pkg_->manifest.settings[static_cast<size_t>(k)];
+    // The values the page shows: a clock / weather item's effective settings (its own over the
+    // defaults); a widget's merged settings, with the place it shows when it has none of its own.
+    json::JsonObject Values() {
+        json::JsonObject values{nullptr};
+        const Widgets::Manifest* m = Schema();
+        if (!m || item_ < 0) return values;
+        const DockItemEntry& e = Entry();
+        std::wstring text;
+        if (e.Kind() == ItemKind::Clock) {
+            text = ClockSettingsJson(ClockOf(Cfg(), e));
+        } else if (e.Kind() == ItemKind::Weather) {
+            text = WeatherSettingsJson(WeatherOf(Cfg(), e));
+        } else {
+            text = JsonUtil::Utf8ToWide(Widgets::MergeSettings(*m, e.settings));
+        }
+        try {
+            if (!json::JsonObject::TryParse(text, values)) values = nullptr;
+            if (values && e.Kind() == ItemKind::Widget && HasPlaceField()) {
+                // The place keys it does not set itself: what its weather provider uses.
+                const WeatherConfig place = ScriptWeatherOf(Cfg(), Cfg().Edit(), e);
+                json::JsonObject own{nullptr};
+                if (e.settings.empty() || !json::JsonObject::TryParse(e.settings, own) || !own) own = json::JsonObject();
+                const bool hasPlace = SettingsHavePlace(e.settings);
+                auto fill = [&](const wchar_t* key, const json::IJsonValue& v) {
+                    if (!hasPlace || !own.HasKey(key)) values.SetNamedValue(key, v);
+                };
+                fill(L"latitude", json::JsonValue::CreateNumberValue(place.latitude));
+                fill(L"longitude", json::JsonValue::CreateNumberValue(place.longitude));
+                fill(L"location", json::JsonValue::CreateStringValue(place.location));
+                if (!own.HasKey(L"units")) values.SetNamedValue(L"units", json::JsonValue::CreateStringValue(ToString(place.units)));
+                if (!own.HasKey(L"refreshMinutes")) values.SetNamedValue(L"refreshMinutes", json::JsonValue::CreateNumberValue(place.refreshMinutes));
+            }
+        } catch (...) {
+            values = nullptr;
+        }
+        return values;
     }
 
-    // Writes one value into the item's settings object and applies it.
-    void Store(const Widgets::SettingField& f, const json::IJsonValue& value) {
-        if (item_ < 0 || Loading()) return;
+    bool HasPlaceField() const {
+        const Widgets::Manifest* m = Schema();
+        return m && std::any_of(m->settings.begin(), m->settings.end(),
+                                [](const Widgets::SettingField& f) { return f.type == Widgets::SettingField::Type::Place; });
+    }
+
+    // The place of the item now: a weather item's own; a widget's (its own, else its dock's
+    // weather item's, else the defaults).
+    WeatherConfig PlaceNow() {
+        if (item_ < 0) return Cfg().weather;
+        const DockItemEntry& e = Entry();
+        return e.Kind() == ItemKind::Weather ? WeatherOf(Cfg(), e) : ScriptWeatherOf(Cfg(), Cfg().Edit(), e);
+    }
+
+    void LoadPlace(const json::JsonObject& values) {
+        double lat = 0.0, lon = 0.0;
+        std::wstring location;
+        JsonUtil::ReadNumber(values, L"latitude", lat);
+        JsonUtil::ReadNumber(values, L"longitude", lon);
+        JsonUtil::ReadString(values, L"location", location);
+        SetText(kPlaceLocationEdit, location);
+        SetText(kPlaceLatEdit, FormatCoord(lat));
+        SetText(kPlaceLonEdit, FormatCoord(lon));
+        if (Kind() == ItemKind::Widget) {
+            const DockItemEntry& e = Entry();
+            const bool own = SettingsHavePlace(e.settings);
+            const bool dockItem = std::any_of(Cfg().Edit().items.begin(), Cfg().Edit().items.end(),
+                                              [](const DockItemEntry& i) { return i.Kind() == ItemKind::Weather; });
+            SetText(kPlaceNote, own ? L"This widget has a place of its own."
+                                : dockItem ? L"No place of its own: it shows the place of this dock's first Weather item. "
+                                             L"Choose a place here to give it its own."
+                                           : L"No place of its own: it shows the default place (config.json \"weather\"). "
+                                             L"Choose a place here to give it its own.");
+        }
+        UpdatePlaceStatus();
+    }
+
+    void UpdatePlaceStatus() {
+        if (placeField_ < 0 || item_ < 0 || !Item(kPlaceStatus)) return;
+        if (Host().weatherStatus) SetText(kPlaceStatus, Host().weatherStatus(PlaceNow()));
+    }
+
+    void StartSearch() {
+        const std::wstring query = Trim(GetText(kPlaceSearchEdit));
+        if (query.empty()) {
+            SetText(kPlaceSearchNote, L"Type a place name first.");
+            return;
+        }
+        if (!Host().geocode) return;
+        const bool started = Host().geocode(query, [this](const std::vector<WeatherService::Place>& places,
+                                                          const std::wstring& error) { OnPlaces(places, error); });
+        SetText(kPlaceSearchNote, started ? L"Searching…" : L"Could not start the search.");
+    }
+
+    void OnPlaces(const std::vector<WeatherService::Place>& places, const std::wstring& error) {
+        places_ = places;
+        if (!Item(kPlaceResults)) return;  // the page was generated for another item meanwhile
+        SendMessageW(Item(kPlaceResults), CB_RESETCONTENT, 0, 0);
+        for (const WeatherService::Place& p : places_) ComboAdd(kPlaceResults, p.Label().c_str());
+        if (!error.empty()) {
+            SetText(kPlaceSearchNote, L"Search failed: " + error);
+        } else if (places_.empty()) {
+            SetText(kPlaceSearchNote, L"No places found.");
+        } else {
+            SetText(kPlaceSearchNote, std::to_wstring(places_.size()) + (places_.size() == 1 ? L" place found: choose it in the list."
+                                                                                                : L" places found: choose one in the list."));
+        }
+    }
+
+    void ChoosePlace(int index) {
+        if (index < 0 || index >= static_cast<int>(places_.size()) || item_ < 0) return;
+        const WeatherService::Place& p = places_[static_cast<size_t>(index)];
+        const std::wstring name = p.name.size() > 128 ? p.name.substr(0, 128) : p.name;
+        StoreKeys({{L"latitude", json::JsonValue::CreateNumberValue(RoundCoord(p.latitude))},
+                   {L"longitude", json::JsonValue::CreateNumberValue(RoundCoord(p.longitude))},
+                   {L"location", json::JsonValue::CreateStringValue(name)}});
+        SetText(kPlaceLocationEdit, name);
+        SetText(kPlaceLatEdit, FormatCoord(RoundCoord(p.latitude)));
+        SetText(kPlaceLonEdit, FormatCoord(RoundCoord(p.longitude)));
+        if (Kind() == ItemKind::Widget) SetText(kPlaceNote, L"This widget has a place of its own.");
+        UpdatePlaceStatus();
+    }
+
+    const Widgets::SettingField* FieldOf(int id) const {
+        const Widgets::Manifest* m = Schema();
+        if (!m || id < kWidgetFieldBase) return nullptr;
+        const int k = (id - kWidgetFieldBase) / 10, part = (id - kWidgetFieldBase) % 10;
+        if (part != 1 || k >= static_cast<int>(m->settings.size())) return nullptr;
+        return &m->settings[static_cast<size_t>(k)];
+    }
+
+    // Writes keys into the item's settings object and applies them. False if nothing changed.
+    bool StoreKeys(std::initializer_list<std::pair<const wchar_t*, json::IJsonValue>> keys) {
+        if (item_ < 0 || Loading()) return false;
         DockItemEntry& e = Entry();
         json::JsonObject o{nullptr};
         try {
-            if (e.settings.empty() || !json::JsonObject::TryParse(e.settings, o) || !o) o = json::JsonObject();
-            o.SetNamedValue(f.key, value);
+            std::wstring base = e.settings;
+            // A clock / weather item without settings (written by hand): its effective values first.
+            if (base.empty() && e.Kind() == ItemKind::Clock) base = ClockSettingsJson(ClockOf(Cfg(), e));
+            if (base.empty() && e.Kind() == ItemKind::Weather) base = WeatherSettingsJson(WeatherOf(Cfg(), e));
+            if (base.empty() || !json::JsonObject::TryParse(base, o) || !o) o = json::JsonObject();
+            for (const auto& [key, value] : keys) o.SetNamedValue(key, value);
             const std::wstring text(o.Stringify());
-            if (text == e.settings) return;
+            if (text == e.settings) return false;
             e.settings = text;
         } catch (...) {
-            return;
+            return false;
         }
-        Changed(SettingsScope::Pins);  // the dock re-reads the item: onSettingsChanged
+        Changed(SettingsScope::Pins);  // the dock re-reads the item: onSettingsChanged / a new place
+        return true;
+    }
+
+    // Writes one field's value and applies it.
+    void Store(const Widgets::SettingField& f, const json::IJsonValue& value) {
+        if (!StoreKeys({{f.key.c_str(), value}})) return;
         // Fields shown only for some value of this one: generate the page again.
-        const auto& fields = pkg_->manifest.settings;
-        if (std::any_of(fields.begin(), fields.end(), [&](const Widgets::SettingField& o) {
+        const Widgets::Manifest* m = Schema();
+        if (m && std::any_of(m->settings.begin(), m->settings.end(), [&](const Widgets::SettingField& o) {
                 return std::any_of(o.visibleIf.begin(), o.visibleIf.end(), [&](const auto& c) { return c.first == f.key; });
             })) {
             Window().RequestRebuild(*this);
         }
+        if (f.key == L"units" || f.key == L"refreshMinutes") UpdatePlaceStatus();
     }
 
     // visibleIf: every named field has that value now (compared as JSON).
@@ -537,10 +885,28 @@ private:
     int item_ = -1;
     std::wstring builtFor_;
     std::shared_ptr<const Widgets::Package> pkg_;
-    std::vector<int> picks_;  // combo rows -> item indexes
+    Widgets::Manifest builtIn_;  // a clock / weather item: Widgets::BuiltInSchema
+    std::vector<int> picks_;     // combo rows -> item indexes
+    int placeField_ = -1;        // the schema's (first) Place field, -1 none
+    std::vector<WeatherService::Place> places_;  // the last search's results
+    std::vector<std::pair<std::wstring, std::wstring>> zones_;  // time zone rows: key, display name
 };
 
 }  // namespace
+
+std::wstring ClockDetail(const ClockConfig& c) {
+    std::wstring s = Clock::EffectiveFormat(c.format, c.showSeconds);
+    if (c.showDate) s += L", date";
+    if (!c.timeZone.empty()) s += L", " + c.timeZone;
+    if (!c.label.empty()) s += L", “" + c.label + L"”";
+    return s;
+}
+
+std::wstring WeatherDetail(const WeatherConfig& w) {
+    if (!w.Configured()) return L"No location yet";
+    std::wstring s = !w.label.empty() ? w.label : !w.location.empty() ? w.location : std::wstring(L"Location set");
+    return s + (w.units == Units::Imperial ? L", °F" : L", °C");
+}
 
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window) { return std::make_unique<WidgetsPage>(window); }
 

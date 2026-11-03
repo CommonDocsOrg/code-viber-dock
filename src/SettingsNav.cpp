@@ -65,15 +65,30 @@ LRESULT CALLBACK SettingsWindow::NavProcThunk(HWND hwnd, UINT msg, WPARAM wp, LP
 }
 
 RECT SettingsWindow::NavItemRect(int index) const {
-    // 36 DIPs a page, less once the pages would not fit the window's height (16 pages: 34).
-    const int count = std::max(1, static_cast<int>(pages_.size()));
-    const int itemDip = std::min(kNavItemDip, (kHeightDip - kNavTopDip - 4) / count);
-    const int top = Px(kNavTopDip) + index * Px(itemDip);
+    // 36 DIPs a page, less once the pages would not fit the window's height (16 pages: 34). Pages
+    // that are not listed (InNav) take no row.
+    int count = 0, row = 0;
+    for (int i = 0; i < static_cast<int>(pages_.size()); ++i) {
+        if (!pages_[static_cast<size_t>(i)]->InNav()) continue;
+        if (i < index) ++row;
+        ++count;
+    }
+    if (index < 0 || index >= static_cast<int>(pages_.size()) || !pages_[static_cast<size_t>(index)]->InNav()) return RECT{};
+    const int itemDip = std::min(kNavItemDip, (kHeightDip - kNavTopDip - 4) / std::max(1, count));
+    const int top = Px(kNavTopDip) + row * Px(itemDip);
     return RECT{Px(6), top + Px(2), Px(kNavWidthDip) - Px(6), top + Px(itemDip) - Px(2)};
+}
+
+int SettingsWindow::NavStep(int from, int step) const {
+    for (int i = from + step; i >= 0 && i < static_cast<int>(pages_.size()); i += step) {
+        if (pages_[static_cast<size_t>(i)]->InNav()) return i;
+    }
+    return from;
 }
 
 int SettingsWindow::NavHitTest(POINT pt) const {
     for (int i = 0; i < static_cast<int>(pages_.size()); ++i) {
+        if (!pages_[static_cast<size_t>(i)]->InNav()) continue;
         RECT r = NavItemRect(i);
         r.top -= Px(2);
         r.bottom += Px(2);
@@ -90,17 +105,17 @@ LRESULT SettingsWindow::NavProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             switch (wp) {
                 case VK_UP:
                 case VK_LEFT:
-                    SelectPage(active_ - 1);
+                    SelectPage(NavStep(active_, -1));
                     return 0;
                 case VK_DOWN:
                 case VK_RIGHT:
-                    SelectPage(active_ + 1);
+                    SelectPage(NavStep(active_, 1));
                     return 0;
                 case VK_HOME:
-                    SelectPage(0);
+                    SelectPage(NavStep(-1, 1));
                     return 0;
                 case VK_END:
-                    SelectPage(static_cast<int>(pages_.size()) - 1);
+                    SelectPage(NavStep(static_cast<int>(pages_.size()), -1));
                     return 0;
                 default:
                     break;
@@ -183,6 +198,7 @@ void SettingsWindow::PaintNav(HWND hwnd, HDC hdc) {
     HTHEME theme = OpenThemeData(hwnd, L"WINDOW");
     SetBkMode(dc, TRANSPARENT);
     for (int i = 0; i < static_cast<int>(pages_.size()); ++i) {
+        if (!pages_[static_cast<size_t>(i)]->InNav()) continue;
         const RECT r = NavItemRect(i);
         if (i == active_) {
             BlendRoundRect(bits, stride, rc.right, rc.bottom, r, radius, palette_.pill, palette_.pillSelectedAlpha);

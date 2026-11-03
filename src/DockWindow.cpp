@@ -276,12 +276,21 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                      [this] { DismissFolderPopup(true); },
                      [this] { OnFolderPopupClosed(); },
                  });
-    weatherPopup_.Init(instance, &renderer_, &shared_->WeatherData(),
+    // The forecast of the weather slot that opened it (round 5: its item's place).
+    weatherPopup_.Init(instance, &renderer_,
+                       [this]() -> const WeatherService* {
+                           WeatherConfig place;
+                           return PlaceOfSlot(SlotOfKey(weatherKey_), place) ? WeatherFor(place) : nullptr;
+                       },
                        WeatherPopup::Callbacks{
-                           [this] { shared_->WeatherData().RefreshNow(); },
                            [this] {
+                               WeatherConfig place;
+                               if (PlaceOfSlot(SlotOfKey(weatherKey_), place)) shared_->RefreshWeather(&place);
+                           },
+                           [this] {
+                               const int slot = SlotOfKey(weatherKey_);
                                DismissWeatherPopup(true);
-                               if (weatherCallbacks_.openSettings) weatherCallbacks_.openSettings();
+                               OpenItemSettings(slot);
                            },
                            [this] { ReleasePopupHold(kHoldWeather, true); },
                        });
@@ -318,7 +327,7 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                    CalendarPopup::Callbacks{
                        [this] { ReleasePopupHold(kHoldCalendar, true); },
                        [this] {
-                           const std::wstring target = config_->clock.clickTarget;  // copied: the popup closes first
+                           const std::wstring target = calendarTarget_;  // copied: the popup closes first
                            DismissCalendarPopup(true);
                            OpenTarget(target);
                        },
@@ -486,7 +495,7 @@ void DockWindow::ApplyConfig() {
     labelFormat_ = nullptr;  // theme / size may have changed
     labelEllipsis_ = nullptr;
     weatherQuiet_ = true;  // the relayout below measures and draws the widget
-    shared_->ConfigureWeather();
+    shared_->SyncWeather();
     weatherQuiet_ = false;
     UpdateAcrylic();
     Relayout();
@@ -1507,13 +1516,50 @@ void DockWindow::OnWeatherChanged() {
 }
 
 void DockWindow::ApplyWeather() {
-    // The weather item may have been added / removed (Settings > Weather "Show").
+    // A weather item may have been added / removed / given another place.
     SyncElements();
-    if (!DockCfg().Has(ItemKind::Weather)) DismissWeatherPopup(false, true);
+    if (SlotOfKey(weatherKey_) < 0) DismissWeatherPopup(false, true);
     weatherQuiet_ = true;
-    shared_->ConfigureWeather();
+    shared_->SyncWeather();
     weatherQuiet_ = false;
     OnWeatherChanged();  // redraw (relayout if the widget's size changed); once, whatever changed
+}
+
+int DockWindow::SlotOfKey(const AppKey& key) const {
+    if (key.id.empty()) return -1;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (items_[i].key == key) return static_cast<int>(i);
+    }
+    return -1;
+}
+
+bool DockWindow::PlaceOfSlot(int slot, WeatherConfig& place) const {
+    if (slot < 0 || slot >= static_cast<int>(items_.size())) return false;
+    const size_t e = items_[static_cast<size_t>(slot)].element;
+    return e < elements_.size() && elements_[e] && elements_[e]->WeatherPlace(place);
+}
+
+const WeatherService* DockWindow::WeatherOfItem(LPARAM item) const {
+    // Config item `item` of this dock when it is a weather item; item 0 otherwise means the first
+    // weather item (QueryState 27 - 30 before round 5 had no item: lParam 0).
+    const auto& entries = DockCfg().items;
+    size_t pick = SIZE_MAX;
+    if (item >= 0 && static_cast<size_t>(item) < entries.size() && entries[static_cast<size_t>(item)].Kind() == ItemKind::Weather) {
+        pick = static_cast<size_t>(item);
+    } else if (item == 0) {
+        for (size_t i = 0; i < entries.size() && pick == SIZE_MAX; ++i) {
+            if (entries[i].Kind() == ItemKind::Weather) pick = i;
+        }
+    }
+    if (pick == SIZE_MAX) return nullptr;
+    const WeatherConfig place = WeatherOf(*config_, entries[pick]);
+    return place.Configured() ? WeatherFor(place) : nullptr;
+}
+
+void DockWindow::OpenItemSettings(int slot) {
+    if (slot < 0 || slot >= static_cast<int>(items_.size())) return;
+    const size_t item = items_[static_cast<size_t>(slot)].element;  // = its index in the dock's items
+    if (item < DockCfg().items.size() && weatherCallbacks_.openSettings) weatherCallbacks_.openSettings(item);
 }
 
 HRESULT DockWindow::RenderSeparator(DockItem& item) {
@@ -4109,8 +4155,10 @@ bool DockWindow::PopupShownFor(int slot) const {
         case ClickPopup::Folder:
         case ClickPopup::Group:
         case ClickPopup::Tray: return folder_.Visible() && items_[static_cast<size_t>(slot)].key == folderKey_;
-        case ClickPopup::Weather: return weatherPopup_.Visible();
-        case ClickPopup::Calendar: return calendar_.Visible();
+        // Round 5: per item (two weather items show two places; two clocks two click targets).
+        case ClickPopup::Weather: return weatherPopup_.Visible() && items_[static_cast<size_t>(slot)].key == weatherKey_;
+        case ClickPopup::Calendar:
+            return calendar_.Visible() && (calendarClock_.id.empty() || items_[static_cast<size_t>(slot)].key == calendarClock_);
         case ClickPopup::Notifications: return centre_.Visible() && centreOpener_.empty();
         case ClickPopup::None:
         default: return false;
@@ -4127,8 +4175,16 @@ void DockWindow::ShowClickPopup(int slot) {
         case ClickPopup::Folder: ShowFolderPopup(slot, anchor); return;
         case ClickPopup::Group: ShowGroupPopup(slot, anchor); return;
         case ClickPopup::Tray: ShowTrayDrawer(slot, anchor); return;
-        case ClickPopup::Weather: ShowWeatherPopup(anchor); return;
-        case ClickPopup::Calendar: ShowCalendarPopup(anchor); return;
+        case ClickPopup::Weather:
+            weatherKey_ = items_[static_cast<size_t>(slot)].key;
+            ShowWeatherPopup(anchor);
+            return;
+        case ClickPopup::Calendar:
+            // The footer opens this clock's target.
+            calendarTarget_ = ClockOf(*config_, element.Entry()).clickTarget;
+            ShowCalendarPopup(anchor);
+            calendarClock_ = calendar_.Visible() ? items_[static_cast<size_t>(slot)].key : AppKey{};
+            return;
         case ClickPopup::Notifications: ShowCentre(anchor); return;
         case ClickPopup::None:
         default: return;
@@ -4213,8 +4269,8 @@ void DockWindow::ShowCalendarPopup(float anchor, int64_t day) {
     style.accent = theme.accent;
     style.cornerRadiusDip = theme.cornerRadius;
     style.monitor = l.work;
-    // clock.clickTarget set: a footer button opens it (also when a click on the clock does).
-    if (const std::wstring name = Launcher::TargetName(config_->clock.clickTarget); !name.empty()) {
+    // The clock's clickTarget set: a footer button opens it (also when a click on the clock does).
+    if (const std::wstring name = Launcher::TargetName(calendarTarget_); !name.empty()) {
         style.footer = L"Open " + name;
     }
     style.dots = config_->calendars.showDots;
@@ -4233,6 +4289,7 @@ void DockWindow::ShowCalendarPopup(float anchor, int64_t day) {
 void DockWindow::DismissCalendarPopup(bool animate, bool leaveCheck) {
     calendar_.Hide(animate);
     calendarOpener_.clear();
+    calendarClock_ = AppKey{};
     ReleasePopupHold(kHoldCalendar, leaveCheck);
 }
 
@@ -4318,8 +4375,12 @@ void DockWindow::OnCalendarChanged() {
     if (active != (calendar_.SelectedDay() != INT64_MIN)) {
         const int64_t day = calendar_.SelectedDay();
         const std::wstring opener = calendarOpener_;
+        const AppKey clock = calendarClock_;
         ShowCalendarPopup(calendarAnchor_, day);
-        if (calendar_.Visible()) calendarOpener_ = opener;
+        if (calendar_.Visible()) {
+            calendarOpener_ = opener;
+            calendarClock_ = clock;
+        }
         return;
     }
     calendar_.Update();
@@ -4373,7 +4434,9 @@ void DockWindow::ReminderAction(int action) {
     if (action == 3) {
         for (size_t i = 0; i < items_.size(); ++i) {
             if (items_[i].kind != DockItem::Kind::Clock) continue;
+            calendarTarget_ = ClockOf(*config_, ElementOf(i).Entry()).clickTarget;
             ShowCalendarPopup(items_[i].x + items_[i].slotW / 2.0f, r.day);
+            if (calendar_.Visible()) calendarClock_ = items_[i].key;
             break;
         }
     }
@@ -4514,13 +4577,14 @@ void DockWindow::OnWidgetPopupRequests() {
             case Kind::Calendar: {
                 if (slot < 0 || hideState_ != HideState::Shown) break;
                 const DockItem& item = items_[static_cast<size_t>(slot)];
+                calendarTarget_ = config_->clock.clickTarget;  // a widget's: the defaults' target
                 ShowCalendarPopup(item.x + item.slotW / 2.0f, r.day);
                 if (calendar_.Visible()) calendarOpener_ = key;
                 break;
             }
-            case Kind::WeatherSettings:  // weather.openSettings(): Settings > Weather
+            case Kind::WeatherSettings:  // weather.openSettings(): this widget item's settings
                 if (popupWidget_ == key) DismissWidgetPopup(true);
-                OpenWeatherSettings();
+                OpenItemSettings(slot);
                 break;
             case Kind::Previews: {
                 if (slot < 0 || hideState_ != HideState::Shown) break;
@@ -5245,7 +5309,11 @@ WidgetInstance* DockWindow::AcquireWidget(const DockItemEntry& entry, size_t ord
     if (!renderer_.D2DFactory() || !renderer_.DWrite() || !shared_) return nullptr;
     const std::wstring key = entry.id + L"#" + std::to_wstring(ordinal);
     widgetsClaimed_.push_back(key);
+    // Round 5: the place its `weather` provider answers for (its own, else this dock's first
+    // weather item's, else the defaults).
+    const WeatherConfig place = ScriptWeatherOf(*config_, DockCfg(), entry);
     if (auto it = widgets_.find(key); it != widgets_.end()) {
+        it->second->SetWeatherConfig(place);
         it->second->SetSettings(entry.settings);
         return it->second.get();
     }
@@ -5253,7 +5321,7 @@ WidgetInstance* DockWindow::AcquireWidget(const DockItemEntry& entry, size_t ord
     info.visible = !desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
     auto widget = std::make_unique<WidgetInstance>(shared_->Widgets(), static_cast<WidgetInstance::Client&>(*this),
                                                    renderer_.D2DFactory(), renderer_.DWrite(), entry.id, key,
-                                                   entry.settings, info);
+                                                   entry.settings, info, place);
     WidgetInstance* raw = widget.get();
     widgets_.emplace(key, std::move(widget));
     return raw;
@@ -5348,15 +5416,15 @@ void DockWindow::ReloadPins() {
     // A clock / weather item added or removed (the dock menu's Add widget, Settings > Dock
     // contents): their popups and the weather service follow.
     const DockConfig& d = DockCfg();
-    if (!d.Has(ItemKind::Clock)) DismissCalendarPopup(false, true);
-    if (!d.Has(ItemKind::Weather)) DismissWeatherPopup(false, true);
-    // The service runs while any dock has a weather item.
-    if (shared_->WeatherData().Shown() != shared_->AnyWeatherItem()) {
-        weatherQuiet_ = true;
-        shared_->ConfigureWeather();
-        weatherQuiet_ = false;
-        OnWeatherChanged();
+    if (!d.Has(ItemKind::Clock) || (!calendarClock_.id.empty() && SlotOfKey(calendarClock_) < 0)) {
+        DismissCalendarPopup(false, true);
     }
+    if (SlotOfKey(weatherKey_) < 0) DismissWeatherPopup(false, true);
+    // The services follow the weather items (one per place; added, removed, a new place).
+    weatherQuiet_ = true;
+    shared_->SyncWeather();
+    weatherQuiet_ = false;
+    OnWeatherChanged();
 }
 
 void DockWindow::SlotWindows(int slot, WindowsCommand cmd) {
@@ -7309,18 +7377,37 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return groupCandidate_;
         case 26:
             return dropActive_ ? static_cast<LRESULT>(dropMode_) : 0;
-        case 27:
-            return static_cast<LRESULT>(Weather().State());
+        // 27 - 30: the weather of config item lp (a weather item), else (lp 0) the first one.
+        case 27: {
+            const WeatherService* weather = WeatherOfItem(lp);
+            return weather ? static_cast<LRESULT>(weather->State()) : 0;
+        }
         case 28: {
-            const WeatherService& weather = Weather();
-            const WeatherService::Forecast& data = weather.Data();
-            if (!weather.Active() || !data.valid || !std::isfinite(data.temp)) return INT_MIN;
+            const WeatherService* weather = WeatherOfItem(lp);
+            if (!weather) return INT_MIN;
+            const WeatherService::Forecast& data = weather->Data();
+            if (!weather->Active() || !data.valid || !std::isfinite(data.temp)) return INT_MIN;
             return static_cast<LRESULT>(std::lround(data.temp * 10.0));
         }
-        case 29:
-            return weatherPopup_.Visible() ? 1 : 0;
-        case 30:
-            return Weather().Active() ? static_cast<LRESULT>(Weather().Age()) : -1;
+        case 29: {
+            if (!weatherPopup_.Visible()) return 0;
+            const int slot = SlotOfKey(weatherKey_);
+            if (lp == 0 || slot < 0) return 1;
+            return items_[static_cast<size_t>(slot)].element == static_cast<size_t>(lp) ? 1 : 0;
+        }
+        case 30: {
+            const WeatherService* weather = WeatherOfItem(lp);
+            return weather && weather->Active() ? static_cast<LRESULT>(weather->Age()) : -1;
+        }
+        case 219: {  // the zone offset of clock item lp (minutes ahead of the local time; INT_MIN: not a clock)
+            for (size_t i = 0; i < items_.size(); ++i) {
+                const size_t e = items_[i].element;
+                if (e != static_cast<size_t>(lp) || e >= elements_.size() || !elements_[e]) continue;
+                int minutes = 0;
+                return elements_[e]->ClockOffset(minutes) ? static_cast<LRESULT>(minutes) : INT_MIN;
+            }
+            return INT_MIN;
+        }
         case 31:
             return calendar_.Visible() ? 1 : 0;
         case 36:

@@ -7,6 +7,7 @@
 #include <cwctype>
 #include <iterator>
 
+#include "ClockFaces.h"
 #include "Config.h"
 #include "JsonUtil.h"
 #include "resource.h"
@@ -130,6 +131,8 @@ SettingField::Type TypeOf(const std::wstring& t, bool& ok) {
     if (s == L"choice" || s == L"enum") return SettingField::Type::Choice;
     if (s == L"colour" || s == L"color") return SettingField::Type::Color;
     if (s == L"font") return SettingField::Type::Font;
+    if (s == L"place") return SettingField::Type::Place;
+    if (s == L"timezone") return SettingField::Type::TimeZone;
     ok = false;
     return SettingField::Type::String;
 }
@@ -276,8 +279,12 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
                 f.defaultJson = JsonUtil::Quote(s);
                 break;
             }
+            case SettingField::Type::Place:
+                f.defaultJson = L"null";  // its value is the item's latitude / longitude / location
+                break;
             case SettingField::Type::Font:
             case SettingField::Type::String:
+            case SettingField::Type::TimeZone:  // "" = the local time
             default:
                 f.defaultJson = JsonUtil::Quote(dt == json::JsonValueType::String
                                                     ? std::wstring(d.GetString())
@@ -659,6 +666,18 @@ void CheckPermissions(Checker& c, const json::JsonObject& root) {
     }
 }
 
+constexpr wchar_t kTypeNames[] =
+    L"\"bool\", \"int\", \"number\", \"string\", \"choice\", \"colour\", \"font\", \"place\" or \"timezone\"";
+
+// A Windows time zone key name of this machine (EnumDynamicTimeZoneInformation).
+bool KnownTimeZone(const std::wstring& key) {
+    DYNAMIC_TIME_ZONE_INFORMATION z{};
+    for (DWORD n = 0; EnumDynamicTimeZoneInformation(n, &z) == ERROR_SUCCESS && n < 1000; ++n) {
+        if (_wcsicmp(z.TimeZoneKeyName, key.c_str()) == 0) return true;
+    }
+    return false;
+}
+
 void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg) {
     const json::IJsonValue settings = JsonUtil::Find(root, L"settings");
     if (!settings) return;
@@ -678,6 +697,7 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
     std::vector<std::string> files;
     bool listed = false;
     uint32_t i = 0;
+    int places = 0;
     std::vector<std::wstring> seen;
     for (const auto& v : settings.GetArray()) {
         std::wstring field = L"settings[" + std::to_wstring(i++) + L"]";
@@ -703,12 +723,12 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
             if (!Known(std::begin(kFieldKeys), std::end(kFieldKeys), k)) c.Warn(field + L"." + k, L"unknown key (ignored)");
         }
         std::wstring type = L"string";
-        if (!c.Type(o, L"type", json::JsonValueType::String, field + L".type", L"\"bool\", \"int\", \"number\", \"string\", \"choice\", \"colour\" or \"font\"")) continue;
+        if (!c.Type(o, L"type", json::JsonValueType::String, field + L".type", kTypeNames)) continue;
         JsonUtil::ReadString(o, L"type", type);
         bool ok = true;
         const SettingField::Type t = TypeOf(type, ok);
         if (!ok) {
-            c.Error(field + L".type", L"unknown type \"" + type + L"\"", L"\"bool\", \"int\", \"number\", \"string\", \"choice\", \"colour\" or \"font\"");
+            c.Error(field + L".type", L"unknown type \"" + type + L"\"", kTypeNames);
             continue;
         }
         for (const wchar_t* k : {L"label", L"description", L"group", L"unit", L"choiceFrom"}) {
@@ -734,6 +754,22 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
             uint32_t argb = 0;
             if (d && (dt != json::JsonValueType::String || !ParseArgbColor(std::wstring(d.GetString()), argb))) {
                 c.Warn(field + L".default", L"is not a colour (\"#FFFFFFFF\" used)", L"\"#AARRGGBB\" or \"#RRGGBB\"");
+            }
+        } else if (t == SettingField::Type::Place || t == SettingField::Type::TimeZone) {
+            // Round 5: no extra keys; a place has no default (its value is the item's latitude /
+            // longitude / location), a time zone's is a Windows zone key name ("" = local).
+            for (const wchar_t* k : {L"min", L"max", L"step", L"choices", L"choiceFrom", L"unit"}) {
+                if (o.HasKey(k)) c.Warn(field + L"." + k, L"is not used by a " + type + L" field (ignored)");
+            }
+            if (t == SettingField::Type::Place) {
+                if (d) c.Warn(field + L".default", L"a place has no default (the item's latitude / longitude are its value)", L"remove it");
+                if (++places > 1) c.Warn(field, L"only the first place field is shown on the settings page", L"one place per widget");
+            } else if (d && dt != json::JsonValueType::String) {
+                c.Warn(field + L".default", std::wstring(L"is ") + TypeName(dt) + L", not a time zone name",
+                       L"\"\" (local) or \"Tokyo Standard Time\"");
+            } else if (dt == json::JsonValueType::String && !d.GetString().empty() && !KnownTimeZone(std::wstring(d.GetString()))) {
+                c.Warn(field + L".default", L"\"" + std::wstring(d.GetString()) + L"\" is not a time zone of this Windows (local used)",
+                       L"a key name such as \"Tokyo Standard Time\"");
             }
         } else if (d && dt != json::JsonValueType::String) {
             c.Warn(field + L".default", std::wstring(L"is ") + TypeName(dt) + L", not a string", L"a string");
@@ -1139,6 +1175,19 @@ std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson
         if (!itemJson.empty() && (!json::JsonObject::TryParse(itemJson, item) || !item)) item = nullptr;
         json::JsonObject out;
         for (const SettingField& f : manifest.settings) {
+            if (f.type == SettingField::Type::Place) {
+                // No key of its own: the item's place keys, checked (round 5).
+                if (!item) continue;
+                const json::IJsonValue lat = JsonUtil::Find(item, L"latitude"), lon = JsonUtil::Find(item, L"longitude");
+                if (lat && lon && lat.ValueType() == json::JsonValueType::Number && lon.ValueType() == json::JsonValueType::Number &&
+                    std::fabs(lat.GetNumber()) <= 90.0 && std::fabs(lon.GetNumber()) <= 180.0) {
+                    out.Insert(L"latitude", json::JsonValue::CreateNumberValue(std::round(lat.GetNumber() * 1e4) / 1e4));
+                    out.Insert(L"longitude", json::JsonValue::CreateNumberValue(std::round(lon.GetNumber() * 1e4) / 1e4));
+                }
+                const json::IJsonValue loc = JsonUtil::Find(item, L"location");
+                if (loc && loc.ValueType() == json::JsonValueType::String) out.Insert(L"location", loc);
+                continue;
+            }
             json::IJsonValue value = json::JsonValue::Parse(f.defaultJson);
             const json::IJsonValue given = item ? JsonUtil::Find(item, f.key.c_str()) : nullptr;
             if (given) {
@@ -1181,13 +1230,76 @@ std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson
         }
         if (item) {
             for (const auto& kv : item) {
-                if (!out.HasKey(kv.Key())) out.Insert(kv.Key(), kv.Value());
+                if (out.HasKey(kv.Key())) continue;
+                // A place's own keys were checked above: a bad latitude / longitude is not passed on.
+                const std::wstring k(kv.Key());
+                if ((k == L"latitude" || k == L"longitude") &&
+                    std::any_of(manifest.settings.begin(), manifest.settings.end(),
+                                [](const SettingField& f) { return f.type == SettingField::Type::Place; })) {
+                    continue;
+                }
+                out.Insert(kv.Key(), kv.Value());
             }
         }
         return WideToUtf8(std::wstring(out.Stringify()));
     } catch (...) {
         return "{}";
     }
+}
+
+std::vector<SettingField> BuiltInSchema(ItemKind kind) {
+    using T = SettingField::Type;
+    auto field = [](const wchar_t* key, T type, const wchar_t* label, std::wstring defaultJson, const wchar_t* group,
+                    const wchar_t* description = L"") {
+        SettingField f;
+        f.key = key;
+        f.type = type;
+        f.label = label;
+        f.defaultJson = std::move(defaultJson);
+        f.group = group;
+        f.description = description;
+        return f;
+    };
+    std::vector<SettingField> s;
+    if (kind == ItemKind::Clock) {
+        const ClockConfig d;
+        s.push_back(field(L"format", T::String, L"Time format", JsonUtil::Quote(d.format), L"Time",
+                          L"strftime: %H:%M (14:05), %I:%M %p (02:05 PM), %#I:%M %p (2:05 PM), %H:%M:%S"));
+        s.push_back(field(L"showSeconds", T::Bool, L"Show seconds", L"false", L"Time"));
+        s.push_back(field(L"timeZone", T::TimeZone, L"Time zone", L"\"\"", L"Time",
+                          L"Local time follows Windows; another zone shows its time (with its daylight saving)."));
+        s.push_back(field(L"showDate", T::Bool, L"Show the date under the time", L"false", L"Text"));
+        s.push_back(field(L"label", T::String, L"Label", L"\"\"", L"Text",
+                          L"Shown on the date's line (alone under the time without the date), e.g. Tokyo."));
+        SettingField face = field(L"face", T::Choice, L"Face", JsonUtil::Quote(ClockFaces::kDigital), L"Look",
+                                  L"Digital is the clock's own look; the others are face files (docs/widgets.md \"Clock faces\").");
+        face.choices.emplace_back(ClockFaces::kDigital, L"Digital (built in)");
+        for (const ClockFaces::Entry& e : ClockFaces::List()) {
+            face.choices.emplace_back(e.id, e.name + (e.builtIn ? L"" : L" (file)"));
+        }
+        s.push_back(std::move(face));
+        SettingField click = field(L"click", T::Choice, L"Clicking the clock opens", L"\"calendar\"", L"Click");
+        click.choices = {{L"calendar", L"The month calendar"}, {L"launch", L"The app or URL below"}, {L"none", L"Nothing"}};
+        s.push_back(std::move(click));
+        SettingField target = field(L"clickTarget", T::String, L"App or URL", L"\"\"", L"Click",
+                                    L"An app, a document or a URL; the month calendar shows a button that opens it too.");
+        target.visibleIf.emplace_back(L"click", L"\"launch\"");
+        s.push_back(std::move(target));
+    } else if (kind == ItemKind::Weather) {
+        s.push_back(field(L"place", T::Place, L"Place", L"null", L"Place"));
+        s.push_back(field(L"label", T::String, L"Name on the dock", L"\"\"", L"Place",
+                          L"Shown under the temperature (empty: none)."));
+        SettingField units = field(L"units", T::Choice, L"Units", JsonUtil::Quote(ToString(LocaleUnits())), L"Updates");
+        units.choices = {{L"metric", L"Metric (°C, km/h)"}, {L"imperial", L"Imperial (°F, mph)"}};
+        s.push_back(std::move(units));
+        SettingField refresh = field(L"refreshMinutes", T::Int, L"Refresh every", L"30", L"Updates");
+        refresh.min = 5;
+        refresh.max = 360;
+        refresh.step = 5;
+        refresh.unit = L"minutes";
+        s.push_back(std::move(refresh));
+    }
+    return s;
 }
 
 }  // namespace Widgets

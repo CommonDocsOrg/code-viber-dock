@@ -263,7 +263,31 @@ std::wstring WeatherService::Place::Label() const {
     return s;
 }
 
-std::wstring WeatherService::CachePath() { return Config::Directory() + L"\\weather-cache.json"; }
+namespace {
+uint64_t g_totalFetches = 0;   // every service of the process (UI thread only)
+UINT_PTR g_generation = 0;
+}  // namespace
+
+uint64_t WeatherService::TotalFetches() { return g_totalFetches; }
+
+UINT_PTR WeatherService::NextGeneration() {
+    if (++g_generation == 0) ++g_generation;  // 0 never names a fetch
+    return g_generation;
+}
+
+std::wstring WeatherService::LegacyCachePath() { return Config::Directory() + L"\\weather-cache.json"; }
+
+std::wstring WeatherService::CachePath(const WeatherConfig& cfg) {
+    const std::wstring key = CoordText(cfg.latitude) + L"," + CoordText(cfg.longitude) + L"," + ToString(cfg.units);
+    uint32_t h = 2166136261u;  // FNV-1a 32 over the UTF-16 code units
+    for (wchar_t c : key) {
+        h ^= static_cast<uint32_t>(c);
+        h *= 16777619u;
+    }
+    wchar_t name[48];
+    swprintf_s(name, L"\\weather-cache-%08x.json", h);
+    return Config::Directory() + name;
+}
 
 std::wstring WeatherService::ForecastPath() const {
     std::wstring p = L"/v1/forecast?latitude=" + CoordText(cfg_.latitude) + L"&longitude=" + CoordText(cfg_.longitude) +
@@ -329,7 +353,7 @@ void WeatherService::Configure(const WeatherConfig& cfg, bool shown, HWND hwnd) 
 
 void WeatherService::Stop() {
     CancelTimer();
-    ++generation_;  // a fetch in flight is ignored when it arrives
+    generation_ = NextGeneration();  // a fetch in flight is ignored when it arrives
 }
 
 void WeatherService::RefreshNow() {
@@ -340,13 +364,13 @@ void WeatherService::RefreshNow() {
 }
 
 void WeatherService::CancelTimer() {
-    if (timerPending_ && hwnd_) KillTimer(hwnd_, kTimerId);
+    if (timerPending_ && hwnd_) KillTimer(hwnd_, timerId_);
     timerPending_ = false;
 }
 
 void WeatherService::Schedule(UINT ms) {
     if (!hwnd_) return;
-    SetTimer(hwnd_, kTimerId, std::max<UINT>(ms, USER_TIMER_MINIMUM), nullptr);  // replaces a pending one
+    SetTimer(hwnd_, timerId_, std::max<UINT>(ms, USER_TIMER_MINIMUM), nullptr);  // replaces a pending one
     timerPending_ = true;
 }
 
@@ -360,15 +384,18 @@ void WeatherService::Fetch() {
     inFlight_ = true;
     inFlightGen_ = generation_;
     ++fetches_;
+    ++g_totalFetches;
 }
 
 bool WeatherService::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == kResultMessage) {
+        // Generations are process-wide: only this service's own fetch carries this one.
+        if (!inFlightGen_ || wp != inFlightGen_) return false;
         OnResponse(wp, reinterpret_cast<Response*>(lp));
         return true;
     }
-    if (msg == WM_TIMER && wp == kTimerId) {
-        KillTimer(hwnd_, kTimerId);  // one-shot
+    if (msg == WM_TIMER && wp == timerId_) {
+        KillTimer(hwnd_, timerId_);  // one-shot
         timerPending_ = false;
         Fetch();
         Notify();
@@ -510,8 +537,13 @@ std::vector<WeatherService::Day> WeatherService::DailyWindow(size_t n) const {
 }
 
 bool WeatherService::LoadCache() {
+    // The place's own file; a cache written before round 5 (one file) when it is for this place.
+    return LoadCacheFile(CachePath(cfg_)) || LoadCacheFile(LegacyCachePath());
+}
+
+bool WeatherService::LoadCacheFile(const std::wstring& path) {
     json::JsonObject root{nullptr};
-    if (!ReadObjectFile(CachePath(), root)) return false;
+    if (!ReadObjectFile(path, root)) return false;
     try {
         double fetchedAt = 0.0, lat = kNaN, lon = kNaN;
         std::wstring units;
@@ -540,7 +572,7 @@ void WeatherService::SaveCache(const std::string& body) const {
     swprintf_s(head, L"{\"fetchedAt\": %lld, \"latitude\": %.6f, \"longitude\": %.6f, \"units\": \"%s\",\n\"body\": ",
                static_cast<long long>(data_.fetchedAt), cfg_.latitude, cfg_.longitude, ToString(cfg_.units));
     CreateDirectoryW(Config::Directory().c_str(), nullptr);
-    WriteFileAtomic(CachePath(), WideToUtf8(head) + body + "}\n");  // the body parsed as an object
+    WriteFileAtomic(CachePath(cfg_), WideToUtf8(head) + body + "}\n");  // the body parsed as an object
 }
 
 bool WeatherService::Geocode(const std::wstring& query, HWND hwnd, UINT msg, WPARAM tag) {

@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "AudioService.h"
+#include "Config.h"
 #include "HttpClient.h"
 #include "MediaService.h"
 
@@ -129,25 +130,28 @@ public:
     size_t CalendarUsers() const { return calendarUsers_.size(); }
     void NotifyCalendar() { NotifyProvider(calendarUsers_, "calendar"); }
     void NotifyReminder(const std::string& eventJson) { NotifyProvider(calendarUsers_, "calendarReminder", eventJson); }
-    // `weather` (phase 14): DockManager's one WeatherService (the native element's too). It runs
-    // while a shown dock has a weather item or some widget uses the provider: `request` (posted by
-    // the manager, never inside a script call) re-checks that when the first user comes / the last
-    // goes, and carries weather.refresh().
+    // `weather` (phase 14; per place since round 5): DockManager's WeatherService of the widget's
+    // place (WidgetInstance::WeatherCfg; `resolve` creates it on first use). The services run for
+    // the shown docks' weather items and the widgets using the provider: `request` (posted by the
+    // manager, never inside a script call) re-checks that when a user comes / goes or its place
+    // changes, and carries weather.refresh() for that place.
     enum class WeatherAction { Sync, Refresh };
-    void SetWeather(WeatherService* service, std::function<void(WeatherAction)> request) {
-        weather_ = service;
+    void SetWeather(std::function<WeatherService*(const WeatherConfig&)> resolve,
+                    std::function<void(WeatherAction, const WeatherConfig&)> request) {
+        weatherResolve_ = std::move(resolve);
         weatherRequest_ = std::move(request);
     }
     WeatherService* UseWeather(WidgetInstance* w);
     size_t WeatherUsers() const { return weatherUsers_.size(); }
-    void WeatherRequest(WeatherAction a) {
-        if (weatherRequest_) weatherRequest_(a);
+    // The places the users want (one per user; the manager makes them unique).
+    std::vector<WeatherConfig> WeatherUserConfigs() const;
+    void WeatherRequest(WeatherAction a, const WeatherConfig& place) {
+        if (weatherRequest_) weatherRequest_(a, place);
     }
-    // The forecast or its status changed: the widgets that used the provider hear onChange.
-    void NotifyWeather() {
-        weatherNotices_ += weatherUsers_.size();
-        NotifyProvider(weatherUsers_, "weather");
-    }
+    // Widget `w`'s place changed (its settings, or its dock's weather item): its service follows.
+    void WeatherPlaceChanged(WidgetInstance* w);
+    // The forecast or the status of `place` changed: its widgets hear onChange.
+    void NotifyWeather(const WeatherConfig& place);
     uint64_t WeatherNotices() const { return weatherNotices_; }  // onChange deliveries (QueryState 215)
 
 private:
@@ -202,8 +206,8 @@ private:
     MediaService media_;
     std::set<WidgetInstance*> audioUsers_, mediaUsers_, notificationUsers_, calendarUsers_, weatherUsers_;
     CalendarService* calendar_ = nullptr;
-    WeatherService* weather_ = nullptr;
-    std::function<void(WeatherAction)> weatherRequest_;
+    std::function<WeatherService*(const WeatherConfig&)> weatherResolve_;
+    std::function<void(WeatherAction, const WeatherConfig&)> weatherRequest_;
     uint64_t weatherNotices_ = 0;
     NotificationService* notifications_ = nullptr;
     std::function<void()> notificationsDemand_;

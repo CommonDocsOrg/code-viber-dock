@@ -40,12 +40,15 @@ public:
         float cornerRadiusDip = 8.0f;
         RECT monitor{};
         WeatherGlyphs::Colors glyphs;
+        std::wstring title;  // the place's name for the header (round 5: the item's; "": the service's)
     };
 
     WeatherPopup() : PopupWindow(kClassName, L"WinDock weather", Mode::Click) {}
     ~WeatherPopup() override { Destroy(); }
 
-    void Init(HINSTANCE instance, Renderer* renderer, const WeatherService* weather, Callbacks callbacks);
+    // `source`: the service of the place it shows now (round 5: the item that opened it; null: none,
+    // the popup says so). Asked whenever it lays out or paints, never kept.
+    void Init(HINSTANCE instance, Renderer* renderer, std::function<const WeatherService*()> source, Callbacks callbacks);
     // Shows the popup at `anchor` (beside the dock, away from its edge).
     bool Show(const Style& style, const PopupAnchor& anchor);
     // The weather data / status changed: lay out and redraw in place (no-op unless visible).
@@ -73,8 +76,11 @@ private:
     std::wstring HourLabel(int hour) const;
     std::wstring Message() const;
 
+    // The service now (never null: an empty one without a source / service).
+    const WeatherService* W() const;
+
     Callbacks callbacks_;
-    const WeatherService* weather_ = nullptr;
+    std::function<const WeatherService*()> source_;
     Style style_;
     Frame frame_;
     PopupAnchor anchor_;

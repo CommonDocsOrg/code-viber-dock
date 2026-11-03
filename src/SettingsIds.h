@@ -18,7 +18,7 @@ inline constexpr int kPageAnimation = 3;
 inline constexpr int kPagePinned = 4;   // "Dock contents" (was "Pinned apps")
 inline constexpr int kPageDockContents = kPagePinned;
 inline constexpr int kPageAbout = 5;
-inline constexpr int kPageWeather = 6;  // appended after About (pages are shown in index order)
+inline constexpr int kPageWeather = 6;  // retired in round 5 phase A (per-item weather: the generated page); never listed
 inline constexpr int kPageDocks = 7;    // round 4 phase 3: the list of docks; picks the dock the other pages edit
 inline constexpr int kPageLayout = 8;   // round 4 phase 3b: the monitor canvas (drag the docks)
 inline constexpr int kPageWidgets = 9;  // round 4 phase 4b: installed widgets, Console, export
@@ -48,13 +48,7 @@ inline constexpr int kRangeEdit = 2108;       // 1 - 4
 inline constexpr int kRangeSpin = 2109;
 inline constexpr int kMonitorLabel = 2110;
 inline constexpr int kMonitorCombo = 2111;    // item index = config "monitor"
-inline constexpr int kClockShow = 2112;       // check box (+ caption 2113)
-inline constexpr int kClockShowCaption = 2113;
-inline constexpr int kClockFormatLabel = 2114;
-inline constexpr int kClockFormatCombo = 2115;  // editable; applies on selection, Enter or focus loss
-inline constexpr int kClockPreview = 2116;
-inline constexpr int kClockDate = 2117;
-inline constexpr int kClockDateCaption = 2118;
+// 2112 - 2118: the clock section (show, format, preview, date) until round 5 phase A; reserved.
 inline constexpr int kStartWithWindows = 2119;
 inline constexpr int kStartWithWindowsCaption = 2120;
 inline constexpr int kHideTaskbar = 2121;
@@ -63,21 +57,11 @@ inline constexpr int kRendererLabel = 2123;
 inline constexpr int kRendererCombo = 2124;   // 0 auto, 1 software
 inline constexpr int kRendererNote = 2125;
 inline constexpr int kSectionDock = 2126;
-inline constexpr int kSectionClock = 2127;
+// 2127: the Clock section header until round 5; reserved.
 inline constexpr int kSectionStartup = 2128;
 inline constexpr int kSectionRenderer = 2129;
-// 2130 / 2131: the "Click the clock to show a month calendar" check box until 1c (replaced by
-// kClockClickCombo); reserved.
-inline constexpr int kClockCalendar = 2130;
-inline constexpr int kClockCalendarCaption = 2131;
-inline constexpr int kClockSeconds = 2132;     // check box: clock.showSeconds (+ caption 2133)
-inline constexpr int kClockSecondsCaption = 2133;
-inline constexpr int kClockClickLabel = 2134;
-inline constexpr int kClockClickCombo = 2135;  // clock.click: 0 calendar, 1 launch, 2 none
-inline constexpr int kClockTargetLabel = 2136;
-inline constexpr int kClockTargetEdit = 2137;  // clock.clickTarget; applied on Enter / focus loss
-inline constexpr int kClockTargetBrowse = 2138;  // "Browse…" (open dialog for an app)
-inline constexpr int kClockTargetNote = 2139;
+// 2130 - 2139: the clock's calendar check box (until 1c), seconds, click, target, Browse… (until
+// round 5 phase A: each clock item's generated page); reserved.
 // Position (round 4, phase 2): docks[0].edge / align / offset.
 inline constexpr int kSectionPosition = 2140;
 inline constexpr int kEdgeLabel = 2141;
@@ -119,11 +103,8 @@ inline constexpr int kRadiusEdit = 2171;     // docks[].radius DIPs, 0 = automat
 inline constexpr int kRadiusSpin = 2172;
 inline constexpr int kRotateIcons = 2173;    // check box (+ caption 2174)
 inline constexpr int kRotateIconsCaption = 2174;
-// Clock face (round 4 phase 14): clock.face ("digital" first, then the shipped and user faces).
-inline constexpr int kClockFaceLabel = 2175;
-inline constexpr int kClockFaceCombo = 2176;    // 0 Digital (built in), then ClockFaces::List() order
-inline constexpr int kClockFaceFolder = 2177;   // "Open faces folder" (%LocalAppData%\WinDock\clock-faces, created)
-inline constexpr int kClockFaceNote = 2178;     // the analog clock widget guidance / a face that cannot be read
+// 2175 - 2178: the clock face drop-down, Open faces folder and its note (round 4 phase 14 until
+// round 5 phase A: the clock item's generated page); reserved.
 
 // Behaviour (2200 - 2299)
 inline constexpr int kSectionAutoHide = 2200;
@@ -288,35 +269,8 @@ inline constexpr int kPinSettings = 2613;         // "Settings…" of the select
 inline constexpr int kLockDock = 2614;            // check box: docks[0].locked (+ caption 2615)
 inline constexpr int kLockDockCaption = 2615;
 
-// Weather (2700 - 2799)
-inline constexpr int kSectionWeather = 2700;
-inline constexpr int kWeatherShow = 2701;          // check box (+ caption 2702)
-inline constexpr int kWeatherShowCaption = 2702;
-inline constexpr int kSectionWeatherPlace = 2703;
-inline constexpr int kWeatherSearchLabel = 2704;
-inline constexpr int kWeatherSearchEdit = 2705;    // place name; Enter searches
-inline constexpr int kWeatherSearch = 2706;        // "Search" (Open-Meteo geocoding, 10 results)
-inline constexpr int kWeatherResultsLabel = 2707;
-inline constexpr int kWeatherResultsCombo = 2708;  // "Name, Admin1, Country"; choosing one sets the place
-inline constexpr int kWeatherSearchNote = 2709;    // "Searching…", "10 places found", "No places found", errors
-inline constexpr int kWeatherLocationLabel = 2710;
-inline constexpr int kWeatherLocationEdit = 2711;  // display name; applied on Enter / focus loss
-inline constexpr int kWeatherLatLabel = 2712;
-inline constexpr int kWeatherLatEdit = 2713;       // -90 - 90; applied on Enter / focus loss
-inline constexpr int kWeatherLonLabel = 2714;
-inline constexpr int kWeatherLonEdit = 2715;       // -180 - 180
-inline constexpr int kSectionWeatherUpdates = 2716;
-inline constexpr int kWeatherUnitsLabel = 2717;
-inline constexpr int kWeatherUnitsCombo = 2718;    // 0 metric (°C, km/h), 1 imperial (°F, mph)
-inline constexpr int kWeatherRefreshLabel = 2719;
-inline constexpr int kWeatherRefreshEdit = 2720;   // minutes, 5 - 360
-inline constexpr int kWeatherRefreshSpin = 2721;
-inline constexpr int kWeatherRefreshUnit = 2722;
-inline constexpr int kWeatherRefreshNow = 2723;    // "Refresh now" (= DockCommand 111)
-inline constexpr int kWeatherStatusLabel = 2724;
-inline constexpr int kWeatherStatus = 2725;        // "Updated 10:15", "(stale)", "Not configured", "Error: …"
-inline constexpr int kWeatherCredit = 2726;        // SysLink: Open-Meteo (CC BY 4.0)
-inline constexpr int kWeatherWhich = 2727;         // note: which weather widget the dock shows (native item / script widget)
+// Weather (2700 - 2799): the Weather page until round 5 phase A (retired: each weather item's place
+// is a Place field of the generated page, 3610 - 3629); reserved.
 
 // Docks (2800 - 2899; round 4 phase 3)
 inline constexpr int kDocksList = 2800;       // SysListView32 (report): Id, Edge, Display, Windows; one row per docks[]; the selected row is the dock the other pages edit
@@ -350,9 +304,29 @@ inline constexpr int kWidgetsStatus = 3508;    // the last action's result ("Exp
 // (widget.json "settings" order) 3700 + 10 * k + part: 0 label, 1 the control (check box, edit,
 // drop-down), 2 its caption (check box) or up-down (int), 3 the field's note.
 inline constexpr int kWidgetPickLabel = 3600;
-inline constexpr int kWidgetPick = 3601;       // drop-down: the dock's widget items ("Name (item n)")
+inline constexpr int kWidgetPick = 3601;       // drop-down: the dock's widget, clock and weather items ("Kind: detail (item n)")
 inline constexpr int kWidgetSettingsNote = 3602;
 inline constexpr int kWidgetReset = 3603;      // "Reset to defaults" (removes the item's settings)
+// Round 5 phase A: the controls of a Place field (the first one of the schema: the weather item's
+// place, the script weather widget's own) and the clock's extra button.
+inline constexpr int kPlaceSearchLabel = 3610;
+inline constexpr int kPlaceSearchEdit = 3611;     // a place name; Enter searches (Open-Meteo geocoding)
+inline constexpr int kPlaceSearch = 3612;         // "Search"
+inline constexpr int kPlaceResultsLabel = 3613;
+inline constexpr int kPlaceResults = 3614;        // drop-down "Name, Region, Country"; choosing one sets the place
+inline constexpr int kPlaceSearchNote = 3615;     // "Searching…", "10 places found", errors
+inline constexpr int kPlaceLocationLabel = 3616;
+inline constexpr int kPlaceLocationEdit = 3617;   // the name shown in the popup (`location`)
+inline constexpr int kPlaceLatLabel = 3618;
+inline constexpr int kPlaceLatEdit = 3619;        // -90 - 90 (`latitude`, 4 decimals)
+inline constexpr int kPlaceLonLabel = 3620;
+inline constexpr int kPlaceLonEdit = 3621;        // -180 - 180 (`longitude`)
+inline constexpr int kPlaceStatusLabel = 3622;
+inline constexpr int kPlaceStatus = 3623;         // the place's service: "Updated 10:15", "Not shown on a dock", "Error: …"
+inline constexpr int kPlaceRefreshNow = 3624;     // "Refresh now" (that place)
+inline constexpr int kPlaceCredit = 3625;         // SysLink: Open-Meteo (CC BY 4.0)
+inline constexpr int kPlaceNote = 3626;           // a script widget without a place of its own: whose place it shows
+inline constexpr int kClockFacesFolder = 3627;    // a clock item: "Open faces folder"
 inline constexpr int kWidgetFieldBase = 3700;
 inline constexpr int kWidgetFieldMax = 30;     // fields shown per widget
 

@@ -39,6 +39,9 @@ struct DockItemEntry {
     std::wstring icon;
     // "widget" items: the widget's id (its folder under %LocalAppData%\WinDock\widgets, or a
     // built-in) and its settings object, kept as compact JSON text ("" = none: the defaults).
+    // "clock" / "weather" items keep their own settings here too (round 5 phase A: the keys of
+    // ClockConfig / WeatherConfig, read over the top-level clock / weather defaults by ClockOf /
+    // WeatherOf; Config::EnsureItemSettings fills a new item from those defaults).
     std::wstring id;
     std::wstring settings;
     // "folder" / "group" items: the popup's layout ("view"; saved only when not auto).
@@ -218,6 +221,10 @@ inline GlowMode GlowOf(const ThemeConfig& t) {
 // one (docks[0], Config::Main()).
 struct DockConfig {
     std::wstring id = L"main";
+    // The dock's identity colour (ARGB; round 5): the settings windows' header and caption, the
+    // Docks and displays page. 0 = not set: Config::DockColor picks one from a palette by the
+    // dock's index. Written only when set.
+    uint32_t color = 0;
     // "dock" or "folderWindow" (round 4 phase 12). A folder window uses id, title (empty: the
     // folder's name), x / y (DIPs from its monitor's work area's top-left; kCentred: centred),
     // monitor and `folder`; it has no items and ignores the other dock keys.
@@ -359,6 +366,13 @@ struct ClockConfig {
     // "digital" (the classic rendering) or the id of a digital face file (ClockFaces: shipped, or
     // %LocalAppData%\WinDock\clock-faces\<id>.json). Written only when not "digital".
     std::wstring face = L"digital";
+    // Round 5 phase A. The zone the clock shows: "" = the local time, else a Windows time zone key
+    // name ("Tokyo Standard Time", the list of EnumDynamicTimeZoneInformation; an unknown name reads
+    // as local). A label drawn on the date's line in its colour (before the date, or alone under the
+    // time without one; "" = none, e.g. "Tokyo"). Both written only when set.
+    std::wstring timeZone;
+    std::wstring label;
+    bool operator==(const ClockConfig&) const = default;
 };
 
 // Temperatures in °C and wind in km/h ("metric") or °F and mph ("imperial").
@@ -373,7 +387,11 @@ struct WeatherConfig {
     std::wstring location;   // display name (header of the popup); not used to look anything up
     Units units = Units::Metric;  // without a "units" key: from the locale (LOCALE_IMEASURE)
     int refreshMinutes = 30;  // 5 - 360
+    // Round 5 phase A: the name the widget shows under its temperature ("" = none). Written only
+    // when set.
+    std::wstring label;
     bool Configured() const { return latitude != 0.0 || longitude != 0.0; }
+    bool operator==(const WeatherConfig&) const = default;
 };
 // The user's locale measurement system (LOCALE_IMEASURE: 1 = U.S.) as Units.
 Units LocaleUnits();
@@ -499,6 +517,9 @@ struct Config {
     // "auto": hardware D3D11 device, WARP if that fails. "software": WARP only, which avoids the
     // GPU user-mode driver's per-process memory (the dock redraws rarely, so WARP is cheap).
     std::wstring renderer = L"auto";
+    // The defaults for new clock / weather items (round 5 phase A): every clock / weather item
+    // keeps its own settings (DockItemEntry::settings; ClockOf / WeatherOf read them over these).
+    // Still read and written as the top-level "clock" / "weather" objects.
     ClockConfig clock;
     WeatherConfig weather;
     // Theme layering: built-in preset -> user theme file (themes\<id>.json, which names its own
@@ -519,8 +540,9 @@ struct Config {
     // docks[] entries of a kind this version does not know (compact JSON), written back after the
     // known ones.
     std::vector<std::wstring> extraDocks;
-    // The last LoadFile() built `docks` from the legacy keys (pinned, iconSize, clock.show ...):
-    // the caller saves, so the file is rewritten in the current format. Not saved.
+    // The last LoadFile() built `docks` from the legacy keys (pinned, iconSize, clock.show ...), or
+    // gave clock / weather items their own settings (EnsureItemSettings, round 5): the caller
+    // saves, so the file is rewritten in the current format. Not saved.
     bool migrated = false;
 
     DockConfig& Main() { return docks.front(); }
@@ -531,6 +553,12 @@ struct Config {
     const ThemeConfig& ThemeOf(const DockConfig& d) const { return d.ownTheme ? d.theme : theme; }
     // A dock id that no dock has yet: `base`, else base2, base3 ...
     std::wstring UniqueDockId(const std::wstring& base) const;
+    // Dock `index`'s identity colour: its `color`, else the palette by index (DockPaletteColor).
+    uint32_t DockColor(size_t index) const;
+    // Every clock / weather item without settings gets them from the defaults (`clock` /
+    // `weather`). Returns true if an item changed. Load runs it (a file written before round 5:
+    // `migrated`, the caller saves); the app runs it after items are added.
+    bool EnsureItemSettings();
 
     // Re-bases `theme` on `themePreset` for every field whose override bit is clear. Returns
     // false (and uses dark for those fields, keeping `themePreset` so the user can fix it) when
@@ -561,3 +589,24 @@ struct Config {
 // "#AARRGGBB" or "#RRGGBB" -> ARGB. Returns false on parse failure.
 bool ParseArgbColor(const std::wstring& text, uint32_t& argb);
 std::wstring FormatArgbColor(uint32_t argb);
+
+// The identity colour palette for docks without `color` (blue, orange, green, purple, pink, teal,
+// repeating by index).
+uint32_t DockPaletteColor(size_t index);
+
+// Per-item clock / weather settings (round 5 phase A). The effective config of a clock / weather
+// item: its `settings` object read over the defaults (config.clock / config.weather), sanitized
+// (unknown or out-of-range values keep the default). ClockOf of another kind: the defaults;
+// WeatherOf reads any item's settings (a script weather widget's use the same keys).
+ClockConfig ClockOf(const Config& config, const DockItemEntry& item);
+WeatherConfig WeatherOf(const Config& config, const DockItemEntry& item);
+// The weather a script widget item shows (the `weather` provider): its own place (latitude /
+// longitude in its settings) with its units / refreshMinutes / location / label over the
+// defaults, else the dock's first native weather item, else the defaults.
+WeatherConfig ScriptWeatherOf(const Config& config, const DockConfig& dock, const DockItemEntry& item);
+// A widget item's settings name a place (`latitude` / `longitude` numbers, not both 0).
+bool SettingsHavePlace(const std::wstring& settingsJson);
+// The settings objects (compact JSON) of a clock / weather item with every key of the config:
+// what migration and new items get, what the settings page starts from.
+std::wstring ClockSettingsJson(const ClockConfig& c);
+std::wstring WeatherSettingsJson(const WeatherConfig& w);

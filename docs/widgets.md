@@ -88,6 +88,22 @@ Each entry: `key` (required), `type`, `label`, `description`, `default`, the pag
 | `choice` | one of `choices` | `choices`: `["a", "b"]` or `[{ "value": "a", "label": "A" }]`; `choiceFrom`: a glob of package files (below) |
 | `colour` (`color`) | `"#AARRGGBB"` / `"#RRGGBB"` | |
 | `font` | a font family name | |
+| `place` | a place (round 5): no key of its own; it edits the item's `latitude`, `longitude` (numbers, 4 decimals) and `location` (the name shown) | none (no `default`) |
+| `timezone` | a Windows time zone key name (`"Tokyo Standard Time"`); `""` = the local time | none |
+
+`place` (round 5): the settings page shows the weather place block for it: **Find a place** (a
+search on Open-Meteo's geocoding service; choosing a result sets the place), the name shown,
+latitude and longitude, the status of that place's forecast service and **Refresh now**. Its value
+is not a key of its own: the script sees `settings.latitude`, `settings.longitude` and
+`settings.location` (only when the item has a valid latitude and longitude). Only the first
+`place` field of a schema is shown; it takes no `default`, `min`, `max`, `step`, `choices`,
+`choiceFrom` or `unit` (the manifest check warns). A widget with the `weather` permission and a
+`place` field gets its own forecast from the `weather` provider once its item has a place (see
+weather below).
+
+`timezone` (round 5): a drop-down with "Local time" and then every time zone of this Windows by its
+display name, sorted by UTC offset; the value is the zone's key name (`""` for local). A `default`
+that names no zone of this machine is warned about (the local time is used).
 
 `choiceFrom` (choice fields): `"faces/*.json"` adds one choice per package file matching the glob
 (`*` and `?` stay inside one folder level), after any fixed `choices`: the value is the file name
@@ -210,7 +226,7 @@ Read-only, always current:
 | `locked` | The dock is locked. |
 | `visible` | The dock is on screen: shown or sliding in, not auto-hidden or hiding, not a desktop dock hidden behind another window. `onVisibilityChange` reports changes. |
 | `id`, `widgetId` | The dock's id (`docks[].id`), the widget's id. |
-| `clockDate` | The dock has the built-in clock and it shows its date (`clock.showDate`): the dock's own widgets then use their smaller size (the weather element: a 24 instead of 26 DIP glyph, 14 instead of 16 DIP text). |
+| `clockDate` | A built-in clock item of the dock draws a second line (its date or, since round 5, its label): the dock's own widgets then use their smaller size (the weather element: a 24 instead of 26 DIP glyph, 14 instead of 16 DIP text). |
 | `theme` | The dock's theme colours as `"#AARRGGBB"`: `text`, `dateText`, `accent`, `background`, `labelBackground`, `labelText`, `separator`, `border`. |
 | `requestRedraw()` | Same as the global. |
 
@@ -407,26 +423,31 @@ applies today's daylight-saving offset to every date on Windows.
 
 ### weather
 
-Needs `"weather"` in `permissions`. The dock's own forecast (README "Weather and calendar",
-Settings > Weather: [Open-Meteo](https://open-meteo.com), the place, units and refresh interval
-set there). There is **one** WeatherService per dock process: the built-in `weather` item and every
-widget using this provider read the same data, and a refresh is one request whatever shows it. The
-service runs while a shown dock has a weather item or some widget has called the provider (the
-first call starts it, shortly after the call returns: `onChange` follows); it fetches every
-`refreshMinutes` and after a failure 1, 2, 4 ... minutes later. Nothing polls; calls answer from the
-service's data at once.
+Needs `"weather"` in `permissions`. The dock's forecast (README "Weather and calendar",
+[Open-Meteo](https://open-meteo.com)). Since round 5 the dock runs **one WeatherService per
+place** (latitude, longitude, units, refresh interval): every item showing a place (built-in
+`weather` items and widgets) reads that place's data, and a refresh is one request per place
+whatever shows it. **Which place a widget gets**: its item's own `latitude` / `longitude` (with its
+`units`, `refreshMinutes`, `location` and `label` settings over the defaults: give the widget a
+`place` field, see Settings schema) when it has them; else the place of the first `weather` item
+of its dock; else the defaults (the top-level `weather` object). A place's service runs while a
+shown dock's weather item or some widget that called the provider needs it (the first call
+creates it and starts it shortly after the call returns: `onChange` follows; a new place moves the
+widget to that place's service); it fetches every `refreshMinutes` and after a failure 1, 2, 4 ...
+minutes later. Nothing polls; calls answer from the service's data at once.
 
 | Call | |
 |---|---|
-| `weather.get()` | `{ state, configured, place, latitude, longitude, units, temperatureUnit, windUnit, refreshMinutes, busy, error, status, age, fetchedAt, updated, current, hourly, daily }`: `state` `"none"` (no data yet / not configured / not running), `"stale"` (the cached or last data; a fetch failed or has not finished), `"fresh"` or `"error"` (no data and the last fetch failed: `error` says why, e.g. `"cannot connect"`); `configured` false while no place is set; `place` the name shown (Settings > Weather); `units` `"metric"` / `"imperial"`, `temperatureUnit` `"C"` / `"F"`, `windUnit` `"km/h"` / `"mph"`; `busy` a fetch is in flight; `status` the Settings page's status line; `age` seconds since the data was fetched (-1 none); `fetchedAt` ms since 1970 (0 none); `updated` its local short time (`"10:15"`); `current` `{ temp, code, isDay, description, glyph, wind, humidity }` or `null` (`code` the WMO weather code, `description` "Partly cloudy", `glyph` the glyph's name); `hourly` up to 48 hours from the current one: `[{ time (ms since 1970), hour (0 - 23, the place's local time), temp, code, isDay, precip (% chance) }]`; `daily` up to 7 days from today: `[{ day ("YYYY-MM-DD"), weekday (0 = Sunday), code, description, min, max }]`. Missing numbers are `null`. |
-| `weather.refresh()` | Fetches now (the one service: the native item and every widget get the result). After the call returns. |
-| `weather.openSettings()` | Opens Settings on the Weather page (after the call returns; the widget's popup closes). |
+| `weather.get()` | `{ state, configured, place, latitude, longitude, units, temperatureUnit, windUnit, refreshMinutes, busy, error, status, age, fetchedAt, updated, current, hourly, daily }`: `state` `"none"` (no data yet / not configured / not running), `"stale"` (the cached or last data; a fetch failed or has not finished), `"fresh"` or `"error"` (no data and the last fetch failed: `error` says why, e.g. `"cannot connect"`); `configured` false while no place is set; `place` the name shown (the widget's own `location`, else its place's); `label` the widget's own `label` setting (`""` none); `units` `"metric"` / `"imperial"`, `temperatureUnit` `"C"` / `"F"`, `windUnit` `"km/h"` / `"mph"`; `busy` a fetch is in flight; `status` the Settings page's status line; `age` seconds since the data was fetched (-1 none); `fetchedAt` ms since 1970 (0 none); `updated` its local short time (`"10:15"`); `current` `{ temp, code, isDay, description, glyph, wind, humidity }` or `null` (`code` the WMO weather code, `description` "Partly cloudy", `glyph` the glyph's name); `hourly` up to 48 hours from the current one: `[{ time (ms since 1970), hour (0 - 23, the place's local time), temp, code, isDay, precip (% chance) }]`; `daily` up to 7 days from today: `[{ day ("YYYY-MM-DD"), weekday (0 = Sunday), code, description, min, max }]`. Missing numbers are `null`. |
+| `weather.refresh()` | Fetches the widget's place now (its service: every item of that place gets the result). After the call returns. |
+| `weather.openSettings()` | Opens this widget item's own settings page (Settings > Widget settings for the item, where its `place` field is; after the call returns; the widget's popup closes). Round 5 Phase B gives it a window of its own. |
 | `weather.icon(code, isDay, colours)` | An image token for `canvas.image(token, x, y, w, h, opacity)`: the dock's own vector condition glyph for a WMO `code` (sun / moon with `isDay` false, partly cloudy, overcast, fog, drizzle, rain, snow, thunder), `"setLocation"` (the map pin) or `"refresh"` (the circular arrow). `colours`: `{ ink, water }` (default `dock.theme.text` and `dock.theme.accent`; `refresh` uses `ink`). Drawn as geometry at any size (crisp at any scale; `w` / `h` omitted: 24 DIPs); `opacity` dims it as the native element does for stale data (0.6). |
-| `weather.onChange(fn)` | `fn(state)` (the `get()` object) whenever the data or the status changes: a fetch started, finished or failed, the place or units changed. Returns a remover. |
+| `weather.onChange(fn)` | `fn(state)` (the `get()` object) whenever the data or the status of the widget's place changes: a fetch started, finished or failed, the place or units changed. Returns a remover. |
 
 The built-in `weather` widget ("Weather (script)", `widgets/weather`) is the worked example: its
 slot draws what the native element draws (pixel for pixel at 100 %), its popup the native
-forecast popup's layout.
+forecast popup's layout; its schema has `place`, `label`, `units` and `refreshMinutes` (round 5),
+and it draws its `label` under the temperature.
 
 ### popup
 
@@ -524,7 +545,7 @@ own **digital clock** (format 2, `clock.face`). They share these keys:
 
 | Key | |
 |---|---|
-| `name` | Shown in the face drop-down (the widget's Face setting, Settings > General > Clock > Face). |
+| `name` | Shown in the face drop-down (the widget's Face setting; a clock item's Face on its settings page). |
 | `description` | Informational. |
 | `format` | 1: an analog face; 2: a digital face. |
 | `type` | `"digital"` for a digital face (required there); analog faces have none. |
@@ -596,14 +617,16 @@ falls back to the first file.
 
 ### Digital clock faces (format 2: the dock's clock)
 
-The dock's built-in clock (a `clock` item) draws `clock.face`: `"digital"` (the default: its own
-look, unchanged) or the id of a face file. Shipped faces: `default` (the built-in look as a face
-file, pixel for pixel the same: a starting point), `large-time-small-date`, `mono-pill`. Your own:
-`%LocalAppData%\WinDock\clock-faces\<id>.json` (Settings > General > Clock > **Open faces folder**);
-a file with a shipped face's id replaces it. Settings > General > Clock > **Face** lists them (the
-list is read again whenever the page loads); a face that cannot be read is not offered, and a
-configured face that is missing draws `"digital"` (the page says why). The clock's settings stay in
-force: `clock.format` (strftime), `clock.showSeconds`, `clock.showDate`, the click and the calendar
+The dock's built-in clock (a `clock` item) draws its `face` (round 5: each clock item's own
+setting; `clock.face` is the default for new ones): `"digital"` (the default: its own look,
+unchanged) or the id of a face file. Shipped faces: `default` (the built-in look as a face file,
+pixel for pixel the same: a starting point), `large-time-small-date`, `mono-pill`. Your own:
+`%LocalAppData%\WinDock\clock-faces\<id>.json` (the clock item's settings page: **Open faces
+folder**); a file with a shipped face's id replaces it. The **Face** drop-down of a clock item's
+settings page lists them (the list is read again whenever the page is generated); a face that
+cannot be read is not offered, and a configured face that is missing draws `"digital"`. The clock's
+settings stay in force: its `format` (strftime), `showSeconds`, `showDate`, `label` (on the date's
+line), `timeZone`, the click and the calendar
 dot. Sizes are ratios of the built-in clock's: the time 16 DIPs (14 while the date is shown), the
 date 11 DIPs; `seconds.size` / `suffix.size` are ratios of the time's size.
 

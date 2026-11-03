@@ -64,6 +64,11 @@ public:
     // Opens the settings window, or activates it if it is open; `page` >= 0 selects that page
     // (SettingsIds::kPage*).
     void OpenSettings(int page = -1);
+    // The settings of item `item` of docks[`dock`] (round 5 phase A: the settings window on the
+    // generated page for that item, the dock made the one the pages edit; Phase B gives it a window
+    // of its own). The one way in: Dock contents > Settings…, the weather widget's map pin,
+    // weather.openSettings(), DockCommand 113 / 142.
+    void OpenItemSettings(size_t dock, size_t item);
     // Called by the message loop for every message: keyboard navigation in the settings window.
     // Returns true if the message was handled (do not translate / dispatch it).
     bool PreTranslateMessage(MSG& msg) { return settings_ && settings_->PreTranslateMessage(msg); }

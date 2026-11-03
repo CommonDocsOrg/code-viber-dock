@@ -277,11 +277,23 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
 
     D2D1_SIZE_U clockSize{};
     if (clockShown && dwrite_) {
-        const std::wstring format = Clock::EffectiveFormat(c.clock.format, c.clock.showSeconds);
-        if (!clockConfigured_ || clockFormat_ != format || clockDate_ != c.clock.showDate) {
-            clock_.Configure(format, c.clock.showDate);
+        // The dock's first clock item (round 5: each clock has its own settings).
+        ClockConfig cc = c.clock;
+        for (const DockItemEntry& e : c.Edit().items) {
+            if (e.Kind() != ItemKind::Clock) continue;
+            cc = ClockOf(c, e);
+            break;
+        }
+        const std::wstring format = Clock::EffectiveFormat(cc.format, cc.showSeconds);
+        if (!clockConfigured_ || clockFormat_ != format || clockDate_ != cc.showDate || clockZone_ != cc.timeZone ||
+            clockLabel_ != cc.label) {
+            clock_.Configure(format, cc.showDate);
+            clock_.SetTimeZone(cc.timeZone);
+            clock_.SetLabel(cc.label);
             clockFormat_ = format;
-            clockDate_ = c.clock.showDate;
+            clockDate_ = cc.showDate;
+            clockZone_ = cc.timeZone;
+            clockLabel_ = cc.label;
             clockConfigured_ = true;
         }
         clock_.SetColors(t.clockText, t.clockDateText);

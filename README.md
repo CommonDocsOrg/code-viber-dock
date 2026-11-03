@@ -77,7 +77,8 @@ Right-click the tray icon or an empty part of the dock for the menu:
   `HKCU\Software\Microsoft\Windows\CurrentVersion\Run` (the quoted path of the running exe). The
   checkmark shows whether that value exists; `startWithWindows` in the config follows it.
 - **Refresh weather**, **Weather settings…** (only while the weather widget is on; Refresh is
-  greyed until a location is set): fetch the forecast now; open Settings on the Weather page.
+  greyed until a weather item has a location): fetch every place's forecast now; open the settings
+  of the dock's first weather item.
 - **Open config file**, **Reload config**: see Configuration.
 - **Show taskbar until re-enabled**: brings the taskbar back for this session only. "Hide taskbar"
   shows unchecked until you check it again; the config is not changed, so the next start hides
@@ -649,12 +650,20 @@ menu still opens with the Win key while the taskbar is hidden.
 
 ### Weather and calendar
 
-**Weather widget** (a `weather` item, off by default; Settings > Weather): where its item stands
-in the dock's list (by default left of the clock, after the separator), the current conditions as
-a small glyph (sun or moon, partly cloudy, overcast, fog, drizzle, rain, snow, thunder; drawn as
-vector shapes, so they stay sharp at any DPI) and the temperature in the clock's font. At an end
-of the dock it moves with that end of the bar while the bar grows under the mouse.
-Without a location it shows a map-pin glyph, and a click on it opens Settings on the Weather page.
+**Weather widget** (a `weather` item, off by default; Dock contents > Add widget > Weather): where
+its item stands in the dock's list (by default left of the clock, after the separator), the current
+conditions as a small glyph (sun or moon, partly cloudy, overcast, fog, drizzle, rain, snow,
+thunder; drawn as vector shapes, so they stay sharp at any DPI), the temperature in the clock's
+font and, when the item has one, its **label** under it in the date's colour. At an end of the dock
+it moves with that end of the bar while the bar grows under the mouse. Without a location it shows
+a map-pin glyph, and a click on it opens that item's settings.
+
+**Per item** (round 5): every weather item has its own place, units, refresh interval and label
+(its `settings` object, see Configuration), so a dock can show Seattle and Tokyo side by side. Its
+settings are on the generated settings page (Dock contents > **Settings…** on its row, the map pin,
+Settings > Widget settings with the item picked). The dock runs **one forecast service per place**
+(latitude, longitude, units and interval): two items of the same place share one, a place nobody
+shows any more is stopped and dropped at once.
 
 - A click on the widget opens the **forecast popup** above it (click again, Escape, or clicking
   anywhere else closes it; F5 refreshes): the place, a large glyph and temperature, the condition,
@@ -665,7 +674,7 @@ Without a location it shows a map-pin glyph, and a click on it opens Settings on
   on the week's scale, coloured from cool to warm). While the popup is open the dock does not
   auto-hide.
 - Data: [Open-Meteo](https://open-meteo.com) (free, no API key; weather data by Open-Meteo.com,
-  licensed CC BY 4.0). One HTTPS request per refresh (`refreshMinutes`, default 30) to
+  licensed CC BY 4.0). One HTTPS request per place and refresh (`refreshMinutes`, default 30) to
   `api.open-meteo.com` with the configured latitude / longitude and units, `timezone=auto` (hours
   and days are the location's local time). The request runs on a short-lived worker thread
   (WinHTTP, the system's automatic proxy settings, 5 s timeouts, TLS only, at most 1 MB); between
@@ -673,23 +682,37 @@ Without a location it shows a map-pin glyph, and a click on it opens Settings on
   a failure (offline, timeout, an HTTP error) the dock retries after 1, 2, 4 ... minutes, never
   later than the refresh interval, and keeps showing the last data, dimmed. The widget and the
   popup are redrawn only when the data, the theme or the DPI changes.
-- The last good response is cached in `%LocalAppData%\WinDock\weather-cache.json` (with the time
-  it was fetched, the coordinates and the units). At start the dock shows it at once, dimmed as
-  stale, when it is for the same place and units, and fetches fresh data straight away.
-- **Settings > Weather** finds places by name (Open-Meteo's geocoding service, 10 results, as
-  "Name, Region, Country"); picking one fills in the latitude, longitude and the name shown.
-- Right-click the dock (the widget included) for **Refresh weather** and **Weather settings…**.
+- The last good response of each place is cached in
+  `%LocalAppData%\WinDock\weather-cache-<8 hex digits>.json` (an FNV-1a hash of the latitude,
+  longitude and units; the file holds the time it was fetched, the coordinates and the units; the
+  single `weather-cache.json` of earlier versions is still read for its place). At start the dock
+  shows it at once, dimmed as stale, and fetches fresh data straight away.
+- **The item's settings page** finds places by name (Open-Meteo's geocoding service, 10 results,
+  as "Name, Region, Country"); picking one fills in the latitude, longitude and the name shown. It
+  also has the name shown, latitude / longitude, units, the refresh interval, the label, the status
+  of that place's service and **Refresh now**.
+- Right-click the dock (the widget included) for **Refresh weather** (every place) and **Weather
+  settings…** (the dock's first weather item).
 - **Weather (script)** (round 4 phase 14): the same widget and popup written as a script widget
   (`widgets/weather`, id `weather`, the Widgets section below) on the `weather` provider. It shows
   the same data from the same service (one fetch per refresh whatever shows it), the same glyph and
   temperature in the slot, and a popup laid out like the built-in one with "Updated N min ago" and
-  settings / refresh buttons; its own settings add today's high / low or the place under the
-  temperature, a glyph-only compact mode, what a click opens, and the popup's days and hours. The
-  native `weather` item stays as it is (the fallback). **Migration**: to use the script version,
-  open Settings > Dock contents, select the Weather row and **Remove** it, then **Add widget ▾ >
-  Weather (script)** (or replace `{ "kind": "weather" }` with `{ "kind": "widget", "id": "weather" }`
-  in config.json). Settings > Weather says which of the two the dock shows; both use its place,
-  units and interval.
+  settings / refresh buttons; its own settings add a place of its own (the same Place field, units,
+  interval and label as the native item: round 5), today's high / low or the place under the
+  temperature, a glyph-only compact mode, what a click opens, and the popup's days and hours.
+  Without a place of its own it shows the place of its dock's first `weather` item (else the
+  defaults). The native `weather` item stays as it is (the fallback). **Migration**: to use the
+  script version, open Settings > Dock contents, select the Weather row and **Remove** it, then
+  **Add widget ▾ > Weather (script)** (or replace `{ "kind": "weather" }` with
+  `{ "kind": "widget", "id": "weather" }` in config.json, moving its settings along).
+
+**Clocks per item** (round 5): every clock item has its own format, seconds, date, face, click
+action and two new settings: a **time zone** (`timeZone`: "" = the local time, else a Windows time
+zone key name such as `"Tokyo Standard Time"`; the settings page lists "Local time" and then every
+zone of this Windows by display name, sorted by UTC offset as Windows does; daylight saving follows
+the zone's own rules) and a **label** (`label`, e.g. "Tokyo": drawn on the date's line in its
+colour, before the date, or alone under the time without it). The clock still wakes only at the
+minute (or second) boundary; every zone's offset is whole minutes, so the tick stays aligned.
 
 **Calendar**: a click on the clock opens a month calendar above it: today's date in the locale's
 long format, the month and year with previous / next arrows (also Left / Right and Page Up / Page
@@ -762,16 +785,16 @@ calendar) or an `.ics` file on this PC (a full path or a `file:///` URL).
 always looked) or a face file: the shipped `default` (the same look as a file to start from),
 `large-time-small-date` (a big light time with small seconds and AM / PM over a small upper-case
 date in the accent colour) and `mono-pill` (a monospaced time and date on one line in a rounded
-pill), or your own `%LocalAppData%\WinDock\clock-faces\<id>.json` (General > Clock > Face, **Open
-faces folder**). A face sets the lines (stacked, date first, one line), fonts, size ratios, colours
+pill), or your own `%LocalAppData%\WinDock\clock-faces\<id>.json` (the clock item's settings page:
+Face, **Open faces folder**). A face sets the lines (stacked, date first, one line), fonts, size ratios, colours
 (or the theme's), the seconds' and the AM / PM's style, separators, an optional background pill and
 the alignment on vertical docks; the format, seconds and date settings still apply
 ([docs/widgets.md "Clock faces"](docs/widgets.md#digital-clock-faces-format-2-the-docks-clock)).
 A face that is missing or cannot be read draws the digital look. For an analog clock use the
 Analog clock widget.
 
-What a click on the clock opens is `clock.click` (General page: "Clicking the clock opens"):
-`"calendar"` (the default), `"launch"` (the app, file or URL in `clock.clickTarget`, for example
+What a click on the clock opens is the item's `click` ("Clicking the clock opens" on its settings page):
+`"calendar"` (the default), `"launch"` (the app, file or URL in its `clickTarget`, for example
 Outlook or `https://calendar.google.com`) or `"none"`. With a `clickTarget` set, the calendar also
 gets an **Open …** button at the bottom ("Open" and the file name, or the URL's host), so the popup and
 the app are both a click away (`WinDock.DockCommand` 114 still opens the calendar in "launch"
@@ -1101,15 +1124,9 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   magnification range (1-4 icons), **Position**: screen edge, alignment and offset (pixels at
   100 % scale; applied on Enter or focus loss), Full width, Reserve screen space (enabled with
   full width), Peek when hidden (pixels), Peek opacity (%) and Title (see Position), display (Primary, then `Display 2 (\\.\DISPLAYn)` ... in the
-  dock's order), clock on / off, time format (pick one or type a `strftime` format; a preview shows
-  the result), **Show seconds**, date line, **Face** (Digital (built in), the shipped faces Default,
-  Large time, small date and Mono pill, then your face files; **Open faces folder**; the note says
-  when the configured face cannot be read, and that an analog clock is the Analog clock widget),
-  **Clicking the clock opens** (the month calendar, the
-  app or URL below, nothing), **App or URL** (typed, applied on Enter or when the box loses the
-  focus, or **Browse…** for an app; a path with spaces is quoted), Start with Windows, Hide the
-  Windows taskbar, and the renderer (`auto` / `software`; takes effect after WinDock restarts, the
-  page shows the one in use).
+  dock's order), Start with Windows, Hide the Windows taskbar, and the renderer (`auto` /
+  `software`; takes effect after WinDock restarts, the page shows the one in use). The clock's
+  controls moved to each clock item's settings page in round 5 (below).
 - **Appearance**: the theme (the built-in presets, then your theme files from the themes folder by
   name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
   **Open themes folder**, **Reset all to preset**, and one row per theme field (see
@@ -1149,8 +1166,8 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   placed as the dock menu's Add widget does; Running apps is greyed while the dock has one),
   **Move up** / **Move down** (any item past any other, the running apps block included),
   **Remove** (any item; without a running apps item, running apps that are not pinned are not
-  shown, add it back with Add widget > Running apps), **Settings…** for the selected item (the
-  clock: the General page; the weather: the Weather page; the running apps: the Behaviour page;
+  shown, add it back with Add widget > Running apps), **Settings…** for the selected item (a
+  clock, a weather item or a script widget: its generated settings page; the running apps: the Behaviour page;
   a folder (or a shortcut to one) or a group: the Folders and groups page; an app or the Recycle Bin:
   Choose icon…; greyed for a separator), **Choose icon…**,
   **Choose image…**, **Reset icon** (as in the dock's menu, see Custom icons; for apps, folders
@@ -1159,20 +1176,26 @@ the page, Esc closes the window, Enter applies the text in an edit box):
   changes from the dock itself (drags, drops, the menus) show up in the list at once.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
-- **Weather** (after About): show the weather on the dock; **Find a place** (type a name, then
-  Enter or **Search**; the results list shows "Name, Region, Country" and choosing one sets the
-  place), the name shown, latitude and longitude (typed values apply on Enter or when the box loses
-  the focus; an invalid value beeps and goes back), units (metric: °C and km/h; imperial: °F and
-  mph), the refresh interval (5-360 minutes), the status ("Updated 10:15", "(stale)", "Updating…",
-  "Not configured", "Error: …"), **Refresh now** and the Open-Meteo credit.
 - **Widgets**: the installed script widgets (name, id, built-in / folder, version) with **Add to
   dock**, **Add from folder…**, **Export built-in to folder**, **Reload widgets**, **Open widgets
   folder** and **Console…** (see **Widgets** above).
-- **Widget settings**: the settings of one widget item of the dock, generated from its widget.json
-  schema (a drop-down at the top picks the item; **Settings…** on a widget row of Dock contents
-  opens it): check boxes, steppers with their units, drop-downs, edit boxes, a description under a
-  field, section headers from the schema's groups, fields that appear only for some value of
-  another (`visibleIf`: the analog clock's motion only with a second hand), **Reset to defaults**.
+- **Widget settings**: the settings of one clock, weather or script widget item of the dock,
+  generated from its schema (a script widget's widget.json; the clock's and the weather's built-in
+  schemas, round 5); a drop-down at the top picks the item ("Clock: %H:%M, Tokyo Standard Time",
+  "Weather: Seattle, °C", a widget's name, with its item number); **Settings…** on its row of Dock
+  contents, the weather's map pin and `weather.openSettings()` open it: check boxes, steppers with
+  their units, drop-downs, edit boxes, a description under a field, section headers from the
+  schema's groups, fields that appear only for some value of another (`visibleIf`: the analog
+  clock's motion only with a second hand; the clock's App or URL only for "launch"), a **Place**
+  (**Find a place** (type a name, then Enter or **Search**; choosing a result sets the place), the
+  name shown, latitude and longitude (typed values apply on Enter or when the box loses the focus;
+  an invalid value beeps and goes back), the status of that place's service ("Updated 10:15",
+  "(stale)", "Updating…", "Not configured", "Not shown on a dock", "Error: …"), **Refresh now** and
+  the Open-Meteo credit; a script widget without a place of its own says whose place it shows), a
+  **Time zone** drop-down (Local time, then every zone), **Reset to defaults** (a clock / weather
+  item: the top-level `clock` / `weather` defaults; a widget: its schema's) and, for a clock, **Open
+  faces folder**. The Weather page of earlier versions is gone (its place search is the Place
+  field).
 - **Docks** (round 4 phase 3): every dock and folder window (id, edge, display, layer, state) with
   Add / Duplicate / Remove, Lock all / Unlock all, New folder window…, Folder window settings….
 - **Layout** (round 4 phase 3): the displays with every dock drawn on them; drag a dock to another
@@ -1207,7 +1230,8 @@ resumes as soon as another window is activated.
 Under every page a **preview strip** draws a small dock from the current settings: the bar with
 its border, acrylic tint (over a stand-in wallpaper) or background, corner radius, six placeholder
 apps with the three indicator dot states (running, active, attention), the separator and the clock,
-a sun standing in for the weather widget (when it is on), the name label above the magnified app,
+a sun standing in for the weather widget (when it is on; the clock is the dock's first clock item),
+the name label above the magnified app,
 and a sample window-preview popup with a hovered card and
 its hovered close button. Move the mouse over it and the magnification follows the pointer, with
 the configured magnification, range and falloff. It repaints only when a setting changes or the
@@ -1242,7 +1266,8 @@ needs a restart of the dock. If the file is malformed, Reload keeps the current 
 beeps). Pinning, unpinning, and the menu toggles save the file within 300 ms. The write is atomic
 (a temp file replaced with `MoveFileEx`). The dock rewrites the whole file in its own layout.
 Top-level keys it does not know are kept, as compact JSON. Unknown keys inside a dock, an item,
-`clock`, `theme`, `animation` or `weather` are dropped. If the file is malformed, the dock starts
+`clock`, `theme`, `animation` or `weather` are dropped (an item's `settings` object is kept as it
+is). If the file is malformed, the dock starts
 with the defaults and leaves the file untouched.
 
 ```json
@@ -1255,8 +1280,11 @@ with the defaults and leaves the file untouched.
         { "kind": "app", "aumid": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App" },
         { "kind": "app", "path": "C:\\Users\\me\\Desktop\\Paint.lnk" },
         { "kind": "running" },
-        { "kind": "weather" },
-        { "kind": "clock" }
+        { "kind": "weather", "settings": { "latitude": 47.6062, "longitude": -122.3321, "location": "Seattle",
+                                           "units": "metric", "refreshMinutes": 30, "label": "" } },
+        { "kind": "clock", "settings": { "format": "%H:%M", "showSeconds": false, "showDate": false,
+                                         "click": "calendar", "clickTarget": "", "face": "digital",
+                                         "timeZone": "", "label": "" } }
       ],
       "edge": "bottom", "align": "center", "offset": 0, "locked": false,
       "fullWidth": false, "reserveSpace": true, "peekPx": 0, "peekOpacity": 0.5, "title": "",
@@ -1293,9 +1321,20 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
 `revealDelayMs`, `previews`, `previewDelayMs` and `monitor` move into `docks[0]`. A file that has
 `docks` is never migrated: legacy keys in it are ignored and dropped on the next save.
 
+**Clock and weather items without settings** (every file written before round 5) get them once
+when they are loaded, from the top-level `clock` / `weather` objects, and the file is rewritten
+right away; from then on each item keeps its own. The top-level objects stay: they are the
+**defaults for new clock / weather items** (Add widget) and what **Reset to defaults** on an item's
+settings page restores, and they are still read and written; changing them does not change the
+items that exist. A file whose items have settings already is left alone.
+
 - `docks`: the docks, every one shown (see Multiple docks and monitors); a file without any gets
   one with the defaults. Per dock:
   - `id` (default `"main"`; unique: a repeated id gets a number appended on load).
+  - `color` (round 5; `"#AARRGGBB"` or `"#RRGGBB"`, written only when set): the dock's identity
+    colour for the settings windows. Without it a dock gets one from a palette by its index in
+    `docks` (blue `#FF4CC2FF`, orange `#FFFFB356`, green `#FF8FD3A8`, purple `#FFC4A3FF`, pink
+    `#FFF0A0C0`, teal `#FF7FD8D0`, repeating).
   - `monitor` (default `0` = primary; an index, `"primary"` or `"each"`), `runningFilter`
     (`"all"` / `"monitor"`), `themePreset` (default `""`), `layer` (`"normal"` / `"desktop"`):
     see Multiple docks and monitors.
@@ -1313,9 +1352,12 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
     - `"running"`: where the running apps that are not pinned go (one icon each). **Without a
       `running` item, running apps that are not pinned are not shown**; pinned apps still show
       their windows (dot, click to switch, previews). Only the first `running` item is used.
-    - `"clock"` / `"weather"`: the clock and the weather widget. The widget is shown when its item
-      is present; the settings toggles add the item (at the end; the weather goes before the
-      clock) or remove it.
+    - `"clock"` / `"weather"`: a clock and a weather widget, any number of each (round 5). Each
+      has a `settings` object with the keys of the top-level `clock` / `weather` objects below
+      (`format`, `showSeconds`, `showDate`, `click`, `clickTarget`, `face`, `timeZone`, `label` /
+      `latitude`, `longitude`, `location`, `units`, `refreshMinutes`, `label`); a key it does not
+      have, or one with a bad value, falls back to the top-level default. Add widget puts the clock
+      at the end and the weather before a clock that ends the list.
     - `"widget"`: a script widget, `{ "kind": "widget", "id": "<widget id>", "settings": { ... } }`
       (see **Widgets** above and docs/widgets.md). An item without an `id` is dropped on load;
       `settings` is optional and written back as it is.
@@ -1440,12 +1482,20 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
   `clock.face` (default `"digital"`, written only when it is not): the clock's look, `"digital"` or
   the id of a digital face file (`default`, `large-time-small-date`, `mono-pill`, or a file of
   `%LocalAppData%\WinDock\clock-faces\`); see Clock faces under Weather and calendar.
+  `clock.timeZone` (round 5, default `""` = the local time; written only when set): a Windows time
+  zone key name (`"Tokyo Standard Time"`, `"GMT Standard Time"`; `tzutil /l` lists them; an unknown
+  name shows the local time). `clock.label` (default `""`, written only when set): text on the
+  date's line. Since round 5 the top-level `clock` object holds the **defaults** for new clock
+  items; each clock item has these keys in its own `settings`.
 - `weather`: the weather widget (see Weather and calendar; shown by a `weather` item);
   `latitude` (-90 - 90) and `longitude` (-180 - 180), in degrees, saved with 4 decimals (both 0:
   no location yet); `location`, the name shown in the popup (it is not looked up); `units`,
   `"metric"` or `"imperial"` (when the key is missing: from the Windows region's measurement
-  system); `refreshMinutes`, 5 - 360 (default 30). **Reload config** applies a changed place or
-  units at once (the data is fetched again).
+  system); `refreshMinutes`, 5 - 360 (default 30); `label` (round 5, default `""`, written only when
+  set): the name shown under the temperature. Since round 5 these are the **defaults** for new
+  weather items; each weather item has the same keys in its own `settings` (one forecast service
+  per place). **Reload config** applies a changed place or units at once (the data is fetched
+  again).
 - `theme`: see Themes below.
 - `theme.acrylic` (default `true`): blur what is behind the bar, like the macOS dock. The blur is
   a Windows 11 system backdrop (acrylic) on a second, bar-sized window (class `WinDockBackdrop`)
@@ -1813,24 +1863,40 @@ always there, also when every dock is parked) handle these registered messages:
   (0 one, 1 two), 4432 hide title, 4434 transparent background, 4436 roll up on hover, 4440 rules,
   4441 move automatically, 4443 Sort desktop now; Docks 2809 Folder window settings….
 - **Weather provider** (round 4 phase 14; any `lParam`): `QueryState` 213 = script widgets using
-  the `weather` provider (the service runs while this or a shown dock's weather item says so), 214 =
-  forecast requests started since the dock started (one per refresh, whatever shows the weather:
-  the native item and every script widget share the one WeatherService), 215 = weather `onChange`
-  deliveries to widgets. The script Weather widget's own state: the widget QueryStates (54 state, 58
+  the `weather` provider, 214 = forecast requests started since the dock started (every place's
+  service; = 221), 215 = weather `onChange` deliveries to widgets.
+- **Per-item clocks and weather** (round 5 phase A): `QueryState` 27 - 30 (weather state,
+  temperature x 10, popup visible, age) answer for config item `lParam` of the dock (its index in
+  `docks[].items`) when that is a weather item, and for the dock's first weather item with
+  `lParam` 0 (as before); another item: 0 / `INT_MIN` / 0 / -1. 219 = the minutes clock item
+  `lParam` (its index in `docks[].items`) is ahead of the local time (0 for a local clock;
+  `INT_MIN` not a clock), 220 = weather services alive in the process (one per place shown; any
+  `lParam`), 221 = forecast requests started by every service since the start (any `lParam`).
+  `DockCommand` 142 = the settings of item `LOWORD(lParam)` (its index in `docks[].items`) of dock
+  `HIWORD(lParam)`: the settings window opens (or comes to the front) editing that dock, on the
+  generated page for that item (a folder / group: Folders and groups); returns 1 (0: no such
+  item). 113 (Weather settings…) opens the dock's first weather item's page. Settings > Widget
+  settings: the Place field's controls are 3611 the search box, 3612 Search, 3614 the results
+  drop-down, 3615 the search note, 3617 the name shown, 3619 / 3621 latitude / longitude
+  (committed on `EN_KILLFOCUS`), 3623 the status, 3624 Refresh now, 3625 the credit, 3626 (a script
+  widget) whose place it shows; 3627 a clock's Open faces folder; a TimeZone field's drop-down is
+  the field's control (`3700 + 10 k + 1`: row 0 Local time, then the zones). The clock and weather
+  schemas' field order: clock 0 format, 1 showSeconds, 2 timeZone, 3 showDate, 4 label, 5 face, 6
+  click, 7 clickTarget (shown for "launch"); weather 0 place, 1 label, 2 units, 3 refreshMinutes. The script Weather widget's own state: the widget QueryStates (54 state, 58
   draws, 59 wake-ups, 61 / 62 its box, 65 / 66 its popup) and, with the item setting `"debugStore":
   true`, its storage (`widget-data\weather.json`: `slot` = { state, temp, code, dim, text, w, h } of
   its last draw, `popup` = { hours, days, state, updated, width, height, temp, unit } or { message }
-  of its last popup draw). Settings > Weather 2727 = the note on which weather widget the dock
-  shows. Test hook: the environment variable `WINDOCK_WEATHER_HOST` of the dock process replaces
+  of its last popup draw). Test hook: the environment variable `WINDOCK_WEATHER_HOST` of the dock process replaces
   the forecast host (`api.open-meteo.com`; tests use an address that refuses connections for the
   offline / error path).
-- **Clock faces, widget folders** (round 4 phase 14): `QueryState` 216 = `clock.face`: 0 `"digital"`,
-  1 a face file the clock draws, -1 a face that cannot be read (the clock draws digital); 217 = the
-  faces offered (shipped + readable user files). `DockCommand` 141 = Settings > Widgets > Add from
-  folder… without its dialog: the folder path in the global atom `LOWORD(lParam)` (returns 1
-  installed, 0 refused: no widget.json, an invalid folder name, the id taken). Settings > General
-  2176 the Face drop-down (0 Digital, then the faces in `QueryState` 217's order), 2177 Open faces
-  folder, 2178 its note; Widget settings: field k's controls are 3700 + 10 k + part (0 label, 1 the
+- **Clock faces, widget folders** (round 4 phase 14): `QueryState` 216 = the face of dock
+  `HIWORD(lParam)`'s first clock item (round 5; else `clock.face`): 0 `"digital"`, 1 a face file the
+  clock draws, -1 a face that cannot be read (the clock draws digital); 217 = the faces offered
+  (shipped + readable user files). `DockCommand` 141 = Settings > Widgets > Add from folder…
+  without its dialog: the path in the global atom `LOWORD(lParam)` (returns 1 installed, 0
+  refused: no widget.json, an invalid folder name, the id taken). The clock's Face is field 5 of
+  the clock schema (0 Digital, then the faces in `QueryState` 217's order; General 2175 - 2178 are
+  retired); Widget settings: field k's controls are 3700 + 10 k + part (0 label, 1 the
   control, 2 its caption / spin, 3 description, 4 the group header before it, 5 its unit); a field
   hidden by `visibleIf` has none.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
@@ -1841,15 +1907,16 @@ always there, also when every dock is parked) handle these registered messages:
   last on-mode, 101 Hide taskbar toggle, 102 Start with Windows toggle, 103 Open config file,
   104 Show taskbar until re-enabled, 105 Quit, 106 Reload config, 108 Auto-hide off, 109 Auto-hide
   always, 110 Auto-hide when a window overlaps, 107 open or activate the settings window,
-  111 Refresh weather, 112 Add separator, 113 Weather settings… (the settings window on the
-  Weather page), 114 show / hide the calendar popup, 115 show / hide the weather popup, 116 Lock
+  111 Refresh weather (every place), 112 Add separator, 113 Weather settings… (the settings window
+  on the dock's first weather item's page), 114 show / hide the calendar popup, 115 show / hide the weather popup, 116 Lock
   dock toggle, 117 Add widget > Clock, 118 Add widget > Weather, 119 Add widget > Running apps,
   120 / 121 / 122 / 123 Position on screen > Bottom / Top / Left / Right, 124 Lock all docks,
   125 Unlock all docks, 126 Reload widgets (every script widget of every dock reloads its package
   and script), 127 open (or activate) the widget Console; 128 - 134 see Tray / Notifications above,
   135 refresh the calendar feeds, 136 - 140 see Folder windows above (139 New folder window…, 140
   Sort desktop now), 141 install a widget folder (the path in a global atom, see Clock faces, widget
-  folders above); saved like the menu).
+  folders above), 142 the settings of an item (see Per-item clocks and weather above); saved like
+  the menu).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -1947,11 +2014,13 @@ always there, also when every dock is parked) handle these registered messages:
 - Settings window (class `WinDock.Settings`, title "WinDock Settings"): the page list is the child
   `WinDock.SettingsNav` (control id 100; its window text is the selected page's name); the pages
   are `WinDock.SettingsPage` children with ids 200 + page index (0 General, 1 Appearance,
-  2 Behaviour, 3 Animation, 4 Dock contents, 5 About, 6 Weather, 7 Docks, 8 Layout), and every control on them has the stable id
+  2 Behaviour, 3 Animation, 4 Dock contents, 5 About, 6 retired (the Weather page until round 5:
+  an empty page that is never listed or selected), 7 Docks, 8 Layout), and every control on them has the stable id
   listed in `src/SettingsIds.h` (the Dock contents page kept the Pinned apps ids 2600 - 2611 and
   added 2612 Add widget, 2613 Settings…, 2614 Lock the dock; its list 2600 has one row per config
-  item, columns Name, Kind, Details; General 2130 / 2131 are retired, replaced by 2132 Show
-  seconds, 2135 Clicking the clock opens, 2137 App or URL, 2138 Browse…; Position 2140 - 2148: 2142 screen edge and 2144 alignment drop-downs in DockEdge /
+  item, columns Name, Kind, Details; the General page's clock controls 2112 - 2118, 2127, 2130 -
+  2139 and 2175 - 2178 and the Weather page's 2700 - 2727 are retired (round 5: the generated
+  page); Position 2140 - 2148: 2142 screen edge and 2144 alignment drop-downs in DockEdge /
   DockAlign order, 2146 / 2147 offset box and up-down, 2149 Full width, 2151 Reserve screen space,
   2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied on Enter / focus loss); Behaviour added 2223
   single-window previews, 2227 middle click, 2229 mouse wheel, and in phase 6 2232 Windows (0
@@ -1970,8 +2039,8 @@ always there, also when every dock is parked) handle these registered messages:
   client pixels, `-` for a parked one), 2902 the selected dock / where a drag would drop it;
   phase 4b: page 9 Widgets (3500 list: Name, Id, Source, Version; 3501 Add from folder…, 3502
   Export built-in to folder, 3503 Reload widgets, 3504 Open widgets folder, 3505 Console…, 3506
-  Add to dock, 3508 the last action's result), page 10 Widget settings (3601 the widget item
-  drop-down; then per schema field k `3700 + 10 * k + part`: 0 label, 1 the control (check box,
+  Add to dock, 3508 the last action's result), page 10 Widget settings (3601 the item drop-down:
+  the dock's clock, weather and widget items; then per schema field k `3700 + 10 * k + part`: 0 label, 1 the control (check box,
   edit, drop-down), 2 the check box's caption or the int's up-down, 3 the field's note; 3603 Reset
   to defaults; the page's controls are rebuilt when another item is picked; its title 2000 reads
   "Widget: <name>"); Dock contents 2613 Settings… on a widget row opens page 10 for it);

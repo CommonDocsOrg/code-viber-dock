@@ -116,6 +116,7 @@ bool App::Initialize(HINSTANCE instance) {
     if (config_.Load()) {
         // First run: no config file yet. Seed the default pins and write the file.
         SeedDefaultPins();
+        config_.EnsureItemSettings();  // the default clock item's settings (from the defaults)
         config_.Save();
     } else if (config_.migrated) {
         config_.Save();  // a legacy file (pinned[], top-level dock keys): rewrite it as docks[] once
@@ -241,7 +242,7 @@ void App::SetUpDock(DockWindow& dock) {
     // areas they leave.
     dock.SetAppBarCallback([this](bool, const RECT&, const RECT&) { UpdateReservedMonitors(); });
     DockWindow::WeatherCallbacks weather;
-    weather.openSettings = [this] { OpenSettings(SettingsIds::kPageWeather); };
+    weather.openSettings = [this, d](size_t item) { OpenItemSettings(d->ConfigIndex(), item); };
     dock.SetWeatherCallbacks(std::move(weather));
     if (keepShown_) dock.SetKeepShown(true);
 }
@@ -291,6 +292,7 @@ int App::IndexOfKey(const DockWindow& dock, const AppKey& key) {
 }
 
 void App::ReloadPins(size_t cfg) {
+    config_.EnsureItemSettings();  // a new clock / weather item starts from the defaults (round 5)
     docks_.ForConfig(cfg, [](DockWindow& w) { w.ReloadPins(); });
     docks_.SyncTray();  // a tray item came or went
     docks_.SyncNotifications();  // a notifications item came or went
@@ -849,7 +851,9 @@ ContextMenu::TrayMenuState App::MenuState(size_t cfg) const {
     state.weatherShown = d.Has(ItemKind::Weather);
     state.hasTray = d.Has(ItemKind::Tray);
     state.hasNotifications = d.Has(ItemKind::Notifications);
-    state.weatherConfigured = config_.weather.Configured();
+    state.weatherConfigured = std::any_of(d.items.begin(), d.items.end(), [&](const DockItemEntry& e) {
+        return e.Kind() == ItemKind::Weather && WeatherOf(config_, e).Configured();
+    });
     state.locked = d.locked;
     state.hasRunning = d.Has(ItemKind::Running);
     state.edge = d.edge;
@@ -980,11 +984,18 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             OpenSettings();
             break;
         case ContextMenu::kRefreshWeather:
-            docks_.WeatherData().RefreshNow();
+            docks_.RefreshWeather(nullptr);  // every place
             break;
-        case ContextMenu::kWeatherSettings:
-            OpenSettings(SettingsIds::kPageWeather);
+        case ContextMenu::kWeatherSettings: {
+            // The dock's first weather item's settings (round 5: per item; none: the generated page).
+            const auto it = std::find_if(d.items.begin(), d.items.end(), [](const DockItemEntry& e) { return e.Kind() == ItemKind::Weather; });
+            if (it != d.items.end()) {
+                OpenItemSettings(cfg, static_cast<size_t>(it - d.items.begin()));
+            } else {
+                OpenSettings(SettingsIds::kPageWidgetSettings);
+            }
             break;
+        }
         case ContextMenu::kToggleCalendar:
             if (dock) dock->TogglePopup(ItemKind::Clock);
             break;
@@ -1121,6 +1132,7 @@ void App::ScheduleDisplaySync() {
 
 void App::SyncDocks() {
     if (shutDown_) return;
+    config_.EnsureItemSettings();  // a new dock's clock starts from the defaults
     docks_.Sync();
     UpdateReservedMonitors();
     if (hwnd_) PostMessageW(hwnd_, kReapMessage, 0, 0);  // closed windows are freed outside their messages
@@ -1217,7 +1229,12 @@ void App::OpenSettings(int page) {
     };
     host.taskbarHidden = [this] { return taskbar_.Enabled(); };
     host.autostartEnabled = [] { return AutostartEnabled(); };
-    host.weatherStatus = [this] { return docks_.WeatherData().StatusText(); };
+    host.weatherStatus = [this](const WeatherConfig& place) -> std::wstring {
+        if (!place.Configured()) return L"Not configured";
+        const WeatherService* w = docks_.FindWeather(place);
+        return w ? w->StatusText() : std::wstring(L"Not shown on a dock");
+    };
+    host.refreshWeather = [this](const WeatherConfig& place) { docks_.RefreshWeather(&place); };
     host.geocode = [this](const std::wstring& query,
                           std::function<void(const std::vector<WeatherService::Place>&, const std::wstring&)> done) {
         // A newer search replaces an older one (its result is dropped when it arrives).
@@ -1299,6 +1316,22 @@ void App::OpenSettings(int page) {
         return;
     }
     if (page >= 0) settings_->ShowPage(page);
+}
+
+void App::OpenItemSettings(size_t dock, size_t item) {
+    if (shutDown_ || dock >= config_.docks.size() || item >= config_.docks[dock].items.size()) return;
+    // Phase A: the one settings window, editing that dock, on the generated page of that item.
+    const bool otherDock = config_.editDock != dock;
+    config_.editDock = dock;
+    OpenSettings();
+    if (!settings_ || !settings_->Hwnd()) return;
+    if (otherDock) settings_->Refresh();  // the other pages show that dock now
+    const ItemKind kind = config_.docks[dock].items[item].Kind();
+    if (kind == ItemKind::Folder || kind == ItemKind::Group) {
+        settings_->ShowItemSettings(static_cast<int>(item));
+    } else {
+        settings_->ShowWidgetSettings(static_cast<int>(item));
+    }
 }
 
 bool App::EditDocks(SettingsDockEdit edit, size_t index) {
@@ -1534,13 +1567,24 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return docks_.DesktopWatched() ? 1 : 0;  // the Desktop is watched (rules with autoSort)
         case 213:
             return static_cast<LRESULT>(docks_.Widgets().WeatherUsers());  // widgets using the weather provider
-        case 214:
-            return static_cast<LRESULT>(docks_.WeatherData().FetchCount());  // forecast requests started
+        case 214:  // forecast requests started (every place's service; = 221)
+        case 221:
+            return static_cast<LRESULT>(WeatherService::TotalFetches());
+        case 220:
+            return static_cast<LRESULT>(docks_.WeatherServiceCount());  // weather services alive (one per place)
         case 215:
             return static_cast<LRESULT>(docks_.Widgets().WeatherNotices());  // weather onChange deliveries
-        case 216: {  // clock.face: 0 "digital", 1 a face file the clock draws, -1 a face that cannot be read
+        case 216: {  // the face of dock HIWORD's first clock item (else the defaults): 0 "digital", 1 a face file, -1 unreadable
+            ClockConfig clock = config_.clock;
+            if (inst && inst->cfg < config_.docks.size()) {
+                for (const DockItemEntry& e : config_.docks[inst->cfg].items) {
+                    if (e.Kind() != ItemKind::Clock) continue;
+                    clock = ClockOf(config_, e);
+                    break;
+                }
+            }
             std::wstring error;
-            const bool face = ClockFaces::Load(config_.clock.face, error) != nullptr;
+            const bool face = ClockFaces::Load(clock.face, error) != nullptr;
             return face ? 1 : (error.empty() ? 0 : -1);
         }
         case 217:
@@ -1613,6 +1657,14 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
                      : 0;
         if (!result) OutputDebugStringW((L"WinDock: install widget folder: " + error + L"\n").c_str());
         if (result) RefreshSettings();
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kItemSettings) {
+        // The settings of item LOWORD(lParam) (its index in the dock's items) of dock HIWORD(lParam).
+        DockManager::Instance* inst = docks_.At(DockOfParam(lp));
+        const LPARAM item = ArgOfParam(lp);
+        result = inst && !inst->isFolder && item >= 0 && static_cast<size_t>(item) < config_.docks[inst->cfg].items.size() ? 1 : 0;
+        if (result) OpenItemSettings(inst->cfg, static_cast<size_t>(item));
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kSortDesktopNow) {

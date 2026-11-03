@@ -993,6 +993,10 @@ bool ItemGridView::Char(wchar_t ch) {
 }
 
 bool ItemGridView::Timer(UINT_PTR id) {
+    // Not initialised (a host that forwards every WM_TIMER before its first Init, e.g. the calendar
+    // without feeds): the ids are not ours yet; timerBase_ + kFadeTimer would alias the host's own
+    // timer 1 (a PopupWindow's fade) and swallow it.
+    if (!host_) return false;
     if (id == timerBase_ + kAnimTimer) {
         StopTimer(kAnimTimer);
         TrimRows(target_, target_ + ViewHeight());

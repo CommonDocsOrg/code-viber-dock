@@ -75,8 +75,10 @@ public:
     };
 
     // `dock`: what the script sees as `dock` while its module loads (SetDock updates it later).
+    // `weather`: the place its `weather` provider answers for (ScriptWeatherOf; SetWeatherConfig).
     WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Factory1* d2d, IDWriteFactory* dwrite,
-                   std::wstring id, std::wstring key, std::wstring itemSettings, const ScriptDockInfo& dock);
+                   std::wstring id, std::wstring key, std::wstring itemSettings, const ScriptDockInfo& dock,
+                   const WeatherConfig& weather);
     ~WidgetInstance();
     WidgetInstance(const WidgetInstance&) = delete;
     WidgetInstance& operator=(const WidgetInstance&) = delete;
@@ -93,6 +95,10 @@ public:
     void Reload();
     // The item's `settings` object changed (raw JSON): onSettingsChanged(settings) and a redraw.
     void SetSettings(const std::wstring& itemSettings);
+    // Round 5 phase A: the place of its `weather` provider (its own settings' place, else its
+    // dock's first weather item's, else the defaults). A new place moves it to that place's service.
+    void SetWeatherConfig(const WeatherConfig& weather);
+    const WeatherConfig& WeatherCfg() const { return weather_; }
     // The dock's view of the widget (axis, edge, theme, scale ...), before measuring and drawing.
     void SetDock(const ScriptDockInfo& info);
     void SetMagnified(bool magnified) { dock_.magnified = magnified; }
@@ -152,8 +158,9 @@ public:
     // WidgetRuntime: timer `id` (0: the refresh tick) is due.
     void OnTimer(int id);
 
-    // weather.get()'s object (docs/widgets.md "weather"), UTF-8 JSON.
-    static std::string WeatherJson(const WeatherService& weather);
+    // weather.get()'s object (docs/widgets.md "weather"), UTF-8 JSON; `place`: the widget's own
+    // place (its name and label; the service may be shared with another item of the same place).
+    static std::string WeatherJson(const WeatherService& weather, const WeatherConfig& place);
 
     // Diagnostics (QueryState, the Console).
     size_t HeapBytes() const { return engine_ ? engine_->HeapBytes() : 0; }
@@ -220,6 +227,7 @@ private:
     std::wstring id_;
     std::wstring key_;
     std::wstring itemSettings_;
+    WeatherConfig weather_;
     std::shared_ptr<const Widgets::Package> package_;
     std::unique_ptr<ScriptEngine> engine_;
     WidgetCanvas canvas_;

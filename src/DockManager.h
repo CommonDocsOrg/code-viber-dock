@@ -18,7 +18,8 @@
 #include "WindowTracker.h"
 
 // Owns every dock window and the services they share (one each per process): the window tracker,
-// the weather service and the foreground watch, all bound to the app's own hidden window
+// the weather services (one per place shown, round 5) and the foreground watch, all bound to the
+// app's own hidden window
 // (`owner`), which feeds them its messages (HandleMessage). The taskbar controller stays with App
 // (it is not a dock service); each dock keeps its own renderer, icon cache and popups.
 //
@@ -143,10 +144,13 @@ public:
     const CalendarService& Calendar() const { return calendar_; }
     // Re-applies config.calendars (the service runs while some feed is enabled).
     void ConfigureCalendar();
-    WeatherService& WeatherData() override { return weather_; }
-    const WeatherService& WeatherData() const { return weather_; }
-    void ConfigureWeather() override;
-    bool AnyWeatherItem() const override;
+    const WeatherService* FindWeather(const WeatherConfig& place) const override;
+    void SyncWeather() override;
+    void RefreshWeather(const WeatherConfig* place) override;
+    // The service of `place`, created (not started: SyncWeather configures it) when there is none.
+    WeatherService* WeatherFor(const WeatherConfig& place);
+    // Weather services alive (QueryState 220).
+    size_t WeatherServiceCount() const { return weather_.size(); }
     ForegroundWatch& Watch() override { return watch_; }
     void SetWatching(DockWindow* dock, bool on) override;
     WidgetRuntime& Widgets() override { return widgets_; }
@@ -185,6 +189,12 @@ private:
     static constexpr UINT kRulesJobDone = WM_APP + 54;      // a rules move finished
     static constexpr UINT kWeatherRequest = WM_APP + 55;    // wParam: WidgetRuntime::WeatherAction
     static constexpr UINT_PTR kDesktopTimer = 43;           // owner timer: coalesces Desktop changes
+    // The weather services' refresh timers on the owner window: kWeatherTimerBase + n (n < 256).
+    static constexpr UINT_PTR kWeatherTimerBase = 0x5700;
+    // The places shown now (unique by WeatherService::SamePlace; the first wanter's names).
+    std::vector<WeatherConfig> WantedWeather() const;
+    UINT_PTR FreeWeatherTimer() const;
+    std::unique_ptr<WeatherService> MakeWeather(const WeatherConfig& place);
     // Closes the window now (DestroyWindow) and keeps the object until Reap / the destructor.
     void Close(std::unique_ptr<DockWindow> window);
 
@@ -212,7 +222,10 @@ private:
     bool trayStartPosted_ = false;
 
     WindowTracker tracker_;
-    WeatherService weather_;
+    // The weather services (round 5 phase A), one per place; see SyncWeather.
+    std::vector<std::unique_ptr<WeatherService>> weather_;
+    std::vector<WeatherConfig> weatherRefresh_;  // widgets' refresh() calls waiting for kWeatherRequest
+    bool weatherSyncing_ = false;
     TrayHost tray_;
     NotificationService notifications_;
     CalendarService calendar_;

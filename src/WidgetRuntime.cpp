@@ -9,6 +9,7 @@
 #include "Clock.h"
 #include "Config.h"
 #include "JsonUtil.h"
+#include "Weather.h"
 #include "WidgetInstance.h"
 
 namespace WidgetSystem {
@@ -139,6 +140,7 @@ void WidgetRuntime::Shutdown() {
     calendarUsers_.clear();
     notificationsDemand_ = nullptr;
     weatherRequest_ = nullptr;
+    weatherResolve_ = nullptr;
     audio_.Stop();
     media_.Stop();
     FlushStorage();
@@ -548,14 +550,36 @@ CalendarService* WidgetRuntime::UseCalendar(WidgetInstance* w) {
 }
 
 WeatherService* WidgetRuntime::UseWeather(WidgetInstance* w) {
-    if (!weather_) return nullptr;
-    if (weatherUsers_.insert(w).second && weatherUsers_.size() == 1) WeatherRequest(WeatherAction::Sync);
-    return weather_;
+    if (!weatherResolve_ || !w) return nullptr;
+    // A new user: its place's service starts (posted; created now so get() answers at once).
+    if (weatherUsers_.insert(w).second) WeatherRequest(WeatherAction::Sync, w->WeatherCfg());
+    return weatherResolve_(w->WeatherCfg());
+}
+
+std::vector<WeatherConfig> WidgetRuntime::WeatherUserConfigs() const {
+    std::vector<WeatherConfig> places;
+    for (WidgetInstance* w : weatherUsers_) {
+        if (Alive(w)) places.push_back(w->WeatherCfg());
+    }
+    return places;
+}
+
+void WidgetRuntime::WeatherPlaceChanged(WidgetInstance* w) {
+    if (weatherUsers_.count(w)) WeatherRequest(WeatherAction::Sync, w->WeatherCfg());
+}
+
+void WidgetRuntime::NotifyWeather(const WeatherConfig& place) {
+    std::set<WidgetInstance*> users;
+    for (WidgetInstance* w : weatherUsers_) {
+        if (Alive(w) && WeatherService::SamePlace(w->WeatherCfg(), place)) users.insert(w);
+    }
+    weatherNotices_ += users.size();
+    NotifyProvider(users, "weather");
 }
 
 void WidgetRuntime::ReleaseProviders(WidgetInstance* w) {
     calendarUsers_.erase(w);
-    if (weatherUsers_.erase(w) && weatherUsers_.empty()) WeatherRequest(WeatherAction::Sync);
+    if (weatherUsers_.erase(w)) WeatherRequest(WeatherAction::Sync, w->WeatherCfg());
     if (audioUsers_.erase(w) && audioUsers_.empty()) audio_.Stop();
     if (mediaUsers_.erase(w) && mediaUsers_.empty()) media_.Stop();
     if (notificationUsers_.erase(w) && notificationUsers_.empty() && notificationsDemand_) notificationsDemand_();

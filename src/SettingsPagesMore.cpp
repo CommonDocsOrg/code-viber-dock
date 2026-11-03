@@ -447,15 +447,16 @@ private:
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kPinnedList));
     }
 
-    // Settings… of a row: the clock -> General, the weather -> Weather, the running apps ->
-    // Behaviour (previews, middle click, wheel), a folder -> Folders and groups (layout, icon),
-    // an app / the Recycle Bin -> Choose icon….
+    // Settings… of a row: a clock / weather / script widget -> its generated settings page (round 5:
+    // each clock and weather item has its own settings), the running apps -> Behaviour (previews,
+    // middle click, wheel), a folder -> Folders and groups (layout, icon), an app / the Recycle Bin
+    // -> Choose icon….
     void OpenItemSettings(int row) {
         switch (Cfg().Edit().items[static_cast<size_t>(row)].Kind()) {
-            case ItemKind::Clock: Window().ShowPage(kPageGeneral); break;
-            case ItemKind::Weather: Window().ShowPage(kPageWeather); break;
-            case ItemKind::Running: Window().ShowPage(kPageBehaviour); break;
+            case ItemKind::Clock:
+            case ItemKind::Weather:
             case ItemKind::Widget: Window().ShowWidgetSettings(row); break;
+            case ItemKind::Running: Window().ShowPage(kPageBehaviour); break;
             case ItemKind::Tray:
             case ItemKind::TrayApp: Window().ShowPage(kPageTray); break;
             case ItemKind::Notifications: Window().ShowPage(kPageNotifications); break;
@@ -614,12 +615,11 @@ private:
                 break;
             case ItemKind::Clock:
                 name = L"Clock";
-                details = Clock::EffectiveFormat(c.clock.format, c.clock.showSeconds) + (c.clock.showDate ? L", date" : L"");
+                details = ClockDetail(ClockOf(c, e));
                 break;
             case ItemKind::Weather:
                 name = L"Weather";
-                details = c.weather.Configured() ? (c.weather.location.empty() ? L"Location set" : c.weather.location)
-                                                 : L"No location yet";
+                details = WeatherDetail(WeatherOf(c, e));
                 break;
             case ItemKind::Widget: {
                 name = Widgets::DisplayName(e.id);

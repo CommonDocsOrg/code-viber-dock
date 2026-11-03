@@ -21,17 +21,30 @@
 // dock state. Results of an older generation (the place or units changed, or the service stopped
 // meanwhile) are ignored and freed. The JSON is parsed on the UI thread (Windows.Data.Json).
 //
-// The last good response is cached in %LocalAppData%\WinDock\weather-cache.json and shown (as
-// Stale) at start until the first fetch of the session completes, when it is for the same place
-// and units.
+// The last good response is cached in %LocalAppData%\WinDock\weather-cache-<hash>.json (one file
+// per place and units, round 5) and shown (as Stale) at start until the first fetch of the
+// session completes.
+//
+// Round 5 phase A: one service per place (DockManager's registry: latitude, longitude, units,
+// refreshMinutes), all on the same owner window. Each has its own refresh timer id (SetTimerId)
+// and the generations of every service come from one process-wide counter, so a result message
+// belongs to exactly one service (HandleMessage answers false for another's result).
 class WeatherService {
 public:
     // QueryState 27: 0 none (off / unconfigured / nothing yet), 1 stale, 2 fresh, 3 error.
     enum class Status { None = 0, Stale = 1, Fresh = 2, Error = 3 };
     static constexpr UINT kResultMessage = WM_APP + 20;   // a forecast fetch finished
     static constexpr UINT kGeocodeMessage = WM_APP + 23;  // a Geocode search finished
-    static constexpr UINT_PTR kTimerId = 20;              // the next refresh (one-shot)
+    static constexpr UINT_PTR kTimerId = 20;              // the next refresh (one-shot); the default id
     static constexpr size_t kMaxBody = 1u << 20;
+
+    // The registry's key: the same place, units and interval share one service.
+    static bool SamePlace(const WeatherConfig& a, const WeatherConfig& b) {
+        return a.latitude == b.latitude && a.longitude == b.longitude && a.units == b.units &&
+               a.refreshMinutes == b.refreshMinutes;
+    }
+    // Forecast requests started by every service of the process (QueryState 214 / 221).
+    static uint64_t TotalFetches();
 
     // A finished HTTP GET, posted to the window (the receiver owns it).
     struct Response {
@@ -89,8 +102,12 @@ public:
     void Stop();
     // Fetches now (unless one is in flight). No-op while off / unconfigured.
     void RefreshNow();
-    // kResultMessage and the WM_TIMER of kTimerId; true if handled.
+    // kResultMessage of this service's fetch and the WM_TIMER of its timer id; true if handled
+    // (another service's result: false, the caller passes it on or frees it).
     bool HandleMessage(UINT msg, WPARAM wp, LPARAM lp);
+    // The owner window's timer id of this service's refresh (before the first Configure).
+    void SetTimerId(UINT_PTR id) { timerId_ = id; }
+    UINT_PTR TimerId() const { return timerId_; }
     // Called after the data or the status changed (a fetch started, finished or failed).
     void SetChangedCallback(std::function<void()> cb) { changed_ = std::move(cb); }
 
@@ -124,8 +141,10 @@ public:
     static std::wstring ErrorText(const Response& response);
     // Locale short time of a Unix time ("10:15", "10:15 AM").
     static std::wstring FormatTime(int64_t unixSeconds);
-    // %LocalAppData%\WinDock\weather-cache.json
-    static std::wstring CachePath();
+    // %LocalAppData%\WinDock\weather-cache-<8 hex of an FNV-1a hash of "lat,lon,units">.json
+    static std::wstring CachePath(const WeatherConfig& cfg);
+    // %LocalAppData%\WinDock\weather-cache.json (before round 5: one file; read as a fallback)
+    static std::wstring LegacyCachePath();
 
 private:
     void Fetch();
@@ -134,6 +153,7 @@ private:
     void OnResponse(WPARAM generation, Response* response);
     void OnFailure(std::wstring error);
     bool LoadCache();
+    bool LoadCacheFile(const std::wstring& path);
     void SaveCache(const std::string& body) const;
     std::wstring ForecastPath() const;
     void Notify() {
@@ -148,10 +168,12 @@ private:
     Status status_ = Status::None;
     std::wstring error_;       // the last failure (cleared by a success)
     int failures_ = 0;         // consecutive failures (backoff)
-    UINT_PTR generation_ = 1;  // bumped whenever a result in flight must be ignored
+    UINT_PTR generation_ = NextGeneration();  // bumped whenever a result in flight must be ignored
     bool inFlight_ = false;
     UINT_PTR inFlightGen_ = 0;
     bool timerPending_ = false;
+    UINT_PTR timerId_ = kTimerId;
+    static UINT_PTR NextGeneration();  // process-wide: a result names one service's fetch
     uint64_t fetches_ = 0;
     std::function<void()> changed_;
 };

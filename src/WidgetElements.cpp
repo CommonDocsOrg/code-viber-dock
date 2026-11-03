@@ -53,9 +53,20 @@ private:
     AppKey key_;
 };
 
-// clock: the time (clock.format, strftime, with clock.showSeconds) and optionally the date, from
-// Clock. A one-shot timer aligned to the next minute (or second) boundary redraws it. A click
-// opens the month calendar, or clock.clickTarget (clock.click).
+// The dock has a clock whose time is drawn smaller over a second line (its date or its label):
+// the weather element and script widgets (dock.clockDate) use the smaller sizes too.
+bool ClockSecondLine(const ElementHost& host) {
+    for (const DockItemEntry& e : host.DockCfg().items) {
+        if (e.Kind() != ItemKind::Clock) continue;
+        const ClockConfig c = ClockOf(host.Cfg(), e);
+        if (c.showDate || !c.label.empty()) return true;
+    }
+    return false;
+}
+
+// clock: the time (its item's format, strftime, with showSeconds; round 5: in its time zone) and
+// optionally the date and a label, from Clock. A one-shot timer aligned to the next minute (or
+// second) boundary redraws it. A click opens the month calendar, or the item's clickTarget.
 class ClockElement final : public WidgetElement {
 public:
     ClockElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal)
@@ -64,17 +75,24 @@ public:
     }
 
     void Configure() override {
-        const Config& c = host_.Cfg();
-        clock_.Configure(Clock::EffectiveFormat(c.clock.format, c.clock.showSeconds), c.clock.showDate);
+        cfg_ = ClockOf(host_.Cfg(), Entry());
+        const ClockConfig& c = cfg_;
+        clock_.Configure(Clock::EffectiveFormat(c.format, c.showSeconds), c.showDate);
+        clock_.SetTimeZone(c.timeZone);
+        clock_.SetLabel(c.label);
         clock_.SetColors(host_.DockTheme().clockText, host_.DockTheme().clockDateText);
         // A custom face (clock.face, phase 14); "digital" or a face that cannot be read: the
         // classic rendering.
         std::wstring error;
-        std::shared_ptr<const ClockFace> face = ClockFaces::Load(c.clock.face, error);
+        std::shared_ptr<const ClockFace> face = ClockFaces::Load(c.face, error);
         if (!error.empty()) OutputDebugStringW((L"WinDock: clock face: " + error + L"\n").c_str());
-        clock_.SetFace(face, face ? ClockFaces::Resolve(*face, host_.DockTheme()) : ClockFaceColors{}, c.clock.format,
-                       c.clock.showSeconds);
+        clock_.SetFace(face, face ? ClockFaces::Resolve(*face, host_.DockTheme()) : ClockFaceColors{}, c.format,
+                       c.showSeconds);
         dot_ = WantDot();
+    }
+    bool ClockOffset(int& minutes) const override {
+        minutes = clock_.OffsetMinutes();
+        return true;
     }
     void Start() override {
         if (host_.Hwnd()) clock_.ScheduleNextTick(host_.Hwnd(), ElementHost::kClockTimerId);
@@ -131,7 +149,7 @@ public:
     ClickPopup Popup() const override { return ClickPopup::Calendar; }
     void OnClick(int slot, bool pressClosedPopup) override {
         if (pressClosedPopup) return;
-        const ClockConfig& c = host_.Cfg().clock;
+        const ClockConfig c = cfg_;  // copied: a launch may change the config
         switch (c.click) {
             case ClockClick::Calendar: host_.ShowClickPopup(slot); break;
             case ClockClick::Launch: host_.OpenTarget(c.clickTarget); break;
@@ -145,6 +163,7 @@ private:
     static constexpr float kDotGap = 4.0f;
     bool WantDot() const { return host_.Cfg().calendars.showDots && host_.CalendarEventsToday() > 0; }
 
+    ClockConfig cfg_;  // ClockOf the item (Configure)
     Clock clock_;
     D2D1_SIZE_U text_{};  // the text block
     D2D1_SIZE_U size_{};  // the slot's surface (the text block and the dot)
@@ -153,61 +172,89 @@ private:
     bool vertical_ = false;
 };
 
-// weather: a condition glyph and the temperature from the dock's WeatherService (Open-Meteo);
-// stale / missing data dimmed; unconfigured, a "set location" glyph that opens Settings > Weather.
+// weather: a condition glyph and the temperature from the WeatherService of its item's place
+// (Open-Meteo; round 5: one service per place), the item's label under the temperature; stale /
+// missing data dimmed; unconfigured, a "set location" glyph that opens the item's settings.
 class WeatherElement final : public WidgetElement {
 public:
     WeatherElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal)
-        : WidgetElement(host, entry, DockItem::Kind::Weather, L"weather", ordinal) {}
+        : WidgetElement(host, entry, DockItem::Kind::Weather, L"weather", ordinal) {
+        WeatherElement::Configure();
+    }
 
     void Configure() override {
+        cfg_ = WeatherOf(host_.Cfg(), Entry());
+        small_ = ClockSecondLine(host_) || !cfg_.label.empty();
         format_ = nullptr;  // the clock's font size may have changed (date on / off)
         layout_ = nullptr;
+        labelFormat_ = nullptr;
+        labelLayout_ = nullptr;
     }
     bool OnEvent(DockEvent e) override { return e == DockEvent::WeatherData; }
+    bool WeatherPlace(WeatherConfig& place) const override {
+        place = cfg_;
+        return true;
+    }
 
     ElementSize Measure(const LayoutContext& ctx) override {
-        // The temperature in the clock's time font; unconfigured: the "set location" glyph alone.
-        const Config& c = host_.Cfg();
+        // The temperature in the clock's time font, the label under it in the date's; unconfigured:
+        // the "set location" glyph alone.
         const float scale = ctx.scale;
-        const float glyph = std::round((DateShown() ? kWeatherGlyph - 2.0f : kWeatherGlyph) * scale);
+        const float glyph = std::round((small_ ? kWeatherGlyph - 2.0f : kWeatherGlyph) * scale);
         std::wstring text;
-        if (c.weather.Configured()) {
-            const WeatherService::Forecast& data = host_.Weather().Data();
-            if (data.valid && std::isfinite(data.temp)) {
-                long t = std::lround(data.temp);
+        std::wstring label;
+        if (cfg_.Configured()) {
+            const WeatherService* service = host_.WeatherFor(cfg_);
+            const WeatherService::Forecast* data = service ? &service->Data() : nullptr;
+            if (data && data->valid && std::isfinite(data->temp)) {
+                long t = std::lround(data->temp);
                 if (t == 0) t = 0;
                 text = std::to_wstring(t) + L"°";
             } else {
                 text = L"--°";
             }
+            label = cfg_.label;
         }
         IDWriteFactory* dw = ctx.dwrite;
         if (scale != textScale_) {
             format_ = nullptr;
             layout_ = nullptr;
+            labelFormat_ = nullptr;
+            labelLayout_ = nullptr;
         }
         if (!format_ && dw &&
             FAILED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-                                        DWRITE_FONT_STRETCH_NORMAL, (DateShown() ? 14.0f : 16.0f) * scale, L"",
+                                        DWRITE_FONT_STRETCH_NORMAL, (small_ ? 14.0f : 16.0f) * scale, L"",
                                         format_.put()))) {
             format_ = nullptr;
         }
+        if (!label.empty() && !labelFormat_ && dw &&
+            FAILED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                        DWRITE_FONT_STRETCH_NORMAL, 11.0f * scale, L"", labelFormat_.put()))) {
+            labelFormat_ = nullptr;
+        }
         textScale_ = scale;
         if (text != text_) layout_ = nullptr;
+        if (label != label_) labelLayout_ = nullptr;
         text_ = text;
-        float textW = 0.0f, textH = 0.0f;
-        if (!text.empty() && format_ && dw) {
-            if (!layout_ && FAILED(dw->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), format_.get(),
-                                                        4096.0f, 4096.0f, layout_.put()))) {
-                layout_ = nullptr;
+        label_ = label;
+        auto measure = [&](const std::wstring& s, IDWriteTextFormat* format, winrt::com_ptr<IDWriteTextLayout>& layout,
+                           float& w, float& h) {
+            w = h = 0.0f;
+            if (s.empty() || !format || !dw) return;
+            if (!layout && FAILED(dw->CreateTextLayout(s.c_str(), static_cast<UINT32>(s.size()), format, 4096.0f, 4096.0f,
+                                                       layout.put()))) {
+                layout = nullptr;
             }
             DWRITE_TEXT_METRICS m{};
-            if (layout_ && SUCCEEDED(layout_->GetMetrics(&m))) {
-                textW = std::ceil(m.widthIncludingTrailingWhitespace);
-                textH = std::ceil(m.height);
+            if (layout && SUCCEEDED(layout->GetMetrics(&m))) {
+                w = std::ceil(m.widthIncludingTrailingWhitespace);
+                h = std::ceil(m.height);
             }
-        }
+        };
+        measure(text, format_.get(), layout_, tempW_, tempH_);
+        measure(label, labelFormat_.get(), labelLayout_, labelW_, labelH_);
+        const float textW = std::max(tempW_, labelW_), textH = tempH_ + labelH_;
         const float gap = textW > 0.0f ? std::round(kWeatherTextGap * scale) : 0.0f;
         // Horizontal docks: the glyph left of the temperature; vertical docks: above it.
         vertical_ = ctx.axis == DockAxis::Vertical;
@@ -221,15 +268,15 @@ public:
 
     HRESULT Render(Renderer& r, Layer& content, const LayoutContext& ctx) override {
         if (size_.width == 0 || size_.height == 0) return r.DrawLayer(content, 0, 0, {});
-        const Config& c = host_.Cfg();
         const ThemeConfig& theme = host_.DockTheme();
         const float h = static_cast<float>(size_.height);
-        const float glyph = std::round((DateShown() ? kWeatherGlyph - 2.0f : kWeatherGlyph) * ctx.scale);
-        const WeatherService& weather = host_.Weather();
-        const WeatherService::Forecast& data = weather.Data();
-        const bool configured = c.weather.Configured();
+        const float glyph = std::round((small_ ? kWeatherGlyph - 2.0f : kWeatherGlyph) * ctx.scale);
+        const WeatherService* weather = host_.WeatherFor(cfg_);
+        static const WeatherService::Forecast kNone;
+        const WeatherService::Forecast& data = weather ? weather->Data() : kNone;
+        const bool configured = cfg_.Configured();
         // Stale data (and none yet) are drawn dimmed.
-        const bool dim = configured && (!data.valid || weather.State() != WeatherService::Status::Fresh);
+        const bool dim = configured && (!data.valid || !weather || weather->State() != WeatherService::Status::Fresh);
         WeatherGlyphs::Colors colors;
         colors.ink = theme.clockText;
         colors.water = theme.accent;
@@ -239,56 +286,57 @@ public:
                                                     : WeatherGlyphs::Glyph::Overcast;
         const bool isDay = !data.valid || data.isDay;
         const float scale = ctx.scale;
+        const float gap = std::round(kWeatherTextGap * scale);
+        // The temperature (dimmed with the glyph) and the label under it (the date's colour).
+        auto texts = [&](ID2D1DeviceContext* dc, float x, float y, bool centre, float w) {
+            winrt::com_ptr<ID2D1SolidColorBrush> brush;
+            if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(theme.clockText, colors.opacity), brush.put()))) return;
+            if (layout_) {
+                dc->DrawTextLayout(D2D1::Point2F(centre ? std::round((w - tempW_) / 2.0f) : x, y), layout_.get(), brush.get());
+            }
+            if (labelLayout_) {
+                brush->SetColor(Theme::ToColor(theme.clockDateText));
+                dc->DrawTextLayout(D2D1::Point2F(centre ? std::round((w - labelW_) / 2.0f) : x, y + tempH_),
+                                   labelLayout_.get(), brush.get());
+            }
+        };
         if (vertical_) {
             const float w = static_cast<float>(size_.width);
             return r.DrawLayer(content, size_.width, size_.height, [&](ID2D1DeviceContext* dc) {
                 const float left = std::round((w - glyph) / 2.0f);
                 WeatherGlyphs::Draw(dc, g, isDay, D2D1::RectF(left, 0.0f, left + glyph, glyph), colors);
-                if (!layout_) return;
-                winrt::com_ptr<ID2D1SolidColorBrush> brush;
-                if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(theme.clockText, colors.opacity), brush.put()))) return;
-                DWRITE_TEXT_METRICS m{};
-                layout_->GetMetrics(&m);
-                const float y = glyph + std::round(kWeatherTextGap * scale);
-                dc->DrawTextLayout(D2D1::Point2F(std::round((w - m.widthIncludingTrailingWhitespace) / 2.0f), y),
-                                   layout_.get(), brush.get());
+                texts(dc, 0.0f, glyph + gap, true, w);
             });
         }
         return r.DrawLayer(content, size_.width, size_.height, [&](ID2D1DeviceContext* dc) {
             const float top = std::round((h - glyph) / 2.0f);
             WeatherGlyphs::Draw(dc, g, isDay, D2D1::RectF(0.0f, top, glyph, top + glyph), colors);
-            if (!layout_) return;
-            winrt::com_ptr<ID2D1SolidColorBrush> brush;
-            if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(theme.clockText, colors.opacity), brush.put()))) return;
-            DWRITE_TEXT_METRICS m{};
-            layout_->GetMetrics(&m);
-            const float x = glyph + std::round(kWeatherTextGap * scale);
-            dc->DrawTextLayout(D2D1::Point2F(x, std::round((h - m.height) / 2.0f)), layout_.get(), brush.get());
+            texts(dc, glyph + gap, std::round((h - tempH_ - labelH_) / 2.0f), false, 0.0f);
         });
     }
 
     ClickPopup Popup() const override { return ClickPopup::Weather; }
     void OnClick(int slot, bool pressClosedPopup) override {
         if (pressClosedPopup) return;
-        if (host_.Cfg().weather.Configured()) {
+        if (cfg_.Configured()) {
             host_.ShowClickPopup(slot);
         } else {
-            host_.OpenWeatherSettings();  // nothing to show yet: choose a place
+            host_.OpenItemSettings(slot);  // nothing to show yet: choose a place
         }
     }
 
 private:
-    // The clock shows its date under the time: the widget uses the smaller glyph and font.
-    bool DateShown() const {
-        const Config& c = host_.Cfg();
-        return host_.DockCfg().Has(ItemKind::Clock) && c.clock.showDate;
-    }
-
+    WeatherConfig cfg_;      // WeatherOf the item (Configure)
+    bool small_ = false;     // a clock draws a second line, or a label: the smaller glyph and font
     bool vertical_ = false;  // measured for a vertical dock: the glyph above the temperature
-    std::wstring text_;  // "12°" (empty: glyph only)
+    std::wstring text_;      // "12°" (empty: glyph only)
+    std::wstring label_;     // the item's label (empty: none)
     float textScale_ = 0.0f;
+    float tempW_ = 0.0f, tempH_ = 0.0f, labelW_ = 0.0f, labelH_ = 0.0f;  // px
     winrt::com_ptr<IDWriteTextFormat> format_;
     winrt::com_ptr<IDWriteTextLayout> layout_;
+    winrt::com_ptr<IDWriteTextFormat> labelFormat_;
+    winrt::com_ptr<IDWriteTextLayout> labelLayout_;
     D2D1_SIZE_U size_{};
 };
 
@@ -382,7 +430,7 @@ ScriptDockInfo WidgetDockInfo(const ElementHost& host) {
     info.locked = d.locked;
     info.reduceMotion = host.ReducedMotion();
     info.metric = host.Cfg().weather.units == Units::Metric;
-    info.clockDate = d.Has(ItemKind::Clock) && host.Cfg().clock.showDate;  // the weather element's smaller size
+    info.clockDate = ClockSecondLine(host);  // the weather element's smaller size
     info.text = t.clockText;
     info.dateText = t.clockDateText;
     info.accent = t.accent;

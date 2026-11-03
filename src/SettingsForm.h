@@ -119,7 +119,6 @@ private:
 std::unique_ptr<SettingsPage> MakeAppearancePage(SettingsWindow& window);  // SettingsPagesAppearance.cpp
 std::unique_ptr<SettingsPage> MakeAnimationPage(SettingsWindow& window);   // SettingsPagesMore.cpp
 std::unique_ptr<SettingsPage> MakePinnedPage(SettingsWindow& window);      // SettingsPagesMore.cpp ("Dock contents")
-std::unique_ptr<SettingsPage> MakeWeatherPage(SettingsWindow& window);     // SettingsPagesWeather.cpp
 std::unique_ptr<SettingsPage> MakeDocksPage(SettingsWindow& window);       // SettingsPagesDocks.cpp
 std::unique_ptr<SettingsPage> MakeLayoutPage(SettingsWindow& window);      // SettingsPagesLayout.cpp
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window);     // SettingsPagesWidgets.cpp
@@ -129,3 +128,8 @@ std::unique_ptr<SettingsPage> MakeNotificationsPage(SettingsWindow& window);   /
 std::unique_ptr<SettingsPage> MakeItemSettingsPage(SettingsWindow& window);    // SettingsPagesItems.cpp ("Folders and groups")
 std::unique_ptr<SettingsPage> MakeCalendarPage(SettingsWindow& window);        // SettingsPagesCalendar.cpp
 std::unique_ptr<SettingsPage> MakeFolderWindowPage(SettingsWindow& window);    // SettingsPagesFolderWindow.cpp
+
+// One line about a clock / weather item (Dock contents' Details, the generated page's item list;
+// SettingsPagesWidgets.cpp): "%H:%M, date, Tokyo Standard Time, “Tokyo”" / "Seattle, °C".
+std::wstring ClockDetail(const ClockConfig& c);
+std::wstring WeatherDetail(const WeatherConfig& w);

@@ -182,6 +182,73 @@ void ReadEnum(const json::JsonObject& o, const wchar_t* key, E& v) {
     if (!s.empty()) FromString(s, v);  // unknown text: keep the default
 }
 
+// The keys of a clock object: the top-level defaults and a clock item's settings (round 5).
+void ReadClockFields(const json::JsonObject& o, ClockConfig& c) {
+    ReadString(o, L"format", c.format);
+    ReadBool(o, L"showSeconds", c.showSeconds);
+    ReadBool(o, L"showDate", c.showDate);
+    std::wstring click;
+    ReadString(o, L"click", click);
+    if (!click.empty()) {
+        FromString(click, c.click);  // unknown text: keep the default
+    } else if (auto p = Find(o, L"calendarPopup"); p && p.ValueType() == json::JsonValueType::Boolean) {
+        if (!p.GetBoolean()) c.click = ClockClick::None;  // before "click": a bool for the calendar popup
+    }
+    ReadString(o, L"clickTarget", c.clickTarget);
+    ReadString(o, L"face", c.face);
+    ReadString(o, L"timeZone", c.timeZone);
+    ReadString(o, L"label", c.label);
+}
+
+void ReadWeatherFields(const json::JsonObject& o, WeatherConfig& w) {
+    ReadNumber(o, L"latitude", w.latitude);
+    ReadNumber(o, L"longitude", w.longitude);
+    ReadString(o, L"location", w.location);
+    ReadEnum(o, L"units", w.units);
+    ReadInt(o, L"refreshMinutes", w.refreshMinutes);
+    ReadString(o, L"label", w.label);
+}
+
+// Control characters (a pasted line break) out of a single-line text, then at most `max` chars.
+void SingleLine(std::wstring& s, size_t max) {
+    std::erase_if(s, [](wchar_t ch) { return ch < 0x20 || ch == 0x7F; });
+    if (s.size() > max) s.resize(max);
+}
+
+void SanitizeClock(ClockConfig& c) {
+    if (c.format.size() > 128) c.format.resize(128);
+    if (c.format.empty()) c.format = L"%H:%M";  // an empty format would hide the clock
+    if (c.clickTarget.size() > 2048) c.clickTarget.resize(2048);
+    if (c.face.empty() || c.face.size() > 64) c.face = L"digital";
+    if (static_cast<unsigned>(c.click) > static_cast<unsigned>(ClockClick::None)) c.click = ClockClick::Calendar;
+    SingleLine(c.timeZone, 128);
+    SingleLine(c.label, 64);
+}
+
+void SanitizeWeather(WeatherConfig& w) {
+    if (!(w.latitude >= -90.0 && w.latitude <= 90.0)) w.latitude = 0.0;  // also NaN
+    if (!(w.longitude >= -180.0 && w.longitude <= 180.0)) w.longitude = 0.0;
+    w.latitude = std::round(w.latitude * 1e4) / 1e4;  // what Save writes (4 decimals)
+    w.longitude = std::round(w.longitude * 1e4) / 1e4;
+    if (w.latitude == 0.0) w.latitude = 0.0;  // no -0
+    if (w.longitude == 0.0) w.longitude = 0.0;
+    w.refreshMinutes = std::clamp(w.refreshMinutes, 5, 360);
+    if (static_cast<unsigned>(w.units) > static_cast<unsigned>(Units::Imperial)) w.units = Units::Metric;
+    SingleLine(w.location, 128);
+    SingleLine(w.label, 64);
+}
+
+// An item's settings text as an object (null: empty or not an object).
+json::JsonObject SettingsObject(const std::wstring& text) {
+    if (text.empty()) return nullptr;
+    try {
+        json::JsonObject o{nullptr};
+        if (json::JsonObject::TryParse(text, o) && o) return o;
+    } catch (...) {
+    }
+    return nullptr;
+}
+
 // A "folderWindow" docks[] entry (round 4 phase 12): its own keys; the dock keys are not read.
 void ReadFolderWindowFields(const json::JsonObject& o, DockConfig& d) {
     FolderWindowConfig& f = d.folder;
@@ -457,6 +524,95 @@ std::wstring FormatArgbColor(uint32_t argb) {
     return buf;
 }
 
+uint32_t DockPaletteColor(size_t index) {
+    static constexpr uint32_t kPalette[] = {0xFF4CC2FF, 0xFFFFB356, 0xFF8FD3A8, 0xFFC4A3FF, 0xFFF0A0C0, 0xFF7FD8D0};
+    return kPalette[index % std::size(kPalette)];
+}
+
+uint32_t Config::DockColor(size_t index) const {
+    if (index < docks.size() && docks[index].color != 0) return docks[index].color;
+    return DockPaletteColor(index);
+}
+
+ClockConfig ClockOf(const Config& config, const DockItemEntry& item) {
+    ClockConfig c = config.clock;
+    if (item.Kind() != ItemKind::Clock) return c;
+    try {
+        if (const json::JsonObject o = SettingsObject(item.settings)) ReadClockFields(o, c);
+    } catch (...) {
+        c = config.clock;
+    }
+    SanitizeClock(c);
+    return c;
+}
+
+WeatherConfig WeatherOf(const Config& config, const DockItemEntry& item) {
+    WeatherConfig w = config.weather;
+    try {
+        // A script widget item's settings use the same keys (the weather widget's place).
+        if (const json::JsonObject o = SettingsObject(item.settings)) ReadWeatherFields(o, w);
+    } catch (...) {
+        w = config.weather;
+    }
+    SanitizeWeather(w);
+    return w;
+}
+
+bool SettingsHavePlace(const std::wstring& settingsJson) {
+    try {
+        const json::JsonObject o = SettingsObject(settingsJson);
+        if (!o) return false;
+        const json::IJsonValue lat = Find(o, L"latitude"), lon = Find(o, L"longitude");
+        if (!lat || !lon || lat.ValueType() != json::JsonValueType::Number || lon.ValueType() != json::JsonValueType::Number) {
+            return false;
+        }
+        WeatherConfig w;
+        w.latitude = lat.GetNumber();
+        w.longitude = lon.GetNumber();
+        SanitizeWeather(w);
+        return w.Configured();
+    } catch (...) {
+        return false;
+    }
+}
+
+WeatherConfig ScriptWeatherOf(const Config& config, const DockConfig& dock, const DockItemEntry& item) {
+    if (SettingsHavePlace(item.settings)) return WeatherOf(config, item);
+    for (const DockItemEntry& e : dock.items) {
+        if (e.Kind() == ItemKind::Weather) return WeatherOf(config, e);
+    }
+    return config.weather;
+}
+
+std::wstring ClockSettingsJson(const ClockConfig& c) {
+    return L"{\"format\":" + Quote(c.format) + L",\"showSeconds\":" + Bool(c.showSeconds) + L",\"showDate\":" +
+           Bool(c.showDate) + L",\"click\":" + Quote(ToString(c.click)) + L",\"clickTarget\":" + Quote(c.clickTarget) +
+           L",\"face\":" + Quote(c.face) + L",\"timeZone\":" + Quote(c.timeZone) + L",\"label\":" + Quote(c.label) + L"}";
+}
+
+std::wstring WeatherSettingsJson(const WeatherConfig& w) {
+    return L"{\"latitude\":" + Coord(w.latitude) + L",\"longitude\":" + Coord(w.longitude) + L",\"location\":" +
+           Quote(w.location) + L",\"units\":" + Quote(ToString(w.units)) + L",\"refreshMinutes\":" +
+           Num(w.refreshMinutes) + L",\"label\":" + Quote(w.label) + L"}";
+}
+
+bool Config::EnsureItemSettings() {
+    bool changed = false;
+    for (DockConfig& d : docks) {
+        for (DockItemEntry& e : d.items) {
+            if (!e.settings.empty()) continue;
+            if (e.Kind() == ItemKind::Clock) {
+                e.settings = ClockSettingsJson(clock);
+                changed = true;
+            } else if (e.Kind() == ItemKind::Weather) {
+                e.settings = WeatherSettingsJson(weather);
+                changed = true;
+            }
+        }
+    }
+    return changed;
+}
+
 bool Config::ResolveTheme() {
     bool ok = true;
     const ThemeConfig base = Theme::Resolve(themePreset, ok);
@@ -605,16 +761,9 @@ void Config::Sanitize() {
     if (animation.speed < 0.0) animation.speed = 0.0;
     if (animation.speed != 0.0) animation.speed = std::clamp(animation.speed, 0.25, 4.0);
     animation.labelFadeMs = std::clamp(animation.labelFadeMs, 0, 1000);
-    if (clock.format.size() > 128) clock.format.resize(128);
-    if (clock.clickTarget.size() > 2048) clock.clickTarget.resize(2048);
-    if (clock.face.empty() || clock.face.size() > 64) clock.face = L"digital";
+    SanitizeClock(clock);
     if (renderer != L"auto" && renderer != L"software") renderer = L"auto";
-    if (!(weather.latitude >= -90.0 && weather.latitude <= 90.0)) weather.latitude = 0.0;  // also NaN
-    if (!(weather.longitude >= -180.0 && weather.longitude <= 180.0)) weather.longitude = 0.0;
-    weather.latitude = std::round(weather.latitude * 1e4) / 1e4;  // what Save writes (4 decimals)
-    weather.longitude = std::round(weather.longitude * 1e4) / 1e4;
-    weather.refreshMinutes = std::clamp(weather.refreshMinutes, 5, 360);
-    if (weather.location.size() > 128) weather.location.resize(128);
+    SanitizeWeather(weather);
     if (calendars.feeds.size() > 32) calendars.feeds.resize(32);
     for (CalendarFeed& f : calendars.feeds) {
         if (f.name.size() > 128) f.name.resize(128);
@@ -666,22 +815,7 @@ Config::LoadResult Config::LoadFile() {
         ReadString(root, L"renderer", renderer);
 
         const json::JsonObject clockObj = ReadObject(root, L"clock");
-        if (clockObj) {
-            ReadString(clockObj, L"format", clock.format);
-            ReadBool(clockObj, L"showSeconds", clock.showSeconds);
-            ReadBool(clockObj, L"showDate", clock.showDate);
-            std::wstring click;
-            ReadString(clockObj, L"click", click);
-            if (!click.empty()) {
-                FromString(click, clock.click);  // unknown text: keep the default
-            } else {
-                bool calendarPopup = true;  // before "click": a bool for the calendar popup
-                ReadBool(clockObj, L"calendarPopup", calendarPopup);
-                if (!calendarPopup) clock.click = ClockClick::None;
-            }
-            ReadString(clockObj, L"clickTarget", clock.clickTarget);
-            ReadString(clockObj, L"face", clock.face);
-        }
+        if (clockObj) ReadClockFields(clockObj, clock);
         const json::JsonObject weatherObj = ReadObject(root, L"weather");
 
         if (root.HasKey(L"docks")) {
@@ -706,6 +840,9 @@ Config::LoadResult Config::LoadFile() {
                         continue;
                     }
                     ReadBool(obj, L"locked", d.locked);
+                    std::wstring color;
+                    ReadString(obj, L"color", color);
+                    if (!color.empty() && !ParseArgbColor(color, d.color)) d.color = 0;
                     ReadDockFields(obj, d);
                     ReadDockOnlyFields(obj, d);
                     if (auto items = ReadArray(obj, L"items")) {
@@ -801,13 +938,7 @@ Config::LoadResult Config::LoadFile() {
             if (clockShown) d.items.push_back(DockItemEntry{L"clock"});
         }
 
-        if (auto w = weatherObj) {
-            ReadNumber(w, L"latitude", weather.latitude);
-            ReadNumber(w, L"longitude", weather.longitude);
-            ReadString(w, L"location", weather.location);
-            ReadEnum(w, L"units", weather.units);
-            ReadInt(w, L"refreshMinutes", weather.refreshMinutes);
-        }
+        if (auto w = weatherObj) ReadWeatherFields(w, weather);
         // A config without "preset" (older versions) is "dark" with every key present as an override.
         if (auto t = ReadObject(root, L"theme")) {
             ReadString(t, L"preset", themePreset);
@@ -859,6 +990,9 @@ Config::LoadResult Config::LoadFile() {
         return LoadResult::Malformed;
     }
     Sanitize();  // also validates themePreset before it is used as a file name
+    // Round 5 phase A: clock / weather items without settings of their own (every file written
+    // before it) get the defaults' values; the caller saves, so the file has them from now on.
+    if (EnsureItemSettings()) migrated = true;
 
     // Resolve the theme. Inline values equal to the preset's are not overrides: an untouched
     // older config becomes a plain `"preset": "dark"` on the next save. Not done when the preset
@@ -913,7 +1047,8 @@ bool Config::Save() const {
                 o += L"      \"items\": [], \"layer\": \"desktop\", \"autoHide\": \"always\", \"reserveSpace\": false\n    }";
                 continue;
             }
-            o += L"      \"id\": " + Quote(d.id) + L",\n      \"items\": [";
+            o += L"      \"id\": " + Quote(d.id) + (d.color ? L", \"color\": " + Quote(FormatArgbColor(d.color)) : std::wstring()) +
+                 L",\n      \"items\": [";
             for (size_t i = 0; i < d.items.size(); ++i) {
                 const DockItemEntry& e = d.items[i];
                 o += i ? L",\n        " : L"\n        ";
@@ -994,7 +1129,9 @@ bool Config::Save() const {
         o += L"  \"clock\": { \"format\": " + Quote(clock.format) + L", \"showSeconds\": " + Bool(clock.showSeconds) +
              L", \"showDate\": " + Bool(clock.showDate) + L",\n             \"click\": " + Quote(ToString(clock.click)) +
              L", \"clickTarget\": " + Quote(clock.clickTarget) +
-             (clock.face != L"digital" ? L", \"face\": " + Quote(clock.face) : std::wstring()) + L" },\n";
+             (clock.face != L"digital" ? L", \"face\": " + Quote(clock.face) : std::wstring()) +
+             (!clock.timeZone.empty() ? L", \"timeZone\": " + Quote(clock.timeZone) : std::wstring()) +
+             (!clock.label.empty() ? L", \"label\": " + Quote(clock.label) : std::wstring()) + L" },\n";
         // Only the preset and the fields set inline: editing the theme file keeps affecting the dock.
         o += L"  \"theme\": { \"preset\": " + Quote(themePreset) +
              Theme::WriteFields(theme, themeOverrides, L"             ") + L" },\n";
@@ -1008,7 +1145,8 @@ bool Config::Save() const {
         o += L"  \"weather\": { \"latitude\": " + Coord(weather.latitude) +
              L", \"longitude\": " + Coord(weather.longitude) + L",\n               \"location\": " +
              Quote(weather.location) + L", \"units\": " + Quote(ToString(weather.units)) +
-             L", \"refreshMinutes\": " + Num(weather.refreshMinutes) + L" }";
+             L", \"refreshMinutes\": " + Num(weather.refreshMinutes) +
+             (!weather.label.empty() ? L", \"label\": " + Quote(weather.label) : std::wstring()) + L" }";
         if (tray.enabled) o += L",\n  \"tray\": { \"enabled\": true }";
         if (notifications != NotificationsConfig{}) {
             std::wstring ex;

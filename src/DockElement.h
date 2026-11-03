@@ -85,7 +85,9 @@ public:
     virtual const DockConfig& DockCfg() const = 0;
     // The theme this dock draws with (its own themePreset, or the global theme).
     virtual const ThemeConfig& DockTheme() const = 0;
-    virtual const WeatherService& Weather() const = 0;
+    // The weather service of a place (round 5: one per place; null while none runs for it). Look it
+    // up when it is used (a service nobody needs any more is dropped).
+    virtual const WeatherService* WeatherFor(const WeatherConfig& place) const = 0;
     // Brings the slot's app to the front (cycles / minimizes its windows), or starts it.
     virtual void ActivateOrLaunch(int slot) = 0;
     // Starts the slot's app (newInstance: even if it has windows) with launch feedback; folders and
@@ -95,8 +97,9 @@ public:
     virtual bool PopupShownFor(int slot) const = 0;
     // Opens the slot's click popup, centred on its element's PopupAnchor.
     virtual void ShowClickPopup(int slot) = 0;
-    // Settings > Weather (the unconfigured weather widget was clicked).
-    virtual void OpenWeatherSettings() = 0;
+    // The settings of slot `slot`'s item (round 5: the generated settings page; the unconfigured
+    // weather widget was clicked).
+    virtual void OpenItemSettings(int slot) = 0;
     // Minimizes / closes the slot's windows, or brings its next / previous window to the front.
     virtual void SlotWindows(int slot, WindowsCommand cmd) = 0;
     // Opens an app / file / URL the user configured (Launcher::OpenTarget; beeps on failure).
@@ -210,6 +213,11 @@ public:
     virtual void OnHover(int /*slot*/, bool /*inside*/) {}
     // A script widget element's instance (null for every other kind).
     virtual WidgetInstance* Widget() const { return nullptr; }
+    // A clock element: the minutes its zone is ahead of the local time (QueryState 219). False for
+    // every other kind.
+    virtual bool ClockOffset(int& /*minutes*/) const { return false; }
+    // A weather element: its place (WeatherOf its item). False for every other kind.
+    virtual bool WeatherPlace(WeatherConfig& /*place*/) const { return false; }
 
     // --- cells (a widget slot with several targets of its own: the tray grid) ---
     // The cell of slot `slot` under screen point `screen` (-1: none), its hover label (empty: the

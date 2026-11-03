@@ -1,6 +1,6 @@
 // The settings pages: control tables (DIP layout) and handlers. This file: General, Behaviour,
 // About and the page list; Appearance: SettingsPagesAppearance.cpp; Animation and Dock contents:
-// SettingsPagesMore.cpp; Weather: SettingsPagesWeather.cpp. The frame, fonts, colours, theming, layout and scrolling live in
+// SettingsPagesMore.cpp; a clock / weather item: the generated page (SettingsPagesWidgets.cpp). The frame, fonts, colours, theming, layout and scrolling live in
 // SettingsWindow.cpp.
 
 #include <windows.h>
@@ -18,7 +18,6 @@
 #include <string>
 #include <vector>
 
-#include "Clock.h"
 #include "ContextMenu.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
@@ -31,20 +30,10 @@ using namespace SettingsIds;
 // --- General ---------------------------------------------------------------------------------
 
 constexpr int kMaxTrackIconSize = 128;  // the spinner goes on to 256 (Config::Sanitize)
-constexpr const wchar_t* kClockFormats[] = {L"%H:%M", L"%H:%M:%S", L"%I:%M %p", L"%#I:%M %p"};
-
 std::wstring FormatMagnification(int pos) {
     wchar_t buf[32];
     swprintf_s(buf, L"%.2f×", pos / 20.0);
     return buf;
-}
-
-std::wstring ClockPreview(const std::wstring& format, bool seconds) {
-    const std::time_t now = std::time(nullptr);
-    std::tm local{};
-    localtime_s(&local, &now);
-    const std::wstring text = Clock::Format(Clock::EffectiveFormat(format, seconds), local);
-    return text.empty() ? std::wstring() : L"Shows “" + text + L"”";
 }
 
 // Display names in the dock's monitor order (DockWindow::PickMonitor): the primary, then the
@@ -155,37 +144,8 @@ protected:
              kColX, right - kColX, 104);
         NextRow(106);
 
-        Section(kSectionClock, L"Clock");
-        Check(kClockShow, kClockShowCaption, L"Show the clock");
-        NextRow();
-        Label(kClockFormatLabel, L"Time format");
-        Combo(kClockFormatCombo, kColX, 140, true);
-        Text(kClockPreview, CtlKind::Note, L"", kColX + 152, right - kColX - 152);
-        NextRow();
-        Check(kClockSeconds, kClockSecondsCaption, L"Show seconds");
-        NextRow();
-        Check(kClockDate, kClockDateCaption, L"Show the date under the time");
-        NextRow();
-        Label(kClockFaceLabel, L"Face");
-        Combo(kClockFaceCombo, kColX, right - kColX - 172, false);
-        Button(kClockFaceFolder, L"Open faces folder", right - 164, 164);
-        NextRow(kRowH);
-        Text(kClockFaceNote, CtlKind::Note,
-             L"Digital is the clock's own look; the others are face files (docs/widgets.md \"Clock faces\"): add your "
-             L"own .json to the faces folder. For an analog clock, add the Analog clock widget (Dock contents > Add widget).",
-             kColX, right - kColX, 54);
-        NextRow(56);
-        Label(kClockClickLabel, L"Clicking the clock opens");
-        Combo(kClockClickCombo, kColX, right - kColX, false);
-        NextRow();
-        Label(kClockTargetLabel, L"App or URL");
-        EditBox(kClockTargetEdit, kColX, right - kColX - 112, 2048);
-        Button(kClockTargetBrowse, L"Browse…", right - 104, 104);
-        NextRow(kRowH);
-        Text(kClockTargetNote, CtlKind::Note, L"The month calendar shows a button that opens it too.", kColX,
-             right - kColX, 20);
-        NextRow(22);
-
+        // Round 5 phase A: the clock is configured per clock item (Dock contents > Settings…, the
+        // generated page), like the weather.
         Section(kSectionStartup, L"System");
         Check(kStartWithWindows, kStartWithWindowsCaption, L"Start with Windows");
         NextRow();
@@ -199,11 +159,6 @@ protected:
     }
 
     void Created() override {
-        for (const wchar_t* f : kClockFormats) ComboAdd(kClockFormatCombo, f);
-        SendMessageW(Item(kClockFormatCombo), CB_LIMITTEXT, 128, 0);
-        ComboAdd(kClockClickCombo, L"The month calendar");  // ClockClick order
-        ComboAdd(kClockClickCombo, L"The app or URL below");
-        ComboAdd(kClockClickCombo, L"Nothing");
         for (const wchar_t* e : {L"Bottom", L"Top", L"Left", L"Right"}) ComboAdd(kEdgeCombo, e);  // DockEdge order
         ComboAdd(kLayerCombo, L"Above windows");  // DockLayer order
         ComboAdd(kLayerCombo, L"Desktop only (shown while the desktop is visible)");
@@ -238,15 +193,6 @@ protected:
         SetCheck(kReserveSpace, c.Edit().reserveSpace);
         SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(c.Edit().peekOpacity * 100.0)));
         SetText(kTitleEdit, c.Edit().title);
-        SetCheck(kClockShow, c.Edit().Has(ItemKind::Clock));
-        SetText(kClockFormatCombo, c.clock.format);
-        SetText(kClockPreview, ClockPreview(c.clock.format, c.clock.showSeconds));
-        SetCheck(kClockSeconds, c.clock.showSeconds);
-        SetCheck(kClockDate, c.clock.showDate);
-        FillFaces();
-        SetComboSel(kClockClickCombo, static_cast<int>(c.clock.click));
-        SetText(kClockTargetEdit, c.clock.clickTarget);
-        EnableClock(c.Edit().Has(ItemKind::Clock));
         SetCheck(kStartWithWindows, Host().autostartEnabled ? Host().autostartEnabled() : c.startWithWindows);
         SetCheck(kHideTaskbar, Host().taskbarHidden ? Host().taskbarHidden() : c.hideTaskbar);
         SetComboSel(kRendererCombo, c.renderer == L"software" ? 1 : 0);
@@ -372,66 +318,6 @@ protected:
                     }
                 }
                 break;
-            case kClockShow:
-                if (code == BN_CLICKED) {
-                    // The clock is shown by a "clock" item: added at the end / every one removed.
-                    c.Edit().Show(ItemKind::Clock, GetCheck(id));
-                    EnableClock(c.Edit().Has(ItemKind::Clock));
-                    Changed(SettingsScope::Appearance);
-                }
-                break;
-            case kClockFormatCombo:
-                if (code == CBN_SELCHANGE) {
-                    // The edit still holds the old text: read the chosen item.
-                    const int sel = ComboSel(id);
-                    if (sel >= 0 && sel < static_cast<int>(std::size(kClockFormats))) CommitFormat(kClockFormats[sel]);
-                } else if (code == CBN_EDITCHANGE) {
-                    SetText(kClockPreview, ClockPreview(GetText(id), c.clock.showSeconds));  // live preview, applied on commit
-                }
-                break;
-            case kClockSeconds:
-                if (code == BN_CLICKED) {
-                    c.clock.showSeconds = GetCheck(id);
-                    SetText(kClockPreview, ClockPreview(c.clock.format, c.clock.showSeconds));
-                    Changed(SettingsScope::Appearance);  // the clock's text, its width and its tick
-                }
-                break;
-            case kClockClickCombo:
-                if (code == CBN_SELCHANGE) {
-                    const int sel = ComboSel(id);
-                    if (sel >= 0 && sel <= 2 && static_cast<ClockClick>(sel) != c.clock.click) {
-                        c.clock.click = static_cast<ClockClick>(sel);  // read at click time
-                        Changed(SettingsScope::SaveOnly);
-                    }
-                }
-                break;
-            case kClockTargetBrowse:
-                if (code == BN_CLICKED) BrowseTarget();
-                break;
-            case kClockFaceCombo:
-                if (code == CBN_SELCHANGE) {
-                    const int sel = ComboSel(id);
-                    if (sel >= 0 && sel < static_cast<int>(faces_.size()) && faces_[static_cast<size_t>(sel)] != c.clock.face) {
-                        c.clock.face = faces_[static_cast<size_t>(sel)];
-                        Changed(SettingsScope::Appearance);  // the clock's text, its size
-                        FaceNote();
-                    }
-                }
-                break;
-            case kClockFaceFolder:
-                if (code == BN_CLICKED) {
-                    const std::wstring dir = ClockFaces::Directory();
-                    CreateDirectoryW(Config::Directory().c_str(), nullptr);
-                    CreateDirectoryW(dir.c_str(), nullptr);
-                    ShellExecuteW(Owner(), L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-                }
-                break;
-            case kClockDate:
-                if (code == BN_CLICKED) {
-                    c.clock.showDate = GetCheck(id);
-                    Changed(SettingsScope::Appearance);
-                }
-                break;
             case kStartWithWindows:
                 if (code == BN_CLICKED) {
                     c.startWithWindows = GetCheck(id);
@@ -459,8 +345,6 @@ protected:
     }
 
     void Commit(int id) override {
-        if (id == kClockFormatCombo) CommitFormat(GetText(id));
-        if (id == kClockTargetEdit) CommitTarget(GetText(id));
         if (id == kTitleEdit) {
             std::wstring title = GetText(id);
             if (title.size() > 128) title.resize(128);
@@ -493,94 +377,6 @@ protected:
     }
 
 private:
-    void CommitTarget(std::wstring target) {
-        if (target.size() > 2048) target.resize(2048);
-        Config& c = Cfg();
-        if (target == c.clock.clickTarget) return;
-        c.clock.clickTarget = target;  // read when the clock is clicked / the calendar opens
-        Changed(SettingsScope::SaveOnly);
-    }
-
-    void BrowseTarget() {
-        winrt::com_ptr<IFileOpenDialog> dialog;
-        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
-            MessageBeep(MB_ICONERROR);
-            return;
-        }
-        const COMDLG_FILTERSPEC filters[] = {{L"Apps and shortcuts (*.exe;*.lnk)", L"*.exe;*.lnk"},
-                                             {L"All files", L"*.*"}};
-        dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
-        dialog->SetTitle(L"Open when the clock is clicked");
-        FILEOPENDIALOGOPTIONS options = 0;
-        dialog->GetOptions(&options);
-        dialog->SetOptions(options | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NODEREFERENCELINKS | FOS_NOCHANGEDIR);
-        if (FAILED(dialog->Show(Owner()))) return;  // cancelled
-        winrt::com_ptr<IShellItem> item;
-        PWSTR raw = nullptr;
-        if (FAILED(dialog->GetResult(item.put())) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw) return;
-        std::wstring path(raw);
-        CoTaskMemFree(raw);
-        // A path with spaces is quoted, so arguments may be typed after it.
-        if (path.find(L' ') != std::wstring::npos) path = L"\"" + path + L"\"";
-        SetText(kClockTargetEdit, path);
-        CommitTarget(path);
-    }
-
-    void CommitFormat(std::wstring format) {
-        if (format.size() > 128) format.resize(128);
-        Config& c = Cfg();
-        if (format.empty()) format = c.clock.format;  // an empty format would hide the clock
-        SetText(kClockFormatCombo, format);
-        SetText(kClockPreview, ClockPreview(format, c.clock.showSeconds));
-        if (format == c.clock.format) return;
-        c.clock.format = format;
-        Changed(SettingsScope::Appearance);
-    }
-
-    // "Digital (built in)", then the shipped and user faces (re-read: a file added to the faces
-    // folder shows up when the page loads again); a configured face that is missing is listed too.
-    void FillFaces() {
-        HWND combo = Item(kClockFaceCombo);
-        if (!combo) return;
-        const std::wstring current = Cfg().clock.face;
-        SendMessageW(combo, CB_RESETCONTENT, 0, 0);
-        faces_.assign(1, ClockFaces::kDigital);
-        ComboAdd(kClockFaceCombo, L"Digital (built in)");
-        int sel = 0;
-        for (const ClockFaces::Entry& e : ClockFaces::List()) {
-            if (_wcsicmp(e.id.c_str(), current.c_str()) == 0) sel = static_cast<int>(faces_.size());
-            faces_.push_back(e.id);
-            ComboAdd(kClockFaceCombo, (e.name + (e.builtIn ? L"" : L" (file)")).c_str());
-        }
-        if (sel == 0 && _wcsicmp(current.c_str(), ClockFaces::kDigital) != 0) {
-            sel = static_cast<int>(faces_.size());
-            faces_.push_back(current);
-            ComboAdd(kClockFaceCombo, (current + L" (missing)").c_str());
-        }
-        SetComboSel(kClockFaceCombo, sel);
-        FaceNote();
-    }
-
-    void FaceNote() {
-        std::wstring error;
-        ClockFaces::Load(Cfg().clock.face, error);
-        SetText(kClockFaceNote, !error.empty()
-                                    ? L"This face cannot be used (the clock looks Digital): " + error
-                                    : std::wstring(L"Digital is the clock's own look; the others are face files (docs/widgets.md "
-                                                   L"\"Clock faces\"): add your own .json to the faces folder. For an analog "
-                                                   L"clock, add the Analog clock widget (Dock contents > Add widget)."));
-    }
-
-    void EnableClock(bool on) {
-        Enable(kClockFaceCombo, on);
-        Enable(kClockFormatCombo, on);
-        Enable(kClockSeconds, on);
-        Enable(kClockDate, on);
-        Enable(kClockClickCombo, on);
-        Enable(kClockTargetEdit, on);
-        Enable(kClockTargetBrowse, on);
-    }
-
     void FillMonitors() {
         HWND combo = Item(kMonitorCombo);
         if (!combo) return;
@@ -597,7 +393,6 @@ private:
         SetComboSel(kMonitorCombo, monitor == DockConfig::kMonitorEach ? static_cast<int>(names.size()) - 1 : want);
     }
 
-    std::vector<std::wstring> faces_;  // kClockFaceCombo rows -> clock.face ids
 };
 
 // --- Behaviour -------------------------------------------------------------------------------
@@ -887,6 +682,21 @@ protected:
     }
 };
 
+// --- a retired page --------------------------------------------------------------------------
+// Round 5 phase A retired the Weather page (index 6): each weather item has its own settings on
+// the generated page. The index stays taken so the later pages keep their ids (kPageBase + index);
+// the nav never lists or selects it.
+
+class RetiredPage : public FormPage {
+public:
+    explicit RetiredPage(SettingsWindow& w) : FormPage(w, L"(retired)", 0) {}
+    bool InNav() const override { return false; }
+
+protected:
+    void Build() override {}
+    void Load() override {}
+};
+
 }  // namespace
 
 std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& window) {
@@ -897,7 +707,7 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
     pages.push_back(MakeAnimationPage(window));  // kPageAnimation
     pages.push_back(MakePinnedPage(window));  // kPagePinned
     pages.push_back(std::make_unique<AboutPage>(window));  // kPageAbout
-    pages.push_back(MakeWeatherPage(window));  // kPageWeather (after About: the nav shows pages in index order)
+    pages.push_back(std::make_unique<RetiredPage>(window));  // kPageWeather: retired in round 5 (never listed)
     pages.push_back(MakeDocksPage(window));    // kPageDocks
     pages.push_back(MakeLayoutPage(window));   // kPageLayout
     pages.push_back(MakeWidgetsPage(window));  // kPageWidgets

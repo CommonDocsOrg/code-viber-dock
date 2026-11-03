@@ -57,7 +57,9 @@ enum Command : UINT {
     kSortDesktopNow = 140,      // 12b: the Desktop's files matching folder windows' rules move into their folders (once)
     // Widgets (round 4 phase 14):
     kInstallWidgetFolder = 141,  // automation: Settings > Widgets > Add from folder… for the path in the global atom LOWORD(lParam)
-    kLastDockCommand = kInstallWidgetFolder,
+    // Round 5 phase A:
+    kItemSettings = 142,        // automation: the settings of item LOWORD(lParam) of dock HIWORD(lParam) (App::OpenItemSettings)
+    kLastDockCommand = kItemSettings,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>

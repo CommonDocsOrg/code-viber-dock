@@ -62,7 +62,134 @@ DWRITE_TEXT_ALIGNMENT AlignOf(ClockFace::Align a) {
                                         : DWRITE_TEXT_ALIGNMENT_CENTER;
 }
 
+bool IsLeap(int y) { return (y % 4 == 0 && y % 100 != 0) || y % 400 == 0; }
+
+// A wall-clock SYSTEMTIME as the tm wcsftime formats (weekday and day of the year computed: they
+// do not depend on the zone's own data).
+tm TmFrom(const SYSTEMTIME& s) {
+    static constexpr int kBefore[] = {0, 31, 59, 90, 120, 151, 181, 212, 243, 273, 304, 334};
+    tm t{};
+    t.tm_year = s.wYear - 1900;
+    t.tm_mon = std::clamp<int>(s.wMonth, 1, 12) - 1;
+    t.tm_mday = s.wDay;
+    t.tm_hour = s.wHour;
+    t.tm_min = s.wMinute;
+    t.tm_sec = s.wSecond;
+    t.tm_yday = kBefore[t.tm_mon] + s.wDay - 1 + (t.tm_mon > 1 && IsLeap(s.wYear) ? 1 : 0);
+    // Sakamoto's method (0 = Sunday).
+    static constexpr int kOffsets[] = {0, 3, 2, 5, 0, 3, 5, 1, 4, 6, 2, 4};
+    int y = s.wYear - (s.wMonth < 3 ? 1 : 0);
+    t.tm_wday = (y + y / 4 - y / 100 + y / 400 + kOffsets[t.tm_mon] + s.wDay) % 7;
+    t.tm_isdst = 0;
+    return t;
+}
+
+int64_t Minutes(const SYSTEMTIME& s) {
+    FILETIME ft{};
+    if (!SystemTimeToFileTime(&s, &ft)) return 0;
+    const int64_t ticks = static_cast<int64_t>((static_cast<uint64_t>(ft.dwHighDateTime) << 32) | ft.dwLowDateTime);
+    return ticks / 600000000LL;  // 100 ns -> minutes
+}
+
+// Minutes zone `zone` (null: the local zone) is ahead of UTC at UTC time `utc`.
+bool ZoneMinutes(const DYNAMIC_TIME_ZONE_INFORMATION* zone, const SYSTEMTIME& utc, int64_t& minutes) {
+    SYSTEMTIME local{};
+    if (!SystemTimeToTzSpecificLocalTimeEx(zone, &utc, &local)) return false;
+    minutes = Minutes(local) - Minutes(utc);
+    return true;
+}
+
 }  // namespace
+
+std::vector<Clock::TimeZoneInfo> Clock::TimeZones() {
+    std::vector<TimeZoneInfo> zones;
+    DYNAMIC_TIME_ZONE_INFORMATION z{};
+    for (DWORD i = 0; EnumDynamicTimeZoneInformation(i, &z) == ERROR_SUCCESS && i < 1000; ++i) {
+        // The display name is not part of DYNAMIC_TIME_ZONE_INFORMATION: "Display" of the zone's
+        // registry key (what Windows' own lists show).
+        std::wstring display;
+        wchar_t buf[256]{};
+        DWORD size = sizeof(buf);
+        const std::wstring key = std::wstring(L"SOFTWARE\\Microsoft\\Windows NT\\CurrentVersion\\Time Zones\\") + z.TimeZoneKeyName;
+        if (RegGetValueW(HKEY_LOCAL_MACHINE, key.c_str(), L"Display", RRF_RT_REG_SZ, nullptr, buf, &size) == ERROR_SUCCESS) {
+            display = buf;
+        }
+        if (display.empty()) display = z.StandardName[0] ? z.StandardName : z.TimeZoneKeyName;
+        zones.push_back(TimeZoneInfo{z.TimeZoneKeyName, display, z.Bias});
+    }
+    std::sort(zones.begin(), zones.end(), [](const TimeZoneInfo& a, const TimeZoneInfo& b) {
+        if (a.bias != b.bias) return a.bias > b.bias;  // UTC-12 first (the largest bias)
+        return _wcsicmp(a.display.c_str(), b.display.c_str()) < 0;
+    });
+    return zones;
+}
+
+bool Clock::FindTimeZone(const std::wstring& key, DYNAMIC_TIME_ZONE_INFORMATION& out) {
+    if (key.empty()) return false;
+    DYNAMIC_TIME_ZONE_INFORMATION z{};
+    for (DWORD i = 0; EnumDynamicTimeZoneInformation(i, &z) == ERROR_SUCCESS && i < 1000; ++i) {
+        if (_wcsicmp(z.TimeZoneKeyName, key.c_str()) == 0) {
+            out = z;
+            return true;
+        }
+    }
+    return false;
+}
+
+int Clock::ZoneOffsetMinutes(const std::wstring& key) {
+    DYNAMIC_TIME_ZONE_INFORMATION z{};
+    if (!FindTimeZone(key, z)) return 0;
+    SYSTEMTIME utc{};
+    GetSystemTime(&utc);
+    int64_t there = 0, here = 0;
+    if (!ZoneMinutes(&z, utc, there) || !ZoneMinutes(nullptr, utc, here)) return 0;
+    return static_cast<int>(there - here);
+}
+
+void Clock::SetTimeZone(const std::wstring& key) {
+    zone_ = DYNAMIC_TIME_ZONE_INFORMATION{};
+    zoned_ = FindTimeZone(key, zone_);
+    timeText_.clear();
+    dateText_.clear();
+    faceLines_.clear();
+}
+
+void Clock::SetLabel(const std::wstring& label) {
+    if (label == label_) return;
+    label_ = label;
+    timeText_.clear();
+    dateText_.clear();
+    faceLines_.clear();
+    ReleaseLayout();  // the time's size depends on a second line
+}
+
+int Clock::OffsetMinutes() const {
+    if (!zoned_) return 0;
+    SYSTEMTIME utc{};
+    GetSystemTime(&utc);
+    int64_t there = 0, here = 0;
+    if (!ZoneMinutes(&zone_, utc, there) || !ZoneMinutes(nullptr, utc, here)) return 0;
+    return static_cast<int>(there - here);
+}
+
+bool Clock::Now(tm& out) const {
+    if (zoned_) {
+        SYSTEMTIME utc{}, there{};
+        GetSystemTime(&utc);
+        if (SystemTimeToTzSpecificLocalTimeEx(&zone_, &utc, &there)) {
+            out = TmFrom(there);
+            return true;
+        }
+    }
+    __time64_t now = _time64(nullptr);
+    return _localtime64_s(&out, &now) == 0;
+}
+
+std::wstring Clock::DateLine(const std::wstring& date) const {
+    if (label_.empty()) return date;
+    if (date.empty()) return label_;
+    return label_ + L" · " + date;
+}
 
 void Clock::Configure(const std::wstring& format, bool showDate) {
     format_ = format;
@@ -105,7 +232,7 @@ bool Clock::FaceLine::SameText(const FaceLine& o) const {
 // seconds, the suffix, the date on an inline line). Layouts come later (BuildFaceLayout).
 std::vector<Clock::FaceLine> Clock::FaceTexts(const tm& t) const {
     const ClockFace& f = *face_;
-    const float timeDip = (showDate_ ? 14.0f : 16.0f) * f.time.size;
+    const float timeDip = (SecondLine() ? 14.0f : 16.0f) * f.time.size;
     const float dateDip = 11.0f * f.date.size;
     auto pick = [](const std::wstring& a, const std::wstring& b) { return a.empty() ? b : a; };
 
@@ -169,8 +296,8 @@ std::vector<Clock::FaceLine> Clock::FaceTexts(const tm& t) const {
     }
 
     FaceLine dateLine;
-    if (showDate_) {
-        dateLine.text = ApplyCase(FormatRaw(f.dateFormat, t), f.date.textCase);
+    if (SecondLine()) {
+        dateLine.text = DateLine(showDate_ ? ApplyCase(FormatRaw(f.dateFormat, t), f.date.textCase) : std::wstring());
         dateLine.font = f.date.font;
         dateLine.weight = f.date.weight;
         dateLine.size = dateDip;
@@ -264,9 +391,8 @@ void Clock::ScheduleNextTick(HWND hwnd, UINT_PTR timerId) const {
 void Clock::Stop(HWND hwnd, UINT_PTR timerId) { KillTimer(hwnd, timerId); }
 
 bool Clock::UpdateText() {
-    __time64_t now = _time64(nullptr);
     tm local{};
-    if (_localtime64_s(&local, &now) != 0) return false;
+    if (!Now(local)) return false;
 
     if (face_) {
         std::vector<FaceLine> lines = FaceTexts(local);
@@ -283,7 +409,7 @@ bool Clock::UpdateText() {
     }
 
     std::wstring time = Format(format_, local);
-    std::wstring date = showDate_ ? Format(kDateFormat, local) : std::wstring();
+    std::wstring date = SecondLine() ? DateLine(showDate_ ? Format(kDateFormat, local) : std::wstring()) : std::wstring();
     if (time == timeText_ && date == dateText_) return false;
     timeText_ = std::move(time);
     dateText_ = std::move(date);
@@ -319,13 +445,13 @@ D2D1_SIZE_U Clock::BuildLayout(IDWriteFactory* dwrite, float scale) {
         scale_ = scale;
     }
 
-    const float timeSize = (showDate_ ? 14.0f : 16.0f) * scale;
+    const float timeSize = (SecondLine() ? 14.0f : 16.0f) * scale;
     if (!timeFormat_ &&
         FAILED(dwrite->CreateTextFormat(kFontFamily, nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
                                         DWRITE_FONT_STRETCH_NORMAL, timeSize, L"", timeFormat_.put()))) {
         return size_;
     }
-    if (showDate_ && !dateFormat_ &&
+    if (SecondLine() && !dateFormat_ &&
         FAILED(dwrite->CreateTextFormat(kFontFamily, nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
                                         DWRITE_FONT_STRETCH_NORMAL, 11.0f * scale, L"", dateFormat_.put()))) {
         return size_;
@@ -344,7 +470,7 @@ D2D1_SIZE_U Clock::BuildLayout(IDWriteFactory* dwrite, float scale) {
             timeLayout_ = nullptr;
         }
     }
-    if (showDate_ && !dateLayout_ && !dateText_.empty()) {
+    if (SecondLine() && !dateLayout_ && !dateText_.empty()) {
         const std::wstring text = shown(dateText_);
         if (FAILED(dwrite->CreateTextLayout(text.c_str(), static_cast<UINT32>(text.size()), dateFormat_.get(), 4096.0f,
                                             4096.0f, dateLayout_.put()))) {

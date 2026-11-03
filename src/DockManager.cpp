@@ -35,16 +35,14 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     callbacks_ = std::move(callbacks);
     monitors_ = EnumerateMonitors();
     widgets_.Initialize(owner_);
-    weather_.SetChangedCallback([this] {
-        ForEach([](DockWindow& w) { w.OnWeatherChanged(); });
-        widgets_.NotifyWeather();  // the widgets using the provider (never inside a script call)
-        if (callbacks_.weatherChanged) callbacks_.weatherChanged();
-    });
-    // Script widgets share this one service (phase 14): their first / last use and refresh() are
-    // posted here, so the service starts, stops or fetches outside the script's call.
-    widgets_.SetWeather(&weather_, [this](WidgetRuntime::WeatherAction a) {
-        if (owner_) PostMessageW(owner_, kWeatherRequest, static_cast<WPARAM>(a), 0);
-    });
+    // Script widgets use the service of their place (round 5: the item's own, else the dock's first
+    // weather item's): created on first use; their first / last use and refresh() are posted here,
+    // so services start, stop or fetch outside the script's call.
+    widgets_.SetWeather([this](const WeatherConfig& place) { return WeatherFor(place); },
+                        [this](WidgetRuntime::WeatherAction a, const WeatherConfig& place) {
+                            if (a == WidgetRuntime::WeatherAction::Refresh) weatherRefresh_.push_back(place);
+                            if (owner_) PostMessageW(owner_, kWeatherRequest, static_cast<WPARAM>(a), 0);
+                        });
     // The window list for every dock (the initial enumeration runs now, before any dock exists).
     tracker_.SetTitleCallback([this](const std::vector<HWND>& windows) {
         ForEach([&](DockWindow& w) { w.OnWindowTitles(windows); });
@@ -128,7 +126,12 @@ void DockManager::Shutdown() {
     watch_.Stop();
     tracker_.Stop();
     widgets_.SetWeather(nullptr, nullptr);
-    weather_.Stop();  // a fetch still in flight posts to a window that is gone (and frees it)
+    for (auto& w : weather_) {
+        w->SetChangedCallback(nullptr);
+        w->Stop();  // a fetch still in flight posts to a window that is gone (and frees it)
+    }
+    weather_.clear();
+    weatherRefresh_.clear();
     calendar_.SetChanged(nullptr);
     calendar_.SetReminderCallback(nullptr);
     calendar_.Stop();
@@ -363,13 +366,131 @@ bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == WM_TIMECHANGE) calendar_.TimeChanged();     // (not consumed)
     if (msg == kWeatherRequest) {
         if (static_cast<WidgetRuntime::WeatherAction>(wp) == WidgetRuntime::WeatherAction::Refresh) {
-            weather_.RefreshNow();
-        } else if (weather_.Shown() != AnyWeatherItem()) {
-            ConfigureWeather();
+            const std::vector<WeatherConfig> places = std::move(weatherRefresh_);
+            weatherRefresh_.clear();
+            for (const WeatherConfig& p : places) RefreshWeather(&p);
+        } else {
+            SyncWeather();
         }
         return true;
     }
-    return weather_.HandleMessage(msg, wp, lp);  // fetch results, the refresh timer
+    if (msg == WeatherService::kResultMessage) {
+        // A fetch finished: the service whose fetch it is (generations are process-wide), else
+        // nobody wants it any more (the service was dropped meanwhile) and it is freed here.
+        for (auto& w : weather_) {
+            if (w->HandleMessage(msg, wp, lp)) return true;
+        }
+        delete reinterpret_cast<WeatherService::Response*>(lp);
+        return true;
+    }
+    if (msg == WM_TIMER && wp >= kWeatherTimerBase && wp < kWeatherTimerBase + 256) {
+        for (auto& w : weather_) {
+            if (w->HandleMessage(msg, wp, lp)) return true;
+        }
+        KillTimer(owner_, wp);  // a dropped service's
+        return true;
+    }
+    return false;
+}
+
+std::unique_ptr<WeatherService> DockManager::MakeWeather(const WeatherConfig& place) {
+    auto service = std::make_unique<WeatherService>();
+    service->SetTimerId(FreeWeatherTimer());
+    // Not started (shown = false): it answers for this place (not configured / no data) until
+    // SyncWeather configures it. Before the callback: WeatherFor may run inside a script call.
+    service->Configure(place, false, owner_);
+    WeatherService* raw = service.get();
+    service->SetChangedCallback([this, raw] {
+        ForEach([](DockWindow& w) { w.OnWeatherChanged(); });
+        widgets_.NotifyWeather(raw->Settings());  // the widgets of this place (never inside a script call)
+        if (callbacks_.weatherChanged) callbacks_.weatherChanged();
+    });
+    return service;
+}
+
+UINT_PTR DockManager::FreeWeatherTimer() const {
+    for (UINT_PTR id = kWeatherTimerBase; id < kWeatherTimerBase + 256; ++id) {
+        if (std::none_of(weather_.begin(), weather_.end(), [&](const auto& w) { return w->TimerId() == id; })) return id;
+    }
+    return kWeatherTimerBase + 255;  // 256 places at once: they share the last id (not expected)
+}
+
+const WeatherService* DockManager::FindWeather(const WeatherConfig& place) const {
+    for (const auto& w : weather_) {
+        if (WeatherService::SamePlace(w->Settings(), place)) return w.get();
+    }
+    return nullptr;
+}
+
+WeatherService* DockManager::WeatherFor(const WeatherConfig& place) {
+    for (auto& w : weather_) {
+        if (WeatherService::SamePlace(w->Settings(), place)) return w.get();
+    }
+    if (!config_) return nullptr;
+    // The next SyncWeather (posted by a widget's first use; run by the dock after an item change)
+    // starts it.
+    weather_.push_back(MakeWeather(place));
+    return weather_.back().get();
+}
+
+std::vector<WeatherConfig> DockManager::WantedWeather() const {
+    std::vector<WeatherConfig> wanted;
+    if (!config_) return wanted;
+    auto add = [&](const WeatherConfig& w) {
+        if (std::none_of(wanted.begin(), wanted.end(), [&](const WeatherConfig& o) { return WeatherService::SamePlace(o, w); })) {
+            wanted.push_back(w);
+        }
+    };
+    for (const DockConfig& d : config_->docks) {
+        if (d.IsFolderWindow() || !(d.Each() || MonitorIndexFor(d) >= 0)) continue;  // parked: nothing fetches
+        for (const DockItemEntry& e : d.items) {
+            if (e.Kind() != ItemKind::Weather) continue;
+            const WeatherConfig w = WeatherOf(*config_, e);
+            if (w.Configured()) add(w);  // without a place the item shows the map pin: no service
+        }
+    }
+    for (const WeatherConfig& w : widgets_.WeatherUserConfigs()) add(w);  // also unconfigured: get() answers
+    return wanted;
+}
+
+void DockManager::SyncWeather() {
+    if (!config_) return;
+    if (weatherSyncing_) {  // a change notification asked again: once this one is done
+        if (owner_) PostMessageW(owner_, kWeatherRequest, static_cast<WPARAM>(WidgetRuntime::WeatherAction::Sync), 0);
+        return;
+    }
+    weatherSyncing_ = true;
+    const std::vector<WeatherConfig> wanted = WantedWeather();
+    // The services nobody wants go (stopped first, freed after the notifications below).
+    std::vector<std::unique_ptr<WeatherService>> dropped;
+    for (auto it = weather_.begin(); it != weather_.end();) {
+        const bool keep = std::any_of(wanted.begin(), wanted.end(),
+                                      [&](const WeatherConfig& w) { return WeatherService::SamePlace(w, (*it)->Settings()); });
+        if (keep) {
+            ++it;
+            continue;
+        }
+        (*it)->SetChangedCallback(nullptr);
+        (*it)->Stop();
+        dropped.push_back(std::move(*it));
+        it = weather_.erase(it);
+    }
+    // Then every wanted place runs (a new one loads its cache and fetches; a running one only takes
+    // the new name). Pointers first: a notification may add a service (a widget's first call).
+    std::vector<std::pair<WeatherService*, WeatherConfig>> run;
+    for (const WeatherConfig& w : wanted) run.emplace_back(WeatherFor(w), w);
+    for (auto& [service, w] : run) {
+        if (service) service->Configure(w, true, owner_);
+    }
+    if (!dropped.empty()) ForEach([](DockWindow& w) { w.OnWeatherChanged(); });  // elements whose service went
+    dropped.clear();
+    weatherSyncing_ = false;
+}
+
+void DockManager::RefreshWeather(const WeatherConfig* place) {
+    for (auto& w : weather_) {
+        if (!place || WeatherService::SamePlace(w->Settings(), *place)) w->RefreshNow();
+    }
 }
 
 int DockManager::MonitorIndexFor(const DockConfig& d) const {
@@ -487,8 +608,8 @@ HRESULT DockManager::Sync() {
         }
         if (appBarAllowed_) inst.window->AllowAppBar(true);
     }
-    // The weather service follows the docks that are shown (a parked weather dock does not fetch).
-    ConfigureWeather();
+    // The weather services follow the docks that are shown (a parked weather dock does not fetch).
+    SyncWeather();
     ConfigureCalendar();
     syncing_ = false;
     SyncTray();
@@ -545,23 +666,8 @@ std::vector<RECT> DockManager::ReservedMonitors() const {
     return rects;
 }
 
-bool DockManager::AnyWeatherItem() const {
-    if (!config_) return false;
-    if (widgets_.WeatherUsers() > 0) return true;  // a script widget uses the weather provider (phase 14)
-    for (const DockConfig& d : config_->docks) {
-        if (!d.Has(ItemKind::Weather)) continue;
-        if (d.Each() || MonitorIndexFor(d) >= 0) return true;  // shown (not parked)
-    }
-    return false;
-}
-
 void DockManager::ConfigureCalendar() {
     if (config_) calendar_.Configure(config_->calendars, owner_);
-}
-
-void DockManager::ConfigureWeather() {
-    if (!config_) return;
-    weather_.Configure(config_->weather, AnyWeatherItem(), owner_);
 }
 
 void DockManager::SetWatching(DockWindow* dock, bool on) {

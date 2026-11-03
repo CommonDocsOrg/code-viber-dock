@@ -45,12 +45,17 @@ public:
     virtual WindowTracker& Tracker() = 0;
     // The calendar feeds (round 4 phase 13). Active() only while some feed is enabled.
     virtual CalendarService& Calendar() = 0;
-    virtual WeatherService& WeatherData() = 0;
-    // Re-applies config.weather to the service; it runs while any dock has a weather item or a
-    // script widget uses the weather provider (phase 14).
-    virtual void ConfigureWeather() = 0;
-    // The service is wanted: a shown dock has a weather item, or a widget uses the provider.
-    virtual bool AnyWeatherItem() const = 0;
+    // The weather (round 5 phase A): one WeatherService per place (latitude, longitude, units,
+    // refreshMinutes; WeatherService::SamePlace). The service of a place: null while none runs for
+    // it (an unconfigured item, or before SyncWeather made it). Look it up when it is used: a
+    // service nobody needs any more is dropped by the next SyncWeather.
+    virtual const WeatherService* FindWeather(const WeatherConfig& place) const = 0;
+    // Makes the services match what is shown: every weather item of a shown dock (with a place)
+    // and every script widget using the provider gets its place's service (created, configured);
+    // the others are stopped and dropped. Cheap when nothing changed.
+    virtual void SyncWeather() = 0;
+    // Fetches now: the service of `place`, or every service (null).
+    virtual void RefreshWeather(const WeatherConfig* place) = 0;
     virtual ForegroundWatch& Watch() = 0;
     // A dock starts / stops needing the foreground watch (autoHide "intelligent"): the hooks run
     // while at least one does, and every watching dock gets its overlap re-checked on an event.
@@ -316,16 +321,23 @@ public:
     // Opens / activates member `member` of the group `group` (as a click in its popup does).
     void OpenGroupMember(const AppKey& group, size_t member);
 
-    // --- the weather service (the weather elements' data) and widget popups ---
-    // Re-reads config->weather (start / stop / restart the service) and relayouts if the widget's
-    // size changed. Also part of ApplyConfig.
+    // --- the weather services (the weather elements' data) and widget popups ---
+    // Re-reads the weather items (the services start / stop / move to another place) and relayouts
+    // if a widget's size changed. Also part of ApplyConfig.
     void ApplyWeather();
     // Shows / hides the click popup of the first item of `kind`: the forecast over the weather
     // widget, the month calendar over the clock (no-op without such an item).
     void TogglePopup(ItemKind kind);
-    const WeatherService& Weather() const override { return shared_->WeatherData(); }
+    const WeatherService* WeatherFor(const WeatherConfig& place) const override {
+        return shared_ ? shared_->FindWeather(place) : nullptr;
+    }
+    // The service of config item `item` of this dock (a weather item; also the first weather item
+    // for `item` 0 when item 0 is not one: QueryState 27 - 30). Null: none (no such item, no place).
+    const WeatherService* WeatherOfItem(LPARAM item) const;
     struct WeatherCallbacks {
-        std::function<void()> openSettings;  // the unconfigured widget was clicked: Settings > Weather
+        // The settings of config item `item` of this dock (round 5: the generated page; the
+        // unconfigured weather widget's map pin, weather.openSettings(), the popup's button).
+        std::function<void(size_t item)> openSettings;
     };
     void SetWeatherCallbacks(WeatherCallbacks callbacks) { weatherCallbacks_ = std::move(callbacks); }
 
@@ -775,6 +787,10 @@ private:
                            ItemView view);
     // The slot that shows widget `w` (-1: none) / the instance with this key (null: none).
     int SlotOfWidget(const WidgetInstance& w) const;
+    // The slot with this key (-1: none / an empty key).
+    int SlotOfKey(const AppKey& key) const;
+    // Slot `slot`'s weather place (a weather element). False: not a weather slot.
+    bool PlaceOfSlot(int slot, WeatherConfig& place) const;
     WidgetInstance* WidgetByKey(const std::wstring& key) const;
     // Popup chrome from the theme (scale, acrylic, tint, colours, monitor).
     WeatherPopup::Style WeatherPopupStyle() const;
@@ -891,9 +907,7 @@ private:
     void LaunchSlot(int slot, bool newInstance) override { LaunchItem(slot, newInstance); }
     bool PopupShownFor(int slot) const override;
     void ShowClickPopup(int slot) override;
-    void OpenWeatherSettings() override {
-        if (weatherCallbacks_.openSettings) weatherCallbacks_.openSettings();
-    }
+    void OpenItemSettings(int slot) override;
     WidgetInstance* AcquireWidget(const DockItemEntry& entry, size_t ordinal) override;
     D2D1_RECT_F SlotScreenBox(int slot) const override;
     TrayHost* Tray() override;
@@ -1121,6 +1135,12 @@ private:
     std::wstring previewOpener_;               // the widget that opened the preview popup (popup.previews)
     std::wstring calendarOpener_;               // the widget that opened the calendar popup (popup.calendar)
     float calendarAnchor_ = 0.0f;               // the stage anchor it opened at
+    // Round 5: the clock slot whose click opened it (empty: a widget / automation), and the
+    // footer's target (that clock's clickTarget; else the defaults').
+    AppKey calendarClock_;
+    std::wstring calendarTarget_;
+    // The weather slot the forecast popup shows (its item's place).
+    AppKey weatherKey_;
     std::vector<std::wstring> popupRequests_;   // instance keys with a pending popup request
     bool popupRequestPosted_ = false;           // kWidgetPopupMessage is posted
     std::vector<DockItem> items_;  // the slots, in dock order
@@ -1277,7 +1297,7 @@ private:
     NotificationPopup centre_;
     std::wstring centreOpener_;
     std::wstring centreRequest_;  // a widget's pending openCentre (kCentreRequestMessage)
-    // The forecast and calendar popups (the weather data is shared_->WeatherData())
+    // The forecast and calendar popups (the forecast of weatherKey_'s place: shared_->FindWeather)
     WeatherPopup weatherPopup_;
     CalendarPopup calendar_;
     // Calendar reminders (13b): the banner and the reminders waiting for it (the front one is shown).

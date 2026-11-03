@@ -860,7 +860,7 @@ SettingsPage* SettingsWindow::PageOf(HWND control) const {
 
 void SettingsWindow::SelectPage(int index) {
     index = std::clamp(index, 0, static_cast<int>(pages_.size()) - 1);
-    if (index == active_) return;
+    if (index == active_ || !pages_[static_cast<size_t>(index)]->InNav()) return;  // a retired page
     HWND focus = GetFocus();
     SettingsPage* old = ActivePage();
     const bool focusInOld = old && focus && IsChild(old->hwnd_, focus);

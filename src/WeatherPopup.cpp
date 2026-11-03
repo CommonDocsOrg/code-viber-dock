@@ -45,9 +45,16 @@ bool Empty(const RECT& r) { return r.right <= r.left || r.bottom <= r.top; }
 
 }  // namespace
 
-void WeatherPopup::Init(HINSTANCE instance, Renderer* renderer, const WeatherService* weather, Callbacks callbacks) {
+const WeatherService* WeatherPopup::W() const {
+    static const WeatherService kNone;  // no service (yet) for the place: "No location" / no data
+    const WeatherService* w = source_ ? source_() : nullptr;
+    return w ? w : &kNone;
+}
+
+void WeatherPopup::Init(HINSTANCE instance, Renderer* renderer, std::function<const WeatherService*()> source,
+                        Callbacks callbacks) {
     PopupWindow::Init(instance, renderer);
-    weather_ = weather;
+    source_ = std::move(source);
     callbacks_ = std::move(callbacks);
     SetClosedCallback(callbacks_.closed);
 }
@@ -58,7 +65,7 @@ void WeatherPopup::OnDestroying() {
 }
 
 bool WeatherPopup::Show(const Style& style, const PopupAnchor& anchor) {
-    if (!weather_) return false;
+    if (!source_) return false;
     style_ = style;
     frame_ = Frame{};
     frame_.scale = style.scale;
@@ -133,7 +140,7 @@ std::wstring WeatherPopup::Temp(double value, bool unit) const {
     long v = std::lround(value);
     if (v == 0) v = 0;  // no "-0"
     std::wstring s = std::to_wstring(v) + L"°";
-    if (unit) s += weather_ && weather_->Settings().units == Units::Imperial ? L"F" : L"C";
+    if (unit) s += W()->Settings().units == Units::Imperial ? L"F" : L"C";
     return s;
 }
 
@@ -144,27 +151,26 @@ std::wstring WeatherPopup::HourLabel(int hour) const {
 }
 
 std::wstring WeatherPopup::Message() const {
-    if (!weather_) return {};
-    if (!weather_->Settings().Configured()) return L"No location is set.";
-    if (weather_->Busy()) return L"Loading the forecast…";
-    if (!weather_->LastError().empty()) return L"Weather unavailable: " + weather_->LastError();
+    if (!W()->Settings().Configured()) return L"No location is set.";
+    if (W()->Busy()) return L"Loading the forecast…";
+    if (!W()->LastError().empty()) return L"Weather unavailable: " + W()->LastError();
     return L"No weather data yet.";
 }
 
 SIZE WeatherPopup::Measure() {
     EnsureFormats();
     const float s = style_.scale;
-    const WeatherService::Forecast& data = weather_->Data();
+    const WeatherService::Forecast& data = W()->Data();
     full_ = data.valid;
     const LONG pad = Px(kPad, s);
     if (!full_) {
         const LONG w = Px(kMessageWidth, s);
         LONG h = Px(kMainTop + 40.0f, s);
-        refreshRect_ = weather_->Settings().Configured()
+        refreshRect_ = W()->Settings().Configured()
                            ? RECT{w - pad - Px(kButton, s), Px(9.0f, s), w - pad, Px(9.0f, s) + Px(kButton, s)}
                            : RECT{};
         creditRect_ = RECT{};
-        if (!weather_->Settings().Configured()) {
+        if (!W()->Settings().Configured()) {
             const LONG bw = static_cast<LONG>(std::ceil(TextWidth(bodyFormat_.get(), kSettingsText))) + Px(24.0f, s);
             settingsRect_ = RECT{(w - bw) / 2, h, (w + bw) / 2, h + Px(28.0f, s)};
             h = settingsRect_.bottom + Px(kBottomPad, s);
@@ -180,7 +186,7 @@ SIZE WeatherPopup::Measure() {
     const LONG creditW = static_cast<LONG>(std::ceil(TextWidth(smallFormat_.get(), kCredit)));
     const LONG creditTop = Px(kMainTop + 28.0f, s);
     creditRect_ = RECT{w - pad - creditW, creditTop, w - pad, creditTop + Px(18.0f, s)};
-    const size_t days = std::min<size_t>(kDays, weather_->DailyWindow(kDays).size());
+    const size_t days = std::min<size_t>(kDays, W()->DailyWindow(kDays).size());
     const float dailyTop = kHourlyTop + kHourlyH + 2.0f * kRuleGap;
     const LONG h = Px(dailyTop + static_cast<float>(days) * kRowH + kBottomPad, s);
     return SIZE{w, h};
@@ -197,8 +203,8 @@ void WeatherPopup::Paint(ID2D1DeviceContext* dc) {
     PaintPanel(dc, style_.tint, style_.border);
     winrt::com_ptr<ID2D1SolidColorBrush> brush;
     if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(style_.text), brush.put()))) return;
-    const WeatherService::Forecast& data = weather_->Data();
-    const bool stale = weather_->State() == WeatherService::Status::Stale;
+    const WeatherService::Forecast& data = W()->Data();
+    const bool stale = W()->State() == WeatherService::Status::Stale;
     WeatherGlyphs::Colors glyphs = style_.glyphs;
 
     auto hotBox = [&](const RECT& r, bool isHot) {
@@ -219,7 +225,7 @@ void WeatherPopup::Paint(ID2D1DeviceContext* dc) {
     };
 
     // Title row: the location and the refresh button.
-    std::wstring title = weather_->Settings().location;
+    std::wstring title = !style_.title.empty() ? style_.title : W()->Settings().location;
     if (title.empty()) title = L"Weather";
     const float titleRight = Empty(refreshRect_) ? w - pad : static_cast<float>(refreshRect_.left) - 8.0f * s;
     Text(dc, titleFormat_.get(), title, D2D1::RectF(pad, kTitleTop * s, titleRight, (kTitleTop + kTitleH) * s),
@@ -231,7 +237,7 @@ void WeatherPopup::Paint(ID2D1DeviceContext* dc) {
         const float g = std::round(16.0f * s);
         const float cx = (r.left + r.right) / 2.0f, cy = (r.top + r.bottom) / 2.0f;
         WeatherGlyphs::DrawRefresh(dc, D2D1::RectF(cx - g / 2.0f, cy - g / 2.0f, cx + g / 2.0f, cy + g / 2.0f),
-                                   weather_->Busy() ? (style_.text & 0x00FFFFFFu) | 0x66000000u
+                                   W()->Busy() ? (style_.text & 0x00FFFFFFu) | 0x66000000u
                                                     : (isHot ? style_.text : style_.secondary));
     }
 
@@ -268,7 +274,7 @@ void WeatherPopup::Paint(ID2D1DeviceContext* dc) {
     if (std::isfinite(data.wind)) {
         if (!details.empty()) details += L" · ";
         details += L"Wind " + std::to_wstring(std::lround(data.wind)) +
-                   (weather_->Settings().units == Units::Imperial ? L" mph" : L" km/h");
+                   (W()->Settings().units == Units::Imperial ? L" mph" : L" km/h");
     }
     Text(dc, smallFormat_.get(), details, D2D1::RectF(condX, mainTop + 28.0f * s, rightCol - 8.0f * s, mainTop + 46.0f * s),
          style_.secondary, 1.0f, DWRITE_TEXT_ALIGNMENT_LEADING);
@@ -288,7 +294,7 @@ void WeatherPopup::Paint(ID2D1DeviceContext* dc) {
 
     // Hourly strip.
     glyphs.opacity = 1.0f;
-    const std::vector<WeatherService::Hour> hours = weather_->HourlyWindow(kHours);
+    const std::vector<WeatherService::Hour> hours = W()->HourlyWindow(kHours);
     const float colW = (w - 2.0f * pad) / static_cast<float>(kHours);
     const float top = kHourlyTop * s;
     double lo = 1e9, hi = -1e9;
@@ -356,7 +362,7 @@ void WeatherPopup::Paint(ID2D1DeviceContext* dc) {
     rule(kHourlyTop + kHourlyH + kRuleGap / 2.0f);
 
     // Daily rows.
-    const std::vector<WeatherService::Day> days = weather_->DailyWindow(kDays);
+    const std::vector<WeatherService::Day> days = W()->DailyWindow(kDays);
     double weekLo = 1e9, weekHi = -1e9;
     for (const auto& d : days) {
         if (std::isfinite(d.tmin)) weekLo = std::min(weekLo, d.tmin);

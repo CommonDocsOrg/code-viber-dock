@@ -19,7 +19,30 @@
 // Timer scheduling is a one-shot SetTimer aligned to the next minute (or second) boundary.
 class Clock {
 public:
+    // A Windows time zone (EnumDynamicTimeZoneInformation): its key name ("Tokyo Standard Time",
+    // what clock.timeZone holds), display name ("(UTC+09:00) Osaka, Sapporo, Tokyo") and standard
+    // bias (minutes; UTC = local + bias).
+    struct TimeZoneInfo {
+        std::wstring key;
+        std::wstring display;
+        long bias = 0;
+    };
+    // Every zone of this Windows, sorted as Windows lists them: by UTC offset, then display name.
+    static std::vector<TimeZoneInfo> TimeZones();
+    // The zone with key name `key` (case-insensitive). False if there is none.
+    static bool FindTimeZone(const std::wstring& key, DYNAMIC_TIME_ZONE_INFORMATION& out);
+    // Minutes zone `key` is ahead of the local time now ("" / unknown: 0).
+    static int ZoneOffsetMinutes(const std::wstring& key);
+
     void Configure(const std::wstring& format, bool showDate);
+    // Round 5 phase A: the zone shown ("" = the local time; an unknown key reads as local) and a
+    // label on the date's line (before the date, or alone under the time without it). Call after
+    // Configure.
+    void SetTimeZone(const std::wstring& key);
+    void SetLabel(const std::wstring& label);
+    // Minutes the shown zone is ahead of the local time (0 for the local time).
+    int OffsetMinutes() const;
+    bool Zoned() const { return zoned_; }
     // ARGB colours of the time and date lines (theme.clockText / clockDateText).
     void SetColors(uint32_t text, uint32_t date) {
         textColor_ = text;
@@ -107,9 +130,19 @@ private:
     float faceLastCentre_ = 0.0f;
     float padX_ = 0.0f, padY_ = 0.0f;  // px
 
+    // The time now in the shown zone (the local time without one). False on failure.
+    bool Now(tm& out) const;
+    // The date line is drawn (the date, the label or both).
+    bool SecondLine() const { return showDate_ || !label_.empty(); }
+    // The date line's text from its date part (label first, " · " between them).
+    std::wstring DateLine(const std::wstring& date) const;
+
     std::wstring format_ = L"%H:%M";
     bool showDate_ = false;
     bool stacked_ = false;
+    bool zoned_ = false;
+    DYNAMIC_TIME_ZONE_INFORMATION zone_{};
+    std::wstring label_;
     uint32_t textColor_ = 0xF2FFFFFF;
     uint32_t dateColor_ = 0xB6FFFFFF;
     std::wstring timeText_;

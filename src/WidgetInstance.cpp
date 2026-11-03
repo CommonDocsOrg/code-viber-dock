@@ -48,12 +48,13 @@ const char* FnName(ScriptEngine::Fn fn) {
 
 WidgetInstance::WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Factory1* d2d, IDWriteFactory* dwrite,
                                std::wstring id, std::wstring key, std::wstring itemSettings,
-                               const ScriptDockInfo& dock)
+                               const ScriptDockInfo& dock, const WeatherConfig& weather)
     : runtime_(runtime),
       client_(client),
       id_(std::move(id)),
       key_(std::move(key)),
       itemSettings_(std::move(itemSettings)),
+      weather_(weather),
       canvas_(d2d, dwrite, [this](const std::string& path, std::string& bytes, std::wstring& error) {
           return ReadFile(path, bytes, error);
       }),
@@ -134,6 +135,13 @@ void WidgetInstance::Reload() {
     if (!refreshSet_) refreshMs_ = static_cast<uint32_t>(m.refreshMs);
     ScheduleRefresh();
     client_.WidgetChanged(*this);
+}
+
+void WidgetInstance::SetWeatherConfig(const WeatherConfig& weather) {
+    if (weather == weather_) return;
+    const bool samePlace = WeatherService::SamePlace(weather, weather_);
+    weather_ = weather;
+    if (!samePlace) runtime_.WeatherPlaceChanged(this);  // its service follows (posted)
 }
 
 void WidgetInstance::SetSettings(const std::wstring& itemSettings) {
@@ -1232,13 +1240,14 @@ const char* StateName(WeatherService::Status s) {
 
 }  // namespace
 
-std::string WidgetInstance::WeatherJson(const WeatherService& w) {
+std::string WidgetInstance::WeatherJson(const WeatherService& w, const WeatherConfig& place) {
     const WeatherConfig& cfg = w.Settings();
     const WeatherService::Forecast& f = w.Data();
     const bool imperial = cfg.units == Units::Imperial;
     std::string o = "{\"state\":\"" + std::string(StateName(w.State())) + "\"";
     o += ",\"configured\":" + std::string(Bool(cfg.Configured()));
-    o += ",\"place\":" + J(cfg.location);
+    o += ",\"place\":" + J(place.location.empty() ? cfg.location : place.location);
+    o += ",\"label\":" + J(place.label);
     o += ",\"latitude\":" + NumOrNull(cfg.latitude) + ",\"longitude\":" + NumOrNull(cfg.longitude);
     o += std::string(",\"units\":\"") + (imperial ? "imperial" : "metric") + "\"";
     o += std::string(",\"temperatureUnit\":\"") + (imperial ? "F" : "C") + "\"";
@@ -1291,16 +1300,16 @@ bool WidgetInstance::WeatherCall(const std::string& what, const std::string& arg
         return false;
     }
     if (what == "get") {
-        out = WeatherJson(*w);
+        out = WeatherJson(*w, weather_);
         return true;
     }
     if (what == "refresh") {
-        runtime_.WeatherRequest(WidgetRuntime::WeatherAction::Refresh);  // posted: never inside this call
+        runtime_.WeatherRequest(WidgetRuntime::WeatherAction::Refresh, weather_);  // posted: never inside this call
         out = "null";
         return true;
     }
     if (what == "openSettings") {
-        RequestPopup(PopupRequest{PopupRequest::Kind::WeatherSettings});  // the dock opens Settings > Weather
+        RequestPopup(PopupRequest{PopupRequest::Kind::WeatherSettings});  // the dock opens this item's settings
         out = "null";
         return true;
     }

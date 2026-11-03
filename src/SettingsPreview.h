@@ -65,5 +65,7 @@ private:
     Clock clock_;
     std::wstring clockFormat_;  // what clock_ was configured with
     bool clockDate_ = false;
+    std::wstring clockZone_;
+    std::wstring clockLabel_;
     bool clockConfigured_ = false;
 };

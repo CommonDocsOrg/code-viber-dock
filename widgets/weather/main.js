@@ -1,7 +1,8 @@
 // Weather (script): the dock's weather element and its forecast popup rewritten on the widget
-// runtime (round 4 phase 14). The data comes from the dock's own WeatherService through the
-// `weather` provider: one fetcher, one cadence (Settings > Weather > refresh interval), shared
-// with the native "weather" item; this widget never fetches anything itself. The slot draws what
+// runtime (round 4 phase 14). The data comes from the dock's WeatherService of its place through
+// the `weather` provider (round 5: its own place, units and interval from its settings, else the
+// place of its dock's first Weather item): one fetcher per place, shared with every item of that
+// place; this widget never fetches anything itself. The slot draws what
 // src/WidgetElements.cpp's WeatherElement draws (the condition glyph, the temperature in the
 // clock's font, dimmed while the data is stale or missing, a "set location" glyph when no place is
 // chosen) with the same sizes, so the two look alike side by side. The popup follows
@@ -34,11 +35,12 @@ const tempText = (t) => (t === null || t === undefined ? '--°' : `${lround(t) |
 const fresh = () => wx.state === 'fresh';
 
 function slotLines(dock) {
-  // The temperature, then the optional second line (today's high / low, the place).
+  // The temperature, then the optional second line (its label, today's high / low, the place).
   if (!wx.configured || settings.compact) return { main: '', extra: '' };
   const main = wx.current ? tempText(wx.current.temp) : '--°';
   const today = wx.daily && wx.daily[0];
   const parts = [];
+  if (settings.label) parts.push(settings.label);
   if (settings.showHigh && today) parts.push('↑' + tempText(today.max));
   if (settings.showLow && today) parts.push('↓' + tempText(today.min));
   if (settings.showPlace && wx.place) parts.push(wx.place);
@@ -207,7 +209,7 @@ export function drawPopup(canvas, dock) {
   // Title row: the place, the settings and refresh buttons.
   const refresh = { x: w - PAD - BUTTON, y: 9, w: BUTTON, h: BUTTON, what: 'refresh' };
   const gear = { x: refresh.x - 4 - BUTTON, y: 9, w: BUTTON, h: BUTTON, what: 'settings' };
-  line(canvas, wx.place || 'Weather', PAD, TITLE_TOP, TITLE_H, { size: 14, weight: 'semibold', color: text });
+  line(canvas, settings.label || wx.place || 'Weather', PAD, TITLE_TOP, TITLE_H, { size: 14, weight: 'semibold', color: text });
   canvas.fillRoundRect(gear.x, gear.y, gear.w, gear.h, 6, fade(text, 0.08));
   canvas.text('', gear.x + gear.w / 2, gear.y + gear.h / 2, { font: 'Segoe Fluent Icons', size: 14, align: 'center', baseline: 'middle', color: secondary });
   hits.push(gear);
