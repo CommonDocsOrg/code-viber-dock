@@ -603,9 +603,9 @@ write and edit without compiling anything. The full reference (every call, every
   session's art, title and artist (Spotify, browsers, Media Player ...); hover the art for previous /
   play-pause / next, click the text for a popup; optionally the wheel changes the volume), **Start**
   (`start`: the Windows logo or your icon, opens Start), **Search** (`search`: opens Windows Search)
-  and **Notifications** (`notification-bell`: a bell that opens Windows' notification centre (Win+N);
-  with its "Show the unread count" setting on (off by default: nothing polls) the badge is the
-  number of unread notifications). A folder with a built-in's id replaces the built-in; your own clock faces
+  and **Notifications** (`notification-bell`: a bell that opens Windows' notification centre (Win+N)
+  or, with its "A click opens" setting, WinDock's own centre; with its "Show the unread count"
+  setting on (off by default: nothing polls) the badge is the number of unread notifications). A folder with a built-in's id replaces the built-in; your own clock faces
   go into an exported `analog-clock\faces` folder.
 - **Adding one**: Settings > Dock contents > **Add widget ▾** lists the installed widgets after
   Clock / Weather / Running apps, or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
@@ -741,6 +741,22 @@ Off by default (round 4 phase 9). The dock reads Windows' notification centre th
 unpackaged app to read it without a prompt as long as Settings > Privacy & security >
 Notifications ("Let apps access your notifications") is on; the access is checked on every poll.
 
+- **The notification centre** (`{ "kind": "notifications" }`, one per dock; dock menu Add widget >
+  Notification centre, Settings > Notifications or Dock contents > Add widget): a bell with the
+  unread count in a bubble (theme `badgeFill` / `badgeText` / `badgeSize`; dimmed while access is
+  denied). A click opens the centre above the bell (beside a vertical dock): one row per
+  notification, newest first, with the app's icon, the title, two lines of text and the relative
+  time ("now", "5 min", "3 h", "yesterday", then the date), scrolling past six rows. A click on a
+  row brings its app to the front from the dock (its windows, or it starts: shell:AppsFolder for
+  an AUMID, the exe for a path; Windows does not let another app activate the toast itself) and
+  dismisses the notification; the hovered row's cross (or Delete on the selected row) dismisses
+  it; **Clear all** dismisses every listed one. Up / Down / Home / End select, Enter opens,
+  Escape or another window coming forward closes it. With nothing listed it says "No
+  notifications"; without access it shows the reason and **Open Windows settings**
+  (ms-settings:privacy-notifications). New notifications appear while it is open (it polls every
+  second meanwhile). Older builds skip the item. There is no Do not disturb switch: Windows has no
+  public API to read or set it (the quick settings have one). The Notifications widget is the
+  scriptable alternative (`notifications.openCentre()` opens this same list over the widget).
 - **Badges** (per dock `badges`, default off; DockCommand 132 toggles it): a bubble with the
   number of unread notifications of each app on its slot, at the icon's outer corner (top right
   on bottom and left docks, bottom right on top docks, top left on right docks). It is part of the
@@ -771,13 +787,20 @@ Notifications ("Let apps access your notifications") is on; the access is checke
 - **Tray balloons**: with `notifications.balloons` (and the tray takeover running) a tray icon's
   balloon is a notification of the dock's list (attributed to the icon's exe: it badges that app)
   and Explorer no longer shows it as a toast. Off (default), Explorer shows it as a toast, which the
-  dock reads like any other.
+  dock reads like any other; Explorer files those toasts under an AUMID of its own
+  (`NotifyIconGeneratedAumid_<number>`), so they badge no dock slot.
 - **Overlay icons and progress** (`ITaskbarList3`) do not reach the dock: they are not window
   messages to `Shell_TrayWnd` (checked with the tray takeover's window above Explorer's, nothing
   arrived). While the takeover runs apps' `ITaskbarList3::HrInit` fails with `E_NOTIMPL` and
   `SetOverlayIcon` with `E_FAIL` (the taskbar they would draw on is hidden anyway).
 - **Widgets**: the `notifications` provider (permission `"notifications"`, docs/widgets.md) and
   the Notifications widget's unread count.
+- **Settings > Notifications**: Show notification badges on this dock's apps, Show the notification
+  centre on this dock (adds / removes the item), Show tray balloons in the centre instead of
+  Windows toasts, Clear an app's badge when it is opened from the dock, the poll interval
+  (seconds), the access status with **Open Windows settings**, and **Badges per app**: this dock's
+  apps and every app with a notification now, with a check box each (unchecked: in
+  `notifications.excluded`, no badge on any dock).
 
 ## Settings
 
@@ -860,6 +883,9 @@ the page, Esc closes the window, Enter applies the text in an edit box):
 - **Widget settings**: the settings of one widget item of the dock, generated from its widget.json
   schema (a drop-down at the top picks the item; **Settings…** on a widget row of Dock contents
   opens it), with **Reset to defaults**.
+- **Notifications** (round 4 phase 9): badges and the notification centre on the dock it edits, tray
+  balloons in the centre, clear on activate, the poll interval, Windows' access status, badges per
+  app (see Notifications and badges).
 - **Folders and groups**: one folder or shortcut group of the dock (a drop-down picks it;
   **Settings…** on its row of Dock contents opens it): **Show the contents as** Automatic (a grid
   up to 48 entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose
@@ -997,6 +1023,8 @@ their kind, a path that is a folder becomes `"folder"`, everything else `"app"`)
       is off. Older builds skip the item.
     - `"trayApp"`: one notify icon pinned as a dock icon, `{ "kind": "trayApp", "id": "<icon
       key>" }` (see System tray); an item without an `id` is dropped on load. Older builds skip it.
+    - `"notifications"`: the notification centre's bell, `{ "kind": "notifications" }` (see
+      Notifications and badges). Older builds skip it.
 
     App, folder and Recycle Bin items take an optional `icon` (written back only when set): a
     custom icon. An image (`.png`, `.jpg`, `.jpeg`, `.bmp`, `.gif`; scaled to the icon size), an
@@ -1320,8 +1348,19 @@ always there, also when every dock is parked) handle these registered messages:
   polls since the service started, 118 = the interval the worker waits now (ms; 0 off), 119 =
   notifications listed (read ones and balloons included), 120 = balloons whose `NIF_INFO` was
   stripped from the copy mirrored to Explorer, 121 = the width in px of slot `lParam`'s badge
-  surface (0 none), 122 = the worker thread's own CPU time (µs). `DockCommand` 131 = poll now, 132
-  = toggle this dock's `badges` (saved). Test hooks (environment of the dock process, read when
+  surface (0 none), 122 = the worker thread's own CPU time (µs), 123 = 1 while the notification
+  centre is open, 124 = its rows (-1 closed), 125 = what it shows (0 rows, 1 "No notifications", 2
+  access denied; -1 closed), 126 = its selected row (-1 none), 127 = the notification id of its row
+  `lParam` (0 none); 24 reports 10 for a notifications slot. `DockCommand` 131 = poll now, 132 =
+  toggle this dock's `badges` (saved), 133 = show / hide the centre over the dock's first
+  notifications item, 134 = Add widget > Notification centre. `ItemCommand` on the dock's open centre
+  (the dock in the high word of `lParam`, the row in `HIWORD(wParam)`): 828 dismisses row n (its
+  cross), 829 Clear all, 830 opens row n as a click does; each returns 1 when the centre is open and
+  the row exists. A click on the bell's slot (ItemCommand 810) opens / closes it. The centre is a
+  `WinDockNotifications` window of the WinDock process (Delete / Escape / arrows can be posted to
+  it as `WM_KEYDOWN`). Settings page 13 Notifications: 4200 badges, 4202 the centre item, 4205
+  balloons, 4208 clear on activate, 4211 / 4212 poll interval, 4217 the status text, 4218 Open
+  Windows settings, 4221 the app list (check boxes; column 2 is the app key). Test hooks (environment of the dock process, read when
   the service starts): `WINDOCK_NOTIFY_FILTER=text;text` lists only toasts whose AUMID (balloons:
   whose exe path) contains one of the parts, so tests never touch other notifications;
   `WINDOCK_NOTIFY_DENIED=1` behaves as if access were denied.

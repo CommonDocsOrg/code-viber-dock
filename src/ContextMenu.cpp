@@ -24,6 +24,7 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
         Append(sub, kAddWeather, L"Weather", true);
         Append(sub, kAddRunning, L"Running apps", !state.hasRunning);
         Append(sub, kAddTray, L"Tray (notify icons)", !state.hasTray);
+        Append(sub, kAddNotifications, L"Notification centre", !state.hasNotifications);
         UINT flags = MF_POPUP | MF_STRING;
         if (state.locked) flags |= MF_GRAYED;
         AppendMenuW(menu, flags, reinterpret_cast<UINT_PTR>(sub), L"Add widget");

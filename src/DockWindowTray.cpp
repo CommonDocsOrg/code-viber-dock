@@ -326,6 +326,7 @@ void DockWindow::ShowTrayDrawer(int index, float anchor) {
     DismissPreview(false, false);
     DismissWeatherPopup(false, false);
     DismissCalendarPopup(false, false);
+    DismissCentre(false, false);
     auto entries = DrawerEntries(TrayDrawerIcons(index), [this](const TrayIcon& t) { return TrayBitmap(t); }, drawerIds_,
                                  drawerSignature_);
     auto at = [this](size_t member) -> uint64_t { return member < drawerIds_.size() ? drawerIds_[member] : 0; };

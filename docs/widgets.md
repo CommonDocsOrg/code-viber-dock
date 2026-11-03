@@ -349,7 +349,7 @@ the dock) until the widget goes or reloads; while it runs every change calls `on
 | `notifications.dismissAll()` | Every notification of the dock's list. |
 | `notifications.markRead(id)` | Marks it read (its badge goes; it stays in Windows). |
 | `notifications.activate(id)` | Brings its app to the front from the dock (its slot's windows, or starts it: shell:AppsFolder for an AUMID, the exe for a path) and marks its notifications read. Windows does not let another app activate the toast itself. |
-| `notifications.openCentre()` | Toggles the dock's own notification centre popup over the widget (throws when the dock cannot show it). |
+| `notifications.openCentre()` | Toggles the dock's notification centre (README "Notifications and badges") over the widget: the same list as the `notifications` element's, opened after the call returns. Throws when the widget has no slot. |
 | `notifications.onChange(fn)` | `fn(list)` (the `get()` array) when notifications come, go or change state. Returns a remover. |
 
 ### popup

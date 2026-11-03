@@ -57,10 +57,11 @@ enum class DockEvent {
     WeatherData,  // the weather service's data or status changed
     WidgetRedraw, // a script widget asked to be redrawn (WidgetInstance::TakeChanged)
     TrayChanged,  // TrayHost's icons came, went or changed (or it started / stopped)
+    Notifications,  // the notification list or the service's state changed (round 4 phase 9)
 };
 
 // The click popups the dock hosts (one at a time; each holds the dock shown while open).
-enum class ClickPopup { None, Folder, Weather, Calendar, Group, Tray };
+enum class ClickPopup { None, Folder, Weather, Calendar, Group, Tray, Notifications };
 
 // What a right click on a slot opens.
 enum class RightClickAction { ItemMenu, DockMenu };
@@ -116,6 +117,10 @@ public:
     // pinned tray icon): Hide / Show in the grid, Pin to the dock / Unpin, Tray settings….
     // `pinnedSlot`: slot `slot` is a trayApp item.
     virtual void ShowTrayMenu(int slot, const std::wstring& key, bool pinnedSlot) = 0;
+    // Notifications (round 4 phase 9): unread ones (every app; 0 while the service is off) and
+    // whether access is denied.
+    virtual size_t UnreadNotifications() const = 0;
+    virtual bool NotificationsDenied() const = 0;
 
 protected:
     ~ElementHost() = default;
@@ -264,6 +269,8 @@ std::unique_ptr<DockElement> MakeTrayAppElement(ElementHost& host, const DockIte
 // pinned as trayApp items. `inGrid`: only those the grid shows.
 std::vector<const TrayIcon*> TrayIconsFor(const TrayHost& host, const DockConfig& dock, const DockItemEntry& tray,
                                           bool inGrid);
+// NotificationElements.cpp: the notification centre's bell (`notifications` item, phase 9b).
+std::unique_ptr<DockElement> MakeNotificationsElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
 // A script widget (`widget` item, docs/widgets.md); `ordinal`: among the items with its id.
 std::unique_ptr<DockElement> MakeScriptWidgetElement(ElementHost& host, const DockItemEntry& entry, size_t ordinal);
 // What a script widget on this dock sees as `dock` (edge, axis, theme colours, reduce motion ...;

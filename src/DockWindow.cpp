@@ -16,6 +16,7 @@
 
 #include "Activation.h"
 #include "AppIdentity.h"
+#include "ContextMenu.h"
 #include "DesktopLayer.h"
 #include "IconEffects.h"
 #include "Launcher.h"
@@ -279,6 +280,35 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                            },
                            [this] { ReleasePopupHold(kHoldWeather, true); },
                        });
+    centre_.Init(instance, &renderer_,
+                 NotificationPopup::Callbacks{
+                     [this] {  // closed by itself: hidden already
+                         centreOpener_.clear();
+                         ReleasePopupHold(kHoldCentre, true);
+                         if (shared_) shared_->SetCentreOpen(false);
+                     },
+                     [this](uint32_t id) {
+                         // A row: its app to the front, the notification dismissed (as Windows does).
+                         DismissCentre(true);
+                         if (!shared_) return;
+                         shared_->ActivateNotification(id);
+                         shared_->Notifications().Dismiss(id);
+                     },
+                     [this](uint32_t id) {
+                         if (shared_) shared_->Notifications().Dismiss(id);
+                     },
+                     [this] {
+                         if (shared_) shared_->Notifications().DismissAll();
+                     },
+                     [this] {
+                         DismissCentre(true);
+                         OpenTarget(L"ms-settings:privacy-notifications");
+                     },
+                     [this](const NotificationItem& n, UINT px) -> ID2D1Bitmap* {
+                         if (n.key.id.empty()) return nullptr;
+                         return icons_.Get(n.key, nullptr, px, renderer_.ResourceContext(), L"", 0);
+                     },
+                 });
     calendar_.Init(
         instance, &renderer_, [this] { ReleasePopupHold(kHoldCalendar, true); },
         [this] {
@@ -1686,6 +1716,11 @@ HRESULT DockWindow::RenderBadge(DockItem& item) {
 void DockWindow::OnNotificationsChanged() {
     if (!hwnd_ || !tracking_) return;
     if (UpdateBadges()) RenderWithRecovery([this] { return DrawFrame(false); });
+    DispatchEvent(DockEvent::Notifications);  // the centre's bell
+    if (centre_.Visible() && shared_) {
+        centre_.Update(shared_->Notifications());
+        RenderWithRecovery([] { return S_OK; });
+    }
 }
 
 bool DockWindow::ActivateKey(const AppKey& key) {
@@ -1706,7 +1741,13 @@ bool DockWindow::ActivateKey(const AppKey& key) {
 
 bool DockWindow::WidgetActivateNotification(uint32_t id) { return shared_ && shared_->ActivateNotification(id); }
 
-bool DockWindow::WidgetOpenCentre(WidgetInstance&) { return false; }
+bool DockWindow::WidgetOpenCentre(WidgetInstance& widget) {
+    if (SlotOfWidget(widget) < 0) return false;
+    // From inside a script call: run it once the call has returned.
+    centreRequest_ = widget.Key();
+    PostMessageW(hwnd_, kCentreRequestMessage, 0, 0);
+    return true;
+}
 
 HRESULT DockWindow::RenderLabel() {
     if (hovered_ < 0 || hovered_ >= static_cast<int>(items_.size()) || !renderer_.DWrite()) {
@@ -2037,6 +2078,7 @@ bool DockWindow::RecoverDevice() {
     weatherPopup_.Destroy();
     calendar_.Destroy();
     widgetPopup_.Destroy();
+    centre_.Destroy();
     thumbs_.Reset();  // the frames and the capture device belong to the lost device
     for (int attempt = 0; attempt < 3; ++attempt) {
         ResetLayers();
@@ -2831,6 +2873,7 @@ void DockWindow::ShowFolderPopupAt(const std::wstring& path, const std::wstring&
     DismissPreview(false, false);
     DismissWeatherPopup(false, false);
     DismissCalendarPopup(false, false);
+    DismissCentre(false, false);
     if (!folder_.Show(path, name, view, PopupStyle(), PopupAnchorAt(anchor))) {
         DismissFolderPopup(false);
         MessageBeep(MB_ICONWARNING);
@@ -2900,6 +2943,7 @@ void DockWindow::ShowGroupPopup(int index, float anchor) {
     DismissPreview(false, false);
     DismissWeatherPopup(false, false);
     DismissCalendarPopup(false, false);
+    DismissCentre(false, false);
     const AppKey key = item.key;
     const ItemView view = ElementOf(static_cast<size_t>(index)).Entry().view;
     FolderPopup::GroupCallbacks cb;
@@ -3041,6 +3085,7 @@ bool DockWindow::PopupShownFor(int slot) const {
         case ClickPopup::Tray: return folder_.Visible() && items_[static_cast<size_t>(slot)].key == folderKey_;
         case ClickPopup::Weather: return weatherPopup_.Visible();
         case ClickPopup::Calendar: return calendar_.Visible();
+        case ClickPopup::Notifications: return centre_.Visible() && centreOpener_.empty();
         case ClickPopup::None:
         default: return false;
     }
@@ -3056,6 +3101,7 @@ void DockWindow::ShowClickPopup(int slot) {
         case ClickPopup::Tray: ShowTrayDrawer(slot, anchor); return;
         case ClickPopup::Weather: ShowWeatherPopup(anchor); return;
         case ClickPopup::Calendar: ShowCalendarPopup(anchor); return;
+        case ClickPopup::Notifications: ShowCentre(anchor); return;
         case ClickPopup::None:
         default: return;
     }
@@ -3098,6 +3144,7 @@ void DockWindow::ShowWeatherPopup(float anchor) {
     DismissFolderPopup(false, false);
     DismissCalendarPopup(false, false);
     DismissWidgetPopup(false, false);
+    DismissCentre(false, false);
     if (!weatherPopup_.Show(WeatherPopupStyle(), PopupAnchorAt(anchor))) {
         DismissWeatherPopup(false);
         MessageBeep(MB_ICONWARNING);
@@ -3120,6 +3167,7 @@ void DockWindow::ShowCalendarPopup(float anchor) {
     DismissFolderPopup(false, false);
     DismissWeatherPopup(false, false);
     DismissWidgetPopup(false, false);
+    DismissCentre(false, false);
     const Layout& l = layout_;
     const ThemeConfig& theme = DockTheme();
     CalendarPopup::Style style;
@@ -3159,6 +3207,70 @@ void DockWindow::DismissClickPopups(bool animate, bool leaveCheck) {
     DismissWeatherPopup(animate, leaveCheck);
     DismissCalendarPopup(animate, leaveCheck);
     DismissWidgetPopup(animate, leaveCheck);
+    DismissCentre(animate, leaveCheck);
+}
+
+// --- the notification centre (round 4 phase 9b) -------------------------------------------------
+
+NotificationPopup::Style DockWindow::CentreStyle() const {
+    const Layout& l = layout_;
+    const ThemeConfig& theme = DockTheme();
+    NotificationPopup::Style style;
+    style.scale = l.scale;
+    style.acrylic = acrylic_;
+    style.tint = acrylic_ ? theme.acrylicBackground : theme.background;
+    style.text = theme.labelText;
+    style.secondary = theme.clockDateText;
+    style.border = theme.barBorder;
+    style.hotBackground = theme.previewHotBackground;
+    style.hotBorder = theme.previewHotBorder;
+    style.accent = theme.accent;
+    style.cornerRadiusDip = theme.cornerRadius;
+    style.monitor = l.work;
+    style.reduceMotion = motion_.reduce;
+    return style;
+}
+
+void DockWindow::ShowCentre(float anchor) {
+    if (hideState_ == HideState::Hidden || !shared_) return;
+    DismissPreview(false, false);
+    DismissFolderPopup(false, false);
+    DismissWeatherPopup(false, false);
+    DismissCalendarPopup(false, false);
+    DismissWidgetPopup(false, false);
+    shared_->SetCentreOpen(true);  // the service runs (and polls every second) while it is open
+    if (!centre_.Show(CentreStyle(), PopupAnchorAt(anchor), shared_->Notifications())) {
+        DismissCentre(false);
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    TakePopupHold(kHoldCentre);
+    HideLabel();
+    RenderWithRecovery([] { return S_OK; });  // commit the label hide
+}
+
+void DockWindow::DismissCentre(bool animate, bool leaveCheck) {
+    const bool was = centre_.OnScreen();
+    centre_.Hide(animate);
+    centreOpener_.clear();
+    ReleasePopupHold(kHoldCentre, leaveCheck);
+    if (was && shared_) shared_->SetCentreOpen(false);
+}
+
+bool DockWindow::CentreCommand(UINT cmd, size_t row) {
+    if (!centre_.Visible()) return false;
+    switch (cmd) {
+        case ContextMenu::kCentreDismiss: return centre_.DismissRow(row);
+        case ContextMenu::kCentreActivate: return centre_.ActivateRow(row);
+        case ContextMenu::kCentreClearAll: return centre_.ClearAll();
+        default: return false;
+    }
+}
+
+size_t DockWindow::UnreadNotifications() const { return shared_ ? shared_->Notifications().Unread() : 0; }
+
+bool DockWindow::NotificationsDenied() const {
+    return shared_ && shared_->Notifications().GetState() == NotificationService::State::Denied;
 }
 
 // --- Script widget popups ------------------------------------------------------------------------
@@ -3917,7 +4029,7 @@ void DockWindow::BuildElements() {
     const std::vector<DockItemEntry>& entries = DockCfg().items;
     elements.reserve(entries.size());
     size_t pinIndex = 0;
-    size_t clocks = 0, weathers = 0, trays = 0;
+    size_t clocks = 0, weathers = 0, trays = 0, bells = 0;
     std::unordered_map<std::wstring, size_t> widgetIds;  // script widgets: ordinal per id
     widgetsClaimed_.clear();
     for (const DockItemEntry& e : entries) {
@@ -3926,6 +4038,7 @@ void DockWindow::BuildElements() {
                                : kind == ItemKind::Weather ? weathers++
                                : kind == ItemKind::Widget  ? widgetIds[e.id]++
                                : kind == ItemKind::Tray    ? trays++
+                               : kind == ItemKind::Notifications ? bells++
                                                            : 0;
         elements.push_back(MakeElement(*this, e, pinIndex, ordinal));
         if (IsPinKind(kind)) ++pinIndex;
@@ -5879,6 +5992,16 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return shared_ ? static_cast<LRESULT>(shared_->TrayService().BalloonsStripped()) : 0;
         case 122:  // CPU time of the notification worker thread so far (µs; 0 off)
             return shared_ ? static_cast<LRESULT>(shared_->Notifications().WorkerCpuUs()) : 0;
+        case 123:  // 1 while the notification centre is open
+            return centre_.Visible() ? 1 : 0;
+        case 124:  // its rows (-1: not open)
+            return centre_.Visible() ? static_cast<LRESULT>(centre_.Rows()) : -1;
+        case 125:  // what it shows: 0 rows, 1 "No notifications", 2 access denied (-1: not open)
+            return centre_.Visible() ? centre_.Content() : -1;
+        case 126:  // its selected row (-1 none / not open)
+            return centre_.Visible() ? centre_.Selected() : -1;
+        case 127:  // the notification id of its row lp (0: none)
+            return centre_.Visible() && lp >= 0 ? static_cast<LRESULT>(centre_.IdAt(static_cast<size_t>(lp))) : 0;
         case 121:  // width in px of slot lp's drawn badge surface (rest size; 0 none, -1 no such slot)
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             return static_cast<LRESULT>(items_[static_cast<size_t>(lp)].badge.width);
@@ -6330,6 +6453,22 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             OnWidgetPopupRequests();
             return 0;
 
+        case kCentreRequestMessage: {
+            // notifications.openCentre() of a widget: toggles the centre over the widget's slot.
+            const std::wstring key = std::move(centreRequest_);
+            centreRequest_.clear();
+            WidgetInstance* w = WidgetByKey(key);
+            const int slot = w ? SlotOfWidget(*w) : -1;
+            if (slot < 0) return 0;
+            if (centre_.OnScreen() && centreOpener_ == key) {
+                DismissCentre(true);
+                return 0;
+            }
+            ShowCentre(ElementOf(static_cast<size_t>(slot)).PopupAnchor(items_[static_cast<size_t>(slot)], Context()));
+            if (centre_.OnScreen()) centreOpener_ = key;
+            return 0;
+        }
+
         case kThumbRedrawMessage:
             thumbRedrawPosted_ = false;
             RenderWithRecovery([this] { return DrawFrame(false); });  // the dirty tiles
@@ -6540,6 +6679,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             weatherPopup_.Destroy();
             calendar_.Destroy();
             widgetPopup_.Destroy();
+            if (centre_.OnScreen() && shared_) shared_->SetCentreOpen(false);
+            centre_.Destroy();
+            centreOpener_.clear();
             popupWidget_.clear();
             previewOpener_.clear();
             popupRequests_.clear();

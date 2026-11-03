@@ -18,6 +18,13 @@ constexpr float kListPadX = 8.0f;
 constexpr float kListIconGap = 10.0f;
 constexpr float kListSecondaryW = 150.0f;  // at most; never more than 40 % of the width
 constexpr float kListSecondaryGap = 8.0f;
+// Detail rows (DIPs).
+constexpr float kDetailPadX = 10.0f;
+constexpr float kDetailPadY = 8.0f;
+constexpr float kDetailTitleH = 18.0f;  // the label's line
+constexpr float kDetailLineH = 16.0f;   // each detail line (two)
+constexpr float kDetailTimeW = 72.0f;   // the time at the right of the label
+constexpr float kCloseDip = 18.0f;      // the close glyph's box
 // Scrollbar (DIPs).
 constexpr float kThumbW = 4.0f;
 constexpr float kThumbInset = 2.0f;
@@ -202,6 +209,15 @@ D2D1_RECT_F ItemGridView::ContentRect(size_t index) const {
     return D2D1::RectF(x, y, x + static_cast<float>(cellW), y + rowH);
 }
 
+RECT ItemGridView::CloseRect(size_t index) const {
+    if (!style_.closeButton || mode_ != Mode::List || index >= items_.size()) return RECT{};
+    const RECT r = ItemRect(index);
+    const LONG box = static_cast<LONG>(Px(kCloseDip));
+    const LONG right = r.right - static_cast<LONG>(Px(kDetailPadX)) + static_cast<LONG>(Px(4.0f));
+    const LONG top = r.top + static_cast<LONG>(Px(kDetailPadY)) - static_cast<LONG>(Px(1.0f));
+    return RECT{right - box, top, right, top + box};
+}
+
 RECT ItemGridView::ItemRect(size_t index) const {
     if (index >= items_.size()) return RECT{};
     const D2D1_RECT_F r = ContentRect(index);
@@ -298,6 +314,8 @@ void ItemGridView::EnsureFormats() {
     if (!dw || (gridFormat_ && formatScale_ == s && formatFont_ == style_.fontDip)) return;
     gridFormat_ = listFormat_ = secondaryFormat_ = nullptr;
     gridEllipsis_ = listEllipsis_ = nullptr;
+    detailTitleFormat_ = detailFormat_ = detailTimeFormat_ = nullptr;
+    detailEllipsis_ = nullptr;
     const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
     const float size = style_.fontDip * s;
     if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
@@ -332,6 +350,35 @@ void ItemGridView::EnsureFormats() {
         if (listEllipsis_) secondaryFormat_->SetTrimming(&trimming, listEllipsis_.get());
     } else {
         secondaryFormat_ = nullptr;
+    }
+    // Detail rows.
+    if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+                                       DWRITE_FONT_STRETCH_NORMAL, size, L"", detailTitleFormat_.put()))) {
+        detailTitleFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        detailTitleFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+        if (SUCCEEDED(dw->CreateEllipsisTrimmingSign(detailTitleFormat_.get(), detailEllipsis_.put()))) {
+            detailTitleFormat_->SetTrimming(&trimming, detailEllipsis_.get());
+        }
+    } else {
+        detailTitleFormat_ = nullptr;
+    }
+    if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                       DWRITE_FONT_STRETCH_NORMAL, size - std::round(0.5f * s), L"", detailFormat_.put()))) {
+        detailFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
+        detailFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
+        detailFormat_->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, kDetailLineH * s, 12.5f * s);
+        if (detailEllipsis_) detailFormat_->SetTrimming(&trimming, detailEllipsis_.get());
+    } else {
+        detailFormat_ = nullptr;
+    }
+    if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                       DWRITE_FONT_STRETCH_NORMAL, size - std::round(1.0f * s), L"",
+                                       detailTimeFormat_.put()))) {
+        detailTimeFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+        detailTimeFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_TRAILING);
+        detailTimeFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+    } else {
+        detailTimeFormat_ = nullptr;
     }
     formatScale_ = s;
     formatFont_ = style_.fontDip;
@@ -408,6 +455,62 @@ HRESULT ItemGridView::DrawRow(Row& row) {
                         dc->DrawTextLayout(D2D1::Point2F(cell.left + std::round(kTextPadX * s),
                                                          iy + iconPx + std::round(kTextGap * s)),
                                            layout.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    }
+                }
+                continue;
+            }
+            if (style_.detailRows) {
+                // Detail: icon top left; label + time on the first line; two lines of detail.
+                const float px = std::round(kDetailPadX * s), py = std::round(kDetailPadY * s);
+                const float iconPx = std::round(style_.listIconDip * s);
+                if (item.icon) {
+                    const D2D1_RECT_F dst = D2D1::RectF(cell.left + px, cell.top + py, cell.left + px + iconPx, cell.top + py + iconPx);
+                    dc->DrawBitmap(item.icon.get(), &dst, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+                }
+                const float textX = cell.left + px + iconPx + std::round(kListIconGap * s);
+                const float right = cell.right - px;
+                const float titleH = std::round(kDetailTitleH * s);
+                const float timeW = std::round(kDetailTimeW * s);
+                const bool showClose = style_.closeButton && isHot;
+                const float titleRight = right - timeW - std::round(6.0f * s);
+                if (showClose) {
+                    // A close glyph (two strokes) on a faint backing, where CloseRect says.
+                    const float closePx = std::round(kCloseDip * s);
+                    const float cRight = cell.right - px + std::round(4.0f * s);
+                    const float cTop = cell.top + py - std::round(1.0f * s);
+                    const D2D1_RECT_F f = D2D1::RectF(cRight - closePx, cTop, cRight, cTop + closePx);
+                    brush->SetColor(Theme::ToColor(style_.hotBackground));
+                    dc->FillRoundedRectangle(D2D1::RoundedRect(f, radius / 2.0f, radius / 2.0f), brush.get());
+                    const float g = std::round(4.0f * s);
+                    const float cx = (f.left + f.right) / 2.0f, cy = (f.top + f.bottom) / 2.0f;
+                    brush->SetColor(Theme::ToColor(style_.text, 0.85f));
+                    dc->DrawLine(D2D1::Point2F(cx - g, cy - g), D2D1::Point2F(cx + g, cy + g), brush.get(), stroke * 1.25f);
+                    dc->DrawLine(D2D1::Point2F(cx - g, cy + g), D2D1::Point2F(cx + g, cy - g), brush.get(), stroke * 1.25f);
+                } else if (!item.secondary.empty() && dw && detailTimeFormat_) {
+                    winrt::com_ptr<IDWriteTextLayout> layout;
+                    if (SUCCEEDED(dw->CreateTextLayout(item.secondary.c_str(), static_cast<UINT32>(item.secondary.size()),
+                                                       detailTimeFormat_.get(), timeW, titleH, layout.put()))) {
+                        brush->SetColor(Theme::ToColor(style_.secondary));
+                        dc->DrawTextLayout(D2D1::Point2F(right - timeW, cell.top + py), layout.get(), brush.get(),
+                                           D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    }
+                }
+                if (dw && detailTitleFormat_ && !item.label.empty() && titleRight > textX) {
+                    winrt::com_ptr<IDWriteTextLayout> layout;
+                    if (SUCCEEDED(dw->CreateTextLayout(item.label.c_str(), static_cast<UINT32>(item.label.size()),
+                                                       detailTitleFormat_.get(), titleRight - textX, titleH, layout.put()))) {
+                        brush->SetColor(Theme::ToColor(style_.text, lit ? 1.0f : 0.95f));
+                        dc->DrawTextLayout(D2D1::Point2F(textX, cell.top + py), layout.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                    }
+                }
+                if (dw && detailFormat_ && !item.detail.empty() && right > textX) {
+                    const float lines = std::round(2.0f * kDetailLineH * s);
+                    winrt::com_ptr<IDWriteTextLayout> layout;
+                    if (SUCCEEDED(dw->CreateTextLayout(item.detail.c_str(), static_cast<UINT32>(item.detail.size()),
+                                                       detailFormat_.get(), right - textX, lines, layout.put()))) {
+                        brush->SetColor(Theme::ToColor(style_.secondary));
+                        dc->DrawTextLayout(D2D1::Point2F(textX, cell.top + py + titleH), layout.get(), brush.get(),
+                                           D2D1_DRAW_TEXT_OPTIONS_CLIP);
                     }
                 }
                 continue;
@@ -689,6 +792,13 @@ bool ItemGridView::ButtonUp(Button button, POINT pt) {
         return true;
     }
     if (index < 0) return true;
+    if (button == Button::Left && callbacks_.close && style_.closeButton) {
+        const RECT cr = CloseRect(static_cast<size_t>(index));
+        if (PtInRect(&cr, pt) && PtInRect(&cr, p.pt)) {
+            callbacks_.close(static_cast<size_t>(index));  // may replace the items
+            return true;
+        }
+    }
     if (button == Button::Left) Select(index, false);
     if (callbacks_.activate) callbacks_.activate(static_cast<size_t>(index), button);  // may replace the items
     return true;

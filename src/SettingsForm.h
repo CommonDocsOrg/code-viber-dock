@@ -125,4 +125,5 @@ std::unique_ptr<SettingsPage> MakeLayoutPage(SettingsWindow& window);      // Se
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window);     // SettingsPagesWidgets.cpp
 std::unique_ptr<SettingsPage> MakeWidgetSettingsPage(SettingsWindow& window);  // SettingsPagesWidgets.cpp
 std::unique_ptr<SettingsPage> MakeTrayPage(SettingsWindow& window);            // SettingsPagesTray.cpp
+std::unique_ptr<SettingsPage> MakeNotificationsPage(SettingsWindow& window);   // SettingsPagesNotifications.cpp
 std::unique_ptr<SettingsPage> MakeItemSettingsPage(SettingsWindow& window);    // SettingsPagesItems.cpp ("Folders and groups")

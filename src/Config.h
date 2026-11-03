@@ -7,7 +7,8 @@
 #include <vector>
 
 // docks[].items[].kind values this version knows (case-insensitive); Unknown for anything else.
-enum class ItemKind { Unknown, App, Folder, Separator, RecycleBin, Running, Clock, Weather, Widget, Group, Tray, TrayApp };
+enum class ItemKind { Unknown, App, Folder, Separator, RecycleBin, Running, Clock, Weather, Widget, Group, Tray, TrayApp,
+                      Notifications };
 ItemKind ItemKindOf(std::wstring_view kind);
 const wchar_t* ToString(ItemKind v);  // the canonical JSON name ("" for Unknown)
 // The kinds that are "pins" (the pinned section of the dock): app, folder, separator, recycleBin,
@@ -240,7 +241,7 @@ struct DockConfig {
     // Adds an item of `kind` at the end when there is none (on), or removes every item of that
     // kind (off). Returns true if `items` changed.
     bool Show(ItemKind kind, bool on);
-    // Adds a clock, weather or running item (Add widget): the clock at the end, the weather
+    // Adds a clock, weather, tray, notifications or running item (Add widget): the clock at the end, the weather
     // before a clock that ends the list (else at the end), the running apps after the last pin
     // (no pins: first). A second `running` item is refused (only the first one expands). Returns
     // the new item's index, or SIZE_MAX if nothing was added.

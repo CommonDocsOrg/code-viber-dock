@@ -473,6 +473,13 @@ void SettingsWindow::WeatherChanged() {
     loading_ = false;
 }
 
+void SettingsWindow::NotificationsChanged() {
+    if (!hwnd_) return;
+    loading_ = true;
+    for (auto& page : pages_) page->OnNotificationsChanged();
+    loading_ = false;
+}
+
 void SettingsWindow::ConfigApplied() {
     if (preview_) preview_->Invalidate();
 }

@@ -46,7 +46,9 @@ enum Command : UINT {
     kTrayDisable = 130,         // tray.enabled off: the icons go back to Explorer ("Reset to Explorer")
     kPollNotifications = 131,   // the notification service polls now (no-op while it is off)
     kToggleBadges = 132,        // docks[].badges of the dock the message is for (on / off)
-    kLastDockCommand = kToggleBadges,
+    kToggleCentre = 133,        // shows / hides the notification centre over the first notifications item
+    kAddNotifications = 134,    // Add widget > Notification centre (a "notifications" item; one per dock)
+    kLastDockCommand = kAddNotifications,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
@@ -77,6 +79,10 @@ enum Command : UINT {
     kTrayUnpin = 825,           // trayApp slot lParam: unpinned (back in the grid)
     kTrayHide = 826,            // tray slot lParam: drawer icon HIWORD(wParam) hidden from / shown in the grid (toggle)
     kTrayMove = 827,            // tray slot lParam: drawer icon (wParam bits 16-23) moved before drawer icon (bits 24-31; 255 = to the end)
+    // The dock's open notification centre (lParam: the dock in its high word; the row in HIWORD(wParam)):
+    kCentreDismiss = 828,       // dismiss row HIWORD(wParam) (as its close glyph does)
+    kCentreClearAll = 829,      // "Clear all"
+    kCentreActivate = 830,      // row HIWORD(wParam) as a click: its app to the front, the notification dismissed
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
@@ -95,6 +101,7 @@ struct TrayMenuState {
     bool anyUnlocked = false;       // some dock is not (Lock all docks enabled)
     bool hasWidgets = false;        // some dock shows a script widget: Reload widgets
     bool hasTray = false;           // the dock has a tray item (Add widget > Tray greyed)
+    bool hasNotifications = false;  // the dock has a notifications item (Add widget > Notification centre greyed)
 };
 
 // Shows the dock/tray menu at a screen point and returns the chosen Command (kNone if dismissed).

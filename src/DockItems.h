@@ -53,7 +53,8 @@ struct DockItem {
     // of theirs unless the item has a custom icon).
     // Tray: the notify icons as a grid (a widget slot, drawn by its element; TrayHost). TrayApp: one
     // notify icon pinned as a full-size, magnifying icon slot (round 4 phase 8b).
-    enum class Kind { App, Folder, Separator, RecycleBin, Clock, Weather, Widget, Group, Tray, TrayApp };
+    // Notifications: the notification centre's bell (round 4 phase 9b; a widget slot).
+    enum class Kind { App, Folder, Separator, RecycleBin, Clock, Weather, Widget, Group, Tray, TrayApp, Notifications };
 
     AppKey key;
     Kind kind = Kind::App;
@@ -66,7 +67,8 @@ struct DockItem {
     }
     // A widget slot (content drawn by its element; not dragged, no label).
     bool IsWidget() const {
-        return kind == Kind::Clock || kind == Kind::Weather || kind == Kind::Widget || kind == Kind::Tray;
+        return kind == Kind::Clock || kind == Kind::Weather || kind == Kind::Widget || kind == Kind::Tray ||
+               kind == Kind::Notifications;
     }
     std::wstring displayName;
     std::optional<std::wstring> launchPath;  // .lnk/.exe for pinned entries (keeps args / working dir)

@@ -18,6 +18,7 @@
 struct GridItem {
     std::wstring label;
     std::wstring secondary;            // list mode: dimmer text at the right (size, date); optional
+    std::wstring detail;               // detail rows (Style::detailRows): up to two lines under the label
     winrt::com_ptr<ID2D1Bitmap> icon;  // null: none (yet); the host may fill it in `resolve`
     uint64_t id = 0;                   // the host's
     uint32_t flags = 0;                // the host's (e.g. "a folder")
@@ -69,6 +70,13 @@ public:
         float fontDip = 12.0f;
         double scrollSeconds = 0.16;          // wheel / keyboard scroll animation (0: none)
         bool reduceMotion = false;            // scroll without animation
+        // List mode, detail rows (the notification centre): the icon at the top left, the label in
+        // semibold on the first line with `secondary` (a time) at its right, `detail` in up to two
+        // dimmer lines under it. Make rowH tall enough (about 68 DIPs).
+        bool detailRows = false;
+        // A close glyph at the right of the hovered row's first line (in place of `secondary`); a
+        // click on it calls Callbacks::close instead of activate.
+        bool closeButton = false;
     };
 
     struct Callbacks {
@@ -81,6 +89,8 @@ public:
         // A press on an entry that moved past the drag threshold while SetDragOut(true) (the
         // button is still down: the host may start an OLE drag). The view has released the mouse.
         std::function<void(size_t index, POINT screen)> beginDrag;
+        // The close glyph of an entry was clicked (Style::closeButton).
+        std::function<void(size_t index)> close;
     };
 
     ItemGridView() = default;
@@ -143,6 +153,8 @@ public:
     bool Contains(POINT clientPt) const { return PtInRect(&bounds_, clientPt) != FALSE; }
     // The entry's rect in the host's client px at the current scroll position.
     RECT ItemRect(size_t index) const;
+    // The close glyph's rect of an entry (Style::closeButton; host client px; empty without one).
+    RECT CloseRect(size_t index) const;
     // Drop feedback: the entry a drag would drop into (-1: none). Redraws the affected rows.
     void SetDropHighlight(int index);
     int DropHighlight() const { return drop_; }
@@ -253,4 +265,9 @@ private:
     winrt::com_ptr<IDWriteTextFormat> secondaryFormat_;  // one line, right aligned
     winrt::com_ptr<IDWriteInlineObject> gridEllipsis_;
     winrt::com_ptr<IDWriteInlineObject> listEllipsis_;
+    // Detail rows: the label (semibold), the detail (two wrapped lines), the time (trailing).
+    winrt::com_ptr<IDWriteTextFormat> detailTitleFormat_;
+    winrt::com_ptr<IDWriteTextFormat> detailFormat_;
+    winrt::com_ptr<IDWriteTextFormat> detailTimeFormat_;
+    winrt::com_ptr<IDWriteInlineObject> detailEllipsis_;
 };

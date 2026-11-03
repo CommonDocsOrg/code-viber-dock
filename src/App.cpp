@@ -141,6 +141,9 @@ bool App::Initialize(HINSTANCE instance) {
     callbacks.weatherChanged = [this] {
         if (settings_) settings_->WeatherChanged();  // the Weather page's status line
     };
+    callbacks.notificationsChanged = [this] {
+        if (settings_) settings_->NotificationsChanged();  // the Notifications page's status and counts
+    };
     docks_.Initialize(instance, &config_, hwnd_, std::move(callbacks));
     const HRESULT hr = docks_.Sync();
     if (FAILED(hr)) {
@@ -261,6 +264,7 @@ int App::IndexOfKey(const DockWindow& dock, const AppKey& key) {
 void App::ReloadPins(size_t cfg) {
     docks_.ForConfig(cfg, [](DockWindow& w) { w.ReloadPins(); });
     docks_.SyncTray();  // a tray item came or went
+    docks_.SyncNotifications();  // a notifications item came or went
 }
 
 void App::TogglePin(DockWindow& dock, const AppKey& key) {
@@ -815,6 +819,7 @@ ContextMenu::TrayMenuState App::MenuState(size_t cfg) const {
     state.startWithWindows = AutostartEnabled();
     state.weatherShown = d.Has(ItemKind::Weather);
     state.hasTray = d.Has(ItemKind::Tray);
+    state.hasNotifications = d.Has(ItemKind::Notifications);
     state.weatherConfigured = config_.weather.Configured();
     state.locked = d.locked;
     state.hasRunning = d.Has(ItemKind::Running);
@@ -983,6 +988,13 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         case ContextMenu::kPollNotifications:
             docks_.Notifications().PollNow();
+            break;
+        case ContextMenu::kToggleCentre:
+            if (dock) dock->TogglePopup(ItemKind::Notifications);
+            break;
+        case ContextMenu::kAddNotifications:
+            if (d.locked || d.Has(ItemKind::Notifications)) break;
+            AddWidget(cfg, ItemKind::Notifications);  // reloads (the service starts with the element) and saves
             break;
         case ContextMenu::kToggleBadges:
             d.badges = !d.badges;
@@ -1204,6 +1216,34 @@ void App::OpenSettings(int page) {
         }
         return icons;
     };
+    host.notificationStatus = [this] {
+        const NotificationService& n = docks_.Notifications();
+        SettingsNotificationStatus st;
+        st.state = static_cast<int>(n.GetState());
+        st.reason = n.StateReason();
+        st.listed = n.Items().size();
+        st.unread = n.Unread();
+        return st;
+    };
+    host.notificationApps = [this] {
+        std::vector<SettingsNotificationApp> apps;
+        auto add = [&](const AppKey& key, const std::wstring& name) {
+            if (key.id.empty() || key.IsSynthetic()) return;
+            if (std::any_of(apps.begin(), apps.end(), [&](const SettingsNotificationApp& a) { return a.key == key.id; })) return;
+            apps.push_back(SettingsNotificationApp{key.id, name.empty() ? key.Source() : name,
+                                                   docks_.Notifications().UnreadFor(key)});
+        };
+        if (DockWindow* d = docks_.FirstOf(config_.editDock)) {
+            for (const AppIdentity::ResolvedPin& p : d->Pins()) {
+                if (p.kind == AppIdentity::PinKind::App) add(p.key, p.displayName);
+                for (const AppIdentity::ResolvedPin& m : p.members) {
+                    if (m.kind == AppIdentity::PinKind::App) add(m.key, m.displayName);
+                }
+            }
+        }
+        for (const NotificationItem& n : docks_.Notifications().Items()) add(n.key, n.app);
+        return apps;
+    };
     settings_ = std::make_unique<SettingsWindow>(std::move(host));
     if (!settings_->Create(instance_)) {
         settings_.reset();
@@ -1397,6 +1437,12 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         const bool known = inst && cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand;
         result = known ? 1 : 0;
         if (known) OnCommand(cmd, inst->cfg, inst->window.get());  // after setting result: kQuit closes the docks
+        return true;
+    }
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kCentreDismiss && (wp & 0xFFFF) <= ContextMenu::kCentreActivate) {
+        // The dock's open notification centre; the row is in the high word of wParam.
+        DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+        result = dock && dock->CentreCommand(static_cast<UINT>(wp & 0xFFFF), static_cast<size_t>((wp >> 16) & 0xFFFF)) ? 1 : 0;
         return true;
     }
     if (msg == msgItemCommand_ && wp >= ContextMenu::kPopupSelect && wp <= ContextMenu::kPopupOpen) {

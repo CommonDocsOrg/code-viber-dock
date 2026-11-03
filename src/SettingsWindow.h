@@ -45,6 +45,20 @@ struct SettingsTrayIcon {
     std::wstring app;    // the owner's exe file name
 };
 
+// The notification service for the Notifications page (SettingsHost::notificationStatus).
+struct SettingsNotificationStatus {
+    int state = 0;        // 0 off, 1 polling, 2 denied (NotificationService::State)
+    std::wstring reason;  // denied: why
+    size_t listed = 0;
+    size_t unread = 0;
+};
+// An app the Notifications page lists for its badge check box (SettingsHost::notificationApps).
+struct SettingsNotificationApp {
+    std::wstring key;   // AppKey::id (what notifications.excluded holds)
+    std::wstring name;
+    size_t unread = 0;
+};
+
 // Everything the settings window may use of the app, so it never sees App internals. "The dock"
 // below is config.Edit() (config.editDock, chosen on the Docks page): its first window.
 struct SettingsHost {
@@ -78,6 +92,10 @@ struct SettingsHost {
     std::function<std::vector<SettingsDockRect>()> dockRects;
     // Tray page: the notify icons the tray host has now (empty while it is off).
     std::function<std::vector<SettingsTrayIcon>()> trayIcons;
+    // Notifications page: the service's state, and the edited dock's apps plus every app with a
+    // notification now (by key, once each).
+    std::function<SettingsNotificationStatus()> notificationStatus;
+    std::function<std::vector<SettingsNotificationApp>()> notificationApps;
 };
 
 class SettingsWindow;
@@ -163,6 +181,8 @@ class SettingsPreview;
     virtual void OnStyleChanged() {}
     // The dock's weather data / status changed (SettingsWindow::WeatherChanged).
     virtual void OnWeatherChanged() {}
+    // The notification list / service state changed (SettingsWindow::NotificationsChanged).
+    virtual void OnNotificationsChanged() {}
     // SettingsWindow::ShowWidgetSettings: the item (of the edited dock) the page is about to show.
     virtual void SelectItem(int /*item*/) {}
 
@@ -257,6 +277,8 @@ public:
     void ShowPage(int index);
     // The dock's weather data / status changed: pages update what shows it (no config reload).
     void WeatherChanged();
+    // The notification list or service state changed: the Notifications page's status line.
+    void NotificationsChanged();
     // Settings > Widget settings for item `item` of the edited dock (a `widget` item).
     void ShowWidgetSettings(int item);
     // Settings > Folders and groups for item `item` of the edited dock (a folder or group item).

@@ -20,6 +20,7 @@
 #include "FolderPopup.h"
 #include "ForegroundWatch.h"
 #include "IconCache.h"
+#include "NotificationPopup.h"
 #include "NotificationService.h"
 #include "PreviewPopup.h"
 #include "Renderer.h"
@@ -105,6 +106,9 @@ public:
     // WM_APP + 27 = Thumbnails::kSnapshotMessage (a snapshot round finished). Posted (coalesced):
     // window thumbnails got new frames, the tiles redraw.
     static constexpr UINT kThumbRedrawMessage = WM_APP + 28;
+    // Posted: a widget asked for the notification centre (notifications.openCentre(), from inside a
+    // script call). wParam: unused.
+    static constexpr UINT kCentreRequestMessage = WM_APP + 47;
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -345,6 +349,9 @@ public:
     // Brings the app with this key to the front from its slot (the app-level slot, else its first
     // window slot): as a click on it does. False: this dock has no slot for it.
     bool ActivateKey(const AppKey& key);
+    // Automation (ItemCommand 828 - 830) on the open notification centre: dismiss / activate row
+    // `row`, clear all. False when it is not open or there is no such row.
+    bool CentreCommand(UINT cmd, size_t row);
 
 private:
     class DropTarget;
@@ -641,8 +648,13 @@ private:
     // Every click popup (folder, weather, calendar).
     void DismissClickPopups(bool animate, bool leaveCheck = true);
     bool ClickPopupOnScreen() const {
-        return folder_.OnScreen() || weatherPopup_.OnScreen() || calendar_.OnScreen() || widgetPopup_.OnScreen();
+        return folder_.OnScreen() || weatherPopup_.OnScreen() || calendar_.OnScreen() || widgetPopup_.OnScreen() ||
+               centre_.OnScreen();
     }
+    // --- the notification centre (round 4 phase 9b), centred on stage main coordinate `anchor` ---
+    void ShowCentre(float anchor);
+    void DismissCentre(bool animate, bool leaveCheck = true);
+    NotificationPopup::Style CentreStyle() const;
     // --- script widget popups (posted requests, see DockWindow.cpp) ---
     void OnWidgetPopupRequests();
     void DismissWidgetPopup(bool animate, bool leaveCheck = true);
@@ -669,6 +681,7 @@ private:
         kHoldWeather = 1u << 2,
         kHoldCalendar = 1u << 3,
         kHoldWidget = 1u << 4,  // a script widget's popup
+        kHoldCentre = 1u << 5,  // the notification centre
     };
     // Takes the hold for `bit` (cancels a pending hide).
     void TakePopupHold(uint32_t bit);
@@ -788,6 +801,8 @@ private:
     ID2D1Bitmap* TrayAppBitmap(const DockItem& item);
     std::unordered_map<uint64_t, winrt::com_ptr<ID2D1Bitmap>> trayBigBitmaps_;
     std::unordered_map<std::wstring, uint64_t> trayAppSerials_;  // slot key -> the picture last drawn
+    size_t UnreadNotifications() const override;
+    bool NotificationsDenied() const override;
     bool Magnifying() const override { return magnifying_; }
     bool ReducedMotion() const override { return motion_.reduce; }
     // --- WidgetInstance::Client ---
@@ -1138,6 +1153,10 @@ private:
     std::wstring trayDragKey_;
     std::wstring pressTrayKey_;
 
+    // The notification centre and the widget that asked for it ("": the element's).
+    NotificationPopup centre_;
+    std::wstring centreOpener_;
+    std::wstring centreRequest_;  // a widget's pending openCentre (kCentreRequestMessage)
     // The forecast and calendar popups (the weather data is shared_->WeatherData())
     WeatherPopup weatherPopup_;
     CalendarPopup calendar_;

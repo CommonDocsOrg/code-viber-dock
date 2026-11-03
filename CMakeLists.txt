@@ -74,6 +74,7 @@ add_executable(WinDock WIN32
   src/SettingsPagesDocks.cpp
   src/SettingsPagesLayout.cpp
   src/SettingsPagesTray.cpp
+  src/SettingsPagesNotifications.cpp
   src/SettingsPreview.cpp
   src/QuickJsEngine.cpp
   src/WidgetCanvas.cpp
@@ -88,6 +89,8 @@ add_executable(WinDock WIN32
   src/AudioService.cpp
   src/MediaService.cpp
   src/NotificationService.cpp
+  src/NotificationElements.cpp
+  src/NotificationPopup.cpp
   src/Thumbnails.cpp
   res/app.rc
   res/app.manifest

@@ -25,7 +25,8 @@ inline constexpr int kPageWidgets = 9;  // round 4 phase 4b: installed widgets, 
 inline constexpr int kPageWidgetSettings = 10;  // phase 4b: one widget item's settings, generated from its schema
 inline constexpr int kPageItemSettings = 11;   // round 4 phase 7: a folder / group item's settings
 inline constexpr int kPageTray = 12;           // round 4 phase 8: the notify icons (tray.enabled, the dock's tray item)
-inline constexpr int kPageCount = 13;
+inline constexpr int kPageNotifications = 13;  // round 4 phase 9: badges, the centre, balloons, access
+inline constexpr int kPageCount = 14;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -378,5 +379,30 @@ inline constexpr int kTrayGridSection = 4118;
 inline constexpr int kTrayGridNote = 4119;
 inline constexpr int kTrayIconsNote = 4120;
 inline constexpr int kTrayResetNote = 4121;
+
+// Notifications (4200 - 4299; round 4 phase 9): the edited dock's badges / centre, config.notifications.
+inline constexpr int kNotifBadges = 4200;          // check box: docks[].badges (+ caption 4201)
+inline constexpr int kNotifBadgesCaption = 4201;
+inline constexpr int kNotifCentre = 4202;          // check box: the edited dock has a "notifications" item (+ caption 4203)
+inline constexpr int kNotifCentreCaption = 4203;
+inline constexpr int kNotifCentreNote = 4204;
+inline constexpr int kNotifBalloons = 4205;        // check box: notifications.balloons (+ caption 4206)
+inline constexpr int kNotifBalloonsCaption = 4206;
+inline constexpr int kNotifBalloonsNote = 4207;
+inline constexpr int kNotifClearOnActivate = 4208; // check box: notifications.clearOnActivate (+ caption 4209)
+inline constexpr int kNotifClearOnActivateCaption = 4209;
+inline constexpr int kNotifPollLabel = 4210;
+inline constexpr int kNotifPollEdit = 4211;        // notifications.pollS, 1 - 60
+inline constexpr int kNotifPollSpin = 4212;
+inline constexpr int kNotifPollUnit = 4213;
+inline constexpr int kNotifPollNote = 4214;
+inline constexpr int kNotifStatusSection = 4215;
+inline constexpr int kNotifStatusLabel = 4216;
+inline constexpr int kNotifStatus = 4217;          // "Reading notifications (n listed, m unread)", the denied reason, "Off: ..."
+inline constexpr int kNotifOpenSettings = 4218;    // "Open Windows settings" (ms-settings:privacy-notifications)
+inline constexpr int kNotifDndNote = 4219;
+inline constexpr int kNotifAppsSection = 4220;
+inline constexpr int kNotifAppList = 4221;         // SysListView32 (report, check boxes): App, Unread, Key; unchecked = in notifications.excluded
+inline constexpr int kNotifAppsNote = 4222;
 
 }  // namespace SettingsIds

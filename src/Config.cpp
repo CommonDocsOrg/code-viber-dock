@@ -55,7 +55,7 @@ const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather", L"widget", L"group",
-                                         L"tray",    L"trayApp"};
+                                         L"tray",    L"trayApp", L"notifications"};
 
 // The keys of a dock object; before `docks` existed (legacy files) they were top-level keys.
 void ReadDockFields(const json::JsonObject& o, DockConfig& d) {
@@ -247,12 +247,14 @@ bool DockConfig::Show(ItemKind kind, bool on) {
 }
 
 size_t DockConfig::AddWidget(ItemKind kind) {
-    if (kind != ItemKind::Clock && kind != ItemKind::Weather && kind != ItemKind::Running && kind != ItemKind::Tray) {
+    if (kind != ItemKind::Clock && kind != ItemKind::Weather && kind != ItemKind::Running && kind != ItemKind::Tray &&
+        kind != ItemKind::Notifications) {
         return SIZE_MAX;
     }
     if (kind == ItemKind::Running && Has(ItemKind::Running)) return SIZE_MAX;  // only the first one expands
     size_t at = items.size();
-    if ((kind == ItemKind::Weather || kind == ItemKind::Tray) && !items.empty() && items.back().Kind() == ItemKind::Clock) {
+    if ((kind == ItemKind::Weather || kind == ItemKind::Tray || kind == ItemKind::Notifications) && !items.empty() &&
+        items.back().Kind() == ItemKind::Clock) {
         at = items.size() - 1;
     } else if (kind == ItemKind::Running) {
         at = 0;

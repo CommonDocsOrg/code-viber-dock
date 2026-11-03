@@ -220,6 +220,7 @@ const wchar_t* KindLabel(ItemKind k) {
         case ItemKind::Group: return L"Group";
         case ItemKind::Tray: return L"Tray";
         case ItemKind::TrayApp: return L"Tray icon";
+        case ItemKind::Notifications: return L"Notification centre";
         case ItemKind::Unknown:
         default: return L"";
     }
@@ -383,7 +384,9 @@ protected:
     }
 
 private:
-    static bool IsWidgetKind(ItemKind k) { return k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Tray; }
+    static bool IsWidgetKind(ItemKind k) {
+        return k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Tray || k == ItemKind::Notifications;
+    }
 
     int Selected() const {
         HWND list = Item(kPinnedList);
@@ -455,6 +458,7 @@ private:
             case ItemKind::Widget: Window().ShowWidgetSettings(row); break;
             case ItemKind::Tray:
             case ItemKind::TrayApp: Window().ShowPage(kPageTray); break;
+            case ItemKind::Notifications: Window().ShowPage(kPageNotifications); break;
             case ItemKind::Folder:
             case ItemKind::Group: Window().ShowItemSettings(row); break;
             case ItemKind::App: {
@@ -480,11 +484,12 @@ private:
         HWND button = Item(kPinAddWidget);
         HMENU menu = CreatePopupMenu();
         if (!button || !menu) return;
-        constexpr UINT kClock = 1, kWeather = 2, kRunning = 3, kTray = 4, kScript = 100;
+        constexpr UINT kClock = 1, kWeather = 2, kRunning = 3, kTray = 4, kBell = 5, kScript = 100;
         AppendMenuW(menu, MF_STRING, kClock, L"Clock");
         AppendMenuW(menu, MF_STRING, kWeather, L"Weather");
         AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Running) ? MF_GRAYED : 0), kRunning, L"Running apps");
         AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Tray) ? MF_GRAYED : 0), kTray, L"Tray (notify icons)");
+        AppendMenuW(menu, MF_STRING | (Cfg().Edit().Has(ItemKind::Notifications) ? MF_GRAYED : 0), kBell, L"Notification centre");
         const std::vector<Widgets::CatalogEntry> installed = Widgets::Catalog();
         if (!installed.empty()) AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         for (size_t i = 0; i < installed.size() && i < 200; ++i) {
@@ -508,6 +513,7 @@ private:
         const ItemKind kind = cmd == kClock     ? ItemKind::Clock
                               : cmd == kWeather ? ItemKind::Weather
                               : cmd == kTray    ? ItemKind::Tray
+                              : cmd == kBell    ? ItemKind::Notifications
                                                 : ItemKind::Running;
         if (kind == ItemKind::Tray) Cfg().tray.enabled = true;  // as the dock menu's Add widget > Tray
         const size_t at = Cfg().Edit().AddWidget(kind);
@@ -635,6 +641,10 @@ private:
             case ItemKind::TrayApp:
                 name = L"Tray icon";
                 details = e.id;
+                break;
+            case ItemKind::Notifications:
+                name = L"Notification centre";
+                details = L"A bell with the unread count; a click lists the notifications";
                 break;
             case ItemKind::Unknown:
             default:

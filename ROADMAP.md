@@ -454,6 +454,12 @@ Learned while building 8a (same build):
 
 ## Phase 9: notifications and badges
 
+Status: done (2026-11-02) as 9a (NotificationService, badges on app slots, theme fields, the
+`notifications` provider) and 9b (the `notifications` element and the centre popup, tray balloons
+routed to it, Settings > Notifications); see STATUS.md and README "Notifications and badges". Do not
+disturb: no public API to read or set it (WNF is not public; `FocusSessionManager` drives focus
+sessions, not DND, and was not tried unpackaged), so the centre has no toggle.
+
 - Spike done 2026-11-02 (unpackaged exe, Win11 26300): `UserNotificationListener` access is
   Allowed with no prompt (follows the global "let apps access notifications" consent store;
   call `GetAccessStatus()` on every poll). `GetNotificationsAsync(Toast)` returns every toast
