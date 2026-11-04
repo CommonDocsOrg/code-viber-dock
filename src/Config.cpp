@@ -56,6 +56,7 @@ const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kOverflowNames[] = {L"scroll", L"shrink", L"clip"};
 const wchar_t* const kShapeNames[] = {L"bar", L"arc", L"circle"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
+const wchar_t* const kItemAnchorNames[] = {L"none", L"start", L"center", L"end"};
 const wchar_t* const kFolderSortNames[] = {L"name", L"date", L"type", L"size"};
 const wchar_t* const kWidgetBackgroundNames[] = {L"none", L"panel"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
@@ -353,6 +354,8 @@ const wchar_t* ToString(DockShape v) { return EnumToString(v, kShapeNames); }
 bool FromString(std::wstring_view s, DockShape& v) { return EnumFromString(s, v, kShapeNames); }
 const wchar_t* ToString(ItemView v) { return EnumToString(v, kItemViewNames); }
 bool FromString(std::wstring_view s, ItemView& v) { return EnumFromString(s, v, kItemViewNames); }
+const wchar_t* ToString(ItemAnchor v) { return EnumToString(v, kItemAnchorNames); }
+bool FromString(std::wstring_view s, ItemAnchor& v) { return EnumFromString(s, v, kItemAnchorNames); }
 const wchar_t* ToString(FolderSort v) { return EnumToString(v, kFolderSortNames); }
 const wchar_t* ToString(WidgetBackground v) { return EnumToString(v, kWidgetBackgroundNames); }
 bool FromString(std::wstring_view s, WidgetBackground& v) { return EnumFromString(s, v, kWidgetBackgroundNames); }
@@ -459,6 +462,41 @@ bool DockConfig::MoveItem(size_t from, size_t to) {
     if (to > from) --to;
     items.insert(items.begin() + static_cast<ptrdiff_t>(to), std::move(e));
     return true;
+}
+
+bool DockConfig::Anchored() const {
+    return std::any_of(items.begin(), items.end(),
+                       [](const DockItemEntry& e) { return e.anchor != ItemAnchor::None || e.offset != 0; });
+}
+
+bool DockConfig::SortByGroup(size_t* track) {
+    std::vector<size_t> order(items.size());
+    for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+    std::stable_sort(order.begin(), order.end(), [&](size_t a, size_t b) { return GroupOf(items[a]) < GroupOf(items[b]); });
+    bool changed = false;
+    for (size_t i = 0; i < order.size() && !changed; ++i) changed = order[i] != i;
+    if (!changed) return false;
+    std::vector<DockItemEntry> sorted;
+    sorted.reserve(items.size());
+    for (size_t i = 0; i < order.size(); ++i) {
+        if (track && *track == order[i]) {
+            *track = i;
+            track = nullptr;  // followed once
+        }
+        sorted.push_back(std::move(items[order[i]]));
+    }
+    items = std::move(sorted);
+    return true;
+}
+
+void DockConfig::JoinNeighbourGroup(size_t at) {
+    if (at >= items.size() || !Anchored()) return;
+    const int own = GroupOf(at);
+    const int before = at > 0 ? GroupOf(at - 1) : -1;
+    const int after = at + 1 < items.size() ? GroupOf(at + 1) : -1;
+    if (own == before || own == after) return;
+    const int g = before >= 0 ? before : after;
+    if (g >= 0) items[at].anchor = AnchorFor(g);
 }
 
 std::vector<size_t> DockConfig::PinIndexes() const {
@@ -782,6 +820,12 @@ void Config::Sanitize() {
         if (d.shape != DockShape::Bar) d.floating = false;
         if (d.floating) d.autoHide = AutoHideMode::Off;
         notifications.pollS = std::clamp(notifications.pollS, 1, 60);
+        // Round 7 phase 7B: item anchors in range, the items in group order (start, centre, end).
+        for (DockItemEntry& e : d.items) {
+            if (static_cast<unsigned>(e.anchor) > static_cast<unsigned>(ItemAnchor::End)) e.anchor = ItemAnchor::None;
+            e.offset = std::clamp(e.offset, -DockConfig::kMaxItemOffset, DockConfig::kMaxItemOffset);
+        }
+        d.SortByGroup();
         for (DockItemEntry& e : d.items) {
             if (e.Kind() != ItemKind::Tray) continue;
             e.rows = std::clamp(e.rows, 1, 2);
@@ -937,6 +981,8 @@ Config::LoadResult Config::LoadFile() {
                             ReadString(io, L"id", e.id);
                             if (auto so = ReadObject(io, L"settings")) e.settings = std::wstring(so.Stringify());
                             ReadEnum(io, L"view", e.view);
+                            ReadEnum(io, L"anchor", e.anchor);  // round 7 phase 7B (unknown text: none)
+                            ReadInt(io, L"offset", e.offset);
                             if (e.Kind() == ItemKind::Tray) {
                                 ReadInt(io, L"rows", e.rows);
                                 ReadInt(io, L"columns", e.columns);
@@ -1161,6 +1207,8 @@ bool Config::Save() const {
                 if (!e.id.empty()) add(L"id", e.id);
                 if (!e.settings.empty()) fields += L", " + Quote(L"settings") + L": " + e.settings;
                 if (e.view != ItemView::Auto) add(L"view", ToString(e.view));
+                if (e.anchor != ItemAnchor::None) add(L"anchor", ToString(e.anchor));  // round 7 phase 7B
+                if (e.offset != 0) fields += L", " + Quote(L"offset") + L": " + Num(e.offset);
                 if (e.Kind() == ItemKind::Tray) {
                     const DockItemEntry defaults{L"tray"};
                     if (e.rows != defaults.rows) fields += L", " + Quote(L"rows") + L": " + Num(e.rows);

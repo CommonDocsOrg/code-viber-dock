@@ -144,6 +144,10 @@ enum Command : UINT {
     // widget entry: its dock index.
     kEditorOk = 857,            // closes it as OK does (the promise gets the text)
     kEditorCancel = 858,        // closes it as Cancel does (the promise gets null)
+    // Round 7 phase 7B: item anchors (automation; slot LOWORD(lParam) of dock HIWORD(lParam), the
+    // argument in HIWORD(wParam)); the slot's config item changes, the items are sorted into group order.
+    kSetItemAnchor = 859,       // anchor HIWORD(wParam): 0 none (the dock's align), 1 start, 2 centre, 3 end
+    kSetItemOffset = 860,       // offset (int16) HIWORD(wParam) DIPs, clamped to -4000 - 4000
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

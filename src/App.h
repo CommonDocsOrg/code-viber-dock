@@ -138,14 +138,22 @@ private:
     static std::optional<DockItemEntry> EntryForItem(const DockItem& item);
     // Reorders the pins of the dock's config to the given key order (drag to reorder); a key that
     // is not pinned yet (a running item dragged into the pinned section) is pinned at its position.
-    void ApplyPinOrder(DockWindow& dock, const std::vector<AppKey>& order);
+    // Round 7 phase 7B: `anchor` (when set) goes to the entries of `key` first (the items are then
+    // sorted into group order, as ReloadPins always does).
+    void ApplyPinOrder(DockWindow& dock, const std::vector<AppKey>& order, const AppKey& key = {},
+                       std::optional<ItemAnchor> anchor = std::nullopt);
     // Inserts .lnk / .exe files (and folders) so the first becomes pin `at` of config dock `cfg`
     // (past the last pin: after it), skipping apps that are already pinned (`pins`: its resolved pins).
     void PinFiles(size_t cfg, const std::vector<AppIdentity::ResolvedPin>& pins, const std::vector<std::wstring>& paths,
                   size_t at);
     // Moves config item `from` of config dock `cfg` right before item `to` (a widget dragged on the
     // dock), then reloads, saves and refreshes the settings window.
-    void MoveItem(size_t cfg, size_t from, size_t to);
+    // `anchor` (round 7 phase 7B, when set) goes to the moved item, also when the order stays.
+    void MoveItem(size_t cfg, size_t from, size_t to, std::optional<ItemAnchor> anchor = std::nullopt);
+    // Round 7 phase 7B (ItemCommand 859 / 860): config item `item` of dock `cfg` gets an anchor / an
+    // offset (DIPs, clamped); the items are sorted into group order, reloaded, saved.
+    void SetItemAnchor(size_t cfg, size_t item, ItemAnchor anchor);
+    void SetItemOffset(size_t cfg, size_t item, int offset);
     // Add widget > Clock / Weather / Running apps (DockConfig::AddWidget's placement).
     void AddWidget(size_t cfg, ItemKind kind);
     // --- the tray (8b): edits of config dock `cfg` (each reloads, saves, refreshes Settings) ---
@@ -156,7 +164,8 @@ private:
     void PinTray(size_t cfg, const std::wstring& key, size_t at);
     void UnpinTray(size_t cfg, const std::wstring& key);
     void TrayHide(size_t cfg, size_t item, const std::wstring& key, bool hide);
-    // Every window of config dock `cfg` re-reads its items (DockWindow::ReloadPins).
+    // Every window of config dock `cfg` re-reads its items (DockWindow::ReloadPins), after they are
+    // sorted into group order (round 7 phase 7B: an item added anywhere joins its group).
     void ReloadPins(size_t cfg);
     void SeedDefaultPins();
     static int IndexOfKey(const DockWindow& dock, const AppKey& key);

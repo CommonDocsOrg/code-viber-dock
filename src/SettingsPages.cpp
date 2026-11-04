@@ -350,7 +350,13 @@ protected:
         NextRow(42);
         Label(kAlignLabel, L"Alignment");
         Combo(kAlignCombo, kColX, 160, false);
-        NextRow();
+        NextRow(kRowH);
+        // Round 7 phase 7B: items[].anchor (the Contents tab's "Position on the dock").
+        Text(kAlignNote, CtlKind::Note,
+             L"Where the dock sits on its edge; with full width or anchored items, where items without a position of "
+             L"their own sit",
+             kColX, right - kColX, 40);
+        NextRow(42);
         Label(kOffsetLabel, L"Offset (pixels)");
         IntSpin(kOffsetEdit, kOffsetSpin, kColX, 88, -16000, 16000, 10, [](Config&, DockConfig& d) -> int& { return d.offset; },
                 SettingsScope::Appearance);

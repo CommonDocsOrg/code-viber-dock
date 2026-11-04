@@ -24,6 +24,11 @@ inline bool IsPinKind(ItemKind k) {
 // FolderPopup::kAutoGridMax = 48 entries, a list above), "grid" or "list".
 enum class ItemView { Auto, Grid, List };
 
+// Round 7 phase 7B: where an item sits along a bar dock ("anchor"): with the dock's `align` (none,
+// the default: no key), or in the start / centre / end group of its own. The groups are laid out
+// in the bar as DockConfig::Anchored() describes.
+enum class ItemAnchor { None, Start, Center, End };
+
 // One element of a dock, in dock order. App / folder entries set path (or aumid); the other
 // kinds set neither.
 struct DockItemEntry {
@@ -62,6 +67,12 @@ struct DockItemEntry {
     int trayIconSize = 20;
     std::vector<std::wstring> hidden;
     std::vector<std::wstring> order;
+    // Round 7 phase 7B, every kind: the item's group along the bar ("anchor": "start" / "center" /
+    // "end"; none = the group the dock's `align` names) and a shift of it and the items after it in
+    // its group ("offset", DIPs along the edge, positive toward the end; -4000 - 4000). Each saved
+    // only when set.
+    ItemAnchor anchor = ItemAnchor::None;
+    int offset = 0;
 
     ItemKind Kind() const { return ItemKindOf(kind); }
     bool IsPin() const { return IsPinKind(Kind()); }
@@ -384,6 +395,31 @@ struct DockConfig {
     // end). Returns true if the order changed.
     bool MoveItem(size_t from, size_t to);
 
+    // Round 7 phase 7B: item anchors. An item's group: 0 start, 1 centre, 2 end (its own anchor, else
+    // the one the dock's `align` names). Anchored(): some item has an anchor or an offset; only then
+    // does a bar dock lay its items out as groups (start items packed from the bar's start, end items
+    // packed to its end, centre items centred as a block, each offset shifting its item and the ones
+    // after it in the group) in a bar as long as the room along the edge. AnchorFor(group): the anchor
+    // that puts an item into `group` (None for the group `align` names: untouched docks never gain
+    // anchor keys). SortByGroup(): stably reorders `items` start -> centre -> end (the order the
+    // layout needs; Sanitize and every item edit keep it); `track` (an index into items) follows its
+    // item. Returns true if the order changed.
+    static constexpr int kMaxItemOffset = 4000;
+    int AlignGroup() const { return align == DockAlign::Start ? 0 : align == DockAlign::End ? 2 : 1; }
+    int GroupOf(const DockItemEntry& e) const {
+        return e.anchor == ItemAnchor::Start ? 0 : e.anchor == ItemAnchor::Center ? 1 : e.anchor == ItemAnchor::End ? 2 : AlignGroup();
+    }
+    int GroupOf(size_t item) const { return item < items.size() ? GroupOf(items[item]) : AlignGroup(); }
+    ItemAnchor AnchorFor(int group) const {
+        if (group == AlignGroup()) return ItemAnchor::None;
+        return group == 0 ? ItemAnchor::Start : group == 2 ? ItemAnchor::End : ItemAnchor::Center;
+    }
+    bool Anchored() const;
+    bool SortByGroup(size_t* track = nullptr);
+    // Item `at` was just put there (inserted, moved): on a dock with anchors it joins the group of
+    // its neighbours when neither is in its own group (the one before it, else the one after it).
+    void JoinNeighbourGroup(size_t at);
+
     // The pins (IsPin() items) in order, and their indexes into `items`. A "pin index" k below
     // is the position among the pins, which is what the dock's pinned section and its resolved
     // pins (DockWindow::Pins()) are parallel to.
@@ -487,6 +523,8 @@ const wchar_t* ToString(DockShape v);
 bool FromString(std::wstring_view s, DockShape& v);
 const wchar_t* ToString(ItemView v);
 bool FromString(std::wstring_view s, ItemView& v);
+const wchar_t* ToString(ItemAnchor v);  // "none" for None (never written)
+bool FromString(std::wstring_view s, ItemAnchor& v);
 const wchar_t* ToString(FolderSort v);
 bool FromString(std::wstring_view s, FolderSort& v);
 const wchar_t* ToString(WidgetBackground v);

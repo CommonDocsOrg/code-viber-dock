@@ -229,7 +229,9 @@ void App::SetUpDock(DockWindow& dock) {
     DockWindow* d = &dock;  // the requests come from the dock itself, while it exists
     // Drag to reorder / unpin and file drops (the dock registers itself as an OLE drop target).
     DockWindow::PinRequests requests;
-    requests.reorder = [this, d](const std::vector<AppKey>& order) { ApplyPinOrder(*d, order); };
+    requests.reorder = [this, d](const std::vector<AppKey>& order, const AppKey& key, std::optional<ItemAnchor> anchor) {
+        ApplyPinOrder(*d, order, key, anchor);
+    };
     requests.unpin = [this, d](const AppKey& key) {
         const int index = IndexOfKey(*d, key);
         if (index >= 0 && d->Items()[static_cast<size_t>(index)].pinned) TogglePin(*d, key);
@@ -237,7 +239,9 @@ void App::SetUpDock(DockWindow& dock) {
     requests.pinFiles = [this, d](const std::vector<std::wstring>& paths, size_t at) {
         PinFiles(d->ConfigIndex(), d->Pins(), paths, at);
     };
-    requests.moveItem = [this, d](size_t from, size_t to) { MoveItem(d->ConfigIndex(), from, to); };
+    requests.moveItem = [this, d](size_t from, size_t to, std::optional<ItemAnchor> anchor) {
+        MoveItem(d->ConfigIndex(), from, to, anchor);
+    };
     requests.group = [this, d](const AppKey& source, const AppKey& target) { GroupWith(*d, source, target); };
     requests.addToGroup = [this, d](const AppKey& group, const std::vector<std::wstring>& paths) {
         AddToGroup(*d, group, paths);
@@ -284,6 +288,7 @@ void App::SetUpDock(DockWindow& dock) {
         c.edge = edge;
         c.align = align;
         c.offset = offset;
+        c.SortByGroup();  // round 7 phase 7B: items without an anchor follow the new align's group
         docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyConfig(); });
         RequestSave();
         RefreshSettings();
@@ -344,6 +349,7 @@ int App::IndexOfKey(const DockWindow& dock, const AppKey& key) {
 
 void App::ReloadPins(size_t cfg) {
     config_.EnsureItemSettings();  // a new clock / weather item starts from the defaults (round 5)
+    if (cfg < config_.docks.size()) config_.docks[cfg].SortByGroup();  // round 7 phase 7B: group order
     docks_.ForConfig(cfg, [](DockWindow& w) { w.ReloadPins(); });
     docks_.ApplyWidgetWindow(cfg);  // a standalone widget's settings (its Item window)
     docks_.SyncTray();  // a tray item came or went
@@ -368,6 +374,8 @@ void App::TogglePin(DockWindow& dock, const AppKey& key) {
         // Pinning appends to the end of the pinned list; the item moves to that slot.
         std::optional<DockItemEntry> e = EntryForItem(item);
         if (!e) return;  // nothing we could launch
+        // Round 7 phase 7B: it stays in the group it shows in (the running item's).
+        if (dc.Anchored()) e->anchor = dc.AnchorFor(dc.GroupOf(item.element));
         dc.InsertPin(SIZE_MAX, std::move(*e));
     }
     ReloadPins(cfg);
@@ -537,6 +545,8 @@ void App::GroupWith(DockWindow& dock, const AppKey& source, const AppKey& target
         group.kind = ToString(ItemKind::Group);
         group.members.push_back(MemberEntry(*t));
         group.members.push_back(std::move(*s));
+        group.anchor = t->anchor;  // round 7 phase 7B: its place on the dock is the target's
+        group.offset = t->offset;
         *t = std::move(group);  // at the target's place
     }
     if (si != SIZE_MAX) dc.ErasePin(si);
@@ -573,6 +583,7 @@ void App::MemberOut(DockWindow& dock, const AppKey& group, size_t member, size_t
     if (!g || g->Kind() != ItemKind::Group || member >= g->members.size()) return;
     DockConfig& dc = config_.docks[dock.ConfigIndex()];
     DockItemEntry m = std::move(g->members[member]);
+    m.anchor = g->anchor;  // round 7 phase 7B: beside its group (a drop elsewhere joins that group below)
     g->members.erase(g->members.begin() + static_cast<ptrdiff_t>(member));
     if (at == SIZE_MAX) at = gi + 1;
     if (g->members.empty()) {
@@ -580,6 +591,7 @@ void App::MemberOut(DockWindow& dock, const AppKey& group, size_t member, size_t
         if (at > gi) --at;
     }
     dc.InsertPin(at, std::move(m));
+    if (const std::vector<size_t> idx = dc.PinIndexes(); at < idx.size()) dc.JoinNeighbourGroup(idx[at]);
     ItemsChanged(dock.ConfigIndex());
 }
 
@@ -598,8 +610,12 @@ void App::Ungroup(DockWindow& dock, const AppKey& group) {
     if (!g || g->Kind() != ItemKind::Group) return;
     DockConfig& dc = config_.docks[dock.ConfigIndex()];
     std::vector<DockItemEntry> members = std::move(g->members);
+    const ItemAnchor anchor = g->anchor;  // round 7 phase 7B: the members stay in the group's group
     dc.ErasePin(gi);
-    for (size_t k = 0; k < members.size(); ++k) dc.InsertPin(gi + k, std::move(members[k]));
+    for (size_t k = 0; k < members.size(); ++k) {
+        members[k].anchor = anchor;
+        dc.InsertPin(gi + k, std::move(members[k]));
+    }
     ItemsChanged(dock.ConfigIndex());
 }
 
@@ -679,7 +695,8 @@ std::optional<DockItemEntry> App::EntryForItem(const DockItem& item) {
     return e;
 }
 
-void App::ApplyPinOrder(DockWindow& dock, const std::vector<AppKey>& order) {
+void App::ApplyPinOrder(DockWindow& dock, const std::vector<AppKey>& order, const AppKey& anchorKey,
+                        std::optional<ItemAnchor> anchor) {
     const auto& pins = dock.Pins();  // parallel to the pin items of the dock's config
     const size_t cfg = dock.ConfigIndex();
     const std::vector<DockItemEntry> current = config_.docks[cfg].Pins();
@@ -688,10 +705,12 @@ void App::ApplyPinOrder(DockWindow& dock, const std::vector<AppKey>& order) {
     next.reserve(current.size() + 1);
     for (const AppKey& key : order) {
         bool found = false;
+        const bool anchorIt = anchor && key == anchorKey;  // round 7 phase 7B: dropped into another group
         // Every entry resolving to this app moves along (duplicates stay together).
         for (size_t i = 0; i < current.size() && i < pins.size(); ++i) {
             if (!used[i] && pins[i].key == key) {
                 next.push_back(current[i]);
+                if (anchorIt) next.back().anchor = *anchor;
                 used[i] = true;
                 found = true;
             }
@@ -700,6 +719,7 @@ void App::ApplyPinOrder(DockWindow& dock, const std::vector<AppKey>& order) {
         const int index = IndexOfKey(dock, key);  // a running item dragged into the pinned section
         if (index < 0) continue;
         if (std::optional<DockItemEntry> e = EntryForItem(dock.Items()[static_cast<size_t>(index)])) {
+            if (anchorIt) e->anchor = *anchor;
             next.push_back(std::move(*e));
         }
     }
@@ -735,7 +755,10 @@ void App::PinFiles(size_t cfg, const std::vector<AppIdentity::ResolvedPin>& pins
         DockItemEntry e;
         e.path = pin.launchPath.empty() ? path : pin.launchPath;
         if (pin.kind == AppIdentity::PinKind::Folder) e.kind = ToString(ItemKind::Folder);
-        dock.InsertPin(at++, std::move(e));
+        dock.InsertPin(at, std::move(e));
+        // Round 7 phase 7B: dropped among a group's items, it joins that group.
+        if (const std::vector<size_t> idx = dock.PinIndexes(); at < idx.size()) dock.JoinNeighbourGroup(idx[at]);
+        ++at;
         changed = true;
     }
     if (!changed) return;
@@ -744,11 +767,40 @@ void App::PinFiles(size_t cfg, const std::vector<AppIdentity::ResolvedPin>& pins
     RefreshSettings();
 }
 
-void App::MoveItem(size_t cfg, size_t from, size_t to) {
-    if (cfg >= config_.docks.size() || !config_.docks[cfg].MoveItem(from, to)) return;
-    ReloadPins(cfg);
+void App::MoveItem(size_t cfg, size_t from, size_t to, std::optional<ItemAnchor> anchor) {
+    if (cfg >= config_.docks.size() || from >= config_.docks[cfg].items.size()) return;
+    DockConfig& d = config_.docks[cfg];
+    bool changed = false;
+    if (anchor && d.items[from].anchor != *anchor) {  // round 7 phase 7B: dropped into another group
+        d.items[from].anchor = *anchor;
+        changed = true;
+    }
+    if (d.MoveItem(from, to)) changed = true;
+    if (!changed) return;
+    ReloadPins(cfg);  // sorts into group order
     RequestSave();
     RefreshSettings();  // the Contents tab's strip
+}
+
+void App::SetItemAnchor(size_t cfg, size_t item, ItemAnchor anchor) {
+    if (cfg >= config_.docks.size() || item >= config_.docks[cfg].items.size()) return;
+    DockItemEntry& e = config_.docks[cfg].items[item];
+    if (e.anchor == anchor) return;
+    e.anchor = anchor;
+    ReloadPins(cfg);  // sorts into group order
+    RequestSave();
+    RefreshSettings();
+}
+
+void App::SetItemOffset(size_t cfg, size_t item, int offset) {
+    if (cfg >= config_.docks.size() || item >= config_.docks[cfg].items.size()) return;
+    DockItemEntry& e = config_.docks[cfg].items[item];
+    offset = std::clamp(offset, -DockConfig::kMaxItemOffset, DockConfig::kMaxItemOffset);
+    if (e.offset == offset) return;
+    e.offset = offset;
+    ReloadPins(cfg);
+    RequestSave();
+    RefreshSettings();
 }
 
 void App::AddWidget(size_t cfg, ItemKind kind) {
@@ -2004,11 +2056,15 @@ void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* sou
     if (source && source->Kind() == SettingsKind::Item) {
         if (const DockItemEntry* e = source->TargetItem()) source->SetItemCopy(*e, source->Dock().items.size());
     }
+    bool resorted = false;
     switch (scope) {
-        case SettingsScope::Appearance:
+        case SettingsScope::Appearance: {
             // Sizes, position, monitor, theme, clock: the theme may be per dock, the monitor
             // decides which windows exist.
             config_.ResolveDockThemes();
+            // Round 7 phase 7B: a new align moves the items without an anchor to its group (the
+            // source window's Contents strip then shows the new order too).
+            resorted = config_.docks[cfg].SortByGroup();
             if (modalDepth_ == 0) {
                 SyncDocks();  // folder windows and standalone widgets apply their entries in Sync
             } else {
@@ -2016,6 +2072,7 @@ void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* sou
             }
             docks_.ForEach([](DockWindow& w) { w.ApplyConfig(); });
             break;
+        }
         case SettingsScope::AutoHide:
             SetAutoHide(cfg, config_.docks[cfg].autoHide);  // keeps lastOnMode_ in step; saves
             break;
@@ -2053,6 +2110,7 @@ void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* sou
     // The other windows follow (their pages, headers; a removed item's window closes); the source
     // window keeps its controls (a half-typed value stays) and updates its header.
     RefreshSettings(source);
+    if (source && resorted) source->Refresh();
     if (source) source->UpdateIdentity();
 }
 
@@ -2415,6 +2473,22 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
                 RemoveMember(*dock, key, arg);
             }
             result = 1;
+            return true;
+        }
+        if (cmd == ContextMenu::kSetItemAnchor || cmd == ContextMenu::kSetItemOffset) {
+            // Round 7 phase 7B: the slot's config item (the running apps: the running item).
+            result = 0;
+            if (index >= 0) {
+                const size_t element = dock->Items()[static_cast<size_t>(index)].element;
+                const size_t cfg = dock->ConfigIndex();
+                if (cmd == ContextMenu::kSetItemAnchor && arg <= static_cast<size_t>(ItemAnchor::End)) {
+                    SetItemAnchor(cfg, element, static_cast<ItemAnchor>(arg));
+                    result = 1;
+                } else if (cmd == ContextMenu::kSetItemOffset) {
+                    SetItemOffset(cfg, element, static_cast<int16_t>(arg));
+                    result = 1;
+                }
+            }
             return true;
         }
         if (index >= 0 && modal && InSendMessage()) {

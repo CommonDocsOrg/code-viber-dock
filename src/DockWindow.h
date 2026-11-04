@@ -188,14 +188,17 @@ public:
     struct PinRequests {
         // New order of the pinned section as item keys. A key that is not pinned yet (a running
         // item dragged into the pinned section) is pinned at that position.
-        std::function<void(const std::vector<AppKey>& order)> reorder;
+        // Round 7 phase 7B: `anchor` (when set) goes to the entries of `key` (the dragged item: it was
+        // dropped among another group's items), then the items are sorted into group order.
+        std::function<void(const std::vector<AppKey>& order, const AppKey& key, std::optional<ItemAnchor> anchor)> reorder;
         // Remove every pin of this app (an icon dragged off the dock).
         std::function<void(const AppKey& key)> unpin;
         // Pin .lnk / .exe files (dropped on the dock) as pin `at` onwards (at == pin count: append).
         std::function<void(const std::vector<std::wstring>& paths, size_t at)> pinFiles;
         // Move config item `from` (a widget dragged on the dock) right before item `to` (>= the item
         // count: to the end) of config->Main().items.
-        std::function<void(size_t from, size_t to)> moveItem;
+        // `anchor` as for reorder (also when the order stays: only the group changed).
+        std::function<void(size_t from, size_t to, std::optional<ItemAnchor> anchor)> moveItem;
         // The dock was dragged (Ctrl + drag): put it on `edge` at `align` + `offset` DIPs.
         std::function<void(DockEdge edge, DockAlign align, int offset)> moveDock;
         // A circle was dragged: its centre goes to x / y DIPs from the work area's top-left. A
@@ -484,6 +487,10 @@ private:
         float popupY = 0.0f;      // popups open beyond this cross coordinate (with docks[].popupGap)
         float roomPx = 0.0f;      // room along the edge for the bar (margins and docks[].maxLength applied)
         bool fullWidth = false;   // the bar spans the monitor's edge (docks[].fullWidth)
+        // Round 7 phase 7B: the items are laid out as anchored groups (DockConfig::Anchored() on a
+        // bar whose run fits the room): the bar is the room's length, the gaps between the groups are
+        // the slots' leads.
+        bool anchored = false;
         // docks[].floating (round 6 phase 6A): the bar sits at docks[].x / y, its "screen edge" is
         // its own outer side (no margin); the stage reaches from there toward the way it faces.
         bool floating = false;
@@ -1051,6 +1058,19 @@ private:
     void UpdateElementDragTarget(float stageX);
     // The dragged item back in its own place (dragOrder_ = the rest order).
     void ResetDragOrder();
+    // Round 7 phase 7B (a dock with anchors): the group (0 start, 1 centre, 2 end) a drag at stage x
+    // drops into: the group whose slots (the dragged one left out) are under it, else the nearest
+    // one (between two groups: the gap's midpoint decides); on an anchored layout an empty group
+    // counts as a point at its place in the bar (start / middle / end), so an item can start one.
+    int DropGroupAt(float stageX) const;
+    // dragGroup_ for the current target (a running app that stays among the running apps keeps its
+    // group), then dragOrder_ stably sorted into group order (as the config will be) and
+    // dragInsert_ found again. Nothing on a dock without anchors.
+    void ApplyDragGroup(float stageX, bool canChangeGroup);
+    // The dragged item's group now (its config item's) and the anchor a drop would give it
+    // (nullopt: none to set).
+    int DragOwnGroup() const;
+    std::optional<ItemAnchor> DragAnchor(bool newPin) const;
     // An item a pin / running-app drag can be dropped on (a pin or an unpinned running app; not a
     // widget).
     bool Droppable(size_t index) const { return !items_[index].IsWidget(); }
@@ -1301,6 +1321,7 @@ private:
     bool dragToPins_ = false;     // dropped now, the new order is the pins' (else the running apps')
     bool dragWidget_ = false;     // a widget is dragged: it moves its config item (dragMoveTo_)
     size_t dragMoveTo_ = SIZE_MAX;  // the config item the dragged widget would go before (SIZE_MAX: the end)
+    int dragGroup_ = -1;          // round 7 phase 7B: the group the dragged item drops into (-1: no anchors)
     std::vector<size_t> dragPins_;     // pin slots (item indexes) in their new order
     std::vector<size_t> dragRunning_;  // unpinned running slots in their new order
     std::vector<size_t> dragOrder_;    // every slot in the order the drag layout shows them

@@ -325,7 +325,8 @@ dock only changes edges. `WinDock.QueryState` 46 reports the drag.
 
 **Full width** (`fullWidth`, default `false`): the bar spans the whole edge of the monitor, flush
 with the screen edge (no margin) and with square corners (also the acrylic blur). The items sit in
-it at its start, centre or end per `align`, moved by `offset`, and keep the bar's padding from the
+it at its start, centre or end per `align`, moved by `offset` (with item anchors: in their groups,
+see below), and keep the bar's padding from the
 monitor's ends. Magnification grows the run of items inside the bar (the bar's own ends slide past
 the monitor's, where the window cuts them off, so the bar always looks full); auto-hide works as
 usual (the whole bar slides off the edge).
@@ -339,6 +340,49 @@ until the run fits the cap; `"clip"` is not capped (the bar goes on to the monit
 before). The bar is still aligned on its edge by `align` / `offset`. Ignored for a ring (`shape`
 `"arc"` / `"circle"`) and a full-width bar (Settings greys the control then); a floating bar is
 capped too. Dock settings > Position > Maximum length.
+
+**Item anchors: custom positioning** (`items[].anchor`, `items[].offset`; round 7): any item (apps,
+folders, separators, the running apps, widgets, the clock, the tray, groups, ...) can have a place
+of its own along the bar. `anchor` puts it in the **start** group (`"start"`: the left end of a
+horizontal dock, the top of a vertical one), the **centre** group (`"center"`) or the **end** group
+(`"end"`); without one (the default, no key) it is in the group the dock's `align` names (`"center"`
+-> the centre group, and so on). `offset` (DIPs along the edge, -4000 - 4000, default 0) shifts the
+item **and the items after it in its group** (positive: right / down). For example, on a left dock:
+the clock with `"anchor": "start"` sits at the top, the weather with `"anchor": "center"` and
+`"offset": 40` sits 40 DIP below the middle, and a separator, the pins and the running apps with
+`"anchor": "end"` sit at the bottom. How it lays out:
+
+- As soon as one item has an anchor or an offset (and the dock is a bar), the bar is **as long as
+  the room along the edge**: the monitor's edge minus the 8 DIP margins, or `maxLength` when that
+  is set (full width: the whole edge, as always). The bar itself is still placed by `align` /
+  `offset`, so it effectively reaches from margin to margin. A dock without any anchor or offset is
+  laid out exactly as before (the bar hugs its items).
+- The start group is packed from the bar's start padding, the end group back from the bar's end
+  padding, the centre group is centred on the bar as a block; within a group the items keep their
+  order and their usual spacing. Groups never overlap: an item pushed into its neighbour (by an
+  offset, or a centre group too long for its half) pushes it along, as far as the bar's ends, and
+  nothing leaves the bar's padding.
+- The items are kept in **group order** in `items` (start, centre, end; items without an anchor
+  keep their relative order): reading the file, changing an anchor or the dock's alignment, adding
+  or moving an item all sort them stably, so the Contents strip shows the dock's order. An item
+  given a new anchor keeps its place relative to the other items of its new group (an item moved
+  from the start of the list to `"end"` becomes the first of the end group).
+- **When the run does not fit** the room (it is longer than the bar could be), the anchors are
+  ignored while it overflows: the dock lays out one run with its `overflow` mode (scroll / shrink /
+  clip), as without anchors, until it fits again.
+- **Dragging on the dock**: an item dropped among another group's items takes that group's anchor
+  (between two groups: the one nearer the pointer, the gap's midpoint deciding); on an anchored bar
+  an empty group counts as a point at its place (start, middle or end), so dragging an item there
+  starts that group. A group that is the one `align` names is written as no anchor, so a dock
+  without anchors never gains `anchor` keys from a drag (and its drags are unchanged). The running
+  apps share the running item's group (moving one among them keeps it). A pin pinned from a running
+  app stays in the group it showed in; files dropped among a group's items join it.
+- Magnification works as on any bar: the magnified run grows away from the pointer, so magnified
+  icons may close a gap between groups a little. Rings (`shape` `"arc"` / `"circle"`) ignore
+  anchors (their items stay in group order). A floating bar has no room of its own: anchors apply to
+  it only with `maxLength` set (the bar is then that long).
+- Settings: the Dock window's Contents tab, the selected item's **Position on the dock** and
+  **Offset (DIPs)**.
 
 **Reserve screen space** (`reserveSpace`, default `true`; any edge, full width or not): the dock
 registers its window as an app bar (`SHAppBarMessage` `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS`)
@@ -567,6 +611,9 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
     running apps block itself on Dock settings > Contents.) A widget cannot be dragged off the
     dock; remove it in Settings. When the widget's new place changes the dock's width (the gaps
     around widgets move with it), the dock settles at once instead of animating the landing.
+  - On a dock with item anchors (round 7, see **Item anchors** under Position), an item dropped
+    among another group's items joins that group (it gets that group's `anchor`); while dragging,
+    the other items show the groups as they will be.
 - Drag files onto the dock. What a drop does depends on where the pointer is:
   - Over the middle 70 % of an app's slot: the icon grows a little (no marker) and dropping opens
     the files with that app. When the app is registered for the file type (the first file's
@@ -1471,7 +1518,13 @@ take the dock's colour (Windows 11). Tabs:
     script widget, tray, folder (or a shortcut to one) or group: its Item window; Enter or a double
     click on a pinned tray icon opens its dock's tray item's window, on the running apps the Running
     apps tab, on the notification centre the Behaviour tab), **Choose icon…** / **Choose image…** / **Reset icon** for apps, folders, groups
-    and the Recycle Bin (as in the dock's menu, see Custom icons) and **Remove from dock**.
+    and the Recycle Bin (as in the dock's menu, see Custom icons) and **Remove from dock**. Under
+    them, for every kind (round 7): **Position on the dock** (Follow the dock's alignment / Start
+    (left / top) / Centre / End (right / bottom): the item's `anchor`, see Item anchors under
+    Position; the strip then shows the items re-sorted into group order) and **Offset (DIPs)**
+    (-4000 - 4000; "Shifts this item and the ones after it in its group"; Enter, focus loss or the
+    up-down apply it). On a dock with anchors, an item moved on the strip (drag, Ctrl+arrows, Move
+    left / right) or dropped / added between two items of another group joins that group.
   - Buttons under the strip: **Add app…** (pick one or more `.lnk` / `.exe` files; a shortcut is
     pinned as the shortcut, apps that are already pinned are skipped), **Add folder…**, **Add
     separator** (after the selected item; nothing selected: at the end), **Add Recycle Bin**
@@ -1503,7 +1556,9 @@ take the dock's colour (Windows 11). Tabs:
   showing / On the desktop, under every window, with a line about the one chosen), **Floating**
   (round 6 phase 6A; bar docks only, with a note), screen edge (a floating dock: the way it faces),
   Position x / y (DIPs from the work area's top-left; empty = centred: a floating bar's top-left, a
-  circle's centre), alignment and offset (pixels at 100 % scale), Full width, **Maximum length**
+  circle's centre), alignment (with the note "Where the dock sits on its edge; with full width or
+  anchored items, where items without a position of their own sit") and offset (pixels at 100 %
+  scale), Full width, **Maximum length**
   (round 7: `maxLength` in pixels at 100 % scale, 0 = no limit; a value from 1 to 95 becomes 96, the
   spinner steps from 0 to 96 and back; greyed for a ring or a full-width bar), Reserve screen space,
   Peek when hidden (pixels), Peek opacity (%), Title (see Position; alignment to peek are greyed
@@ -1733,6 +1788,14 @@ items that exist. A file whose items have settings already is left alone.
     the item is kept unchanged. The value is kept exactly as written (a `%VAR%` path stays
     unexpanded in the file); **Choose icon…** / **Choose image…** store the absolute path the
     dialog returned, and **Reset icon** removes the key.
+
+    Every item (round 7) takes an optional `anchor` (`"start"` / `"center"` / `"end"`; missing or
+    unknown text: none, i.e. the group the dock's `align` names; written only when set) and
+    `offset` (DIPs along the edge, -4000 - 4000, default 0, written only when not 0): its group
+    along the bar and a shift of it and the items after it in its group. See
+    [Position](#position-edge-alignment-offset) > Item anchors. `items` is kept in group order
+    (start, centre, end) on load and by every edit. Older builds ignore both keys (they lay the
+    items out as one run in that order and drop the keys when they save).
 
     Kinds are case-insensitive. An item without a `kind` but with a `path` / `aumid` is read as
     `"app"`; an app / folder item without either is ignored. A kind this version does not know is
@@ -2453,6 +2516,13 @@ always there, also when every dock is parked) handle these registered messages:
   scale); 271 = its `maxLength` in px as applied (0: none, or ignored: a ring, a full-width bar).
   With the hover label shown and a window preview open, 153 / 154 (the label's place and size) and
   the `WinDockPreview` window's rect show the preview `popupGap` beyond the label.
+  Round 7 phase 7B, item anchors (dock `HIWORD(lParam)`): 272 = slot `LOWORD(lParam)`'s group (0
+  start, 1 centre, 2 end: its config item's `anchor`, else the group the dock's `align` names; the
+  running apps share the running item's; -1 no such slot); 273 = 1 while the dock lays its items
+  out as anchored groups (some item has an anchor or an offset, the dock is a bar and its run fits
+  the room; 0 also while the run overflows); 274 = slot `LOWORD(lParam)`'s config item's `offset`
+  in px (-1 no such slot). The groups' positions show in `QueryItemPoint` and 237 / 238 (the bar
+  is the room's length).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
@@ -2507,7 +2577,12 @@ always there, also when every dock is parked) handle these registered messages:
   2619 Hide / Show widget drawer, the drawer: 2620 / 2621 its title, 2622 the search box (send
   `WM_SETTEXT`, then `WM_COMMAND(2622, EN_CHANGE)` to the page), 2623 the drawer list (the same
   class; window text "Widget drawer: <name>, <note>" of the focused row), 2624 the Widget library
-  link. The strip and the drawer take real mouse input (`SendInput`: press on a tile's / row's
+  link, round 7 phase 7B: 2626 Position on the dock (drop-down in `ItemAnchor` order: 0 follow the
+  dock's alignment, 1 start, 2 centre, 3 end; `CB_SETCURSEL` + `WM_COMMAND(2626, CBN_SELCHANGE)` to
+  the page; 2625 its label), 2628 / 2629 Offset box and up-down (`WM_SETTEXT` +
+  `WM_COMMAND(2628, EN_KILLFOCUS)`; 2627 its label, 2630 its note); they act on the strip's
+  selection (item 0 when the tab opens; a `WM_KEYDOWN` Right / Left sent to the strip moves it).
+  The strip and the drawer take real mouse input (`SendInput`: press on a tile's / row's
   centre from `QueryState` 229 / 230, glide, release; Esc during the drag cancels) and real keys
   while the window is the foreground (Left / Right / Home / End, Ctrl+Left / Ctrl+Right, Delete,
   Enter; the drawer Up / Down / Enter). Position = the General page's dock controls (2111 Display, ending with "Every display"
@@ -2518,7 +2593,7 @@ always there, also when every dock is parked) handle these registered messages:
   on Enter / focus loss), 2169 shape, 2171 / 2172 radius, 2173 rotate icons, new 2180 / 2182 a
   circle's centre / a floating bar's top-left x / y (edit boxes, empty = centred; committed on
   `EN_KILLFOCUS`), 2167 overflow, round 7: 2265 / 2266 Maximum length box and up-down (2264 its
-  label, 2267 its note; committed on `EN_KILLFOCUS`)); Global > General's Dashboard section (6A): 2195 the hotkey box
+  label, 2267 its note; committed on `EN_KILLFOCUS`), 2268 the alignment's note (7B)); Global > General's Dashboard section (6A): 2195 the hotkey box
   (its window text is the canonical hotkey; a `WM_KEYDOWN` sent to it records the key with the
   modifiers the dock's thread holds (Backspace / Delete: none), `WM_APP + 60` with `wParam` =
   `MOD_*` bits and `lParam` = the virtual key records that combination, as App does when the
@@ -2586,8 +2661,12 @@ always there, also when every dock is parked) handle these registered messages:
   the slot's config item's Item window (a widget, clock, weather, tray (round 5 phase D), folder or
   group; another item: its dock's window; round 5 phase B), 857 / 858 (round 6 phase 6C) close the
   text editor of slot `lParam`'s widget (`popup.editText`) as OK / Cancel would (the script gets the
-  text / `null`; `LOWORD(lParam)` 0xFFFF: the dock's open editor; 1 if one was open, else 0), 900
-  close all windows). On a
+  text / `null`; `LOWORD(lParam)` 0xFFFF: the dock's open editor; 1 if one was open, else 0), 859
+  / 860 (round 7 phase 7B; the argument in the high word of `wParam`) set the `anchor` of slot
+  `lParam`'s config item (the running apps: the running item) to `HIWORD(wParam)` (0 none = the
+  dock's alignment, 1 start, 2 centre, 3 end) / its `offset` to the signed 16-bit `HIWORD(wParam)`
+  DIPs (clamped to -4000 - 4000); the items are sorted into group order, reloaded and saved (1;
+  0 for no such slot or a bad anchor), 900 close all windows). On a
   [standalone widget](#standalone-widgets) entry (round 6 phase 6B; the entry's index in the high
   word of `lParam`): 809 reloads its widget, 854 opens its widget's Item window, 855 locks / unlocks
   it, 856 removes the entry (posted), 857 / 858 close its widget's text editor (below); any other

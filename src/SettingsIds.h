@@ -221,6 +221,8 @@ inline constexpr int kMaxLengthLabel = 2264;
 inline constexpr int kMaxLengthEdit = 2265;        // DIPs, 0 (no limit) or 96 - 8000
 inline constexpr int kMaxLengthSpin = 2266;
 inline constexpr int kMaxLengthNote = 2267;        // "0: no limit. Longer runs scroll (see Overflow)"
+// Round 7 phase 7B: the Position tab's note under Alignment.
+inline constexpr int kAlignNote = 2268;            // "Where the dock sits on its edge; with full width or anchored items, …"
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;
@@ -342,6 +344,13 @@ inline constexpr int kDrawerHint = 2621;          // "drag onto the strip"
 inline constexpr int kDrawerSearch = 2622;        // edit: filters the drawer by name / note / id
 inline constexpr int kDrawerList = 2623;          // WinDock.SettingsStrip (drawer mode): Built in, Script widgets
 inline constexpr int kDrawerLibraryLink = 2624;   // SysLink: opens Global > Widget library
+// Round 7 phase 7B: the inspector's placement of the selected item (every kind).
+inline constexpr int kItemAnchorLabel = 2625;     // "Position on the dock"
+inline constexpr int kItemAnchorCombo = 2626;     // 0 follow the dock's alignment, 1 start, 2 centre, 3 end (= ItemAnchor)
+inline constexpr int kItemOffsetLabel = 2627;     // "Offset (DIPs)"
+inline constexpr int kItemOffsetEdit = 2628;      // items[].offset DIPs, -4000 - 4000
+inline constexpr int kItemOffsetSpin = 2629;
+inline constexpr int kItemOffsetNote = 2630;      // "Shifts this item and the ones after it in its group"
 
 // Weather (2700 - 2799): the Weather page until round 5 phase A (retired: each weather item's place
 // is a Place field of the generated page, 3610 - 3629); reserved.

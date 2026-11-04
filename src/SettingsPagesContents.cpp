@@ -1334,6 +1334,17 @@ protected:
         Button(kPinChooseImage, L"Choose image…", L + 314, 102);
         Button(kPinResetIcon, L"Reset icon", L + 422, 80);
         Button(kPinRemove, L"Remove from dock", R - 14 - 128, 128);
+        // Round 7 phase 7B: the item's place on the dock (FlowInspector places them under the buttons).
+        y_ = kInspectorTop + 90;
+        Add(kItemAnchorLabel, CtlKind::Label, WC_STATICW, L"Position on the dock",
+            SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS, RECT{L + 14, y_, L + 14 + kPlaceLabelW, y_ + kRowH});
+        Combo(kItemAnchorCombo, L + 14 + kPlaceLabelW + 6, kPlaceComboW, false);
+        y_ += kRowH + 2;
+        Add(kItemOffsetLabel, CtlKind::Label, WC_STATICW, L"Offset (DIPs)", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
+            RECT{L + 14, y_, L + 14 + kPlaceLabelW, y_ + kRowH});
+        Spin(kItemOffsetEdit, kItemOffsetSpin, L + 14 + kPlaceLabelW + 6, 96, -DockConfig::kMaxItemOffset, DockConfig::kMaxItemOffset, 10);
+        y_ += kRowH;
+        Text(kItemOffsetNote, CtlKind::Note, L"Shifts this item and the ones after it in its group", L + 14, R - L - 28, 20);
         // The widget drawer.
         Add(kDrawerTitle, CtlKind::Section, WC_STATICW, L"Widget drawer", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
             RECT{dx + 16, 12, dx + 132, 36});
@@ -1363,6 +1374,10 @@ protected:
         drawer_.onDropEntry = [this](int entry, int slot) { InsertEntry(entry, slot); };
         drawer_.onDesktop = [this](int entry) { AddToDesktop(entry); };
         if (HWND search = Item(kDrawerSearch)) SendMessageW(search, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Search widgets"));
+        // ItemAnchor order.
+        for (const wchar_t* a : {L"Follow the dock's alignment", L"Start (left / top)", L"Centre", L"End (right / bottom)"}) {
+            ComboAdd(kItemAnchorCombo, a);
+        }
         ApplyDrawer();
     }
 
@@ -1480,6 +1495,10 @@ protected:
             }
             return;
         }
+        if (id == kItemAnchorCombo) {
+            if (code == CBN_SELCHANGE) SetAnchor(ComboSel(kItemAnchorCombo));
+            return;
+        }
         if (code != BN_CLICKED) return;
         DockConfig& dock = Dock();
         const int n = static_cast<int>(dock.items.size());
@@ -1489,10 +1508,11 @@ protected:
             case kPinAddFolder: AddFolder(); break;
             case kPinAddSeparator: {
                 // After the selected item; nothing selected: at the end.
-                const size_t at = valid ? static_cast<size_t>(sel_) + 1 : dock.items.size();
+                size_t at = valid ? static_cast<size_t>(sel_) + 1 : dock.items.size();
                 DockItemEntry e;
                 e.kind = ToString(ItemKind::Separator);
                 dock.items.insert(dock.items.begin() + static_cast<ptrdiff_t>(at), std::move(e));
+                at = Regroup(at);
                 Changed(SettingsScope::Pins);
                 FillStrip(static_cast<int>(at));
                 break;
@@ -1534,7 +1554,22 @@ protected:
         }
     }
 
+    // Round 7 phase 7B: the offset edit (Enter / focus loss) and its up-down.
+    void Commit(int id) override {
+        if (id != kItemOffsetEdit) return;
+        int value = 0;
+        if (ReadInt(kItemOffsetEdit, -DockConfig::kMaxItemOffset, DockConfig::kMaxItemOffset, value)) {
+            SetOffset(value);
+        } else {
+            UpdateInspector();  // not a number: back to the item's value
+        }
+    }
+    void Spun(int spin, int pos) override {
+        if (spin == kItemOffsetSpin) SetOffset(pos);
+    }
+
 private:
+    static constexpr int kPlaceLabelW = 150, kPlaceComboW = 220;  // the inspector's placement rows (DIPs)
     static constexpr int kEntryRunning = 0, kEntryClock = 1, kEntryWeather = 2, kEntryTray = 3, kEntryBell = 4,
                          kEntryRecycleBin = 5, kEntrySeparator = 6, kBuiltInEntries = 7;
 
@@ -1682,6 +1717,20 @@ private:
             int id;
             int w;
         } flow[] = {{kPinSettings, 196}, {kPinChooseIcon, 92}, {kPinChooseImage, 102}, {kPinResetIcon, 80}};
+        // Round 7 phase 7B: the placement rows (Position on the dock, Offset and its note) under
+        // everything else; returns the inspector's bottom.
+        auto placeRows = [&](int top) {
+            const int cx = left + kPlaceLabelW + 6;
+            MoveCtl(kItemAnchorLabel, RECT{left, top, left + kPlaceLabelW, top + kRowH});
+            MoveCtl(kItemAnchorCombo, RECT{cx, top + 4, std::min(right, cx + kPlaceComboW), top + 4 + 220});
+            top += kRowH + 2;
+            MoveCtl(kItemOffsetLabel, RECT{left, top, left + kPlaceLabelW, top + kRowH});
+            MoveCtl(kItemOffsetEdit, RECT{cx, top + 4, cx + 96 - 18, top + kRowH - 4});
+            MoveCtl(kItemOffsetSpin, RECT{cx + 96 - 18, top + 4, cx + 96, top + kRowH - 4});
+            top += kRowH;
+            MoveCtl(kItemOffsetNote, RECT{left, top, right, top + 20});
+            return top + 20 + 10;
+        };
         if (infoPreview_) {
             // A widget with its preview: the buttons stack in the right column under Move left /
             // right, beside the preview (the inspector stays as tall as the preview and the name).
@@ -1692,7 +1741,7 @@ private:
                 yc += 34;
             }
             MoveCtl(kPinRemove, RECT{right - 206, yc, right, yc + 28});
-            inspectorBottom_ = std::max(kInspectorTop + 46 + extra + 10, yc + 28 + 10);
+            inspectorBottom_ = placeRows(std::max(kInspectorTop + 46 + extra, yc + 28) + 8);
             Relayout();
             return;
         }
@@ -1705,7 +1754,7 @@ private:
         constexpr int kRemoveW = 128;
         if (x > left && x + kRemoveW > right) y += 34;  // no room beside them
         MoveCtl(kPinRemove, RECT{right - kRemoveW, y, right, y + 28});
-        inspectorBottom_ = y + 28 + 10;
+        inspectorBottom_ = placeRows(y + 28 + 8);
         Relayout();
     }
 
@@ -1855,6 +1904,10 @@ private:
         Show(kPinChooseImage, iconable);
         Show(kPinResetIcon, iconable);
         Enable(kPinResetIcon, iconable && !e->icon.empty());
+        // Round 7 phase 7B: the item's anchor and offset (every kind).
+        SetComboSel(kItemAnchorCombo, e ? static_cast<int>(e->anchor) : -1);
+        SetSpin(kItemOffsetSpin, e ? e->offset : 0);
+        for (int id : {kItemAnchorLabel, kItemAnchorCombo, kItemOffsetLabel, kItemOffsetEdit, kItemOffsetSpin}) Enable(id, valid);
         FlowInspector();
         // A button that just got disabled must not keep the keyboard focus.
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(strip_.Hwnd());
@@ -1868,8 +1921,44 @@ private:
             FillStrip(from);  // nothing moved: the selection stays
             return;
         }
+        const size_t at = Regroup(static_cast<size_t>(slot > from ? slot - 1 : slot));
         Changed(SettingsScope::Pins);
-        FillStrip(slot > from ? slot - 1 : slot);
+        FillStrip(static_cast<int>(at));
+    }
+
+    // Round 7 phase 7B. Item `at` was just put there (moved, dropped from the drawer, a new
+    // separator): on a dock with anchors it joins the group of its new neighbours
+    // (DockConfig::JoinNeighbourGroup); then the items are sorted into group order. Returns its
+    // index after that.
+    size_t Regroup(size_t at) {
+        DockConfig& d = Dock();
+        d.JoinNeighbourGroup(at);
+        d.SortByGroup(&at);
+        return at;
+    }
+
+    // Round 7 phase 7B: "Position on the dock" (an ItemAnchor) and "Offset" of the selected item.
+    void SetAnchor(int anchor) {
+        DockConfig& d = Dock();
+        if (sel_ < 0 || sel_ >= static_cast<int>(d.items.size()) || anchor < 0 || anchor > static_cast<int>(ItemAnchor::End)) return;
+        DockItemEntry& e = d.items[static_cast<size_t>(sel_)];
+        if (e.anchor == static_cast<ItemAnchor>(anchor)) return;
+        e.anchor = static_cast<ItemAnchor>(anchor);
+        size_t at = static_cast<size_t>(sel_);
+        d.SortByGroup(&at);  // the strip shows the dock's order
+        Changed(SettingsScope::Pins);
+        FillStrip(static_cast<int>(at));
+    }
+
+    void SetOffset(int offset) {
+        DockConfig& d = Dock();
+        if (sel_ < 0 || sel_ >= static_cast<int>(d.items.size())) return;
+        offset = std::clamp(offset, -DockConfig::kMaxItemOffset, DockConfig::kMaxItemOffset);
+        DockItemEntry& e = d.items[static_cast<size_t>(sel_)];
+        SetSpin(kItemOffsetSpin, offset);
+        if (e.offset == offset) return;
+        e.offset = offset;
+        Changed(SettingsScope::Pins);
     }
 
     void RemoveItem(int item) {
@@ -1917,6 +2006,7 @@ private:
             MessageBeep(MB_ICONWARNING);
             return;
         }
+        d.SortByGroup(&at);  // round 7 phase 7B: it joins its group (the dock's align)
         Changed(SettingsScope::Pins);  // also starts the weather service for a weather item
         FillStrip(static_cast<int>(at));
         FillDrawer();
@@ -1935,8 +2025,9 @@ private:
         std::optional<DockItemEntry> e = NewEntry(entry);
         if (!e) return;
         DockConfig& d = Dock();
-        const size_t at = std::min(static_cast<size_t>(std::max(0, slot)), d.items.size());
+        size_t at = std::min(static_cast<size_t>(std::max(0, slot)), d.items.size());
         d.items.insert(d.items.begin() + static_cast<ptrdiff_t>(at), std::move(*e));
+        at = Regroup(at);
         Changed(SettingsScope::Pins);
         FillStrip(static_cast<int>(at));
         FillDrawer();

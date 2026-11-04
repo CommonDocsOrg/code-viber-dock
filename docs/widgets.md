@@ -1028,7 +1028,9 @@ settings in its own window** opens its settings. In config.json:
 ```
 
 The same widget can be on a dock several times (each item is its own instance with its own
-settings and state) and on several docks.
+settings and state) and on several docks. Like every item it can take `"anchor"` (`"start"` /
+`"center"` / `"end"`) and `"offset"` (DIPs) for its place along the bar (round 7; README, Position
+> Item anchors); the widget's script sees nothing of it.
 
 **On the desktop**: the drawer's **Desktop** button on a script widget's row (and **Add to the
 desktop** in Global settings > Widget library, **Add standalone widget…** in Docks and displays)

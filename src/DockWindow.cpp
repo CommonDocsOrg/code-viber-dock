@@ -102,6 +102,118 @@ float SpacerBetween(Run prev, Run run, float iconToWidget, float widgetGap) {
     return prev == Run::Widget && run == Run::Widget ? widgetGap : iconToWidget;
 }
 
+// Round 7 phase 7B: one slot of an anchored layout (in dock order).
+struct AnchorSlot {
+    Run run = Run::None;
+    float w = 0.0f;       // the slot's length along the bar
+    int group = 1;        // 0 start, 1 centre, 2 end
+    float offset = 0.0f;  // px: shifts it and the slots after it in its group
+};
+
+// The leads (the spacer before each slot, px) of anchored groups in the bar [barLeft, barRight]:
+// the start group packed from the bar's start padding, the end group packed back from its end
+// padding, the centre group centred on the bar as a block; within a group the usual spacers. Each
+// slot's offset shifts it and the rest of its group; groups never overlap and nothing leaves the
+// padding (an item pushed into a neighbour pushes it along, as far as the bar's ends). The first
+// lead is measured from the start padding (the run's itemsLeft). False when the slots are not in
+// group order or the groups do not fit (the caller lays out one run instead).
+bool AnchoredLeads(const std::vector<AnchorSlot>& slots, float barLeft, float barRight, float padding, float half,
+                   float iconToWidget, float widgetGap, std::vector<float>& leads) {
+    leads.assign(slots.size(), 0.0f);
+    int firstReal = -1, lastReal = -1, lastGroup = 0;
+    for (size_t k = 0; k < slots.size(); ++k) {
+        if (slots[k].run == Run::None) continue;
+        if (slots[k].group < lastGroup) return false;  // not in group order
+        lastGroup = slots[k].group;
+        if (firstReal < 0) firstReal = static_cast<int>(k);
+        lastReal = static_cast<int>(k);
+    }
+    if (firstReal < 0) return false;
+    const float startInner = barLeft + (slots[static_cast<size_t>(firstReal)].run == Run::Icon ? padding - half : padding);
+    const float endInner = barRight - (slots[static_cast<size_t>(lastReal)].run == Run::Icon ? padding - half : padding);
+    // Each group packed (its own spacers), and the spacers the groups need between them.
+    float width[3] = {0.0f, 0.0f, 0.0f};
+    Run firstRun[3] = {Run::None, Run::None, Run::None}, lastRun[3] = {Run::None, Run::None, Run::None};
+    std::vector<float> packed(slots.size(), 0.0f);  // start relative to the group's origin
+    for (size_t k = 0; k < slots.size(); ++k) {
+        const AnchorSlot& s = slots[k];
+        if (s.run == Run::None) continue;
+        const int g = std::clamp(s.group, 0, 2);
+        width[g] += SpacerBetween(lastRun[g], s.run, iconToWidget, widgetGap);
+        packed[k] = width[g];
+        width[g] += s.w;
+        if (firstRun[g] == Run::None) firstRun[g] = s.run;
+        lastRun[g] = s.run;
+    }
+    float total = 0.0f;
+    Run prev = Run::None;
+    for (int g = 0; g < 3; ++g) {
+        if (firstRun[g] == Run::None) continue;
+        total += SpacerBetween(prev, firstRun[g], iconToWidget, widgetGap) + width[g];
+        prev = lastRun[g];
+    }
+    if (total > endInner - startInner + 0.5f) return false;
+    const float origin[3] = {startInner, std::round((barLeft + barRight) / 2.0f - width[1] / 2.0f), endInner - width[2]};
+    // Where each slot wants to start (its group's place, the offsets of it and the slots before it
+    // in its group), then pushed apart (forward) and kept inside the padding (backward).
+    std::vector<float> x(slots.size(), 0.0f);
+    float shift[3] = {0.0f, 0.0f, 0.0f};
+    for (size_t k = 0; k < slots.size(); ++k) {
+        const AnchorSlot& s = slots[k];
+        if (s.run == Run::None) continue;
+        const int g = std::clamp(s.group, 0, 2);
+        shift[g] += s.offset;
+        x[k] = origin[g] + packed[k] + shift[g];
+    }
+    float end = startInner;
+    prev = Run::None;
+    for (size_t k = 0; k < slots.size(); ++k) {
+        if (slots[k].run == Run::None) continue;
+        x[k] = std::max(x[k], end + SpacerBetween(prev, slots[k].run, iconToWidget, widgetGap));
+        end = x[k] + slots[k].w;
+        prev = slots[k].run;
+    }
+    float limit = endInner;
+    Run next = Run::None;
+    for (size_t k = slots.size(); k-- > 0;) {
+        if (slots[k].run == Run::None) continue;
+        x[k] = std::round(std::min(x[k], limit - SpacerBetween(slots[k].run, next, iconToWidget, widgetGap) - slots[k].w));
+        limit = x[k];
+        next = slots[k].run;
+    }
+    end = startInner;
+    for (size_t k = 0; k < slots.size(); ++k) {
+        if (slots[k].run == Run::None) continue;
+        leads[k] = std::max(0.0f, x[k] - end);
+        end += leads[k] + slots[k].w;
+    }
+    return true;
+}
+
+// The anchored slots of `order` (indexes into `items`): each slot's run and length as the layout
+// measured it, its group (the config item behind it: DockItem::element; slot `dragged`, while
+// dragged: `draggedGroup`) and its offset in px (once per config item: the first of the running
+// apps' slots carries the running item's).
+std::vector<AnchorSlot> MakeAnchorSlots(const std::vector<DockItem>& items, const std::vector<size_t>& order, const DockConfig& d,
+                                        float scale, int dragged = -1, int draggedGroup = -1) {
+    std::vector<AnchorSlot> slots;
+    slots.reserve(order.size());
+    size_t lastElement = SIZE_MAX;
+    for (const size_t i : order) {
+        const DockItem& item = items[i];
+        AnchorSlot s;
+        s.run = !item.IsWidget() ? Run::Icon : item.slotW > 0.0f ? Run::Widget : Run::None;
+        s.w = s.run == Run::None ? 0.0f : item.slotW;
+        s.group = static_cast<int>(i) == dragged && draggedGroup >= 0 ? draggedGroup : d.GroupOf(item.element);
+        if (item.element != lastElement && item.element < d.items.size()) {
+            s.offset = std::round(static_cast<float>(d.items[item.element].offset) * scale);
+        }
+        lastElement = item.element;
+        slots.push_back(s);
+    }
+    return slots;
+}
+
 }  // namespace
 
 namespace {
@@ -760,7 +872,26 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         roomPx = std::min(roomPx, std::round(static_cast<float>(d.maxLength) * s));
     }
     l.roomPx = roomPx;
-    l.view.on =d.overflow == OverflowMode::Scroll && itemsW > 0.0f && lead + itemsW + trail > roomPx + 0.5f;
+    // Item anchors (round 7 phase 7B): with an anchor or an offset on some item, a bar whose run fits
+    // the room is as long as the room (full width: the edge) and its items are laid out as groups
+    // (AnchoredLeads: the gaps between the groups become leads, so everything else still sees one
+    // run). A run that does not fit overflows as usual (the anchors wait until it fits again). A
+    // floating bar has no room of its own: anchors need its maxLength.
+    std::vector<float> anchorLeads, baseLeads;
+    if (d.Anchored() && !polar && itemsW > 0.0f && (!l.floating || d.maxLength > 0)) {
+        const float len = l.fullWidth ? static_cast<float>(mEnd - mStart) : std::floor(roomPx);
+        std::vector<size_t> order(items_.size());
+        for (size_t i = 0; i < order.size(); ++i) order[i] = i;
+        if (lead + itemsW + trail <= len + 0.5f &&
+            AnchoredLeads(MakeAnchorSlots(items_, order, d, s), 0.0f, len, l.padding, half, sepW, widgetGap, anchorLeads)) {
+            l.anchored = true;
+            if (!l.fullWidth) {
+                barW = len;
+                winW = barW + 2.0f * slack;
+            }
+        }
+    }
+    l.view.on = !l.anchored && d.overflow == OverflowMode::Scroll && itemsW > 0.0f && lead + itemsW + trail > roomPx + 0.5f;
     if (l.view.on) {
         if (!l.fullWidth) barW = std::floor(roomPx);
         l.growMax = 0.0f;
@@ -945,7 +1076,21 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.separatorX = l.leftSeparatorX = -1.0f;
     l.itemsLeft = l.bar.left + lead;
     if (polar && !l.view.on) l.itemsLeft = std::round((l.bar.right - polarRun) / 2.0f) + lead;  // centred on the ring
-    if (l.fullWidth) {
+    if (l.anchored) {
+        // The groups' leads (bar-relative, so they hold wherever the bar was placed).
+        baseLeads.resize(items_.size());
+        itemsW = 0.0f;
+        for (size_t i = 0; i < items_.size(); ++i) {
+            DockItem& item = items_[i];
+            baseLeads[i] = item.lead;
+            item.lead = anchorLeads[i];
+            if (!item.IsWidget() || item.slotW > 0.0f) itemsW += item.lead + item.slotW;
+        }
+        l.itemsW = itemsW;
+        // A full-width bar: a magnified run grows on both sides of the pointer (the window cuts it at
+        // the monitor's ends).
+        if (l.fullWidth) l.growRoomStart = l.growRoomEnd = 1e6f;
+    } else if (l.fullWidth) {
         // The run of items inside the full bar: at its start, centred or at its end, plus the
         // offset, kept inside the bar's padding. Magnification grows the run inside the bar (the
         // bar's own ends move past the monitor's, where the window cuts them off).
@@ -985,6 +1130,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         l.growRoomStart = l.growRoomEnd = 1e6f;
     }
     float slotX = l.itemsLeft;
+    bool trailingSpacerSeen = false;
     for (size_t i = 0; i < items_.size(); ++i) {
         DockItem& item = items_[i];
         const float spacerLeft = slotX - l.bar.left;  // bar-local
@@ -996,8 +1142,13 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         item.y = item.IsWidget() ? std::round(l.bar.top + (iconBarH - item.boxCross) / 2.0f) : l.itemTop;
         if (item.lead <= 0.0f || firstIcon < 0) continue;
         const int k = static_cast<int>(i);
-        if (k > lastIcon && l.separatorX < 0.0f) l.separatorX = std::round(spacerLeft + item.lead / 2.0f);
-        if (k == firstIcon) l.leftSeparatorX = std::round(spacerLeft + item.lead / 2.0f);
+        // Anchored groups: no hairline in a gap between groups (only in a spacer of the usual size).
+        const bool gap = l.anchored && item.lead > baseLeads[i] + 0.5f;
+        if (k > lastIcon && !trailingSpacerSeen) {
+            trailingSpacerSeen = true;
+            if (!gap) l.separatorX = std::round(spacerLeft + item.lead / 2.0f);
+        }
+        if (k == firstIcon && !gap) l.leftSeparatorX = std::round(spacerLeft + item.lead / 2.0f);
     }
     // Scrolling: the spacers move with the run, so the background (fixed) draws no hairlines (nor
     // does a ring: its edges are its hairlines).
@@ -3279,17 +3430,27 @@ void DockWindow::ComputeTargets() {
             const float sepW = std::round(kSeparatorWidth * l.scale);
             const float widgetGap = std::round(kWidgetGap * l.scale);
             std::vector<float> leads(n, 0.0f);
-            float width = 0.0f;
-            Run prev = Run::None;
-            for (size_t k = 0; k < n; ++k) {
-                const DockItem& it = items_[dragOrder_[k]];
-                const Run run = !it.IsWidget() ? Run::Icon : it.slotW > 0.0f ? Run::Widget : Run::None;
-                if (run == Run::None) continue;
-                leads[k] = SpacerBetween(prev, run, sepW, widgetGap);
-                prev = run;
-                width += leads[k] + it.slotW;
+            // Round 7 phase 7B: an anchored layout shows the drag order as groups (the dragged item
+            // in the group it would drop into), from the bar's start padding.
+            std::vector<AnchorSlot> slots;
+            if (l.anchored) slots = MakeAnchorSlots(items_, dragOrder_, DockCfg(), l.scale, src, dragGroup_);
+            if (l.anchored && AnchoredLeads(slots, l.bar.left, l.bar.right, l.padding, half, sepW, widgetGap, leads)) {
+                const auto first = std::find_if(slots.begin(), slots.end(), [](const AnchorSlot& a) { return a.run != Run::None; });
+                slotLeft = l.bar.left + (first != slots.end() && first->run == Run::Icon ? l.padding - half : l.padding);
+            } else {
+                leads.assign(n, 0.0f);
+                float width = 0.0f;
+                Run prev = Run::None;
+                for (size_t k = 0; k < n; ++k) {
+                    const DockItem& it = items_[dragOrder_[k]];
+                    const Run run = !it.IsWidget() ? Run::Icon : it.slotW > 0.0f ? Run::Widget : Run::None;
+                    if (run == Run::None) continue;
+                    leads[k] = SpacerBetween(prev, run, sepW, widgetGap);
+                    prev = run;
+                    width += leads[k] + it.slotW;
+                }
+                slotLeft += std::round((l.itemsW - width) / 2.0f);
             }
-            slotLeft += std::round((l.itemsW - width) / 2.0f);
             for (size_t k = 0; k < n; ++k) place(dragOrder_[k], leads[k]);
         } else {
             for (size_t i = 0; i <= n; ++i) {
@@ -6165,12 +6326,72 @@ size_t DockWindow::ConfigIndexOfItem(size_t itemIndex) const {
 void DockWindow::ResetDragOrder() {
     dragOrder_.clear();
     for (size_t i = 0; i < items_.size(); ++i) dragOrder_.push_back(i);
+    dragGroup_ = -1;
+}
+
+int DockWindow::DropGroupAt(float stageX) const {
+    const DockConfig& d = DockCfg();
+    float lo[3] = {0.0f, 0.0f, 0.0f}, hi[3] = {0.0f, 0.0f, 0.0f};
+    bool any[3] = {false, false, false};
+    for (size_t i = 0; i < items_.size(); ++i) {
+        const DockItem& item = items_[i];
+        if (static_cast<int>(i) == dragSource_ || (item.IsWidget() && item.slotW <= 0.0f)) continue;
+        const int g = std::clamp(d.GroupOf(item.element), 0, 2);
+        const float a = item.slotX, b = item.slotX + item.slotW;
+        lo[g] = any[g] ? std::min(lo[g], a) : a;
+        hi[g] = any[g] ? std::max(hi[g], b) : b;
+        any[g] = true;
+    }
+    const Layout& l = layout_;
+    if (l.anchored) {
+        // An empty group: a point at its place in the bar.
+        const float at[3] = {l.bar.left + l.padding, (l.bar.left + l.bar.right) / 2.0f, l.bar.right - l.padding};
+        for (int g = 0; g < 3; ++g) {
+            if (!any[g]) lo[g] = hi[g] = at[g];
+        }
+    }
+    int best = -1;
+    float bestD = 0.0f;
+    for (int g = 0; g < 3; ++g) {
+        if (!any[g] && !l.anchored) continue;
+        const float dist = stageX < lo[g] ? lo[g] - stageX : stageX > hi[g] ? stageX - hi[g] : 0.0f;
+        // Nearer wins; on a tie a group with items beats an empty one.
+        if (best < 0 || dist < bestD - 0.01f || (dist <= bestD + 0.01f && any[g] && !any[best])) {
+            best = g;
+            bestD = dist;
+        }
+    }
+    return best >= 0 ? best : DragOwnGroup();
+}
+
+int DockWindow::DragOwnGroup() const {
+    if (dragSource_ < 0 || dragSource_ >= static_cast<int>(items_.size())) return -1;
+    return DockCfg().GroupOf(items_[static_cast<size_t>(dragSource_)].element);
+}
+
+std::optional<ItemAnchor> DockWindow::DragAnchor(bool newPin) const {
+    if (dragGroup_ < 0 || (!newPin && dragGroup_ == DragOwnGroup())) return std::nullopt;
+    return DockCfg().AnchorFor(dragGroup_);
+}
+
+void DockWindow::ApplyDragGroup(float stageX, bool canChangeGroup) {
+    dragGroup_ = -1;
+    const DockConfig& d = DockCfg();
+    const int src = dragSource_;
+    if (!d.Anchored() || src < 0 || dragOrder_.size() != items_.size()) return;
+    dragGroup_ = canChangeGroup ? DropGroupAt(stageX) : DragOwnGroup();
+    auto groupOf = [&](size_t i) { return static_cast<int>(i) == src ? dragGroup_ : d.GroupOf(items_[i].element); };
+    std::stable_sort(dragOrder_.begin(), dragOrder_.end(), [&](size_t a, size_t b) { return groupOf(a) < groupOf(b); });
+    for (size_t k = 0; k < dragOrder_.size(); ++k) {
+        if (static_cast<int>(dragOrder_[k]) == src) dragInsert_ = static_cast<int>(k);
+    }
 }
 
 void DockWindow::UpdateDragTarget(float stageX) {
     const size_t n = items_.size();
     const int s = dragSource_;
     dragInsert_ = -1;
+    dragGroup_ = -1;
     if (s < 0 || static_cast<size_t>(s) >= n) return;
     const size_t src = static_cast<size_t>(s);
     if (dragWidget_) {
@@ -6267,6 +6488,9 @@ void DockWindow::UpdateDragTarget(float stageX) {
     for (size_t k = 0; k < dragOrder_.size(); ++k) {
         if (dragOrder_[k] == src) dragInsert_ = static_cast<int>(k);
     }
+    // Anchors (round 7 phase 7B): a pin (or a running app becoming one) takes the group it is
+    // dropped into; a running app that stays among the running apps keeps the running item's.
+    ApplyDragGroup(stageX, toPins);
 }
 
 void DockWindow::UpdateElementDragTarget(float stageX) {
@@ -6305,6 +6529,7 @@ void DockWindow::UpdateElementDragTarget(float stageX) {
     // The config item it goes before (items with no slot, such as a kind this version does not
     // know or a `running` item without running apps, keep their places relative to the rest).
     dragMoveTo_ = at < units.size() ? items_[units[at].first].element : SIZE_MAX;
+    ApplyDragGroup(stageX, true);  // round 7 phase 7B
 }
 
 int DockWindow::DropGapIndex(float stageX) const {
@@ -6555,13 +6780,18 @@ void DockWindow::EndDrag(bool commit) {
     size_t moveFrom = SIZE_MAX;
     bool moved = false;
     for (size_t k = 0; k < dragOrder_.size(); ++k) moved = moved || dragOrder_[k] != k;
+    // Round 7 phase 7B: dropped into another group (the order may stay): that group's anchor.
+    if (valid && dragGroup_ >= 0 && dragGroup_ != DragOwnGroup()) moved = true;
+    std::optional<ItemAnchor> anchor;
     if (valid && commit && dragInsert_ >= 0 && moved && dragOrder_.size() == items_.size()) {
         if (dragWidget_) {
             moveFrom = items_[static_cast<size_t>(s)].element;
+            anchor = DragAnchor(false);
         } else {
             for (const size_t i : dragToPins_ ? dragPins_ : dragRunning_) {
                 (dragToPins_ ? order : running).push_back(items_[i].key);
             }
+            if (dragToPins_) anchor = DragAnchor(!items_[static_cast<size_t>(s)].pinned);
         }
     }
     const size_t moveTo = dragMoveTo_;
@@ -6582,6 +6812,7 @@ void DockWindow::EndDrag(bool commit) {
     dragLanding_ = false;
     dragSource_ = -1;
     dragInsert_ = -1;
+    dragGroup_ = -1;
     dragRemove_ = false;
     if (dragWidget_) {
         for (DockItem& item : items_) {
@@ -6591,11 +6822,11 @@ void DockWindow::EndDrag(bool commit) {
     dragWidget_ = false;
 
     KeepStage(motion_.rest + 0.04);  // the window stays at stage size until the icon has landed
-    if (!order.empty() && pinRequests_.reorder) pinRequests_.reorder(order);
+    if (!order.empty() && pinRequests_.reorder) pinRequests_.reorder(order, dragKey_, anchor);
     if (!groupWith.id.empty() && pinRequests_.group) pinRequests_.group(dragKey_, groupWith);
     // A widget's new place usually changes the dock's width (the spacers move with it): the
     // rebuilt layout then snaps instead of finishing the landing.
-    if (moveFrom != SIZE_MAX && pinRequests_.moveItem) pinRequests_.moveItem(moveFrom, moveTo);
+    if (moveFrom != SIZE_MAX && pinRequests_.moveItem) pinRequests_.moveItem(moveFrom, moveTo, anchor);
     if (!running.empty()) {
         runningOrder_ = std::move(running);
         RebuildFrom(shared_->Tracker().Current());
@@ -6616,6 +6847,7 @@ void DockWindow::AbortDrag() {
     dragPhase_ = DragPhase::None;
     dragSource_ = -1;
     dragInsert_ = -1;
+    dragGroup_ = -1;
     dragRemove_ = false;
     dragWidget_ = false;
     if (GetCapture() == hwnd_) ReleaseCapture();
@@ -7897,6 +8129,16 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return PopupGapPx();
         case 271:  // docks[].maxLength in px as applied (0: none, or ignored for a ring / full width)
             return MaxLengthPx();
+        // --- round 7 phase 7B: item anchors ---
+        case 272:  // slot LOWORD(lp)'s group (0 start, 1 centre, 2 end; its config item's anchor, else the align's); -1 none
+        case 274:  // ... its config item's offset in px
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            if (wp == 272) return DockCfg().GroupOf(items_[static_cast<size_t>(lp)].element);
+            if (items_[static_cast<size_t>(lp)].element >= DockCfg().items.size()) return 0;
+            return static_cast<LRESULT>(std::lround(static_cast<float>(DockCfg().items[items_[static_cast<size_t>(lp)].element].offset) *
+                                                    layout_.scale));
+        case 273:  // 1 while the dock lays its items out as anchored groups (anchors on a bar whose run fits)
+            return layout_.anchored ? 1 : 0;
         // --- overflow / scrolling (round 4 phase 11a) ---
         case 128:  // docks[].overflow (0 scroll, 1 shrink, 2 clip)
             return static_cast<LRESULT>(DockCfg().overflow);
