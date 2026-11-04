@@ -37,6 +37,9 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     owner_ = owner;
     callbacks_ = std::move(callbacks);
     monitors_ = EnumerateMonitors();
+    // Win+D raises Progman a moment after the desktop takes the foreground: the "desktop" docks and
+    // widgets (not registered with the layer) are re-placed with the layer's late passes.
+    DesktopLayer::SetLateCallback([this] { OnExplorerRestarted(); });
     widgets_.Initialize(owner_);
     // Script widgets use the service of their place (round 5: the item's own, else the dock's first
     // weather item's): created on first use; their first / last use and refresh() are posted here,
@@ -120,6 +123,7 @@ WidgetPreview::Result DockManager::RenderPreview(const std::wstring& id, float s
 
 void DockManager::Shutdown() {
     if (!config_) return;
+    DesktopLayer::SetLateCallback(nullptr);  // captured this
     // The icons go back to Explorer first (no dock redraws for it).
     tray_.SetChangedCallback(nullptr);
     tray_.SetBalloonSink(nullptr);
@@ -806,6 +810,13 @@ void DockManager::StartWatch() {
         }
         for (Instance& i : instances_) {
             if (i.widget) i.widget->OnWatchEvent();  // the "desktop" layer's rule
+        }
+        // The desktop came forward (Win+D): Progman rises above our windows a moment later. The
+        // layer's own hook covers its registered windows only while one exists; this covers the
+        // "desktop" docks and widgets (and Place is a no-op for the registered ones).
+        if (watchFg_ != GetForegroundWindow()) {
+            watchFg_ = GetForegroundWindow();
+            if (DesktopLayer::DesktopForeground() && watchFg_ && !DesktopLayer::LatePending()) DesktopLayer::DesktopShown();
         }
     });
 }

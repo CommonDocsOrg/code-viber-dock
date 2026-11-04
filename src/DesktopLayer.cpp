@@ -4,6 +4,8 @@
 
 #include <algorithm>
 #include <cwchar>
+#include <functional>
+#include <iterator>
 #include <vector>
 
 namespace {
@@ -37,6 +39,31 @@ std::vector<Entry>& Entries() {
 bool g_placing = false;          // our own SetWindowPos calls (FilterPosChanging lets them through)
 HWINEVENTHOOK g_hook = nullptr;  // EVENT_SYSTEM_FOREGROUND, while a desktop window exists
 HWND g_desktop = nullptr;        // the Progman the windows were last placed above
+UINT_PTR g_lateTimer = 0;        // the thread timer of the late re-placement (DesktopShown)
+int g_lateStep = 0;              // the next delay in kLateDelays
+std::function<void()> g_lateCallback;  // re-places the unregistered "desktop" windows too
+
+// Show Desktop (Win+D): Explorer raises Progman from the very bottom of the z-order (above the
+// minimized apps) shortly *after* the desktop took the foreground (measured on 26300: the
+// EVENT_SYSTEM_FOREGROUND hook sees Progman still at the bottom, with our windows directly
+// above it; a moment later Progman is above them and they are hidden under the wallpaper). The
+// re-placement is repeated a few times after a desktop foreground; each pass is a no-op for a
+// window that is where it belongs.
+constexpr UINT kLateDelays[] = {100, 400, 1200};
+
+void CALLBACK OnLateTimer(HWND, UINT, UINT_PTR id, DWORD) {
+    if (id != g_lateTimer) {
+        KillTimer(nullptr, id);  // a stale one
+        return;
+    }
+    KillTimer(nullptr, g_lateTimer);
+    g_lateTimer = 0;
+    DesktopLayer::Reassert();
+    if (g_lateCallback) g_lateCallback();
+    if (g_lateStep < static_cast<int>(std::size(kLateDelays))) {
+        g_lateTimer = SetTimer(nullptr, 0, kLateDelays[g_lateStep++], &OnLateTimer);
+    }
+}
 
 Entry* Find(HWND hwnd) {
     for (Entry& e : Entries()) {
@@ -58,6 +85,7 @@ void CALLBACK OnForeground(HWINEVENTHOOK, DWORD event, HWND hwnd, LONG idObject,
     HWND root = hwnd ? GetAncestor(hwnd, GA_ROOT) : nullptr;
     const bool desktop = HasClass(root, L"Progman") || HasClass(root, L"WorkerW");
     if (desktop || DesktopLayer::Desktop() != g_desktop) DesktopLayer::Reassert();
+    if (desktop) DesktopLayer::DesktopShown();
 }
 
 void SyncHook() {
@@ -171,6 +199,17 @@ void DesktopLayer::Reassert() {
         if (IsWindow(e.hwnd)) Place(e.hwnd);
     }
 }
+
+void DesktopLayer::DesktopShown() {
+    // (Re)starts the sequence: a second Win+D within it begins the delays again.
+    if (g_lateTimer) KillTimer(nullptr, g_lateTimer);
+    g_lateStep = 0;
+    g_lateTimer = SetTimer(nullptr, 0, kLateDelays[g_lateStep++], &OnLateTimer);
+}
+
+void DesktopLayer::SetLateCallback(std::function<void()> callback) { g_lateCallback = std::move(callback); }
+
+bool DesktopLayer::LatePending() { return g_lateTimer != 0; }
 
 int DesktopLayer::SimulateExplorerRestart() {
     // Progman stays at the very bottom of the z-order (a window sent to HWND_BOTTOM lands directly

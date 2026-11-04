@@ -280,6 +280,7 @@ private:
     CalendarService calendar_;
     bool centreOpen_ = false;
     ForegroundWatch watch_;
+    HWND watchFg_ = nullptr;             // the foreground window at the last watch evaluation
     std::vector<DockWindow*> watchers_;  // docks subscribed to watch_ (autoHide "intelligent")
     // Starts watch_ (a running watch only takes the callback): the watchers and the dashboard.
     void StartWatch();

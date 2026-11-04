@@ -2,6 +2,8 @@
 
 #include <windows.h>
 
+#include <functional>
+
 // The desktop layer: WinDock windows that live on the desktop, directly above the desktop window
 // (Progman) at the bottom of the z-order, never topmost.
 //
@@ -54,6 +56,15 @@ public:
     static bool Place(HWND hwnd);
     // Every registered window (TaskbarCreated: a new Progman).
     static void Reassert();
+    // The desktop took the foreground (Win+D). Explorer raises Progman shortly after that, above
+    // our windows: Reassert and the late callback run again a few times over the next second (a
+    // thread timer; no-ops once everything is in place). The layer's own hook calls this for its
+    // registered windows; DockManager's foreground watch calls it for the "desktop" ones.
+    static void DesktopShown();
+    // Runs with each late pass (DockManager: the unregistered "desktop" docks and widgets).
+    static void SetLateCallback(std::function<void()> callback);
+    // A late pass is still due (diagnostics).
+    static bool LatePending();
     // `hwnd` is above Progman with no visible window of another process between them, not topmost.
     static bool AboveDesktop(HWND hwnd);
     // Test hook (DockCommand 138): every registered window is lifted to the top of the
