@@ -14,6 +14,7 @@
 #include "Config.h"
 #include "HttpClient.h"
 #include "MediaService.h"
+#include "PerfService.h"
 
 class NotificationService;
 class CalendarService;
@@ -118,6 +119,18 @@ public:
     void ReleaseProviders(WidgetInstance* w);
     const AudioService& Audio() const { return audio_; }
     const MediaService& Media() const { return media_; }
+    // `perf` (round 6 phase 6D): one sampler for every widget that uses it, started by the first
+    // and stopped with the last; its period is the fastest any live user asked for
+    // (perf.setInterval, default 1000 ms). Each snapshot reaches the users as perf.onChange.
+    PerfService* UsePerf(WidgetInstance* w);
+    // `w`'s own period (0: the default); the service re-times to the fastest of its users.
+    void SetPerfInterval(WidgetInstance* w, uint32_t ms);
+    PerfService& Perf() { return perf_; }
+    const PerfService& Perf() const { return perf_; }
+    size_t PerfUsers() const { return perfUsers_.size(); }
+    // The metrics for the settings page's "choiceFrom": "perf" (the running service's, else a short
+    // synchronous sample, PerfService::ListOnce).
+    std::vector<PerfService::Metric> PerfMetricList() const;
     // `notifications` (phase 9): the service is DockManager's; a widget that uses it counts as a
     // consumer (the manager starts the service while there is one: `demand` asks it to re-check).
     void SetNotifications(NotificationService* service, std::function<void()> demand) {
@@ -222,7 +235,10 @@ private:
     std::function<void()> changedListener_;
     AudioService audio_;
     MediaService media_;
-    std::set<WidgetInstance*> audioUsers_, mediaUsers_, notificationUsers_, calendarUsers_, weatherUsers_;
+    PerfService perf_;
+    std::set<WidgetInstance*> audioUsers_, mediaUsers_, notificationUsers_, calendarUsers_, weatherUsers_, perfUsers_;
+    std::map<WidgetInstance*, uint32_t> perfIntervals_;  // what each user asked for (perf.setInterval)
+    void SyncPerfInterval();
     CalendarService* calendar_ = nullptr;
     std::function<WeatherService*(const WeatherConfig&)> weatherResolve_;
     std::function<void(WeatherAction, const WeatherConfig&)> weatherRequest_;

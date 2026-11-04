@@ -67,7 +67,7 @@ public:
     virtual void SetRefresh(uint32_t ms, const std::wstring& timeZone) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather };
+    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -117,6 +117,15 @@ public:
     // `what`: "get" (the forecast, docs/widgets.md), "refresh", "openSettings", "icon" ({code,
     // isDay, ink, water}: an image token for canvas.image); `args` a JSON object.
     virtual bool WeatherCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) = 0;
+
+    // --- perf (permission "perf", round 6 phase 6D): the process's PerfService ---
+    // `what`: "get" (`number`: the snapshot serial the script has; the JSON is "null" when it is
+    // still the newest), "metrics" (`number`: the catalog serial it has; "null" when unchanged),
+    // "hwinfo", "use" (start the service: onChange), "setInterval" (`number` ms; returns the
+    // interval the service uses now). The result as JSON (docs/widgets.md "perf").
+    virtual bool PerfCall(const std::string& what, double number, std::string& json, std::wstring& error) = 0;
+    // perf.series(key, n): up to n newest values, oldest first (NaN: no value in that sample).
+    virtual bool PerfSeries(const std::string& key, size_t n, std::vector<double>& out, std::wstring& error) = 0;
 
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs. `passive`: the passive kind (never takes
@@ -214,7 +223,7 @@ public:
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).
     virtual size_t HeapBytes() = 0;
-    // A provider changed ("audio", "media", "notifications", "calendar", "weather"): its onChange listeners
+    // A provider changed ("audio", "media", "notifications", "calendar", "weather", "perf"): its onChange listeners
     // run with its new state. "calendarReminder": the onReminder listeners get `payload` (JSON);
     // "storage" (round 6 phase 6C): storage.onChange listeners get `payload` ({ key }, JSON).
     virtual ScriptResult Emit(const std::string& channel, const std::string& payload = {}) = 0;

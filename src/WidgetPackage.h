@@ -43,6 +43,9 @@ struct SettingField {
     // Load: the value is the file name without folder and extension, the label the file's JSON
     // "name" (else the value).
     std::wstring choiceFrom;
+    // Round 6 phase 6D: `"choiceFrom": "perf"`: the host lists the perf provider's metrics on the
+    // settings page (PerfService); the value is a metric key, kept even when it is not listed now.
+    bool ChoiceFromPerf() const { return choiceFrom == L"perf"; }
     // The generated settings page (round 4 phase 14): a section header when `group` changes from
     // the field before, a unit after an int / number control, and the field shown only while every
     // `visibleIf` key (another field) has that value (JSON text of the value).
@@ -103,6 +106,7 @@ struct Manifest {
     bool notifications = false;  // permission "notifications" (round 4 phase 9)
     bool calendar = false;       // permission "calendar" (round 4 phase 13)
     bool weather = false;        // permission "weather" (round 4 phase 14)
+    bool perf = false;           // permission "perf" (round 6 phase 6D)
     std::vector<std::wstring> httpHosts;  // lowercase; "*.example.com" matches sub-domains
     std::vector<SettingField> settings;
     std::vector<std::wstring> warnings;  // what was ignored while reading it

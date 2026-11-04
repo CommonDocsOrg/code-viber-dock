@@ -656,7 +656,7 @@ HWiNFO allowed); live previews with sample data in the widget drawer.
 | 6A | `layer: "behind"` (always on the desktop under every window), `floating` bar docks at `x` / `y` (drag, snap, lock), the dashboard hotkey (`dashboard.hotkey`, default Win+Shift+D) and dashboard mode | Done (the commit "Add the behind layer, floating docks and the dashboard hotkey"; STATUS.md "Round 6") |
 | 6B | Standalone widgets: `docks[]` kind `"widget"` (`WidgetWindow`), move / resize, `dock.standalone`, manifest `standalone`, settings windows, drawer "Add to the desktop" | Done (the commit "Add standalone widgets on the desktop"; STATUS.md "Round 6") |
 | 6C | `popup.editText` (a native text editor window, Promise) and the `notes` widget | Done (the commit "Add popup.editText and the Notes widget"; STATUS.md "Round 6") |
-| 6D | `perf` provider (`PerfService`: CPU / memory / GPU / disk / network / battery + HWiNFO shared memory) and the `system-monitor` / `system-overview` widgets | Planned |
+| 6D | `perf` provider (`PerfService`: CPU / memory / GPU / disk / network / battery + HWiNFO shared memory) and the `system-monitor` / `system-overview` widgets | Done (the commit "Add the perf provider and the system monitor widgets"; STATUS.md "Round 6") |
 | 6E | Widget previews in the drawer and inspector: preview mode, provider sample data, manifest `preview` | Planned |
 
 ## Dependencies at a glance

@@ -44,7 +44,7 @@ def section(title):
 where = {'canvas': 'canvas', 'path': 'canvas', 'dock.theme': 'dock', 'dock': 'dock', 'timer': 'timer and redraws',
          'global': 'timer and redraws', 'system': 'system', 'storage': 'storage', 'shell': 'shell', 'popup': 'popup',
          'console': 'console', 'http': 'http', 'widget': 'widget', 'audio': 'audio', 'media': 'media',
-         'notifications': 'notifications', 'calendar': 'calendar', 'weather': 'weather'}
+         'notifications': 'notifications', 'calendar': 'calendar', 'weather': 'weather', 'perf': 'perf'}
 drift = []
 for ns, names in sorted(api.items()):
     text = section(where[ns])
@@ -57,7 +57,8 @@ for ns, names in sorted(api.items()):
 # The reverse: `ns.name` in the docs that the bindings do not have.
 known_ns = {k for k in api if '.' not in k and k not in ('global', 'path')}
 for ns, name in sorted(set(re.findall(r'`(' + '|'.join(sorted(known_ns)) + r')\.([a-zA-Z0-9]+)', docs))):
-    config_keys = {('notifications', 'balloons'), ('weather', 'units'), ('clock', 'face'), ('widget', 'json')}
+    config_keys = {('notifications', 'balloons'), ('weather', 'units'), ('clock', 'face'), ('widget', 'json'),
+                   ('system', 'uptime')}  # a perf metric key, not system.uptime
     if name not in api[ns] and not (ns == 'dock' and name == 'theme') and (ns, name) not in config_keys:
         drift.append(f'documented but not bound: {ns}.{name}')
 pkg = open(ROOT + r'/src/WidgetPackage.cpp', encoding='utf-8').read()

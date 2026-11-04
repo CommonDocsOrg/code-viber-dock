@@ -923,7 +923,13 @@ write and edit without compiling anything. The full reference (every call, every
   you set, the wheel scrolls the lines; a click opens a small text editor window (Ctrl+Enter or OK
   saves, Escape cancels); paper yellow / pink / blue / the theme's panel / none, font size, text
   colour, bold title, lines, widest tile; **Note id** shares one note between items; on the
-  desktop the whole note wraps in its window). A folder with a built-in's id replaces the built-in;
+  desktop the whole note wraps in its window), **System monitor** (`system-monitor`, round 6: one
+  performance metric (CPU, a core, memory, GPU, disks, network, battery, uptime or a HWiNFO sensor)
+  as a graph, area, sparkline, bar, vertical bar, ring, gauge, dial, big percent, big value or a
+  line of text; label, unit, decimals, scale, range, smoothing, thresholds with warning / critical
+  colours, background, width; see Performance monitor below) and **System overview**
+  (`system-overview`: CPU, memory, GPU, disk and network in one row of small bars on a dock, or a
+  list with sparklines on the desktop). A folder with a built-in's id replaces the built-in;
   your own clock faces go into an exported `analog-clock\faces` folder.
 - **Adding one**: the widget drawer of Dock settings > Contents lists the installed widgets under
   the built-in kinds (drag one onto the strip, or **Add**), or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
@@ -933,7 +939,8 @@ write and edit without compiling anything. The full reference (every call, every
   `{ "horizontal": { "main": 64, "cross": 40 }, "vertical": { "main": 44, "cross": 48 } }`),
   `refreshMs` (call `tick()` every so often, aligned to the clock), `timeLimitMs` (watchdog, default
   50 ms), `memoryLimitMB` (default 32), `permissions`, `watch`, and `settings` (a schema: bool,
-  int, number, string, choice (also `choiceFrom`: one choice per package file matching a glob),
+  int, number, string, choice (also `choiceFrom`: one choice per package file matching a glob, or
+  `"perf"`: the perf provider's metrics, listed by the dock),
   colour, font, place (a weather place: search, name, latitude / longitude) and timezone (round 5),
   with defaults; the values live in the item's `settings` object).
 - **main.js** exports `draw(canvas, dock)` (required) and optionally `measure(canvas, dock)`
@@ -962,15 +969,17 @@ write and edit without compiling anything. The full reference (every call, every
   `media` (the current media session: title, artist, album, state, art, play / pause / next /
   previous, change events), `notifications`, `calendar`, `weather` (the dock's forecast: current
   conditions, hourly and daily arrays, place, units, state and age; `refresh()`, `onChange`,
-  `openSettings()`, `icon(code, isDay)` for the dock's own condition glyphs), `popup` (a popup the widget
+  `openSettings()`, `icon(code, isDay)` for the dock's own condition glyphs), `perf` (round 6: the
+  machine's performance and HWiNFO's sensors: `get()`, `metrics()`, `series(key, n)`,
+  `setInterval(ms)`, `hwinfo()`, `onChange`), `popup` (a popup the widget
   draws, or the dock's folder / window-preview / month calendar popups, anchored on the widget;
   round 6: `editText({ title, text, multiline, maxLength, placeholder })`, a text editor window
   whose promise gives the typed text, or `null` when cancelled),
   `widget` (the widget's own package files: `files(glob)`, `read`, `readJson`).
 - **Permissions** (`"permissions"` in widget.json): `{ "http": ["api.example.com"] }` for
   requests to those hosts, `"shell"` for opening files / URLs, listing folders, file icons, the
-  folder popup, file drops and `sendKeys`, `"audio"`, `"media"`, `"notifications"`, `"calendar"`
-  and `"weather"` for the providers. Without them
+  folder popup, file drops and `sendKeys`, `"audio"`, `"media"`, `"notifications"`, `"calendar"`,
+  `"weather"` and `"perf"` for the providers. Without them
   those calls throw. The audio and media providers run only while a widget uses them and never
   poll (Core Audio and media-session events).
 - **Settings**: each widget item's own settings window is generated from its schema (**<name>
@@ -1002,6 +1011,42 @@ write and edit without compiling anything. The full reference (every call, every
   them over. Imports and images are read only from the widget's own folder. Widgets run on the
   dock's thread and cost nothing while they do not redraw (each widget's runtime is about 130 KB
   of script heap, about 400 KB of private memory with its surface).
+
+#### Performance monitor
+
+Round 6 phase 6D. **System monitor** shows one metric, **System overview** five at once; both
+read the `perf` provider (docs/widgets.md "perf"), which any widget with the `"perf"` permission can
+use too.
+
+- **What it measures**: CPU total and per logical processor, the CPU's effective clock, processes
+  and threads; memory used / available / total / percent, committed and the commit limit; GPU (the
+  3D engine, the busiest engine, each engine kind: copy, video decode / encode, compute) and its
+  dedicated memory; disks (active time, read / write per second, in total and per disk); network
+  download / upload per second (in total and per interface); battery (on a laptop); uptime; and
+  every **HWiNFO** sensor reading (temperatures, fans, voltages, currents, power, clocks, usage) when
+  HWiNFO64 runs with shared memory on. Values come from Windows itself (no driver, nothing
+  installed); a source that is missing (no GPU counters) is left out of the list rather than shown
+  as zero.
+- **HWiNFO**: install [HWiNFO64](https://www.hwinfo.com), turn on **Settings > General > Shared
+  Memory Support**, and run it (sensors-only is enough, minimized to the tray is fine). Its
+  readings appear in the Metric list as "HWiNFO: <sensor> · <reading>" within 5 s of it starting.
+  **The free version shares its sensors for 12 hours per start**: after that its readings show a
+  dash until HWiNFO is restarted (HWiNFO Pro has no limit). A widget set to a HWiNFO reading keeps
+  that setting while HWiNFO is closed (the list shows it as "not available now").
+- **Settings** (each System monitor item): **Metric** (the list of everything above), label, unit,
+  decimals, scale (automatic: KB / MB / GB, KB/s ... GB/s, days and hours; or raw), **Update
+  every** (250 ms - 10 s); **Display**: the style (graph, area, sparkline, bar, vertical bar,
+  ring, gauge, dial, percent, value, text), the history a graph shows (10 - 600 s), label / value /
+  lowest and highest on or off, line width, fill under the line, the arc of a gauge / dial / ring,
+  a range of your own, smoothing; **Colours**: the colour (the theme's accent by default), a
+  warning and a critical threshold with their colours, a background (none, a dark panel, the
+  theme's label panel), the text colour; **Size**: its width on a top / bottom dock (a square on a
+  left / right dock; on the desktop it fills its window). System overview: which rows, one row or
+  a list, bars or sparklines, values on / off, the colours and thresholds (percent).
+- **Cost**: one sampler thread for all of them, running only while such a widget exists, at the
+  fastest **Update every** any of them asks for (1 s by default); each widget redraws once per
+  sample and keeps no history of its own (the dock keeps the last 600 samples per metric). With no
+  such widget nothing runs. Measured on this machine: STATUS.md, round 6 phase 6D.
 
 ### System tray (notify icons)
 
@@ -2336,6 +2381,11 @@ always there, also when every dock is parked) handle these registered messages:
   its widget; 256 = that editor's window handle (0 none; `LOWORD` 0xFFFF: the dock's open one).
   Tests type into it with real input once it is the foreground, or set its text with `WM_SETTEXT`
   and close it with `ItemCommand` 857.
+  Round 6 phase 6D, the `perf` provider (process-wide; the dock in `lParam` does not matter): 257
+  = 1 while its sampler runs; 258 = widgets using it; 259 = snapshots received since the dock
+  started; 260 = the sampler's interval in ms (0 while stopped); 261 = metric keys in the latest
+  snapshot (0 none / stopped); 262 = 1 while HWiNFO's shared memory is readable and fresh. Its
+  snapshots arrive as the app window's private message `WM_APP + 37` (internal).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class

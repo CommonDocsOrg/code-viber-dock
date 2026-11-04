@@ -238,8 +238,11 @@ void WidgetRuntime::Shutdown() {
     notificationsDemand_ = nullptr;
     weatherRequest_ = nullptr;
     weatherResolve_ = nullptr;
+    perfUsers_.clear();
+    perfIntervals_.clear();
     audio_.Stop();
     media_.Stop();
+    perf_.Stop();
     FlushStorage();
     StopWatcher();
     watched_.clear();
@@ -314,6 +317,8 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             return audio_.HandleMessage(msg, wp, lp);
         case MediaService::kMessage:
             return media_.HandleMessage(msg, wp, lp);
+        case PerfService::kMessage:
+            return perf_.HandleMessage(msg, wp, lp);
         default:
             return false;
     }
@@ -662,6 +667,40 @@ MediaService* WidgetRuntime::UseMedia(WidgetInstance* w) {
     return &media_;
 }
 
+PerfService* WidgetRuntime::UsePerf(WidgetInstance* w) {
+    if (!perf_.Active()) {
+        perfIntervals_.clear();
+        perf_.SetInterval(PerfService::kDefaultInterval);
+        if (!owner_ || !perf_.Start(owner_)) return nullptr;
+        perf_.SetChanged([this] { NotifyProvider(perfUsers_, "perf"); });
+    }
+    if (perfUsers_.insert(w).second) SyncPerfInterval();
+    return &perf_;
+}
+
+void WidgetRuntime::SetPerfInterval(WidgetInstance* w, uint32_t ms) {
+    if (!perfUsers_.count(w)) return;
+    perfIntervals_[w] = ms;
+    SyncPerfInterval();
+}
+
+void WidgetRuntime::SyncPerfInterval() {
+    // The fastest any user asked for; a user that asked nothing counts as the default.
+    uint32_t ms = PerfService::kMaxInterval;
+    for (WidgetInstance* u : perfUsers_) {
+        auto it = perfIntervals_.find(u);
+        const uint32_t want = it != perfIntervals_.end() && it->second ? it->second : PerfService::kDefaultInterval;
+        ms = std::min(ms, std::clamp(want, PerfService::kMinInterval, PerfService::kMaxInterval));
+    }
+    if (perfUsers_.empty()) ms = PerfService::kDefaultInterval;
+    perf_.SetInterval(ms);
+}
+
+std::vector<PerfService::Metric> WidgetRuntime::PerfMetricList() const {
+    if (perf_.Active() && perf_.Metrics()) return *perf_.Metrics();
+    return PerfService::ListOnce();
+}
+
 NotificationService* WidgetRuntime::UseNotifications(WidgetInstance* w) {
     if (!notifications_) return nullptr;
     if (notificationUsers_.insert(w).second && notificationUsers_.size() == 1 && notificationsDemand_) {
@@ -709,6 +748,14 @@ void WidgetRuntime::ReleaseProviders(WidgetInstance* w) {
     if (weatherUsers_.erase(w)) WeatherRequest(WeatherAction::Sync, w->WeatherCfg());
     if (audioUsers_.erase(w) && audioUsers_.empty()) audio_.Stop();
     if (mediaUsers_.erase(w) && mediaUsers_.empty()) media_.Stop();
+    if (perfUsers_.erase(w)) {
+        perfIntervals_.erase(w);
+        if (perfUsers_.empty()) {
+            perf_.Stop();
+        } else {
+            SyncPerfInterval();
+        }
+    }
     if (notificationUsers_.erase(w) && notificationUsers_.empty() && notificationsDemand_) notificationsDemand_();
 }
 

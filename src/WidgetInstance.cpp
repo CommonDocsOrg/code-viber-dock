@@ -739,6 +739,7 @@ bool WidgetInstance::Permitted(Permission p) const {
         case Permission::Notifications: return package_->manifest.notifications;
         case Permission::Calendar: return package_->manifest.calendar;
         case Permission::Weather: return package_->manifest.weather;
+        case Permission::Perf: return package_->manifest.perf;
         case Permission::Http:
         default: return package_->manifest.http;
     }
@@ -1495,4 +1496,72 @@ bool WidgetInstance::WeatherCall(const std::string& what, const std::string& arg
     }
     error = L"weather: unknown call";
     return false;
+}
+
+// --- round 6 phase 6D: perf ------------------------------------------------------------------------
+// Phase 6E (preview mode) answers these two from sample data instead of the service: the one
+// place to hook it (a ProviderSample for "perf").
+
+bool WidgetInstance::PerfCall(const std::string& what, double number, std::string& json, std::wstring& error) {
+    if (!Permitted(Permission::Perf)) {
+        error = L"perf needs the \"perf\" permission";
+        return false;
+    }
+    PerfService* perf = runtime_.UsePerf(this);
+    if (!perf) {
+        error = L"perf: the sampler could not start";
+        return false;
+    }
+    if (what == "get") {
+        // "null" when the script has this snapshot already (the prelude keeps its object).
+        if (number == static_cast<double>(perf->Snapshots())) {
+            json = "null";
+        } else {
+            json = perf->SnapshotJson();
+        }
+        return true;
+    }
+    if (what == "metrics") {
+        if (number == static_cast<double>(perf->CatalogSerial())) {
+            json = "null";
+        } else {
+            json = perf->MetricsJson();
+        }
+        return true;
+    }
+    if (what == "hwinfo") {
+        json = perf->HwinfoJson();
+        return true;
+    }
+    if (what == "use") {
+        json = "null";
+        return true;
+    }
+    if (what == "setInterval") {
+        if (!std::isfinite(number)) {
+            error = L"perf.setInterval: the interval must be a number of ms (250 - 10000)";
+            return false;
+        }
+        const double ms = std::clamp(std::round(number), static_cast<double>(PerfService::kMinInterval),
+                                     static_cast<double>(PerfService::kMaxInterval));
+        runtime_.SetPerfInterval(this, static_cast<uint32_t>(ms));
+        json = std::to_string(perf->Interval());
+        return true;
+    }
+    error = L"perf: unknown call";
+    return false;
+}
+
+bool WidgetInstance::PerfSeries(const std::string& key, size_t n, std::vector<double>& out, std::wstring& error) {
+    if (!Permitted(Permission::Perf)) {
+        error = L"perf needs the \"perf\" permission";
+        return false;
+    }
+    PerfService* perf = runtime_.UsePerf(this);
+    if (!perf) {
+        error = L"perf: the sampler could not start";
+        return false;
+    }
+    perf->Series(key, std::min(n, PerfService::kHistory), out);
+    return true;
 }

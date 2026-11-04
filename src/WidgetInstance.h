@@ -164,7 +164,7 @@ public:
     // The popup closed (by itself, or the dock closed it): onPopupClose({ passive }).
     void PopupClosed(bool passive = false);
 
-    // WidgetRuntime: a provider this widget used changed ("audio", "media").
+    // WidgetRuntime: a provider this widget used changed ("audio", "media", "perf" ...).
     void ProviderChanged(const char* channel, const std::string& payload = {});
     // WidgetRuntime: an http request of generation `generation` finished.
     void OnHttpResult(uint64_t generation, int id, const Http::Result& result);
@@ -242,6 +242,8 @@ private:
     void UpdateItemKey();
     bool CalendarCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) override;
     bool WeatherCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) override;
+    bool PerfCall(const std::string& what, double number, std::string& json, std::wstring& error) override;
+    bool PerfSeries(const std::string& key, size_t n, std::vector<double>& out, std::wstring& error) override;
     std::vector<std::string> PackageFiles() override;
     void RequestPopup(PopupRequest r);
     bool HostAllowed(const std::wstring& host) const;

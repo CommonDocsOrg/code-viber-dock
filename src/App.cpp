@@ -18,6 +18,7 @@
 #include "DesktopLayer.h"
 #include "Hotkey.h"
 #include "IconUtil.h"
+#include "JsonUtil.h"
 #include "SettingsIds.h"
 #include "WidgetPackage.h"
 #include "resource.h"
@@ -1553,6 +1554,13 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         return ws ? ws->StatusText() : std::wstring(L"Not shown on a dock");
     };
     host.refreshWeather = [this](const WeatherConfig& place) { docks_.RefreshWeather(&place); };
+    host.perfMetrics = [this] {
+        std::vector<SettingsPerfMetric> out;
+        for (const PerfService::Metric& m : docks_.Widgets().PerfMetricList()) {
+            out.push_back(SettingsPerfMetric{JsonUtil::Utf8ToWide(m.key), m.name, m.group, m.hwinfo});
+        }
+        return out;
+    };
     host.geocode = [this, w](const std::wstring& query,
                              std::function<void(const std::vector<WeatherService::Place>&, const std::wstring&)> done) {
         // A newer search (of any window) replaces an older one (its result is dropped when it arrives).
@@ -2105,6 +2113,18 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return docks_.DesktopWatched() ? 1 : 0;  // the Desktop is watched (rules with autoSort)
         case 213:
             return static_cast<LRESULT>(docks_.Widgets().WeatherUsers());  // widgets using the weather provider
+        case 257:  // round 6 phase 6D: the perf sampler runs (1 / 0)
+            return docks_.Widgets().Perf().Active() ? 1 : 0;
+        case 258:  // widgets using the perf provider
+            return static_cast<LRESULT>(docks_.Widgets().PerfUsers());
+        case 259:  // perf snapshots received since the dock started
+            return static_cast<LRESULT>(docks_.Widgets().Perf().Snapshots());
+        case 260:  // the sampler's interval in ms (0: not running)
+            return docks_.Widgets().Perf().Active() ? static_cast<LRESULT>(docks_.Widgets().Perf().Interval()) : 0;
+        case 261:  // metric keys in the latest snapshot (0: none / not running)
+            return static_cast<LRESULT>(docks_.Widgets().Perf().MetricCount());
+        case 262:  // HWiNFO's shared memory is readable and fresh (1 / 0)
+            return docks_.Widgets().Perf().Hwinfo().available ? 1 : 0;
         case 214:  // forecast requests started (every place's service; = 221)
         case 221:
             return static_cast<LRESULT>(WeatherService::TotalFetches());

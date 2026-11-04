@@ -94,6 +94,7 @@ add_executable(WinDock WIN32
   src/SettingsPagesItems.cpp
   src/AudioService.cpp
   src/MediaService.cpp
+  src/PerfService.cpp
   src/NotificationService.cpp
   src/NotificationElements.cpp
   src/NotificationPopup.cpp
@@ -140,6 +141,7 @@ target_link_libraries(WinDock PRIVATE
   d3d11 dxgi d2d1 dxguid dcomp dwrite windowscodecs
   shell32 ole32 shlwapi dwmapi propsys user32 gdi32 version advapi32
   comctl32 uxtheme comdlg32 winhttp shcore
+  pdh iphlpapi powrprof
   windowsapp coremessaging
   quickjs
 )

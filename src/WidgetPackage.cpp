@@ -59,6 +59,10 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"weather", "main.js", IDR_WIDGET_WEATHER_MAIN},
     {L"notes", "widget.json", IDR_WIDGET_NOTES_JSON},
     {L"notes", "main.js", IDR_WIDGET_NOTES_MAIN},
+    {L"system-monitor", "widget.json", IDR_WIDGET_SYSMON_JSON},
+    {L"system-monitor", "main.js", IDR_WIDGET_SYSMON_MAIN},
+    {L"system-overview", "widget.json", IDR_WIDGET_SYSVIEW_JSON},
+    {L"system-overview", "main.js", IDR_WIDGET_SYSVIEW_MAIN},
 };
 
 bool IsBuiltIn(const std::wstring& id) {
@@ -205,6 +209,8 @@ void ReadPermissions(const json::JsonObject& root, Manifest& m) {
                 m.calendar = true;
             } else if (s == L"weather") {
                 m.weather = true;
+            } else if (s == L"perf") {
+                m.perf = true;
             } else if (s == L"http") {
                 m.http = true;  // no hosts: every request is refused (name the hosts)
             } else if (s.rfind(L"http:", 0) == 0) {
@@ -624,7 +630,7 @@ constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"
                                          L"max",     L"step",       L"choices", L"choiceFrom", L"group", L"unit",
                                          L"visibleIf"};
 constexpr wchar_t kPermissionFix[] =
-    L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\" or { \"http\": [\"host\"] }";
+    L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\" or { \"http\": [\"host\"] }";
 
 bool Known(const wchar_t* const* begin, const wchar_t* const* end, const std::wstring& key) {
     return std::any_of(begin, end, [&](const wchar_t* k) { return key == k; });
@@ -720,7 +726,7 @@ void CheckPermissions(Checker& c, const json::JsonObject& root) {
         if (v.ValueType() == json::JsonValueType::String) {
             const std::wstring s = Lower(std::wstring(v.GetString()));
             if (s == L"shell" || s == L"audio" || s == L"media" || s == L"notifications" || s == L"calendar" ||
-                s == L"weather") {
+                s == L"weather" || s == L"perf") {
                 continue;
             }
             if (s == L"http") {
@@ -888,7 +894,13 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
             }
             std::wstring from;
             JsonUtil::ReadString(o, L"choiceFrom", from);
-            if (!from.empty()) {
+            if (from == L"perf") {
+                // Round 6 phase 6D: the host lists perf.metrics() (the settings page); any key is kept.
+                const json::IJsonValue def = JsonUtil::Find(o, L"default");
+                if (!def || def.ValueType() != json::JsonValueType::String || def.GetString().empty()) {
+                    c.Warn(field + L".default", L"a perf metric choice has no default key", L"\"default\": \"cpu.total\"");
+                }
+            } else if (!from.empty()) {
                 if (from.find_first_of(L":\\") != std::wstring::npos || from.front() == L'/') {
                     c.Error(field + L".choiceFrom", L"\"" + from + L"\" is not a glob of package files", L"a path inside the widget such as \"faces/*.json\"");
                 } else {
@@ -1057,7 +1069,7 @@ void ExpandChoices(Package& pkg) {
     std::vector<std::string> files;
     bool listed = false;
     for (SettingField& f : pkg.manifest.settings) {
-        if (f.type != SettingField::Type::Choice || f.choiceFrom.empty()) continue;
+        if (f.type != SettingField::Type::Choice || f.choiceFrom.empty() || f.ChoiceFromPerf()) continue;
         if (!listed) {
             files = pkg.Files();
             listed = true;

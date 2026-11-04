@@ -71,6 +71,14 @@ struct SettingsCalendarFeed {
     std::wstring status;  // "Updated 10:15, 42 events", "Error: HTTP 404; retry in 2 min", "Off"
 };
 
+// A metric of the perf provider for a `"choiceFrom": "perf"` field (SettingsHost::perfMetrics).
+struct SettingsPerfMetric {
+    std::wstring key;    // "cpu.total"
+    std::wstring name;   // "CPU total"
+    std::wstring group;  // "CPU" ...; HWiNFO: the sensor's name
+    bool hwinfo = false;
+};
+
 // Everything a settings window may use of the app, so it never sees App internals. App binds one
 // host per window (round 5 phase B): "the dock" below is the window's own dock (SettingsWindow::
 // DockIndex(), looked up by id each time; the Global window: the row selected on its Docks and
@@ -105,6 +113,8 @@ struct SettingsHost {
     // Refresh now for it.
     std::function<std::wstring(const WeatherConfig& place)> weatherStatus;
     std::function<void(const WeatherConfig& place)> refreshWeather;
+    // Round 6 phase 6D: the perf provider's metrics (the running sampler's, else a short sample).
+    std::function<std::vector<SettingsPerfMetric>()> perfMetrics;
     // Starts a place search; `done` gets the places (or an error) later, on the UI thread, unless
     // a newer search replaced it or the window closed. False if it could not be started.
     std::function<bool(const std::wstring& query,

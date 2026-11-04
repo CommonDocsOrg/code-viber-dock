@@ -14,6 +14,7 @@
 #include <cwchar>
 #include <cwctype>
 #include <initializer_list>
+#include <map>
 #include <string>
 #include <vector>
 
@@ -465,9 +466,13 @@ protected:
         const Widgets::Manifest* m = Schema();
         if (!m) return;
         const auto& fields = m->settings;
+        dynChoices_.clear();
         for (size_t k = 0; k < fields.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) {
             const int id = kWidgetFieldBase + 10 * static_cast<int>(k) + 1;
-            if (fields[k].type == Widgets::SettingField::Type::Choice) {
+            if (fields[k].type == Widgets::SettingField::Type::Choice && fields[k].ChoiceFromPerf() && Item(id)) {
+                BuildPerfChoices(k);
+                for (const auto& c : dynChoices_[k]) ComboAdd(id, c.second.c_str());
+            } else if (fields[k].type == Widgets::SettingField::Type::Choice) {
                 for (const auto& c : fields[k].choices) ComboAdd(id, c.second.c_str());
             } else if (fields[k].type == Widgets::SettingField::Type::TimeZone && Item(id)) {
                 // "Local time", then every zone of this Windows by display name, sorted by UTC offset.
@@ -511,8 +516,9 @@ protected:
                 case T::Choice: {
                     if (v.ValueType() != json::JsonValueType::String) break;
                     const std::wstring s(v.GetString());
-                    for (size_t c = 0; c < f.choices.size(); ++c) {
-                        if (f.choices[c].first == s) SetComboSel(base + 1, static_cast<int>(c));
+                    const auto& choices = ChoicesOf(k);
+                    for (size_t c = 0; c < choices.size(); ++c) {
+                        if (choices[c].first == s) SetComboSel(base + 1, static_cast<int>(c));
                     }
                     break;
                 }
@@ -583,8 +589,9 @@ protected:
             Store(*f, json::JsonValue::CreateBooleanValue(GetCheck(id)));
         } else if (f->type == T::Choice && code == CBN_SELCHANGE) {
             const int sel = ComboSel(id);
-            if (sel >= 0 && sel < static_cast<int>(f->choices.size())) {
-                Store(*f, json::JsonValue::CreateStringValue(f->choices[static_cast<size_t>(sel)].first));
+            const auto& choices = ChoicesOf(static_cast<size_t>((id - kWidgetFieldBase) / 10));
+            if (sel >= 0 && sel < static_cast<int>(choices.size())) {
+                Store(*f, json::JsonValue::CreateStringValue(choices[static_cast<size_t>(sel)].first));
             }
         } else if (f->type == T::TimeZone && code == CBN_SELCHANGE) {
             const int sel = ComboSel(id);
@@ -900,6 +907,38 @@ private:
     int placeField_ = -1;        // the schema's (first) Place field, -1 none
     std::vector<WeatherService::Place> places_;  // the last search's results
     std::vector<std::pair<std::wstring, std::wstring>> zones_;  // time zone rows: key, display name
+
+    // Round 6 phase 6D: the rows of `"choiceFrom": "perf"` fields (field index -> value, label): the
+    // fixed choices, the perf provider's metrics (built-in keys first, then the HWiNFO readings with
+    // their sensor names), and the stored key when it is not listed now (HWiNFO closed), so opening
+    // the page never changes it.
+    std::map<size_t, std::vector<std::pair<std::wstring, std::wstring>>> dynChoices_;
+    const std::vector<std::pair<std::wstring, std::wstring>>& ChoicesOf(size_t k) const {
+        auto it = dynChoices_.find(k);
+        if (it != dynChoices_.end()) return it->second;
+        return Schema()->settings[k].choices;
+    }
+    void BuildPerfChoices(size_t k) {
+        const Widgets::SettingField& f = Schema()->settings[k];
+        auto& rows = dynChoices_[k];
+        rows = f.choices;
+        std::vector<SettingsPerfMetric> metrics = Host().perfMetrics ? Host().perfMetrics() : std::vector<SettingsPerfMetric>{};
+        std::stable_partition(metrics.begin(), metrics.end(), [](const SettingsPerfMetric& m) { return !m.hwinfo; });
+        auto listed = [&](const std::wstring& key) {
+            return std::any_of(rows.begin(), rows.end(), [&](const auto& r) { return r.first == key; });
+        };
+        for (const SettingsPerfMetric& m : metrics) {
+            if (listed(m.key)) continue;
+            rows.emplace_back(m.key, m.hwinfo ? L"HWiNFO: " + m.name : m.name);
+        }
+        std::wstring stored;
+        const json::JsonObject values = Values();
+        if (const json::IJsonValue v = values ? JsonUtil::Find(values, f.key.c_str()) : nullptr;
+            v && v.ValueType() == json::JsonValueType::String) {
+            stored = v.GetString();
+        }
+        if (!stored.empty() && !listed(stored)) rows.emplace_back(stored, stored + L" (not available now)");
+    }
 };
 
 }  // namespace

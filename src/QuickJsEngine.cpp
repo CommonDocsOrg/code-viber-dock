@@ -238,7 +238,7 @@ constexpr char kPrelude[] = R"JS(
     },
   });
   // Providers: onChange listeners kept here; the host calls the returned emit(channel).
-  const listeners = { audio: [], media: [], notifications: [], calendar: [], calendarReminder: [], weather: [], storage: [] };
+  const listeners = { audio: [], media: [], notifications: [], calendar: [], calendarReminder: [], weather: [], storage: [], perf: [] };
   const onChange = (ch) => (cb) => {
     if (typeof cb !== 'function') throw new TypeError(ch + '.onChange: the argument must be a function');
     listeners[ch].push(cb);
@@ -307,6 +307,39 @@ constexpr char kPrelude[] = R"JS(
     }),
     onChange: onChange('weather'),
   });
+  // perf (round 6 phase 6D): the process's sampler. get() keeps one frozen object per snapshot and
+  // metrics() one frozen list per catalog: the host sends a new one only when it has a newer one.
+  let perfSnap = null, perfList = null, perfListSerial = -1;
+  const perfGet = () => {
+    const r = p.perf('get', perfSnap ? perfSnap.serial : -1);
+    if (r !== null) {
+      Object.freeze(r.metrics);
+      perfSnap = Object.freeze(r);
+    }
+    return perfSnap;
+  };
+  const perfMetrics = () => {
+    const r = p.perf('metrics', perfListSerial);
+    if (r !== null) {
+      for (const m of r.list) Object.freeze(m);
+      perfList = Object.freeze(r.list);
+      perfListSerial = r.serial;
+    }
+    return perfList;
+  };
+  const perfOnChange = (cb) => {
+    const off = onChange('perf')(cb);
+    p.perf('use', 0);  // the first listener starts the sampler, as get() does
+    return off;
+  };
+  g.perf = Object.freeze({
+    get: perfGet,
+    metrics: perfMetrics,
+    series: (key, n) => p.perfSeries(String(key), n === undefined ? 600 : Number(n)),
+    setInterval: (ms) => p.perf('setInterval', Number(ms)),
+    hwinfo: () => p.perf('hwinfo', 0),
+    onChange: perfOnChange,
+  });
   // storage.onChange (round 6 phase 6C): another item of this widget changed a key ({ key }).
   g.storage.onChange = onChange('storage');
   Object.freeze(g.storage);
@@ -314,7 +347,8 @@ constexpr char kPrelude[] = R"JS(
     const l = listeners[ch];
     if (!l || !l.length) return;
     const state = ch === 'audio' ? p.audioGet() : ch === 'media' ? p.mediaGet() : ch === 'calendar' ? cal('feeds')
-      : ch === 'calendarReminder' || ch === 'storage' ? JSON.parse(data) : ch === 'weather' ? wx('get') : p.notifGet().items;
+      : ch === 'calendarReminder' || ch === 'storage' ? JSON.parse(data) : ch === 'weather' ? wx('get')
+      : ch === 'perf' ? perfGet() : p.notifGet().items;
     for (const cb of l.slice()) cb(state);
   };
 })(globalThis, globalThis.__windock);
@@ -1754,6 +1788,37 @@ JSValue WeatherFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     return JsonResult(ctx, ok, json, error, "<weather>");
 }
 
+// perf(what, number): the perf provider (permission "perf", round 6 phase 6D).
+JSValue PerfFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string what = WideToUtf8(a.S(0));
+    double number = 0.0;
+    if (a.Has(1) && JS_ToFloat64(ctx, &number, argv[1]) < 0) return JS_EXCEPTION;
+    if (a.failed) return JS_EXCEPTION;
+    std::string json;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.PerfCall(what, number, json, error);
+    return JsonResult(ctx, ok, json, error, "<perf>");
+}
+// perfSeries(key, n): up to n (0 - 600) newest values of a metric, oldest first, as numbers (NaN
+// for a sample without the key).
+JSValue PerfSeriesFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string key = WideToUtf8(a.S(0));
+    double n = 600.0;
+    if (a.Has(1) && JS_ToFloat64(ctx, &n, argv[1]) < 0) return JS_EXCEPTION;
+    if (a.failed) return JS_EXCEPTION;
+    if (!std::isfinite(n) || n < 0.0) n = 0.0;
+    std::vector<double> values;
+    std::wstring error;
+    if (!Self(ctx)->host_.PerfSeries(key, static_cast<size_t>(std::min(n, 600.0)), values, error)) {
+        return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    }
+    JSValue arr = JS_NewArray(ctx);
+    for (size_t i = 0; i < values.size(); ++i) JS_SetPropertyUint32(ctx, arr, static_cast<uint32_t>(i), JS_NewFloat64(ctx, values[i]));
+    return arr;
+}
+
 // canvas.fileIcon(path, x, y, size): the shell's icon of a file or folder (permission "shell").
 JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     CANVAS_OR_THROW();
@@ -1962,6 +2027,8 @@ const JSCFunctionListEntry kProviderFuncs[] = {
     JS_CFUNC_DEF("notifCmd", 2, Guard<NotifCmdFn>),
     JS_CFUNC_DEF("cal", 2, Guard<CalFn>),
     JS_CFUNC_DEF("weather", 2, Guard<WeatherFn>),
+    JS_CFUNC_DEF("perf", 2, Guard<PerfFn>),
+    JS_CFUNC_DEF("perfSeries", 2, Guard<PerfSeriesFn>),
 };
 
 const JSCFunctionListEntry kPopupFuncs[] = {

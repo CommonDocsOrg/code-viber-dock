@@ -9,7 +9,7 @@ thread. This file is the full reference; README.md has the short version.
 - [widget.json](#widgetjson): the manifest
 - [main.js](#mainjs): the module and its exports, when they are called
 - [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`,
-  `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `weather`, `popup`, `widget`
+  `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `weather`, `perf`, `popup`, `widget`
 - [Animation](#animation): frames with timers, `dock.visible`, `dock.reduceMotion`, the cost rules
 - [Clock faces](#clock-faces): the face formats: analog (`faces/*.json` of the Analog clock widget)
   and digital (the dock's own clock, `clock.face`)
@@ -32,7 +32,8 @@ thread. This file is the full reference; README.md has the short version.
 ```
 
 Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
-`start`, `search`, `notification-bell`, `agenda`, `weather`, `notes`) are compiled into the
+`start`, `search`, `notification-bell`, `agenda`, `weather`, `notes`, `system-monitor`,
+`system-overview`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Widgets are always loaded as source; bytecode is never loaded.
@@ -70,7 +71,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time (also for another time zone: `timer.setRefresh(ms, { timeZone })`). |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum). |
 | `settings` | [] | The widget's settings schema, see below. |
@@ -86,7 +87,7 @@ Each entry: `key` (required), `type`, `label`, `description`, `default`, the pag
 | `int` | a whole number | `min`, `max`, `step` |
 | `number` | a number | `min`, `max`, `step` |
 | `string` | text | |
-| `choice` | one of `choices` | `choices`: `["a", "b"]` or `[{ "value": "a", "label": "A" }]`; `choiceFrom`: a glob of package files (below) |
+| `choice` | one of `choices` | `choices`: `["a", "b"]` or `[{ "value": "a", "label": "A" }]`; `choiceFrom`: a glob of package files, or `"perf"` (below) |
 | `colour` (`color`) | `"#AARRGGBB"` / `"#RRGGBB"` | |
 | `font` | a font family name | |
 | `place` | a place (round 5): no key of its own; it edits the item's `latitude`, `longitude` (numbers, 4 decimals) and `location` (the name shown) | none (no `default`) |
@@ -114,6 +115,17 @@ without its folder and extension (`classic`), the label the file's JSON `"name"`
 The list is read whenever the package is loaded (a widget reload, opening its settings page), so a
 file added to an exported widget's folder shows up after **Reload widgets**. A default that names no
 file falls back to the first one.
+
+`"choiceFrom": "perf"` (round 6 phase 6D): the choices are the metrics of the [perf](#perf)
+provider, listed by the host when the settings page is built: every key of `perf.metrics()` by its
+name, the built-in ones first (CPU, memory, GPU, disks, network, battery, uptime), then HWiNFO's
+readings as "HWiNFO: <sensor> · <reading>" (while HWiNFO shares them). The value is the metric's key
+(`"cpu.total"`, `"hwinfo.3.16777216"`). Any key is accepted and kept: a stored key that is not
+available now (HWiNFO closed) is listed last as "<key> (not available now)" and stays selected, so
+opening the page never changes it. The list comes from the running sampler, or, when no widget
+uses `perf` at that moment, from a short sample taken for the page (kept 30 s). Give the field a
+`default` key (the manifest check warns without one). The settings page needs no permission for
+this; the widget needs `"perf"` to read the values.
 
 The values live in the dock item's `settings` object in config.json. The script sees the schema's
 defaults overridden by the item's values (a value of the wrong type or out of range falls back to
@@ -469,6 +481,90 @@ slot draws what the native element draws (pixel for pixel at 100 %), its popup t
 forecast popup's layout; its schema has `place`, `label`, `units` and `refreshMinutes` (round 5),
 and it draws its `label` under the temperature.
 
+### perf
+
+Needs `"perf"` in `permissions`. The machine's performance (round 6 phase 6D): CPU, memory, GPU,
+disks, network, battery, uptime, and the sensors of [HWiNFO](https://www.hwinfo.com) (temperatures,
+fans, voltages, clocks, power ...) when it runs. **One sampler** serves every widget: a worker
+thread of the dock that starts with the first widget that calls the provider (any call, `onChange`
+included) and stops when the last one goes or reloads; while no widget uses `perf` nothing runs.
+It samples every `interval` ms (250 - 10000, default 1000: the fastest any live widget asked for
+with `perf.setInterval`), and each snapshot is handed to the dock's thread, which keeps it and calls
+every user's `onChange`. The dock also keeps the **last 600 samples of every metric**, so a graph
+needs no history of its own (`perf.series`). Calls answer from the dock's copy at once.
+
+| Call | |
+|---|---|
+| `perf.get()` | The latest snapshot: `{ time, interval, serial, metrics: { key: value, ... } }`: `time` ms since 1970 (UTC), `interval` the sampler's period in ms, `serial` the snapshot's number (0: none yet: right after the first call `metrics` is `{}` for up to half a second; draw a placeholder), `metrics` every available key with its number (bools are 0 / 1). The object is frozen and the same object until the next snapshot (cheap to call in every `draw()`); a key that is not available is absent, never 0. |
+| `perf.metrics()` | Every available metric: `[{ key, name, unit, min, max, kind, group, hwinfo }]`: `name` for people ("CPU total", "GPU (3D)", "CPU [#0]: AMD Ryzen 7 · Core Temperatures"), `unit` (`"%"`, `"B"`, `"B/s"`, `"MHz"`, `"s"`, HWiNFO's own such as `"°C"`, `"RPM"`, `"V"`, `"W"`; `""` none), `min` / `max` a sensible range for gauges (percent 0 - 100, memory 0 - the total, a network link's speed, a HWiNFO reading's own lowest / highest rounded outwards; counts, frequency and HWiNFO ranges widen when a value leaves them), `kind` (below), `group` (`"CPU"`, `"Memory"`, `"GPU"`, `"Disk"`, `"Network"`, `"Battery"`, `"System"`, or the HWiNFO sensor's name), `hwinfo` true for HWiNFO readings. Frozen; the same array until the key set or a range changes. |
+| `perf.series(key, n)` | Up to `n` (0 - 600, default 600) newest values of `key`, **oldest first**, as numbers; `NaN` for a sample in which the key was missing. Fewer while the sampler has not taken that many since it started; `[]` for a key it never saw. |
+| `perf.setInterval(ms)` | This widget's sampling period, clamped to 250 - 10000 ms (a widget that never calls it counts as 1000). The sampler uses the fastest of all its widgets'; returns the period it uses now. `onChange` then comes at that rate for every widget: a widget that wants a slow display can still redraw less often. |
+| `perf.hwinfo()` | `{ available, reason, version, pollTime, sensors: [{ index, name }], readingCount }`: `available` true while HWiNFO's shared memory is readable and fresh (updated in the last 10 s), else `reason` says why (not running / sharing off, stopped sharing, stale data: the free version stops after 12 hours); `version` "2.1" (its layout), `pollTime` ms since 1970 of HWiNFO's last update (refreshed every 5 s here), `sensors` its sensors by index (the `<sensor>` part of the keys), `readingCount` its readings. |
+| `perf.onChange(fn)` | `fn(snapshot)` (the `get()` object) after every snapshot. Returns a remover. Starts the sampler like `get()`. |
+
+**Keys** (`perf.metrics()` lists exactly the available ones; values in the unit shown):
+
+| Key | Unit, kind | |
+|---|---|---|
+| `cpu.total`, `cpu.core.N` | %, percent | CPU busy time over the last interval, total and per logical processor (N from 0; at most 64 keys; one processor group). |
+| `cpu.frequency` | MHz, clock | The effective clock as Task Manager shows it ("% Processor Performance" x "Processor Frequency"); else what Windows reports (often the base clock). |
+| `cpu.processes`, `cpu.threads` | count, number | |
+| `memory.used`, `memory.available`, `memory.total` | B, bytes | Physical memory (`memory.total` = Windows' usable memory). |
+| `memory.percent` | %, percent | Used / total. |
+| `memory.committed`, `memory.commitLimit` | B, bytes | The commit charge and its limit (RAM + page files). |
+| `gpu.total` | %, percent | The 3D engine's busy time (each engine is summed over the processes using it). |
+| `gpu.max` | %, percent | The busiest engine of any kind (Task Manager's GPU %). |
+| `gpu.engine.3D`, `.Copy`, `.VideoDecode`, `.VideoEncode`, `.Compute` | %, percent | Each kind's busiest engine (only the kinds the GPU has). |
+| `gpu.memory.used`, `gpu.memory.total` | B, bytes | Dedicated GPU memory in use (every adapter) and the first hardware adapter's size. |
+| `disk.total` | %, percent | Physical disks' "% Disk Time" (all disks, at most 100). |
+| `disk.read`, `disk.write` | B/s, bytesPerSecond | All physical disks. |
+| `disk.N.active`, `disk.N.read`, `disk.N.write` | %, B/s | Per physical disk (N as Windows numbers them; at most 16 disks). |
+| `network.down`, `network.up` | B/s, bytesPerSecond | Received / sent over the hardware interfaces that are up (filter, loopback and tunnel interfaces left out: their traffic crosses the hardware one too). |
+| `network.<alias>.down`, `network.<alias>.up` | B/s, bytesPerSecond | Per interface (`<alias>` its name in lower case, `wi-fi`, `ethernet-2`; at most 8 interfaces). |
+| `battery.percent`, `battery.charging` | %, percent; bool | Only on a machine with a battery. |
+| `system.uptime` | s, seconds | Since Windows started. |
+| `hwinfo.<sensor>.<reading>` | HWiNFO's unit and kind | Each HWiNFO reading (at most 512), named "<sensor> · <reading>" with HWiNFO's own (user-edited) names. |
+
+`kind` is one of `"percent"`, `"bytes"`, `"bytesPerSecond"`, `"temperature"`, `"voltage"`, `"fan"`,
+`"current"`, `"power"`, `"clock"`, `"number"`, `"bool"`, `"seconds"` (HWiNFO's reading types map to
+temperature, voltage, fan, current, power, clock, percent (usage) and number (other; a `Yes/No`
+unit: bool)). Sources: `NtQuerySystemInformation` (CPU), `GetPerformanceInfo` and
+`GlobalMemoryStatusEx` (memory, processes), PDH counters by their English names (frequency, GPU
+engines and memory, disks: any Windows language), DXGI (the GPU's size), `GetIfTable2` (network),
+`GetSystemPowerStatus` (battery). A source that fails leaves its keys out.
+
+**HWiNFO**: install [HWiNFO64](https://www.hwinfo.com), open its Settings, turn on **Shared Memory
+Support** (Settings > General / User Interface), and run it (sensors-only mode is enough; it may
+stay minimized to the tray). The provider reads HWiNFO's shared memory (`Global\HWiNFO_SENS_SM2`,
+the documented layout of HWiNFO's SDK; nothing is installed or linked) and looks for it again every
+5 s while it is absent, so starting HWiNFO later adds its readings within seconds (and
+`perf.metrics()` changes). **The free version shares its sensors for 12 hours per start**; after
+that the data goes stale (`perf.hwinfo().available` false, its keys disappear) until HWiNFO is
+restarted. HWiNFO Pro has no limit. Its readings change at HWiNFO's own polling rate (2 s by
+default), whatever the sampler's interval.
+
+**Memory**: 600 doubles (4.8 KB) per key, for at most 1024 keys ever seen while the sampler runs
+(this machine has 68 keys without HWiNFO; a few hundred with it: under 2.5 MB); the history goes
+when the sampler stops. **Cost**: STATUS.md 6D has the measurement (the sampler plus one System
+monitor redrawing per snapshot); nothing at all while no widget uses `perf`.
+
+```js
+// A tiny CPU graph: no history of its own, one redraw per snapshot, no timers.
+perf.setInterval(1000);
+perf.onChange(() => requestRedraw());
+export function draw(canvas, dock) {
+  const v = perf.get().metrics['cpu.total'];
+  const s = perf.series('cpu.total', 60);
+  const path = canvas.path();
+  s.forEach((x, i) => { if (!Number.isNaN(x)) path.lineTo(canvas.width * i / 59, canvas.height * (1 - x / 100)); });
+  canvas.stroke(path, dock.theme.accent, 1.5);
+  canvas.text(v === undefined ? '—' : Math.round(v) + '%', 2, 2, { size: 11, color: dock.theme.text });
+}
+```
+
+The built-in `system-monitor` and `system-overview` widgets are the worked examples (see
+[Examples](#examples)).
+
 ### popup
 
 A widget can open one popup at a time, anchored on its slot beside the dock (above a bottom dock,
@@ -744,7 +840,9 @@ draws file icons, opens the folder popup, receives file drops and presses the `s
 allow-list; `"audio"` reads and changes the system volume / mutes / the default output; `"media"`
 reads the current media session and controls its playback; `"notifications"` reads Windows'
 notifications and dismisses them; `"calendar"` reads the dock's calendar feeds (and asks them to
-refresh); `"weather"` reads the dock's forecast (and asks it to refresh). Modules and images are read
+refresh); `"weather"` reads the dock's forecast (and asks it to refresh); `"perf"` reads the
+machine's performance counters and HWiNFO's shared sensor memory (nothing else). Modules and images
+are read
 only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
 - `import` / `import()` specifiers are package paths: `"./x.js"` and `"../x.js"` relative to the
@@ -806,7 +904,8 @@ names no file (also the default `main.js` missing); `size` (not an object, a mis
 `main` / `cross`, outside 4 - 1024 / 4 - 512); `permissions` (not an array, an unknown permission,
 `"http"` without hosts, a host with a scheme, path or port); the settings schema (an entry that is
 not an object, no `key`, a duplicate key, an unknown `type`, a `choice` without `choices` or
-`choiceFrom`, a `choiceFrom` glob that is not a package path or matches no file, `min` above `max`,
+`choiceFrom`, a `choiceFrom` glob that is not a package path or matches no file (`"perf"` is not a glob: the
+perf metrics), `min` above `max`,
 `step` 0 or less, `visibleIf` naming no other setting); the folder name is not a valid widget id.
 Warnings: unknown keys (top level and in schema entries: ignored), defaults of the wrong type or
 out of range (the type's default or the clamped value is used), `refreshMs` / `timeLimitMs` /
@@ -965,6 +1064,34 @@ built-ins are worked examples too:
   paper, the theme's text otherwise), `boldTitle`, `lines`, `maxWidth`, `noteId`. In the
   widget drawer's preview (phase 6E: the dock object's `preview` flag) it shows a sample "Shopping list" note. No
   timers, no permissions.
+- `widgets/system-monitor` ("System monitor", round 6 phase 6D): one [perf](#perf) metric in one
+  of eleven styles: `graph` (a line over `historySeconds`, from `perf.series`), `area` (filled),
+  `sparkline` (a small graph and the value), `bar` / `vbar` (horizontal / vertical), `ring` (a 270°
+  arc, the value inside), `gauge` (a half circle with ticks and a needle), `dial` (a 240°
+  speedometer with numbers), `percent` (a big number + %), `value` (a big number + unit), `text`
+  ("label: value"). Settings, grouped: **Metric** `metric` (`"choiceFrom": "perf"`, default
+  `cpu.total`), `label` (empty: the metric's name), `unit` (text: replaces the unit, unscaled),
+  `decimals` (0 - 3; scaled values under 10 get one), `scale` (`auto`: bytes as KB / MB / GB with
+  1024, rates as KB/s ... GB/s, seconds as days / hours / minutes; `raw`), `refresh`
+  (`perf.setInterval`, 250 - 10000 ms); **Display** `style`, `historySeconds` (10 - 600),
+  `showLabel`, `showValue`, `showMinMax` (graphs: the lowest / highest shown; bars, rings, gauges:
+  the range's ends), `lineWidth`, `fill` (under a graph's / sparkline's line), `sweep` (0: the
+  style's own arc; else 90 - 300 degrees), `rangeMin` / `rangeMax` (both 0: the metric's range;
+  rates and counts then scale to the highest value shown), `smooth` (the average of the last 3);
+  **Colours** `color` (`#00000000`: the theme's accent), `warnAt` / `criticalAt` (in the metric's
+  unit, 0 off) with `warnColor` / `criticalColor` (gauges and dials also mark the zones),
+  `background` (`none`, `panel`, `theme`), `textColor`; **Size** `width` (40 - 400 DIPs on a top /
+  bottom dock; the height is the icon size; a left / right dock: a square; standalone: it fills the
+  window, 160 x 120 by default). A metric that is not available draws a dash. Redraws on
+  `perf.onChange` only, no timers. Permission `perf`.
+- `widgets/system-overview` ("System overview", round 6 phase 6D): CPU (`cpu.total`), memory
+  (`memory.percent`; in a wide list also used / total GB), GPU (`gpu.total`), disk (`disk.total`)
+  and network (`network.down` / `up`), each row toggleable (`showCpu` ... `showNetwork`); `rows`
+  (`auto`: one row of cells on a top / bottom dock, a list on a left / right dock and on the
+  desktop; `row`; `list`), `style` (`auto`: bars in a row, sparklines in a list; `bars`;
+  `sparklines`), `showValues`, `historySeconds`, `refresh`, `color`, `warnAt` / `criticalAt`
+  (percent, default 75 / 90) with their colours, `background`, `textColor`, `cellWidth` (DIPs per
+  cell on a dock). Standalone 240 x 160 by default. Permission `perf`.
 - `widgets/notification-bell` ("Notification bell"): a scriptable bell that behaves like the
   built-in notification centre by default; `unread` (default on; off: nothing polls and the fixed
   `badge` number shows) draws `notifications.count()` and redraws on `notifications.onChange`;
