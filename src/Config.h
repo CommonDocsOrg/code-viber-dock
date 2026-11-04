@@ -114,10 +114,15 @@ enum class OverflowMode { Scroll, Shrink, Clip };
 // on the screen edge, the items along the arc) or "circle" (a full ring floating on the monitor at
 // x / y; it ignores the edge, alignment and offset).
 enum class DockShape { Bar, Arc, Circle };
-// What a docks[] entry is (round 4 phase 12, "kind"): "dock" (default) or "folderWindow" (a
-// titled panel on the desktop showing a folder's contents, FolderWindow). A docks[] entry with a
-// kind this version does not know is kept verbatim (Config::extraDocks) and not shown.
-enum class DockKind { Dock, FolderWindow };
+// What a docks[] entry is (round 4 phase 12, "kind"): "dock" (default), "folderWindow" (a
+// titled panel on the desktop showing a folder's contents, FolderWindow) or (round 6 phase 6B)
+// "widget" (a standalone script widget in a window of its own on the desktop, WidgetWindow). A
+// docks[] entry with a kind this version does not know is kept verbatim (Config::extraDocks) and
+// not shown.
+enum class DockKind { Dock, FolderWindow, Widget };
+// What a standalone widget's window draws under the widget: "none" (default: the widget over the
+// wallpaper) or "panel" (the theme's bar fill / acrylic, rounded, with the bar hairline).
+enum class WidgetBackground { None, Panel };
 // A folder window's order: "name" (default; A-Z in Explorer's logical order), "date" (modified,
 // newest first), "type" (extension A-Z, then name), "size" (largest first). Folders come first.
 enum class FolderSort { Name, Date, Type, Size };
@@ -153,6 +158,21 @@ struct FolderWindowConfig {
     // The number of patterns in `rules`.
     size_t RuleCount() const;
     bool operator==(const FolderWindowConfig&) const = default;
+};
+
+// The keys of a "widget" docks[] entry (round 6 phase 6B) beyond the DockConfig keys it shares with
+// folder windows (id, x / y in DIPs from its monitor's work area (kCentred: centred), monitor,
+// locked, layer (default "behind" for this kind), color). The widget itself (its id: the JSON key
+// "widget"; its settings object: "settings") is kept as the entry's one item, DockConfig::items[0]
+// (a { "kind": "widget" } item), so the generated Item settings page, Item windows and every item
+// path work on it unchanged: item 0 of a widget entry is "the entry's own widget".
+struct WidgetWindowConfig {
+    static constexpr int kMinSize = 48;
+    static constexpr int kMaxSize = 4000;
+    int w = 200;  // DIPs, 48 - 4000
+    int h = 200;
+    WidgetBackground background = WidgetBackground::None;
+    bool operator==(const WidgetWindowConfig&) const = default;
 };
 
 // Every field is listed in Theme::Fields() (Theme.h), which drives reading, writing and the UI.
@@ -233,6 +253,19 @@ struct DockConfig {
     DockKind dockKind = DockKind::Dock;
     FolderWindowConfig folder;
     bool IsFolderWindow() const { return dockKind == DockKind::FolderWindow; }
+    // Round 6 phase 6B: a "widget" entry (a standalone widget, WidgetWindow): `widgetWindow`, the
+    // widget as items[0] (WidgetItem), x / y, monitor, locked, layer, color.
+    WidgetWindowConfig widgetWindow;
+    bool IsWidgetWindow() const { return dockKind == DockKind::Widget; }
+    // A real dock (not a folder window, not a standalone widget).
+    bool IsDock() const { return dockKind == DockKind::Dock; }
+    // A standalone widget entry's widget item (items[0]; null when it is not one or has none).
+    const DockItemEntry* WidgetItem() const {
+        return IsWidgetWindow() && !items.empty() && items.front().Kind() == ItemKind::Widget ? &items.front() : nullptr;
+    }
+    DockItemEntry* WidgetItem() {
+        return IsWidgetWindow() && !items.empty() && items.front().Kind() == ItemKind::Widget ? &items.front() : nullptr;
+    }
     // Defaults (first run, a malformed file, a dock object without "items"): the running apps and
     // the clock. The first run also seeds pins in front of them.
     std::vector<DockItemEntry> items = {DockItemEntry{L"running"}, DockItemEntry{L"clock"}};
@@ -446,6 +479,8 @@ const wchar_t* ToString(ItemView v);
 bool FromString(std::wstring_view s, ItemView& v);
 const wchar_t* ToString(FolderSort v);
 bool FromString(std::wstring_view s, FolderSort& v);
+const wchar_t* ToString(WidgetBackground v);
+bool FromString(std::wstring_view s, WidgetBackground& v);
 bool FromString(std::wstring_view s, WindowsMode& v);
 bool FromString(std::wstring_view s, TitlesMode& v);
 bool FromString(std::wstring_view s, TitlesVertical& v);

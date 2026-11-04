@@ -93,8 +93,14 @@ function drawArt(canvas, x, y, s, dock, bare) {
 const titleStyle = { size: 12.5, weight: 'semibold' };
 const artistStyle = { size: 11 };
 
+// The text column's width: the setting on a dock; standalone (a window of its own) the rest of the window.
+function textWidth(canvas) {
+  if (!dock.standalone) return settings.textWidth;
+  return Math.max(20, canvas.width - Math.min(canvas.width, canvas.height) - 14);
+}
+
 function overflow(canvas) {
-  return textShown() && m.session && canvas.measureText(m.title || '', titleStyle).width > settings.textWidth;
+  return textShown() && m.session && canvas.measureText(m.title || '', titleStyle).width > textWidth(canvas);
 }
 
 function updateMarquee(canvas) {
@@ -140,7 +146,7 @@ export function draw(canvas, dock) {
 }
 
 function drawText(canvas, dock, s) {
-  const tx = s + 8, w = settings.textWidth;
+  const tx = s + 8, w = textWidth(canvas);
   const ink = dock.theme.text, dim = dock.theme.dateText;
   if (!m.session) {
     canvas.text('Nothing playing', tx, canvas.height / 2, { size: 12, baseline: 'middle', color: dim });
@@ -194,7 +200,7 @@ function send(kind) {
 export function onClick(e) {
   if (!m.session || e.closedPopup) return;  // the press closed the popup: that is the click's job
   const s = Math.min(dock.height, vertical() ? dock.width : dock.height);
-  const w = textShown() ? s + 8 + settings.textWidth : s;
+  const w = dock.standalone ? dock.width : textShown() ? s + 8 + settings.textWidth : s;
   send(e.x < w / 3 ? 'previous' : e.x > (w * 2) / 3 ? 'next' : 'toggle');
 }
 

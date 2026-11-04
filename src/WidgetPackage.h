@@ -63,6 +63,21 @@ struct Issue {
     std::wstring Text() const;
 };
 
+// The manifest's `standalone` object (round 6 phase 6B): how the widget behaves in a window of its
+// own on the desktop (WidgetWindow). The window's client area is the widget's box.
+struct StandaloneHint {
+    enum class Aspect { Free, Keep, Ratio };
+    float minWidth = 48.0f;   // DIPs, 16 - 4000
+    float minHeight = 48.0f;
+    // "free" (default), "keep" (w : h stays what it was when the window was made) or a number
+    // (w / h is kept at it).
+    Aspect aspect = Aspect::Free;
+    float ratio = 0.0f;       // Ratio: w / h (> 0)
+    // What "Add to the desktop" creates (0: from the horizontal size hint, DefaultSize).
+    float defaultWidth = 0.0f;
+    float defaultHeight = 0.0f;
+};
+
 struct Manifest {
     std::wstring id;
     std::wstring name;
@@ -72,7 +87,12 @@ struct Manifest {
     std::wstring main = L"main.js";  // package-relative module path
     SizeHint horizontal{64.0f, 40.0f};
     SizeHint vertical{48.0f, 48.0f};
-    int refreshMs = 0;        // 0: no tick; else tick() every refreshMs, aligned to local time
+    StandaloneHint standalone;
+    // The size "Add to the desktop" gives a new standalone widget (DIPs): standalone.defaultWidth /
+    // defaultHeight, else 200 x 200 for a square-ish horizontal hint, else twice the horizontal
+    // hint; never below the minimum.
+    void DefaultStandaloneSize(int& w, int& h) const;
+    int refreshMs = 0;       // 0: no tick; else tick() every refreshMs, aligned to local time
     int timeLimitMs = 50;     // the watchdog: longest a single call into the script may run
     int memoryLimitMb = 32;   // the script heap
     bool watch = false;       // reload when a file of the folder changes (folder widgets)

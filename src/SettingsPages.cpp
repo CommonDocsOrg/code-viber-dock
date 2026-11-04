@@ -998,6 +998,10 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
                 pages.push_back(MakeFolderWindowPage(window));  // kTabFolderWindow
                 break;
             }
+            if (window.IsWidgetWindow()) {
+                pages.push_back(MakeWidgetWindowPage(window));  // kTabWidgetWindow (round 6 phase 6B)
+                break;
+            }
             pages.push_back(MakeContentsPage(window));                                                    // kTabContents
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Position));   // kTabPosition
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Behaviour));  // kTabBehaviour

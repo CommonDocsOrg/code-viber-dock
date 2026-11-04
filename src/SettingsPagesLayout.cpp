@@ -20,6 +20,7 @@
 #include "ContextMenu.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
+#include "WidgetPackage.h"
 
 namespace {
 
@@ -88,6 +89,7 @@ private:
         size_t cfg = 0;
         int monitor = -1;
         bool folder = false;  // a desktop folder window (its rect, moved freely)
+        bool widget = false;  // a standalone widget (round 6 phase 6B; its window's rect, moved freely)
         RECT bar{};     // screen
         RECT canvas{};  // canvas px (inflated to at least 4 px thick)
     };
@@ -199,6 +201,8 @@ protected:
         NextRow(kRowH + 4);
         // Round 6 phase 6A: a floating bar on the desktop layer (useful for folders and files).
         Button(kDockAddFloating, L"Add floating dock", kMargin, kButtonW + 28);
+        // Round 6 phase 6B: a widget by itself on the desktop (a menu of the installed widgets).
+        Button(kDockAddWidget, L"Add standalone widget…", kMargin + kButtonStep + 28, kButtonW + 40);
         NextRow(kRowH + 4);
         Text(kDocksNote, CtlKind::Note,
              L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
@@ -207,9 +211,10 @@ protected:
              L"bottom of the primary display with the running apps and the clock. A dock whose display is not "
              L"connected is parked until it is; \"Every display\" shows one copy on each. A folder window shows a "
              L"folder on the desktop, under your windows. A floating dock sits anywhere on its display (on the desktop "
-             L"until you choose another layer): drag it where you want it.",
-             kMargin, right - kMargin, 122);
-        NextRow(122);
+             L"until you choose another layer): drag it where you want it. A standalone widget is one widget in a "
+             L"window of its own on the desktop (under your windows unless you choose another layer).",
+             kMargin, right - kMargin, 150);
+        NextRow(150);
     }
 
     void Created() override {
@@ -302,6 +307,19 @@ protected:
             case kDockAddFolder:
                 if (Host().command) Host().command(ContextMenu::kNewFolderWindow);  // the picker, then a refresh
                 break;
+            case kDockAddWidget: {
+                // Round 6 phase 6B: which widget (a menu of the catalog under the button).
+                const std::wstring wid = PickWidget();
+                if (wid.empty()) return;
+                const size_t added = Host().addWidgetWindow ? Host().addWidgetWindow(wid, SIZE_MAX, true) : SIZE_MAX;
+                if (added == SIZE_MAX) {
+                    MessageBeep(MB_ICONWARNING);
+                    return;
+                }
+                if (added < c.docks.size()) Window().SelectDock(c.docks[added].id);
+                Window().Refresh();
+                break;
+            }
             case kDocksOpen:
                 OpenCfg(sel);
                 break;
@@ -317,6 +335,26 @@ protected:
     }
 
 private:
+    // "Add standalone widget…": the catalog's widgets in a menu under the button ("": cancelled).
+    std::wstring PickWidget() {
+        const std::vector<Widgets::CatalogEntry> catalog = Widgets::Catalog();
+        HWND button = Item(kDockAddWidget);
+        HMENU menu = CreatePopupMenu();
+        if (!button || !menu || catalog.empty()) {
+            if (menu) DestroyMenu(menu);
+            return {};
+        }
+        for (size_t k = 0; k < catalog.size() && k < 400; ++k) {
+            AppendMenuW(menu, MF_STRING, 1 + static_cast<UINT>(k), catalog[k].name.c_str());
+        }
+        RECT r{};
+        GetWindowRect(button, &r);
+        const UINT cmd = static_cast<UINT>(
+            TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, r.left, r.bottom, Owner(), nullptr));
+        DestroyMenu(menu);
+        return cmd >= 1 && cmd - 1 < catalog.size() ? catalog[cmd - 1].id : std::wstring();
+    }
+
     // A filled circle in the dock's colour (the list's dot) as an image list entry.
     void AddDot(COLORREF color) {
         HDC screen = GetDC(nullptr);
@@ -368,7 +406,8 @@ private:
         for (int i = 0; i < n; ++i) {
             const DockConfig& d = c.docks[static_cast<size_t>(i)];
             std::wstring id = d.id + (d.title.empty() ? L"" : L" (" + d.title + L")");
-            const std::wstring edge = d.IsFolderWindow() ? std::wstring(L"Folder window")
+            const std::wstring edge = d.IsFolderWindow()   ? std::wstring(L"Folder window")
+                                  : d.IsWidgetWindow() ? std::wstring(L"Standalone widget")
                                       : d.Floating()     ? L"Floating, faces " + std::wstring(SettingsEdgeName(d.edge))
                                                          : std::wstring(SettingsEdgeName(d.edge)) + (d.fullWidth ? L", full" : L"");
             const std::wstring display = SettingsDisplayName(d.monitor);
@@ -378,6 +417,10 @@ private:
                                               : L"Shown";
             if (d.locked && !d.IsFolderWindow()) state += L", locked";
             if (d.IsFolderWindow()) state += L": " + d.folder.path;
+            if (const DockItemEntry* w = d.WidgetItem()) {
+                state += L": " + Widgets::DisplayName(w->id) + L", " + std::to_wstring(d.widgetWindow.w) + L" × " +
+                         std::to_wstring(d.widgetWindow.h);
+            }
             LVITEMW item{};
             item.mask = LVIF_TEXT | LVIF_IMAGE;
             item.iItem = i;
@@ -403,9 +446,9 @@ private:
         }
         InvalidateRect(list, nullptr, TRUE);
         filling_ = false;
-        const bool folderSel = n > 0 && c.docks[static_cast<size_t>(sel)].IsFolderWindow();
+        const bool folderSel = n > 0 && !c.docks[static_cast<size_t>(sel)].IsDock();  // a folder window or a standalone widget
         SetText(kDocksOpen, folderSel ? L"Open window settings" : L"Open dock settings");
-        const auto plainDocks = std::count_if(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });
+        const auto plainDocks = std::count_if(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return d.IsDock(); });
         Enable(kDockRemove, n > 1 && (folderSel || plainDocks > 1));
         bool anyLocked = false, anyUnlocked = false;
         for (const DockConfig& d : c.docks) (d.locked ? anyLocked : anyUnlocked) = true;
@@ -448,6 +491,7 @@ void LayoutCanvas::Reload() {
             d.monitor = r.monitor;
             d.bar = r.bar;
             d.folder = r.folderWindow;
+            d.widget = r.widgetWindow;
             docks_.push_back(d);
         }
     }
@@ -532,9 +576,10 @@ LayoutCanvas::Target LayoutCanvas::TargetFor(POINT canvasPt) const {
     if (mons_.empty()) return t;
     const Mon& m = mons_[static_cast<size_t>(t.monitor)];
     const RECT& r = m.rc;
-    if (d.folder || dc.Floating()) {
-        // A folder window (and a floating dock, round 6 phase 6A: its bar's top-left) goes where it
-        // is dragged (kept on that monitor's work area); no snapping.
+    if (d.folder || d.widget || dc.Floating()) {
+        // A folder window (and a floating dock, round 6 phase 6A: its bar's top-left; a standalone
+        // widget, 6B: its window's) goes where it is dragged (kept on that monitor's work area); no
+        // snapping.
         const float s = static_cast<float>(m.dpi) / 96.0f;
         const LONG w = d.bar.right - d.bar.left, h = d.bar.bottom - d.bar.top;
         const LONG left = std::clamp(c.x - w / 2, m.work.left, std::max(m.work.left, m.work.right - w));
@@ -629,10 +674,11 @@ void LayoutCanvas::Drop(const Target& t) {
     if (!dc.Each() && !(dc.monitor == DockConfig::kMonitorPrimary && t.monitor == 0)) monitor = t.monitor;
     if (t.folder) {
         // A folder window or a floating dock ("each" stays on every monitor).
-        if (dc.x == t.xDip && dc.y == t.yDip && dc.monitor == (d.folder ? t.monitor : monitor)) return;
+        const bool own = d.folder || d.widget;  // a window of its own: the monitor it is dropped on
+        if (dc.x == t.xDip && dc.y == t.yDip && dc.monitor == (own ? t.monitor : monitor)) return;
         dc.x = t.xDip;
         dc.y = t.yDip;
-        dc.monitor = d.folder ? t.monitor : monitor;
+        dc.monitor = own ? t.monitor : monitor;
         page_.SelectCfg(d.cfg, false);
         page_.Apply();  // Sync re-places it (and saves)
         page_.Win().Refresh();
@@ -684,6 +730,12 @@ void LayoutCanvas::Publish() {
     } else if (const size_t selCfg = page_.SelectedCfg(); selCfg < c.docks.size() && c.docks[selCfg].IsFolderWindow()) {
         const DockConfig& d = c.docks[selCfg];
         line = L"Selected: the folder window " + d.id + L" (" + d.folder.path + L")";
+    } else if (const size_t wCfg = page_.SelectedCfg(); wCfg < c.docks.size() && c.docks[wCfg].IsWidgetWindow()) {
+        const DockConfig& d = c.docks[wCfg];
+        const DockItemEntry* w = d.WidgetItem();
+        auto coord = [](int v) { return v == DockConfig::kCentred ? std::wstring(L"centred") : std::to_wstring(v); };
+        line = L"Selected: the standalone widget " + d.id + L" (" + (w ? Widgets::DisplayName(w->id) : std::wstring()) + L" at " +
+               coord(d.x) + L", " + coord(d.y) + L", " + std::to_wstring(d.widgetWindow.w) + L" × " + std::to_wstring(d.widgetWindow.h) + L")";
     } else if (const size_t fl = page_.SelectedCfg(); fl < c.docks.size() && c.docks[fl].Floating()) {
         const DockConfig& d = c.docks[fl];
         auto coord = [](int v) { return v == DockConfig::kCentred ? std::wstring(L"centred") : std::to_wstring(v); };
@@ -756,6 +808,40 @@ void LayoutCanvas::Paint(HDC hdc) {
             InflateRect(&o, -1, -1);
             FrameRect(hdc, &o, ring);
             DeleteObject(ring);
+        }
+        if (d.widget) {
+            // A standalone widget (round 6 phase 6B): a small rounded box, labelled by its widget's name.
+            HBRUSH fill = CreateSolidBrush(mix(color, pal.layer, moving ? 20 : 45));
+            HPEN pen = CreatePen(PS_SOLID, 1, color);
+            HGDIOBJ ob = SelectObject(hdc, fill);
+            HGDIOBJ op = SelectObject(hdc, pen);
+            const int round = std::max(4, std::min<int>(r.right - r.left, r.bottom - r.top) / 3);
+            RoundRect(hdc, r.left, r.top, r.right, r.bottom, round, round);
+            SelectObject(hdc, ob);
+            SelectObject(hdc, op);
+            DeleteObject(pen);
+            DeleteObject(fill);
+            DeleteObject(f);
+            const DockConfig& wc = c.docks[d.cfg];
+            const DockItemEntry* w = wc.WidgetItem();
+            const std::wstring name = w ? Widgets::DisplayName(w->id) : wc.id;
+            SetTextColor(hdc, selected ? pal.text : pal.textSecondary);
+            SIZE sz{};
+            GetTextExtentPoint32W(hdc, name.c_str(), static_cast<int>(name.size()), &sz);
+            RECT tr{};
+            if (sz.cx <= r.right - r.left - 4 && sz.cy <= r.bottom - r.top - 2) {
+                tr = r;  // inside the box
+                DrawTextW(hdc, name.c_str(), -1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            } else if (selected) {
+                // Under it (kept inside the canvas); only the selected one's, so small boxes on a
+                // wide display do not bury each other in labels.
+                tr.left = std::clamp<LONG>((r.left + r.right - sz.cx) / 2, 2L, std::max(2L, client.right - 2 - sz.cx));
+                tr.top = std::clamp<LONG>(r.bottom + 2, 2L, std::max(2L, client.bottom - 2 - sz.cy));
+                tr.right = tr.left + sz.cx;
+                tr.bottom = tr.top + sz.cy;
+                DrawTextW(hdc, name.c_str(), -1, &tr, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
+            }
+            continue;
         }
         if (d.folder) {
             // A folder window: an outlined rectangle with a title strip and its name inside.

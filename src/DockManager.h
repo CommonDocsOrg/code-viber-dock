@@ -15,6 +15,7 @@
 #include "NotificationService.h"
 #include "TrayHost.h"
 #include "Weather.h"
+#include "WidgetWindow.h"
 #include "WindowTracker.h"
 
 // Owns every dock window and the services they share (one each per process): the window tracker,
@@ -44,7 +45,11 @@ public:
         // parked); `window` stays null. Automation addresses it by the same index.
         bool isFolder = false;
         std::unique_ptr<FolderWindow> folder;
-        bool Live() const { return window || folder; }
+        // Round 6 phase 6B: a docks[] entry of kind "widget" (a standalone widget): its window (null
+        // while parked); addressed by the same index.
+        bool isWidget = false;
+        std::unique_ptr<WidgetWindow> widget;
+        bool Live() const { return window || folder || widget; }
     };
 
     struct Callbacks {
@@ -58,6 +63,11 @@ public:
         std::function<void()> folderChanged;
         std::function<void(size_t cfg)> folderRemove;
         std::function<void()> folderNew;
+        // Standalone widgets (round 6 phase 6B): one was moved / resized (save, refresh Settings);
+        // its right-click menu (App runs it); its widget's settings (weather.openSettings()).
+        std::function<void()> widgetChanged;
+        std::function<void(size_t cfg, POINT screen)> widgetMenu;
+        std::function<void(size_t cfg)> widgetSettings;
     };
 
     DockManager() = default;
@@ -102,6 +112,13 @@ public:
     FolderWindow* FolderAt(size_t index) { return index < instances_.size() ? instances_[index].folder.get() : nullptr; }
     FolderWindow* FolderOf(size_t cfg);
     size_t FolderCount() const;
+    // --- standalone widgets (round 6 phase 6B) ---
+    WidgetWindow* WidgetAt(size_t index) { return index < instances_.size() ? instances_[index].widget.get() : nullptr; }
+    WidgetWindow* WidgetOf(size_t cfg);
+    WidgetWindow* WidgetByHwnd(HWND hwnd);
+    size_t WidgetCount() const;
+    // Config entry `cfg` (a widget entry) changed its widget or settings: its window follows.
+    void ApplyWidgetWindow(size_t cfg);
     // Explorer restarted (TaskbarCreated): the desktop windows go back above the new desktop.
     void OnExplorerRestarted();
     // --- desktop rules (12b) ---
@@ -163,12 +180,16 @@ public:
     // The centre popup opened / closed (it polls every second while open, and keeps the service
     // running even when nothing else needs it).
     void SetCentreOpen(bool open) override;
+    // Round 6 phase 6B: every floating thing's rect (the shown floating docks' rest bars and the
+    // shown standalone widgets' windows) but `self`'s; DockWindow and WidgetWindow snap to them.
     std::vector<RECT> FloatingNeighbours(const DockWindow* self) override;
+    std::vector<RECT> FloatingRects(const void* self) const;
     bool DashboardOn() const override { return dashboard_; }
     void EndDashboard() override { SetDashboard(false); }
 
     // --- the dashboard (round 6 phase 6A) ---
-    // On: every dock with layer "desktop" or "behind" is shown, revealed and topmost (its popups
+    // On: every dock and standalone widget (6B) with layer "desktop" or "behind" is shown, revealed
+    // and topmost (a dock's popups
     // work as usual); the first of them takes the foreground (the hotkey's input allows it), so
     // Escape reaches it and a click on any other window is a foreground change. Off again by the
     // hotkey (App), Escape in one of its docks (EndDashboard) or another app's window taking the
@@ -196,9 +217,13 @@ public:
 private:
     HRESULT CreateWindowFor(Instance& inst);
     HRESULT CreateFolderFor(Instance& inst);
-    // The folder windows' shared device: made with the first folder window, released after the last.
-    bool EnsureFolderRenderer();
-    void RecoverFolderDevice();
+    HRESULT CreateWidgetFor(Instance& inst);
+    // The desktop windows' shared device (the folder windows' and, since round 6 phase 6B, the
+    // standalone widgets'): made with the first such window, released after the last.
+    bool EnsureDesktopRenderer();
+    void RecoverDesktopDevice();
+    // The foreground watch is wanted by a standalone widget on the "desktop" layer.
+    bool WidgetsWatching() const;
     static constexpr UINT kFolderDeviceLost = WM_APP + 52;  // posted to the owner window
     static constexpr UINT kDesktopChange = WM_APP + 53;     // SHChangeNotify on the Desktop (rules)
     static constexpr UINT kRulesJobDone = WM_APP + 54;      // a rules move finished
@@ -223,7 +248,8 @@ private:
     std::vector<Instance> instances_;
     std::vector<std::unique_ptr<DockWindow>> graveyard_;  // closed windows, freed by Reap
     std::vector<std::unique_ptr<FolderWindow>> folderGraveyard_;
-    Renderer folderRenderer_;   // every folder window's composition device (on the owner window)
+    std::vector<std::unique_ptr<WidgetWindow>> widgetGraveyard_;
+    Renderer folderRenderer_;   // every desktop window's composition device (folder windows, standalone widgets)
     bool folderRendererReady_ = false;
     bool folderRecoveryPosted_ = false;
     ULONG desktopNotify_ = 0;   // the Desktop watch (rules with autoSort)

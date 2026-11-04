@@ -130,6 +130,7 @@ std::unique_ptr<SettingsPage> MakeNotificationsPage(SettingsWindow& window);   /
 std::unique_ptr<SettingsPage> MakeItemSettingsPage(SettingsWindow& window);    // SettingsPagesItems.cpp ("Folders and groups")
 std::unique_ptr<SettingsPage> MakeCalendarPage(SettingsWindow& window);        // SettingsPagesCalendar.cpp
 std::unique_ptr<SettingsPage> MakeFolderWindowPage(SettingsWindow& window);    // SettingsPagesFolderWindow.cpp
+std::unique_ptr<SettingsPage> MakeWidgetWindowPage(SettingsWindow& window);    // SettingsPagesWidgetWindow.cpp (round 6 phase 6B)
 
 // One line about a clock / weather item (the Contents tab's details, the generated page's item list;
 // SettingsPagesWidgets.cpp): "%H:%M, date, Tokyo Standard Time, “Tokyo”" / "Seattle, °C".

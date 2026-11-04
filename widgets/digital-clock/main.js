@@ -88,8 +88,18 @@ export function measure(canvas, dock) {
 
 export function draw(canvas, dock) {
   const t = lines(dock);
-  const style = timeStyle();
+  let style = timeStyle(), date = dateStyle, top = 0;
+  if (dock.standalone) {
+    // A window of its own (round 6 phase 6B): the lines grow to fill it, centred.
+    const a0 = canvas.measureText(t.time, style);
+    const b0 = t.date ? canvas.measureText(t.date, date) : { width: 0, height: 0 };
+    const k = Math.max(0.5, Math.min((canvas.width * 0.92) / Math.max(1, a0.width, b0.width),
+                                     (canvas.height * 0.9) / Math.max(1, a0.height + b0.height)));
+    style = { ...style, size: style.size * k };
+    date = { ...date, size: date.size * k };
+    top = (canvas.height - (a0.height + b0.height) * k) / 2;
+  }
   const a = canvas.measureText(t.time, style);
-  canvas.text(t.time, canvas.width / 2, 0, { ...style, color: dock.theme.text });
-  if (t.date) canvas.text(t.date, canvas.width / 2, a.height, { ...dateStyle, color: dock.theme.dateText });
+  canvas.text(t.time, canvas.width / 2, top, { ...style, color: dock.theme.text });
+  if (t.date) canvas.text(t.date, canvas.width / 2, top + a.height, { ...date, color: dock.theme.dateText });
 }

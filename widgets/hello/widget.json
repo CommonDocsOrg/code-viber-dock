@@ -8,6 +8,7 @@
     "horizontal": { "main": 64, "cross": 40 },
     "vertical": { "main": 44, "cross": 48 }
   },
+  "standalone": { "minWidth": 64, "minHeight": 40, "defaultWidth": 160, "defaultHeight": 100 },
   "settings": [
     { "key": "label", "type": "string", "label": "Label", "default": "Hello" }
   ]

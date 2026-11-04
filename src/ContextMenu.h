@@ -129,6 +129,11 @@ enum Command : UINT {
     kFolderPaste = 853,         // Ctrl+V: the clipboard's files into the folder
     // Round 5 phase B: "Settings…" of a widget / clock / weather / folder / group slot (its Item window).
     kOpenItemSettings = 854,
+    // Round 6 phase 6B: a standalone widget entry (lParam: its dock index in the high word; also its
+    // right-click menu's ids, with 854 Widget settings…, 809 Reload widget, 143 Window settings… and
+    // 107 Global settings…).
+    kWidgetToggleLock = 855,    // Lock / Unlock (docks[].locked: no move, no resize)
+    kWidgetRemove = 856,        // Remove from desktop (the entry goes; posted)
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

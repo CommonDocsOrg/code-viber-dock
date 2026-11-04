@@ -251,6 +251,7 @@ struct StripTile {
     wchar_t letter = L'?';
     bool disabled = false;  // drawer: a single-instance kind already on the dock
     bool header = false;    // drawer: a group header ("Built in")
+    bool desktop = false;   // drawer: a script widget's row also offers "Desktop" (round 6 phase 6B: Add to the desktop)
     int ref = -1;           // strip: the item index; drawer: the entry index
 };
 
@@ -290,6 +291,7 @@ public:
         tiles_ = std::move(tiles);
         hot_ = -1;
         hotAdd_ = false;
+        hotDesk_ = false;
         Layout();
         sel_ = -1;
         Select(select, false, true);
@@ -349,6 +351,18 @@ public:
         }
         return false;
     }
+    // The centre of the drawer row's "Desktop" button for entry `ref` (screen px; round 6 phase 6B).
+    bool DesktopCentreOf(int ref, POINT& screen) const {
+        if (!hwnd_ || !IsWindowVisible(hwnd_) || mode_ != Mode::Drawer) return false;
+        for (size_t i = 0; i < tiles_.size(); ++i) {
+            if (tiles_[i].header || tiles_[i].ref != ref || !tiles_[i].desktop) continue;
+            const RECT r = DesktopRect(TileRect(i));
+            screen = POINT{(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+            ClientToScreen(hwnd_, &screen);
+            return true;
+        }
+        return false;
+    }
     // The insertion slot the marker shows (-1: no drag over the strip).
     int Marker() const { return (dragging_ || external_) ? slot_ : -1; }
 
@@ -383,11 +397,12 @@ public:
     std::function<void(int from, int slot)> onMove;   // strip: move item `from` before slot `slot`
     std::function<void(int ref)> onDelete;            // strip: Delete
     std::function<void(int ref, int slot)> onDropEntry;  // drawer: entry `ref` dropped on the strip at `slot`
+    std::function<void(int ref)> onDesktop;            // drawer: a row's "Desktop" (Add to the desktop, round 6 phase 6B)
 
 private:
     // DIPs
     static constexpr int kTileW = 84, kSepW = 28, kRunningW = 150, kTileH = 84, kIcon = 44, kGap = 2, kPad = 10;
-    static constexpr int kRowH = 48, kHeaderH = 26, kRowGap = 6, kAddW = 48;
+    static constexpr int kRowH = 48, kHeaderH = 26, kRowGap = 6, kAddW = 48, kDeskW = 62;
 
     int Px(int dip) const { return window_.Px(dip); }
     void Repaint() const {
@@ -504,6 +519,11 @@ private:
         const int cy = (row.top + row.bottom) / 2;
         return RECT{row.right - Px(10) - Px(kAddW), cy - Px(13), row.right - Px(10), cy + Px(13)};
     }
+    // The "Desktop" button left of Add (a script widget's row).
+    RECT DesktopRect(const RECT& row) const {
+        const RECT add = AddRect(row);
+        return RECT{add.left - Px(6) - Px(kDeskW), add.top, add.left - Px(6), add.bottom};
+    }
 
     // While dragging near an end of the strip, it scrolls (one step per mouse move).
     void AutoScroll(int x) {
@@ -519,6 +539,7 @@ private:
         dragging_ = false;
         pressed_ = -1;
         pressAdd_ = false;
+        pressDesk_ = false;
         external_ = false;
         slot_ = -1;
         if (hwnd_ && GetCapture() == hwnd_) {
@@ -660,7 +681,7 @@ private:
     }
 
     // A drawer row (or group header) in `r`.
-    void PaintRow(HDC dc, const StripTile& t, const RECT& r, bool focused, bool hot, bool addHot, const Colors& c) const {
+    void PaintRow(HDC dc, const StripTile& t, const RECT& r, bool focused, bool hot, bool addHot, bool deskHot, const Colors& c) const {
         SetBkMode(dc, TRANSPARENT);
         if (t.header) {
             Text(dc, t.name, RECT{r.left + Px(2), r.top + Px(6), r.right, r.bottom}, SmallBold(), c.secondary,
@@ -676,8 +697,15 @@ private:
         const RECT add = AddRect(r);
         Round(dc, add, Mix(c.text, c.layer, live && addHot ? 20 : 11), Mix(c.text, c.layer, live ? 30 : 16), Px(4) * 2);
         Text(dc, L"Add", add, Small(), live ? c.text : c.disabled, DT_CENTER | DT_VCENTER);
+        int buttonsL = add.left;
+        if (t.desktop) {
+            const RECT desk = DesktopRect(r);
+            Round(dc, desk, Mix(c.text, c.layer, live && deskHot ? 20 : 11), Mix(c.text, c.layer, live ? 30 : 16), Px(4) * 2);
+            Text(dc, L"Desktop", desk, Small(), live ? c.text : c.disabled, DT_CENTER | DT_VCENTER);
+            buttonsL = desk.left;
+        }
         const int textL = r.left + Px(50);
-        int nameR = add.left - Px(8);
+        int nameR = buttonsL - Px(8);
         if (!t.version.empty()) {
             const int vw = TextWidth(dc, t.version, Small());
             Text(dc, t.version, RECT{nameR - vw, r.top + Px(6), nameR, r.top + Px(25)}, Small(), live ? c.secondary : c.disabled,
@@ -686,7 +714,7 @@ private:
         }
         Text(dc, t.name, RECT{textL, r.top + Px(6), nameR, r.top + Px(25)}, Bold(), live ? c.text : c.disabled,
              DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-        Text(dc, t.note, RECT{textL, r.top + Px(25), add.left - Px(8), r.bottom - Px(5)}, Small(), live ? c.secondary : c.disabled,
+        Text(dc, t.note, RECT{textL, r.top + Px(25), buttonsL - Px(8), r.bottom - Px(5)}, Small(), live ? c.secondary : c.disabled,
              DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         if (focused) {
             RECT f = r;
@@ -774,7 +802,7 @@ private:
             const RECT r = TileRect(i);
             if (r.bottom < 0 || r.top > client.cy) continue;
             const bool isHot = static_cast<int>(i) == hot_;
-            PaintRow(dc, tiles_[i], r, focus && cues && static_cast<int>(i) == sel_, isHot, isHot && hotAdd_, c);
+            PaintRow(dc, tiles_[i], r, focus && cues && static_cast<int>(i) == sel_, isHot, isHot && hotAdd_, isHot && hotDesk_, c);
         }
     }
 
@@ -964,6 +992,15 @@ private:
                 const RECT r = TileRect(static_cast<size_t>(hit));
                 if (mode_ == Mode::Drawer) {
                     const RECT add = AddRect(r);
+                    const RECT desk = DesktopRect(r);
+                    if (tiles_[static_cast<size_t>(hit)].desktop && PtInRect(&desk, pt)) {
+                        pressDesk_ = true;
+                        hotDesk_ = true;
+                        pressed_ = hit;
+                        SetCapture(hwnd_);
+                        Repaint();
+                        return 0;
+                    }
                     if (PtInRect(&add, pt)) {
                         if (tiles_[static_cast<size_t>(hit)].disabled) {
                             MessageBeep(MB_ICONWARNING);
@@ -994,6 +1031,15 @@ private:
             case WM_MOUSEMOVE: {
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 if (pressed_ >= 0 && GetCapture() == hwnd_) {
+                    if (pressDesk_) {
+                        const RECT desk = DesktopRect(TileRect(static_cast<size_t>(pressed_)));
+                        const bool in = PtInRect(&desk, pt) != FALSE;
+                        if (in != hotDesk_) {
+                            hotDesk_ = in;
+                            Repaint();
+                        }
+                        return 0;
+                    }
                     if (pressAdd_) {
                         const RECT add = AddRect(TileRect(static_cast<size_t>(pressed_)));
                         const bool in = PtInRect(&add, pt) != FALSE;
@@ -1031,23 +1077,27 @@ private:
                 // Hover
                 TrackLeave();
                 const int hit = HitTile(pt);
-                bool add = false;
+                bool add = false, desk = false;
                 if (mode_ == Mode::Drawer && hit >= 0) {
                     const RECT a = AddRect(TileRect(static_cast<size_t>(hit)));
                     add = PtInRect(&a, pt) != FALSE;
+                    const RECT d = DesktopRect(TileRect(static_cast<size_t>(hit)));
+                    desk = tiles_[static_cast<size_t>(hit)].desktop && PtInRect(&d, pt) != FALSE;
                 }
-                if (hit != hot_ || add != hotAdd_) {
+                if (hit != hot_ || add != hotAdd_ || desk != hotDesk_) {
                     hot_ = hit;
                     hotAdd_ = add;
+                    hotDesk_ = desk;
                     Repaint();
                 }
                 return 0;
             }
             case WM_MOUSELEAVE:
                 tracking_ = false;
-                if (hot_ >= 0 || hotAdd_) {
+                if (hot_ >= 0 || hotAdd_ || hotDesk_) {
                     hot_ = -1;
                     hotAdd_ = false;
+                    hotDesk_ = false;
                     Repaint();
                 }
                 return 0;
@@ -1055,19 +1105,25 @@ private:
                 if (pressed_ < 0) return 0;
                 const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
                 const int from = pressed_;
-                const bool drag = dragging_, addPress = pressAdd_;
+                const bool drag = dragging_, addPress = pressAdd_, deskPress = pressDesk_;
                 const int ref = from < static_cast<int>(tiles_.size()) ? tiles_[static_cast<size_t>(from)].ref : -1;
                 int slot = -1;
                 if (drag && mode_ == Mode::Strip) slot = SlotAt(pt.x);
                 if (drag && mode_ == Mode::Drawer && peer_) slot = peer_->ExternalDrop();
-                bool addHit = false;
+                bool addHit = false, deskHit = false;
                 if (addPress) {
                     const RECT add = AddRect(TileRect(static_cast<size_t>(from)));
                     addHit = PtInRect(&add, pt) != FALSE;
                 }
+                if (deskPress) {
+                    const RECT desk = DesktopRect(TileRect(static_cast<size_t>(from)));
+                    deskHit = PtInRect(&desk, pt) != FALSE;
+                }
                 dragging_ = false;
                 pressed_ = -1;
                 pressAdd_ = false;
+                pressDesk_ = false;
+                hotDesk_ = deskHit;
                 slot_ = -1;
                 hotAdd_ = addHit;
                 if (GetCapture() == hwnd_) {
@@ -1077,7 +1133,9 @@ private:
                 }
                 Repaint();
                 // Callbacks last: they rebuild the tiles.
-                if (addPress && addHit && onActivate) {
+                if (deskPress && deskHit && onDesktop) {
+                    onDesktop(ref);
+                } else if (addPress && addHit && onActivate) {
                     onActivate(ref);
                 } else if (drag && mode_ == Mode::Strip && onMove) {
                     onMove(from, slot);
@@ -1112,10 +1170,12 @@ private:
     int sel_ = -1;
     int hot_ = -1;
     bool hotAdd_ = false;
+    bool hotDesk_ = false;
     bool tracking_ = false;
     // Pressing / dragging
     int pressed_ = -1;
     bool pressAdd_ = false;
+    bool pressDesk_ = false;
     POINT pressPt_{};
     POINT grab_{};    // the pointer within the tile at the press
     POINT dragPt_{};  // the pointer now (client)
@@ -1222,6 +1282,7 @@ protected:
         strip_.onDelete = [this](int item) { RemoveItem(item); };
         drawer_.onActivate = [this](int entry) { AddEntry(entry); };
         drawer_.onDropEntry = [this](int entry, int slot) { InsertEntry(entry, slot); };
+        drawer_.onDesktop = [this](int entry) { AddToDesktop(entry); };
         if (HWND search = Item(kDrawerSearch)) SendMessageW(search, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Search widgets"));
         ApplyDrawer();
     }
@@ -1290,6 +1351,11 @@ protected:
                 return true;
             case 233:  // the strip's insertion marker (the slot a drop lands in; -1 none)
                 out = strip_.Marker();
+                return true;
+            case 252:  // round 6 phase 6B: the "Desktop" button's centre of drawer entry `arg` (a script widget)
+                out = g_drawerOpen && drawer_.DesktopCentreOf(static_cast<int>(arg), pt)
+                          ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(pt.x), static_cast<WORD>(pt.y)))
+                          : -1;
                 return true;
             default:
                 return false;
@@ -1435,6 +1501,7 @@ private:
         t.note = t.disabled ? L"Already on the dock" : e.note;
         t.tint = TintOf(e.kind, e.id);
         t.letter = LetterOf(e.kind, e.name);
+        t.desktop = e.kind == ItemKind::Widget;  // round 6 phase 6B: Add to the desktop
         switch (e.kind) {
             case ItemKind::Running: t.shape = StripTile::Shape::Running; break;
             case ItemKind::Separator: t.shape = StripTile::Shape::Separator; break;
@@ -1726,6 +1793,14 @@ private:
         Changed(SettingsScope::Pins);  // also starts the weather service for a weather item
         FillStrip(static_cast<int>(at));
         FillDrawer();
+    }
+
+    // A script widget's "Desktop" (round 6 phase 6B): a standalone widget of it on this dock's
+    // display (its default size, under the windows), whose own window opens.
+    void AddToDesktop(int entry) {
+        if (entry < 0 || entry >= static_cast<int>(entries_.size()) || entries_[static_cast<size_t>(entry)].kind != ItemKind::Widget) return;
+        const std::wstring id = entries_[static_cast<size_t>(entry)].id;
+        if (!Host().addWidgetWindow || Host().addWidgetWindow(id, DockIndex(), true) == SIZE_MAX) MessageBeep(MB_ICONWARNING);
     }
 
     // A drawer row dropped on the strip at `slot`.

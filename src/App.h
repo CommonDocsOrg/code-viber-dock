@@ -225,9 +225,20 @@ private:
     // Appends a folder window for `path` with its top-left at screen point `at` (on that monitor),
     // syncs and saves. Returns its automation index (SIZE_MAX: refused).
     size_t AddFolderWindow(const std::wstring& path, POINT at);
-    // Removes config entry `cfg` when it is a folder window (posted from its own menu).
-    void RemoveFolderWindow(size_t cfg);
+    // Removes config entry `cfg` when it is a folder window or (round 6 phase 6B) a standalone
+    // widget (posted from its own menu / ItemCommand 856).
+    void RemoveDesktopEntry(size_t cfg);
     static constexpr UINT kRemoveFolderMessage = WM_APP + 7;  // posted: wParam = config index
+    // --- standalone widgets (round 6 phase 6B) ---
+    // Appends a "widget" entry of widget `id`: the manifest's default size, layer "behind",
+    // centred on the work area of config dock `nearDock`'s monitor (SIZE_MAX / none: the primary
+    // display); syncs, saves, refreshes the settings windows and (open) opens its Dock window.
+    // Returns its config index (SIZE_MAX: refused).
+    size_t AddWidgetWindow(const std::wstring& id, size_t nearDock, bool open);
+    // The right-click menu of standalone widget entry `cfg` at a screen point.
+    void ShowWidgetMenu(size_t cfg, POINT pt);
+    // ItemCommand 809 / 854 / 855 / 856 on standalone widget entry `cfg`. -1: not one of them.
+    LRESULT WidgetEntryCommand(UINT cmd, size_t cfg);
     // After the config changed outside the settings windows: SyncSettingsTargets, then every open
     // window (but `except`) reloads its controls from the config.
     void RefreshSettings(SettingsWindow* except = nullptr);

@@ -48,6 +48,7 @@ add_executable(WinDock WIN32
   src/PreviewPopup.cpp
   src/FolderPopup.cpp
   src/FolderWindow.cpp
+  src/WidgetWindow.cpp
   src/ShellFiles.cpp
   src/ItemGridView.cpp
   src/InputDialog.cpp
@@ -100,6 +101,7 @@ add_executable(WinDock WIN32
   src/CalendarService.cpp
   src/SettingsPagesCalendar.cpp
   src/SettingsPagesFolderWindow.cpp
+  src/SettingsPagesWidgetWindow.cpp
   src/ReminderBanner.cpp
   res/app.rc
   res/app.manifest

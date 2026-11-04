@@ -8,6 +8,7 @@
     "horizontal": { "main": 170, "cross": 48 },
     "vertical": { "main": 48, "cross": 48 }
   },
+  "standalone": { "minWidth": 96, "minHeight": 48, "defaultWidth": 340, "defaultHeight": 96 },
   "permissions": ["media", "audio"],
   "settings": [
     { "key": "showText", "type": "bool", "label": "Show the title and artist beside the art", "default": true,

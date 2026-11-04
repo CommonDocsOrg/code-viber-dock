@@ -1241,6 +1241,7 @@ JSValue DockGet(JSContext* ctx, JSValueConst, int magic) {
         case 13: return NewString(ctx, d.widgetId);
         case 14: return JS_NewBool(ctx, d.visible);
         case 15: return JS_NewBool(ctx, d.clockDate);
+        case 16: return JS_NewBool(ctx, d.standalone);
         default: return JS_UNDEFINED;
     }
 }
@@ -1463,6 +1464,7 @@ const JSCFunctionListEntry kDockFuncs[] = {
     JS_CGETSET_MAGIC_DEF("widgetId", GuardGet<DockGet>, nullptr, 13),
     JS_CGETSET_MAGIC_DEF("visible", GuardGet<DockGet>, nullptr, 14),
     JS_CGETSET_MAGIC_DEF("clockDate", GuardGet<DockGet>, nullptr, 15),
+    JS_CGETSET_MAGIC_DEF("standalone", GuardGet<DockGet>, nullptr, 16),
     JS_CFUNC_DEF("requestRedraw", 0, Guard<RequestRedrawFn>),
 };
 

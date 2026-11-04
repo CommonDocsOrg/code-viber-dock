@@ -138,10 +138,11 @@ export function draw(canvas, dock) {
     if (e) canvas.fillRoundRect(w / 2 - 10, 6, 20, 3, 1.5, e.color);
     canvas.text(when, w / 2, h / 2 + 2, { size: 11, align: 'center', baseline: 'middle', maxWidth: w - 4, color: e && when === 'Now' ? dock.theme.accent : dock.theme.text });
   } else {
-    const x = e ? 12 : 6;
-    if (e) canvas.fillRoundRect(4, 7, 3, h - 14, 1.5, e.color);
-    const small = { size: 11, color: when === 'Now' ? dock.theme.accent : dock.theme.dateText };
-    const big = { size: 13, weight: 'semibold', color: dock.theme.text };
+    const k = dock.standalone ? Math.max(1, Math.min(2.5, h / 44)) : 1;  // a window of its own: larger
+    const x = (e ? 12 : 6) * k;
+    if (e) canvas.fillRoundRect(4 * k, 7 * k, 3 * k, h - 14 * k, 1.5 * k, e.color);
+    const small = { size: 11 * k, color: when === 'Now' ? dock.theme.accent : dock.theme.dateText };
+    const big = { size: 13 * k, weight: 'semibold', color: dock.theme.text };
     if (e) {
       canvas.text(fit(canvas, when, w - x - 4, small), x, h / 2 - 1, { ...small, baseline: 'bottom' });
       canvas.text(fit(canvas, title, w - x - 4, big), x, h / 2 + 1, { ...big, baseline: 'top' });

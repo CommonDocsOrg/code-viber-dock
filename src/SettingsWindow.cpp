@@ -323,6 +323,11 @@ bool SettingsWindow::IsFolderWindow() const {
     return kind_ == SettingsKind::Dock && i != SIZE_MAX && host_.config->docks[i].IsFolderWindow();
 }
 
+bool SettingsWindow::IsWidgetWindow() const {
+    const size_t i = DockIndex();
+    return kind_ == SettingsKind::Dock && i != SIZE_MAX && host_.config->docks[i].IsWidgetWindow();
+}
+
 void SettingsWindow::SelectDock(const std::wstring& id) {
     if (kind_ != SettingsKind::Global || id == dockId_) return;
     dockId_ = id;
@@ -363,7 +368,7 @@ SIZE SettingsWindow::ClientDip() const {
 bool SettingsWindow::PreviewOn(int index) const {
     switch (kind_) {
         case SettingsKind::Global: return index == SettingsIds::kPageThemes || index == SettingsIds::kPageAnimation;
-        case SettingsKind::Dock: return !IsFolderWindow() && index != SettingsIds::kTabContents;
+        case SettingsKind::Dock: return !IsFolderWindow() && !IsWidgetWindow() && index != SettingsIds::kTabContents;
         case SettingsKind::Item:
         default: return false;
     }
@@ -530,7 +535,7 @@ bool SettingsWindow::Create(HINSTANCE instance) {
             return false;
         }
     }
-    if (kind_ == SettingsKind::Global || (kind_ == SettingsKind::Dock && !IsFolderWindow())) {
+    if (kind_ == SettingsKind::Global || (kind_ == SettingsKind::Dock && !IsFolderWindow() && !IsWidgetWindow())) {
         preview_ = std::make_unique<SettingsPreview>();
         if (preview_->Create(instance, hwnd_, SettingsIds::kPreview, host_.config, dpi_)) {
             // Global: the global theme on the first dock's items (round 5 phase D: not the Docks
@@ -539,7 +544,7 @@ bool SettingsWindow::Create(HINSTANCE instance) {
                 [this]() -> const DockConfig* {
                     if (kind_ == SettingsKind::Global) {
                         for (const DockConfig& d : host_.config->docks) {
-                            if (!d.IsFolderWindow()) return &d;
+                            if (d.IsDock()) return &d;
                         }
                         return nullptr;
                     }

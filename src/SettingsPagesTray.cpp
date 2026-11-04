@@ -77,7 +77,7 @@ private:
         size_t from = SIZE_MAX, alone = SIZE_MAX, firstPlain = SIZE_MAX;
         for (size_t i = 0; i < docks.size(); ++i) {
             const DockConfig& d = docks[i];
-            if (d.IsFolderWindow()) continue;
+            if (!d.IsDock()) continue;
             if (firstPlain == SIZE_MAX) firstPlain = i;
             if (!d.Has(ItemKind::Tray)) continue;
             if (d.items.size() == 1) {

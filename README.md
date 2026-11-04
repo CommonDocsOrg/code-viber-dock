@@ -477,6 +477,10 @@ popups, drags). The first of them takes the keyboard (the hotkey's input allows 
   which **keeps the dashboard up** (the docks are on the desktop anyway); WinDock's own windows
   (a settings window, a dock menu) keep it up too.
 
+Round 6 phase 6B: [standalone widgets](#standalone-widgets) with layer `"desktop"` or `"behind"`
+are lifted the same way (after the docks; with no such dock the first of them takes the keyboard,
+and Escape there ends the mode).
+
 Leaving it gives the foreground back to the window that had it (when one of the docks still has it)
 and puts each dock back under its layer's rules: a `"desktop"` dock hides again unless the desktop
 is the foreground, a `"behind"` dock goes back under the windows, auto-hide applies again. Normal
@@ -1216,6 +1220,57 @@ settings > Docks and displays (**Add folder window…**); each is a `docks[]` en
   restarts (`TaskbarCreated`). It is not in Alt+Tab or on the taskbar, and Alt+F4 does not close
   it (Remove this folder window does).
 
+### Standalone widgets
+
+Round 6 phase 6B: a script widget can live **on the desktop by itself**, in a window of its own,
+not attached to any dock: an analog clock or the weather alone, moved and resized freely. Each one
+is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
+
+- **Add one**: the widget drawer's **Desktop** button on a script widget's row (Dock settings >
+  Contents: it opens on that dock's display), Global settings > Widget library > **Add to the
+  desktop**, or Global settings > Docks and displays > **Add standalone widget…** (a menu of the
+  installed widgets). It gets the manifest's default size (`standalone.defaultWidth` /
+  `defaultHeight`; else 200 x 200, or twice the dock size hint of a wide widget), the layer
+  "behind" and the centre of the display; its own settings window opens.
+- **The window is the widget's box**: the script sees `dock.standalone === true`, `dock.width` /
+  `dock.height` = the window's size in DIPs and `dock.iconSize` = the shorter side / 1.5, so
+  widgets that draw from their canvas or the icon size fill it (docs/widgets.md "Standalone
+  widgets"). Background `"none"` (default) draws nothing under the widget (it is over the
+  wallpaper); `"panel"` draws the theme's bar background (its acrylic when the theme has it, the
+  theme's corner radius and the bar hairline).
+- **Mouse**: clicks, middle clicks, the wheel, hovering and file drops go to the widget. A left
+  **drag** (past the system drag distance) **moves** the window; a press and release without moving
+  is the widget's click. The 8 DIP band along the edges and corners **resizes** it (the cursor
+  shows it), redrawn live; the manifest's `standalone.minWidth` / `minHeight` / `aspect` apply
+  (`"keep"`: the shape it had when it was made or last sized in Settings; a number: width / height).
+  Moves and resizes snap within 8 DIP to the work area's edges, to floating docks and to the other
+  standalone widgets (floating docks snap to standalone widgets too); `x` / `y` / `w` / `h` are
+  saved on release. **Locked** (`locked`): neither moved nor resized (clicks still reach the
+  widget).
+- **Right click**: "<widget> settings…" (its own widget settings: the generated Item page),
+  **Window settings…** (its Dock window), **Lock** / **Unlock**, **Reload widget**, **Remove from
+  desktop**, **Global settings…**.
+- **Layers** (`layer`): `"behind"` (default: always shown, on the desktop under every window, like
+  folder windows; with background "panel" and acrylic its blur window stays beneath it),
+  `"desktop"` (shown only while the desktop is in front: Win+D or a click on the wallpaper; the
+  shared foreground watch re-checks it, as for desktop docks) or `"normal"` (above every window,
+  topmost). The [dashboard](#dashboard) hotkey brings the `"desktop"` and `"behind"` ones to the
+  front with the docks of those layers (the first window of them takes the keyboard: Escape there
+  ends it); they go back when it ends. After an Explorer restart they are placed again.
+- **Popups**: a widget's popup opens above its window (below it when there is no room above);
+  `popup.previews` does nothing for a standalone widget (it has no app windows); the notification
+  centre opened from one has no app icons in its rows.
+- **Cost**: a still standalone widget costs nothing (no timer; the widget's own refresh only). The
+  windows share the folder windows' graphics device ("the desktop windows' device", made with the
+  first such window and released after the last).
+- **Settings**: its own window (Global settings > Docks and displays: **Open window settings**,
+  WinDock.DockCommand 143, or its menu's Window settings…) has a header (its display, layer, size,
+  Locked; **Flash this widget**, **Lock widget**) and one page, **Standalone widget**: the widget
+  (name, **Open widget settings**: its generated Item page), display, position x / y (empty:
+  centred), width / height (with the widget's minimum and aspect), layer (with a note), background,
+  **Locked**, **Flash this widget**. Its widget's settings are an Item window like a dock widget's
+  (item 0 of the entry).
+
 ## Settings
 
 Settings live in three kinds of window (round 5), each a normal top-level window (Alt+Tab,
@@ -1288,7 +1343,8 @@ closes the window, Enter applies the text in an edit box.
   interval, Windows' access status, badges per app (every dock's apps; see Notifications and
   badges). A dock's badges and its notification centre are on its window's Behaviour tab.
 - **Widget library**: the installed script widgets (name, id, built-in / folder, version) with
-  **Add to dock** (with several docks a small menu asks which), **Add from folder…**, **Export
+  **Add to dock** (with several docks a small menu asks which), **Add to the desktop** (round 6
+  phase 6B: a [standalone widget](#standalone-widgets) of the selected one), **Add from folder…**, **Export
   built-in to folder**, **Reload widgets**, **Open widgets folder** and **Console…** (see
   **Widgets** above).
 - **Docks and displays**: a drawing of every display (its work area shaded) with every dock on its
@@ -1298,9 +1354,11 @@ closes the window, Enter applies the text in an edit box.
   open its own window; drag it along its edge (it snaps to the centre and the ends), onto another
   edge or onto another display: it moves when you let go. Buttons: **Add dock**, **Duplicate**,
   **Remove**, **Add folder window…**, **Open dock settings** (**Open window settings** for a folder
-  window), **Lock all docks**, **Unlock all docks**, **Add floating dock** (round 6 phase 6A). A
-  floating dock is drawn as its bar where it is (labelled with its layer); dragging it sets its
-  `x` / `y`.
+  window), **Lock all docks**, **Unlock all docks**, **Add floating dock** (round 6 phase 6A),
+  **Add standalone widget…** (6B: a menu of the installed widgets). A floating dock is drawn as its
+  bar where it is (labelled with its layer); dragging it sets its `x` / `y`. A standalone widget is
+  a small rounded box where its window is (its name inside, or under it when selected), listed as
+  "Standalone widget" with its widget and size; dragging it moves it (its display too).
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
 
@@ -1345,6 +1403,8 @@ take the dock's colour (Windows 11). Tabs:
     Drag a row onto the strip to put a new item there (a clock or weather item starts from the
     defaults, see Configuration), or press its **Add** (or Enter on the focused row) to add it
     where the dock menu's Add widget puts it (a separator / the Recycle Bin after the last pin).
+    A script widget's row also has **Desktop** (round 6 phase 6B): it becomes a
+    [standalone widget](#standalone-widgets) on this dock's display and its window opens.
     The running apps, the tray, the notification centre and the Recycle Bin are greyed ("Already
     on the dock") while the dock has one. **Manage installed widgets in Global > Widget library**
     opens that page.
@@ -1633,6 +1693,16 @@ items that exist. A file whose items have settings already is left alone.
     "reserveSpace": false` so that a version before phase 12 (which reads it as a dock) shows only
     an empty, auto-hidden desktop dock (if such a version saves, the folder window's keys are lost).
     A `docks[]` entry with a `kind` this version does not know is kept as it is and not shown.
+  - `kind` `"widget"` (round 6 phase 6B): a [standalone widget](#standalone-widgets) instead of a
+    dock: `id`, `widget` (the widget's id), `settings` (its settings object, as a dock widget
+    item's; written only when set), `x` / `y` (its top-left in DIPs from its display's work area's
+    top-left; without them it is centred), `w` / `h` (DIPs, 48 - 4000; default 200 x 200; always
+    written), `monitor` (an index or `"primary"`; default 0, written only when not 0), `layer`
+    (`"behind"` (default for this kind, not written), `"desktop"` or `"normal"`), `locked` (default
+    `false`, written only when on), `background` (`"none"` (default, not written) or `"panel"`),
+    `color` (its identity colour, as a dock's). The dock keys do not apply to it. Example:
+    `{ "id": "clock1", "kind": "widget", "widget": "analog-clock", "x": 100, "y": 100, "w": 200, "h": 200 }`.
+    A version before round 6 phase 6B keeps the entry as it is (an unknown kind) and shows nothing.
     12b keys (each written only when not the default): `rules` (default `""`; file patterns
     separated by `;`), `autoSort` (default `false`), `opacity` (default 1, 0.2 - 1),
     `titleColor` (`"#AARRGGBB"`, default none: the theme's clock text colour), `hideTitle`,
@@ -2239,13 +2309,25 @@ always there, also when every dock is parked) handle these registered messages:
   that bar's width / height as `MAKELONG(w, h)`; 239 = 1 while its window is above the desktop
   window with no other app's visible window between them and not topmost
   (`DesktopLayer::AboveDesktop`: a `"behind"` dock always, a shown `"desktop"` dock); 240 = 1 while
-  the dashboard hotkey is registered (0: none, or another app holds it).
+  the dashboard hotkey is registered (0: none, or another app holds it). Round 6 phase 6B (the
+  entry `HIWORD(lParam)` is a [standalone widget](#standalone-widgets)): 241 = the kind of
+  `docks[]` entry behind that index (0 dock, 1 folder window, 2 standalone widget; any index); 242 =
+  the window's screen left / top as `MAKELONG` (px), 243 = its width / height; 244 = its widget's
+  state (0 ok, 1 error, 2 suspended; -1 none; = 54); 245 = its layer (0 normal, 1 desktop, 2
+  behind; 235 answers too); 246 = `DesktopLayer::AboveDesktop` (= 239); 247 = the widget's draw
+  count (= 58); 248 = its script popup is visible; 249 = locked; 250 = the window is shown (not
+  hidden by the "desktop" rule); 251 = `dock.width` / `dock.height` as the script sees them
+  (DIPs, `MAKELONG`); 253 = foreground-watch evaluations it got; 254 = 1 while the "desktop" rule
+  hides it; 5 = 1 while it flashes (no other timer: 0 when still); 51 = its window. 252 (a Dock
+  window's Contents tab, like 230) = the centre of the drawer row's **Desktop** button of entry
+  `LOWORD(lParam)` (screen px; -1 none / not a script widget / hidden; -2 no Dock window).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
   `WinDock.Settings`; find them with `EnumWindows` by class (several may be open). Titles: Global
   "WinDock settings"; a dock's "<id> · Dock settings · <Edge> · <display>" (e.g. "main · Dock
-  settings · Bottom · Primary"); a folder window's "<id> · Folder window settings · <display>"; an
+  settings · Bottom · Primary"); a folder window's "<id> · Folder window settings · <display>"; a
+  standalone widget's "<id> · <widget name> · Standalone widget settings · <display>" (6B); an
   item's "<name> · <dock id> · Item settings" (e.g. "Clock · Two · main · Item settings": a clock /
   weather item's name carries its label / place). `QueryState` 222 / 223 / 224 = the open Global /
   Dock (folder windows' included) / Item windows; 225 = 1 while the Dock window of dock
@@ -2308,7 +2390,12 @@ always there, also when every dock is parked) handle these registered messages:
   modifiers the dock's thread holds (Backspace / Delete: none), `WM_APP + 60` with `wParam` =
   `MOD_*` bits and `lParam` = the virtual key records that combination, as App does when the
   registered hotkey is pressed while the box has the focus), 2197 the registration line, 2198 Show
-  the dashboard now; Docks and displays 2811 Add floating dock;
+  the dashboard now; Docks and displays 2811 Add floating dock, 2812 Add standalone widget… (6B: a
+  popup menu of the catalog, ids 1..n in the Widget library's order); Widget library 3509 Add to the
+  desktop (6B); a standalone widget's window page (6B, page 0, `SettingsIds` 4500 - 4529): 4503 the
+  widget's name, 4504 Open widget settings, 4507 display, 4509 / 4511 x / y (empty: centred), 4514
+  / 4515 width, 4517 / 4518 height, 4519 the size note, 4522 layer (DockLayer order), 4523 its note,
+  4525 background (0 none, 1 panel), 4526 Locked, 4528 Flash this widget;
   Behaviour = 2101 - 2109 (icon size, magnification, range) and the Behaviour page's auto-hide,
   previews and mouse controls (2201 - 2229, 2223 single-window previews, 2227 middle click, 2229
   mouse wheel), 2254 badges, 2256 the notification centre (round 5 phase D); Running apps = 2162 "Show only the windows on this dock's display"
@@ -2361,7 +2448,13 @@ always there, also when every dock is parked) handle these registered messages:
   group slot `lParam`'s member `HIWORD(wParam)` out (a pin right after the group), 821 that member
   removed; 800 on a group unpins it with its members, 806 shows / hides its popup, 854 Settings…:
   the slot's config item's Item window (a widget, clock, weather, tray (round 5 phase D), folder or
-  group; another item: its dock's window; round 5 phase B), 900 close all windows),
+  group; another item: its dock's window; round 5 phase B), 900 close all windows). On a
+  [standalone widget](#standalone-widgets) entry (round 6 phase 6B; the entry's index in the high
+  word of `lParam`): 809 reloads its widget, 854 opens its widget's Item window, 855 locks / unlocks
+  it, 856 removes the entry (posted); any other command returns -1. DockCommand 143 opens its Dock
+  window, 144 flashes it, 116 locks / unlocks it, 142 with item 0 or `0xFFFF` opens its widget's
+  Item window; the commands that edit a dock's items, edge or auto-hide do nothing for it (nor for a
+  folder window),
   `lParam` = item index or a window handle of the item. Returns 1 if the item was found. A folder
   popup opened this way usually cannot take the foreground (the dock did not get the click), so
   Escape does not reach it; it still closes when another window comes to the foreground, on a dock

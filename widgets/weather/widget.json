@@ -8,6 +8,7 @@
     "horizontal": { "main": 56, "cross": 26 },
     "vertical": { "main": 48, "cross": 40 }
   },
+  "standalone": { "minWidth": 72, "minHeight": 40, "defaultWidth": 220, "defaultHeight": 100 },
   "permissions": ["weather", "shell"],
   "settings": [
     { "key": "place", "type": "place", "label": "Place", "group": "Place" },

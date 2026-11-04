@@ -42,6 +42,7 @@ inline constexpr int kTabRunning = 3;
 inline constexpr int kTabTheme = 4;
 inline constexpr int kTabCount = 5;
 inline constexpr int kTabFolderWindow = 0;
+inline constexpr int kTabWidgetWindow = 0;  // round 6 phase 6B: a standalone widget entry's window has this one page
 // The one page of an Item window (the generated schema page or Folders and groups).
 inline constexpr int kItemPage = 0;
 
@@ -346,6 +347,7 @@ inline constexpr int kDockAddFolder = 2808;   // "Add folder window…" (= DockC
 // 2809: "Folder window settings…" until round 5 phase B (kDocksOpen opens a folder window's own window); reserved.
 inline constexpr int kDocksOpen = 2810;       // "Open dock settings" / "Open window settings" (the selected row's own window; = a double click)
 inline constexpr int kDockAddFloating = 2811; // round 6 phase 6A: "Add floating dock" (a floating bar, layer desktop, centred)
+inline constexpr int kDockAddWidget = 2812;   // round 6 phase 6B: "Add standalone widget…" (a menu of the catalog's widgets)
 
 // The canvas (round 4 phase 3b)
 inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation); a click selects the row, a double click opens the dock's window
@@ -362,6 +364,7 @@ inline constexpr int kWidgetsConsole = 3505;   // "Console…" (= DockCommand 12
 inline constexpr int kWidgetsAddToDock = 3506; // "Add to dock" (the selected widget, on the dock the pages edit)
 inline constexpr int kWidgetsNote = 3507;
 inline constexpr int kWidgetsStatus = 3508;    // the last action's result ("Exported to …", errors)
+inline constexpr int kWidgetsAddToDesktop = 3509;  // round 6 phase 6B: "Add to the desktop" (a standalone widget of the selected one)
 
 // Widget settings (3600 - 3999; phase 4b). The fixed controls, then per schema field k
 // (widget.json "settings" order) 3700 + 10 * k + part: 0 label, 1 the control (check box, edit,
@@ -550,5 +553,37 @@ inline constexpr int kFwAutoSort = 4441;        // autoSort (+ caption 4442)
 inline constexpr int kFwAutoSortCaption = 4442;
 inline constexpr int kFwSortNow = 4443;         // "Sort desktop now" (= DockCommand 140)
 inline constexpr int kFwRulesNote = 4444;
+
+// Standalone widget (4500 - 4599; round 6 phase 6B): a "widget" entry's own window (its one page).
+inline constexpr int kWwInfo = 4500;            // which widget window
+inline constexpr int kWwWidgetSection = 4501;
+inline constexpr int kWwWidgetLabel = 4502;
+inline constexpr int kWwWidgetName = 4503;      // the widget's name and id (read-only)
+inline constexpr int kWwOpenWidget = 4504;      // "Open widget settings" (its Item window: item 0 of the entry)
+inline constexpr int kWwPlaceSection = 4505;
+inline constexpr int kWwDisplayLabel = 4506;
+inline constexpr int kWwDisplayCombo = 4507;    // monitor: 0 primary, 1.. the others
+inline constexpr int kWwXLabel = 4508;
+inline constexpr int kWwXEdit = 4509;           // x DIPs from the work area's left (empty: centred)
+inline constexpr int kWwYLabel = 4510;
+inline constexpr int kWwYEdit = 4511;           // y (empty: centred)
+inline constexpr int kWwPositionNote = 4512;
+inline constexpr int kWwWLabel = 4513;
+inline constexpr int kWwWEdit = 4514;           // w DIPs 48 - 4000
+inline constexpr int kWwWSpin = 4515;
+inline constexpr int kWwHLabel = 4516;
+inline constexpr int kWwHEdit = 4517;           // h DIPs 48 - 4000
+inline constexpr int kWwHSpin = 4518;
+inline constexpr int kWwSizeNote = 4519;        // the widget's minimum size / aspect
+inline constexpr int kWwLookSection = 4520;
+inline constexpr int kWwLayerLabel = 4521;
+inline constexpr int kWwLayerCombo = 4522;      // 0 normal (above windows), 1 desktop only, 2 behind windows
+inline constexpr int kWwLayerNote = 4523;
+inline constexpr int kWwBackgroundLabel = 4524;
+inline constexpr int kWwBackgroundCombo = 4525; // 0 none, 1 panel
+inline constexpr int kWwLocked = 4526;          // check box: locked (+ caption 4527)
+inline constexpr int kWwLockedCaption = 4527;
+inline constexpr int kWwFlash = 4528;           // "Flash this widget"
+inline constexpr int kWwNote = 4529;            // how to move / resize it
 
 }  // namespace SettingsIds

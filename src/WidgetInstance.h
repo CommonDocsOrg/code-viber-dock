@@ -102,6 +102,9 @@ public:
     // The dock's view of the widget (axis, edge, theme, scale ...), before measuring and drawing.
     void SetDock(const ScriptDockInfo& info);
     void SetMagnified(bool magnified) { dock_.magnified = magnified; }
+    // Round 6 phase 6B, a standalone widget (ScriptDockInfo::standalone): its box is this size in
+    // DIPs (the window's client area); Measure returns it without asking measure() or the manifest.
+    void SetStandaloneBox(float widthDip, float heightDip);
     // The dock went off / came back on screen (auto-hide, a desktop dock): dock.visible and
     // onVisibilityChange({ visible }) when it changed.
     void SetVisible(bool visible);
@@ -250,6 +253,7 @@ private:
     float measuredScale_ = 0.0f;
     float measuredIcon_ = 0.0f;
     ElementSize size_{};  // px
+    float boxW_ = 0.0f, boxH_ = 0.0f;  // standalone: the window's client size, DIPs
     uint64_t draws_ = 0;
     std::deque<LogLine> log_;
     uint64_t logTotal_ = 0;

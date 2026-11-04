@@ -8,6 +8,7 @@
     "horizontal": { "main": 40, "cross": 48 },
     "vertical": { "main": 48, "cross": 48 }
   },
+  "standalone": { "minWidth": 48, "minHeight": 48, "aspect": 1, "defaultWidth": 96, "defaultHeight": 96 },
   "permissions": ["audio", "shell"],
   "settings": [
     { "key": "showPercent", "type": "bool", "label": "Show the level in percent", "default": true },

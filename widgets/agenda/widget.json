@@ -8,6 +8,7 @@
     "horizontal": { "main": 160, "cross": 44 },
     "vertical": { "main": 56, "cross": 48 }
   },
+  "standalone": { "minWidth": 120, "minHeight": 44, "defaultWidth": 320, "defaultHeight": 88 },
   "permissions": ["calendar", "shell"],
   "settings": [
     { "key": "count", "group": "Popup", "type": "int", "label": "Events in the popup", "min": 1, "max": 20, "default": 6 },

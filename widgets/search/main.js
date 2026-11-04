@@ -36,8 +36,10 @@ function image(canvas, x, y, g) {
 
 export function draw(canvas, dock) {
   const h = canvas.height, s = Math.min(h, canvas.width), g = s * 0.56;
+  // Without a label the glyph is centred (a standalone window may be wider than tall).
+  const ox = labelShown() ? 0 : (canvas.width - s) / 2;
   if (hovered) canvas.fillRoundRect(2, 2, canvas.width - 4, h - 4, s * 0.22, '#26FFFFFF');
-  if (!image(canvas, (s - g) / 2, (h - g) / 2, g)) magnifier(canvas, s / 2, h / 2, g, dock.theme.text);
+  if (!image(canvas, ox + (s - g) / 2, (h - g) / 2, g)) magnifier(canvas, ox + s / 2, h / 2, g, dock.theme.text);
   if (labelShown()) canvas.text(settings.label, s + 2, h / 2, { ...labelStyle, baseline: 'middle', color: dock.theme.text });
 }
 

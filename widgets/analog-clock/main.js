@@ -337,7 +337,8 @@ export function draw(canvas, dock) {
   const w = canvas.width, h = canvas.height;
   const under = [settings.label || '', settings.showDigital ? system.formatTime(false, zone()) : ''].filter((s) => s).join(' · ');
   const digital = under !== '';
-  const textSize = Math.max(7, Math.min(12, Math.min(w, h) * 0.2));
+  const textSize = dock.standalone ? Math.max(9, Math.min(28, Math.min(w, h) * 0.1))  // a window of its own
+                                    : Math.max(7, Math.min(12, Math.min(w, h) * 0.2));
   const dialBox = Math.min(w, digital ? h - textSize - 1 : h);
   const cx = w / 2, cy = digital ? dialBox / 2 : h / 2;
   // Room for the shadow below the dial.

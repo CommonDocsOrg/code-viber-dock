@@ -39,8 +39,9 @@ enum class SettingsDockEdit { Add, Duplicate, Remove, TrayDock, AddFloating };
 struct SettingsDockRect {
     size_t cfg = 0;    // index into config.docks
     int monitor = -1;  // monitor index (DockManager order: primary first); -1 parked
-    RECT bar{};        // the bar at rest, screen px (empty when parked); a folder window's rect
+    RECT bar{};        // the bar at rest, screen px (empty when parked); a folder window's / widget's rect
     bool folderWindow = false;  // a desktop folder window (round 4 phase 12), not a dock
+    bool widgetWindow = false;  // a standalone widget (round 6 phase 6B), not a dock
 };
 
 // A notify icon for the Tray page (SettingsHost::trayIcons).
@@ -129,6 +130,10 @@ struct SettingsHost {
     // app holds that combination) and dashboard mode is on.
     std::function<bool()> hotkeyRegistered;
     std::function<bool()> dashboardOn;
+    // Round 6 phase 6B: a standalone widget of widget `id` (the manifest's default size, layer
+    // "behind", centred on the monitor of config dock `nearDock`; SIZE_MAX: the primary display);
+    // its Dock window opens when `open`. Returns the new entry's config index (SIZE_MAX: refused).
+    std::function<size_t(const std::wstring& id, size_t nearDock, bool open)> addWidgetWindow;
 };
 
 class SettingsWindow;
@@ -373,6 +378,8 @@ public:
     DockConfig& Dock();
     // A Dock window of a folder window entry (round 4 phase 12: only the Folder window page).
     bool IsFolderWindow() const;
+    // A Dock window of a standalone widget entry (round 6 phase 6B: only the Standalone widget page).
+    bool IsWidgetWindow() const;
     // The Global window: the row selected on its Docks and displays page (Duplicate / Remove / Open
     // act on it; round 5 phase D: no other Global page reads it).
     void SelectDock(const std::wstring& id);

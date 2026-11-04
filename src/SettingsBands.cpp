@@ -113,7 +113,10 @@ void SettingsWindow::CreateBands(bool footer) {
     header_ = band(kHeader);
     if (!header_) return;
     if (kind_ == SettingsKind::Dock) {
-        if (!IsFolderWindow()) {
+        if (IsWidgetWindow()) {
+            child(header_, kHeaderFlash, WC_BUTTONW, L"Flash this widget");
+            child(header_, kHeaderLock, WC_BUTTONW, L"Lock widget");
+        } else if (!IsFolderWindow()) {
             child(header_, kHeaderFlash, WC_BUTTONW, L"Flash this dock");
             child(header_, kHeaderLock, WC_BUTTONW, L"Lock dock");
         }
@@ -197,6 +200,18 @@ std::vector<std::wstring> SettingsWindow::HeaderChips() {
     const size_t index = DockIndex();
     if (index == SIZE_MAX) return chips;
     const DockConfig& d = Dock();
+    if (d.IsWidgetWindow()) {
+        // Round 6 phase 6B: display, layer, size, Locked.
+        chips.push_back(SettingsDisplayName(d.monitor));
+        chips.push_back(d.layer == DockLayer::Normal    ? L"Above windows"
+                        : d.layer == DockLayer::Desktop ? L"Desktop only"
+                                                        : L"Behind windows");
+        chips.push_back(std::to_wstring(d.widgetWindow.w) + L" × " + std::to_wstring(d.widgetWindow.h));
+        const int windows = host_.dockWindows ? host_.dockWindows(index) : 1;
+        if (windows == 0) chips.push_back(L"Parked");
+        if (d.locked) chips.push_back(L"Locked");
+        return chips;
+    }
     if (d.IsFolderWindow()) {
         chips.push_back(L"Folder window");
     } else if (d.Floating()) {
@@ -222,6 +237,11 @@ std::wstring SettingsWindow::WindowTitle() {
     const DockConfig& d = Dock();
     if (kind_ == SettingsKind::Item) return ItemName() + L" · " + dockId_ + L" · Item settings";
     if (d.IsFolderWindow()) return dockId_ + L" · Folder window settings · " + SettingsDisplayName(d.monitor);
+    if (d.IsWidgetWindow()) {
+        const DockItemEntry* w = d.WidgetItem();
+        return dockId_ + L" · " + (w ? Widgets::DisplayName(w->id) : std::wstring(L"Widget")) + L" · Standalone widget settings · " +
+               SettingsDisplayName(d.monitor);
+    }
     return dockId_ + L" · Dock settings · " + SettingsEdgeName(d.edge) + L" · " + SettingsDisplayName(d.monitor);
 }
 
@@ -284,7 +304,8 @@ void SettingsWindow::UpdateIdentity() {
         summary = dockId_;
         for (const std::wstring& c : HeaderChips()) summary += L" · " + c;
         if (HWND lock = header_ ? GetDlgItem(header_, kHeaderLock) : nullptr) {
-            const wchar_t* text = Dock().locked ? L"Unlock dock" : L"Lock dock";
+            const bool widget = Dock().IsWidgetWindow();
+            const wchar_t* text = Dock().locked ? (widget ? L"Unlock widget" : L"Unlock dock") : (widget ? L"Lock widget" : L"Lock dock");
             wchar_t cur[64]{};
             GetWindowTextW(lock, cur, 64);
             if (wcscmp(cur, text) != 0) SetWindowTextW(lock, text);
@@ -362,7 +383,9 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
         const int sx = rc.right - Px(24) - Px(120);
         const int textRight = sx - Px(20) - Px(150) - Px(16);
         text(dockId_, RECT{Px(24), Px(10), textRight, Px(52)}, fontTitle_, idText, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-        text(d.IsFolderWindow() ? L"You are editing this folder window only" : L"You are editing this dock only",
+        text(d.IsFolderWindow()   ? L"You are editing this folder window only"
+             : d.IsWidgetWindow() ? L"You are editing this standalone widget only"
+                                  : L"You are editing this dock only",
              RECT{Px(24), Px(52), textRight, Px(74)}, font_, palette_.textSecondary, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         // The chips.
         int x = Px(24);
@@ -392,6 +415,22 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
             const RECT w{in.left + Px(6), in.top + Px(4), in.left + Px(46), in.top + Px(34)};
             FillRound(dc, w, Mix(dock, bandColor_, 45), Px(4));
             Fill(dc, RECT{w.left, w.top, w.right, w.top + Px(6)}, dock);
+        } else if (d.IsWidgetWindow()) {
+            // Round 6 phase 6B: a small rounded box where the widget is on its display (its window
+            // rect over its monitor), else centred.
+            const int iw = in.right - in.left, ih = in.bottom - in.top;
+            const RECT mon = host_.dockMonitor ? host_.dockMonitor() : RECT{};
+            const RECT box = host_.dockBar ? host_.dockBar() : RECT{};
+            const LONG mw = mon.right - mon.left, mh = mon.bottom - mon.top;
+            int bw = Px(18), bh = Px(18);
+            int fx = (iw - bw) / 2, fy = (ih - bh) / 2;
+            if (mw > 0 && mh > 0 && box.right > box.left) {
+                bw = std::clamp(static_cast<int>(static_cast<long long>(box.right - box.left) * iw / mw), Px(8), iw);
+                bh = std::clamp(static_cast<int>(static_cast<long long>(box.bottom - box.top) * ih / mh), Px(8), ih);
+                fx = std::clamp(static_cast<int>(static_cast<long long>(box.left - mon.left) * iw / mw), 0, std::max(0, iw - bw));
+                fy = std::clamp(static_cast<int>(static_cast<long long>(box.top - mon.top) * ih / mh), 0, std::max(0, ih - bh));
+            }
+            FillRound(dc, RECT{in.left + fx, in.top + fy, in.left + fx + bw, in.top + fy + bh}, dock, Px(5));
         } else if (d.Floating()) {
             // A small bar where the dock is on its display (its rest rect over its monitor), else
             // centred.

@@ -167,6 +167,13 @@ bool App::Initialize(HINSTANCE instance) {
     callbacks.folderNew = [this] {
         if (hwnd_) PostMessageW(hwnd_, msgDockCommand_, ContextMenu::kNewFolderWindow, 0);
     };
+    // Standalone widgets (round 6 phase 6B): moved / resized -> saved; their menu; weather.openSettings().
+    callbacks.widgetChanged = [this] {
+        RequestSave();
+        RefreshSettings();
+    };
+    callbacks.widgetMenu = [this](size_t cfg, POINT pt) { ShowWidgetMenu(cfg, pt); };
+    callbacks.widgetSettings = [this](size_t cfg) { OpenItemSettings(cfg, 0); };
     docks_.Initialize(instance, &config_, hwnd_, std::move(callbacks));
     const HRESULT hr = docks_.Sync();
     if (FAILED(hr)) {
@@ -335,6 +342,7 @@ int App::IndexOfKey(const DockWindow& dock, const AppKey& key) {
 void App::ReloadPins(size_t cfg) {
     config_.EnsureItemSettings();  // a new clock / weather item starts from the defaults (round 5)
     docks_.ForConfig(cfg, [](DockWindow& w) { w.ReloadPins(); });
+    docks_.ApplyWidgetWindow(cfg);  // a standalone widget's settings (its Item window)
     docks_.SyncTray();  // a tray item came or went
     docks_.SyncNotifications();  // a notifications item came or went
 }
@@ -1026,6 +1034,34 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
 void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
     if (cfg >= config_.docks.size()) cfg = 0;
     DockConfig& d = config_.docks[cfg];
+    if (!d.IsDock()) {
+        // A folder window or a standalone widget (round 6 phase 6B) has no items, edge or auto-hide
+        // of a dock: the commands that edit those do nothing for it.
+        switch (cmd) {
+            case ContextMenu::kAutoHide:
+            case ContextMenu::kAutoHideOff:
+            case ContextMenu::kAutoHideAlways:
+            case ContextMenu::kAutoHideIntelligent:
+            case ContextMenu::kAddSeparator:
+            case ContextMenu::kWeatherSettings:
+            case ContextMenu::kToggleCalendar:
+            case ContextMenu::kToggleWeatherPopup:
+            case ContextMenu::kAddClock:
+            case ContextMenu::kAddWeather:
+            case ContextMenu::kAddRunning:
+            case ContextMenu::kEdgeBottom:
+            case ContextMenu::kEdgeTop:
+            case ContextMenu::kEdgeLeft:
+            case ContextMenu::kEdgeRight:
+            case ContextMenu::kAddTray:
+            case ContextMenu::kToggleBadges:
+            case ContextMenu::kToggleCentre:
+            case ContextMenu::kAddNotifications:
+                return;
+            default:
+                break;
+        }
+    }
     switch (cmd) {
         case ContextMenu::kAutoHide:
             SetAutoHide(cfg, d.AutoHideOn() ? AutoHideMode::Off : lastOnMode_);
@@ -1101,6 +1137,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         case ContextMenu::kLockDock:
             d.locked = !d.locked;  // read by the dock when a drag / drop starts
+            docks_.ApplyWidgetWindow(cfg);  // a standalone widget: dock.locked
             RequestSave();
             RefreshSettings();
             break;
@@ -1351,6 +1388,10 @@ void App::FlashDock(size_t cfg) {
         w.Flash(color);
         any = true;
     });
+    if (WidgetWindow* w = docks_.WidgetOf(cfg)) {
+        w->Flash(color);  // a standalone widget's border (round 6 phase 6B)
+        any = true;
+    }
     if (!any) MessageBeep(MB_OK);  // parked, or a folder window
 }
 
@@ -1468,6 +1509,12 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
             GetMonitorInfoW(MonitorFromRect(&r, MONITOR_DEFAULTTOPRIMARY), &mi);
             return mi.rcMonitor;
         }
+        if (WidgetWindow* wi = cfg != SIZE_MAX ? docks_.WidgetOf(cfg) : nullptr) {
+            const RECT r = wi->ScreenRect();
+            MONITORINFO mi{sizeof(mi)};
+            GetMonitorInfoW(MonitorFromRect(&r, MONITOR_DEFAULTTOPRIMARY), &mi);
+            return mi.rcMonitor;
+        }
         if (DockWindow* d = docks_.First()) return d->MonitorRect();
         MONITORINFO mi{sizeof(mi)};
         GetMonitorInfoW(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi);
@@ -1480,6 +1527,7 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     };
     host.activated = [this, w](bool active) { OnSettingsActivated(w, active); };
     host.dockBar = [this, dockOf] {
+        if (WidgetWindow* wi = dockOf() != SIZE_MAX ? docks_.WidgetOf(dockOf()) : nullptr) return wi->ScreenRect();
         DockWindow* d = dockOf() != SIZE_MAX ? docks_.FirstOf(dockOf()) : nullptr;
         return d ? d->RestBarRect() : RECT{};
     };
@@ -1518,7 +1566,7 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     };
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
     host.dockWindows = [this](size_t index) {
-        int n = docks_.FolderOf(index) ? 1 : 0;
+        int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;
         docks_.ForConfig(index, [&](DockWindow&) { ++n; });
         return n;
     };
@@ -1529,8 +1577,10 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
             r.cfg = i.cfg;
             r.monitor = i.Live() ? i.monitorIndex : -1;
             r.folderWindow = i.isFolder;
+            r.widgetWindow = i.isWidget;
             if (i.window) r.bar = i.window->RestBarRect();
             if (i.folder) r.bar = i.folder->ScreenRect();
+            if (i.widget) r.bar = i.widget->ScreenRect();
             rects.push_back(r);
         }
         return rects;
@@ -1556,6 +1606,7 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         return st;
     };
     host.hotkeyRegistered = [this] { return hotkeyRegistered_; };
+    host.addWidgetWindow = [this](const std::wstring& id, size_t nearDock, bool open) { return AddWidgetWindow(id, nearDock, open); };
     host.dashboardOn = [this] { return docks_.Dashboard(); };
     host.calendarFeeds = [this] {
         std::vector<SettingsCalendarFeed> feeds;
@@ -1711,8 +1762,8 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
         }
         case SettingsDockEdit::Remove: {
             if (index >= list.size() || list.size() <= 1) return false;  // never the last dock
-            const auto docks = std::count_if(list.begin(), list.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });
-            if (!list[index].IsFolderWindow() && docks <= 1) return false;  // folder windows need a dock beside them
+            const auto docks = std::count_if(list.begin(), list.end(), [](const DockConfig& d) { return d.IsDock(); });
+            if (list[index].IsDock() && docks <= 1) return false;  // folder windows / standalone widgets need a dock beside them
             list.erase(list.begin() + static_cast<ptrdiff_t>(index));
             break;
         }
@@ -1788,9 +1839,119 @@ size_t App::AddFolderWindow(const std::wstring& path, POINT at) {
     return SIZE_MAX;
 }
 
-void App::RemoveFolderWindow(size_t cfg) {
-    if (cfg >= config_.docks.size() || !config_.docks[cfg].IsFolderWindow()) return;
+void App::RemoveDesktopEntry(size_t cfg) {
+    if (cfg >= config_.docks.size() || config_.docks[cfg].IsDock()) return;
     if (!EditDocks(SettingsDockEdit::Remove, cfg)) MessageBeep(MB_ICONWARNING);  // EditDocks refreshes the settings windows
+}
+
+size_t App::AddWidgetWindow(const std::wstring& id, size_t nearDock, bool open) {
+    if (shutDown_ || modalDepth_ > 0 || !Widgets::ValidId(id)) return SIZE_MAX;
+    std::wstring error;
+    const auto pkg = Widgets::Load(id, error);
+    if (!pkg) return SIZE_MAX;
+    DockConfig d;
+    d.dockKind = DockKind::Widget;
+    d.id = config_.UniqueDockId(id);
+    DockItemEntry e;
+    e.kind = ToString(ItemKind::Widget);
+    e.id = id;
+    d.items = {std::move(e)};
+    pkg->manifest.DefaultStandaloneSize(d.widgetWindow.w, d.widgetWindow.h);
+    d.layer = DockLayer::Behind;
+    // The display of the dock it was added from ("each": the primary), centred on its work area.
+    d.monitor = 0;
+    if (nearDock < config_.docks.size() && !config_.docks[nearDock].Each()) {
+        const int m = docks_.MonitorIndexFor(config_.docks[nearDock]);
+        d.monitor = m >= 0 ? m : 0;
+    }
+    d.x = d.y = DockConfig::kCentred;
+    config_.docks.push_back(std::move(d));
+    const size_t cfg = config_.docks.size() - 1;
+    // Placed now (centred on that work area) so the file says where it is.
+    const std::vector<HMONITOR>& monitors = docks_.Monitors();
+    HMONITOR mon = static_cast<size_t>(config_.docks[cfg].monitor) < monitors.size() ? monitors[static_cast<size_t>(config_.docks[cfg].monitor)]
+                                                                                     : MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+    MONITORINFO mi{sizeof(mi)};
+    UINT dpiX = 96, dpiY = 96;
+    if (GetMonitorInfoW(mon, &mi) && SUCCEEDED(GetDpiForMonitor(mon, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
+        const float s = static_cast<float>(dpiX) / 96.0f;
+        const int workW = static_cast<int>(std::lround((mi.rcWork.right - mi.rcWork.left) / s));
+        const int workH = static_cast<int>(std::lround((mi.rcWork.bottom - mi.rcWork.top) / s));
+        DockConfig& n = config_.docks[cfg];
+        n.x = std::max(0, (workW - n.widgetWindow.w) / 2);
+        n.y = std::max(0, (workH - n.widgetWindow.h) / 2);
+    }
+    if (SettingsWindow* g = FindSettings(SettingsKind::Global)) g->SelectDock(config_.docks[cfg].id);
+    SyncDocks();
+    RequestSave();
+    RefreshSettings();
+    if (open) OpenDockSettings(cfg);
+    return cfg;
+}
+
+void App::ShowWidgetMenu(size_t cfg, POINT pt) {
+    if (shutDown_ || cfg >= config_.docks.size() || !config_.docks[cfg].IsWidgetWindow()) return;
+    WidgetWindow* w = docks_.WidgetOf(cfg);
+    if (!w || !w->Hwnd()) return;
+    const HWND owner = w->Hwnd();
+    const std::wstring id = config_.docks[cfg].id;
+    const bool locked = config_.docks[cfg].locked;
+    const DockItemEntry* item = config_.docks[cfg].WidgetItem();
+    const std::wstring name = item ? Widgets::DisplayName(item->id) : std::wstring(L"Widget");
+    // The automation ids double as the menu's (README "Standalone widgets").
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+    AppendMenuW(menu, MF_STRING, ContextMenu::kOpenItemSettings, (name + L" settings…").c_str());
+    AppendMenuW(menu, MF_STRING, ContextMenu::kDockSettings, L"Window settings…");
+    AppendMenuW(menu, MF_STRING | (locked ? MF_CHECKED : 0), ContextMenu::kWidgetToggleLock, locked ? L"Unlock" : L"Lock");
+    AppendMenuW(menu, MF_STRING, ContextMenu::kReloadWidget, L"Reload widget");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, ContextMenu::kWidgetRemove, L"Remove from desktop");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(menu, MF_STRING, ContextMenu::kOpenSettings, L"Global settings…");
+    const UINT cmd = RunMenu(nullptr, [&] {
+        SetForegroundWindow(owner);
+        const UINT c = static_cast<UINT>(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, pt.x, pt.y, owner, nullptr));
+        PostMessageW(owner, WM_NULL, 0, 0);
+        return c;
+    });
+    DestroyMenu(menu);
+    if (cmd == 0 || shutDown_) return;
+    // The entries may have changed while the menu was open: the same entry by id.
+    const size_t now = DockIndexOf(id);
+    if (now == SIZE_MAX || !config_.docks[now].IsWidgetWindow()) return;
+    if (cmd == ContextMenu::kDockSettings) {
+        OpenDockSettings(now);
+    } else if (cmd == ContextMenu::kOpenSettings) {
+        OpenSettings();
+    } else {
+        WidgetEntryCommand(cmd, now);
+    }
+}
+
+LRESULT App::WidgetEntryCommand(UINT cmd, size_t cfg) {
+    if (cfg >= config_.docks.size() || !config_.docks[cfg].IsWidgetWindow()) return -1;
+    switch (cmd) {
+        case ContextMenu::kReloadWidget: {
+            WidgetWindow* w = docks_.WidgetOf(cfg);
+            return w && w->ReloadWidget() ? 1 : 0;
+        }
+        case ContextMenu::kOpenItemSettings:
+            OpenItemSettings(cfg, 0);
+            return 1;
+        case ContextMenu::kWidgetToggleLock:
+            config_.docks[cfg].locked = !config_.docks[cfg].locked;
+            docks_.ApplyWidgetWindow(cfg);
+            RequestSave();
+            RefreshSettings();
+            return 1;
+        case ContextMenu::kWidgetRemove:
+            // Posted: the entry may be in one of its own window's messages.
+            if (hwnd_) PostMessageW(hwnd_, kRemoveFolderMessage, cfg, 0);
+            return 1;
+        default:
+            return -1;
+    }
 }
 
 void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* source) {
@@ -1805,7 +1966,11 @@ void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* sou
             // Sizes, position, monitor, theme, clock: the theme may be per dock, the monitor
             // decides which windows exist.
             config_.ResolveDockThemes();
-            if (modalDepth_ == 0) SyncDocks();
+            if (modalDepth_ == 0) {
+                SyncDocks();  // folder windows and standalone widgets apply their entries in Sync
+            } else {
+                for (size_t k = 0; k < config_.docks.size(); ++k) docks_.ApplyWidgetWindow(k);
+            }
             docks_.ForEach([](DockWindow& w) { w.ApplyConfig(); });
             break;
         case SettingsScope::AutoHide:
@@ -1838,6 +2003,7 @@ void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* sou
             ApplyHotkey();
             break;
         case SettingsScope::SaveOnly:
+            docks_.ApplyWidgetWindow(cfg);  // a standalone widget's lock (its header button)
             break;
     }
     RequestSave();
@@ -1893,7 +2059,8 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         case 230:    // a drawer row's centre (entry LOWORD(lParam))
         case 231:    // the strip's selected item
         case 232:    // the drawer is shown
-        case 233: {  // the strip's insertion marker (-1 none); -2 for each: no Dock window of that dock
+        case 233:    // the strip's insertion marker (-1 none)
+        case 252: {  // round 6 phase 6B: a drawer row's "Desktop" button centre (entry LOWORD); -2 for each: no Dock window of that dock
             SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
             LRESULT out = -2;
             if (w && !w->QueryPages(static_cast<int>(wp), arg, out)) out = -2;
@@ -1909,6 +2076,8 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return docks_.Dashboard() ? 1 : 0;
         case 240:  // the dashboard hotkey is registered (RegisterHotKey succeeded)
             return hotkeyRegistered_ ? 1 : 0;
+        case 241:  // round 6 phase 6B: the kind of docks[] entry behind index HIWORD(lParam): 0 dock, 1 folder window, 2 standalone widget
+            return inst ? (inst->isWidget ? 2 : inst->isFolder ? 1 : 0) : -1;
         case 47:
             return static_cast<LRESULT>(docks_.Count());  // dock instances (parked ones included)
         case 48:
@@ -1919,6 +2088,7 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return inst ? static_cast<LRESULT>(inst->cfg) : -1;  // its index in docks[]
         case 51:
             if (inst && inst->folder) return reinterpret_cast<LRESULT>(inst->folder->Hwnd());
+            if (inst && inst->widget) return reinterpret_cast<LRESULT>(inst->widget->Hwnd());
             return inst && inst->window ? reinterpret_cast<LRESULT>(inst->window->Hwnd()) : 0;  // its window
         case 183:
             return static_cast<LRESULT>(docks_.FolderCount());  // folder windows (not parked)
@@ -1964,6 +2134,8 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             break;
     }
     if (inst && inst->folder) return wp >= 185 ? inst->folder->QueryState(wp, arg) : -1;
+    if (inst && inst->widget) return inst->widget->QueryState(wp, arg);  // a standalone widget (6B)
+    if (inst && inst->isWidget) return -1;  // parked
     if (!inst || !inst->window) return -1;
     return inst->window->QueryState(wp, arg);
 }
@@ -2025,7 +2197,9 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     if (msg == msgDockCommand_ && wp == ContextMenu::kItemSettings) {
         // The settings of item LOWORD(lParam) (its index in the dock's items) of dock HIWORD(lParam).
         DockManager::Instance* inst = docks_.At(DockOfParam(lp));
-        const LPARAM item = ArgOfParam(lp);
+        LPARAM item = ArgOfParam(lp);
+        // A standalone widget entry (round 6 phase 6B): its one item is its widget (0xFFFF: the same).
+        if (inst && inst->isWidget && item == 0xFFFF) item = 0;
         result = inst && !inst->isFolder && item >= 0 && static_cast<size_t>(item) < config_.docks[inst->cfg].items.size() ? 1 : 0;
         if (result) OpenItemSettings(inst->cfg, static_cast<size_t>(item));
         return true;
@@ -2065,6 +2239,13 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         } else {
             result = folder->Command(cmd, static_cast<int>(ArgOfParam(lp)), high);
         }
+        return true;
+    }
+    if (msg == msgItemCommand_ && lp >= 0 && (lp <= 0xFFFF || !IsWindow(reinterpret_cast<HWND>(lp))) && docks_.At(DockOfParam(lp)) &&
+        docks_.At(DockOfParam(lp))->isWidget) {
+        // A standalone widget entry (round 6 phase 6B): 809 reload, 854 its widget's settings, 855
+        // lock / unlock, 856 remove (posted); anything else: -1.
+        result = WidgetEntryCommand(static_cast<UINT>(wp & 0xFFFF), docks_.At(DockOfParam(lp))->cfg);
         return true;
     }
     if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kCentreDismiss && (wp & 0xFFFF) <= ContextMenu::kCentreActivate) {
@@ -2287,7 +2468,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     if (msg == kRemoveFolderMessage) {
-        RemoveFolderWindow(static_cast<size_t>(wp));
+        RemoveDesktopEntry(static_cast<size_t>(wp));
         return 0;
     }
     if (msg == WeatherService::kGeocodeMessage) {

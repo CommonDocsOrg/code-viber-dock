@@ -72,6 +72,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
 | `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
+| `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum). |
 | `settings` | [] | The widget's settings schema, see below. |
 
 ### Settings schema
@@ -229,7 +230,8 @@ Read-only, always current:
 | `reduceMotion` | Reduce motion is in effect (`animation.reduceMotion`, or Windows' animation effects are off). |
 | `locked` | The dock is locked. |
 | `visible` | The dock is on screen: shown or sliding in, not auto-hidden or hiding, not a desktop dock hidden behind another window. `onVisibilityChange` reports changes. |
-| `id`, `widgetId` | The dock's id (`docks[].id`), the widget's id. |
+| `id`, `widgetId` | The dock's id (`docks[].id`; a standalone widget: its entry's id), the widget's id. |
+| `standalone` | `true` for a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `width` / `height` (and `main` / `cross`) are the window's client size, `iconSize` is the shorter side / 1.5, `axis` is `"horizontal"`, `edge` `"bottom"`, `magnified` and `clockDate` are false, `locked` is the entry's lock, `visible` false while a "desktop" layer hides it. |
 | `clockDate` | A built-in clock item of the dock draws a second line (its date or, since round 5, its label): the dock's own widgets then use their smaller size (the weather element: a 24 instead of 26 DIP glyph, 14 instead of 16 DIP text). |
 | `theme` | The dock's theme colours as `"#AARRGGBB"`: `text`, `dateText`, `accent`, `background`, `labelBackground`, `labelText`, `separator`, `border`. |
 | `requestRedraw()` | Same as the global. |
@@ -781,6 +783,34 @@ On a dock, a widget with an error does not run: its tile shows "Error" and the f
 (`widget.json: permissions[1]: ...`), and the Console lists every problem with its fix; warnings
 go to the Console only.
 
+## Standalone widgets
+
+A widget can also live on the desktop by itself, in a window of its own (round 6 phase 6B): an
+analog clock or the weather without a dock, moved and resized freely. Each one is a `docks[]`
+entry of kind `"widget"` (README "Standalone widgets"); its window's client area **is** the widget's
+box:
+
+- `dock.standalone` is `true`; `dock.width` / `dock.height` are the window's size in DIPs (the
+  canvas is the same size); `measure()` and the manifest's `size` hints are not used (the window
+  decides the size); `dock.iconSize` is the shorter side / 1.5, so a widget that draws from
+  `dock.iconSize` or from `canvas.width` / `canvas.height` grows with the window. A widget that
+  draws fixed-size text can scale it: `const k = dock.standalone ? Math.min(w / 64, h / 40) : 1`
+  (the built-in `hello`, `digital-clock`, `weather`, `agenda` and `media` do this; the clocks, the
+  calendar page and the icon-like widgets scale from the canvas already).
+- The manifest's `standalone` object sets the smallest window, the aspect and the default size
+  (see [widget.json](#widgetjson)).
+- Input: `onPress`, `onClick`, `onMiddleClick`, `onWheel`, `onHover` and `onDrop` work as on a dock,
+  with coordinates in DIPs from the window's top-left. A left **press and release without moving**
+  is the widget's click; a left **drag** (past the system drag distance) moves the window instead
+  (the widget saw the press, but no click follows), and an 8 DIP band along the edges and corners
+  resizes it, while the entry is unlocked. A right click opens the window's menu, not the widget's.
+- Popups (`popup.open`, the passive kind, `popup.folder`, `popup.calendar`,
+  `notifications.openCentre()`) open above the window, centred on it, or below it when there is no
+  room above. `popup.previews` has no app windows to show there: it does nothing (a line in the
+  Console). The notification centre opened from a standalone widget shows no app icons.
+- A click on the widget while its popup is open closes the popup and arrives with
+  `closedPopup: true`, as on a dock.
+
 ## Adding a widget to a dock
 
 The widget drawer of Dock settings > Contents lists the installed widgets (built-in and from the
@@ -795,6 +825,16 @@ settings in its own window** opens its settings. In config.json:
 
 The same widget can be on a dock several times (each item is its own instance with its own
 settings and state) and on several docks.
+
+**On the desktop**: the drawer's **Desktop** button on a script widget's row (and **Add to the
+desktop** in Global settings > Widget library, **Add standalone widget…** in Docks and displays)
+makes it a [standalone widget](#standalone-widgets): a window of the manifest's default size,
+centred on the dock's display, under the other windows; its own settings window opens. In
+config.json:
+
+```json
+{ "id": "clock1", "kind": "widget", "widget": "analog-clock", "x": 100, "y": 100, "w": 200, "h": 200 }
+```
 
 ## Examples
 

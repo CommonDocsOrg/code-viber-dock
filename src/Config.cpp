@@ -57,6 +57,7 @@ const wchar_t* const kOverflowNames[] = {L"scroll", L"shrink", L"clip"};
 const wchar_t* const kShapeNames[] = {L"bar", L"arc", L"circle"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kFolderSortNames[] = {L"name", L"date", L"type", L"size"};
+const wchar_t* const kWidgetBackgroundNames[] = {L"none", L"panel"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather", L"widget", L"group",
                                          L"tray",    L"trayApp", L"notifications"};
@@ -287,6 +288,37 @@ void ReadFolderWindowFields(const json::JsonObject& o, DockConfig& d) {
     }
 }
 
+// A "widget" docks[] entry (round 6 phase 6B): the widget (as items[0]), its window's keys and the
+// DockConfig keys it shares with folder windows; the dock keys are not read.
+void ReadWidgetWindowFields(const json::JsonObject& o, DockConfig& d) {
+    WidgetWindowConfig& w = d.widgetWindow;
+    DockItemEntry e;
+    e.kind = ToString(ItemKind::Widget);
+    ReadString(o, L"widget", e.id);
+    if (auto so = ReadObject(o, L"settings")) e.settings = std::wstring(so.Stringify());
+    d.items = {std::move(e)};
+    ReadInt(o, L"x", d.x);
+    ReadInt(o, L"y", d.y);
+    ReadInt(o, L"w", w.w);
+    ReadInt(o, L"h", w.h);
+    ReadEnum(o, L"background", w.background);
+    ReadBool(o, L"locked", d.locked);
+    std::wstring color;
+    ReadString(o, L"color", color);
+    if (!color.empty() && !ParseArgbColor(color, d.color)) d.color = 0;
+    d.layer = DockLayer::Behind;  // this kind's default
+    ReadEnum(o, L"layer", d.layer);
+    d.monitor = 0;
+    if (auto m = Find(o, L"monitor")) {
+        if (m.ValueType() == json::JsonValueType::String) {
+            d.monitor = DockConfig::kMonitorPrimary;  // "primary" (never "each")
+        } else {
+            ReadInt(o, L"monitor", d.monitor);
+            if (d.monitor < 0) d.monitor = DockConfig::kMonitorPrimary;
+        }
+    }
+}
+
 }  // namespace
 
 const wchar_t* ToString(AutoHideMode v) { return EnumToString(v, kAutoHideNames); }
@@ -320,6 +352,8 @@ bool FromString(std::wstring_view s, DockShape& v) { return EnumFromString(s, v,
 const wchar_t* ToString(ItemView v) { return EnumToString(v, kItemViewNames); }
 bool FromString(std::wstring_view s, ItemView& v) { return EnumFromString(s, v, kItemViewNames); }
 const wchar_t* ToString(FolderSort v) { return EnumToString(v, kFolderSortNames); }
+const wchar_t* ToString(WidgetBackground v) { return EnumToString(v, kWidgetBackgroundNames); }
+bool FromString(std::wstring_view s, WidgetBackground& v) { return EnumFromString(s, v, kWidgetBackgroundNames); }
 
 size_t FolderWindowConfig::RuleCount() const {
     size_t n = 0;
@@ -657,11 +691,34 @@ std::wstring Config::UniqueDockId(const std::wstring& base) const {
 void Config::Sanitize() {
     // At least one dock (folder windows alone are not enough: the menus, tray icon and automation
     // need a dock).
-    if (std::none_of(docks.begin(), docks.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); })) {
+    if (std::none_of(docks.begin(), docks.end(), [](const DockConfig& d) { return d.IsDock(); })) {
         docks.emplace(docks.begin());
     }
     for (DockConfig& d : docks) {
-        if (d.id.empty()) d.id = d.IsFolderWindow() ? L"folder" : L"main";
+        if (d.id.empty()) d.id = d.IsFolderWindow() ? L"folder" : d.IsWidgetWindow() ? L"widget" : L"main";
+        if (d.IsWidgetWindow()) {
+            // Round 6 phase 6B: exactly one widget item (a missing one: an empty id, which shows the
+            // error tile until the entry names a widget), the window's size and place in range.
+            if (d.id.size() > 64) d.id.resize(64);
+            DockItemEntry widget;
+            widget.kind = ToString(ItemKind::Widget);
+            if (const DockItemEntry* e = d.WidgetItem()) {
+                widget.id = e->id;
+                widget.settings = e->settings;
+            }
+            SingleLine(widget.id, 64);
+            d.items = {std::move(widget)};
+            WidgetWindowConfig& w = d.widgetWindow;
+            w.w = std::clamp(w.w, WidgetWindowConfig::kMinSize, WidgetWindowConfig::kMaxSize);
+            w.h = std::clamp(w.h, WidgetWindowConfig::kMinSize, WidgetWindowConfig::kMaxSize);
+            if (static_cast<unsigned>(w.background) > static_cast<unsigned>(WidgetBackground::Panel)) w.background = WidgetBackground::None;
+            if (d.x != DockConfig::kCentred) d.x = std::clamp(d.x, -16000, 16000);
+            if (d.y != DockConfig::kCentred) d.y = std::clamp(d.y, -16000, 16000);
+            if (d.monitor < DockConfig::kMonitorPrimary) d.monitor = DockConfig::kMonitorPrimary;
+            if (static_cast<unsigned>(d.layer) > static_cast<unsigned>(DockLayer::Behind)) d.layer = DockLayer::Behind;
+            d.floating = false;
+            continue;
+        }
         if (d.IsFolderWindow()) {
             FolderWindowConfig& f = d.folder;
             if (f.path.size() > 4096) f.path.resize(4096);
@@ -840,6 +897,12 @@ Config::LoadResult Config::LoadFile() {
                     std::wstring kind;
                     ReadString(obj, L"kind", kind);
                     if (!kind.empty() && CompareStringOrdinal(kind.c_str(), -1, L"dock", -1, TRUE) != CSTR_EQUAL) {
+                        if (CompareStringOrdinal(kind.c_str(), -1, L"widget", -1, TRUE) == CSTR_EQUAL) {
+                            d.dockKind = DockKind::Widget;  // round 6 phase 6B: a standalone widget
+                            ReadWidgetWindowFields(obj, d);
+                            docks.push_back(std::move(d));
+                            continue;
+                        }
                         if (CompareStringOrdinal(kind.c_str(), -1, L"folderWindow", -1, TRUE) != CSTR_EQUAL) {
                             extraDocks.emplace_back(obj.Stringify());  // a kind this version does not know: kept, not shown
                             continue;
@@ -1032,6 +1095,25 @@ bool Config::Save() const {
         for (size_t di = 0; di < docks.size(); ++di) {
             const DockConfig& d = docks[di];
             o += di ? L",\n    {\n" : L"\n    {\n";
+            if (d.IsWidgetWindow()) {
+                // Round 6 phase 6B: a standalone widget. Older versions keep the entry verbatim (an
+                // unknown kind) and show nothing. Keys written only when not the default (the widget
+                // id, w and h always).
+                const DockItemEntry* e = d.WidgetItem();
+                const WidgetWindowConfig& w = d.widgetWindow;
+                o += L"      \"id\": " + Quote(d.id) + L", \"kind\": \"widget\", \"widget\": " + Quote(e ? e->id : std::wstring()) +
+                     (e && !e->settings.empty() ? L", \"settings\": " + e->settings : std::wstring()) + L",\n";
+                o += L"      " + (d.x != DockConfig::kCentred ? L"\"x\": " + Num(d.x) + L", " : std::wstring()) +
+                     (d.y != DockConfig::kCentred ? L"\"y\": " + Num(d.y) + L", " : std::wstring()) + L"\"w\": " + Num(w.w) +
+                     L", \"h\": " + Num(w.h);
+                if (d.monitor != 0) o += L", \"monitor\": " + MonitorJson(d.monitor);
+                if (d.layer != DockLayer::Behind) o += L", \"layer\": " + Quote(ToString(d.layer));
+                if (d.locked) o += L", \"locked\": true";
+                if (w.background != WidgetBackground::None) o += L", \"background\": " + Quote(ToString(w.background));
+                if (d.color) o += L", \"color\": " + Quote(FormatArgbColor(d.color));
+                o += L"\n    }";
+                continue;
+            }
             if (d.IsFolderWindow()) {
                 // The folder window's keys, then what makes an older version (which reads this as a
                 // dock) show nothing: no items, the desktop layer, auto-hidden, reserving nothing.

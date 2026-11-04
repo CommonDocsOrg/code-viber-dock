@@ -198,12 +198,37 @@ void WidgetInstance::BoxDips(float& w, float& h) const {
     h = (vertical ? size_.main : size_.cross) / s;
 }
 
+void WidgetInstance::SetStandaloneBox(float widthDip, float heightDip) {
+    if (widthDip == boxW_ && heightDip == boxH_) return;
+    boxW_ = widthDip;
+    boxH_ = heightDip;
+    measured_ = false;
+    changed_ = true;
+}
+
 ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
     if (measured_ && measuredAxis_ == ctx.axis && measuredScale_ == ctx.scale && measuredIcon_ == ctx.iconPx) {
         return size_;
     }
     const bool vertical = ctx.axis == DockAxis::Vertical;
     const float s = ctx.scale > 0.0f ? ctx.scale : 1.0f;
+    if (dock_.standalone) {
+        // Round 6 phase 6B: the window is the box (no measure(), no size hint); iconSize is the
+        // shorter side / 1.5 so widgets that scale from it fill the window.
+        const float w = std::max(1.0f, boxW_), h = std::max(1.0f, boxH_);
+        dock_.axis = "horizontal";
+        dock_.edge = "bottom";
+        dock_.scale = s;
+        dock_.iconSize = std::min(w, h) / 1.5f;
+        size_ = ElementSize{std::max(1.0f, std::round(w * s)), std::max(1.0f, std::round(h * s))};
+        measured_ = true;
+        measuredAxis_ = DockAxis::Horizontal;
+        measuredScale_ = ctx.scale;
+        measuredIcon_ = ctx.iconPx;
+        dock_.main = dock_.width = size_.main / s;
+        dock_.cross = dock_.height = size_.cross / s;
+        return size_;
+    }
     Widgets::SizeHint hint = vertical ? Widgets::SizeHint{48.0f, 48.0f} : Widgets::SizeHint{64.0f, 40.0f};
     if (package_) hint = vertical ? package_->manifest.vertical : package_->manifest.horizontal;
     float mainDip = hint.main, crossDip = hint.cross;

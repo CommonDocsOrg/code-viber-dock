@@ -8,6 +8,7 @@
     "horizontal": { "main": 48, "cross": 48 },
     "vertical": { "main": 48, "cross": 48 }
   },
+  "standalone": { "minWidth": 48, "minHeight": 48, "defaultWidth": 96, "defaultHeight": 96 },
   "permissions": ["shell"],
   "settings": [
     { "key": "showLabel", "type": "bool", "label": "Show \"Search\" beside the glyph (horizontal docks)", "default": false },

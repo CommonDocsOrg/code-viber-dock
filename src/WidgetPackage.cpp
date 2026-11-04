@@ -148,6 +148,35 @@ void ReadSize(const json::JsonObject& size, const wchar_t* key, SizeHint& hint) 
     }
 }
 
+// The `standalone` object (round 6 phase 6B): minimum size, aspect, the default size.
+void ReadStandalone(const json::JsonObject& root, Manifest& m) {
+    const json::JsonObject o = JsonUtil::ReadObject(root, L"standalone");
+    if (!o) return;
+    StandaloneHint& s = m.standalone;
+    double v = s.minWidth;
+    JsonUtil::ReadNumber(o, L"minWidth", v);
+    s.minWidth = static_cast<float>(Clamp(v, 16.0, 4000.0));
+    v = s.minHeight;
+    JsonUtil::ReadNumber(o, L"minHeight", v);
+    s.minHeight = static_cast<float>(Clamp(v, 16.0, 4000.0));
+    v = 0.0;
+    JsonUtil::ReadNumber(o, L"defaultWidth", v);
+    s.defaultWidth = v > 0.0 ? static_cast<float>(Clamp(v, 16.0, 4000.0)) : 0.0f;
+    v = 0.0;
+    JsonUtil::ReadNumber(o, L"defaultHeight", v);
+    s.defaultHeight = v > 0.0 ? static_cast<float>(Clamp(v, 16.0, 4000.0)) : 0.0f;
+    if (const json::IJsonValue a = JsonUtil::Find(o, L"aspect")) {
+        if (a.ValueType() == json::JsonValueType::Number && std::isfinite(a.GetNumber()) && a.GetNumber() > 0.0) {
+            s.aspect = StandaloneHint::Aspect::Ratio;
+            s.ratio = static_cast<float>(Clamp(a.GetNumber(), 0.01, 100.0));
+        } else if (a.ValueType() == json::JsonValueType::String && Lower(std::wstring(a.GetString())) == L"keep") {
+            s.aspect = StandaloneHint::Aspect::Keep;
+        } else if (!(a.ValueType() == json::JsonValueType::String && Lower(std::wstring(a.GetString())) == L"free")) {
+            m.warnings.push_back(L"standalone.aspect: not \"free\", \"keep\" or a number > 0 (free used)");
+        }
+    }
+}
+
 void ReadPermissions(const json::JsonObject& root, Manifest& m) {
     const json::JsonArray perms = JsonUtil::ReadArray(root, L"permissions");
     if (!perms) return;
@@ -322,6 +351,7 @@ bool ParseManifest(const std::string& bytes, const std::wstring& id, Manifest& m
         const json::JsonObject size = JsonUtil::ReadObject(root, L"size");
         ReadSize(size, L"horizontal", m.horizontal);
         ReadSize(size, L"vertical", m.vertical);
+        ReadStandalone(root, m);
         double refresh = 0, limit = 50, memory = 32;
         JsonUtil::ReadNumber(root, L"refreshMs", refresh);
         JsonUtil::ReadNumber(root, L"timeLimitMs", limit);
@@ -517,6 +547,26 @@ bool Manifest::HasErrors() const {
     return std::any_of(issues.begin(), issues.end(), [](const Issue& i) { return i.error; });
 }
 
+void Manifest::DefaultStandaloneSize(int& w, int& h) const {
+    float fw = standalone.defaultWidth, fh = standalone.defaultHeight;
+    if (fw <= 0.0f || fh <= 0.0f) {
+        const float hm = std::max(1.0f, horizontal.main), hc = std::max(1.0f, horizontal.cross);
+        const float ratio = hm / hc;
+        float dw = 200.0f, dh = 200.0f;
+        if (ratio < 0.75f || ratio > 1.34f) {
+            dw = 2.0f * hm;
+            dh = 2.0f * hc;
+        }
+        if (fw <= 0.0f) fw = dw;
+        if (fh <= 0.0f) fh = dh;
+    }
+    if (standalone.aspect == StandaloneHint::Aspect::Ratio && standalone.ratio > 0.0f) fh = fw / standalone.ratio;
+    fw = std::max(fw, standalone.minWidth);
+    fh = std::max(fh, standalone.minHeight);
+    w = std::clamp(static_cast<int>(std::lround(fw)), 48, 4000);
+    h = std::clamp(static_cast<int>(std::lround(fh)), 48, 4000);
+}
+
 namespace {
 
 const wchar_t* TypeName(json::JsonValueType t) {
@@ -566,7 +616,8 @@ private:
 
 constexpr const wchar_t* kTopKeys[] = {L"name",         L"version",     L"author",      L"description", L"main",
                                        L"size",         L"refreshMs",   L"timeLimitMs", L"memoryLimitMB",
-                                       L"permissions",  L"watch",       L"settings",    L"api"};
+                                       L"permissions",  L"watch",       L"settings",    L"api",
+                                       L"standalone"};
 constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"description", L"default", L"min",
                                          L"max",     L"step",       L"choices", L"choiceFrom", L"group", L"unit",
                                          L"visibleIf"};
@@ -612,6 +663,44 @@ void CheckSize(Checker& c, const json::JsonObject& root) {
                 }
             }
         }
+    }
+}
+
+// Round 6 phase 6B: the `standalone` object.
+void CheckStandalone(Checker& c, const json::JsonObject& root) {
+    const json::IJsonValue v = JsonUtil::Find(root, L"standalone");
+    if (!v) return;
+    constexpr wchar_t kFix[] = L"{ \"minWidth\": 96, \"minHeight\": 96, \"aspect\": \"keep\", \"defaultWidth\": 200, \"defaultHeight\": 200 }";
+    if (v.ValueType() != json::JsonValueType::Object) {
+        c.Error(L"standalone", std::wstring(L"is ") + TypeName(v.ValueType()) + L", not an object", kFix);
+        return;
+    }
+    const json::JsonObject o = v.GetObject();
+    for (const auto& kv : o) {
+        const std::wstring k(kv.Key());
+        if (k != L"minWidth" && k != L"minHeight" && k != L"aspect" && k != L"defaultWidth" && k != L"defaultHeight") {
+            c.Warn(L"standalone." + k, L"unknown key (ignored)", L"minWidth, minHeight, aspect, defaultWidth, defaultHeight");
+        }
+    }
+    for (const wchar_t* k : {L"minWidth", L"minHeight", L"defaultWidth", L"defaultHeight"}) {
+        c.Range(o, k, 16, 4000, L"standalone." + std::wstring(k), L"DIPs, 16 - 4000");
+    }
+    if (const json::IJsonValue a = JsonUtil::Find(o, L"aspect")) {
+        const bool number = a.ValueType() == json::JsonValueType::Number && std::isfinite(a.GetNumber()) && a.GetNumber() > 0.0;
+        const bool word = a.ValueType() == json::JsonValueType::String &&
+                          (Lower(std::wstring(a.GetString())) == L"free" || Lower(std::wstring(a.GetString())) == L"keep");
+        if (!number && !word) {
+            c.Error(L"standalone.aspect", L"is not \"free\", \"keep\" or a number > 0",
+                    L"\"free\" (any shape), \"keep\" (the shape it was made with) or width / height, e.g. 1 or 1.5");
+        }
+    }
+    double minW = 48, minH = 48, defW = 0, defH = 0;
+    JsonUtil::ReadNumber(o, L"minWidth", minW);
+    JsonUtil::ReadNumber(o, L"minHeight", minH);
+    JsonUtil::ReadNumber(o, L"defaultWidth", defW);
+    JsonUtil::ReadNumber(o, L"defaultHeight", defH);
+    if ((defW > 0 && defW < minW) || (defH > 0 && defH < minH)) {
+        c.Warn(L"standalone", L"the default size is smaller than the minimum (the minimum is used)", L"defaultWidth >= minWidth, defaultHeight >= minHeight");
     }
 }
 
@@ -883,6 +972,7 @@ std::vector<Issue> Validate(const std::string& bytes, const Package& pkg) {
             }
         }
         CheckSize(c, root);
+        CheckStandalone(c, root);
         c.Range(root, L"refreshMs", 0, 86400000, L"refreshMs", L"0 (no tick) or 100 - 86400000 ms");
         c.Range(root, L"timeLimitMs", 10, 1000, L"timeLimitMs", L"10 - 1000 ms");
         c.Range(root, L"memoryLimitMB", 4, 256, L"memoryLimitMB", L"4 - 256 MB");

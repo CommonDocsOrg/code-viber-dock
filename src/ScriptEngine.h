@@ -31,6 +31,10 @@ struct ScriptDockInfo {
     bool visible = true;          // the dock is on screen (not auto-hidden, not a hidden desktop dock)
     bool metric = true;           // config weather.units (system.units)
     bool clockDate = false;       // the dock's native clock shows its date (dock.clockDate)
+    // Round 6 phase 6B: the widget is a standalone widget (a window of its own on the desktop,
+    // WidgetWindow): its box is the window's client area (width / height), iconSize the shorter
+    // side / 1.5, axis "horizontal", edge "bottom".
+    bool standalone = false;
     // Theme colours, 0xAARRGGBB (dock.theme.*, as "#AARRGGBB").
     uint32_t text = 0, dateText = 0, accent = 0, background = 0, labelBackground = 0, labelText = 0,
              separator = 0, border = 0;

@@ -59,6 +59,9 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     // widgets that use the provider, and the settings window; tray balloons join the list.
     notifications_.SetChanged([this] {
         ForEach([](DockWindow& w) { w.OnNotificationsChanged(); });
+        for (Instance& i : instances_) {
+            if (i.widget) i.widget->OnNotificationsChanged();  // an open centre over a standalone widget
+        }
         widgets_.NotifyNotifications();
         if (callbacks_.notificationsChanged) callbacks_.notificationsChanged();
     });
@@ -71,6 +74,9 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     // Calendars (phase 13): every dock (the popup, the clock's dot) and the settings window.
     calendar_.SetChanged([this] {
         ForEach([](DockWindow& w) { w.OnCalendarChanged(); });
+        for (Instance& i : instances_) {
+            if (i.widget) i.widget->OnCalendarChanged();
+        }
         widgets_.NotifyCalendar();
         if (callbacks_.calendarChanged) callbacks_.calendarChanged();
     });
@@ -115,9 +121,11 @@ void DockManager::Shutdown() {
     for (Instance& i : instances_) {
         if (i.window) Close(std::move(i.window));
         if (i.folder) i.folder->Destroy();
+        if (i.widget) i.widget->Destroy();  // its widget unregisters from the runtime (still alive)
     }
     instances_.clear();
     folderGraveyard_.clear();
+    widgetGraveyard_.clear();
     if (desktopNotify_) SHChangeNotifyDeregister(desktopNotify_);
     desktopNotify_ = 0;
     if (desktopTimer_ && owner_) KillTimer(owner_, kDesktopTimer);
@@ -148,14 +156,15 @@ void DockManager::Shutdown() {
 void DockManager::Reap() {
     graveyard_.clear();
     folderGraveyard_.clear();
-    // The folder windows' device goes with the last of them (tens of MB with a hardware device).
-    if (folderRendererReady_ && FolderCount() == 0) {
+    widgetGraveyard_.clear();
+    // The desktop windows' device goes with the last of them (tens of MB with a hardware device).
+    if (folderRendererReady_ && FolderCount() == 0 && WidgetCount() == 0) {
         folderRenderer_.Shutdown();
         folderRendererReady_ = false;
     }
 }
 
-bool DockManager::EnsureFolderRenderer() {
+bool DockManager::EnsureDesktopRenderer() {
     if (folderRendererReady_) return true;
     const bool software = config_ && config_->renderer == L"software";
     if (FAILED(folderRenderer_.Initialize(owner_, software))) {
@@ -166,23 +175,90 @@ bool DockManager::EnsureFolderRenderer() {
     return true;
 }
 
-void DockManager::RecoverFolderDevice() {
+void DockManager::RecoverDesktopDevice() {
     folderRecoveryPosted_ = false;
     if (!folderRendererReady_) return;
     for (Instance& i : instances_) {
         if (i.folder) i.folder->ReleaseDevice();
+        if (i.widget) i.widget->ReleaseDevice();
     }
     if (FAILED(folderRenderer_.RecreateDevice())) {
-        OutputDebugStringW(L"WinDock: the folder windows' device could not be recreated\n");
+        OutputDebugStringW(L"WinDock: the desktop windows' device could not be recreated\n");
         return;
     }
     for (Instance& i : instances_) {
         if (i.folder) i.folder->RestoreDevice();
+        if (i.widget) i.widget->RestoreDevice();
     }
 }
 
+HRESULT DockManager::CreateWidgetFor(Instance& inst) {
+    if (!EnsureDesktopRenderer()) {
+        inst.failed = true;
+        return E_FAIL;
+    }
+    auto widget = std::make_unique<WidgetWindow>();
+    WidgetWindow::Host host;
+    host.renderer = &folderRenderer_;
+    host.shared = this;
+    host.changed = [this] {
+        if (callbacks_.widgetChanged) callbacks_.widgetChanged();
+    };
+    host.neighbours = [this](const WidgetWindow* self) { return FloatingRects(self); };
+    host.deviceLost = [this] {
+        if (!folderRecoveryPosted_) folderRecoveryPosted_ = PostMessageW(owner_, kFolderDeviceLost, 0, 0) != FALSE;
+    };
+    host.menu = [this](size_t cfg, POINT screen) {
+        if (callbacks_.widgetMenu) callbacks_.widgetMenu(cfg, screen);
+    };
+    host.openSettings = [this](size_t cfg) {
+        if (callbacks_.widgetSettings) callbacks_.widgetSettings(cfg);
+    };
+    const HRESULT hr = widget->Create(instance_, config_, inst.cfg, inst.monitor, std::move(host));
+    if (FAILED(hr)) {
+        widget->Destroy();
+        inst.failed = true;
+        return hr;
+    }
+    inst.failed = false;
+    inst.widget = std::move(widget);
+    return S_OK;
+}
+
+WidgetWindow* DockManager::WidgetOf(size_t cfg) {
+    for (Instance& i : instances_) {
+        if (i.widget && i.cfg == cfg) return i.widget.get();
+    }
+    return nullptr;
+}
+
+WidgetWindow* DockManager::WidgetByHwnd(HWND hwnd) {
+    if (!hwnd) return nullptr;
+    for (Instance& i : instances_) {
+        if (i.widget && i.widget->Hwnd() == hwnd) return i.widget.get();
+    }
+    return nullptr;
+}
+
+size_t DockManager::WidgetCount() const {
+    size_t n = 0;
+    for (const Instance& i : instances_) n += i.widget ? 1 : 0;
+    return n;
+}
+
+void DockManager::ApplyWidgetWindow(size_t cfg) {
+    if (WidgetWindow* w = WidgetOf(cfg)) w->ApplyConfig();
+}
+
+bool DockManager::WidgetsWatching() const {
+    for (const Instance& i : instances_) {
+        if (i.widget && i.widget->WantsWatch()) return true;
+    }
+    return false;
+}
+
 HRESULT DockManager::CreateFolderFor(Instance& inst) {
-    if (!EnsureFolderRenderer()) {
+    if (!EnsureDesktopRenderer()) {
         inst.failed = true;
         return E_FAIL;
     }
@@ -233,8 +309,11 @@ size_t DockManager::FolderCount() const {
 }
 
 void DockManager::OnExplorerRestarted() {
-    DesktopLayer::Reassert();  // folder windows and "behind" docks (registered with the layer)
+    DesktopLayer::Reassert();  // folder windows, "behind" docks and widgets (registered with the layer)
     ForEach([](DockWindow& w) { w.ReassertLayer(); });  // shown "desktop" docks
+    for (Instance& i : instances_) {
+        if (i.widget) i.widget->ReassertLayer();  // shown "desktop" standalone widgets
+    }
 }
 
 std::wstring DockManager::DesktopFolder() {
@@ -326,7 +405,7 @@ size_t DockManager::SortDesktop(bool onlyAuto) {
 
 bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == kFolderDeviceLost) {
-        RecoverFolderDevice();
+        RecoverDesktopDevice();
         return true;
     }
     if (msg == kDesktopChange) {
@@ -449,7 +528,7 @@ std::vector<WeatherConfig> DockManager::WantedWeather() const {
         }
     };
     for (const DockConfig& d : config_->docks) {
-        if (d.IsFolderWindow() || !(d.Each() || MonitorIndexFor(d) >= 0)) continue;  // parked: nothing fetches
+        if (!d.IsDock() || !(d.Each() || MonitorIndexFor(d) >= 0)) continue;  // parked: nothing fetches
         for (const DockItemEntry& e : d.items) {
             if (e.Kind() != ItemKind::Weather) continue;
             const WeatherConfig w = WeatherOf(*config_, e);
@@ -529,11 +608,12 @@ HRESULT DockManager::Sync() {
     std::vector<Instance> next;
     for (size_t k = 0; k < config_->docks.size(); ++k) {
         const DockConfig& d = config_->docks[k];
-        if (d.IsFolderWindow()) {
+        if (d.IsFolderWindow() || d.IsWidgetWindow()) {
             Instance inst;
             inst.id = d.id;
             inst.cfg = k;
-            inst.isFolder = true;
+            inst.isFolder = d.IsFolderWindow();
+            inst.isWidget = d.IsWidgetWindow();
             inst.monitorIndex = MonitorIndexFor(d);
             inst.monitor = inst.monitorIndex >= 0 ? monitors_[static_cast<size_t>(inst.monitorIndex)] : nullptr;
             next.push_back(std::move(inst));
@@ -570,6 +650,15 @@ HRESULT DockManager::Sync() {
             }
             continue;
         }
+        if (want.isWidget) {
+            for (Instance& old : instances_) {
+                if (!old.widget || old.id != want.id || !want.monitor) continue;
+                want.widget = std::move(old.widget);
+                want.widget->SetConfigIndex(want.cfg);
+                break;
+            }
+            continue;
+        }
         for (Instance& old : instances_) {
             if (!old.window || old.id != want.id || old.each != want.each) continue;
             if (want.each && old.monitor != want.monitor) continue;
@@ -589,6 +678,10 @@ HRESULT DockManager::Sync() {
             o.folder->Destroy();
             folderGraveyard_.push_back(std::move(o.folder));
         }
+        if (o.widget) {
+            o.widget->Destroy();
+            widgetGraveyard_.push_back(std::move(o.widget));
+        }
     }
     old.clear();
 
@@ -601,6 +694,15 @@ HRESULT DockManager::Sync() {
                 inst.folder->ApplyConfig();  // whatever changed in its entry (cheap when nothing did)
             } else {
                 CreateFolderFor(inst);  // a failure leaves it parked (it does not stop the docks)
+            }
+            continue;
+        }
+        if (inst.isWidget) {
+            if (inst.widget) {
+                inst.widget->SetMonitor(inst.monitor);
+                inst.widget->ApplyConfig();
+            } else {
+                CreateWidgetFor(inst);  // a failure leaves it parked
             }
             continue;
         }
@@ -622,6 +724,13 @@ HRESULT DockManager::Sync() {
     SyncTray();
     SyncNotifications();
     SyncDesktopRules();
+    // A "desktop" standalone widget follows the foreground (the shared watch); none: the watch
+    // stops unless docks or the dashboard need it.
+    if (WidgetsWatching()) {
+        StartWatch();
+    } else if (watchers_.empty() && !dashboard_) {
+        watch_.Stop();
+    }
     return first;
 }
 
@@ -685,6 +794,9 @@ void DockManager::StartWatch() {
         for (DockWindow* w : watchers) {
             if (std::find(watchers_.begin(), watchers_.end(), w) != watchers_.end()) w->OnWatchEvent();
         }
+        for (Instance& i : instances_) {
+            if (i.widget) i.widget->OnWatchEvent();  // the "desktop" layer's rule
+        }
     });
 }
 
@@ -696,14 +808,16 @@ void DockManager::SetWatching(DockWindow* dock, bool on) {
         return;
     }
     if (it != watchers_.end()) watchers_.erase(it);
-    if (watchers_.empty() && !dashboard_) watch_.Stop();  // nobody needs it: no hooks at all
+    if (watchers_.empty() && !dashboard_ && !WidgetsWatching()) watch_.Stop();  // nobody needs it: no hooks at all
 }
 
-std::vector<RECT> DockManager::FloatingNeighbours(const DockWindow* self) {
+std::vector<RECT> DockManager::FloatingNeighbours(const DockWindow* self) { return FloatingRects(self); }
+
+std::vector<RECT> DockManager::FloatingRects(const void* self) const {
     std::vector<RECT> rects;
     for (const Instance& i : instances_) {
-        if (!i.window || i.window.get() == self || !i.window->FloatingShown()) continue;
-        rects.push_back(i.window->RestBarRect());
+        if (i.window && i.window.get() != self && i.window->FloatingShown()) rects.push_back(i.window->RestBarRect());
+        if (i.widget && i.widget.get() != self && i.widget->Shown()) rects.push_back(i.widget->ScreenRect());
     }
     return rects;
 }
@@ -742,15 +856,22 @@ void DockManager::SetDashboard(bool on) {
     if (on) {
         dashboardPrev_ = ForegroundToRestore();
         dashboard_ = true;
-        DockWindow* first = nullptr;
+        HWND first = nullptr;
         for (Instance& i : instances_) {
             if (!i.window || i.cfg >= config_->docks.size() || config_->docks[i.cfg].layer == DockLayer::Normal) continue;
             i.window->OnDashboardChanged();
-            if (!first) first = i.window.get();
+            if (!first) first = i.window->Hwnd();
+        }
+        // Round 6 phase 6B: the standalone widgets on those layers too (after the docks: a dock, when
+        // there is one, takes the keyboard).
+        for (Instance& i : instances_) {
+            if (!i.widget || i.cfg >= config_->docks.size() || config_->docks[i.cfg].layer == DockLayer::Normal) continue;
+            i.widget->OnDashboardChanged();
+            if (!first) first = i.widget->Hwnd();
         }
         // The keyboard to the first of them (Escape ends the mode there); WM_HOTKEY's input lets this
         // process take the foreground. A click on another window then is a foreground change.
-        if (first && SetForegroundWindow(first->Hwnd())) SetFocus(first->Hwnd());
+        if (first && SetForegroundWindow(first)) SetFocus(first);
         StartWatch();
         return;
     }
@@ -758,12 +879,15 @@ void DockManager::SetDashboard(bool on) {
     // One of our docks has the foreground (Escape, the hotkey): back to the window that had it, so a
     // "desktop" dock hides again unless that was the desktop.
     HWND fg = GetForegroundWindow();
-    if (fg && ByHwnd(fg) && dashboardPrev_ && IsWindow(dashboardPrev_) && IsWindowVisible(dashboardPrev_)) {
+    if (fg && (ByHwnd(fg) || WidgetByHwnd(fg)) && dashboardPrev_ && IsWindow(dashboardPrev_) && IsWindowVisible(dashboardPrev_)) {
         SetForegroundWindow(dashboardPrev_);
     }
     dashboardPrev_ = nullptr;
     ForEach([](DockWindow& w) { w.OnDashboardChanged(); });
-    if (watchers_.empty()) watch_.Stop();
+    for (Instance& i : instances_) {
+        if (i.widget) i.widget->OnDashboardChanged();
+    }
+    if (watchers_.empty() && !WidgetsWatching()) watch_.Stop();
 }
 
 void DockManager::CheckDashboardForeground() {

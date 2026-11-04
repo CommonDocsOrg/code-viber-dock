@@ -49,8 +49,10 @@ protected:
             RECT{kMargin, y_, right, y_ + kListH});
         NextRow(kListH + 8);
         Button(kWidgetsAddToDock, L"Add to dock", kMargin, kButtonW);
-        Button(kWidgetsAddFolder, L"Add from folder…", kMargin + kButtonStep, kButtonW);
-        Button(kWidgetsExport, L"Export built-in to folder", kMargin + 2 * kButtonStep, kButtonW);
+        Button(kWidgetsAddToDesktop, L"Add to the desktop", kMargin + kButtonStep, kButtonW);  // round 6 phase 6B
+        Button(kWidgetsAddFolder, L"Add from folder…", kMargin + 2 * kButtonStep, kButtonW);
+        NextRow(kRowH + 4);
+        Button(kWidgetsExport, L"Export built-in to folder", kMargin, kButtonW);
         NextRow(kRowH + 4);
         Button(kWidgetsReload, L"Reload widgets", kMargin, kButtonW);
         Button(kWidgetsOpenFolder, L"Open widgets folder", kMargin + kButtonStep, kButtonW);
@@ -114,6 +116,20 @@ protected:
                 SetText(kWidgetsStatus, L"Added " + name + L" to the dock " + dockId + L".");
                 break;
             }
+            case kWidgetsAddToDesktop: {
+                // Round 6 phase 6B: a standalone widget on the primary display (its window opens).
+                if (!sel) return;
+                const std::wstring wid = sel->id, name = sel->name;
+                const size_t added = Host().addWidgetWindow ? Host().addWidgetWindow(wid, SIZE_MAX, true) : SIZE_MAX;
+                if (added == SIZE_MAX) {
+                    MessageBeep(MB_ICONWARNING);
+                    SetText(kWidgetsStatus, L"Not added: " + name + L" could not be loaded.");
+                    return;
+                }
+                Fill(wid);
+                SetText(kWidgetsStatus, L"Added " + name + L" to the desktop as " + Cfg().docks[added].id + L".");
+                break;
+            }
             case kWidgetsAddFolder:
                 AddFromFolder();
                 break;
@@ -156,7 +172,7 @@ private:
         const auto& docks = Cfg().docks;
         std::vector<size_t> plain;
         for (size_t i = 0; i < docks.size(); ++i) {
-            if (!docks[i].IsFolderWindow()) plain.push_back(i);
+            if (docks[i].IsDock()) plain.push_back(i);
         }
         if (plain.size() <= 1) return plain.empty() ? SIZE_MAX : plain.front();
         HWND button = Item(kWidgetsAddToDock);
@@ -184,6 +200,7 @@ private:
     void UpdateButtons() {
         const Widgets::CatalogEntry* sel = Selected();
         Enable(kWidgetsAddToDock, sel != nullptr);
+        Enable(kWidgetsAddToDesktop, sel != nullptr);
         Enable(kWidgetsExport, sel && sel->builtIn && sel->source == Widgets::Package::Source::BuiltIn);
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kWidgetsList));
     }

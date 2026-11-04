@@ -8,6 +8,7 @@
     "horizontal": { "main": 48, "cross": 48 },
     "vertical": { "main": 48, "cross": 48 }
   },
+  "standalone": { "minWidth": 48, "minHeight": 48, "aspect": 1, "defaultWidth": 96, "defaultHeight": 96 },
   "permissions": ["shell", "notifications"],
   "settings": [
     { "key": "unread", "type": "bool", "label": "Show the unread count", "default": true,

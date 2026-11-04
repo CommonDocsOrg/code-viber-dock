@@ -47,21 +47,30 @@ function slotLines(dock) {
   return { main, extra: parts.join(dock.axis === 'vertical' ? '\n' : '  ') };
 }
 
-const mainStyle = (dock) => ({ size: dock.clockDate ? FONT - 2 : FONT, weight: 'semibold' });
+const mainStyle = (dock, k = 1) => ({ size: (dock.clockDate ? FONT - 2 : FONT) * k, weight: 'semibold' });
 const extraStyle = { size: 10 };
 
-function layout(canvas, dock) {
-  const glyph = dock.clockDate ? GLYPH - 2 : GLYPH;
+// The slot's parts at scale k (1 on a dock).
+function layout(canvas, dock, k = 1) {
+  const glyph = (dock.clockDate ? GLYPH - 2 : GLYPH) * k;
   const t = slotLines(dock);
-  const a = t.main ? canvas.measureText(t.main, mainStyle(dock)) : { width: 0, height: 0 };
-  const b = t.extra ? canvas.measureText(t.extra, extraStyle) : { width: 0, height: 0 };
+  const a = t.main ? canvas.measureText(t.main, mainStyle(dock, k)) : { width: 0, height: 0 };
+  const b = t.extra ? canvas.measureText(t.extra, { size: extraStyle.size * k }) : { width: 0, height: 0 };
   const textW = Math.ceil(Math.max(a.width, b.width));
   const textH = Math.ceil(a.height) + Math.ceil(b.height);
-  const gap = textW > 0 ? GAP : 0;
+  const gap = textW > 0 ? GAP * k : 0;
   const vertical = dock.axis === 'vertical';
   const w = vertical ? Math.max(glyph, textW) : glyph + gap + textW;
   const h = vertical ? glyph + gap + textH : Math.max(glyph, textH);
-  return { t, a, b, glyph, gap, w, h, vertical };
+  return { t, a, b, glyph, gap, w, h, vertical, k };
+}
+
+// Standalone (a window of its own, round 6 phase 6B): the slot's layout grown to fill the window.
+function fitLayout(canvas, dock) {
+  const l = layout(canvas, dock);
+  if (!dock.standalone) return l;
+  const k = Math.max(0.5, Math.min((canvas.width * 0.9) / Math.max(1, l.w), (canvas.height * 0.9) / Math.max(1, l.h)));
+  return layout(canvas, dock, k);
 }
 
 export function measure(canvas, dock) {
@@ -70,7 +79,7 @@ export function measure(canvas, dock) {
 }
 
 export function draw(canvas, dock) {
-  const l = layout(canvas, dock);
+  const l = fitLayout(canvas, dock);
   const dim = wx.configured && (!wx.current || !fresh()) ? STALE : 1;
   const code = !wx.configured ? 'setLocation' : wx.current ? wx.current.code : 3;  // no data yet: overcast
   const isDay = !wx.current || wx.current.isDay;
@@ -92,17 +101,18 @@ export function draw(canvas, dock) {
     if (l.t.extra) canvas.text(l.t.extra, canvas.width / 2, y, { ...extraStyle, align: 'center', color: dock.theme.dateText });
     return;
   }
+  const left = dock.standalone ? Math.round((canvas.width - l.w) / 2) : 0;  // standalone: centred
   const top = Math.round((canvas.height - l.glyph) / 2);
-  canvas.image(icon, 0, top, l.glyph, l.glyph, dim);
+  canvas.image(icon, left, top, l.glyph, l.glyph, dim);
   if (!l.t.main) return;
-  const x = l.glyph + GAP;
+  const x = left + l.glyph + GAP * l.k;
   const blockH = l.a.height + (l.t.extra ? l.b.height : 0);
   const y = Math.round((canvas.height - blockH) / 2);
   canvas.save();
   canvas.opacity(dim);
-  canvas.text(l.t.main, x, y, { ...mainStyle(dock), color });
+  canvas.text(l.t.main, x, y, { ...mainStyle(dock, l.k), color });
   canvas.restore();
-  if (l.t.extra) canvas.text(l.t.extra, x, y + l.a.height, { ...extraStyle, color: dock.theme.dateText });
+  if (l.t.extra) canvas.text(l.t.extra, x, y + l.a.height, { size: extraStyle.size * l.k, color: dock.theme.dateText });
 }
 
 export function onClick(e) {

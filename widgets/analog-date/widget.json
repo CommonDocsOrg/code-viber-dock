@@ -8,6 +8,7 @@
     "horizontal": { "main": 48, "cross": 48 },
     "vertical": { "main": 48, "cross": 48 }
   },
+  "standalone": { "minWidth": 64, "minHeight": 64, "defaultWidth": 180, "defaultHeight": 180 },
   "permissions": ["shell"],
   "settings": [
     { "key": "style", "type": "choice", "label": "Style", "default": "flip",
