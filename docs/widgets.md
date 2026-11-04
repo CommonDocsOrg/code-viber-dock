@@ -36,7 +36,7 @@ thread. This file is the full reference; README.md has the short version.
 
 Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
 `start`, `search`, `notification-bell`, `agenda`, `weather`, `notes`, `system-monitor`,
-`system-overview`) are compiled into the
+`system-overview`, `battery`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Widgets are always loaded as source; bytecode is never loaded.
@@ -166,7 +166,7 @@ available), then calls its exports:
 | Export | Called | Arguments | Returns |
 |---|---|---|---|
 | `draw(canvas, dock)` | **required.** When the widget asked for a redraw (`requestRedraw()`, a tick), when its settings changed, and when the dock lays it out again (its size, scale, theme or edge changed). Never per frame while idle. | the canvas, the dock | |
-| `measure(canvas, dock)` | Before the dock lays the widget out (and after every redraw request). Only `canvas.measureText` works here. | | `{ main, cross }` in DIPs; without this export the manifest's size hint for the dock's axis is used |
+| `measure(canvas, dock)` | Before the dock lays the widget out (and after every redraw request). Only `canvas.measureText` works here. | | `{ main, cross }` in DIPs; without this export the manifest's size hint for the dock's axis is used. `main` 0: the widget takes no room on the dock (it is not drawn; the Battery widget without a battery). A box thicker than the bar stands on the bar's near (screen-edge) side and sticks out on the far side only, like a magnified icon (round 7; thinner boxes are centred on the icon row). A changed size lays the dock out again at once: a widget can grow and shrink by frames (the Analog clock's hover growth) |
 | `tick(dock)` | Every `refreshMs` (see the manifest, `timer.setRefresh`). | the dock | `false` to skip the redraw that follows |
 | `onPress(e)` | The left button went down on the widget. | `{ x, y, button }`: DIPs from the box's top-left | |
 | `onClick(e)` | A left click on the widget (press and release on it). | `{ x, y, button, closedPopup }`: `closedPopup` is true when that press closed this widget's popup (so a click toggles it: `if (!e.closedPopup) popup.open(...)`) | |
@@ -527,6 +527,8 @@ needs no history of its own (`perf.series`). Calls answer from the dock's copy a
 | `network.down`, `network.up` | B/s, bytesPerSecond | Received / sent over the hardware interfaces that are up (filter, loopback and tunnel interfaces left out: their traffic crosses the hardware one too). |
 | `network.<alias>.down`, `network.<alias>.up` | B/s, bytesPerSecond | Per interface (`<alias>` its name in lower case, `wi-fi`, `ethernet-2`; at most 8 interfaces). |
 | `battery.percent`, `battery.charging` | %, percent; bool | Only on a machine with a battery. |
+| `battery.acLine` | bool | Round 7: 1 on mains power, 0 on battery (`ACLineStatus`; absent when Windows does not know, and without a battery). |
+| `battery.timeLeft` | s, seconds | Round 7: the time left on battery as Windows estimates it (`BatteryLifeTime`); absent while unknown (charging, on mains power, right after a change) and without a battery. |
 | `system.uptime` | s, seconds | Since Windows started. |
 | `hwinfo.<sensor>.<reading>` | HWiNFO's unit and kind | Each HWiNFO reading (at most 512), named "<sensor> · <reading>" with HWiNFO's own (user-edited) names. |
 
@@ -686,6 +688,8 @@ The rules (the dock's "efficiency first" budget):
 Measured (5a, this machine, user config): the analog clock with a ticking second hand wakes 10
 times in 10 s; with the smooth second hand ~300 times in 10 s while the dock is shown and 0 while
 it is auto-hidden; without a second hand 0 in 10 s (once a minute); the sweep is ~45 frames.
+Round 7: the hover growth (48 -> 77 px) is ~9 wake-ups per enter or leave (the box went 48, 56,
+67, 70, 73, 75, 77 px in 132 ms, one dock layout each), none at rest.
 
 ## Clock faces
 
@@ -932,7 +936,7 @@ box:
   decides the size); `dock.iconSize` is the shorter side / 1.5, so a widget that draws from
   `dock.iconSize` or from `canvas.width` / `canvas.height` grows with the window. A widget that
   draws fixed-size text can scale it: `const k = dock.standalone ? Math.min(w / 64, h / 40) : 1`
-  (the built-in `hello`, `digital-clock`, `weather`, `agenda` and `media` do this; the clocks, the
+  (the built-in `hello`, `digital-clock`, `weather`, `agenda`, `media` and `battery` do this; the clocks, the
   calendar page and the icon-like widgets scale from the canvas already).
 - The manifest's `standalone` object sets the smallest window, the aspect and the default size
   (see [widget.json](#widgetjson)).
@@ -989,7 +993,7 @@ Each preview is the widget's own `draw()`, run once by a **preview instance**:
 | `notifications` | `state` "polling", 3 unread: "Mail" (5 minutes ago, "Sam Rivera"), "Mail" (20 minutes ago, "Weekly report"), "Calendar" (an hour ago, "Stand-up"), newest first. |
 | `calendar` | One feed "Sample" in the first feed colour (`#FF4CC2FF`); today "Stand-up" 09:30 - 09:45 and "Lunch with Sam" 12:30 - 13:30 (local time, `recurring`); `eventsOn` another day is empty; `next()` lists today's events that have not ended, after 13:30 the same two tomorrow (so an agenda never previews "No events"); `events()` covers today and tomorrow. |
 | `weather.get()` | `state` "fresh" (fetched 5 minutes ago), "Sample City", sunny (code 0, day), 21 °C or 70 °F (the default `units`), wind 12 km/h / 7 mph, humidity 45 %, 24 hourly columns from the current hour (a mild day / night curve), 7 days from today (WMO codes 0, 1, 2, 3, 61, 2, 0: clear, through overcast and rain, to clear; highs 23 - 16 °C). `weather.icon()` works as always. |
-| `perf` | `get()`: serial 1, interval 1000, `cpu.total` 37, eight cores, `cpu.frequency` 4180, `memory.percent` 58, `memory.used` / `total` 9.3 / 16 GB, `gpu.total` 12, `disk.total` 4, `network.down` 120 KB/s, `up` 18 KB/s, `system.uptime` 3 days 4 hours, no battery keys; `metrics()` lists those keys; `series(key, n)` up to 60 samples (a sine wave with noise, the newest one the snapshot's value; the same numbers every time); `hwinfo()` `{ available: false, reason: "preview" }`; `setInterval` answers 1000. |
+| `perf` | `get()`: serial 1, interval 1000, `cpu.total` 37, eight cores, `cpu.frequency` 4180, `memory.percent` 58, `memory.used` / `total` 9.3 / 16 GB, `gpu.total` 12, `disk.total` 4, `network.down` 120 KB/s, `up` 18 KB/s, `system.uptime` 3 days 4 hours, a laptop on battery (round 7: `battery.percent` 74, `battery.charging` 0, `battery.acLine` 0, `battery.timeLeft` 11400 s = 3 h 10 min); `metrics()` lists those keys (35); `series(key, n)` up to 60 samples (a sine wave with noise, the newest one the snapshot's value; the same numbers every time); `hwinfo()` `{ available: false, reason: "preview" }`; `setInterval` answers 1000. |
 
 The manifest's `preview` object (see [widget.json](#widgetjson)) picks what the preview shows:
 
@@ -998,8 +1002,9 @@ The manifest's `preview` object (see [widget.json](#widgetjson)) picks what the 
 ```
 
 The built-ins: the Analog clock previews the classic face with a second hand and the date window,
-the Digital clock with its date line, the Weather widget with its place, the System monitor as a
-CPU graph; the Notes widget draws a sample note when `dock.preview` is true; the others preview as
+the Digital clock with its date line, the Weather widget with a three-day forecast on the slot
+(round 7), the System monitor as a CPU graph, the Battery widget the sample laptop with its time
+left; the Notes widget draws a sample note when `dock.preview` is true; the others preview as
 they are. A widget that throws (or fails to load, or measures an empty box) gets no preview: its row
 keeps the letter tile and the failure goes to the debugger output once per widget id
 (`WinDock preview <id>: <message>`).
@@ -1068,8 +1073,14 @@ built-ins are worked examples too:
   time under the dial), `sweep` (the hands sweep in when it appears or its face changes), `size`
   (DIPs, 0 = the dock's icon size; the box is square), and (round 5, group "Time zone")
   `timeZone` (the hands, the date on the face and the digital time follow `system.localTime(zone)`)
-  and `label` (drawn small under the dial, before the digital time when that is shown). The
-  [Animation](#animation) example.
+  and `label` (drawn small under the dial, before the digital time when that is shown). Round 7
+  (1.1.0): `hoverScale` (group "Motion and size", a `number` 1 - 2.5, step 0.1, default 1.6; 1 =
+  off): while the pointer is over the clock, `measure()` returns the box times a factor that eases
+  from 1 to `hoverScale` in 150 ms (ease-out, a 16 ms `setInterval` only during the ease, each frame
+  a `requestRedraw()`, which re-measures, so the dock lays out again and the neighbours make room)
+  and back on leave; with reduce motion (or off screen) it jumps; no timer at rest; never
+  standalone or in a preview. The grown box is thicker than the bar, so it stands on the bar's near
+  edge and grows outward. The [Animation](#animation) example.
 - `widgets/analog-date` ("Calendar page"): today's date as a page with a coloured header (the
   month, or the weekday) over a big day number; `style` `flip` (split page, stacked pages, a curled
   corner, the page flips over when the date changes) or `flat`; `showMonth`, `showWeekday`,
@@ -1089,12 +1100,25 @@ built-ins are worked examples too:
   that one instead. Settings `showPercent`, `step`, `wheelBar`, `middleClick`. Permissions
   `audio`, `shell`.
 - `widgets/media` ("Now playing"): `media.art()` drawn with `canvas.image` in a rounded clip, the
-  note glyph when there is no art, title / artist beside it (faded at the edge; a marquee at 30
-  frames a second only while hovered); hovering shows previous / play-pause / next over the whole
-  face, art and text alike; a middle click opens a popup with the album and the controls; the
-  wheel changes the volume in 2 % steps and shows the same volume bar as `widgets/volume` (its own
-  copy of the drawing: widgets cannot import each other). Settings `showText`, `textWidth`,
-  `marquee`, `wheelVolume` (default on). Permissions `media`, `audio`.
+  note glyph when there is no art, title / artist beside it (faded at the edge, or scrolling); a
+  middle click opens a popup with the album and the controls; the wheel changes the volume in 2 %
+  steps and shows the same volume bar as `widgets/volume` (its own copy of the drawing: widgets
+  cannot import each other). Settings `showText`, `textWidth`, `wheelVolume` (default on) and
+  (round 7, 1.1.0) **`controls`**: `"hover"` (default: previous / play-pause / next over the whole
+  face, art and text alike, while hovered; a click on a third sends it), `"always"` (the same,
+  always drawn, over a lighter shade that dims the art and text a little) or `"sides"` (previous
+  left of the art and next right of the text (right of the art without text), above / below the
+  art on a left / right dock; the slot grows by two buttons of `round(iconSize x 0.6)` DIPs; play /
+  pause over the art while hovered, else a small badge in the art's corner showing what a click
+  does; the side buttons are drawn, dimmed, without a session too; clicks: the side buttons send
+  previous / next, anywhere else toggles); **`marqueeMode`**: `"hover"` (default: the title and the
+  artist scroll while hovered, each only if it is wider than the text column), `"always"` (they
+  scroll whenever one overflows and `dock.visible`; `onVisibilityChange` stops the frames, never in
+  a preview) or `"off"` (fade at the edge only); **`marqueeSpeed`** (5 - 120 DIPs a second, default
+  28): the frames come every `clamp(round(1000 / speed), 33, 100)` ms (10 - 30 a second), so a slow
+  scroll wakes the dock less often; none with reduce motion. The 1.0 `marquee` bool is no longer read
+  (`marqueeMode` is authoritative; an old `"marquee": false` scrolls on hover again: pick "Never").
+  Permissions `media`, `audio`.
 - `widgets/start`: `shell.sendKeys('win')`, falling back to `shell.open('shell:AppsFolder')` when
   Windows refuses the input; `icon` `windows` / `mono` / `image` with `image` (a package file, or
   any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot).
@@ -1118,9 +1142,17 @@ built-ins are worked examples too:
   "Updated N min ago" (one `setTimeout` per minute while it is open), the hourly strip with a
   temperature line (`canvas.path`) and the daily rows with gradient range bars; its buttons call
   `weather.refresh()` / `weather.openSettings()`, the credit `shell.open`. Settings `showPlace`,
-  `showHigh`, `showLow`, `compact`, `clickOpens` (`popup`, `settings`, `none`), `days`, `hours`.
-  Test hook: `"debugStore": true` stores what the slot and the popup drew. Permissions `weather`,
-  `shell`.
+  `showHigh`, `showLow`, `compact`, `clickOpens` (`popup`, `settings`, `none`), `days`, `hours`,
+  and (round 7, 1.1.0, group "Slot") **`dockForecast`**: `"none"` (default), `"today"` (today's
+  high / low under the temperature, as `showHigh` + `showLow`, which still work on their own) or
+  `"days"`: after the glyph and temperature, **`dockDays`** (2 - 5, default 3; shown only for
+  "days") compact columns from today, each the weekday's short name ("Today" for the first) over
+  the condition glyph (16 DIPs) over the high and the low (9 DIP text, the low in `dateText`); on a
+  left / right dock rows under the current conditions instead (the weekday's initial, a 14 DIP
+  glyph, "high/low"). `measure()` grows the slot by the columns (rows); standalone the whole
+  layout scales to the window (`fitLayout`). The manifest's `preview.settings` show three days.
+  Test hook: `"debugStore": true` stores what the slot (with its `days` count) and the popup drew.
+  Permissions `weather`, `shell`.
 - `widgets/notes` ("Notes", round 6): a note per item, written in the dock's text editor
   (`popup.editText`). Its text is kept in the widget's storage under `"note:" + dock.itemKey`, or
   under `"note:id:" + noteId` when the **Note id** setting is set (items with the same id, on any
@@ -1166,6 +1198,20 @@ built-ins are worked examples too:
   `sparklines`), `showValues`, `historySeconds`, `refresh`, `color`, `warnAt` / `criticalAt`
   (percent, default 75 / 90) with their colours, `background`, `textColor`, `cellWidth` (DIPs per
   cell on a dock). Standalone 240 x 160 by default. Permission `perf`.
+- `widgets/battery` ("Battery", round 7 phase 7C): the [perf](#perf) provider's battery keys
+  (`battery.percent`, `.charging`, `.acLine`, `.timeLeft`). A battery outline filled to the level
+  (`fillColor`, `#00000000` = the theme's accent; red at or below `lowPercent`, default 20), a bolt
+  over it while charging, the percentage beside it on a top / bottom dock and under it on a left /
+  right one (`showPercent`, default on) and the time left as "2 h 10 m" (`showTimeLeft`, default
+  off; only on battery while Windows knows it); the size follows the icon size. Without a battery
+  (the keys absent: a desktop PC) a crossed battery and "No battery", or, with
+  `hideWithoutBattery`, nothing: `measure()` returns `main` 0 and the slot takes no room
+  (standalone it still draws). `perf.setInterval(10000)`; `perf.onChange` redraws only when the
+  percentage, charging, mains power or (while it is shown) the time left changed, so a steady
+  battery costs a comparison per sample and no draw. A click opens a 260 x 120 popup: the level as
+  a bar, the state ("Charging", "On battery", "Plugged in, not charging", "Full"), the time left
+  and **Power & battery settings** (`shell.open('ms-settings:batterysaver')`). Standalone 160 x 80
+  by default (64 x 48 at least), scaled to the window. Permissions `perf`, `shell`.
 - `widgets/notification-bell` ("Notification bell"): a scriptable bell that behaves like the
   built-in notification centre by default; `unread` (default on; off: nothing polls and the fixed
   `badge` number shows) draws `notifications.count()` and redraws on `notifications.onChange`;

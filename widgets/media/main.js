@@ -1,21 +1,26 @@
 // Now playing: the system's current media session (the `media` provider): album art, title and
-// artist. Hovering the widget shows previous / play-pause / next over the whole face, art and text
-// alike (a click on one sends it); a middle click opens a popup with a larger art, the album and
-// the controls. A long title
-// scrolls (marquee) while the pointer is over the widget: 30 frames a second only then, never with
-// reduce motion; otherwise it fades out at the edge. The wheel changes the volume (a setting) and
-// shows the Volume widget's bar beside the dock (a passive popup) until 1.2 s after the last notch.
+// artist. The controls (settings.controls, round 7 phase 7C): "hover" (previous / play-pause / next
+// over the whole face, art and text alike, while the pointer is over it), "always" (the same, always,
+// over a lighter shade) or "sides" (previous left of the art, next right of the text, or above /
+// below the art on a left / right dock; play / pause over the art while hovered, else a small
+// badge in its corner; the slot is two buttons longer). A click on a control sends it; a middle click
+// opens a popup with a larger art, the album and the controls. A title or artist wider than the
+// text column scrolls (settings.marqueeMode: "hover" while the pointer is over the widget, "always"
+// while the dock is on screen, "off": it fades out at the edge) at settings.marqueeSpeed DIPs a
+// second, in frames of 1000 / speed ms (33 - 100 ms: 10 - 30 frames a second), never with reduce
+// motion or in a preview. The wheel changes the volume (a setting) and shows the Volume widget's bar
+// beside the dock (a passive popup) until 1.2 s after the last notch.
 // Event-driven: media.onChange redraws when the track, the playback state or the art change;
-// nothing ticks.
+// nothing ticks except the marquee's frames while a line scrolls.
 
 const POPUP_W = 320, POPUP_H = 140;
 const BAR_W = 44, BAR_H = 150, BAR_MS = 1200;
-const MARQUEE_PX_S = 28, MARQUEE_GAP = 36, FRAME_MS = 33;
+const MARQUEE_GAP = 36;
 
 let m = media.get();
 let art = media.art();
 let hovered = false;
-let marquee = null;  // { start, timer } while the title scrolls
+let marquee = null;  // { start, timer } while a line scrolls
 let hits = [];
 let bar = false;  // the volume bar (the passive popup) is up
 let barTimer = 0;
@@ -27,12 +32,31 @@ media.onChange((s) => {
   if (popup.isOpen) popup.redraw();
 });
 
-const vertical = () => dock.axis === 'vertical';
+const vertical = () => dock.axis === 'vertical' && !dock.standalone;
 const textShown = () => settings.showText && !vertical();
+const sides = () => settings.controls === 'sides';
+const speed = () => Math.max(5, Math.min(120, settings.marqueeSpeed || 28));
+const frameMs = () => Math.max(33, Math.min(100, Math.round(1000 / speed())));
+
+// The tile's parts in a W x H box: the art square, the text column, the side buttons ("sides").
+function geom(W, H) {
+  if (vertical()) {
+    const s = W, bw = sides() ? Math.round(s * 0.6) : 0;
+    const ay = sides() ? bw : (H - s) / 2;
+    return { s, bw, ax: 0, ay, tx: 0, tw: 0,
+      prev: { x: 0, y: 0, w: W, h: bw }, next: { x: 0, y: ay + s, w: W, h: bw } };
+  }
+  const s = Math.min(W, H), bw = sides() ? Math.round(s * 0.6) : 0;
+  const ax = bw, ay = (H - s) / 2;
+  const tx = ax + s + 8;
+  const tw = !textShown() ? 0 : dock.standalone ? Math.max(20, W - tx - bw - (bw ? 0 : 6)) : settings.textWidth;
+  return { s, bw, ax, ay, tx, tw, prev: { x: 0, y: 0, w: bw, h: H }, next: { x: W - bw, y: 0, w: bw, h: H } };
+}
 
 export function measure(canvas, dock) {
   const s = Math.round(dock.iconSize);
-  return { main: textShown() ? s + 8 + settings.textWidth : s, cross: s };
+  const extra = sides() ? 2 * Math.round(s * 0.6) : 0;
+  return { main: (textShown() ? s + 8 + settings.textWidth : s) + extra, cross: s };
 }
 
 // --- glyphs -----------------------------------------------------------------------------------------
@@ -93,23 +117,32 @@ function drawArt(canvas, x, y, s, dock, bare) {
 const titleStyle = { size: 12.5, weight: 'semibold' };
 const artistStyle = { size: 11 };
 
-// The text column's width: the setting on a dock; standalone (a window of its own) the rest of the window.
-function textWidth(canvas) {
-  if (!dock.standalone) return settings.textWidth;
-  return Math.max(20, canvas.width - Math.min(canvas.width, canvas.height) - 14);
+const titleText = () => m.title || '(no title)';
+const artistText = () => m.artist || m.album || '';
+
+// A line of the text column is wider than the column (the title, the artist).
+function overflow(canvas, g) {
+  if (!textShown() || !m.session || g.tw <= 0) return false;
+  return canvas.measureText(titleText(), titleStyle).width > g.tw || canvas.measureText(artistText(), artistStyle).width > g.tw;
 }
 
-function overflow(canvas) {
-  return textShown() && m.session && canvas.measureText(m.title || '', titleStyle).width > textWidth(canvas);
+function stopMarquee() {
+  if (!marquee) return;
+  clearInterval(marquee.timer);
+  marquee = null;
 }
 
-function updateMarquee(canvas) {
-  const want = hovered && settings.marquee && dock.visible && !dock.reduceMotion && overflow(canvas);
+// Frames only while a line overflows, the mode wants them (hovered, or always) and the dock is on
+// screen; never with reduce motion or in a preview. A changed speed restarts the frames.
+function updateMarquee(canvas, g) {
+  const mode = settings.marqueeMode || 'hover';
+  const want = (mode === 'always' || (mode === 'hover' && hovered)) && dock.visible && !dock.reduceMotion &&
+               !dock.preview && overflow(canvas, g);
+  if (want && marquee && marquee.ms !== frameMs()) stopMarquee();
   if (want && !marquee) {
-    marquee = { start: Date.now(), timer: setInterval(() => requestRedraw(), FRAME_MS) };
-  } else if (!want && marquee) {
-    clearInterval(marquee.timer);
-    marquee = null;
+    marquee = { start: Date.now(), ms: frameMs(), timer: setInterval(() => requestRedraw(), frameMs()) };
+  } else if (!want) {
+    stopMarquee();
   }
 }
 
@@ -118,7 +151,7 @@ function lineText(canvas, text, x, y, w, style, color, scroll) {
   canvas.clip(x, y - 1, w, style.size * 1.5);
   const tw = canvas.measureText(text, style).width;
   if (scroll && tw > w) {
-    const off = (((Date.now() - scroll.start) / 1000) * MARQUEE_PX_S) % (tw + MARQUEE_GAP);
+    const off = (((Date.now() - scroll.start) / 1000) * speed()) % (tw + MARQUEE_GAP);
     canvas.text(text, x - off, y, { ...style, color });
     canvas.text(text, x - off + tw + MARQUEE_GAP, y, { ...style, color });
   } else {
@@ -132,63 +165,91 @@ function lineText(canvas, text, x, y, w, style, color, scroll) {
 }
 
 export function draw(canvas, dock) {
-  const s = Math.min(canvas.height, vertical() ? canvas.width : canvas.height);
-  const ax = vertical() ? (canvas.width - s) / 2 : 0, ay = (canvas.height - s) / 2;
-  const controls = hovered && m.session;
-  drawArt(canvas, ax, ay, s, dock, controls);
-  if (m.session && m.status !== 'playing' && !textShown() && !controls) {
-    canvas.fillCircle(ax + s - 9, ay + s - 9, 7, '#C0000000');
-    pauseGlyph(canvas, ax + s - 9, ay + s - 9, 7, '#FFFFFFFF');
+  const g = geom(canvas.width, canvas.height);
+  const mode = settings.controls || 'hover';
+  const over = m.session && (mode === 'always' || (mode === 'hover' && hovered));  // the three over the face
+  const onArt = m.session && mode === 'sides' && hovered;  // play / pause over the art
+  drawArt(canvas, g.ax, g.ay, g.s, dock, over || onArt);
+  if (m.session && !over && !onArt) {
+    if (mode === 'sides') badge(canvas, g, m.status === 'playing' ? pauseGlyph : playGlyph);
+    else if (m.status !== 'playing' && !textShown()) badge(canvas, g, pauseGlyph);
   }
-  updateMarquee(canvas);
-  if (textShown()) drawText(canvas, dock, s);
-  if (controls) drawControls(canvas, ax, ay, s);
+  updateMarquee(canvas, g);
+  if (textShown()) drawText(canvas, dock, g);
+  if (mode === 'sides') drawSides(canvas, dock, g, onArt);
+  else if (over) drawControls(canvas, g, hovered || mode === 'hover' ? '#B3000000' : '#80000000');
 }
 
-function drawText(canvas, dock, s) {
-  const tx = s + 8, w = textWidth(canvas);
+// A small round badge in the art's bottom-right corner.
+function badge(canvas, g, glyph) {
+  const r = Math.max(6, g.s * 0.15), cx = g.ax + g.s - r - 2, cy = g.ay + g.s - r - 2;
+  canvas.fillCircle(cx, cy, r, '#C0000000');
+  glyph(canvas, cx, cy, r, '#FFFFFFFF');
+}
+
+function drawText(canvas, dock, g) {
   const ink = dock.theme.text, dim = dock.theme.dateText;
   if (!m.session) {
-    canvas.text('Nothing playing', tx, canvas.height / 2, { size: 12, baseline: 'middle', color: dim });
+    canvas.save();
+    canvas.clip(g.tx, 0, g.tw, canvas.height);
+    canvas.text('Nothing playing', g.tx, canvas.height / 2, { size: 12, baseline: 'middle', color: dim });
+    canvas.restore();
     return;
   }
   const alpha = m.status === 'playing' ? 1 : 0.7;
   canvas.save();
   canvas.opacity(alpha);
   const top = canvas.height / 2 - 16;
-  lineText(canvas, m.title || '(no title)', tx, top, w, titleStyle, ink, marquee);
-  lineText(canvas, m.artist || m.album || '', tx, top + 18, w, artistStyle, dim, null);
+  lineText(canvas, titleText(), g.tx, top, g.tw, titleStyle, ink, marquee);
+  lineText(canvas, artistText(), g.tx, top + 18, g.tw, artistStyle, dim, marquee);
   canvas.restore();
 }
 
 // The three controls over the whole widget (art and text alike): a dark rounded panel across the
 // face, the buttons spread over its width, each the height of the tile.
-function drawControls(canvas, ax, ay, s) {
+function drawControls(canvas, g, shade) {
   const full = textShown();
-  const x = full ? 0 : ax, y = full ? 0 : ay;
-  const w = full ? canvas.width : s, h = full ? canvas.height : s;
-  canvas.fillRoundRect(x, y, w, h, s * 0.16, '#B3000000');
-  const g = Math.min(s * 0.5, w / 5);
+  const x = full ? 0 : g.ax, y = full ? 0 : g.ay;
+  const w = full ? canvas.width : g.s, h = full ? canvas.height : g.s;
+  canvas.fillRoundRect(x, y, w, h, g.s * 0.16, shade);
+  const gs = Math.min(g.s * 0.5, w / 5);
   const cy = y + h / 2;
-  control(canvas, 'previous', x + w / 6, cy, g * 0.8, m.canPrevious ? '#FFFFFFFF' : '#60FFFFFF');
-  control(canvas, 'toggle', x + w / 2, cy, g, '#FFFFFFFF');
-  control(canvas, 'next', x + (w * 5) / 6, cy, g * 0.8, m.canNext ? '#FFFFFFFF' : '#60FFFFFF');
+  control(canvas, 'previous', x + w / 6, cy, gs * 0.8, m.canPrevious ? '#FFFFFFFF' : '#60FFFFFF');
+  control(canvas, 'toggle', x + w / 2, cy, gs, '#FFFFFFFF');
+  control(canvas, 'next', x + (w * 5) / 6, cy, gs * 0.8, m.canNext ? '#FFFFFFFF' : '#60FFFFFF');
 }
+
+// "sides": previous and next beside the face (drawn without a session too, dimmed: the slot keeps
+// its shape), play / pause over the art while hovered.
+function drawSides(canvas, dock, g, onArt) {
+  const ink = dock.theme.text;
+  const dimmed = '#59' + ink.slice(3);  // the theme's text at 35 %
+  const gs = Math.min(g.bw, g.s) * 0.5;
+  for (const [kind, r, on] of [['previous', g.prev, m.session && m.canPrevious], ['next', g.next, m.session && m.canNext]]) {
+    if (hovered && on) canvas.fillRoundRect(r.x + 2, r.y + 2, r.w - 4, r.h - 4, 6, '#18FFFFFF');
+    control(canvas, kind, r.x + r.w / 2, r.y + r.h / 2, gs, on ? ink : dimmed);
+  }
+  if (onArt) {
+    canvas.fillRoundRect(g.ax, g.ay, g.s, g.s, g.s * 0.16, '#B3000000');
+    control(canvas, 'toggle', g.ax + g.s / 2, g.ay + g.s / 2, g.s * 0.42, '#FFFFFFFF');
+  }
+}
+
+const inside = (e, r) => r.w > 0 && r.h > 0 && e.x >= r.x && e.x < r.x + r.w && e.y >= r.y && e.y < r.y + r.h;
 
 export function onHover(e) {
   hovered = e.inside;
-  requestRedraw();
-  if (!e.inside && marquee) {
-    clearInterval(marquee.timer);
-    marquee = null;
-  }
+  requestRedraw();  // draw() starts / stops the marquee for the new state
 }
 
 export function onVisibilityChange(e) {
-  if (!e.visible && marquee) {
-    clearInterval(marquee.timer);
-    marquee = null;
-  }
+  if (!e.visible) stopMarquee();
+  else requestRedraw();  // back on screen: draw() starts an "always" marquee again
+}
+
+export function onSettingsChanged() {
+  stopMarquee();
+  requestRedraw();
 }
 
 function send(kind) {
@@ -199,8 +260,12 @@ function send(kind) {
 
 export function onClick(e) {
   if (!m.session || e.closedPopup) return;  // the press closed the popup: that is the click's job
-  const s = Math.min(dock.height, vertical() ? dock.width : dock.height);
-  const w = dock.standalone ? dock.width : textShown() ? s + 8 + settings.textWidth : s;
+  const g = geom(dock.width, dock.height);
+  if (sides()) {
+    send(inside(e, g.prev) ? 'previous' : inside(e, g.next) ? 'next' : 'toggle');
+    return;
+  }
+  const w = dock.standalone ? dock.width : textShown() ? g.s + 8 + settings.textWidth : g.s;
   send(e.x < w / 3 ? 'previous' : e.x > (w * 2) / 3 ? 'next' : 'toggle');
 }
 

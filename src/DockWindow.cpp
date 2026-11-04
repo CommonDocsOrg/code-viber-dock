@@ -1138,8 +1138,11 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         item.slotX = slotX;
         slotX += item.slotW;
         item.x = item.slotX + BoxInset(item);
-        // Icons stand on the icon row; widgets are centred on it (above any reflections).
-        item.y = item.IsWidget() ? std::round(l.bar.top + (iconBarH - item.boxCross) / 2.0f) : l.itemTop;
+        // Icons stand on the icon row; widgets are centred on it (above any reflections). A widget
+        // box thicker than the bar (round 7 phase 7C: the analog clock grown on hover) stands on the
+        // bar's near edge and sticks out on the far side only, as a magnified icon does.
+        item.y = item.IsWidget() ? std::round(std::min(l.bar.top + (iconBarH - item.boxCross) / 2.0f, l.bar.top + iconBarH - item.boxCross))
+                                 : l.itemTop;
         if (item.lead <= 0.0f || firstIcon < 0) continue;
         const int k = static_cast<int>(i);
         // Anchored groups: no hairline in a gap between groups (only in a spacer of the usual size).

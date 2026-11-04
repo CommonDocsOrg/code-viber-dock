@@ -967,16 +967,20 @@ write and edit without compiling anything. The full reference (every call, every
   same format, seconds, date, time zone and label options as its settings), **Analog clock**
   (`analog-clock`: five faces as data files, `faces/*.json`: Classic, Minimal, Modern dark, Roman,
   Station; an optional second hand that ticks or sweeps smoothly, the date on the face, the time
-  under the dial, a sweep-in animation, a time zone and a label) and **Calendar page**
+  under the dial, a sweep-in animation, a time zone and a label; round 7: it grows to 1.6 times its
+  size while the pointer is over it, its neighbours making room: **Grow while the pointer is over
+  it**, 1 = off) and **Calendar page**
   (`analog-date`: today's date as a flip-calendar or flat page with the month or weekday in a
   coloured header; a click opens the month calendar; it wakes once a day, at midnight of its time
   zone), **Volume** (`volume`: the output level with a percentage; the wheel
   changes it in 2 % steps and shows a volume bar beside the dock until a moment after the last
   notch, a middle click mutes, a click opens a popup with a slider, Mute, Mute microphone, the
   output devices and Sound settings), **Now playing** (`media`: the current media session's art,
-  title and artist (Spotify, browsers, Media Player ...); hover it for previous / play-pause / next
-  over the whole face, middle-click for a popup; the wheel changes the volume with the same volume
-  bar (a setting)), **Start**
+  title and artist (Spotify, browsers, Media Player ...); previous / play-pause / next over the
+  whole face while hovered, always, or (round 7) as buttons beside it, previous on the left and
+  next on the right (above / below on a left / right dock); a title or artist that does not fit
+  scrolls while hovered, always or never, at a speed you set; middle-click for a popup; the wheel
+  changes the volume with the same volume bar (a setting)), **Start**
   (`start`: the Windows logo or your icon, opens Start), **Search** (`search`: opens Windows Search)
   and **Notification bell** (`notification-bell`: a scriptable bell that behaves like the
   notification centre by default, the unread count in a badge and a click that opens WinDock's
@@ -987,7 +991,9 @@ write and edit without compiling anything. The full reference (every call, every
   an app / address; it wakes only when its text changes: at an event's start and end, each minute
   of the last hour before one, at midnight, and when the feeds change), and **Weather (script)**
   (`weather`: the weather item and its forecast popup on the `weather` provider, see Weather and
-  calendar above), and **Notes** (`notes`, round 6: a note per item; the tile shows its first line
+  calendar above; round 7: **Forecast on the dock** shows today's high and low under the
+  temperature, or 2 - 5 day columns (weekday, condition, high over low) after it, rows under it on
+  a left / right dock), and **Notes** (`notes`, round 6: a note per item; the tile shows its first line
   as a bold title and the lines under it as far as they fit, growing with the text up to a width
   you set, the wheel scrolls the lines; a click opens a small text editor window (Ctrl+Enter or OK
   saves, Escape cancels); paper yellow / pink / blue / the theme's panel / none, font size, text
@@ -998,7 +1004,9 @@ write and edit without compiling anything. The full reference (every call, every
   line of text; label, unit, decimals, scale, range, smoothing, thresholds with warning / critical
   colours, background, width; see Performance monitor below) and **System overview**
   (`system-overview`: CPU, memory, GPU, disk and network in one row of small bars on a dock, or a
-  list with sparklines on the desktop). A folder with a built-in's id replaces the built-in;
+  list with sparklines on the desktop) and **Battery** (`battery`, round 7: the battery's level,
+  charging bolt, percentage and time left; a popup with the state and Power & battery settings; see
+  Performance monitor below). A folder with a built-in's id replaces the built-in;
   your own clock faces go into an exported `analog-clock\faces` folder.
 - **Adding one**: the widget drawer of Dock settings > Contents lists the installed widgets under
   the built-in kinds, each drawn live (round 6 phase 6E: its own `draw()` on sample data, see
@@ -1095,7 +1103,8 @@ use too.
   and threads; memory used / available / total / percent, committed and the commit limit; GPU (the
   3D engine, the busiest engine, each engine kind: copy, video decode / encode, compute) and its
   dedicated memory; disks (active time, read / write per second, in total and per disk); network
-  download / upload per second (in total and per interface); battery (on a laptop); uptime; and
+  download / upload per second (in total and per interface); battery (on a laptop: level, charging,
+  on mains power, the time left; round 7 added the last two); uptime; and
   every **HWiNFO** sensor reading (temperatures, fans, voltages, currents, power, clocks, usage) when
   HWiNFO64 runs with shared memory on. Values come from Windows itself (no driver, nothing
   installed); a source that is missing (no GPU counters) is left out of the list rather than shown
@@ -1120,6 +1129,14 @@ use too.
   fastest **Update every** any of them asks for (1 s by default); each widget redraws once per
   sample and keeps no history of its own (the dock keeps the last 600 samples per metric). With no
   such widget nothing runs. Measured on this machine: STATUS.md, round 6 phase 6D.
+- **Battery** (`battery`, round 7): a battery glyph filled to the level (the accent colour or your
+  own; red at or below **Low from**, 20 % by default), a bolt while charging, the percentage beside
+  it (under it on a left / right dock) and optionally the time left ("2 h 10 m", on battery when
+  Windows knows it). A click opens a popup with the level, the state (Charging, On battery,
+  Plugged in, not charging, Full), the time left and **Power & battery settings**. On a PC without
+  a battery it shows a crossed battery and "No battery", or takes no room at all (**Take no room on
+  a PC without a battery**). It asks the sampler for a sample every 10 s and redraws only when the
+  battery changed.
 
 ### System tray (notify icons)
 

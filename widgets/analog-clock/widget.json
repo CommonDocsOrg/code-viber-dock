@@ -1,6 +1,6 @@
 {
   "name": "Analog clock",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "WinDock",
   "description": "An analog clock drawn from a face file (faces/*.json: dial, ticks, numerals, hands, date window). Optional second hand (ticking or smooth), the date on the face, the time under the dial, any time zone and a label.",
   "api": 1,
@@ -32,6 +32,8 @@
     { "key": "sweep", "group": "Motion and size", "type": "bool", "label": "Sweep the hands in when the clock appears or its face changes", "default": true,
       "description": "A short animation (about 0.7 s); never with reduce motion." },
     { "key": "size", "group": "Motion and size", "unit": "DIPs", "type": "int", "label": "Size in DIPs (0: the dock's icon size)", "min": 0, "max": 128, "default": 0 },
+    { "key": "hoverScale", "group": "Motion and size", "unit": "x", "type": "number", "label": "Grow while the pointer is over it", "min": 1, "max": 2.5, "step": 0.1, "default": 1.6,
+      "description": "1: off. The clock eases to this size in about 0.15 s and back when the pointer leaves (it jumps with reduce motion); its neighbours make room. Not on the desktop." },
     { "key": "timeZone", "group": "Time zone", "type": "timezone", "label": "Time zone", "default": "",
       "description": "Local time, or the time of any Windows time zone (with its own daylight saving)." },
     { "key": "label", "group": "Time zone", "type": "string", "label": "Label (e.g. Tokyo)", "default": "",

@@ -1,8 +1,8 @@
 {
   "name": "Now playing",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "WinDock",
-  "description": "The current media session (Spotify, a browser, the Media Player app ...): album art, title and artist. Hover the widget for previous / play-pause / next over the whole face; middle-click for a popup with the controls; the wheel changes the volume and shows a volume bar beside the dock (a setting).",
+  "description": "The current media session (Spotify, a browser, the Media Player app ...): album art, title and artist. Previous / play-pause / next over the face while hovered, always, or as buttons beside it; a long title or artist scrolls; middle-click for a popup with the controls; the wheel changes the volume and shows a volume bar beside the dock (a setting).",
   "api": 1,
   "size": {
     "horizontal": { "main": 170, "cross": 48 },
@@ -11,11 +11,24 @@
   "standalone": { "minWidth": 96, "minHeight": 48, "defaultWidth": 340, "defaultHeight": 96 },
   "permissions": ["media", "audio"],
   "settings": [
-    { "key": "showText", "type": "bool", "label": "Show the title and artist beside the art", "default": true,
+    { "key": "showText", "group": "Face", "type": "bool", "label": "Show the title and artist beside the art", "default": true,
       "description": "Horizontal docks only; a vertical dock shows the art." },
-    { "key": "textWidth", "unit": "DIPs", "visibleIf": { "showText": true }, "type": "int", "label": "Text width (DIPs)", "min": 40, "max": 400, "default": 120 },
-    { "key": "marquee", "visibleIf": { "showText": true }, "type": "bool", "label": "Scroll a long title while the pointer is over it", "default": true,
-      "description": "30 frames a second only while hovered (and never with reduce motion)." },
-    { "key": "wheelVolume", "type": "bool", "label": "The wheel changes the volume (with a volume bar)", "default": true }
+    { "key": "textWidth", "group": "Face", "unit": "DIPs", "visibleIf": { "showText": true }, "type": "int", "label": "Text width (DIPs)", "min": 40, "max": 400, "default": 120 },
+    { "key": "controls", "group": "Controls", "type": "choice", "label": "Previous / play-pause / next", "default": "hover",
+      "choices": [
+        { "value": "hover", "label": "Over the face while the pointer is over it" },
+        { "value": "always", "label": "Always over the face" },
+        { "value": "sides", "label": "Beside it: previous on the left, next on the right" }
+      ],
+      "description": "Beside it: the widget grows by two buttons (above and below the art on a left or right dock); play / pause shows over the art while hovered and as a small badge otherwise." },
+    { "key": "marqueeMode", "group": "Scrolling", "visibleIf": { "showText": true }, "type": "choice", "label": "Scroll a title or artist that does not fit", "default": "hover",
+      "choices": [
+        { "value": "hover", "label": "While the pointer is over it" },
+        { "value": "always", "label": "Always (while the dock is on screen)" },
+        { "value": "off", "label": "Never (fade out at the edge)" }
+      ],
+      "description": "Never with reduce motion. Always costs 10 - 30 wake-ups a second (by the speed) while a line is too long and the dock is shown." },
+    { "key": "marqueeSpeed", "group": "Scrolling", "visibleIf": { "showText": true }, "type": "int", "label": "Scrolling speed", "min": 5, "max": 120, "step": 5, "default": 28, "unit": "DIPs a second" },
+    { "key": "wheelVolume", "group": "Wheel", "type": "bool", "label": "The wheel changes the volume (with a volume bar)", "default": true }
   ]
 }

@@ -687,7 +687,7 @@ phase on master, not pushed; STATUS.md "Round 7" has each phase's notes.
 |---|---|---|
 | 7A Dock fixes | Task Manager on the dock / tray menu (DockCommand 149); the hover label stays with the window preview (the preview opens beyond it); `docks[].popupGap` (default 6 DIP from the magnified icon; Behaviour tab); `docks[].maxLength` (Position tab; the overflow mode takes over at the cap); the Start logo snapped to device pixels | Done (the commit "Add Task Manager, popup gap, maximum length; keep the label with previews"; STATUS.md "Round 7") |
 | 7B Item anchors | `items[].anchor` (start / centre / end) and `items[].offset`, group layout (an anchored bar is the room's length; one run while it overflows), Sanitize / every edit keeps group order, on-dock drag and strip moves join the group they are dropped into, the inspector's "Position on the dock" / "Offset", QueryState 272 - 274, ItemCommand 859 / 860 | Done (the commit "Add per-item anchors and offsets on the dock"; STATUS.md "Round 7") |
-| 7C Widgets | Analog clock hover growth, the weather widget's dock forecast, media controls beside the art and marquee options, the battery widget (+ `PerfService` keys, preview samples) | Planned |
+| 7C Widgets | Analog clock hover growth (`hoverScale`, a box thicker than the bar grows outward), the weather widget's dock forecast (`dockForecast` today / days, `dockDays`), media controls beside the art and marquee options (`controls`, `marqueeMode`, `marqueeSpeed`), the battery widget (+ `battery.acLine` / `battery.timeLeft` in `PerfService`, preview samples) | Done (the commit "Grow the analog clock on hover, forecast on the dock, media controls, a battery widget"; STATUS.md "Round 7"); the end-of-round regression is next |
 
 ## Dependencies at a glance
 

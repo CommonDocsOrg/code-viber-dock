@@ -8,6 +8,7 @@
 // chosen) with the same sizes, so the two look alike side by side. The popup follows
 // src/WeatherPopup.cpp's layout: the place, the current conditions, a 24-hour strip and the daily
 // rows, "Updated N min ago", the refresh and settings buttons and the Open-Meteo credit.
+// Round 7 phase 7C: settings.dockForecast adds today's high / low or a few day columns to the slot.
 //
 // Cost: nothing polls. The widget redraws when the provider reports a change (a fetch started,
 // finished or failed); while the popup is open one timeout per minute updates "N min ago".
@@ -34,21 +35,61 @@ const lround = (x) => (x < 0 ? -Math.round(-x) : Math.round(x));
 const tempText = (t) => (t === null || t === undefined ? '--°' : `${lround(t) || 0}°`);
 const fresh = () => wx.state === 'fresh';
 
+// settings.dockForecast (round 7 phase 7C): "none", "today" (today's high / low under the
+// temperature, as showHigh + showLow) or "days" (dockDays compact day columns after the current
+// conditions; rows under them on a left / right dock).
+const forecastMode = () => settings.dockForecast || 'none';
+
 function slotLines(dock) {
   // The temperature, then the optional second line (its label, today's high / low, the place).
   if (!wx.configured || settings.compact) return { main: '', extra: '' };
   const main = wx.current ? tempText(wx.current.temp) : '--°';
   const today = wx.daily && wx.daily[0];
+  const todayMode = forecastMode() === 'today';
   const parts = [];
   if (settings.label) parts.push(settings.label);
-  if (settings.showHigh && today) parts.push('↑' + tempText(today.max));
-  if (settings.showLow && today) parts.push('↓' + tempText(today.min));
+  if ((settings.showHigh || todayMode) && today) parts.push('↑' + tempText(today.max));
+  if ((settings.showLow || todayMode) && today) parts.push('↓' + tempText(today.min));
   if (settings.showPlace && wx.place) parts.push(wx.place);
   return { main, extra: parts.join(dock.axis === 'vertical' ? '\n' : '  ') };
 }
 
 const mainStyle = (dock, k = 1) => ({ size: (dock.clockDate ? FONT - 2 : FONT) * k, weight: 'semibold' });
 const extraStyle = { size: 10 };
+
+// The day columns ("days"): a column per day (the weekday on top, the glyph, the high over the
+// low); on a left / right dock a row per day (the weekday's initial, the glyph, "high/low").
+const DAY_GLYPH = 16, ROW_GLYPH = 14;  // DIPs
+const DAY_FONT = 9, DAY_LINE = 10;      // the columns' text size and line pitch
+const DAY_GAP = 6;                      // between columns
+const FORECAST_GAP = 8;                 // the current conditions -> the columns (half before rows)
+const DAY_ROW_H = 16;
+
+const dayDeg = (t) => (t === null || t === undefined ? '–' : (lround(t) || 0) + '°');
+const dayNum = (t) => (t === null || t === undefined ? '–' : String(lround(t) || 0));
+
+function forecast(canvas, dock, k, vertical) {
+  if (forecastMode() !== 'days' || !wx.configured || !wx.daily || !wx.daily.length) return null;
+  const days = wx.daily.slice(0, Math.max(2, Math.min(5, settings.dockDays || 3)));
+  const label = { size: DAY_FONT * k, weight: 'semibold' };
+  const small = { size: DAY_FONT * k };
+  const width = (s, st) => canvas.measureText(s, st).width;
+  if (!vertical) {
+    const cols = days.map((d, i) => {
+      const name = i === 0 ? 'Today' : system.shortDayNames[d.weekday] || '';
+      const hi = dayDeg(d.max), lo = dayDeg(d.min);
+      const w = Math.ceil(Math.max(width(name, label), width(hi, small), width(lo, small), DAY_GLYPH * k));
+      return { d, name, hi, lo, w };
+    });
+    const w = cols.reduce((s, c) => s + c.w, 0) + (cols.length - 1) * Math.round(DAY_GAP * k);
+    return { vertical, cols, w, h: Math.ceil((3 * DAY_LINE + DAY_GLYPH) * k), label, small };
+  }
+  const rows = days.map((d) => ({ d, name: (system.shortDayNames[d.weekday] || '?').charAt(0), hi: dayNum(d.max), lo: '/' + dayNum(d.min) }));
+  const nameW = Math.ceil(Math.max(...rows.map((r) => width(r.name, label))));
+  const tempW = Math.ceil(Math.max(...rows.map((r) => width(r.hi, small) + width(r.lo, small))));
+  const gap = Math.round(2 * k);
+  return { vertical, rows, nameW, tempW, gap, w: nameW + gap + ROW_GLYPH * k + gap + tempW, h: Math.ceil(rows.length * DAY_ROW_H * k), label, small };
+}
 
 // The slot's parts at scale k (1 on a dock).
 function layout(canvas, dock, k = 1) {
@@ -60,9 +101,48 @@ function layout(canvas, dock, k = 1) {
   const textH = Math.ceil(a.height) + Math.ceil(b.height);
   const gap = textW > 0 ? GAP * k : 0;
   const vertical = dock.axis === 'vertical';
-  const w = vertical ? Math.max(glyph, textW) : glyph + gap + textW;
-  const h = vertical ? glyph + gap + textH : Math.max(glyph, textH);
-  return { t, a, b, glyph, gap, w, h, vertical, k };
+  const cw = vertical ? Math.max(glyph, textW) : glyph + gap + textW;  // the current conditions
+  const ch = vertical ? glyph + gap + textH : Math.max(glyph, textH);
+  const f = forecast(canvas, dock, k, vertical);
+  let w = cw, h = ch;
+  if (f && vertical) {
+    w = Math.max(cw, f.w);
+    h = ch + Math.round((FORECAST_GAP / 2) * k) + f.h;
+  } else if (f) {
+    w = cw + Math.round(FORECAST_GAP * k) + f.w;
+    h = Math.max(ch, f.h);
+  }
+  return { t, a, b, glyph, gap, cw, ch, f, w, h, vertical, k };
+}
+
+function drawForecast(canvas, dock, l, x, y, dim) {
+  const f = l.f, k = l.k;
+  const text = dock.theme.text, low = dock.theme.dateText;
+  canvas.save();
+  canvas.opacity(dim);
+  if (!f.vertical) {
+    const g = DAY_GLYPH * k, line = DAY_LINE * k;
+    for (const c of f.cols) {
+      const cx = x + c.w / 2;
+      canvas.text(c.name, cx, y + line / 2, { ...f.label, align: 'center', baseline: 'middle', color: text });
+      if (c.d.code !== null && c.d.code >= 0) canvas.image(weather.icon(c.d.code, true), Math.round(cx - g / 2), Math.round(y + line), g, g);
+      canvas.text(c.hi, cx, y + line + g + line / 2, { ...f.small, align: 'center', baseline: 'middle', color: text });
+      canvas.text(c.lo, cx, y + 2 * line + g + line / 2, { ...f.small, align: 'center', baseline: 'middle', color: low });
+      x += c.w + Math.round(DAY_GAP * k);
+    }
+  } else {
+    const g = ROW_GLYPH * k, rh = DAY_ROW_H * k;
+    f.rows.forEach((r, i) => {
+      const cy = y + i * rh + rh / 2;
+      canvas.text(r.name, x + f.nameW / 2, cy, { ...f.label, align: 'center', baseline: 'middle', color: text });
+      const gx = x + f.nameW + f.gap;
+      if (r.d.code !== null && r.d.code >= 0) canvas.image(weather.icon(r.d.code, true), Math.round(gx), Math.round(cy - g / 2), g, g);
+      const tx = gx + g + f.gap;
+      canvas.text(r.hi, tx, cy, { ...f.small, baseline: 'middle', color: text });
+      canvas.text(r.lo, tx + canvas.measureText(r.hi, f.small).width, cy, { ...f.small, baseline: 'middle', color: low });
+    });
+  }
+  canvas.restore();
 }
 
 // Standalone (a window of its own, round 6 phase 6B): the slot's layout grown to fill the window.
@@ -86,7 +166,10 @@ export function draw(canvas, dock) {
   const icon = weather.icon(code, isDay);
   const color = dock.theme.text;
   // Test hook (an item setting, not in the schema): what the slot shows, into the storage.
-  if (settings.debugStore) storage.set('slot', { state: wx.state, temp: wx.current ? wx.current.temp : null, code, dim, text: l.t.main, w: l.w, h: l.h });
+  if (settings.debugStore) {
+    storage.set('slot', { state: wx.state, temp: wx.current ? wx.current.temp : null, code, dim, text: l.t.main, w: l.w, h: l.h,
+      days: l.f ? (l.f.cols || l.f.rows).length : 0 });
+  }
   if (l.vertical) {
     const left = Math.round((canvas.width - l.glyph) / 2);
     canvas.image(icon, left, 0, l.glyph, l.glyph, dim);
@@ -99,11 +182,13 @@ export function draw(canvas, dock) {
       y += Math.ceil(l.a.height);
     }
     if (l.t.extra) canvas.text(l.t.extra, canvas.width / 2, y, { ...extraStyle, align: 'center', color: dock.theme.dateText });
+    if (l.f) drawForecast(canvas, dock, l, Math.round((canvas.width - l.f.w) / 2), l.ch + Math.round(FORECAST_GAP / 2), dim);
     return;
   }
   const left = dock.standalone ? Math.round((canvas.width - l.w) / 2) : 0;  // standalone: centred
   const top = Math.round((canvas.height - l.glyph) / 2);
   canvas.image(icon, left, top, l.glyph, l.glyph, dim);
+  if (l.f) drawForecast(canvas, dock, l, left + l.cw + Math.round(FORECAST_GAP * l.k), Math.round((canvas.height - l.f.h) / 2), dim);
   if (!l.t.main) return;
   const x = left + l.glyph + GAP * l.k;
   const blockH = l.a.height + (l.t.extra ? l.b.height : 0);

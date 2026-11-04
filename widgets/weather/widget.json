@@ -1,6 +1,6 @@
 {
   "name": "Weather (script)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "WinDock",
   "description": "The weather widget and its forecast popup written on the widget runtime: the dock's forecast service (Open-Meteo) through the weather provider, the condition glyph and the temperature in the slot. Without a place of its own it shows the place of its dock's first Weather item.",
   "api": 1,
@@ -9,7 +9,7 @@
     "vertical": { "main": 48, "cross": 40 }
   },
   "standalone": { "minWidth": 72, "minHeight": 40, "defaultWidth": 220, "defaultHeight": 100 },
-  "preview": { "settings": { "showPlace": true } },
+  "preview": { "settings": { "dockForecast": "days", "dockDays": 3 } },
   "permissions": ["weather", "shell"],
   "settings": [
     { "key": "place", "type": "place", "label": "Place", "group": "Place" },
@@ -25,6 +25,15 @@
     { "key": "showPlace", "type": "bool", "label": "Show the place under the temperature", "default": false, "group": "Slot" },
     { "key": "showHigh", "type": "bool", "label": "Show today's high", "default": false, "group": "Slot" },
     { "key": "showLow", "type": "bool", "label": "Show today's low", "default": false, "group": "Slot" },
+    { "key": "dockForecast", "type": "choice", "label": "Forecast on the dock", "default": "none", "group": "Slot",
+      "choices": [
+        { "value": "none", "label": "None" },
+        { "value": "today", "label": "Today's high and low (under the temperature)" },
+        { "value": "days", "label": "Several days (a column per day)" }
+      ],
+      "description": "Days: the weekday, the condition and the high over the low for each day after the current conditions (rows under them on a left or right dock); the slot grows." },
+    { "key": "dockDays", "type": "int", "label": "Days on the dock", "min": 2, "max": 5, "step": 1, "default": 3,
+      "unit": "days", "group": "Slot", "visibleIf": { "dockForecast": "days" } },
     { "key": "compact", "type": "bool", "label": "Compact (the glyph only)", "default": false, "group": "Slot",
       "description": "The temperature is left out; the popup still shows everything." },
     { "key": "clickOpens", "type": "choice", "label": "Clicking the widget opens", "default": "popup", "group": "Click",

@@ -1,0 +1,24 @@
+{
+  "name": "Battery",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "The battery's level as a battery glyph (red when low, a bolt while charging) with the percentage and, optionally, the time left. A click opens a popup with the state and Power & battery settings. A PC without a battery shows a crossed battery, or nothing.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 80, "cross": 48 },
+    "vertical": { "main": 64, "cross": 48 }
+  },
+  "standalone": { "minWidth": 64, "minHeight": 48, "defaultWidth": 160, "defaultHeight": 80 },
+  "preview": { "settings": { "showTimeLeft": true } },
+  "permissions": ["perf", "shell"],
+  "settings": [
+    { "key": "showPercent", "group": "Display", "type": "bool", "label": "Show the percentage", "default": true },
+    { "key": "showTimeLeft", "group": "Display", "type": "bool", "label": "Show the time left (on battery, when Windows knows it)", "default": false },
+    { "key": "lowPercent", "group": "Display", "type": "int", "label": "Low from", "min": 5, "max": 50, "step": 5, "default": 20, "unit": "%",
+      "description": "At or below this level the battery is drawn red." },
+    { "key": "fillColor", "group": "Display", "type": "colour", "label": "Fill colour", "default": "#00000000",
+      "description": "#00000000 (transparent): the theme's accent colour." },
+    { "key": "hideWithoutBattery", "group": "Without a battery", "type": "bool", "label": "Take no room on a PC without a battery", "default": false,
+      "description": "Off: a crossed battery and \"No battery\"." }
+  ]
+}

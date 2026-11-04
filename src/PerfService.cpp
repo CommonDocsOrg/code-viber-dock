@@ -824,6 +824,18 @@ private:
             b.Add("battery.percent", ps.BatteryLifePercent, [] { return Make(L"Battery", L"%", L"Battery", Kind::Percent, 0, 100); });
             b.Add("battery.charging", (ps.BatteryFlag & 8) ? 1.0 : 0.0,
                   [] { return Make(L"Battery charging", L"", L"Battery", Kind::Bool, 0, 1); });
+            // Round 7 phase 7C: on mains power (absent when Windows does not know) and the time left
+            // (seconds; absent while unknown: charging, on mains, or just after a change).
+            if (ps.ACLineStatus <= 1) {
+                b.Add("battery.acLine", ps.ACLineStatus == 1 ? 1.0 : 0.0,
+                      [] { return Make(L"On mains power", L"", L"Battery", Kind::Bool, 0, 1); });
+            }
+            if (ps.BatteryLifeTime != static_cast<DWORD>(-1)) {
+                const double left = static_cast<double>(ps.BatteryLifeTime);
+                b.Add("battery.timeLeft", left, [&] {
+                    return Make(L"Battery time left", L"s", L"Battery", Kind::Seconds, 0, Nice(std::max(36000.0, left * 1.5)), true);
+                });
+            }
         }
         const double up = static_cast<double>(GetTickCount64() / 1000);
         b.Add("system.uptime", up, [&] { return Make(L"Uptime", L"s", L"System", Kind::Seconds, 0, Nice(std::max(86400.0, up * 2)), true); });

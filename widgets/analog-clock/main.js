@@ -12,6 +12,10 @@
 // system.localTime / formatTime / setRefresh call; every zone is a whole number of minutes from UTC,
 // so the minute and second wake-ups fall on the same instants in any zone. settings.label is drawn
 // under the dial ("Tokyo", or "Tokyo · 21:04" with the digital time).
+//
+// Hover (round 7 phase 7C): settings.hoverScale (1 - 2.5, default 1.6; 1 = off) grows the box
+// while the pointer is over it: a 150 ms ease of 16 ms frames on enter and on leave, no timer at
+// rest (see "growing on hover" below).
 
 const SWEEP_MS = 700;
 const FRAME_MS = 16;   // the sweep
@@ -143,9 +147,16 @@ configure(true);
 
 export function onSettingsChanged() {
   configure(false);
+  // The hover size follows a changed hoverScale at once (no animation).
+  stopGrow();
+  grow.k = canGrow() && dock.hovered ? hoverTarget() : 1;
 }
 
 export function onVisibilityChange(e) {
+  if (!e.visible && grow.timer) {  // no frames off screen: finish the hover ease at once
+    stopGrow();
+    grow.k = grow.to;
+  }
   if (e.visible && pendingSweep) startSweep();
   schedule();
   if (e.visible) requestRedraw();  // the time moved on while it was hidden
@@ -174,8 +185,54 @@ function boxSize() {
   return settings.size > 0 ? settings.size : Math.round(dock.iconSize);
 }
 
+// --- growing on hover (round 7 phase 7C) -----------------------------------------------------------
+// measure() returns the box times `grow.k`; on hover k eases to settings.hoverScale over HOVER_MS
+// (16 ms frames only during the ease; the host re-measures after every redraw request and lays the
+// dock out again), on leave back to 1. Reduce motion (or a hidden dock): it jumps. Never standalone
+// (the window is the size) or in a preview.
+
+const HOVER_MS = 150;
+const grow = { k: 1, from: 1, to: 1, start: 0, timer: 0 };
+
+const hoverTarget = () => Math.max(1, Math.min(2.5, Number(settings.hoverScale) || 1));
+const canGrow = () => !dock.standalone && !dock.preview && hoverTarget() > 1.001;
+
+function stopGrow() {
+  if (grow.timer) clearInterval(grow.timer);
+  grow.timer = 0;
+}
+
+function growFrame() {
+  const p = Math.min(1, (Date.now() - grow.start) / HOVER_MS);
+  const eased = 1 - Math.pow(1 - p, 3);  // ease-out cubic
+  grow.k = grow.from + (grow.to - grow.from) * eased;
+  if (p >= 1) {
+    grow.k = grow.to;
+    stopGrow();
+  }
+  requestRedraw();
+}
+
+function growTo(target) {
+  stopGrow();
+  if (Math.abs(grow.k - target) < 0.001) return;
+  if (dock.reduceMotion || !dock.visible) {
+    grow.k = target;
+    requestRedraw();
+    return;
+  }
+  grow.from = grow.k;
+  grow.to = target;
+  grow.start = Date.now();
+  grow.timer = setInterval(growFrame, FRAME_MS);
+}
+
+export function onHover(e) {
+  growTo(e.inside && canGrow() ? hoverTarget() : 1);
+}
+
 export function measure() {
-  const s = boxSize();
+  const s = boxSize() * (canGrow() ? grow.k : 1);
   return { main: s, cross: s };
 }
 

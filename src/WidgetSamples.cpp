@@ -235,6 +235,11 @@ const std::vector<SampleMetric>& Metrics() {
             {"disk.write", L"Disk write", L"B/s", "bytesPerSecond", L"Disk", 0, 1e9, 655360},
             {"network.down", L"Network download", L"B/s", "bytesPerSecond", L"Network", 0, 125e6, 122880},
             {"network.up", L"Network upload", L"B/s", "bytesPerSecond", L"Network", 0, 125e6, 18432},
+            // Round 7 phase 7C: a laptop on battery (the Battery widget's preview).
+            {"battery.percent", L"Battery", L"%", "percent", L"Battery", 0, 100, 74},
+            {"battery.charging", L"Battery charging", L"", "bool", L"Battery", 0, 1, 0},
+            {"battery.acLine", L"On mains power", L"", "bool", L"Battery", 0, 1, 0},
+            {"battery.timeLeft", L"Battery time left", L"s", "seconds", L"Battery", 0, 36000, 11400},
             {"system.uptime", L"Uptime", L"s", "seconds", L"System", 0, 604800, 273600},
         };
         m.insert(m.end(), rest.begin(), rest.end());

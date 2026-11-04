@@ -63,6 +63,8 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"system-monitor", "main.js", IDR_WIDGET_SYSMON_MAIN},
     {L"system-overview", "widget.json", IDR_WIDGET_SYSVIEW_JSON},
     {L"system-overview", "main.js", IDR_WIDGET_SYSVIEW_MAIN},
+    {L"battery", "widget.json", IDR_WIDGET_BATTERY_JSON},
+    {L"battery", "main.js", IDR_WIDGET_BATTERY_MAIN},
 };
 
 bool IsBuiltIn(const std::wstring& id) {
