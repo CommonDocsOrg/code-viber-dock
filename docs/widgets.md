@@ -136,7 +136,7 @@ defaults overridden by the item's values (a value of the wrong type or out of ra
 the default; ints are rounded, numbers clamped); keys the schema does not name are passed through
 unchanged. Each widget item has its own settings window (an Item window, round 5), generated from
 the schema: **<name> settings…** in the dock menu opened over the widget, or Dock settings >
-Contents > **Open settings in its own window** on the widget's tile (a double click or Enter on it
+Contents > **Settings…** in the inspector of the widget's tile (a double click or Enter on it
 does the same). It has a check box per `bool`, an up-down (stepper, `step` per click, `min` -
 `max`) per `int`, a drop-down per `choice` and `timezone`, the place block for a `place`, an edit
 box for the others (`colour` as `#AARRGGBB`), each field's `description` under it, and **Reset to

@@ -14,12 +14,13 @@ inline constexpr int kHeader = 102;     // WinDock.SettingsBand: Global the subt
 inline constexpr int kTabs = 103;       // Dock: WinDock.SettingsTabs, the tab strip; window text = selected tab name
 inline constexpr int kFooter = 104;     // Item: WinDock.SettingsBand, the footer
 // Children of the header / footer bands.
-inline constexpr int kHeaderFlash = 110;    // Dock: "Flash this dock"
-inline constexpr int kHeaderLock = 111;     // Dock: "Lock dock" / "Unlock dock" (docks[].locked)
-inline constexpr int kHeaderGlobal = 112;   // Dock: SysLink "Global settings"
+inline constexpr int kHeaderFlash = 110;    // Dock: "Flash" (round 8 phase 8B: was "Flash this dock")
+inline constexpr int kHeaderLock = 111;     // Dock: "Lock" / "Unlock" (docks[].locked; was "Lock dock" / "Unlock dock")
+inline constexpr int kHeaderGlobal = 112;   // Dock: the "⋯" menu's "Global settings…" command (round 8 phase 8B; was a SysLink)
 inline constexpr int kHeaderDockLink = 113; // Item: SysLink "on <dock id>" (opens / activates the dock window)
 inline constexpr int kFooterReset = 114;    // Item (widget / clock / weather): "Reset to defaults"
 inline constexpr int kFooterConsole = 115;  // Item (widget): "Console…"
+inline constexpr int kHeaderMore = 116;     // Dock: round 8 phase 8B: the "⋯" button (a menu: Global settings… = kHeaderGlobal)
 
 // Page indices of the Global window (nav order; round 5 phase B renumbered them).
 inline constexpr int kPageGeneral = 0;        // startup, taskbar, renderer, config file
@@ -35,11 +36,14 @@ inline constexpr int kPageLayout = kPageDocks;
 inline constexpr int kPageAbout = 8;
 inline constexpr int kPageCount = 9;
 // Tab indices of a Dock window (a folder window entry's window has the one page kTabFolderWindow).
+// Round 8 phase 8B: Appearance (the old Theme tab's combo and link plus Behaviour's Size card)
+// is the third tab; the Theme tab (kTabTheme, 4) is retired and Behaviour / Running apps moved
+// one place to the right (2 -> 3, 3 -> 4).
 inline constexpr int kTabContents = 0;   // was the Dock contents page
 inline constexpr int kTabPosition = 1;
-inline constexpr int kTabBehaviour = 2;
-inline constexpr int kTabRunning = 3;
-inline constexpr int kTabTheme = 4;
+inline constexpr int kTabAppearance = 2;  // round 8 phase 8B (the preview strip shows only here)
+inline constexpr int kTabBehaviour = 3;
+inline constexpr int kTabRunning = 4;
 inline constexpr int kTabCount = 5;
 inline constexpr int kTabFolderWindow = 0;
 inline constexpr int kTabWidgetWindow = 0;  // round 6 phase 6B: a standalone widget entry's window has this one page
@@ -226,6 +230,14 @@ inline constexpr int kAlignNote = 2268;            // "Where the dock sits on it
 // Round 8 phase 8A: Behaviour > Auto-hide, the expander over Hide delay / Reveal delay
 // (QueryState 276 with this id: 1 while it is open).
 inline constexpr int kAutoHideMore = 2269;
+// Round 8 phase 8B: the Position tab's placement kind (it sets shape + floating; the shape combo
+// 2169 and the Floating check box 2189 stay as hidden controls for automation), the "More"
+// expander, the dock silhouette (moved from the header) and the Layer card.
+inline constexpr int kPlacementKindLabel = 2270;
+inline constexpr int kPlacementKindCombo = 2271;   // 0 bar on an edge, 1 floating bar, 2 half circle, 3 circle (QueryState 277)
+inline constexpr int kPositionMore = 2272;         // expander: reserve screen space, peek, maximum length, title (bars only)
+inline constexpr int kPositionSilhouette = 2273;   // WinDock.SettingsSilhouette: the display with the dock on it (window text: "Where it sits: …")
+inline constexpr int kSectionLayer = 2274;
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;
@@ -341,11 +353,11 @@ inline constexpr int kLockDockCaption = 2615;
 inline constexpr int kContentsStrip = 2616;       // WinDock.SettingsStrip: the item strip (tiles in dock order; window text = its accessible name)
 inline constexpr int kContentsNote = 2617;        // "Drag to reorder. …"
 inline constexpr int kContentsInfo = 2618;        // WinDock.SettingsStrip (info mode): the selected item's icon, name, kind · details
-inline constexpr int kContentsDrawerToggle = 2619;  // "Hide widget drawer" / "Show widget drawer" (session state)
-inline constexpr int kDrawerTitle = 2620;         // "Widget drawer"
+inline constexpr int kContentsDrawerToggle = 2619;  // "Hide / Show widget drawer" until round 8 phase 8B (the drawer is always shown); reserved
+inline constexpr int kDrawerTitle = 2620;         // "Add to the dock" (round 8 phase 8B; was "Widget drawer")
 inline constexpr int kDrawerHint = 2621;          // "drag onto the strip"
 inline constexpr int kDrawerSearch = 2622;        // edit: filters the drawer by name / note / id
-inline constexpr int kDrawerList = 2623;          // WinDock.SettingsStrip (drawer mode): Built in, Script widgets
+inline constexpr int kDrawerList = 2623;          // WinDock.SettingsStrip (drawer mode): Apps and folders (8B), Built in, Script widgets
 inline constexpr int kDrawerLibraryLink = 2624;   // SysLink: opens Global > Widget library
 // Round 7 phase 7B: the inspector's placement of the selected item (every kind).
 inline constexpr int kItemAnchorLabel = 2625;     // "Position on the dock"
@@ -354,6 +366,10 @@ inline constexpr int kItemOffsetLabel = 2627;     // "Offset (DIPs)"
 inline constexpr int kItemOffsetEdit = 2628;      // items[].offset DIPs, -4000 - 4000
 inline constexpr int kItemOffsetSpin = 2629;
 inline constexpr int kItemOffsetNote = 2630;      // "Shifts this item and the ones after it in its group"
+// Round 8 phase 8B: the inspector's "More ▾" (pinned items: a menu of Choose icon… 2609, Choose
+// image… 2610, Reset icon 2611). The add buttons 2601 / 2606 / 2607 / 2608, the drawer toggle 2619
+// and the icon buttons are gone; their ids stay page commands (WM_COMMAND with lParam 0 to the page).
+inline constexpr int kPinMore = 2631;
 
 // Weather (2700 - 2799): the Weather page until round 5 phase A (retired: each weather item's place
 // is a Place field of the generated page, 3610 - 3629); reserved.

@@ -1,7 +1,8 @@
 // The Dock window's Contents tab (round 5 phase C; it replaces the Dock contents list): the item
-// strip (the dock's items as tiles in dock order: drag to reorder, keyboard moves), the widget
-// drawer on the right (built-in kinds and the installed script widgets: drag a row onto the strip
-// or press its Add), the inspector of the selected item under the strip and the add buttons.
+// strip (the dock's items as tiles in dock order: drag to reorder, keyboard moves), the drawer on
+// the right ("Add to the dock", always shown since round 8 phase 8B: apps and folders (a dialog),
+// the built-in kinds and the installed script widgets: drag a row onto the strip or press its Add)
+// and the inspector of the selected item under the strip.
 //
 // The strip, the drawer and the inspector's identity line are three instances of one custom
 // control (WinDock.SettingsStrip, Mode Strip / Drawer / Info): GDI, double-buffered, palette
@@ -252,6 +253,7 @@ struct StripTile {
     bool disabled = false;  // drawer: a single-instance kind already on the dock
     bool header = false;    // drawer: a group header ("Built in")
     bool desktop = false;   // drawer: a script widget's row also offers "Desktop" (round 6 phase 6B: Add to the desktop)
+    bool noDrag = false;    // drawer: not a drag source, Add only (round 8 phase 8B: App or shortcut…, Folder…: a dialog)
     // Round 6 phase 6E: a script widget's id: the drawer row / the inspector shows its live preview
     // (SettingsWindow::Preview) instead of the letter tile ("" none, or a widget that failed).
     std::wstring previewId;
@@ -1091,7 +1093,7 @@ private:
                         if (!tiles_[static_cast<size_t>(hit)].disabled && onActivate) onActivate(tiles_[static_cast<size_t>(hit)].ref);
                         return 0;
                     }
-                    if (tiles_[static_cast<size_t>(hit)].disabled) return 0;  // not a drag source
+                    if (tiles_[static_cast<size_t>(hit)].disabled || tiles_[static_cast<size_t>(hit)].noDrag) return 0;  // not a drag source
                 } else if (msg == WM_LBUTTONDBLCLK) {
                     if (onActivate) onActivate(hit);
                     return 0;
@@ -1273,11 +1275,10 @@ private:
 
 // --- the page --------------------------------------------------------------------------------
 
-// The drawer's state is the session's (not saved): shown at first.
-bool g_drawerOpen = true;
-
+// Round 8 phase 8B: the drawer ("Add to the dock") is always shown (no Hide / Show toggle).
 constexpr int kDrawerW = 340;  // DIPs (round 6 phase 6E: 300 -> 340 for the rows' previews)
-constexpr int kInspectorTop = 278;
+constexpr int kStripTop = 44, kStripBottom = 162;  // the item strip (118 DIPs tall, as before)
+constexpr int kInspectorTop = 176;  // round 8 phase 8B: right under the strip (the add buttons are gone)
 
 // A drawer entry: a built-in kind (0 - 6) or an installed script widget (7 ...).
 struct DrawerEntry {
@@ -1294,37 +1295,33 @@ public:
     explicit ContentsPage(SettingsWindow& w)
         : FormPage(w, L"Contents", L'\xE718'),
           strip_(w, SettingsStrip::Mode::Strip, L"Items on the dock"),
-          drawer_(w, SettingsStrip::Mode::Drawer, L"Widget drawer"),
+          drawer_(w, SettingsStrip::Mode::Drawer, L"Add to the dock"),
           info_(w, SettingsStrip::Mode::Info, L"Selected item") {}
     ~ContentsPage() override {
         for (auto& entry : icons_) {
             if (entry.second.icon) DestroyIcon(entry.second.icon);
         }
-        for (HICON i : {infoIcon_, binIcon_}) {
+        for (HICON i : {infoIcon_, binIcon_, appIcon_, folderIcon_}) {
             if (i) DestroyIcon(i);
         }
     }
 
 protected:
     void Build() override {
-        // Round 8 phase 8A: the tab lays itself out (ApplyDrawer / FlowInspector): no reflow, no cards.
+        // Round 8 phase 8A: the tab lays itself out (LayoutColumns / FlowInspector): no reflow, no cards.
         NoReflow();
         SettingsStrip::Register();
         const int W = Width(), L = kMargin, R = Right(), dx = W - kDrawerW;
-        Add(kPageTitle, CtlKind::Section, WC_STATICW, L"Items on the dock", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE, RECT{L, 12, R, 36});
-        Add(kContentsNote, CtlKind::Note, WC_STATICW, L"Drag to reorder; drop a widget from the drawer anywhere on the strip.",
-            SS_LEFT | SS_NOPREFIX | SS_NOTIFY, RECT{L, 38, R, 72});
+        // Round 8 phase 8B: the heading and its hint on one line, the strip right under them, the
+        // inspector right under the strip (no add buttons: the drawer adds everything).
+        Add(kPageTitle, CtlKind::Section, WC_STATICW, L"Items on the dock", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
+            RECT{L, 12, L + kTitleW, 36});
+        Add(kContentsNote, CtlKind::Note, WC_STATICW, L"drag to reorder, drop from the drawer",
+            SS_LEFT | SS_NOPREFIX | SS_NOTIFY | SS_CENTERIMAGE | SS_ENDELLIPSIS, RECT{L + kTitleW + 8, 12, R, 36});
         Tip(kContentsNote, L"Drag to reorder. Drop a widget from the drawer anywhere on the strip. Each copy keeps its own "
-                           L"settings.");
-        Add(kContentsStrip, CtlKind::Custom, SettingsStrip::kClass, L"Items on the dock", WS_TABSTOP, RECT{L, 76, R, 194});
-        y_ = 200;
-        Button(kPinAdd, L"Add app…", L, 96);
-        Button(kPinAddFolder, L"Add folder…", L + 104, 104);
-        Button(kPinAddSeparator, L"Add separator", L + 216, 112);
-        Button(kPinAddRecycleBin, L"Add Recycle Bin", L + 336, 124);
-        y_ = 236;
-        // Round 8 phase 8A: the "Lock the dock" check box (2614 / 2615) is gone: the header's Lock dock.
-        Button(kContentsDrawerToggle, g_drawerOpen ? L"Hide widget drawer" : L"Show widget drawer", R - 150, 150);
+                           L"settings. Ctrl+Left / Ctrl+Right move the selected item, Delete removes it.");
+        Add(kContentsStrip, CtlKind::Custom, SettingsStrip::kClass, L"Items on the dock", WS_TABSTOP,
+            RECT{L, kStripTop, R, kStripBottom});
         // The inspector (its frame is painted by PaintBackground; FlowInspector places the buttons).
         Add(kContentsInfo, CtlKind::Custom, SettingsStrip::kClass, L"Selected item", 0,
             RECT{L + 14, kInspectorTop + 10, R - 14 - 212, kInspectorTop + 46});
@@ -1332,11 +1329,9 @@ protected:
         Button(kPinUp, L"◀ Move left", R - 14 - 206, 100);
         Button(kPinDown, L"Move right ▶", R - 14 - 100, 100);
         y_ = kInspectorTop + 50;
-        Button(kPinSettings, L"Open settings in its own window", L + 14, 196);
-        Button(kPinChooseIcon, L"Choose icon…", L + 216, 92);
-        Button(kPinChooseImage, L"Choose image…", L + 314, 102);
-        Button(kPinResetIcon, L"Reset icon", L + 422, 80);
-        Button(kPinRemove, L"Remove from dock", R - 14 - 128, 128);
+        Button(kPinSettings, L"Settings…", L + 14, kSettingsW);
+        Button(kPinMore, L"More ▾", L + 14 + kSettingsW + 6, kMoreW);  // pinned items: Choose icon… / Choose image… / Reset icon
+        Button(kPinRemove, L"Remove", R - 14 - kRemoveW, kRemoveW);
         // Round 7 phase 7B: the item's place on the dock (FlowInspector places them under the buttons).
         y_ = kInspectorTop + 90;
         Add(kItemAnchorLabel, CtlKind::Label, WC_STATICW, L"Position on the dock",
@@ -1348,14 +1343,14 @@ protected:
         Spin(kItemOffsetEdit, kItemOffsetSpin, L + 14 + kPlaceLabelW + 6, 96, -DockConfig::kMaxItemOffset, DockConfig::kMaxItemOffset, 10);
         y_ += kRowH;
         Text(kItemOffsetNote, CtlKind::Note, L"Shifts this item and the ones after it in its group", L + 14, R - L - 28, 20);
-        // The widget drawer.
-        Add(kDrawerTitle, CtlKind::Section, WC_STATICW, L"Widget drawer", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
-            RECT{dx + 16, 12, dx + 132, 36});
+        // The drawer: everything that can be added (round 8 phase 8B: apps and folders too).
+        Add(kDrawerTitle, CtlKind::Section, WC_STATICW, L"Add to the dock", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
+            RECT{dx + 16, 12, dx + 16 + kDrawerTitleW, 36});
         Add(kDrawerHint, CtlKind::Note, WC_STATICW, L"drag onto the strip", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
-            RECT{dx + 132, 12, W - 16, 36});
+            RECT{dx + 16 + kDrawerTitleW, 12, W - 16, 36});
         y_ = 38;
         EditBox(kDrawerSearch, dx + 16, kDrawerW - 32, 80);
-        Add(kDrawerList, CtlKind::Custom, SettingsStrip::kClass, L"Widget drawer", WS_TABSTOP, RECT{dx + 16, 74, W - 16, 378});
+        Add(kDrawerList, CtlKind::Custom, SettingsStrip::kClass, L"Add to the dock", WS_TABSTOP, RECT{dx + 16, 74, W - 16, 378});
         // Two lines: the text does not fit the drawer's width on one.
         Add(kDrawerLibraryLink, CtlKind::Link, WC_LINK, L"<a>Manage installed widgets in Global > Widget library</a>", WS_TABSTOP,
             RECT{dx + 16, 386, W - 16, 422});
@@ -1381,7 +1376,7 @@ protected:
         for (const wchar_t* a : {L"Follow the dock's alignment", L"Start (left / top)", L"Centre", L"End (right / bottom)"}) {
             ComboAdd(kItemAnchorCombo, a);
         }
-        ApplyDrawer();
+        LayoutColumns();
     }
 
     void Load() override {
@@ -1398,7 +1393,7 @@ protected:
                 if (entry.second.icon) DestroyIcon(entry.second.icon);
             }
             icons_.clear();
-            for (HICON* i : {&infoIcon_, &binIcon_}) {
+            for (HICON* i : {&infoIcon_, &binIcon_, &appIcon_, &folderIcon_}) {
                 if (*i) DestroyIcon(*i);
                 *i = nullptr;
             }
@@ -1421,12 +1416,10 @@ protected:
         const RECT f{Window().Px(kMargin), Window().Px(kInspectorTop) - s, Window().Px(Right()), Window().Px(inspectorBottom_) - s};
         Frame(dc, f, hair, Window().Px(8) * 2);
         // The drawer's edge.
-        if (g_drawerOpen) {
-            RECT rc{};
-            GetClientRect(Hwnd(), &rc);
-            const int x = Window().Px(Width() - kDrawerW);
-            Fill(dc, RECT{x, 0, x + std::max(1, Window().Px(1)), rc.bottom}, Mix(p.text, p.layer, 12));
-        }
+        RECT rc{};
+        GetClientRect(Hwnd(), &rc);
+        const int x = Window().Px(Width() - kDrawerW);
+        Fill(dc, RECT{x, 0, x + std::max(1, Window().Px(1)), rc.bottom}, Mix(p.text, p.layer, 12));
     }
 
     bool Query(int code, LPARAM arg, LRESULT& out) override {
@@ -1435,22 +1428,24 @@ protected:
             case 229:  // a strip tile's centre (screen px) for item `arg`
                 out = strip_.CentreOf(static_cast<int>(arg), pt) ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(pt.x), static_cast<WORD>(pt.y))) : -1;
                 return true;
-            case 230:  // a drawer row's centre for entry `arg`
-                out = g_drawerOpen && drawer_.CentreOf(static_cast<int>(arg), pt)
-                          ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(pt.x), static_cast<WORD>(pt.y)))
-                          : -1;
+            case 230:  // a drawer row's centre for entry `arg` (round 8 phase 8B: 1000 App or shortcut…, 1001 Folder…)
+                out = drawer_.CentreOf(static_cast<int>(arg), pt) ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(pt.x), static_cast<WORD>(pt.y)))
+                                                                    : -1;
                 return true;
             case 231:  // the strip's selected item (-1 none)
                 out = strip_.Selected();
                 return true;
-            case 232:  // the drawer is shown
-                out = g_drawerOpen ? 1 : 0;
+            case 232:  // the drawer is shown (round 8 phase 8B: always)
+                out = 1;
+                return true;
+            case 278:  // round 8 phase 8B: the drawer's rows in group `arg` (0 apps and folders, 1 built in, 2 script widgets; as filtered)
+                out = arg >= 0 && arg < 3 ? groupRows_[static_cast<size_t>(arg)] : -1;
                 return true;
             case 233:  // the strip's insertion marker (the slot a drop lands in; -1 none)
                 out = strip_.Marker();
                 return true;
             case 252:  // round 6 phase 6B: the "Desktop" button's centre of drawer entry `arg` (a script widget)
-                out = g_drawerOpen && drawer_.DesktopCentreOf(static_cast<int>(arg), pt)
+                out = drawer_.DesktopCentreOf(static_cast<int>(arg), pt)
                           ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(pt.x), static_cast<WORD>(pt.y)))
                           : -1;
                 return true;
@@ -1507,6 +1502,8 @@ protected:
         const int n = static_cast<int>(dock.items.size());
         const bool valid = sel_ >= 0 && sel_ < n;
         switch (id) {
+            // Round 8 phase 8B: the add buttons are gone (the drawer's rows post these; so may
+            // automation: WM_COMMAND with lParam 0 to the page).
             case kPinAdd: AddFiles(); break;
             case kPinAddFolder: AddFolder(); break;
             case kPinAddSeparator: {
@@ -1533,6 +1530,10 @@ protected:
             case kPinSettings:
                 if (valid) OpenItemSettings(sel_);
                 break;
+            case kPinMore:
+                if (valid) ShowIconMenu();
+                break;
+            // Round 8 phase 8B: the More ▾ menu's commands (the old buttons' ids).
             case kPinChooseIcon:
             case kPinChooseImage:
                 if (valid && dock.items[static_cast<size_t>(sel_)].IsPin()) ChooseIcon(sel_, id == kPinChooseImage);
@@ -1542,11 +1543,6 @@ protected:
                 dock.items[static_cast<size_t>(sel_)].icon.clear();
                 Changed(SettingsScope::Pins);
                 FillStrip(sel_);
-                break;
-            case kContentsDrawerToggle:
-                g_drawerOpen = !g_drawerOpen;
-                ApplyDrawer();
-                if (HWND b = Item(kContentsDrawerToggle)) SetFocus(b);
                 break;
             default:
                 break;
@@ -1569,15 +1565,63 @@ protected:
 
 private:
     static constexpr int kPlaceLabelW = 150, kPlaceComboW = 220;  // the inspector's placement rows (DIPs)
+    static constexpr int kTitleW = 128, kDrawerTitleW = 124;       // the headings (DIPs)
+    static constexpr int kSettingsW = 96, kMoreW = 84, kRemoveW = 96;  // the inspector's buttons (DIPs)
     static constexpr int kEntryRunning = 0, kEntryClock = 1, kEntryWeather = 2, kEntryTray = 3, kEntryBell = 4,
                          kEntryRecycleBin = 5, kEntrySeparator = 6, kBuiltInEntries = 7;
+    // Round 8 phase 8B: the "Apps and folders" rows (refs of their own: the entries' indexes, which
+    // QueryState 230 / 264 / 267 take, stay as they were).
+    static constexpr int kEntryApp = 1000, kEntryFolder = 1001;
 
-    // The left column's right edge (DIPs): beside the drawer, or the page's width.
-    int Right() const { return g_drawerOpen ? Width() - kDrawerW - 20 : Width() - kMargin; }
+    // The left column's right edge (DIPs): beside the drawer (always shown since round 8 phase 8B).
+    int Right() const { return Width() - kDrawerW - 20; }
 
     // --- the drawer ---
 
+    // The More ▾ menu of a pinned item (round 8 phase 8B: the icon buttons of earlier versions).
+    void ShowIconMenu() {
+        const DockConfig& d = Dock();
+        if (sel_ < 0 || sel_ >= static_cast<int>(d.items.size())) return;
+        const DockItemEntry& e = d.items[static_cast<size_t>(sel_)];
+        if (!e.IsPin() || e.Kind() == ItemKind::Separator) return;
+        HWND button = Item(kPinMore);
+        HMENU menu = CreatePopupMenu();
+        if (!button || !menu) return;
+        AppendMenuW(menu, MF_STRING, kPinChooseIcon, L"Choose icon…");
+        AppendMenuW(menu, MF_STRING, kPinChooseImage, L"Choose image…");
+        AppendMenuW(menu, MF_STRING | (e.icon.empty() ? MF_GRAYED : 0), kPinResetIcon, L"Reset icon");
+        RECT r{};
+        GetWindowRect(button, &r);
+        const int cmd = static_cast<int>(
+            TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, r.left, r.bottom, Owner(), nullptr));
+        DestroyMenu(menu);
+        if (cmd > 0) OnCommand(cmd, BN_CLICKED, nullptr);
+    }
+
+    // The entry behind drawer ref `ref` (null: none).
+    const DrawerEntry* EntryOf(int ref) const {
+        if (ref == kEntryApp || ref == kEntryFolder) {
+            const size_t k = static_cast<size_t>(ref - kEntryApp);
+            return k < addEntries_.size() ? &addEntries_[k] : nullptr;  // none before the first Load
+        }
+        return ref >= 0 && ref < static_cast<int>(entries_.size()) ? &entries_[static_cast<size_t>(ref)] : nullptr;
+    }
+
     void BuildEntries() {
+        if (addEntries_.empty()) {
+            DrawerEntry app;
+            app.kind = ItemKind::App;
+            app.id = L"app";
+            app.name = L"App or shortcut…";
+            app.note = L"Pin apps or shortcuts";
+            addEntries_.push_back(app);
+            DrawerEntry folder;
+            folder.kind = ItemKind::Folder;
+            folder.id = L"folder";
+            folder.name = L"Folder…";
+            folder.note = L"A folder opens as a stack";
+            addEntries_.push_back(folder);
+        }
         if (entries_.empty()) {
             auto builtIn = [&](ItemKind k, const wchar_t* name, const wchar_t* note, bool once) {
                 DrawerEntry e;
@@ -1628,10 +1672,10 @@ private:
         return filter_.empty() || ContainsNoCase(e.name, filter_) || ContainsNoCase(e.note, filter_) || ContainsNoCase(e.id, filter_);
     }
 
-    StripTile EntryTile(size_t i) {
-        const DrawerEntry& e = entries_[i];
+    StripTile EntryTile(int ref) {
+        const DrawerEntry& e = *EntryOf(ref);
         StripTile t;
-        t.ref = static_cast<int>(i);
+        t.ref = ref;
         t.name = e.name;
         t.version = e.version;
         t.disabled = e.once && Dock().Has(e.kind);
@@ -1652,6 +1696,23 @@ private:
                 t.icon = binIcon_;
                 t.shape = binIcon_ ? StripTile::Shape::Icon : StripTile::Shape::Letter;
                 break;
+            case ItemKind::App:
+            case ItemKind::Folder: {
+                // Round 8 phase 8B: "App or shortcut…" / "Folder…" (the shell's stock icons; a dialog,
+                // so Add only, no drag).
+                HICON& icon = e.kind == ItemKind::App ? appIcon_ : folderIcon_;
+                if (!icon) {
+                    SHSTOCKICONINFO sii{sizeof(sii)};
+                    if (SUCCEEDED(SHGetStockIconInfo(e.kind == ItemKind::App ? SIID_APPLICATION : SIID_FOLDER,
+                                                     SHGSI_ICON | SHGSI_LARGEICON, &sii))) {
+                        icon = sii.hIcon;
+                    }
+                }
+                t.icon = icon;
+                t.shape = icon ? StripTile::Shape::Icon : StripTile::Shape::Letter;
+                t.noDrag = true;
+                break;
+            }
             default: t.shape = StripTile::Shape::Letter; break;
         }
         return t;
@@ -1661,56 +1722,55 @@ private:
         const int keep = drawer_.SelectedRef();
         std::vector<StripTile> tiles;
         int select = -1;
-        auto group = [&](const wchar_t* title, size_t from, size_t to) {
-            bool any = false;
-            for (size_t i = from; i < to; ++i) {
-                if (!Matches(entries_[i])) continue;
-                if (!any) {
+        auto group = [&](size_t index, const wchar_t* title, const std::vector<int>& refs) {
+            int rows = 0;
+            for (int ref : refs) {
+                const DrawerEntry* e = EntryOf(ref);
+                if (!e || !Matches(*e)) continue;
+                if (rows++ == 0) {
                     StripTile h;
                     h.header = true;
                     h.name = title;
                     tiles.push_back(std::move(h));
-                    any = true;
                 }
-                if (static_cast<int>(i) == keep) select = static_cast<int>(tiles.size());
-                tiles.push_back(EntryTile(i));
+                if (ref == keep) select = static_cast<int>(tiles.size());
+                tiles.push_back(EntryTile(ref));
             }
+            groupRows_[index] = rows;
         };
-        group(L"BUILT IN", 0, std::min<size_t>(kBuiltInEntries, entries_.size()));
-        group(L"SCRIPT WIDGETS", kBuiltInEntries, entries_.size());
+        std::vector<int> builtIn, scripts;
+        for (size_t i = 0; i < entries_.size(); ++i) (i < static_cast<size_t>(kBuiltInEntries) ? builtIn : scripts).push_back(static_cast<int>(i));
+        // Round 8 phase 8B: apps and folders first (the add buttons of earlier versions).
+        group(0, L"APPS AND FOLDERS", {kEntryApp, kEntryFolder});
+        group(1, L"BUILT IN", builtIn);
+        group(2, L"SCRIPT WIDGETS", scripts);
         drawer_.SetTiles(std::move(tiles), select);
     }
 
     // Round 8 phase 8A: the window was resized: the drawer on the right, the left column again.
     void OnResized() override {
         const int W = Width(), dx = W - kDrawerW;
-        MoveCtl(kDrawerTitle, RECT{dx + 16, 12, dx + 132, 36});
-        MoveCtl(kDrawerHint, RECT{dx + 132, 12, W - 16, 36});
+        MoveCtl(kDrawerTitle, RECT{dx + 16, 12, dx + 16 + kDrawerTitleW, 36});
+        MoveCtl(kDrawerHint, RECT{dx + 16 + kDrawerTitleW, 12, W - 16, 36});
         MoveCtl(kDrawerSearch, RECT{dx + 16, 38 + 4, W - 16, 38 + kRowH - 4});
         MoveCtl(kDrawerList, RECT{dx + 16, 74, W - 16, 378});
         MoveCtl(kDrawerLibraryLink, RECT{dx + 16, 386, W - 16, 422});
-        ApplyDrawer();  // relayouts
+        LayoutColumns();  // relayouts
     }
 
-    void ApplyDrawer() {
-        const bool open = g_drawerOpen;
-        for (int id : {kDrawerTitle, kDrawerHint, kDrawerSearch, kDrawerList, kDrawerLibraryLink}) Show(id, open);
+    // The left column (the heading, the strip; the inspector: FlowInspector) beside the drawer.
+    void LayoutColumns() {
         const int L = kMargin, R = Right();
-        MoveCtl(kPageTitle, RECT{L, 12, R, 36});
-        MoveCtl(kContentsNote, RECT{L, 38, R, 72});
-        MoveCtl(kContentsStrip, RECT{L, 76, R, 194});
-        MoveCtl(kContentsDrawerToggle, RECT{R - 150, 236 + 2, R, 236 + kRowH - 2});
-        // Round 8 phase 8A: in a narrow window the fourth add button goes to the row under them
-        // (where the Lock check box was).
-        const bool narrow = L + 460 > R;
-        MoveCtl(kPinAddRecycleBin, narrow ? RECT{L, 236 + 2, L + 124, 236 + kRowH - 2} : RECT{L + 336, 200 + 2, L + 460, 200 + kRowH - 2});
-        SetText(kContentsDrawerToggle, open ? L"Hide widget drawer" : L"Show widget drawer");
+        MoveCtl(kPageTitle, RECT{L, 12, L + kTitleW, 36});
+        MoveCtl(kContentsNote, RECT{L + kTitleW + 8, 12, R, 36});
+        MoveCtl(kContentsStrip, RECT{L, kStripTop, R, kStripBottom});
         flowKey_.clear();
         FlowInspector(true);
     }
 
-    // The inspector's buttons, left to right in its second row (the shown ones), "Remove from
-    // dock" at its right end (a third row when they do not fit beside it).
+    // The inspector's buttons: Move left / right at the top right; Settings… and More ▾ (the
+    // shown ones) left to right in its second row, Remove at its right end (a third row when they
+    // do not fit beside it); with a widget's preview they stack in the right column.
     void FlowInspector(bool force = false) {
         const int L = kMargin, R = Right();
         const int left = L + 14, right = R - 14;
@@ -1719,7 +1779,7 @@ private:
             return h && (GetWindowLongW(h, GWL_STYLE) & WS_VISIBLE) != 0;
         };
         std::wstring key = std::to_wstring(R) + (infoPreview_ ? L"p" : L"");
-        for (int id : {kPinSettings, kPinChooseIcon, kPinChooseImage, kPinResetIcon}) key += shown(id) ? L"1" : L"0";
+        for (int id : {kPinSettings, kPinMore}) key += shown(id) ? L"1" : L"0";
         if (!force && key == flowKey_) return;
         flowKey_ = key;
         // Round 6 phase 6E: a widget's preview makes the identity line taller (the preview above it).
@@ -1730,7 +1790,7 @@ private:
         const struct {
             int id;
             int w;
-        } flow[] = {{kPinSettings, 196}, {kPinChooseIcon, 92}, {kPinChooseImage, 102}, {kPinResetIcon, 80}};
+        } flow[] = {{kPinSettings, kSettingsW}, {kPinMore, kMoreW}};
         // Round 7 phase 7B: the placement rows (Position on the dock, Offset and its note) under
         // everything else; returns the inspector's bottom.
         auto placeRows = [&](int top) {
@@ -1767,7 +1827,6 @@ private:
             MoveCtl(b.id, RECT{x, y, x + b.w, y + 28});
             x += b.w + 6;
         }
-        constexpr int kRemoveW = 128;
         if (x > left && x + kRemoveW > right) y += 34;  // no room beside them
         MoveCtl(kPinRemove, RECT{right - kRemoveW, y, right, y + 28});
         inspectorBottom_ = placeRows(y + 28 + 8);
@@ -1913,13 +1972,9 @@ private:
         Enable(kPinUp, valid && sel_ > 0);
         Enable(kPinDown, valid && sel_ < n - 1);
         Enable(kPinRemove, valid);
-        Enable(kPinAddRecycleBin, !dock.Has(ItemKind::RecycleBin));
         Show(kPinSettings, valid && HasSettings(static_cast<size_t>(sel_)));
-        const bool iconable = e && e->IsPin() && k != ItemKind::Separator;
-        Show(kPinChooseIcon, iconable);
-        Show(kPinChooseImage, iconable);
-        Show(kPinResetIcon, iconable);
-        Enable(kPinResetIcon, iconable && !e->icon.empty());
+        // Round 8 phase 8B: the icon commands are in the More ▾ menu (pinned items only).
+        Show(kPinMore, e && e->IsPin() && k != ItemKind::Separator);
         // Round 7 phase 7B: the item's anchor and offset (every kind).
         SetComboSel(kItemAnchorCombo, e ? static_cast<int>(e->anchor) : -1);
         SetSpin(kItemOffsetSpin, e ? e->offset : 0);
@@ -1989,7 +2044,7 @@ private:
 
     // A new item of drawer entry `entry` (nothing for a single-instance kind the dock has).
     std::optional<DockItemEntry> NewEntry(int entry) {
-        if (entry < 0 || entry >= static_cast<int>(entries_.size())) return std::nullopt;
+        if (entry < 0 || entry >= static_cast<int>(entries_.size())) return std::nullopt;  // App or shortcut… / Folder…: a dialog
         const DrawerEntry& de = entries_[static_cast<size_t>(entry)];
         if (de.once && Dock().Has(de.kind)) {
             MessageBeep(MB_ICONWARNING);
@@ -2004,6 +2059,12 @@ private:
 
     // Add (or Enter on a row): where the dock menu's Add widget / Add separator put it.
     void AddEntry(int entry) {
+        if (entry == kEntryApp || entry == kEntryFolder) {
+            // Round 8 phase 8B: the Add app… / Add folder… dialogs, posted (they are modal; the
+            // drawer may hold the mouse capture here).
+            PostMessageW(Hwnd(), WM_COMMAND, MAKEWPARAM(entry == kEntryApp ? kPinAdd : kPinAddFolder, BN_CLICKED), 0);
+            return;
+        }
         std::optional<DockItemEntry> e = NewEntry(entry);
         if (!e) return;
         DockConfig& d = Dock();
@@ -2050,7 +2111,7 @@ private:
         SetFocus(strip_.Hwnd());
     }
 
-    // Enter / a double click on a tile, "Open settings in its own window": an item with settings
+    // Enter / a double click on a tile, "Settings…": an item with settings
     // -> its own Item window (round 5 phase B; the tray too since phase D); a pinned tray icon ->
     // the dock's tray item's window (none: Global > Tray icons); the running apps -> the Running
     // apps tab; the notification centre -> Global > Notifications (balloons, polling, access, the
@@ -2190,6 +2251,10 @@ private:
     SettingsStrip drawer_;
     SettingsStrip info_;
     std::vector<DrawerEntry> entries_;
+    std::vector<DrawerEntry> addEntries_;  // round 8 phase 8B: App or shortcut… (kEntryApp), Folder… (kEntryFolder)
+    int groupRows_[3] = {0, 0, 0};         // the drawer's rows per group as shown (QueryState 278)
+    HICON appIcon_ = nullptr;              // the shell's stock icons of those two rows
+    HICON folderIcon_ = nullptr;
     std::map<std::wstring, std::pair<std::wstring, std::wstring>> packages_;  // widget id -> note, version
     std::map<std::wstring, CachedIcon> icons_;  // the strip's icons by IconKey
     HICON infoIcon_ = nullptr;                  // the inspector's

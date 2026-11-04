@@ -1,6 +1,6 @@
 // The settings pages: control tables (DIP layout) and handlers. This file: Global > General and
 // About, a Dock window's Position / Behaviour / Running apps tabs, and the page lists of the three
-// window kinds; Themes and Dock > Theme: SettingsPagesAppearance.cpp; Animation and Dock > Contents:
+// window kinds; Themes and Dock > Appearance: SettingsPagesAppearance.cpp; Animation and Dock > Contents:
 // SettingsPagesMore.cpp; a widget / clock / weather item: the generated page
 // (SettingsPagesWidgets.cpp). The frame, fonts, colours, theming, layout and scrolling live in
 // SettingsWindow.cpp, the header / footer bands in SettingsBands.cpp.
@@ -31,13 +31,6 @@ namespace {
 using namespace SettingsIds;
 
 // --- General ---------------------------------------------------------------------------------
-
-constexpr int kMaxTrackIconSize = 128;  // the spinner goes on to 256 (Config::Sanitize)
-std::wstring FormatMagnification(int pos) {
-    wchar_t buf[32];
-    swprintf_s(buf, L"%.2f×", pos / 20.0);
-    return buf;
-}
 
 // Display names in the dock's monitor order (DockWindow::PickMonitor): the primary, then the
 // others in enumeration order.
@@ -282,6 +275,73 @@ protected:
     }
 };
 
+// --- the dock silhouette (round 8 phase 8B: moved from the header to the Position tab) -----------
+// A control of the page's own class (WinDock.SettingsSilhouette): SettingsWindow::PaintSilhouette
+// over the surface it sits on (a card); its GWLP_USERDATA is the window. It repaints when the
+// window's identity updates (every change, SettingsWindow::UpdateIdentity).
+
+constexpr wchar_t kSilhouetteClass[] = L"WinDock.SettingsSilhouette";
+constexpr int kSilhouetteW = 160, kSilhouetteH = 124;  // DIPs
+
+LRESULT CALLBACK SilhouetteProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    auto* window = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    auto paint = [&](HDC hdc) {
+        RECT rc{};
+        GetClientRect(hwnd, &rc);
+        HDC dc = CreateCompatibleDC(hdc);
+        HBITMAP bmp = CreateCompatibleBitmap(hdc, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
+        HGDIOBJ old = SelectObject(dc, bmp);
+        const COLORREF back = window ? window->SurfaceColor(hwnd) : GetSysColor(COLOR_WINDOW);
+        HBRUSH b = CreateSolidBrush(back);
+        FillRect(dc, &rc, b);
+        DeleteObject(b);
+        if (window) window->PaintSilhouette(dc, rc, back);
+        BitBlt(hdc, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+        SelectObject(dc, old);
+        DeleteObject(bmp);
+        DeleteDC(dc);
+    };
+    switch (msg) {
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            paint(dc);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_PRINTCLIENT:
+            paint(reinterpret_cast<HDC>(wp));
+            return 0;
+        case WM_SIZE:
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        default:
+            break;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+void RegisterSilhouette() {
+    static bool registered = false;
+    if (registered) return;
+    WNDCLASSEXW wc{sizeof(wc)};
+    wc.lpfnWndProc = &SilhouetteProc;
+    wc.hInstance = GetModuleHandleW(nullptr);
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = kSilhouetteClass;
+    registered = RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+}
+
+// The Position tab's placement kind of a dock: 0 bar on an edge, 1 floating bar, 2 half circle,
+// 3 circle (QueryState 277).
+int PlacementKind(const DockConfig& d) {
+    if (d.shape == DockShape::Circle) return 3;
+    if (d.shape == DockShape::Arc) return 2;
+    return d.Floating() ? 1 : 0;
+}
+
 // --- a dock's Position, Behaviour and Running apps tabs ------------------------------------------
 // One class, three tables: the handlers below serve every control id of the three (a control the
 // part does not build is simply never there). Everything edits the window's dock (Dock()).
@@ -296,46 +356,47 @@ public:
 protected:
     void Build() override {
         switch (part_) {
-            case Part::Position: BuildPosition(); break;
+            case Part::Position:
+                RegisterSilhouette();
+                BuildPosition();
+                break;
             case Part::Behaviour: BuildBehaviour(); break;
             case Part::Running: BuildRunning(); break;
         }
     }
 
+    // Round 8 phase 8B: the placement kind first (it sets shape + floating), then only the rows
+    // that apply to it (the others are collapsed, not greyed: EnableDependents), the silhouette at
+    // the card's right; the Layer card; the seldom used bar settings behind "More".
     void BuildPosition() {
         const int right = Width() - kMargin;
+        const int silL = right - kSilhouetteW;
+        // The Placement card's controls end before the silhouette's column (300 DIPs fit beside
+        // it at the window's minimum width).
+        const int ctlW = std::clamp(silL - 16 - kColX, 160, 300);
         Title(L"Position");
-        Section(kSectionDisplay, L"Display");
+        Section(kSectionPosition, L"Placement");
+        // A fixed control (row -1): beside the rows, never moved by them; at the right margin it
+        // follows the page's width.
+        Ctl& sil = Add(kPositionSilhouette, CtlKind::Custom, kSilhouetteClass, L"Where it sits", 0,
+                       RECT{silL, y_ - 22, right, y_ - 22 + kSilhouetteH});
+        sil.row = -1;
+        Label(kPlacementKindLabel, L"Kind");
+        Tip(kPlacementKindLabel,
+            L"Bar on an edge: the classic dock along a screen edge. Floating bar: a bar anywhere on the display; it faces "
+            L"an edge (where its icons grow and popups open), never auto-hides (its layer and the dashboard hotkey show "
+            L"it) and moves when you drag its bar's background (it snaps to the work area's edges and other floating "
+            L"docks) unless it is locked. Half circle: a ring on an edge. Circle: a ring anywhere (Ctrl+drag it).");
+        Combo(kPlacementKindCombo, kColX, ctlW, false);
+        NextRow();
         Label(kMonitorLabel, L"Display");
-        Combo(kMonitorCombo, kColX, right - kColX, false);
+        Combo(kMonitorCombo, kColX, ctlW, false);
         NextRow();
-        // Round 8 phase 8A: the notes are one-line hints (kLayerNote, kCircleNote, kAlignNote,
-        // kPositionNote, kMaxLengthNote, kPositionNote2 are the hints' ids) and tooltips.
-        Label(kLayerLabel, L"Layer", L"", kLayerNote);
-        Tip(kLayerLabel,
-            L"Normal: above every window; it auto-hides as set on the Behaviour tab. On the desktop, only while the "
-            L"desktop is showing: shown only while the desktop is in front (Win+D, a click on the wallpaper), at the "
-            L"bottom of the windows. On the desktop, under every window: always on the desktop, like folder windows. "
-            L"The dashboard hotkey brings the desktop layers to the front.");
-        Combo(kLayerCombo, kColX, right - kColX, false);
-        NextRow();
-
-        Section(kSectionPosition, L"Position");
-        // Round 6 phase 6A: a floating bar at x / y (the circle's keys) instead of on an edge.
-        Check(kFloating, kFloatingCaption, L"Floating (place the bar anywhere on the display)");
-        NextRow(kRowH);
-        Text(kFloatingNote, CtlKind::Note, L"Drag its bar's background to move it. Bar shape only.", kMargin + kCaptionDx,
-             right - kMargin - kCaptionDx, 20);
-        static constexpr wchar_t kFloatingTip[] =
-            L"A floating dock faces its screen edge (that is where its icons grow and popups open) and never "
-            L"auto-hides: its layer and the dashboard hotkey show it. Drag its bar's background to move it (it snaps "
-            L"to the work area's edges and other floating docks) unless it is locked. Bar shape only.";
-        Tip(kFloatingCaption, kFloatingTip);
-        Tip(kFloatingNote, kFloatingTip);
-        NextRow(22);
-        Label(kEdgeLabel, L"Screen edge (floating: faces)");
+        Label(kEdgeLabel, L"Edge");  // "Faces" for a floating bar
         Combo(kEdgeCombo, kColX, 160, false);
         NextRow();
+        // Round 8 phase 8A: the notes are one-line hints (kCircleNote, kAlignNote, kPositionNote,
+        // kMaxLengthNote, kPositionNote2, kLayerNote are the hints' ids) and tooltips.
         Label(kCircleXLabel, L"Position x", L"DIPs; empty: centred", kCircleNote);
         Tip(kCircleXLabel, L"Position (DIPs from the work area's top-left; empty = centred): a floating bar's top-left "
                            L"corner, a circle's centre. Ctrl+drag a circle to move it.");
@@ -358,12 +419,36 @@ protected:
         NextRow();
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
         NextRow();
-        // Round 7 phase 7A: docks[].maxLength (a bar that is not full width).
-        Label(kMaxLengthLabel, L"Maximum length (pixels)", L"0: no limit", kMaxLengthNote);
-        Tip(kMaxLengthLabel, L"0: no limit. A longer run of icons scrolls (see When the icons do not fit). Not for a "
-                             L"ring or a full-width bar.");
-        Spin(kMaxLengthEdit, kMaxLengthSpin, kColX, 88, 0, 8000, 50);
+        Label(kRadiusLabel, L"Radius (pixels)", L"0: automatic");
+        IntSpin(kRadiusEdit, kRadiusSpin, kColX, 88, 0, 2000, 10, [](Config&, DockConfig& d) -> int& { return d.radius; },
+                SettingsScope::Appearance);
         NextRow();
+        Check(kRotateIcons, kRotateIconsCaption, L"Turn the icons with the ring");
+        NextRow();
+        Label(kOverflowLabel, L"When the icons do not fit");
+        Combo(kOverflowCombo, kColX, ctlW, false);
+        NextRow();
+        // The shape drop-down and the Floating check box of earlier versions: always collapsed
+        // (the Kind sets both); kept so automation that drives them still works.
+        Label(kShapeLabel, L"Shape");
+        Combo(kShapeCombo, kColX, 200, false);
+        NextRow();
+        Check(kFloating, kFloatingCaption, L"Floating");
+        NextRow();
+
+        Section(kSectionLayer, L"Layer");
+        Label(kLayerLabel, L"Layer", L"", kLayerNote);
+        Tip(kLayerLabel,
+            L"Normal: above every window; it auto-hides as set on the Behaviour tab. On the desktop, only while the "
+            L"desktop is showing: shown only while the desktop is in front (Win+D, a click on the wallpaper), at the "
+            L"bottom of the windows. On the desktop, under every window: always on the desktop, like folder windows. "
+            L"The dashboard hotkey brings the desktop layers to the front.");
+        Combo(kLayerCombo, kColX, right - kColX, false);
+        NextRow();
+
+        // Bars only (collapsed for the rings).
+        UntitledCard();
+        Expander(kPositionMore, L"More: reserve screen space, peek, maximum length, title");
         Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
         Tip(kReserveSpaceCaption, L"Keeps maximized windows off the dock: reserves a strip along the whole edge (auto-hide "
                                   L"off only).");
@@ -376,44 +461,23 @@ protected:
         Label(kPeekOpacityLabel, L"Peek opacity (%)");
         Spin(kPeekOpacityEdit, kPeekOpacitySpin, kColX, 72, 5, 100, 5);
         NextRow();
+        // Round 7 phase 7A: docks[].maxLength (a bar that is not full width).
+        Label(kMaxLengthLabel, L"Maximum length (pixels)", L"0: no limit", kMaxLengthNote);
+        Tip(kMaxLengthLabel, L"0: no limit. A longer run of icons scrolls (see When the icons do not fit). Not for a "
+                             L"ring or a full-width bar.");
+        Spin(kMaxLengthEdit, kMaxLengthSpin, kColX, 88, 0, 8000, 50);
+        NextRow();
         Label(kTitleLabel, L"Title", L"Drawn beside the bar", kPositionNote2);
         Tip(kTitleLabel, L"The title is drawn beside the bar, toward the middle of the screen (empty: none).");
         EditBox(kTitleEdit, kColX, right - kColX, 128);
         NextRow();
-
-        Section(kSectionShape, L"Shape");
-        Label(kShapeLabel, L"Shape");
-        Combo(kShapeCombo, kColX, 200, false);
-        NextRow();
-        Label(kRadiusLabel, L"Radius (pixels, 0: automatic)");
-        IntSpin(kRadiusEdit, kRadiusSpin, kColX, 88, 0, 2000, 10, [](Config&, DockConfig& d) -> int& { return d.radius; },
-                SettingsScope::Appearance);
-        NextRow();
-        Check(kRotateIcons, kRotateIconsCaption, L"Turn the icons with the ring");
-        NextRow();
-        Label(kOverflowLabel, L"When the icons do not fit");
-        Combo(kOverflowCombo, kColX, right - kColX, false);
-        NextRow();
+        EndExpander();
     }
 
     void BuildBehaviour() {
         const int right = Width() - kMargin;
         Title(L"Behaviour");
-        Section(kSectionDock, L"Size");
-        Label(kIconSizeLabel, L"Icon size");
-        Trackbar(kIconSizeTrack, kColX - 6, 212, 16, kMaxTrackIconSize, 8);
-        IntSpin(kIconSizeEdit, kIconSizeSpin, kColX + 216, 72, 16, 256, 4,
-                [](Config&, DockConfig& d) -> int& { return d.iconSize; }, SettingsScope::Appearance);
-        NextRow();
-        Label(kMagnifyLabel, L"Magnification");
-        Trackbar(kMagnifyTrack, kColX - 6, 212, 20, 50, 2);
-        Text(kMagnifyValue, CtlKind::Value, L"", kColX + 216, 72);
-        NextRow();
-        Label(kRangeLabel, L"Magnification range (icons)");
-        IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config&, DockConfig& d) -> int& { return d.magnifyRange; },
-                SettingsScope::Appearance);
-        NextRow();
-
+        // Round 8 phase 8B: the Size card (icon size, magnification, range) is on the Appearance tab.
         Section(kSectionAutoHide, L"Auto-hide");
         Radios({
             {kAutoHideOff, kAutoHideOffCaption, L"Off: the dock is always shown"},
@@ -553,16 +617,16 @@ protected:
         ComboAdd(kThumbnailsCombo, L"Off");  // ThumbnailMode order
         ComboAdd(kThumbnailsCombo, L"Live (GPU capture)");
         ComboAdd(kThumbnailsCombo, L"Snapshots (every N seconds)");
+        // Round 8 phase 8B: PlacementKind order.
+        for (const wchar_t* k : {L"Bar on an edge", L"Floating bar", L"Half circle", L"Circle"}) ComboAdd(kPlacementKindCombo, k);
+        if (HWND s = Item(kPositionSilhouette)) SetWindowLongPtrW(s, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&Window()));
+        Collapse({kShapeLabel, kShapeCombo, kFloating}, true);  // the Kind sets them (automation may still drive them)
     }
 
     void Load() override {
         const DockConfig& d = Bound();
         LoadInts();
         // Behaviour
-        SetTrack(kIconSizeTrack, std::min(d.iconSize, kMaxTrackIconSize));
-        const int mag = static_cast<int>(std::lround(d.magnification * 20.0));
-        SetTrack(kMagnifyTrack, mag);
-        SetText(kMagnifyValue, FormatMagnification(mag));
         SetCheck(kAutoHideOff, d.autoHide == AutoHideMode::Off);
         SetCheck(kAutoHideAlways, d.autoHide == AutoHideMode::Always);
         SetCheck(kAutoHideIntelligent, d.autoHide == AutoHideMode::Intelligent);
@@ -603,26 +667,12 @@ protected:
         if (part_ == Part::Position) FillMonitors();
     }
 
-    void IntChanged(int spin, int value) override {
-        if (spin == kIconSizeSpin) SetTrack(kIconSizeTrack, std::min(value, kMaxTrackIconSize));
-    }
-
-    void Track(int id, int pos, bool released) override {
-        DockConfig& d = Bound();
-        if (id == kIconSizeTrack) {
-            SetSpin(kIconSizeSpin, pos);  // follows the thumb; applied on release
-            if (released && d.iconSize != pos) {
-                d.iconSize = pos;
-                Changed(SettingsScope::Appearance);
-            }
-        } else if (id == kMagnifyTrack) {
-            SetText(kMagnifyValue, FormatMagnification(pos));
-            const double mag = pos / 20.0;
-            if (released && std::fabs(d.magnification - mag) > 1e-9) {
-                d.magnification = mag;
-                Changed(SettingsScope::Appearance);
-            }
+    bool Query(int code, LPARAM, LRESULT& out) override {
+        if (code == 277 && part_ == Part::Position) {  // round 8 phase 8B: the placement kind shown (0 - 3)
+            out = ComboSel(kPlacementKindCombo);
+            return true;
         }
+        return false;
     }
 
     void OnCommand(int id, int code, HWND) override {
@@ -631,6 +681,20 @@ protected:
             const int sel = ComboSel(id);
             if (sel < 0) return;
             switch (id) {
+                case kPlacementKindCombo:
+                    // Round 8 phase 8B: the kind sets the shape and floating (a floating bar never
+                    // auto-hides, as the Floating check box did).
+                    if (sel <= 3 && sel != PlacementKind(d)) {
+                        const bool floating = sel == 1;
+                        d.shape = sel == 3 ? DockShape::Circle : sel == 2 ? DockShape::Arc : DockShape::Bar;
+                        if (floating && !d.floating) d.autoHide = AutoHideMode::Off;
+                        d.floating = floating;
+                        SetComboSel(kShapeCombo, static_cast<int>(d.shape));
+                        SetCheck(kFloating, floating);
+                        EnableDependents();
+                        Changed(SettingsScope::Appearance);
+                    }
+                    break;
                 case kMonitorCombo: {
                     // The displays, then "Every display" (monitor "each").
                     const int count = static_cast<int>(SendMessageW(Item(id), CB_GETCOUNT, 0, 0));
@@ -730,7 +794,7 @@ protected:
                 break;
             case kFullWidth:
                 d.fullWidth = GetCheck(id);
-                EnableDependents();  // Maximum length is greyed for a full-width bar
+                EnableDependents();  // Maximum length is collapsed for a full-width bar
                 Changed(SettingsScope::Appearance);
                 break;
             case kFloating: {
@@ -865,28 +929,27 @@ private:
 
     void EnableDependents() {
         const DockConfig& d = Bound();
-        // Radius and Rotate icons apply to the ring shapes only; the centre to a circle.
-        for (int id : {kRadiusLabel, kRadiusEdit, kRadiusSpin, kRotateIcons, kRotateIconsCaption}) {
-            if (HWND h = Item(id)) EnableWindow(h, d.Polar());
-        }
-        // x / y: a circle's centre or a floating bar's top-left (round 6 phase 6A).
         const bool floating = d.Floating();
-        for (int id : {kCircleXLabel, kCircleXEdit, kCircleYLabel, kCircleYEdit}) {
-            if (HWND h = Item(id)) EnableWindow(h, d.shape == DockShape::Circle || floating);
-        }
-        // Floating: a bar only; alignment, offset, full width, reserve space and peek do not apply.
-        for (int id : {kFloating, kFloatingCaption}) {
-            if (HWND h = Item(id)) EnableWindow(h, d.shape == DockShape::Bar);
-        }
-        for (int id : {kAlignLabel, kAlignCombo, kOffsetLabel, kOffsetEdit, kOffsetSpin, kFullWidth, kFullWidthCaption,
-                       kReserveSpace, kReserveSpaceCaption, kPeekLabel, kPeekEdit, kPeekSpin, kPeekOpacityLabel,
-                       kPeekOpacityEdit, kPeekOpacitySpin}) {
-            if (HWND h = Item(id)) EnableWindow(h, !floating);
-        }
-        // Maximum length (round 7 phase 7A): a bar that is not full width (a floating bar too).
-        const bool capped = !d.Polar() && !(d.fullWidth && !floating);
-        for (int id : {kMaxLengthLabel, kMaxLengthEdit, kMaxLengthSpin, kMaxLengthNote}) {
-            if (HWND h = Item(id)) EnableWindow(h, capped);
+        if (part_ == Part::Position) {
+            // Round 8 phase 8B: only the rows of the placement kind; the others are collapsed
+            // (not greyed) and the rows under them move up.
+            const int kind = PlacementKind(d);
+            const bool edgeBar = kind == 0, ring = kind >= 2;
+            SetComboSel(kPlacementKindCombo, kind);
+            SetText(kEdgeLabel, floating ? L"Faces" : L"Edge");
+            Collapse({kEdgeLabel, kEdgeCombo}, kind == 3);
+            // x / y: a floating bar's top-left or a circle's centre (round 6 phase 6A).
+            Collapse({kCircleXLabel, kCircleXEdit, kCircleYLabel, kCircleYEdit}, !(floating || kind == 3));
+            Collapse({kAlignLabel, kAlignCombo, kOffsetLabel, kOffsetEdit, kFullWidth}, !edgeBar);
+            Collapse({kRadiusLabel, kRadiusEdit, kRotateIcons}, !ring);
+            Collapse({kOverflowLabel, kOverflowCombo}, ring);
+            // "More": bars only; reserve space and peek for a bar on an edge; the maximum length
+            // (round 7 phase 7A) for a bar that is not full width (a floating bar too).
+            Collapse(kPositionMore, ring);
+            Collapse({kReserveSpace, kPeekLabel, kPeekEdit, kPeekOpacityLabel, kPeekOpacityEdit}, !edgeBar);
+            Collapse({kMaxLengthLabel, kMaxLengthEdit}, ring || (edgeBar && d.fullWidth));
+            Collapse({kTitleLabel, kTitleEdit}, ring);
+            return;
         }
         // Auto-hide: off for a floating dock (Config::Sanitize).
         for (int id : {kAutoHideOff, kAutoHideOffCaption, kAutoHideAlways, kAutoHideAlwaysCaption, kAutoHideIntelligent,
@@ -898,9 +961,10 @@ private:
         Enable(kPreviewDelayEdit, d.previews);
         Enable(kPreviewSingle, d.previews);
         Enable(kTitlesVerticalCombo, d.titles != TitlesMode::Off);
-        Enable(kThumbIntervalEdit, d.thumbnails == ThumbnailMode::Snapshots);
-        Enable(kThumbFpsEdit, d.thumbnails == ThumbnailMode::Live);
-        Enable(kThumbSizeEdit, d.thumbnails != ThumbnailMode::Off);
+        // Round 8 phase 8B: the thumbnail rows only for the mode that uses them (collapsed, not greyed).
+        Collapse({kThumbIntervalLabel, kThumbIntervalEdit, kThumbIntervalUnit}, d.thumbnails != ThumbnailMode::Snapshots);
+        Collapse({kThumbFpsLabel, kThumbFpsEdit, kThumbFpsUnit}, d.thumbnails != ThumbnailMode::Live);
+        Collapse({kThumbSizeLabel, kThumbSizeEdit, kThumbSizeUnit}, d.thumbnails == ThumbnailMode::Off);
     }
 
     void FillMonitors() {
@@ -1037,11 +1101,12 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
                 pages.push_back(MakeWidgetWindowPage(window));  // kTabWidgetWindow (round 6 phase 6B)
                 break;
             }
+            // Round 8 phase 8B: Appearance (the old Theme tab + Behaviour's Size) is the third tab.
             pages.push_back(MakeContentsPage(window));                                                    // kTabContents
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Position));   // kTabPosition
+            pages.push_back(MakeDockThemePage(window));                                                  // kTabAppearance
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Behaviour));  // kTabBehaviour
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Running));    // kTabRunning
-            pages.push_back(MakeDockThemePage(window));                                                  // kTabTheme
             break;
         case SettingsKind::Item: {
             // A widget, clock or weather item: its generated schema page; a tray: its grid (round 5

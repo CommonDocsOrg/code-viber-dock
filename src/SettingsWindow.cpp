@@ -167,6 +167,14 @@ void SettingsPage::EndCard() {
     autoCard_ = false;
 }
 
+void SettingsPage::UntitledCard() {
+    if (!reflow_) return;
+    if (std::any_of(table_.begin(), table_.end(), [](const Ctl& c) { return c.card >= 0; })) y_ += 26;
+    if (std::any_of(table_.begin(), table_.end(), [&](const Ctl& c) { return c.row == row_; })) ++row_;
+    cards_.push_back(Card{});
+    card_ = static_cast<int>(cards_.size()) - 1;
+}
+
 void SettingsPage::Label(int id, const wchar_t* text) {
     Add(id, CtlKind::Label, WC_STATICW, text, SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
         RECT{kMargin, y_, kMargin + labelW_, y_ + kRowH});
@@ -608,7 +616,8 @@ void SettingsWindow::SaveClientSize() {
 bool SettingsWindow::PreviewOn(int index) const {
     switch (kind_) {
         case SettingsKind::Global: return index == SettingsIds::kPageThemes || index == SettingsIds::kPageAnimation;
-        case SettingsKind::Dock: return !IsFolderWindow() && !IsWidgetWindow() && index != SettingsIds::kTabContents;
+        // Round 8 phase 8B: only the Appearance tab (what the strip draws); Position has the silhouette.
+        case SettingsKind::Dock: return !IsFolderWindow() && !IsWidgetWindow() && index == SettingsIds::kTabAppearance;
         case SettingsKind::Item:
         default: return false;
     }
@@ -1335,7 +1344,10 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
         if (t[i].row >= 0) {
             byRow[static_cast<size_t>(t[i].row)].push_back(i);
         } else {
+            // A fixed control (round 8 phase 8B: the Position tab's silhouette): it never moves
+            // vertically; at the right margin it follows the page's width.
             t[i].dip = t[i].base;
+            if (t[i].base.right == buildRight) OffsetRect(&t[i].dip, dx, 0);
         }
     }
 
@@ -1520,6 +1532,13 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
         }
         if (first->kind != CtlKind::Note && first->kind != CtlKind::Value) prevHeader = header;
         prevCard = card;
+    }
+    // A fixed control inside a card (the silhouette) cuts the hairlines beside it short.
+    for (const Ctl& c : t) {
+        if (c.row >= 0 || c.card < 0 || gone(c) || !c.shown) continue;
+        for (SettingsPage::Hairline& h : page.hairlines_) {
+            if (h.y >= c.dip.top - 6 && h.y <= c.dip.bottom + 6 && h.right > c.dip.left - 12) h.right = std::max(h.left, static_cast<int>(c.dip.left) - 12);
+        }
     }
 }
 
@@ -2234,7 +2253,13 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
         case WM_COMMAND: {
             HWND ctl = reinterpret_cast<HWND>(lp);
             const Ctl* c = page.Find(ctl);
-            if (!c) break;
+            if (!c) {
+                // Round 8 phase 8B: a menu command (lParam 0): the page's own menus post their
+                // items' ids (the old buttons' ids), and so can automation.
+                if (!lp && !loading_) page.OnCommand(LOWORD(wp), BN_CLICKED, nullptr);
+                if (!lp) return 0;
+                break;
+            }
             const int code = HIWORD(wp);
             if (c->kind == CtlKind::Caption) {
                 if (code == STN_CLICKED || code == STN_DBLCLK) {

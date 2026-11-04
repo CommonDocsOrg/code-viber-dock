@@ -110,18 +110,28 @@ void EnsureThemesFolder() {
     CreateDirectoryW(Theme::Directory().c_str(), nullptr);
 }
 
+constexpr int kMaxTrackIconSize = 128;  // the spinner goes on to 256 (Config::Sanitize)
+std::wstring FormatMagnification(int pos) {
+    wchar_t buf[32];
+    swprintf_s(buf, L"%.2f×", pos / 20.0);
+    return buf;
+}
+
 // Global > Themes (the global theme and its per-field overrides), or with `dockOnly` a Dock
-// window's Theme tab: only that dock's preset (docks[].themePreset) and a pointer to Themes.
+// window's Appearance tab (round 8 phase 8B; the Theme tab until then): that dock's preset
+// (docks[].themePreset), a pointer to Themes and the dock's Size (icon size, magnification and its
+// range: the Behaviour tab's Size card until 8B).
 class AppearancePage : public FormPage {
 public:
     AppearancePage(SettingsWindow& w, bool dockOnly)
-        : FormPage(w, dockOnly ? L"Theme" : L"Themes", L'\xE790'), dockOnly_(dockOnly) {}
+        : FormPage(w, dockOnly ? L"Appearance" : L"Themes", L'\xE790'), dockOnly_(dockOnly) {}
 
 protected:
     void Build() override {
         const int right = Width() - kMargin;
         if (dockOnly_) {
-            Title(L"Theme");
+            Title(L"Appearance");
+            Section(kSectionTheme, L"Theme");
             // Round 8 phase 8A: the note is the label's hint (kDockThemeNote) and its tooltip.
             Label(kDockThemeLabel, L"This dock's theme", L"Its fields: Global > Themes", kDockThemeNote);
             Tip(kDockThemeLabel, L"\"Same as all docks\" uses the global theme. The theme's fields (colours, sizes, "
@@ -130,6 +140,20 @@ protected:
             Combo(kDockThemeCombo, kColX, right - kColX, false);
             NextRow();
             Link(kDockThemeLink, L"<a>Open Global settings > Themes</a>", kMargin, right - kMargin);
+            NextRow();
+            Section(kSectionDock, L"Size");
+            Label(kIconSizeLabel, L"Icon size");
+            Trackbar(kIconSizeTrack, kColX - 6, 212, 16, kMaxTrackIconSize, 8);
+            IntSpin(kIconSizeEdit, kIconSizeSpin, kColX + 216, 72, 16, 256, 4,
+                    [](Config&, DockConfig& d) -> int& { return d.iconSize; }, SettingsScope::Appearance);
+            NextRow();
+            Label(kMagnifyLabel, L"Magnification");
+            Trackbar(kMagnifyTrack, kColX - 6, 212, 20, 50, 2);
+            Text(kMagnifyValue, CtlKind::Value, L"", kColX + 216, 72);
+            NextRow();
+            Label(kRangeLabel, L"Magnification range (icons)");
+            IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config&, DockConfig& d) -> int& { return d.magnifyRange; },
+                    SettingsScope::Appearance);
             NextRow();
             return;
         }
@@ -142,7 +166,7 @@ protected:
         Label(kThemeLabel, L"Theme", L"Changes below override it", kThemeNote);
         Tip(kThemeLabel, L"A change below overrides the theme (saved in config.json); Reset brings back the theme's value. "
                          L"Colours are #AARRGGBB, the number next to them is the alpha (0 clear, 255 opaque). A dock with "
-                         L"a theme of its own (its Dock settings > Theme) uses it under these changes, which apply to "
+                         L"a theme of its own (its Dock settings > Appearance) uses it under these changes, which apply to "
                          L"every dock.");
         Combo(kThemeCombo, cx, right - cx, false);
         NextRow();
@@ -168,7 +192,16 @@ protected:
 
     void Load() override {
         FillThemes();
-        if (dockOnly_) return;
+        if (dockOnly_) {
+            // The Size card (round 8 phase 8B: from the Behaviour tab).
+            const DockConfig& d = Dock();
+            LoadInts();
+            SetTrack(kIconSizeTrack, std::min(d.iconSize, kMaxTrackIconSize));
+            const int mag = static_cast<int>(std::lround(d.magnification * 20.0));
+            SetTrack(kMagnifyTrack, mag);
+            SetText(kMagnifyValue, FormatMagnification(mag));
+            return;
+        }
         for (size_t i = 0; i < Theme::FieldCount(); ++i) UpdateRow(static_cast<int>(i));
         Enable(kResetAllTheme, Cfg().themeOverrides != 0);
     }
@@ -239,6 +272,30 @@ protected:
             if (Host().openGlobal) Host().openGlobal(kPageThemes);
         }
         return 0;
+    }
+
+    // The Size card's icon size box moves its slider; the sliders apply on release.
+    void IntChanged(int spin, int value) override {
+        if (spin == kIconSizeSpin) SetTrack(kIconSizeTrack, std::min(value, kMaxTrackIconSize));
+    }
+
+    void Track(int id, int pos, bool released) override {
+        if (!dockOnly_) return;
+        DockConfig& d = Dock();
+        if (id == kIconSizeTrack) {
+            SetSpin(kIconSizeSpin, pos);  // follows the thumb; applied on release
+            if (released && d.iconSize != pos) {
+                d.iconSize = pos;
+                Changed(SettingsScope::Appearance);
+            }
+        } else if (id == kMagnifyTrack) {
+            SetText(kMagnifyValue, FormatMagnification(pos));
+            const double mag = pos / 20.0;
+            if (released && std::fabs(d.magnification - mag) > 1e-9) {
+                d.magnification = mag;
+                Changed(SettingsScope::Appearance);
+            }
+        }
     }
 
     void Spun(int spin, int pos) override {
@@ -490,7 +547,7 @@ private:
     // "<id> (missing)" so the user sees what config.json names.
     void FillThemes() {
         HWND combo = Item(kThemeCombo);
-        HWND dock = Item(kDockThemeCombo);  // Dock > Theme (only it)
+        HWND dock = Item(kDockThemeCombo);  // Dock > Appearance (only it)
         if (!combo && !dock) return;
         const std::wstring& current = Cfg().themePreset;
         std::vector<std::wstring> names;

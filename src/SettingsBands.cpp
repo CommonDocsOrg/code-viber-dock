@@ -1,7 +1,8 @@
 // Round 5 phase B: the frame parts of the settings windows that are not pages: the header band
 // (WinDock.SettingsBand; Global: the subtitle line, Dock: the dock's identity: its colour, id,
-// chips, a monitor silhouette with the dock on its edge, Flash this dock / Lock dock / Global
-// settings; Item: the item's icon, name, "on <dock>", "item k of n"), the Item window's footer
+// chips, Flash / Lock and a "⋯" menu (round 8 phase 8B: one 72 DIP row; the monitor silhouette
+// with the dock on it moved to the Position tab: PaintSilhouette, still here); Item: the item's
+// icon, name, "on <dock>", "item k of n"), the Item window's footer
 // (Changes apply at once, Reset to defaults, Console…), the title bar text and the caption colour.
 // Custom painted with GDI in the palette colours (dark / light), DPI aware; buttons and links are
 // real child controls so the keyboard reaches them.
@@ -13,6 +14,7 @@
 
 #include <algorithm>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "ContextMenu.h"
@@ -60,6 +62,12 @@ void Fill(HDC dc, const RECT& r, COLORREF c) {
     FillRect(dc, &r, b);
     DeleteObject(b);
 }
+
+// Round 8 phase 8B: the compact Dock header's buttons (DIPs).
+constexpr int kHeaderButtonH = 28;
+constexpr int kHeaderFlashW = 64;
+constexpr int kHeaderLockW = 72;
+constexpr int kHeaderMoreW = 36;
 
 }  // namespace
 
@@ -113,14 +121,13 @@ void SettingsWindow::CreateBands(bool footer) {
     header_ = band(kHeader);
     if (!header_) return;
     if (kind_ == SettingsKind::Dock) {
-        if (IsWidgetWindow()) {
-            child(header_, kHeaderFlash, WC_BUTTONW, L"Flash this widget");
-            child(header_, kHeaderLock, WC_BUTTONW, L"Lock widget");
-        } else if (!IsFolderWindow()) {
-            child(header_, kHeaderFlash, WC_BUTTONW, L"Flash this dock");
-            child(header_, kHeaderLock, WC_BUTTONW, L"Lock dock");
+        // Round 8 phase 8B: the compact header's actions: small Flash / Lock buttons (a dock, a
+        // standalone widget) and "⋯" (a menu: Global settings…; the link is gone).
+        if (!IsFolderWindow()) {
+            child(header_, kHeaderFlash, WC_BUTTONW, L"Flash");
+            child(header_, kHeaderLock, WC_BUTTONW, L"Lock");
         }
-        child(header_, kHeaderGlobal, WC_LINK, L"<a>Global settings</a>");
+        child(header_, kHeaderMore, WC_BUTTONW, L"\x22EF");
     } else if (kind_ == SettingsKind::Item) {
         child(header_, kHeaderDockLink, WC_LINK, L"on <a>dock</a>");
     }
@@ -136,13 +143,15 @@ void SettingsWindow::LayoutBands() {
         RECT rc{};
         GetClientRect(header_, &rc);
         if (kind_ == SettingsKind::Dock) {
-            // Buttons in a column left of the monitor silhouette.
-            const int sx = rc.right - Px(24) - Px(120);
-            const int bx = sx - Px(20) - Px(150);
-            const bool folder = IsFolderWindow();
-            place(header_, kHeaderFlash, bx, Px(16), Px(150), Px(30));
-            place(header_, kHeaderLock, bx, Px(52), Px(150), Px(30));
-            place(header_, kHeaderGlobal, bx + Px(4), folder ? Px(20) : Px(92), Px(146), Px(22));
+            // Round 8 phase 8B: one row at the right, vertically centred: Flash, Lock, ⋯.
+            const int h = Px(kHeaderButtonH), y = (rc.bottom - h) / 2;
+            int x = rc.right - Px(20);
+            for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}}) {
+                if (!GetDlgItem(header_, b.first)) continue;
+                x -= Px(b.second);
+                place(header_, b.first, x, y, Px(b.second), h);
+                x -= Px(8);
+            }
         } else if (kind_ == SettingsKind::Item) {
             place(header_, kHeaderDockLink, Px(70), Px(44), rc.right - Px(70) - Px(16), Px(20));
         }
@@ -160,6 +169,30 @@ void SettingsWindow::LayoutBands() {
         place(footer_, kFooterReset, right - Px(150), top, Px(150), Px(30));
         InvalidateRect(footer_, nullptr, TRUE);
     }
+}
+
+int SettingsWindow::HeaderTextRight() const {
+    RECT rc{};
+    if (header_) GetClientRect(header_, &rc);
+    int x = rc.right - Px(20);
+    for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}}) {
+        if (header_ && GetDlgItem(header_, b.first)) x -= Px(b.second) + Px(8);
+    }
+    return x - Px(8);
+}
+
+void SettingsWindow::ShowHeaderMenu() {
+    HWND button = header_ ? GetDlgItem(header_, kHeaderMore) : nullptr;
+    if (!button) return;
+    HMENU menu = CreatePopupMenu();
+    if (!menu) return;
+    AppendMenuW(menu, MF_STRING, kHeaderGlobal, L"Global settings…");
+    RECT r{};
+    GetWindowRect(button, &r);
+    const int cmd = static_cast<int>(
+        TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTALIGN | TPM_TOPALIGN, r.right, r.bottom, hwnd_, nullptr));
+    DestroyMenu(menu);
+    if (cmd > 0) OnBandCommand(cmd);
 }
 
 // --- identity ----------------------------------------------------------------------------------
@@ -304,11 +337,20 @@ void SettingsWindow::UpdateIdentity() {
         summary = dockId_;
         for (const std::wstring& c : HeaderChips()) summary += L" · " + c;
         if (HWND lock = header_ ? GetDlgItem(header_, kHeaderLock) : nullptr) {
-            const bool widget = Dock().IsWidgetWindow();
-            const wchar_t* text = Dock().locked ? (widget ? L"Unlock widget" : L"Unlock dock") : (widget ? L"Lock widget" : L"Lock dock");
+            const wchar_t* text = Dock().locked ? L"Unlock" : L"Lock";  // round 8 phase 8B: short
             wchar_t cur[64]{};
             GetWindowTextW(lock, cur, 64);
             if (wcscmp(cur, text) != 0) SetWindowTextW(lock, text);
+        }
+        // Round 8 phase 8B: the Position tab's silhouette follows the dock (its edge, place, shape).
+        for (auto& page : pages_) {
+            if (HWND s = page->Item(kPositionSilhouette)) {
+                const std::wstring name = L"Where it sits: " + SilhouetteCaption();
+                wchar_t cur[256]{};
+                GetWindowTextW(s, cur, 256);
+                if (name != cur) SetWindowTextW(s, name.c_str());
+                InvalidateRect(s, nullptr, FALSE);
+            }
         }
     } else {
         const size_t n = Dock().items.size();
@@ -378,18 +420,19 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
              DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         Fill(dc, RECT{Px(24), rc.bottom - std::max(1, Px(1)), rc.right - Px(24), rc.bottom}, hair);
     } else if (kind_ == SettingsKind::Dock) {
+        // Round 8 phase 8B: the compact header (72 DIPs): the strip, the id in the title font and
+        // the chips on one line right of it (dropped from the right when they do not fit); the
+        // buttons (children) at the right. The subtitle and the silhouette are gone (the
+        // silhouette is on the Position tab: PaintSilhouette).
         Fill(dc, RECT{0, 0, Px(6), rc.bottom}, dock);
-        const DockConfig& d = Dock();
-        const int sx = rc.right - Px(24) - Px(120);
-        const int textRight = sx - Px(20) - Px(150) - Px(16);
-        text(dockId_, RECT{Px(24), Px(10), textRight, Px(52)}, fontTitle_, idText, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-        text(d.IsFolderWindow()   ? L"You are editing this folder window only"
-             : d.IsWidgetWindow() ? L"You are editing this standalone widget only"
-                                  : L"You are editing this dock only",
-             RECT{Px(24), Px(52), textRight, Px(74)}, font_, palette_.textSecondary, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-        // The chips.
-        int x = Px(24);
-        const int cy = Px(84), ch = Px(26);
+        const int textRight = HeaderTextRight();
+        SelectObject(dc, fontTitle_);
+        SIZE idExt{};
+        GetTextExtentPoint32W(dc, dockId_.c_str(), static_cast<int>(dockId_.size()), &idExt);
+        const int idRight = std::min(textRight, Px(24) + static_cast<int>(idExt.cx));
+        text(dockId_, RECT{Px(24), 0, idRight, rc.bottom}, fontTitle_, idText, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+        int x = idRight + Px(16);
+        const int ch = Px(26), cy = (rc.bottom - ch) / 2;
         SelectObject(dc, font_);
         for (const std::wstring& c : HeaderChips()) {
             SIZE ext{};
@@ -399,105 +442,6 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
             FillRound(dc, RECT{x, cy, x + w, cy + ch}, Mix(palette_.text, bandColor_, 10), Px(12));
             text(c, RECT{x, cy, x + w, cy + ch}, font_, palette_.text, DT_CENTER | DT_VCENTER);
             x += w + Px(6);
-        }
-        // The monitor silhouette with the dock on its edge.
-        const RECT screen{sx, Px(14), sx + Px(120), Px(14) + Px(74)};
-        FillRound(dc, RECT{screen.left - Px(2), screen.top - Px(2), screen.right + Px(2), screen.bottom + Px(2)},
-                  Mix(palette_.text, bandColor_, 34), Px(8));
-        FillRound(dc, screen, Mix(palette_.text, bandColor_, 8), Px(6));
-        const int mid = (screen.left + screen.right) / 2;
-        Fill(dc, RECT{mid - Px(12), screen.bottom + Px(2), mid + Px(12), screen.bottom + Px(12)}, Mix(palette_.text, bandColor_, 34));
-        FillRound(dc, RECT{mid - Px(26), screen.bottom + Px(11), mid + Px(26), screen.bottom + Px(16)}, Mix(palette_.text, bandColor_, 34),
-                  Px(3));
-        const int inset = Px(5), thick = Px(7);
-        RECT in{screen.left + inset, screen.top + inset, screen.right - inset, screen.bottom - inset};
-        if (d.IsFolderWindow()) {
-            const RECT w{in.left + Px(6), in.top + Px(4), in.left + Px(46), in.top + Px(34)};
-            FillRound(dc, w, Mix(dock, bandColor_, 45), Px(4));
-            Fill(dc, RECT{w.left, w.top, w.right, w.top + Px(6)}, dock);
-        } else if (d.IsWidgetWindow()) {
-            // Round 6 phase 6B: a small rounded box where the widget is on its display (its window
-            // rect over its monitor), else centred.
-            const int iw = in.right - in.left, ih = in.bottom - in.top;
-            const RECT mon = host_.dockMonitor ? host_.dockMonitor() : RECT{};
-            const RECT box = host_.dockBar ? host_.dockBar() : RECT{};
-            const LONG mw = mon.right - mon.left, mh = mon.bottom - mon.top;
-            int bw = Px(18), bh = Px(18);
-            int fx = (iw - bw) / 2, fy = (ih - bh) / 2;
-            if (mw > 0 && mh > 0 && box.right > box.left) {
-                bw = std::clamp(static_cast<int>(static_cast<long long>(box.right - box.left) * iw / mw), Px(8), iw);
-                bh = std::clamp(static_cast<int>(static_cast<long long>(box.bottom - box.top) * ih / mh), Px(8), ih);
-                fx = std::clamp(static_cast<int>(static_cast<long long>(box.left - mon.left) * iw / mw), 0, std::max(0, iw - bw));
-                fy = std::clamp(static_cast<int>(static_cast<long long>(box.top - mon.top) * ih / mh), 0, std::max(0, ih - bh));
-            }
-            FillRound(dc, RECT{in.left + fx, in.top + fy, in.left + fx + bw, in.top + fy + bh}, dock, Px(5));
-        } else if (d.Floating()) {
-            // A small bar where the dock is on its display (its rest rect over its monitor), else
-            // centred.
-            const bool vertical = IsVertical(d.edge);
-            const int iw = in.right - in.left, ih = in.bottom - in.top;
-            const int bw = vertical ? thick : iw * 34 / 100, bh = vertical ? ih * 40 / 100 : thick;
-            int fx = (iw - bw) / 2, fy = (ih - bh) / 2;
-            const RECT mon = host_.dockMonitor ? host_.dockMonitor() : RECT{};
-            const RECT bar = host_.dockBar ? host_.dockBar() : RECT{};
-            const LONG mw = mon.right - mon.left, mh = mon.bottom - mon.top;
-            if (mw > 0 && mh > 0 && bar.right > bar.left) {
-                fx = static_cast<int>(static_cast<long long>(bar.left - mon.left) * (iw - bw) / std::max<LONG>(1, mw - (bar.right - bar.left)));
-                fy = static_cast<int>(static_cast<long long>(bar.top - mon.top) * (ih - bh) / std::max<LONG>(1, mh - (bar.bottom - bar.top)));
-                fx = std::clamp(fx, 0, std::max(0, iw - bw));
-                fy = std::clamp(fy, 0, std::max(0, ih - bh));
-            }
-            const RECT fb{in.left + fx, in.top + fy, in.left + fx + bw, in.top + fy + bh};
-            FillRound(dc, fb, dock, Px(3));
-        } else if (d.shape == DockShape::Circle) {
-            const int r = Px(14);
-            const int cx = (in.left + in.right) / 2, cyy = (in.top + in.bottom) / 2;
-            HBRUSH b = CreateSolidBrush(dock);
-            HPEN p = CreatePen(PS_SOLID, std::max(1, Px(2)), dock);
-            HGDIOBJ ob = SelectObject(dc, GetStockObject(NULL_BRUSH));
-            HGDIOBJ op = SelectObject(dc, p);
-            Ellipse(dc, cx - r, cyy - r, cx + r, cyy + r);
-            SelectObject(dc, ob);
-            SelectObject(dc, op);
-            DeleteObject(p);
-            DeleteObject(b);
-        } else {
-            const bool vertical = IsVertical(d.edge);
-            const int length = vertical ? in.bottom - in.top : in.right - in.left;
-            const int len = d.fullWidth ? length : length * 46 / 100;
-            const int start = vertical ? in.top : in.left;
-            const int pos = d.fullWidth || d.align == DockAlign::Center ? start + (length - len) / 2
-                            : d.align == DockAlign::Start               ? start
-                                                                        : start + length - len;
-            RECT bar{};
-            switch (d.edge) {
-                case DockEdge::Top: bar = RECT{pos, in.top, pos + len, in.top + thick}; break;
-                case DockEdge::Left: bar = RECT{in.left, pos, in.left + thick, pos + len}; break;
-                case DockEdge::Right: bar = RECT{in.right - thick, pos, in.right, pos + len}; break;
-                case DockEdge::Bottom:
-                default: bar = RECT{pos, in.bottom - thick, pos + len, in.bottom}; break;
-            }
-            if (d.shape == DockShape::Arc) {
-                // A half ring on the edge: a bump in the middle of the bar's place.
-                const int r = Px(13);
-                const int cx = vertical ? (d.edge == DockEdge::Left ? in.left : in.right) : (bar.left + bar.right) / 2;
-                const int cyy = vertical ? (bar.top + bar.bottom) / 2 : (d.edge == DockEdge::Top ? in.top : in.bottom);
-                HRGN clip = CreateRectRgn(in.left, in.top, in.right, in.bottom);
-                SelectClipRgn(dc, clip);
-                HBRUSH b = CreateSolidBrush(dock);
-                HPEN p = CreatePen(PS_SOLID, 1, dock);
-                HGDIOBJ ob = SelectObject(dc, b);
-                HGDIOBJ op = SelectObject(dc, p);
-                Ellipse(dc, cx - r, cyy - r, cx + r, cyy + r);
-                SelectObject(dc, ob);
-                SelectObject(dc, op);
-                DeleteObject(p);
-                DeleteObject(b);
-                SelectClipRgn(dc, nullptr);
-                DeleteObject(clip);
-            } else {
-                FillRound(dc, bar, dock, Px(4));
-            }
         }
         Fill(dc, RECT{0, rc.bottom - std::max(1, Px(1)), rc.right, rc.bottom}, hair);
     } else {
@@ -525,6 +469,134 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
     SelectObject(dc, oldBmp);
     DeleteObject(bmp);
     DeleteDC(dc);
+}
+
+// --- the dock silhouette (round 8 phase 8B: the Position tab's; it was the header's) -------------
+
+std::wstring SettingsWindow::SilhouetteCaption() {
+    if (DockIndex() == SIZE_MAX) return L"";
+    const DockConfig& d = Dock();
+    const RECT mon = host_.dockMonitor ? host_.dockMonitor() : RECT{};
+    std::wstring s = SettingsDisplayName(d.monitor);
+    if (mon.right > mon.left && mon.bottom > mon.top) {
+        s += L" · " + std::to_wstring(mon.right - mon.left) + L" × " + std::to_wstring(mon.bottom - mon.top);
+    } else if (host_.dockWindows && host_.dockWindows(DockIndex()) == 0) {
+        s += L" · not connected";
+    }
+    return s;
+}
+
+void SettingsWindow::PaintSilhouette(HDC dc, const RECT& rc, COLORREF back) {
+    if (DockIndex() == SIZE_MAX) return;
+    const DockConfig& d = Dock();
+    const COLORREF dock = palette_.highContrast ? palette_.accent : DockColor();
+    const int sx = (rc.left + rc.right) / 2 - Px(60);
+    const RECT screen{sx, rc.top + Px(4), sx + Px(120), rc.top + Px(4) + Px(74)};
+    FillRound(dc, RECT{screen.left - Px(2), screen.top - Px(2), screen.right + Px(2), screen.bottom + Px(2)},
+              Mix(palette_.text, back, 34), Px(8));
+    FillRound(dc, screen, Mix(palette_.text, back, 8), Px(6));
+    const int mid = (screen.left + screen.right) / 2;
+    Fill(dc, RECT{mid - Px(12), screen.bottom + Px(2), mid + Px(12), screen.bottom + Px(12)}, Mix(palette_.text, back, 34));
+    FillRound(dc, RECT{mid - Px(26), screen.bottom + Px(11), mid + Px(26), screen.bottom + Px(16)}, Mix(palette_.text, back, 34),
+              Px(3));
+    const int inset = Px(5), thick = Px(7);
+    RECT in{screen.left + inset, screen.top + inset, screen.right - inset, screen.bottom - inset};
+    if (d.IsFolderWindow()) {
+        const RECT w{in.left + Px(6), in.top + Px(4), in.left + Px(46), in.top + Px(34)};
+        FillRound(dc, w, Mix(dock, back, 45), Px(4));
+        Fill(dc, RECT{w.left, w.top, w.right, w.top + Px(6)}, dock);
+    } else if (d.IsWidgetWindow()) {
+        // Round 6 phase 6B: a small rounded box where the widget is on its display (its window
+        // rect over its monitor), else centred.
+        const int iw = in.right - in.left, ih = in.bottom - in.top;
+        const RECT mon = host_.dockMonitor ? host_.dockMonitor() : RECT{};
+        const RECT box = host_.dockBar ? host_.dockBar() : RECT{};
+        const LONG mw = mon.right - mon.left, mh = mon.bottom - mon.top;
+        int bw = Px(18), bh = Px(18);
+        int fx = (iw - bw) / 2, fy = (ih - bh) / 2;
+        if (mw > 0 && mh > 0 && box.right > box.left) {
+            bw = std::clamp(static_cast<int>(static_cast<long long>(box.right - box.left) * iw / mw), Px(8), iw);
+            bh = std::clamp(static_cast<int>(static_cast<long long>(box.bottom - box.top) * ih / mh), Px(8), ih);
+            fx = std::clamp(static_cast<int>(static_cast<long long>(box.left - mon.left) * iw / mw), 0, std::max(0, iw - bw));
+            fy = std::clamp(static_cast<int>(static_cast<long long>(box.top - mon.top) * ih / mh), 0, std::max(0, ih - bh));
+        }
+        FillRound(dc, RECT{in.left + fx, in.top + fy, in.left + fx + bw, in.top + fy + bh}, dock, Px(5));
+    } else if (d.Floating()) {
+        // A small bar where the dock is on its display (its rest rect over its monitor), else
+        // centred.
+        const bool vertical = IsVertical(d.edge);
+        const int iw = in.right - in.left, ih = in.bottom - in.top;
+        const int bw = vertical ? thick : iw * 34 / 100, bh = vertical ? ih * 40 / 100 : thick;
+        int fx = (iw - bw) / 2, fy = (ih - bh) / 2;
+        const RECT mon = host_.dockMonitor ? host_.dockMonitor() : RECT{};
+        const RECT bar = host_.dockBar ? host_.dockBar() : RECT{};
+        const LONG mw = mon.right - mon.left, mh = mon.bottom - mon.top;
+        if (mw > 0 && mh > 0 && bar.right > bar.left) {
+            fx = static_cast<int>(static_cast<long long>(bar.left - mon.left) * (iw - bw) / std::max<LONG>(1, mw - (bar.right - bar.left)));
+            fy = static_cast<int>(static_cast<long long>(bar.top - mon.top) * (ih - bh) / std::max<LONG>(1, mh - (bar.bottom - bar.top)));
+            fx = std::clamp(fx, 0, std::max(0, iw - bw));
+            fy = std::clamp(fy, 0, std::max(0, ih - bh));
+        }
+        const RECT fb{in.left + fx, in.top + fy, in.left + fx + bw, in.top + fy + bh};
+        FillRound(dc, fb, dock, Px(3));
+    } else if (d.shape == DockShape::Circle) {
+        const int r = Px(14);
+        const int cx = (in.left + in.right) / 2, cyy = (in.top + in.bottom) / 2;
+        HBRUSH b = CreateSolidBrush(dock);
+        HPEN p = CreatePen(PS_SOLID, std::max(1, Px(2)), dock);
+        HGDIOBJ ob = SelectObject(dc, GetStockObject(NULL_BRUSH));
+        HGDIOBJ op = SelectObject(dc, p);
+        Ellipse(dc, cx - r, cyy - r, cx + r, cyy + r);
+        SelectObject(dc, ob);
+        SelectObject(dc, op);
+        DeleteObject(p);
+        DeleteObject(b);
+    } else {
+        const bool vertical = IsVertical(d.edge);
+        const int length = vertical ? in.bottom - in.top : in.right - in.left;
+        const int len = d.fullWidth ? length : length * 46 / 100;
+        const int start = vertical ? in.top : in.left;
+        const int pos = d.fullWidth || d.align == DockAlign::Center ? start + (length - len) / 2
+                        : d.align == DockAlign::Start               ? start
+                                                                    : start + length - len;
+        RECT bar{};
+        switch (d.edge) {
+            case DockEdge::Top: bar = RECT{pos, in.top, pos + len, in.top + thick}; break;
+            case DockEdge::Left: bar = RECT{in.left, pos, in.left + thick, pos + len}; break;
+            case DockEdge::Right: bar = RECT{in.right - thick, pos, in.right, pos + len}; break;
+            case DockEdge::Bottom:
+            default: bar = RECT{pos, in.bottom - thick, pos + len, in.bottom}; break;
+        }
+        if (d.shape == DockShape::Arc) {
+            // A half ring on the edge: a bump in the middle of the bar's place.
+            const int r = Px(13);
+            const int cx = vertical ? (d.edge == DockEdge::Left ? in.left : in.right) : (bar.left + bar.right) / 2;
+            const int cyy = vertical ? (bar.top + bar.bottom) / 2 : (d.edge == DockEdge::Top ? in.top : in.bottom);
+            HRGN clip = CreateRectRgn(in.left, in.top, in.right, in.bottom);
+            SelectClipRgn(dc, clip);
+            HBRUSH b = CreateSolidBrush(dock);
+            HPEN p = CreatePen(PS_SOLID, 1, dock);
+            HGDIOBJ ob = SelectObject(dc, b);
+            HGDIOBJ op = SelectObject(dc, p);
+            Ellipse(dc, cx - r, cyy - r, cx + r, cyy + r);
+            SelectObject(dc, ob);
+            SelectObject(dc, op);
+            DeleteObject(p);
+            DeleteObject(b);
+            SelectClipRgn(dc, nullptr);
+            DeleteObject(clip);
+        } else {
+            FillRound(dc, bar, dock, Px(4));
+        }
+    }
+    // The caption under the stand.
+    const std::wstring caption = SilhouetteCaption();
+    HGDIOBJ oldFont = SelectObject(dc, font_);
+    SetBkMode(dc, TRANSPARENT);
+    SetTextColor(dc, palette_.textSecondary);
+    RECT cr{rc.left, screen.bottom + Px(20), rc.right, rc.bottom};
+    DrawTextW(dc, caption.c_str(), static_cast<int>(caption.size()), &cr, DT_CENTER | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    SelectObject(dc, oldFont);
 }
 
 // --- messages --------------------------------------------------------------------------------
@@ -563,7 +635,7 @@ LRESULT SettingsWindow::BandProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_CTLCOLORBTN: {
             HDC dc = reinterpret_cast<HDC>(wp);
             const int id = GetDlgCtrlID(reinterpret_cast<HWND>(lp));
-            SetTextColor(dc, id == kHeaderGlobal || id == kHeaderDockLink ? palette_.link : palette_.text);
+            SetTextColor(dc, id == kHeaderDockLink ? palette_.link : palette_.text);
             SetBkColor(dc, bandColor_);
             return reinterpret_cast<LRESULT>(bandBrush_);
         }
@@ -595,8 +667,11 @@ void SettingsWindow::OnBandCommand(int id) {
             Refresh();  // the Contents tab's check box, the chip, the button
             break;
         }
-        case kHeaderGlobal:
+        case kHeaderGlobal:  // the "⋯" menu's Global settings… (round 8 phase 8B; was a link)
             if (host_.openGlobal) host_.openGlobal(-1);
+            break;
+        case kHeaderMore:
+            ShowHeaderMenu();
             break;
         case kHeaderDockLink:
             if (host_.openDock && DockIndex() != SIZE_MAX) host_.openDock(DockIndex(), -1);

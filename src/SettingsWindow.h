@@ -314,6 +314,9 @@ protected:
     void Section(int id, const wchar_t* text);
     // Closes the open card: the rows after it are outside any card until the next Section.
     void EndCard();
+    // Round 8 phase 8B: opens an untitled card (26 DIPs under the last one), like Section without
+    // its header (the Position tab's "More" expander).
+    void UntitledCard();
     void Label(int id, const wchar_t* text);
     // A label with a one-line muted hint under it (the row is kHintRowH tall; the row's other
     // controls are centred in it). `hintId` 0: an id of the page's own (not stable).
@@ -533,6 +536,13 @@ public:
     int MeasureTextDip(const std::wstring& text, int widthDip, int maxLines = 0) const;
     // The dock's identity colour (Config::DockColor) as a COLORREF.
     COLORREF DockColor() const;
+    // Round 8 phase 8B (moved from the header to the Position tab): a small monitor with the
+    // window's dock drawn where it is (its edge, alignment and full width, a floating bar at its
+    // place, a half circle / circle; a standalone widget's box, a folder window's window) and a
+    // caption line ("Primary · 5120 × 1440") under it, in `rc` over `back` (SettingsBands.cpp).
+    void PaintSilhouette(HDC dc, const RECT& rc, COLORREF back);
+    // "Where it sits: Primary · 5120 × 1440" (the silhouette's caption / accessible name).
+    std::wstring SilhouetteCaption();
 
     // --- widget previews (round 6 phase 6E) ---
     // A rendered preview, cached per window by (widget id, the box it is fitted into) for the
@@ -587,12 +597,12 @@ private:
     static constexpr int kNavItemDip = 36;
     static constexpr int kAboveBarDip = 24;    // gap between the window and the dock's bar
     static constexpr int kItemOffsetDip = 40;  // an Item window from its dock's window
-    // The dock preview strip (SettingsPreview) under the Global Themes / Animation pages and every
-    // tab of a Dock window but Contents (round 5 phase C: its item strip shows the items), content-
-    // pane wide.
+    // The dock preview strip (SettingsPreview) under the Global Themes / Animation pages and a Dock
+    // window's Appearance tab (round 8 phase 8B: only there; the Position tab has the silhouette,
+    // Contents its item strip), content-pane wide.
     static constexpr int kFooterDip = 96;
     static constexpr int kSubtitleDip = 34;     // Global: the subtitle band over the pages
-    static constexpr int kDockHeaderDip = 128;  // Dock: the identity header
+    static constexpr int kDockHeaderDip = 72;   // Dock: the identity header (round 8 phase 8B: was 128)
     static constexpr int kItemHeaderDip = 88;   // Item: the header
     static constexpr int kTabsDip = 42;         // Dock: the tab strip
     static constexpr int kItemFooterDip = 52;   // Item: the footer
@@ -665,6 +675,10 @@ private:
     void LayoutBands();
     void PaintBand(HWND hwnd, HDC hdc);
     void OnBandCommand(int id);
+    // Round 8 phase 8B: the header's "⋯" menu (Global settings…) under its button.
+    void ShowHeaderMenu();
+    // The header's id and chips end here (client px): left of its action buttons.
+    int HeaderTextRight() const;
     // The header's chips and summary: "Bottom edge", "Primary", "5 items", "Shown".
     std::vector<std::wstring> HeaderChips();
     std::wstring WindowTitle();
