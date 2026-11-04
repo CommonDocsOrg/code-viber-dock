@@ -252,6 +252,9 @@ struct StripTile {
     bool disabled = false;  // drawer: a single-instance kind already on the dock
     bool header = false;    // drawer: a group header ("Built in")
     bool desktop = false;   // drawer: a script widget's row also offers "Desktop" (round 6 phase 6B: Add to the desktop)
+    // Round 6 phase 6E: a script widget's id: the drawer row / the inspector shows its live preview
+    // (SettingsWindow::Preview) instead of the letter tile ("" none, or a widget that failed).
+    std::wstring previewId;
     int ref = -1;           // strip: the item index; drawer: the entry index
 };
 
@@ -366,6 +369,17 @@ public:
     // The insertion slot the marker shows (-1: no drag over the strip).
     int Marker() const { return (dragging_ || external_) ? slot_ : -1; }
 
+    // Round 6 phase 6E: the boxes previews are fitted into (px at the window's DPI): a drawer row's
+    // preview area (72 x 44 DIPs less the panel's inset) and the inspector's (200 x 100 DIPs).
+    static SIZE DrawerPreviewFit(const SettingsWindow& w) {
+        return SIZE{w.Px(kPreviewW) - 2 * std::max(1, w.Px(3)), w.Px(kPreviewH) - 2 * std::max(1, w.Px(3))};
+    }
+    static SIZE InfoPreviewFit(const SettingsWindow& w) {
+        return SIZE{w.Px(kInfoPreviewW) - 2 * std::max(1, w.Px(3)), w.Px(kInfoPreviewH) - 2 * std::max(1, w.Px(3))};
+    }
+    static constexpr int kInfoPreviewW = 200, kInfoPreviewH = 100;  // DIPs
+    static constexpr float kInfoZoom = 2.0f;  // a small widget is drawn up to twice its dock size there
+
     // A drawer row dragged over the strip (screen point; `ghost` follows the pointer).
     void ExternalOver(POINT screen, const StripTile& ghost) {
         POINT pt = screen;
@@ -402,7 +416,12 @@ public:
 private:
     // DIPs
     static constexpr int kTileW = 84, kSepW = 28, kRunningW = 150, kTileH = 84, kIcon = 44, kGap = 2, kPad = 10;
-    static constexpr int kRowH = 48, kHeaderH = 26, kRowGap = 6, kAddW = 48, kDeskW = 62;
+    static constexpr int kRowH = 56, kHeaderH = 26, kRowGap = 6, kAddW = 48, kDeskW = 62;
+    // Round 6 phase 6E: a drawer row's preview area (left of its text).
+    static constexpr int kPreviewW = 72, kPreviewH = 44;
+    // Previews rendered during one paint: past this many ms the rest wait for the next paint (the
+    // control invalidates itself after the paint), so a page full of new previews stays responsive.
+    static constexpr double kPaintBudgetMs = 40.0;
 
     int Px(int dip) const { return window_.Px(dip); }
     void Repaint() const {
@@ -515,9 +534,15 @@ private:
         return RECT{x - w / 2, top, x - w / 2 + w, top + h};
     }
 
+    // The row's Add button: on its second line, at its right end (round 6 phase 6E: the name has the
+    // whole first line beside the preview).
     RECT AddRect(const RECT& row) const {
+        return RECT{row.right - Px(10) - Px(kAddW), row.bottom - Px(6) - Px(23), row.right - Px(10), row.bottom - Px(6)};
+    }
+    // The preview area at the row's left.
+    RECT PreviewRect(const RECT& row) const {
         const int cy = (row.top + row.bottom) / 2;
-        return RECT{row.right - Px(10) - Px(kAddW), cy - Px(13), row.right - Px(10), cy + Px(13)};
+        return RECT{row.left + Px(8), cy - Px(kPreviewH) / 2, row.left + Px(8) + Px(kPreviewW), cy - Px(kPreviewH) / 2 + Px(kPreviewH)};
     }
     // The "Desktop" button left of Add (a script widget's row).
     RECT DesktopRect(const RECT& row) const {
@@ -691,9 +716,18 @@ private:
         const bool live = !t.disabled;
         const COLORREF fill = Mix(c.text, c.layer, live && hot ? 10 : 5);
         Round(dc, r, fill, Mix(c.text, c.layer, live && hot ? 24 : 13), Px(6) * 2);
-        const int cy = (r.top + r.bottom) / 2;
-        const RECT box{r.left + Px(10), cy - Px(15), r.left + Px(10) + Px(30), cy - Px(15) + Px(30)};
-        PaintGlyph(dc, t, box, c, fill);
+        // Round 6 phase 6E: a script widget's live preview in the area at the left; the letter tile
+        // while it renders / when it failed; the built-in kinds keep their glyphs (centred in it).
+        const RECT area = PreviewRect(r);
+        const SettingsWindow::PreviewImage* img = t.previewId.empty() ? nullptr : PreviewFor(t.previewId);
+        if (img) {
+            window_.PaintPreview(dc, area, *img, fill);
+        } else {
+            const int cx = (area.left + area.right) / 2, cy = (area.top + area.bottom) / 2;
+            const RECT box{cx - Px(15), cy - Px(15), cx - Px(15) + Px(30), cy - Px(15) + Px(30)};
+            PaintGlyph(dc, t, box, c, fill);
+        }
+        SetBkMode(dc, TRANSPARENT);
         const RECT add = AddRect(r);
         Round(dc, add, Mix(c.text, c.layer, live && addHot ? 20 : 11), Mix(c.text, c.layer, live ? 30 : 16), Px(4) * 2);
         Text(dc, L"Add", add, Small(), live ? c.text : c.disabled, DT_CENTER | DT_VCENTER);
@@ -704,18 +738,24 @@ private:
             Text(dc, L"Desktop", desk, Small(), live ? c.text : c.disabled, DT_CENTER | DT_VCENTER);
             buttonsL = desk.left;
         }
-        const int textL = r.left + Px(50);
-        int nameR = buttonsL - Px(8);
+        // The name (and version) on the first line, across the row; the note on the second, left of
+        // the buttons.
+        const int textL = area.right + Px(10);
+        int nameR = r.right - Px(10);
         if (!t.version.empty()) {
             const int vw = TextWidth(dc, t.version, Small());
-            Text(dc, t.version, RECT{nameR - vw, r.top + Px(6), nameR, r.top + Px(25)}, Small(), live ? c.secondary : c.disabled,
+            Text(dc, t.version, RECT{nameR - vw, r.top + Px(6), nameR, r.top + Px(26)}, Small(), live ? c.secondary : c.disabled,
                  DT_RIGHT | DT_VCENTER);
             nameR -= vw + Px(6);
         }
-        Text(dc, t.name, RECT{textL, r.top + Px(6), nameR, r.top + Px(25)}, Bold(), live ? c.text : c.disabled,
+        Text(dc, t.name, RECT{textL, r.top + Px(6), nameR, r.top + Px(26)}, Bold(), live ? c.text : c.disabled,
              DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-        Text(dc, t.note, RECT{textL, r.top + Px(25), buttonsL - Px(8), r.bottom - Px(5)}, Small(), live ? c.secondary : c.disabled,
-             DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+        // The note beside the buttons when it has room for a few words (else the name and the
+        // preview say enough; the search still finds it).
+        if (buttonsL - Px(6) - textL >= Px(96)) {
+            Text(dc, t.note, RECT{textL, add.top, buttonsL - Px(6), add.bottom}, Small(), live ? c.secondary : c.disabled,
+                 DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+        }
         if (focused) {
             RECT f = r;
             InflateRect(&f, -Px(2), -Px(2));
@@ -742,11 +782,33 @@ private:
         DeleteDC(mem);
     }
 
+    // A drawer row's preview (rendered now while the paint's budget lasts; null: not yet, or failed).
+    const SettingsWindow::PreviewImage* PreviewFor(const std::wstring& id) const {
+        const SIZE fit = DrawerPreviewFit(window_);
+        if (!window_.PreviewEntry(id, fit)) {
+            if (paintRenders_ > 0 && NowMs() - paintStart_ >= kPaintBudgetMs) {
+                previewPending_ = true;  // the next paint renders it
+                return nullptr;
+            }
+            ++paintRenders_;
+        }
+        return window_.Preview(id, fit, true);
+    }
+    static double NowMs() {
+        LARGE_INTEGER f{}, c{};
+        QueryPerformanceFrequency(&f);
+        QueryPerformanceCounter(&c);
+        return static_cast<double>(c.QuadPart) * 1000.0 / static_cast<double>(f.QuadPart);
+    }
+
     void Paint(HDC dc) const {
         const SIZE client = Client();
         const RECT all{0, 0, client.cx, client.cy};
         const Colors c = Palette();
         const bool focus = GetFocus() == hwnd_;
+        paintStart_ = NowMs();
+        paintRenders_ = 0;
+        previewPending_ = false;
         if (mode_ == Mode::Info) {
             Fill(dc, all, c.layer);
             SetBkMode(dc, TRANSPARENT);
@@ -755,6 +817,17 @@ private:
                 return;
             }
             const StripTile& t = tiles_[0];
+            // Round 6 phase 6E: a script widget's larger preview above its name.
+            if (!t.previewId.empty()) {
+                if (const SettingsWindow::PreviewImage* img = window_.Preview(t.previewId, InfoPreviewFit(window_), true, kInfoZoom)) {
+                    const RECT area{0, 0, std::min(static_cast<int>(client.cx), Px(kInfoPreviewW)), Px(kInfoPreviewH)};
+                    window_.PaintPreview(dc, area, *img, c.layer);
+                    const int y = Px(kInfoPreviewH) + Px(2);
+                    Text(dc, t.name, RECT{0, y, client.cx, y + Px(17)}, Bold(), c.text, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+                    Text(dc, t.note, RECT{0, y + Px(17), client.cx, y + Px(34)}, Small(), c.secondary, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+                    return;
+                }
+            }
             const int s = std::min(Px(32), static_cast<int>(client.cy));
             const int top = (client.cy - s) / 2;
             RECT box{0, top, s, top + s};
@@ -932,6 +1005,7 @@ private:
                 DeleteObject(bmp);
                 DeleteDC(mem);
                 EndPaint(hwnd_, &ps);
+                if (previewPending_) InvalidateRect(hwnd_, nullptr, FALSE);  // the previews this paint had no time for
                 return 0;
             }
             case WM_SETFOCUS:
@@ -1190,6 +1264,11 @@ private:
     HFONT small_ = nullptr;
     HFONT smallBold_ = nullptr;
     HFONT letter_ = nullptr;
+    // The paint in progress (round 6 phase 6E): when it began, the previews it rendered, and
+    // whether one was left for the next paint.
+    mutable double paintStart_ = 0.0;
+    mutable int paintRenders_ = 0;
+    mutable bool previewPending_ = false;
 };
 
 // --- the page --------------------------------------------------------------------------------
@@ -1197,7 +1276,7 @@ private:
 // The drawer's state is the session's (not saved): shown at first.
 bool g_drawerOpen = true;
 
-constexpr int kDrawerW = 300;  // DIPs
+constexpr int kDrawerW = 340;  // DIPs (round 6 phase 6E: 300 -> 340 for the rows' previews)
 constexpr int kInspectorTop = 278;
 
 // A drawer entry: a built-in kind (0 - 6) or an installed script widget (7 ...).
@@ -1241,7 +1320,7 @@ protected:
         Button(kPinAddSeparator, L"Add separator", L + 216, 112);
         Button(kPinAddRecycleBin, L"Add Recycle Bin", L + 336, 124);
         y_ = 236;
-        Check(kLockDock, kLockDockCaption, L"Lock the dock (no dragging, no pinning by dropping files)", L);
+        Check(kLockDock, kLockDockCaption, L"Lock the dock (no dragging or dropping)", L);
         Button(kContentsDrawerToggle, g_drawerOpen ? L"Hide widget drawer" : L"Show widget drawer", R - 150, 150);
         // The inspector (its frame is painted by PaintBackground; FlowInspector places the buttons).
         Add(kContentsInfo, CtlKind::Custom, SettingsStrip::kClass, L"Selected item", 0,
@@ -1356,6 +1435,30 @@ protected:
                 out = g_drawerOpen && drawer_.DesktopCentreOf(static_cast<int>(arg), pt)
                           ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(pt.x), static_cast<WORD>(pt.y)))
                           : -1;
+                return true;
+            case 264: {  // round 6 phase 6E: drawer entry `arg`'s preview bitmap size (MAKELONG(w, h) px; 0 none / failed)
+                // Rendered now when the drawer has not painted it yet (a row scrolled out of view).
+                if (arg < 0 || static_cast<size_t>(arg) >= entries_.size() || entries_[static_cast<size_t>(arg)].kind != ItemKind::Widget) {
+                    out = 0;
+                    return true;
+                }
+                const SettingsWindow::PreviewImage* img =
+                    Window().Preview(entries_[static_cast<size_t>(arg)].id, SettingsStrip::DrawerPreviewFit(Window()), true);
+                out = img ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(img->px.cx), static_cast<WORD>(img->px.cy))) : 0;
+                return true;
+            }
+            case 267: {  // round 6 phase 6E: drawer entry `arg`'s preview render time in microseconds (-1: not rendered)
+                if (arg < 0 || static_cast<size_t>(arg) >= entries_.size() || entries_[static_cast<size_t>(arg)].kind != ItemKind::Widget) {
+                    out = -1;
+                    return true;
+                }
+                const SettingsWindow::PreviewImage* img =
+                    Window().PreviewEntry(entries_[static_cast<size_t>(arg)].id, SettingsStrip::DrawerPreviewFit(Window()));
+                out = img ? static_cast<LRESULT>(img->ms * 1000.0) : -1;
+                return true;
+            }
+            case 268:  // round 6 phase 6E: the inspector shows a widget preview (1 / 0)
+                out = infoPreview_ ? 1 : 0;
                 return true;
             default:
                 return false;
@@ -1502,6 +1605,7 @@ private:
         t.tint = TintOf(e.kind, e.id);
         t.letter = LetterOf(e.kind, e.name);
         t.desktop = e.kind == ItemKind::Widget;  // round 6 phase 6B: Add to the desktop
+        if (e.kind == ItemKind::Widget) t.previewId = e.id;  // round 6 phase 6E: its live preview
         switch (e.kind) {
             case ItemKind::Running: t.shape = StripTile::Shape::Running; break;
             case ItemKind::Separator: t.shape = StripTile::Shape::Separator; break;
@@ -1565,18 +1669,34 @@ private:
             HWND h = Item(id);
             return h && (GetWindowLongW(h, GWL_STYLE) & WS_VISIBLE) != 0;
         };
-        std::wstring key = std::to_wstring(R);
+        std::wstring key = std::to_wstring(R) + (infoPreview_ ? L"p" : L"");
         for (int id : {kPinSettings, kPinChooseIcon, kPinChooseImage, kPinResetIcon}) key += shown(id) ? L"1" : L"0";
         if (!force && key == flowKey_) return;
         flowKey_ = key;
-        MoveCtl(kContentsInfo, RECT{left, kInspectorTop + 10, right - 212, kInspectorTop + 46});
+        // Round 6 phase 6E: a widget's preview makes the identity line taller (the preview above it).
+        const int extra = infoPreview_ ? SettingsStrip::kInfoPreviewH : 0;
+        MoveCtl(kContentsInfo, RECT{left, kInspectorTop + 10, right - 212, kInspectorTop + 46 + extra});
         MoveCtl(kPinUp, RECT{right - 206, kInspectorTop + 14, right - 106, kInspectorTop + 42});
         MoveCtl(kPinDown, RECT{right - 100, kInspectorTop + 14, right, kInspectorTop + 42});
-        int x = left, y = kInspectorTop + 52;
         const struct {
             int id;
             int w;
         } flow[] = {{kPinSettings, 196}, {kPinChooseIcon, 92}, {kPinChooseImage, 102}, {kPinResetIcon, 80}};
+        if (infoPreview_) {
+            // A widget with its preview: the buttons stack in the right column under Move left /
+            // right, beside the preview (the inspector stays as tall as the preview and the name).
+            int yc = kInspectorTop + 50;
+            for (const auto& b : flow) {
+                if (!shown(b.id)) continue;
+                MoveCtl(b.id, RECT{right - 206, yc, right, yc + 28});
+                yc += 34;
+            }
+            MoveCtl(kPinRemove, RECT{right - 206, yc, right, yc + 28});
+            inspectorBottom_ = std::max(kInspectorTop + 46 + extra + 10, yc + 28 + 10);
+            Relayout();
+            return;
+        }
+        int x = left, y = kInspectorTop + 52 + extra;
         for (const auto& b : flow) {
             if (!shown(b.id)) continue;
             MoveCtl(b.id, RECT{x, y, x + b.w, y + 28});
@@ -1692,6 +1812,7 @@ private:
         const int n = static_cast<int>(dock.items.size());
         const bool valid = sel_ >= 0 && sel_ < n;
         std::vector<StripTile> info;
+        bool preview = false;
         if (valid) {
             const size_t i = static_cast<size_t>(sel_);
             const DockItemEntry& e = dock.items[i];
@@ -1703,6 +1824,11 @@ private:
             std::wstring details;
             StripTile t = ItemTile(i, pin, firstRunning, false, &details);
             t.note = t.note + (details.empty() ? std::wstring() : L" · " + details);
+            if (e.Kind() == ItemKind::Widget &&
+                Window().Preview(e.id, SettingsStrip::InfoPreviewFit(Window()), true, SettingsStrip::kInfoZoom)) {
+                t.previewId = e.id;  // round 6 phase 6E: its live preview above the name
+                preview = true;
+            }
             if (e.IsPin() && e.Kind() != ItemKind::Separator) {
                 const std::wstring key = IconKey(e, pin, Window().Px(32));
                 if (key != infoKey_) {
@@ -1716,6 +1842,7 @@ private:
             info.push_back(std::move(t));
         }
         info_.SetTiles(std::move(info), 0);
+        infoPreview_ = preview;
         const DockItemEntry* e = valid ? &dock.items[static_cast<size_t>(sel_)] : nullptr;
         const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
         Enable(kPinUp, valid && sel_ > 0);
@@ -1966,6 +2093,7 @@ private:
     std::wstring filter_;
     std::wstring flowKey_;
     int inspectorBottom_ = kInspectorTop + 90;
+    bool infoPreview_ = false;  // the inspector shows the selected widget's preview (round 6 phase 6E)
 };
 
 }  // namespace

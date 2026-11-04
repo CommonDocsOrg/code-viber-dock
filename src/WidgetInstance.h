@@ -7,7 +7,9 @@
 
 #include <cstdint>
 #include <deque>
+#include <map>
 #include <memory>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -89,6 +91,10 @@ public:
 
     // `dock`: what the script sees as `dock` while its module loads (SetDock updates it later).
     // `weather`: the place its `weather` provider answers for (ScriptWeatherOf; SetWeatherConfig).
+    // Round 6 phase 6E: `dock.preview` makes a preview instance (WidgetPreview): it never registers
+    // with the runtime (no instance list, Console, timers, watch or providers), its settings are the
+    // manifest's `preview.settings` over the defaults, every side effect is a no-op and the
+    // providers answer with WidgetSamples; it is measured and drawn once (DrawInto) and destroyed.
     WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Factory1* d2d, IDWriteFactory* dwrite,
                    std::wstring id, std::wstring key, std::wstring itemSettings, const ScriptDockInfo& dock,
                    const WeatherConfig& weather);
@@ -138,6 +144,12 @@ public:
     ElementSize Measure(const LayoutContext& ctx);
     // Draws the content (or the error tile) into the slot's surface, at the last Measure's size.
     HRESULT Render(Renderer& renderer, Layer& layer, const LayoutContext& ctx);
+    // Round 6 phase 6E (a preview): the box of the last Measure in px (upright), and a draw of the
+    // content into `dc` (its transform maps the box's top-left; already cleared). An error leaves
+    // the instance in the Error / Suspended state (nothing drawn).
+    void PixelSize(UINT& w, UINT& h) const;
+    void DrawInto(ID2D1DeviceContext* dc);
+    bool Preview() const { return preview_; }
 
     // Input on the widget's box; x / y in DIPs from its top-left (upright).
     void Press(float x, float y);
@@ -260,6 +272,11 @@ private:
 
     WidgetRuntime& runtime_;
     Client& client_;
+    const bool preview_;  // round 6 phase 6E: a preview instance (dock.preview; never changes)
+    // A preview's storage writes (key -> JSON, nullopt: removed): reads see them over the real
+    // store, nothing is ever written to the widget's file.
+    std::map<std::string, std::optional<std::string>> scratch_;
+    size_t previewTimers_ = 0;  // timers a preview accepted (they never fire)
     std::wstring id_;
     std::wstring key_;
     std::wstring itemSettings_;

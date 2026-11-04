@@ -285,6 +285,7 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
                         w->Reload();
                     }
                 }
+                if (packagesChanged_) packagesChanged_();
                 return true;
             }
             return false;
@@ -775,6 +776,7 @@ void WidgetRuntime::ReloadAll() {
     for (WidgetInstance* w : all) {
         if (Alive(w)) w->Reload();
     }
+    if (packagesChanged_) packagesChanged_();
 }
 
 void WidgetRuntime::Arm() {

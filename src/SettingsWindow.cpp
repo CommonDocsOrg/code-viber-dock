@@ -6,6 +6,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cwchar>
 #include <iterator>
 
@@ -302,6 +303,7 @@ bool SettingsWindow::FocusCuesHidden(HWND hwnd) {
 
 SettingsWindow::~SettingsWindow() {
     if (hwnd_) DestroyWindow(hwnd_);  // WM_DESTROY / WM_NCDESTROY release everything
+    ClearPreviews();
 }
 
 size_t SettingsWindow::DockIndex() const {
@@ -1146,6 +1148,106 @@ void SettingsWindow::RequestRebuild(const SettingsPage& page) {
     }
 }
 
+// --- widget previews (round 6 phase 6E) ------------------------------------------------------------
+
+void SettingsWindow::ClearPreviews() {
+    for (auto& [id, img] : previews_) {
+        if (img.bitmap) DeleteObject(img.bitmap);
+    }
+    previews_.clear();
+}
+
+void SettingsWindow::CheckPreviewStamp() {
+    const uint64_t stamp = host_.previewStamp ? host_.previewStamp() : 0;
+    if (stamp == previewStamp_ && dpi_ == previewDpi_) return;
+    ClearPreviews();
+    previewStamp_ = stamp;
+    previewDpi_ = dpi_;
+}
+
+namespace {
+std::wstring PreviewKey(const std::wstring& id, SIZE fit, float zoom) {
+    return id + L"|" + std::to_wstring(fit.cx) + L"x" + std::to_wstring(fit.cy) + L"z" + std::to_wstring(static_cast<int>(zoom * 100.0f));
+}
+}  // namespace
+
+const SettingsWindow::PreviewImage* SettingsWindow::PreviewEntry(const std::wstring& id, SIZE fit, float zoom) {
+    CheckPreviewStamp();
+    const auto it = previews_.find(PreviewKey(id, fit, zoom));
+    return it == previews_.end() ? nullptr : &it->second;
+}
+
+const SettingsWindow::PreviewImage* SettingsWindow::Preview(const std::wstring& id, SIZE fit, bool render, float zoom) {
+    CheckPreviewStamp();
+    const std::wstring key = PreviewKey(id, fit, zoom);
+    auto it = previews_.find(key);
+    if (it == previews_.end()) {
+        if (!render || !host_.renderPreview || !hwnd_) return nullptr;
+        SettingsWidgetPreview r = host_.renderPreview(id, static_cast<float>(dpi_) / 96.0f, fit, zoom);
+        ++previewRenders_;
+        PreviewImage img;
+        img.bitmap = r.bitmap;
+        img.px = r.px;
+        img.failed = r.bitmap == nullptr;
+        img.ms = r.ms;
+        it = previews_.emplace(key, img).first;
+    }
+    return it->second.failed ? nullptr : &it->second;
+}
+
+int SettingsWindow::PreviewFailures() const {
+    std::vector<std::wstring> ids;
+    for (const auto& [key, img] : previews_) {
+        if (!img.failed) continue;
+        const std::wstring id = key.substr(0, key.find(L'|'));
+        if (std::find(ids.begin(), ids.end(), id) == ids.end()) ids.push_back(id);
+    }
+    return static_cast<int>(ids.size());
+}
+
+void SettingsWindow::InvalidatePreviews() {
+    ClearPreviews();
+    if (hwnd_) RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
+}
+
+void SettingsWindow::PaintPreview(HDC dc, const RECT& box, const PreviewImage& img, COLORREF under) const {
+    const int bw = box.right - box.left, bh = box.bottom - box.top;
+    if (!img.bitmap || bw <= 0 || bh <= 0 || img.px.cx <= 0 || img.px.cy <= 0) return;
+    // The panel: the theme's background (its colour, at 60 % over what is under it).
+    const uint32_t argb = host_.previewPanel ? host_.previewPanel() : 0xFF1E1E1E;
+    const COLORREF theme = RGB((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
+    auto mix = [](COLORREF a, COLORREF b, int pa) {
+        auto ch = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pa + y * (100 - pa)) / 100); };
+        return RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
+    };
+    const COLORREF panel = mix(theme, under, 60);
+    HBRUSH brush = CreateSolidBrush(panel);
+    HPEN pen = CreatePen(PS_SOLID, 1, mix(theme, under, 75));
+    HGDIOBJ ob = SelectObject(dc, brush);
+    HGDIOBJ op = SelectObject(dc, pen);
+    const int radius = Px(6) * 2;
+    RoundRect(dc, box.left, box.top, box.right, box.bottom, radius, radius);
+    SelectObject(dc, ob);
+    SelectObject(dc, op);
+    DeleteObject(pen);
+    DeleteObject(brush);
+    // The bitmap fitted inside a small inset, aspect kept, centred; never enlarged past 1:1.
+    const int pad = std::max(1, Px(3));
+    const int aw = std::max(1, bw - 2 * pad), ah = std::max(1, bh - 2 * pad);
+    double k = std::min(static_cast<double>(aw) / img.px.cx, static_cast<double>(ah) / img.px.cy);
+    k = std::min(k, 1.0);
+    const int w = std::max(1, static_cast<int>(std::lround(img.px.cx * k))), h = std::max(1, static_cast<int>(std::lround(img.px.cy * k)));
+    const int x = box.left + (bw - w) / 2, y = box.top + (bh - h) / 2;
+    HDC mem = CreateCompatibleDC(dc);
+    HGDIOBJ old = SelectObject(mem, img.bitmap);
+    SetStretchBltMode(dc, HALFTONE);
+    SetBrushOrgEx(dc, 0, 0, nullptr);
+    const BLENDFUNCTION blend{AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+    GdiAlphaBlend(dc, x, y, w, h, mem, 0, 0, img.px.cx, img.px.cy, blend);
+    SelectObject(mem, old);
+    DeleteDC(mem);
+}
+
 bool SettingsWindow::QueryPages(int code, LPARAM arg, LRESULT& out) {
     if (!hwnd_) return false;
     for (auto& page : pages_) {
@@ -1340,6 +1442,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             lastFocus_ = nullptr;
             if (itemIcon_) DestroyIcon(itemIcon_);
             itemIcon_ = nullptr;
+            ClearPreviews();
             for (auto& page : pages_) {
                 page->hwnd_ = nullptr;
                 for (Ctl& c : page->table_) c.hwnd = nullptr;

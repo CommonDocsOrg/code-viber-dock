@@ -242,6 +242,10 @@ private:
     // After the config changed outside the settings windows: SyncSettingsTargets, then every open
     // window (but `except`) reloads its controls from the config.
     void RefreshSettings(SettingsWindow* except = nullptr);
+    // Round 6 phase 6E: every settings window drops its widget previews and renders them again
+    // as they are painted (DockCommand 148, Reload widgets, a watched widget's files changed).
+    void InvalidatePreviews();
+    uint64_t previewGeneration_ = 0;  // part of the preview stamp (SettingsHost::previewStamp)
     void Quit();
 
     HINSTANCE instance_ = nullptr;

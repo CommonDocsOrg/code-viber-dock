@@ -15,6 +15,7 @@
 #include "NotificationService.h"
 #include "TrayHost.h"
 #include "Weather.h"
+#include "WidgetPreview.h"
 #include "WidgetWindow.h"
 #include "WindowTracker.h"
 
@@ -171,6 +172,11 @@ public:
     ForegroundWatch& Watch() override { return watch_; }
     void SetWatching(DockWindow* dock, bool on) override;
     WidgetRuntime& Widgets() override { return widgets_; }
+    // Round 6 phase 6E: widget `id`'s live preview at `scale` (px per DIP) on the virtual dock
+    // (WidgetPreview::DockInfoFor: the global theme, icon size 48), fitted into fitW x fitH px
+    // (0: 1024 x 512 DIPs), drawn up to `maxZoom` times larger when it is smaller than that.
+    WidgetPreview& Previews() { return previews_; }
+    WidgetPreview::Result RenderPreview(const std::wstring& id, float scale, UINT fitW = 0, UINT fitH = 0, float maxZoom = 1.0f);
     TrayHost& TrayService() override { return tray_; }
     NotificationService& Notifications() override { return notifications_; }
     const NotificationService& Notifications() const { return notifications_; }
@@ -244,6 +250,8 @@ private:
     Callbacks callbacks_;
     // Before the windows: their script widgets unregister from it when they go.
     WidgetRuntime widgets_;
+    // Round 6 phase 6E: the settings windows' widget previews (reads widgets_' storage).
+    WidgetPreview previews_{widgets_};
     std::vector<HMONITOR> monitors_;
     std::vector<Instance> instances_;
     std::vector<std::unique_ptr<DockWindow>> graveyard_;  // closed windows, freed by Reap

@@ -95,7 +95,13 @@ struct Manifest {
     // defaultHeight, else 200 x 200 for a square-ish horizontal hint, else twice the horizontal
     // hint; never below the minimum.
     void DefaultStandaloneSize(int& w, int& h) const;
-    int refreshMs = 0;       // 0: no tick; else tick() every refreshMs, aligned to local time
+    // Round 6 phase 6E, the manifest's `preview` object (the widget drawer's live preview): the
+    // settings of the preview instance (a JSON object merged over the defaults; "" none) and the
+    // preview box in DIPs (0: the box the widget measures on a 48 DIP horizontal dock).
+    std::wstring previewSettings;
+    float previewWidth = 0.0f;
+    float previewHeight = 0.0f;
+    int refreshMs = 0;      // 0: no tick; else tick() every refreshMs, aligned to local time
     int timeLimitMs = 50;     // the watchdog: longest a single call into the script may run
     int memoryLimitMb = 32;   // the script heap
     bool watch = false;       // reload when a file of the folder changes (folder widgets)

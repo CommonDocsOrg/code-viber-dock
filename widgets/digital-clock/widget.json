@@ -9,6 +9,7 @@
     "vertical": { "main": 40, "cross": 48 }
   },
   "standalone": { "minWidth": 64, "minHeight": 32, "defaultWidth": 240, "defaultHeight": 110 },
+  "preview": { "settings": { "showDate": true } },
   "settings": [
     { "key": "format", "type": "string", "label": "Time format (strftime, as clock.format)", "default": "%H:%M" },
     { "key": "showSeconds", "type": "bool", "label": "Show seconds", "default": false },

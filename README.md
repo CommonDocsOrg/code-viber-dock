@@ -932,7 +932,8 @@ write and edit without compiling anything. The full reference (every call, every
   list with sparklines on the desktop). A folder with a built-in's id replaces the built-in;
   your own clock faces go into an exported `analog-clock\faces` folder.
 - **Adding one**: the widget drawer of Dock settings > Contents lists the installed widgets under
-  the built-in kinds (drag one onto the strip, or **Add**), or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
+  the built-in kinds, each drawn live (round 6 phase 6E: its own `draw()` on sample data, see
+  docs/widgets.md "Preview mode"; drag one onto the strip, or **Add**), or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
   (with an optional `"settings": { ... }` object). A widget can be dragged on the dock like the
   clock; a right click opens the dock menu, which then has **Reload widgets**.
 - **widget.json**: `name`, `version`, `author`, `description`, `size` (the box per axis in DIPs:
@@ -942,7 +943,10 @@ write and edit without compiling anything. The full reference (every call, every
   int, number, string, choice (also `choiceFrom`: one choice per package file matching a glob, or
   `"perf"`: the perf provider's metrics, listed by the dock),
   colour, font, place (a weather place: search, name, latitude / longitude) and timezone (round 5),
-  with defaults; the values live in the item's `settings` object).
+  with defaults; the values live in the item's `settings` object), `standalone` (round 6) and
+  `preview` (round 6 phase 6E: `{ "settings": {...}, "width", "height" }`, what the widget
+  drawer's live preview shows; `dock.preview` is true while it draws one, the providers answer
+  sample data then: docs/widgets.md "Preview mode").
 - **main.js** exports `draw(canvas, dock)` (required) and optionally `measure(canvas, dock)`
   (returns `{ main, cross }`), `tick(dock)`, `onPress(e)`, `onClick(e)`, `onMiddleClick(e)`,
   `onWheel(e)` (return `true` to use the wheel), `onHover(e)`, `onDrop(e)` (files dropped on it;
@@ -1395,8 +1399,9 @@ closes the window, Enter applies the text in an edit box.
 - **Notifications** (round 4 phase 9): tray balloons in the centre, clear on activate, the poll
   interval, Windows' access status, badges per app (every dock's apps; see Notifications and
   badges). A dock's badges and its notification centre are on its window's Behaviour tab.
-- **Widget library**: the installed script widgets (name, id, built-in / folder, version) with
-  **Add to dock** (with several docks a small menu asks which), **Add to the desktop** (round 6
+- **Widget library**: the installed script widgets (name, id, built-in / folder, version), the
+  selected one's live preview (round 6 phase 6E, fitted into 240 x 120 DIPs) beside its
+  description, with **Add to dock** (with several docks a small menu asks which), **Add to the desktop** (round 6
   phase 6B: a [standalone widget](#standalone-widgets) of the selected one), **Add from folder…**, **Export
   built-in to folder**, **Reload widgets**, **Open widgets folder** and **Console…** (see
   **Widgets** above).
@@ -1450,9 +1455,19 @@ take the dock's colour (Windows 11). Tabs:
     separator** (after the selected item; nothing selected: at the end), **Add Recycle Bin**
     (greyed while the dock has one), **Lock the dock** and **Hide widget drawer** / **Show widget
     drawer** (remembered until WinDock quits).
-  - **The widget drawer** on the right: a search box (name, note or id), **Built in** (Running
-    apps, Clock, Weather, System tray, Notifications, Recycle Bin, Separator) and **Script
-    widgets** (every installed widget with the first line of its description and its version).
+  - **The widget drawer** on the right (340 DIPs wide): a search box (name, note or id), **Built
+    in** (Running apps, Clock, Weather, System tray, Notifications, Recycle Bin, Separator: their
+    glyphs) and **Script widgets** (every installed widget with its version and, where the row
+    has room, the first line of its description). Round 6 phase 6E: each script widget's row
+    shows the widget **live** in a 72 x 44 DIP area at its left: its own `draw()` once, on a
+    virtual 48 DIP bottom dock in the global theme's colours, with the providers answering
+    sample data (62 % volume, "Sample Song", 3 notifications, two events today, a sunny 21 °C,
+    CPU 37 %: docs/widgets.md "Preview mode"), over a small panel in the theme's background
+    colour; the letter tile while it renders or when the widget fails. Rows render as they are
+    painted (at most 40 ms of rendering per paint, the rest on the next one; 1.5 - 10 ms per
+    widget), once per settings window; a theme change, Reload widgets, a watched widget's files
+    or `DockCommand` 148 render them again. The inspector shows a selected widget item's preview
+    larger (fitted into 200 x 100 DIPs) above its name, its buttons beside it.
     Drag a row onto the strip to put a new item there (a clock or weather item starts from the
     defaults, see Configuration), or press its **Add** (or Enter on the focused row) to add it
     where the dock menu's Add widget puts it (a separator / the Recycle Bin after the last pin).
@@ -2261,6 +2276,8 @@ always there, also when every dock is parked) handle these registered messages:
   now), 147 turns it off (any dock index; a dashboard started by an automation `SendMessage`
   usually cannot give its dock the foreground, so Escape does not reach it: end it with 147 or the
   hotkey). There is no command to simulate a floating dock's drag: drive it with real mouse input.
+  Round 6 phase 6E: 148 makes every open settings window drop its widget previews and render them
+  again as they are painted (any dock index; QueryState 263 - 269 below).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -2386,6 +2403,18 @@ always there, also when every dock is parked) handle these registered messages:
   started; 260 = the sampler's interval in ms (0 while stopped); 261 = metric keys in the latest
   snapshot (0 none / stopped); 262 = 1 while HWiNFO's shared memory is readable and fresh. Its
   snapshots arrive as the app window's private message `WM_APP + 37` (internal).
+  Round 6 phase 6E, the settings windows' widget previews: 263 = previews the Dock window of dock
+  `HIWORD(lParam)` rendered since it opened (`LOWORD` 1: the Global window's; -2: that window is not
+  open); 264 = the preview size of its drawer entry `LOWORD(lParam)` (`MAKELONG(w, h)` px; 0: a
+  built-in kind, or the widget failed; rendered now when the drawer has not painted that row yet);
+  265 = the widget ids whose preview failed in that window (`LOWORD` 1: the Global window); 266 =
+  the live widget instances of the runtime (previews never count: none outlives its render); 267 =
+  the render time of drawer entry `LOWORD`'s preview in microseconds (-1: not rendered); 268 = 1
+  while the Contents tab's inspector shows a widget preview; 269 = the Widget library's preview
+  size (`MAKELONG`, 0 none; -2 no Global window). `DockCommand` 148 = every open settings window
+  drops its previews and renders them again as they are painted. Test hook: the environment
+  variable `WINDOCK_PREVIEW_LOG` names a file that gets a line per render (`ok <id> <w>x<h> <ms>` /
+  `fail <id> <error>`).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
@@ -2479,7 +2508,8 @@ always there, also when every dock is parked) handle these registered messages:
   settings act on, nothing else; a double click opens its window), 2801 Add dock, 2802 Duplicate,
   2803 Remove, 2806 Lock all docks, 2807 Unlock all docks, 2808 Add folder window…, 2810 Open dock
   settings / Open window settings (2805 and 2809 are retired); Tray icons and Notifications: see
-  Tray and Notifications above (4122 / 4223, the "which dock" lines, are retired); Widget library = the Widgets page (3500 list: Name, Id, Source,
+  Tray and Notifications above (4122 / 4223, the "which dock" lines, are retired); Widget library = the Widgets page (3510 the preview panel
+  `WinDock.WidgetPreviewPanel`, its window text "Preview: <name>" (6E); 3500 list: Name, Id, Source,
   Version; 3501 Add from folder…, 3502 Export built-in to folder, 3503 Reload widgets, 3504 Open
   widgets folder, 3505 Console…, 3506 Add to dock (with several docks a popup menu of dock ids:
   press it with `PostMessage`), 3508 the last action's result); the generated page (an Item

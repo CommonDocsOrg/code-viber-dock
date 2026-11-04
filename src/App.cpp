@@ -176,6 +176,8 @@ bool App::Initialize(HINSTANCE instance) {
     callbacks.widgetMenu = [this](size_t cfg, POINT pt) { ShowWidgetMenu(cfg, pt); };
     callbacks.widgetSettings = [this](size_t cfg) { OpenItemSettings(cfg, 0); };
     docks_.Initialize(instance, &config_, hwnd_, std::move(callbacks));
+    // Round 6 phase 6E: reloaded widget packages render their previews again.
+    docks_.Widgets().SetPackagesChanged([this] { InvalidatePreviews(); });
     const HRESULT hr = docks_.Sync();
     if (FAILED(hr)) {
         wchar_t text[256];
@@ -1117,6 +1119,9 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kLeaveDashboard:
             docks_.SetDashboard(false);
             break;
+        case ContextMenu::kRerenderPreviews:  // round 6 phase 6E: every settings window's previews again
+            InvalidatePreviews();
+            break;
         case ContextMenu::kRefreshWeather:
             docks_.RefreshWeather(nullptr);  // every place
             break;
@@ -1324,6 +1329,13 @@ void App::RefreshSettings(SettingsWindow* except) {
         SettingsWindow* w = settings_[i].get();
         if (w == except || !w->Hwnd()) continue;
         w->Refresh();
+    }
+}
+
+void App::InvalidatePreviews() {
+    ++previewGeneration_;
+    for (size_t i = 0; i < settings_.size(); ++i) {
+        if (SettingsWindow* w = settings_[i].get(); w->Hwnd()) w->InvalidatePreviews();
     }
 }
 
@@ -1561,6 +1573,14 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         }
         return out;
     };
+    // Round 6 phase 6E: the widget previews (DockManager's WidgetPreview).
+    host.renderPreview = [this](const std::wstring& id, float scale, SIZE fit, float maxZoom) {
+        const WidgetPreview::Result r = docks_.RenderPreview(id, scale, static_cast<UINT>(std::max<LONG>(1, fit.cx)),
+                                                             static_cast<UINT>(std::max<LONG>(1, fit.cy)), maxZoom);
+        return SettingsWidgetPreview{r.bitmap, r.px, r.error, r.ms};
+    };
+    host.previewStamp = [this] { return WidgetPreview::ThemeStamp(config_) ^ (previewGeneration_ * 0x9E3779B97F4A7C15ull); };
+    host.previewPanel = [this] { return config_.theme.background; };
     host.geocode = [this, w](const std::wstring& query,
                              std::function<void(const std::vector<WeatherService::Place>&, const std::wstring&)> done) {
         // A newer search (of any window) replaces an older one (its result is dropped when it arrives).
@@ -2085,6 +2105,30 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
                                     : nullptr;
             return w ? reinterpret_cast<LRESULT>(w->Hwnd()) : 0;
         }
+        case 264:    // round 6 phase 6E: the Dock window's drawer: entry LOWORD's preview size (MAKELONG(w, h) px; 0 none)
+        case 267:    // ... its render time in microseconds (-1: not rendered)
+        case 268: {  // the Contents tab's inspector shows a widget preview (1 / 0); -2 for each: no Dock window of that dock
+            SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
+            LRESULT out = -2;
+            if (w && !w->QueryPages(static_cast<int>(wp), arg, out)) out = -2;
+            return out;
+        }
+        case 263:    // round 6 phase 6E: previews rendered by the Dock window of dock HIWORD (LOWORD 1: by the Global window)
+        case 265: {  // widget ids whose preview failed there; -2: no such window
+            SettingsWindow* w = arg == 1 ? FindSettings(SettingsKind::Global)
+                                : inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id)
+                                                                           : nullptr;
+            if (!w || !w->Hwnd()) return -2;
+            return wp == 263 ? w->PreviewsRendered() : w->PreviewFailures();
+        }
+        case 266:  // round 6 phase 6E: live widget instances in the runtime (previews never count: none outlives its render)
+            return static_cast<LRESULT>(docks_.Widgets().Instances().size()) + docks_.Previews().Alive();
+        case 269: {  // round 6 phase 6E: Global > Widget library's preview panel: its bitmap size (MAKELONG px; 0 none; -2 no Global window)
+            SettingsWindow* w = FindSettings(SettingsKind::Global);
+            LRESULT out = -2;
+            if (w && !w->QueryPages(269, arg, out)) out = -2;
+            return out;
+        }
         case 234:  // round 6 phase 6A: dashboard mode is on
             return docks_.Dashboard() ? 1 : 0;
         case 240:  // the dashboard hotkey is registered (RegisterHotKey succeeded)
@@ -2485,6 +2529,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         }
         if (activeSettings_ && !activeSettings_->Hwnd()) activeSettings_ = nullptr;
         std::erase_if(settings_, [](const std::unique_ptr<SettingsWindow>& w) { return !w->Hwnd(); });
+        if (settings_.empty()) docks_.Previews().Release();  // round 6 phase 6E: its factories go with the last window
         return 0;
     }
     if (msg == kDisplaySync) {

@@ -17,6 +17,9 @@ thread. This file is the full reference; README.md has the short version.
 - [Sandbox](#sandbox): what a widget can and cannot reach, permissions
 - [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages, `examples/`
 - [Validating a widget](#validating-a-widget): the manifest check, `WinDock.exe --validate-widget`
+- [Standalone widgets](#standalone-widgets): a widget in a window of its own on the desktop
+- [Preview mode](#preview-mode): the widget drawer's live previews, `dock.preview`, the sample data,
+  the manifest's `preview`
 - [Adding a widget to a dock](#adding-a-widget-to-a-dock)
 - [Examples](#examples)
 
@@ -73,6 +76,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
 | `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
+| `preview` | none | Round 6 phase 6E: the widget's live preview in the settings window's widget drawer and Widget library ([Preview mode](#preview-mode)): `{ "settings": { "face": "classic" }, "width": 64, "height": 48 }`. `settings`: an object of setting values merged over the schema's defaults for the preview only (a nice face, a sample label); `width` / `height`: the preview's box in DIPs (8 - 1024 / 8 - 512; left out: the box the widget measures on a 48 DIP bottom dock). The manifest check reports a non-object, a setting the schema does not name (a warning) and sizes out of range. |
 | `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum). |
 | `settings` | [] | The widget's settings schema, see below. |
 
@@ -245,6 +249,7 @@ Read-only, always current:
 | `id`, `widgetId` | The dock's id (`docks[].id`; a standalone widget: its entry's id), the widget's id. |
 | `itemKey` | Round 6: a key for this item, for per-item data in `storage` (the widget's storage is shared by every item of the widget). On a dock `"<dock id>/<widget id>#<n>"`: the n-th item of this widget on that dock (`"main/notes#0"`), so it stays the same when the item is moved past other items, and changes when it is moved past another item of the same widget or when one of those before it is removed (the items then trade keys: the data follows the position among them). A standalone widget: its entry's id (`"note1"`), which never changes. A widget that must keep its data across such moves can offer a setting for the key as well (the Notes widget's **Note id**). |
 | `standalone` | `true` for a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `width` / `height` (and `main` / `cross`) are the window's client size, `iconSize` is the shorter side / 1.5, `axis` is `"horizontal"`, `edge` `"bottom"`, `magnified` and `clockDate` are false, `locked` is the entry's lock, `visible` false while a "desktop" layer hides it. |
+| `preview` | Round 6 phase 6E: `true` while the widget draws its live preview in a settings window ([Preview mode](#preview-mode)): drawn once on a virtual dock, every side effect a no-op, the providers answering with sample data. A widget with content of its own (a note, a list) can show a sample instead (the Notes widget's "Shopping list"). |
 | `clockDate` | A built-in clock item of the dock draws a second line (its date or, since round 5, its label): the dock's own widgets then use their smaller size (the weather element: a 24 instead of 26 DIP glyph, 14 instead of 16 DIP text). |
 | `theme` | The dock's theme colours as `"#AARRGGBB"`: `text`, `dateText`, `accent`, `background`, `labelBackground`, `labelText`, `separator`, `border`. |
 | `requestRedraw()` | Same as the global. |
@@ -943,10 +948,77 @@ box:
 - A click on the widget while its popup is open closes the popup and arrives with
   `closedPopup: true`, as on a dock.
 
+## Preview mode
+
+Round 6 phase 6E. The settings windows show every installed widget **live**: Dock settings >
+Contents > the widget drawer draws each script widget's row with its preview (72 x 44 DIPs on the
+left of the row; the letter tile while it renders or when the widget fails), the inspector shows the
+selected widget item's preview larger (fitted into 200 x 100 DIPs, above its name; the preview's
+settings, not the item's own), and Global settings >
+Widget library shows the selected widget fitted into 240 x 120 DIPs beside its description.
+
+Each preview is the widget's own `draw()`, run once by a **preview instance**:
+
+- It sits on a virtual dock: horizontal, bottom edge, icon size 48 DIPs, the global theme's colours
+  (`dock.theme`), the settings window's DPI scale, `dock.reduceMotion` true (no animation would get
+  past its first frame), `dock.visible` true, `dock.id` `"preview"`, **`dock.preview` true**. Its
+  box is what `measure()` (else the size hint) returns, or the manifest's `preview.width` /
+  `height`; a box larger than the preview area is drawn at a smaller `dock.scale` (the canvas is
+  vector: it stays sharp), the inspector and the library draw a smaller one up to twice as large.
+- Its settings are the schema's defaults with the manifest's `preview.settings` over them (not any
+  item's settings).
+- It is never registered with the dock's widget runtime: it is not in the Console, has no timers,
+  no `watch`, no provider service, and it is destroyed (its script heap freed) right after the draw.
+  Its `console` lines stay in its own log, which goes with it.
+- Every side effect is a no-op: `setTimeout` / `setInterval` return an id and never fire,
+  `timer.setRefresh` and `requestRedraw` do nothing (a clock shows the time it was drawn),
+  `http.*` returns a promise rejected with `"http: not available in preview"`, `storage.set` /
+  `remove` / `clear` write to a scratch store of the preview only (reads see those writes over the
+  widget's real store, which is read but never written), `shell.open` and `shell.sendKeys` return
+  `false` and do nothing, `popup.open` / `close` / `folder` / `calendar` / `previews` do nothing,
+  `popup.editText` returns a rejected promise, `audio.setVolume` and the other setters, `media.play()` ..., `notifications.dismiss`
+  ... and `weather.refresh()` / `openSettings()` change nothing, `onChange` listeners are kept and
+  never called. Permissions are checked as always (a call without its permission still throws).
+- The providers answer with **sample data**, in exactly the shapes of the real calls (the samples
+  live in `src/WidgetSamples.cpp`; no service is started, nothing of the machine is read):
+
+| Provider | Sample |
+|---|---|
+| `audio.get()` | `available` true, `volume` 0.62, not muted, `device` "Speakers (Sample)", a microphone ("Microphone (Sample)", 0.8, not muted), two outputs (Speakers, Headphones). |
+| `media.get()` / `media.art()` | Playing "Sample Song" by "Sample Artist" from "Sample Album" (`app` "Sample.Player"), `position` 73 s of `duration` 214, every `can*` true; `art()` is `"media:art/1"`: a generated 64 x 64 violet-to-orange gradient square that `canvas.image` draws. |
+| `notifications` | `state` "polling", 3 unread: "Mail" (5 minutes ago, "Sam Rivera"), "Mail" (20 minutes ago, "Weekly report"), "Calendar" (an hour ago, "Stand-up"), newest first. |
+| `calendar` | One feed "Sample" in the first feed colour (`#FF4CC2FF`); today "Stand-up" 09:30 - 09:45 and "Lunch with Sam" 12:30 - 13:30 (local time, `recurring`); `eventsOn` another day is empty; `next()` lists today's events that have not ended, after 13:30 the same two tomorrow (so an agenda never previews "No events"); `events()` covers today and tomorrow. |
+| `weather.get()` | `state` "fresh" (fetched 5 minutes ago), "Sample City", sunny (code 0, day), 21 °C or 70 °F (the default `units`), wind 12 km/h / 7 mph, humidity 45 %, 24 hourly columns from the current hour (a mild day / night curve), 7 days from today (WMO codes 0, 1, 2, 3, 61, 2, 0: clear, through overcast and rain, to clear; highs 23 - 16 °C). `weather.icon()` works as always. |
+| `perf` | `get()`: serial 1, interval 1000, `cpu.total` 37, eight cores, `cpu.frequency` 4180, `memory.percent` 58, `memory.used` / `total` 9.3 / 16 GB, `gpu.total` 12, `disk.total` 4, `network.down` 120 KB/s, `up` 18 KB/s, `system.uptime` 3 days 4 hours, no battery keys; `metrics()` lists those keys; `series(key, n)` up to 60 samples (a sine wave with noise, the newest one the snapshot's value; the same numbers every time); `hwinfo()` `{ available: false, reason: "preview" }`; `setInterval` answers 1000. |
+
+The manifest's `preview` object (see [widget.json](#widgetjson)) picks what the preview shows:
+
+```json
+"preview": { "settings": { "face": "classic", "seconds": true, "dateOnFace": "day" } }
+```
+
+The built-ins: the Analog clock previews the classic face with a second hand and the date window,
+the Digital clock with its date line, the Weather widget with its place, the System monitor as a
+CPU graph; the Notes widget draws a sample note when `dock.preview` is true; the others preview as
+they are. A widget that throws (or fails to load, or measures an empty box) gets no preview: its row
+keeps the letter tile and the failure goes to the debugger output once per widget id
+(`WinDock preview <id>: <message>`).
+
+**When previews render**: lazily, when a row is painted (a paint renders for up to 40 ms; the rows
+it had no time for render on the next paint), once per (widget, box) per settings window. A window
+drops its previews when the global theme or the units change, its DPI changes, the widgets are
+reloaded (Reload widgets, a `watch` folder changed) or `WinDock.DockCommand` 148 asks; they render
+again as they are painted. Measured (STATUS.md 6E): 1.5 - 10 ms per built-in widget. Nothing renders
+while no settings window paints a row.
+
+**Test hook**: when the environment variable `WINDOCK_PREVIEW_LOG` names a file, every render
+appends a line to it: `ok <id> <w>x<h> <ms>` or `fail <id> <error text>` (a probe widget can report
+what it sees in preview mode by throwing it).
+
 ## Adding a widget to a dock
 
 The widget drawer of Dock settings > Contents lists the installed widgets (built-in and from the
-widgets folder) under the built-in kinds (Global settings > Widget library has **Add to dock**
+widgets folder, each with its [live preview](#preview-mode)) under the built-in kinds (Global settings > Widget library has **Add to dock**
 too): drag a widget onto the item strip to put it there, or press its **Add** to add it before a
 clock that ends the dock (else at the end); it can then be moved like any item, and **Open
 settings in its own window** opens its settings. In config.json:
@@ -1062,7 +1134,7 @@ built-ins are worked examples too:
   `yellow` (default), `pink`, `blue`, `theme`: the theme's label panel; a rounded sheet with a soft
   shadow line), `fontSize` (9 - 24, default 12), `textColor` (`#00000000`: automatic, a dark ink on
   paper, the theme's text otherwise), `boldTitle`, `lines`, `maxWidth`, `noteId`. In the
-  widget drawer's preview (phase 6E: the dock object's `preview` flag) it shows a sample "Shopping list" note. No
+  widget drawer's preview (`dock.preview`, see [Preview mode](#preview-mode)) it shows a sample "Shopping list" note. No
   timers, no permissions.
 - `widgets/system-monitor` ("System monitor", round 6 phase 6D): one [perf](#perf) metric in one
   of eleven styles: `graph` (a line over `historySeconds`, from `perf.series`), `area` (filled),

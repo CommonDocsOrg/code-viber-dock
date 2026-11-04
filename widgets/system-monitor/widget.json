@@ -9,6 +9,7 @@
     "vertical": { "main": 48, "cross": 48 }
   },
   "standalone": { "minWidth": 60, "minHeight": 40, "defaultWidth": 160, "defaultHeight": 120 },
+  "preview": { "settings": { "metric": "cpu.total", "style": "graph" } },
   "permissions": ["perf"],
   "settings": [
     { "key": "metric", "group": "Metric", "type": "choice", "choiceFrom": "perf", "label": "Metric", "default": "cpu.total",

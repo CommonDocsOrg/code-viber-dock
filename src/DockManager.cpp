@@ -1,6 +1,7 @@
 #include "DockManager.h"
 
 #include <algorithm>
+#include <cmath>
 #include <cwchar>
 
 #include <dwmapi.h>
@@ -109,6 +110,14 @@ bool DockManager::SyncTray() {
     return wanted;
 }
 
+WidgetPreview::Result DockManager::RenderPreview(const std::wstring& id, float scale, UINT fitW, UINT fitH, float maxZoom) {
+    if (!config_) return WidgetPreview::Result{nullptr, SIZE{}, L"no config", 0.0};
+    const ScriptDockInfo dock = WidgetPreview::DockInfoFor(*config_, scale);
+    if (fitW == 0) fitW = static_cast<UINT>(std::lround(1024.0f * dock.scale));
+    if (fitH == 0) fitH = static_cast<UINT>(std::lround(512.0f * dock.scale));
+    return previews_.Render(id, dock, config_->weather, fitW, fitH, maxZoom);
+}
+
 void DockManager::Shutdown() {
     if (!config_) return;
     // The icons go back to Explorer first (no dock redraws for it).
@@ -132,6 +141,7 @@ void DockManager::Shutdown() {
     desktopTimer_ = false;
     if (folderRendererReady_) folderRenderer_.Shutdown();
     folderRendererReady_ = false;
+    previews_.Release();
     watchers_.clear();
     dashboard_ = false;
     dashboardPrev_ = nullptr;

@@ -365,6 +365,7 @@ inline constexpr int kWidgetsAddToDock = 3506; // "Add to dock" (the selected wi
 inline constexpr int kWidgetsNote = 3507;
 inline constexpr int kWidgetsStatus = 3508;    // the last action's result ("Exported to …", errors)
 inline constexpr int kWidgetsAddToDesktop = 3509;  // round 6 phase 6B: "Add to the desktop" (a standalone widget of the selected one)
+inline constexpr int kWidgetsPreview = 3510;   // round 6 phase 6E: WinDock.WidgetPreviewPanel: the selected widget's live preview + description
 
 // Widget settings (3600 - 3999; phase 4b). The fixed controls, then per schema field k
 // (widget.json "settings" order) 3700 + 10 * k + part: 0 label, 1 the control (check box, edit,

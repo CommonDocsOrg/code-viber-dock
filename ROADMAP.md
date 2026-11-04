@@ -644,6 +644,20 @@ Network, battery, CPU / RAM, now-playing variants, desktop switcher skins.
 
 ## Round 6 (planned 2026-11-03): desktop layers, floating docks, standalone widgets, notes, performance monitors, drawer previews
 
+### Round 6 done (2026-11-03)
+
+Round 6 is complete: all five phases below are done, one commit each on master, none pushed by the
+agents (STATUS.md's "Round 6" table has each phase's notes, what was verified and how, and its "Not
+verified" list; "How to resume" collects the open follow-ups).
+
+| Phase | Commit |
+|---|---|
+| 6A Layers, floating docks, dashboard hotkey | b3d9a8e |
+| 6B Standalone widgets | 1e27623 |
+| 6C `popup.editText` and the Notes widget | 8e77d58 |
+| 6D `perf` provider, System monitor / System overview | 0541b6e |
+| 6E Drawer previews with sample data | the commit after 0541b6e ("Preview widgets in the drawer with sample data") |
+
 Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round6.md`. The user's wish list:
 a dock that never floats above other windows; floating docks that can be moved or locked and only
 appear on a hotkey or on the desktop; standalone widgets on the desktop (a "dashboard" shown by the
@@ -657,7 +671,7 @@ HWiNFO allowed); live previews with sample data in the widget drawer.
 | 6B | Standalone widgets: `docks[]` kind `"widget"` (`WidgetWindow`), move / resize, `dock.standalone`, manifest `standalone`, settings windows, drawer "Add to the desktop" | Done (the commit "Add standalone widgets on the desktop"; STATUS.md "Round 6") |
 | 6C | `popup.editText` (a native text editor window, Promise) and the `notes` widget | Done (the commit "Add popup.editText and the Notes widget"; STATUS.md "Round 6") |
 | 6D | `perf` provider (`PerfService`: CPU / memory / GPU / disk / network / battery + HWiNFO shared memory) and the `system-monitor` / `system-overview` widgets | Done (the commit "Add the perf provider and the system monitor widgets"; STATUS.md "Round 6") |
-| 6E | Widget previews in the drawer and inspector: preview mode, provider sample data, manifest `preview` | Planned |
+| 6E | Widget previews in the drawer and inspector: preview mode, provider sample data, manifest `preview` | Done (the commit "Preview widgets in the drawer with sample data"; STATUS.md "Round 6") |
 
 ## Dependencies at a glance
 

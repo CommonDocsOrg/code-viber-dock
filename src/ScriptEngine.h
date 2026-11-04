@@ -38,6 +38,10 @@ struct ScriptDockInfo {
     // Round 6 phase 6C: the item's key (dock.itemKey): "<dockId>/<widgetId>#<n>" on a dock (the n-th
     // item of this widget on that dock), "<entry id>" for a standalone widget. Set by the instance.
     std::string itemKey;
+    // Round 6 phase 6E: a preview instance (WidgetPreview: the settings window's widget drawer and
+    // Widget library, dock.preview): drawn once on a virtual dock, every side effect is a no-op and
+    // the providers answer with sample data (WidgetSamples).
+    bool preview = false;
     // Theme colours, 0xAARRGGBB (dock.theme.*, as "#AARRGGBB").
     uint32_t text = 0, dateText = 0, accent = 0, background = 0, labelBackground = 0, labelText = 0,
              separator = 0, border = 0;

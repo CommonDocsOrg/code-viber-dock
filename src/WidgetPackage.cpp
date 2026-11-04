@@ -183,6 +183,19 @@ void ReadStandalone(const json::JsonObject& root, Manifest& m) {
     }
 }
 
+// The `preview` object (round 6 phase 6E): settings for the drawer's preview, its box.
+void ReadPreview(const json::JsonObject& root, Manifest& m) {
+    const json::JsonObject o = JsonUtil::ReadObject(root, L"preview");
+    if (!o) return;
+    if (const json::JsonObject s = JsonUtil::ReadObject(o, L"settings")) m.previewSettings = std::wstring(s.Stringify());
+    double v = 0.0;
+    JsonUtil::ReadNumber(o, L"width", v);
+    m.previewWidth = v > 0.0 ? static_cast<float>(Clamp(v, 8.0, 1024.0)) : 0.0f;
+    v = 0.0;
+    JsonUtil::ReadNumber(o, L"height", v);
+    m.previewHeight = v > 0.0 ? static_cast<float>(Clamp(v, 8.0, 512.0)) : 0.0f;
+}
+
 void ReadPermissions(const json::JsonObject& root, Manifest& m) {
     const json::JsonArray perms = JsonUtil::ReadArray(root, L"permissions");
     if (!perms) return;
@@ -360,6 +373,7 @@ bool ParseManifest(const std::string& bytes, const std::wstring& id, Manifest& m
         ReadSize(size, L"horizontal", m.horizontal);
         ReadSize(size, L"vertical", m.vertical);
         ReadStandalone(root, m);
+        ReadPreview(root, m);
         double refresh = 0, limit = 50, memory = 32;
         JsonUtil::ReadNumber(root, L"refreshMs", refresh);
         JsonUtil::ReadNumber(root, L"timeLimitMs", limit);
@@ -625,7 +639,7 @@ private:
 constexpr const wchar_t* kTopKeys[] = {L"name",         L"version",     L"author",      L"description", L"main",
                                        L"size",         L"refreshMs",   L"timeLimitMs", L"memoryLimitMB",
                                        L"permissions",  L"watch",       L"settings",    L"api",
-                                       L"standalone"};
+                                       L"standalone",   L"preview"};
 constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"description", L"default", L"min",
                                          L"max",     L"step",       L"choices", L"choiceFrom", L"group", L"unit",
                                          L"visibleIf"};
@@ -710,6 +724,42 @@ void CheckStandalone(Checker& c, const json::JsonObject& root) {
     if ((defW > 0 && defW < minW) || (defH > 0 && defH < minH)) {
         c.Warn(L"standalone", L"the default size is smaller than the minimum (the minimum is used)", L"defaultWidth >= minWidth, defaultHeight >= minHeight");
     }
+}
+
+// Round 6 phase 6E: the `preview` object (the widget drawer's live preview).
+void CheckPreview(Checker& c, const json::JsonObject& root) {
+    const json::IJsonValue v = JsonUtil::Find(root, L"preview");
+    if (!v) return;
+    constexpr wchar_t kFix[] = L"{ \"settings\": { \"face\": \"classic\" }, \"width\": 64, \"height\": 48 }";
+    if (v.ValueType() != json::JsonValueType::Object) {
+        c.Error(L"preview", std::wstring(L"is ") + TypeName(v.ValueType()) + L", not an object", kFix);
+        return;
+    }
+    const json::JsonObject o = v.GetObject();
+    for (const auto& kv : o) {
+        const std::wstring k(kv.Key());
+        if (k != L"settings" && k != L"width" && k != L"height") c.Warn(L"preview." + k, L"unknown key (ignored)", L"settings, width, height");
+    }
+    c.Type(o, L"settings", json::JsonValueType::Object, L"preview.settings",
+           L"an object of setting values: { \"label\": \"Sample\" } (merged over the defaults for the preview only)");
+    if (const json::IJsonValue s = JsonUtil::Find(o, L"settings"); s && s.ValueType() == json::JsonValueType::Object) {
+        std::vector<std::wstring> keys;
+        if (const json::JsonArray schema = JsonUtil::ReadArray(root, L"settings")) {
+            for (const auto& f : schema) {
+                std::wstring k;
+                if (f.ValueType() == json::JsonValueType::Object) JsonUtil::ReadString(f.GetObject(), L"key", k);
+                if (!k.empty()) keys.push_back(k);
+            }
+        }
+        for (const auto& kv : s.GetObject()) {
+            const std::wstring k(kv.Key());
+            if (std::find(keys.begin(), keys.end(), k) == keys.end()) {
+                c.Warn(L"preview.settings." + k, L"names no setting of the schema (passed through as is)");
+            }
+        }
+    }
+    c.Range(o, L"width", 8, 1024, L"preview.width", L"DIPs, 8 - 1024 (leave it out for the measured box)");
+    c.Range(o, L"height", 8, 512, L"preview.height", L"DIPs, 8 - 512 (leave it out for the measured box)");
 }
 
 void CheckPermissions(Checker& c, const json::JsonObject& root) {
@@ -987,6 +1037,7 @@ std::vector<Issue> Validate(const std::string& bytes, const Package& pkg) {
         }
         CheckSize(c, root);
         CheckStandalone(c, root);
+        CheckPreview(c, root);
         c.Range(root, L"refreshMs", 0, 86400000, L"refreshMs", L"0 (no tick) or 100 - 86400000 ms");
         c.Range(root, L"timeLimitMs", 10, 1000, L"timeLimitMs", L"10 - 1000 ms");
         c.Range(root, L"memoryLimitMB", 4, 256, L"memoryLimitMB", L"4 - 256 MB");

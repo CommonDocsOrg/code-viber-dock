@@ -9,6 +9,7 @@
     "vertical": { "main": 48, "cross": 48 }
   },
   "standalone": { "minWidth": 64, "minHeight": 64, "defaultWidth": 200, "defaultHeight": 200 },
+  "preview": { "settings": { "face": "classic", "seconds": true, "dateOnFace": "day" } },
   "settings": [
     { "key": "face", "group": "Face", "type": "choice", "label": "Face", "choiceFrom": "faces/*.json", "default": "classic",
       "description": "Every faces/*.json of the widget. Export the widget (Settings > Widgets) and add your own face files to its faces folder." },

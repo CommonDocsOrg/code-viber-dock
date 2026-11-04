@@ -5,6 +5,7 @@
 
 #include <functional>
 #include <initializer_list>
+#include <map>
 #include <memory>
 #include <string>
 #include <vector>
@@ -79,6 +80,14 @@ struct SettingsPerfMetric {
     bool hwinfo = false;
 };
 
+// A widget's rendered preview (SettingsHost::renderPreview; round 6 phase 6E).
+struct SettingsWidgetPreview {
+    HBITMAP bitmap = nullptr;  // premultiplied 32-bit top-down DIB section; null: none
+    SIZE px{};
+    std::wstring error;        // why there is none
+    double ms = 0.0;           // what the render took
+};
+
 // Everything a settings window may use of the app, so it never sees App internals. App binds one
 // host per window (round 5 phase B): "the dock" below is the window's own dock (SettingsWindow::
 // DockIndex(), looked up by id each time; the Global window: the row selected on its Docks and
@@ -144,6 +153,15 @@ struct SettingsHost {
     // "behind", centred on the monitor of config dock `nearDock`; SIZE_MAX: the primary display);
     // its Dock window opens when `open`. Returns the new entry's config index (SIZE_MAX: refused).
     std::function<size_t(const std::wstring& id, size_t nearDock, bool open)> addWidgetWindow;
+    // Round 6 phase 6E: widget `id`'s live preview at `scale` px per DIP, fitted into `fitPx` (a
+    // smaller widget drawn up to `maxZoom` times larger; DockManager::RenderPreview: a premultiplied 32-bit top-down DIB the window then owns; null
+    // bitmap + error: it failed),
+    // the stamp of what previews depend on (the global theme, units, reloads, DockCommand 148: a
+    // window drops its cached previews when it changes) and the theme's background (ARGB: the
+    // panel behind a preview).
+    std::function<SettingsWidgetPreview(const std::wstring& id, float scale, SIZE fitPx, float maxZoom)> renderPreview;
+    std::function<uint64_t()> previewStamp;
+    std::function<uint32_t()> previewPanel;
 };
 
 class SettingsWindow;
@@ -423,6 +441,33 @@ public:
     // The dock's identity colour (Config::DockColor) as a COLORREF.
     COLORREF DockColor() const;
 
+    // --- widget previews (round 6 phase 6E) ---
+    // A rendered preview, cached per window by (widget id, the box it is fitted into) for the
+    // host's preview stamp and this window's DPI: when either changes, the whole cache goes and the
+    // previews render again as they are painted. A box smaller than the widget's renders it at a
+    // smaller scale (sharp, not shrunk).
+    struct PreviewImage {
+        HBITMAP bitmap = nullptr;  // owned by the cache
+        SIZE px{};
+        bool failed = false;       // the widget failed: no bitmap (the caller keeps its letter tile)
+        double ms = 0.0;
+    };
+    // Widget `id`'s preview fitted into `fit` px; renders it now when it is not cached and `render`
+    // is true (else null: the caller paints its placeholder and asks again on a later paint). Null
+    // when it failed.
+    // `zoom` > 1: a widget smaller than the box is drawn up to that many times larger (the
+    // inspector, the Widget library).
+    const PreviewImage* Preview(const std::wstring& id, SIZE fit, bool render, float zoom = 1.0f);
+    // The cache entry as it is (rendered or failed; null: never rendered).
+    const PreviewImage* PreviewEntry(const std::wstring& id, SIZE fit, float zoom = 1.0f);
+    // Drops every cached preview and repaints the window (they render again when painted).
+    void InvalidatePreviews();
+    int PreviewsRendered() const { return previewRenders_; }  // renders since the window opened (QueryState 263)
+    int PreviewFailures() const;                               // widget ids whose preview failed (QueryState 265)
+    // Paints `img` fitted into `box` (aspect kept, centred, GdiAlphaBlend) over a rounded panel in
+    // the theme's background mixed 60 % over `under` (transparent widgets stay readable).
+    void PaintPreview(HDC dc, const RECT& box, const PreviewImage& img, COLORREF under) const;
+
 private:
     friend class SettingsPage;
 
@@ -569,6 +614,13 @@ private:
     UINT iconDpi_ = 0;
     std::wstring widgetLine_;      // Item (a widget): "id · version"
     std::wstring widgetLineFor_;   // the widget id it was read for
+    // Widget previews (round 6 phase 6E): by "<widget id>|<w>x<h>"; valid for previewStamp_ / previewDpi_.
+    std::map<std::wstring, PreviewImage> previews_;
+    uint64_t previewStamp_ = 0;
+    UINT previewDpi_ = 0;
+    int previewRenders_ = 0;
+    void ClearPreviews();
+    void CheckPreviewStamp();
 };
 
 // The pages of a window (SettingsPages.cpp): Global in nav order (SettingsIds::kPage*), Dock in tab

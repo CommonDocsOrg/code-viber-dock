@@ -18,6 +18,7 @@
 #include "Weather.h"
 #include "WeatherGlyphs.h"
 #include "WidgetRuntime.h"
+#include "WidgetSamples.h"
 
 namespace {
 
@@ -52,6 +53,7 @@ WidgetInstance::WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Fact
                                const ScriptDockInfo& dock, const WeatherConfig& weather)
     : runtime_(runtime),
       client_(client),
+      preview_(dock.preview),
       id_(std::move(id)),
       key_(std::move(key)),
       itemSettings_(std::move(itemSettings)),
@@ -62,14 +64,16 @@ WidgetInstance::WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Fact
       dock_(dock) {
     dock_.widgetId = JsonUtil::WideToUtf8(id_);
     UpdateItemKey();
-    runtime_.Add(this);
+    if (!preview_) runtime_.Add(this);  // a preview is nobody's: no Console, timers or providers
     Reload();
 }
 
 WidgetInstance::~WidgetInstance() {
     DropEditor(false);  // the host forgets its hold itself (it is removing this instance)
-    runtime_.CancelAll(this);
-    runtime_.Remove(this);
+    if (!preview_) {
+        runtime_.CancelAll(this);
+        runtime_.Remove(this);
+    }
     engine_.reset();  // its finalizers may still log
 }
 
@@ -79,8 +83,12 @@ std::wstring WidgetInstance::Name() const {
 
 void WidgetInstance::Reload() {
     DropEditor(true);  // an open editor goes; the old script's promise is never settled
-    runtime_.CancelAll(this);
-    runtime_.ReleaseProviders(this);
+    if (!preview_) {
+        runtime_.CancelAll(this);
+        runtime_.ReleaseProviders(this);
+    }
+    previewTimers_ = 0;
+    scratch_.clear();
     if (PopupShown() || client_.WidgetPassiveShown(*this)) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
     engine_.reset();
     canvas_.ReleaseImages();
@@ -93,13 +101,15 @@ void WidgetInstance::Reload() {
     changed_ = true;
     ++generation_;  // results of the old script's requests are dropped
     requests_ = 0;
-    struct Synced {  // whatever happens below, the watcher and the Console follow
+    struct Synced {  // whatever happens below, the watcher and the Console follow (not for a preview)
         WidgetRuntime& rt;
+        bool on;
         ~Synced() {
+            if (!on) return;
             rt.SyncWatch();
             rt.NotifyChanged();
         }
-    } synced{runtime_};
+    } synced{runtime_, !preview_};
 
     std::wstring error;
     package_ = Widgets::Load(id_, error);
@@ -120,7 +130,8 @@ void WidgetInstance::Reload() {
                                (firstError->fix.empty() ? L"" : L" (fix: " + firstError->fix + L")"));
         return;
     }
-    settings_ = Widgets::MergeSettings(m, itemSettings_);
+    // A preview (round 6 phase 6E): the manifest's preview.settings over the defaults.
+    settings_ = Widgets::MergeSettings(m, preview_ ? m.previewSettings : itemSettings_);
     Log(ScriptLogLevel::Info, L"loading " + m.name + (m.version.empty() ? L"" : L" " + m.version) +
                                   (package_->source == Widgets::Package::Source::BuiltIn ? L" (built-in)"
                                                                                        : L" from " + package_->folder));
@@ -146,7 +157,7 @@ void WidgetInstance::SetWeatherConfig(const WeatherConfig& weather) {
     if (weather == weather_) return;
     const bool samePlace = WeatherService::SamePlace(weather, weather_);
     weather_ = weather;
-    if (!samePlace) runtime_.WeatherPlaceChanged(this);  // its service follows (posted)
+    if (!samePlace && !preview_) runtime_.WeatherPlaceChanged(this);  // its service follows (posted)
 }
 
 void WidgetInstance::SetSettings(const std::wstring& itemSettings) {
@@ -245,7 +256,7 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
     float mainDip = hint.main, crossDip = hint.cross;
     dock_.axis = vertical ? "vertical" : "horizontal";
     dock_.scale = s;
-    dock_.iconSize = ctx.iconPx / s;
+    if (!preview_) dock_.iconSize = ctx.iconPx / s;  // a preview keeps its virtual dock's 48 DIPs at any scale
     dock_.main = mainDip;
     dock_.cross = crossDip;
     dock_.width = vertical ? crossDip : mainDip;
@@ -271,6 +282,13 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
             } catch (...) {
             }
         }
+    }
+    // A preview (round 6 phase 6E): the manifest's preview.width / height replace the measured box
+    // (DIPs, upright: on the virtual horizontal dock width is main and height cross).
+    if (preview_ && package_ && state_ == State::Ok) {
+        const Widgets::Manifest& pm = package_->manifest;
+        if (pm.previewWidth > 0.0f) (vertical ? crossDip : mainDip) = pm.previewWidth;
+        if (pm.previewHeight > 0.0f) (vertical ? mainDip : crossDip) = pm.previewHeight;
     }
     // Never thinner than the error tile can show something in.
     if (state_ != State::Ok) {
@@ -312,6 +330,26 @@ HRESULT WidgetInstance::Render(Renderer& renderer, Layer& layer, const LayoutCon
         }
         DrawErrorTile(dc, w, h);
     });
+}
+
+void WidgetInstance::PixelSize(UINT& w, UINT& h) const {
+    const bool vertical = measuredAxis_ == DockAxis::Vertical;
+    w = measured_ ? static_cast<UINT>(vertical ? size_.cross : size_.main) : 0;
+    h = measured_ ? static_cast<UINT>(vertical ? size_.main : size_.cross) : 0;
+}
+
+void WidgetInstance::DrawInto(ID2D1DeviceContext* dc) {
+    if (!dc || state_ != State::Ok || !engine_ || !measured_) return;
+    float w = 0, h = 0;
+    BoxDips(w, h);
+    ++draws_;
+    changed_ = false;
+    canvas_.Begin(dc, dock_.scale, w, h);
+    inCanvas_ = true;
+    const ScriptResult r = engine_->Call(ScriptEngine::Fn::Draw, {});
+    inCanvas_ = false;
+    canvas_.End();
+    Check(r, FnName(ScriptEngine::Fn::Draw));
 }
 
 void WidgetInstance::DrawErrorTile(ID2D1DeviceContext* dc, float w, float h) {
@@ -434,15 +472,17 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
     state_ = state;
     error_ = message;
     DropEditor(true);
-    runtime_.CancelAll(this);
-    runtime_.ReleaseProviders(this);
+    if (!preview_) {
+        runtime_.CancelAll(this);
+        runtime_.ReleaseProviders(this);
+    }
     // Never called again until a reload: give its heap back now (Fail only runs after a call into
     // the script has returned).
     engine_.reset();
     ++generation_;
     requests_ = 0;
     if (PopupShown() || client_.WidgetPassiveShown(*this)) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
-    runtime_.NotifyChanged();
+    if (!preview_) runtime_.NotifyChanged();
     Log(ScriptLogLevel::Error, (state == State::Suspended ? L"suspended: " : L"error: ") + message);
     measured_ = false;
     changed_ = true;
@@ -450,6 +490,7 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
 }
 
 void WidgetInstance::ScheduleRefresh() {
+    if (preview_) return;  // a preview never ticks (it shows the time it was drawn)
     runtime_.Cancel(this, 0);
     if (refreshMs_ > 0 && state_ == State::Ok) runtime_.Schedule(this, 0, refreshMs_, true, true, refreshZone_);
 }
@@ -462,15 +503,26 @@ void WidgetInstance::Log(ScriptLogLevel level, const std::wstring& line) {
     l.level = level;
     l.text = line.size() > 4000 ? line.substr(0, 4000) + L"…" : line;
     const wchar_t* tag = level == ScriptLogLevel::Error ? L"error" : level == ScriptLogLevel::Warn ? L"warn" : L"log";
-    OutputDebugStringW((L"WinDock widget " + key_ + L" [" + tag + L"] " + l.text + L"\n").c_str());
     log_.push_back(std::move(l));
     ++logTotal_;
     while (log_.size() > kMaxLogLines) log_.pop_front();
+    if (preview_) return;  // a preview's lines stay in its own log (WidgetPreview reports a failure once)
+    OutputDebugStringW((L"WinDock widget " + key_ + L" [" + tag + L"] " + log_.back().text + L"\n").c_str());
     runtime_.NotifyLog(this);  // the Console (posts itself an update)
 }
 
 bool WidgetInstance::ReadFile(const std::string& path, std::string& bytes, std::wstring& error) {
     // media.art()'s token (only canvas.image passes it here; module names cannot contain ':').
+    if (path.rfind(kArtToken, 0) == 0 && preview_) {
+        // A preview: the sample art (WidgetSamples).
+        if (!Permitted(Permission::Media) ||
+            std::strtoull(path.c_str() + std::strlen(kArtToken), nullptr, 10) != WidgetSamples::kArtSerial) {
+            error = L"the media art is not available (any more)";
+            return false;
+        }
+        bytes = WidgetSamples::MediaArtBytes();
+        return true;
+    }
     if (path.rfind(kArtToken, 0) == 0) {
         const MediaService* media = Permitted(Permission::Media) ? &runtime_.Media() : nullptr;
         const uint64_t serial = std::strtoull(path.c_str() + std::strlen(kArtToken), nullptr, 10);
@@ -490,12 +542,17 @@ bool WidgetInstance::ReadFile(const std::string& path, std::string& bytes, std::
 
 bool WidgetInstance::ScheduleTimer(int id, uint32_t ms, bool repeat) {
     if (state_ != State::Ok) return false;
+    if (preview_) return ++previewTimers_ <= kMaxTimers;  // accepted, never scheduled: it never fires
     if (runtime_.PendingTimers(this) >= kMaxTimers) return false;
     runtime_.Schedule(this, id, std::max<uint32_t>(ms, repeat ? 16u : 1u), repeat);
     return true;
 }
 
 void WidgetInstance::CancelTimer(int id) {
+    if (preview_) {
+        if (previewTimers_ > 0) --previewTimers_;
+        return;
+    }
     if (id > 0) runtime_.Cancel(this, id);
 }
 
@@ -534,6 +591,7 @@ void WidgetInstance::Drop(const std::vector<std::wstring>& files, float x, float
 }
 
 void WidgetInstance::RequestPopup(PopupRequest r) {
+    if (preview_) return;  // a preview opens nothing (popups, the folder / calendar popups, settings)
     popupRequest_ = std::move(r);
     client_.WidgetPopupRequest(*this);
 }
@@ -611,6 +669,10 @@ bool WidgetInstance::PopupCalendar(int64_t day, std::wstring&) {
 // --- round 6 phase 6C: popup.editText --------------------------------------------------------------
 
 int WidgetInstance::EditText(const EditTextRequest& request, std::wstring& error) {
+    if (preview_) {
+        error = L"not available in preview";
+        return 0;
+    }
     if (state_ != State::Ok || !engine_) {
         error = L"the widget is not running";
         return 0;
@@ -722,7 +784,7 @@ void WidgetInstance::PopupClosed(bool passive) {
 }
 
 bool WidgetInstance::WatchFolder(std::wstring& id, std::wstring& folder) const {
-    if (!package_ || package_->source != Widgets::Package::Source::Folder || !package_->manifest.watch) return false;
+    if (preview_ || !package_ || package_->source != Widgets::Package::Source::Folder || !package_->manifest.watch) return false;
     id = id_;
     folder = package_->folder;
     return true;
@@ -746,6 +808,14 @@ bool WidgetInstance::Permitted(Permission p) const {
 }
 
 bool WidgetInstance::StorageGet(const std::string& key, std::string& json) {
+    if (preview_) {
+        // A preview's own writes first (an in-memory scratch store), then the real store (read only).
+        if (const auto it = scratch_.find(key); it != scratch_.end()) {
+            if (!it->second) return false;
+            json = *it->second;
+            return true;
+        }
+    }
     return runtime_.StorageGet(id_, key, json);
 }
 
@@ -754,10 +824,24 @@ bool WidgetInstance::StorageSet(const std::string& key, const std::string& json,
         error = L"storage keys are 1 - 256 characters";
         return false;
     }
+    if (preview_) {
+        if (json.size() > WidgetRuntime::kMaxStorageBytes) {
+            error = L"storage: the widget's store would pass 1 MB";
+            return false;
+        }
+        scratch_[key] = json;  // never written to widget-data\<id>.json
+        return true;
+    }
     return runtime_.StorageSet(id_, key, json, error, this);
 }
 
-void WidgetInstance::StorageRemove(const std::string& key) { runtime_.StorageRemove(id_, key, this); }
+void WidgetInstance::StorageRemove(const std::string& key) {
+    if (preview_) {
+        scratch_[key] = std::nullopt;
+        return;
+    }
+    runtime_.StorageRemove(id_, key, this);
+}
 
 void WidgetInstance::StorageChanged(const std::string& key) {
     if (state_ != State::Ok || !engine_) return;
@@ -765,7 +849,16 @@ void WidgetInstance::StorageChanged(const std::string& key) {
           "storage.onChange");
 }
 
-std::vector<std::string> WidgetInstance::StorageKeys() { return runtime_.StorageKeys(id_); }
+std::vector<std::string> WidgetInstance::StorageKeys() {
+    std::vector<std::string> keys = runtime_.StorageKeys(id_);
+    if (!preview_ || scratch_.empty()) return keys;
+    std::erase_if(keys, [&](const std::string& k) { return scratch_.count(k) != 0; });
+    for (const auto& [k, v] : scratch_) {
+        if (v) keys.push_back(k);
+    }
+    std::sort(keys.begin(), keys.end());
+    return keys;
+}
 
 bool WidgetInstance::HostAllowed(const std::wstring& host) const {
     if (!package_) return false;
@@ -784,6 +877,10 @@ bool WidgetInstance::HostAllowed(const std::wstring& host) const {
 
 int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& url, const std::wstring& headers,
                               const std::string& body, uint32_t timeoutMs, std::wstring& error) {
+    if (preview_) {
+        error = L"http: not available in preview";  // the engine rejects the promise with it
+        return 0;
+    }
     if (!Permitted(Permission::Http)) {
         error = L"http needs the \"http\" permission with the hosts it may reach (widget.json)";
         return 0;
@@ -854,6 +951,7 @@ bool WidgetInstance::ShellOpen(const std::wstring& target, const std::wstring& a
         error = L"shell.open: a file, folder or URL is needed";
         return false;
     }
+    if (preview_) return true;  // nothing opens in a preview (the script gets false)
     wchar_t expanded[MAX_PATH * 4]{};
     ExpandEnvironmentStringsW(target.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
     AllowSetForegroundWindow(ASFW_ANY);
@@ -994,6 +1092,7 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
         error = L"shell.sendKeys: \"" + name + L"\" is not in the allow-list (docs/widgets.md)";
         return false;
     }
+    if (preview_) return true;  // nothing is pressed in a preview (the script gets false)
     const size_t count = combo->keys[1] ? 2 : 1;
     INPUT in[4]{};
     for (size_t i = 0; i < count; ++i) {
@@ -1020,6 +1119,10 @@ bool WidgetInstance::AudioGet(std::string& json, std::wstring& error) {
         error = L"audio needs the \"audio\" permission";
         return false;
     }
+    if (preview_) {
+        json = WidgetSamples::AudioJson();
+        return true;
+    }
     const AudioService* a = runtime_.UseAudio(this);
     if (!a) {
         error = L"audio: Core Audio is not available";
@@ -1045,6 +1148,7 @@ bool WidgetInstance::AudioSet(const std::string& what, double number, const std:
         error = L"audio needs the \"audio\" permission";
         return false;
     }
+    if (preview_) return true;  // changes nothing
     AudioService* a = runtime_.UseAudio(this);
     if (!a) {
         error = L"audio: Core Audio is not available";
@@ -1062,6 +1166,10 @@ bool WidgetInstance::MediaGet(std::string& json, std::wstring& error) {
     if (!Permitted(Permission::Media)) {
         error = L"media needs the \"media\" permission";
         return false;
+    }
+    if (preview_) {
+        json = WidgetSamples::MediaJson();
+        return true;
     }
     const MediaService* m = runtime_.UseMedia(this);
     if (!m) {
@@ -1088,6 +1196,7 @@ bool WidgetInstance::MediaCommand(const std::string& command, std::wstring& erro
         error = L"media needs the \"media\" permission";
         return false;
     }
+    if (preview_) return true;  // sends nothing
     MediaService* m = runtime_.UseMedia(this);
     if (!m) {
         error = L"media: the media session manager could not be started";
@@ -1117,8 +1226,12 @@ bool WidgetInstance::MediaArt(std::string& token, std::wstring& error) {
         error = L"media needs the \"media\" permission";
         return false;
     }
-    const MediaService* m = runtime_.UseMedia(this);
     token.clear();
+    if (preview_) {
+        token = kArtToken + std::to_string(WidgetSamples::kArtSerial);
+        return true;
+    }
+    const MediaService* m = runtime_.UseMedia(this);
     if (m && m->Get().art && m->Get().artSerial) token = kArtToken + std::to_string(m->Get().artSerial);
     return true;
 }
@@ -1129,6 +1242,10 @@ bool WidgetInstance::NotificationsGet(std::string& json, std::wstring& error) {
     if (!Permitted(Permission::Notifications)) {
         error = L"notifications needs the \"notifications\" permission";
         return false;
+    }
+    if (preview_) {
+        json = WidgetSamples::NotificationsJson();
+        return true;
     }
     const NotificationService* n = runtime_.UseNotifications(this);
     if (!n) {
@@ -1156,6 +1273,7 @@ bool WidgetInstance::NotificationsCommand(const std::string& command, double id,
         error = L"notifications needs the \"notifications\" permission";
         return false;
     }
+    if (preview_) return true;  // dismisses / activates / opens nothing
     NotificationService* n = runtime_.UseNotifications(this);
     if (!n) {
         error = L"notifications: the notification service is not available";
@@ -1221,6 +1339,7 @@ bool WidgetInstance::CalendarCall(const std::string& what, const std::string& ar
         error = L"calendar needs the \"calendar\" permission";
         return false;
     }
+    if (preview_) return WidgetSamples::CalendarCall(what, args, out, error);
     CalendarService* c = runtime_.UseCalendar(this);
     if (!c) {
         error = L"calendar: the calendar service is not available";
@@ -1427,13 +1546,18 @@ bool WidgetInstance::WeatherCall(const std::string& what, const std::string& arg
         error = L"weather needs the \"weather\" permission";
         return false;
     }
-    WeatherService* w = runtime_.UseWeather(this);
-    if (!w) {
+    // A preview: the sample forecast; refresh / openSettings do nothing (icon below is pure).
+    WeatherService* w = preview_ ? nullptr : runtime_.UseWeather(this);
+    if (!w && !preview_) {
         error = L"weather: the weather service is not available";
         return false;
     }
     if (what == "get") {
-        out = WeatherJson(*w, weather_);
+        out = preview_ ? WidgetSamples::WeatherJson(weather_.units == Units::Imperial, weather_.label) : WeatherJson(*w, weather_);
+        return true;
+    }
+    if (preview_ && (what == "refresh" || what == "openSettings")) {
+        out = "null";
         return true;
     }
     if (what == "refresh") {
@@ -1499,13 +1623,29 @@ bool WidgetInstance::WeatherCall(const std::string& what, const std::string& arg
 }
 
 // --- round 6 phase 6D: perf ------------------------------------------------------------------------
-// Phase 6E (preview mode) answers these two from sample data instead of the service: the one
-// place to hook it (a ProviderSample for "perf").
+// Phase 6E (preview mode) answers these two from sample data (WidgetSamples) instead of the service.
 
 bool WidgetInstance::PerfCall(const std::string& what, double number, std::string& json, std::wstring& error) {
     if (!Permitted(Permission::Perf)) {
         error = L"perf needs the \"perf\" permission";
         return false;
+    }
+    if (preview_) {
+        if (what == "get") {
+            json = number == 1.0 ? std::string("null") : WidgetSamples::PerfSnapshotJson();  // serial 1
+        } else if (what == "metrics") {
+            json = number == 1.0 ? std::string("null") : WidgetSamples::PerfMetricsJson();
+        } else if (what == "hwinfo") {
+            json = WidgetSamples::PerfHwinfoJson();
+        } else if (what == "use") {
+            json = "null";
+        } else if (what == "setInterval") {
+            json = "1000";  // the sampler is not started
+        } else {
+            error = L"perf: unknown call";
+            return false;
+        }
+        return true;
     }
     PerfService* perf = runtime_.UsePerf(this);
     if (!perf) {
@@ -1556,6 +1696,10 @@ bool WidgetInstance::PerfSeries(const std::string& key, size_t n, std::vector<do
     if (!Permitted(Permission::Perf)) {
         error = L"perf needs the \"perf\" permission";
         return false;
+    }
+    if (preview_) {
+        WidgetSamples::PerfSeries(key, std::min(n, PerfService::kHistory), out);
+        return true;
     }
     PerfService* perf = runtime_.UsePerf(this);
     if (!perf) {

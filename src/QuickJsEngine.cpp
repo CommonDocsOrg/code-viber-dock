@@ -1344,6 +1344,7 @@ JSValue DockGet(JSContext* ctx, JSValueConst, int magic) {
         case 15: return JS_NewBool(ctx, d.clockDate);
         case 16: return JS_NewBool(ctx, d.standalone);
         case 17: return NewString(ctx, d.itemKey);
+        case 18: return JS_NewBool(ctx, d.preview);
         default: return JS_UNDEFINED;
     }
 }
@@ -1568,6 +1569,7 @@ const JSCFunctionListEntry kDockFuncs[] = {
     JS_CGETSET_MAGIC_DEF("clockDate", GuardGet<DockGet>, nullptr, 15),
     JS_CGETSET_MAGIC_DEF("standalone", GuardGet<DockGet>, nullptr, 16),
     JS_CGETSET_MAGIC_DEF("itemKey", GuardGet<DockGet>, nullptr, 17),
+    JS_CGETSET_MAGIC_DEF("preview", GuardGet<DockGet>, nullptr, 18),
     JS_CFUNC_DEF("requestRedraw", 0, Guard<RequestRedrawFn>),
 };
 
@@ -1671,6 +1673,8 @@ JSValue HttpFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     std::wstring error;
     const int id = Self(ctx)->host_.HttpStart(method, url, headers, body,
                                               static_cast<uint32_t>(std::clamp(timeout, 0.0f, 60000.0f)), error);
+    // A preview (round 6 phase 6E) makes no requests: a rejected promise, never a throw.
+    if (!id && Self(ctx)->host_.Dock().preview) return Self(ctx)->Rejected(Self(ctx)->MakeError(WideToUtf8(error)));
     if (!id) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
     return Self(ctx)->AddRequest(id, wantJson);
 }
@@ -1683,7 +1687,7 @@ JSValue ShellOpenFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) 
     if (a.failed) return JS_EXCEPTION;
     std::wstring error;
     if (!Self(ctx)->host_.ShellOpen(target, args, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
-    return JS_TRUE;
+    return JS_NewBool(ctx, !Self(ctx)->host_.Dock().preview);  // a preview opens nothing (false)
 }
 JSValue ShellListFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     Args a{ctx, argc, argv};
@@ -1700,7 +1704,7 @@ JSValue SendKeysFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     if (a.failed) return JS_EXCEPTION;
     std::wstring error;
     if (!Self(ctx)->host_.SendKeys(name, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
-    return JS_TRUE;
+    return JS_NewBool(ctx, !Self(ctx)->host_.Dock().preview);  // a preview presses nothing (false)
 }
 
 // --- providers (native half; audio / media are in the prelude) -------------------------------------

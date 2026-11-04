@@ -107,6 +107,9 @@ public:
     bool Alive(const WidgetInstance* w) const;
     // Every widget instance reloads its package and script.
     void ReloadAll();
+    // Round 6 phase 6E: called after ReloadAll and after a watched folder's widgets reloaded (the
+    // settings windows render their widget previews again).
+    void SetPackagesChanged(std::function<void()> f) { packagesChanged_ = std::move(f); }
     // How often the scheduler's timer fired (automation: idle widgets never wake the process).
     uint64_t Wakeups() const { return wakeups_; }
 
@@ -233,6 +236,7 @@ private:
     bool reloadPending_ = false;
     std::function<void(WidgetInstance*)> logListener_;
     std::function<void()> changedListener_;
+    std::function<void()> packagesChanged_;
     AudioService audio_;
     MediaService media_;
     PerfService perf_;

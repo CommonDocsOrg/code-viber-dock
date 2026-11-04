@@ -35,11 +35,173 @@ constexpr int kListH = 220;
 constexpr int kButtonW = 150;
 constexpr int kButtonStep = 158;
 
+// --- the library's preview panel (round 6 phase 6E) ------------------------------------------------
+// WinDock.WidgetPreviewPanel: the selected widget's live preview (SettingsWindow::Preview, fitted into
+// 240 x 120 DIPs over the theme-coloured panel) and its name and description beside it. GDI,
+// double-buffered, palette colours, no timers.
+
+class PreviewPanel {
+public:
+    static constexpr wchar_t kClass[] = L"WinDock.WidgetPreviewPanel";
+    static constexpr int kPreviewW = 240, kPreviewH = 120;  // DIPs
+    static constexpr float kZoom = 2.0f;  // a small widget is drawn up to twice its dock size
+
+    static void Register() {
+        static bool registered = false;
+        if (registered) return;
+        WNDCLASSEXW wc{sizeof(wc)};
+        wc.lpfnWndProc = &PreviewPanel::Proc;
+        wc.hInstance = GetModuleHandleW(nullptr);
+        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+        wc.lpszClassName = kClass;
+        registered = RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+    }
+
+    explicit PreviewPanel(SettingsWindow& window) : window_(window) {}
+    ~PreviewPanel() {
+        if (bold_) DeleteObject(bold_);
+    }
+    PreviewPanel(const PreviewPanel&) = delete;
+    PreviewPanel& operator=(const PreviewPanel&) = delete;
+
+    void Attach(HWND hwnd) {
+        hwnd_ = hwnd;
+        if (hwnd) SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+    }
+    // The widget shown (id "": none).
+    void Set(const std::wstring& id, const std::wstring& name, const std::wstring& description) {
+        if (id == id_ && name == name_ && description == description_) return;
+        id_ = id;
+        name_ = name;
+        description_ = description;
+        if (hwnd_) {
+            SetWindowTextW(hwnd_, (L"Preview: " + name_).c_str());
+            InvalidateRect(hwnd_, nullptr, FALSE);
+        }
+    }
+    static SIZE Fit(const SettingsWindow& w) {
+        return SIZE{w.Px(kPreviewW) - 2 * std::max(1, w.Px(3)), w.Px(kPreviewH) - 2 * std::max(1, w.Px(3))};
+    }
+    // Automation: the shown preview's size (MAKELONG(w, h) px; 0: none / failed).
+    LRESULT ShownSize() {
+        if (id_.empty()) return 0;
+        const SettingsWindow::PreviewImage* img = window_.Preview(id_, Fit(window_), true, kZoom);
+        return img ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(img->px.cx), static_cast<WORD>(img->px.cy))) : 0;
+    }
+
+private:
+    static LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+        auto* self = reinterpret_cast<PreviewPanel*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        if (!self) return DefWindowProcW(hwnd, msg, wp, lp);
+        switch (msg) {
+            case WM_NCDESTROY:
+                SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+                self->hwnd_ = nullptr;
+                break;
+            case WM_SETFONT: {
+                self->font_ = reinterpret_cast<HFONT>(wp);
+                if (self->bold_) DeleteObject(self->bold_);
+                self->bold_ = nullptr;
+                LOGFONTW lf{};
+                if (self->font_ && GetObjectW(self->font_, sizeof(lf), &lf)) {
+                    lf.lfWeight = FW_SEMIBOLD;
+                    self->bold_ = CreateFontIndirectW(&lf);
+                }
+                if (lp) InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            }
+            case WM_GETFONT:
+                return reinterpret_cast<LRESULT>(self->font_);
+            case WM_ERASEBKGND:
+                return 1;
+            case WM_SIZE:
+                InvalidateRect(hwnd, nullptr, FALSE);
+                return 0;
+            case WM_GETDLGCODE:
+                return DLGC_STATIC;
+            case WM_PAINT: {
+                PAINTSTRUCT ps;
+                HDC hdc = BeginPaint(hwnd, &ps);
+                RECT rc{};
+                GetClientRect(hwnd, &rc);
+                HDC mem = CreateCompatibleDC(hdc);
+                HBITMAP bmp = CreateCompatibleBitmap(hdc, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
+                HGDIOBJ old = SelectObject(mem, bmp);
+                self->Paint(mem, rc);
+                BitBlt(hdc, 0, 0, rc.right, rc.bottom, mem, 0, 0, SRCCOPY);
+                SelectObject(mem, old);
+                DeleteObject(bmp);
+                DeleteDC(mem);
+                EndPaint(hwnd, &ps);
+                return 0;
+            }
+            default:
+                break;
+        }
+        return DefWindowProcW(hwnd, msg, wp, lp);
+    }
+
+    void Paint(HDC dc, const RECT& rc) {
+        const DarkMode::Palette& p = window_.Colors();
+        HBRUSH back = CreateSolidBrush(p.layer);
+        FillRect(dc, &rc, back);
+        DeleteObject(back);
+        SetBkMode(dc, TRANSPARENT);
+        HFONT base = font_ ? font_ : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT));
+        const int pw = window_.Px(kPreviewW), ph = window_.Px(kPreviewH);
+        const int top = std::max(0, static_cast<int>(rc.bottom - ph) / 2);
+        const RECT area{0, top, pw, top + ph};
+        if (id_.empty()) {
+            HGDIOBJ of = SelectObject(dc, base);
+            SetTextColor(dc, p.textSecondary);
+            RECT t = rc;
+            DrawTextW(dc, L"Select a widget to see its preview", -1, &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            SelectObject(dc, of);
+            return;
+        }
+        if (const SettingsWindow::PreviewImage* img = window_.Preview(id_, Fit(window_), true, kZoom)) {
+            window_.PaintPreview(dc, area, *img, p.layer);
+        } else {
+            // No preview (the widget failed): a dotted frame with a word in it.
+            HPEN pen = CreatePen(PS_DOT, 1, p.textSecondary);
+            HGDIOBJ op = SelectObject(dc, pen);
+            HGDIOBJ ob = SelectObject(dc, GetStockObject(NULL_BRUSH));
+            RoundRect(dc, area.left, area.top, area.right, area.bottom, window_.Px(12), window_.Px(12));
+            SelectObject(dc, ob);
+            SelectObject(dc, op);
+            DeleteObject(pen);
+            HGDIOBJ of = SelectObject(dc, base);
+            SetTextColor(dc, p.textSecondary);
+            RECT t = area;
+            DrawTextW(dc, L"No preview", -1, &t, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            SelectObject(dc, of);
+        }
+        // The name and the description to the right.
+        const int x = pw + window_.Px(16);
+        RECT name{x, top, rc.right, top + window_.Px(22)};
+        HGDIOBJ of = SelectObject(dc, bold_ ? bold_ : base);
+        SetTextColor(dc, p.text);
+        DrawTextW(dc, name_.c_str(), static_cast<int>(name_.size()), &name, DT_LEFT | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
+        SelectObject(dc, base);
+        SetTextColor(dc, p.textSecondary);
+        RECT desc{x, top + window_.Px(26), rc.right, top + ph};
+        DrawTextW(dc, description_.c_str(), static_cast<int>(description_.size()), &desc,
+                  DT_LEFT | DT_WORDBREAK | DT_END_ELLIPSIS | DT_NOPREFIX | DT_EDITCONTROL);
+        SelectObject(dc, of);
+    }
+
+    SettingsWindow& window_;
+    HWND hwnd_ = nullptr;
+    HFONT font_ = nullptr;  // the window's (not owned)
+    HFONT bold_ = nullptr;
+    std::wstring id_, name_, description_;
+};
+
 // --- Widgets -------------------------------------------------------------------------------------
 
 class WidgetsPage : public FormPage {
 public:
-    explicit WidgetsPage(SettingsWindow& w) : FormPage(w, L"Widget library", L'\xEA86') {}
+    explicit WidgetsPage(SettingsWindow& w) : FormPage(w, L"Widget library", L'\xEA86'), panel_(w) {}
 
 protected:
     void Build() override {
@@ -49,6 +211,10 @@ protected:
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
         NextRow(kListH + 8);
+        // Round 6 phase 6E: the selected widget's live preview and description.
+        PreviewPanel::Register();
+        Add(kWidgetsPreview, CtlKind::Custom, PreviewPanel::kClass, L"Preview", 0, RECT{kMargin, y_, right, y_ + 124});
+        NextRow(124 + 10);
         Button(kWidgetsAddToDock, L"Add to dock", kMargin, kButtonW);
         Button(kWidgetsAddToDesktop, L"Add to the desktop", kMargin + kButtonStep, kButtonW);  // round 6 phase 6B
         Button(kWidgetsAddFolder, L"Add from folder…", kMargin + 2 * kButtonStep, kButtonW);
@@ -71,6 +237,7 @@ protected:
     }
 
     void Created() override {
+        panel_.Attach(Item(kWidgetsPreview));
         HWND list = Item(kWidgetsList);
         if (!list) return;
         LVCOLUMNW col{};
@@ -95,6 +262,12 @@ protected:
     }
 
     void Load() override { Fill(); }
+
+    bool Query(int code, LPARAM, LRESULT& out) override {
+        if (code != 269) return false;  // round 6 phase 6E: the preview panel's bitmap size (MAKELONG px; 0 none)
+        out = panel_.ShownSize();
+        return true;
+    }
 
     LRESULT OnNotify(const NMHDR& nm) override {
         if (static_cast<int>(nm.idFrom) == kWidgetsList && nm.code == LVN_ITEMCHANGED) UpdateButtons();
@@ -200,6 +373,18 @@ private:
 
     void UpdateButtons() {
         const Widgets::CatalogEntry* sel = Selected();
+        // The preview panel follows the selection (the description read once per id per window).
+        if (sel) {
+            auto it = descriptions_.find(sel->id);
+            if (it == descriptions_.end()) {
+                std::wstring error, d;
+                if (const auto pkg = Widgets::Load(sel->id, error)) d = pkg->manifest.description;
+                it = descriptions_.emplace(sel->id, d).first;
+            }
+            panel_.Set(sel->id, sel->name, it->second);
+        } else {
+            panel_.Set(L"", L"", L"");
+        }
         Enable(kWidgetsAddToDock, sel != nullptr);
         Enable(kWidgetsAddToDesktop, sel != nullptr);
         Enable(kWidgetsExport, sel && sel->builtIn && sel->source == Widgets::Package::Source::BuiltIn);
@@ -268,6 +453,8 @@ private:
     }
 
     std::vector<Widgets::CatalogEntry> catalog_;
+    PreviewPanel panel_;
+    std::map<std::wstring, std::wstring> descriptions_;  // widget id -> its manifest's description
 };
 
 // --- Widget settings -----------------------------------------------------------------------------
