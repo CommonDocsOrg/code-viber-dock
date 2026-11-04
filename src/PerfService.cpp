@@ -114,13 +114,11 @@ std::atomic<int> g_inFlight{0};
 // (no strings built); a new key, a missing one or a value outside a widening range makes a new one.
 class Builder {
 public:
-    std::shared_ptr<const Catalog> current;
     std::vector<double> values;
 
     void Begin() {
         values.clear();
         next_.clear();
-        index_.clear();
         pos_ = 0;
         changed_ = false;
     }
@@ -140,14 +138,16 @@ public:
 
     void Add(std::string_view key, double value, MetaRef meta) {
         if (!std::isfinite(value)) return;  // absent this time
-        const Catalog* cur = current.get();
+        const Catalog* cur = current_.get();
         const Metric* old = nullptr;
         const bool atPos = cur && pos_ < cur->metrics.size() && cur->metrics[pos_].key == key;
         if (atPos) {
             old = &cur->metrics[pos_];
         } else if (cur) {
-            if (index_.empty()) {
+            if (indexed_ != cur) {
+                index_.clear();  // a partial index (an exception while building it); its keys are cur's
                 for (size_t i = 0; i < cur->metrics.size(); ++i) index_.emplace(cur->metrics[i].key, i);
+                indexed_ = cur;
             }
             if (auto it = index_.find(key); it != index_.end()) old = &cur->metrics[it->second];
         }
@@ -178,20 +178,31 @@ public:
 
     // The catalog of this sample (the same pointer as before when nothing changed).
     std::shared_ptr<const Catalog> Finish() {
-        const Catalog* cur = current.get();
-        if (!changed_ && cur && pos_ == cur->metrics.size()) return current;
+        const Catalog* cur = current_.get();
+        if (!changed_ && cur && pos_ == cur->metrics.size()) return current_;
         if (!changed_ && cur) next_.assign(cur->metrics.begin(), cur->metrics.begin() + static_cast<ptrdiff_t>(pos_));
         auto c = std::make_shared<Catalog>();
         c->serial = ++g_catalogSerial;
         c->metrics = std::move(next_);
         next_.clear();
-        current = c;
-        return current;
+        // The index's keys view the old catalog's strings, which die with it (the UI thread may drop
+        // the last reference at any time after this): clear it while they are still alive. MSVC's
+        // clear() hashes every key when the table is sparse (size < buckets / 8), so clearing views
+        // of freed strings later picks the wrong buckets and leaves them pointing at freed nodes.
+        index_.clear();
+        indexed_ = nullptr;
+        current_ = std::move(c);
+        return current_;
     }
 
 private:
+    // The catalog of the last sample; the only one index_ ever views (it keeps it alive).
+    std::shared_ptr<const Catalog> current_;
     std::vector<Metric> next_;
+    // key -> position in current_->metrics, built on the first key out of order since current_
+    // changed. Declared after current_, so destroyed before it.
     std::unordered_map<std::string_view, size_t> index_;
+    const Catalog* indexed_ = nullptr;  // the catalog index_ was completed for (null: none)
     size_t pos_ = 0;
     bool changed_ = false;
 };
