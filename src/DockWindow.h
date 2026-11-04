@@ -481,7 +481,8 @@ private:
         // is kept on the monitor, so a dock at a monitor end grows away from it).
         float growRoomStart = 0.0f;
         float growRoomEnd = 0.0f;
-        float popupY = 0.0f;      // popups open beyond this cross coordinate (with kPreviewGap)
+        float popupY = 0.0f;      // popups open beyond this cross coordinate (with docks[].popupGap)
+        float roomPx = 0.0f;      // room along the edge for the bar (margins and docks[].maxLength applied)
         bool fullWidth = false;   // the bar spans the monitor's edge (docks[].fullWidth)
         // docks[].floating (round 6 phase 6A): the bar sits at docks[].x / y, its "screen edge" is
         // its own outer side (no margin); the stage reaches from there toward the way it faces.
@@ -556,8 +557,13 @@ private:
     HRESULT SetCrossOffset(T* target, V v) const {
         return layout_.vertical ? target->SetOffsetX(v) : target->SetOffsetY(v);
     }
-    // Where a popup opens for a slot centred on stage main coordinate `anchor`.
-    PopupAnchor PopupAnchorAt(float anchor) const;
+    // Where a popup opens for a slot centred on stage main coordinate `anchor`: docks[].popupGap
+    // beyond a fully magnified icon, and beyond the hover label while it is shown for `labelSlot`.
+    PopupAnchor PopupAnchorAt(float anchor, int labelSlot = -1) const;
+    // docks[].popupGap in px (QueryState 270); docks[].maxLength in px as applied (0: none or
+    // ignored: a ring, a full-width bar; QueryState 271).
+    int PopupGapPx() const;
+    int MaxLengthPx() const;
     // The HWND rect while hidden: the 1 px reveal strip along the monitor's edge, or the peek strip.
     RECT HiddenRect() const;
     // The label's text format (labels and the title), at scale `s`. False without DirectWrite.

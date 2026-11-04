@@ -673,6 +673,22 @@ HWiNFO allowed); live previews with sample data in the widget drawer.
 | 6D | `perf` provider (`PerfService`: CPU / memory / GPU / disk / network / battery + HWiNFO shared memory) and the `system-monitor` / `system-overview` widgets | Done (the commit "Add the perf provider and the system monitor widgets"; STATUS.md "Round 6") |
 | 6E | Widget previews in the drawer and inspector: preview mode, provider sample data, manifest `preview` | Done (the commit "Preview widgets in the drawer with sample data"; STATUS.md "Round 6") |
 
+## Round 7 (in progress, 2026-11-03): dock fixes, item anchors, widget upgrades
+
+Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round7.md`. The user's wish list: a
+Task Manager entry on the dock menu, a crisp Start logo, a maximum dock length after which the dock
+scrolls, per-item placement on the dock (start / centre / end, offsets), analog clocks that grow on
+hover, a multi-day forecast on the dock, the name label kept with the window previews, popups closer
+to the dock (configurable), media controls beside the media widget and a scrolling title, a battery
+widget. Testing is light by the user's request (one or two checks per feature). One commit per
+phase on master, not pushed; STATUS.md "Round 7" has each phase's notes.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 7A Dock fixes | Task Manager on the dock / tray menu (DockCommand 149); the hover label stays with the window preview (the preview opens beyond it); `docks[].popupGap` (default 6 DIP from the magnified icon; Behaviour tab); `docks[].maxLength` (Position tab; the overflow mode takes over at the cap); the Start logo snapped to device pixels | Done (the commit "Add Task Manager, popup gap, maximum length; keep the label with previews"; STATUS.md "Round 7") |
+| 7B Item anchors | `items[].anchor` (start / centre / end) and `items[].offset`, group layout, Sanitize order, drag semantics, the inspector's "Position on the dock" | Planned |
+| 7C Widgets | Analog clock hover growth, the weather widget's dock forecast, media controls beside the art and marquee options, the battery widget (+ `PerfService` keys, preview samples) | Planned |
+
 ## Dependencies at a glance
 
 ```

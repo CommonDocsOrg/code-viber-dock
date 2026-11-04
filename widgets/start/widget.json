@@ -1,6 +1,6 @@
 {
   "name": "Start",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "author": "WinDock",
   "description": "A Start button: opens the Start menu (the Windows key, sent with SendInput; if Windows refuses the input, the All apps folder opens instead). The Windows logo or your own icon.",
   "api": 1,

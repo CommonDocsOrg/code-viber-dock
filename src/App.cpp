@@ -1122,6 +1122,16 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kRerenderPreviews:  // round 6 phase 6E: every settings window's previews again
             InvalidatePreviews();
             break;
+        case ContextMenu::kTaskManager: {  // round 7 phase 7A: Windows' Task Manager (it elevates by itself)
+            const auto rc = reinterpret_cast<INT_PTR>(
+                ShellExecuteW(nullptr, L"open", L"taskmgr.exe", nullptr, nullptr, SW_SHOWNORMAL));
+            if (rc <= 32) {
+                wchar_t msg[96];
+                swprintf_s(msg, L"WinDock: starting taskmgr.exe failed (%lld)\n", static_cast<long long>(rc));
+                OutputDebugStringW(msg);
+            }
+            break;
+        }
         case ContextMenu::kRefreshWeather:
             docks_.RefreshWeather(nullptr);  // every place
             break;

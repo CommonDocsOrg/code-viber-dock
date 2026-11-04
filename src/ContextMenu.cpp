@@ -79,6 +79,8 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
     // Session-only: unchecks "Hide taskbar" until it is checked again (or the dock restarts).
     Append(menu, kRestoreTaskbar, L"Show taskbar until re-enabled", state.hideTaskbar);
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    Append(menu, kTaskManager, L"Task Manager", true);  // round 7 phase 7A
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     Append(menu, kQuit, L"Quit", true);
 }
 

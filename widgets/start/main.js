@@ -11,10 +11,18 @@ export function measure(canvas, dock) {
   return { main: s, cross: s };
 }
 
+// The four tiles snapped to device pixels (canvas.scale px per DIP): the tile size and the gap are
+// whole pixels and the logo's corner lands on a pixel, centred on (cx, cy) to the nearest pixel, so
+// the tiles' straight edges are crisp (at fractional DIPs they were anti-aliased: a blurred look).
 function logo(canvas, cx, cy, g, mono, dock) {
-  const gap = g * 0.06, q = (g - gap) / 2, x = cx - g / 2, y = cy - g / 2;
+  const k = canvas.scale > 0 ? canvas.scale : 1;
+  const gapPx = Math.max(1, Math.round(g * 0.06 * k));
+  const qPx = Math.max(1, Math.round((g * k - gapPx) / 2));
+  const sizePx = 2 * qPx + gapPx;
+  const x = Math.round(cx * k - sizePx / 2) / k, y = Math.round(cy * k - sizePx / 2) / k;
+  const q = qPx / k, gap = gapPx / k, size = sizePx / k;
   const paint = mono ? dock.theme.text
-    : canvas.linearGradient(x, y, x + g, y + g, [[0, '#FF3CB4FF'], [1, '#FF0063D1']]);
+    : canvas.linearGradient(x, y, x + size, y + size, [[0, '#FF3CB4FF'], [1, '#FF0063D1']]);
   canvas.fillRoundRect(x, y, q, q, q * 0.08, paint);
   canvas.fillRoundRect(x + q + gap, y, q, q, q * 0.08, paint);
   canvas.fillRoundRect(x, y + q + gap, q, q, q * 0.08, paint);

@@ -209,6 +209,18 @@ inline constexpr int kBadgesCaption = 2255;
 // 2256 / 2257 ("Show the notification centre on this dock", was 4202) are retired since round 5
 // phase E: the centre is a widget of the Contents tab's drawer, nothing else adds it.
 inline constexpr int kDockNotificationsNote = 2258;
+// Round 7 phase 7A: the Behaviour tab's "Popups" line (docks[].popupGap).
+inline constexpr int kSectionPopups = 2259;
+inline constexpr int kPopupGapLabel = 2260;
+inline constexpr int kPopupGapEdit = 2261;         // docks[].popupGap DIPs, 0 - 64
+inline constexpr int kPopupGapSpin = 2262;
+inline constexpr int kPopupGapUnit = 2263;
+// Round 7 phase 7A: the Position tab's "Maximum length" (docks[].maxLength; the General range
+// 2100 - 2199 the Position tab grew from is full, so it continues here).
+inline constexpr int kMaxLengthLabel = 2264;
+inline constexpr int kMaxLengthEdit = 2265;        // DIPs, 0 (no limit) or 96 - 8000
+inline constexpr int kMaxLengthSpin = 2266;
+inline constexpr int kMaxLengthNote = 2267;        // "0: no limit. Longer runs scroll (see Overflow)"
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;

@@ -362,6 +362,12 @@ protected:
         NextRow(42);
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
         NextRow();
+        // Round 7 phase 7A: docks[].maxLength (a bar that is not full width).
+        Label(kMaxLengthLabel, L"Maximum length (pixels)");
+        Spin(kMaxLengthEdit, kMaxLengthSpin, kColX, 88, 0, 8000, 50);
+        NextRow(kRowH);
+        Text(kMaxLengthNote, CtlKind::Note, L"0: no limit. Longer runs scroll (see Overflow)", kColX, right - kColX, 20);
+        NextRow(22);
         Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
         NextRow();
         Label(kPeekLabel, L"Peek when hidden (pixels)");
@@ -444,6 +450,15 @@ protected:
         IntSpin(kPreviewDelayEdit, kPreviewDelaySpin, kColX, 90, 0, 10000, 50,
                 [](Config&, DockConfig& d) -> int& { return d.previewDelayMs; }, SettingsScope::SaveOnly);
         Text(kPreviewDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
+        NextRow();
+
+        // Round 7 phase 7A: docks[].popupGap (read when a popup opens).
+        Section(kSectionPopups, L"Popups");
+        // (The label column is 196 DIPs: "Gap between the dock and its popups" did not fit there.)
+        Label(kPopupGapLabel, L"Popup gap");
+        IntSpin(kPopupGapEdit, kPopupGapSpin, kColX, 90, 0, 64, 1,
+                [](Config&, DockConfig& d) -> int& { return d.popupGap; }, SettingsScope::SaveOnly);
+        Text(kPopupGapUnit, CtlKind::Note, L"DIP between the dock and its popups", kColX + 98, right - kColX - 98);
         NextRow();
 
         Section(kSectionMouse, L"Mouse");
@@ -581,6 +596,7 @@ protected:
         SetText(kCircleXEdit, d.x == DockConfig::kCentred ? std::wstring() : std::to_wstring(d.x));
         SetText(kCircleYEdit, d.y == DockConfig::kCentred ? std::wstring() : std::to_wstring(d.y));
         SetCheck(kFullWidth, d.fullWidth);
+        SetSpin(kMaxLengthSpin, d.maxLength);
         SetCheck(kReserveSpace, d.reserveSpace);
         SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(d.peekOpacity * 100.0)));
         SetText(kTitleEdit, d.title);
@@ -718,6 +734,7 @@ protected:
                 break;
             case kFullWidth:
                 d.fullWidth = GetCheck(id);
+                EnableDependents();  // Maximum length is greyed for a full-width bar
                 Changed(SettingsScope::Appearance);
                 break;
             case kFloating: {
@@ -785,6 +802,14 @@ protected:
                 SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(d.peekOpacity * 100.0)));
             }
         }
+        if (id == kMaxLengthEdit) {
+            int v = 0;
+            if (ReadInt(id, 0, 8000, v)) {
+                SetMaxLength(v, false);
+            } else {
+                SetSpin(kMaxLengthSpin, d.maxLength);  // not a number: back to the current value
+            }
+        }
         if (id == kCircleXEdit || id == kCircleYEdit) {
             int& field = id == kCircleXEdit ? d.x : d.y;
             const std::wstring text = GetText(id);
@@ -802,6 +827,7 @@ protected:
 
     void Spun(int spin, int pos) override {
         if (spin == kPeekOpacitySpin) SetPeekOpacity(pos);
+        if (spin == kMaxLengthSpin) SetMaxLength(pos, true);
     }
 
 private:
@@ -833,6 +859,19 @@ private:
         Changed(SettingsScope::Appearance);
     }
 
+    // docks[].maxLength (round 7 phase 7A): 0 = no limit, else 96 - 8000 (Config::Sanitize). A value
+    // between: typed, the minimum; stepped by the spinner, the step leaves 0 for 96 and 96 for 0.
+    void SetMaxLength(int value, bool spun) {
+        DockConfig& d = Bound();
+        constexpr int kMin = 96;
+        if (value > 0 && value < kMin) value = spun && d.maxLength > 0 && d.maxLength <= kMin ? 0 : kMin;
+        value = std::clamp(value, 0, 8000);
+        SetSpin(kMaxLengthSpin, value);
+        if (value == d.maxLength) return;
+        d.maxLength = value;
+        Changed(SettingsScope::Appearance);  // relayout: the bar's room along the edge
+    }
+
     void EnableDependents() {
         const DockConfig& d = Bound();
         // Radius and Rotate icons apply to the ring shapes only; the centre to a circle.
@@ -852,6 +891,11 @@ private:
                        kReserveSpace, kReserveSpaceCaption, kPeekLabel, kPeekEdit, kPeekSpin, kPeekOpacityLabel,
                        kPeekOpacityEdit, kPeekOpacitySpin}) {
             if (HWND h = Item(id)) EnableWindow(h, !floating);
+        }
+        // Maximum length (round 7 phase 7A): a bar that is not full width (a floating bar too).
+        const bool capped = !d.Polar() && !(d.fullWidth && !floating);
+        for (int id : {kMaxLengthLabel, kMaxLengthEdit, kMaxLengthSpin, kMaxLengthNote}) {
+            if (HWND h = Item(id)) EnableWindow(h, capped);
         }
         // Auto-hide: off for a floating dock (Config::Sanitize).
         for (int id : {kAutoHideOff, kAutoHideOffCaption, kAutoHideAlways, kAutoHideAlwaysCaption, kAutoHideIntelligent,

@@ -59,7 +59,6 @@ constexpr float kRemoveOpacity = 0.4f;       // dragged far above the bar: "rele
 constexpr float kRemoveZoneBars = 1.5f;      // that zone starts this many bar heights above the bar
 constexpr UINT kDragPollMs = 50;             // Escape polling while dragging (no keyboard focus)
 constexpr float kMarkerWidth = 2.0f;         // file-drop insertion marker, DIPs
-constexpr float kPreviewGap = 12.0f;         // stage top -> thumbnail popup bottom, DIPs
 constexpr UINT kPreviewLeaveMs = 300;        // grace period after leaving the item and the popup
 constexpr float kDropScale = 1.15f;          // an app / the bin under a file drag (open with / recycle)
 constexpr float kGroupScale = 1.2f;          // a pin / group a dragged icon would group with
@@ -542,8 +541,9 @@ void DockWindow::ComputeLayout() {
     constexpr int kMinShrinkDip = 16;
     for (int pass = 0; pass < 4; ++pass) {
         const Layout& l = layout_;
-        const float room = static_cast<float>(DockGeometry::MainEnd(l.edge, l.monitor) - DockGeometry::MainStart(l.edge, l.monitor)) -
-                           (l.fullWidth ? 0.0f : 2.0f * std::round(kBottomMargin * l.scale));
+        float room = static_cast<float>(DockGeometry::MainEnd(l.edge, l.monitor) - DockGeometry::MainStart(l.edge, l.monitor)) -
+                     (l.fullWidth ? 0.0f : 2.0f * std::round(kBottomMargin * l.scale));
+        room = std::min(room, l.roomPx);  // docks[].maxLength (round 7 phase 7A)
         const float barW = l.fullWidth ? (l.itemsW + 2.0f * l.padding) : (l.bar.right - l.bar.left);
         if (barW <= room + 0.5f || l.iconDip <= kMinShrinkDip) return;
         float iconsW = 0.0f;  // the part that scales with the icon size
@@ -752,8 +752,15 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // (layout_.view); the bar never grows then (a magnified run is clipped at the bar's ends).
     // "clip" (and "shrink" once the icons cannot get smaller): the bar starts at the monitor's start
     // and the stage cuts it at its end, as always.
-    const float roomPx = static_cast<float>(mEnd - mStart) - 2.0f * margin;
-    l.view.on = d.overflow == OverflowMode::Scroll && itemsW > 0.0f && lead + itemsW + trail > roomPx + 0.5f;
+    float roomPx = static_cast<float>(mEnd - mStart) - 2.0f * margin;
+    // docks[].maxLength (round 7 phase 7A): a cap on that room, so the bar hugs a shorter run and
+    // the overflow mode takes over at the cap as it does at the monitor's ends (not for a ring or a
+    // full-width bar).
+    if (d.maxLength > 0 && !polar && !l.fullWidth) {
+        roomPx = std::min(roomPx, std::round(static_cast<float>(d.maxLength) * s));
+    }
+    l.roomPx = roomPx;
+    l.view.on =d.overflow == OverflowMode::Scroll && itemsW > 0.0f && lead + itemsW + trail > roomPx + 0.5f;
     if (l.view.on) {
         if (!l.fullWidth) barW = std::floor(roomPx);
         l.growMax = 0.0f;
@@ -997,9 +1004,9 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     if (l.view.on || polar) l.separatorX = l.leftSeparatorX = -1.0f;
     l.itemHeight = l.bar.bottom - l.itemTop;
     l.magTop = l.itemTop + l.iconPx - l.iconPx * l.magnification;
-    // Popups open beyond the stage (above a bottom dock, as always); beside a vertical dock, whose
-    // stage is wide enough for the longest label, beyond the magnified icons.
-    l.popupY = l.vertical ? std::max(0.0f, std::floor(l.magTop)) : 0.0f;
+    // Popups open beyond a fully magnified icon (round 7 phase 7A: on every edge; before, above a
+    // horizontal dock they opened beyond the whole stage), docks[].popupGap further (PopupAnchorAt).
+    l.popupY = std::max(0.0f, std::floor(l.magTop));
     l.dotRadius = std::max(1.5f, kDotRadius * s);
     l.dotHeight = static_cast<UINT>(std::ceil(2.0f * l.dotRadius + 2.0f));
     // With reflections the dot sits at the icon's foot, on the reflection.
@@ -1021,6 +1028,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         l.title = l.PhysRect(std::clamp(u0, 0.0f, std::max(0.0f, l.stageMain - titleMain)), v0,
                              std::clamp(u0, 0.0f, std::max(0.0f, l.stageMain - titleMain)) + titleMain, v0 + titleCross);
         l.restTopExtra = std::max(l.restTopExtra, titleGap + titleCross);
+        if (!polar) l.popupY = std::min(l.popupY, std::max(0.0f, std::floor(v0)));  // popups beyond the title too
         if (polar) {
             // In the middle of a circle; beyond the middle of an arc (outside it, like a label).
             const DockGeometry::Polar& p = l.polar;
@@ -1143,11 +1151,15 @@ HRESULT DockWindow::DrawCanonical(Layer& layer, float main, float cross,
                                });
 }
 
-PopupAnchor DockWindow::PopupAnchorAt(float anchor) const {
-    // Centred on the slot along the edge, kPreviewGap beyond l.popupY (the stage's far side on a
-    // horizontal dock), away from the edge.
+PopupAnchor DockWindow::PopupAnchorAt(float anchor, int labelSlot) const {
+    // Centred on the slot along the edge, docks[].popupGap beyond l.popupY (a fully magnified
+    // icon's far side; round 7 phase 7A), away from the edge. With the hover label shown for slot
+    // `labelSlot` (ShowPreview keeps it), beyond the label: they never overlap.
     const Layout& l = layout_;
-    const int gap = static_cast<int>(std::lround(kPreviewGap * l.scale));
+    const int gap = PopupGapPx();
+    const bool label = labelSlot >= 0 && labelSlot == hovered_ && labelShown_ && label_.width > 0 && label_.height > 0 &&
+                       !(hoverCell_ >= 0 && hoverCellSlot_ == labelSlot);
+    const float labelGap = std::round(kLabelGap * l.scale);
     if (l.polar.on) {
         // Outward from the ring at the slot's angle, beyond a magnified icon: the side the outward
         // direction mostly points to (up: the popup opens above, as over a bottom dock; right:
@@ -1160,19 +1172,54 @@ PopupAnchor DockWindow::PopupAnchorAt(float anchor) const {
         a.edge = across ? (o.x > 0.0f ? DockEdge::Left : DockEdge::Right) : (o.y < 0.0f ? DockEdge::Bottom : DockEdge::Top);
         const int px = l.window.left + static_cast<int>(std::lround(p.x)), py = l.window.top + static_cast<int>(std::lround(p.y));
         a.along = across ? py : px;
-        a.side = (across ? px : py) + static_cast<int>(DockGeometry::OutwardSign(a.edge)) * -gap;
+        int nearSide = across ? px : py;
+        if (label) {
+            // The label's box (placed as ComputeTargets does, at full magnification: the farthest
+            // out it gets): the popup's near side beyond it too.
+            const float lw = static_cast<float>(label_.width), lh = static_cast<float>(label_.height);
+            const D2D1_POINT_2F c = l.polar.Outside(anchor, l.magTop - labelGap, lw, lh);
+            const int lLeft = l.window.left + static_cast<int>(std::floor(c.x - lw / 2.0f));
+            const int lRight = l.window.left + static_cast<int>(std::ceil(c.x + lw / 2.0f));
+            const int lTop = l.window.top + static_cast<int>(std::floor(c.y - lh / 2.0f));
+            const int lBottom = l.window.top + static_cast<int>(std::ceil(c.y + lh / 2.0f));
+            switch (a.edge) {
+                case DockEdge::Top: nearSide = std::max(nearSide, lBottom); break;    // the popup below
+                case DockEdge::Left: nearSide = std::max(nearSide, lRight); break;    // ... to the right
+                case DockEdge::Right: nearSide = std::min(nearSide, lLeft); break;    // ... to the left
+                case DockEdge::Bottom:
+                default: nearSide = std::min(nearSide, lTop); break;                  // ... above
+            }
+        }
+        a.side = nearSide + static_cast<int>(DockGeometry::OutwardSign(a.edge)) * -gap;
         // Diagonal: the popup's near corner at the slot, the popup wholly on the outward side.
         const float main = across ? o.y : o.x, cross = std::max(0.05f, std::fabs(across ? o.x : o.y));
         a.alongBias = std::clamp(main / cross, -1.0f, 1.0f);
         return a;
     }
-    const D2D1_POINT_2F p = l.Phys(anchor, l.popupY);
+    float v = l.popupY;
+    if (label) {
+        // ComputeTargets' label place at full magnification (upright: on a vertical dock its cross
+        // length is its width).
+        const float lh = static_cast<float>(l.vertical ? label_.width : label_.height);
+        v = std::min(v, std::round(std::max(0.0f, l.magTop - labelGap - lh)));
+    }
+    const D2D1_POINT_2F p = l.Phys(anchor, v);
     PopupAnchor a;
     a.edge = l.edge;
     a.along = (l.vertical ? l.window.top : l.window.left) + static_cast<int>(std::lround(l.vertical ? p.y : p.x));
     const int side = (l.vertical ? l.window.left : l.window.top) + static_cast<int>(std::lround(l.vertical ? p.x : p.y));
     a.side = side + static_cast<int>(DockGeometry::OutwardSign(l.edge)) * -gap;
     return a;
+}
+
+int DockWindow::PopupGapPx() const {
+    return static_cast<int>(std::lround(static_cast<float>(DockCfg().popupGap) * layout_.scale));
+}
+
+int DockWindow::MaxLengthPx() const {
+    const DockConfig& d = DockCfg();
+    if (d.maxLength <= 0 || d.Polar() || layout_.fullWidth) return 0;  // ignored for rings / full width
+    return static_cast<int>(std::lround(static_cast<float>(d.maxLength) * layout_.scale));
 }
 
 void DockWindow::ApplyStageTransform() {
@@ -3802,8 +3849,10 @@ void DockWindow::DriveLabelOpacity(float to, double duration) {
 
 // --- Thumbnail popup -------------------------------------------------------------------------
 // Resting on an item with two or more windows (previewsSingleWindow: one or more) for
-// previewDelayMs shows PreviewPopup above the dock (centred on the item's magnified position, kPreviewGap above the stage). While it is on
-// screen it holds the dock shown (kHoldPreview) and the name label stays hidden. Moving to another
+// previewDelayMs shows PreviewPopup above the dock (centred on the item's magnified position,
+// docks[].popupGap beyond the magnified icon, or beyond the name label when it is shown for the
+// item: round 7 phase 7A keeps the label with the popup). While it is on screen it holds the dock
+// shown (kHoldPreview); a label that was not shown yet does not appear. Moving to another
 // multi-window item switches the popup; to a single-window item dismisses it. Leaving both the
 // item and the popup starts a kPreviewLeaveMs grace timer. Menus, drags, dock clicks and the dock
 // hiding dismiss it. All timers are one-shot; none runs once the popup is hidden.
@@ -3913,7 +3962,9 @@ void DockWindow::ShowPreview(int index, bool keepAnchor) {
     style.closeHover = theme.closeHover;
     style.cornerRadiusDip = theme.cornerRadius;
     style.monitor = l.work;
-    if (!keepAnchor) previewAnchor_ = PopupAnchorAt(item.targetX + BoxW(item) / 2.0f);
+    // Round 7 phase 7A: the hover label shown for this slot stays; the popup opens beyond it.
+    const bool keepLabel = labelShown_ && hovered_ == index;
+    if (!keepAnchor) previewAnchor_ = PopupAnchorAt(item.targetX + BoxW(item) / 2.0f, keepLabel ? index : -1);
     const PopupAnchor anchor = previewAnchor_;
     const AppKey key = item.key;
     const HWND window = item.window;
@@ -3925,8 +3976,11 @@ void DockWindow::ShowPreview(int index, bool keepAnchor) {
     previewKey_ = key;
     previewWindow_ = window;
     TakePopupHold(kHoldPreview);
-    HideLabel();
-    RenderWithRecovery([] { return S_OK; });  // commit the label hide
+    // Another slot's label (or a pending one) goes: the popup was anchored for this slot only.
+    if (!keepLabel) {
+        HideLabel();
+        RenderWithRecovery([] { return S_OK; });  // commit the label hide
+    }
 }
 
 void DockWindow::DismissPreview(bool animate, bool leaveCheck) {
@@ -7838,6 +7892,11 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             if (wp == 34) return static_cast<LRESULT>(item.reflection.height);
             return wp == 24 ? static_cast<LRESULT>(item.kind) : (item.customIcon ? 1 : 0);
         }
+        // --- round 7 phase 7A ---
+        case 270:  // docks[].popupGap in px (the gap between the dock and its popups)
+            return PopupGapPx();
+        case 271:  // docks[].maxLength in px as applied (0: none, or ignored for a ring / full width)
+            return MaxLengthPx();
         // --- overflow / scrolling (round 4 phase 11a) ---
         case 128:  // docks[].overflow (0 scroll, 1 shrink, 2 clip)
             return static_cast<LRESULT>(DockCfg().overflow);

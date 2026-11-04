@@ -102,6 +102,8 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadBool(o, L"reserveSpace", d.reserveSpace);
     ReadInt(o, L"peekPx", d.peekPx);
     ReadNumber(o, L"peekOpacity", d.peekOpacity);
+    ReadInt(o, L"maxLength", d.maxLength);  // round 7 phase 7A
+    ReadInt(o, L"popupGap", d.popupGap);
     ReadString(o, L"title", d.title);
     // "monitor": a number (ReadDockFields), or "primary" / "each".
     if (auto m = Find(o, L"monitor"); m && m.ValueType() == json::JsonValueType::String) {
@@ -742,6 +744,8 @@ void Config::Sanitize() {
         if (static_cast<unsigned>(d.align) > static_cast<unsigned>(DockAlign::End)) d.align = DockAlign::Center;
         d.offset = std::clamp(d.offset, -16000, 16000);
         d.peekPx = std::clamp(d.peekPx, 0, 64);
+        d.maxLength = d.maxLength <= 0 ? 0 : std::clamp(d.maxLength, 96, 8000);  // round 7 phase 7A
+        d.popupGap = std::clamp(d.popupGap, 0, 64);
         if (!(d.peekOpacity >= 0.05)) d.peekOpacity = d.peekOpacity >= 0.0 ? 0.05 : 0.5;  // also NaN
         d.peekOpacity = std::min(d.peekOpacity, 1.0);
         if (d.title.size() > 128) d.title.resize(128);
@@ -1214,7 +1218,11 @@ bool Config::Save() const {
                  (d.rotateIcons ? L", \"rotateIcons\": true" : L"") +
                  (d.Floating() ? L",\n      \"floating\": true" : L"") +
                  (d.x != DockConfig::kCentred ? L", \"x\": " + Num(d.x) : L"") +
-                 (d.y != DockConfig::kCentred ? L", \"y\": " + Num(d.y) : L"") + L"\n    }";
+                 (d.y != DockConfig::kCentred ? L", \"y\": " + Num(d.y) : L"") +
+                 // Round 7 phase 7A: only when not the defaults.
+                 (d.maxLength > 0 ? L",\n      \"maxLength\": " + Num(d.maxLength) : L"") +
+                 (d.popupGap != DockConfig::kDefaultPopupGap ? L",\n      \"popupGap\": " + Num(d.popupGap) : L"") +
+                 L"\n    }";
         }
         for (const std::wstring& extra : extraDocks) o += L",\n    " + extra;
         o += docks.empty() && extraDocks.empty() ? L"],\n" : L"\n  ],\n";

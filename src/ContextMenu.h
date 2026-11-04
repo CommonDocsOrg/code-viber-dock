@@ -69,7 +69,9 @@ enum Command : UINT {
     // Round 6 phase 6E: every open settings window drops its widget previews and renders them
     // again as they are painted (automation; Reload widgets does the same).
     kRerenderPreviews = 148,
-    kLastDockCommand = kRerenderPreviews,
+    // Round 7 phase 7A: "Task Manager" (runs taskmgr.exe; it elevates by itself).
+    kTaskManager = 149,
+    kLastDockCommand = kTaskManager,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>

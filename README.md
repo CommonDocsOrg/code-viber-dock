@@ -83,6 +83,8 @@ Right-click the tray icon or an empty part of the dock for the menu:
 - **Show taskbar until re-enabled**: brings the taskbar back for this session only. "Hide taskbar"
   shows unchecked until you check it again; the config is not changed, so the next start hides
   the taskbar again. `WinDock.exe --restore-taskbar` does the same for a running dock.
+- **Task Manager** (round 7): opens Windows' Task Manager (`taskmgr.exe`, which asks for
+  elevation by itself as it does from the taskbar).
 - **Quit**.
 
 ### Magnification, name label, auto-hide
@@ -109,8 +111,18 @@ screen, and auto-hide slides the dock off its own edge.
 - **Window previews** (`previews`, on by default): rest the mouse on an app with two or more
   windows for `previewDelayMs` (600 ms) and a popup opens above the dock, centred on the icon, with
   one card per window: the window title (shortened with an ellipsis), a live thumbnail rendered by
-  DWM, and a close button (x) in the card's top-right corner. The name label is hidden while the
-  popup is open. Apps with one window keep just the label.
+  DWM, and a close button (x) in the card's top-right corner. Since round 7 the name label stays
+  while the popup is open (before, it flickered: shown for a moment, then hidden by the popup): the
+  popup opens `popupGap` above the label, so the two never overlap; the label still goes when the
+  pointer leaves the icon (into the popup or away), and a label that had not appeared yet when the
+  popup opened stays hidden. Apps with one window keep just the label.
+- **Popup gap** (`popupGap`, DIPs, default 6, 0 - 64; round 7): every popup the dock opens over an
+  item (window previews, the calendar, folder / group popups, the weather popup, script widget
+  popups such as the volume controls and the passive volume bar, the notification centre, reminder
+  banners) has its dock-facing side this far beyond a fully magnified icon (beyond the name label
+  when it is shown with a preview; beyond the dock's title when it has one). Before round 7 the
+  popups of a horizontal dock were placed 12 DIP beyond the dock window's whole stage, about twice
+  as far from the icons. Dock settings > Behaviour > Popups.
   - Hover a card to highlight it. Click a card to bring that window to the front (restoring it if
     minimized); the popup closes. Click the x, or middle-click a card, to close that window
     (`WM_CLOSE`, so the app can still ask to save). Its card goes away once the window is gone; the
@@ -317,6 +329,16 @@ it at its start, centre or end per `align`, moved by `offset`, and keep the bar'
 monitor's ends. Magnification grows the run of items inside the bar (the bar's own ends slide past
 the monitor's, where the window cuts them off, so the bar always looks full); auto-hide works as
 usual (the whole bar slides off the edge).
+
+**Maximum length** (`maxLength`, DIPs along the edge, default 0 = no limit, else 96 - 8000; round
+7): the bar never gets longer than this. A shorter run of items is hugged as always (the bar is as
+long as its items); once the run is longer than the cap, the dock's `overflow` mode takes over at
+the cap exactly as it does at the monitor's ends: `"scroll"` (the default) keeps the bar at the
+cap and the run scrolls inside it (wheel, drag, edge fades), `"shrink"` makes the icons smaller
+until the run fits the cap; `"clip"` is not capped (the bar goes on to the monitor's end as
+before). The bar is still aligned on its edge by `align` / `offset`. Ignored for a ring (`shape`
+`"arc"` / `"circle"`) and a full-width bar (Settings greys the control then); a floating bar is
+capped too. Dock settings > Position > Maximum length.
 
 **Reserve screen space** (`reserveSpace`, default `true`; any edge, full width or not): the dock
 registers its window as an app bar (`SHAppBarMessage` `ABM_NEW` / `ABM_QUERYPOS` / `ABM_SETPOS`)
@@ -1481,7 +1503,9 @@ take the dock's colour (Windows 11). Tabs:
   showing / On the desktop, under every window, with a line about the one chosen), **Floating**
   (round 6 phase 6A; bar docks only, with a note), screen edge (a floating dock: the way it faces),
   Position x / y (DIPs from the work area's top-left; empty = centred: a floating bar's top-left, a
-  circle's centre), alignment and offset (pixels at 100 % scale), Full width, Reserve screen space,
+  circle's centre), alignment and offset (pixels at 100 % scale), Full width, **Maximum length**
+  (round 7: `maxLength` in pixels at 100 % scale, 0 = no limit; a value from 1 to 95 becomes 96, the
+  spinner steps from 0 to 96 and back; greyed for a ring or a full-width bar), Reserve screen space,
   Peek when hidden (pixels), Peek opacity (%), Title (see Position; alignment to peek are greyed
   for a floating dock), the shape (bar, half circle, circle), the ring's radius, Turn the icons
   with the ring and what happens when the icons do not fit. A floating dock's Behaviour tab greys
@@ -1489,7 +1513,8 @@ take the dock's colour (Windows 11). Tabs:
 - **Behaviour**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
   magnification range (1-4 icons), auto-hide Off / Always / When a window overlaps the dock, hide
   and reveal delays, window previews on / off, **Show window previews for apps with a single
-  window**, the preview delay, what a middle click on an app does and what the mouse wheel over an
+  window**, the preview delay, **Popups** (round 7: **Popup gap**, DIPs between the dock and its
+  popups, 0 - 64: `popupGap`), what a middle click on an app does and what the mouse wheel over an
   app does, and (round 5 phase D) **Notification badges on app icons** (`badges`; see Notifications
   and badges).
 - **Running apps**: **Windows** (Stacked / One slot per window), **Show only the windows on this
@@ -1742,6 +1767,12 @@ items that exist. A file whose items have settings already is left alone.
     `thumbnailFps` (default 10, 1 - 60): window thumbnails as dock items, same section.
   - `overflow` (default `"scroll"`; `"shrink"`, `"clip"`; written only when not `"scroll"`): a run
     of items longer than the edge, see [Position](#position-edge-alignment-offset).
+  - `maxLength` (round 7; DIPs along the edge, default 0 = no limit, else 96 - 8000; written only
+    when set): the bar's maximum length; a longer run overflows there (`overflow`). Ignored for a
+    ring and a full-width bar. See [Position](#position-edge-alignment-offset).
+  - `popupGap` (round 7; DIPs, default 6, 0 - 64; written only when not 6): how far the dock's
+    popups (previews, calendar, folders, widget popups ...) open beyond a fully magnified icon,
+    see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
   - `shape` (default `"bar"`; `"arc"`, `"circle"`), `radius` (DIPs, default 0 = automatic, 60 -
     2000), `rotateIcons` (default `false`), `x` / `y` (a circle's centre, or a floating bar's
     top-left, in DIPs from the work area's top-left; default: centred): see
@@ -2278,6 +2309,9 @@ always there, also when every dock is parked) handle these registered messages:
   hotkey). There is no command to simulate a floating dock's drag: drive it with real mouse input.
   Round 6 phase 6E: 148 makes every open settings window drop its widget previews and render them
   again as they are painted (any dock index; QueryState 263 - 269 below).
+  Round 7 phase 7A: 149 Task Manager (the dock / tray menu's **Task Manager**, in its own group
+  above Quit: `ShellExecuteW("open", "taskmgr.exe")`, which elevates by itself; a failure is only
+  logged with `OutputDebugString`; any dock index).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -2415,6 +2449,10 @@ always there, also when every dock is parked) handle these registered messages:
   drops its previews and renders them again as they are painted. Test hook: the environment
   variable `WINDOCK_PREVIEW_LOG` names a file that gets a line per render (`ok <id> <w>x<h> <ms>` /
   `fail <id> <error>`).
+  Round 7 phase 7A (dock `HIWORD(lParam)`): 270 = the dock's popup gap in px (`popupGap` x the
+  scale); 271 = its `maxLength` in px as applied (0: none, or ignored: a ring, a full-width bar).
+  With the hover label shown and a window preview open, 153 / 154 (the label's place and size) and
+  the `WinDockPreview` window's rect show the preview `popupGap` beyond the label.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
@@ -2479,7 +2517,8 @@ always there, also when every dock is parked) handle these registered messages:
   2151 Reserve screen space, 2154 / 2155 peek, 2157 / 2158 peek opacity (%), 2160 title (applied
   on Enter / focus loss), 2169 shape, 2171 / 2172 radius, 2173 rotate icons, new 2180 / 2182 a
   circle's centre / a floating bar's top-left x / y (edit boxes, empty = centred; committed on
-  `EN_KILLFOCUS`), 2167 overflow); Global > General's Dashboard section (6A): 2195 the hotkey box
+  `EN_KILLFOCUS`), 2167 overflow, round 7: 2265 / 2266 Maximum length box and up-down (2264 its
+  label, 2267 its note; committed on `EN_KILLFOCUS`)); Global > General's Dashboard section (6A): 2195 the hotkey box
   (its window text is the canonical hotkey; a `WM_KEYDOWN` sent to it records the key with the
   modifiers the dock's thread holds (Backspace / Delete: none), `WM_APP + 60` with `wParam` =
   `MOD_*` bits and `lParam` = the virtual key records that combination, as App does when the
@@ -2492,7 +2531,9 @@ always there, also when every dock is parked) handle these registered messages:
   4525 background (0 none, 1 panel), 4526 Locked, 4528 Flash this widget;
   Behaviour = 2101 - 2109 (icon size, magnification, range) and the Behaviour page's auto-hide,
   previews and mouse controls (2201 - 2229, 2223 single-window previews, 2227 middle click, 2229
-  mouse wheel), 2254 badges, 2256 the notification centre (round 5 phase D); Running apps = 2162 "Show only the windows on this dock's display"
+  mouse wheel), 2254 badges, 2256 the notification centre (round 5 phase D), round 7: 2259 the
+  Popups section, 2261 / 2262 Popup gap box and up-down (`popupGap`, 0 - 64; 2260 its label, 2263
+  its unit line); Running apps = 2162 "Show only the windows on this dock's display"
   (`runningFilter`), 2232 Windows (0 stacked, 1 one slot per window), 2234 Titles under icons (0
   off, 1 one line, 2 two lines), 2236 Titles on vertical docks (0 off, 1 beside the icon; disabled
   while titles are off), 2239 Window thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the

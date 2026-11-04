@@ -277,6 +277,11 @@ struct DockConfig {
     // The bar spans the whole edge of the monitor (flush with the screen edge, square corners);
     // the items sit in it per `align` / `offset`.
     bool fullWidth = false;
+    // Round 7 phase 7A: the longest the bar gets along the edge, DIPs (0 = no limit, the default;
+    // else 96 - 8000). A longer run overflows there as at the monitor's ends (docks[].overflow:
+    // scroll / shrink; "clip" is not capped). Ignored for a ring and a full-width bar. Saved only
+    // when set.
+    int maxLength = 0;
     // With autoHide "off" (any edge, full width or not): the dock registers as an app bar so
     // maximized windows stop at its resting bar. The band spans the whole edge of the monitor (an
     // app bar cannot reserve part of an edge). Auto-hide docks reserve nothing (like an auto-hide
@@ -302,6 +307,11 @@ struct DockConfig {
     bool previews = true;
     bool previewSingle = false;  // "previewsSingleWindow"
     int previewDelayMs = 600;
+    // Round 7 phase 7A: DIPs between a fully magnified icon (or the hover label above it) and the
+    // popups the dock opens (window previews, calendar, folders, widget popups; 0 - 64). Saved only
+    // when not 6.
+    static constexpr int kDefaultPopupGap = 6;
+    int popupGap = kDefaultPopupGap;
     // The monitor: an index (0 = the primary, 1.. = the others in enumeration order; a monitor
     // that is not connected parks the dock until it is), kMonitorPrimary ("primary" in JSON) or
     // kMonitorEach ("each": one dock per monitor, all from this config).
