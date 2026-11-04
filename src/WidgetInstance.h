@@ -20,6 +20,7 @@
 
 class WidgetRuntime;
 class WeatherService;
+class TextEditorWindow;
 
 // One script widget on one dock (a `{ "kind": "widget", "id": ... }` item): its package, its own
 // script runtime (QuickJS: one runtime per instance, so a widget's heap limit, watchdog and garbage
@@ -52,6 +53,18 @@ public:
         virtual bool WidgetActivateNotification(uint32_t id) = 0;
         // notifications.openCentre(): the dock's notification centre popup over the widget (toggles).
         virtual bool WidgetOpenCentre(WidgetInstance& widget) = 0;
+        // popup.editText (round 6 phase 6C): the window that owns the widget's text editor (null:
+        // no editor here, the request is refused), the widget's box in screen px, whether the
+        // editor is topmost (its owner is) and the side it goes to.
+        struct EditorPlace {
+            HWND owner = nullptr;
+            RECT box{};
+            bool topmost = false;
+            int side = 0;  // TextEditorWindow::Side: 0 above, 1 below, 2 right, 3 left
+        };
+        virtual EditorPlace WidgetEditorPlace(const WidgetInstance& widget) const = 0;
+        // The widget's editor opened / closed (the dock holds itself shown while it is open).
+        virtual void WidgetEditorChanged(WidgetInstance& widget, bool open) = 0;
 
     protected:
         ~Client() = default;
@@ -93,6 +106,14 @@ public:
 
     // Loads (again) the package and the script. The first load happens in the constructor.
     void Reload();
+    // --- popup.editText (round 6 phase 6C) ---
+    // Opens the editor asked for in the last script call (the host calls it from its posted popup
+    // request handler, never inside a script call). No-op without a pending request.
+    void OpenPendingEditor();
+    bool EditorOpen() const { return editor_ != nullptr; }
+    HWND EditorHwnd() const;
+    // Closes the open editor as OK (true) / Cancel (false) would (automation). False: none open.
+    bool CloseEditor(bool ok);
     // The item's `settings` object changed (raw JSON): onSettingsChanged(settings) and a redraw.
     void SetSettings(const std::wstring& itemSettings);
     // Round 5 phase A: the place of its `weather` provider (its own settings' place, else its
@@ -147,6 +168,9 @@ public:
     void ProviderChanged(const char* channel, const std::string& payload = {});
     // WidgetRuntime: an http request of generation `generation` finished.
     void OnHttpResult(uint64_t generation, int id, const Http::Result& result);
+    // WidgetRuntime (round 6 phase 6C): another instance of this widget id changed storage key
+    // `key` (storage.onChange).
+    void StorageChanged(const std::string& key);
     // A folder widget with `watch`: its id and canonical folder (false: not watched).
     bool WatchFolder(std::wstring& id, std::wstring& folder) const;
     // A line of the host's own in the widget's log (reloads, file changes).
@@ -209,6 +233,13 @@ private:
     bool PopupFolder(const std::wstring& path, const std::wstring& view, std::wstring& error) override;
     bool PopupPreviews(const std::wstring& app, std::wstring& error) override;
     bool PopupCalendar(int64_t day, std::wstring& error) override;
+    int EditText(const EditTextRequest& request, std::wstring& error) override;
+    // The editor closed (OK: the text; else cancelled): its promise settles.
+    void OnEditorDone(uint64_t generation, int id, bool ok, const std::wstring& text);
+    // The editor goes without settling anything (a reload, a failure, the instance goes).
+    void DropEditor(bool tellClient);
+    // dock_.itemKey from the dock id and the instance key.
+    void UpdateItemKey();
     bool CalendarCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) override;
     bool WeatherCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) override;
     std::vector<std::string> PackageFiles() override;
@@ -247,6 +278,16 @@ private:
     int nextRequest_ = 1;
     int requests_ = 0;         // http requests in flight (this generation)
     PopupRequest popupRequest_;
+    // popup.editText: the request waiting for the host's posted handler, and the open editor (a
+    // self-deleting window; null when none).
+    struct EditPending {
+        int id = 0;
+        uint64_t generation = 0;
+        EditTextRequest request;
+    };
+    std::unique_ptr<EditPending> editPending_;
+    TextEditorWindow* editor_ = nullptr;
+    int nextEdit_ = 1;
     // Measure cache.
     bool measured_ = false;
     DockAxis measuredAxis_ = DockAxis::Horizontal;

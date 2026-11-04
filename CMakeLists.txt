@@ -52,6 +52,7 @@ add_executable(WinDock WIN32
   src/ShellFiles.cpp
   src/ItemGridView.cpp
   src/InputDialog.cpp
+  src/TextEditorWindow.cpp
   src/WeatherPopup.cpp
   src/CalendarPopup.cpp
   src/Weather.cpp

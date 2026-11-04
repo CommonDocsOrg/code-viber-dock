@@ -14,6 +14,7 @@
 #include "CalendarService.h"
 #include "JsonUtil.h"
 #include "NotificationService.h"
+#include "TextEditorWindow.h"
 #include "Weather.h"
 #include "WeatherGlyphs.h"
 #include "WidgetRuntime.h"
@@ -60,11 +61,13 @@ WidgetInstance::WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Fact
       }),
       dock_(dock) {
     dock_.widgetId = JsonUtil::WideToUtf8(id_);
+    UpdateItemKey();
     runtime_.Add(this);
     Reload();
 }
 
 WidgetInstance::~WidgetInstance() {
+    DropEditor(false);  // the host forgets its hold itself (it is removing this instance)
     runtime_.CancelAll(this);
     runtime_.Remove(this);
     engine_.reset();  // its finalizers may still log
@@ -75,6 +78,7 @@ std::wstring WidgetInstance::Name() const {
 }
 
 void WidgetInstance::Reload() {
+    DropEditor(true);  // an open editor goes; the old script's promise is never settled
     runtime_.CancelAll(this);
     runtime_.ReleaseProviders(this);
     if (PopupShown() || client_.WidgetPassiveShown(*this)) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
@@ -189,6 +193,13 @@ void WidgetInstance::SetDock(const ScriptDockInfo& info) {
     dock_.height = h;
     dock_.main = mn;
     dock_.cross = cr;
+    UpdateItemKey();
+}
+
+void WidgetInstance::UpdateItemKey() {
+    // A dock: "<dock id>/<widget id>#<n>" (the instance key: the n-th item of this widget on the
+    // dock, so it survives moves past other items); standalone: the entry's id.
+    dock_.itemKey = dock_.standalone ? dock_.dockId : dock_.dockId + "/" + JsonUtil::WideToUtf8(key_);
 }
 
 void WidgetInstance::BoxDips(float& w, float& h) const {
@@ -422,6 +433,7 @@ bool WidgetInstance::Check(const ScriptResult& r, const char* what) {
 void WidgetInstance::Fail(State state, const std::wstring& message) {
     state_ = state;
     error_ = message;
+    DropEditor(true);
     runtime_.CancelAll(this);
     runtime_.ReleaseProviders(this);
     // Never called again until a reload: give its heap back now (Fail only runs after a call into
@@ -596,6 +608,92 @@ bool WidgetInstance::PopupCalendar(int64_t day, std::wstring&) {
     return true;
 }
 
+// --- round 6 phase 6C: popup.editText --------------------------------------------------------------
+
+int WidgetInstance::EditText(const EditTextRequest& request, std::wstring& error) {
+    if (state_ != State::Ok || !engine_) {
+        error = L"the widget is not running";
+        return 0;
+    }
+    if (editor_ || editPending_) {
+        error = L"an editor is already open";
+        return 0;
+    }
+    if (!client_.WidgetEditorPlace(*this).owner) {
+        error = L"there is no editor for this widget here";
+        return 0;
+    }
+    auto p = std::make_unique<EditPending>();
+    p->id = nextEdit_;
+    nextEdit_ = nextEdit_ >= 0x3FFFFFFF ? 1 : nextEdit_ + 1;
+    p->generation = generation_;
+    p->request = request;
+    const int id = p->id;
+    editPending_ = std::move(p);
+    client_.WidgetPopupRequest(*this);  // posted: the host calls OpenPendingEditor
+    return id;
+}
+
+void WidgetInstance::OpenPendingEditor() {
+    if (!editPending_) return;
+    const std::unique_ptr<EditPending> p = std::move(editPending_);
+    if (p->generation != generation_ || state_ != State::Ok || !engine_ || editor_) return;
+    const Client::EditorPlace place = client_.WidgetEditorPlace(*this);
+    TextEditorWindow::Options o;
+    o.title = p->request.title;
+    o.text = p->request.text;
+    o.placeholder = p->request.placeholder;
+    o.multiline = p->request.multiline;
+    o.maxLength = p->request.maxLength;
+    o.sizeKey = id_ + (o.multiline ? L"" : L"|line");
+    o.side = static_cast<TextEditorWindow::Side>(std::clamp(place.side, 0, 3));
+    const uint64_t generation = p->generation;
+    const int id = p->id;
+    TextEditorWindow* e = nullptr;
+    if (place.owner) {
+        e = TextEditorWindow::Open(place.owner, place.box, place.topmost, std::move(o),
+                                   [this, generation, id](bool ok, const std::wstring& text) {
+                                       OnEditorDone(generation, id, ok, text);
+                                   });
+    }
+    if (!e) {
+        Log(ScriptLogLevel::Warn, L"popup.editText: the editor could not be opened");
+        Check(engine_->Settle(id, false, "\"popup.editText: the editor could not be opened\""), "an editText callback");
+        return;
+    }
+    editor_ = e;
+    Log(ScriptLogLevel::Info, L"popup.editText: the editor opened");
+    client_.WidgetEditorChanged(*this, true);
+}
+
+void WidgetInstance::OnEditorDone(uint64_t generation, int id, bool ok, const std::wstring& text) {
+    if (!editor_) return;  // dropped already (DropEditor clears the callback first)
+    editor_ = nullptr;
+    Log(ScriptLogLevel::Info, ok ? L"popup.editText: OK (" + std::to_wstring(text.size()) + L" characters)"
+                                 : std::wstring(L"popup.editText: cancelled"));
+    client_.WidgetEditorChanged(*this, false);
+    if (generation != generation_ || state_ != State::Ok || !engine_) return;
+    Check(engine_->Settle(id, true, ok ? JsonUtil::WideToUtf8(JsonUtil::Quote(text)) : std::string("null")),
+          "an editText callback");
+}
+
+void WidgetInstance::DropEditor(bool tellClient) {
+    editPending_.reset();
+    if (!editor_) return;
+    TextEditorWindow* e = editor_;
+    editor_ = nullptr;
+    e->Abandon();  // no callback; the window (and the object) go
+    if (tellClient) client_.WidgetEditorChanged(*this, false);
+}
+
+HWND WidgetInstance::EditorHwnd() const { return editor_ ? editor_->Hwnd() : nullptr; }
+
+bool WidgetInstance::CloseEditor(bool ok) {
+    if (!editor_) return false;
+    editor_->Finish(ok);
+    return true;
+}
+
 std::vector<std::string> WidgetInstance::PackageFiles() {
     return package_ ? package_->Files() : std::vector<std::string>{};
 }
@@ -655,10 +753,16 @@ bool WidgetInstance::StorageSet(const std::string& key, const std::string& json,
         error = L"storage keys are 1 - 256 characters";
         return false;
     }
-    return runtime_.StorageSet(id_, key, json, error);
+    return runtime_.StorageSet(id_, key, json, error, this);
 }
 
-void WidgetInstance::StorageRemove(const std::string& key) { runtime_.StorageRemove(id_, key); }
+void WidgetInstance::StorageRemove(const std::string& key) { runtime_.StorageRemove(id_, key, this); }
+
+void WidgetInstance::StorageChanged(const std::string& key) {
+    if (state_ != State::Ok || !engine_) return;
+    Check(engine_->Emit("storage", "{\"key\":" + JsonUtil::WideToUtf8(JsonUtil::Quote(JsonUtil::Utf8ToWide(key))) + "}"),
+          "storage.onChange");
+}
 
 std::vector<std::string> WidgetInstance::StorageKeys() { return runtime_.StorageKeys(id_); }
 

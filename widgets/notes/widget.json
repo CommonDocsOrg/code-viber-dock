@@ -1,0 +1,31 @@
+{
+  "name": "Notes",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "A note: its first line is the title, the lines after it show as space allows. Click it to edit the note in a small text editor window (Ctrl+Enter or OK saves, Escape cancels); the wheel scrolls the text. Each item keeps its own note; give two items the same Note id to share one.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 120, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "standalone": { "minWidth": 80, "minHeight": 60, "defaultWidth": 220, "defaultHeight": 180 },
+  "settings": [
+    { "key": "paper", "group": "Look", "type": "choice", "label": "Paper", "default": "yellow",
+      "choices": [ { "value": "none", "label": "None (text only)" },
+                   { "value": "yellow", "label": "Yellow" },
+                   { "value": "pink", "label": "Pink" },
+                   { "value": "blue", "label": "Blue" },
+                   { "value": "theme", "label": "The theme's panel" } ] },
+    { "key": "fontSize", "group": "Look", "type": "int", "label": "Font size", "min": 9, "max": 24, "default": 12, "unit": "DIPs",
+      "description": "On a dock the text gets smaller when the lines would not fit the tile." },
+    { "key": "textColor", "group": "Look", "type": "colour", "label": "Text colour", "default": "#00000000",
+      "description": "#00000000 (transparent): automatic, a dark ink on coloured paper, the theme's text colour otherwise." },
+    { "key": "boldTitle", "group": "Look", "type": "bool", "label": "Bold title (the first line)", "default": true },
+    { "key": "lines", "group": "On a dock", "type": "int", "label": "Lines under the title", "min": 1, "max": 6, "default": 2,
+      "description": "As many of them as fit the tile's height are shown; the wheel scrolls through the rest. A left or right dock shows the title only." },
+    { "key": "maxWidth", "group": "On a dock", "type": "int", "label": "Widest tile", "min": 60, "max": 400, "default": 180, "unit": "DIPs",
+      "description": "The tile grows with its text up to this width (top and bottom docks)." },
+    { "key": "noteId", "group": "Note", "type": "string", "label": "Note id", "default": "",
+      "description": "Empty: this item's own note. Items with the same id (on any dock, or on the desktop) show and edit one shared note." }
+  ]
+}

@@ -38,6 +38,7 @@ public:
     static constexpr UINT kHttpMessage = WM_APP + 30;   // lParam: a finished request (HttpJob*)
     static constexpr UINT kWatchMessage = WM_APP + 31;  // wParam: folder index, lParam: generation
     static constexpr UINT kWatchSyncMessage = WM_APP + 32;  // posted: re-read the watched folders
+    static constexpr UINT kStorageMessage = WM_APP + 36;    // posted: storage.onChange deliveries (coalesced)
     static constexpr DWORD kSaveDelayMs = 1000;
     static constexpr DWORD kReloadDelayMs = 250;
     static constexpr size_t kMaxStorageBytes = 1u << 20;  // per widget id
@@ -56,8 +57,13 @@ public:
 
     // --- storage (%LocalAppData%\WinDock\widget-data\<id>.json, one object per widget id) ---
     bool StorageGet(const std::wstring& id, const std::string& key, std::string& json);
-    bool StorageSet(const std::wstring& id, const std::string& key, const std::string& json, std::wstring& error);
-    void StorageRemove(const std::wstring& id, const std::string& key);
+    // `writer` (round 6 phase 6C): the instance that changed the key; the other instances of the
+    // same widget id hear storage.onChange({ key }) shortly after (posted), only when the value
+    // really changed.
+    bool StorageSet(const std::wstring& id, const std::string& key, const std::string& json, std::wstring& error,
+                    WidgetInstance* writer = nullptr);
+    void StorageRemove(const std::wstring& id, const std::string& key, WidgetInstance* writer = nullptr);
+    uint64_t StorageNotices() const { return storageNotices_; }  // storage.onChange deliveries
     std::vector<std::string> StorageKeys(const std::wstring& id);
     static std::wstring StorageDirectory();
     // Writes every changed storage file now.
@@ -174,6 +180,17 @@ private:
     };
     Store& StoreFor(const std::wstring& id);
     void ScheduleSave();
+    // A key of widget `id` changed by `writer`: the other instances of `id` hear it (posted).
+    void StorageChanged(WidgetInstance* writer, const std::wstring& id, const std::string& key);
+    struct StorageNote {
+        WidgetInstance* writer = nullptr;  // compared only (it may be gone by delivery)
+        std::wstring id;
+        std::string key;
+        bool operator==(const StorageNote&) const = default;
+    };
+    std::vector<StorageNote> storageNotes_;
+    bool storagePosted_ = false;
+    uint64_t storageNotices_ = 0;
     void OnHttpResult(LPARAM lp);
     void DoSyncWatch();
     void StopWatcher();

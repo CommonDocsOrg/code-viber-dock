@@ -1949,6 +1949,11 @@ LRESULT App::WidgetEntryCommand(UINT cmd, size_t cfg) {
             // Posted: the entry may be in one of its own window's messages.
             if (hwnd_) PostMessageW(hwnd_, kRemoveFolderMessage, cfg, 0);
             return 1;
+        case ContextMenu::kEditorOk:
+        case ContextMenu::kEditorCancel: {  // round 6 phase 6C: its widget's open text editor
+            WidgetWindow* w = docks_.WidgetOf(cfg);
+            return w && w->EditorCommand(cmd == ContextMenu::kEditorOk) ? 1 : 0;
+        }
         default:
             return -1;
     }
@@ -2246,6 +2251,12 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         // A standalone widget entry (round 6 phase 6B): 809 reload, 854 its widget's settings, 855
         // lock / unlock, 856 remove (posted); anything else: -1.
         result = WidgetEntryCommand(static_cast<UINT>(wp & 0xFFFF), docks_.At(DockOfParam(lp))->cfg);
+        return true;
+    }
+    if (msg == msgItemCommand_ && ((wp & 0xFFFF) == ContextMenu::kEditorOk || (wp & 0xFFFF) == ContextMenu::kEditorCancel)) {
+        // Round 6 phase 6C: the text editor of slot LOWORD(lParam)'s widget (0xFFFF: the open one).
+        DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+        result = dock && dock->EditorCommand(static_cast<int>(ArgOfParam(lp)), (wp & 0xFFFF) == ContextMenu::kEditorOk) ? 1 : 0;
         return true;
     }
     if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kCentreDismiss && (wp & 0xFFFF) <= ContextMenu::kCentreActivate) {

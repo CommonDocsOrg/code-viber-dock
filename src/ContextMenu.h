@@ -134,6 +134,11 @@ enum Command : UINT {
     // 107 Global settings…).
     kWidgetToggleLock = 855,    // Lock / Unlock (docks[].locked: no move, no resize)
     kWidgetRemove = 856,        // Remove from desktop (the entry goes; posted)
+    // Round 6 phase 6C: a widget's open text editor (popup.editText). lParam: the dock in its high
+    // word, the widget's slot in its low word (0xFFFF: the dock's open editor); a standalone
+    // widget entry: its dock index.
+    kEditorOk = 857,            // closes it as OK does (the promise gets the text)
+    kEditorCancel = 858,        // closes it as Cancel does (the promise gets null)
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };

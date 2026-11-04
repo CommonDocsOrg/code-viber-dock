@@ -53,6 +53,8 @@ class DropTarget;
 //   calendar and the notification centre. popup.previews has no app slots to show here: a logged
 //   no-op. The notification centre's rows have no app icons here (the dock's icon cache is not
 //   available).
+// - popup.editText (round 6 phase 6C): the text editor is owned by this window, placed above it
+//   (below without room), topmost only when the window is ("normal", or lifted by the dashboard).
 // Nothing runs while idle: no timers but a running flash and the popups' own fades.
 class WidgetWindow final : private WidgetInstance::Client {
 public:
@@ -116,7 +118,9 @@ public:
     WidgetInstance* Widget() const { return widget_.get(); }
     // Reloads the widget's package and script (ItemCommand 809).
     bool ReloadWidget();
-    // Automation (README "Standalone widgets"): QueryState ids 5, 51, 54, 58, 235, 239, 241 - 251.
+    // Round 6 phase 6C: closes the widget's text editor as OK / Cancel would (ItemCommand 857 / 858).
+    bool EditorCommand(bool ok) { return widget_ && widget_->CloseEditor(ok); }
+    // Automation (README "Standalone widgets"): QueryState ids 5, 51, 54, 58, 235, 239, 241 - 256.
     LRESULT QueryState(WPARAM what, LPARAM arg) const;
 
 private:
@@ -151,6 +155,8 @@ private:
     bool WidgetPassiveShown(const WidgetInstance& widget) const override;
     bool WidgetActivateNotification(uint32_t id) override;
     bool WidgetOpenCentre(WidgetInstance& widget) override;
+    EditorPlace WidgetEditorPlace(const WidgetInstance& widget) const override;
+    void WidgetEditorChanged(WidgetInstance&, bool) override {}
     void OnPopupRequest();
 
     // --- placement ---

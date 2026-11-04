@@ -32,7 +32,7 @@ thread. This file is the full reference; README.md has the short version.
 ```
 
 Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
-`start`, `search`, `notification-bell`, `agenda`, `weather`) are compiled into the
+`start`, `search`, `notification-bell`, `agenda`, `weather`, `notes`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Widgets are always loaded as source; bytecode is never loaded.
@@ -231,6 +231,7 @@ Read-only, always current:
 | `locked` | The dock is locked. |
 | `visible` | The dock is on screen: shown or sliding in, not auto-hidden or hiding, not a desktop dock hidden behind another window. `onVisibilityChange` reports changes. |
 | `id`, `widgetId` | The dock's id (`docks[].id`; a standalone widget: its entry's id), the widget's id. |
+| `itemKey` | Round 6: a key for this item, for per-item data in `storage` (the widget's storage is shared by every item of the widget). On a dock `"<dock id>/<widget id>#<n>"`: the n-th item of this widget on that dock (`"main/notes#0"`), so it stays the same when the item is moved past other items, and changes when it is moved past another item of the same widget or when one of those before it is removed (the items then trade keys: the data follows the position among them). A standalone widget: its entry's id (`"note1"`), which never changes. A widget that must keep its data across such moves can offer a setting for the key as well (the Notes widget's **Note id**). |
 | `standalone` | `true` for a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `width` / `height` (and `main` / `cross`) are the window's client size, `iconSize` is the shorter side / 1.5, `axis` is `"horizontal"`, `edge` `"bottom"`, `magnified` and `clockDate` are false, `locked` is the entry's lock, `visible` false while a "desktop" layer hides it. |
 | `clockDate` | A built-in clock item of the dock draws a second line (its date or, since round 5, its label): the dock's own widgets then use their smaller size (the weather element: a 24 instead of 26 DIP glyph, 14 instead of 16 DIP text). |
 | `theme` | The dock's theme colours as `"#AARRGGBB"`: `text`, `dateText`, `accent`, `background`, `labelBackground`, `labelText`, `separator`, `border`. |
@@ -301,6 +302,7 @@ nothing changes. At most 1 MB per widget.
 | `storage.get(key, fallback)` | The stored value (any JSON value), or `fallback` (default `undefined`). |
 | `storage.set(key, value)` | Stores `JSON.stringify(value)`; `undefined` removes the key. Keys are 1 - 256 characters. Throws a RangeError when the store would pass 1 MB. |
 | `storage.remove(key)`, `storage.keys()`, `storage.clear()` | |
+| `storage.onChange(fn)` | Round 6: `fn({ key })` when **another item** of the same widget (on any dock or the desktop) set or removed `key` (a value that did not change is not reported, nor are the item's own writes). Delivered shortly after the write (posted, once per key and burst). Returns a remover. Use it to redraw what several items show from one key (the Notes widget's shared notes). |
 
 ### http
 
@@ -483,8 +485,36 @@ widget reloads.
 | `popup.folder(path[, view])` | The dock's own folder popup (the folder's contents, scrolling, keyboard, navigation into sub-folders, file drops, Open in Explorer) for that folder, anchored on the widget. `view`: `"auto"` (default: a grid up to 48 entries, a list above), `"grid"` or `"list"`; anything else throws. Needs `"shell"`. |
 | `popup.calendar()` | The dock's own month calendar (the clock's popup: locale weekday names, first day of the week, today marked), anchored on the widget. A second call while it is open does nothing; a click on the widget closes it (`closedPopup`). |
 | `popup.previews(app)` | The window previews of an app the dock shows (its exe path, e.g. `"C:\\Windows\\explorer.exe"`, or its AppUserModelID; any case), anchored on the widget; nothing (a log line) when the app has no window on the dock. |
+| `popup.editText(options)` | Round 6: a **text editor window** for the user to type into; returns a promise of the text after **OK** (Ctrl+Enter; Enter too when single-line), or `null` after **Cancel** (Escape, the close box, the widget reloading or going away). `options`: `{ title = "Edit", text = "", multiline = true, maxLength = 100000, placeholder = "" }`; `maxLength` 1 - 1000000 characters (a line break counts as one; the editor stops typing there and its status line says so); a `text` longer than `maxLength` is refused; line breaks come back as `"\n"` (a single-line editor turns those of `text` into spaces). The promise **rejects** (it never throws) on a bad argument (a `TypeError` / `RangeError`), when the widget already has an editor open (an `Error`, "an editor is already open": one per widget at a time), or when there is no editor for it there. No permission is needed. |
 
 The calls are carried out right after the current call returns.
+
+`popup.editText` opens a real window (class `WinDock.TextEditor`, in the Windows app mode's light or
+dark colours): resizable, not modal, owned by the dock (or the standalone widget's window), placed
+next to the widget on the dock's popup side (above a bottom dock's slot, beside a left / right
+one's; above a standalone widget, below it without room) and kept on the monitor, 420 x 320 DIPs
+(single line: 420 x 140), its size remembered per widget for the session. It takes the keyboard
+focus; Ctrl+A selects all, Ctrl+Z undoes, Ctrl+Backspace deletes a word, Tab moves between the
+text, OK and Cancel, a status line counts the characters. The dock stays shown while it is open,
+and the widget keeps running meanwhile (its timers, providers and redraws go on; the editor itself
+runs nothing while it waits). It is topmost only when its owner is (a dock above the windows), so a
+desktop-layer dock's or widget's editor is an ordinary window.
+
+```js
+let editing = false;
+export async function onClick() {
+  if (editing) return;                         // one editor per widget at a time
+  editing = true;
+  try {
+    const text = await popup.editText({ title: 'Note', text: storage.get('note', ''), maxLength: 2000 });
+    if (text !== null) { storage.set('note', text); requestRedraw(); }  // null: cancelled
+  } catch (e) {
+    console.warn(e.message);                   // a bad argument, or no editor here
+  } finally {
+    editing = false;
+  }
+}
+```
 
 ### widget
 
@@ -706,7 +736,9 @@ An analog clock on the dock is the Analog clock widget (Dock settings > Contents
 ## Sandbox
 
 A widget sees only the host API above; each widget has its own runtime and cannot reach another
-widget's globals. Without permissions there is no file system, process or network access at all.
+widget's globals. Without permissions there is no file system, process or network access at all (text entry
+through `popup.editText` needs none: the editor is a window of the dock that hands the script only
+what the user typed and confirmed).
 `"http"` opens requests to the listed hosts only; `"shell"` opens files and URLs, lists folders,
 draws file icons, opens the folder popup, receives file drops and presses the `sendKeys`
 allow-list; `"audio"` reads and changes the system volume / mutes / the default output; `"media"`
@@ -729,10 +761,11 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
   folder** writes its files to `widgets\<id>\` (refused if that folder exists), sub-folders such as
   the analog clock's `faces\` included, plus a `README.md` stub pointing here; the copy then
   replaces the built-in (delete the folder to get the built-in back).
-- **Start from an example**: the repository's `examples\` folder has three small annotated widgets,
+- **Start from an example**: the repository's `examples\` folder has four small annotated widgets,
   each with a README: `minimal` (one line of text: `measure` and `draw`), `http-json` (a public JSON
-  API with a host allow-list, `timer.setRefresh` + `tick`, `storage`) and `popup-list` (a list in a
-  script popup with the shell's icons and click handling). They are not built in: install one with
+  API with a host allow-list, `timer.setRefresh` + `tick`, `storage`), `popup-list` (a list in a
+  script popup with the shell's icons and click handling) and `edit-text` (a label renamed through
+  `popup.editText`). They are not built in: install one with
   **Add from folder…**. **Add from folder…** copies a folder that holds a widget.json into the
   widgets folder (its name, lowercased, becomes the id). **Add to dock** adds the selected widget
   to a dock (with several docks a small menu asks which); **Reload widgets**, **Open widgets
@@ -806,7 +839,7 @@ box:
   resizes it, while the entry is unlocked. A right click opens the window's menu, not the widget's.
 - Popups (`popup.open`, the passive kind, `popup.folder`, `popup.calendar`,
   `notifications.openCentre()`) open above the window, centred on it, or below it when there is no
-  room above. `popup.previews` has no app windows to show there: it does nothing (a line in the
+  room above; so does the text editor of `popup.editText` (owned by the window). `popup.previews` has no app windows to show there: it does nothing (a line in the
   Console). The notification centre opened from a standalone widget shows no app icons.
 - A click on the widget while its popup is open closes the popup and arrives with
   `closedPopup: true`, as on a dock.
@@ -838,9 +871,9 @@ config.json:
 
 ## Examples
 
-The repository's `examples\` folder holds three small annotated widgets to start from (README.md
+The repository's `examples\` folder holds four small annotated widgets to start from (README.md
 in each; install with Global settings > Widget library > **Add from folder…**): `examples/minimal`,
-`examples/http-json`, `examples/popup-list` ([Developing a widget](#developing-a-widget)). The
+`examples/http-json`, `examples/popup-list`, `examples/edit-text` ([Developing a widget](#developing-a-widget)). The
 built-ins are worked examples too:
 
 - `widgets/hello`: a label and a counter. `onClick` counts, `onMiddleClick` resets, `onWheel`
@@ -915,6 +948,23 @@ built-ins are worked examples too:
   `showHigh`, `showLow`, `compact`, `clickOpens` (`popup`, `settings`, `none`), `days`, `hours`.
   Test hook: `"debugStore": true` stores what the slot and the popup drew. Permissions `weather`,
   `shell`.
+- `widgets/notes` ("Notes", round 6): a note per item, written in the dock's text editor
+  (`popup.editText`). Its text is kept in the widget's storage under `"note:" + dock.itemKey`, or
+  under `"note:id:" + noteId` when the **Note id** setting is set (items with the same id, on any
+  dock or the desktop, share one note; `storage.onChange` redraws the others after an edit). On a
+  top / bottom dock the tile shows the first line as the title (bold with `boldTitle`) and up to
+  `lines` (1 - 6) lines under it, as many as fit the dock's height (the font shrinks to make room,
+  never below 7 DIPs); `measure()` widens it with the text up to `maxWidth` DIPs; the wheel
+  scrolls the lines (a mark at the right edge shows where). A left / right dock: a square tile
+  with the title. Standalone: the whole note wrapped in the window with 10 DIPs of padding, the
+  title line bold, the wheel scrolls it (a bar shows where); the manifest's `standalone` is 220 x
+  180 by default, 80 x 60 at least. An empty note shows "New note" in the date-text colour. A click
+  opens the editor (`maxLength` 20000); OK saves `{ text, modified }`. Settings `paper` (`none`,
+  `yellow` (default), `pink`, `blue`, `theme`: the theme's label panel; a rounded sheet with a soft
+  shadow line), `fontSize` (9 - 24, default 12), `textColor` (`#00000000`: automatic, a dark ink on
+  paper, the theme's text otherwise), `boldTitle`, `lines`, `maxWidth`, `noteId`. In the
+  widget drawer's preview (phase 6E: the dock object's `preview` flag) it shows a sample "Shopping list" note. No
+  timers, no permissions.
 - `widgets/notification-bell` ("Notification bell"): a scriptable bell that behaves like the
   built-in notification centre by default; `unread` (default on; off: nothing polls and the fixed
   `badge` number shows) draws `notifications.count()` and redraws on `notifications.onChange`;

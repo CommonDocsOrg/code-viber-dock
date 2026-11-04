@@ -238,7 +238,7 @@ constexpr char kPrelude[] = R"JS(
     },
   });
   // Providers: onChange listeners kept here; the host calls the returned emit(channel).
-  const listeners = { audio: [], media: [], notifications: [], calendar: [], calendarReminder: [], weather: [] };
+  const listeners = { audio: [], media: [], notifications: [], calendar: [], calendarReminder: [], weather: [], storage: [] };
   const onChange = (ch) => (cb) => {
     if (typeof cb !== 'function') throw new TypeError(ch + '.onChange: the argument must be a function');
     listeners[ch].push(cb);
@@ -307,11 +307,14 @@ constexpr char kPrelude[] = R"JS(
     }),
     onChange: onChange('weather'),
   });
+  // storage.onChange (round 6 phase 6C): another item of this widget changed a key ({ key }).
+  g.storage.onChange = onChange('storage');
+  Object.freeze(g.storage);
   return (ch, data) => {
     const l = listeners[ch];
     if (!l || !l.length) return;
     const state = ch === 'audio' ? p.audioGet() : ch === 'media' ? p.mediaGet() : ch === 'calendar' ? cal('feeds')
-      : ch === 'calendarReminder' ? JSON.parse(data) : ch === 'weather' ? wx('get') : p.notifGet().items;
+      : ch === 'calendarReminder' || ch === 'storage' ? JSON.parse(data) : ch === 'weather' ? wx('get') : p.notifGet().items;
     for (const cb of l.slice()) cb(state);
   };
 })(globalThis, globalThis.__windock);
@@ -333,6 +336,11 @@ public:
             JS_FreeValue(ctx_, p.reject);
         }
         pending_.clear();
+        for (auto& [id, p] : settles_) {
+            JS_FreeValue(ctx_, p.resolve);
+            JS_FreeValue(ctx_, p.reject);
+        }
+        settles_.clear();
         for (JSValue& f : fns_) JS_FreeValue(ctx_, f);
         JS_FreeValue(ctx_, emit_);
         JS_FreeValue(ctx_, ns_);
@@ -513,6 +521,34 @@ public:
         return res;
     }
 
+    ScriptResult Settle(int id, bool ok, const std::string& json) override {
+        ScriptResult res;
+        auto it = settles_.find(id);
+        if (it == settles_.end()) return res;
+        const Pending p = it->second;
+        settles_.erase(it);
+        JSValue arg = JS_UNDEFINED;
+        if (ok) {
+            arg = JS_ParseJSON(ctx_, json.data(), json.size(), "<result>");
+            if (JS_IsException(arg)) {
+                JS_FreeValue(ctx_, JS_GetException(ctx_));
+                arg = JS_NULL;
+            }
+        } else {
+            std::string message = "the request failed";
+            JSValue m = JS_ParseJSON(ctx_, json.data(), json.size(), "<error>");
+            if (JS_IsString(m)) message = ToStd(ctx_, m);
+            if (JS_IsException(m)) JS_FreeValue(ctx_, JS_GetException(ctx_));
+            JS_FreeValue(ctx_, m);
+            arg = MakeError(message);
+        }
+        res = Invoke(ok ? p.resolve : p.reject, 1, &arg);
+        JS_FreeValue(ctx_, arg);
+        JS_FreeValue(ctx_, p.resolve);
+        JS_FreeValue(ctx_, p.reject);
+        return res;
+    }
+
     void SettingsChanged() override {
         JSValue s = ParseSettings();
         JS_FreeValue(ctx_, settings_);
@@ -566,6 +602,36 @@ public:
         JSValue promise = JS_NewPromiseCapability(ctx_, funcs);
         if (JS_IsException(promise)) return promise;
         pending_[id] = Pending{funcs[0], funcs[1], wantJson};
+        return promise;
+    }
+    // A host request's promise (popup.editText; settled by Settle(id, ...)).
+    JSValue AddSettle(int id) {
+        JSValue funcs[2] = {JS_UNDEFINED, JS_UNDEFINED};
+        JSValue promise = JS_NewPromiseCapability(ctx_, funcs);
+        if (JS_IsException(promise)) return promise;
+        if (auto old = settles_.find(id); old != settles_.end()) {
+            JS_FreeValue(ctx_, old->second.resolve);
+            JS_FreeValue(ctx_, old->second.reject);
+            settles_.erase(old);
+        }
+        settles_[id] = Pending{funcs[0], funcs[1], false};
+        return promise;
+    }
+    // A promise already rejected with `error` (taken): an API that answers with a promise reports
+    // a bad call through it rather than by throwing.
+    JSValue Rejected(JSValue error) {
+        JSValue funcs[2] = {JS_UNDEFINED, JS_UNDEFINED};
+        JSValue promise = JS_NewPromiseCapability(ctx_, funcs);
+        if (JS_IsException(promise)) {
+            JS_FreeValue(ctx_, error);
+            return promise;
+        }
+        JSValue r = JS_Call(ctx_, funcs[1], JS_UNDEFINED, 1, &error);
+        if (JS_IsException(r)) JS_FreeValue(ctx_, JS_GetException(ctx_));
+        JS_FreeValue(ctx_, r);
+        JS_FreeValue(ctx_, error);
+        JS_FreeValue(ctx_, funcs[0]);
+        JS_FreeValue(ctx_, funcs[1]);
         return promise;
     }
     JSValue MakeError(const std::string& message) {
@@ -787,6 +853,7 @@ private:
         bool wantJson = false;
     };
     std::unordered_map<int, Pending> pending_;  // http requests in flight
+    std::unordered_map<int, Pending> settles_;  // host requests in flight (popup.editText)
 };
 
 // --- canvas ------------------------------------------------------------------------------------
@@ -1242,6 +1309,7 @@ JSValue DockGet(JSContext* ctx, JSValueConst, int magic) {
         case 14: return JS_NewBool(ctx, d.visible);
         case 15: return JS_NewBool(ctx, d.clockDate);
         case 16: return JS_NewBool(ctx, d.standalone);
+        case 17: return NewString(ctx, d.itemKey);
         default: return JS_UNDEFINED;
     }
 }
@@ -1465,6 +1533,7 @@ const JSCFunctionListEntry kDockFuncs[] = {
     JS_CGETSET_MAGIC_DEF("visible", GuardGet<DockGet>, nullptr, 14),
     JS_CGETSET_MAGIC_DEF("clockDate", GuardGet<DockGet>, nullptr, 15),
     JS_CGETSET_MAGIC_DEF("standalone", GuardGet<DockGet>, nullptr, 16),
+    JS_CGETSET_MAGIC_DEF("itemKey", GuardGet<DockGet>, nullptr, 17),
     JS_CFUNC_DEF("requestRedraw", 0, Guard<RequestRedrawFn>),
 };
 
@@ -1754,6 +1823,89 @@ JSValue PopupCalendarFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
 }
 JSValue PopupGet(JSContext* ctx, JSValueConst, int) { return JS_NewBool(ctx, Self(ctx)->host_.PopupShown()); }
 
+// popup.editText({ title, text, multiline, maxLength, placeholder }) (round 6 phase 6C): a promise of
+// the edited text, or null when the editor was cancelled. A bad argument, no editor here or an
+// editor already open: a rejected promise.
+JSValue EditTextFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    QuickJsEngine* self = Self(ctx);
+    // type: 'T' TypeError, 'R' RangeError, anything else Error.
+    auto reject = [&](char type, const std::string& message) {
+        const std::string text = "popup.editText: " + message;
+        JSValue e = JS_UNDEFINED;
+        if (type == 'T' || type == 'R') {
+            if (type == 'T') {
+                JS_ThrowTypeError(ctx, "%s", text.c_str());
+            } else {
+                JS_ThrowRangeError(ctx, "%s", text.c_str());
+            }
+            e = JS_GetException(ctx);
+        } else {
+            e = self->MakeError(text);
+        }
+        return self->Rejected(e);
+    };
+    const JSValueConst o = argc > 0 ? argv[0] : JS_UNDEFINED;
+    ScriptHost::EditTextRequest r;
+    if (!JS_IsUndefined(o) && !JS_IsNull(o)) {
+        if (!JS_IsObject(o) || JS_IsFunction(ctx, o) || JS_IsArray(o)) {
+            return reject('T', "the argument must be an options object { title, text, multiline, maxLength, placeholder }");
+        }
+        // A string option: a string (absent / null: the default); anything else is refused.
+        auto str = [&](const char* key, std::wstring& out, bool& bad) {
+            JSValue v = JS_GetPropertyStr(ctx, o, key);
+            if (JS_IsException(v)) return false;
+            if (JS_IsString(v)) {
+                out = ToWide(ctx, v);
+            } else if (!JS_IsUndefined(v) && !JS_IsNull(v)) {
+                bad = true;
+            }
+            JS_FreeValue(ctx, v);
+            return true;
+        };
+        bool bad = false;
+        std::wstring title;
+        if (!str("title", title, bad)) return JS_EXCEPTION;
+        if (bad) return reject('T', "title must be a string");
+        if (!title.empty()) r.title = title;
+        if (!str("text", r.text, bad)) return JS_EXCEPTION;
+        if (bad) return reject('T', "text must be a string");
+        if (!str("placeholder", r.placeholder, bad)) return JS_EXCEPTION;
+        if (bad) return reject('T', "placeholder must be a string");
+        if (!PropB(ctx, o, "multiline", r.multiline)) return JS_EXCEPTION;
+        JSValue ml = JS_GetPropertyStr(ctx, o, "maxLength");
+        if (JS_IsException(ml)) return JS_EXCEPTION;
+        if (!JS_IsUndefined(ml) && !JS_IsNull(ml)) {
+            double d = 0;
+            const bool number = JS_IsNumber(ml) && JS_ToFloat64(ctx, &d, ml) == 0;
+            JS_FreeValue(ctx, ml);
+            if (!number || !std::isfinite(d) || d < 1.0 || d > 1000000.0) {
+                return reject('R', "maxLength must be a number from 1 to 1000000");
+            }
+            r.maxLength = static_cast<uint32_t>(std::floor(d));
+        }
+    }
+    // One newline form ("\n"); a single-line editor gets spaces instead.
+    std::wstring text;
+    text.reserve(r.text.size());
+    for (size_t i = 0; i < r.text.size(); ++i) {
+        wchar_t c = r.text[i];
+        if (c == L'\r') {
+            if (i + 1 < r.text.size() && r.text[i + 1] == L'\n') ++i;
+            c = L'\n';
+        }
+        if (c == L'\n' && !r.multiline) c = L' ';
+        text.push_back(c);
+    }
+    r.text = std::move(text);
+    if (r.text.size() > r.maxLength) return reject('R', "text is longer than maxLength");
+    if (r.title.size() > 200) r.title.resize(200);
+    if (r.placeholder.size() > 200) r.placeholder.resize(200);
+    std::wstring error;
+    const int id = self->host_.EditText(r, error);
+    if (!id) return reject('E', WideToUtf8(error));
+    return self->AddSettle(id);
+}
+
 // --- widget: the widget's own package files --------------------------------------------------------
 
 // widget.files(pattern): the package's files matching a glob ("faces/*.json"; '*' and '?' stay
@@ -1819,6 +1971,7 @@ const JSCFunctionListEntry kPopupFuncs[] = {
     JS_CFUNC_DEF("folder", 2, Guard<PopupFolderFn>),
     JS_CFUNC_DEF("previews", 1, Guard<PopupPreviewsFn>),
     JS_CFUNC_DEF("calendar", 0, Guard<PopupCalendarFn>),
+    JS_CFUNC_DEF("editText", 1, Guard<EditTextFn>),
     JS_CGETSET_MAGIC_DEF("isOpen", GuardGet<PopupGet>, nullptr, 0),
 };
 

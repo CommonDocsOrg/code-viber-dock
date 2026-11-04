@@ -32,6 +32,9 @@ for ns, body in re.findall(r'g\.([a-z]+) = Object\.freeze\(\{(.*?)\n?\s*\}\);', 
     names = set(re.findall(r'(?:^|[,{\s])([a-zA-Z]+):', body))
     names = {n for n in names if n not in ('code', 'isDay', 'ink', 'water', 'from', 'to', 'date', 'n', 'type')}
     api[ns] = names
+# Members the prelude adds to a native namespace (`g.storage.onChange = ...`).
+for ns, name in re.findall(r'\bg\.([a-z]+)\.([a-zA-Z]+) = ', prelude):
+    api.setdefault(ns, set()).add(name)
 
 # Sections of the docs: "### canvas" ... up to the next "## " / "### ".
 def section(title):

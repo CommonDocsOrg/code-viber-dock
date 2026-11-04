@@ -1222,9 +1222,9 @@ void DockWindow::ApplyWindowPos() {
     ApplyStageTransform();
     // While a modal dialog owned by the dock is open (an icon picker; it disables the dock), the
     // z-order stays: HWND_TOPMOST with SWP_NOOWNERZORDER would put the dock above its own dialog.
-    // While a fullscreen app runs (an app bar's ABN_FULLSCREENAPP) the dock stays where it was
-    // put, below it.
-    const UINT keepOrder = IsWindowEnabled(hwnd_) && !fullscreenApp_ ? 0 : SWP_NOZORDER;
+    // The same while a widget's text editor (owned by the dock, round 6 phase 6C) is open. While a
+    // fullscreen app runs (an app bar's ABN_FULLSCREENAPP) the dock stays where it was put, below it.
+    const UINT keepOrder = IsWindowEnabled(hwnd_) && !fullscreenApp_ && editorWidget_.empty() ? 0 : SWP_NOZORDER;
     if (DesktopLayered() || BehindLayered()) {
         // The desktop layer: directly above the desktop window, never topmost (a "behind" dock is
         // registered with the layer, which keeps it there; a "desktop" dock is only shown while the
@@ -4679,7 +4679,51 @@ void DockWindow::OnWidgetPopupRequests() {
             default:
                 break;
         }
+        // popup.editText (round 6 phase 6C): asked for in the same script call as any popup.
+        if (WidgetInstance* still = WidgetByKey(key)) still->OpenPendingEditor();
     }
+}
+
+// --- popup.editText (round 6 phase 6C) -------------------------------------------------------------
+// The editor (TextEditorWindow) is owned by the dock window and placed on the dock's popup side of
+// the widget's slot; topmost when the dock is. While it is open the dock holds itself shown
+// (kHoldEditor) and leaves its z-order alone (ApplyWindowPos / AssertTopmost).
+
+WidgetInstance::Client::EditorPlace DockWindow::WidgetEditorPlace(const WidgetInstance& w) const {
+    EditorPlace p;
+    const int slot = SlotOfWidget(w);
+    if (!hwnd_ || slot < 0) return p;
+    const D2D1_RECT_F b = SlotScreenBox(slot);
+    p.owner = hwnd_;
+    p.box = RECT{static_cast<LONG>(std::lround(b.left)), static_cast<LONG>(std::lround(b.top)),
+                 static_cast<LONG>(std::lround(b.right)), static_cast<LONG>(std::lround(b.bottom))};
+    p.topmost = !(DesktopLayered() || BehindLayered());
+    switch (DockCfg().edge) {
+        case DockEdge::Top: p.side = 1; break;     // below the slot
+        case DockEdge::Left: p.side = 2; break;    // right of it
+        case DockEdge::Right: p.side = 3; break;   // left of it
+        case DockEdge::Bottom:
+        default: p.side = 0; break;                // above it
+    }
+    return p;
+}
+
+void DockWindow::WidgetEditorChanged(WidgetInstance& w, bool open) {
+    if (!hwnd_) return;
+    if (open) {
+        editorWidget_ = w.Key();
+        TakePopupHold(kHoldEditor);
+        if ((hideState_ == HideState::Hidden || hideState_ == HideState::Hiding) && !RevealSuppressed()) StartShow();
+        return;
+    }
+    if (editorWidget_ != w.Key()) return;
+    editorWidget_.clear();
+    ReleasePopupHold(kHoldEditor, IsWindowVisible(hwnd_) != FALSE);
+}
+
+bool DockWindow::EditorCommand(int index, bool ok) {
+    WidgetInstance* w = index == 0xFFFF ? WidgetByKey(editorWidget_) : WidgetAt(index);
+    return w && w->CloseEditor(ok);
 }
 
 void DockWindow::DismissWidgetPopup(bool animate, bool leaveCheck) {
@@ -5073,8 +5117,8 @@ void DockWindow::AssertTopmost() {
     // A newly activated window that covers its whole monitor (maximized with the taskbar hidden,
     // borderless fullscreen) can end up above the topmost dock, burying the 1 px reveal strip.
     // Re-asserting the z-order is cheap and only happens on hide transitions. Not while a modal
-    // dialog owned by the dock is open (see ApplyWindowPos).
-    if (!hwnd_ || !IsWindowEnabled(hwnd_) || fullscreenApp_) return;
+    // dialog owned by the dock is open, nor while a widget's text editor is (see ApplyWindowPos).
+    if (!hwnd_ || !IsWindowEnabled(hwnd_) || fullscreenApp_ || !editorWidget_.empty()) return;
     if (BehindLayered() && layerRegistered_) {
         DesktopLayer::Place(hwnd_);  // no-op while it is in place
         return;
@@ -5442,6 +5486,10 @@ void DockWindow::BuildElements() {
     widgetsClaimed_.clear();
     if (!popupWidget_.empty() && !WidgetByKey(popupWidget_)) DismissWidgetPopup(false);  // its widget went
     if (!passiveWidget_.empty() && !WidgetByKey(passiveWidget_)) DismissWidgetPassive(false);
+    if (!editorWidget_.empty() && !WidgetByKey(editorWidget_)) {  // its widget went (with its editor)
+        editorWidget_.clear();
+        ReleasePopupHold(kHoldEditor, true);
+    }
 }
 
 WidgetInstance* DockWindow::AcquireWidget(const DockItemEntry& entry, size_t ordinal) {
@@ -7636,6 +7684,18 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return titleLayout_ && title_.width > 0 ? 1 : 0;
         case 46:
             return !dockDrag_ ? 0 : dockZone_ == DockCfg().edge ? 1 : 2;
+        case 255: {  // round 6 phase 6C: slot lp's widget has its text editor open (1 / 0; -1 not a script widget); lp 0xFFFF: the slot whose editor is open (-1 none)
+            if ((lp & 0xFFFF) == 0xFFFF) {
+                const WidgetInstance* open = WidgetByKey(editorWidget_);
+                return open ? static_cast<LRESULT>(SlotOfWidget(*open)) : -1;
+            }
+            const WidgetInstance* w = WidgetAt(static_cast<int>(lp));
+            return w ? (w->EditorOpen() ? 1 : 0) : -1;
+        }
+        case 256: {  // the HWND of slot lp's text editor (0: none; lp 0xFFFF: the open one's)
+            const WidgetInstance* w = (lp & 0xFFFF) == 0xFFFF ? WidgetByKey(editorWidget_) : WidgetAt(static_cast<int>(lp));
+            return w ? reinterpret_cast<LRESULT>(w->EditorHwnd()) : 0;
+        }
         case 54: {  // script widget state of slot lp (0 ok, 1 error, 2 suspended; -1 not a script widget)
             const WidgetInstance* w = WidgetAt(static_cast<int>(lp));
             return w ? static_cast<LRESULT>(w->GetState()) : -1;
@@ -8491,6 +8551,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             centreOpener_.clear();
             popupWidget_.clear();
             passiveWidget_.clear();
+            editorWidget_.clear();
             previewOpener_.clear();
             popupRequests_.clear();
             acrylic_ = false;

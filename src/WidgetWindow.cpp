@@ -327,6 +327,16 @@ bool WidgetWindow::WidgetOpenCentre(WidgetInstance&) {
     return true;
 }
 
+WidgetInstance::Client::EditorPlace WidgetWindow::WidgetEditorPlace(const WidgetInstance&) const {
+    EditorPlace p;
+    if (!hwnd_ || hidden_) return p;
+    p.owner = hwnd_;
+    p.box = rect_;
+    p.topmost = !registered_ && !DesktopLayered();  // "normal", or lifted by the dashboard
+    p.side = 0;                                     // above it (below without room)
+    return p;
+}
+
 // --- placement -----------------------------------------------------------------------------------
 
 RECT WidgetWindow::WorkArea() const {
@@ -546,8 +556,10 @@ void WidgetWindow::AssertZOrder() {
     } else if (DesktopLayered()) {
         SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0, kFlags);
         DesktopLayer::PlaceAboveDesktop(hwnd_);
-    } else {
-        SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, kFlags);  // "normal", or lifted by the dashboard
+    } else if (!widget_ || !widget_->EditorOpen()) {
+        // "normal", or lifted by the dashboard. Not while its text editor is open: the window would
+        // go above its own editor (HWND_TOPMOST with SWP_NOOWNERZORDER).
+        SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, kFlags);
     }
     if (acrylic_) backdrop_.Place(hwnd_, rect_);
 }
@@ -922,6 +934,7 @@ void WidgetWindow::OnPopupRequest() {
         default:
             break;
     }
+    if (widget_) widget_->OpenPendingEditor();  // popup.editText (round 6 phase 6C)
 }
 
 // --- drops ---------------------------------------------------------------------------------------
@@ -1001,6 +1014,10 @@ LRESULT WidgetWindow::QueryState(WPARAM what, LPARAM) const {
             return static_cast<LRESULT>(watchEvents_);
         case 254:  // hidden by the "desktop" layer's rule (the window's own flag)
             return hidden_ ? 1 : 0;
+        case 255:  // round 6 phase 6C: the widget's text editor is open (1 / 0; -1 no widget)
+            return widget_ ? (widget_->EditorOpen() ? 1 : 0) : -1;
+        case 256:  // the editor's HWND (0: none)
+            return widget_ ? reinterpret_cast<LRESULT>(widget_->EditorHwnd()) : 0;
         default:
             return -1;
     }

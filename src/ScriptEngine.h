@@ -35,6 +35,9 @@ struct ScriptDockInfo {
     // WidgetWindow): its box is the window's client area (width / height), iconSize the shorter
     // side / 1.5, axis "horizontal", edge "bottom".
     bool standalone = false;
+    // Round 6 phase 6C: the item's key (dock.itemKey): "<dockId>/<widgetId>#<n>" on a dock (the n-th
+    // item of this widget on that dock), "<entry id>" for a standalone widget. Set by the instance.
+    std::string itemKey;
     // Theme colours, 0xAARRGGBB (dock.theme.*, as "#AARRGGBB").
     uint32_t text = 0, dateText = 0, accent = 0, background = 0, labelBackground = 0, labelText = 0,
              separator = 0, border = 0;
@@ -129,6 +132,18 @@ public:
     // The dock's own month calendar (the clock's CalendarPopup), anchored on the widget, showing
     // local day `day` (days since 1970; INT64_MIN: today).
     virtual bool PopupCalendar(int64_t day, std::wstring& error) = 0;
+    // Round 6 phase 6C, popup.editText: a text editor window (TextEditorWindow) opened after the
+    // current call returns. Returns the request's id (0 + `error` when refused: no editor here, one
+    // is open already); the result arrives later as ScriptEngine::Settle(id, true, the text as a
+    // JSON string or "null" when cancelled).
+    struct EditTextRequest {
+        std::wstring title = L"Edit";
+        std::wstring text;
+        std::wstring placeholder;
+        bool multiline = true;
+        uint32_t maxLength = 100000;
+    };
+    virtual int EditText(const EditTextRequest& request, std::wstring& error) = 0;
 
     // --- the widget's own package (no permission: modules and images come from it anyway) ---
     // Its files ("main.js", "faces/classic.json" ...), sorted.
@@ -191,12 +206,17 @@ public:
     // An http request finished: resolves (ok, `json` = the response object as JSON) or rejects
     // (`json` = the error message as a JSON string) its promise, then runs the jobs that follow.
     virtual ScriptResult Resolve(int id, bool ok, const std::string& json) = 0;
+    // Round 6 phase 6C: settles the promise of a host request (popup.editText) `id`: resolves it
+    // with the JSON value `json` (ok), or rejects it with an Error whose message is `json` (a JSON
+    // string), then runs the jobs that follow. An unknown id does nothing.
+    virtual ScriptResult Settle(int id, bool ok, const std::string& json) = 0;
     // The settings changed (re-read through ScriptHost::SettingsJson before the next call).
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).
     virtual size_t HeapBytes() = 0;
     // A provider changed ("audio", "media", "notifications", "calendar", "weather"): its onChange listeners
-    // run with its new state. "calendarReminder": the onReminder listeners get `payload` (JSON).
+    // run with its new state. "calendarReminder": the onReminder listeners get `payload` (JSON);
+    // "storage" (round 6 phase 6C): storage.onChange listeners get `payload` ({ key }, JSON).
     virtual ScriptResult Emit(const std::string& channel, const std::string& payload = {}) = 0;
 };
 

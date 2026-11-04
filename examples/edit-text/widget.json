@@ -1,0 +1,12 @@
+{
+  "name": "Edit text (example)",
+  "version": "1.0.0",
+  "author": "WinDock examples",
+  "description": "A label you rename with a click: popup.editText in its single-line form, the answer kept in storage.",
+  "main": "main.js",
+  "size": {
+    "horizontal": { "main": 80, "cross": 40 },
+    "vertical": { "main": 40, "cross": 48 }
+  },
+  "standalone": { "minWidth": 80, "minHeight": 40, "defaultWidth": 200, "defaultHeight": 80 }
+}

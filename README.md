@@ -918,8 +918,13 @@ write and edit without compiling anything. The full reference (every call, every
   an app / address; it wakes only when its text changes: at an event's start and end, each minute
   of the last hour before one, at midnight, and when the feeds change), and **Weather (script)**
   (`weather`: the weather item and its forecast popup on the `weather` provider, see Weather and
-  calendar above). A folder with a built-in's id replaces the built-in; your own clock faces
-  go into an exported `analog-clock\faces` folder.
+  calendar above), and **Notes** (`notes`, round 6: a note per item; the tile shows its first line
+  as a bold title and the lines under it as far as they fit, growing with the text up to a width
+  you set, the wheel scrolls the lines; a click opens a small text editor window (Ctrl+Enter or OK
+  saves, Escape cancels); paper yellow / pink / blue / the theme's panel / none, font size, text
+  colour, bold title, lines, widest tile; **Note id** shares one note between items; on the
+  desktop the whole note wraps in its window). A folder with a built-in's id replaces the built-in;
+  your own clock faces go into an exported `analog-clock\faces` folder.
 - **Adding one**: the widget drawer of Dock settings > Contents lists the installed widgets under
   the built-in kinds (drag one onto the strip, or **Add**), or add `{ "kind": "widget", "id": "hello" }` to a dock's `items`
   (with an optional `"settings": { ... }` object). A widget can be dragged on the dock like the
@@ -944,13 +949,13 @@ write and edit without compiling anything. The full reference (every call, every
   solid colours and linear / radial gradients, DirectWrite text and `measureText`, images from the
   widget's folder, clip, opacity, transforms, save / restore; DIPs, upright on every edge, drawn
   with Direct2D straight into the slot), `dock` (axis, edge, box size, scale, icon size, theme
-  colours, hovered / magnified, reduce motion, visible), `timer` (`setTimeout`, `setInterval`, `clear`,
+  colours, hovered / magnified, reduce motion, visible, `itemKey` for per-item data), `timer` (`setTimeout`, `setInterval`, `clear`,
   `setRefresh` (aligned to the local time, or to a time zone's), `requestRedraw`), `console` (log
   / warn / error to the widget's log), `system` (local date and time computed by Windows, the time
   in any Windows time zone (`localTime(timeZone)`, `timeZones()`; round 5), strftime formatting,
   locale names, 12 / 24 h, units),
   `settings`, `storage` (a JSON store per widget in `%LocalAppData%\WinDock\widget-data\<id>.json`,
-  written a second after a change), `http` (GET / POST ... to the hosts its manifest lists, as
+  written a second after a change; `onChange` hears the other items of the widget change a key), `http` (GET / POST ... to the hosts its manifest lists, as
   promises), `shell` (open files and URLs, list folders, file icons, `sendKeys` for a fixed list of
   Windows shortcuts: Start, Search, the notification centre ...), `audio` (the default output's
   level / mute, the microphone's mute, the outputs, switching the default output, change events),
@@ -958,7 +963,9 @@ write and edit without compiling anything. The full reference (every call, every
   previous, change events), `notifications`, `calendar`, `weather` (the dock's forecast: current
   conditions, hourly and daily arrays, place, units, state and age; `refresh()`, `onChange`,
   `openSettings()`, `icon(code, isDay)` for the dock's own condition glyphs), `popup` (a popup the widget
-  draws, or the dock's folder / window-preview / month calendar popups, anchored on the widget),
+  draws, or the dock's folder / window-preview / month calendar popups, anchored on the widget;
+  round 6: `editText({ title, text, multiline, maxLength, placeholder })`, a text editor window
+  whose promise gives the typed text, or `null` when cancelled),
   `widget` (the widget's own package files: `files(glob)`, `read`, `readJson`).
 - **Permissions** (`"permissions"` in widget.json): `{ "http": ["api.example.com"] }` for
   requests to those hosts, `"shell"` for opening files / URLs, listing folders, file icons, the
@@ -977,8 +984,9 @@ write and edit without compiling anything. The full reference (every call, every
   widget's state and log with Reload / Open folder / Clear. **Export built-in to folder** copies a
   built-in with its sub-folders (the analog clock's `faces\`) and a README.md stub.
 - **Examples**: this repository's `examples\` folder: `minimal` (one line of text), `http-json` (a
-  public JSON API behind a host allow-list, on a refresh timer) and `popup-list` (a list in a
-  script popup with the shell's icons and clicks), each annotated and with a README. They are not
+  public JSON API behind a host allow-list, on a refresh timer), `popup-list` (a list in a
+  script popup with the shell's icons and clicks) and `edit-text` (a label renamed with
+  `popup.editText`), each annotated and with a README. They are not
   built in: Global settings > Widget library > **Add from folder…** installs one (into the widgets folder), then
   **Add to dock**.
 - **Validation**: the manifest is checked whenever a widget loads; an error (a missing main module,
@@ -2321,6 +2329,13 @@ always there, also when every dock is parked) handle these registered messages:
   hides it; 5 = 1 while it flashes (no other timer: 0 when still); 51 = its window. 252 (a Dock
   window's Contents tab, like 230) = the centre of the drawer row's **Desktop** button of entry
   `LOWORD(lParam)` (screen px; -1 none / not a script widget / hidden; -2 no Dock window).
+  Round 6 phase 6C, a widget's text editor (`popup.editText`, class `WinDock.TextEditor`; the
+  edit box is its child with control id 100, the status line 101, OK `IDOK`, Cancel `IDCANCEL`):
+  255 = 1 while slot `LOWORD(lParam)`'s widget has its editor open (0 not; -1 not a script widget;
+  `LOWORD` 0xFFFF: the slot whose editor is open, -1 none); on a standalone widget entry 1 / 0 for
+  its widget; 256 = that editor's window handle (0 none; `LOWORD` 0xFFFF: the dock's open one).
+  Tests type into it with real input once it is the foreground, or set its text with `WM_SETTEXT`
+  and close it with `ItemCommand` 857.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
@@ -2448,10 +2463,14 @@ always there, also when every dock is parked) handle these registered messages:
   group slot `lParam`'s member `HIWORD(wParam)` out (a pin right after the group), 821 that member
   removed; 800 on a group unpins it with its members, 806 shows / hides its popup, 854 Settings…:
   the slot's config item's Item window (a widget, clock, weather, tray (round 5 phase D), folder or
-  group; another item: its dock's window; round 5 phase B), 900 close all windows). On a
+  group; another item: its dock's window; round 5 phase B), 857 / 858 (round 6 phase 6C) close the
+  text editor of slot `lParam`'s widget (`popup.editText`) as OK / Cancel would (the script gets the
+  text / `null`; `LOWORD(lParam)` 0xFFFF: the dock's open editor; 1 if one was open, else 0), 900
+  close all windows). On a
   [standalone widget](#standalone-widgets) entry (round 6 phase 6B; the entry's index in the high
   word of `lParam`): 809 reloads its widget, 854 opens its widget's Item window, 855 locks / unlocks
-  it, 856 removes the entry (posted); any other command returns -1. DockCommand 143 opens its Dock
+  it, 856 removes the entry (posted), 857 / 858 close its widget's text editor (below); any other
+  command returns -1. DockCommand 143 opens its Dock
   window, 144 flashes it, 116 locks / unlocks it, 142 with item 0 or `0xFFFF` opens its widget's
   Item window; the commands that edit a dock's items, edge or auto-hide do nothing for it (nor for a
   folder window),

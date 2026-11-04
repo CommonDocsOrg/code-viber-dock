@@ -295,6 +295,21 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             watchSyncPosted_ = false;
             DoSyncWatch();
             return true;
+        case kStorageMessage: {
+            // storage.onChange: every other live instance of the writer's widget id, once per key.
+            storagePosted_ = false;
+            const std::vector<StorageNote> notes = std::move(storageNotes_);
+            storageNotes_.clear();
+            for (const StorageNote& n : notes) {
+                const std::vector<WidgetInstance*> all = instances_;
+                for (WidgetInstance* w : all) {
+                    if (w == n.writer || !Alive(w) || w->Id() != n.id) continue;
+                    ++storageNotices_;
+                    w->StorageChanged(n.key);
+                }
+            }
+            return true;
+        }
         case AudioService::kMessage:
             return audio_.HandleMessage(msg, wp, lp);
         case MediaService::kMessage:
@@ -336,7 +351,7 @@ bool WidgetRuntime::StorageGet(const std::wstring& id, const std::string& key, s
 }
 
 bool WidgetRuntime::StorageSet(const std::wstring& id, const std::string& key, const std::string& json,
-                               std::wstring& error) {
+                               std::wstring& error, WidgetInstance* writer) {
     Store& s = StoreFor(id);
     auto it = s.values.find(key);
     const size_t old = it == s.values.end() ? 0 : key.size() + it->second.size();
@@ -349,10 +364,11 @@ bool WidgetRuntime::StorageSet(const std::wstring& id, const std::string& key, c
     s.values[key] = json;
     s.dirty = true;
     ScheduleSave();
+    if (writer) StorageChanged(writer, id, key);
     return true;
 }
 
-void WidgetRuntime::StorageRemove(const std::wstring& id, const std::string& key) {
+void WidgetRuntime::StorageRemove(const std::wstring& id, const std::string& key, WidgetInstance* writer) {
     Store& s = StoreFor(id);
     auto it = s.values.find(key);
     if (it == s.values.end()) return;
@@ -360,6 +376,19 @@ void WidgetRuntime::StorageRemove(const std::wstring& id, const std::string& key
     s.values.erase(it);
     s.dirty = true;
     ScheduleSave();
+    if (writer) StorageChanged(writer, id, key);
+}
+
+void WidgetRuntime::StorageChanged(WidgetInstance* writer, const std::wstring& id, const std::string& key) {
+    // Only when another instance of the widget exists (a lone widget's writes cost nothing more).
+    const bool others = std::any_of(instances_.begin(), instances_.end(),
+                                    [&](const WidgetInstance* w) { return w != writer && w->Id() == id; });
+    if (!others || !owner_) return;
+    StorageNote note{writer, id, key};
+    if (std::find(storageNotes_.begin(), storageNotes_.end(), note) == storageNotes_.end()) {
+        storageNotes_.push_back(std::move(note));
+    }
+    if (!storagePosted_) storagePosted_ = PostMessageW(owner_, kStorageMessage, 0, 0) != FALSE;
 }
 
 std::vector<std::string> WidgetRuntime::StorageKeys(const std::wstring& id) {

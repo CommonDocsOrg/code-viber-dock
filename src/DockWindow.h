@@ -373,6 +373,9 @@ public:
     // Reloads the script widget of slot `index` (false: not one).
     bool ReloadWidget(int index);
     size_t WidgetCount() const { return widgets_.size(); }
+    // Round 6 phase 6C: closes the text editor (popup.editText) of slot `index`'s widget as OK /
+    // Cancel would (ItemCommand 857 / 858). False: no editor open there.
+    bool EditorCommand(int index, bool ok);
 
     // --- the tray (round 4 phase 8) ---
     // TrayHost's icons changed (or it started / stopped): the tray elements re-measure and redraw,
@@ -840,6 +843,7 @@ private:
         kHoldCalendar = 1u << 3,
         kHoldWidget = 1u << 4,  // a script widget's popup
         kHoldCentre = 1u << 5,  // the notification centre
+        kHoldEditor = 1u << 6,  // a script widget's text editor (popup.editText, round 6 phase 6C)
     };
     // Takes the hold for `bit` (cancels a pending hide).
     void TakePopupHold(uint32_t bit);
@@ -985,6 +989,8 @@ private:
     bool WidgetPassiveShown(const WidgetInstance& widget) const override;
     bool WidgetActivateNotification(uint32_t id) override;
     bool WidgetOpenCentre(WidgetInstance& widget) override;
+    EditorPlace WidgetEditorPlace(const WidgetInstance& widget) const override;
+    void WidgetEditorChanged(WidgetInstance& widget, bool open) override;
     // The pointer is over widget slot `index` now (-1: none): onHover leave / enter.
     void UpdateWidgetHover(int index);
 
@@ -1174,6 +1180,7 @@ private:
     AppKey hoverWidget_;                        // the widget slot under the pointer (empty: none)
     ScriptPopup widgetPopup_;                   // the script popup (one at a time)
     std::wstring popupWidget_;                  // the instance key it belongs to ("" none)
+    std::wstring editorWidget_;                 // round 6 phase 6C: the widget whose text editor is open ("" none)
     // The passive script popup (popup.open(w, h, { passive: true }), one at a time): hover mode,
     // mouse-transparent, no popup hold; not a click popup (ClickPopupOnScreen, WidgetPopupShown).
     ScriptPopup widgetPassive_{PopupWindow::Mode::Hover, ScriptPopup::kPassiveClassName};
