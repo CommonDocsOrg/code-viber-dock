@@ -227,6 +227,9 @@ struct Ctl {
     bool collapsed = false;  // Collapse(): hidden and takes no height
     bool shown = true;       // Show()
     bool goneApplied = false;  // hidden by the window because it is gone (collapsed / closed expander)
+    // Round 8 phase 8D: an Expander that is a card's heading ("▸ Bar · 2 changed" / "▾ Bar · 2
+    // changed", semibold in the text colour, as wide as its row; HeadingExpander).
+    bool heading = false;
     std::wstring tip;       // Tip(): its tooltip (and accessible description)
 };
 
@@ -329,6 +332,10 @@ protected:
     // A link-styled toggle ("▸ <text>" / "▾ Less", Space / Enter) whose rows (up to EndExpander)
     // are collapsed while it is closed (closed at first; per page instance, not saved).
     void Expander(int id, const wchar_t* text);
+    // Round 8 phase 8D: an expander that heads its card (a group of Themes fields, Calendar's
+    // "Add or edit a feed"): it keeps its text when open, drawn like a section header with a
+    // chevron. `openAtFirst`: open when the page is built the first time (then as the user left it).
+    void HeadingExpander(int id, const wchar_t* text, bool openAtFirst = false);
     void EndExpander();
     // Lets the page lay itself out (MoveCtl): no reflow, no cards (the Contents tab).
     void NoReflow() { reflow_ = false; }
@@ -388,6 +395,10 @@ protected:
     void Collapse(std::initializer_list<int> ids, bool hidden);
     bool ExpanderOpen(int id) const;
     void SetExpander(int id, bool open);
+    // Round 8 phase 8D: an expander's text ("Bar · 2 changed").
+    void SetExpanderText(int id, const std::wstring& text);
+    // Scrolls the page so control `id` is in view (as the Tab key does).
+    void ScrollIntoView(int id);
     // A note's measured height in DIPs at `widthDip` (the page's own layouts, e.g. the Contents
     // tab's inspector).
     int NoteHeightDip(int id, int widthDip) const;
@@ -431,6 +442,7 @@ private:
     bool autoCard_ = true;  // a control added with no card open opens an untitled one
     int expander_ = 0;      // the open Expander (its rows: until EndExpander)
     std::vector<int> openExpanders_;  // expanders the user opened (kept across a rebuild)
+    std::vector<int> expanderDefaults_;  // HeadingExpander(openAtFirst): applied once per page instance
     int nextAutoId_ = 0x6000;  // ids of hints without one of their own
     int buildW_ = 0;        // Width() when the table was built (DIPs)
     int layoutW_ = 0;       // Width() of the last layout (OnResized when it changes)
@@ -476,6 +488,9 @@ public:
     // Selects a page (Global: SettingsIds::kPage*, Dock: kTab*), as a click in the nav / tabs would.
     void ShowPage(int index);
     int ActivePageIndex() const { return active_; }
+    // Round 8 phase 8D: where page `index` is listed in the nav column / tab strip (0 the first
+    // row; -1 not listed). The Global window lists its pages in groups (NavOrder), not by index.
+    int NavDisplayIndex(int index) const;
     // The dock's weather data / status changed: pages update what shows it (no config reload).
     void WeatherChanged();
     // The notification list or service state changed: the Notifications page's status line.
@@ -601,6 +616,8 @@ private:
     static constexpr int kNavWidthDip = 200;
     static constexpr int kNavTopDip = 12;
     static constexpr int kNavItemDip = 36;
+    static constexpr int kNavCaptionDip = 22;  // round 8 phase 8D: a group caption ("GENERAL", "LOOK" ...)
+    static constexpr int kNavGapDip = 12;      // the gap before About
     static constexpr int kAboveBarDip = 24;    // gap between the window and the dock's bar
     static constexpr int kItemOffsetDip = 40;  // an Item window from its dock's window
     // The dock preview strip (SettingsPreview) under the Global Themes / Animation pages and a Dock
@@ -669,6 +686,19 @@ private:
 
     // Nav pane and tab strip (SettingsNav.cpp)
     static bool FocusCuesHidden(HWND hwnd);
+    // Round 8 phase 8D: the listed pages in display order (the Global window: GENERAL General,
+    // Docks and displays; LOOK Themes, Animation; DATA Calendar feeds, Notifications, Tray icons;
+    // WIDGETS Widget library; then About after a gap; other kinds: by index), each with the group
+    // caption above it (null: none) and whether a gap comes before it.
+    struct NavSlot {
+        int page = 0;
+        const wchar_t* caption = nullptr;
+        bool gap = false;
+    };
+    std::vector<NavSlot> NavOrder() const;
+    int NavItemDip(const std::vector<NavSlot>& order) const;  // a row's height in DIPs
+    // A caption's rect in the nav column (client px) for slot `k` of NavOrder (empty: none).
+    RECT NavCaptionRect(size_t k) const;
     RECT NavItemRect(int index) const;
     // The next listed page from `from` in direction `step` (+1 / -1); `from` when there is none.
     int NavStep(int from, int step) const;
@@ -734,6 +764,7 @@ private:
     HFONT fontSemibold_ = nullptr; // section headers
     HFONT fontTitle_ = nullptr;    // page titles, the header's id / name
     HFONT fontIcons_ = nullptr;    // nav glyphs (Segoe Fluent Icons / MDL2 Assets); null if absent
+    HFONT fontCaption_ = nullptr;  // round 8 phase 8D: the nav's group captions (small semibold)
     HBRUSH layerBrush_ = nullptr;
     HBRUSH baseBrush_ = nullptr;
     HBRUSH controlBrush_ = nullptr;

@@ -22,7 +22,10 @@ inline constexpr int kFooterReset = 114;    // Item (widget / clock / weather): 
 inline constexpr int kFooterConsole = 115;  // Item (widget): "Console…"
 inline constexpr int kHeaderMore = 116;     // Dock: round 8 phase 8B: the "⋯" button (a menu: Global settings… = kHeaderGlobal)
 
-// Page indices of the Global window (nav order; round 5 phase B renumbered them).
+// Page indices of the Global window (round 5 phase B renumbered them). Round 8 phase 8D: the nav
+// lists them in groups in another order (GENERAL: General, Docks and displays; LOOK: Themes,
+// Animation; DATA: Calendar feeds, Notifications, Tray icons; WIDGETS: Widget library; About;
+// QueryState 279 = the active page's row); the indexes below do not change.
 inline constexpr int kPageGeneral = 0;        // startup, taskbar, renderer, config file
 inline constexpr int kPageThemes = 1;         // the global theme (was Appearance)
 inline constexpr int kPageAppearance = kPageThemes;
@@ -261,11 +264,14 @@ inline constexpr int kPreview = 101;
 inline constexpr int kSectionTheme = 2400;
 inline constexpr int kThemeLabel = 2401;
 inline constexpr int kThemeCombo = 2402;          // built-ins, then user theme files by name
+// Round 8 phase 8D: 2403 - 2405 are the "⋯" menu's commands (kThemeMore; the buttons and the link
+// are gone; WM_COMMAND with lParam 0 to the page runs them).
 inline constexpr int kExportTheme = 2403;         // "Export current theme…" (save dialog)
-inline constexpr int kThemesFolderLink = 2404;    // SysLink: opens the themes folder
-inline constexpr int kResetAllTheme = 2405;       // clears every override (config theme = preset)
-inline constexpr int kThemeNote = 2406;
-// Sections of the field rows (one per group).
+inline constexpr int kThemesFolderLink = 2404;    // "Open themes folder" (was a SysLink)
+inline constexpr int kResetAllTheme = 2405;       // "Reset all to preset": clears every override (config theme = preset; greyed with none)
+inline constexpr int kThemeNote = 2406;           // the Theme label's hint: "3 values changed from the preset" / "The preset's values"
+// Sections of the field rows (one per group). Round 8 phase 8D: each is the heading expander of
+// its group's card ("Bar · 2 changed"; QueryState 276; Bar open at first, the others closed).
 inline constexpr int kSectionFieldsBar = 2410;
 inline constexpr int kSectionFieldsLabel = 2411;
 inline constexpr int kSectionFieldsDots = 2412;
@@ -282,6 +288,7 @@ inline constexpr int kSectionFieldsBadges = 2421; // round 4 phase 9: "Notificat
 // Round 5 phase B: the Dock window's Theme tab (kDockThemeCombo, then these).
 inline constexpr int kDockThemeNote = 2422;
 inline constexpr int kDockThemeLink = 2423;      // SysLink: opens Global settings > Themes
+inline constexpr int kThemeMore = 2424;          // round 8 phase 8D: Themes' "⋯" (a menu of 2403 / 2404 / 2405)
 
 // One row per Theme::Field (Theme::Fields() order): id = FieldRow(field index, part).
 inline constexpr int kFieldRowBase = 3000;
@@ -291,7 +298,7 @@ inline constexpr int kFieldSwatch = 1;   // Color: owner-drawn button (ChooseCol
 inline constexpr int kFieldHex = 2;      // Color: "#AARRGGBB" edit (applied on Enter / focus loss); Bool: caption
 inline constexpr int kFieldValue = 3;    // Color: alpha edit 0 - 255; Float: value edit (x FieldInfo::scale); Enum: combo
 inline constexpr int kFieldSpin = 4;     // up-down of kFieldValue
-inline constexpr int kFieldReset = 5;    // "Reset" button, shown only while the field is overridden
+inline constexpr int kFieldReset = 5;    // "↺" button (24 DIPs, tooltip "Reset to the preset's value"; was "Reset"), shown only while the field is overridden
 inline constexpr int kFieldUnit = 6;     // Float: the unit note (FieldInfo::unit: "DIPs", "%", ...)
 constexpr int FieldRow(int field, int part) { return kFieldRowBase + field * kFieldRowStride + part; }
 // 40 rows fit 3000 - 3399.
@@ -378,19 +385,26 @@ inline constexpr int kPinMore = 2631;
 // is a Place field of the generated page, 3610 - 3629); reserved.
 
 // Docks and displays (2800 - 2999; round 4 phase 3 Docks + 3b Layout, one page since round 5 phase B)
+// Round 8 phase 8D: the four add buttons are the "Add ▾" menu's commands (2801 Dock, 2811 Floating
+// dock, 2808 Folder window…, 2812 Standalone widget ▸ (a submenu of the installed widgets; as a
+// command: that menu under Add ▾)); Lock all / Unlock all are one check box (2806, checked when
+// every entry is locked; as commands 2806 locks and 2807 unlocks every entry). WM_COMMAND with
+// lParam 0 to the page runs any of them.
 inline constexpr int kDocksList = 2800;       // SysListView32 (report): Id (with the dock's colour dot), Edge, Display, Windows; one row per docks[]; the selected row is what this page's Duplicate / Remove / Open act on (no other page reads it)
-inline constexpr int kDockAdd = 2801;         // "Add dock" (bottom, primary display, running apps + clock)
-inline constexpr int kDockDuplicate = 2802;   // copies the selected dock (new id)
-inline constexpr int kDockRemove = 2803;      // removes the selected dock (disabled for the last one)
-inline constexpr int kDocksNote = 2804;
+inline constexpr int kDockAdd = 2801;         // "Add ▾" > "Dock" (bottom, primary display, running apps + clock)
+inline constexpr int kDockDuplicate = 2802;   // "Duplicate": copies the selected dock (new id)
+inline constexpr int kDockRemove = 2803;      // "Remove": removes the selected dock (disabled for the last one)
+inline constexpr int kDocksNote = 2804;       // the one-line hint under the canvas (8D: the explanation is the canvas's tooltip)
 // 2805: "The other pages edit: <id>" until round 5 phase B (the canvas's kLayoutSelected line says it); reserved.
-inline constexpr int kLockAllDocks = 2806;    // "Lock all docks" (= DockCommand 124)
-inline constexpr int kUnlockAllDocks = 2807;  // "Unlock all docks" (= DockCommand 125)
-inline constexpr int kDockAddFolder = 2808;   // "Add folder window…" (= DockCommand 139: a folder picker; round 4 phase 12)
+inline constexpr int kLockAllDocks = 2806;    // check box "Lock all docks" (+ caption 2813; mixed: unchecked); as a command: lock every entry (= DockCommand 124)
+inline constexpr int kUnlockAllDocks = 2807;  // a command (the button is gone): unlock every entry (= DockCommand 125)
+inline constexpr int kDockAddFolder = 2808;   // "Add ▾" > "Folder window…" (= DockCommand 139: a folder picker; round 4 phase 12)
 // 2809: "Folder window settings…" until round 5 phase B (kDocksOpen opens a folder window's own window); reserved.
-inline constexpr int kDocksOpen = 2810;       // "Open dock settings" / "Open window settings" (the selected row's own window; = a double click)
-inline constexpr int kDockAddFloating = 2811; // round 6 phase 6A: "Add floating dock" (a floating bar, layer desktop, centred)
-inline constexpr int kDockAddWidget = 2812;   // round 6 phase 6B: "Add standalone widget…" (a menu of the catalog's widgets)
+inline constexpr int kDocksOpen = 2810;       // "Open settings" (the selected row's own window; = a double click)
+inline constexpr int kDockAddFloating = 2811; // round 6 phase 6A: "Add ▾" > "Floating dock" (a floating bar, layer desktop, centred)
+inline constexpr int kDockAddWidget = 2812;   // round 6 phase 6B: "Add ▾" > "Standalone widget ▸" (as a command: the catalog's widgets in a menu)
+inline constexpr int kLockAllDocksCaption = 2813;  // round 8 phase 8D
+inline constexpr int kDockAddMenu = 2814;     // round 8 phase 8D: "Add ▾" (a menu: Dock, Floating dock, Folder window…, Standalone widget ▸)
 
 // The canvas (round 4 phase 3b)
 inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation); a click selects the row, a double click opens the dock's window
@@ -398,17 +412,20 @@ inline constexpr int kLayoutNote = 2901;
 inline constexpr int kLayoutSelected = 2902;  // the selected dock and where a drop would put it
 
 // Widgets (3500 - 3599; round 4 phase 4b)
+// Round 8 phase 8D: 3501 - 3505 are the "More ▾" menu's commands (kWidgetsMore; the buttons are
+// gone; WM_COMMAND with lParam 0 to the page runs them).
 inline constexpr int kWidgetsList = 3500;      // SysListView32 (report): Name, Id, Source, Version; one row per installed widget
 inline constexpr int kWidgetsAddFolder = 3501; // "Add from folder…" (copies a folder with a widget.json into the widgets folder)
-inline constexpr int kWidgetsExport = 3502;    // "Export built-in to folder" (the selected built-in -> widgets\<id>)
+inline constexpr int kWidgetsExport = 3502;    // "Export built-in to folder" (the selected built-in -> widgets\<id>; greyed otherwise)
 inline constexpr int kWidgetsReload = 3503;    // "Reload widgets" (= DockCommand 126)
 inline constexpr int kWidgetsOpenFolder = 3504;  // "Open widgets folder" (created if missing)
 inline constexpr int kWidgetsConsole = 3505;   // "Console…" (= DockCommand 127)
-inline constexpr int kWidgetsAddToDock = 3506; // "Add to dock" (the selected widget, on the dock the pages edit)
+inline constexpr int kWidgetsAddToDock = 3506; // "Add to dock" / "Add to dock ▾" (with several docks: a menu of them)
 inline constexpr int kWidgetsNote = 3507;
 inline constexpr int kWidgetsStatus = 3508;    // the last action's result ("Exported to …", errors)
 inline constexpr int kWidgetsAddToDesktop = 3509;  // round 6 phase 6B: "Add to the desktop" (a standalone widget of the selected one)
 inline constexpr int kWidgetsPreview = 3510;   // round 6 phase 6E: WinDock.WidgetPreviewPanel: the selected widget's live preview + description
+inline constexpr int kWidgetsMore = 3511;      // round 8 phase 8D: "More ▾" (a menu of 3501 - 3505)
 
 // Widget settings (3600 - 3999; phase 4b). The fixed controls, then per schema field k
 // (widget.json "settings" order) 3700 + 10 * k + part: 0 label, 1 the control (check box, edit,
@@ -501,6 +518,7 @@ inline constexpr int kTrayGlobalNote = 4125;    // Global: where each tray item'
 inline constexpr int kTrayOwnDockStatus = 4126; // Global: the last Put the tray in its own dock result
 inline constexpr int kTrayTakeoverSection = 4127;  // round 8 phase 8C: a tray item's "Takeover" card (Reset to Explorer)
 inline constexpr int kTrayResetLabel = 4128;       // ... its label "Explorer's icons" (4121 its hint)
+inline constexpr int kTraySection = 4129;          // round 8 phase 8D: Global > Tray icons' "Notification area" card
 
 // Notifications (4200 - 4299; round 4 phase 9): config.notifications. 4200 - 4203 (the edited
 // dock's badges / centre) moved to the Dock window's Behaviour tab in round 5 phase D (2254 /
@@ -525,6 +543,7 @@ inline constexpr int kNotifDndNote = 4219;
 inline constexpr int kNotifAppsSection = 4220;
 inline constexpr int kNotifAppList = 4221;         // SysListView32 (report, check boxes): App, Unread, Key; unchecked = in notifications.excluded
 inline constexpr int kNotifAppsNote = 4222;
+inline constexpr int kNotifCentreSection = 4224;   // round 8 phase 8D: the "Centre" card (4223 is retired)
 
 // Calendar (4300 - 4399; round 4 phase 13): config.calendars.
 inline constexpr int kCalFeedList = 4300;       // SysListView32 (report, check boxes): Name, URL, Every, Status; checked = enabled
@@ -548,7 +567,7 @@ inline constexpr int kCalShowDotsCaption = 4317;
 inline constexpr int kCalNote = 4318;
 inline constexpr int kCalFieldsNote = 4319;     // what the fields accept; the last add / save error
 inline constexpr int kCalSection = 4320;        // "Feeds"
-inline constexpr int kCalEditSection = 4321;    // "Add or edit a feed"
+inline constexpr int kCalEditSection = 4321;    // "Add or edit a feed" (round 8 phase 8D: the heading expander of the form's card; QueryState 276)
 inline constexpr int kCalOptionsSection = 4322; // "Display"
 inline constexpr int kCalEnable = 4323;         // check box: the selected feed enabled (+ caption 4324)
 inline constexpr int kCalEnableCaption = 4324;
@@ -562,6 +581,7 @@ inline constexpr int kCalDefaultReminderEdit = 4330;  // calendars.defaultRemind
 inline constexpr int kCalDefaultReminderSpin = 4331;
 inline constexpr int kCalDefaultReminderUnit = 4332;
 inline constexpr int kCalReminderNote = 4333;
+inline constexpr int kCalNewFeed = 4334;        // round 8 phase 8D: "Add feed…" (empties the form and opens it)
 
 // Folder window (4400 - 4499; round 4 phase 12b): the folder window entry's own window.
 inline constexpr int kFwInfo = 4400;            // which folder window

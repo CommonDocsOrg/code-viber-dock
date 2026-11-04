@@ -32,32 +32,32 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Tray icons");
-        // Round 8 phase 8A: one-line notes, the explanations as their tooltips.
-        Check(kTrayEnabled, kTrayEnabledCaption, L"Show the notification area icons in the dock");
-        NextRow(kRowH);
-        Text(kTrayEnabledNote, CtlKind::Note, L"Needs a System tray item on a dock (from a dock's Contents tab).",
-             kMargin + kCaptionDx, right - kMargin - kCaptionDx, 20);
+        // Round 8 phase 8A: one-line notes, the explanations as their tooltips; round 8 phase 8D:
+        // one card, the note the check box's hint.
+        Section(kTraySection, L"Notification area");
+        Check(kTrayEnabled, kTrayEnabledCaption, L"Show the notification area icons in the dock",
+              L"Needs a System tray item on a dock (from its Contents tab)", kTrayEnabledNote);
         static constexpr wchar_t kEnabledTip[] =
             L"The dock takes over the notification area (Shell_TrayWnd): apps register their tray icons with it, and "
             L"every change is passed on to Explorer too, so nothing is lost when the dock quits. Explorer's own items "
             L"(network, battery, input language, Explorer's clock and volume) are not tray icons: they stay with "
             L"Explorer, whose taskbar is hidden anyway (the volume, media and date widgets cover them). Needs a System "
             L"tray item on a dock (drag it from the widget drawer of a dock's Contents tab).";
+        Tip(kTrayEnabled, kEnabledTip);
         Tip(kTrayEnabledCaption, kEnabledTip);
         Tip(kTrayEnabledNote, kEnabledTip);
-        NextRow(30);
-        Text(kTrayGlobalNote, CtlKind::Note, L"Each tray item's grid and icons are in that item's own settings window.",
-             kMargin, right - kMargin, 20);
+        NextRow();
+        Ctl& grid = Text(kTrayGlobalNote, CtlKind::Note, L"Each tray item's grid and icons: its own settings window.",
+                         kMargin, right - kMargin, 20);
+        grid.maxLines = 2;
         Tip(kTrayGlobalNote,
             L"Each tray item's grid (rows, columns, icon size, which icons it shows and their order) is in that item's own "
             L"settings window: select the System tray tile on its dock's Contents tab and choose Settings…, or Ctrl + "
             L"right click a tray icon > Tray settings….");
-        NextRow(22);
+        NextRow(24);
         Button(kTrayOwnDock, L"Put the tray in its own dock", kMargin, kButtonW);
-        Ctl& ownNote = Text(kTrayOwnDockNote, CtlKind::Note, L"A new dock at the bottom right holding only the tray item.",
-                            kMargin + kButtonW + 12, right - kMargin - kButtonW - 12, 22);
-        OffsetRect(&ownNote.base, 0, 8);  // beside the button's text
-        ownNote.dip = ownNote.base;
+        Text(kTrayOwnDockNote, CtlKind::Note, L"A new dock with only the tray", kMargin + kButtonW + 12,
+             right - kMargin - kButtonW - 12);  // one line beside the button (cut with "…" when narrow)
         static constexpr wchar_t kOwnDockTip[] =
             L"A new dock at the bottom right holding only the tray item (the first dock's that has one, with its "
             L"settings; else a new one), always shown. Docks and displays moves or removes it.";

@@ -9,7 +9,9 @@
 
 #include <algorithm>
 #include <cmath>
+#include <vector>
 
+#include "SettingsIds.h"
 #include "SettingsWindow.h"
 
 namespace {
@@ -66,35 +68,117 @@ LRESULT CALLBACK SettingsWindow::NavProcThunk(HWND hwnd, UINT msg, WPARAM wp, LP
     return self->NavProc(hwnd, msg, wp, lp);
 }
 
-RECT SettingsWindow::NavItemRect(int index) const {
-    // 36 DIPs a page, less once the pages would not fit the window's height (16 pages: 34). Pages
-    // that are not listed (InNav) take no row.
-    int count = 0, row = 0;
-    for (int i = 0; i < static_cast<int>(pages_.size()); ++i) {
-        if (!pages_[static_cast<size_t>(i)]->InNav()) continue;
-        if (i < index) ++row;
-        ++count;
+std::vector<SettingsWindow::NavSlot> SettingsWindow::NavOrder() const {
+    std::vector<NavSlot> order;
+    const int n = static_cast<int>(pages_.size());
+    auto listed = [&](int i) { return i >= 0 && i < n && pages_[static_cast<size_t>(i)]->InNav(); };
+    if (kind_ == SettingsKind::Global) {
+        // Round 8 phase 8D: grouped by purpose; the page indexes (kPage*) do not change.
+        static constexpr struct {
+            int page;
+            const wchar_t* caption;
+            bool gap;
+        } kGlobal[] = {
+            {SettingsIds::kPageGeneral, L"GENERAL", false},   {SettingsIds::kPageDocks, nullptr, false},
+            {SettingsIds::kPageThemes, L"LOOK", false},       {SettingsIds::kPageAnimation, nullptr, false},
+            {SettingsIds::kPageCalendar, L"DATA", false},     {SettingsIds::kPageNotifications, nullptr, false},
+            {SettingsIds::kPageTray, nullptr, false},         {SettingsIds::kPageWidgets, L"WIDGETS", false},
+            {SettingsIds::kPageAbout, nullptr, true},
+        };
+        const wchar_t* pendingCaption = nullptr;  // a caption whose page is not listed goes to the next
+        bool pendingGap = false;
+        for (const auto& s : kGlobal) {
+            if (s.caption) pendingCaption = s.caption;
+            pendingGap = pendingGap || s.gap;
+            if (!listed(s.page)) continue;
+            order.push_back(NavSlot{s.page, pendingCaption, pendingGap});
+            pendingCaption = nullptr;
+            pendingGap = false;
+        }
+        // A page the table does not name (none today) at the end.
+        for (int i = 0; i < n; ++i) {
+            if (!listed(i)) continue;
+            if (std::none_of(order.begin(), order.end(), [i](const NavSlot& s) { return s.page == i; })) order.push_back(NavSlot{i, nullptr, false});
+        }
+        return order;
     }
-    if (index < 0 || index >= static_cast<int>(pages_.size()) || !pages_[static_cast<size_t>(index)]->InNav()) return RECT{};
-    const int itemDip = std::min(kNavItemDip, (static_cast<int>(ClientDip().cy) - kNavTopDip - 4) / std::max(1, count));
-    const int top = Px(kNavTopDip) + row * Px(itemDip);
-    return RECT{Px(6), top + Px(2), Px(kNavWidthDip) - Px(6), top + Px(itemDip) - Px(2)};
+    for (int i = 0; i < n; ++i) {
+        if (listed(i)) order.push_back(NavSlot{i, nullptr, false});
+    }
+    return order;
+}
+
+int SettingsWindow::NavDisplayIndex(int index) const {
+    const std::vector<NavSlot> order = NavOrder();
+    for (size_t k = 0; k < order.size(); ++k) {
+        if (order[k].page == index) return static_cast<int>(k);
+    }
+    return -1;
+}
+
+int SettingsWindow::NavItemDip(const std::vector<NavSlot>& order) const {
+    // 36 DIPs, less when the rows, captions and gaps would not fit the window's height (at least 24).
+    int captions = 0, gaps = 0;
+    for (const NavSlot& s : order) {
+        captions += s.caption ? 1 : 0;
+        gaps += s.gap ? 1 : 0;
+    }
+    const int room = static_cast<int>(ClientDip().cy) - kNavTopDip - 4 - captions * kNavCaptionDip - gaps * kNavGapDip;
+    return std::clamp(room / std::max(1, static_cast<int>(order.size())), 24, kNavItemDip);
+}
+
+RECT SettingsWindow::NavCaptionRect(size_t k) const {
+    const std::vector<NavSlot> order = NavOrder();
+    if (k >= order.size() || !order[k].caption) return RECT{};
+    const int itemDip = NavItemDip(order);
+    int y = Px(kNavTopDip);
+    for (size_t i = 0; i < order.size(); ++i) {
+        if (order[i].gap) y += Px(kNavGapDip);
+        if (order[i].caption) {
+            if (i == k) return RECT{Px(18), y, Px(kNavWidthDip) - Px(8), y + Px(kNavCaptionDip)};
+            y += Px(kNavCaptionDip);
+        }
+        y += Px(itemDip);
+    }
+    return RECT{};
+}
+
+RECT SettingsWindow::NavItemRect(int index) const {
+    // 36 DIPs a page (round 8 phase 8D: under the group captions, About after a gap), less once
+    // the pages would not fit the window's height. Pages that are not listed (InNav) take no row.
+    const std::vector<NavSlot> order = NavOrder();
+    const int itemDip = NavItemDip(order);
+    int y = Px(kNavTopDip);
+    for (const NavSlot& s : order) {
+        if (s.gap) y += Px(kNavGapDip);
+        if (s.caption) y += Px(kNavCaptionDip);
+        if (s.page == index) return RECT{Px(6), y + Px(2), Px(kNavWidthDip) - Px(6), y + Px(itemDip) - Px(2)};
+        y += Px(itemDip);
+    }
+    return RECT{};
 }
 
 int SettingsWindow::NavStep(int from, int step) const {
-    for (int i = from + step; i >= 0 && i < static_cast<int>(pages_.size()); i += step) {
-        if (pages_[static_cast<size_t>(i)]->InNav()) return i;
+    // In display order (round 8 phase 8D); `from` before the first (-1) or after the last
+    // (pages_.size()) for Home / End.
+    const std::vector<NavSlot> order = NavOrder();
+    if (order.empty()) return from;
+    if (from < 0) return step > 0 ? order.front().page : from;
+    if (from >= static_cast<int>(pages_.size())) return step < 0 ? order.back().page : from;
+    for (size_t k = 0; k < order.size(); ++k) {
+        if (order[k].page != from) continue;
+        const int next = static_cast<int>(k) + step;
+        return next >= 0 && next < static_cast<int>(order.size()) ? order[static_cast<size_t>(next)].page : from;
     }
-    return from;
+    return order.front().page;  // `from` is not listed
 }
 
 int SettingsWindow::NavHitTest(POINT pt) const {
-    for (int i = 0; i < static_cast<int>(pages_.size()); ++i) {
-        if (!pages_[static_cast<size_t>(i)]->InNav()) continue;
-        RECT r = NavItemRect(i);
+    for (const NavSlot& s : NavOrder()) {
+        RECT r = NavItemRect(s.page);
         r.top -= Px(2);
         r.bottom += Px(2);
-        if (PtInRect(&r, pt)) return i;
+        if (PtInRect(&r, pt)) return s.page;
     }
     return -1;
 }
@@ -199,8 +283,31 @@ void SettingsWindow::PaintNav(HWND hwnd, HDC hdc) {
     const bool focused = GetFocus() == hwnd && !FocusCuesHidden(hwnd);
     HTHEME theme = OpenThemeData(hwnd, L"WINDOW");
     SetBkMode(dc, TRANSPARENT);
-    for (int i = 0; i < static_cast<int>(pages_.size()); ++i) {
-        if (!pages_[static_cast<size_t>(i)]->InNav()) continue;
+    auto drawText = [&](HFONT font, const wchar_t* text, int len, RECT tr, COLORREF color, DWORD flags) {
+        if (len == 0 || !font) return;
+        HGDIOBJ old = SelectObject(dc, font);
+        if (theme && buffer) {
+            DTTOPTS opts{sizeof(opts)};
+            opts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
+            opts.crText = color;
+            DrawThemeTextEx(theme, dc, 0, 0, text, len, flags, &tr, &opts);
+        } else {
+            SetTextColor(dc, color);
+            DrawTextW(dc, text, len, &tr, flags);
+        }
+        SelectObject(dc, old);
+    };
+    const std::vector<NavSlot> order = NavOrder();
+    // Round 8 phase 8D: the group captions, small and muted.
+    for (size_t k = 0; k < order.size(); ++k) {
+        if (!order[k].caption) continue;
+        RECT cr = NavCaptionRect(k);
+        cr.top += Px(4);  // closer to their rows than to the row above
+        drawText(fontCaption_ ? fontCaption_ : font_, order[k].caption, static_cast<int>(wcslen(order[k].caption)), cr,
+                 palette_.textSecondary, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    }
+    for (const NavSlot& slot : order) {
+        const int i = slot.page;
         const RECT r = NavItemRect(i);
         if (i == active_) {
             BlendRoundRect(bits, stride, rc.right, rc.bottom, r, radius, palette_.pill, palette_.pillSelectedAlpha);
@@ -226,20 +333,8 @@ void SettingsWindow::PaintNav(HWND hwnd, HDC hdc) {
             {font_, page.name_.c_str(), static_cast<int>(page.name_.size()), RECT{textLeft, r.top, r.right - Px(8), r.bottom}},
         };
         for (const auto& part : parts) {
-            if (part.len == 0 || !part.font) continue;
-            HGDIOBJ old = SelectObject(dc, part.font);
-            RECT tr = part.rect;
-            const DWORD flags = DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
-            if (theme && buffer) {
-                DTTOPTS opts{sizeof(opts)};
-                opts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
-                opts.crText = palette_.text;
-                DrawThemeTextEx(theme, dc, 0, 0, part.text, part.len, flags, &tr, &opts);
-            } else {
-                SetTextColor(dc, palette_.text);
-                DrawTextW(dc, part.text, part.len, &tr, flags);
-            }
-            SelectObject(dc, old);
+            drawText(part.font, part.text, part.len, part.rect, palette_.text,
+                     DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         }
     }
     if (theme) CloseThemeData(theme);

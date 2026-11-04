@@ -30,23 +30,29 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Calendar feeds");
-        // Round 8 phase 8A: one line, the whole explanation as its tooltip.
-        Text(kCalNote, CtlKind::Note,
-             L"ICS feeds (a web address or an .ics file) for the clock's month calendar and widgets such as Agenda.",
-             kMargin, right - kMargin, 20);
+        Section(kCalSection, L"Feeds");
+        // Round 8 phase 8A: one line, the whole explanation as its tooltip (8D: in the Feeds card).
+        Ctl& note = Text(kCalNote, CtlKind::Note, L"Web addresses or .ics files, for the clock's month calendar and widgets such as Agenda.",
+                         kMargin, right - kMargin, 20);
+        note.maxLines = 2;
         Tip(kCalNote, L"Calendars as ICS feeds: a web address (https://, http:// or webcal://, such as Google Calendar's "
                       L"\"secret address in iCal format\" or Outlook's published calendar), or an .ics file on this PC "
                       L"(re-read when it changes). Events show in the clock's month calendar and in widgets such as Agenda.");
-        NextRow(22);
-        Section(kCalSection, L"Feeds");
+        NextRow(24);
         Add(kCalFeedList, CtlKind::List, WC_LISTVIEWW, L"Calendar feeds",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
         NextRow(kListH + 8);
-        Button(kCalRemove, L"Remove", kMargin, kButtonW);
-        Button(kCalRefreshNow, L"Refresh now", kMargin + kButtonW + 8, kButtonW);
+        // Round 8 phase 8D: "Add feed…" opens the form below (so does a double click on a feed).
+        Button(kCalNewFeed, L"Add feed\x2026", kMargin, kButtonW);
+        Tip(kCalNewFeed, L"Opens an empty form below. Double-click a feed to edit it; its check box turns it on or off.");
+        Button(kCalRemove, L"Remove", kMargin + kButtonW + 8, kButtonW);
+        Button(kCalRefreshNow, L"Refresh now", kMargin + 2 * (kButtonW + 8), kButtonW);
         NextRow();
-        Section(kCalEditSection, L"Add or edit a feed");
+        // Round 8 phase 8D: the form is a card whose heading is an expander, closed until Add
+        // feed… or a double click opens it.
+        UntitledCard();
+        HeadingExpander(kCalEditSection, L"Add or edit a feed");
         Label(kCalNameLabel, L"Name");
         EditBox(kCalNameEdit, kColX, right - kColX, 128);
         NextRow();
@@ -69,8 +75,10 @@ protected:
         Button(kCalAdd, L"Add feed", kMargin, kButtonW);
         Button(kCalSave, L"Save changes", kMargin + kButtonW + 8, kButtonW);
         NextRow(kRowH + 2);
-        Text(kCalFieldsNote, CtlKind::Note, L"", kMargin, right - kMargin, 20);
+        Ctl& fields = Text(kCalFieldsNote, CtlKind::Note, L"", kMargin, right - kMargin, 20);
+        fields.maxLines = 2;
         NextRow(22);
+        EndExpander();
         Section(kCalOptionsSection, L"Display");
         Check(kCalShowDots, kCalShowDotsCaption, L"Show dots on days with events (month calendar, clock)");
         NextRow();
@@ -123,6 +131,18 @@ protected:
         if (code != BN_CLICKED) return;
         CalendarsConfig& c = Cfg().calendars;
         switch (id) {
+            case kCalNewFeed: {
+                // Round 8 phase 8D: an empty form for a new feed (no feed selected), opened.
+                if (HWND list = Item(kCalFeedList)) {
+                    filling_ = true;
+                    ListView_SetItemState(list, -1, 0, LVIS_SELECTED | LVIS_FOCUSED);
+                    filling_ = false;
+                }
+                LoadFields(-1);
+                SetText(kCalFieldsNote, L"");
+                OpenForm(kCalNameEdit);
+                break;
+            }
             case kCalShowDots:
                 c.showDots = GetCheck(kCalShowDots);
                 Changed(SettingsScope::Calendars);
@@ -175,6 +195,16 @@ protected:
     }
 
     LRESULT OnNotify(const NMHDR& nm) override {
+        if (static_cast<int>(nm.idFrom) == kCalFeedList && nm.code == NM_DBLCLK && !Loading()) {
+            // Round 8 phase 8D: a double click on a feed opens the form with it.
+            const int row = reinterpret_cast<const NMITEMACTIVATE&>(nm).iItem;
+            if (row >= 0 && static_cast<size_t>(row) < Cfg().calendars.feeds.size()) {
+                LoadFields(row);
+                SetText(kCalFieldsNote, L"");
+                OpenForm(kCalNameEdit);
+            }
+            return 0;
+        }
         if (static_cast<int>(nm.idFrom) != kCalFeedList || nm.code != LVN_ITEMCHANGED || Loading() || filling_) return 0;
         const auto& change = reinterpret_cast<const NMLISTVIEW&>(nm);
         if (!(change.uChanged & LVIF_STATE)) return 0;
@@ -194,6 +224,14 @@ protected:
     }
 
 private:
+    // Opens the "Add or edit a feed" card, scrolls it into view and puts the focus on `focus`.
+    void OpenForm(int focus) {
+        SetExpander(kCalEditSection, true);
+        ScrollIntoView(kCalSave);
+        ScrollIntoView(kCalEditSection);
+        if (HWND h = Item(focus); h && IsWindowVisible(h)) SetFocus(h);
+    }
+
     int Selected() const {
         HWND list = Item(kCalFeedList);
         return list ? ListView_GetNextItem(list, -1, LVNI_SELECTED) : -1;

@@ -27,13 +27,17 @@ namespace {
 using namespace SettingsIds;
 
 constexpr wchar_t kCanvasClass[] = L"WinDock.LayoutCanvas";
-constexpr int kCanvasH = 230;          // DIPs
-constexpr int kListH = 132;            // the list of docks
+constexpr int kCanvasH = 200;          // DIPs (round 8 phase 8D: 230 until then; the page fits 760 x 560)
+constexpr int kListH = 120;            // the list of docks
 constexpr int kIdColDip = 170;
 constexpr int kEdgeColDip = 110;
 constexpr int kDisplayColDip = 130;
 constexpr int kButtonW = 114;  // round 8 phase 8A: four in a row fit beside the scroll bar
 constexpr int kButtonStep = 120;
+constexpr int kAddW = 96;      // round 8 phase 8D: the toolbar's "Add ▾"
+constexpr int kLockW = 122;    // ... and "Lock all docks" (its box and caption) at its right
+// The Add ▾ menu's "Standalone widget ▸" entries: kWidgetCmd + the catalog index.
+constexpr UINT kWidgetCmd = 0x7000;
 constexpr float kMarginDip = 8.0f;     // the dock's distance from the monitor edge (DockWindow kBottomMargin)
 constexpr float kSnapDip = 24.0f;      // snaps to the centre / an end this close (DockWindow kDockSnapDip)
 
@@ -182,33 +186,28 @@ protected:
         }
         const int right = Width() - kMargin;
         Title(L"Docks and displays");
-        Add(kLayoutCanvas, CtlKind::Custom, kCanvasClass, L"", WS_TABSTOP, RECT{kMargin, y_, right, y_ + kCanvasH});
-        NextRow(kCanvasH + 6);
-        Text(kLayoutSelected, CtlKind::Value, L"", kMargin, right - kMargin, 22);
-        NextRow(26);
+        Add(kLayoutCanvas, CtlKind::Custom, kCanvasClass, L"Docks and displays", WS_TABSTOP, RECT{kMargin, y_, right, y_ + kCanvasH});
+        NextRow(kCanvasH + 4);
+        // Round 8 phase 8A: one line; round 8 phase 8D: the whole explanation is the canvas's tooltip.
+        Ctl& hint = Text(kDocksNote, CtlKind::Note, L"Click a dock to select it, double-click to open it, drag to move it.",
+                         kMargin, right - kMargin, 20);
+        hint.maxLines = 2;
+        NextRow(24);
+        // Round 8 phase 8D: one toolbar: "Add ▾" (Dock, Floating dock, Folder window…, Standalone
+        // widget ▸), the selection / drop line, "Lock all docks" at the right.
+        Button(kDockAddMenu, L"Add \x25BE", kMargin, kAddW);
+        Text(kLayoutSelected, CtlKind::Value, L"", kMargin + kAddW + 12, right - kLockW - 8 - (kMargin + kAddW + 12));
+        Check(kLockAllDocks, kLockAllDocksCaption, L"Lock all docks", right - kLockW);
+        NextRow(kRowH + 4);
         Add(kDocksList, CtlKind::List, WC_LISTVIEWW, L"Docks",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | LVS_SHAREIMAGELISTS,
             RECT{kMargin, y_, right, y_ + kListH});
         NextRow(kListH + 8);
-        Button(kDockAdd, L"Add dock", kMargin, kButtonW);
+        // The selected row's actions.
+        Button(kDocksOpen, L"Open settings", kMargin, kButtonW);
         Button(kDockDuplicate, L"Duplicate", kMargin + kButtonStep, kButtonW);
         Button(kDockRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW);
         NextRow(kRowH + 4);
-        Button(kDocksOpen, L"Open dock settings", kMargin, kButtonW + 28);
-        Button(kLockAllDocks, L"Lock all docks", kMargin + kButtonStep + 28, kButtonW);
-        Button(kUnlockAllDocks, L"Unlock all docks", kMargin + 2 * kButtonStep + 28, kButtonW);
-        NextRow(kRowH + 4);
-        // Round 6 phase 6A: a floating bar on the desktop layer (useful for folders and files).
-        Button(kDockAddFloating, L"Add floating dock", kMargin, 128);
-        // Round 6 phase 6B: a widget by itself on the desktop (a menu of the installed widgets).
-        Button(kDockAddWidget, L"Add standalone widget…", kMargin + 136, 150);
-        // Round 8 phase 8A: the adds in one row (it fits the minimum width beside the scroll bar).
-        Button(kDockAddFolder, L"Add folder window…", kMargin + 294, 128);
-        NextRow(kRowH + 4);
-        // Round 8 phase 8A: one line; the whole explanation is its tooltip.
-        Text(kDocksNote, CtlKind::Note,
-             L"Click a dock to select it, double-click it (or its row) to open it, drag it to move it.", kMargin,
-             right - kMargin, 20);
         static constexpr wchar_t kDocksTip[] =
             L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
             L"it (or its row) to open its own settings window; drag it along its edge (it snaps to the centre and the "
@@ -218,8 +217,13 @@ protected:
             L"folder on the desktop, under your windows. A floating dock sits anywhere on its display (on the desktop "
             L"until you choose another layer): drag it where you want it. A standalone widget is one widget in a "
             L"window of its own on the desktop (under your windows unless you choose another layer).";
+        Tip(kLayoutCanvas, kDocksTip);
         Tip(kDocksNote, kDocksTip);
-        NextRow(22);
+        static constexpr wchar_t kLockTip[] =
+            L"Checked while every dock and standalone widget is locked (folder windows have no lock). Check it to lock "
+            L"them all, clear it to unlock them all; each one's own Lock is in its window's header.";
+        Tip(kLockAllDocks, kLockTip);
+        Tip(kLockAllDocksCaption, kLockTip);
     }
 
     void OnResized() override { OnStyleChanged(); }  // round 8 phase 8A: the list's columns
@@ -255,7 +259,14 @@ protected:
         const Ctl* c = Find(kDocksList);
         const int scrollBar = GetSystemMetricsForDpi(SM_CXVSCROLL, Window().Dpi());
         const int total = Window().Px(c->dip.right - c->dip.left) - scrollBar - 4;
-        const int id = Window().Px(kIdColDip), edge = Window().Px(kEdgeColDip), display = Window().Px(kDisplayColDip);
+        int id = Window().Px(kIdColDip), edge = Window().Px(kEdgeColDip), display = Window().Px(kDisplayColDip);
+        // Round 8 phase 8D: a narrow window shares the room (no horizontal scroll bar).
+        if (const int room = total - Window().Px(80); room > 0 && id + edge + display > room) {
+            const int fixed = id + edge + display;
+            id = id * room / fixed;
+            edge = edge * room / fixed;
+            display = display * room / fixed;
+        }
         ListView_SetColumnWidth(list, 0, id);
         ListView_SetColumnWidth(list, 1, edge);
         ListView_SetColumnWidth(list, 2, display);
@@ -285,11 +296,14 @@ protected:
         return 0;
     }
 
-    void OnCommand(int id, int code, HWND) override {
+    void OnCommand(int id, int code, HWND ctl) override {
         if (code != BN_CLICKED) return;
         Config& c = Cfg();
         const size_t sel = SelectedCfg();
         switch (id) {
+            case kDockAddMenu:
+                ShowAddMenu();
+                break;
             case kDockAdd:
             case kDockAddFloating:
             case kDockDuplicate:
@@ -315,51 +329,92 @@ protected:
                 if (Host().command) Host().command(ContextMenu::kNewFolderWindow);  // the picker, then a refresh
                 break;
             case kDockAddWidget: {
-                // Round 6 phase 6B: which widget (a menu of the catalog under the button).
-                const std::wstring wid = PickWidget();
-                if (wid.empty()) return;
-                const size_t added = Host().addWidgetWindow ? Host().addWidgetWindow(wid, SIZE_MAX, true) : SIZE_MAX;
-                if (added == SIZE_MAX) {
-                    MessageBeep(MB_ICONWARNING);
-                    return;
-                }
-                if (added < c.docks.size()) Window().SelectDock(c.docks[added].id);
-                Window().Refresh();
+                // Round 6 phase 6B: which widget (round 8 phase 8D: as a command, the catalog in a
+                // menu under Add ▾; the Add ▾ menu has it as a submenu).
+                const std::vector<Widgets::CatalogEntry> catalog = Widgets::Catalog();
+                HMENU menu = CreatePopupMenu();
+                if (!menu) return;
+                AppendWidgets(menu, catalog);
+                const UINT cmd = TrackUnderAdd(menu);
+                DestroyMenu(menu);
+                if (cmd >= kWidgetCmd && cmd - kWidgetCmd < catalog.size()) AddWidget(catalog[cmd - kWidgetCmd].id);
                 break;
             }
             case kDocksOpen:
                 OpenCfg(sel);
                 break;
             case kLockAllDocks:
-            case kUnlockAllDocks:
-                if (Host().command) {
-                    Host().command(id == kLockAllDocks ? ContextMenu::kLockAllDocks : ContextMenu::kUnlockAllDocks);
-                }
+            case kUnlockAllDocks: {
+                // Round 8 phase 8D: the check box (its state says which) or a command (lParam 0:
+                // 2806 locks, 2807 unlocks every entry).
+                const bool lock = ctl ? GetCheck(kLockAllDocks) : id == kLockAllDocks;
+                if (Host().command) Host().command(lock ? ContextMenu::kLockAllDocks : ContextMenu::kUnlockAllDocks);
                 break;
+            }
             default:
                 break;
         }
     }
 
 private:
-    // "Add standalone widget…": the catalog's widgets in a menu under the button ("": cancelled).
-    std::wstring PickWidget() {
-        const std::vector<Widgets::CatalogEntry> catalog = Widgets::Catalog();
-        HWND button = Item(kDockAddWidget);
-        HMENU menu = CreatePopupMenu();
-        if (!button || !menu || catalog.empty()) {
-            if (menu) DestroyMenu(menu);
-            return {};
-        }
+    // The installed widgets as menu items kWidgetCmd + k.
+    static void AppendWidgets(HMENU menu, const std::vector<Widgets::CatalogEntry>& catalog) {
         for (size_t k = 0; k < catalog.size() && k < 400; ++k) {
-            AppendMenuW(menu, MF_STRING, 1 + static_cast<UINT>(k), catalog[k].name.c_str());
+            AppendMenuW(menu, MF_STRING, kWidgetCmd + static_cast<UINT>(k), catalog[k].name.c_str());
         }
+        if (catalog.empty()) AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"No widgets installed");
+    }
+
+    // A menu under the Add ▾ button; the chosen command (0: none).
+    UINT TrackUnderAdd(HMENU menu) {
+        HWND button = Item(kDockAddMenu);
         RECT r{};
-        GetWindowRect(button, &r);
-        const UINT cmd = static_cast<UINT>(
+        if (button) {
+            GetWindowRect(button, &r);
+        } else {
+            POINT pt{};
+            GetCursorPos(&pt);
+            r = RECT{pt.x, pt.y, pt.x, pt.y};
+        }
+        return static_cast<UINT>(
             TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, r.left, r.bottom, Owner(), nullptr));
+    }
+
+    // Round 8 phase 8D: "Add ▾": Dock, Floating dock, Folder window…, Standalone widget ▸ (the
+    // old buttons' ids as the commands).
+    void ShowAddMenu() {
+        const std::vector<Widgets::CatalogEntry> catalog = Widgets::Catalog();
+        HMENU menu = CreatePopupMenu();
+        HMENU widgets = CreatePopupMenu();
+        if (!menu || !widgets) {
+            if (menu) DestroyMenu(menu);
+            if (widgets) DestroyMenu(widgets);
+            return;
+        }
+        AppendWidgets(widgets, catalog);
+        AppendMenuW(menu, MF_STRING, kDockAdd, L"Dock");
+        AppendMenuW(menu, MF_STRING, kDockAddFloating, L"Floating dock");
+        AppendMenuW(menu, MF_STRING, kDockAddFolder, L"Folder window\x2026");
+        AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(widgets), L"Standalone widget");  // destroyed with its parent
+        const UINT cmd = TrackUnderAdd(menu);
         DestroyMenu(menu);
-        return cmd >= 1 && cmd - 1 < catalog.size() ? catalog[cmd - 1].id : std::wstring();
+        if (cmd >= kWidgetCmd && cmd - kWidgetCmd < catalog.size()) {
+            AddWidget(catalog[cmd - kWidgetCmd].id);
+        } else if (cmd == kDockAdd || cmd == kDockAddFloating || cmd == kDockAddFolder) {
+            OnCommand(static_cast<int>(cmd), BN_CLICKED, nullptr);
+        }
+    }
+
+    // A standalone widget of widget `wid` on the primary display (its window opens).
+    void AddWidget(const std::wstring& wid) {
+        Config& c = Cfg();
+        const size_t added = Host().addWidgetWindow ? Host().addWidgetWindow(wid, SIZE_MAX, true) : SIZE_MAX;
+        if (added == SIZE_MAX) {
+            MessageBeep(MB_ICONWARNING);
+            return;
+        }
+        if (added < c.docks.size()) Window().SelectDock(c.docks[added].id);
+        Window().Refresh();
     }
 
     // A filled circle in the dock's colour (the list's dot) as an image list entry.
@@ -454,13 +509,14 @@ private:
         InvalidateRect(list, nullptr, TRUE);
         filling_ = false;
         const bool folderSel = n > 0 && !c.docks[static_cast<size_t>(sel)].IsDock();  // a folder window or a standalone widget
-        SetText(kDocksOpen, folderSel ? L"Open window settings" : L"Open dock settings");
         const auto plainDocks = std::count_if(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return d.IsDock(); });
         Enable(kDockRemove, n > 1 && (folderSel || plainDocks > 1));
-        bool anyLocked = false, anyUnlocked = false;
-        for (const DockConfig& d : c.docks) (d.locked ? anyLocked : anyUnlocked) = true;
-        Enable(kLockAllDocks, anyUnlocked);
-        Enable(kUnlockAllDocks, anyLocked);
+        // Round 8 phase 8D: one check box for Lock all / Unlock all (mixed: unchecked). A folder
+        // window has no lock of its own (its `locked` is never saved): it does not count.
+        const bool lockable = std::any_of(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });
+        SetCheck(kLockAllDocks, lockable && std::all_of(c.docks.begin(), c.docks.end(), [](const DockConfig& d) {
+                                    return d.IsFolderWindow() || d.locked;
+                                }));
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(list);
     }
 

@@ -2234,6 +2234,11 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         }
         case 266:  // round 6 phase 6E: live widget instances in the runtime (previews never count: none outlives its render)
             return static_cast<LRESULT>(docks_.Widgets().Instances().size()) + docks_.Previews().Alive();
+        case 279: {  // round 8 phase 8D: the Global window's nav row of the active page (0 General, 1 Docks and displays, ... 8 About; -2 no Global window)
+            SettingsWindow* w = FindSettings(SettingsKind::Global);
+            if (!w || !w->Hwnd()) return -2;
+            return w->NavDisplayIndex(w->ActivePageIndex());
+        }
         case 269: {  // round 6 phase 6E: Global > Widget library's preview panel: its bitmap size (MAKELONG px; 0 none; -2 no Global window)
             SettingsWindow* w = FindSettings(SettingsKind::Global);
             LRESULT out = -2;

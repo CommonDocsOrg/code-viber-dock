@@ -30,26 +30,27 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Notifications");
-        // Round 8 phase 8A: one-line notes and hints, the explanations as their tooltips.
-        Text(kNotifCentreNote, CtlKind::Note,
-             L"The notification centre is a widget: drag it onto a dock from that dock's Contents tab.", kMargin,
-             right - kMargin, 20);
+        // Round 8 phase 8A: one-line notes and hints, the explanations as their tooltips; round 8
+        // phase 8D: in cards (Centre, Access, Badges per app).
+        Section(kNotifCentreSection, L"Centre");
+        Ctl& centre = Text(kNotifCentreNote, CtlKind::Note, L"A widget: drag it onto a dock from that dock's Contents tab.",
+                           kMargin, right - kMargin, 20);
+        centre.maxLines = 2;
         Tip(kNotifCentreNote,
             L"The notification centre is a widget (a bell with the unread count; a click opens the list: click a "
             L"notification to open its app, the cross or Delete dismisses it, Clear all dismisses every one): drag it "
             L"onto a dock from the Contents tab of that dock's own window, where the Behaviour tab has its badges. The "
             L"scriptable Notification bell widget opens the same list (its \"A click opens\" setting).");
-        NextRow(22);
-        Check(kNotifBalloons, kNotifBalloonsCaption, L"Show tray balloons in the centre instead of Windows toasts");
-        NextRow(kRowH);
-        Text(kNotifBalloonsNote, CtlKind::Note, L"With the tray takeover on (Tray icons).", kMargin + kCaptionDx,
-             right - kMargin - kCaptionDx, 20);
+        NextRow(24);
+        Check(kNotifBalloons, kNotifBalloonsCaption, L"Tray balloons in the centre instead of Windows toasts",
+              L"With the tray takeover on (Tray icons)", kNotifBalloonsNote);
         static constexpr wchar_t kBalloonsTip[] =
             L"With the tray takeover on (Tray icons): an app's tray balloon becomes a notification of the dock's list "
             L"(and badges that app); Windows no longer shows it as a toast.";
+        Tip(kNotifBalloons, kBalloonsTip);
         Tip(kNotifBalloonsCaption, kBalloonsTip);
         Tip(kNotifBalloonsNote, kBalloonsTip);
-        NextRow(22);
+        NextRow();
         Check(kNotifClearOnActivate, kNotifClearOnActivateCaption, L"Clear an app's badge when it is opened from the dock");
         NextRow();
         Label(kNotifPollLabel, L"Check for notifications every", L"Only while something needs it", kNotifPollNote);
@@ -75,7 +76,8 @@ protected:
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
         NextRow(kListH + 8);
-        Text(kNotifAppsNote, CtlKind::Note, L"Unchecked apps never show a badge (on any dock).", kMargin, right - kMargin, 20);
+        Ctl& apps = Text(kNotifAppsNote, CtlKind::Note, L"Unchecked apps never show a badge (on any dock).", kMargin, right - kMargin, 20);
+        apps.maxLines = 2;
         Tip(kNotifAppsNote, L"The apps on every dock and every app with a notification now. Unchecked apps never show a "
                             L"badge (on any dock).");
         NextRow(22);

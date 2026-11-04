@@ -31,9 +31,10 @@ namespace {
 using namespace SettingsIds;
 namespace json = winrt::Windows::Data::Json;
 
-constexpr int kListH = 220;
+constexpr int kListH = 180;    // round 8 phase 8D: 220 until then (the page fits 760 x 560)
 constexpr int kButtonW = 140;  // round 8 phase 8A: three in a row fit the minimum width
 constexpr int kButtonStep = 146;
+constexpr int kMoreW = 96;     // round 8 phase 8D: "More ▾"
 constexpr int kDefaultItemW = 600;  // an Item window's default width (DIPs): what a field's hint is measured for
 constexpr UINT_PTR kPlaceTimer = 1; // round 8 phase 8C: the place search's typing pause
 constexpr UINT kPlacePauseMs = 400;
@@ -219,15 +220,11 @@ protected:
         PreviewPanel::Register();
         Add(kWidgetsPreview, CtlKind::Custom, PreviewPanel::kClass, L"Preview", 0, RECT{kMargin, y_, right, y_ + 124});
         NextRow(124 + 10);
+        // Round 8 phase 8D: the adds, then "More ▾" (Add from folder…, Export built-in to folder,
+        // Reload widgets, Open widgets folder, Console…: the old buttons' ids as its commands).
         Button(kWidgetsAddToDock, L"Add to dock", kMargin, kButtonW);
         Button(kWidgetsAddToDesktop, L"Add to the desktop", kMargin + kButtonStep, kButtonW);  // round 6 phase 6B
-        Button(kWidgetsAddFolder, L"Add from folder…", kMargin + 2 * kButtonStep, kButtonW);
-        NextRow(kRowH + 4);
-        Button(kWidgetsExport, L"Export built-in to folder", kMargin, kButtonW);
-        NextRow(kRowH + 4);
-        Button(kWidgetsReload, L"Reload widgets", kMargin, kButtonW);
-        Button(kWidgetsOpenFolder, L"Open widgets folder", kMargin + kButtonStep, kButtonW);
-        Button(kWidgetsConsole, L"Console…", kMargin + 2 * kButtonStep, kButtonW);
+        Button(kWidgetsMore, L"More \x25BE", kMargin + 2 * kButtonStep, kMoreW);
         NextRow(kRowH + 4);
         Text(kWidgetsStatus, CtlKind::Value, L"", kMargin, right - kMargin);
         NextRow(kRowH);
@@ -263,7 +260,11 @@ protected:
         if (!list) return;
         const Ctl* c = Find(kWidgetsList);
         const int total = Window().Px(c->dip.right - c->dip.left) - GetSystemMetricsForDpi(SM_CXVSCROLL, Window().Dpi()) - 4;
-        const int widths[] = {Window().Px(170), Window().Px(130), Window().Px(110)};
+        int widths[] = {Window().Px(170), Window().Px(130), Window().Px(110)};
+        // Round 8 phase 8D: a narrow window shares the room (no horizontal scroll bar).
+        if (const int room = total - Window().Px(64), fixed = widths[0] + widths[1] + widths[2]; room > 0 && fixed > room) {
+            for (int& w : widths) w = w * room / fixed;
+        }
         for (int i = 0; i < 3; ++i) ListView_SetColumnWidth(list, i, widths[i]);
         ListView_SetColumnWidth(list, 3, std::max(Window().Px(60), total - widths[0] - widths[1] - widths[2]));
     }
@@ -285,6 +286,9 @@ protected:
         if (code != BN_CLICKED) return;
         const Widgets::CatalogEntry* sel = Selected();
         switch (id) {
+            case kWidgetsMore:
+                ShowMoreMenu();
+                break;
             case kWidgetsAddToDock: {
                 if (!sel) return;
                 const std::wstring wid = sel->id, name = sel->name;  // Refresh refills the catalog
@@ -315,7 +319,7 @@ protected:
                 AddFromFolder();
                 break;
             case kWidgetsExport: {
-                if (!sel || !sel->builtIn) return;
+                if (!ExportAllowed(sel)) return;
                 std::wstring folder, error;
                 const std::wstring name = sel->name, wid = sel->id;
                 if (Widgets::ExportBuiltIn(wid, folder, error)) {
@@ -347,6 +351,40 @@ protected:
     }
 
 private:
+    // Export built-in to folder: a built-in that no folder replaces yet.
+    static bool ExportAllowed(const Widgets::CatalogEntry* sel) {
+        return sel && sel->builtIn && sel->source == Widgets::Package::Source::BuiltIn;
+    }
+
+    // Round 8 phase 8D: "More ▾" under its button (the old buttons' ids as the commands).
+    void ShowMoreMenu() {
+        HWND button = Item(kWidgetsMore);
+        HMENU menu = CreatePopupMenu();
+        if (!button || !menu) {
+            if (menu) DestroyMenu(menu);
+            return;
+        }
+        AppendMenuW(menu, MF_STRING, kWidgetsAddFolder, L"Add from folder\x2026");
+        AppendMenuW(menu, MF_STRING | (ExportAllowed(Selected()) ? 0 : MF_GRAYED), kWidgetsExport, L"Export built-in to folder");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, kWidgetsReload, L"Reload widgets");
+        AppendMenuW(menu, MF_STRING, kWidgetsOpenFolder, L"Open widgets folder");
+        AppendMenuW(menu, MF_STRING, kWidgetsConsole, L"Console\x2026");
+        RECT r{};
+        GetWindowRect(button, &r);
+        const int cmd = static_cast<int>(
+            TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_LEFTALIGN | TPM_TOPALIGN, r.left, r.bottom, Owner(), nullptr));
+        DestroyMenu(menu);
+        if (cmd > 0) OnCommand(cmd, BN_CLICKED, nullptr);
+    }
+
+    // The plain docks (not folder windows or standalone widgets): "Add to dock" adds to the only
+    // one, or shows a menu of them ("Add to dock ▾").
+    size_t PlainDocks() {
+        const auto& docks = Cfg().docks;
+        return static_cast<size_t>(std::count_if(docks.begin(), docks.end(), [](const DockConfig& d) { return d.IsDock(); }));
+    }
+
     // "Add to dock": the only dock, or (with several) the one chosen in a small menu of dock ids
     // under the button. SIZE_MAX: cancelled / none.
     size_t PickDock() {
@@ -394,7 +432,7 @@ private:
         }
         Enable(kWidgetsAddToDock, sel != nullptr);
         Enable(kWidgetsAddToDesktop, sel != nullptr);
-        Enable(kWidgetsExport, sel && sel->builtIn && sel->source == Widgets::Package::Source::BuiltIn);
+        SetText(kWidgetsAddToDock, PlainDocks() > 1 ? L"Add to dock \x25BE" : L"Add to dock");  // round 8 phase 8D
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kWidgetsList));
     }
 

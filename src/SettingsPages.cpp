@@ -165,6 +165,15 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"General");
+        // Round 8 phase 8D: where the per-dock settings are, as a line under the title (it was the
+        // System card's last row); the cards below are the app's own settings.
+        EndCard();
+        Ctl& where = Text(kPositionNote, CtlKind::Note, L"Each dock's own settings are in its own window: right-click the dock > Dock settings\x2026",
+                          kMargin, right - kMargin, 20);
+        where.maxLines = 2;
+        Tip(kPositionNote, L"Each dock's own settings (its items, position, behaviour, running apps and theme) are in its "
+                           L"own window: right-click the dock and choose Dock settings…, or open it from Docks and displays.");
+        NextRow(38);
         Section(kSectionStartup, L"System");
         Check(kStartWithWindows, kStartWithWindowsCaption, L"Start with Windows");
         NextRow();
@@ -176,12 +185,6 @@ protected:
                             L"back to software when that fails; Software (WARP) needs less memory.");
         Combo(kRendererCombo, kColX, right - kColX, false);
         NextRow();
-        Text(kPositionNote, CtlKind::Note,
-             L"Each dock's own settings are in its own window: right-click the dock > Dock settings…", kMargin,
-             right - kMargin, 20);
-        Tip(kPositionNote, L"Each dock's own settings (its items, position, behaviour, running apps and theme) are in its "
-                           L"own window: right-click the dock and choose Dock settings…, or open it from Docks and displays.");
-        NextRow(22);
         // Round 6 phase 6A.
         Section(kSectionDashboard, L"Dashboard");
         Label(kDashboardHotkeyLabel, L"Hotkey", L"Click, then press the keys", kDashboardNote);

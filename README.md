@@ -257,20 +257,21 @@ monitor (its `monitor` index; an `"each"` dock stays on every monitor, `"primary
 `"primary"`). An outline shows where it will go; the dock moves and the config is saved when the
 button is released (Escape or a lost capture cancels). A full-width dock only changes edge /
 monitor. The list under the drawing shows the docks (a dot in the dock's colour, id, edge,
-display, whether it is shown or parked), adds one (`id` `"dock"`, `"dock2"` ..., bottom of the
-primary monitor, the running apps and the clock), duplicates or removes the selected one (never the
-last) and opens its window (**Open dock settings**, or a double click on the row). **Each dock is
-edited in its own window** (round 5: Dock settings…; its items, position, behaviour, running apps
-and theme preset); the selected row is only what that page's Duplicate, Remove and Open dock
-settings act on: no Global page edits one dock (round 5). Each dock has an identity colour (`docks[].color`, `#AARRGGBB`; not
+display, whether it is shown or parked), adds one (**Add ▾** > **Dock**: `id` `"dock"`, `"dock2"`
+..., bottom of the primary monitor, the running apps and the clock), duplicates or removes the
+selected one (never the last) and opens its window (**Open settings**, or a double click on the
+row). **Each dock is edited in its own window** (round 5: Dock settings…; its items, position,
+behaviour, running apps and theme preset); the selected row is only what that page's Open
+settings, Duplicate and Remove act on: no Global page edits one dock (round 5). Each dock has an identity colour (`docks[].color`, `#AARRGGBB`; not
 set: blue, orange, green, purple, pink, teal by its place in `docks`, repeating) used by its
 window's header and caption, its row and its drawing. The dock menu of each dock (and the tray
 menu, for the first dock) acts on that dock; with more than one dock it also has **Lock all docks**
-/ **Unlock all docks** (`WinDock.DockCommand` 124 / 125; Docks and displays has the same buttons).
+/ **Unlock all docks** (`WinDock.DockCommand` 124 / 125; Docks and displays has the **Lock all
+docks** check box, round 8 phase 8D).
 Folder windows (round 4 phase 12, [Desktop folder windows](#desktop-folder-windows)) are `docks[]`
-entries too: the list shows them (Edge: "Folder window", the folder after the state) with **Add
-folder window…**, Remove (the last plain dock cannot be removed while folder windows remain) and
-**Open window settings**, and the drawing shows them as rectangles that can be dragged to another
+entries too: the list shows them (Edge: "Folder window", the folder after the state) with **Add ▾**
+> **Folder window…**, Remove (the last plain dock cannot be removed while folder windows remain)
+and **Open settings**, and the drawing shows them as rectangles that can be dragged to another
 place or display (moving only; they are resized on the desktop).
 
 ### Position: edge, alignment, offset
@@ -520,7 +521,7 @@ is a bar: `"floating"` with another `shape` reads as not floating.
   windows follow). Escape or a lost capture cancels; a press without a move is an ordinary click
   (on an icon's band: that icon). Global settings > Docks and displays drags it too (its top-left,
   kept on that display's work area).
-- **New floating dock**: Global settings > Docks and displays > **Add floating dock** (a bar dock
+- **New floating dock**: Global settings > Docks and displays > **Add ▾** > **Floating dock** (a bar dock
   `floating`, layer `"desktop"`, centred on the primary display, the running apps and the clock;
   useful for folders and files), or check **Floating** on a dock's Position tab (it keeps its
   layer). Its header and the Docks and displays drawing show it as a small bar where it is.
@@ -1067,10 +1068,10 @@ write and edit without compiling anything. The full reference (every call, every
   settings…** in the dock menu over it, or **Settings…** on its tile in Dock
   settings > Contents); changes apply at once.
   Global settings > **Widget library** lists the installed widgets (built-in / folder) with **Add to dock**,
-  **Add from folder…**, **Export built-in to folder** (to edit a copy), **Reload widgets**, **Open
-  widgets folder** and **Console…**.
+  **Add to the desktop** and **More ▾** (round 8 phase 8D: **Add from folder…**, **Export built-in
+  to folder** (to edit a copy), **Reload widgets**, **Open widgets folder** and **Console…**).
 - **Developing**: `"watch": true` reloads a folder widget when one of its files changes (no
-  polling); the **Console** (Global settings > Widget library, the dock menu's Widget console…) shows every
+  polling); the **Console** (Global settings > Widget library > More ▾, the dock menu's Widget console…) shows every
   widget's state and log with Reload / Open folder / Clear. **Export built-in to folder** copies a
   built-in with its sub-folders (the analog clock's `faces\`) and a README.md stub.
 - **Examples**: this repository's `examples\` folder: `minimal` (one line of text), `http-json` (a
@@ -1302,7 +1303,7 @@ Notifications ("Let apps access your notifications") is on; the access is checke
 A folder window (round 4 phase 12, Fences-like) shows a folder's contents in a titled panel on the
 desktop: under every window, above the wallpaper and the desktop icons. Add one from the dock or
 tray menu (**New folder window…**: pick a folder, the window opens at the pointer) or on Global
-settings > Docks and displays (**Add folder window…**); each is a `docks[]` entry of kind `"folderWindow"` (see
+settings > Docks and displays (**Add ▾** > **Folder window…**); each is a `docks[]` entry of kind `"folderWindow"` (see
 [Configuration](#configuration)).
 
 - **The window**: the folder's name (or `title`) in the title bar, the theme's acrylic (the dock's
@@ -1356,7 +1357,7 @@ settings > Docks and displays (**Add folder window…**); each is a `docks[]` en
   the entries over the wallpaper, their names and the title with a dark shadow), `rollUpOnHover`
   (a collapsed window expands while the pointer is over it and collapses again 400 ms after it
   left; not saved). The folder window's own settings window edits all of its keys (Global settings > Docks and
-  displays: **Open window settings**, or WinDock.DockCommand 143); changes apply at once.
+  displays: **Open settings**, or WinDock.DockCommand 143); changes apply at once.
 - **Where it lives**: the window is a top-level window directly above the desktop window
   (Progman). Its z-order is locked: activation, a click and `SetWindowPos(HWND_TOP)` leave it where
   it is; it goes back above the desktop when the desktop takes the foreground and after Explorer
@@ -1371,8 +1372,8 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
 
 - **Add one**: the widget drawer's **Desktop** button on a script widget's row (Dock settings >
   Contents: it opens on that dock's display), Global settings > Widget library > **Add to the
-  desktop**, or Global settings > Docks and displays > **Add standalone widget…** (a menu of the
-  installed widgets). It gets the manifest's default size (`standalone.defaultWidth` /
+  desktop**, or Global settings > Docks and displays > **Add ▾** > **Standalone widget ▸** (a
+  submenu of the installed widgets). It gets the manifest's default size (`standalone.defaultWidth` /
   `defaultHeight`; else 200 x 200, or twice the dock size hint of a wide widget), the layer
   "behind" and the centre of the display; its own settings window opens.
 - **The window is the widget's box**: the script sees `dock.standalone === true`, `dock.width` /
@@ -1429,9 +1430,9 @@ but the configuration, and opening one that is already open brings it to the fro
   opens it), `WinDock.DockCommand` 107 and **⋯** > **Global settings…** in a dock's window header open it.
   Its title bar reads "WinDock settings", a line over the pages "Global · applies to every dock".
 - **Dock settings** (one per dock; any number open): one dock only. **Dock settings…** in that
-  dock's menu, **Open dock settings** (or a double click) on Global > Docks and displays, and
-  `WinDock.DockCommand` 143 open it. A desktop folder window has the same kind of window (**Open
-  window settings**) with only its Folder window page.
+  dock's menu, **Open settings** (or a double click) on Global > Docks and displays, and
+  `WinDock.DockCommand` 143 open it. A desktop folder window has the same kind of window with
+  only its Folder window page.
 - **Item settings** (one per item; any number open): one widget, clock, weather, tray, folder or
   group item. **Settings…** in a folder's / group's menu, **<name> settings…** at the top of the
   dock menu opened over a widget, clock, weather or tray item, the tray menu's **Tray settings…**,
@@ -1467,26 +1468,53 @@ window's width, so nothing clips or overlaps. An **expander** ("▸ More: …", 
 Enter on it, or a click) shows rows that are seldom needed, closed whenever the window opens:
 Behaviour > Auto-hide has one for the hide and reveal delays, Position one for the seldom used
 bar settings (round 8 phase 8B), a Place one for its name and coordinates (**Edit coordinates**,
-8C).
+8C). Round 8 phase 8D: a card can be headed by an expander ("▸ Bar · 2 changed" / "▾ Bar · 2
+changed", like a card title with a chevron): it keeps its text when open and its card shrinks to
+the heading when closed (the Themes field groups, Calendar feeds' Add or edit a feed).
 
 Keyboard: the Global window's page list switches pages with Up / Down / Home / End while it has
-the focus, a Dock window's tab strip with Left / Right / Home / End; **Ctrl+Tab** / **Ctrl+Shift+Tab**
-go to the next / previous page or tab from anywhere in the window. Tab moves into the page, Esc
+the focus (in the order it lists them), a Dock window's tab strip with Left / Right / Home / End;
+**Ctrl+Tab** / **Ctrl+Shift+Tab** go to the next / previous page or tab from anywhere in the
+window. Tab moves into the page, Esc
 closes the window, Enter applies the text in an edit box.
 
-**The Global window** (pages in its left column):
+**The Global window** (pages in its left column; round 8 phase 8D: grouped under small captions:
+**GENERAL** General, Docks and displays; **LOOK** Themes, Animation; **DATA** Calendar feeds,
+Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
 
-- **General**: Start with Windows, Hide the Windows taskbar, the renderer (`auto` / `software`;
-  takes effect after WinDock restarts, the page shows the one in use), the **Dashboard** section
-  (round 6 phase 6A: the hotkey box (click it and press the combination; Backspace / Delete clears
-  it), whether the hotkey is registered, **Show the dashboard now**; see Dashboard). Round 8 phase
-  8A: **Open config file** / **Reload config** are on About only (General's Configuration file
+- **General**: a line under the title on where each dock's own settings are, then a **System**
+  card (Start with Windows, Hide the Windows taskbar, the renderer (`auto` / `software`; takes
+  effect after WinDock restarts, its hint shows the one in use)) and a **Dashboard** card (round
+  6 phase 6A: the hotkey box (click it and press the combination; Backspace / Delete clears it),
+  whether the hotkey is registered, **Show the dashboard now**; see Dashboard). Round 8 phase 8A:
+  **Open config file** / **Reload config** are on About only (General's Configuration file
   section is gone).
-- **Themes**: the global theme (the built-in presets, then your theme files from the themes folder
-  by name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
-  **Open themes folder**, **Reset all to preset**, and one row per theme field (see
-  [Themes](#themes)) grouped as Bar, Name label, Indicator dots, Clock, Placeholder icon, Window
-  previews, Icon effects and Notification badges. A colour row has a swatch (click it for the
+- **Docks and displays**: a drawing of every display (its work area shaded) with every dock on its
+  edge in the dock's colour and every folder window, a one-line hint under it (the whole
+  explanation is the drawing's tooltip), a toolbar and under it the list of docks and folder
+  windows (a dot in the dock's colour, id and title, edge, display, state: shown / parked /
+  locked). Click a dock in the drawing to select it and its row, double-click it (or its row) to
+  open its own window; drag it along its edge (it snaps to the centre and the ends), onto another
+  edge or onto another display: it moves when you let go. Round 8 phase 8D: the toolbar has
+  **Add ▾** (a menu: **Dock**, **Floating dock** (round 6 phase 6A), **Folder window…**,
+  **Standalone widget ▸** (6B: a submenu of the installed widgets)), the selected dock's line
+  (while dragging: where it would drop) and at the right **Lock all docks**, a check box that is
+  checked while every dock and standalone widget is locked (folder windows have no lock; a mix
+  shows it unchecked): checking it locks them all, clearing it unlocks them all. Under the list,
+  for the selected row: **Open settings**, **Duplicate**, **Remove**. A floating dock is drawn as
+  its bar where it is (labelled with its layer); dragging it sets its `x` / `y`. A standalone
+  widget is a small rounded box where its window is (its name inside, or under it when
+  selected), listed as "Standalone widget" with its widget and size; dragging it moves it (its
+  display too).
+- **Themes**: a **Theme** card with the global theme (the built-in presets, then your theme files
+  from the themes folder by name; a `preset` that is not found is listed as "<id> (missing)"; its
+  hint counts your changes: "3 values changed") and a **⋯** button (round 8 phase 8D: a menu with
+  **Export current theme…**, **Open themes folder** and **Reset all to preset**, greyed while
+  nothing is changed), then one card per group of theme fields (see [Themes](#themes)): Bar, Name
+  label, Indicator dots, Notification badges, Clock, Placeholder icon, Window previews, Icon
+  effects. Each card's heading opens and closes it and counts its changed fields ("Bar · 2
+  changed"); Bar is open when the window opens, the others closed (each window remembers what
+  you opened until it closes). A colour row has a swatch (click it for the
   Windows colour picker; it replaces the colour and keeps the alpha), the `#AARRGGBB` value
   (applied on Enter or when the box loses the focus; an invalid value beeps and goes back) and the
   alpha 0-255. On / off keys are check boxes, numbers are number boxes with their unit (DIPs;
@@ -1494,41 +1522,38 @@ closes the window, Enter applies the text in an edit box.
   the glow mode is a drop-down (Off, While hovered, Active app, Always). **Icon effects** holds the
   glow (mode, colour, radius, strength), the reflection (on / off, **Clip the reflection to the
   bar** right under it, height, opacity) and the 3D perspective (on / off, angle); see
-  [Icon effects](#icon-effects). A dock's own preset is on its window's Appearance tab.
+  [Icon effects](#icon-effects). A changed field shows a small **↺** at the end of its row (its
+  tooltip: "Reset to the preset's value"). A dock's own preset is on its window's Appearance tab.
 - **Animation**: speed (Off, then 0.25× to 4× on a logarithmic slider), hide style (slide and
   fade, slide, fade, none), launch feedback (bounce until the app opens, hop once, pulse, none),
   magnification falloff (smooth / linear), easing (ease out, linear, spring), the name label fade
   (0-1000 ms) and reduce motion (follow Windows, on, off; the page shows whether Windows'
   animation effects are on). See [Animation](#animation).
-- **Calendar feeds** (round 4 phase 13): the calendar feeds (a check box enables / disables each;
-  the status per feed: when it was updated and how many events, or the error and when it retries),
-  fields to add a feed or edit the selected one (name, address or file, colour `#AARRGGBB`, the
-  refresh interval, the reminder minutes, enabled) with **Add feed** / **Save changes**,
-  **Remove**, **Refresh now**, **Show dots on days with events** and the **Default reminder**.
-- **Tray icons** (round 4 phase 8): show the notification area icons in the dock (unchecking it is
-  Reset to Explorer), **Put the tray in its own dock** (a new dock; see System tray) with its result
-  line, and a note: each tray item's grid and icons are in that item's own window.
-- **Notifications** (round 4 phase 9): tray balloons in the centre, clear on activate, the poll
-  interval, Windows' access status, badges per app (every dock's apps; see Notifications and
-  badges). A dock's badges and its notification centre are on its window's Behaviour tab.
+- **Calendar feeds** (round 4 phase 13; round 8 phase 8D in three cards): **Feeds** (a one-line
+  note, the calendar feeds (a check box enables / disables each; the status per feed: when it was
+  updated and how many events, or the error and when it retries), **Add feed…**, **Remove**,
+  **Refresh now**), **Add or edit a feed** (closed until **Add feed…** opens it empty or a double
+  click on a feed opens it with that feed; its heading opens / closes it too: name, address or
+  file, colour `#AARRGGBB`, the refresh interval, the reminder minutes, enabled, **Add feed** /
+  **Save changes** and their result line; selecting a feed fills it as before) and **Display**
+  (**Show dots on days with events**, the **Default reminder**).
+- **Notifications** (round 4 phase 9; round 8 phase 8D in cards): **Centre** (where the centre
+  widget comes from, tray balloons in the centre with its hint, clear on activate, the poll
+  interval), **Access** (Windows' access status, **Open Windows settings**, a line on Do not
+  disturb), **Badges per app** (every dock's apps; see Notifications and badges). A dock's badges
+  and its notification centre are on its window's Behaviour tab.
+- **Tray icons** (round 4 phase 8; round 8 phase 8D one **Notification area** card): show the
+  notification area icons in the dock (with its hint; unchecking it is Reset to Explorer), a line:
+  each tray item's grid and icons are in that item's own window, **Put the tray in its own dock**
+  (a new dock; see System tray) with its result line.
 - **Widget library**: the installed script widgets (name, id, built-in / folder, version), the
   selected one's live preview (round 6 phase 6E, fitted into 240 x 120 DIPs) beside its
-  description, with **Add to dock** (with several docks a small menu asks which), **Add to the desktop** (round 6
-  phase 6B: a [standalone widget](#standalone-widgets) of the selected one), **Add from folder…**, **Export
-  built-in to folder**, **Reload widgets**, **Open widgets folder** and **Console…** (see
-  **Widgets** above).
-- **Docks and displays**: a drawing of every display (its work area shaded) with every dock on its
-  edge in the dock's colour and every folder window, and under it the list of docks and folder
-  windows (a dot in the dock's colour, id and title, edge, display, state: shown / parked /
-  locked). Click a dock in the drawing to select it and its row, double-click it (or its row) to
-  open its own window; drag it along its edge (it snaps to the centre and the ends), onto another
-  edge or onto another display: it moves when you let go. Buttons: **Add dock**, **Duplicate**,
-  **Remove**, **Add folder window…**, **Open dock settings** (**Open window settings** for a folder
-  window), **Lock all docks**, **Unlock all docks**, **Add floating dock** (round 6 phase 6A),
-  **Add standalone widget…** (6B: a menu of the installed widgets). A floating dock is drawn as its
-  bar where it is (labelled with its layer); dragging it sets its `x` / `y`. A standalone widget is
-  a small rounded box where its window is (its name inside, or under it when selected), listed as
-  "Standalone widget" with its widget and size; dragging it moves it (its display too).
+  description, with **Add to dock** (with several docks it reads **Add to dock ▾** and a small
+  menu asks which), **Add to the desktop** (round 6 phase 6B: a [standalone
+  widget](#standalone-widgets) of the selected one) and **More ▾** (round 8 phase 8D: a menu with
+  **Add from folder…**, **Export built-in to folder** (greyed unless a built-in that no folder
+  replaces is selected), **Reload widgets**, **Open widgets folder** and **Console…**; see
+  **Widgets** above), and the last action's result line.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, and the renderer in use.
 
@@ -1719,9 +1744,9 @@ moves over it (no timers).
 
 **Theme overrides.** Choosing a theme sets `theme.preset` and clears every override. A theme field
 you change on the Themes page becomes an override: it is saved inline in config.json next to
-`"preset"` (only overridden fields are saved) and its **Reset** button appears; Reset copies the
-preset's value back and removes the field from config.json. **Reset all to preset** does that for
-every field. **Export current theme…** saves all 33 resolved values plus a `name` (the file name)
+`"preset"` (only overridden fields are saved) and its **↺** button appears (round 8 phase 8D; a
+**Reset** button until then); ↺ copies the preset's value back and removes the field from
+config.json. **⋯** > **Reset all to preset** does that for every field. **Export current theme…** saves all 33 resolved values plus a `name` (the file name)
 as a theme file, by default into the themes folder (created on demand); a file saved there becomes
 the preset at once, with no overrides left. A theme file named after a built-in id (`dark.json`,
 ...) is ignored, so for a built-in preset the suggested name is `my-<id>`.
@@ -2337,7 +2362,10 @@ always there, also when every dock is parked) handle these registered messages:
   `WM_KEYDOWN`). Settings: the Global window's page 3 Calendar feeds: 4300 the feed list (check boxes = enabled; columns Name,
   Address, Every, Status), 4302 name, 4304 address / file, 4306 colour, 4309 / 4310 interval, 4323
   enabled, 4312 Add feed, 4313 Save changes, 4314 Remove, 4315 Refresh now, 4316 Show dots, 4319 the
-  fields' note (errors), 4326 / 4327 the feed's reminder minutes, 4330 / 4331 the default reminder.
+  fields' note (errors), 4326 / 4327 the feed's reminder minutes, 4330 / 4331 the default reminder;
+  round 8 phase 8D: 4334 Add feed… (empties the fields and opens them), 4321 the heading expander
+  of the fields' card (closed when the window opens; QueryState 276; the fields stay drivable
+  while it is closed).
   Reminders (13b): `QueryState` 178 = reminders pending (timed events ahead on feeds with reminders,
   not fired yet, plus snoozed ones), 179 = 1 while this dock's reminder banner is shown, 180 =
   seconds until the reminder timer fires (-1 none), 181 = reminders fired this session, 182 =
@@ -2630,12 +2658,18 @@ always there, also when every dock is parked) handle these registered messages:
   whose control id is `LOWORD(lParam)` is open, 0 while it is closed (looked up in the Dock window
   of dock `HIWORD(lParam)`, then that dock's Item windows, then the Global window; -1: no such
   expander in any of them). The expanders so far: Behaviour's 2269, Position's 2272 (8B), a Place
-  field's Edit coordinates 3630 (8C; an Item window of the dock, or a standalone widget's window).
+  field's Edit coordinates 3630 (8C; an Item window of the dock, or a standalone widget's window),
+  and in the Global window (8D) the Themes group headings 2410 Bar, 2411 Name label, 2412
+  Indicator dots, 2421 Notification badges, 2413 Clock, 2414 Placeholder icon, 2415 Window
+  previews, 2417 Icon effects (Bar open when the window opens, the others closed) and Calendar
+  feeds' Add or edit a feed 4321.
   Round 8 phase 8B, a Dock window (dock `HIWORD(lParam)`; -2 for each while it is not open): 277
   = the Position tab's placement kind as shown (its Kind drop-down 2271: 0 bar on an edge, 1
   floating bar, 2 half circle, 3 circle); 278 = the Contents drawer's rows in group
   `LOWORD(lParam)` as shown (0 Apps and folders, 1 Built in, 2 Script widgets; filtered by the
-  search; -1 another group).
+  search; -1 another group). Round 8 phase 8D: 279 = the Global window's nav row of the active
+  page in display order (0 General, 1 Docks and displays, 2 Themes, 3 Animation, 4 Calendar
+  feeds, 5 Notifications, 6 Tray icons, 7 Widget library, 8 About; -2 no Global window).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
@@ -2664,7 +2698,10 @@ always there, also when every dock is parked) handle these registered messages:
   would land in while a tile or a drawer row is dragged over the strip (the marker; -1 none).
   `DockCommand` 107 / 143 / 142 open them, `ItemCommand` 854 an item's from its slot. The frame's
   children: 100 the Global page list (`WinDock.SettingsNav`; its window text is the selected
-  page's name), 102 the header band (`WinDock.SettingsBand`; its window text is the header's
+  page's name; round 8 phase 8D: it lists the pages in groups, not by index (GENERAL: General,
+  Docks and displays; LOOK: Themes, Animation; DATA: Calendar feeds, Notifications, Tray icons;
+  WIDGETS: Widget library; About), Up / Down / Home / End and Ctrl+Tab follow that order, and a
+  posted `WM_KEYDOWN` Home, then n Downs selects row n; QueryState 279 reads the row), 102 the header band (`WinDock.SettingsBand`; its window text is the header's
   summary: Global "Global · applies to every dock", a dock "main · Bottom edge · Primary · 4
   items · Shown[ · Locked]", an item "Clock · Two · on main · item 3 of 4"), 103 a Dock window's
   tab strip (`WinDock.SettingsTabs`; window text = the selected tab), 104 an Item window's footer
@@ -2734,7 +2771,37 @@ always there, also when every dock is parked) handle these registered messages:
   header's third line has the path; a group's member line stays); the standalone page's info
   line 4500, its Widget card 4501 - 4503 and **Open widget settings** 4504 (the Widget tab is that
   page; DockCommand 142 opens it), its size note 4519 and move note 4529 (now the Width label's /
-  Locked check box's hints). Any
+  Locked check box's hints). **Removed / moved controls (8D)**, the Global window, with their
+  replacements: Docks and displays' Add dock 2801, Add floating dock 2811, Add folder window…
+  2808 and Add standalone widget… 2812 (the **Add ▾** button 2814's menu: Dock = 2801, Floating
+  dock = 2811, Folder window… = 2808, Standalone widget ▸ = a submenu of the installed widgets;
+  `WM_COMMAND(2801 / 2811 / 2808, 0)` with `lParam` 0 to the page still adds (2808 opens the folder
+  picker: post it), 2812 shows the widget menu under Add ▾), Lock all docks 2806 and Unlock all
+  docks 2807 (one check box, 2806 with its caption 2813: checked while every dock and standalone
+  widget is locked (folder windows have no lock), unchecked when mixed; `BM_CLICK` on it locks /
+  unlocks every entry by its new state; `WM_COMMAND(2806, 0)` locks and `WM_COMMAND(2807, 0)`
+  unlocks every entry); Open dock settings / Open window settings 2810 is **Open settings** (same
+  id); the paragraph note 2804 is the one-line hint under the canvas (the canvas 2900 has the whole
+  text as its tooltip); Themes' Export current theme… 2403, Open themes folder 2404 (a SysLink
+  until 8D) and Reset all to preset 2405 (the **⋯** button 2424's menu; `WM_COMMAND(id, 0)` runs
+  them; 2403 opens the save dialog: post it; 2405 is greyed in the menu with nothing overridden),
+  the field groups' section headers 2410 - 2417 / 2421 (each now the group card's heading
+  expander, the same id: "Bar · 2 changed"; QueryState 276; `WM_COMMAND(id, BN_CLICKED)` with
+  its window toggles it), a field's Reset button `3000 + 10 k + 5` (now a 24 DIP "↺", the same id
+  and behaviour, tooltip "Reset to the preset's value"), 2406 the Theme label's hint now counts
+  the overrides ("3 values changed", "The preset's values"); the Widget library's Add from
+  folder… 3501, Export built-in to folder 3502, Reload widgets 3503, Open widgets folder 3504
+  and Console… 3505 (the **More ▾** button 3511's menu; `WM_COMMAND(id, 0)` runs them; 3501
+  opens a folder picker: post it; 3502 is greyed unless a built-in that no folder replaces is
+  selected); 3506 reads "Add to dock ▾" while there are several docks; Calendar feeds' "Add or
+  edit a feed" section header 4321 (now the heading expander of the form's card, closed when the
+  window opens; QueryState 276), the new **Add feed…** 4334 (empties the form, opens it) and a
+  double click on a feed (`NM_DBLCLK` of 4300: a posted `WM_LBUTTONDBLCLK` on its row does it)
+  opens it filled with that feed; the note 4318 is the Feeds card's first row; Tray icons' note
+  4102 is the check box's hint, the page is the card 4129 "Notification area"; Notifications'
+  balloons note 4207 is that check box's hint and the page's cards are 4224 Centre (new), 4215
+  Access, 4220 Badges per app; General's 2148 (`kPositionNote`) is a line under the page title
+  (it was the System card's last row). Any
   page takes a menu command this way: `WM_COMMAND` with `lParam` 0 reaches the page's handler as
   `BN_CLICKED` of that id. An Item window 0 its page (the
   generated one, a tray item's grid page
@@ -2786,7 +2853,8 @@ always there, also when every dock is parked) handle these registered messages:
   `MOD_*` bits and `lParam` = the virtual key records that combination, as App does when the
   registered hotkey is pressed while the box has the focus), 2197 the registration line, 2198 Show
   the dashboard now; Docks and displays 2811 Add floating dock, 2812 Add standalone widget… (6B: a
-  popup menu of the catalog, ids 1..n in the Widget library's order); Widget library 3509 Add to the
+  popup menu of the catalog in the Widget library's order; round 8 phase 8D: both are Add ▾ 2814's
+  menu commands, see Removed / moved controls (8D)); Widget library 3509 Add to the
   desktop (6B); a standalone widget's window page (6B, `SettingsIds` 4500 - 4531; round 8 phase
   8C: the Window tab, page 1 (201), in the cards 4505 Place and size and 4520 Layer and look; tab
   0 (200) is the Widget tab, the generated page above): 4507 display, 4509 / 4511 x / y (empty:
@@ -2813,16 +2881,21 @@ always there, also when every dock is parked) handle these registered messages:
   Reload config: removed in 8A, About has them); Docks and displays = 2900 the canvas (class `WinDock.LayoutCanvas`; its window
   text lists every dock instance as `index:config index:monitor:left,top,right,bottom;` in canvas
   client pixels, `-` for a parked one; a click selects the row, a double click opens the dock's
-  window), 2902 the selected dock / where a drag would drop it, 2800 the list (Dock with the
-  colour dot, Edge, Display, Windows; the selected row is what Duplicate, Remove and Open dock
-  settings act on, nothing else; a double click opens its window), 2801 Add dock, 2802 Duplicate,
-  2803 Remove, 2806 Lock all docks, 2807 Unlock all docks, 2808 Add folder window…, 2810 Open dock
-  settings / Open window settings (2805 and 2809 are retired); Tray icons and Notifications: see
+  window; round 8 phase 8D: the long explanation is its tooltip), 2804 the hint under it, the
+  toolbar 2814 Add ▾ (a menu, press it with a posted `BM_CLICK`), 2902 the selected dock / where a
+  drag would drop it (beside Add ▾), 2806 / 2813 the Lock all docks check box, 2800 the list
+  (Dock with the colour dot, Edge, Display, Windows; the selected row is what Open settings,
+  Duplicate and Remove act on, nothing else; a double click opens its window), 2810 Open
+  settings, 2802 Duplicate, 2803 Remove; menu commands 2801 Dock, 2811 Floating dock, 2808 Folder
+  window…, 2812 Standalone widget, 2806 lock all, 2807 unlock all (2805 and 2809 are retired);
+  Tray icons and Notifications: see
   Tray and Notifications above (4122 / 4223, the "which dock" lines, are retired); Widget library = the Widgets page (3510 the preview panel
   `WinDock.WidgetPreviewPanel`, its window text "Preview: <name>" (6E); 3500 list: Name, Id, Source,
-  Version; 3501 Add from folder…, 3502 Export built-in to folder, 3503 Reload widgets, 3504 Open
-  widgets folder, 3505 Console…, 3506 Add to dock (with several docks a popup menu of dock ids:
-  press it with `PostMessage`), 3508 the last action's result); the generated page (an Item
+  Version; 3506 Add to dock (with several docks a popup menu of dock ids, its caption then "Add
+  to dock ▾": press it with `PostMessage`), 3509 Add to the desktop, 3511 More ▾ (round 8 phase
+  8D: a menu of 3501 Add from folder…, 3502 Export built-in to folder, 3503 Reload widgets, 3504
+  Open widgets folder, 3505 Console…, which were buttons until then), 3508 the last action's
+  result); the generated page (an Item
   window of a widget, clock or weather item; per schema field k `3700 + 10 * k + part`: 0 label, 1
   the control (check box, edit, drop-down), 2 the check box's caption or the int's up-down, 3 the
   field's hint (round 8 phase 8C: one line under the label or the check box's caption, the whole
@@ -2843,7 +2916,11 @@ always there, also when every dock is parked) handle these registered messages:
   their caption is a separate static (id + 1) that forwards clicks. The Themes page's theme
   field rows use `3000 + 10 * field index + part` (ids 3000 - 3399; field index in
   `Theme::Fields()` order; part 0 label, 1 swatch / check box, 2 hex box / check box caption,
-  3 alpha or value box (the glow mode's drop-down), 4 its up-down, 5 Reset, 6 unit). The preview strip is the child `WinDock.SettingsPreview` (control id 101).
+  3 alpha or value box (the glow mode's drop-down), 4 its up-down, 5 Reset (round 8 phase 8D: the
+  "↺" button, shown only while the field is overridden), 6 unit); round 8 phase 8D: each group is
+  a card whose heading is an expander with the group's section id (2410 Bar ... 2417 Icon
+  effects, 2421 Notification badges; a field in a closed group is hidden, still drivable), 2424
+  the ⋯ button beside the theme drop-down 2402. The preview strip is the child `WinDock.SettingsPreview` (control id 101).
 - `WinDock.ItemCommand`: `wParam` = a per-item command (800 pin/unpin toggle (a separator's
   Remove), 801 new window (the Recycle Bin's Open), 802 open file location, 803 open a folder in
   Explorer, 804 Choose icon… and 808 Choose image… (they open their dialog; sent rather than

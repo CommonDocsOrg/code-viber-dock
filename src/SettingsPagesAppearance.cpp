@@ -163,22 +163,22 @@ protected:
         labelW_ = kThemeLabelW;
         constexpr int cx = kThemeColX;
         Section(kSectionTheme, L"Theme");
-        Label(kThemeLabel, L"Theme", L"Changes below override it", kThemeNote);
-        Tip(kThemeLabel, L"A change below overrides the theme (saved in config.json); Reset brings back the theme's value. "
-                         L"Colours are #AARRGGBB, the number next to them is the alpha (0 clear, 255 opaque). A dock with "
-                         L"a theme of its own (its Dock settings > Appearance) uses it under these changes, which apply to "
-                         L"every dock.");
-        Combo(kThemeCombo, cx, right - cx, false);
-        NextRow();
-        Button(kExportTheme, L"Export current theme…", cx, 176);
-        NextRow();
-        Button(kResetAllTheme, L"Reset all to preset", cx, 176);
-        NextRow();
-        Link(kThemesFolderLink, L"<a>Open themes folder</a>", cx, right - cx);  // its own row (a narrow window)
+        // Round 8 phase 8D: the hint counts the changes; Export / Open folder / Reset all are the
+        // "⋯" menu's.
+        Label(kThemeLabel, L"Theme", L"The preset's values", kThemeNote);
+        Tip(kThemeLabel, L"A change below overrides the theme (saved in config.json); \x21BA brings back the theme's value, "
+                         L"\x22EF > Reset all to preset every one. Colours are #AARRGGBB, the number next to them is the "
+                         L"alpha (0 clear, 255 opaque). A dock with a theme of its own (its Dock settings > Appearance) "
+                         L"uses it under these changes, which apply to every dock.");
+        Combo(kThemeCombo, cx, right - kMoreW - 8 - cx, false);
+        Button(kThemeMore, L"\x22EF", right - kMoreW, kMoreW);
+        Tip(kThemeMore, L"Export current theme\x2026, Open themes folder, Reset all to preset");
         NextRow();
 
+        // One card per group, its heading an expander ("Bar · 2 changed"); Bar open at first.
         for (const FieldGroup& g : FieldGroups()) {
-            Section(g.sectionId, g.title);
+            UntitledCard();
+            HeadingExpander(g.sectionId, g.title, g.sectionId == kSectionFieldsBar);
             for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
             if (g.note) {
                 // One line (two at most); the whole note as its tooltip.
@@ -187,6 +187,7 @@ protected:
                 Tip(g.noteId, g.note);
                 NextRow(22);
             }
+            EndExpander();
         }
     }
 
@@ -203,7 +204,7 @@ protected:
             return;
         }
         for (size_t i = 0; i < Theme::FieldCount(); ++i) UpdateRow(static_cast<int>(i));
-        Enable(kResetAllTheme, Cfg().themeOverrides != 0);
+        UpdateCounts();
     }
 
 
@@ -234,8 +235,17 @@ protected:
             return;
         }
         if (code != BN_CLICKED) return;
+        if (id == kThemeMore) {
+            ShowThemeMenu();
+            return;
+        }
+        // Round 8 phase 8D: the ⋯ menu's commands (the old buttons' / link's ids).
         if (id == kExportTheme) {
             Export();
+            return;
+        }
+        if (id == kThemesFolderLink) {
+            OpenThemesFolder();
             return;
         }
         if (id == kResetAllTheme) {
@@ -244,9 +254,7 @@ protected:
             c.themeOverrides = 0;
             c.ResolveTheme();
             Changed(SettingsScope::Appearance);
-            const bool hadFocus = GetFocus() == Item(kResetAllTheme);
-            Load();  // disables the button
-            if (hadFocus) SetFocus(Item(kThemeCombo));
+            Load();  // hides every ↺
             return;
         }
         int field = 0, part = 0;
@@ -263,11 +271,6 @@ protected:
     }
 
     LRESULT OnNotify(const NMHDR& nm) override {
-        if (static_cast<int>(nm.idFrom) == kThemesFolderLink && (nm.code == NM_CLICK || nm.code == NM_RETURN)) {
-            EnsureThemesFolder();
-            AllowSetForegroundWindow(ASFW_ANY);
-            ShellExecuteW(nullptr, L"explore", Theme::Directory().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
-        }
         if (static_cast<int>(nm.idFrom) == kDockThemeLink && (nm.code == NM_CLICK || nm.code == NM_RETURN)) {
             if (Host().openGlobal) Host().openGlobal(kPageThemes);
         }
@@ -381,11 +384,12 @@ private:
     }
 
     static constexpr int kThemeLabelW = 156, kThemeColX = kMargin + kThemeLabelW + 8;  // round 8 phase 8A
+    static constexpr int kMoreW = 32;  // round 8 phase 8D: the "⋯" button beside the theme combo
 
     void FieldRowCtl(int field) {
         const Theme::FieldInfo& info = Theme::Fields()[field];
         const int right = Width() - kMargin;
-        constexpr int kResetW = 56, colX = kThemeColX;  // the page's own (narrower) columns
+        constexpr int kResetW = 24, colX = kThemeColX;  // the page's own (narrower) columns
         switch (info.kind) {
             case Theme::Kind::Color: {
                 Label(FieldRow(field, kFieldLabel), info.label);
@@ -413,8 +417,53 @@ private:
                 Combo(FieldRow(field, kFieldValue), colX, 168, false);
                 break;
         }
-        Button(FieldRow(field, kFieldReset), L"Reset", right - kResetW, kResetW);
+        // Round 8 phase 8D: a 24 DIP "↺" (was a "Reset" button), shown only while overridden.
+        Add(FieldRow(field, kFieldReset), CtlKind::Button, WC_BUTTONW, L"\x21BA", WS_TABSTOP | BS_PUSHBUTTON,
+            RECT{right - kResetW, y_ + 4, right, y_ + 4 + kResetW});
+        Tip(FieldRow(field, kFieldReset), L"Reset to the preset's value");
         NextRow();
+    }
+
+    // Round 8 phase 8D: each group's heading counts its overridden fields ("Bar · 2 changed") and
+    // the Theme label's hint all of them.
+    void UpdateCounts() {
+        const uint64_t over = Cfg().themeOverrides;
+        int total = 0;
+        for (const FieldGroup& g : FieldGroups()) {
+            int n = 0;
+            for (Field f : g.fields) n += (over & Theme::Bit(f)) ? 1 : 0;
+            total += n;
+            SetExpanderText(g.sectionId, n > 0 ? std::wstring(g.title) + L" \x00B7 " + std::to_wstring(n) + L" changed" : std::wstring(g.title));
+        }
+        SetText(kThemeNote, total == 0   ? std::wstring(L"The preset's values")
+                            : total == 1 ? std::wstring(L"1 value changed")
+                                         : std::to_wstring(total) + L" values changed");
+    }
+
+    // The ⋯ menu under its button: Export current theme…, Open themes folder, Reset all to preset.
+    void ShowThemeMenu() {
+        HWND button = Item(kThemeMore);
+        HMENU menu = CreatePopupMenu();
+        if (!button || !menu) {
+            if (menu) DestroyMenu(menu);
+            return;
+        }
+        AppendMenuW(menu, MF_STRING, kExportTheme, L"Export current theme\x2026");
+        AppendMenuW(menu, MF_STRING, kThemesFolderLink, L"Open themes folder");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING | (Cfg().themeOverrides == 0 ? MF_GRAYED : 0), kResetAllTheme, L"Reset all to preset");
+        RECT r{};
+        GetWindowRect(button, &r);
+        const int cmd = static_cast<int>(
+            TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTALIGN | TPM_TOPALIGN, r.right, r.bottom, Owner(), nullptr));
+        DestroyMenu(menu);
+        if (cmd > 0) OnCommand(cmd, BN_CLICKED, nullptr);
+    }
+
+    void OpenThemesFolder() {
+        EnsureThemesFolder();
+        AllowSetForegroundWindow(ASFW_ANY);
+        ShellExecuteW(nullptr, L"explore", Theme::Directory().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     }
 
     // Config -> one row (and its Reset button).
@@ -453,7 +502,7 @@ private:
         c.themeOverrides |= Theme::Bit(Theme::Fields()[field].field);
         Changed(SettingsScope::Appearance);
         UpdateRow(field);
-        Enable(kResetAllTheme, true);
+        UpdateCounts();
     }
 
     void SetColor(int field, uint32_t argb) {
@@ -502,8 +551,8 @@ private:
         c.ResolveTheme();  // copies the preset's value back (and only into fields without overrides)
         Changed(SettingsScope::Appearance);
         const bool hadFocus = GetFocus() == Item(FieldRow(field, kFieldReset));
-        UpdateRow(field);  // hides the Reset button
-        Enable(kResetAllTheme, c.themeOverrides != 0);
+        UpdateRow(field);  // hides the ↺ button
+        UpdateCounts();
         if (hadFocus) {
             // The keyboard focus stays on the row: its swatch / check box, or a float's number box.
             const Theme::Kind kind = Theme::Fields()[field].kind;

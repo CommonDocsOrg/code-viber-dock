@@ -208,6 +208,23 @@ void SettingsPage::Expander(int id, const wchar_t* text) {
     expander_ = id;
 }
 
+void SettingsPage::HeadingExpander(int id, const wchar_t* text, bool openAtFirst) {
+    if (openAtFirst && std::find(expanderDefaults_.begin(), expanderDefaults_.end(), id) == expanderDefaults_.end()) {
+        expanderDefaults_.push_back(id);
+        if (!ExpanderOpen(id)) openExpanders_.push_back(id);  // no relayout: the table is being built
+    }
+    // The first row of a card after another card (UntitledCard): like a Section it keeps the gap
+    // between the cards when the rows above it are gone (a closed card above).
+    const bool startsCard = card_ >= 0 && std::none_of(table_.begin(), table_.end(), [&](const Ctl& t) { return t.card == card_; });
+    const bool after = std::any_of(table_.begin(), table_.end(), [&](const Ctl& t) { return t.card >= 0 && t.card != card_; });
+    Ctl& c = Add(id, CtlKind::Expander, WC_BUTTONW, text, WS_TABSTOP | BS_OWNERDRAW,
+                 RECT{kMargin, y_ + 2, Width() - kMargin, y_ + kRowH - 2});
+    c.heading = true;
+    c.lo = startsCard && after ? 26 : 0;
+    NextRow();
+    expander_ = id;
+}
+
 void SettingsPage::EndExpander() {
     if (std::any_of(table_.begin(), table_.end(), [&](const Ctl& c) { return c.row == row_; })) ++row_;
     expander_ = 0;
@@ -439,6 +456,26 @@ void SettingsPage::SetExpander(int id, bool open) {
     }
     Relayout();
     if (HWND h = Item(id)) InvalidateRect(h, nullptr, TRUE);
+}
+
+void SettingsPage::SetExpanderText(int id, const std::wstring& text) {
+    for (Ctl& c : table_) {
+        if (c.id != id || c.kind != CtlKind::Expander || c.text == text) continue;
+        c.text = text;
+        if (!c.hwnd) return;
+        // The accessible name: a heading keeps its text, a "More" expander says "Less" while open.
+        if (c.heading || !ExpanderOpen(id)) SetWindowTextW(c.hwnd, text.c_str());
+        if (c.heading) {
+            InvalidateRect(c.hwnd, nullptr, TRUE);
+        } else {
+            Relayout();  // its width follows its text
+        }
+        return;
+    }
+}
+
+void SettingsPage::ScrollIntoView(int id) {
+    if (HWND h = Item(id)) window_.EnsureVisible(h);
 }
 
 int SettingsPage::NoteHeightDip(int id, int widthDip) const {
@@ -984,11 +1021,15 @@ void SettingsWindow::CreateFonts() {
         lf.lfCharSet = DEFAULT_CHARSET;
         wcscpy_s(lf.lfFaceName, L"Segoe UI");
     }
-    HFONT oldFont = font_, oldSemibold = fontSemibold_, oldTitle = fontTitle_, oldIcons = fontIcons_;
+    HFONT oldFont = font_, oldSemibold = fontSemibold_, oldTitle = fontTitle_, oldIcons = fontIcons_, oldCaption = fontCaption_;
     font_ = CreateFontIndirectW(&lf);
     LOGFONTW semibold = lf;
     semibold.lfWeight = FW_SEMIBOLD;
     fontSemibold_ = CreateFontIndirectW(&semibold);
+    // Round 8 phase 8D: the nav's group captions, a little smaller than the message font.
+    LOGFONTW caption = semibold;
+    caption.lfHeight = lf.lfHeight < 0 ? std::min(-1L, lf.lfHeight * 5 / 6) : -Px(10);
+    fontCaption_ = CreateFontIndirectW(&caption);
     LOGFONTW title = semibold;
     title.lfHeight = lf.lfHeight < 0 ? lf.lfHeight * 2 : -Px(24);
     fontTitle_ = CreateFontIndirectW(&title);
@@ -1026,13 +1067,13 @@ void SettingsWindow::CreateFonts() {
         SendMessageW(headerTip_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), FALSE);
         SendMessageW(headerTip_, TTM_SETMAXTIPWIDTH, 0, Px(360));
     }
-    for (HFONT f : {oldFont, oldSemibold, oldTitle, oldIcons}) {
+    for (HFONT f : {oldFont, oldSemibold, oldTitle, oldIcons, oldCaption}) {
         if (f) DeleteObject(f);
     }
 }
 
 void SettingsWindow::DestroyFonts() {
-    for (HFONT* f : {&font_, &fontSemibold_, &fontTitle_, &fontIcons_}) {
+    for (HFONT* f : {&font_, &fontSemibold_, &fontTitle_, &fontIcons_, &fontCaption_}) {
         if (*f) DeleteObject(*f);
         *f = nullptr;
     }
@@ -1374,7 +1415,7 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
     // right half moves (never over its row's other controls); a wide one stretches, and so does
     // a control that ends just before a moving one.
     for (const std::vector<size_t>& row : byRow) {
-        std::vector<char> move(row.size(), 0), stretch(row.size(), 0);
+        std::vector<char> move(row.size(), 0), stretch(row.size(), 0), follow(row.size(), 0);
         for (size_t k = 0; k < row.size(); ++k) {
             const Ctl& c = t[row[k]];
             if (c.base.right != buildRight) continue;
@@ -1384,11 +1425,20 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
                 stretch[k] = 1;
             }
         }
+        // Round 8 phase 8D: a check box / radio whose caption moves goes with it (Docks and
+        // displays' "Lock all docks" at the right of its toolbar).
         for (size_t k = 0; k < row.size(); ++k) {
-            if (move[k] || stretch[k]) continue;
+            const Ctl& c = t[row[k]];
+            if ((c.kind != CtlKind::Check && c.kind != CtlKind::Radio) || move[k] || stretch[k]) continue;
+            for (size_t m = 0; m < row.size(); ++m) {
+                if (move[m] && t[row[m]].id == c.buddy) follow[k] = 1;
+            }
+        }
+        for (size_t k = 0; k < row.size(); ++k) {
+            if (move[k] || stretch[k] || follow[k]) continue;
             const Ctl& c = t[row[k]];
             for (size_t m = 0; m < row.size(); ++m) {
-                if (move[m] && c.base.right <= t[row[m]].base.left && c.base.right >= t[row[m]].base.left - 16) stretch[k] = 1;
+                if ((move[m] || follow[m]) && c.base.right <= t[row[m]].base.left && c.base.right >= t[row[m]].base.left - 16) stretch[k] = 1;
             }
         }
         int fixedRight = INT_MIN;
@@ -1396,16 +1446,26 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
             Ctl& c = t[row[k]];
             c.dip = c.base;
             if (stretch[k]) c.dip.right = std::max(static_cast<int>(c.dip.left) + 8, static_cast<int>(c.base.right) + dx);
-            if (!move[k] && !stretch[k] && c.kind != CtlKind::Caption) fixedRight = std::max(fixedRight, static_cast<int>(c.base.right));
+            if (!move[k] && !stretch[k] && !follow[k] && c.kind != CtlKind::Caption) fixedRight = std::max(fixedRight, static_cast<int>(c.base.right));
         }
         for (size_t k = 0; k < row.size(); ++k) {
             if (!move[k]) continue;
             Ctl& c = t[row[k]];
             const int w = c.base.right - c.base.left;
             int left = c.base.left + dx;
-            if (fixedRight != INT_MIN) left = std::max(left, fixedRight + 8);
+            if (fixedRight != INT_MIN) left = std::max(left, fixedRight + 8 + (c.kind == CtlKind::Caption ? SettingsPage::kCaptionDx : 0));
             c.dip.left = left;
             c.dip.right = left + w;
+        }
+        for (size_t k = 0; k < row.size(); ++k) {
+            if (!follow[k]) continue;
+            Ctl& c = t[row[k]];
+            for (size_t m = 0; m < row.size(); ++m) {
+                const Ctl& cap = t[row[m]];
+                if (!move[m] || cap.id != c.buddy) continue;
+                const int shiftX = cap.dip.left - cap.base.left;
+                OffsetRect(&c.dip, shiftX, 0);
+            }
         }
         // Text never runs past the right margin (a narrow window): it wraps or ends with "…".
         for (size_t k : row) {
@@ -1434,7 +1494,8 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
         for (int n = r + 1; n < rows && nextTop == INT_MIN; ++n) {
             for (size_t i : byRow[static_cast<size_t>(n)]) {
                 nextTop = nextTop == INT_MIN ? static_cast<int>(t[i].base.top) : std::min(nextTop, static_cast<int>(t[i].base.top));
-                if (t[i].kind == CtlKind::Section) nextGap = t[i].lo;  // the gap between two cards (Section)
+                // The gap between two cards (a Section; round 8 phase 8D: a card's heading expander).
+                if (t[i].kind == CtlKind::Section || (t[i].kind == CtlKind::Expander && t[i].heading)) nextGap = t[i].lo;
             }
         }
         for (size_t i : row) {
@@ -1519,7 +1580,7 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
         }
         if (!first) continue;
         const int card = first->card;
-        const bool header = first->kind == CtlKind::Section;
+        const bool header = first->kind == CtlKind::Section || (first->kind == CtlKind::Expander && first->heading);
         bool line = false;
         switch (first->kind) {
             case CtlKind::Label:
@@ -1633,8 +1694,8 @@ void SettingsWindow::LayoutPage(SettingsPage& page) {
             GetTextExtentPoint32W(dc, c.text.c_str(), static_cast<int>(c.text.size()), &ext);
             r.right = std::min(r.right, r.left + ext.cx + Px(6));
         }
-        if (c.kind == CtlKind::Expander && dc) {
-            // As wide as its longer text ("▸ <text>" / "▾ Less").
+        if (c.kind == CtlKind::Expander && !c.heading && dc) {
+            // As wide as its longer text ("▸ <text>" / "▾ Less"; a heading: its whole row).
             const std::wstring closed = L"\x25B8 " + c.text, open = L"\x25BE Less";
             SIZE a{}, b{};
             GetTextExtentPoint32W(dc, closed.c_str(), static_cast<int>(closed.size()), &a);
@@ -2216,10 +2277,13 @@ void SettingsWindow::DrawExpander(const SettingsPage& page, const DRAWITEMSTRUCT
                       !IsRectEmpty(&page.cards_[static_cast<size_t>(c->card)].dip);
     FillRect(di.hDC, &di.rcItem, card ? cardBrush_ : layerBrush_);
     const bool open = page.ExpanderOpen(c->id);
-    const std::wstring text = open ? std::wstring(L"\x25BE Less") : L"\x25B8 " + c->text;
+    // Round 8 phase 8D: a heading keeps its text and reads like a section header.
+    const std::wstring text = c->heading ? (open ? L"\x25BE  " : L"\x25B8  ") + c->text
+                              : open     ? std::wstring(L"\x25BE Less")
+                                         : L"\x25B8 " + c->text;
     SetBkMode(di.hDC, TRANSPARENT);
-    SetTextColor(di.hDC, (di.itemState & ODS_DISABLED) ? palette_.textDisabled : palette_.link);
-    HGDIOBJ old = SelectObject(di.hDC, font_);
+    SetTextColor(di.hDC, (di.itemState & ODS_DISABLED) ? palette_.textDisabled : c->heading ? palette_.text : palette_.link);
+    HGDIOBJ old = SelectObject(di.hDC, c->heading ? fontSemibold_ : font_);
     RECT r = di.rcItem;
     r.left += Px(2);
     DrawTextW(di.hDC, text.c_str(), static_cast<int>(text.size()), &r, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
@@ -2242,7 +2306,8 @@ void SettingsWindow::ToggleExpander(SettingsPage& page, int id) {
     page.SetExpander(id, !page.ExpanderOpen(id));
     if (HWND h = page.Item(id)) {
         // The accessible name says what a press does.
-        SetWindowTextW(h, page.ExpanderOpen(id) ? L"Less" : page.Find(id)->text.c_str());
+        const Ctl* c = page.Find(id);
+        SetWindowTextW(h, page.ExpanderOpen(id) && !c->heading ? L"Less" : c->text.c_str());
         InvalidateRect(h, nullptr, TRUE);
         if (page.ExpanderOpen(id)) EnsureVisible(h);
     }
