@@ -223,6 +223,9 @@ inline constexpr int kMaxLengthSpin = 2266;
 inline constexpr int kMaxLengthNote = 2267;        // "0: no limit. Longer runs scroll (see Overflow)"
 // Round 7 phase 7B: the Position tab's note under Alignment.
 inline constexpr int kAlignNote = 2268;            // "Where the dock sits on its edge; with full width or anchored items, …"
+// Round 8 phase 8A: Behaviour > Auto-hide, the expander over Hide delay / Reveal delay
+// (QueryState 276 with this id: 1 while it is open).
+inline constexpr int kAutoHideMore = 2269;
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;

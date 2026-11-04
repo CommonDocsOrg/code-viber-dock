@@ -1,6 +1,7 @@
 // The Standalone widget page (round 6 phase 6B): a "widget" docks[] entry's own window (one page,
 // no tabs): which widget (its own settings are the generated Item page: item 0 of the entry),
-// display, position, size, layer, background, lock, flash. Every change applies at once.
+// display, position, size, layer, background, lock (round 8 phase 8A: Flash is the header's).
+// Every change applies at once.
 
 #include <windows.h>
 #include <commctrl.h>
@@ -28,8 +29,8 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Standalone widget");
-        Text(kWwInfo, CtlKind::Note, L"", kMargin, right - kMargin, 40);
-        NextRow(44);
+        Text(kWwInfo, CtlKind::Note, L"", kMargin, right - kMargin, 20);
+        NextRow(22);
         Section(kWwWidgetSection, L"Widget");
         Label(kWwWidgetLabel, L"Widget");
         Text(kWwWidgetName, CtlKind::Value, L"", kColX, right - kColX - 200);
@@ -39,15 +40,14 @@ protected:
         Label(kWwDisplayLabel, L"Display");
         Combo(kWwDisplayCombo, kColX, right - kColX, false);
         NextRow();
-        Label(kWwXLabel, L"Position x");
+        // Round 8 phase 8A: the notes are hints (kWwPositionNote, kWwLayerNote) and tooltips.
+        Label(kWwXLabel, L"Position x", L"DIPs; empty: centred", kWwPositionNote);
+        Tip(kWwXLabel, L"DIPs from the display's work area's top-left corner; empty: centred.");
         EditBox(kWwXEdit, kColX, kNumberW, 7);
         NextRow();
         Label(kWwYLabel, L"Position y");
         EditBox(kWwYEdit, kColX, kNumberW, 7);
         NextRow();
-        Text(kWwPositionNote, CtlKind::Note, L"DIPs from the display's work area's top-left corner; empty: centred.", kColX,
-             right - kColX, 22);
-        NextRow(26);
         Label(kWwWLabel, L"Width");
         IntSpin(kWwWEdit, kWwWSpin, kColX, kNumberW, WidgetWindowConfig::kMinSize, WidgetWindowConfig::kMaxSize, 8,
                 [](Config&, DockConfig& d) -> int& { return d.widgetWindow.w; }, SettingsScope::Appearance);
@@ -59,24 +59,25 @@ protected:
         Text(kWwSizeNote, CtlKind::Note, L"", kColX, right - kColX, 40);
         NextRow(42);
         Section(kWwLookSection, L"Layer and look");
-        Label(kWwLayerLabel, L"Layer");
+        Label(kWwLayerLabel, L"Layer", L"", kWwLayerNote);
+        Tip(kWwLayerLabel,
+            L"Normal: above every window, always. On the desktop, only while the desktop is showing: shown only while the "
+            L"desktop is in front (Win+D, a click on the wallpaper). On the desktop, under every window: always on the "
+            L"desktop, like folder windows. The dashboard hotkey brings the desktop layers to the front.");
         Combo(kWwLayerCombo, kColX, right - kColX, false);
         NextRow();
-        Text(kWwLayerNote, CtlKind::Note, L"", kColX, right - kColX, 40);
-        NextRow(42);
         Label(kWwBackgroundLabel, L"Background");
         Combo(kWwBackgroundCombo, kColX, right - kColX, false);
         NextRow();
         Check(kWwLocked, kWwLockedCaption, L"Locked (it can be neither moved nor resized)");
-        NextRow();
-        Button(kWwFlash, L"Flash this widget", kMargin, 160);
-        NextRow(kRowH + 6);
-        Text(kWwNote, CtlKind::Note,
-             L"Drag the widget with the left button to move it, drag its edges or corners to resize it (while it is "
-             L"unlocked); a click without moving is the widget's own. It snaps to the edges of the work area, to "
-             L"floating docks and to other standalone widgets. Right-click it for its menu.",
-             kMargin, right - kMargin, 60);
-        NextRow(64);
+        NextRow(kRowH);
+        // Round 8 phase 8A: "Flash this widget" (4528) is gone: the header has it.
+        Text(kWwNote, CtlKind::Note, L"Drag it to move it, its edges to resize it; right-click it for its menu.", kMargin,
+             right - kMargin, 20);
+        Tip(kWwNote, L"Drag the widget with the left button to move it, drag its edges or corners to resize it (while it is "
+                     L"unlocked); a click without moving is the widget's own. It snaps to the edges of the work area, to "
+                     L"floating docks and to other standalone widgets. Right-click it for its menu.");
+        NextRow(22);
     }
 
     void Created() override {
@@ -118,7 +119,7 @@ protected:
         SetComboSel(kWwBackgroundCombo, static_cast<int>(d.widgetWindow.background));
         SetCheck(kWwLocked, d.locked);
         for (int id : {kWwOpenWidget, kWwDisplayCombo, kWwXEdit, kWwYEdit, kWwWEdit, kWwWSpin, kWwHEdit, kWwHSpin, kWwLayerCombo,
-                       kWwBackgroundCombo, kWwLocked, kWwFlash}) {
+                       kWwBackgroundCombo, kWwLocked}) {
             Enable(id, ww);
         }
     }
@@ -162,9 +163,6 @@ protected:
                 d.locked = GetCheck(id);
                 Changed(SettingsScope::Appearance);  // the window and the script's dock.locked follow
                 return;
-            case kWwFlash:
-                if (Host().flashDock) Host().flashDock();
-                return;
             default:
                 return;
         }
@@ -186,17 +184,13 @@ protected:
     }
 
 private:
+    // The Layer label's hint (round 8 phase 8A: one line, the tooltip explains).
     static const wchar_t* LayerNote(DockLayer layer) {
         switch (layer) {
-            case DockLayer::Desktop:
-                return L"Shown only while the desktop is in front (Win+D, a click on the wallpaper). The dashboard hotkey "
-                       L"brings it to the front.";
-            case DockLayer::Normal:
-                return L"Above every window, always.";
+            case DockLayer::Desktop: return L"Only while the desktop shows";
+            case DockLayer::Normal: return L"Above every window";
             case DockLayer::Behind:
-            default:
-                return L"Always on the desktop, under every window (like folder windows). The dashboard hotkey brings it "
-                       L"to the front.";
+            default: return L"Under every window";
         }
     }
 

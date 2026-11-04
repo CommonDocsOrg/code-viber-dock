@@ -27,6 +27,7 @@ enum class SettingsScope {
     Calendars,   // config.calendars: DockManager::ConfigureCalendar
     Dashboard,   // config.dashboard: App registers the hotkey again (round 6 phase 6A)
     SaveOnly,    // read from the config when used (delays, renderer): just save
+    WindowSize,  // round 8 phase 8A: a settings window's size (config settings.windows): just save, no refresh
 };
 
 // Docks and displays page edits of config.docks (SettingsHost::editDocks).
@@ -197,10 +198,15 @@ enum class CtlKind {
     Swatch,    // owner-drawn push button (BS_OWNERDRAW): the page paints it in OnDrawItem
     List,      // SysListView32 (report view): dark items view theme, palette colours
     Custom,    // a window class of the page's own (it paints itself in the palette colours)
+    Expander,  // round 8 phase 8A: owner-drawn push button painted as a link ("▸ More…" / "▾ Less")
 };
 
 // One row of a page's layout table. Rects are in DIPs, page coordinates (unscrolled); the window
-// converts them on every layout pass (creation, DPI change, scrolling).
+// converts them on every layout pass (creation, DPI change, resizing, scrolling).
+// Round 8 phase 8A: `base` is the rect as built (at the build width) or as MoveCtl set it; the
+// reflow pass (SettingsWindow::Reflow) derives `dip` from it: rows move down / up by the measured
+// height of the notes above them, rows whose controls are all gone (Collapse, a closed expander)
+// take no height, and controls at the right margin follow the page's width.
 struct Ctl {
     int id = 0;
     CtlKind kind = CtlKind::Label;
@@ -209,9 +215,19 @@ struct Ctl {
     DWORD style = 0;
     DWORD exStyle = 0;
     RECT dip{};
-    int buddy = 0;  // Check / Radio: caption id; Caption: its button; Edit: its Spin; Spin: its Edit
+    RECT base{};
+    int buddy = 0;  // Check / Radio: caption id; Caption: its button; Edit: its Spin; Spin: its Edit; Label: its hint
     int lo = 0, hi = 0, step = 1;  // Trackbar / Spin range; Edit: max text length (hi)
     HWND hwnd = nullptr;
+    int row = -1;            // reflow row (-1: fixed: never moved by the reflow)
+    int card = -1;           // the card it sits in (SettingsPage::cards_; -1 none)
+    int expander = 0;        // the expander whose rows it is in (0 none)
+    int maxLines = 0;        // a measured note: at most this many lines (0 any)
+    bool measured = false;   // a multi-line Note / Value: its height is measured at layout time
+    bool collapsed = false;  // Collapse(): hidden and takes no height
+    bool shown = true;       // Show()
+    bool goneApplied = false;  // hidden by the window because it is gone (collapsed / closed expander)
+    std::wstring tip;       // Tip(): its tooltip (and accessible description)
 };
 
 // A page: a child window (WinDock.SettingsPage, WS_EX_CONTROLPARENT) holding the controls of its
@@ -269,7 +285,12 @@ protected:
     virtual void SelectItem(int /*item*/) {}
     // Paints on the page's background after it was filled (WM_ERASEBKGND / WM_PRINTCLIENT; page
     // client px, scrolled by ScrollPx()): frames and separators around controls (round 5 phase C).
-    virtual void PaintBackground(HDC /*dc*/) {}
+    // Round 8 phase 8A: the base paints the cards and their hairlines; a page that overrides it
+    // calls SettingsPage::PaintBackground first.
+    virtual void PaintBackground(HDC dc);
+    // The page's width changed (the window was resized), after its table was laid out again: list
+    // columns, custom layouts (round 8 phase 8A).
+    virtual void OnResized() {}
     // Automation (SettingsWindow::QueryPages): answer `code` into `out` and return true if the
     // page knows it.
     virtual bool Query(int /*code*/, LPARAM /*arg*/, LRESULT& /*out*/) { return false; }
@@ -281,11 +302,30 @@ protected:
     static constexpr int kRowH = 32;
     static constexpr int kRowGap = 2;
     static constexpr int kCaptionDx = 26;  // check box / radio -> its caption
+    static constexpr int kHintRowH = 46;   // a row whose label has a hint (Label(id, text, hint))
+    static constexpr int kCardPadX = 12;   // a card's edge from the controls' margin
     int Width() const;  // content width in DIPs
     Ctl& Add(int id, CtlKind kind, const wchar_t* cls, std::wstring text, DWORD style, RECT dip);
+    // The page's title (Global window only; round 8 phase 8A: a no-op in Dock and Item windows,
+    // where the tab or the header names the page: the content then starts at y = 16).
     void Title(const wchar_t* text);
+    // A section header; it opens a card (a rounded panel) that the next Section, EndCard() or the
+    // end of the table closes. Rows before the first Section get an untitled card of their own.
     void Section(int id, const wchar_t* text);
+    // Closes the open card: the rows after it are outside any card until the next Section.
+    void EndCard();
     void Label(int id, const wchar_t* text);
+    // A label with a one-line muted hint under it (the row is kHintRowH tall; the row's other
+    // controls are centred in it). `hintId` 0: an id of the page's own (not stable).
+    void Label(int id, const wchar_t* text, const wchar_t* hint, int hintId = 0);
+    // The full explanation of control `id` (and of its label's hint) as a multi-line tooltip.
+    void Tip(int id, std::wstring text);
+    // A link-styled toggle ("▸ <text>" / "▾ Less", Space / Enter) whose rows (up to EndExpander)
+    // are collapsed while it is closed (closed at first; per page instance, not saved).
+    void Expander(int id, const wchar_t* text);
+    void EndExpander();
+    // Lets the page lay itself out (MoveCtl): no reflow, no cards (the Contents tab).
+    void NoReflow() { reflow_ = false; }
     Ctl& Text(int id, CtlKind kind, std::wstring text, int x, int w, int h = kRowH);
     void Trackbar(int id, int x, int w, int lo, int hi, int page);
     void Spin(int editId, int spinId, int x, int w, int lo, int hi, int step);
@@ -301,8 +341,15 @@ protected:
     void Radios(std::initializer_list<RadioDef> radios, int x = kMargin);
     void Button(int id, const wchar_t* text, int x, int w);
     void Link(int id, std::wstring markup, int x, int w);
-    void NextRow(int h = kRowH + kRowGap) { y_ += h; }
+    // The next row: the cursor moves down by `h` (a hint row: by kHintRowH - kRowH more) and
+    // the controls added after it belong to the next reflow row.
+    void NextRow(int h = kRowH + kRowGap) {
+        if (hintRow_ == row_) h += kHintRowH - kRowH;
+        y_ += h;
+        ++row_;
+    }
     int y_ = 0;
+    int labelW_ = kLabelW;  // the label column's width (a page may narrow it: Themes)
 
     // --- helpers ---
     Config& Cfg();
@@ -326,6 +373,15 @@ protected:
     int GetTrack(int id) const;
     void Enable(int id, bool enable);
     void Show(int id, bool show);
+    // Hides control `id` and lets it take no height (a row whose controls are all collapsed
+    // disappears; the rows under it move up), or brings it back. Relayouts the page when it changed.
+    void Collapse(int id, bool hidden);
+    void Collapse(std::initializer_list<int> ids, bool hidden);
+    bool ExpanderOpen(int id) const;
+    void SetExpander(int id, bool open);
+    // A note's measured height in DIPs at `widthDip` (the page's own layouts, e.g. the Contents
+    // tab's inspector).
+    int NoteHeightDip(int id, int widthDip) const;
     // Moves control `id` to `dip` (page DIPs) in the table; Relayout() then applies the table to
     // the windows (and repaints the page's background).
     void MoveCtl(int id, RECT dip);
@@ -338,17 +394,44 @@ protected:
     bool ReadInt(int editId, int lo, int hi, int& value);
 
 private:
+    // A card (round 8 phase 8A): its controls carry its index (Ctl::card); `dip` is computed by
+    // the reflow from its visible controls (empty: nothing visible, not painted).
+    struct Card {
+        int section = 0;  // the header's control id (0: untitled)
+        RECT dip{};
+    };
+    // A hairline between two rows of a card (page DIPs, computed by the reflow).
+    struct Hairline {
+        int y = 0, left = 0, right = 0;
+    };
+    void ResetTable();  // before Build (again)
+
     SettingsWindow& window_;
     std::wstring name_;
     wchar_t glyph_ = 0;
     HWND hwnd_ = nullptr;
+    HWND tip_ = nullptr;  // the page's tooltip window (Tip; null: none)
     std::vector<Ctl> table_;
+    std::vector<Card> cards_;
+    std::vector<Hairline> hairlines_;
     int contentPx_ = 0;  // height of the content at the current DPI
     int scrollPx_ = 0;
+    int row_ = 0;           // the reflow row the builders add to
+    int hintRow_ = -1;      // the row whose label has a hint
+    int card_ = -1;         // the open card (-1 none)
+    bool autoCard_ = true;  // a control added with no card open opens an untitled one
+    int expander_ = 0;      // the open Expander (its rows: until EndExpander)
+    std::vector<int> openExpanders_;  // expanders the user opened (kept across a rebuild)
+    int nextAutoId_ = 0x6000;  // ids of hints without one of their own
+    int buildW_ = 0;        // Width() when the table was built (DIPs)
+    int layoutW_ = 0;       // Width() of the last layout (OnResized when it changes)
+    bool reflow_ = true;
+    bool scrollBar_ = false;  // the page scrolls: Width() leaves its scroll bar out (round 8 phase 8A)
 };
 
 // A settings window (WinDock.Settings; round 5 phase B: one of three kinds, SettingsKind): a
-// fixed-size top-level window showing one page at a time on a solid content layer. Global: a
+// resizable top-level window (round 8 phase 8A: its last size per kind in config settings.windows)
+// showing one page at a time on a solid content layer. Global: a
 // navigation column (WinDock.SettingsNav, Mica behind it where available) and a subtitle band;
 // Dock: an identity header (WinDock.SettingsBand) and a tab strip (WinDock.SettingsTabs); Item: a
 // header, the one page and a footer. Windows share nothing but the Config: each finds its dock by
@@ -438,6 +521,16 @@ public:
     void ConfigApplied();
     // The pages' width in DIPs (the client width less the nav column).
     int ContentWidthDip() const { return ClientDip().cx - (kind_ == SettingsKind::Global ? kNavWidthDip : 0); }
+    // Round 8 phase 8A: the live client size in DIPs (QueryState 275; the restored size while
+    // minimized).
+    SIZE ClientSizeDip() const { return ClientDip(); }
+    // QueryState 276: 1 while expander `id` of any page is open, 0 closed, -1 no such expander.
+    int ExpanderState(int id) const;
+    // What is under control `hwnd` of a page: a card's fill or the content layer (custom controls
+    // paint their background in it).
+    COLORREF SurfaceColor(HWND control) const;
+    // The height of `text` in the note font wrapped at `widthDip` (DIPs; DrawText DT_CALCRECT).
+    int MeasureTextDip(const std::wstring& text, int widthDip, int maxLines = 0) const;
     // The dock's identity colour (Config::DockColor) as a COLORREF.
     COLORREF DockColor() const;
 
@@ -471,8 +564,24 @@ public:
 private:
     friend class SettingsPage;
 
-    // Client sizes in DIPs: Global 760 x 560, Dock 860 x 620, Item 480 x 560.
+    // Client sizes in DIPs (round 8 phase 8A: resizable): the live size once the window exists,
+    // before that the saved one (config settings.windows) or the default (Global 760 x 560, Dock
+    // 860 x 620, Item 600 x 600); at least the minimum (Global 700 x 500, Dock 780 x 540, Item
+    // 520 x 480).
     SIZE ClientDip() const;
+    int KindIndex() const { return kind_ == SettingsKind::Global ? 0 : kind_ == SettingsKind::Dock ? 1 : 2; }
+    SIZE MinClientDip() const;
+    // Saves the restored client size in config settings.windows (SaveOnly) when it changed.
+    void SaveClientSize();
+    // The reflow pass (Ctl::base -> Ctl::dip, the cards, the hairlines); `dc` has the note font.
+    void Reflow(SettingsPage& page, HDC dc);
+    int MeasureDip(HDC dc, const std::wstring& text, int widthDip, int maxLines) const;
+    // The page's tooltip window (Tip): created after its controls, themed with the palette.
+    void CreateTips(SettingsPage& page);
+    void ThemeTips(HWND tip) const;
+    void DrawExpander(const SettingsPage& page, const DRAWITEMSTRUCT& di);
+    void ToggleExpander(SettingsPage& page, int id);
+    const SettingsPage* PageOfConst(HWND control) const;
     static constexpr int kNavWidthDip = 200;
     static constexpr int kNavTopDip = 12;
     static constexpr int kNavItemDip = 36;
@@ -490,7 +599,8 @@ private:
     // Set to false to drop the Mica nav column (frame extension) if a driver misbehaves: the
     // nav column is then painted solid, as when transparency effects are off.
     static constexpr bool kNavMica = true;
-    static constexpr DWORD kStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_CLIPCHILDREN;
+    static constexpr DWORD kStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX |
+                                    WS_THICKFRAME | WS_CLIPCHILDREN;
 
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
     static LRESULT CALLBACK NavProcThunk(HWND, UINT, WPARAM, LPARAM);
@@ -606,6 +716,10 @@ private:
     HBRUSH baseBrush_ = nullptr;
     HBRUSH controlBrush_ = nullptr;
     HBRUSH bandBrush_ = nullptr;
+    HBRUSH cardBrush_ = nullptr;   // round 8 phase 8A: a card's fill
+    COLORREF cardColor_ = 0;
+    SIZE clientDip_{};             // the last non-minimized client size (DIPs; 0: not shown yet)
+    bool inSizeMove_ = false;      // between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE
     HICON iconSmall_ = nullptr;
     HICON iconBig_ = nullptr;
     HICON itemIcon_ = nullptr;     // Item: the header's icon (null: a letter tile)

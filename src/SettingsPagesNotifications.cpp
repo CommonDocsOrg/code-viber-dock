@@ -30,54 +30,58 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Notifications");
+        // Round 8 phase 8A: one-line notes and hints, the explanations as their tooltips.
         Text(kNotifCentreNote, CtlKind::Note,
-             L"The notification centre is a widget (a bell with the unread count; a click opens the list: click a "
-             L"notification to open its app, the cross or Delete dismisses it, Clear all dismisses every one): drag it "
-             L"onto a dock from the Contents tab of that dock's own window, where the Behaviour tab has its badges. "
-             L"The scriptable Notification bell widget opens the same list (its \"A click opens\" setting).",
-             kMargin, right - kMargin, 58);
-        NextRow(62);
+             L"The notification centre is a widget: drag it onto a dock from that dock's Contents tab.", kMargin,
+             right - kMargin, 20);
+        Tip(kNotifCentreNote,
+            L"The notification centre is a widget (a bell with the unread count; a click opens the list: click a "
+            L"notification to open its app, the cross or Delete dismisses it, Clear all dismisses every one): drag it "
+            L"onto a dock from the Contents tab of that dock's own window, where the Behaviour tab has its badges. The "
+            L"scriptable Notification bell widget opens the same list (its \"A click opens\" setting).");
+        NextRow(22);
         Check(kNotifBalloons, kNotifBalloonsCaption, L"Show tray balloons in the centre instead of Windows toasts");
-        NextRow();
-        Text(kNotifBalloonsNote, CtlKind::Note,
-             L"With the tray takeover on (Tray icons): an app's tray balloon becomes a notification of the dock's "
-             L"list (and badges that app); Windows no longer shows it as a toast.",
-             kMargin, right - kMargin, 40);
-        NextRow(44);
+        NextRow(kRowH);
+        Text(kNotifBalloonsNote, CtlKind::Note, L"With the tray takeover on (Tray icons).", kMargin + kCaptionDx,
+             right - kMargin - kCaptionDx, 20);
+        static constexpr wchar_t kBalloonsTip[] =
+            L"With the tray takeover on (Tray icons): an app's tray balloon becomes a notification of the dock's list "
+            L"(and badges that app); Windows no longer shows it as a toast.";
+        Tip(kNotifBalloonsCaption, kBalloonsTip);
+        Tip(kNotifBalloonsNote, kBalloonsTip);
+        NextRow(22);
         Check(kNotifClearOnActivate, kNotifClearOnActivateCaption, L"Clear an app's badge when it is opened from the dock");
         NextRow();
-        Label(kNotifPollLabel, L"Check for notifications every");
+        Label(kNotifPollLabel, L"Check for notifications every", L"Only while something needs it", kNotifPollNote);
+        Tip(kNotifPollLabel,
+            L"Windows gives no change notice to an app that is not installed from a package, so the dock asks for the "
+            L"list this often (every 5 s after a minute without change, every second while the centre is open), and only "
+            L"while badges, the centre or a widget need it. Each check costs a few tens of milliseconds of CPU.");
         Spin(kNotifPollEdit, kNotifPollSpin, kColX, kNumberW, 1, 60, 1);
         Text(kNotifPollUnit, CtlKind::Note, L"seconds", kColX + kNumberW + 8, 120);
         NextRow();
-        Text(kNotifPollNote, CtlKind::Note,
-             L"Windows gives no change notice to an app that is not installed from a package, so the dock asks for the "
-             L"list this often (every 5 s after a minute without change, every second while the centre is open), and "
-             L"only while badges, the centre or a widget need it. Each check costs a few tens of milliseconds of CPU.",
-             kMargin, right - kMargin, 58);
-        NextRow(62);
         Section(kNotifStatusSection, L"Access");
         Label(kNotifStatusLabel, L"Status");
         Text(kNotifStatus, CtlKind::Value, L"", kColX, right - kColX, 40);
         NextRow(44);
         Button(kNotifOpenSettings, L"Open Windows settings", kColX, kButtonW);
-        NextRow(kRowH + 8);
-        Text(kNotifDndNote, CtlKind::Note,
-             L"Do not disturb has no public interface for apps, so the centre has no switch for it (Windows' quick "
-             L"settings have one).",
-             kMargin, right - kMargin, 40);
-        NextRow(44);
+        NextRow();
+        Text(kNotifDndNote, CtlKind::Note, L"Do not disturb: use Windows' quick settings.", kMargin, right - kMargin, 20);
+        Tip(kNotifDndNote, L"Do not disturb has no public interface for apps, so the centre has no switch for it (Windows' "
+                           L"quick settings have one).");
+        NextRow(22);
         Section(kNotifAppsSection, L"Badges per app");
         Add(kNotifAppList, CtlKind::List, WC_LISTVIEWW, L"Apps with badges",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
         NextRow(kListH + 8);
-        Text(kNotifAppsNote, CtlKind::Note,
-             L"The apps on every dock and every app with a notification now. Unchecked apps never show a badge (on any "
-             L"dock).",
-             kMargin, right - kMargin, 40);
-        NextRow(44);
+        Text(kNotifAppsNote, CtlKind::Note, L"Unchecked apps never show a badge (on any dock).", kMargin, right - kMargin, 20);
+        Tip(kNotifAppsNote, L"The apps on every dock and every app with a notification now. Unchecked apps never show a "
+                            L"badge (on any dock).");
+        NextRow(22);
     }
+
+    void OnResized() override { OnStyleChanged(); }  // round 8 phase 8A: the list's columns
 
     void Created() override {
         HWND list = Item(kNotifAppList);

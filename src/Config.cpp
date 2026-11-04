@@ -888,6 +888,14 @@ void Config::Sanitize() {
         Hotkey::Combo combo;
         dashboard.hotkey = Hotkey::Parse(dashboard.hotkey, combo) ? Hotkey::Format(combo) : DashboardConfig{}.hotkey;
     }
+    // Round 8 phase 8A: the settings windows' sizes ({0, 0}: the default).
+    for (int k = 0; k < SettingsUiConfig::kKinds; ++k) {
+        SettingsWindowSize& s = settings.windows[k];
+        if (s.w == 0 && s.h == 0) continue;
+        s.w = std::clamp(s.w, SettingsUiConfig::kMinimum[k].w, SettingsUiConfig::kMaximum);
+        s.h = std::clamp(s.h, SettingsUiConfig::kMinimum[k].h, SettingsUiConfig::kMaximum);
+        if (s == SettingsUiConfig::kDefault[k]) s = SettingsWindowSize{};
+    }
 }
 
 Config::LoadResult Config::LoadFile() {
@@ -916,7 +924,7 @@ Config::LoadResult Config::LoadFile() {
             L"theme",         L"animation",   L"weather",          L"pinned",         L"iconSize",
             L"magnification", L"magnifyRange", L"autoHide",        L"hideDelayMs",    L"revealDelayMs",
             L"previews",      L"previewDelayMs", L"monitor",       L"tray",           L"notifications",
-            L"calendars",     L"dashboard",
+            L"calendars",     L"dashboard",   L"settings",
         };
         for (const auto& kv : root) {
             const std::wstring key(kv.Key());
@@ -1108,6 +1116,17 @@ Config::LoadResult Config::LoadFile() {
             }
         }
         if (auto dash = ReadObject(root, L"dashboard")) ReadString(dash, L"hotkey", dashboard.hotkey);
+        if (auto s = ReadObject(root, L"settings")) {
+            if (auto w = ReadObject(s, L"windows")) {
+                for (int k = 0; k < SettingsUiConfig::kKinds; ++k) {
+                    std::vector<double> v;
+                    if (!ReadNumbers(w, SettingsUiConfig::kNames[k], v) || v.size() != 2) continue;
+                    if (!std::isfinite(v[0]) || !std::isfinite(v[1])) continue;
+                    settings.windows[k].w = static_cast<int>(std::clamp(v[0], 0.0, 100000.0));
+                    settings.windows[k].h = static_cast<int>(std::clamp(v[1], 0.0, 100000.0));
+                }
+            }
+        }
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
         *this = Config{};
@@ -1320,6 +1339,15 @@ bool Config::Save() const {
                  Num(calendars.defaultReminderMin) + L" }";
         }
         if (dashboard != DashboardConfig{}) o += L",\n  \"dashboard\": { \"hotkey\": " + Quote(dashboard.hotkey) + L" }";
+        if (settings != SettingsUiConfig{}) {
+            std::wstring w;
+            for (int k = 0; k < SettingsUiConfig::kKinds; ++k) {
+                const SettingsWindowSize& s = settings.windows[k];
+                if (s == SettingsWindowSize{}) continue;
+                w += (w.empty() ? L"" : L", ") + Quote(SettingsUiConfig::kNames[k]) + L": [" + Num(s.w) + L", " + Num(s.h) + L"]";
+            }
+            o += L",\n  \"settings\": { \"windows\": { " + w + L" } }";
+        }
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";
         return WriteFileAtomic(FilePath(), WideToUtf8(o));

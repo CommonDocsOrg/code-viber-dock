@@ -6,6 +6,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <climits>
 #include <cmath>
 #include <cwchar>
 #include <iterator>
@@ -79,41 +80,139 @@ const Ctl* SettingsPage::Find(HWND hwnd) const {
     return nullptr;
 }
 
-int SettingsPage::Width() const { return window_.ContentWidthDip(); }
+int SettingsPage::Width() const {
+    int w = window_.ContentWidthDip();
+    if (scrollBar_) {
+        const int sb = GetSystemMetricsForDpi(SM_CXVSCROLL, window_.Dpi());
+        w -= (sb * USER_DEFAULT_SCREEN_DPI + static_cast<int>(window_.Dpi()) - 1) / static_cast<int>(window_.Dpi());
+    }
+    return w;
+}
 
 Ctl& SettingsPage::Add(int id, CtlKind kind, const wchar_t* cls, std::wstring text, DWORD style, RECT dip) {
+    if (table_.empty()) buildW_ = Width();
     Ctl c;
     c.id = id;
     c.kind = kind;
     c.cls = cls;
     c.text = std::move(text);
     c.style = style | WS_GROUP;  // every control is its own group except radios 2..n (Radios)
-    c.dip = dip;
+    if (reflow_) {
+        c.row = row_;
+        // A hint row is kHintRowH tall: the controls after its label sit in its middle.
+        if (hintRow_ == row_) OffsetRect(&dip, 0, (kHintRowH - kRowH) / 2);
+        if (kind != CtlKind::Title) {
+            if (card_ < 0 && autoCard_) {
+                cards_.push_back(Card{});
+                card_ = static_cast<int>(cards_.size()) - 1;
+            }
+            c.card = card_;
+        }
+        c.expander = expander_;
+    }
+    c.dip = c.base = dip;
     table_.push_back(std::move(c));
     return table_.back();
 }
 
+void SettingsPage::ResetTable() {
+    table_.clear();
+    cards_.clear();
+    hairlines_.clear();
+    y_ = 0;
+    row_ = 0;
+    hintRow_ = -1;
+    card_ = -1;
+    autoCard_ = true;
+    expander_ = 0;
+    nextAutoId_ = 0x6000;
+    buildW_ = Width();
+}
+
 void SettingsPage::Title(const wchar_t* text) {
+    if (window_.Kind() != SettingsKind::Global) {
+        // Round 8 phase 8A: the tab or the header names the page; the first card starts at 16.
+        y_ = std::max(y_, 24);
+        return;
+    }
     Add(SettingsIds::kPageTitle, CtlKind::Title, WC_STATICW, text, SS_LEFT | SS_NOPREFIX,
         RECT{kMargin, 14, Width() - kMargin, 56});
-    y_ = 64;
+    ++row_;
+    y_ = reflow_ ? 72 : 64;
 }
 
 void SettingsPage::Section(int id, const wchar_t* text) {
-    if (y_ > 64) y_ += 10;
-    Add(id, CtlKind::Section, WC_STATICW, text, SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
-        RECT{kMargin, y_, Width() - kMargin, y_ + 24});
+    int gap = 0;
+    if (reflow_) {
+        // A new card: 26 DIPs under the last one (y_ is a row's bottom + kRowGap after NextRow).
+        const bool content = std::any_of(table_.begin(), table_.end(), [](const Ctl& c) { return c.card >= 0; });
+        if (content) gap = 26;
+        y_ += gap;
+        if (std::any_of(table_.begin(), table_.end(), [&](const Ctl& c) { return c.row == row_; })) ++row_;
+        cards_.push_back(Card{id, {}});
+        card_ = static_cast<int>(cards_.size()) - 1;
+    } else if (y_ > 64) {
+        y_ += 10;
+    }
+    Ctl& c = Add(id, CtlKind::Section, WC_STATICW, text, SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
+                 RECT{kMargin, y_, Width() - kMargin, y_ + 24});
+    c.lo = gap;  // the reflow keeps this gap when the rows above it collapse
     y_ += 28;
+    ++row_;
+}
+
+void SettingsPage::EndCard() {
+    if (std::any_of(table_.begin(), table_.end(), [&](const Ctl& c) { return c.row == row_; })) ++row_;
+    card_ = -1;
+    autoCard_ = false;
 }
 
 void SettingsPage::Label(int id, const wchar_t* text) {
     Add(id, CtlKind::Label, WC_STATICW, text, SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
-        RECT{kMargin, y_, kMargin + kLabelW, y_ + kRowH});
+        RECT{kMargin, y_, kMargin + labelW_, y_ + kRowH});
+}
+
+void SettingsPage::Label(int id, const wchar_t* text, const wchar_t* hint, int hintId) {
+    if (hintId == 0) hintId = nextAutoId_++;
+    Ctl& label = Add(id, CtlKind::Label, WC_STATICW, text, SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
+                     RECT{kMargin, y_ + 3, kMargin + labelW_, y_ + 24});
+    label.buddy = hintId;
+    Add(hintId, CtlKind::Note, WC_STATICW, hint ? hint : L"", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
+        RECT{kMargin, y_ + 24, kMargin + labelW_, y_ + 42});
+    hintRow_ = row_;
+}
+
+void SettingsPage::Tip(int id, std::wstring text) {
+    int hint = 0;
+    for (Ctl& c : table_) {
+        if (c.id != id) continue;
+        c.tip = text;
+        // Statics get the mouse (for the tooltip's subclass) only with SS_NOTIFY.
+        if (c.cls && wcscmp(c.cls, WC_STATICW) == 0) c.style |= SS_NOTIFY;
+        if (c.kind == CtlKind::Label && c.buddy) hint = c.buddy;
+    }
+    if (hint) Tip(hint, std::move(text));
+}
+
+void SettingsPage::Expander(int id, const wchar_t* text) {
+    Add(id, CtlKind::Expander, WC_BUTTONW, text, WS_TABSTOP | BS_OWNERDRAW, RECT{kMargin, y_ + 4, Width() - kMargin, y_ + kRowH - 4});
+    NextRow();
+    expander_ = id;
+}
+
+void SettingsPage::EndExpander() {
+    if (std::any_of(table_.begin(), table_.end(), [&](const Ctl& c) { return c.row == row_; })) ++row_;
+    expander_ = 0;
 }
 
 Ctl& SettingsPage::Text(int id, CtlKind kind, std::wstring text, int x, int w, int h) {
     const DWORD style = SS_LEFT | SS_NOPREFIX | (h == kRowH ? SS_CENTERIMAGE | SS_ENDELLIPSIS : 0);
-    return Add(id, kind, WC_STATICW, std::move(text), style, RECT{x, y_, x + w, y_ + h});
+    Ctl& c = Add(id, kind, WC_STATICW, std::move(text), style, RECT{x, y_, x + w, y_ + h});
+    // Round 8 phase 8A: a multi-line note or value is as tall as its text (measured at layout time);
+    // like an edit control it breaks a word longer than a line (a path).
+    c.measured = reflow_ && h != kRowH && (kind == CtlKind::Note || kind == CtlKind::Value);
+    if (c.measured) c.style |= SS_EDITCONTROL;
+    return c;
 }
 
 void SettingsPage::Trackbar(int id, int x, int w, int lo, int hi, int page) {
@@ -156,6 +255,9 @@ void SettingsPage::Check(int id, int captionId, const wchar_t* text, int x) {
 
 void SettingsPage::Radios(std::initializer_list<RadioDef> radios, int x) {
     const int top = y_;
+    // One reflow row per radio (with its caption).
+    if (std::any_of(table_.begin(), table_.end(), [&](const Ctl& c) { return c.row == row_; })) ++row_;
+    const int row0 = row_;
     bool first = true;
     for (const RadioDef& r : radios) {
         Ctl& b = Add(r.id, CtlKind::Radio, WC_BUTTONW, r.text, WS_TABSTOP | BS_AUTORADIOBUTTON | BS_NOTIFY,
@@ -164,13 +266,16 @@ void SettingsPage::Radios(std::initializer_list<RadioDef> radios, int x) {
         b.buddy = r.captionId;
         first = false;
         y_ += kRowH;
+        ++row_;
     }
     y_ = top;
+    row_ = row0;
     for (const RadioDef& r : radios) {
         Ctl& c = Add(r.captionId, CtlKind::Caption, WC_STATICW, r.text, SS_OWNERDRAW | SS_NOTIFY,
                      RECT{x + kCaptionDx, y_, Width() - kMargin, y_ + kRowH});
         c.buddy = r.id;
         y_ += kRowH;
+        ++row_;
     }
     y_ += kRowGap;
 }
@@ -198,10 +303,24 @@ void SettingsPage::ChangedFor(SettingsScope scope, size_t dock) {
 }
 
 void SettingsPage::SetText(int id, const std::wstring& text) {
+    for (Ctl& m : table_) {
+        if (m.id != id || !m.measured || m.maxLines <= 0) continue;
+        // A note of at most maxLines lines: the reflow shows (a shortened) Ctl::text.
+        if (m.text == text) return;
+        m.text = text;
+        if (m.hwnd) SetWindowTextW(m.hwnd, text.c_str());
+        if (hwnd_) Relayout();
+        return;
+    }
     const Ctl* c = Find(id);
     if (!c || !c->hwnd || WindowText(c->hwnd) == text) return;
     SetWindowTextW(c->hwnd, text.c_str());
     UnselectComboText(*c);
+    // A measured note that needs another height: the rows under it move (round 8 phase 8A).
+    if (c->measured && hwnd_ && !c->collapsed) {
+        const int h = window_.MeasureTextDip(text, c->dip.right - c->dip.left, c->maxLines);
+        if (h != c->dip.bottom - c->dip.top) Relayout();
+    }
 }
 
 std::wstring SettingsPage::GetText(int id) const { return WindowText(Item(id)); }
@@ -246,9 +365,16 @@ void SettingsPage::Enable(int id, bool enable) {
 }
 
 void SettingsPage::Show(int id, bool show) {
-    HWND h = Item(id);
+    Ctl* ctl = nullptr;
+    for (Ctl& c : table_) {
+        if (c.id == id) ctl = &c;
+    }
+    HWND h = ctl ? ctl->hwnd : nullptr;
+    if (ctl) ctl->shown = show;
+    // Gone (collapsed, a closed expander): shown again with the rest when it comes back.
+    if (!h || ctl->goneApplied) return;
     // The style bit, not IsWindowVisible: the page itself may be hidden.
-    if (!h || ((GetWindowLongW(h, GWL_STYLE) & WS_VISIBLE) != 0) == show) return;
+    if (((GetWindowLongW(h, GWL_STYLE) & WS_VISIBLE) != 0) == show) return;
     if (!show && GetFocus() == h) {
         // Keep the keyboard focus on the page: the next control in the tab order.
         if (HWND next = GetNextDlgTabItem(hwnd_, h, FALSE); next && next != h) SetFocus(next);
@@ -256,10 +382,86 @@ void SettingsPage::Show(int id, bool show) {
     ShowWindow(h, show ? SW_SHOWNA : SW_HIDE);
 }
 
+void SettingsPage::Collapse(std::initializer_list<int> ids, bool hidden) {
+    bool changed = false;
+    for (int id : ids) {
+        int buddy = 0;
+        for (Ctl& c : table_) {
+            if (c.id != id) continue;
+            if (c.collapsed != hidden) changed = true;
+            c.collapsed = hidden;
+            // A check box / radio with its caption, an edit with its up-down, a label with its hint.
+            if (c.kind == CtlKind::Check || c.kind == CtlKind::Radio || c.kind == CtlKind::Edit || c.kind == CtlKind::Label) buddy = c.buddy;
+        }
+        for (Ctl& c : table_) {
+            if (!buddy || c.id != buddy) continue;
+            if (c.collapsed != hidden) changed = true;
+            c.collapsed = hidden;
+        }
+    }
+    if (changed) Relayout();
+}
+
+void SettingsPage::Collapse(int id, bool hidden) { Collapse({id}, hidden); }
+
+bool SettingsPage::ExpanderOpen(int id) const {
+    return std::find(openExpanders_.begin(), openExpanders_.end(), id) != openExpanders_.end();
+}
+
+void SettingsPage::SetExpander(int id, bool open) {
+    if (ExpanderOpen(id) == open) return;
+    if (open) {
+        openExpanders_.push_back(id);
+    } else {
+        openExpanders_.erase(std::remove(openExpanders_.begin(), openExpanders_.end(), id), openExpanders_.end());
+    }
+    Relayout();
+    if (HWND h = Item(id)) InvalidateRect(h, nullptr, TRUE);
+}
+
+int SettingsPage::NoteHeightDip(int id, int widthDip) const {
+    const Ctl* c = Find(id);
+    if (!c) return 0;
+    return window_.MeasureTextDip(c->hwnd && c->maxLines <= 0 ? WindowText(c->hwnd) : c->text, widthDip, c->maxLines);
+}
+
 void SettingsPage::MoveCtl(int id, RECT dip) {
     for (Ctl& c : table_) {
-        if (c.id == id) c.dip = dip;
+        if (c.id == id) c.dip = c.base = dip;
     }
+}
+
+void SettingsPage::PaintBackground(HDC dc) {
+    if (cards_.empty() && hairlines_.empty()) return;
+    const SettingsWindow& w = window_;
+    const DarkMode::Palette& p = w.Colors();
+    auto mix = [](COLORREF a, COLORREF b, int pa) {
+        auto ch = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pa + y * (100 - pa)) / 100); };
+        return RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
+    };
+    const COLORREF border = p.highContrast ? p.text : mix(p.text, p.layer, 14);
+    const COLORREF hair = p.highContrast ? p.textDisabled : mix(p.text, p.layer, 9);
+    HBRUSH fill = CreateSolidBrush(w.cardColor_);
+    HPEN pen = CreatePen(PS_SOLID, 1, border);
+    HGDIOBJ ob = SelectObject(dc, fill);
+    HGDIOBJ op = SelectObject(dc, pen);
+    const int radius = w.Px(6) * 2;
+    for (const Card& card : cards_) {
+        if (IsRectEmpty(&card.dip)) continue;
+        RoundRect(dc, w.Px(card.dip.left), w.Px(card.dip.top) - scrollPx_, w.Px(card.dip.right),
+                  w.Px(card.dip.bottom) - scrollPx_, radius, radius);
+    }
+    SelectObject(dc, ob);
+    SelectObject(dc, op);
+    DeleteObject(pen);
+    DeleteObject(fill);
+    HBRUSH line = CreateSolidBrush(hair);
+    const int t = std::max(1, w.Px(1));
+    for (const Hairline& h : hairlines_) {
+        const RECT r{w.Px(h.left), w.Px(h.y) - scrollPx_, w.Px(h.right), w.Px(h.y) - scrollPx_ + t};
+        FillRect(dc, &r, line);
+    }
+    DeleteObject(line);
 }
 
 void SettingsPage::Relayout() {
@@ -359,12 +561,48 @@ COLORREF SettingsWindow::DockColor() const {
 }
 
 SIZE SettingsWindow::ClientDip() const {
-    switch (kind_) {
-        case SettingsKind::Dock: return SIZE{860, 620};
-        case SettingsKind::Item: return SIZE{480, 560};
-        case SettingsKind::Global:
-        default: return SIZE{760, 560};
+    if (clientDip_.cx > 0 && clientDip_.cy > 0) return clientDip_;
+    const int k = KindIndex();
+    SettingsWindowSize s = host_.config ? host_.config->settings.windows[k] : SettingsWindowSize{};
+    if (s.w <= 0 || s.h <= 0) s = SettingsUiConfig::kDefault[k];
+    const SIZE m = MinClientDip();
+    return SIZE{std::clamp(s.w, static_cast<int>(m.cx), SettingsUiConfig::kMaximum),
+                std::clamp(s.h, static_cast<int>(m.cy), SettingsUiConfig::kMaximum)};
+}
+
+SIZE SettingsWindow::MinClientDip() const {
+    const SettingsWindowSize m = SettingsUiConfig::kMinimum[KindIndex()];
+    return SIZE{m.w, m.h};
+}
+
+void SettingsWindow::SaveClientSize() {
+    if (!hwnd_ || !host_.config) return;
+    SIZE px{};
+    if (IsZoomed(hwnd_) || IsIconic(hwnd_)) {
+        // The restored size: the normal position less the frame.
+        WINDOWPLACEMENT wpl{sizeof(wpl)};
+        if (!GetWindowPlacement(hwnd_, &wpl)) return;
+        RECT frame{0, 0, 0, 0};
+        AdjustWindowRectExForDpi(&frame, kStyle, FALSE, 0, dpi_);
+        px.cx = (wpl.rcNormalPosition.right - wpl.rcNormalPosition.left) - (frame.right - frame.left);
+        px.cy = (wpl.rcNormalPosition.bottom - wpl.rcNormalPosition.top) - (frame.bottom - frame.top);
+    } else {
+        RECT rc{};
+        GetClientRect(hwnd_, &rc);
+        px = SIZE{rc.right, rc.bottom};
     }
+    if (px.cx <= 0 || px.cy <= 0) return;
+    const int k = KindIndex();
+    const SIZE m = MinClientDip();
+    SettingsWindowSize s{std::clamp(MulDiv(px.cx, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dpi_)), static_cast<int>(m.cx),
+                                    SettingsUiConfig::kMaximum),
+                         std::clamp(MulDiv(px.cy, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dpi_)), static_cast<int>(m.cy),
+                                    SettingsUiConfig::kMaximum)};
+    if (s == SettingsUiConfig::kDefault[k]) s = SettingsWindowSize{};
+    SettingsWindowSize& saved = host_.config->settings.windows[k];
+    if (s == saved) return;
+    saved = s;
+    if (host_.changed) host_.changed(SettingsScope::WindowSize, DockIndex());
 }
 
 bool SettingsWindow::PreviewOn(int index) const {
@@ -511,6 +749,7 @@ bool SettingsWindow::Create(HINSTANCE instance) {
     }
     // The monitor the window landed on decides its DPI; normally the dock's.
     if (const UINT actual = GetDpiForWindow(hwnd_); actual != dpi_) {
+        clientDip_ = SIZE{};  // measured at the wrong DPI: the saved / default size again
         dpi_ = actual;
         r = InitialRect();
         SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -576,10 +815,44 @@ bool SettingsWindow::CreatePage(SettingsPage& page, int index) {
                     hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kPageBase + index)), instance_,
                     &page);
     if (!page.hwnd_) return false;
+    page.ResetTable();
     page.Build();
     CreateControls(page);
     page.Created();
+    CreateTips(page);
     return true;
+}
+
+void SettingsWindow::CreateTips(SettingsPage& page) {
+    if (page.tip_) DestroyWindow(page.tip_);
+    page.tip_ = nullptr;
+    const bool any = std::any_of(page.table_.begin(), page.table_.end(), [](const Ctl& c) { return c.hwnd && !c.tip.empty(); });
+    if (!any || !hwnd_) return;
+    // Owned by the settings window (destroyed with it); one per page.
+    page.tip_ = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP, CW_USEDEFAULT,
+                                CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, hwnd_, nullptr, instance_, nullptr);
+    if (!page.tip_) return;
+    SendMessageW(page.tip_, TTM_SETMAXTIPWIDTH, 0, Px(360));
+    SendMessageW(page.tip_, TTM_SETDELAYTIME, TTDT_AUTOPOP, 30000);
+    if (font_) SendMessageW(page.tip_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), FALSE);
+    for (Ctl& c : page.table_) {
+        if (!c.hwnd || c.tip.empty()) continue;
+        TTTOOLINFOW ti{};
+        ti.cbSize = sizeof(ti);
+        ti.uFlags = TTF_IDISHWND | TTF_SUBCLASS;
+        ti.hwnd = page.hwnd_;
+        ti.uId = reinterpret_cast<UINT_PTR>(c.hwnd);
+        ti.lpszText = c.tip.data();
+        SendMessageW(page.tip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+    }
+    ThemeTips(page.tip_);
+}
+
+void SettingsWindow::ThemeTips(HWND tip) const {
+    if (!tip) return;
+    // Dark tooltips like the lists' (the Explorer dark visual style); light mode: the default.
+    DarkMode::AllowDarkForWindow(tip, palette_.dark);
+    SetWindowTheme(tip, palette_.dark ? L"DarkMode_Explorer" : nullptr, nullptr);
 }
 
 void SettingsWindow::CreateControls(SettingsPage& page) {
@@ -715,6 +988,10 @@ void SettingsWindow::CreateFonts() {
             HFONT f = c.kind == CtlKind::Title ? fontTitle_ : c.kind == CtlKind::Section ? fontSemibold_ : font_;
             SendMessageW(c.hwnd, WM_SETFONT, reinterpret_cast<WPARAM>(f), FALSE);
         }
+        if (page->tip_) {
+            SendMessageW(page->tip_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), FALSE);
+            SendMessageW(page->tip_, TTM_SETMAXTIPWIDTH, 0, Px(360));
+        }
     }
     // The header / footer bands' buttons and links.
     for (HWND band : {header_, footer_}) {
@@ -741,6 +1018,12 @@ void SettingsWindow::CreateBrushes() {
     controlBrush_ = CreateSolidBrush(palette_.control);
     bandColor_ = BandColorFor();
     bandBrush_ = CreateSolidBrush(bandColor_);
+    // Round 8 phase 8A: a card is the layer mixed 4 % toward the text (high contrast: the layer).
+    const COLORREF a = palette_.text, b = palette_.layer;
+    const int pa = palette_.highContrast ? 0 : 4;
+    auto ch = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pa + y * (100 - pa)) / 100); };
+    cardColor_ = RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
+    cardBrush_ = CreateSolidBrush(cardColor_);
 }
 
 COLORREF SettingsWindow::BandColorFor() const {
@@ -753,7 +1036,7 @@ COLORREF SettingsWindow::BandColorFor() const {
 }
 
 void SettingsWindow::DestroyBrushes() {
-    for (HBRUSH* b : {&layerBrush_, &baseBrush_, &controlBrush_, &bandBrush_}) {
+    for (HBRUSH* b : {&layerBrush_, &baseBrush_, &controlBrush_, &bandBrush_, &cardBrush_}) {
         if (*b) DeleteObject(*b);
         *b = nullptr;
     }
@@ -797,6 +1080,7 @@ void SettingsWindow::ApplyTheme() {
     for (auto& page : pages_) {
         if (!page->hwnd_) continue;
         DarkMode::ThemeScrollBars(page->hwnd_, dark);
+        ThemeTips(page->tip_);
         for (const Ctl& c : page->table_) {
             if (!c.hwnd) continue;
             switch (c.kind) {
@@ -991,30 +1275,314 @@ void SettingsWindow::Layout() {
         const int h = std::max(0, bottom - top - (preview_ && PreviewOn(static_cast<int>(i)) ? strip : 0));
         SetWindowPos(page.hwnd_, nullptr, navW, top, rc.right - navW, h, SWP_NOZORDER | SWP_NOACTIVATE);
         LayoutPage(page);
+        // Round 8 phase 8A: a resized window: list columns, the Contents tab's own layout.
+        if (page.layoutW_ != page.Width()) {
+            const bool first = page.layoutW_ == 0;
+            page.layoutW_ = page.Width();
+            if (!first || page.Width() != page.buildW_) page.OnResized();
+        }
     }
     LayoutBands();
     InvalidateRect(hwnd_, nullptr, TRUE);
+    if (nav_) InvalidateRect(nav_, nullptr, TRUE);
+    if (tabs_) InvalidateRect(tabs_, nullptr, TRUE);
+}
+
+int SettingsWindow::MeasureDip(HDC dc, const std::wstring& text, int widthDip, int maxLines) const {
+    if (text.empty() || widthDip <= 0) return 0;
+    RECT r{0, 0, std::max(1, Px(widthDip)), 0};
+    DrawTextW(dc, text.c_str(), static_cast<int>(text.size()), &r, DT_LEFT | DT_WORDBREAK | DT_EDITCONTROL | DT_EXPANDTABS | DT_NOPREFIX | DT_CALCRECT);
+    int px = r.bottom - r.top;
+    if (maxLines > 0) {
+        TEXTMETRICW tm{};
+        if (GetTextMetricsW(dc, &tm) && tm.tmHeight > 0) px = std::min(px, static_cast<int>(tm.tmHeight) * maxLines);
+    }
+    // DIPs, rounded up, and a DIP of air (a static draws exactly where DrawText measured).
+    const int dpi = static_cast<int>(dpi_);
+    return (px * USER_DEFAULT_SCREEN_DPI + dpi - 1) / dpi + 1;
+}
+
+int SettingsWindow::MeasureTextDip(const std::wstring& text, int widthDip, int maxLines) const {
+    HDC dc = GetDC(nullptr);
+    if (!dc) return 0;
+    HGDIOBJ old = SelectObject(dc, font_ ? font_ : GetStockObject(DEFAULT_GUI_FONT));
+    const int h = MeasureDip(dc, text, widthDip, maxLines);
+    SelectObject(dc, old);
+    ReleaseDC(nullptr, dc);
+    return h;
+}
+
+void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
+    std::vector<Ctl>& t = page.table_;
+    page.hairlines_.clear();
+    for (SettingsPage::Card& card : page.cards_) card.dip = RECT{};
+    if (!page.reflow_) {
+        for (Ctl& c : t) c.dip = c.base;
+        return;
+    }
+    constexpr int kM = SettingsPage::kMargin;
+    const int W = page.Width();
+    const int bw = page.buildW_ > 0 ? page.buildW_ : W;
+    const int dx = W - bw;
+    const int buildRight = bw - kM;
+    auto effBottom = [](const Ctl& c, const RECT& r) -> int { return static_cast<int>(c.kind == CtlKind::Combo ? r.top + SettingsPage::kRowH - 4 : r.bottom); };
+    auto gone = [&](const Ctl& c) { return c.collapsed || (c.expander != 0 && !page.ExpanderOpen(c.expander)); };
+
+    int rows = 0;
+    for (const Ctl& c : t) rows = std::max(rows, c.row + 1);
+    std::vector<std::vector<size_t>> byRow(static_cast<size_t>(rows));
+    for (size_t i = 0; i < t.size(); ++i) {
+        if (t[i].row >= 0) {
+            byRow[static_cast<size_t>(t[i].row)].push_back(i);
+        } else {
+            t[i].dip = t[i].base;
+        }
+    }
+
+    // Horizontal: controls at the right margin follow the page's width. A narrow one in the
+    // right half moves (never over its row's other controls); a wide one stretches, and so does
+    // a control that ends just before a moving one.
+    for (const std::vector<size_t>& row : byRow) {
+        std::vector<char> move(row.size(), 0), stretch(row.size(), 0);
+        for (size_t k = 0; k < row.size(); ++k) {
+            const Ctl& c = t[row[k]];
+            if (c.base.right != buildRight) continue;
+            if (c.base.left > bw / 2 && c.kind != CtlKind::Section && c.kind != CtlKind::Title) {
+                move[k] = 1;
+            } else {
+                stretch[k] = 1;
+            }
+        }
+        for (size_t k = 0; k < row.size(); ++k) {
+            if (move[k] || stretch[k]) continue;
+            const Ctl& c = t[row[k]];
+            for (size_t m = 0; m < row.size(); ++m) {
+                if (move[m] && c.base.right <= t[row[m]].base.left && c.base.right >= t[row[m]].base.left - 16) stretch[k] = 1;
+            }
+        }
+        int fixedRight = INT_MIN;
+        for (size_t k = 0; k < row.size(); ++k) {
+            Ctl& c = t[row[k]];
+            c.dip = c.base;
+            if (stretch[k]) c.dip.right = std::max(static_cast<int>(c.dip.left) + 8, static_cast<int>(c.base.right) + dx);
+            if (!move[k] && !stretch[k] && c.kind != CtlKind::Caption) fixedRight = std::max(fixedRight, static_cast<int>(c.base.right));
+        }
+        for (size_t k = 0; k < row.size(); ++k) {
+            if (!move[k]) continue;
+            Ctl& c = t[row[k]];
+            const int w = c.base.right - c.base.left;
+            int left = c.base.left + dx;
+            if (fixedRight != INT_MIN) left = std::max(left, fixedRight + 8);
+            c.dip.left = left;
+            c.dip.right = left + w;
+        }
+        // Text never runs past the right margin (a narrow window): it wraps or ends with "…".
+        for (size_t k : row) {
+            Ctl& c = t[k];
+            const bool text = c.kind == CtlKind::Label || c.kind == CtlKind::Note || c.kind == CtlKind::Value ||
+                              c.kind == CtlKind::Caption || c.kind == CtlKind::Section;
+            if (text && c.dip.right > W - kM) c.dip.right = std::max(static_cast<int>(c.dip.left) + 8, W - kM);
+        }
+    }
+
+    // Vertical: each row moves by what the rows above it grew (measured notes) or lost (rows
+    // whose controls are all gone take no height).
+    int shift = 0;
+    std::vector<int> rowTop(static_cast<size_t>(rows), INT_MIN), rowBottom(static_cast<size_t>(rows), INT_MIN);
+    for (int r = 0; r < rows; ++r) {
+        const std::vector<size_t>& row = byRow[static_cast<size_t>(r)];
+        if (row.empty()) continue;
+        int top = INT_MAX, bottom = INT_MIN;
+        bool allGone = true;
+        for (size_t i : row) {
+            top = std::min(top, static_cast<int>(t[i].base.top));
+            bottom = std::max(bottom, effBottom(t[i], t[i].base));
+            if (!gone(t[i])) allGone = false;
+        }
+        int nextTop = INT_MIN, nextGap = 0;
+        for (int n = r + 1; n < rows && nextTop == INT_MIN; ++n) {
+            for (size_t i : byRow[static_cast<size_t>(n)]) {
+                nextTop = nextTop == INT_MIN ? static_cast<int>(t[i].base.top) : std::min(nextTop, static_cast<int>(t[i].base.top));
+                if (t[i].kind == CtlKind::Section) nextGap = t[i].lo;  // the gap between two cards (Section)
+            }
+        }
+        for (size_t i : row) {
+            t[i].dip.top = t[i].base.top + shift;
+            t[i].dip.bottom = t[i].base.bottom + shift;
+        }
+        if (allGone) {
+            // Its whole pitch, but not the gap before a card that follows.
+            shift -= nextTop != INT_MIN ? std::max(0, nextTop - top - nextGap) : bottom - top;
+            continue;
+        }
+        int newBottom = INT_MIN, newTop = INT_MAX;
+        for (size_t i : row) {
+            Ctl& c = t[i];
+            if (gone(c)) continue;
+            if (c.measured && c.maxLines > 0) {
+                // At most maxLines lines: the text (Ctl::text, the full one) shortened with "…"
+                // at a word when it needs more (its Tip has all of it).
+                const int w = c.dip.right - c.dip.left;
+                const int full = MeasureDip(dc, c.text, w, 0), cap = MeasureDip(dc, c.text, w, c.maxLines);
+                std::wstring shown = c.text;
+                if (full > cap) {
+                    size_t lo = 0, hi = c.text.size();
+                    while (lo < hi) {  // the longest prefix (cut at a space) that fits with "…"
+                        const size_t mid = (lo + hi + 1) / 2;
+                        if (MeasureDip(dc, c.text.substr(0, mid) + L"\x2026", w, 0) <= cap) {
+                            lo = mid;
+                        } else {
+                            hi = mid - 1;
+                        }
+                    }
+                    size_t cut = c.text.find_last_of(L' ', lo);
+                    if (cut == std::wstring::npos || cut == 0) cut = lo;
+                    shown = c.text.substr(0, cut);
+                    while (!shown.empty() && (shown.back() == L' ' || shown.back() == L',' || shown.back() == L'.')) shown.pop_back();
+                    shown += L"\x2026";
+                }
+                if (c.hwnd && WindowText(c.hwnd) != shown) SetWindowTextW(c.hwnd, shown.c_str());
+                c.dip.bottom = c.dip.top + std::min(full, cap);
+            } else if (c.measured) {
+                const std::wstring text = c.hwnd ? WindowText(c.hwnd) : c.text;
+                c.dip.bottom = c.dip.top + MeasureDip(dc, text, c.dip.right - c.dip.left, 0);
+            }
+            newBottom = std::max(newBottom, effBottom(c, c.dip));
+            newTop = std::min(newTop, static_cast<int>(c.dip.top));
+        }
+        rowTop[static_cast<size_t>(r)] = newTop;
+        rowBottom[static_cast<size_t>(r)] = newBottom;
+        shift += newBottom - (bottom + shift);
+    }
+
+    // The cards: around their visible controls (the header 8 DIPs in, else 10), the margin less
+    // kCardPadX on each side.
+    const int cardL = kM - SettingsPage::kCardPadX, cardR = W - kM + SettingsPage::kCardPadX;
+    for (size_t k = 0; k < page.cards_.size(); ++k) {
+        int top = INT_MAX, bottom = INT_MIN;
+        bool header = false;
+        for (const Ctl& c : t) {
+            if (c.card != static_cast<int>(k) || gone(c) || !c.shown) continue;
+            if (c.kind == CtlKind::Section && c.id == page.cards_[k].section) header = true;
+            if (c.measured && c.dip.bottom <= c.dip.top) continue;  // an empty note
+            top = std::min(top, static_cast<int>(c.dip.top));
+            bottom = std::max(bottom, effBottom(c, c.dip));
+        }
+        if (top == INT_MAX) continue;
+        page.cards_[k].dip = RECT{cardL, top - (header ? 8 : 10), cardR, bottom + 10};
+    }
+
+    // Hairlines between a card's rows: above a row that starts with a label, a check box, the
+    // first radio of a group, a button or another control (not above notes, values, captions,
+    // links or the radios after the first), never right under the card's header.
+    int prevCard = -1, prevBottom = INT_MIN;
+    bool prevHeader = false;
+    for (int r = 0; r < rows; ++r) {
+        if (rowTop[static_cast<size_t>(r)] == INT_MIN) continue;
+        const Ctl* first = nullptr;
+        for (size_t i : byRow[static_cast<size_t>(r)]) {
+            if (!gone(t[i])) {
+                first = &t[i];
+                break;
+            }
+        }
+        if (!first) continue;
+        const int card = first->card;
+        const bool header = first->kind == CtlKind::Section;
+        bool line = false;
+        switch (first->kind) {
+            case CtlKind::Label:
+            case CtlKind::Check:
+            case CtlKind::Button:
+            case CtlKind::Combo:
+            case CtlKind::Edit:
+            case CtlKind::Trackbar:
+            case CtlKind::List:
+            case CtlKind::Expander:
+            case CtlKind::Swatch:
+            case CtlKind::Custom:
+                line = true;
+                break;
+            case CtlKind::Radio:
+                line = (first->style & WS_GROUP) != 0;
+                break;
+            default:
+                break;
+        }
+        const int top = rowTop[static_cast<size_t>(r)];
+        if (line && card >= 0 && card == prevCard && !prevHeader && prevBottom != INT_MIN && prevBottom <= top) {
+            page.hairlines_.push_back(SettingsPage::Hairline{(prevBottom + top) / 2, kM, W - kM});
+        }
+        if (card != prevCard || !(first->kind == CtlKind::Note || first->kind == CtlKind::Value) || prevBottom == INT_MIN) {
+            prevBottom = rowBottom[static_cast<size_t>(r)];
+        } else {
+            prevBottom = std::max(prevBottom, rowBottom[static_cast<size_t>(r)]);
+        }
+        if (first->kind != CtlKind::Note && first->kind != CtlKind::Value) prevHeader = header;
+        prevCard = card;
+    }
 }
 
 void SettingsWindow::LayoutPage(SettingsPage& page) {
-    int bottom = 0;
-    for (const Ctl& c : page.table_) {
-        const int b = c.kind == CtlKind::Combo ? c.dip.top + SettingsPage::kRowH - 4 : c.dip.bottom;
-        bottom = std::max(bottom, Px(b));
-    }
-    page.contentPx_ = bottom + Px(SettingsPage::kMargin);
+    HDC dc = GetDC(page.hwnd_);
+    HGDIOBJ oldFont = dc ? SelectObject(dc, font_) : nullptr;
+    auto gone = [&](const Ctl& c) { return c.collapsed || (c.expander != 0 && !page.ExpanderOpen(c.expander)); };
+    auto content = [&] {
+        int bottom = 0;
+        for (const Ctl& c : page.table_) {
+            if (gone(c)) continue;
+            const int b = c.kind == CtlKind::Combo ? c.dip.top + SettingsPage::kRowH - 4 : c.dip.bottom;
+            bottom = std::max(bottom, Px(b));
+        }
+        for (const SettingsPage::Card& card : page.cards_) {
+            if (!IsRectEmpty(&card.dip)) bottom = std::max(bottom, Px(card.dip.bottom));
+        }
+        return bottom + Px(page.cards_.empty() ? SettingsPage::kMargin : 16);
+    };
     RECT pr{};
     GetWindowRect(page.hwnd_, &pr);
     const int view = pr.bottom - pr.top;
+    // The cards and hairlines before: when they change the page's background is painted again.
+    std::vector<RECT> oldCards;
+    for (const SettingsPage::Card& card : page.cards_) oldCards.push_back(card.dip);
+    std::vector<SettingsPage::Hairline> oldLines = page.hairlines_;
+    if (dc) Reflow(page, dc);
+    page.contentPx_ = content();
+    // A page that scrolls is narrower by its scroll bar (Width()): lay it out again for that (a
+    // page with a layout of its own: OnResized, below).
+    bool fixedResized = false;
+    if (dc && (page.contentPx_ > view) != page.scrollBar_) {
+        page.scrollBar_ = page.contentPx_ > view;
+        if (page.reflow_) {
+            Reflow(page, dc);
+            page.contentPx_ = content();
+        } else {
+            fixedResized = page.layoutW_ != 0;
+        }
+    }
     page.scrollPx_ = std::clamp(page.scrollPx_, 0, std::max(0, page.contentPx_ - view));
     SCROLLINFO si{sizeof(si), SIF_RANGE | SIF_PAGE | SIF_POS, 0, std::max(0, page.contentPx_ - 1),
                   static_cast<UINT>(std::max(0, view)), page.scrollPx_, 0};
     SetScrollInfo(page.hwnd_, SB_VERT, &si, TRUE);
 
+    // Gone controls are hidden; back, they show as Show() left them.
+    for (Ctl& c : page.table_) {
+        if (!c.hwnd) continue;
+        const bool g = gone(c);
+        if (g && !c.goneApplied) {
+            if (GetFocus() == c.hwnd) {
+                if (HWND next = GetNextDlgTabItem(page.hwnd_, c.hwnd, FALSE); next && next != c.hwnd) SetFocus(next);
+            }
+            ShowWindow(c.hwnd, SW_HIDE);
+            c.goneApplied = true;
+        } else if (!g && c.goneApplied) {
+            c.goneApplied = false;
+            if (c.shown) ShowWindow(c.hwnd, SW_SHOWNA);
+        }
+    }
+
     const int checkPx = CheckGlyphPx(false) + 1;
     const int radioPx = CheckGlyphPx(true) + 1;
-    HDC dc = GetDC(page.hwnd_);
-    HGDIOBJ oldFont = dc ? SelectObject(dc, font_) : nullptr;
     HDWP dwp = BeginDeferWindowPos(static_cast<int>(page.table_.size()));
     for (const Ctl& c : page.table_) {
         if (!c.hwnd) continue;
@@ -1026,6 +1594,14 @@ void SettingsWindow::LayoutPage(SettingsPage& page) {
             SIZE ext{};
             GetTextExtentPoint32W(dc, c.text.c_str(), static_cast<int>(c.text.size()), &ext);
             r.right = std::min(r.right, r.left + ext.cx + Px(6));
+        }
+        if (c.kind == CtlKind::Expander && dc) {
+            // As wide as its longer text ("▸ <text>" / "▾ Less").
+            const std::wstring closed = L"\x25B8 " + c.text, open = L"\x25BE Less";
+            SIZE a{}, b{};
+            GetTextExtentPoint32W(dc, closed.c_str(), static_cast<int>(closed.size()), &a);
+            GetTextExtentPoint32W(dc, open.c_str(), static_cast<int>(open.size()), &b);
+            r.right = std::min(r.right, r.left + std::max(a.cx, b.cx) + Px(10));
         }
         if (dwp) {
             dwp = DeferWindowPos(dwp, c.hwnd, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
@@ -1039,6 +1615,18 @@ void SettingsWindow::LayoutPage(SettingsPage& page) {
     if (dc) {
         SelectObject(dc, oldFont);
         ReleaseDC(page.hwnd_, dc);
+    }
+    bool repaint = oldCards.size() != page.cards_.size() || oldLines.size() != page.hairlines_.size();
+    for (size_t k = 0; !repaint && k < oldCards.size(); ++k) repaint = !EqualRect(&oldCards[k], &page.cards_[k].dip);
+    for (size_t k = 0; !repaint && k < oldLines.size(); ++k) {
+        const SettingsPage::Hairline &a = oldLines[k], &b = page.hairlines_[k];
+        repaint = a.y != b.y || a.left != b.left || a.right != b.right;
+    }
+    // The statics inside a card paint its fill: they repaint too.
+    if (repaint) RedrawWindow(page.hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+    if (fixedResized && page.layoutW_ != page.Width()) {
+        page.layoutW_ = page.Width();
+        page.OnResized();  // lays the page out again (Relayout)
     }
 }
 
@@ -1121,6 +1709,15 @@ bool SettingsWindow::PreTranslateMessage(MSG& msg) {
         if (next == active_) next = NavStep(step > 0 ? -1 : static_cast<int>(pages_.size()), step);
         SelectPage(next);
         return true;
+    }
+    if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN) {
+        // Enter on an expander toggles it (Space does as a button press).
+        if (SettingsPage* page = PageOf(msg.hwnd)) {
+            if (const Ctl* c = page->Find(msg.hwnd); c && c->kind == CtlKind::Expander) {
+                ToggleExpander(*page, c->id);
+                return true;
+            }
+        }
     }
     if (!IsDialogMessageW(hwnd_, &msg)) return false;
     if (hwnd_ && msg.message == WM_KEYDOWN && msg.wParam == VK_TAB) EnsureVisible(GetFocus());
@@ -1266,11 +1863,12 @@ void SettingsWindow::RebuildPage(int index) {
     }();
     if (focusIn) SetFocus(nav_ ? nav_ : tabs_ ? tabs_ : hwnd_);
     if (lastFocus_ && IsChild(page.hwnd_, lastFocus_)) lastFocus_ = nullptr;
+    if (page.tip_) DestroyWindow(page.tip_);
+    page.tip_ = nullptr;
     for (Ctl& c : page.table_) {
         if (c.hwnd) DestroyWindow(c.hwnd);
     }
-    page.table_.clear();
-    page.y_ = 0;
+    page.ResetTable();
     page.scrollPx_ = 0;
     page.Build();
     CreateControls(page);
@@ -1301,6 +1899,7 @@ void SettingsWindow::RebuildPage(int index) {
                 break;
         }
     }
+    CreateTips(page);
     LayoutPage(page);
     loading_ = true;
     page.Load();
@@ -1357,6 +1956,36 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_CLOSE:
             DestroyWindow(hwnd_);
+            return 0;
+
+        // Round 8 phase 8A: resizable; everything follows the client size, the last size of each
+        // kind of window is saved when a resize ends (not on every WM_SIZE of a drag).
+        case WM_GETMINMAXINFO: {
+            auto* mmi = reinterpret_cast<MINMAXINFO*>(lp);
+            const SIZE m = MinClientDip();
+            RECT r{0, 0, Px(m.cx), Px(m.cy)};
+            AdjustWindowRectExForDpi(&r, kStyle, FALSE, 0, dpi_);
+            mmi->ptMinTrackSize = POINT{r.right - r.left, r.bottom - r.top};
+            return 0;
+        }
+
+        case WM_SIZE:
+            if (wp != SIZE_MINIMIZED && LOWORD(lp) > 0 && HIWORD(lp) > 0) {
+                const int dpi = static_cast<int>(dpi_);
+                clientDip_ = SIZE{MulDiv(LOWORD(lp), USER_DEFAULT_SCREEN_DPI, dpi), MulDiv(HIWORD(lp), USER_DEFAULT_SCREEN_DPI, dpi)};
+                if (!pages_.empty()) Layout();
+                // A resize by a program (SetWindowPos) or Aero snap ends here; a drag at WM_EXITSIZEMOVE.
+                if (!inSizeMove_ && wp == SIZE_RESTORED && IsWindowVisible(hwnd_)) SaveClientSize();
+            }
+            return 0;
+
+        case WM_ENTERSIZEMOVE:
+            inSizeMove_ = true;
+            return 0;
+
+        case WM_EXITSIZEMOVE:
+            inSizeMove_ = false;
+            SaveClientSize();
             return 0;
 
         case WM_DPICHANGED: {
@@ -1445,6 +2074,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             ClearPreviews();
             for (auto& page : pages_) {
                 page->hwnd_ = nullptr;
+                page->tip_ = nullptr;  // owned by the window: already destroyed
                 for (Ctl& c : page->table_) c.hwnd = nullptr;
             }
             preview_.reset();  // its window (a child) is already gone, with its D2D objects
@@ -1489,6 +2119,10 @@ LRESULT SettingsWindow::CtlColor(UINT msg, HDC hdc, HWND control, const Settings
     COLORREF text = palette_.text;
     COLORREF back = palette_.layer;
     HBRUSH brush = layerBrush_;
+    if (c && c->card >= 0 && static_cast<size_t>(c->card) < page.cards_.size() && !IsRectEmpty(&page.cards_[static_cast<size_t>(c->card)].dip)) {
+        back = cardColor_;  // round 8 phase 8A: inside a card
+        brush = cardBrush_;
+    }
     const bool enabled = IsWindowEnabled(control) != FALSE;
     if (msg == WM_CTLCOLOREDIT || msg == WM_CTLCOLORLISTBOX || (c && c->kind == CtlKind::Edit) ||
         (!c && msg == WM_CTLCOLORSTATIC)) {
@@ -1510,7 +2144,9 @@ void SettingsWindow::DrawCaption(const SettingsPage& page, const DRAWITEMSTRUCT&
     const Ctl* c = page.Find(di.hwndItem);
     HWND button = c ? page.Item(c->buddy) : nullptr;
     const bool enabled = !button || IsWindowEnabled(button);
-    FillRect(di.hDC, &di.rcItem, layerBrush_);
+    const bool card = c && c->card >= 0 && static_cast<size_t>(c->card) < page.cards_.size() &&
+                      !IsRectEmpty(&page.cards_[static_cast<size_t>(c->card)].dip);
+    FillRect(di.hDC, &di.rcItem, card ? cardBrush_ : layerBrush_);
     SetBkMode(di.hDC, TRANSPARENT);
     SetTextColor(di.hDC, enabled ? palette_.text : palette_.textDisabled);
     HGDIOBJ old = SelectObject(di.hDC, font_);
@@ -1528,10 +2164,68 @@ void SettingsWindow::DrawCaption(const SettingsPage& page, const DRAWITEMSTRUCT&
         fr.left -= 2;
         fr.right = std::min<LONG>(fr.right + 2, di.rcItem.right);
         SetTextColor(di.hDC, palette_.text);
-        SetBkColor(di.hDC, palette_.layer);
+        SetBkColor(di.hDC, card ? cardColor_ : palette_.layer);
         DrawFocusRect(di.hDC, &fr);
     }
     SelectObject(di.hDC, old);
+}
+
+void SettingsWindow::DrawExpander(const SettingsPage& page, const DRAWITEMSTRUCT& di) {
+    const Ctl* c = page.Find(di.hwndItem);
+    if (!c) return;
+    const bool card = c->card >= 0 && static_cast<size_t>(c->card) < page.cards_.size() &&
+                      !IsRectEmpty(&page.cards_[static_cast<size_t>(c->card)].dip);
+    FillRect(di.hDC, &di.rcItem, card ? cardBrush_ : layerBrush_);
+    const bool open = page.ExpanderOpen(c->id);
+    const std::wstring text = open ? std::wstring(L"\x25BE Less") : L"\x25B8 " + c->text;
+    SetBkMode(di.hDC, TRANSPARENT);
+    SetTextColor(di.hDC, (di.itemState & ODS_DISABLED) ? palette_.textDisabled : palette_.link);
+    HGDIOBJ old = SelectObject(di.hDC, font_);
+    RECT r = di.rcItem;
+    r.left += Px(2);
+    DrawTextW(di.hDC, text.c_str(), static_cast<int>(text.size()), &r, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    if ((di.itemState & ODS_FOCUS) && !(di.itemState & ODS_NOFOCUSRECT)) {
+        RECT fr = r;
+        DrawTextW(di.hDC, text.c_str(), static_cast<int>(text.size()), &fr, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT);
+        const int h = fr.bottom - fr.top;
+        fr.top = (di.rcItem.top + di.rcItem.bottom - h) / 2 - 1;
+        fr.bottom = fr.top + h + 2;
+        fr.left -= 2;
+        fr.right = std::min<LONG>(fr.right + 2, di.rcItem.right);
+        SetTextColor(di.hDC, palette_.text);
+        SetBkColor(di.hDC, card ? cardColor_ : palette_.layer);
+        DrawFocusRect(di.hDC, &fr);
+    }
+    SelectObject(di.hDC, old);
+}
+
+void SettingsWindow::ToggleExpander(SettingsPage& page, int id) {
+    page.SetExpander(id, !page.ExpanderOpen(id));
+    if (HWND h = page.Item(id)) {
+        // The accessible name says what a press does.
+        SetWindowTextW(h, page.ExpanderOpen(id) ? L"Less" : page.Find(id)->text.c_str());
+        InvalidateRect(h, nullptr, TRUE);
+        if (page.ExpanderOpen(id)) EnsureVisible(h);
+    }
+}
+
+int SettingsWindow::ExpanderState(int id) const {
+    for (const auto& page : pages_) {
+        if (const Ctl* c = page->Find(id); c && c->kind == CtlKind::Expander) return page->ExpanderOpen(id) ? 1 : 0;
+    }
+    return -1;
+}
+
+const SettingsPage* SettingsWindow::PageOfConst(HWND control) const { return PageOf(control); }
+
+COLORREF SettingsWindow::SurfaceColor(HWND control) const {
+    const SettingsPage* page = PageOfConst(control);
+    const Ctl* c = page ? page->Find(control) : nullptr;
+    if (c && c->card >= 0 && static_cast<size_t>(c->card) < page->cards_.size() &&
+        !IsRectEmpty(&page->cards_[static_cast<size_t>(c->card)].dip)) {
+        return cardColor_;
+    }
+    return palette_.layer;
 }
 
 LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM lp) {
@@ -1551,6 +2245,15 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
             }
             if ((c->kind == CtlKind::Check || c->kind == CtlKind::Radio) && (code == BN_SETFOCUS || code == BN_KILLFOCUS)) {
                 if (HWND caption = page.Item(c->buddy)) InvalidateRect(caption, nullptr, TRUE);
+                return 0;
+            }
+            if (c->kind == CtlKind::Expander) {
+                if (code == BN_CLICKED) ToggleExpander(page, c->id);
+                return 0;
+            }
+            // Statics with a tooltip (SS_NOTIFY) report clicks: not the pages' business.
+            if (c->kind == CtlKind::Label || c->kind == CtlKind::Note || c->kind == CtlKind::Value ||
+                c->kind == CtlKind::Section || c->kind == CtlKind::Title) {
                 return 0;
             }
             if (loading_) return 0;
@@ -1612,6 +2315,10 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
             const auto* di = reinterpret_cast<const DRAWITEMSTRUCT*>(lp);
             if (di->CtlType == ODT_STATIC) {
                 DrawCaption(page, *di);
+                return TRUE;
+            }
+            if (const Ctl* c = page.Find(di->hwndItem); c && c->kind == CtlKind::Expander) {
+                DrawExpander(page, *di);
                 return TRUE;
             }
             if (di->CtlType == ODT_BUTTON && page.OnDrawItem(*di)) return TRUE;

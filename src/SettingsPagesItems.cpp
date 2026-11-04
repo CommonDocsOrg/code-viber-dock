@@ -97,22 +97,19 @@ protected:
         Label(kGroupNameLabel, L"Name");
         EditBox(kGroupNameEdit, kColX, 260, 128);
         NextRow();
-        Label(kItemViewLabel, L"Show the contents as");
+        // Round 8 phase 8A: the note is the label's hint (kItemViewNote) and its tooltip.
+        Label(kItemViewLabel, L"Show the contents as", L"Automatic: a grid up to 48", kItemViewNote);
+        Tip(kItemViewLabel, L"Automatic: a grid up to 48 entries, a scrolling list above. Both scroll with the wheel or by "
+                            L"dragging; type to select, Enter opens.");
         Combo(kItemViewCombo, kColX, 260, false);
         NextRow();
-        Text(kItemViewNote, CtlKind::Note,
-             L"Automatic: a grid up to 48 entries, a scrolling list above. Both scroll with the wheel or by "
-             L"dragging; type to select, Enter opens.",
-             kColX, right - kColX, 36);
-        NextRow(40);
         Button(kItemChooseIcon, L"Choose icon…", kMargin, kButtonW);
         Button(kItemChooseImage, L"Choose image…", kMargin + kButtonStep, kButtonW);
         Button(kItemResetIcon, L"Reset icon", kMargin + 2 * kButtonStep, kButtonW);
-        NextRow(kRowH + 8);
-        Text(kItemNote, CtlKind::Note, L"", kMargin, right - kMargin, 36);
-        NextRow(40);
-        Section(kGroupMembersLabel, L"Shortcuts in the group");
         NextRow();
+        Text(kItemNote, CtlKind::Note, L"", kMargin, right - kMargin, 36);
+        NextRow(38);
+        Section(kGroupMembersLabel, L"Shortcuts in the group");
         Add(kGroupMembers, CtlKind::List, WC_LISTVIEWW, L"Shortcuts in the group",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kMembersH});
@@ -143,6 +140,8 @@ protected:
         }
     }
 
+    void OnResized() override { OnStyleChanged(); }  // round 8 phase 8A: the list's columns
+
     void OnStyleChanged() override {
         HWND list = Item(kGroupMembers);
         const Ctl* c = Find(kGroupMembers);
@@ -163,10 +162,10 @@ protected:
         Enable(kItemChooseImage, e != nullptr);
         Enable(kItemResetIcon, e && !e->icon.empty());
         SetComboSel(kItemViewCombo, e ? static_cast<int>(e->view) : -1);
-        for (int id : {kGroupNameLabel, kGroupNameEdit, kGroupMembersLabel, kGroupMembers, kGroupAdd, kGroupAddFolder,
-                       kGroupRemove, kGroupUp, kGroupDown}) {
-            Show(id, group);
-        }
+        // Round 8 phase 8A: collapsed for a folder (no empty rows, no empty card).
+        Collapse({kGroupNameLabel, kGroupNameEdit, kGroupMembersLabel, kGroupMembers, kGroupAdd, kGroupAddFolder, kGroupRemove,
+                  kGroupUp, kGroupDown},
+                 !group);
         SetText(kGroupNameEdit, group ? (e->name.empty() ? std::wstring(L"Group") : e->name) : std::wstring());
         if (!e) {
             SetText(kItemNote, L"This item is not a folder or a group any more.");

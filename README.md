@@ -1410,9 +1410,9 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
   WinDock.DockCommand 143, or its menu's Window settings…) has a header (its display, layer, size,
   Locked; **Flash this widget**, **Lock widget**) and one page, **Standalone widget**: the widget
   (name, **Open widget settings**: its generated Item page), display, position x / y (empty:
-  centred), width / height (with the widget's minimum and aspect), layer (with a note), background,
-  **Locked**, **Flash this widget**. Its widget's settings are an Item window like a dock widget's
-  (item 0 of the entry).
+  centred), width / height (with the widget's minimum and aspect), layer (with a hint), background,
+  **Locked** (round 8 phase 8A: the page's own **Flash this widget** button is gone, the header
+  has it). Its widget's settings are an Item window like a dock widget's (item 0 of the entry).
 
 ## Settings
 
@@ -1441,8 +1441,26 @@ and what applies to one item in that item's window: no Global page acts on "the 
 item's grid, into the dock's Behaviour tab and the tray item's window).
 
 A Dock or Item window opens centred on its dock's display, beside the dock (never over its bar);
-an Item window opens 40 DIPs right of and below its dock's window when that is open. Sizes (client
-area, DIPs): Global 760 × 560, Dock 860 × 620, Item 480 × 560; pages scroll.
+an Item window opens 40 DIPs right of and below its dock's window when that is open. Round 8 phase
+8A: every window is **resizable** (a resize border and a maximize button) and remembers its last
+size per kind (`settings.windows` in config.json, see Configuration; a maximized window remembers
+the size it is restored to). Default sizes (client area, DIPs): Global 760 × 560, Dock 860 × 620,
+Item 600 × 600; minimums Global 700 × 500, Dock 780 × 540, Item 520 × 480. Everything follows
+the size (the header, the tab strip, the Global page list with its 200 DIP column, the preview
+strip, the Item window's footer, the pages: controls at a page's right margin stretch or move,
+notes wrap again); pages scroll.
+
+**How a page reads** (round 8 phase 8A): each section is a **card** (a rounded panel, its title
+at the top, hairlines between its rows; a page without sections is one card); in the Global
+window the page's title is over the cards, a Dock or Item window has none (the tab or the header
+names the page). A label can carry a one-line muted **hint** under it ("0: no limit", "Above
+every window"); the longer explanation of a setting is its **tooltip** (hover the label, its
+hint, a check box's caption or a note; up to 360 DIPs wide, dark like the lists). No note is
+more than two lines (a generated widget page's long field descriptions end with "…" after two
+lines; the tooltip has all of it). Notes are as tall as their text at the window's width, so
+nothing clips or overlaps. An **expander** ("▸ More: …", "▾ Less"; Space or Enter on it, or a
+click) shows rows that are seldom needed, closed whenever the window opens: Behaviour > Auto-hide
+has one for the hide and reveal delays.
 
 Keyboard: the Global window's page list switches pages with Up / Down / Home / End while it has
 the focus, a Dock window's tab strip with Left / Right / Home / End; **Ctrl+Tab** / **Ctrl+Shift+Tab**
@@ -1454,8 +1472,9 @@ closes the window, Enter applies the text in an edit box.
 - **General**: Start with Windows, Hide the Windows taskbar, the renderer (`auto` / `software`;
   takes effect after WinDock restarts, the page shows the one in use), the **Dashboard** section
   (round 6 phase 6A: the hotkey box (click it and press the combination; Backspace / Delete clears
-  it), whether the hotkey is registered, **Show the dashboard now**; see Dashboard), **Open config
-  file**, **Reload config**.
+  it), whether the hotkey is registered, **Show the dashboard now**; see Dashboard). Round 8 phase
+  8A: **Open config file** / **Reload config** are on About only (General's Configuration file
+  section is gone).
 - **Themes**: the global theme (the built-in presets, then your theme files from the themes folder
   by name; a `preset` that is not found is listed as "<id> (missing)"), **Export current theme…**,
   **Open themes folder**, **Reset all to preset**, and one row per theme field (see
@@ -1545,8 +1564,9 @@ take the dock's colour (Windows 11). Tabs:
   - Buttons under the strip: **Add app…** (pick one or more `.lnk` / `.exe` files; a shortcut is
     pinned as the shortcut, apps that are already pinned are skipped), **Add folder…**, **Add
     separator** (after the selected item; nothing selected: at the end), **Add Recycle Bin**
-    (greyed while the dock has one), **Lock the dock** and **Hide widget drawer** / **Show widget
-    drawer** (remembered until WinDock quits).
+    (greyed while the dock has one; in a narrow window on the row under the others) and **Hide
+    widget drawer** / **Show widget drawer** (remembered until WinDock quits). Round 8 phase 8A:
+    the **Lock the dock** check box is gone (the header's **Lock dock** does it).
   - **The widget drawer** on the right (340 DIPs wide): a search box (name, note or id), **Built
     in** (Running apps, Clock, Weather, System tray, Notifications, Recycle Bin, Separator: their
     glyphs) and **Script widgets** (every installed widget with its version and, where the row
@@ -1993,6 +2013,12 @@ items that exist. A file whose items have settings already is left alone.
   `PageDown`, `Left`, `Up`, `Right`, `Down`, `Pause`, `PrintScreen`, `Num0` - `Num9`, `Num*`,
   `Num+`, `Num-`, `Num.`, `Num/`, or one of `` ` - = [ ] \ ; ' , . / ``; `""` = no hotkey; text
   that is not a hotkey reads as the default. See [Dashboard](#dashboard).
+- `settings` (round 8 phase 8A): `{ "windows": { "global": [w, h], "dock": [w, h], "item": [w, h] } }`,
+  the last client size in DIPs of each kind of settings window (Global, Dock (a folder window's
+  and a standalone widget's window included), Item; see Settings). A kind is written only when
+  its size is not the default (760 × 560, 860 × 620, 600 × 600), the whole object only when one
+  is; a size is clamped to the kind's minimum (700 × 500, 780 × 540, 520 × 480) and 4000. Saved
+  when a resize ends (and after a program resizes a window), not during a drag.
 
 ### Themes
 
@@ -2540,6 +2566,12 @@ always there, also when every dock is parked) handle these registered messages:
   the room; 0 also while the run overflows); 274 = slot `LOWORD(lParam)`'s config item's `offset`
   in px (-1 no such slot). The groups' positions show in `QueryItemPoint` and 237 / 238 (the bar
   is the room's length).
+  Round 8 phase 8A, the settings windows: 275 = a settings window's client size `MAKELONG(w, h)`
+  in DIPs (`LOWORD(lParam)` 1: the Global window, else the Dock window of dock `HIWORD(lParam)`,
+  as 263; -2 when it is not open; the live size, also while maximized); 276 = 1 while the expander
+  whose control id is `LOWORD(lParam)` is open, 0 while it is closed (looked up in the Dock window
+  of dock `HIWORD(lParam)`, then that dock's Item windows, then the Global window; -1: no such
+  expander in any of them). The only expander so far is Behaviour's 2269.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
@@ -2580,7 +2612,28 @@ always there, also when every dock is parked) handle these registered messages:
   the Global window 0 General, 1 Themes, 2 Animation, 3 Calendar feeds, 4 Tray icons, 5
   Notifications, 6 Widget library, 7 Docks and displays, 8 About (`SettingsIds::kPage*`); a Dock
   window 0 Contents, 1 Position, 2 Behaviour, 3 Running apps, 4 Theme (`kTab*`; a folder window's
-  window: 0 Folder window); an Item window 0 its page (the generated one, a tray item's grid page
+  window: 0 Folder window). Round 8 phase 8A: the windows are resizable (`SetWindowPos` works;
+  QueryState 275 reads the size, config `settings.windows` keeps it); each page that has tooltips
+  owns one `tooltips_class32` window owned by the settings window (`TTM_GETTOOLCOUNT` counts its
+  tools; the tools are the controls' windows, `TTF_IDISHWND | TTF_SUBCLASS`); an expander is an
+  owner-drawn button (Behaviour 2269 "More: hide and reveal delays": `WM_COMMAND(2269, BN_CLICKED)`
+  to the page, Space, or Enter while it has the focus, toggles it; QueryState 276); the controls
+  it hides are still there (hidden), so automation can drive them; a hint under a label is a
+  static (the old note ids where a note became a hint: Position 2192 Layer, 2183 Position x (the
+  floating bar's / circle's position note), 2268 Alignment, 2148 Offset (`kPositionNote`), 2267
+  Maximum length, 2161 Title (`kPositionNote2`); Running apps 2237 Windows (`kTaskListNote`), 2240
+  Window thumbnails; General 2125 Renderer, 2196 Dashboard hotkey; Dock > Theme 2422; Themes 2406
+  Theme (`kThemeNote`); Animation 2535 Animation speed, 2534 Reduce motion; Calendar feeds 4333
+  Default reminder (`kCalReminderNote`); Notifications 4214 Check for notifications every;
+  Folders and groups 4004 Show the contents as; a standalone widget's 4512 Position x, 4523 Layer;
+  a folder window's 4444 Desktop files matching; their window text is the hint). **Removed
+  controls** (8A): the page title 2000 in Dock and Item windows (the tab or the header names the
+  page; the Global window keeps its titles, and the Contents tab's "Items on the dock" heading
+  keeps 2000); General's Configuration file section 2188 with Open config file 2184 and Reload
+  config 2185 (use About's 2305 / 2306 or DockCommand 103 / 106); the standalone widget page's
+  Flash this widget 4528 (use the header's 110 or DockCommand 144); the Contents tab's Lock the
+  dock 2614 / 2615 (use the header's 111 or DockCommand 116). An Item window 0 its page (the
+  generated one, a tray item's grid page
   or Folders and groups).
   Every control on them has the stable id listed in `src/SettingsIds.h`; pages that moved kept
   their ids: Contents (round 5 phase C; the Dock contents list 2600, its note 2605 and Add widget
@@ -2590,7 +2643,7 @@ always there, also when every dock is parked) handle these registered messages:
   <kind> · <details>"), 2603 ◀ Move left, 2604 Move right ▶, 2613 Open settings in its own window
   (shown for items with settings), 2609 Choose icon…, 2610 Choose image…, 2611 Reset icon (shown
   for apps, folders, groups and the Recycle Bin), 2602 Remove from dock, 2601 Add app…, 2606 Add
-  folder…, 2607 Add separator (after the selection), 2608 Add Recycle Bin, 2614 Lock the dock,
+  folder…, 2607 Add separator (after the selection), 2608 Add Recycle Bin, (2614 Lock the dock: removed in 8A),
   2619 Hide / Show widget drawer, the drawer: 2620 / 2621 its title, 2622 the search box (send
   `WM_SETTEXT`, then `WM_COMMAND(2622, EN_CHANGE)` to the page), 2623 the drawer list (the same
   class; window text "Widget drawer: <name>, <note>" of the focused row), 2624 the Widget library
@@ -2620,7 +2673,7 @@ always there, also when every dock is parked) handle these registered messages:
   desktop (6B); a standalone widget's window page (6B, page 0, `SettingsIds` 4500 - 4529): 4503 the
   widget's name, 4504 Open widget settings, 4507 display, 4509 / 4511 x / y (empty: centred), 4514
   / 4515 width, 4517 / 4518 height, 4519 the size note, 4522 layer (DockLayer order), 4523 its note,
-  4525 background (0 none, 1 panel), 4526 Locked, 4528 Flash this widget;
+  4525 background (0 none, 1 panel), 4526 Locked (4528 Flash this widget: removed in 8A);
   Behaviour = 2101 - 2109 (icon size, magnification, range) and the Behaviour page's auto-hide,
   previews and mouse controls (2201 - 2229, 2223 single-window previews, 2227 middle click, 2229
   mouse wheel), 2254 badges, 2256 the notification centre (round 5 phase D), round 7: 2259 the
@@ -2632,8 +2685,8 @@ always there, also when every dock is parked) handle these registered messages:
   trade-off), 2242 / 2243 snapshot interval (s), 2246 / 2247 live frames per second, 2250 / 2251
   tile length (DIPs, 0 = twice the icon); Theme = 2420 "This dock's theme" (0 = same as all docks,
   then the theme list), 2422 its note, 2423 the link to Global > Themes; Global General = 2119 /
-  2121 Start with Windows / Hide the Windows taskbar, 2124 renderer, 2184 Open config file, 2185
-  Reload config; Docks and displays = 2900 the canvas (class `WinDock.LayoutCanvas`; its window
+  2121 Start with Windows / Hide the Windows taskbar, 2124 renderer (2184 Open config file and 2185
+  Reload config: removed in 8A, About has them); Docks and displays = 2900 the canvas (class `WinDock.LayoutCanvas`; its window
   text lists every dock instance as `index:config index:monitor:left,top,right,bottom;` in canvas
   client pixels, `-` for a parked one; a click selects the row, a double click opens the dock's
   window), 2902 the selected dock / where a drag would drop it, 2800 the list (Dock with the
@@ -2648,7 +2701,8 @@ always there, also when every dock is parked) handle these registered messages:
   press it with `PostMessage`), 3508 the last action's result); the generated page (an Item
   window of a widget, clock or weather item; per schema field k `3700 + 10 * k + part`: 0 label, 1
   the control (check box, edit, drop-down), 2 the check box's caption or the int's up-down, 3 the
-  field's note; its title 2000 reads "Widget: <name>", "Clock" or "Weather"; the item picker 3601
+  field's note (two lines at most; the whole description is its tooltip and its label's), 5 the
+  unit; its title 2000 is gone since round 8 phase 8A (the header names the widget); the item picker 3601
   and the page's own Reset 3603 are gone: the window is the item, Reset is the footer's 114);
   Folders and groups (an Item window of a folder, a shortcut to a folder or a group: 4003 Show the
   contents as: 0 Automatic, 1 Grid, 2 List; 4005 Choose icon…, 4006 Choose image…, 4007 Reset

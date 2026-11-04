@@ -48,8 +48,8 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Folder window");
-        Text(kFwInfo, CtlKind::Note, L"", kMargin, right - kMargin, 40);
-        NextRow(44);
+        Text(kFwInfo, CtlKind::Note, L"", kMargin, right - kMargin, 20);
+        NextRow(22);
         Section(kFwFolderSection, L"Folder");
         Label(kFwPathLabel, L"Folder");
         EditBox(kFwPathEdit, kColX, right - kColX - 110, 4096);
@@ -94,20 +94,19 @@ protected:
         Check(kFwRollUp, kFwRollUpCaption, L"When collapsed, expand while the pointer is over it");
         NextRow();
         Section(kFwRulesSection, L"Desktop rules");
-        Label(kFwRulesLabel, L"Desktop files matching");
+        // Round 8 phase 8A: the note is the label's hint (kFwRulesNote) and its tooltip.
+        Label(kFwRulesLabel, L"Desktop files matching", L"e.g. *.png;*.jpg;*.gif", kFwRulesNote);
+        Tip(kFwRulesLabel,
+            L"Patterns separated by semicolons, for example *.png;*.jpg;*.gif. Matching files on your Desktop are moved "
+            L"into this window's folder (the first folder window whose rules match wins), never over a file of the same "
+            L"name (it becomes \"name (2)\"), and can be undone with Ctrl+Z in Explorer. Off: only Sort desktop now moves "
+            L"them.");
         EditBox(kFwRulesEdit, kColX, right - kColX, 1024);
         NextRow();
         Check(kFwAutoSort, kFwAutoSortCaption, L"Move them here automatically when they land on the Desktop");
         NextRow();
         Button(kFwSortNow, L"Sort desktop now", kColX, kButtonW);
-        NextRow(kRowH + 4);
-        Text(kFwRulesNote, CtlKind::Note,
-             L"Patterns separated by semicolons, for example *.png;*.jpg;*.gif. Matching files on your Desktop are moved "
-             L"into this window's folder (the first folder window whose rules match wins), never over a file of the same "
-             L"name (it becomes \"name (2)\"), and can be undone with Ctrl+Z in Explorer. Off: only Sort desktop now "
-             L"moves them.",
-             kMargin, right - kMargin, 76);
-        NextRow(80);
+        NextRow();
     }
 
     void Created() override {

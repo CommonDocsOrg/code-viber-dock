@@ -163,7 +163,7 @@ LRESULT CALLBACK HotkeyBoxProc(HWND box, UINT msg, WPARAM wp, LPARAM lp, UINT_PT
 }
 
 // Global > General: what applies to the whole app (startup, the taskbar, the renderer, the
-// dashboard hotkey, the file).
+// dashboard hotkey; round 8 phase 8A: the config file buttons are on About only).
 class GeneralPage : public FormPage {
 public:
     explicit GeneralPage(SettingsWindow& w) : FormPage(w, L"General", L'\xE713') {}
@@ -177,36 +177,34 @@ protected:
         NextRow();
         Check(kHideTaskbar, kHideTaskbarCaption, L"Hide the Windows taskbar");
         NextRow();
-        Label(kRendererLabel, L"Renderer");
+        // Round 8 phase 8A: notes are one-line hints, the explanations tooltips.
+        Label(kRendererLabel, L"Renderer", L"", kRendererNote);
+        Tip(kRendererLabel, L"Takes effect after WinDock restarts. Automatic draws with the GPU (Direct3D 11) and falls "
+                            L"back to software when that fails; Software (WARP) needs less memory.");
         Combo(kRendererCombo, kColX, right - kColX, false);
-        NextRow(kRowH);
-        Text(kRendererNote, CtlKind::Note, L"", kColX, right - kColX, 20);
-        NextRow(20);
+        NextRow();
+        Text(kPositionNote, CtlKind::Note,
+             L"Each dock's own settings are in its own window: right-click the dock > Dock settings…", kMargin,
+             right - kMargin, 20);
+        Tip(kPositionNote, L"Each dock's own settings (its items, position, behaviour, running apps and theme) are in its "
+                           L"own window: right-click the dock and choose Dock settings…, or open it from Docks and displays.");
+        NextRow(22);
         // Round 6 phase 6A.
         Section(kSectionDashboard, L"Dashboard");
-        Label(kDashboardHotkeyLabel, L"Hotkey");
+        Label(kDashboardHotkeyLabel, L"Hotkey", L"Click, then press the keys", kDashboardNote);
+        Tip(kDashboardHotkeyLabel,
+            L"The hotkey brings every dock on the desktop layers (\"On the desktop\" in a dock's Position tab) to the "
+            L"front, above every window. Press it again, press Escape, or switch to another window to put them back; "
+            L"clicking the wallpaper keeps them up. Click the box and press the combination (Win, Ctrl, Alt, Shift and "
+            L"a key); Backspace or Delete clears it (no hotkey).");
         EditBox(kDashboardHotkeyEdit, kColX, 220, 64);
         NextRow();
         Text(kDashboardStatus, CtlKind::Value, L"", kColX, right - kColX, 22);
         NextRow(24);
         Button(kDashboardShow, L"Show the dashboard now", kColX, 200);
         NextRow();
-        Text(kDashboardNote, CtlKind::Note,
-             L"The hotkey brings every dock on the desktop layers (\"On the desktop\" in a dock's Position tab) to the "
-             L"front, above every window. Press it again, press Escape, or switch to another window to put them back; "
-             L"clicking the wallpaper keeps them up. Click the box and press the combination (Win, Ctrl, Alt, Shift "
-             L"and a key); Backspace or Delete clears it (no hotkey).",
-             kMargin, right - kMargin, 76);
-        NextRow(78);
-        Section(kSectionConfigFile, L"Configuration file");
-        Button(kGeneralOpenConfig, L"Open config file", kMargin, 150);
-        Button(kGeneralReloadConfig, L"Reload config", kMargin + 162, 150);
-        NextRow();
-        Text(kPositionNote, CtlKind::Note,
-             L"Each dock's own settings (its items, position, behaviour, running apps and theme) are in its own window: "
-             L"right-click the dock and choose Dock settings…, or open it from Docks and displays.",
-             kMargin, right - kMargin, 40);
-        NextRow(40);
+        // Round 8 phase 8A: the Configuration file section is gone (About has Open config file /
+        // Reload config).
     }
 
     void Created() override {
@@ -225,8 +223,7 @@ protected:
         SetCheck(kHideTaskbar, Host().taskbarHidden ? Host().taskbarHidden() : c.hideTaskbar);
         SetComboSel(kRendererCombo, c.renderer == L"software" ? 1 : 0);
         const bool warp = Host().usingWarp && Host().usingWarp();
-        SetText(kRendererNote, std::wstring(L"Takes effect after WinDock restarts. Currently: ") +
-                                   (warp ? L"software (WARP)" : L"GPU"));
+        SetText(kRendererNote, std::wstring(L"After a restart · now ") + (warp ? L"software" : L"GPU"));
         SetText(kDashboardHotkeyEdit, c.dashboard.hotkey);
         LoadDashboardStatus();
     }
@@ -279,12 +276,6 @@ protected:
                     }
                 }
                 break;
-            case kGeneralOpenConfig:
-                if (code == BN_CLICKED && Host().command) Host().command(ContextMenu::kOpenConfig);
-                break;
-            case kGeneralReloadConfig:
-                if (code == BN_CLICKED && Host().command) Host().command(ContextMenu::kReloadConfig);  // refreshes every window
-                break;
             default:
                 break;
         }
@@ -318,80 +309,77 @@ protected:
         Label(kMonitorLabel, L"Display");
         Combo(kMonitorCombo, kColX, right - kColX, false);
         NextRow();
-        Label(kLayerLabel, L"Layer");
+        // Round 8 phase 8A: the notes are one-line hints (kLayerNote, kCircleNote, kAlignNote,
+        // kPositionNote, kMaxLengthNote, kPositionNote2 are the hints' ids) and tooltips.
+        Label(kLayerLabel, L"Layer", L"", kLayerNote);
+        Tip(kLayerLabel,
+            L"Normal: above every window; it auto-hides as set on the Behaviour tab. On the desktop, only while the "
+            L"desktop is showing: shown only while the desktop is in front (Win+D, a click on the wallpaper), at the "
+            L"bottom of the windows. On the desktop, under every window: always on the desktop, like folder windows. "
+            L"The dashboard hotkey brings the desktop layers to the front.");
         Combo(kLayerCombo, kColX, right - kColX, false);
-        NextRow(kRowH);
-        Text(kLayerNote, CtlKind::Note, L"", kColX, right - kColX, 40);
-        NextRow(42);
+        NextRow();
 
         Section(kSectionPosition, L"Position");
         // Round 6 phase 6A: a floating bar at x / y (the circle's keys) instead of on an edge.
         Check(kFloating, kFloatingCaption, L"Floating (place the bar anywhere on the display)");
         NextRow(kRowH);
-        Text(kFloatingNote, CtlKind::Note,
-             L"A floating dock faces its screen edge (that is where its icons grow and popups open) and never "
-             L"auto-hides: its layer and the dashboard hotkey show it. Drag its bar's background to move it (it snaps "
-             L"to the work area's edges and other floating docks) unless it is locked. Bar shape only.",
-             kColX, right - kColX, 58);
-        NextRow(60);
+        Text(kFloatingNote, CtlKind::Note, L"Drag its bar's background to move it. Bar shape only.", kMargin + kCaptionDx,
+             right - kMargin - kCaptionDx, 20);
+        static constexpr wchar_t kFloatingTip[] =
+            L"A floating dock faces its screen edge (that is where its icons grow and popups open) and never "
+            L"auto-hides: its layer and the dashboard hotkey show it. Drag its bar's background to move it (it snaps "
+            L"to the work area's edges and other floating docks) unless it is locked. Bar shape only.";
+        Tip(kFloatingCaption, kFloatingTip);
+        Tip(kFloatingNote, kFloatingTip);
+        NextRow(22);
         Label(kEdgeLabel, L"Screen edge (floating: faces)");
         Combo(kEdgeCombo, kColX, 160, false);
         NextRow();
-        Label(kCircleXLabel, L"Position x");
+        Label(kCircleXLabel, L"Position x", L"DIPs; empty: centred", kCircleNote);
+        Tip(kCircleXLabel, L"Position (DIPs from the work area's top-left; empty = centred): a floating bar's top-left "
+                           L"corner, a circle's centre. Ctrl+drag a circle to move it.");
         EditBox(kCircleXEdit, kColX, 88, 7);
         NextRow();
         Label(kCircleYLabel, L"Position y");
         EditBox(kCircleYEdit, kColX, 88, 7);
-        NextRow(kRowH);
-        Text(kCircleNote, CtlKind::Note,
-             L"Position (DIPs from the work area's top-left; empty = centred): a floating bar's top-left corner, a "
-             L"circle's centre. Ctrl+drag a circle to move it.",
-             kColX, right - kColX, 40);
-        NextRow(42);
-        Label(kAlignLabel, L"Alignment");
-        Combo(kAlignCombo, kColX, 160, false);
-        NextRow(kRowH);
+        NextRow();
         // Round 7 phase 7B: items[].anchor (the Contents tab's "Position on the dock").
-        Text(kAlignNote, CtlKind::Note,
-             L"Where the dock sits on its edge; with full width or anchored items, where items without a position of "
-             L"their own sit",
-             kColX, right - kColX, 40);
-        NextRow(42);
-        Label(kOffsetLabel, L"Offset (pixels)");
+        Label(kAlignLabel, L"Alignment", L"Where the dock sits", kAlignNote);
+        Tip(kAlignLabel, L"Where the dock sits on its edge; with full width or anchored items, where the items without a "
+                         L"position of their own sit.");
+        Combo(kAlignCombo, kColX, 160, false);
+        NextRow();
+        Label(kOffsetLabel, L"Offset (pixels)", L"Along the edge", kPositionNote);
+        Tip(kOffsetLabel, L"Moves the dock along its edge from the aligned place (right / down). Ctrl+drag the dock to "
+                          L"move it along its edge or onto another edge (unless it is locked).");
         IntSpin(kOffsetEdit, kOffsetSpin, kColX, 88, -16000, 16000, 10, [](Config&, DockConfig& d) -> int& { return d.offset; },
                 SettingsScope::Appearance);
-        NextRow(kRowH);
-        Text(kPositionNote, CtlKind::Note,
-             L"Moves the dock along its edge from the aligned place (right / down). Ctrl+drag the dock to move it "
-             L"along its edge or onto another edge (unless it is locked).",
-             kColX, right - kColX, 40);
-        NextRow(42);
+        NextRow();
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
         NextRow();
         // Round 7 phase 7A: docks[].maxLength (a bar that is not full width).
-        Label(kMaxLengthLabel, L"Maximum length (pixels)");
+        Label(kMaxLengthLabel, L"Maximum length (pixels)", L"0: no limit", kMaxLengthNote);
+        Tip(kMaxLengthLabel, L"0: no limit. A longer run of icons scrolls (see When the icons do not fit). Not for a "
+                             L"ring or a full-width bar.");
         Spin(kMaxLengthEdit, kMaxLengthSpin, kColX, 88, 0, 8000, 50);
-        NextRow(kRowH);
-        Text(kMaxLengthNote, CtlKind::Note, L"0: no limit. Longer runs scroll (see Overflow)", kColX, right - kColX, 20);
-        NextRow(22);
-        Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
         NextRow();
-        Label(kPeekLabel, L"Peek when hidden (pixels)");
+        Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
+        Tip(kReserveSpaceCaption, L"Keeps maximized windows off the dock: reserves a strip along the whole edge (auto-hide "
+                                  L"off only).");
+        NextRow();
+        Label(kPeekLabel, L"Peek when hidden (pixels)", L"0: off");
+        Tip(kPeekLabel, L"Keeps that much of the hidden dock on screen (0: off).");
         IntSpin(kPeekEdit, kPeekSpin, kColX, 72, 0, 64, 2, [](Config&, DockConfig& d) -> int& { return d.peekPx; },
                 SettingsScope::Appearance);
         NextRow();
         Label(kPeekOpacityLabel, L"Peek opacity (%)");
         Spin(kPeekOpacityEdit, kPeekOpacitySpin, kColX, 72, 5, 100, 5);
         NextRow();
-        Label(kTitleLabel, L"Title");
+        Label(kTitleLabel, L"Title", L"Drawn beside the bar", kPositionNote2);
+        Tip(kTitleLabel, L"The title is drawn beside the bar, toward the middle of the screen (empty: none).");
         EditBox(kTitleEdit, kColX, right - kColX, 128);
-        NextRow(kRowH);
-        Text(kPositionNote2, CtlKind::Note,
-             L"Reserve screen space keeps maximized windows off the dock; reserves a strip along the whole edge "
-             L"(auto-hide off only). Peek keeps that much of the hidden dock on screen (0: off). The title is drawn "
-             L"beside the bar, toward the middle of the screen.",
-             kColX, right - kColX, 58);
-        NextRow(60);
+        NextRow();
 
         Section(kSectionShape, L"Shape");
         Label(kShapeLabel, L"Shape");
@@ -432,19 +420,22 @@ protected:
             {kAutoHideAlways, kAutoHideAlwaysCaption, L"Always: hide when the mouse leaves the dock"},
             {kAutoHideIntelligent, kAutoHideIntelligentCaption, L"When a window overlaps the dock"},
         });
-        Label(kHideDelayLabel, L"Hide delay");
+        Text(kAutoHideNote, CtlKind::Note, L"The dock stays shown while this window (or one of its item windows) is active.",
+             kMargin, right - kMargin, 20);
+        NextRow(22);
+        // Round 8 phase 8A: the delays behind an expander.
+        Expander(kAutoHideMore, L"More: hide and reveal delays");
+        Label(kHideDelayLabel, L"Hide delay", L"After the mouse leaves");
         IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50,
                 [](Config&, DockConfig& d) -> int& { return d.hideDelayMs; }, SettingsScope::SaveOnly);
         Text(kHideDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
-        Label(kRevealDelayLabel, L"Reveal delay");
+        Label(kRevealDelayLabel, L"Reveal delay", L"Before it shows again");
         IntSpin(kRevealDelayEdit, kRevealDelaySpin, kColX, 90, 0, 10000, 50,
                 [](Config&, DockConfig& d) -> int& { return d.revealDelayMs; }, SettingsScope::SaveOnly);
         Text(kRevealDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
-        NextRow(kRowH);
-        Text(kAutoHideNote, CtlKind::Note, L"The dock stays shown while this window (or one of its item windows) is active.",
-             kMargin, right - kMargin, 20);
-        NextRow(20);
+        NextRow();
+        EndExpander();
 
         Section(kSectionPreviews, L"Window previews");
         Check(kPreviews, kPreviewsCaption, L"Show window previews for apps with several windows");
@@ -482,42 +473,41 @@ protected:
         Check(kBadges, kBadgesCaption, L"Notification badges on app icons");
         NextRow(kRowH);
         Text(kDockNotificationsNote, CtlKind::Note,
-             L"Badges: the unread count of each app's notifications on its icon. The notification centre (a bell "
-             L"with the list) is a widget: drag it onto the dock from the Contents tab. Which apps may badge, tray "
-             L"balloons and the poll interval apply to every dock: Global settings > Notifications.",
-             kMargin, right - kMargin, 58);
-        NextRow(60);
+             L"The notification centre is a widget: drag it onto the dock from the Contents tab.", kMargin, right - kMargin, 20);
+        static constexpr wchar_t kBadgesTip[] =
+            L"Badges: the unread count of each app's notifications on its icon. The notification centre (a bell with the "
+            L"list) is a widget: drag it onto the dock from the Contents tab. Which apps may badge, tray balloons and the "
+            L"poll interval apply to every dock: Global settings > Notifications.";
+        Tip(kBadgesCaption, kBadgesTip);
+        Tip(kDockNotificationsNote, kBadgesTip);
+        NextRow(22);
     }
 
     void BuildRunning() {
         const int right = Width() - kMargin;
         Title(L"Running apps");
         Section(kSectionTaskList, L"Running apps");
-        Label(kWindowsLabel, L"Windows");
+        // Round 8 phase 8A: the notes are the hints kTaskListNote / kThumbnailsNote and tooltips.
+        Label(kWindowsLabel, L"Windows", L"A slot per app or per window", kTaskListNote);
+        Tip(kWindowsLabel, L"One slot per window: a pinned app's icon is its first window and its other windows follow it.");
         Combo(kWindowsCombo, kColX, right - kColX, false);
         NextRow();
         Check(kRunningMonitorOnly, kRunningMonitorOnlyCaption, L"Show only the windows on this dock's display");
         NextRow();
         Label(kTitlesLabel, L"Titles under icons");
+        Tip(kTitlesLabel, L"Titles show the window title, or the app's name.");
         Combo(kTitlesCombo, kColX, right - kColX, false);
         NextRow();
         Label(kTitlesVerticalLabel, L"Titles on vertical docks");
         Combo(kTitlesVerticalCombo, kColX, right - kColX, false);
-        NextRow(kRowH);
-        Text(kTaskListNote, CtlKind::Note,
-             L"One slot per window: a pinned app's icon is its first window and its other windows follow it. "
-             L"Titles show the window title, or the app's name.",
-             kMargin, right - kMargin, 36);
-        NextRow(36);
-        Label(kThumbnailsLabel, L"Window thumbnails");
+        NextRow();
+        Label(kThumbnailsLabel, L"Window thumbnails", L"Live: GPU · snapshots: cheap", kThumbnailsNote);
+        Tip(kThumbnailsLabel,
+            L"Live uses the GPU to show windows as they change (only while the dock is visible, at most the frames per "
+            L"second below). Snapshots takes a picture every N seconds and costs almost nothing in between. Each window "
+            L"gets a tile (stacked: each app its active window).");
         Combo(kThumbnailsCombo, kColX, right - kColX, false);
-        NextRow(kRowH);
-        Text(kThumbnailsNote, CtlKind::Note,
-             L"Live uses the GPU to show windows as they change (only while the dock is visible, at most the "
-             L"frames per second below). Snapshots takes a picture every N seconds and costs almost nothing in "
-             L"between. Each window gets a tile (stacked: each app its active window).",
-             kMargin, right - kMargin, 52);
-        NextRow(52);
+        NextRow();
         Label(kThumbIntervalLabel, L"Snapshot every");
         IntSpin(kThumbIntervalEdit, kThumbIntervalSpin, kColX, 90, 1, 3600, 1,
                 [](Config&, DockConfig& d) -> int& { return d.thumbnailIntervalS; }, SettingsScope::Appearance);
@@ -840,18 +830,13 @@ private:
     // The dock this page edits (the window's, looked up by id each time).
     DockConfig& Bound() { return Dock(); }
 
-    // The line under the Layer combo (round 6 phase 6A).
+    // The Layer label's hint (round 6 phase 6A; round 8 phase 8A: one line, the tooltip explains).
     static const wchar_t* LayerNote(DockLayer layer) {
         switch (layer) {
-            case DockLayer::Desktop:
-                return L"Shown only while the desktop is in front (Win+D, a click on the wallpaper), at the bottom of the "
-                       L"windows. The dashboard hotkey brings it to the front.";
-            case DockLayer::Behind:
-                return L"Always on the desktop, under every window (like folder windows). The dashboard hotkey brings it "
-                       L"to the front.";
+            case DockLayer::Desktop: return L"Only while the desktop shows";
+            case DockLayer::Behind: return L"Under every window";
             case DockLayer::Normal:
-            default:
-                return L"Above every window (it auto-hides as set on the Behaviour tab).";
+            default: return L"Above every window";
         }
     }
 
@@ -983,7 +968,7 @@ protected:
         Text(kAboutVersion, CtlKind::Value, L"Version " + FileVersion(), kMargin, right - kMargin, 20);
         NextRow(22);
         Text(kAboutNote, CtlKind::Note, L"A macOS-style dock for Windows 11.", kMargin, right - kMargin, 20);
-        NextRow(20);
+        NextRow(22);
 
         Section(kSectionConfig, L"Configuration");
         Label(kConfigPathLabel, L"Settings are saved to");

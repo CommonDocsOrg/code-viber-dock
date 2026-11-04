@@ -32,8 +32,8 @@ constexpr int kListH = 132;            // the list of docks
 constexpr int kIdColDip = 170;
 constexpr int kEdgeColDip = 110;
 constexpr int kDisplayColDip = 130;
-constexpr int kButtonW = 122;
-constexpr int kButtonStep = 130;
+constexpr int kButtonW = 114;  // round 8 phase 8A: four in a row fit beside the scroll bar
+constexpr int kButtonStep = 120;
 constexpr float kMarginDip = 8.0f;     // the dock's distance from the monitor edge (DockWindow kBottomMargin)
 constexpr float kSnapDip = 24.0f;      // snaps to the centre / an end this close (DockWindow kDockSnapDip)
 
@@ -193,29 +193,36 @@ protected:
         Button(kDockAdd, L"Add dock", kMargin, kButtonW);
         Button(kDockDuplicate, L"Duplicate", kMargin + kButtonStep, kButtonW);
         Button(kDockRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW);
-        Button(kDockAddFolder, L"Add folder window…", kMargin + 3 * kButtonStep, kButtonW + 20);
         NextRow(kRowH + 4);
         Button(kDocksOpen, L"Open dock settings", kMargin, kButtonW + 28);
         Button(kLockAllDocks, L"Lock all docks", kMargin + kButtonStep + 28, kButtonW);
         Button(kUnlockAllDocks, L"Unlock all docks", kMargin + 2 * kButtonStep + 28, kButtonW);
         NextRow(kRowH + 4);
         // Round 6 phase 6A: a floating bar on the desktop layer (useful for folders and files).
-        Button(kDockAddFloating, L"Add floating dock", kMargin, kButtonW + 28);
+        Button(kDockAddFloating, L"Add floating dock", kMargin, 128);
         // Round 6 phase 6B: a widget by itself on the desktop (a menu of the installed widgets).
-        Button(kDockAddWidget, L"Add standalone widget…", kMargin + kButtonStep + 28, kButtonW + 40);
+        Button(kDockAddWidget, L"Add standalone widget…", kMargin + 136, 150);
+        // Round 8 phase 8A: the adds in one row (it fits the minimum width beside the scroll bar).
+        Button(kDockAddFolder, L"Add folder window…", kMargin + 294, 128);
         NextRow(kRowH + 4);
+        // Round 8 phase 8A: one line; the whole explanation is its tooltip.
         Text(kDocksNote, CtlKind::Note,
-             L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
-             L"it (or its row) to open its own settings window; drag it along its edge (it snaps to the centre and the "
-             L"ends), onto another edge or onto another display: it moves when you let go. A new dock starts at the "
-             L"bottom of the primary display with the running apps and the clock. A dock whose display is not "
-             L"connected is parked until it is; \"Every display\" shows one copy on each. A folder window shows a "
-             L"folder on the desktop, under your windows. A floating dock sits anywhere on its display (on the desktop "
-             L"until you choose another layer): drag it where you want it. A standalone widget is one widget in a "
-             L"window of its own on the desktop (under your windows unless you choose another layer).",
-             kMargin, right - kMargin, 150);
-        NextRow(150);
+             L"Click a dock to select it, double-click it (or its row) to open it, drag it to move it.", kMargin,
+             right - kMargin, 20);
+        static constexpr wchar_t kDocksTip[] =
+            L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
+            L"it (or its row) to open its own settings window; drag it along its edge (it snaps to the centre and the "
+            L"ends), onto another edge or onto another display: it moves when you let go. A new dock starts at the "
+            L"bottom of the primary display with the running apps and the clock. A dock whose display is not "
+            L"connected is parked until it is; \"Every display\" shows one copy on each. A folder window shows a "
+            L"folder on the desktop, under your windows. A floating dock sits anywhere on its display (on the desktop "
+            L"until you choose another layer): drag it where you want it. A standalone widget is one widget in a "
+            L"window of its own on the desktop (under your windows unless you choose another layer).";
+        Tip(kDocksNote, kDocksTip);
+        NextRow(22);
     }
+
+    void OnResized() override { OnStyleChanged(); }  // round 8 phase 8A: the list's columns
 
     void Created() override {
         if (HWND c = Item(kLayoutCanvas)) canvas_.Attach(c);
@@ -756,7 +763,7 @@ void LayoutCanvas::Paint(HDC hdc) {
         auto ch = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pa + y * (100 - pa)) / 100); };
         return RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
     };
-    HBRUSH back = CreateSolidBrush(pal.layer);
+    HBRUSH back = CreateSolidBrush(page_.Win().SurfaceColor(hwnd_));  // a card's fill (round 8 phase 8A)
     FillRect(hdc, &client, back);
     DeleteObject(back);
     // The page's message font (WM_SETFONT may have come before the canvas was attached: then the

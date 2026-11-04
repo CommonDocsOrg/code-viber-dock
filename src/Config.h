@@ -608,6 +608,31 @@ struct DashboardConfig {
     bool operator==(const DashboardConfig&) const = default;
 };
 
+// The settings windows (round 8 phase 8A): the last client size of each kind of window in DIPs,
+// `settings.windows` = {"global": [w, h], "dock": [w, h], "item": [w, h]}. {0, 0} = the default
+// size; a kind is saved only when its size is not the default (Sanitize clamps to the kind's
+// minimum and 4000, and a size equal to the default becomes {0, 0}).
+struct SettingsWindowSize {
+    int w = 0;
+    int h = 0;
+    bool operator==(const SettingsWindowSize&) const = default;
+};
+struct SettingsUiConfig {
+    // Index: 0 Global, 1 Dock, 2 Item (SettingsKind order).
+    static constexpr int kKinds = 3;
+    static constexpr SettingsWindowSize kDefault[kKinds] = {{760, 560}, {860, 620}, {600, 600}};
+    static constexpr SettingsWindowSize kMinimum[kKinds] = {{700, 500}, {780, 540}, {520, 480}};
+    static constexpr int kMaximum = 4000;
+    static constexpr const wchar_t* kNames[kKinds] = {L"global", L"dock", L"item"};
+    SettingsWindowSize windows[kKinds];
+    bool operator==(const SettingsUiConfig& o) const {
+        for (int i = 0; i < kKinds; ++i) {
+            if (!(windows[i] == o.windows[i])) return false;
+        }
+        return true;
+    }
+};
+
 struct Config {
     // At least one dock after LoadFile / Sanitize; ids are unique (Sanitize). Every dock is shown
     // (DockManager), docks[].monitor "each" once per monitor.
@@ -634,6 +659,7 @@ struct Config {
     NotificationsConfig notifications;
     CalendarsConfig calendars;
     DashboardConfig dashboard;
+    SettingsUiConfig settings;  // round 8 phase 8A: `settings.windows`
     // Top-level keys this version does not know, kept verbatim (compact JSON) so a save does not
     // drop them. Unknown keys inside known objects (docks, items, clock, theme, animation, weather)
     // are not kept, nor are the legacy pre-`docks` keys.

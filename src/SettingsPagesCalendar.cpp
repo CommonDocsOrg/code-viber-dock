@@ -30,12 +30,14 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Calendar feeds");
+        // Round 8 phase 8A: one line, the whole explanation as its tooltip.
         Text(kCalNote, CtlKind::Note,
-             L"Calendars as ICS feeds: a web address (https://, http:// or webcal://, such as Google Calendar's "
-             L"\"secret address in iCal format\" or Outlook's published calendar), or an .ics file on this PC (re-read "
-             L"when it changes). Events show in the clock's month calendar and in widgets such as Agenda.",
-             kMargin, right - kMargin, 58);
-        NextRow(62);
+             L"ICS feeds (a web address or an .ics file) for the clock's month calendar and widgets such as Agenda.",
+             kMargin, right - kMargin, 20);
+        Tip(kCalNote, L"Calendars as ICS feeds: a web address (https://, http:// or webcal://, such as Google Calendar's "
+                      L"\"secret address in iCal format\" or Outlook's published calendar), or an .ics file on this PC "
+                      L"(re-read when it changes). Events show in the clock's month calendar and in widgets such as Agenda.");
+        NextRow(22);
         Section(kCalSection, L"Feeds");
         Add(kCalFeedList, CtlKind::List, WC_LISTVIEWW, L"Calendar feeds",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
@@ -43,7 +45,7 @@ protected:
         NextRow(kListH + 8);
         Button(kCalRemove, L"Remove", kMargin, kButtonW);
         Button(kCalRefreshNow, L"Refresh now", kMargin + kButtonW + 8, kButtonW);
-        NextRow(kRowH + 10);
+        NextRow();
         Section(kCalEditSection, L"Add or edit a feed");
         Label(kCalNameLabel, L"Name");
         EditBox(kCalNameEdit, kColX, right - kColX, 128);
@@ -60,27 +62,24 @@ protected:
         NextRow();
         Label(kCalReminderLabel, L"Remind me before events");
         Spin(kCalReminderEdit, kCalReminderSpin, kColX, kNumberW, 0, 1440, 5);
-        Text(kCalReminderUnit, CtlKind::Note, L"minutes (0: the default below)", kColX + kNumberW + 8, 260);
+        Text(kCalReminderUnit, CtlKind::Note, L"minutes (0: the default)", kColX + kNumberW + 8, 260);
         NextRow();
         Check(kCalEnable, kCalEnableCaption, L"Enabled");
         NextRow();
         Button(kCalAdd, L"Add feed", kMargin, kButtonW);
         Button(kCalSave, L"Save changes", kMargin + kButtonW + 8, kButtonW);
-        NextRow(kRowH + 6);
-        Text(kCalFieldsNote, CtlKind::Note, L"", kMargin, right - kMargin, 40);
-        NextRow(44);
+        NextRow(kRowH + 2);
+        Text(kCalFieldsNote, CtlKind::Note, L"", kMargin, right - kMargin, 20);
+        NextRow(22);
         Section(kCalOptionsSection, L"Display");
         Check(kCalShowDots, kCalShowDotsCaption, L"Show dots on days with events (month calendar, clock)");
         NextRow();
-        Label(kCalDefaultReminderLabel, L"Default reminder");
+        Label(kCalDefaultReminderLabel, L"Default reminder", L"A banner before each event", kCalReminderNote);
+        Tip(kCalDefaultReminderLabel, L"A reminder shows a banner beside the dock (Snooze 5 min, Dismiss) before each timed "
+                                      L"event of a feed with reminders. All-day events have none.");
         Spin(kCalDefaultReminderEdit, kCalDefaultReminderSpin, kColX, kNumberW, 0, 1440, 5);
-        Text(kCalDefaultReminderUnit, CtlKind::Note, L"minutes before (0: no reminders)", kColX + kNumberW + 8, 260);
+        Text(kCalDefaultReminderUnit, CtlKind::Note, L"minutes (0: none)", kColX + kNumberW + 8, 260);
         NextRow();
-        Text(kCalReminderNote, CtlKind::Note,
-             L"A reminder shows a banner beside the dock (Snooze 5 min, Dismiss) before each timed event of a feed with "
-             L"reminders. All-day events have none.",
-             kMargin, right - kMargin, 40);
-        NextRow(44);
     }
 
     void Created() override {
@@ -97,6 +96,8 @@ protected:
             ListView_InsertColumn(list, i, &col);
         }
     }
+
+    void OnResized() override { OnStyleChanged(); }  // round 8 phase 8A: the list's columns
 
     void OnStyleChanged() override {
         HWND list = Item(kCalFeedList);

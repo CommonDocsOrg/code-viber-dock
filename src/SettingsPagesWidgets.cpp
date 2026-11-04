@@ -32,8 +32,8 @@ using namespace SettingsIds;
 namespace json = winrt::Windows::Data::Json;
 
 constexpr int kListH = 220;
-constexpr int kButtonW = 150;
-constexpr int kButtonStep = 158;
+constexpr int kButtonW = 140;  // round 8 phase 8A: three in a row fit the minimum width
+constexpr int kButtonStep = 146;
 
 // --- the library's preview panel (round 6 phase 6E) ------------------------------------------------
 // WinDock.WidgetPreviewPanel: the selected widget's live preview (SettingsWindow::Preview, fitted into
@@ -143,7 +143,8 @@ private:
 
     void Paint(HDC dc, const RECT& rc) {
         const DarkMode::Palette& p = window_.Colors();
-        HBRUSH back = CreateSolidBrush(p.layer);
+        const COLORREF under = window_.SurfaceColor(hwnd_);  // a card's fill (round 8 phase 8A)
+        HBRUSH back = CreateSolidBrush(under);
         FillRect(dc, &rc, back);
         DeleteObject(back);
         SetBkMode(dc, TRANSPARENT);
@@ -160,7 +161,7 @@ private:
             return;
         }
         if (const SettingsWindow::PreviewImage* img = window_.Preview(id_, Fit(window_), true, kZoom)) {
-            window_.PaintPreview(dc, area, *img, p.layer);
+            window_.PaintPreview(dc, area, *img, under);
         } else {
             // No preview (the widget failed): a dotted frame with a word in it.
             HPEN pen = CreatePen(PS_DOT, 1, p.textSecondary);
@@ -227,14 +228,17 @@ protected:
         NextRow(kRowH + 4);
         Text(kWidgetsStatus, CtlKind::Value, L"", kMargin, right - kMargin);
         NextRow(kRowH);
-        Text(kWidgetsNote, CtlKind::Note,
-             L"A widget is a folder in " + Widgets::Directory() +
-                 L" with a widget.json and a main.js (see docs/widgets.md). A folder with a built-in's id replaces "
-                 L"the built-in: export one to edit it. Each widget item has its own settings window (right-click it on "
-                 L"the dock, or Settings… on its dock's Contents tab).",
-             kMargin, right - kMargin, 52);
-        NextRow(52);
+        // Round 8 phase 8A: one line, the whole explanation as its tooltip.
+        Text(kWidgetsNote, CtlKind::Note, L"A widget is a folder with a widget.json and a main.js (see docs/widgets.md).",
+             kMargin, right - kMargin, 20);
+        Tip(kWidgetsNote, L"A widget is a folder in " + Widgets::Directory() +
+                              L" with a widget.json and a main.js (see docs/widgets.md). A folder with a built-in's id "
+                              L"replaces the built-in: export one to edit it. Each widget item has its own settings window "
+                              L"(right-click it on the dock, or Settings… on its dock's Contents tab).");
+        NextRow(22);
     }
+
+    void OnResized() override { OnStyleChanged(); }  // round 8 phase 8A: the list's columns
 
     void Created() override {
         panel_.Attach(Item(kWidgetsPreview));
@@ -542,8 +546,11 @@ protected:
             note = m->description;
         }
         if (!note.empty()) {
-            Text(kWidgetSettingsNote, CtlKind::Note, note, kMargin, right - kMargin, 36);
-            NextRow(36);
+            // Round 8 phase 8A: measured, two lines at most (the whole text as its tooltip).
+            Ctl& n = Text(kWidgetSettingsNote, CtlKind::Note, note, kMargin, right - kMargin, 36);
+            n.maxLines = 2;
+            Tip(kWidgetSettingsNote, note);
+            NextRow(38);
         }
         placeField_ = -1;
         if (!m) return;
@@ -600,12 +607,14 @@ protected:
                     break;
             }
             if (!f.description.empty() && f.type != T::Place) {
-                // As many lines as the text needs in the control column (the Item window is
-                // narrow): about 6.3 DIPs a character of the message font.
+                // Round 8 phase 8A: measured in the control column, two lines at most; the whole
+                // description is the tooltip of the note and of the field's label.
                 const int w = std::max(40, right - kColX);
-                const int lines = std::clamp(static_cast<int>(std::ceil(static_cast<double>(f.description.size()) * 6.3 / w)), 1, 6);
-                Text(base + 3, CtlKind::Note, f.description, kColX, w, 18 * lines + 2);
-                NextRow(18 * lines + 4);
+                Ctl& n = Text(base + 3, CtlKind::Note, f.description, kColX, w, 20);
+                n.maxLines = 2;
+                Tip(base + 3, f.description);
+                Tip(f.type == T::Bool ? base + 2 : base, f.description);
+                NextRow(22);
             }
         }
         if (!fields.empty() && kind == ItemKind::Clock) {

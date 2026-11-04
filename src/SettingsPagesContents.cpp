@@ -1307,12 +1307,15 @@ public:
 
 protected:
     void Build() override {
+        // Round 8 phase 8A: the tab lays itself out (ApplyDrawer / FlowInspector): no reflow, no cards.
+        NoReflow();
         SettingsStrip::Register();
         const int W = Width(), L = kMargin, R = Right(), dx = W - kDrawerW;
         Add(kPageTitle, CtlKind::Section, WC_STATICW, L"Items on the dock", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE, RECT{L, 12, R, 36});
-        Add(kContentsNote, CtlKind::Note, WC_STATICW,
-            L"Drag to reorder. Drop a widget from the drawer anywhere on the strip. Each copy keeps its own settings.",
-            SS_LEFT | SS_NOPREFIX, RECT{L, 38, R, 72});
+        Add(kContentsNote, CtlKind::Note, WC_STATICW, L"Drag to reorder; drop a widget from the drawer anywhere on the strip.",
+            SS_LEFT | SS_NOPREFIX | SS_NOTIFY, RECT{L, 38, R, 72});
+        Tip(kContentsNote, L"Drag to reorder. Drop a widget from the drawer anywhere on the strip. Each copy keeps its own "
+                           L"settings.");
         Add(kContentsStrip, CtlKind::Custom, SettingsStrip::kClass, L"Items on the dock", WS_TABSTOP, RECT{L, 76, R, 194});
         y_ = 200;
         Button(kPinAdd, L"Add app…", L, 96);
@@ -1320,7 +1323,7 @@ protected:
         Button(kPinAddSeparator, L"Add separator", L + 216, 112);
         Button(kPinAddRecycleBin, L"Add Recycle Bin", L + 336, 124);
         y_ = 236;
-        Check(kLockDock, kLockDockCaption, L"Lock the dock (no dragging or dropping)", L);
+        // Round 8 phase 8A: the "Lock the dock" check box (2614 / 2615) is gone: the header's Lock dock.
         Button(kContentsDrawerToggle, g_drawerOpen ? L"Hide widget drawer" : L"Show widget drawer", R - 150, 150);
         // The inspector (its frame is painted by PaintBackground; FlowInspector places the buttons).
         Add(kContentsInfo, CtlKind::Custom, SettingsStrip::kClass, L"Selected item", 0,
@@ -1382,7 +1385,6 @@ protected:
     }
 
     void Load() override {
-        SetCheck(kLockDock, Dock().locked);
         BuildEntries();
         FillStrip(sel_);
         FillDrawer();
@@ -1411,6 +1413,7 @@ protected:
     }
 
     void PaintBackground(HDC dc) override {
+        SettingsPage::PaintBackground(dc);  // the cards (none here: the tab lays itself out)
         const DarkMode::Palette& p = Window().Colors();
         const int s = ScrollPx();
         const COLORREF hair = Mix(p.text, p.layer, 16);
@@ -1539,10 +1542,6 @@ protected:
                 dock.items[static_cast<size_t>(sel_)].icon.clear();
                 Changed(SettingsScope::Pins);
                 FillStrip(sel_);
-                break;
-            case kLockDock:
-                dock.locked = GetCheck(id);  // read by the dock when a drag / drop / menu starts
-                Changed(SettingsScope::SaveOnly);
                 break;
             case kContentsDrawerToggle:
                 g_drawerOpen = !g_drawerOpen;
@@ -1682,6 +1681,17 @@ private:
         drawer_.SetTiles(std::move(tiles), select);
     }
 
+    // Round 8 phase 8A: the window was resized: the drawer on the right, the left column again.
+    void OnResized() override {
+        const int W = Width(), dx = W - kDrawerW;
+        MoveCtl(kDrawerTitle, RECT{dx + 16, 12, dx + 132, 36});
+        MoveCtl(kDrawerHint, RECT{dx + 132, 12, W - 16, 36});
+        MoveCtl(kDrawerSearch, RECT{dx + 16, 38 + 4, W - 16, 38 + kRowH - 4});
+        MoveCtl(kDrawerList, RECT{dx + 16, 74, W - 16, 378});
+        MoveCtl(kDrawerLibraryLink, RECT{dx + 16, 386, W - 16, 422});
+        ApplyDrawer();  // relayouts
+    }
+
     void ApplyDrawer() {
         const bool open = g_drawerOpen;
         for (int id : {kDrawerTitle, kDrawerHint, kDrawerSearch, kDrawerList, kDrawerLibraryLink}) Show(id, open);
@@ -1690,6 +1700,10 @@ private:
         MoveCtl(kContentsNote, RECT{L, 38, R, 72});
         MoveCtl(kContentsStrip, RECT{L, 76, R, 194});
         MoveCtl(kContentsDrawerToggle, RECT{R - 150, 236 + 2, R, 236 + kRowH - 2});
+        // Round 8 phase 8A: in a narrow window the fourth add button goes to the row under them
+        // (where the Lock check box was).
+        const bool narrow = L + 460 > R;
+        MoveCtl(kPinAddRecycleBin, narrow ? RECT{L, 236 + 2, L + 124, 236 + kRowH - 2} : RECT{L + 336, 200 + 2, L + 460, 200 + kRowH - 2});
         SetText(kContentsDrawerToggle, open ? L"Hide widget drawer" : L"Show widget drawer");
         flowKey_.clear();
         FlowInspector(true);
@@ -1728,8 +1742,10 @@ private:
             MoveCtl(kItemOffsetEdit, RECT{cx, top + 4, cx + 96 - 18, top + kRowH - 4});
             MoveCtl(kItemOffsetSpin, RECT{cx + 96 - 18, top + 4, cx + 96, top + kRowH - 4});
             top += kRowH;
-            MoveCtl(kItemOffsetNote, RECT{left, top, right, top + 20});
-            return top + 20 + 10;
+            // Round 8 phase 8A: as tall as its text at this width (it never clips).
+            const int noteH = std::max(20, NoteHeightDip(kItemOffsetNote, right - left));
+            MoveCtl(kItemOffsetNote, RECT{left, top, right, top + noteH});
+            return top + noteH + 10;
         };
         if (infoPreview_) {
             // A widget with its preview: the buttons stack in the right column under Move left /

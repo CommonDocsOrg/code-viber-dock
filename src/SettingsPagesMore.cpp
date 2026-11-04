@@ -57,13 +57,12 @@ protected:
         const int right = Width() - kMargin;
         Title(L"Animation");
         Section(kSectionSpeed, L"Speed");
-        Label(kSpeedLabel, L"Animation speed");
+        // Round 8 phase 8A: the note is the label's hint (kSpeedNote) and its tooltip.
+        Label(kSpeedLabel, L"Animation speed", L"Off: no animation", kSpeedNote);
+        Tip(kSpeedLabel, L"Off: the dock moves instantly. The speed divides every animation's duration.");
         Trackbar(kSpeedTrack, kColX - 6, 212, 0, kSpeedSteps, 4);
         Text(kSpeedValue, CtlKind::Value, L"", kColX + 216, 72);
-        NextRow(kRowH);
-        Text(kSpeedNote, CtlKind::Note, L"Off: the dock moves instantly. The speed divides every animation's duration.",
-             kColX, right - kColX, 36);
-        NextRow(36);
+        NextRow();
 
         Section(kSectionHide, L"Hiding and showing");
         Radios({
@@ -95,11 +94,9 @@ protected:
         NextRow();
 
         Section(kSectionAccessibility, L"Accessibility");
-        Label(kReduceMotionLabel, L"Reduce motion");
+        Label(kReduceMotionLabel, L"Reduce motion", L"", kReduceMotionNote);
         Combo(kReduceMotionCombo, kColX, right - kColX, false);
-        NextRow(kRowH);
-        Text(kReduceMotionNote, CtlKind::Note, L"", kColX, right - kColX, 20);
-        NextRow(20);
+        NextRow();
     }
 
     void Created() override {
@@ -181,7 +178,7 @@ private:
     }
 
     void UpdateSystemNote() {
-        SetText(kReduceMotionNote, std::wstring(L"Windows animation effects: ") + (SystemAnimationsOn() ? L"on" : L"off"));
+        SetText(kReduceMotionNote, std::wstring(L"Windows animations: ") + (SystemAnimationsOn() ? L"on" : L"off"));
     }
 };
 

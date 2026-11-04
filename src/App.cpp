@@ -2051,6 +2051,10 @@ LRESULT App::WidgetEntryCommand(UINT cmd, size_t cfg) {
 
 void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* source) {
     if (shutDown_) return;
+    if (scope == SettingsScope::WindowSize) {
+        RequestSave();  // round 8 phase 8A: config.settings.windows; nothing else changes
+        return;
+    }
     if (cfg >= config_.docks.size()) cfg = 0;
     // An Item window edited its own item: what it is now is what to find again.
     if (source && source->Kind() == SettingsKind::Item) {
@@ -2104,6 +2108,8 @@ void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* sou
             break;
         case SettingsScope::SaveOnly:
             docks_.ApplyWidgetWindow(cfg);  // a standalone widget's lock (its header button)
+            break;
+        case SettingsScope::WindowSize:  // handled above
             break;
     }
     RequestSave();
@@ -2188,6 +2194,30 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
                                                                            : nullptr;
             if (!w || !w->Hwnd()) return -2;
             return wp == 263 ? w->PreviewsRendered() : w->PreviewFailures();
+        }
+        case 275: {  // round 8 phase 8A: a settings window's client size MAKELONG(w, h) DIPs (LOWORD 1: the Global window, else the Dock window of dock HIWORD; -2 not open)
+            SettingsWindow* w = arg == 1 ? FindSettings(SettingsKind::Global)
+                                : inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id)
+                                                                           : nullptr;
+            if (!w || !w->Hwnd()) return -2;
+            const SIZE s = w->ClientSizeDip();
+            return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(s.cx), static_cast<WORD>(s.cy)));
+        }
+        case 276: {  // 1 while expander LOWORD (its control id) is open: the Dock window of dock HIWORD, its Item windows, the Global window (-1 no such expander)
+            std::vector<SettingsWindow*> look;
+            if (inst && inst->cfg < config_.docks.size()) {
+                const std::wstring& id = config_.docks[inst->cfg].id;
+                if (SettingsWindow* d = FindSettings(SettingsKind::Dock, id)) look.push_back(d);
+                for (const auto& s : settings_) {
+                    if (s->Kind() == SettingsKind::Item && s->DockId() == id) look.push_back(s.get());
+                }
+            }
+            if (SettingsWindow* g = FindSettings(SettingsKind::Global)) look.push_back(g);
+            for (SettingsWindow* w : look) {
+                if (!w->Hwnd()) continue;
+                if (const int state = w->ExpanderState(static_cast<int>(arg)); state >= 0) return state;
+            }
+            return -1;
         }
         case 266:  // round 6 phase 6E: live widget instances in the runtime (previews never count: none outlives its render)
             return static_cast<LRESULT>(docks_.Widgets().Instances().size()) + docks_.Previews().Alive();

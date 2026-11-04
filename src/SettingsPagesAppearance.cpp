@@ -31,7 +31,8 @@ struct FieldGroup {
     const wchar_t* title;
     std::vector<Field> fields;
     int noteId = 0;                  // optional note under the rows
-    const wchar_t* note = nullptr;
+    const wchar_t* note = nullptr;   // its tooltip (round 8 phase 8A)
+    const wchar_t* hint = nullptr;   // the one line shown
 };
 
 // Rows in this order; a field missing here lands in "Other" (the table stays the source of truth).
@@ -56,7 +57,8 @@ std::vector<FieldGroup> FieldGroups() {
          L"A clear glow colour (alpha 0) uses each icon's own colour. Reflections show on bottom and top docks "
          L"only (left / right docks have none); clipped, they keep the bar at its height and show the part "
          L"that fits. The perspective tilt is cosmetic (clicks use the flat layout) "
-         L"and turns acrylic off, like the glass shelf."},
+         L"and turns acrylic off, like the glass shelf.",
+         L"Alpha 0 glow: the icon's colour. Reflections: top and bottom docks. The tilt turns acrylic off."},
     };
     FieldGroup other{kSectionFieldsOther, L"Other", {}};
     for (size_t i = 0; i < Theme::FieldCount(); ++i) {
@@ -120,41 +122,46 @@ protected:
         const int right = Width() - kMargin;
         if (dockOnly_) {
             Title(L"Theme");
-            Label(kDockThemeLabel, L"This dock's theme");
+            // Round 8 phase 8A: the note is the label's hint (kDockThemeNote) and its tooltip.
+            Label(kDockThemeLabel, L"This dock's theme", L"Its fields: Global > Themes", kDockThemeNote);
+            Tip(kDockThemeLabel, L"\"Same as all docks\" uses the global theme. The theme's fields (colours, sizes, "
+                                 L"effects) are in Global settings > Themes: they apply to every dock, on top of this "
+                                 L"dock's preset.");
             Combo(kDockThemeCombo, kColX, right - kColX, false);
-            NextRow(kRowH + 4);
-            Text(kDockThemeNote, CtlKind::Note,
-                 L"\"Same as all docks\" uses the global theme. The theme's fields (colours, sizes, effects) are in "
-                 L"Global settings > Themes: they apply to every dock, on top of this dock's preset.",
-                 kMargin, right - kMargin, 40);
-            NextRow(44);
+            NextRow();
             Link(kDockThemeLink, L"<a>Open Global settings > Themes</a>", kMargin, right - kMargin);
             NextRow();
             return;
         }
         Title(L"Themes");
+        // Round 8 phase 8A: a narrower label column, so a field row (swatch, #AARRGGBB, alpha,
+        // Reset) fits the window's minimum width beside the scroll bar.
+        labelW_ = kThemeLabelW;
+        constexpr int cx = kThemeColX;
         Section(kSectionTheme, L"Theme");
-        Label(kThemeLabel, L"Theme");
-        Combo(kThemeCombo, kColX, right - kColX, false);
+        Label(kThemeLabel, L"Theme", L"Changes below override it", kThemeNote);
+        Tip(kThemeLabel, L"A change below overrides the theme (saved in config.json); Reset brings back the theme's value. "
+                         L"Colours are #AARRGGBB, the number next to them is the alpha (0 clear, 255 opaque). A dock with "
+                         L"a theme of its own (its Dock settings > Theme) uses it under these changes, which apply to "
+                         L"every dock.");
+        Combo(kThemeCombo, cx, right - cx, false);
         NextRow();
-        Button(kExportTheme, L"Export current theme…", kColX, 176);
-        Link(kThemesFolderLink, L"<a>Open themes folder</a>", kColX + 188, right - kColX - 188);
+        Button(kExportTheme, L"Export current theme…", cx, 176);
         NextRow();
-        Button(kResetAllTheme, L"Reset all to preset", kColX, 176);
-        NextRow(kRowH + 2);
-        Text(kThemeNote, CtlKind::Note,
-             L"A change below overrides the theme (saved in config.json); Reset brings back the theme's value. "
-             L"Colours are #AARRGGBB, the number next to them is the alpha (0 clear, 255 opaque). A dock with a theme "
-             L"of its own (its Dock settings > Theme) uses it under these changes, which apply to every dock.",
-             kMargin, right - kMargin, 54);
-        NextRow(54);
+        Button(kResetAllTheme, L"Reset all to preset", cx, 176);
+        NextRow();
+        Link(kThemesFolderLink, L"<a>Open themes folder</a>", cx, right - cx);  // its own row (a narrow window)
+        NextRow();
 
         for (const FieldGroup& g : FieldGroups()) {
             Section(g.sectionId, g.title);
             for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
             if (g.note) {
-                Text(g.noteId, CtlKind::Note, g.note, kMargin, right - kMargin, 72);
-                NextRow(72);
+                // One line (two at most); the whole note as its tooltip.
+                Ctl& n = Text(g.noteId, CtlKind::Note, g.hint ? g.hint : g.note, kMargin, right - kMargin, 20);
+                n.maxLines = 2;
+                Tip(g.noteId, g.note);
+                NextRow(22);
             }
         }
     }
@@ -274,7 +281,7 @@ protected:
         const uint32_t argb = Theme::GetColor(Cfg().theme, Theme::Fields()[field]);
         const DarkMode::Palette& pal = Window().Colors();
         RECT r = di.rcItem;
-        HBRUSH back = CreateSolidBrush(pal.layer);
+        HBRUSH back = CreateSolidBrush(Window().SurfaceColor(di.hwndItem));  // a card's fill (round 8 phase 8A)
         FillRect(di.hDC, &r, back);
         DeleteObject(back);
         // Frame, then a checkerboard under the colour so the alpha is visible.
@@ -316,35 +323,37 @@ private:
         return true;
     }
 
+    static constexpr int kThemeLabelW = 156, kThemeColX = kMargin + kThemeLabelW + 8;  // round 8 phase 8A
+
     void FieldRowCtl(int field) {
         const Theme::FieldInfo& info = Theme::Fields()[field];
         const int right = Width() - kMargin;
-        constexpr int kResetW = 64;
+        constexpr int kResetW = 56, colX = kThemeColX;  // the page's own (narrower) columns
         switch (info.kind) {
             case Theme::Kind::Color: {
                 Label(FieldRow(field, kFieldLabel), info.label);
                 // The swatch's window text is its accessible name (never drawn).
                 Add(FieldRow(field, kFieldSwatch), CtlKind::Swatch, WC_BUTTONW, info.label, WS_TABSTOP | BS_OWNERDRAW,
-                    RECT{kColX, y_ + 5, kColX + 36, y_ + kRowH - 5});
+                    RECT{colX, y_ + 5, colX + 36, y_ + kRowH - 5});
                 Ctl& hex = Add(FieldRow(field, kFieldHex), CtlKind::Edit, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL,
-                               RECT{kColX + 44, y_ + 4, kColX + 44 + 104, y_ + kRowH - 4});
+                               RECT{colX + 44, y_ + 4, colX + 44 + 92, y_ + kRowH - 4});
                 hex.exStyle = WS_EX_CLIENTEDGE;
                 hex.hi = 9;
-                Spin(FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), kColX + 158, 64, 0, 255, 5);
+                Spin(FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), colX + 144, 60, 0, 255, 5);
                 break;
             }
             case Theme::Kind::Float:
                 Label(FieldRow(field, kFieldLabel), info.label);
-                Spin(FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), kColX, 72, FloatToUi(info, info.min),
+                Spin(FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), colX, 72, FloatToUi(info, info.min),
                      FloatToUi(info, info.max), info.scale > 1.0f ? 5 : 1);
-                Text(FieldRow(field, kFieldUnit), CtlKind::Note, info.unit, kColX + 80, 96);
+                Text(FieldRow(field, kFieldUnit), CtlKind::Note, info.unit, colX + 80, 96);
                 break;
             case Theme::Kind::Bool:
                 Check(FieldRow(field, kFieldSwatch), FieldRow(field, kFieldHex), info.label);
                 break;
             case Theme::Kind::Enum:
                 Label(FieldRow(field, kFieldLabel), info.label);
-                Combo(FieldRow(field, kFieldValue), kColX, 168, false);
+                Combo(FieldRow(field, kFieldValue), colX, 168, false);
                 break;
         }
         Button(FieldRow(field, kFieldReset), L"Reset", right - kResetW, kResetW);

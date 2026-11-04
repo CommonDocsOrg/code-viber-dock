@@ -32,30 +32,40 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Tray icons");
+        // Round 8 phase 8A: one-line notes, the explanations as their tooltips.
         Check(kTrayEnabled, kTrayEnabledCaption, L"Show the notification area icons in the dock");
-        NextRow();
-        Text(kTrayEnabledNote, CtlKind::Note,
-             L"The dock takes over the notification area (Shell_TrayWnd): apps register their tray icons with it, and "
-             L"every change is passed on to Explorer too, so nothing is lost when the dock quits. Explorer's own "
-             L"items (network, battery, input language, Explorer's clock and volume) are not tray icons: they stay "
-             L"with Explorer, whose taskbar is hidden anyway (the volume, media and date widgets cover them). Needs a "
-             L"System tray item on a dock (drag it from the widget drawer of a dock's Contents tab).",
-             kMargin, right - kMargin, 76);
-        NextRow(80);
-        Text(kTrayGlobalNote, CtlKind::Note,
-             L"Each tray item's grid (rows, columns, icon size, which icons it shows and their order) is in that item's "
-             L"own settings window: select the System tray tile on its dock's Contents tab and choose Open settings in "
-             L"its own window, or Ctrl + right click a tray icon > Tray settings….",
-             kMargin, right - kMargin, 58);
-        NextRow(66);
+        NextRow(kRowH);
+        Text(kTrayEnabledNote, CtlKind::Note, L"Needs a System tray item on a dock (from a dock's Contents tab).",
+             kMargin + kCaptionDx, right - kMargin - kCaptionDx, 20);
+        static constexpr wchar_t kEnabledTip[] =
+            L"The dock takes over the notification area (Shell_TrayWnd): apps register their tray icons with it, and "
+            L"every change is passed on to Explorer too, so nothing is lost when the dock quits. Explorer's own items "
+            L"(network, battery, input language, Explorer's clock and volume) are not tray icons: they stay with "
+            L"Explorer, whose taskbar is hidden anyway (the volume, media and date widgets cover them). Needs a System "
+            L"tray item on a dock (drag it from the widget drawer of a dock's Contents tab).";
+        Tip(kTrayEnabledCaption, kEnabledTip);
+        Tip(kTrayEnabledNote, kEnabledTip);
+        NextRow(30);
+        Text(kTrayGlobalNote, CtlKind::Note, L"Each tray item's grid and icons are in that item's own settings window.",
+             kMargin, right - kMargin, 20);
+        Tip(kTrayGlobalNote,
+            L"Each tray item's grid (rows, columns, icon size, which icons it shows and their order) is in that item's own "
+            L"settings window: select the System tray tile on its dock's Contents tab and choose Settings…, or Ctrl + "
+            L"right click a tray icon > Tray settings….");
+        NextRow(22);
         Button(kTrayOwnDock, L"Put the tray in its own dock", kMargin, kButtonW);
-        Text(kTrayOwnDockNote, CtlKind::Note,
-             L"A new dock at the bottom right holding only the tray item (the first dock's that has one, with its "
-             L"settings; else a new one), always shown. Docks and displays moves or removes it.",
-             kMargin + kButtonW + 12, right - kMargin - kButtonW - 12, 58);
-        NextRow(62);
+        Ctl& ownNote = Text(kTrayOwnDockNote, CtlKind::Note, L"A new dock at the bottom right holding only the tray item.",
+                            kMargin + kButtonW + 12, right - kMargin - kButtonW - 12, 22);
+        OffsetRect(&ownNote.base, 0, 8);  // beside the button's text
+        ownNote.dip = ownNote.base;
+        static constexpr wchar_t kOwnDockTip[] =
+            L"A new dock at the bottom right holding only the tray item (the first dock's that has one, with its "
+            L"settings; else a new one), always shown. Docks and displays moves or removes it.";
+        Tip(kTrayOwnDock, kOwnDockTip);
+        Tip(kTrayOwnDockNote, kOwnDockTip);
+        NextRow();
         Text(kTrayOwnDockStatus, CtlKind::Value, L"", kMargin, right - kMargin, 22);
-        NextRow(26);
+        NextRow(24);
     }
 
     void Load() override { SetCheck(kTrayEnabled, Cfg().tray.enabled); }
@@ -124,32 +134,37 @@ protected:
         Label(kTrayIconSizeLabel, L"Icon size");
         Combo(kTrayIconSizeCombo, kColX, 120, false);
         NextRow();
-        Text(kTrayGridNote, CtlKind::Note,
-             L"Columns run along the dock and rows across it (on a left or right dock the grid is \"rows\" wide and "
-             L"\"columns\" tall). With more icons than cells, or icons hidden below, the last cell opens a drawer "
-             L"with every icon. A right click on an icon opens its app's menu; Ctrl + right click opens the tray menu.",
-             kMargin, right - kMargin, 76);
-        NextRow(80);
-        Label(kTrayIconsLabel, L"Icons in the grid (in order)");
-        NextRow(26);
+        // Round 8 phase 8A: one-line notes, the explanations as their tooltips.
+        Text(kTrayGridNote, CtlKind::Note, L"Columns run along the dock, rows across it.", kMargin, right - kMargin, 20);
+        Tip(kTrayGridNote,
+            L"Columns run along the dock and rows across it (on a left or right dock the grid is \"rows\" wide and "
+            L"\"columns\" tall). With more icons than cells, or icons hidden below, the last cell opens a drawer with "
+            L"every icon. A right click on an icon opens its app's menu; Ctrl + right click opens the tray menu.");
+        NextRow(22);
+        Section(kTrayIconsLabel, L"Icons in the grid (in order)");
         Add(kTrayIconList, CtlKind::List, WC_LISTVIEWW, L"Tray icons",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
         NextRow(kListH + 8);
         Button(kTrayIconUp, L"Move up", kMargin, 110);
         Button(kTrayIconDown, L"Move down", kMargin + 122, 110);
-        NextRow(kRowH + 4);
-        Text(kTrayIconsNote, CtlKind::Note,
-             L"Unchecked icons are only in the drawer. Icons of apps that are not running are listed while they are "
-             L"hidden or ordered. Move up / down (or a drag within the grid on the dock) sets the order; drag an icon out "
-             L"of the grid or the drawer onto the dock to pin it there (Ctrl + right click on it: Hide / Pin / Unpin).",
-             kMargin, right - kMargin, 76);
-        NextRow(80);
+        NextRow();
+        Text(kTrayIconsNote, CtlKind::Note, L"Unchecked icons are only in the drawer.", kMargin, right - kMargin, 20);
+        Tip(kTrayIconsNote,
+            L"Unchecked icons are only in the drawer. Icons of apps that are not running are listed while they are "
+            L"hidden or ordered. Move up / down (or a drag within the grid on the dock) sets the order; drag an icon out "
+            L"of the grid or the drawer onto the dock to pin it there (Ctrl + right click on it: Hide / Pin / Unpin).");
+        NextRow(22);
         Button(kTrayReset, L"Reset to Explorer", kMargin, 160);
-        Text(kTrayResetNote, CtlKind::Note, L"Hands every icon back to Explorer and turns the takeover off (on every dock).",
-             kMargin + 172, right - kMargin - 172, 40);
-        NextRow(kRowH + 12);
+        Ctl& resetNote = Text(kTrayResetNote, CtlKind::Note,
+                              L"Hands every icon back to Explorer and turns the takeover off (on every dock).", kMargin + 172,
+                              right - kMargin - 172, 22);
+        OffsetRect(&resetNote.base, 0, 8);  // beside the button's text
+        resetNote.dip = resetNote.base;
+        NextRow();
     }
+
+    void OnResized() override { OnStyleChanged(); }  // round 8 phase 8A: the list's columns
 
     void Created() override {
         for (int size : kIconSizes) ComboAdd(kTrayIconSizeCombo, (std::to_wstring(size) + L" px").c_str());

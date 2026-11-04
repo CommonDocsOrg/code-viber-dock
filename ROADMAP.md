@@ -689,6 +689,22 @@ phase on master, not pushed; STATUS.md "Round 7" has each phase's notes.
 | 7B Item anchors | `items[].anchor` (start / centre / end) and `items[].offset`, group layout (an anchored bar is the room's length; one run while it overflows), Sanitize / every edit keeps group order, on-dock drag and strip moves join the group they are dropped into, the inspector's "Position on the dock" / "Offset", QueryState 272 - 274, ItemCommand 859 / 860 | Done (the commit "Add per-item anchors and offsets on the dock"; STATUS.md "Round 7") |
 | 7C Widgets | Analog clock hover growth (`hoverScale`, a box thicker than the bar grows outward), the weather widget's dock forecast (`dockForecast` today / days, `dockDays`), media controls beside the art and marquee options (`controls`, `marqueeMode`, `marqueeSpeed`), the battery widget (+ `battery.acLine` / `battery.timeLeft` in `PerfService`, preview samples) | Done (the commit "Grow the analog clock on hover, forecast on the dock, media controls, a battery widget"; STATUS.md "Round 7"); the end-of-round regression is next |
 
+## Round 8 (in progress, 2026-11-04): settings decluttering
+
+Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round8.md` (the accepted proposal
+"WinDock Settings Decluttering"). The user's one explicit constraint: the widget drawer on the Dock
+window's Contents tab keeps its live widget previews. Testing is light (one or two checks per
+change, a regression at the end). One commit per phase on master, not pushed; STATUS.md "Round 8"
+has each phase's notes.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 8A Foundations | Measured notes and a row reflow (`Collapse`), cards, label hints, tooltips (`Tip`), expanders; resizable settings windows with saved sizes (`settings.windows`); no page titles in Dock / Item windows; the duplicate config buttons, Flash button and Lock check box removed; every paragraph note rewritten as a hint / one line plus a tooltip; QueryState 275 / 276 | Done (the commit "Measure notes, cards and hints, resizable settings windows"; STATUS.md "Round 8") |
+| 8B Dock window | Compact header (72 DIP) with the silhouette on the Position tab; Appearance tab (the Theme tab retired, Size moved); Position by placement kind with collapsing rows and a More expander; the preview strip only on Appearance; Contents: one add drawer (previews untouched), the inspector's buttons and More menu; QueryState 277 / 278 | Planned |
+| 8C Item and standalone windows | The header's description line, cards per manifest group, hints / tooltips from field descriptions, the place autocomplete with a summary and an Edit coordinates expander; the standalone widget window's Widget / Window tabs | Planned |
+| 8D Global window | Nav groups; Docks and displays toolbar, Lock all check box and row actions; Themes top menu, collapsible groups and the small reset button; Widget library primary button and More menu; Calendar feeds form as an expander; Tray icons / Notifications hints | Planned |
+| 8E Regression | Every window kind at default and minimum size, light / dark if cheap, the drawer previews; the release build; the user's dock restarted | Planned |
+
 ## Dependencies at a glance
 
 ```
