@@ -93,7 +93,13 @@ public:
 protected:
     void Build() override {
         const int right = Width() - kMargin;
-        Title(L"Folders and groups");
+        Title(L"Folders and groups");  // a no-op in an Item window (the header names it)
+        // Round 8 phase 8C: a card per section: the folder / group and its popup, its icon, a
+        // group's shortcuts. The path / member line is one line (its whole text the tooltip;
+        // the header's third line says it too).
+        const DockItemEntry* e = Entry();
+        const bool group = e && e->Kind() == ItemKind::Group;
+        Section(kItemPopupSection, group ? L"Group" : L"Folder");
         Label(kGroupNameLabel, L"Name");
         EditBox(kGroupNameEdit, kColX, 260, 128);
         NextRow();
@@ -103,12 +109,16 @@ protected:
                             L"dragging; type to select, Enter opens.");
         Combo(kItemViewCombo, kColX, 260, false);
         NextRow();
+        Ctl& note = Text(kItemNote, CtlKind::Note, L"", kMargin, right - kMargin, 20);
+        note.maxLines = 1;
+        Tip(kItemNote, L"Drag an icon onto the group on the dock to add it, drag one out of the group's popup onto the dock "
+                       L"to make it a pin again.");
+        NextRow(22);
+        Section(kItemIconSection, L"Icon");
         Button(kItemChooseIcon, L"Choose icon…", kMargin, kButtonW);
         Button(kItemChooseImage, L"Choose image…", kMargin + kButtonStep, kButtonW);
         Button(kItemResetIcon, L"Reset icon", kMargin + 2 * kButtonStep, kButtonW);
         NextRow();
-        Text(kItemNote, CtlKind::Note, L"", kMargin, right - kMargin, 36);
-        NextRow(38);
         Section(kGroupMembersLabel, L"Shortcuts in the group");
         Add(kGroupMembers, CtlKind::List, WC_LISTVIEWW, L"Shortcuts in the group",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
@@ -170,13 +180,13 @@ protected:
         if (!e) {
             SetText(kItemNote, L"This item is not a folder or a group any more.");
         } else if (group) {
-            SetText(kItemNote, std::to_wstring(e->members.size()) +
-                                   (e->members.size() == 1 ? L" shortcut." : L" shortcuts.") +
-                                   L" On the dock: drag an icon onto the group to add it, drag one out of the group's popup "
-                                   L"onto the dock to make it a pin again.");
+            SetText(kItemNote, std::to_wstring(e->members.size()) + (e->members.size() == 1 ? L" shortcut" : L" shortcuts") +
+                                   L" · drag an icon onto the group on the dock to add it");
         } else {
             SetText(kItemNote, std::wstring(L"Path: ") + e->path);
         }
+        // Round 8 phase 8C: a folder's path is the header's third line (its tooltip the whole path).
+        Collapse(kItemNote, e && !group);
         FillMembers(memberSel_);
     }
 

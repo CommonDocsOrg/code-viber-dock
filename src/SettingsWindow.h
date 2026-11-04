@@ -294,6 +294,9 @@ protected:
     // Automation (SettingsWindow::QueryPages): answer `code` into `out` and return true if the
     // page knows it.
     virtual bool Query(int /*code*/, LPARAM /*arg*/, LRESULT& /*out*/) { return false; }
+    // WM_TIMER of a timer the page set on its own window (SetTimer(Hwnd(), id, ...); round 8
+    // phase 8C: the place search's typing pause). The page kills it.
+    virtual void OnTimer(UINT_PTR /*id*/) {}
 
     // --- layout table builders (DIPs; the cursor y_ moves down row by row) ---
     static constexpr int kMargin = 24;
@@ -334,6 +337,9 @@ protected:
     void Spin(int editId, int spinId, int x, int w, int lo, int hi, int step);
     void Combo(int id, int x, int w, bool editable);
     void Check(int id, int captionId, const wchar_t* text, int x = kMargin);
+    // Round 8 phase 8C: a check box with a one-line muted hint under its caption (a kHintRowH row,
+    // like Label(id, text, hint)). `hintId` 0: an id of the page's own.
+    void Check(int id, int captionId, const wchar_t* text, const wchar_t* hint, int hintId, int x = kMargin);
     struct RadioDef {
         int id;
         int captionId;
@@ -603,7 +609,9 @@ private:
     static constexpr int kFooterDip = 96;
     static constexpr int kSubtitleDip = 34;     // Global: the subtitle band over the pages
     static constexpr int kDockHeaderDip = 72;   // Dock: the identity header (round 8 phase 8B: was 128)
-    static constexpr int kItemHeaderDip = 88;   // Item: the header
+    // Item: the header (round 8 phase 8C: three lines, the name, "on <dock> · item k of n[ · widget
+    // id version]", the description; was 88)
+    static constexpr int kItemHeaderDip = 92;
     static constexpr int kTabsDip = 42;         // Dock: the tab strip
     static constexpr int kItemFooterDip = 52;   // Item: the footer
     // Set to false to drop the Mica nav column (frame extension) if a driver misbehaves: the
@@ -740,8 +748,17 @@ private:
     DockItemEntry iconFor_;        // the entry itemIcon_ was made for
     bool iconValid_ = false;
     UINT iconDpi_ = 0;
-    std::wstring widgetLine_;      // Item (a widget): "id · version"
+    std::wstring widgetLine_;      // Item (a widget): "id version" (on the header's second line)
     std::wstring widgetLineFor_;   // the widget id it was read for
+    // Round 8 phase 8C: the Item header's third line (the manifest description, the clock's /
+    // weather's sentence, a folder's path ...), one line with an ellipsis; the whole text is the
+    // tooltip of that line (headerTip_, owned by the window: one tool over the line's rect).
+    std::wstring itemDescription_;
+    std::wstring widgetDescription_;  // the manifest description read with widgetLine_
+    HWND headerTip_ = nullptr;
+    RECT DescriptionRect() const;   // the third line in header client px
+    std::wstring ItemDescription(); // what the third line says now
+    void UpdateHeaderTip();
     // Widget previews (round 6 phase 6E): by "<widget id>|<w>x<h>"; valid for previewStamp_ / previewDpi_.
     std::map<std::wstring, PreviewImage> previews_;
     uint64_t previewStamp_ = 0;
@@ -752,5 +769,6 @@ private:
 };
 
 // The pages of a window (SettingsPages.cpp): Global in nav order (SettingsIds::kPage*), Dock in tab
-// order (kTab*; a folder window entry: its one page), Item: its one page (kItemPage).
+// order (kTab*; a folder window entry: its one page; a standalone widget entry, round 8 phase 8C:
+// Widget and Window, kTabWidgetSettings / kTabWidgetWindow), Item: its one page (kItemPage).
 std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& window);

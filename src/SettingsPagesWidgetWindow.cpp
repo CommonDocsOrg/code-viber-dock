@@ -1,7 +1,7 @@
-// The Standalone widget page (round 6 phase 6B): a "widget" docks[] entry's own window (one page,
-// no tabs): which widget (its own settings are the generated Item page: item 0 of the entry),
-// display, position, size, layer, background, lock (round 8 phase 8A: Flash is the header's).
-// Every change applies at once.
+// The Standalone widget page (round 6 phase 6B): a "widget" docks[] entry's own window. Round 8
+// phase 8C: its Window tab (tab 1; tab 0, Widget, is the widget's generated settings page, item 0
+// of the entry): display, position, size, layer, background, lock, in two cards (round 8 phase 8A:
+// Flash is the header's). Every change applies at once.
 
 #include <windows.h>
 #include <commctrl.h>
@@ -23,19 +23,14 @@ constexpr int kNumberW = 88;
 
 class WidgetWindowPage : public FormPage {
 public:
-    explicit WidgetWindowPage(SettingsWindow& w) : FormPage(w, L"Standalone widget", L'\xE737') {}
+    // Round 8 phase 8C: the Window tab (the Widget tab, kTabWidgetSettings, has the widget's own
+    // settings); the info line, the Widget card and Open widget settings are gone.
+    explicit WidgetWindowPage(SettingsWindow& w) : FormPage(w, L"Window", L'\xE737') {}
 
 protected:
     void Build() override {
         const int right = Width() - kMargin;
-        Title(L"Standalone widget");
-        Text(kWwInfo, CtlKind::Note, L"", kMargin, right - kMargin, 20);
-        NextRow(22);
-        Section(kWwWidgetSection, L"Widget");
-        Label(kWwWidgetLabel, L"Widget");
-        Text(kWwWidgetName, CtlKind::Value, L"", kColX, right - kColX - 200);
-        Button(kWwOpenWidget, L"Open widget settings", right - 190, 190);
-        NextRow();
+        Title(L"Standalone widget");  // a no-op in a Dock window
         Section(kWwPlaceSection, L"Place and size");
         Label(kWwDisplayLabel, L"Display");
         Combo(kWwDisplayCombo, kColX, right - kColX, false);
@@ -48,16 +43,19 @@ protected:
         Label(kWwYLabel, L"Position y");
         EditBox(kWwYEdit, kColX, kNumberW, 7);
         NextRow();
-        Label(kWwWLabel, L"Width");
+        // Round 8 phase 8C: the size note is the Width label's hint (the widget's minimum and shape).
+        Label(kWwWLabel, L"Width", L"", kWwSizeNote);
+        Tip(kWwWLabel, L"DIPs (48 - 4000). The widget's manifest sets the smallest window and whether resizing keeps its "
+                       L"shape; dragging the window's edges resizes it too.");
         IntSpin(kWwWEdit, kWwWSpin, kColX, kNumberW, WidgetWindowConfig::kMinSize, WidgetWindowConfig::kMaxSize, 8,
                 [](Config&, DockConfig& d) -> int& { return d.widgetWindow.w; }, SettingsScope::Appearance);
+        Text(kWwWUnit, CtlKind::Note, L"DIPs", kColX + kNumberW + 8, 80);
         NextRow();
         Label(kWwHLabel, L"Height");
         IntSpin(kWwHEdit, kWwHSpin, kColX, kNumberW, WidgetWindowConfig::kMinSize, WidgetWindowConfig::kMaxSize, 8,
                 [](Config&, DockConfig& d) -> int& { return d.widgetWindow.h; }, SettingsScope::Appearance);
+        Text(kWwHUnit, CtlKind::Note, L"DIPs", kColX + kNumberW + 8, 80);
         NextRow();
-        Text(kWwSizeNote, CtlKind::Note, L"", kColX, right - kColX, 40);
-        NextRow(42);
         Section(kWwLookSection, L"Layer and look");
         Label(kWwLayerLabel, L"Layer", L"", kWwLayerNote);
         Tip(kWwLayerLabel,
@@ -69,15 +67,16 @@ protected:
         Label(kWwBackgroundLabel, L"Background");
         Combo(kWwBackgroundCombo, kColX, right - kColX, false);
         NextRow();
-        Check(kWwLocked, kWwLockedCaption, L"Locked (it can be neither moved nor resized)");
-        NextRow(kRowH);
-        // Round 8 phase 8A: "Flash this widget" (4528) is gone: the header has it.
-        Text(kWwNote, CtlKind::Note, L"Drag it to move it, its edges to resize it; right-click it for its menu.", kMargin,
-             right - kMargin, 20);
-        Tip(kWwNote, L"Drag the widget with the left button to move it, drag its edges or corners to resize it (while it is "
-                     L"unlocked); a click without moving is the widget's own. It snaps to the edges of the work area, to "
-                     L"floating docks and to other standalone widgets. Right-click it for its menu.");
-        NextRow(22);
+        // Round 8 phase 8A: "Flash this widget" (4528) is gone: the header has it. 8C: the move /
+        // resize note is the Locked check box's hint.
+        Check(kWwLocked, kWwLockedCaption, L"Locked (it can be neither moved nor resized)",
+              L"Unlocked: drag it to move it, its edges to resize it", kWwNote);
+        const std::wstring how = L"Drag the widget with the left button to move it, drag its edges or corners to resize it (while it is "
+                                 L"unlocked); a click without moving is the widget's own. It snaps to the edges of the work area, to "
+                                 L"floating docks and to other standalone widgets. Right-click it for its menu.";
+        Tip(kWwLockedCaption, how);
+        Tip(kWwNote, how);
+        NextRow();
     }
 
     void Created() override {
@@ -92,24 +91,19 @@ protected:
         const DockConfig& d = Dock();
         const bool ww = d.IsWidgetWindow();
         const DockItemEntry* item = d.WidgetItem();
-        std::wstring name = L"(none)", sizeNote;
+        std::wstring sizeNote;
         if (item) {
             std::wstring error;
-            const auto pkg = Widgets::Load(item->id, error);
-            name = (pkg ? pkg->manifest.name : item->id) + L" (" + item->id + (pkg ? L"" : L", not installed") + L")";
-            if (pkg) {
+            if (const auto pkg = Widgets::Load(item->id, error)) {
                 const Widgets::StandaloneHint& s = pkg->manifest.standalone;
-                sizeNote = L"DIPs. This widget needs at least " + std::to_wstring(static_cast<int>(std::max(48.0f, s.minWidth))) +
-                           L" × " + std::to_wstring(static_cast<int>(std::max(48.0f, s.minHeight))) +
-                           (s.aspect == Widgets::StandaloneHint::Aspect::Keep    ? L"; resizing keeps its shape."
-                            : s.aspect == Widgets::StandaloneHint::Aspect::Ratio ? L"; resizing keeps its width / height ratio."
-                                                                                 : L"; any shape.");
+                sizeNote = L"Min. " + std::to_wstring(static_cast<int>(std::max(48.0f, s.minWidth))) + L" × " +
+                           std::to_wstring(static_cast<int>(std::max(48.0f, s.minHeight))) +
+                           (s.aspect == Widgets::StandaloneHint::Aspect::Keep    ? L", keeps its shape"
+                            : s.aspect == Widgets::StandaloneHint::Aspect::Ratio ? L", keeps its ratio"
+                                                                                 : L", any shape");
             }
         }
-        SetText(kWwInfo, ww ? L"The standalone widget " + d.id + L": a widget in a window of its own on the desktop."
-                            : L"This is not a standalone widget.");
-        SetText(kWwWidgetName, name);
-        SetText(kWwSizeNote, sizeNote.empty() ? std::wstring(L"DIPs (48 - 4000).") : sizeNote);
+        SetText(kWwSizeNote, sizeNote.empty() ? std::wstring(L"48 - 4000") : sizeNote);
         FillDisplays();
         SetText(kWwXEdit, d.x == DockConfig::kCentred ? std::wstring() : std::to_wstring(d.x));
         SetText(kWwYEdit, d.y == DockConfig::kCentred ? std::wstring() : std::to_wstring(d.y));
@@ -118,7 +112,7 @@ protected:
         SetText(kWwLayerNote, LayerNote(d.layer));
         SetComboSel(kWwBackgroundCombo, static_cast<int>(d.widgetWindow.background));
         SetCheck(kWwLocked, d.locked);
-        for (int id : {kWwOpenWidget, kWwDisplayCombo, kWwXEdit, kWwYEdit, kWwWEdit, kWwWSpin, kWwHEdit, kWwHSpin, kWwLayerCombo,
+        for (int id : {kWwDisplayCombo, kWwXEdit, kWwYEdit, kWwWEdit, kWwWSpin, kWwHEdit, kWwHSpin, kWwLayerCombo,
                        kWwBackgroundCombo, kWwLocked}) {
             Enable(id, ww);
         }
@@ -156,9 +150,6 @@ protected:
         }
         if (code != BN_CLICKED) return;
         switch (id) {
-            case kWwOpenWidget:
-                if (Host().openItem && DockIndex() != SIZE_MAX) Host().openItem(DockIndex(), 0);
-                return;
             case kWwLocked:
                 d.locked = GetCheck(id);
                 Changed(SettingsScope::Appearance);  // the window and the script's dock.locked follow

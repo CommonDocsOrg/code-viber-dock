@@ -1098,7 +1098,10 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
                 break;
             }
             if (window.IsWidgetWindow()) {
-                pages.push_back(MakeWidgetWindowPage(window));  // kTabWidgetWindow (round 6 phase 6B)
+                // Round 8 phase 8C: two tabs: the widget's generated settings (item 0 of the entry)
+                // and the window's place, size and look (until 8C its one page).
+                pages.push_back(MakeWidgetSettingsPage(window, 0));  // kTabWidgetSettings
+                pages.push_back(MakeWidgetWindowPage(window));       // kTabWidgetWindow (round 6 phase 6B)
                 break;
             }
             // Round 8 phase 8B: Appearance (the old Theme tab + Behaviour's Size) is the third tab.

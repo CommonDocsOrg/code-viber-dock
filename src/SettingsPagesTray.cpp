@@ -123,25 +123,30 @@ public:
 protected:
     void Build() override {
         const int right = Width() - kMargin;
-        Title(L"System tray");
+        Title(L"System tray");  // a no-op in an Item window (the header names it)
+        // Round 8 phase 8C: three cards, hints under the labels, the explanations as tooltips.
         Section(kTrayGridSection, L"The grid");
-        Label(kTrayRowsLabel, L"Rows");
+        Label(kTrayRowsLabel, L"Rows", L"Across the dock", kTrayGridNote);
+        Tip(kTrayRowsLabel,
+            L"Columns run along the dock and rows across it (on a left or right dock the grid is \"rows\" wide and "
+            L"\"columns\" tall). With more icons than cells, or icons hidden below, the last cell opens a drawer with "
+            L"every icon. A right click on an icon opens its app's menu; Ctrl + right click opens the tray menu.");
         Spin(kTrayRowsEdit, kTrayRowsSpin, kColX, kNumberW, 1, 2, 1);
         NextRow();
-        Label(kTrayColumnsLabel, L"Columns");
+        Label(kTrayColumnsLabel, L"Columns", L"Along the dock");
+        Tip(kTrayColumnsLabel, L"Columns run along the dock. With more icons than cells the last cell opens a drawer with every icon.");
         Spin(kTrayColumnsEdit, kTrayColumnsSpin, kColX, kNumberW, 1, 20, 1);
         NextRow();
         Label(kTrayIconSizeLabel, L"Icon size");
         Combo(kTrayIconSizeCombo, kColX, 120, false);
         NextRow();
-        // Round 8 phase 8A: one-line notes, the explanations as their tooltips.
-        Text(kTrayGridNote, CtlKind::Note, L"Columns run along the dock, rows across it.", kMargin, right - kMargin, 20);
-        Tip(kTrayGridNote,
-            L"Columns run along the dock and rows across it (on a left or right dock the grid is \"rows\" wide and "
-            L"\"columns\" tall). With more icons than cells, or icons hidden below, the last cell opens a drawer with "
-            L"every icon. A right click on an icon opens its app's menu; Ctrl + right click opens the tray menu.");
-        NextRow(22);
-        Section(kTrayIconsLabel, L"Icons in the grid (in order)");
+        Section(kTrayIconsLabel, L"Icons in the grid");
+        Text(kTrayIconsNote, CtlKind::Note, L"In order; unchecked icons are only in the drawer", kMargin, right - kMargin, 20);
+        Tip(kTrayIconsNote,
+            L"Unchecked icons are only in the drawer. Icons of apps that are not running are listed while they are "
+            L"hidden or ordered. Move up / down (or a drag within the grid on the dock) sets the order; drag an icon out "
+            L"of the grid or the drawer onto the dock to pin it there (Ctrl + right click on it: Hide / Pin / Unpin).");
+        NextRow(24);
         Add(kTrayIconList, CtlKind::List, WC_LISTVIEWW, L"Tray icons",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
@@ -149,18 +154,12 @@ protected:
         Button(kTrayIconUp, L"Move up", kMargin, 110);
         Button(kTrayIconDown, L"Move down", kMargin + 122, 110);
         NextRow();
-        Text(kTrayIconsNote, CtlKind::Note, L"Unchecked icons are only in the drawer.", kMargin, right - kMargin, 20);
-        Tip(kTrayIconsNote,
-            L"Unchecked icons are only in the drawer. Icons of apps that are not running are listed while they are "
-            L"hidden or ordered. Move up / down (or a drag within the grid on the dock) sets the order; drag an icon out "
-            L"of the grid or the drawer onto the dock to pin it there (Ctrl + right click on it: Hide / Pin / Unpin).");
-        NextRow(22);
-        Button(kTrayReset, L"Reset to Explorer", kMargin, 160);
-        Ctl& resetNote = Text(kTrayResetNote, CtlKind::Note,
-                              L"Hands every icon back to Explorer and turns the takeover off (on every dock).", kMargin + 172,
-                              right - kMargin - 172, 22);
-        OffsetRect(&resetNote.base, 0, 8);  // beside the button's text
-        resetNote.dip = resetNote.base;
+        Section(kTrayTakeoverSection, L"Takeover");
+        Label(kTrayResetLabel, L"Explorer's icons", L"Back to the taskbar, every dock", kTrayResetNote);
+        Tip(kTrayResetLabel, L"Reset to Explorer hands every icon back to Explorer and turns the takeover off (on every dock); "
+                             L"Global settings > Tray icons turns it on again.");
+        Button(kTrayReset, L"Reset to Explorer", kColX, 160);
+        Tip(kTrayReset, L"Hands every icon back to Explorer and turns the takeover off (on every dock).");
         NextRow();
     }
 

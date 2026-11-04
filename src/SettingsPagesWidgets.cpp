@@ -34,6 +34,9 @@ namespace json = winrt::Windows::Data::Json;
 constexpr int kListH = 220;
 constexpr int kButtonW = 140;  // round 8 phase 8A: three in a row fit the minimum width
 constexpr int kButtonStep = 146;
+constexpr int kDefaultItemW = 600;  // an Item window's default width (DIPs): what a field's hint is measured for
+constexpr UINT_PTR kPlaceTimer = 1; // round 8 phase 8C: the place search's typing pause
+constexpr UINT kPlacePauseMs = 400;
 
 // --- the library's preview panel (round 6 phase 6E) ------------------------------------------------
 // WinDock.WidgetPreviewPanel: the selected widget's live preview (SettingsWindow::Preview, fitted into
@@ -508,7 +511,11 @@ bool HasSettings(ItemKind k) { return k == ItemKind::Widget || k == ItemKind::Cl
 
 class WidgetSettingsPage : public FormPage {
 public:
-    explicit WidgetSettingsPage(SettingsWindow& w) : FormPage(w, L"Widget settings", L'\xE713') {}
+    // `standaloneItem` >= 0: the Widget tab of a standalone widget's Dock window (round 8 phase 8C).
+    WidgetSettingsPage(SettingsWindow& w, int standaloneItem)
+        : FormPage(w, standaloneItem >= 0 ? L"Widget" : L"Widget settings", L'\xE713'), standalone_(standaloneItem >= 0) {
+        if (standalone_) asked_ = standaloneItem;
+    }
 
     void SelectItem(int item) override { asked_ = item; }
 
@@ -525,54 +532,92 @@ protected:
             pkg_ = Widgets::Load(Entry().id, error);
         } else if (kind == ItemKind::Clock || kind == ItemKind::Weather) {
             builtIn_.name = kind == ItemKind::Clock ? L"Clock" : L"Weather";
-            builtIn_.description = kind == ItemKind::Clock
-                                       ? L"This clock's own settings: other clocks on the docks keep theirs."
-                                       : L"This weather item's own place and units: other weather items keep theirs.";
+            builtIn_.description = BuiltInItemDescription(kind);
             builtIn_.settings = Widgets::BuiltInSchema(kind);
         }
         const Widgets::Manifest* m = Schema();
-        Title(kind == ItemKind::Widget && pkg_ ? (L"Widget: " + pkg_->manifest.name).c_str()
-              : m                              ? m->name.c_str()
-                                               : L"Widget settings");
-        // Round 5 phase B: the window is the item (no picker); Reset to defaults is in its footer.
+        Title(L"Widget settings");  // a no-op in Dock and Item windows (round 8 phase 8A)
+        // Round 8 phase 8C: the description is the Item window header's third line (the page has
+        // no title or description note); only the cases without fields say so here. A standalone
+        // widget's compact header has no such line: its Widget tab keeps the description as one
+        // line with the whole text as its tooltip.
         std::wstring note;
+        int lines = 2;
         if (item_ < 0) {
             note = L"This item has no settings.";
         } else if (!m) {
             note = L"Not installed: " + error;
         } else if (m->settings.empty()) {
             note = m->name + L" has no settings.";
-        } else {
+        } else if (standalone_) {
             note = m->description;
+            lines = 1;
         }
         if (!note.empty()) {
-            // Round 8 phase 8A: measured, two lines at most (the whole text as its tooltip).
-            Ctl& n = Text(kWidgetSettingsNote, CtlKind::Note, note, kMargin, right - kMargin, 36);
-            n.maxLines = 2;
+            Ctl& n = Text(kWidgetSettingsNote, CtlKind::Note, note, kMargin, right - kMargin, 20 * lines);
+            n.maxLines = lines;
             Tip(kWidgetSettingsNote, note);
-            NextRow(38);
+            NextRow(20 * lines + 2);
         }
         placeField_ = -1;
-        if (!m) return;
-        const auto& fields = m->settings;
+        places_.clear();  // the new search box has an empty list
+        searched_.clear();
+        KillTimer(Hwnd(), kPlaceTimer);
+        if (m) BuildFields(*m, right);
+        if (standalone_ && item_ >= 0) {
+            // The Item window's footer buttons (same ids) as the last card of the Widget tab.
+            UntitledCard();
+            Button(kFooterReset, L"Reset to defaults", kMargin, 150);
+            if (kind == ItemKind::Widget) Button(kFooterConsole, L"Console…", kMargin + 158, 110);
+            NextRow();
+        }
+    }
+
+    // Round 8 phase 8C: one card per run of fields of one `group` (a group that comes back later
+    // gets another card; fields without a group: a card named after the widget); a field's
+    // description is its row's one-line hint when it fits the hint's width at the default size,
+    // else its first sentence is, and the whole description is the tooltip of the label, the
+    // control and the hint.
+    void BuildFields(const Widgets::Manifest& m, int right) {
+        const auto& fields = m.settings;
+        const ItemKind kind = Kind();
         // The values now: `visibleIf` hides the fields whose condition does not hold (the page is
         // generated again when a field others depend on changes).
         const json::JsonObject values = Values();
+        const std::wstring untitled = m.name.empty() ? std::wstring(L"Settings") : m.name;
+        // The hints' widths at the default 600 DIP window (less a scroll bar): a check box's under
+        // its caption, the others' in the label column.
+        const int defaultRight = std::min(right, kDefaultItemW - kMargin - 18);
+        const int checkHintW = std::max(40, defaultRight - kMargin - kCaptionDx);
         std::wstring group;
+        bool first = true;
         for (size_t k = 0; k < fields.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) {
             const Widgets::SettingField& f = fields[k];
             const int base = kWidgetFieldBase + 10 * static_cast<int>(k);
             if (!Visible(f, values)) continue;
-            if (!f.group.empty() && f.group != group) Section(base + 4, f.group.c_str());  // a group header
+            if (first || f.group != group) Section(base + 4, (f.group.empty() ? untitled : f.group).c_str());  // the card
+            first = false;
             group = f.group;
             using T = Widgets::SettingField::Type;
+            const std::wstring hint = f.type == T::Place ? std::wstring() : HintOf(f.description, f.type == T::Bool ? checkHintW : labelW_);
+            auto label = [&] {
+                if (hint.empty()) {
+                    Label(base, f.label.c_str());
+                } else {
+                    Label(base, f.label.c_str(), hint.c_str(), base + 3);
+                }
+            };
             switch (f.type) {
                 case T::Bool:
-                    Check(base + 1, base + 2, f.label.c_str());
+                    if (hint.empty()) {
+                        Check(base + 1, base + 2, f.label.c_str());
+                    } else {
+                        Check(base + 1, base + 2, f.label.c_str(), hint.c_str(), base + 3);
+                    }
                     NextRow();
                     break;
                 case T::Int: {
-                    Label(base, f.label.c_str());
+                    label();
                     const int lo = static_cast<int>(std::max(-1e9, f.min)), hi = static_cast<int>(std::min(1e9, f.max));
                     Spin(base + 1, base + 2, kColX, 120, lo, hi, std::max(1, static_cast<int>(f.step)));
                     if (!f.unit.empty()) Text(base + 5, CtlKind::Note, f.unit, kColX + 128, 120);  // "DIPs", "%"
@@ -581,7 +626,7 @@ protected:
                 }
                 case T::Choice:
                 case T::TimeZone:
-                    Label(base, f.label.c_str());
+                    label();
                     Combo(base + 1, kColX, right - kColX, false);
                     NextRow();
                     break;
@@ -593,7 +638,7 @@ protected:
                     break;
                 case T::Color:
                 case T::Number:
-                    Label(base, f.label.c_str());
+                    label();
                     EditBox(base + 1, kColX, 160, 32);
                     if (!f.unit.empty()) Text(base + 5, CtlKind::Note, f.unit, kColX + 168, 120);
                     NextRow();
@@ -601,58 +646,72 @@ protected:
                 case T::Font:
                 case T::String:
                 default:
-                    Label(base, f.label.c_str());
+                    label();
                     EditBox(base + 1, kColX, right - kColX, 1024);
                     NextRow();
                     break;
             }
             if (!f.description.empty() && f.type != T::Place) {
-                // Round 8 phase 8A: measured in the control column, two lines at most; the whole
-                // description is the tooltip of the note and of the field's label.
-                const int w = std::max(40, right - kColX);
-                Ctl& n = Text(base + 3, CtlKind::Note, f.description, kColX, w, 20);
-                n.maxLines = 2;
-                Tip(base + 3, f.description);
+                // The whole description: the label's (and so its hint's), the control's tooltip.
                 Tip(f.type == T::Bool ? base + 2 : base, f.description);
-                NextRow(22);
+                Tip(base + 1, f.description);
+                if (f.type == T::Bool) Tip(base + 3, f.description);
             }
-        }
-        if (!fields.empty() && kind == ItemKind::Clock) {
-            NextRow(6);
-            Button(kClockFacesFolder, L"Open faces folder", kMargin, 150);
-            NextRow();
+            if (kind == ItemKind::Clock && f.key == L"face") {
+                Button(kClockFacesFolder, L"Open faces folder", kColX, 150);  // in the face's card
+                NextRow();
+            }
         }
     }
 
-    // The place block (moved from the Weather page of round 4): a geocoding search, the results,
-    // the name shown, latitude / longitude, the service's status and Refresh now.
+    // The row hint for a description: all of it when it is one line in `widthDip`, else its first
+    // sentence (cut with "…" by the static when that is still too long).
+    std::wstring HintOf(const std::wstring& description, int widthDip) {
+        if (description.empty()) return L"";
+        const int line = Window().MeasureTextDip(L"Ag", 1000);
+        if (Window().MeasureTextDip(description, widthDip) <= line) return description;
+        const size_t dot = description.find(L". ");
+        return dot == std::wstring::npos ? description : description.substr(0, dot + 1);
+    }
+
+    // The place block (moved from the Weather page of round 4). Round 8 phase 8C: an autocomplete
+    // search (the editable drop-down kPlaceResults: typing, then Enter or a 400 ms pause, searches
+    // Open-Meteo's geocoder; the results fill its list as they arrive; choosing one sets the place),
+    // the chosen place as one summary row, the name and the coordinates behind "Edit coordinates",
+    // the status with Refresh now on one row and the credit.
     void BuildPlace(int right) {
-        Label(kPlaceSearchLabel, L"Find a place");
-        EditBox(kPlaceSearchEdit, kColX, right - kColX - 112, 100);
-        Button(kPlaceSearch, L"Search", right - 104, 104);
+        Label(kPlaceSearchLabel, L"Find a place", L"Type a city's name", kPlaceSearchNote);
+        Tip(kPlaceSearchLabel, L"Type the name of a city or a place: the places that match appear in the list as you type "
+                               L"(or when you press Enter). Choose one to set the place, its name and its coordinates.");
+        Combo(kPlaceResults, kColX, right - kColX, true);
+        Tip(kPlaceResults, L"Type a place's name; choose one of the places found in the list.");
         NextRow();
-        Label(kPlaceResultsLabel, L"Results");
-        Combo(kPlaceResults, kColX, right - kColX, false);
-        NextRow(kRowH);
-        Text(kPlaceSearchNote, CtlKind::Note, L"Type a city and press Enter or Search.", kColX, right - kColX, 20);
-        NextRow(22);
+        if (Kind() == ItemKind::Widget) {
+            // A script widget may show another item's place: the hint says whose (LoadPlace).
+            Label(kPlaceSummaryLabel, L"Place", L"", kPlaceNote);
+            Tip(kPlaceSummaryLabel, L"A widget without a place of its own shows the place of its dock's first Weather item, "
+                                    L"else the default place (config.json \"weather\"). Choosing a place here gives it its own.");
+        } else {
+            Label(kPlaceSummaryLabel, L"Place");
+        }
+        Text(kPlaceSummary, CtlKind::Value, L"", kColX, right - kColX);
+        NextRow();
+        Expander(kPlaceCoordsExpander, L"Edit coordinates");
         Label(kPlaceLocationLabel, L"Name shown");
         EditBox(kPlaceLocationEdit, kColX, right - kColX, 128);
         NextRow();
         Label(kPlaceLatLabel, L"Latitude");
         EditBox(kPlaceLatEdit, kColX, 120, 16);
+        Text(kPlaceLatUnit, CtlKind::Note, L"-90 to 90", kColX + 128, 120);
         NextRow();
         Label(kPlaceLonLabel, L"Longitude");
         EditBox(kPlaceLonEdit, kColX, 120, 16);
+        Text(kPlaceLonUnit, CtlKind::Note, L"-180 to 180", kColX + 128, 120);
         NextRow();
-        if (Kind() == ItemKind::Widget) {
-            Text(kPlaceNote, CtlKind::Note, L"", kColX, right - kColX, 36);
-            NextRow(38);
-        }
+        EndExpander();
         Label(kPlaceStatusLabel, L"Status");
-        Text(kPlaceStatus, CtlKind::Value, L"", kColX, right - kColX);
-        NextRow();
-        Button(kPlaceRefreshNow, L"Refresh now", kColX, 130);
+        Text(kPlaceStatus, CtlKind::Value, L"", kColX, right - kColX - 138);
+        Button(kPlaceRefreshNow, L"Refresh now", right - 130, 130);
         NextRow();
         Link(kPlaceCredit, L"Weather data by <a>Open-Meteo.com</a> (CC BY 4.0)", kMargin, right - kMargin);
         NextRow();
@@ -737,6 +796,12 @@ protected:
 
     void OnWeatherChanged() override { UpdatePlaceStatus(); }
 
+    void OnTimer(UINT_PTR id) override {
+        if (id != kPlaceTimer) return;
+        KillTimer(Hwnd(), kPlaceTimer);  // one pause, one search: nothing runs while idle
+        StartSearch(false);
+    }
+
     LRESULT OnNotify(const NMHDR& nm) override {
         if (static_cast<int>(nm.idFrom) == kPlaceCredit && (nm.code == NM_CLICK || nm.code == NM_RETURN)) {
             AllowSetForegroundWindow(ASFW_ANY);
@@ -746,6 +811,11 @@ protected:
     }
 
     void OnCommand(int id, int code, HWND) override {
+        if (standalone_ && id == kFooterConsole && code == BN_CLICKED) {  // the Widget tab's Console…
+            if (Host().command) Host().command(ContextMenu::kWidgetConsole);
+            return;
+        }
+        if (standalone_ && id == kFooterReset) id = kWidgetReset;  // the Widget tab's Reset to defaults
         if (id == kWidgetReset && code == BN_CLICKED) {  // the footer's Reset to defaults
             if (item_ < 0) return;
             // A clock / weather item: the defaults' values (config.clock / config.weather); a
@@ -765,12 +835,17 @@ protected:
             ShellExecuteW(Owner(), L"open", dir.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
             return;
         }
-        if (id == kPlaceSearch && code == BN_CLICKED) {
-            StartSearch();
-            return;
-        }
-        if (id == kPlaceResults && code == CBN_SELCHANGE) {
-            ChoosePlace(ComboSel(id));
+        if (id == kPlaceResults) {
+            // Round 8 phase 8C: the autocomplete. Typing (re)starts the pause; a choice in the
+            // dropped list counts when the list closes on it (arrowing through it does not), one
+            // made with the list closed (arrow keys, automation) at once.
+            if (code == CBN_EDITCHANGE) {
+                SetTimer(Hwnd(), kPlaceTimer, kPlacePauseMs, nullptr);
+            } else if (code == CBN_SELENDOK) {
+                ChoosePlace(ComboSel(id));
+            } else if (code == CBN_SELCHANGE && !SendMessageW(Item(id), CB_GETDROPPEDSTATE, 0, 0)) {
+                ChoosePlace(ComboSel(id));
+            }
             return;
         }
         if (id == kPlaceRefreshNow && code == BN_CLICKED) {
@@ -804,8 +879,10 @@ protected:
 
     void Commit(int id) override {
         switch (id) {
-            case kPlaceSearchEdit:
-                if (GetKeyState(VK_RETURN) < 0) StartSearch();  // Enter searches; leaving the box does not
+            case kPlaceResults:
+                // Enter, or leaving the box: search now for text not searched yet (a chosen
+                // place's name was).
+                StartSearch(GetKeyState(VK_RETURN) < 0);
                 return;
             case kPlaceLocationEdit: {
                 std::wstring name = Trim(GetText(id));
@@ -977,15 +1054,12 @@ private:
         SetText(kPlaceLatEdit, FormatCoord(lat));
         SetText(kPlaceLonEdit, FormatCoord(lon));
         if (Kind() == ItemKind::Widget) {
+            // The Place label's hint: whose place it shows (the label's tooltip explains).
             const DockItemEntry& e = Entry();
             const bool own = SettingsHavePlace(e.settings);
             const bool dockItem = std::any_of(Dock().items.begin(), Dock().items.end(),
                                               [](const DockItemEntry& i) { return i.Kind() == ItemKind::Weather; });
-            SetText(kPlaceNote, own ? L"This widget has a place of its own."
-                                : dockItem ? L"No place of its own: it shows the place of this dock's first Weather item. "
-                                             L"Choose a place here to give it its own."
-                                           : L"No place of its own: it shows the default place (config.json \"weather\"). "
-                                             L"Choose a place here to give it its own.");
+            SetText(kPlaceNote, own ? L"Its own place" : dockItem ? L"This dock's Weather item's" : L"The default place");
         }
         UpdatePlaceStatus();
     }
@@ -993,32 +1067,80 @@ private:
     void UpdatePlaceStatus() {
         if (placeField_ < 0 || item_ < 0 || !Item(kPlaceStatus)) return;
         if (Host().weatherStatus) SetText(kPlaceStatus, Host().weatherStatus(PlaceNow()));
+        UpdateSummary();
     }
 
-    void StartSearch() {
-        const std::wstring query = Trim(GetText(kPlaceSearchEdit));
+    // "Colorado Springs · 38.83, −104.82" (the place shown; the coordinates to 2 decimals).
+    void UpdateSummary() {
+        if (!Item(kPlaceSummary)) return;
+        const WeatherConfig p = PlaceNow();
+        if (!p.Configured()) {
+            SetText(kPlaceSummary, L"None yet: find a place above");
+            return;
+        }
+        auto coord = [](double v) {
+            wchar_t buf[32];
+            swprintf_s(buf, L"%.2f", std::fabs(v));
+            std::wstring s = buf;
+            return (v < 0 && s != L"0.00" ? std::wstring(L"\x2212") : std::wstring()) + s;  // a real minus sign
+        };
+        const std::wstring name = !p.location.empty() ? p.location : std::wstring(L"Unnamed place");
+        SetText(kPlaceSummary, name + L" · " + coord(p.latitude) + L", " + coord(p.longitude));
+    }
+
+    // Searches for the box's text unless it was the last search (or a chosen place's name) and
+    // `force` is false; `force` (Enter): also an empty box says so, and the same text shows the
+    // list again.
+    void StartSearch(bool force) {
+        KillTimer(Hwnd(), kPlaceTimer);
+        HWND combo = Item(kPlaceResults);
+        if (!combo) return;
+        const std::wstring query = Trim(GetText(kPlaceResults));
         if (query.empty()) {
-            SetText(kPlaceSearchNote, L"Type a place name first.");
+            if (force) SetText(kPlaceSearchNote, L"Type a place name first");
+            return;
+        }
+        if (query == searched_) {
+            if (force && !places_.empty() && GetFocus() && IsChild(combo, GetFocus())) SendMessageW(combo, CB_SHOWDROPDOWN, TRUE, 0);
             return;
         }
         if (!Host().geocode) return;
+        searched_ = query;
         const bool started = Host().geocode(query, [this](const std::vector<WeatherService::Place>& places,
                                                           const std::wstring& error) { OnPlaces(places, error); });
-        SetText(kPlaceSearchNote, started ? L"Searching…" : L"Could not start the search.");
+        SetText(kPlaceSearchNote, started ? L"Searching…" : L"Could not start the search");
+        if (!started) searched_.clear();
     }
 
     void OnPlaces(const std::vector<WeatherService::Place>& places, const std::wstring& error) {
         places_ = places;
-        if (!Item(kPlaceResults)) return;  // the page was generated for another item meanwhile
-        SendMessageW(Item(kPlaceResults), CB_RESETCONTENT, 0, 0);
+        HWND combo = Item(kPlaceResults);
+        if (!combo) return;  // the page was generated for another item meanwhile
+        // The list's new rows; the typed text and its caret stay (CB_RESETCONTENT clears the edit).
+        const std::wstring typed = GetText(kPlaceResults);
+        DWORD from = 0, to = 0;
+        SendMessageW(combo, CB_GETEDITSEL, reinterpret_cast<WPARAM>(&from), reinterpret_cast<LPARAM>(&to));
+        SendMessageW(combo, CB_RESETCONTENT, 0, 0);
         for (const WeatherService::Place& p : places_) ComboAdd(kPlaceResults, p.Label().c_str());
+        auto restore = [&] {
+            SetWindowTextW(combo, typed.c_str());
+            SendMessageW(combo, CB_SETEDITSEL, 0, MAKELPARAM(from, to));
+        };
+        restore();
         if (!error.empty()) {
             SetText(kPlaceSearchNote, L"Search failed: " + error);
         } else if (places_.empty()) {
-            SetText(kPlaceSearchNote, L"No places found.");
+            SetText(kPlaceSearchNote, L"No places found");
         } else {
-            SetText(kPlaceSearchNote, std::to_wstring(places_.size()) + (places_.size() == 1 ? L" place found: choose it in the list."
-                                                                                                : L" places found: choose one in the list."));
+            SetText(kPlaceSearchNote, std::to_wstring(places_.size()) + (places_.size() == 1 ? L" place found: choose it" : L" places found: choose one"));
+            // Typing in the box (the window in front): its list drops down with the places (the
+            // text stays as typed).
+            if (HWND f = GetFocus(); f && (f == combo || IsChild(combo, f)) && GetForegroundWindow() == Owner() &&
+                                     !SendMessageW(combo, CB_GETDROPPEDSTATE, 0, 0)) {
+                SendMessageW(combo, CB_SHOWDROPDOWN, TRUE, 0);
+                restore();
+                SetCursor(LoadCursorW(nullptr, IDC_ARROW));  // a drop-down shown while typing hides the pointer
+            }
         }
     }
 
@@ -1026,13 +1148,16 @@ private:
         if (index < 0 || index >= static_cast<int>(places_.size()) || item_ < 0) return;
         const WeatherService::Place& p = places_[static_cast<size_t>(index)];
         const std::wstring name = p.name.size() > 128 ? p.name.substr(0, 128) : p.name;
+        KillTimer(Hwnd(), kPlaceTimer);
+        searched_ = Trim(p.Label());  // the box shows the chosen row: no search for it
         StoreKeys({{L"latitude", json::JsonValue::CreateNumberValue(RoundCoord(p.latitude))},
                    {L"longitude", json::JsonValue::CreateNumberValue(RoundCoord(p.longitude))},
                    {L"location", json::JsonValue::CreateStringValue(name)}});
         SetText(kPlaceLocationEdit, name);
         SetText(kPlaceLatEdit, FormatCoord(RoundCoord(p.latitude)));
         SetText(kPlaceLonEdit, FormatCoord(RoundCoord(p.longitude)));
-        if (Kind() == ItemKind::Widget) SetText(kPlaceNote, L"This widget has a place of its own.");
+        if (Kind() == ItemKind::Widget) SetText(kPlaceNote, L"Its own place");
+        SetText(kPlaceSearchNote, L"Place set");
         UpdatePlaceStatus();
     }
 
@@ -1102,6 +1227,8 @@ private:
     Widgets::Manifest builtIn_;  // a clock / weather item: Widgets::BuiltInSchema
     int placeField_ = -1;        // the schema's (first) Place field, -1 none
     std::vector<WeatherService::Place> places_;  // the last search's results
+    std::wstring searched_;      // the last search's text (or the chosen place's row): not searched again
+    bool standalone_ = false;    // a standalone widget's Widget tab (round 8 phase 8C)
     std::vector<std::pair<std::wstring, std::wstring>> zones_;  // time zone rows: key, display name
 
     // Round 6 phase 6D: the rows of `"choiceFrom": "perf"` fields (field index -> value, label): the
@@ -1155,6 +1282,14 @@ std::wstring WeatherDetail(const WeatherConfig& w) {
 
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window) { return std::make_unique<WidgetsPage>(window); }
 
-std::unique_ptr<SettingsPage> MakeWidgetSettingsPage(SettingsWindow& window) {
-    return std::make_unique<WidgetSettingsPage>(window);
+std::unique_ptr<SettingsPage> MakeWidgetSettingsPage(SettingsWindow& window, int standaloneItem) {
+    return std::make_unique<WidgetSettingsPage>(window, standaloneItem);
+}
+
+std::wstring BuiltInItemDescription(ItemKind kind) {
+    switch (kind) {
+        case ItemKind::Clock: return L"This clock's own settings: other clocks keep theirs.";
+        case ItemKind::Weather: return L"This weather item's own place and units: other weather items keep theirs.";
+        default: return L"";
+    }
 }

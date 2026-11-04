@@ -261,6 +261,20 @@ void SettingsPage::Check(int id, int captionId, const wchar_t* text, int x) {
     c.buddy = id;
 }
 
+void SettingsPage::Check(int id, int captionId, const wchar_t* text, const wchar_t* hint, int hintId, int x) {
+    if (hintId == 0) hintId = nextAutoId_++;
+    // The box and its caption on the label's line of a hint row, the hint under the caption.
+    Ctl& b = Add(id, CtlKind::Check, WC_BUTTONW, text, WS_TABSTOP | BS_AUTOCHECKBOX | BS_NOTIFY,
+                 RECT{x, y_ + 3, x + kCaptionDx, y_ + 24});
+    b.buddy = captionId;
+    Ctl& c = Add(captionId, CtlKind::Caption, WC_STATICW, text, SS_OWNERDRAW | SS_NOTIFY,
+                 RECT{x + kCaptionDx, y_ + 3, Width() - kMargin, y_ + 24});
+    c.buddy = id;
+    Add(hintId, CtlKind::Note, WC_STATICW, hint ? hint : L"", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
+        RECT{x + kCaptionDx, y_ + 24, Width() - kMargin, y_ + 42});
+    hintRow_ = row_;
+}
+
 void SettingsPage::Radios(std::initializer_list<RadioDef> radios, int x) {
     const int top = y_;
     // One reflow row per radio (with its caption).
@@ -1008,6 +1022,10 @@ void SettingsWindow::CreateFonts() {
             SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font_), FALSE);
         }
     }
+    if (headerTip_) {  // round 8 phase 8C: the Item header's description tooltip
+        SendMessageW(headerTip_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), FALSE);
+        SendMessageW(headerTip_, TTM_SETMAXTIPWIDTH, 0, Px(360));
+    }
     for (HFONT f : {oldFont, oldSemibold, oldTitle, oldIcons}) {
         if (f) DeleteObject(f);
     }
@@ -1086,6 +1104,7 @@ void SettingsWindow::ApplyTheme() {
             DarkMode::ThemeControl(c, dark);  // buttons and links
         }
     }
+    ThemeTips(headerTip_);
     for (auto& page : pages_) {
         if (!page->hwnd_) continue;
         DarkMode::ThemeScrollBars(page->hwnd_, dark);
@@ -2087,6 +2106,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             tabs_ = nullptr;
             header_ = nullptr;
             footer_ = nullptr;
+            headerTip_ = nullptr;  // owned by the window: already destroyed
             lastFocus_ = nullptr;
             if (itemIcon_) DestroyIcon(itemIcon_);
             itemIcon_ = nullptr;
@@ -2330,6 +2350,9 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
             return 0;
         case WM_MOUSEWHEEL:
             ScrollPage(page, page.scrollPx_ - MulDiv(GET_WHEEL_DELTA_WPARAM(wp), Px(48), WHEEL_DELTA));
+            return 0;
+        case WM_TIMER:  // round 8 phase 8C: a page's own timer (the place search's typing pause)
+            page.OnTimer(static_cast<UINT_PTR>(wp));
             return 0;
         case WM_CTLCOLORSTATIC:
         case WM_CTLCOLOREDIT:

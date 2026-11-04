@@ -1390,9 +1390,9 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
   standalone widgets (floating docks snap to standalone widgets too); `x` / `y` / `w` / `h` are
   saved on release. **Locked** (`locked`): neither moved nor resized (clicks still reach the
   widget).
-- **Right click**: "<widget> settings…" (its own widget settings: the generated Item page),
-  **Window settings…** (its Dock window), **Lock** / **Unlock**, **Reload widget**, **Remove from
-  desktop**, **Global settings…**.
+- **Right click**: "<widget> settings…" (its own widget settings: its window's **Widget** tab),
+  **Window settings…** (its window's **Window** tab), **Lock** / **Unlock**, **Reload widget**,
+  **Remove from desktop**, **Global settings…**.
 - **Layers** (`layer`): `"behind"` (default: always shown, on the desktop under every window, like
   folder windows; with background "panel" and acrylic its blur window stays beneath it),
   `"desktop"` (shown only while the desktop is in front: Win+D or a click on the wallpaper; the
@@ -1406,13 +1406,17 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
 - **Cost**: a still standalone widget costs nothing (no timer; the widget's own refresh only). The
   windows share the folder windows' graphics device ("the desktop windows' device", made with the
   first such window and released after the last).
-- **Settings**: its own window (Global settings > Docks and displays: **Open window settings**,
-  WinDock.DockCommand 143, or its menu's Window settings…) has a header (its display, layer, size,
-  Locked; **Flash this widget**, **Lock widget**) and one page, **Standalone widget**: the widget
-  (name, **Open widget settings**: its generated Item page), display, position x / y (empty:
-  centred), width / height (with the widget's minimum and aspect), layer (with a hint), background,
-  **Locked** (round 8 phase 8A: the page's own **Flash this widget** button is gone, the header
-  has it). Its widget's settings are an Item window like a dock widget's (item 0 of the entry).
+- **Settings**: one window (round 8 phase 8C; Global settings > Docks and displays: **Open window
+  settings**, WinDock.DockCommand 143 or 142, its menu's "<widget> settings…" / Window settings…)
+  with the compact header (its display, layer, size, Locked chips; **Flash**, **Lock**, **⋯**) and
+  two tabs: **Widget** (the widget's own settings, generated from its schema like a dock widget's
+  Item window: the description on one line (its tooltip has all of it), a card per group, the
+  place block, and a last card with **Reset to defaults** and **Console…**) and **Window**: a
+  **Place and size** card (display, position x / y (empty: centred), width / height in DIPs (the
+  hint gives the widget's minimum and shape)) and a **Layer and look** card (layer with a hint,
+  background, **Locked** with the "drag it to move it" hint). Until 8C it was one page with
+  **Open widget settings**, which opened an Item window for the widget (item 0 of the entry); a
+  standalone widget has no Item window any more (the paths that opened one open the Widget tab).
 
 ## Settings
 
@@ -1433,7 +1437,8 @@ but the configuration, and opening one that is already open brings it to the fro
   dock menu opened over a widget, clock, weather or tray item, the tray menu's **Tray settings…**,
   **Settings…** in the inspector of the dock window's Contents tab, the weather item's map
   pin, a widget's `weather.openSettings()`, `WinDock.DockCommand` 113 / 142 and
-  `WinDock.ItemCommand` 854 open it.
+  `WinDock.ItemCommand` 854 open it. A [standalone widget](#standalone-widgets)'s widget has none
+  (round 8 phase 8C): those paths open its own window on the Widget tab.
 
 What applies to every dock is in the Global window, what applies to one dock in that dock's window
 and what applies to one item in that item's window: no Global page acts on "the selected dock"
@@ -1456,12 +1461,13 @@ window the page's title is over the cards, a Dock or Item window has none (the t
 names the page). A label can carry a one-line muted **hint** under it ("0: no limit", "Above
 every window"); the longer explanation of a setting is its **tooltip** (hover the label, its
 hint, a check box's caption or a note; up to 360 DIPs wide, dark like the lists). No note is
-more than two lines (a generated widget page's long field descriptions end with "…" after two
-lines; the tooltip has all of it). Notes are as tall as their text at the window's width, so
-nothing clips or overlaps. An **expander** ("▸ More: …", "▾ Less"; Space or Enter on it, or a
-click) shows rows that are seldom needed, closed whenever the window opens: Behaviour > Auto-hide
-has one for the hide and reveal delays, Position one for the seldom used bar settings (round 8
-phase 8B).
+more than two lines (round 8 phase 8C: a generated widget page's field descriptions are one-line
+hints, see An Item window; the tooltip has all of it). Notes are as tall as their text at the
+window's width, so nothing clips or overlaps. An **expander** ("▸ More: …", "▾ Less"; Space or
+Enter on it, or a click) shows rows that are seldom needed, closed whenever the window opens:
+Behaviour > Auto-hide has one for the hide and reveal delays, Position one for the seldom used
+bar settings (round 8 phase 8B), a Place one for its name and coordinates (**Edit coordinates**,
+8C).
 
 Keyboard: the Global window's page list switches pages with Up / Down / Home / End while it has
 the focus, a Dock window's tab strip with Left / Right / Home / End; **Ctrl+Tab** / **Ctrl+Shift+Tab**
@@ -1643,35 +1649,53 @@ folder (Browse…), title, view, icon size, sort, show hidden items, single clic
 opacity, title colour, lines of name, hide the title, transparent background, roll up on hover;
 the Desktop rules (patterns, move automatically, **Sort desktop now**). See
 [Desktop folder windows](#desktop-folder-windows). A standalone widget's window has the compact
-header too (its display, layer, size, Locked chips; Flash, Lock, ⋯). Neither has the Position
-tab's silhouette (their one page has their place and size).
+header too (its display, layer, size, Locked chips; Flash, Lock, ⋯) and two tabs, **Widget** and
+**Window** (round 8 phase 8C; see [Standalone widgets](#standalone-widgets)). Neither has the
+Position tab's silhouette (their pages have their place and size).
 
-**An Item window** has no page list: a header (the item's icon (a letter tile for a widget, clock,
-weather or tray item), its name, "on <dock>" (a link to that dock's window), "item k of n", and for
-a script widget its id and version; the caption in its dock's colour), the item's page, and a
-footer ("Changes apply at once", **Reset to defaults** for a widget, clock, weather or tray item,
-**Console…** for a widget):
+**An Item window** has no page list: a header (round 8 phase 8C: 92 DIPs, three lines beside the
+item's icon (a letter tile for a widget, clock, weather or tray item): its name; "on <dock>" (a
+link to that dock's window), "item k of n" and for a script widget its id and version
+("system-monitor 1.0.0"); and the item's **description** on one line with "…" when it does not fit,
+its whole text a tooltip over that line: a script widget's manifest description, the clock's "This
+clock's own settings: other clocks keep theirs.", the weather item's "This weather item's own place
+and units: other weather items keep theirs.", a folder's path, a group's member count, the tray's
+grid; the caption in its dock's colour), the item's page (no title and no description note above
+it since 8C), and a footer ("Changes apply at once", **Reset to defaults** for a widget, clock,
+weather or tray item, **Console…** for a widget):
 
 - a **widget, clock or weather item**: its settings generated from its schema (a script widget's
-  widget.json; the clock's and the weather's built-in schemas, round 5): check boxes, steppers with
-  their units, drop-downs, edit boxes, a description under a field, section headers from the
-  schema's groups, fields that appear only for some value of another (`visibleIf`: the analog
-  clock's motion only with a second hand; the clock's App or URL only for "launch"), a **Place**
-  (**Find a place** (type a name, then Enter or **Search**; choosing a result sets the place), the
-  name shown, latitude and longitude (typed values apply on Enter or when the box loses the focus;
-  an invalid value beeps and goes back), the status of that place's service ("Updated 10:15",
-  "(stale)", "Updating…", "Not configured", "Not shown on a dock", "Error: …"), **Refresh now** and
-  the Open-Meteo credit; a script widget without a place of its own says whose place it shows), a
-  **Time zone** drop-down (Local time, then every zone) and, for a clock, **Open faces folder**.
-  **Reset to defaults**: a clock / weather item takes the top-level `clock` / `weather` defaults, a
-  widget its schema's.
-- a **tray** item (round 5 phase D, "System tray"): its grid (Rows, Columns, Icon size), the icons
-  in the grid's order with a check box each and Move up / Move down, Reset to Explorer (see System
-  tray).
-- a **folder** (or a shortcut to one) or a **group**: **Show the contents as** Automatic (a grid up
-  to 48 entries, a list above) / Grid / List, and the icon buttons (Choose icon…, Choose image…,
-  Reset icon); for a group also its **Name** and its shortcuts (Add app…, Add folder…, Remove,
-  Move up / down).
+  widget.json; the clock's and the weather's built-in schemas, round 5), in **cards** (round 8
+  phase 8C): one per run of fields of one `group`, titled with the group (a group that comes back
+  after another one gets a second card; fields without a group: a card named after the widget):
+  check boxes, steppers with their units beside them, drop-downs, edit boxes; a field's
+  `description` is its row's one-line **hint** under the label (under a check box's caption) when
+  it fits on one line at the default width, else its first sentence (up to the first ". ") is,
+  cut with "…" when still too long; the whole description is the tooltip of the label, the hint
+  and the control. Fields that appear only for some value of another (`visibleIf`: the analog
+  clock's motion only with a second hand; the clock's App or URL only for "launch") come and go as
+  before. A **Place** (round 8 phase 8C): **Find a place** is an autocomplete box: type a place's
+  name and its list fills with the places found (Open-Meteo's geocoding) after a 400 ms pause in
+  typing or when you press Enter (or leave the box); the hint under the label says "Searching…",
+  "10 places found: choose one", "No places found" or the error; choosing a row sets the name,
+  latitude and longitude. **Place** shows the chosen place as one line ("Colorado Springs · 38.83,
+  −104.82"; a script widget's hint says whose place it shows: its own, its dock's Weather item's or
+  the default one). **Edit coordinates** (an expander, closed when the window opens) holds the name
+  shown, latitude and longitude (typed values apply on Enter or when the box loses the focus; an
+  invalid value beeps and goes back). **Status** ("Updated 10:15", "(stale)", "Updating…", "Not
+  configured", "Not shown on a dock", "Error: …") with **Refresh now** on its row, and the
+  Open-Meteo credit. A **Time zone** drop-down (Local time, then every zone) and, for a clock,
+  **Open faces folder** (in the Look card, under the face). **Reset to defaults**: a clock /
+  weather item takes the top-level `clock` / `weather` defaults, a widget its schema's.
+- a **tray** item (round 5 phase D, "System tray"; round 8 phase 8C in three cards): **The grid**
+  (Rows "Across the dock", Columns "Along the dock", Icon size), **Icons in the grid** (in the
+  grid's order with a check box each, Move up / Move down) and **Takeover** (Reset to Explorer,
+  with its hint; see System tray).
+- a **folder** (or a shortcut to one) or a **group** (round 8 phase 8C: a card per section): a
+  **Folder** / **Group** card (a group's **Name**; **Show the contents as** Automatic (a grid up to
+  48 entries, a list above) / Grid / List; a group's member count line), an **Icon** card (Choose
+  icon…, Choose image…, Reset icon) and, for a group, **Shortcuts in the group** (Add app…, Add
+  folder…, Remove, Move up / down). A folder's path is the header's third line.
 
 An Item window follows its item when the dock's items change: moved (by a drag on the dock, Move
 up / down, ...) it keeps editing it at its new place; removed, its window closes. Removing a dock
@@ -2228,10 +2252,12 @@ always there, also when every dock is parked) handle these registered messages:
   23 right before drawer icon bits 24 - 31 in the grid order (255: to the end). Settings: the
   Global window's page 4 Tray icons: 4100 the takeover check box, 4114 Put the tray in its own dock
   (8b), 4125 the note, 4126 its result line; a tray item's own Item window (round 5 phase D; page
-  0, title 2000 "System tray"): 4104 / 4105 rows, 4107 / 4108 columns, 4110 icon size (0 = 16, 1 =
-  20, 2 = 24 px), 4112 the icon list (check boxes: shown in the grid; rows in the grid's order),
-  4123 / 4124 Move up / Move down (the selected row), 4113 Reset to Explorer, the footer's 114 Reset
-  to defaults (4116 / 4117 Add a tray to this dock and 4122 are retired). The tray menu (Ctrl +
+  0; round 8 phase 8C in three cards: 4118 The grid, 4111 Icons in the grid, 4127 Takeover):
+  4104 / 4105 rows (4119 its hint, was the grid note), 4107 / 4108 columns, 4110 icon size (0 =
+  16, 1 = 20, 2 = 24 px), 4120 the icons' note, 4112 the icon list (check boxes: shown in the grid;
+  rows in the grid's order), 4123 / 4124 Move up / Move down (the selected row), 4113 Reset to
+  Explorer (4128 its label, 4121 its hint, was the note beside it), the footer's 114 Reset to
+  defaults (4116 / 4117 Add a tray to this dock and 4122 are retired). The tray menu (Ctrl +
   right click) is a `#32768` of the WinDock process with the ids 1 Hide / Show, 2 Pin, 3 Unpin, 4
   Tray settings… (the item's window).
 - **Notifications** (round 4 phase 9): `QueryState` 113 = the notification service (0 off, 1
@@ -2382,12 +2408,25 @@ always there, also when every dock is parked) handle these registered messages:
   `DockCommand` 142 = the settings of item `LOWORD(lParam)` (its index in `docks[].items`) of dock
   `HIWORD(lParam)`: that item's Item window opens (or comes to the front; round 5 phase B: its own
   window, the generated page; a tray item: its grid page (phase D); a folder / group: Folders and
-  groups; an item without settings: the dock's window); returns 1 (0: no such item). 113 (Weather settings…) opens the dock's first
+  groups; an item without settings: the dock's window; round 8 phase 8C: a standalone widget's
+  item 0: its own window on the Widget tab, never an Item window); returns 1 (0: no such item). 113 (Weather settings…) opens the dock's first
   weather item's window (none: the dock's window). The generated page (an Item window's page 0):
-  the Place field's controls are 3611 the search box, 3612 Search, 3614 the results
-  drop-down, 3615 the search note, 3617 the name shown, 3619 / 3621 latitude / longitude
-  (committed on `EN_KILLFOCUS`), 3623 the status, 3624 Refresh now, 3625 the credit, 3626 (a script
-  widget) whose place it shows; 3627 a clock's Open faces folder; a TimeZone field's drop-down is
+  the Place field's controls are (round 8 phase 8C) 3614 the search box, an editable drop-down
+  (`CBS_DROPDOWN`; it was the results drop-down beside the search edit 3611 and its Search button
+  3612, both gone with the Results label 3613): `WM_SETTEXT` a name, then
+  `WM_COMMAND(3614, CBN_KILLFOCUS)` to the page (what Enter or leaving the box does) or
+  `WM_COMMAND(3614, CBN_EDITCHANGE)` (typing: the search starts after a 400 ms pause; one timer,
+  killed when it fires) searches; the results fill its list (`CB_GETCOUNT`, `CB_GETLBTEXT`) and
+  the text stays as typed; choose one with `CB_SETCURSEL` + `WM_COMMAND(3614, CBN_SELENDOK)` (a
+  click or Enter in the list; `CBN_SELCHANGE` counts only while the list is closed), 3615 the
+  Find a place label's hint (the search's state: "Searching…", "10 places found: choose one",
+  "No places found", "Search failed: …", "Place set"), 3629 the summary row ("Colorado Springs ·
+  38.83, −104.82" with U+2212 for a minus; 3628 its label "Place"), 3630 the **Edit coordinates**
+  expander (QueryState 276 with the dock in the high word) holding 3617 the name shown, 3619 / 3621
+  latitude / longitude (committed on `EN_KILLFOCUS`; hidden but drivable while it is closed; 3631 /
+  3632 their ranges), 3623 the status and 3624 Refresh now on one row, 3625 the credit, 3626 (a
+  script widget) the Place label's hint: whose place it shows ("Its own place", "This dock's
+  Weather item's", "The default place"; was a note); 3627 a clock's Open faces folder (in the face's card); a TimeZone field's drop-down is
   the field's control (`3700 + 10 k + 1`: row 0 Local time, then the zones). The clock and weather
   schemas' field order: clock 0 format, 1 showSeconds, 2 timeZone, 3 showDate, 4 label, 5 face, 6
   click, 7 clickTarget (shown for "launch"); weather 0 place, 1 label, 2 units, 3 refreshMinutes. The script Weather widget's own state: the widget QueryStates (54 state, 58
@@ -2590,7 +2629,8 @@ always there, also when every dock is parked) handle these registered messages:
   as 263; -2 when it is not open; the live size, also while maximized); 276 = 1 while the expander
   whose control id is `LOWORD(lParam)` is open, 0 while it is closed (looked up in the Dock window
   of dock `HIWORD(lParam)`, then that dock's Item windows, then the Global window; -1: no such
-  expander in any of them). The expanders so far: Behaviour's 2269, Position's 2272 (8B).
+  expander in any of them). The expanders so far: Behaviour's 2269, Position's 2272 (8B), a Place
+  field's Edit coordinates 3630 (8C; an Item window of the dock, or a standalone widget's window).
   Round 8 phase 8B, a Dock window (dock `HIWORD(lParam)`; -2 for each while it is not open): 277
   = the Position tab's placement kind as shown (its Kind drop-down 2271: 0 bar on an edge, 1
   floating bar, 2 half circle, 3 circle); 278 = the Contents drawer's rows in group
@@ -2635,7 +2675,11 @@ always there, also when every dock is parked) handle these registered messages:
   `BM_CLICK`: it runs a popup menu, a `#32768` window of the dock's process with one item,
   Global settings… = 112), 112 that command (`WM_COMMAND(112, BN_CLICKED)` to the band opens the
   Global window; it was the Global settings link until 8B), 113 an Item window's "on <dock>" link
-  (SysLinks: `NM_CLICK`), 114 Reset to defaults, 115 Console…. Keyboard: Ctrl+Tab / Ctrl+Shift+Tab switch pages / tabs; the tab strip takes Left /
+  (SysLinks: `NM_CLICK`; round 8 phase 8C: its text also carries a script widget's id and version,
+  `on <a>main</a> · item 4 of 10 · system-monitor 1.0.0`), 114 Reset to defaults, 115 Console….
+  Round 8 phase 8C: an Item window's header (92 DIPs) paints the item's description as its third
+  line; a `tooltips_class32` window owned by the settings window has one tool (`TTM_GETTOOLCOUNT`
+  = 1, `TTF_SUBCLASS` on the band 102, its rect that line) whose text is the whole description. Keyboard: Ctrl+Tab / Ctrl+Shift+Tab switch pages / tabs; the tab strip takes Left /
   Right / Home / End. The pages are `WinDock.SettingsPage` children with ids 200 + page index:
   the Global window 0 General, 1 Themes, 2 Animation, 3 Calendar feeds, 4 Tray icons, 5
   Notifications, 6 Widget library, 7 Docks and displays, 8 About (`SettingsIds::kPage*`); a Dock
@@ -2643,7 +2687,10 @@ always there, also when every dock is parked) handle these registered messages:
   phase 8B: until then 2 Behaviour, 3 Running apps, 4 Theme; the page windows' ids follow: 202
   Appearance, 203 Behaviour, 204 Running apps; `SettingsWindow::ShowPage` and the Contents tab's
   "open the Running apps tab" take the new indexes, DockCommand 143 takes no tab; a folder window's
-  or a standalone widget's window: 0 its page). Round 8 phase 8A: the windows are resizable (`SetWindowPos` works;
+  window: 0 its page; a standalone widget's window, round 8 phase 8C: 0 **Widget** (`kTabWidgetSettings`,
+  page 200: the generated page of the entry's item 0) and 1 **Window** (`kTabWidgetWindow`, page
+  201; until 8C the one page 0), with the tab strip 103; DockCommand 142 / ItemCommand 854 on the
+  entry and its menu's "<widget> settings…" open it on tab 0, its menu's Window settings… on tab 1). Round 8 phase 8A: the windows are resizable (`SetWindowPos` works;
   QueryState 275 reads the size, config `settings.windows` keeps it); each page that has tooltips
   owns one `tooltips_class32` window owned by the settings window (`TTM_GETTOOLCOUNT` counts its
   tools; the tools are the controls' windows, `TTF_IDISHWND | TTF_SUBCLASS`); an expander is an
@@ -2676,7 +2723,18 @@ always there, also when every dock is parked) handle these registered messages:
   `lParam` 0 to the page runs them; 2609 / 2610 open their dialog, so post them); the Position
   tab's Floating note 2191 and its Display / Shape section headers 2186 / 2187 (Kind 2271 and the
   Placement / Layer cards 2140 / 2274); the Floating check box 2189 / 2190 and the Shape drop-down
-  2169 (2168 its label) stay as hidden controls (driving them still works; the Kind follows). Any
+  2169 (2168 its label) stay as hidden controls (driving them still works; the Kind follows).
+  **Removed / moved controls (8C)**: the generated page's description note 3602 (the Item
+  window's header line; 3602 stays for "has no settings" / "Not installed" and, on a standalone
+  widget's Widget tab, the one-line description), the field notes `3700 + 10 k + 3` (now the
+  field's one-line hint under its label / check box caption, the same id), the place search edit
+  3611, Search 3612 and the Results label 3613 (3614 is the autocomplete search box), the place
+  note 3626 (now the Place label's hint); the tray item page's grid note 4119 and reset note 4121
+  (now hints, the same ids); Folders and groups' path note 4008 is collapsed for a folder (the
+  header's third line has the path; a group's member line stays); the standalone page's info
+  line 4500, its Widget card 4501 - 4503 and **Open widget settings** 4504 (the Widget tab is that
+  page; DockCommand 142 opens it), its size note 4519 and move note 4529 (now the Width label's /
+  Locked check box's hints). Any
   page takes a menu command this way: `WM_COMMAND` with `lParam` 0 reaches the page's handler as
   `BN_CLICKED` of that id. An Item window 0 its page (the
   generated one, a tray item's grid page
@@ -2729,10 +2787,13 @@ always there, also when every dock is parked) handle these registered messages:
   registered hotkey is pressed while the box has the focus), 2197 the registration line, 2198 Show
   the dashboard now; Docks and displays 2811 Add floating dock, 2812 Add standalone widget… (6B: a
   popup menu of the catalog, ids 1..n in the Widget library's order); Widget library 3509 Add to the
-  desktop (6B); a standalone widget's window page (6B, page 0, `SettingsIds` 4500 - 4529): 4503 the
-  widget's name, 4504 Open widget settings, 4507 display, 4509 / 4511 x / y (empty: centred), 4514
-  / 4515 width, 4517 / 4518 height, 4519 the size note, 4522 layer (DockLayer order), 4523 its note,
-  4525 background (0 none, 1 panel), 4526 Locked (4528 Flash this widget: removed in 8A);
+  desktop (6B); a standalone widget's window page (6B, `SettingsIds` 4500 - 4531; round 8 phase
+  8C: the Window tab, page 1 (201), in the cards 4505 Place and size and 4520 Layer and look; tab
+  0 (200) is the Widget tab, the generated page above): 4507 display, 4509 / 4511 x / y (empty:
+  centred), 4514 / 4515 width, 4517 / 4518 height (4530 / 4531 their "DIPs"), 4519 the Width
+  label's hint (the widget's minimum and shape), 4522 layer (DockLayer order), 4523 its hint,
+  4525 background (0 none, 1 panel), 4526 Locked (4529 its hint) (4528 Flash this widget: removed
+  in 8A; 4500 - 4504, the info line, the widget's name and Open widget settings: removed in 8C);
   Appearance (round 8 phase 8B) = 2420 / 2422 / 2423 (below, the Theme tab's) and 2126 the Size
   card with 2101 - 2109 (icon size, magnification, range; on Behaviour until 8B); Behaviour = the
   Behaviour page's auto-hide,
@@ -2764,12 +2825,19 @@ always there, also when every dock is parked) handle these registered messages:
   press it with `PostMessage`), 3508 the last action's result); the generated page (an Item
   window of a widget, clock or weather item; per schema field k `3700 + 10 * k + part`: 0 label, 1
   the control (check box, edit, drop-down), 2 the check box's caption or the int's up-down, 3 the
-  field's note (two lines at most; the whole description is its tooltip and its label's), 5 the
-  unit; its title 2000 is gone since round 8 phase 8A (the header names the widget); the item picker 3601
-  and the page's own Reset 3603 are gone: the window is the item, Reset is the footer's 114);
-  Folders and groups (an Item window of a folder, a shortcut to a folder or a group: 4003 Show the
+  field's hint (round 8 phase 8C: one line under the label or the check box's caption, the whole
+  description or its first sentence; the whole description is the tooltip of the label, the
+  hint and the control; until 8C a note of up to two lines under the control), 4 the card's
+  header (a Section: the field's group, or the widget's name, on the first field of each run of
+  one group), 5 the unit; its title 2000 is gone since round 8 phase 8A (the header names the widget); the item picker 3601
+  and the page's own Reset 3603 are gone: the window is the item, Reset is the footer's 114; on a
+  standalone widget's Widget tab (8C) the last card's 114 Reset to defaults and 115 Console… are
+  page buttons with the footer's ids: `WM_COMMAND(114 / 115, BN_CLICKED)` to the page);
+  Folders and groups (an Item window of a folder, a shortcut to a folder or a group; round 8
+  phase 8C in cards: 4018 Folder / Group, 4019 Icon, 4011 Shortcuts in the group: 4003 Show the
   contents as: 0 Automatic, 1 Grid, 2 List; 4005 Choose icon…, 4006 Choose image…, 4007 Reset
-  icon; 4008 the folder's path; groups: 4010 the name, committed on `EN_KILLFOCUS`; 4012 the
+  icon; 4008 the member line of a group (collapsed for a folder; its window text still "Path: …");
+  groups: 4010 the name, committed on `EN_KILLFOCUS`; 4012 the
   members list (Name, Target); 4013 Add app…, 4014 Add folder…, 4015 Remove, 4016 Move up, 4017
   Move down; hidden for a folder; the picker 4001 is gone). Check boxes and radio buttons carry no visible text of their own:
   their caption is a separate static (id + 1) that forwards clicks. The Themes page's theme
@@ -2802,11 +2870,13 @@ always there, also when every dock is parked) handle these registered messages:
   DIPs (clamped to -4000 - 4000); the items are sorted into group order, reloaded and saved (1;
   0 for no such slot or a bad anchor), 900 close all windows). On a
   [standalone widget](#standalone-widgets) entry (round 6 phase 6B; the entry's index in the high
-  word of `lParam`): 809 reloads its widget, 854 opens its widget's Item window, 855 locks / unlocks
+  word of `lParam`): 809 reloads its widget, 854 opens its widget's settings (round 8 phase 8C:
+  its own window's Widget tab; before, an Item window), 855 locks / unlocks
   it, 856 removes the entry (posted), 857 / 858 close its widget's text editor (below); any other
   command returns -1. DockCommand 143 opens its Dock
   window, 144 flashes it, 116 locks / unlocks it, 142 with item 0 or `0xFFFF` opens its widget's
-  Item window; the commands that edit a dock's items, edge or auto-hide do nothing for it (nor for a
+  settings (round 8 phase 8C: its window on the Widget tab, QueryState 225 for the entry reports
+  it, 227 stays 0: no Item window); the commands that edit a dock's items, edge or auto-hide do nothing for it (nor for a
   folder window),
   `lParam` = item index or a window handle of the item. Returns 1 if the item was found. A folder
   popup opened this way usually cannot take the foreground (the dock did not get the click), so

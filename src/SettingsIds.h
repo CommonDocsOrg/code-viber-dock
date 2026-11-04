@@ -46,7 +46,10 @@ inline constexpr int kTabBehaviour = 3;
 inline constexpr int kTabRunning = 4;
 inline constexpr int kTabCount = 5;
 inline constexpr int kTabFolderWindow = 0;
-inline constexpr int kTabWidgetWindow = 0;  // round 6 phase 6B: a standalone widget entry's window has this one page
+// Round 8 phase 8C: a standalone widget entry's window has two tabs: Widget (its widget's generated
+// settings, item 0 of the entry) and Window (place, size, layer, look; until 8C its one page, 0).
+inline constexpr int kTabWidgetSettings = 0;
+inline constexpr int kTabWidgetWindow = 1;
 // The one page of an Item window (the generated schema page or Folders and groups).
 inline constexpr int kItemPage = 0;
 
@@ -409,18 +412,19 @@ inline constexpr int kWidgetsPreview = 3510;   // round 6 phase 6E: WinDock.Widg
 
 // Widget settings (3600 - 3999; phase 4b). The fixed controls, then per schema field k
 // (widget.json "settings" order) 3700 + 10 * k + part: 0 label, 1 the control (check box, edit,
-// drop-down), 2 its caption (check box) or up-down (int), 3 the field's note.
+// drop-down), 2 its caption (check box) or up-down (int), 3 the field's hint (round 8 phase 8C: a
+// one-line hint under the label / check box caption; was a note under the control), 4 the card
+// (Section) the field starts, 5 the unit.
 // 3600 / 3601: the item picker until round 5 phase B (the Item window is the item); reserved.
-inline constexpr int kWidgetSettingsNote = 3602;
+inline constexpr int kWidgetSettingsNote = 3602;  // 8C: only "has no settings" / "Not installed"; a standalone widget's Widget tab: the description (one line)
 inline constexpr int kWidgetReset = 3603;      // "Reset to defaults" (since phase B the footer's kFooterReset; the page handles this id)
 // Round 5 phase A: the controls of a Place field (the first one of the schema: the weather item's
 // place, the script weather widget's own) and the clock's extra button.
+// Round 8 phase 8C: the search edit 3611, its Search button 3612 and the Results label 3613 are
+// gone (retired, reserved): 3614 is the search box itself, an autocomplete.
 inline constexpr int kPlaceSearchLabel = 3610;
-inline constexpr int kPlaceSearchEdit = 3611;     // a place name; Enter searches (Open-Meteo geocoding)
-inline constexpr int kPlaceSearch = 3612;         // "Search"
-inline constexpr int kPlaceResultsLabel = 3613;
-inline constexpr int kPlaceResults = 3614;        // drop-down "Name, Region, Country"; choosing one sets the place
-inline constexpr int kPlaceSearchNote = 3615;     // "Searching…", "10 places found", errors
+inline constexpr int kPlaceResults = 3614;        // editable drop-down (CBS_DROPDOWN): type a place's name; Enter / focus loss / a 400 ms pause searches (Open-Meteo geocoding); its list "Name, Region, Country"; choosing one sets the place
+inline constexpr int kPlaceSearchNote = 3615;     // the Find a place label's hint: "Searching…", "10 places found: choose one", errors
 inline constexpr int kPlaceLocationLabel = 3616;
 inline constexpr int kPlaceLocationEdit = 3617;   // the name shown in the popup (`location`)
 inline constexpr int kPlaceLatLabel = 3618;
@@ -431,8 +435,14 @@ inline constexpr int kPlaceStatusLabel = 3622;
 inline constexpr int kPlaceStatus = 3623;         // the place's service: "Updated 10:15", "Not shown on a dock", "Error: …"
 inline constexpr int kPlaceRefreshNow = 3624;     // "Refresh now" (that place)
 inline constexpr int kPlaceCredit = 3625;         // SysLink: Open-Meteo (CC BY 4.0)
-inline constexpr int kPlaceNote = 3626;           // a script widget without a place of its own: whose place it shows
+inline constexpr int kPlaceNote = 3626;           // a script widget: the Place label's hint, whose place it shows (8C: was a note)
 inline constexpr int kClockFacesFolder = 3627;    // a clock item: "Open faces folder"
+// Round 8 phase 8C:
+inline constexpr int kPlaceSummaryLabel = 3628;
+inline constexpr int kPlaceSummary = 3629;        // the place shown: "Colorado Springs · 38.83, −104.82" (U+2212 for a negative), "None yet: …"
+inline constexpr int kPlaceCoordsExpander = 3630; // "Edit coordinates": the name shown 3616 / 3617, latitude 3618 / 3619, longitude 3620 / 3621 (QueryState 276)
+inline constexpr int kPlaceLatUnit = 3631;        // "-90 to 90"
+inline constexpr int kPlaceLonUnit = 3632;        // "-180 to 180"
 inline constexpr int kWidgetFieldBase = 3700;
 inline constexpr int kWidgetFieldMax = 30;     // fields shown per widget
 
@@ -455,6 +465,9 @@ inline constexpr int kGroupAddFolder = 4014;   // "Add folder…"
 inline constexpr int kGroupRemove = 4015;
 inline constexpr int kGroupUp = 4016;          // "Move up"
 inline constexpr int kGroupDown = 4017;        // "Move down"
+// Round 8 phase 8C: the page's cards.
+inline constexpr int kItemPopupSection = 4018; // "Folder" / "Group": (the group's name,) Show the contents as, the path / member note
+inline constexpr int kItemIconSection = 4019;  // "Icon": Choose icon…, Choose image…, Reset icon
 
 // Tray (4100 - 4199; round 4 phase 8): tray.enabled and the tray item. Since round 5 phase D the
 // Global Tray icons page has 4100 - 4102, 4114 / 4115, 4125 / 4126 only; a tray item's own Item
@@ -486,6 +499,8 @@ inline constexpr int kTrayIconUp = 4123;        // a tray item's window: "Move u
 inline constexpr int kTrayIconDown = 4124;      // "Move down"
 inline constexpr int kTrayGlobalNote = 4125;    // Global: where each tray item's grid settings are
 inline constexpr int kTrayOwnDockStatus = 4126; // Global: the last Put the tray in its own dock result
+inline constexpr int kTrayTakeoverSection = 4127;  // round 8 phase 8C: a tray item's "Takeover" card (Reset to Explorer)
+inline constexpr int kTrayResetLabel = 4128;       // ... its label "Explorer's icons" (4121 its hint)
 
 // Notifications (4200 - 4299; round 4 phase 9): config.notifications. 4200 - 4203 (the edited
 // dock's badges / centre) moved to the Dock window's Behaviour tab in round 5 phase D (2254 /
@@ -595,12 +610,10 @@ inline constexpr int kFwAutoSortCaption = 4442;
 inline constexpr int kFwSortNow = 4443;         // "Sort desktop now" (= DockCommand 140)
 inline constexpr int kFwRulesNote = 4444;
 
-// Standalone widget (4500 - 4599; round 6 phase 6B): a "widget" entry's own window (its one page).
-inline constexpr int kWwInfo = 4500;            // which widget window
-inline constexpr int kWwWidgetSection = 4501;
-inline constexpr int kWwWidgetLabel = 4502;
-inline constexpr int kWwWidgetName = 4503;      // the widget's name and id (read-only)
-inline constexpr int kWwOpenWidget = 4504;      // "Open widget settings" (its Item window: item 0 of the entry)
+// Standalone widget (4500 - 4599; round 6 phase 6B): a "widget" entry's own window. Round 8 phase
+// 8C: its Window tab (kTabWidgetWindow, page 1; the Widget tab, page 0, is the generated settings
+// page of item 0). Retired in 8C (reserved): 4500 the info line, 4501 - 4503 the Widget card (its
+// name), 4504 Open widget settings (the Widget tab is that page).
 inline constexpr int kWwPlaceSection = 4505;
 inline constexpr int kWwDisplayLabel = 4506;
 inline constexpr int kWwDisplayCombo = 4507;    // monitor: 0 primary, 1.. the others
@@ -615,7 +628,7 @@ inline constexpr int kWwWSpin = 4515;
 inline constexpr int kWwHLabel = 4516;
 inline constexpr int kWwHEdit = 4517;           // h DIPs 48 - 4000
 inline constexpr int kWwHSpin = 4518;
-inline constexpr int kWwSizeNote = 4519;        // the widget's minimum size / aspect
+inline constexpr int kWwSizeNote = 4519;        // the Width label's hint (8C): the widget's minimum size / aspect
 inline constexpr int kWwLookSection = 4520;
 inline constexpr int kWwLayerLabel = 4521;
 inline constexpr int kWwLayerCombo = 4522;      // 0 normal (above windows), 1 desktop only, 2 behind windows
@@ -624,7 +637,9 @@ inline constexpr int kWwBackgroundLabel = 4524;
 inline constexpr int kWwBackgroundCombo = 4525; // 0 none, 1 panel
 inline constexpr int kWwLocked = 4526;          // check box: locked (+ caption 4527)
 inline constexpr int kWwLockedCaption = 4527;
-inline constexpr int kWwFlash = 4528;           // "Flash this widget"
-inline constexpr int kWwNote = 4529;            // how to move / resize it
+inline constexpr int kWwFlash = 4528;           // "Flash this widget" (removed in 8A: the header's Flash)
+inline constexpr int kWwNote = 4529;            // how to move / resize it (8C: the Locked check box's hint)
+inline constexpr int kWwWUnit = 4530;           // 8C: "DIPs" beside the width
+inline constexpr int kWwHUnit = 4531;           // 8C: "DIPs" beside the height
 
 }  // namespace SettingsIds

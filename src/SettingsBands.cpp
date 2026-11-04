@@ -5,7 +5,9 @@
 // icon, name, "on <dock>", "item k of n"), the Item window's footer
 // (Changes apply at once, Reset to defaults, Console…), the title bar text and the caption colour.
 // Custom painted with GDI in the palette colours (dark / light), DPI aware; buttons and links are
-// real child controls so the keyboard reaches them.
+// real child controls so the keyboard reaches them. Round 8 phase 8C: the Item header has three
+// lines (92 DIPs): the name, "on <dock> · item k of n[ · <widget id> <version>]" and the item's
+// description with an end ellipsis, its whole text a tooltip over that line.
 
 #include <windows.h>
 #include <commctrl.h>
@@ -130,7 +132,41 @@ void SettingsWindow::CreateBands(bool footer) {
         child(header_, kHeaderMore, WC_BUTTONW, L"\x22EF");
     } else if (kind_ == SettingsKind::Item) {
         child(header_, kHeaderDockLink, WC_LINK, L"on <a>dock</a>");
+        // Round 8 phase 8C: the third line's whole text as a tooltip over that line (one tool;
+        // the line is painted by PaintBand, the rect follows LayoutBands).
+        headerTip_ = CreateWindowExW(WS_EX_TOPMOST, TOOLTIPS_CLASSW, nullptr, WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP,
+                                     CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, hwnd_, nullptr, instance_, nullptr);
+        if (headerTip_) {
+            SendMessageW(headerTip_, TTM_SETMAXTIPWIDTH, 0, Px(360));
+            SendMessageW(headerTip_, TTM_SETDELAYTIME, TTDT_AUTOPOP, 30000);
+            TTTOOLINFOW ti{};
+            ti.cbSize = sizeof(ti);
+            ti.uFlags = TTF_SUBCLASS;
+            ti.hwnd = header_;
+            ti.uId = 1;
+            ti.rect = DescriptionRect();
+            ti.lpszText = const_cast<wchar_t*>(L"");
+            SendMessageW(headerTip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+        }
     }
+}
+
+RECT SettingsWindow::DescriptionRect() const {
+    RECT rc{};
+    if (header_) GetClientRect(header_, &rc);
+    return RECT{Px(70), Px(64), std::max(Px(70), static_cast<int>(rc.right) - Px(16)), Px(84)};
+}
+
+void SettingsWindow::UpdateHeaderTip() {
+    if (!headerTip_ || !header_) return;
+    TTTOOLINFOW ti{};
+    ti.cbSize = sizeof(ti);
+    ti.hwnd = header_;
+    ti.uId = 1;
+    ti.rect = DescriptionRect();
+    SendMessageW(headerTip_, TTM_NEWTOOLRECTW, 0, reinterpret_cast<LPARAM>(&ti));
+    ti.lpszText = itemDescription_.data();
+    SendMessageW(headerTip_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
 }
 
 void SettingsWindow::LayoutBands() {
@@ -153,7 +189,9 @@ void SettingsWindow::LayoutBands() {
                 x -= Px(8);
             }
         } else if (kind_ == SettingsKind::Item) {
-            place(header_, kHeaderDockLink, Px(70), Px(44), rc.right - Px(70) - Px(16), Px(20));
+            // Round 8 phase 8C: the name (8 - 40), this link (42 - 62), the description (64 - 84).
+            place(header_, kHeaderDockLink, Px(70), Px(42), rc.right - Px(70) - Px(16), Px(20));
+            UpdateHeaderTip();
         }
         InvalidateRect(header_, nullptr, TRUE);
     }
@@ -225,6 +263,21 @@ std::wstring SettingsWindow::ItemName() {
             }
             return e->path.empty() ? std::wstring(L"Folder") : StemOf(e->path);
         }
+    }
+}
+
+std::wstring SettingsWindow::ItemDescription() {
+    const DockItemEntry* e = TargetItem();
+    if (!e) return L"";
+    switch (e->Kind()) {
+        case ItemKind::Widget: return widgetDescription_;
+        case ItemKind::Clock:
+        case ItemKind::Weather: return BuiltInItemDescription(e->Kind());
+        case ItemKind::Tray: return L"The notification area's icons in a grid on the dock; its own grid and order.";
+        case ItemKind::Group:
+            return L"A group of " + std::to_wstring(e->members.size()) + (e->members.size() == 1 ? L" shortcut" : L" shortcuts") +
+                   L" in one popup on the dock.";
+        default: return e->path;  // a folder (or a shortcut to one)
     }
 }
 
@@ -356,8 +409,21 @@ void SettingsWindow::UpdateIdentity() {
         const size_t n = Dock().items.size();
         const std::wstring place = L"item " + std::to_wstring(item_ + 1) + L" of " + std::to_wstring(n);
         summary = ItemName() + L" · on " + dockId_ + L" · " + place;
+        const DockItemEntry* e = TargetItem();
+        if (e && e->Kind() == ItemKind::Widget && widgetLineFor_ != e->id) {
+            widgetLineFor_ = e->id;
+            std::wstring error;
+            const auto pkg = Widgets::Load(e->id, error);
+            // Round 8 phase 8C: "system-monitor 1.0.0" on the link's line; the description is the
+            // third line.
+            widgetLine_ = e->id + (pkg && !pkg->manifest.version.empty() ? L" " + pkg->manifest.version
+                                   : pkg                                   ? std::wstring()
+                                                                           : std::wstring(L" · not installed"));
+            widgetDescription_ = pkg ? pkg->manifest.description : std::wstring();
+        }
         if (HWND link = header_ ? GetDlgItem(header_, kHeaderDockLink) : nullptr) {
-            const std::wstring markup = L"on <a>" + dockId_ + L"</a> · " + place;
+            std::wstring markup = L"on <a>" + dockId_ + L"</a> · " + place;
+            if (e && e->Kind() == ItemKind::Widget && !widgetLine_.empty()) markup += L" · " + widgetLine_;
             wchar_t cur[256]{};
             GetWindowTextW(link, cur, 256);
             // SysLink's window text is its markup; new text resets its links' state (colours).
@@ -369,14 +435,9 @@ void SettingsWindow::UpdateIdentity() {
                 SendMessageW(link, LM_SETITEM, 0, reinterpret_cast<LPARAM>(&li));
             }
         }
-        const DockItemEntry* e = TargetItem();
-        if (e && e->Kind() == ItemKind::Widget && widgetLineFor_ != e->id) {
-            widgetLineFor_ = e->id;
-            std::wstring error;
-            const auto pkg = Widgets::Load(e->id, error);
-            widgetLine_ = e->id + (pkg && !pkg->manifest.version.empty() ? L" · version " + pkg->manifest.version
-                                   : pkg                                   ? std::wstring()
-                                                                           : std::wstring(L" · not installed"));
+        if (const std::wstring d = ItemDescription(); d != itemDescription_) {
+            itemDescription_ = d;
+            UpdateHeaderTip();
         }
         UpdateItemIcon();
     }
@@ -456,11 +517,11 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
             const std::wstring letter = name.empty() ? std::wstring(L"?") : name.substr(0, 1);
             text(letter, icon, fontSemibold_, Luma(dock) > 150 ? RGB(0, 0, 0) : RGB(0xFF, 0xFF, 0xFF), DT_CENTER | DT_VCENTER);
         }
-        text(name, RECT{Px(70), Px(8), rc.right - Px(16), Px(42)}, fontTitle_, palette_.text, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-        const DockItemEntry* e = TargetItem();
-        if (e && e->Kind() == ItemKind::Widget && !widgetLine_.empty()) {
-            text(widgetLine_, RECT{Px(70), Px(64), rc.right - Px(16), Px(84)}, font_, palette_.textSecondary,
-                 DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+        text(name, RECT{Px(70), Px(8), rc.right - Px(16), Px(40)}, fontTitle_, palette_.text, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+        // Round 8 phase 8C: the third line, the description (the widget's id and version moved to
+        // the link's line); the whole text is the line's tooltip (headerTip_).
+        if (!itemDescription_.empty()) {
+            text(itemDescription_, DescriptionRect(), font_, palette_.textSecondary, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         }
         Fill(dc, RECT{0, rc.bottom - std::max(1, Px(1)), rc.right, rc.bottom}, hair);
     }

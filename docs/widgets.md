@@ -97,9 +97,11 @@ Each entry: `key` (required), `type`, `label`, `description`, `default`, the pag
 | `place` | a place (round 5): no key of its own; it edits the item's `latitude`, `longitude` (numbers, 4 decimals) and `location` (the name shown) | none (no `default`) |
 | `timezone` | a Windows time zone key name (`"Tokyo Standard Time"`); `""` = the local time | none |
 
-`place` (round 5): the settings page shows the weather place block for it: **Find a place** (a
-search on Open-Meteo's geocoding service; choosing a result sets the place), the name shown,
-latitude and longitude, the status of that place's forecast service and **Refresh now**. Its value
+`place` (round 5): the settings page shows the weather place block for it: **Find a place** (round
+8 phase 8C: an autocomplete box; typing searches Open-Meteo's geocoding service after a short pause
+or on Enter, the places found fill its list, choosing one sets the place), the place as one line
+("Colorado Springs · 38.83, −104.82"), **Edit coordinates** (an expander with the name shown,
+latitude and longitude), the status of that place's forecast service with **Refresh now**. Its value
 is not a key of its own: the script sees `settings.latitude`, `settings.longitude` and
 `settings.location` (only when the item has a valid latitude and longitude). Only the first
 `place` field of a schema is shown; it takes no `default`, `min`, `max`, `step`, `choices`,
@@ -139,15 +141,22 @@ the schema: **<name> settings…** in the dock menu opened over the widget, or D
 Contents > **Settings…** in the inspector of the widget's tile (a double click or Enter on it
 does the same). It has a check box per `bool`, an up-down (stepper, `step` per click, `min` -
 `max`) per `int`, a drop-down per `choice` and `timezone`, the place block for a `place`, an edit
-box for the others (`colour` as `#AARRGGBB`), each field's `description` under it, and **Reset to
-defaults** in its footer (removes the item's `settings`). A change is saved and reaches the widget
-at once (`onSettingsChanged`).
+box for the others (`colour` as `#AARRGGBB`), and **Reset to defaults** in its footer (removes the
+item's `settings`). A change is saved and reaches the widget at once (`onSettingsChanged`). Round 8
+phase 8C: the manifest's `description` is the window header's third line (one line; its tooltip
+has all of it); a field's `description` is a one-line hint under its label (a check box: under its
+caption) when it fits that line at the window's default width (600 DIPs), else its first sentence
+(up to the first ". ") is the hint; the whole description is always the tooltip of the label, the
+hint and the control. So write a first sentence that stands on its own and keep it short (about 30
+characters fit under a label, about 60 under a check box). A
+[standalone widget](#standalone-widgets) shows the same page as the **Widget** tab of its window
+(with the description as its first line, and Reset to defaults / Console… at its end).
 
 The page's layout keys (round 4 phase 14):
 
 | Key | Example | Effect |
 |---|---|---|
-| `group` | `"group": "Second hand"` | A section header before the field when its group differs from the field above it (fields of one group should be next to each other). |
+| `group` | `"group": "Second hand"` | Round 8 phase 8C: a card titled with the group around the field and the ones after it with the same group; a field whose group differs from the field above it starts a new card (so fields of one group should be next to each other: a group that comes back later gets a second card). Fields without a group: a card titled with the widget's `name`. |
 | `unit` | `"unit": "DIPs"` | A unit after an `int`'s stepper or a `number`'s edit box ("%", "minutes"). |
 | `visibleIf` | `"visibleIf": { "seconds": true }` | The field (and a group header that would be left empty) is shown only while every named field has that value; the page is generated again when one of them changes. A key that names no other field is an error. |
 

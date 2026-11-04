@@ -1519,6 +1519,10 @@ void App::SyncSettingsTargets() {
             continue;
         }
         if (w->Kind() != SettingsKind::Item) continue;
+        if (config_.docks[d].IsWidgetWindow()) {
+            DestroyWindow(w->Hwnd());  // round 8 phase 8C: a standalone widget has no Item window
+            continue;
+        }
         const auto& items = config_.docks[d].items;
         const size_t at = w->ItemIndex();
         const DockItemEntry& copy = w->ItemCopy();
@@ -1774,6 +1778,13 @@ void App::OpenDockSettings(size_t dock, int tab) {
 
 void App::OpenItemSettings(size_t dock, size_t item) {
     if (shutDown_ || dock >= config_.docks.size() || item >= config_.docks[dock].items.size()) return;
+    // Round 8 phase 8C: a standalone widget's widget settings are the Widget tab of its own (Dock
+    // kind) window, not an Item window (DockCommand 142, ItemCommand 854, its menu, the widget's
+    // weather.openSettings()).
+    if (config_.docks[dock].IsWidgetWindow()) {
+        OpenDockSettings(dock, SettingsIds::kTabWidgetSettings);
+        return;
+    }
     // Round 5 phase B: the item's own window (an item without settings: its dock's window).
     if (!HasItemWindow(dock, item)) {
         OpenDockSettings(dock, SettingsIds::kTabContents);
@@ -2011,7 +2022,7 @@ void App::ShowWidgetMenu(size_t cfg, POINT pt) {
     const size_t now = DockIndexOf(id);
     if (now == SIZE_MAX || !config_.docks[now].IsWidgetWindow()) return;
     if (cmd == ContextMenu::kDockSettings) {
-        OpenDockSettings(now);
+        OpenDockSettings(now, SettingsIds::kTabWidgetWindow);  // round 8 phase 8C: its Window tab
     } else if (cmd == ContextMenu::kOpenSettings) {
         OpenSettings();
     } else {
