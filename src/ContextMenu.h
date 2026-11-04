@@ -72,6 +72,9 @@ enum Command : UINT {
     // Round 7 phase 7A: "Task Manager" (runs taskmgr.exe; it elevates by itself).
     kTaskManager = 149,
     kLastDockCommand = kTaskManager,
+    // Round 9 phase 9A (automation only, App::OnSharedMessage): the full-screen guard forced on
+    // (LOWORD(lParam) 1) / off (0) for every monitor, or back to the real evaluation (2).
+    kFullscreenGuard = 150,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>

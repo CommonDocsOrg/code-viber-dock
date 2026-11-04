@@ -206,6 +206,25 @@ public:
     void SetDashboard(bool on);
     bool Dashboard() const { return dashboard_; }
 
+    // --- the full-screen guard (round 9 phase 9A) ---
+    // With settings.fullscreen "hide" (the default) the foreground watch runs always (its hooks
+    // only fire on events: nothing polls) and every evaluation decides, per monitor, whether a
+    // full-screen app is in front there (FullscreenMonitors). While one is, every WinDock window on
+    // that monitor in the topmost band (docks of any auto-hide mode, standalone widgets; not the
+    // "desktop" / "behind" layers, not folder windows) is hidden without any z-order call
+    // (DockWindow / WidgetWindow::SetFullscreenHidden) and comes back (topmost once) when the
+    // monitor is no longer full screen. An app bar dock's ABN_FULLSCREENAPP feeds the same state
+    // (FullscreenNotice). "ignore": nothing is hidden (an app bar dock steps below the app as before).
+    bool FullscreenGuardOn() const { return config_ && config_->settings.fullscreenHide; }
+    // The setting changed / Sync: the watch runs while the guard is on; then an evaluation.
+    void SyncFullscreenGuard();
+    // DockCommand 150 (tests): 1 every monitor counts as full screen, 0 none, until 2 ("release")
+    // goes back to the real evaluation (and evaluates now). The guard must be on.
+    void ForceFullscreen(int mode);
+    // Monitors with a full-screen app in front at the last evaluation.
+    const std::vector<HMONITOR>& FullscreenMonitorsNow() const { return fullscreenNow_; }
+    bool FullscreenNotice(DockWindow* dock, bool on) override;
+
     // The notification service runs while it is wanted (NotificationsWanted): some shown dock has
     // badges on, a widget uses the provider, or the centre popup is open. Sync, the settings and
     // the widget runtime call it; it also applies notifications.pollS / .balloons.
@@ -288,4 +307,14 @@ private:
     void CheckDashboardForeground();
     bool dashboard_ = false;
     HWND dashboardPrev_ = nullptr;  // the window that had the foreground when the mode began
+    // Some client needs watch_: intelligent docks, the dashboard, "desktop" widgets, the guard.
+    bool WatchWanted() const;
+    // The full-screen guard (round 9 phase 9A): the monitors with a full-screen app in front now,
+    // then every topmost window hidden / shown to match.
+    std::vector<HMONITOR> FullscreenMonitors() const;
+    void EvaluateFullscreen();
+    std::vector<HMONITOR> fullscreenNow_;  // the last evaluation's
+    // Monitors whose app bar dock got ABN_FULLSCREENAPP (on), with the window in front then.
+    std::vector<std::pair<HMONITOR, HWND>> abnMonitors_;
+    int guardForce_ = -1;                  // DockCommand 150: -1 real, 0 none, 1 every monitor
 };

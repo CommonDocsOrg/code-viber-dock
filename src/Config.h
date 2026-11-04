@@ -121,6 +121,12 @@ enum class ThumbnailMode { Off, Live, Snapshots };
 // wheel, a drag on the bar and edge fades), "shrink" (the icons get smaller until it fits, 16 DIP
 // at least) or "clip" (the run goes on past the monitor's end, as before round 4 phase 11).
 enum class OverflowMode { Scroll, Shrink, Clip };
+// How the bar grows while magnified (round 9 phase 9A, docks[].magnifyBar): "steady" (default: it
+// grows once to its magnified length, symmetrically about its resting centre, and stays that long
+// while the pointer walks the icons) or "follow" (before round 9: anchored at the pointer, its ends
+// move as the pointer walks the run). Rings, a scrolling bar and a full-width or anchored bar
+// always grow as before.
+enum class MagnifyBar { Steady, Follow };
 // The dock's shape (round 4 phase 11b): "bar" (default), "arc" (a half ring whose diameter lies
 // on the screen edge, the items along the arc) or "circle" (a full ring floating on the monitor at
 // x / y; it ignores the edge, alignment and offset).
@@ -310,6 +316,9 @@ struct DockConfig {
     int iconSize = 48;
     double magnification = 1.5;  // hovered icon scale; 1.0 disables magnification (1.0 - 2.5)
     int magnifyRange = 2;        // falloff radius in icon slots (1 - 4)
+    // Round 9 phase 9A: how the bar grows while magnified ("steady" / "follow"). Saved only when
+    // not "steady".
+    MagnifyBar magnifyBar = MagnifyBar::Steady;
     AutoHideMode autoHide = AutoHideMode::Always;
     int hideDelayMs = 400;
     int revealDelayMs = 150;
@@ -519,6 +528,8 @@ const wchar_t* ToString(ThumbnailMode v);
 bool FromString(std::wstring_view s, ThumbnailMode& v);
 const wchar_t* ToString(OverflowMode v);
 bool FromString(std::wstring_view s, OverflowMode& v);
+const wchar_t* ToString(MagnifyBar v);
+bool FromString(std::wstring_view s, MagnifyBar& v);
 const wchar_t* ToString(DockShape v);
 bool FromString(std::wstring_view s, DockShape& v);
 const wchar_t* ToString(ItemView v);
@@ -625,11 +636,15 @@ struct SettingsUiConfig {
     static constexpr int kMaximum = 4000;
     static constexpr const wchar_t* kNames[kKinds] = {L"global", L"dock", L"item"};
     SettingsWindowSize windows[kKinds];
+    // Round 9 phase 9A: `settings.fullscreen` "hide" (default: true) hides every topmost dock and
+    // standalone widget on a display while a full-screen app is in front there (DockManager's
+    // full-screen guard), "ignore" (false) keeps them as they are. Saved only when "ignore".
+    bool fullscreenHide = true;
     bool operator==(const SettingsUiConfig& o) const {
         for (int i = 0; i < kKinds; ++i) {
             if (!(windows[i] == o.windows[i])) return false;
         }
-        return true;
+        return fullscreenHide == o.fullscreenHide;
     }
 };
 

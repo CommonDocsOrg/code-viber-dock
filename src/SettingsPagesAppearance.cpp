@@ -155,6 +155,16 @@ protected:
             IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config&, DockConfig& d) -> int& { return d.magnifyRange; },
                     SettingsScope::Appearance);
             NextRow();
+            // Round 9 phase 9A: docks[].magnifyBar.
+            Label(kMagnifyBarLabel, L"Bar while magnified");
+            Tip(kMagnifyBarLabel,
+                L"Grows once and stays: when the icons start to grow the bar grows to its magnified length at once, "
+                L"evenly at both ends, and keeps that length while you move from icon to icon (no wobble left and "
+                L"right); the icons slide inside it. Follows the pointer: the bar grows away from the pointer and its "
+                L"ends move as you go along the icons (before round 9). Rings, a scrolling dock and a full-width bar "
+                L"always grow as before.");
+            Combo(kMagnifyBarCombo, kColX, 212, false);
+            NextRow();
             return;
         }
         Title(L"Themes");
@@ -191,6 +201,12 @@ protected:
         }
     }
 
+    void Created() override {
+        if (!dockOnly_) return;
+        ComboAdd(kMagnifyBarCombo, L"Grows once and stays");  // MagnifyBar order
+        ComboAdd(kMagnifyBarCombo, L"Follows the pointer");
+    }
+
     void Load() override {
         FillThemes();
         if (dockOnly_) {
@@ -201,6 +217,7 @@ protected:
             const int mag = static_cast<int>(std::lround(d.magnification * 20.0));
             SetTrack(kMagnifyTrack, mag);
             SetText(kMagnifyValue, FormatMagnification(mag));
+            SetComboSel(kMagnifyBarCombo, static_cast<int>(d.magnifyBar));
             return;
         }
         for (size_t i = 0; i < Theme::FieldCount(); ++i) UpdateRow(static_cast<int>(i));
@@ -212,6 +229,14 @@ protected:
         if (int field = 0, part = 0; code == CBN_SELCHANGE && SplitId(id, field, part) && part == kFieldValue &&
                                      Theme::Fields()[field].kind == Theme::Kind::Enum) {
             SetChoice(field, ComboSel(id));
+            return;
+        }
+        if (id == kMagnifyBarCombo) {  // round 9 phase 9A
+            const int sel = ComboSel(id);
+            if (code == CBN_SELCHANGE && sel >= 0 && sel <= 1 && static_cast<MagnifyBar>(sel) != Dock().magnifyBar) {
+                Dock().magnifyBar = static_cast<MagnifyBar>(sel);
+                Changed(SettingsScope::Appearance);  // relayout: the steady growth is part of the layout
+            }
             return;
         }
         if (id == kDockThemeCombo) {

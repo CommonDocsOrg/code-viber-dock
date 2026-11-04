@@ -98,8 +98,23 @@ screen, and auto-hide slides the dock off its own edge.
   icon under the pointer, falling off with a cosine curve (or a straight line with
   `animation.magnifyFalloff: "linear"`) over `magnifyRange` neighbouring slots.
   Magnified icons grow upwards from their bottom edge and push their neighbours outwards. The
-  layout is anchored at the pointer, so the icon under the pointer stays under it and the bar
-  grows on both sides away from the pointer (like macOS). The bar's width animates with the icons.
+  layout is anchored at the pointer, so the icon under the pointer stays under it. The bar's width
+  animates with the icons.
+- **Steady bar growth** (round 9: `magnifyBar`, `"steady"` by default, Dock settings >
+  Appearance > Size > **Bar while magnified**: **Grows once and stays** / **Follows the
+  pointer**): when the icons start to grow, the bar grows at once (the usual 80 ms ease) to its
+  magnified length, its resting length plus the most the magnification can add (`(magnification
+  - 1) x icon x min(icons, magnifyRange)` plus 2 px), half at each end about its resting centre,
+  and keeps that length until the icons are back at rest: moving from icon to icon no longer
+  moves its ends (the "wobble" of earlier versions). The run of icons slides inside the fixed bar
+  so the icon under the pointer stays under it; the padding at the two ends takes up the slack,
+  and the run never leaves the bar (the first / last icon keeps the resting spacing to the bar's
+  end, or to the separator and widgets after it, which move with the bar's end). Where an end has
+  no room (a bar at a monitor end, a start / end aligned bar whose margin is all the stage has),
+  that end's half goes to the other end. `"follow"` is the behaviour before round 9: the bar grows
+  on both sides away from the pointer (like macOS) by what the magnified icons add there, so its
+  ends move as the pointer walks the run. Rings, a scrolling run, a full-width bar and an anchored
+  bar (round 7B: as long as the room) grow as they did before in both modes.
   The running-indicator dots keep their size and follow their icons. Everything moves through
   DirectComposition animations (80 ms while the mouse moves, 120 ms back to rest), so no
   surface is redrawn. Magnification updates are capped at about 60 per second. The return to rest
@@ -152,6 +167,27 @@ screen, and auto-hide slides the dock off its own edge.
   one of its menus is open.
 - The dock is not revealed while a fullscreen app, game, or presentation runs
   (`SHQueryUserNotificationState` reports busy, Direct3D fullscreen, or presentation mode).
+- **Full-screen apps** (round 9: `settings.fullscreen`, `"hide"` by default; Global settings >
+  General > **Full-screen apps** > **Hide the docks while a full-screen app is in front**): any
+  window placed above an exclusive full-screen game makes the game leave its full-screen mode, and
+  a dock with auto-hide off (or a standalone widget on the "normal" layer) is a topmost window. So
+  while a full-screen app is in front on a display, every WinDock window there that sits above the
+  windows (docks of any auto-hide mode, the tray dock, floating docks and standalone widgets on the
+  "normal" layer) is hidden (`ShowWindow(SW_HIDE)`: no activation and no z-order call at all
+  until it comes back), its popups, name label and previews close and its auto-hide / magnify
+  timers stop; docks and widgets on the desktop layers and folder windows are not topmost and stay.
+  When the display is no longer full screen (the app closes, or another window comes to the front)
+  they come back as they were (`SW_SHOWNA`, in their auto-hide state, topmost once; a calendar
+  reminder that fired meanwhile shows then). A display is full screen when the foreground window
+  (not WinDock's own, not the desktop / a taskbar / Start, visible, not cloaked, not minimized)
+  either has its visible frame (DWM's extended frame bounds) over the whole display and is not an
+  ordinary maximized window (maximized with a caption: with the taskbar hidden that covers the
+  display too), or is on that display while `SHQueryUserNotificationState` reports Direct3D full
+  screen or presentation mode, or is the window that was in front when an app bar dock on that
+  display got the shell's `ABN_FULLSCREENAPP` (and the shell has not said it closed). Nothing
+  polls: the test runs on the foreground watch's events (the WinEvent hooks below, which run
+  whenever the guard is on) and on `ABN_FULLSCREENAPP`. `"ignore"` keeps the behaviour before
+  round 9 (docks stay topmost; an app bar dock steps below the app on `ABN_FULLSCREENAPP`).
 - A window that appears or flashes while the dock is hidden does not reveal it (with
   `"intelligent"`, a new foreground window that does not overlap the dock does, see below). A
   flashing app's dot is orange when you next reveal the dock.
@@ -178,7 +214,9 @@ screen, and auto-hide slides the dock off its own edge.
     maximize, minimize and restore, within about 100 ms, through WinEvent hooks
     (`EVENT_SYSTEM_FOREGROUND`, `EVENT_SYSTEM_MOVESIZEEND`, `EVENT_SYSTEM_MINIMIZESTART/END`, and
     `EVENT_OBJECT_LOCATIONCHANGE` limited to the foreground window's thread). The hooks exist
-    only in this mode; `"off"` and `"always"` install none. Nothing runs while no window changes.
+    while some dock is in this mode, a "desktop" widget or the dashboard needs them, or (round 9)
+    the full-screen guard is on (`settings.fullscreen` "hide", the default); with none of these
+    they are not installed. Nothing runs while no window changes.
     The location hook also reports the mouse cursor while it moves over some apps' windows
     (Chromium-based apps, for example); the first such event turns that hook off for 100 ms,
     after which it is turned back on and the overlap is re-tested once, so a moving mouse costs
@@ -1486,7 +1524,10 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   card (Start with Windows, Hide the Windows taskbar, the renderer (`auto` / `software`; takes
   effect after WinDock restarts, its hint shows the one in use)) and a **Dashboard** card (round
   6 phase 6A: the hotkey box (click it and press the combination; Backspace / Delete clears it),
-  whether the hotkey is registered, **Show the dashboard now**; see Dashboard). Round 8 phase 8A:
+  whether the hotkey is registered, **Show the dashboard now**; see Dashboard). Round 9: between
+  them a **Full-screen apps** card with **Hide the docks while a full-screen app is in front**
+  (`settings.fullscreen`, on by default; its hint "Games keep their full-screen mode", the whole
+  rule as its tooltip; see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). Round 8 phase 8A:
   **Open config file** / **Reload config** are on About only (General's Configuration file
   section is gone).
 - **Docks and displays**: a drawing of every display (its work area shaded) with every dock on its
@@ -1646,18 +1687,35 @@ Behaviour, Running apps; the Theme tab became Appearance):
   screen space** and **Peek when hidden** (pixels) / **Peek opacity** (%) (a bar on an edge),
   **Maximum length** (round 7: `maxLength` in pixels at 100 % scale, 0 = no limit; a value from
   1 to 95 becomes 96, the spinner steps from 0 to 96 and back; not for a full-width bar) and
-  **Title** (see Position). A floating dock's Behaviour tab greys the auto-hide choices.
+  **Title** (see Position). Round 9: a floating dock's Behaviour tab shows, instead of the
+  auto-hide choices, a line saying why it has none and a **Position tab** link (no greyed
+  controls).
 - **Appearance** (round 8 phase 8B: the Theme tab's contents and Behaviour's Size card): **This
   dock's theme** ("Same as all docks", the presets and theme files) and a link to Global >
   Themes, where the theme's fields are (they apply to every dock, on top of a dock's own preset);
   **Size**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
-  magnification range (1-4 icons). The preview strip is under this tab.
+  magnification range (1-4 icons) and (round 9) **Bar while magnified**: **Grows once and stays**
+  (`magnifyBar` `"steady"`, the default) / **Follows the pointer** (`"follow"`; see
+  [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). The preview strip
+  is under this tab.
 - **Behaviour**: auto-hide Off / Always / When a window overlaps the dock, hide and reveal
-  delays (behind an expander), window previews on / off, **Show window previews for apps with a
-  single window**, the preview delay, **Popups** (round 7: **Popup gap**, DIPs between the dock
+  delays (behind an expander; round 9: collapsed while auto-hide is off), window previews on /
+  off, **Show window previews for apps with a single window** and the preview delay (round 9:
+  collapsed while previews are off), **Popups** (round 7: **Popup gap**, DIPs between the dock
   and its popups, 0 - 64: `popupGap`), what a middle click on an app does and what the mouse
   wheel over an app does, and (round 5 phase D) **Notification badges on app icons** (`badges`;
-  see Notifications and badges).
+  see Notifications and badges). Round 9: the Auto-hide card is never greyed: for a floating bar
+  its radios, their note and the delays are collapsed and one line says "A floating bar has no
+  auto-hide: it is shown by its layer and by the dashboard hotkey. To auto-hide it, choose Bar on
+  an edge on the Position tab." with a **Position tab** link (it selects that tab). A change on
+  one tab of a Dock window now updates what its other tabs show of it at once (before, choosing
+  Floating bar / Bar on an edge in the Position tab's Kind left the Behaviour tab's auto-hide
+  choices greyed or not until the window was reopened). **Titles on vertical docks** (Running
+  apps) is collapsed while titles are off. Every control that can still be greyed (a list's Move
+  up / down / Remove without a selection, Reset icon without a custom icon, Reset to Explorer
+  while the tray takeover is off, Remove for the last dock, the Widget library's Add buttons
+  without a selection, the Contents tab's inspector without a selection, Save changes without a
+  feed) says why in its tooltip, which (round 9) also shows over a greyed control.
 - **Running apps**: **Windows** (Stacked / One slot per window), **Show only the windows on this
   dock's display**, **Titles under icons** (Off / One line / Two lines), **Titles on vertical
   docks** (Off / Beside the icon), **Window thumbnails** (Off / Live (GPU capture) / Snapshots
@@ -1941,6 +1999,10 @@ items that exist. A file whose items have settings already is left alone.
   - `popupGap` (round 7; DIPs, default 6, 0 - 64; written only when not 6): how far the dock's
     popups (previews, calendar, folders, widget popups ...) open beyond a fully magnified icon,
     see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
+  - `magnifyBar` (round 9; `"steady"` (default; not written) or `"follow"`; unknown text reads as
+    `"steady"`): how the bar grows while magnified: once, to a fixed length about its resting
+    centre, or following the pointer as before round 9. Ignored for rings, a scrolling run, a
+    full-width and an anchored bar. See [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
   - `shape` (default `"bar"`; `"arc"`, `"circle"`), `radius` (DIPs, default 0 = automatic, 60 -
     2000), `rotateIcons` (default `false`), `x` / `y` (a circle's centre, or a floating bar's
     top-left, in DIPs from the work area's top-left; default: centred): see
@@ -2087,6 +2149,11 @@ items that exist. A file whose items have settings already is left alone.
   its size is not the default (760 × 560, 860 × 620, 600 × 600), the whole object only when one
   is; a size is clamped to the kind's minimum (700 × 500, 780 × 540, 520 × 480) and 4000. Saved
   when a resize ends (and after a program resizes a window), not during a drag.
+  Round 9: `"fullscreen": "hide"` (the default; not written) or `"ignore"` (any other text reads
+  as `"hide"`): the full-screen guard, Global settings > General > Full-screen apps (see
+  [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). The `settings`
+  object is written when either part is not the default (`{ "fullscreen": "ignore" }` alone is
+  fine).
 
 ### Themes
 
@@ -2504,6 +2571,11 @@ always there, also when every dock is parked) handle these registered messages:
   Round 7 phase 7A: 149 Task Manager (the dock / tray menu's **Task Manager**, in its own group
   above Quit: `ShellExecuteW("open", "taskmgr.exe")`, which elevates by itself; a failure is only
   logged with `OutputDebugString`; any dock index).
+  Round 9 phase 9A: 150 forces the full-screen guard for tests: `LOWORD(lParam)` 1 = every
+  monitor counts as full screen (every topmost dock and standalone widget hidden), 0 = none (with
+  a real full-screen window in front, nothing is hidden), 2 = released (back to the real test,
+  evaluated at once); a forced state lasts until 2 is sent. Returns 1, or 0 while the guard is off
+  (`settings.fullscreen` "ignore") or for another `LOWORD`. Any dock index.
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -2670,6 +2742,12 @@ always there, also when every dock is parked) handle these registered messages:
   search; -1 another group). Round 8 phase 8D: 279 = the Global window's nav row of the active
   page in display order (0 General, 1 Docks and displays, 2 Themes, 3 Animation, 4 Calendar
   feeds, 5 Notifications, 6 Tray icons, 7 Widget library, 8 About; -2 no Global window).
+  Round 9 phase 9A: 280 = 1 while dock `HIWORD(lParam)` (a dock or a standalone widget) is hidden
+  by the full-screen guard, else 0 (a parked entry, a folder window: 0; -2 no such dock); 281 =
+  the dock's bar along the main axis as laid out now (the background's targets: magnified, a drop
+  gap open, or at rest), `MAKELONG(start px, length px)` in stage coordinates (the stage's screen
+  coordinate is QueryState 144): with `magnifyBar` "steady" it is the same for every slot that
+  ItemCommand 834 magnifies, with "follow" it changes with the slot.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
@@ -2730,7 +2808,9 @@ always there, also when every dock is parked) handle these registered messages:
   entry and its menu's "<widget> settings…" open it on tab 0, its menu's Window settings… on tab 1). Round 8 phase 8A: the windows are resizable (`SetWindowPos` works;
   QueryState 275 reads the size, config `settings.windows` keeps it); each page that has tooltips
   owns one `tooltips_class32` window owned by the settings window (`TTM_GETTOOLCOUNT` counts its
-  tools; the tools are the controls' windows, `TTF_IDISHWND | TTF_SUBCLASS`); an expander is an
+  tools; the tools are the controls' windows, `TTF_IDISHWND | TTF_SUBCLASS`, plus (round 9 phase
+  9A) one rect tool of the page, id 0x9A01, which the page moves over the greyed control under the
+  pointer with that control's text, so a greyed control's tooltip shows too); an expander is an
   owner-drawn button (Behaviour 2269 "More: hide and reveal delays": `WM_COMMAND(2269, BN_CLICKED)`
   to the page, Space, or Enter while it has the focus, toggles it; QueryState 276); the controls
   it hides are still there (hidden), so automation can drive them; a hint under a label is a
@@ -2852,7 +2932,10 @@ always there, also when every dock is parked) handle these registered messages:
   modifiers the dock's thread holds (Backspace / Delete: none), `WM_APP + 60` with `wParam` =
   `MOD_*` bits and `lParam` = the virtual key records that combination, as App does when the
   registered hotkey is pressed while the box has the focus), 2197 the registration line, 2198 Show
-  the dashboard now; Docks and displays 2811 Add floating dock, 2812 Add standalone widget… (6B: a
+  the dashboard now; Global > General's Full-screen apps card (round 9 phase 9A; the General range
+  2100 - 2199 has only retired ids left, so the new ids follow the Behaviour range's): 2275 the
+  card, 2276 / 2277 **Hide the docks while a full-screen app is in front** (`settings.fullscreen`;
+  `BM_SETCHECK` + `WM_COMMAND(2276, BN_CLICKED)` to the page), 2278 its hint; Docks and displays 2811 Add floating dock, 2812 Add standalone widget… (6B: a
   popup menu of the catalog in the Widget library's order; round 8 phase 8D: both are Add ▾ 2814's
   menu commands, see Removed / moved controls (8D)); Widget library 3509 Add to the
   desktop (6B); a standalone widget's window page (6B, `SettingsIds` 4500 - 4531; round 8 phase
@@ -2863,15 +2946,22 @@ always there, also when every dock is parked) handle these registered messages:
   4525 background (0 none, 1 panel), 4526 Locked (4529 its hint) (4528 Flash this widget: removed
   in 8A; 4500 - 4504, the info line, the widget's name and Open widget settings: removed in 8C);
   Appearance (round 8 phase 8B) = 2420 / 2422 / 2423 (below, the Theme tab's) and 2126 the Size
-  card with 2101 - 2109 (icon size, magnification, range; on Behaviour until 8B); Behaviour = the
-  Behaviour page's auto-hide,
+  card with 2101 - 2109 (icon size, magnification, range; on Behaviour until 8B) and (round 9
+  phase 9A) 2280 **Bar while magnified** (`magnifyBar`: 0 Grows once and stays (`"steady"`), 1
+  Follows the pointer (`"follow"`); `CB_SETCURSEL` + `WM_COMMAND(2280, CBN_SELCHANGE)`; 2279 its
+  label); Behaviour = the Behaviour page's auto-hide (round 9 phase 9A: for a floating bar the
+  radios 2201 - 2206, the note 2222 and the delays are collapsed and 2281 (the line) / 2282 (the
+  **Position tab** SysLink: a click selects tab 1) are shown; the delays expander 2269 and its
+  rows are collapsed while auto-hide is off; the preview delay 2216 - 2218 / 2221 and 2223 are
+  collapsed while previews are off; 2236 / 2235 Titles on vertical docks collapsed while titles
+  are off),
   previews and mouse controls (2201 - 2229, 2223 single-window previews, 2227 middle click, 2229
   mouse wheel), 2254 badges, 2256 the notification centre (round 5 phase D), round 7: 2259 the
   Popups section, 2261 / 2262 Popup gap box and up-down (`popupGap`, 0 - 64; 2260 its label, 2263
   its unit line); Running apps = 2162 "Show only the windows on this dock's display"
   (`runningFilter`), 2232 Windows (0 stacked, 1 one slot per window), 2234 Titles under icons (0
-  off, 1 one line, 2 two lines), 2236 Titles on vertical docks (0 off, 1 beside the icon; disabled
-  while titles are off), 2239 Window thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the
+  off, 1 one line, 2 two lines), 2236 Titles on vertical docks (0 off, 1 beside the icon; round 9:
+  collapsed while titles are off), 2239 Window thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the
   trade-off), 2242 / 2243 snapshot interval (s), 2246 / 2247 live frames per second, 2250 / 2251
   tile length (DIPs, 0 = twice the icon; round 8 phase 8B: the three rows are collapsed unless the
   thumbnail mode uses them: the interval for Snapshots, the frames for Live, the length for either);

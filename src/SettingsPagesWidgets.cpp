@@ -224,6 +224,11 @@ protected:
         // Reload widgets, Open widgets folder, Console…: the old buttons' ids as its commands).
         Button(kWidgetsAddToDock, L"Add to dock", kMargin, kButtonW);
         Button(kWidgetsAddToDesktop, L"Add to the desktop", kMargin + kButtonStep, kButtonW);  // round 6 phase 6B
+        // Round 9 phase 9A: greyed only with no widget selected; the tooltips say so.
+        Tip(kWidgetsAddToDock, L"Adds the selected widget to a dock (with several docks: a menu of them). Select a widget "
+                               L"in the list first.");
+        Tip(kWidgetsAddToDesktop, L"Puts the selected widget on the desktop in a window of its own. Select a widget in the "
+                                  L"list first.");
         Button(kWidgetsMore, L"More \x25BE", kMargin + 2 * kButtonStep, kMoreW);
         NextRow(kRowH + 4);
         Text(kWidgetsStatus, CtlKind::Value, L"", kMargin, right - kMargin);

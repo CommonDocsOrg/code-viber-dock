@@ -846,6 +846,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         const float terms = static_cast<float>(std::min<size_t>(n, static_cast<size_t>(d.magnifyRange)));
         l.growMax = std::ceil((l.magnification - 1.0f) * maxBox * terms) + 2.0f;
     }
+    const float magGrow = l.growMax;  // the magnification's part (a steady bar grows by this much)
     // A file dragged over the dock opens a one-slot gap: the bar grows by half a slot per side.
     if (n) l.growMax = std::max(l.growMax, std::ceil(stride / 2.0f) + 2.0f);
     // The bar may grow by up to growMax on either side (it grows away from the cursor).
@@ -1128,6 +1129,27 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         // The magnified run grows past the viewport's ends on both sides (the slot under the
         // pointer stays under it); the clip cuts what goes beyond the bar.
         l.growRoomStart = l.growRoomEnd = 1e6f;
+    }
+    // Round 9 phase 9A (docks[].magnifyBar "steady"): the magnified bar's length is fixed for the
+    // whole hover: rest + the magnification's growth, half at each end, except where the stage's
+    // room cuts an end (a monitor end, a start / end aligned bar): that part goes to the other end.
+    // Not for a ring, a scrolling run, a full-width or an anchored bar (their growth is as before).
+    l.steady = d.magnifyBar == MagnifyBar::Steady && !polar && !l.view.on && !l.fullWidth && !l.anchored && magGrow > 0.0f;
+    l.steadyStart = l.steadyEnd = 0.0f;
+    if (l.steady) {
+        float start = std::floor(magGrow / 2.0f);
+        float end = magGrow - start;
+        const float roomStart = std::max(0.0f, l.growRoomStart), roomEnd = std::max(0.0f, l.growRoomEnd);
+        if (start > roomStart) {
+            end += start - roomStart;
+            start = roomStart;
+        }
+        if (end > roomEnd) {
+            start = std::min(roomStart, start + (end - roomEnd));
+            end = roomEnd;
+        }
+        l.steadyStart = start;
+        l.steadyEnd = end;
     }
     float slotX = l.itemsLeft;
     bool trailingSpacerSeen = false;
@@ -1424,8 +1446,10 @@ void DockWindow::ApplyWindowPos() {
     // While a modal dialog owned by the dock is open (an icon picker; it disables the dock), the
     // z-order stays: HWND_TOPMOST with SWP_NOOWNERZORDER would put the dock above its own dialog.
     // The same while a widget's text editor (owned by the dock, round 6 phase 6C) is open. While a
-    // fullscreen app runs (an app bar's ABN_FULLSCREENAPP) the dock stays where it was put, below it.
-    const UINT keepOrder = IsWindowEnabled(hwnd_) && !fullscreenApp_ && editorWidget_.empty() ? 0 : SWP_NOZORDER;
+    // fullscreen app runs (an app bar's ABN_FULLSCREENAPP) the dock stays where it was put, below it;
+    // while the full-screen guard hides it (round 9 phase 9A) it is only moved / sized.
+    const UINT keepOrder =
+        IsWindowEnabled(hwnd_) && !fullscreenApp_ && !fullscreenHidden_ && editorWidget_.empty() ? 0 : SWP_NOZORDER;
     if (DesktopLayered() || BehindLayered()) {
         // The desktop layer: directly above the desktop window, never topmost (a "behind" dock is
         // registered with the layer, which keeps it there; a "desktop" dock is only shown while the
@@ -3525,6 +3549,21 @@ void DockWindow::ComputeTargets() {
         if (delta - growLeft > l.growRoomEnd) growLeft = delta - l.growRoomEnd;
         growLeft = std::clamp(growLeft, 0.0f, std::max(0.0f, l.growRoomStart));
     }
+    // How far the bar's ends move out: with the run (follow), or (round 9 phase 9A, steady) by the
+    // layout's fixed amounts while magnified. Steady: the run slides inside the fixed bar, the end
+    // padding taking up the slack, and never leaves it: the first / last magnifying slot keeps the
+    // rest spacing to the bar's end (or to the end widgets, which move with the bar's ends). Where
+    // the run's growth does not fit both ends (both cut by the room), the bar grows past them.
+    float barStart = growLeft;
+    float barEnd = delta - growLeft;
+    if (magnify && l.steady) {
+        barStart = l.steadyStart;
+        barEnd = l.steadyEnd;
+        growLeft = std::max(std::min(growLeft, barStart), delta - barEnd);
+        growLeft = std::clamp(growLeft, 0.0f, delta);
+        barStart = std::max(barStart, growLeft);
+        barEnd = std::max(barEnd, delta - growLeft);
+    }
     const float growRight = delta - growLeft;
 
     float slotLeft = l.itemsLeft - growLeft;
@@ -3537,10 +3576,12 @@ void DockWindow::ComputeTargets() {
             // edge sits half an icon left of the magnified icon's centre.
             const float w = BoxW(item) * item.targetScale;
             item.targetX = slotLeft + half + w / 2.0f - BoxW(item) / 2.0f;
-        } else if (item.IsWidget() && k > l.lastMag) {
-            item.targetX = item.x + growRight;  // moves with the bar's right end
-        } else if (item.IsWidget() && k < l.firstMag) {
-            item.targetX = item.x - growLeft;   // moves with the bar's left end
+        } else if (k > l.lastMag) {
+            // After the last icon (widgets, a separator before them): moves with the bar's right end
+            // (follow: the run's end, the same place; steady: the slack stays before them).
+            item.targetX = (item.IsWidget() ? item.x : item.slotX) + barEnd;
+        } else if (k < l.firstMag) {
+            item.targetX = (item.IsWidget() ? item.x : item.slotX) - barStart;  // with the bar's left end
         } else {
             item.targetX = slotLeft;  // separators, widgets between icons
         }
@@ -3556,8 +3597,8 @@ void DockWindow::ComputeTargets() {
         items_[static_cast<size_t>(groupTarget_)].targetScale = kGroupScale;
     }
 
-    bgLeftTarget_ = l.bar.left - (l.view.on ? 0.0f : growLeft);
-    bgRightTarget_ = l.bar.right + (l.view.on ? 0.0f : growRight) - l.bgSurfaceW;
+    bgLeftTarget_ = l.bar.left - (l.view.on ? 0.0f : barStart);
+    bgRightTarget_ = l.bar.right + (l.view.on ? 0.0f : barEnd) - l.bgSurfaceW;
     viewEnds(growLeft > 0.5f, growRight > 0.5f);
 
     if (labelShown_ && hovered_ >= 0 && hovered_ < static_cast<int>(n) && label_.width) {
@@ -4678,6 +4719,7 @@ void DockWindow::ShowReminder(const CalendarService::ReminderInfo& reminder) {
     }
     reminders_.push_back(reminder);
     if (reminders_.size() > 32) reminders_.erase(reminders_.begin() + 1);  // the oldest waiting ones go
+    if (fullscreenHidden_) return;  // round 9 phase 9A: shown when the full-screen app is gone
     ShowFrontReminder();
 }
 
@@ -4817,7 +4859,7 @@ void DockWindow::OnWidgetPopupRequests() {
                 if (r.passive) {
                     // The passive popup: no focus, no hold, no label change. Opened again while
                     // shown, it is resized and redrawn in place (a wheel handler opens it per notch).
-                    if (slot < 0 || hideState_ != HideState::Shown) break;
+                    if (slot < 0 || hideState_ != HideState::Shown || fullscreenHidden_) break;
                     if (popupWidget_ == key && widgetPopup_.OnScreen()) {
                         widgetPopup_.Repaint();  // its ordinary popup is open: that one shows the change
                         break;
@@ -4831,7 +4873,7 @@ void DockWindow::OnWidgetPopupRequests() {
                     }
                     break;
                 }
-                if (slot < 0 || hideState_ != HideState::Shown) break;
+                if (slot < 0 || hideState_ != HideState::Shown || fullscreenHidden_) break;
                 if (passiveWidget_ == key) DismissWidgetPassive(false);  // the ordinary popup replaces it
                 DismissPreview(false, false);
                 if (popupWidget_ != key) DismissClickPopups(false, false);
@@ -5156,7 +5198,7 @@ void DockWindow::RefreshMotion() {
 // remaining distance. All waits are one-shot SetTimers.
 
 void DockWindow::ScheduleHide() {
-    if (!hwnd_ || !DockCfg().AutoHideOn() || Held() || hidePending_) return;
+    if (!hwnd_ || !DockCfg().AutoHideOn() || Held() || hidePending_ || fullscreenHidden_) return;
     // Intelligent: re-test now (cheap; this runs on a mouse leave, not while idle) rather than
     // trusting overlapped_, which may be stale after a suppressed show (see OnOverlapCheck).
     if (DockCfg().autoHide == AutoHideMode::Intelligent) {
@@ -5307,7 +5349,8 @@ bool DockWindow::ForegroundOverlaps() const {
 }
 
 void DockWindow::OnOverlapCheck(bool force) {
-    if (!hwnd_ || DockCfg().autoHide != AutoHideMode::Intelligent) return;
+    // (Not while the full-screen guard hides the dock: its release re-tests with `force`.)
+    if (!hwnd_ || DockCfg().autoHide != AutoHideMode::Intelligent || fullscreenHidden_) return;
     const bool overlapped = ForegroundOverlaps();
     if (overlapped == overlapped_ && !force) return;
     const bool hidden = hideState_ == HideState::Hidden || hideState_ == HideState::Hiding;
@@ -5335,8 +5378,9 @@ void DockWindow::AssertTopmost() {
     // A newly activated window that covers its whole monitor (maximized with the taskbar hidden,
     // borderless fullscreen) can end up above the topmost dock, burying the 1 px reveal strip.
     // Re-asserting the z-order is cheap and only happens on hide transitions. Not while a modal
-    // dialog owned by the dock is open, nor while a widget's text editor is (see ApplyWindowPos).
-    if (!hwnd_ || !IsWindowEnabled(hwnd_) || fullscreenApp_ || !editorWidget_.empty()) return;
+    // dialog owned by the dock is open, nor while a widget's text editor is (see ApplyWindowPos),
+    // nor (round 9 phase 9A) while the full-screen guard hides the dock: no z-order call at all.
+    if (!hwnd_ || !IsWindowEnabled(hwnd_) || fullscreenApp_ || fullscreenHidden_ || !editorWidget_.empty()) return;
     if (BehindLayered() && layerRegistered_) {
         DesktopLayer::Place(hwnd_);  // no-op while it is in place
         return;
@@ -5415,10 +5459,53 @@ void DockWindow::UpdateDesktopShown() {
         return;
     }
     // The desktop is the foreground again (or the dock left the desktop layer): back, above the
-    // desktop window (or topmost).
+    // desktop window (or topmost). Not while the full-screen guard hides it (it shows it again).
+    if (fullscreenHidden_) return;
     ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
     AssertTopmost();
     SyncWidgetVisibility();
+}
+
+bool DockWindow::TopmostBand() const { return hwnd_ && (DockCfg().layer == DockLayer::Normal || InDashboard()); }
+
+void DockWindow::SetFullscreenHidden(bool hidden) {
+    if (!hwnd_ || hidden == fullscreenHidden_) return;
+    fullscreenHidden_ = hidden;
+    if (hidden) {
+        // A full-screen app is in front on this dock's monitor (DockManager's guard): out of its way
+        // without touching the z-order (a topmost window placed over an exclusive full-screen game
+        // ends its mode). Its popups, label and previews close, its hover / hide / reveal timers stop;
+        // the hide state stays as it was.
+        DismissPreview(false, false);
+        DismissClickPopups(false, false);
+        DismissWidgetPassive(false);
+        reminder_.Hide(false);  // the waiting reminders come back with the dock
+        if (dragPhase_ == DragPhase::Dragging) EndDrag(false);
+        if (dockDrag_) EndDockDrag(false);
+        CancelHide();
+        if (revealPending_) {
+            KillTimer(hwnd_, kRevealTimerId);
+            revealPending_ = false;
+        }
+        ShowWindow(hwnd_, SW_HIDE);
+        LeaveZone();      // the magnify timer, the hover and the label (ScheduleHide is a no-op now)
+        SyncBackdrop();   // the blur goes with the window
+        SyncWidgetVisibility();
+        return;
+    }
+    // The full-screen app is gone: back as it was (a "desktop" dock only while the desktop is in
+    // front), on top once, then the auto-hide rules again.
+    if (!desktopHidden_) ShowWindow(hwnd_, SW_SHOWNA);
+    AssertTopmost();
+    if (backdrop_.Exists()) backdrop_.Restack(hwnd_);
+    SyncBackdrop();
+    SyncWidgetVisibility();
+    if (!reminders_.empty() && !desktopHidden_) ShowFrontReminder();
+    if (DockCfg().autoHide == AutoHideMode::Intelligent) {
+        OnOverlapCheck(true);
+    } else if (DockCfg().AutoHideOn() && hideState_ == HideState::Shown && !CursorInZone()) {
+        ScheduleHide();
+    }
 }
 
 void DockWindow::SyncWidgetVisibility() {
@@ -7412,6 +7499,10 @@ void DockWindow::OnAppBarNotify(WPARAM wp, LPARAM lp) {
         case ABN_FULLSCREENAPP:
             // A fullscreen window opened / closed: step out of its way, then come back on top.
             fullscreenApp_ = lp != 0;
+            // Round 9 phase 9A: with the full-screen guard on (settings.fullscreen "hide") the shell's
+            // notice is one more input of the guard, which hides / shows every topmost window on the
+            // monitor without z-order calls; "ignore" keeps the app bar's own answer below.
+            if (shared_ && shared_->FullscreenNotice(this, fullscreenApp_)) break;
             if (fullscreenApp_) {
                 // Out of the topmost band, then to the bottom of the z-order.
                 SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
@@ -8142,6 +8233,12 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                                                     layout_.scale));
         case 273:  // 1 while the dock lays its items out as anchored groups (anchors on a bar whose run fits)
             return layout_.anchored ? 1 : 0;
+        case 281: {  // round 9 phase 9A: the bar's main-axis extent as laid out now, MAKELONG(start px, length px), stage coordinates
+            const float start = bgLeftTarget_;
+            const float length = bgRightTarget_ + layout_.bgSurfaceW - bgLeftTarget_;
+            return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(std::clamp(std::lround(start), 0L, 65535L)),
+                                                 static_cast<WORD>(std::clamp(std::lround(length), 0L, 65535L))));
+        }
         // --- overflow / scrolling (round 4 phase 11a) ---
         case 128:  // docks[].overflow (0 scroll, 1 shrink, 2 clip)
             return static_cast<LRESULT>(DockCfg().overflow);

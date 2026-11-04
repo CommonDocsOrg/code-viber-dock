@@ -244,6 +244,16 @@ inline constexpr int kPlacementKindCombo = 2271;   // 0 bar on an edge, 1 floati
 inline constexpr int kPositionMore = 2272;         // expander: reserve screen space, peek, maximum length, title (bars only)
 inline constexpr int kPositionSilhouette = 2273;   // WinDock.SettingsSilhouette: the display with the dock on it (window text: "Where it sits: …")
 inline constexpr int kSectionLayer = 2274;
+// Round 9 phase 9A. The General range 2100 - 2199 has only retired ids left (and 2199), so the
+// new rows of Global > General and of the Appearance tab's Size card continue here too.
+inline constexpr int kSectionFullscreen = 2275;      // Global > General: the "Full-screen apps" card
+inline constexpr int kFullscreenHide = 2276;         // check box: settings.fullscreen "hide" (+ caption 2277, hint 2278)
+inline constexpr int kFullscreenHideCaption = 2277;
+inline constexpr int kFullscreenHint = 2278;
+inline constexpr int kMagnifyBarLabel = 2279;        // Dock > Appearance > Size: "Bar while magnified"
+inline constexpr int kMagnifyBarCombo = 2280;        // docks[].magnifyBar: 0 steady ("Grows once and stays"), 1 follow
+inline constexpr int kAutoHideFloatingNote = 2281;   // Behaviour > Auto-hide for a floating bar: why there is none
+inline constexpr int kAutoHideFloatingLink = 2282;   // SysLink "Position tab": switches to the Position tab
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;

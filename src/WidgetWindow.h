@@ -107,6 +107,12 @@ public:
     // Explorer restarted: a shown "desktop" window goes above the new desktop window ("behind"
     // ones are re-placed by DesktopLayer::Reassert).
     void ReassertLayer();
+    // Round 9 phase 9A, the full-screen guard (DockManager): the window is in the topmost band
+    // (layer "normal", or lifted by the dashboard); hidden while a full-screen app is in front on
+    // its monitor (popups closed, no z-order call until it is back, then topmost once).
+    bool TopmostBand() const;
+    void SetFullscreenHidden(bool hidden);
+    bool FullscreenHidden() const { return fullscreen_; }
     // Pulses a border in `argb` (6 steps of 250 ms, as a dock's Flash).
     void Flash(uint32_t argb);
     // The system time / zone changed or the machine resumed.
@@ -174,6 +180,8 @@ private:
     void SyncLayer();
     void AssertZOrder();
     void UpdateShown();
+    // Hidden by the "desktop" layer's rule or by the full-screen guard.
+    bool WantHidden() const;
 
     // --- drawing ---
     HRESULT EnsureTarget();
@@ -225,7 +233,8 @@ private:
 
     // Layer state.
     bool registered_ = false;  // with DesktopLayer ("behind", not lifted)
-    bool hidden_ = false;      // the "desktop" rule hides it
+    bool hidden_ = false;      // the "desktop" rule (or the full-screen guard) hides it
+    bool fullscreen_ = false;  // round 9 phase 9A: the full-screen guard hides it
     size_t watchEvents_ = 0;   // OnWatchEvent calls (QueryState 253)
 
     // Move / resize / press.

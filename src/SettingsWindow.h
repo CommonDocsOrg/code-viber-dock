@@ -26,6 +26,7 @@ enum class SettingsScope {
     Notifications,  // config.notifications, docks[].badges: DockManager::SyncNotifications
     Calendars,   // config.calendars: DockManager::ConfigureCalendar
     Dashboard,   // config.dashboard: App registers the hotkey again (round 6 phase 6A)
+    Fullscreen,  // config.settings.fullscreenHide: DockManager::SyncFullscreenGuard (round 9 phase 9A)
     SaveOnly,    // read from the config when used (delays, renderer): just save
     WindowSize,  // round 8 phase 8A: a settings window's size (config settings.windows): just save, no refresh
 };
@@ -300,6 +301,10 @@ protected:
     // WM_TIMER of a timer the page set on its own window (SetTimer(Hwnd(), id, ...); round 8
     // phase 8C: the place search's typing pause). The page kills it.
     virtual void OnTimer(UINT_PTR /*id*/) {}
+    // Round 9 phase 9A: another page of the same window changed the config (after the host applied
+    // it; under the loading guard): controls that show what that change touches follow (a full
+    // Load would overwrite half-typed values and rebuild lists, so pages only re-sync dependents).
+    virtual void OnPeerChanged() {}
 
     // --- layout table builders (DIPs; the cursor y_ moves down row by row) ---
     static constexpr int kMargin = 24;
@@ -431,6 +436,9 @@ private:
     wchar_t glyph_ = 0;
     HWND hwnd_ = nullptr;
     HWND tip_ = nullptr;  // the page's tooltip window (Tip; null: none)
+    // Round 9 phase 9A: the disabled control the page's rect tool (kDisabledTipId) is over (null: none).
+    HWND tipProxy_ = nullptr;
+    static constexpr UINT_PTR kDisabledTipId = 0x9A01;
     std::vector<Ctl> table_;
     std::vector<Card> cards_;
     std::vector<Hairline> hairlines_;
@@ -543,6 +551,9 @@ public:
     const DarkMode::Palette& Colors() const { return palette_; }
     // A setting was applied to the dock: repaint the preview strip.
     void ConfigApplied();
+    // Round 9 phase 9A: page `source` changed the config: every other page re-syncs its dependents
+    // (SettingsPage::OnPeerChanged), so the window's tabs never show a stale state.
+    void PeersChanged(const SettingsPage* source);
     // The pages' width in DIPs (the client width less the nav column).
     int ContentWidthDip() const { return ClientDip().cx - (kind_ == SettingsKind::Global ? kNavWidthDip : 0); }
     // Round 8 phase 8A: the live client size in DIPs (QueryState 275; the restored size while

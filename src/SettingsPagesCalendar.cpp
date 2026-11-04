@@ -47,6 +47,7 @@ protected:
         Button(kCalNewFeed, L"Add feed\x2026", kMargin, kButtonW);
         Tip(kCalNewFeed, L"Opens an empty form below. Double-click a feed to edit it; its check box turns it on or off.");
         Button(kCalRemove, L"Remove", kMargin + kButtonW + 8, kButtonW);
+        Tip(kCalRemove, L"Removes the selected feed (select one in the list first).");  // round 9 phase 9A
         Button(kCalRefreshNow, L"Refresh now", kMargin + 2 * (kButtonW + 8), kButtonW);
         NextRow();
         // Round 8 phase 8D: the form is a card whose heading is an expander, closed until Add
@@ -74,6 +75,8 @@ protected:
         NextRow();
         Button(kCalAdd, L"Add feed", kMargin, kButtonW);
         Button(kCalSave, L"Save changes", kMargin + kButtonW + 8, kButtonW);
+        Tip(kCalSave, L"Saves the form into the selected feed. Greyed with no feed selected: Add feed adds the form as a new "
+                      L"one.");  // round 9 phase 9A
         NextRow(kRowH + 2);
         Ctl& fields = Text(kCalFieldsNote, CtlKind::Note, L"", kMargin, right - kMargin, 20);
         fields.maxLines = 2;

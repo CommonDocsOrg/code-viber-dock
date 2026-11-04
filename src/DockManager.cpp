@@ -149,6 +149,9 @@ void DockManager::Shutdown() {
     watchers_.clear();
     dashboard_ = false;
     dashboardPrev_ = nullptr;
+    fullscreenNow_.clear();
+    abnMonitors_.clear();
+    guardForce_ = -1;
     watch_.Stop();
     tracker_.Stop();
     widgets_.SetWeather(nullptr, nullptr);
@@ -738,13 +741,10 @@ HRESULT DockManager::Sync() {
     SyncTray();
     SyncNotifications();
     SyncDesktopRules();
-    // A "desktop" standalone widget follows the foreground (the shared watch); none: the watch
-    // stops unless docks or the dashboard need it.
-    if (WidgetsWatching()) {
-        StartWatch();
-    } else if (watchers_.empty() && !dashboard_) {
-        watch_.Stop();
-    }
+    // A "desktop" standalone widget follows the foreground (the shared watch), so does the
+    // full-screen guard (round 9 phase 9A); none: the watch stops unless docks or the dashboard
+    // need it. The new windows are then hidden when a full-screen app is in front on their monitor.
+    SyncFullscreenGuard();
     return first;
 }
 
@@ -804,6 +804,8 @@ void DockManager::StartWatch() {
     // A running watch only takes the callback (no hooks installed twice).
     watch_.Start(owner_, [this] {
         if (dashboard_) CheckDashboardForeground();  // first: leaving re-places the docks below
+        // Round 9 phase 9A: before the docks' own rules (a dock shown again re-tests its overlap).
+        EvaluateFullscreen();
         const std::vector<DockWindow*> watchers = watchers_;  // a check may change subscriptions
         for (DockWindow* w : watchers) {
             if (std::find(watchers_.begin(), watchers_.end(), w) != watchers_.end()) w->OnWatchEvent();
@@ -829,7 +831,11 @@ void DockManager::SetWatching(DockWindow* dock, bool on) {
         return;
     }
     if (it != watchers_.end()) watchers_.erase(it);
-    if (watchers_.empty() && !dashboard_ && !WidgetsWatching()) watch_.Stop();  // nobody needs it: no hooks at all
+    if (!WatchWanted()) watch_.Stop();  // nobody needs it: no hooks at all
+}
+
+bool DockManager::WatchWanted() const {
+    return !watchers_.empty() || dashboard_ || WidgetsWatching() || FullscreenGuardOn() || guardForce_ >= 0;
 }
 
 std::vector<RECT> DockManager::FloatingNeighbours(const DockWindow* self) { return FloatingRects(self); }
@@ -908,7 +914,8 @@ void DockManager::SetDashboard(bool on) {
     for (Instance& i : instances_) {
         if (i.widget) i.widget->OnDashboardChanged();
     }
-    if (watchers_.empty() && !WidgetsWatching()) watch_.Stop();
+    if (!WatchWanted()) watch_.Stop();
+    EvaluateFullscreen();  // a dock that left the topmost band is not the guard's any more
 }
 
 void DockManager::CheckDashboardForeground() {
@@ -920,6 +927,111 @@ void DockManager::CheckDashboardForeground() {
         return;  // the desktop (a click on the wallpaper): the docks stay up
     }
     SetDashboard(false);
+}
+
+// --- the full-screen guard (round 9 phase 9A) -------------------------------------------------------
+
+void DockManager::SyncFullscreenGuard() {
+    if (!config_) return;
+    if (!FullscreenGuardOn()) {
+        guardForce_ = -1;  // "ignore": a forced state (DockCommand 150) ends with the guard
+        abnMonitors_.clear();
+    }
+    if (WatchWanted()) {
+        StartWatch();  // a running watch only takes the callback
+    } else {
+        watch_.Stop();
+    }
+    EvaluateFullscreen();
+}
+
+void DockManager::ForceFullscreen(int mode) {
+    guardForce_ = mode == 0 || mode == 1 ? mode : -1;  // 2 (or anything else): the real evaluation again
+    SyncFullscreenGuard();
+}
+
+bool DockManager::FullscreenNotice(DockWindow* dock, bool on) {
+    if (!FullscreenGuardOn() || !dock) return false;
+    const size_t index = IndexOf(dock);
+    HMONITOR monitor = index < instances_.size() ? instances_[index].monitor : nullptr;
+    if (!monitor) monitor = MonitorFromWindow(dock->Hwnd(), MONITOR_DEFAULTTONEAREST);
+    std::erase_if(abnMonitors_, [&](const auto& a) { return a.first == monitor; });
+    // The notice names no window: it counts for the window in front when it came (the full-screen
+    // one), so a notice whose "closed" never arrives (the app bar went away meanwhile) cannot hide
+    // the docks for another window later.
+    HWND fg = GetForegroundWindow();
+    if (HWND root = fg ? GetAncestor(fg, GA_ROOT) : nullptr) fg = root;
+    if (on && fg && !OwnWindow(fg)) abnMonitors_.emplace_back(monitor, fg);
+    EvaluateFullscreen();
+    return true;
+}
+
+std::vector<HMONITOR> DockManager::FullscreenMonitors() const {
+    std::vector<HMONITOR> full;
+    if (!FullscreenGuardOn()) return full;
+    if (guardForce_ == 1) return monitors_;
+    if (guardForce_ == 0) return full;
+    // Only the foreground window can be a full-screen app in front: not one of ours (a settings
+    // window, a popup), not the desktop / a taskbar / Start (WindowTracker::IsExcludedClass), shown,
+    // not cloaked (another virtual desktop), not minimized.
+    HWND fg = GetForegroundWindow();
+    if (!fg) return full;
+    if (HWND root = GetAncestor(fg, GA_ROOT)) fg = root;
+    if (OwnWindow(fg) || WindowTracker::IsExcludedClass(fg) || !IsWindowVisible(fg) || IsIconic(fg)) return full;
+    DWORD cloaked = 0;
+    if (SUCCEEDED(DwmGetWindowAttribute(fg, DWMWA_CLOAKED, &cloaked, sizeof(cloaked))) && cloaked) return full;
+    const HMONITOR fgMonitor = MonitorFromWindow(fg, MONITOR_DEFAULTTONEAREST);
+    // 1. Its visible frame covers a whole monitor, and it is not an ordinary maximized window (a
+    //    captioned window maximized while the taskbar is hidden covers the monitor too).
+    RECT r{};
+    const bool haveRect = SUCCEEDED(DwmGetWindowAttribute(fg, DWMWA_EXTENDED_FRAME_BOUNDS, &r, sizeof(r))) || GetWindowRect(fg, &r);
+    const bool captionedMax = IsZoomed(fg) && (GetWindowLongW(fg, GWL_STYLE) & WS_CAPTION) == WS_CAPTION;
+    if (haveRect && !captionedMax) {
+        for (HMONITOR m : monitors_) {
+            MONITORINFO mi{sizeof(mi)};
+            if (!GetMonitorInfoW(m, &mi)) continue;
+            const RECT& mr = mi.rcMonitor;
+            if (r.left <= mr.left && r.top <= mr.top && r.right >= mr.right && r.bottom >= mr.bottom) full.push_back(m);
+        }
+    }
+    auto add = [&](HMONITOR m) {
+        if (m && std::find(full.begin(), full.end(), m) == full.end()) full.push_back(m);
+    };
+    // 2. The shell says a Direct3D full-screen app or presentation mode runs: the foreground
+    //    window's monitor.
+    if (std::find(full.begin(), full.end(), fgMonitor) == full.end()) {
+        QUERY_USER_NOTIFICATION_STATE quns{};
+        if (SUCCEEDED(SHQueryUserNotificationState(&quns)) &&
+            (quns == QUNS_RUNNING_D3D_FULL_SCREEN || quns == QUNS_PRESENTATION_MODE)) {
+            add(fgMonitor);
+        }
+    }
+    // 3. An app bar dock on the foreground window's monitor was told a full-screen app opened there
+    //    (ABN_FULLSCREENAPP) while this window was in front, and the shell has not said it closed.
+    for (const auto& [m, w] : abnMonitors_) {
+        if (m == fgMonitor && w == fg) add(fgMonitor);
+    }
+    return full;
+}
+
+void DockManager::EvaluateFullscreen() {
+    if (!config_) return;
+    std::vector<HMONITOR> full = FullscreenMonitors();
+    const bool changed = full != fullscreenNow_;
+    fullscreenNow_ = std::move(full);
+    auto onFull = [&](HMONITOR m) {
+        return m && std::find(fullscreenNow_.begin(), fullscreenNow_.end(), m) != fullscreenNow_.end();
+    };
+    // Every live window follows (also when nothing changed: a new window, a layer change).
+    for (Instance& i : instances_) {
+        if (i.window) i.window->SetFullscreenHidden(onFull(i.monitor) && i.window->TopmostBand());
+        if (i.widget) i.widget->SetFullscreenHidden(onFull(i.monitor) && i.widget->TopmostBand());
+    }
+    if (changed) {
+        wchar_t buf[96];
+        swprintf_s(buf, L"WinDock: full-screen guard: %zu monitor(s) full screen\n", fullscreenNow_.size());
+        OutputDebugStringW(buf);
+    }
 }
 
 bool DockManager::NotificationsWanted() const {

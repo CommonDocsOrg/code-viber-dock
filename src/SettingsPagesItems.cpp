@@ -118,6 +118,8 @@ protected:
         Button(kItemChooseIcon, L"Choose icon…", kMargin, kButtonW);
         Button(kItemChooseImage, L"Choose image…", kMargin + kButtonStep, kButtonW);
         Button(kItemResetIcon, L"Reset icon", kMargin + 2 * kButtonStep, kButtonW);
+        // Round 9 phase 9A: why Reset icon may be greyed.
+        Tip(kItemResetIcon, L"Goes back to the item's own icon. Greyed while it has no icon of your choosing.");
         NextRow();
         Section(kGroupMembersLabel, L"Shortcuts in the group");
         Add(kGroupMembers, CtlKind::List, WC_LISTVIEWW, L"Shortcuts in the group",
@@ -130,6 +132,10 @@ protected:
         NextRow(kRowH + 4);
         Button(kGroupUp, L"Move up", kMargin, kButtonW);
         Button(kGroupDown, L"Move down", kMargin + kButtonStep, kButtonW);
+        // Round 9 phase 9A: why they may be greyed.
+        Tip(kGroupRemove, L"Takes the selected shortcut out of the group (select one in the list first).");
+        Tip(kGroupUp, L"Moves the selected shortcut one place earlier (select one below the first).");
+        Tip(kGroupDown, L"Moves the selected shortcut one place later (select one above the last).");
         NextRow(kRowH + 4);
     }
 

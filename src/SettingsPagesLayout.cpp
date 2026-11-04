@@ -207,6 +207,9 @@ protected:
         Button(kDocksOpen, L"Open settings", kMargin, kButtonW);
         Button(kDockDuplicate, L"Duplicate", kMargin + kButtonStep, kButtonW);
         Button(kDockRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW);
+        // Round 9 phase 9A: why Remove may be greyed.
+        Tip(kDockRemove, L"Removes the selected dock, folder window or standalone widget. Greyed for the last dock: "
+                         L"there is always at least one.");
         NextRow(kRowH + 4);
         static constexpr wchar_t kDocksTip[] =
             L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "

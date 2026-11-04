@@ -185,6 +185,17 @@ protected:
                             L"back to software when that fails; Software (WARP) needs less memory.");
         Combo(kRendererCombo, kColX, right - kColX, false);
         NextRow();
+        // Round 9 phase 9A: settings.fullscreen (DockManager's full-screen guard).
+        Section(kSectionFullscreen, L"Full-screen apps");
+        Check(kFullscreenHide, kFullscreenHideCaption, L"Hide the docks while a full-screen app is in front",
+              L"Games keep their full-screen mode", kFullscreenHint);
+        Tip(kFullscreenHideCaption,
+            L"While a full-screen app (a game, a video, a presentation) is in front on a display, every dock and "
+            L"standalone widget there that sits above the windows is hidden, whatever its auto-hide setting, and comes "
+            L"back when the app closes or another window comes to the front. A window placed above an exclusive "
+            L"full-screen game ends its full-screen mode; this keeps the docks out of its way. Docks on the desktop "
+            L"layers and folder windows stay. On by default.");
+        NextRow();
         // Round 6 phase 6A.
         Section(kSectionDashboard, L"Dashboard");
         Label(kDashboardHotkeyLabel, L"Hotkey", L"Click, then press the keys", kDashboardNote);
@@ -218,6 +229,7 @@ protected:
         SetCheck(kStartWithWindows, Host().autostartEnabled ? Host().autostartEnabled() : c.startWithWindows);
         SetCheck(kHideTaskbar, Host().taskbarHidden ? Host().taskbarHidden() : c.hideTaskbar);
         SetComboSel(kRendererCombo, c.renderer == L"software" ? 1 : 0);
+        SetCheck(kFullscreenHide, c.settings.fullscreenHide);
         const bool warp = Host().usingWarp && Host().usingWarp();
         SetText(kRendererNote, std::wstring(L"After a restart · now ") + (warp ? L"software" : L"GPU"));
         SetText(kDashboardHotkeyEdit, c.dashboard.hotkey);
@@ -261,6 +273,12 @@ protected:
                 if (code == BN_CLICKED) {
                     c.hideTaskbar = GetCheck(id);
                     Changed(SettingsScope::Taskbar);
+                }
+                break;
+            case kFullscreenHide:
+                if (code == BN_CLICKED && GetCheck(id) != c.settings.fullscreenHide) {
+                    c.settings.fullscreenHide = GetCheck(id);
+                    Changed(SettingsScope::Fullscreen);
                 }
                 break;
             case kRendererCombo:
@@ -490,7 +508,20 @@ protected:
         Text(kAutoHideNote, CtlKind::Note, L"The dock stays shown while this window (or one of its item windows) is active.",
              kMargin, right - kMargin, 20);
         NextRow(22);
-        // Round 8 phase 8A: the delays behind an expander.
+        // Round 9 phase 9A: a floating bar shows this line and the link instead of the radios and
+        // the delays (never greyed; EnableDependents collapses one or the other).
+        Ctl& floatingNote = Text(kAutoHideFloatingNote, CtlKind::Note,
+                                 L"A floating bar has no auto-hide: it is shown by its layer and by the dashboard hotkey. "
+                                 L"To auto-hide it, choose Bar on an edge on the Position tab.",
+                                 kMargin, right - kMargin, 20);
+        floatingNote.maxLines = 3;
+        NextRow(22);
+        Link(kAutoHideFloatingLink, L"<a>Position tab</a>", kMargin, 160);
+        Tip(kAutoHideFloatingLink, L"Opens the Position tab, where Kind chooses a bar on an edge (which can auto-hide) or a "
+                                   L"floating bar.");
+        NextRow();
+        // Round 8 phase 8A: the delays behind an expander (round 9 phase 9A: collapsed while
+        // auto-hide is off).
         Expander(kAutoHideMore, L"More: hide and reveal delays");
         Label(kHideDelayLabel, L"Hide delay", L"After the mouse leaves");
         IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50,
@@ -633,8 +664,6 @@ protected:
         SetCheck(kAutoHideOff, d.autoHide == AutoHideMode::Off);
         SetCheck(kAutoHideAlways, d.autoHide == AutoHideMode::Always);
         SetCheck(kAutoHideIntelligent, d.autoHide == AutoHideMode::Intelligent);
-        SetText(kAutoHideNote, d.Floating() ? L"A floating dock is shown by its layer and the dashboard hotkey (no auto-hide)."
-                                            : L"The dock stays shown while this window (or one of its item windows) is active.");
         SetCheck(kPreviews, d.previews);
         SetCheck(kPreviewSingle, d.previewSingle);
         SetComboSel(kMiddleClickCombo, static_cast<int>(d.middleClick));
@@ -676,6 +705,27 @@ protected:
             return true;
         }
         return false;
+    }
+
+    // Round 9 phase 9A: another page of this window changed the dock (the Position tab's Kind turns
+    // auto-hide off for a floating bar): what this page shows of it follows.
+    void OnPeerChanged() override {
+        const DockConfig& d = Bound();
+        SetCheck(kAutoHideOff, d.autoHide == AutoHideMode::Off);
+        SetCheck(kAutoHideAlways, d.autoHide == AutoHideMode::Always);
+        SetCheck(kAutoHideIntelligent, d.autoHide == AutoHideMode::Intelligent);
+        if (part_ == Part::Position) {
+            SetCheck(kFloating, d.Floating());
+            SetComboSel(kShapeCombo, static_cast<int>(d.shape));
+        }
+        EnableDependents();
+    }
+
+    LRESULT OnNotify(const NMHDR& nm) override {
+        if (static_cast<int>(nm.idFrom) == kAutoHideFloatingLink && (nm.code == NM_CLICK || nm.code == NM_RETURN)) {
+            Window().ShowPage(kTabPosition);  // as a click on the tab strip
+        }
+        return 0;
     }
 
     void OnCommand(int id, int code, HWND) override {
@@ -825,6 +875,10 @@ protected:
                                                                   : AutoHideMode::Intelligent;
                 if (!GetCheck(id) || mode == d.autoHide) break;
                 d.autoHide = mode;
+                // One checked (a BM_SETCHECK from automation does not clear the group's others).
+                SetCheck(kAutoHideOff, mode == AutoHideMode::Off);
+                SetCheck(kAutoHideAlways, mode == AutoHideMode::Always);
+                SetCheck(kAutoHideIntelligent, mode == AutoHideMode::Intelligent);
                 EnableDependents();
                 Changed(SettingsScope::AutoHide);
                 break;
@@ -954,16 +1008,18 @@ private:
             Collapse({kTitleLabel, kTitleEdit}, ring);
             return;
         }
-        // Auto-hide: off for a floating dock (Config::Sanitize).
-        for (int id : {kAutoHideOff, kAutoHideOffCaption, kAutoHideAlways, kAutoHideAlwaysCaption, kAutoHideIntelligent,
-                       kAutoHideIntelligentCaption}) {
-            if (HWND h = Item(id)) EnableWindow(h, !floating);
-        }
-        Enable(kHideDelayEdit, d.AutoHideOn());
-        Enable(kRevealDelayEdit, d.AutoHideOn());
-        Enable(kPreviewDelayEdit, d.previews);
-        Enable(kPreviewSingle, d.previews);
-        Enable(kTitlesVerticalCombo, d.titles != TitlesMode::Off);
+        // Round 9 phase 9A: never greyed. Auto-hide is off for a floating dock (Config::Sanitize):
+        // its radios, their note and the delays are collapsed and one line says why, with a link
+        // to the Position tab; the delays are collapsed (not greyed) while auto-hide is off.
+        Collapse({kAutoHideOff, kAutoHideAlways, kAutoHideIntelligent, kAutoHideNote}, floating);
+        Collapse({kAutoHideFloatingNote, kAutoHideFloatingLink}, !floating);
+        Collapse({kAutoHideMore, kHideDelayLabel, kHideDelayEdit, kHideDelayUnit, kRevealDelayLabel, kRevealDelayEdit,
+                  kRevealDelayUnit},
+                 !d.AutoHideOn());
+        // The preview options while previews are on, the vertical titles while titles are on
+        // (collapsed, not greyed).
+        Collapse({kPreviewSingle, kPreviewDelayLabel, kPreviewDelayEdit, kPreviewDelayUnit}, !d.previews);
+        Collapse({kTitlesVerticalLabel, kTitlesVerticalCombo}, d.titles == TitlesMode::Off);
         // Round 8 phase 8B: the thumbnail rows only for the mode that uses them (collapsed, not greyed).
         Collapse({kThumbIntervalLabel, kThumbIntervalEdit, kThumbIntervalUnit}, d.thumbnails != ThumbnailMode::Snapshots);
         Collapse({kThumbFpsLabel, kThumbFpsEdit, kThumbFpsUnit}, d.thumbnails != ThumbnailMode::Live);

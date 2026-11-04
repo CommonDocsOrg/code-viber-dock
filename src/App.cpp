@@ -2117,6 +2117,9 @@ void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* sou
         case SettingsScope::Dashboard:
             ApplyHotkey();
             break;
+        case SettingsScope::Fullscreen:
+            docks_.SyncFullscreenGuard();  // round 9 phase 9A: the watch and an evaluation
+            break;
         case SettingsScope::SaveOnly:
             docks_.ApplyWidgetWindow(cfg);  // a standalone widget's lock (its header button)
             break;
@@ -2245,6 +2248,11 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             if (w && !w->QueryPages(269, arg, out)) out = -2;
             return out;
         }
+        case 280:  // round 9 phase 9A: dock HIWORD (a dock or a standalone widget) is hidden by the full-screen guard (1 / 0; -2 no such dock)
+            if (!inst) return -2;
+            if (inst->window) return inst->window->FullscreenHidden() ? 1 : 0;
+            if (inst->widget) return inst->widget->FullscreenHidden() ? 1 : 0;
+            return 0;
         case 234:  // round 6 phase 6A: dashboard mode is on
             return docks_.Dashboard() ? 1 : 0;
         case 240:  // the dashboard hotkey is registered (RegisterHotKey succeeded)
@@ -2391,6 +2399,14 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kSortDesktopNow) {
         result = static_cast<LRESULT>(docks_.SortDesktop());  // the files queued
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kFullscreenGuard) {
+        // Round 9 phase 9A: LOWORD(lParam) 1 / 0 forces the full-screen guard on / off for every
+        // monitor, 2 releases it (a real evaluation). 0: the guard is off (settings.fullscreen "ignore").
+        const LPARAM mode = lp & 0xFFFF;
+        result = docks_.FullscreenGuardOn() && mode <= 2 ? 1 : 0;
+        if (result) docks_.ForceFullscreen(static_cast<int>(mode));
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kSimulateExplorerRestart) {

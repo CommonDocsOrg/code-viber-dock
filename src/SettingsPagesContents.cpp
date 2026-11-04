@@ -1332,6 +1332,10 @@ protected:
         Button(kPinSettings, L"Settings…", L + 14, kSettingsW);
         Button(kPinMore, L"More ▾", L + 14 + kSettingsW + 6, kMoreW);  // pinned items: Choose icon… / Choose image… / Reset icon
         Button(kPinRemove, L"Remove", R - 14 - kRemoveW, kRemoveW);
+        // Round 9 phase 9A: why they may be greyed.
+        Tip(kPinUp, L"Moves the selected item one place left on the dock (Ctrl+Left). Greyed for the first item.");
+        Tip(kPinDown, L"Moves the selected item one place right on the dock (Ctrl+Right). Greyed for the last item.");
+        Tip(kPinRemove, L"Removes the selected item from the dock (Delete). Select an item in the strip first.");
         // Round 7 phase 7B: the item's place on the dock (FlowInspector places them under the buttons).
         y_ = kInspectorTop + 90;
         Add(kItemAnchorLabel, CtlKind::Label, WC_STATICW, L"Position on the dock",
@@ -1341,6 +1345,10 @@ protected:
         Add(kItemOffsetLabel, CtlKind::Label, WC_STATICW, L"Offset (DIPs)", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
             RECT{L + 14, y_, L + 14 + kPlaceLabelW, y_ + kRowH});
         Spin(kItemOffsetEdit, kItemOffsetSpin, L + 14 + kPlaceLabelW + 6, 96, -DockConfig::kMaxItemOffset, DockConfig::kMaxItemOffset, 10);
+        Tip(kItemAnchorCombo, L"Where the selected item sits on the dock: its own group (start, centre, end) or the "
+                              L"dock's alignment. Select an item in the strip first.");  // round 9 phase 9A
+        Tip(kItemOffsetEdit, L"Shifts the selected item and the ones after it in its group. Select an item in the strip "
+                             L"first.");
         y_ += kRowH;
         Text(kItemOffsetNote, CtlKind::Note, L"Shifts this item and the ones after it in its group", L + 14, R - L - 28, 20);
         // The drawer: everything that can be added (round 8 phase 8B: apps and folders too).

@@ -339,6 +339,7 @@ void SettingsPage::ChangedFor(SettingsScope scope, size_t dock) {
     if (window_.Loading()) return;
     if (window_.Host().changed) window_.Host().changed(scope, dock);
     window_.ConfigApplied();
+    window_.PeersChanged(this);  // round 9 phase 9A: the window's other pages follow
 }
 
 void SettingsPage::SetText(int id, const std::wstring& text) {
@@ -905,6 +906,16 @@ void SettingsWindow::CreateTips(SettingsPage& page) {
         ti.lpszText = c.tip.data();
         SendMessageW(page.tip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
     }
+    // Round 9 phase 9A: a disabled control gets no mouse input and a tooltip shows nothing for a
+    // disabled window, so a greyed control's tooltip (which says why it is greyed) is a rect tool
+    // of the page, placed over the disabled control the pointer is on (PageProc, WM_MOUSEMOVE).
+    TTTOOLINFOW proxy{};
+    proxy.cbSize = sizeof(proxy);
+    proxy.hwnd = page.hwnd_;
+    proxy.uId = SettingsPage::kDisabledTipId;
+    proxy.lpszText = const_cast<wchar_t*>(L"");
+    SendMessageW(page.tip_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&proxy));
+    page.tipProxy_ = nullptr;
     ThemeTips(page.tip_);
 }
 
@@ -1000,6 +1011,15 @@ void SettingsWindow::CalendarChanged() {
 
 void SettingsWindow::ConfigApplied() {
     if (preview_) preview_->Invalidate();
+}
+
+void SettingsWindow::PeersChanged(const SettingsPage* source) {
+    if (!hwnd_ || loading_) return;
+    loading_ = true;
+    for (auto& page : pages_) {
+        if (page.get() != source && page->Hwnd()) page->OnPeerChanged();
+    }
+    loading_ = false;
 }
 
 void SettingsWindow::StyleChanged() {
@@ -2335,6 +2355,37 @@ COLORREF SettingsWindow::SurfaceColor(HWND control) const {
 LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM lp) {
     HWND hwnd = page.hwnd_;
     switch (msg) {
+        case WM_MOUSEMOVE:
+            // Round 9 phase 9A: a disabled control gets no mouse input (it comes to the page), so its
+            // tooltip (TTF_SUBCLASS) would never show, and a greyed control's tooltip says why it is
+            // greyed: the page's rect tool (CreateTips) takes its place and text, and the page's
+            // moves are relayed to the tooltip (elsewhere the rect is empty: nothing shows).
+            if (page.tip_) {
+                const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                HWND child = ChildWindowFromPointEx(hwnd, pt, CWP_SKIPINVISIBLE | CWP_SKIPTRANSPARENT);
+                const Ctl* c = child && child != hwnd && !IsWindowEnabled(child) ? page.Find(child) : nullptr;
+                if (c && c->tip.empty()) c = nullptr;
+                HWND over = c ? child : nullptr;
+                if (over != page.tipProxy_) {
+                    // The page's rect tool moves over this disabled control with its text (or away).
+                    page.tipProxy_ = over;
+                    TTTOOLINFOW ti{};
+                    ti.cbSize = sizeof(ti);
+                    ti.hwnd = hwnd;
+                    ti.uId = SettingsPage::kDisabledTipId;
+                    if (over) {
+                        GetWindowRect(over, &ti.rect);
+                        MapWindowPoints(nullptr, hwnd, reinterpret_cast<POINT*>(&ti.rect), 2);
+                    }
+                    ti.lpszText = const_cast<wchar_t*>(c ? c->tip.c_str() : L"");
+                    SendMessageW(page.tip_, TTM_NEWTOOLRECTW, 0, reinterpret_cast<LPARAM>(&ti));
+                    SendMessageW(page.tip_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
+                }
+                MSG relay{hwnd, msg, wp, lp, static_cast<DWORD>(GetMessageTime()), {}};
+                GetCursorPos(&relay.pt);
+                SendMessageW(page.tip_, TTM_RELAYEVENT, 0, reinterpret_cast<LPARAM>(&relay));
+            }
+            break;
         case WM_COMMAND: {
             HWND ctl = reinterpret_cast<HWND>(lp);
             const Ctl* c = page.Find(ctl);

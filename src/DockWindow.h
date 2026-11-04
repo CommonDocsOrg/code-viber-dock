@@ -75,6 +75,10 @@ public:
     virtual bool DashboardOn() const = 0;
     // Leaves dashboard mode (Escape in one of its docks).
     virtual void EndDashboard() = 0;
+    // Round 9 phase 9A: an app bar dock got ABN_FULLSCREENAPP (`on`: a full-screen window opened on
+    // its monitor). True when the full-screen guard takes it (settings.fullscreen "hide"): the dock
+    // then leaves its z-order alone. False: the dock handles it itself (before round 9's way).
+    virtual bool FullscreenNotice(DockWindow* dock, bool on) = 0;
 
 protected:
     ~DockShared() = default;
@@ -310,6 +314,15 @@ public:
     void ReassertLayer();
     // The dock is floating (docks[].floating on a bar) and on screen (its window is visible).
     bool FloatingShown() const;
+    // Round 9 phase 9A, the full-screen guard (DockManager): the dock lives in the topmost band
+    // (layer "normal", or lifted by the dashboard) and so is hidden while a full-screen app is in
+    // front on its monitor.
+    bool TopmostBand() const;
+    // Hidden by the guard (ShowWindow SW_HIDE; popups, label, previews closed, its hover / hide /
+    // reveal timers stopped; no z-order call until it comes back), or back (SW_SHOWNA in its hide
+    // state, topmost once, the auto-hide rules again).
+    void SetFullscreenHidden(bool hidden);
+    bool FullscreenHidden() const { return fullscreenHidden_; }
 
     // The monitor the dock is on (screen px), its DPI, and the bar at rest (screen px).
     RECT MonitorRect() const { return layout_.monitor; }
@@ -484,7 +497,14 @@ private:
         // is kept on the monitor, so a dock at a monitor end grows away from it).
         float growRoomStart = 0.0f;
         float growRoomEnd = 0.0f;
-        float popupY = 0.0f;      // popups open beyond this cross coordinate (with docks[].popupGap)
+        // Round 9 phase 9A, docks[].magnifyBar "steady": while magnified the bar is longer than at
+        // rest by steadyStart at its start and steadyEnd at its end, fixed for the whole hover
+        // (half each about the resting centre, the rest going to the other end where the room cuts
+        // one); the run slides inside it. False: the bar follows the pointer (or never grows).
+        bool steady = false;
+        float steadyStart = 0.0f;
+        float steadyEnd = 0.0f;
+        float popupY = 0.0f;     // popups open beyond this cross coordinate (with docks[].popupGap)
         float roomPx = 0.0f;      // room along the edge for the bar (margins and docks[].maxLength applied)
         bool fullWidth = false;   // the bar spans the monitor's edge (docks[].fullWidth)
         // Round 7 phase 7B: the items are laid out as anchored groups (DockConfig::Anchored() on a
@@ -1302,6 +1322,7 @@ private:
     bool appBarBusy_ = false;     // inside UpdateAppBar (ABM_SETPOS broadcasts a relayout)
     RECT appBarRect_{};           // the rect last set (ABM_SETPOS)
     bool fullscreenApp_ = false;  // ABN_FULLSCREENAPP: a fullscreen app is open, the dock is not topmost
+    bool fullscreenHidden_ = false;  // round 9 phase 9A: hidden by the manager's full-screen guard
     std::function<void(bool, const RECT&, const RECT&)> appBarChanged_;
 
     // Dragging the dock

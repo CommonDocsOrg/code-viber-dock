@@ -54,6 +54,7 @@ const wchar_t* const kTitlesNames[] = {L"off", L"one", L"two"};
 const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
 const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kOverflowNames[] = {L"scroll", L"shrink", L"clip"};
+const wchar_t* const kMagnifyBarNames[] = {L"steady", L"follow"};  // round 9 phase 9A
 const wchar_t* const kShapeNames[] = {L"bar", L"arc", L"circle"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kItemAnchorNames[] = {L"none", L"start", L"center", L"end"};
@@ -105,6 +106,9 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadNumber(o, L"peekOpacity", d.peekOpacity);
     ReadInt(o, L"maxLength", d.maxLength);  // round 7 phase 7A
     ReadInt(o, L"popupGap", d.popupGap);
+    s.clear();
+    ReadString(o, L"magnifyBar", s);  // round 9 phase 9A
+    if (!s.empty()) FromString(s, d.magnifyBar);  // unknown text: steady
     ReadString(o, L"title", d.title);
     // "monitor": a number (ReadDockFields), or "primary" / "each".
     if (auto m = Find(o, L"monitor"); m && m.ValueType() == json::JsonValueType::String) {
@@ -350,6 +354,8 @@ const wchar_t* ToString(ThumbnailMode v) { return EnumToString(v, kThumbnailName
 bool FromString(std::wstring_view s, ThumbnailMode& v) { return EnumFromString(s, v, kThumbnailNames); }
 const wchar_t* ToString(OverflowMode v) { return EnumToString(v, kOverflowNames); }
 bool FromString(std::wstring_view s, OverflowMode& v) { return EnumFromString(s, v, kOverflowNames); }
+const wchar_t* ToString(MagnifyBar v) { return EnumToString(v, kMagnifyBarNames); }
+bool FromString(std::wstring_view s, MagnifyBar& v) { return EnumFromString(s, v, kMagnifyBarNames); }
 const wchar_t* ToString(DockShape v) { return EnumToString(v, kShapeNames); }
 bool FromString(std::wstring_view s, DockShape& v) { return EnumFromString(s, v, kShapeNames); }
 const wchar_t* ToString(ItemView v) { return EnumToString(v, kItemViewNames); }
@@ -811,6 +817,7 @@ void Config::Sanitize() {
         d.thumbnailSize = d.thumbnailSize <= 0 ? 0 : std::clamp(d.thumbnailSize, 16, 512);
         d.thumbnailFps = std::clamp(d.thumbnailFps, 1, 60);
         if (static_cast<unsigned>(d.overflow) > static_cast<unsigned>(OverflowMode::Clip)) d.overflow = OverflowMode::Scroll;
+        if (static_cast<unsigned>(d.magnifyBar) > static_cast<unsigned>(MagnifyBar::Follow)) d.magnifyBar = MagnifyBar::Steady;
         if (static_cast<unsigned>(d.shape) > static_cast<unsigned>(DockShape::Circle)) d.shape = DockShape::Bar;
         d.radius = d.radius <= 0 ? 0 : std::clamp(d.radius, 60, 2000);
         if (d.x != DockConfig::kCentred) d.x = std::clamp(d.x, -16000, 16000);
@@ -1126,6 +1133,10 @@ Config::LoadResult Config::LoadFile() {
                     settings.windows[k].h = static_cast<int>(std::clamp(v[1], 0.0, 100000.0));
                 }
             }
+            // Round 9 phase 9A: "hide" (default) / "ignore"; unknown text keeps the default.
+            std::wstring fs;
+            ReadString(s, L"fullscreen", fs);
+            if (CompareStringOrdinal(fs.c_str(), -1, L"ignore", -1, TRUE) == CSTR_EQUAL) settings.fullscreenHide = false;
         }
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
@@ -1289,6 +1300,8 @@ bool Config::Save() const {
                  // Round 7 phase 7A: only when not the defaults.
                  (d.maxLength > 0 ? L",\n      \"maxLength\": " + Num(d.maxLength) : L"") +
                  (d.popupGap != DockConfig::kDefaultPopupGap ? L",\n      \"popupGap\": " + Num(d.popupGap) : L"") +
+                 // Round 9 phase 9A: only when not the default.
+                 (d.magnifyBar != MagnifyBar::Steady ? L",\n      \"magnifyBar\": " + Quote(ToString(d.magnifyBar)) : L"") +
                  L"\n    }";
         }
         for (const std::wstring& extra : extraDocks) o += L",\n    " + extra;
@@ -1346,7 +1359,11 @@ bool Config::Save() const {
                 if (s == SettingsWindowSize{}) continue;
                 w += (w.empty() ? L"" : L", ") + Quote(SettingsUiConfig::kNames[k]) + L": [" + Num(s.w) + L", " + Num(s.h) + L"]";
             }
-            o += L",\n  \"settings\": { \"windows\": { " + w + L" } }";
+            // Each part only when not the default (round 9 phase 9A: `fullscreen`).
+            std::wstring parts;
+            if (!w.empty()) parts = L"\"windows\": { " + w + L" }";
+            if (!settings.fullscreenHide) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"fullscreen\": \"ignore\"");
+            o += L",\n  \"settings\": { " + parts + L" }";
         }
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";

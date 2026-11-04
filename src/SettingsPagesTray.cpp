@@ -153,13 +153,17 @@ protected:
         NextRow(kListH + 8);
         Button(kTrayIconUp, L"Move up", kMargin, 110);
         Button(kTrayIconDown, L"Move down", kMargin + 122, 110);
+        // Round 9 phase 9A: why they may be greyed.
+        Tip(kTrayIconUp, L"Moves the selected icon one place earlier in the grid (select an icon below the first one).");
+        Tip(kTrayIconDown, L"Moves the selected icon one place later in the grid (select an icon above the last one).");
         NextRow();
         Section(kTrayTakeoverSection, L"Takeover");
         Label(kTrayResetLabel, L"Explorer's icons", L"Back to the taskbar, every dock", kTrayResetNote);
         Tip(kTrayResetLabel, L"Reset to Explorer hands every icon back to Explorer and turns the takeover off (on every dock); "
                              L"Global settings > Tray icons turns it on again.");
         Button(kTrayReset, L"Reset to Explorer", kColX, 160);
-        Tip(kTrayReset, L"Hands every icon back to Explorer and turns the takeover off (on every dock).");
+        Tip(kTrayReset, L"Hands every icon back to Explorer and turns the takeover off (on every dock). Greyed while the "
+                        L"takeover is off: Explorer has the icons already (Global settings > Tray icons turns it on).");
         NextRow();
     }
 

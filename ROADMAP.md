@@ -689,7 +689,7 @@ phase on master, not pushed; STATUS.md "Round 7" has each phase's notes.
 | 7B Item anchors | `items[].anchor` (start / centre / end) and `items[].offset`, group layout (an anchored bar is the room's length; one run while it overflows), Sanitize / every edit keeps group order, on-dock drag and strip moves join the group they are dropped into, the inspector's "Position on the dock" / "Offset", QueryState 272 - 274, ItemCommand 859 / 860 | Done (the commit "Add per-item anchors and offsets on the dock"; STATUS.md "Round 7") |
 | 7C Widgets | Analog clock hover growth (`hoverScale`, a box thicker than the bar grows outward), the weather widget's dock forecast (`dockForecast` today / days, `dockDays`), media controls beside the art and marquee options (`controls`, `marqueeMode`, `marqueeSpeed`), the battery widget (+ `battery.acLine` / `battery.timeLeft` in `PerfService`, preview samples) | Done (the commit "Grow the analog clock on hover, forecast on the dock, media controls, a battery widget"; STATUS.md "Round 7"); the end-of-round regression is next |
 
-## Round 8 (in progress, 2026-11-04): settings decluttering
+## Round 8 (complete 2026-11-04): settings decluttering
 
 Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round8.md` (the accepted proposal
 "WinDock Settings Decluttering"). The user's one explicit constraint: the widget drawer on the Dock
@@ -703,7 +703,21 @@ has each phase's notes.
 | 8B Dock window | Compact header (72 DIP) with the silhouette on the Position tab; Appearance tab (the Theme tab retired, Size moved); Position by placement kind with collapsing rows and a More expander; the preview strip only on Appearance; Contents: one add drawer (previews untouched), the inspector's buttons and More menu; QueryState 277 / 278 | Done (the commit "Compact dock header, Appearance tab, placement kinds, one add drawer"; STATUS.md "Round 8") |
 | 8C Item and standalone windows | The header's description line, cards per manifest group, hints / tooltips from field descriptions, the place autocomplete with a summary and an Edit coordinates expander; the standalone widget window's Widget / Window tabs | Done (the commit "Item settings in cards, place autocomplete, one standalone widget window"; STATUS.md "Round 8") |
 | 8D Global window | Nav groups; Docks and displays toolbar, Lock all check box and row actions; Themes top menu, collapsible groups and the small reset button; Widget library primary button and More menu; Calendar feeds form as an expander; Tray icons / Notifications hints | Done (the commit "Group the Global nav, menus on Docks and displays, Themes and the Widget library"; STATUS.md "Round 8") |
-| 8E Regression | Every window kind at default and minimum size, light / dark if cheap, the drawer previews; the release build; the user's dock restarted | Planned |
+| 8E Regression | Every window kind at default and minimum size, light / dark if cheap, the drawer previews; the release build; the user's dock restarted | Done (folded into the 2026-11-04 release build the user runs; the Win+D desktop re-placement followed as "Re-place the desktop windows after Win+D raises Progman") |
+
+## Round 9 (in progress, 2026-11-04): full-screen apps, steady magnification, clearer auto-hide, settings search, presets, help
+
+Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round9.md` (from the user's pasted
+wish list of 2026-11-04). Testing is light (one or two checks per change, a regression at the end).
+One commit per phase on master, not pushed; STATUS.md "Round 9" has each phase's notes.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 9A Dock fixes | A full-screen guard (the docks, standalone widgets and the tray dock hide while a full-screen app is in front on their monitor; `settings.fullscreen`); steady bar growth while magnified (`docks[].magnifyBar` "steady" / "follow"); auto-hide controls never greyed (collapsed with a reason and a link for a floating bar; the stale-state bug fixed; every greyed control explained or collapsed); QueryState 280 / 281, DockCommand 150 | Done (the commit "Hide for full-screen apps, steady bar growth, auto-hide never greyed"; STATUS.md "Round 9") |
+| 9B Settings search | Ctrl+F / a box in the Global nav / the Dock ⋯ menu opens a search over every setting of every window (name, label, hint, value); Go to opens, scrolls to, focuses and flashes the control; check boxes and combos change in place; QueryState 282 / 283, DockCommand 151 | Planned |
+| 9C Presets | Predefined dock setups as RCDATA JSON (basic, minimal, modern, windows and labels, sidebar, floating performance, desktop dashboard) with a chooser dialog (description + rendered preview); Docks and displays > Add ▾ > Dock from a preset…, the Dock ⋯ menu > Apply a preset…, the first-run Welcome dialog; QueryState 284, DockCommand 152 / 153 | Planned |
+| 9D Help | Human-readable guides in docs/ (quick start, settings, docks, items, troubleshooting), an in-app Help window (Markdown rendered in a RichEdit, F1, a Help nav row, "?" buttons on every settings card), every field labelled with a tooltip (QueryState 285 counts the gaps); QueryState 286 / 287, DockCommand 154 | Planned |
+| 9E Regression | Every window kind at default and minimum size, the new dialogs, the guard, the docs link check; the release build; the user's dock restarted | Planned |
 
 ## Dependencies at a glance
 

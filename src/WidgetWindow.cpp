@@ -142,7 +142,7 @@ HRESULT WidgetWindow::Create(HINSTANCE instance, Config* config, size_t cfg, HMO
     popupsReady_ = true;
 
     // The layer first (a "behind" window is registered before it shows: no flash above the apps).
-    hidden_ = DesktopLayered() && !DesktopLayer::DesktopForeground();
+    hidden_ = WantHidden();
     MakeWidget();
     UpdateBackdrop();
     SyncLayer();
@@ -564,9 +564,21 @@ void WidgetWindow::AssertZOrder() {
     if (acrylic_) backdrop_.Place(hwnd_, rect_);
 }
 
+bool WidgetWindow::WantHidden() const {
+    return fullscreen_ || (DesktopLayered() && !DesktopLayer::DesktopForeground());
+}
+
+bool WidgetWindow::TopmostBand() const { return hwnd_ && Valid() && (Cfg().layer == DockLayer::Normal || InDashboard()); }
+
+void WidgetWindow::SetFullscreenHidden(bool hidden) {
+    if (!hwnd_ || hidden == fullscreen_) return;
+    fullscreen_ = hidden;
+    UpdateShown();  // hides (popups closed, no z-order call) / shows (topmost once: AssertZOrder)
+}
+
 void WidgetWindow::UpdateShown() {
     if (!hwnd_) return;
-    const bool hide = DesktopLayered() && !DesktopLayer::DesktopForeground();
+    const bool hide = WantHidden();
     if (hide == hidden_) return;
     hidden_ = hide;
     if (hide) {
@@ -636,7 +648,7 @@ void WidgetWindow::ApplyConfig() {
     UpdateBackdrop();  // the theme or the background may have changed
     if (layerChanged) {
         SyncLayer();
-        const bool hide = DesktopLayered() && !DesktopLayer::DesktopForeground();
+        const bool hide = WantHidden();
         if (hide != hidden_) {
             UpdateShown();
         } else {
