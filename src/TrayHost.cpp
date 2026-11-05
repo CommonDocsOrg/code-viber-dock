@@ -15,6 +15,7 @@
 namespace {
 
 constexpr wchar_t kTrayClass[] = L"Shell_TrayWnd";
+constexpr wchar_t kTaskbandProp[] = L"TaskbandHWND";
 constexpr wchar_t kNotifyClass[] = L"TrayNotifyWnd";
 constexpr DWORD kSignature = 0x34753423;
 constexpr UINT kMirrorTimeoutMs = 2000;
@@ -190,6 +191,7 @@ void TrayHost::Stop() {
     HWND hwnd = hwnd_;
     hwnd_ = nullptr;
     live_.store(nullptr);
+    RemovePropW(hwnd, kTaskbandProp);
     DestroyWindow(hwnd);
     if (self_ == this) self_ = nullptr;
     for (TrayIcon& icon : icons_) {
@@ -248,6 +250,18 @@ void TrayHost::Broadcast(bool takeOver) {
 
 void TrayHost::Raise() {
     if (hwnd_) SetWindowPos(hwnd_, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+    MirrorTaskband();  // with every raise: a restarted Explorer has a new task band
+}
+
+void TrayHost::MirrorTaskband() {
+    if (!hwnd_) return;
+    HWND ex = ExplorerTray();
+    HANDLE band = ex ? GetPropW(ex, kTaskbandProp) : nullptr;
+    if (band) {
+        SetPropW(hwnd_, kTaskbandProp, band);
+    } else {
+        RemovePropW(hwnd_, kTaskbandProp);
+    }
 }
 
 HWND TrayHost::ExplorerTray() {

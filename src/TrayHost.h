@@ -178,6 +178,10 @@ private:
     // (HWND_BROADCAST).
     void Broadcast(bool takeOver);
     void Raise();
+    // Copies Explorer's "TaskbandHWND" window property (its task band) to our window: ITaskbarList
+    // reads it from the Shell_TrayWnd FindWindow returns. Without it every app's taskbar progress
+    // fails, and Explorer's copy engine then drops pastes and drops without an error.
+    void MirrorTaskband();
     void HookExplorer();
     void Unhook();
     static void CALLBACK OnReorder(HWINEVENTHOOK, DWORD, HWND hwnd, LONG idObject, LONG, DWORD, DWORD);
