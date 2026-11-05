@@ -102,19 +102,31 @@ screen, and auto-hide slides the dock off its own edge.
   animates with the icons.
 - **Steady bar growth** (round 9: `magnifyBar`, `"steady"` by default, Dock settings >
   Appearance > Size > **Bar while magnified**: **Grows once and stays** / **Follows the
-  pointer**): when the icons start to grow, the bar grows at once (the usual 80 ms ease) to its
-  magnified length, its resting length plus the most the magnification can add (`(magnification
-  - 1) x icon x min(icons, magnifyRange)` plus 2 px), half at each end about its resting centre,
-  and keeps that length until the icons are back at rest: moving from icon to icon no longer
-  moves its ends (the "wobble" of earlier versions). The run of icons slides inside the fixed bar
-  so the icon under the pointer stays under it; the padding at the two ends takes up the slack,
-  and the run never leaves the bar (the first / last icon keeps the resting spacing to the bar's
-  end, or to the separator and widgets after it, which move with the bar's end). Where an end has
-  no room (a bar at a monitor end, a start / end aligned bar whose margin is all the stage has),
-  that end's half goes to the other end. `"follow"` is the behaviour before round 9: the bar grows
-  on both sides away from the pointer (like macOS) by what the magnified icons add there, so its
-  ends move as the pointer walks the run. Rings, a scrolling run, a full-width bar and an anchored
-  bar (round 7B: as long as the room) grow as they did before in both modes.
+  pointer** / **Always wide (never grows or shrinks)**): when the pointer comes onto the dock,
+  the bar grows at once (the usual 80 ms ease) to its magnified length, its resting length plus
+  the most the magnification can add (`(magnification - 1) x icon x min(icons, magnifyRange)`
+  plus 2 px), half at each end about its resting centre, and keeps that length until the pointer
+  leaves the dock (9A follow-up: whatever it is over meanwhile, a widget, a separator or the
+  padding, and while a menu, a popup or a drag of the dock's holds it; a right-click, a press, the
+  wheel never shrink it). The widgets, separators and anything else before the first / after the
+  last icon move out with the bar's ends once, when it grows, and stay there; only the magnified
+  icons move as the pointer walks the dock (no "wobble" left and right). The run of icons slides
+  inside the room this leaves beside it, so the icon under the pointer stays under it; where that
+  room is used up (an end with no room: a bar at a monitor end, a start / end aligned bar whose
+  margin is all the stage has; that end's half goes to the other end) the hovered icon drifts off
+  the pointer by what did not fit. Clicks, right-clicks, middle clicks, the wheel, the hover label
+  and a widget's own pointer events always go to what is drawn under the pointer: the hit test
+  follows the magnified (grown) layout, not the resting one. A right-click (an item's or the dock
+  menu, on an icon or an end widget) changes nothing: the menu holds the layout as it is, and when
+  it closes with the pointer still on the dock nothing moves (with the pointer gone, the bar goes
+  back to rest). `"always"` (9A follow-up) gives the resting bar that length: the room for the
+  magnified icons is always there, half between the leading widgets (or the bar's start) and the
+  first icon, half between the last icon and the trailing widgets (or the bar's end), so nothing
+  but the magnified icons ever moves (not for a run that would then not fit the room along the
+  edge). `"follow"` is the behaviour before round 9: the bar grows on both sides away from the
+  pointer (like macOS) by what the magnified icons add there, so its ends move as the pointer walks
+  the run. Rings, a scrolling run, a full-width bar and an anchored bar (round 7B: as long as the
+  room) grow as they did before in every mode.
   The running-indicator dots keep their size and follow their icons. Everything moves through
   DirectComposition animations (80 ms while the mouse moves, 120 ms back to rest), so no
   surface is redrawn. Magnification updates are capped at about 60 per second. The return to rest
@@ -1720,7 +1732,8 @@ Behaviour, Running apps; the Theme tab became Appearance):
   Themes, where the theme's fields are (they apply to every dock, on top of a dock's own preset);
   **Size**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
   magnification range (1-4 icons) and (round 9) **Bar while magnified**: **Grows once and stays**
-  (`magnifyBar` `"steady"`, the default) / **Follows the pointer** (`"follow"`; see
+  (`magnifyBar` `"steady"`, the default) / **Follows the pointer** (`"follow"`) / **Always wide
+  (never grows or shrinks)** (`"always"`; see
   [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). The preview strip
   is under this tab.
 - **Behaviour**: auto-hide Off / Always / When a window overlaps the dock, hide and reveal
@@ -2024,10 +2037,11 @@ items that exist. A file whose items have settings already is left alone.
   - `popupGap` (round 7; DIPs, default 6, 0 - 64; written only when not 6): how far the dock's
     popups (previews, calendar, folders, widget popups ...) open beyond a fully magnified icon,
     see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
-  - `magnifyBar` (round 9; `"steady"` (default; not written) or `"follow"`; unknown text reads as
-    `"steady"`): how the bar grows while magnified: once, to a fixed length about its resting
-    centre, or following the pointer as before round 9. Ignored for rings, a scrolling run, a
-    full-width and an anchored bar. See [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
+  - `magnifyBar` (round 9; `"steady"` (default; not written), `"follow"` or `"always"`; unknown
+    text reads as `"steady"`): how the bar grows while magnified: once, to a fixed length about its
+    resting centre, while the pointer is on the dock (`"steady"`), following the pointer as before
+    round 9 (`"follow"`), or never: the resting bar has the magnified length, with the room beside
+    the icons (`"always"`). Ignored for rings, a scrolling run, a full-width and an anchored bar. See [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
   - `shape` (default `"bar"`; `"arc"`, `"circle"`), `radius` (DIPs, default 0 = automatic, 60 -
     2000), `rotateIcons` (default `false`), `x` / `y` (a circle's centre, or a floating bar's
     top-left, in DIPs from the work area's top-left; default: centred): see
@@ -2775,7 +2789,13 @@ always there, also when every dock is parked) handle these registered messages:
   the dock's bar along the main axis as laid out now (the background's targets: magnified, a drop
   gap open, or at rest), `MAKELONG(start px, length px)` in stage coordinates (the stage's screen
   coordinate is QueryState 144): with `magnifyBar` "steady" it is the same for every slot that
-  ItemCommand 834 magnifies, with "follow" it changes with the slot.
+  ItemCommand 834 magnifies (and for every pointer position from the moment the pointer comes onto
+  the dock until it leaves), with "always" also at rest, with "follow" it changes with the slot.
+  9A follow-up: 288 = the slot at stage main coordinate `LOWORD(lParam)` by the hit test clicks,
+  menus and the hover use (while the dock is magnified or its bar grown: the slots where they are
+  drawn, from their targets as QueryState 142 / 143 report them; else the resting slots; widgets
+  with their hit slack; no zone check), -1 none. ItemCommand 834 grows a "steady" bar as a real
+  pointer coming onto the dock does (834 with 0xFFFF: as if it left).
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the Global window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.
@@ -2999,7 +3019,7 @@ always there, also when every dock is parked) handle these registered messages:
   Appearance (round 8 phase 8B) = 2420 / 2422 / 2423 (below, the Theme tab's) and 2126 the Size
   card with 2101 - 2109 (icon size, magnification, range; on Behaviour until 8B) and (round 9
   phase 9A) 2280 **Bar while magnified** (`magnifyBar`: 0 Grows once and stays (`"steady"`), 1
-  Follows the pointer (`"follow"`); `CB_SETCURSEL` + `WM_COMMAND(2280, CBN_SELCHANGE)`; 2279 its
+  Follows the pointer (`"follow"`), 2 Always wide (`"always"`, 9A follow-up); `CB_SETCURSEL` + `WM_COMMAND(2280, CBN_SELCHANGE)`; 2279 its
   label); Behaviour = the Behaviour page's auto-hide (round 9 phase 9A: for a floating bar the
   radios 2201 - 2206, the note 2222 and the delays are collapsed and 2281 (the line) / 2282 (the
   **Position tab** SysLink: a click selects tab 1) are shown; the delays expander 2269 and its

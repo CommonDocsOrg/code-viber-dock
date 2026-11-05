@@ -54,7 +54,7 @@ const wchar_t* const kTitlesNames[] = {L"off", L"one", L"two"};
 const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
 const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kOverflowNames[] = {L"scroll", L"shrink", L"clip"};
-const wchar_t* const kMagnifyBarNames[] = {L"steady", L"follow"};  // round 9 phase 9A
+const wchar_t* const kMagnifyBarNames[] = {L"steady", L"follow", L"always"};  // round 9 phase 9A
 const wchar_t* const kShapeNames[] = {L"bar", L"arc", L"circle"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kItemAnchorNames[] = {L"none", L"start", L"center", L"end"};
@@ -817,7 +817,7 @@ void Config::Sanitize() {
         d.thumbnailSize = d.thumbnailSize <= 0 ? 0 : std::clamp(d.thumbnailSize, 16, 512);
         d.thumbnailFps = std::clamp(d.thumbnailFps, 1, 60);
         if (static_cast<unsigned>(d.overflow) > static_cast<unsigned>(OverflowMode::Clip)) d.overflow = OverflowMode::Scroll;
-        if (static_cast<unsigned>(d.magnifyBar) > static_cast<unsigned>(MagnifyBar::Follow)) d.magnifyBar = MagnifyBar::Steady;
+        if (static_cast<unsigned>(d.magnifyBar) > static_cast<unsigned>(MagnifyBar::Always)) d.magnifyBar = MagnifyBar::Steady;
         if (static_cast<unsigned>(d.shape) > static_cast<unsigned>(DockShape::Circle)) d.shape = DockShape::Bar;
         d.radius = d.radius <= 0 ? 0 : std::clamp(d.radius, 60, 2000);
         if (d.x != DockConfig::kCentred) d.x = std::clamp(d.x, -16000, 16000);

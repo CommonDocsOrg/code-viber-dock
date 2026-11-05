@@ -136,6 +136,9 @@ public:
     // Posted: a widget asked for the notification centre (notifications.openCentre(), from inside a
     // script call). wParam: unused.
     static constexpr UINT kCentreRequestMessage = WM_APP + 47;
+    // Posted (coalesced): a popup's hold ended without a leave check while the bar is grown (9A
+    // follow-up): if nothing holds the dock any more and the pointer is gone, the bar returns to rest.
+    static constexpr UINT kGrownCheckMessage = WM_APP + 48;
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -497,13 +500,20 @@ private:
         // is kept on the monitor, so a dock at a monitor end grows away from it).
         float growRoomStart = 0.0f;
         float growRoomEnd = 0.0f;
-        // Round 9 phase 9A, docks[].magnifyBar "steady": while magnified the bar is longer than at
-        // rest by steadyStart at its start and steadyEnd at its end, fixed for the whole hover
+        // Round 9 phase 9A, docks[].magnifyBar "steady": while the pointer is on the dock (grown_)
+        // the bar is longer than at rest by steadyStart at its start and steadyEnd at its end
         // (half each about the resting centre, the rest going to the other end where the room cuts
-        // one); the run slides inside it. False: the bar follows the pointer (or never grows).
+        // one); everything before the first / after the last magnifying slot moves out with the
+        // bar's ends once, the magnified run slides inside the room this leaves. "always" (9A
+        // follow-up): the resting layout has that room already (steadyStart before the first
+        // magnifying slot, steadyEnd after the last one) and the bar never grows. False: the bar
+        // follows the pointer (or never grows).
         bool steady = false;
+        bool always = false;
         float steadyStart = 0.0f;
         float steadyEnd = 0.0f;
+        int padStartSlot = -1;  // always: the slot whose lead holds steadyStart (-1 none)
+        int padEndSlot = -1;    // ... and steadyEnd (-1: the bar's trail)
         float popupY = 0.0f;     // popups open beyond this cross coordinate (with docks[].popupGap)
         float roomPx = 0.0f;      // room along the edge for the bar (margins and docks[].maxLength applied)
         bool fullWidth = false;   // the bar spans the monitor's edge (docks[].fullWidth)
@@ -1034,9 +1044,24 @@ private:
     void OnBounceTimer();
     void ScheduleBounceTimer();
     void UpdateIconUsage();
-    // The slot under a stage point (rest layout, inside the active zone; widgets with their hit
-    // slack), or -1.
+    // The slot under a stage point (inside the active zone; widgets with their hit slack), or -1:
+    // where the slots are laid out now (HitAlong).
     int HitTest(POINT stagePt) const;
+    // The slot at stage main coordinate x, without the zone check (9A follow-up): while the bar is
+    // grown or magnified, against the slots' current targets (targetX, targetScale), so a click
+    // lands on what is drawn under the pointer; otherwise (and in a drag / drop layout, whose
+    // targeting works in rest coordinates) the rest slots.
+    int HitAlong(float stageX) const;
+    bool LiveHits() const;
+    // The grown bar (9A follow-up, "steady" while grown_): how far its start / end stand out from
+    // rest (0, 0 otherwise; "always" has its room inside the resting bar).
+    bool GrownBar() const { return layout_.steady && (layout_.always || grown_); }
+    float GrownOutStart() const { return layout_.steady && !layout_.always && grown_ ? layout_.steadyStart : 0.0f; }
+    float GrownOutEnd() const { return layout_.steady && !layout_.always && grown_ ? layout_.steadyEnd : 0.0f; }
+    // A stage main coordinate on the grown bar -> the rest layout's (drag / drop targeting).
+    float RestMain(float stageX) const;
+    // The popup anchor of slot `slot` (its element's, a widget moved with the grown bar's end).
+    float SlotPopupAnchor(int slot) const;
     // Index of the rest slot containing stage x (-1 outside every slot: beyond the ends, in a spacer).
     int SlotAt(float stageX) const;
     // Width of an item's box: the icon, or a separator's / widget's whole slot.
@@ -1258,7 +1283,12 @@ private:
 
     // Magnification
     bool magnifying_ = false;
-    float cursorX_ = 0.0f;        // stage main coordinate (canonical x) of the last mouse position in the zone
+    // 9A follow-up: the pointer is on the dock (or a menu / popup / drag holds it): a "steady" bar
+    // keeps its grown length. Set when the pointer comes onto the bar (and by ItemCommand 834),
+    // cleared only by a LeaveZone with nothing holding the dock (and when it hides).
+    bool grown_ = false;
+    bool grownCheckPosted_ = false;  // kGrownCheckMessage is posted
+    float cursorX_ = 0.0f;       // stage main coordinate (canonical x) of the last mouse position in the zone
     double lastMagnify_ = 0.0;    // Renderer::Now() of the last applied update
     bool magnifyPending_ = false;
     bool restPending_ = false;

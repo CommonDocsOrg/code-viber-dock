@@ -158,12 +158,14 @@ protected:
             // Round 9 phase 9A: docks[].magnifyBar.
             Label(kMagnifyBarLabel, L"Bar while magnified");
             Tip(kMagnifyBarLabel,
-                L"Grows once and stays: when the icons start to grow the bar grows to its magnified length at once, "
-                L"evenly at both ends, and keeps that length while you move from icon to icon (no wobble left and "
-                L"right); the icons slide inside it. Follows the pointer: the bar grows away from the pointer and its "
-                L"ends move as you go along the icons (before round 9). Rings, a scrolling dock and a full-width bar "
-                L"always grow as before.");
-            Combo(kMagnifyBarCombo, kColX, 212, false);
+                L"Grows once and stays: when the pointer comes onto the dock the bar grows to its magnified length "
+                L"at once, evenly at both ends, and keeps that length until the pointer leaves the dock (menus and "
+                L"popups keep it too): no wobble left and right, the widgets and separators stay where they are and "
+                L"only the magnified icons move. Follows the pointer: the bar grows away from the pointer and its ends move as you go along "
+                L"the icons (before round 9). Always wide: the bar always has its magnified length (room for the "
+                L"magnified icons at both ends of the icons), so nothing grows or shrinks. Rings, a scrolling dock "
+                L"and a full-width bar always grow as before.");
+            Combo(kMagnifyBarCombo, kColX, 252, false);  // the longest entry: "Always wide (...)"
             NextRow();
             return;
         }
@@ -205,6 +207,7 @@ protected:
         if (!dockOnly_) return;
         ComboAdd(kMagnifyBarCombo, L"Grows once and stays");  // MagnifyBar order
         ComboAdd(kMagnifyBarCombo, L"Follows the pointer");
+        ComboAdd(kMagnifyBarCombo, L"Always wide (never grows or shrinks)");
     }
 
     void Load() override {
@@ -233,7 +236,7 @@ protected:
         }
         if (id == kMagnifyBarCombo) {  // round 9 phase 9A
             const int sel = ComboSel(id);
-            if (code == CBN_SELCHANGE && sel >= 0 && sel <= 1 && static_cast<MagnifyBar>(sel) != Dock().magnifyBar) {
+            if (code == CBN_SELCHANGE && sel >= 0 && sel <= static_cast<int>(MagnifyBar::Always) && static_cast<MagnifyBar>(sel) != Dock().magnifyBar) {
                 Dock().magnifyBar = static_cast<MagnifyBar>(sel);
                 Changed(SettingsScope::Appearance);  // relayout: the steady growth is part of the layout
             }

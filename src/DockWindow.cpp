@@ -834,7 +834,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     }
     l.itemsW = itemsW;
     const float lead = first == Run::Icon ? l.padding - half : l.padding;
-    const float trail = prev == Run::Icon ? l.padding - half : l.padding;
+    float trail = prev == Run::Icon ? l.padding - half : l.padding;
     const size_t n = icons;
     float barW = lead + itemsW + trail;
     barW = std::round(std::max(barW, l.iconPx + 2.0f * l.padding));
@@ -873,6 +873,34 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         roomPx = std::min(roomPx, std::round(static_cast<float>(d.maxLength) * s));
     }
     l.roomPx = roomPx;
+    // docks[].magnifyBar "always" (9A follow-up): the resting bar already has the room a magnified
+    // run grows into, half before the first magnifying slot and half after the last one (between
+    // the icons and the widgets at the ends, so those never move); the bar never grows. Not for a
+    // ring, a full-width or an anchored bar, nor when the room would make the run overflow.
+    l.always = false;
+    l.padStartSlot = l.padEndSlot = -1;
+    float alwaysStart = 0.0f, alwaysEnd = 0.0f;
+    if (d.magnifyBar == MagnifyBar::Always && !polar && !l.fullWidth && !d.Anchored() && magGrow > 0.0f && l.firstMag >= 0 &&
+        lead + itemsW + trail + magGrow <= roomPx + 0.5f) {
+        l.always = true;
+        alwaysStart = std::floor(magGrow / 2.0f);
+        alwaysEnd = magGrow - alwaysStart;
+        l.padStartSlot = l.firstMag;
+        items_[static_cast<size_t>(l.firstMag)].lead += alwaysStart;
+        for (size_t i = static_cast<size_t>(l.lastMag) + 1; i < items_.size() && l.padEndSlot < 0; ++i) {
+            if (!items_[i].IsWidget() || items_[i].slotW > 0.0f) l.padEndSlot = static_cast<int>(i);
+        }
+        itemsW += alwaysStart;
+        if (l.padEndSlot >= 0) {
+            items_[static_cast<size_t>(l.padEndSlot)].lead += alwaysEnd;
+            itemsW += alwaysEnd;
+        } else {
+            trail += alwaysEnd;  // nothing after the last icon: the bar's own end
+        }
+        l.itemsW = itemsW;
+        barW = std::round(std::max(lead + itemsW + trail, l.iconPx + 2.0f * l.padding));
+        winW = barW + 2.0f * slack;
+    }
     // Item anchors (round 7 phase 7B): with an anchor or an offset on some item, a bar whose run fits
     // the room is as long as the room (full width: the edge) and its items are laid out as groups
     // (AnchoredLeads: the gaps between the groups become leads, so everything else still sees one
@@ -1134,9 +1162,16 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // whole hover: rest + the magnification's growth, half at each end, except where the stage's
     // room cuts an end (a monitor end, a start / end aligned bar): that part goes to the other end.
     // Not for a ring, a scrolling run, a full-width or an anchored bar (their growth is as before).
-    l.steady = d.magnifyBar == MagnifyBar::Steady && !polar && !l.view.on && !l.fullWidth && !l.anchored && magGrow > 0.0f;
+    // 9A follow-up: the bar keeps that length from the moment the pointer comes onto the dock until
+    // it leaves (grown_), not only while magnifying; "always" has the same room at rest (above).
+    l.steady = d.magnifyBar == MagnifyBar::Steady && !polar && !l.view.on && !l.fullWidth && !l.anchored && magGrow > 0.0f &&
+               l.firstMag >= 0;
     l.steadyStart = l.steadyEnd = 0.0f;
-    if (l.steady) {
+    if (l.always) {
+        l.steady = true;
+        l.steadyStart = alwaysStart;
+        l.steadyEnd = alwaysEnd;
+    } else if (l.steady) {
         float start = std::floor(magGrow / 2.0f);
         float end = magGrow - start;
         const float roomStart = std::max(0.0f, l.growRoomStart), roomEnd = std::max(0.0f, l.growRoomEnd);
@@ -1165,15 +1200,20 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         // bar's near edge and sticks out on the far side only, as a magnified icon does.
         item.y = item.IsWidget() ? std::round(std::min(l.bar.top + (iconBarH - item.boxCross) / 2.0f, l.bar.top + iconBarH - item.boxCross))
                                  : l.itemTop;
-        if (item.lead <= 0.0f || firstIcon < 0) continue;
         const int k = static_cast<int>(i);
+        // "always": the room before the first magnifying slot is the icon side of its spacer, the
+        // room after the last one the icon side of the next spacer; a hairline stays in the spacer
+        // proper, beside the widgets.
+        const float padBefore = k == l.padEndSlot ? alwaysEnd : 0.0f;
+        const float spacer = item.lead - padBefore - (k == l.padStartSlot ? alwaysStart : 0.0f);
+        if (spacer <= 0.0f || firstIcon < 0) continue;
         // Anchored groups: no hairline in a gap between groups (only in a spacer of the usual size).
         const bool gap = l.anchored && item.lead > baseLeads[i] + 0.5f;
         if (k > lastIcon && !trailingSpacerSeen) {
             trailingSpacerSeen = true;
-            if (!gap) l.separatorX = std::round(spacerLeft + item.lead / 2.0f);
+            if (!gap) l.separatorX = std::round(spacerLeft + padBefore + spacer / 2.0f);
         }
-        if (k == firstIcon && !gap) l.leftSeparatorX = std::round(spacerLeft + item.lead / 2.0f);
+        if (k == firstIcon && !gap) l.leftSeparatorX = std::round(spacerLeft + spacer / 2.0f);
     }
     // Scrolling: the spacers move with the run, so the background (fixed) draws no hairlines (nor
     // does a ring: its edges are its hairlines).
@@ -1497,7 +1537,7 @@ void DockWindow::UpdateWindowRect() {
 }
 
 bool DockWindow::NeedsStage() const {
-    if (magnifying_ || hovered_ >= 0 || labelShown_ || labelPending_ || labelFading_ || restPending_ || hold_) {
+    if (magnifying_ || grown_ || hovered_ >= 0 || labelShown_ || labelPending_ || labelFading_ || restPending_ || hold_) {
         return true;
     }
     if (dragPhase_ != DragPhase::None || dropActive_) return true;
@@ -2751,6 +2791,7 @@ bool DockWindow::ShiftScroll(float to) {
     if (previewItem_ >= 0 || previewPending_) DismissPreview(true, false);
     // The slot under a still pointer is another one now.
     if (magnifying_ && dragPhase_ == DragPhase::None && !scrollDrag_) {
+        ComputeTargets();  // the hit test reads the targets (the run moved)
         POINT screen{};
         if (GetCursorPos(&screen)) {
             const int hit = HitTest(POINT{screen.x - l.window.left, screen.y - l.window.top});
@@ -2795,8 +2836,10 @@ bool DockWindow::ScrollCommand(UINT cmd, int arg) {
         // tracking would end the magnification at once).
         if (hideState_ != HideState::Shown || dragPhase_ != DragPhase::None) return false;
         magnifying_ = true;
+        if (layout_.steady) grown_ = true;  // as a real pointer coming onto the dock (9A follow-up)
         cursorX_ = static_cast<float>(arg);
-        const int slot = SlotAt(cursorX_);
+        ComputeTargets();  // the hit test below reads them
+        const int slot = HitAlong(cursorX_);
         SetHover(slot >= 0 && !items_[static_cast<size_t>(slot)].IsWidget() ? slot : -1);  // the label follows
         ApplyMagnify();
         return true;
@@ -3395,9 +3438,10 @@ void DockWindow::RefreshDirtyWidgets() {
 // cursor: the rest-layout offset u of the cursor in the bar maps to M(u) in the magnified bar
 // (lead padding and spacers unscaled, icon slots stretched, separators and widgets moved by the
 // growth before them), and the magnified bar starts at cursorX - M(u). So the bar grows away from
-// the cursor on both sides (macOS behaviour), the hovered icon stays under the pointer, and
-// hit-testing in rest coordinates always matches what is drawn. Widgets before the first / after
-// the last icon move with the bar's left / right end.
+// the cursor on both sides (macOS behaviour) and the hovered icon stays under the pointer. Widgets
+// before the first / after the last icon move with the bar's left / right end. Hit testing reads
+// these targets (HitAlong; 9A follow-up), so it matches what is drawn also where the run cannot
+// stay anchored (a grown bar's room used up, a monitor end).
 
 void DockWindow::ComputeTargets() {
     const Layout& l = layout_;
@@ -3468,13 +3512,34 @@ void DockWindow::ComputeTargets() {
                 leads.assign(n, 0.0f);
                 float width = 0.0f;
                 Run prev = Run::None;
+                // "always" (9A follow-up): the room for a magnified run stays before the first /
+                // after the last magnifying slot of the order shown.
+                int firstMagK = -1, lastMagK = -1;
+                if (l.always) {
+                    for (size_t k = 0; k < n; ++k) {
+                        if (!items_[dragOrder_[k]].Magnifies()) continue;
+                        if (firstMagK < 0) firstMagK = static_cast<int>(k);
+                        lastMagK = static_cast<int>(k);
+                    }
+                }
+                bool endPadded = lastMagK < 0;
                 for (size_t k = 0; k < n; ++k) {
                     const DockItem& it = items_[dragOrder_[k]];
                     const Run run = !it.IsWidget() ? Run::Icon : it.slotW > 0.0f ? Run::Widget : Run::None;
                     if (run == Run::None) continue;
                     leads[k] = SpacerBetween(prev, run, sepW, widgetGap);
+                    if (static_cast<int>(k) == firstMagK) leads[k] += l.steadyStart;
+                    if (!endPadded && static_cast<int>(k) > lastMagK) {
+                        leads[k] += l.steadyEnd;
+                        endPadded = true;
+                    }
                     prev = run;
                     width += leads[k] + it.slotW;
+                }
+                // (The rest run holds the end room in a lead, or in the bar's trail: centre alike.)
+                if (lastMagK >= 0) {
+                    if (endPadded) width -= l.steadyEnd;
+                    if (l.padEndSlot >= 0) width += l.steadyEnd;
                 }
                 slotLeft += std::round((l.itemsW - width) / 2.0f);
             }
@@ -3492,8 +3557,35 @@ void DockWindow::ComputeTargets() {
                 if (i < n) place(i, lead);
             }
         }
-        bgLeftTarget_ = l.bar.left - (l.view.on ? 0.0f : shiftLeft);
-        bgRightTarget_ = l.bar.right + (l.view.on ? 0.0f : shiftRight) - l.bgSurfaceW;
+        float barStart = l.view.on ? 0.0f : shiftLeft;
+        float barEnd = l.view.on ? 0.0f : shiftRight;
+        if (GrownBar()) {
+            // 9A follow-up: a drag (or a drop gap) on the grown bar ("steady" while grown_, or
+            // "always"): the slots before the first / after the last magnifying slot of the order
+            // shown stay with the grown bar's ends, a gap's push goes into the room beside the run
+            // first (the bar grows further only by what does not fit).
+            const float outS = GrownOutStart(), outE = GrownOutEnd();
+            const float padS = l.steadyStart, padE = l.steadyEnd;
+            const float moveS = std::min(shiftLeft, padS) - outS;   // added to the walked targets before the run
+            const float moveE = outE - std::min(shiftRight, padE);  // ... and after it
+            int firstK = -1, lastK = -1;
+            for (size_t k = 0; k < n; ++k) {
+                const size_t i = dragLayout ? dragOrder_[k] : k;
+                if (!items_[i].Magnifies()) continue;
+                if (firstK < 0) firstK = static_cast<int>(k);
+                lastK = static_cast<int>(k);
+            }
+            for (size_t k = 0; k < n && firstK >= 0; ++k) {
+                const size_t i = dragLayout ? dragOrder_[k] : k;
+                if (dragLayout && static_cast<int>(i) == src && dragPhase_ != DragPhase::None) continue;  // follows the cursor / fades
+                if (static_cast<int>(k) < firstK) items_[i].targetX += moveS;
+                if (static_cast<int>(k) > lastK) items_[i].targetX += moveE;
+            }
+            barStart = outS + std::max(0.0f, shiftLeft - padS);
+            barEnd = outE + std::max(0.0f, shiftRight - padE);
+        }
+        bgLeftTarget_ = l.bar.left - barStart;
+        bgRightTarget_ = l.bar.right + barEnd - l.bgSurfaceW;
         viewEnds(gapLayout, gapLayout);
         return;
     }
@@ -3545,24 +3637,29 @@ void DockWindow::ComputeTargets() {
         }
         growLeft = std::clamp(mapped - u, 0.0f, delta);
         // At a monitor end the stage is cut: the bar grows away from it (the icon under the
-        // cursor then drifts off the pointer by what did not fit).
-        if (delta - growLeft > l.growRoomEnd) growLeft = delta - l.growRoomEnd;
-        growLeft = std::clamp(growLeft, 0.0f, std::max(0.0f, l.growRoomStart));
+        // cursor then drifts off the pointer by what did not fit). (A grown bar's room already
+        // respects the stage: below.)
+        if (!GrownBar()) {
+            if (delta - growLeft > l.growRoomEnd) growLeft = delta - l.growRoomEnd;
+            growLeft = std::clamp(growLeft, 0.0f, std::max(0.0f, l.growRoomStart));
+        }
     }
     // How far the bar's ends move out: with the run (follow), or (round 9 phase 9A, steady) by the
-    // layout's fixed amounts while magnified. Steady: the run slides inside the fixed bar, the end
-    // padding taking up the slack, and never leaves it: the first / last magnifying slot keeps the
-    // rest spacing to the bar's end (or to the end widgets, which move with the bar's ends). Where
-    // the run's growth does not fit both ends (both cut by the room), the bar grows past them.
+    // layout's fixed amounts. 9A follow-up: from the moment the pointer comes onto the dock until it
+    // leaves (grown_; a menu, a popup or a drag holding the dock keeps it), whether or not anything
+    // magnifies, so the widgets and separators at the ends move once, never while the pointer walks
+    // the dock; "always": the resting bar has that room already and its ends never move. The run
+    // slides inside the room (padS / padE beside it), anchored at the pointer while it fits; where
+    // it does not, the hovered icon drifts off the pointer (the hit test follows the targets) and
+    // only where the run's growth exceeds both rooms (both cut by the stage) the bar grows further.
     float barStart = growLeft;
     float barEnd = delta - growLeft;
-    if (magnify && l.steady) {
-        barStart = l.steadyStart;
-        barEnd = l.steadyEnd;
-        growLeft = std::max(std::min(growLeft, barStart), delta - barEnd);
+    if (GrownBar()) {
+        const float padS = l.steadyStart, padE = l.steadyEnd;
+        growLeft = std::max(std::min(growLeft, padS), delta - padE);
         growLeft = std::clamp(growLeft, 0.0f, delta);
-        barStart = std::max(barStart, growLeft);
-        barEnd = std::max(barEnd, delta - growLeft);
+        barStart = GrownOutStart() + std::max(0.0f, growLeft - padS);
+        barEnd = GrownOutEnd() + std::max(0.0f, delta - growLeft - padE);
     }
     const float growRight = delta - growLeft;
 
@@ -3898,14 +3995,25 @@ void DockWindow::SetBigIcons(bool big) {
 
 void DockWindow::LeaveZone() {
     if (!CursorInZone()) previewSuppressed_ = false;  // really left (not a menu taking the mouse)
-    const bool wasActive = magnifying_ || hovered_ >= 0;
-    magnifying_ = false;
     pressed_ = -1;
     pressedMiddle_ = -1;
     if (magnifyPending_) {
         KillTimer(hwnd_, kMagnifyTimerId);
         magnifyPending_ = false;
     }
+    // 9A follow-up: a menu or a modal dialog of the dock (hold_) took the mouse: the layout stays as
+    // it is (the bar grown, the icons magnified where the pointer was) until it ends; SetHold(false)
+    // then runs the leave check again (the pointer gone: back to rest below; still on the dock:
+    // nothing moves). An open popup keeps the grown bar (the icons return to rest as before).
+    if (hold_ && grown_) {
+        SetHover(-1);
+        UpdateWidgetHover(-1);
+        return;
+    }
+    const bool keepGrown = grown_ && popupHolds_ != 0;
+    const bool wasActive = magnifying_ || hovered_ >= 0 || (grown_ && !keepGrown);
+    magnifying_ = false;
+    if (!keepGrown) grown_ = false;
     SetHover(-1);
     UpdateWidgetHover(-1);
     if (wasActive) {
@@ -3931,7 +4039,8 @@ bool DockWindow::InZone(POINT pt) const {
     const D2D1_POINT_2F c = l.Canon(pt);  // canonical: x along the bar, y toward the edge
     const float x = c.x;
     const float y = c.y;
-    if (x < l.bar.left || x >= l.bar.right) return false;
+    // 9A follow-up: a grown "steady" bar's whole extent (its ends and the widgets there moved out).
+    if (x < l.bar.left - GrownOutStart() || x >= l.bar.right + GrownOutEnd()) return false;
     const float top = magnifying_ ? std::min(l.magTop, l.bar.top) : l.bar.top;
     // A ring: its band (and the magnified icons beyond it); its hole is not the dock.
     return y >= top && y < (l.polar.on ? l.bar.bottom : l.stageCross);
@@ -4211,6 +4320,11 @@ void DockWindow::TakePopupHold(uint32_t bit) {
 void DockWindow::ReleasePopupHold(uint32_t bit, bool leaveCheck) {
     if (!(popupHolds_ & bit)) return;
     popupHolds_ &= ~bit;
+    // A grown bar (9A follow-up) the popup kept: without a leave check here, one runs once the
+    // current message is done (nothing holding any more and the pointer gone: back to rest).
+    if (hwnd_ && !leaveCheck && grown_ && !hold_ && !popupHolds_ && !grownCheckPosted_) {
+        grownCheckPosted_ = PostMessageW(hwnd_, kGrownCheckMessage, 0, 0) != FALSE;
+    }
     // Another popup (or a menu / drag) still holds the dock: it does the leave check when it ends.
     if (!hwnd_ || !leaveCheck || hold_ || popupHolds_ || hideState_ == HideState::Hidden) return;
     if (!CursorInZone()) LeaveZone();  // return to rest, compact, start the hide delay
@@ -4496,7 +4610,7 @@ void DockWindow::ShowClickPopup(int slot) {
     // A scrolling run: the slot glides fully into view first (the popup opens over where it lands).
     if (layout_.view.on) ScrollSlotIntoView(slot);
     const DockElement& element = ElementOf(static_cast<size_t>(slot));
-    const float anchor = element.PopupAnchor(items_[static_cast<size_t>(slot)], Context());
+    const float anchor = SlotPopupAnchor(slot);
     switch (element.Popup()) {
         case ClickPopup::Folder: ShowFolderPopup(slot, anchor); return;
         case ClickPopup::Group: ShowGroupPopup(slot, anchor); return;
@@ -4745,7 +4859,7 @@ void DockWindow::ShowFrontReminder() {
     float anchor = (l.bar.left + l.bar.right) / 2.0f;
     for (const DockItem& item : items_) {
         if (item.kind == DockItem::Kind::Clock) {
-            anchor = item.x + item.slotW / 2.0f;
+            anchor = item.targetX + item.slotW / 2.0f;
             break;
         }
     }
@@ -4762,7 +4876,7 @@ void DockWindow::ReminderAction(int action) {
         for (size_t i = 0; i < items_.size(); ++i) {
             if (items_[i].kind != DockItem::Kind::Clock) continue;
             calendarTarget_ = ClockOf(*config_, ElementOf(i).Entry()).clickTarget;
-            ShowCalendarPopup(items_[i].x + items_[i].slotW / 2.0f, r.day);
+            ShowCalendarPopup(items_[i].targetX + items_[i].slotW / 2.0f, r.day);
             if (calendar_.Visible()) calendarClock_ = items_[i].key;
             break;
         }
@@ -4867,7 +4981,7 @@ void DockWindow::OnWidgetPopupRequests() {
                     if (!passiveWidget_.empty() && passiveWidget_ != key) DismissWidgetPassive(false);
                     const DockItem& item = items_[static_cast<size_t>(slot)];
                     passiveWidget_ = key;
-                    if (!widgetPassive_.Show(r.width, r.height, WidgetPopupStyle(), PopupAnchorAt(item.x + item.slotW / 2.0f))) {
+                    if (!widgetPassive_.Show(r.width, r.height, WidgetPopupStyle(), PopupAnchorAt(item.targetX + item.slotW / 2.0f))) {
                         passiveWidget_.clear();
                         widgetPassive_.Hide(false);
                     }
@@ -4879,7 +4993,7 @@ void DockWindow::OnWidgetPopupRequests() {
                 if (popupWidget_ != key) DismissClickPopups(false, false);
                 const DockItem& item = items_[static_cast<size_t>(slot)];
                 popupWidget_ = key;
-                if (!widgetPopup_.Show(r.width, r.height, WidgetPopupStyle(), PopupAnchorAt(item.x + item.slotW / 2.0f))) {
+                if (!widgetPopup_.Show(r.width, r.height, WidgetPopupStyle(), PopupAnchorAt(item.targetX + item.slotW / 2.0f))) {
                     popupWidget_.clear();
                     MessageBeep(MB_ICONWARNING);
                     break;
@@ -4898,14 +5012,14 @@ void DockWindow::OnWidgetPopupRequests() {
                 if (cut != std::wstring::npos && cut + 1 < name.size()) name = name.substr(cut + 1);
                 ItemView view = ItemView::Auto;
                 FromString(r.view, view);
-                ShowFolderPopupAt(r.arg, name, item.x + item.slotW / 2.0f, item.key, view);
+                ShowFolderPopupAt(r.arg, name, item.targetX + item.slotW / 2.0f, item.key, view);
                 break;
             }
             case Kind::Calendar: {
                 if (slot < 0 || hideState_ != HideState::Shown) break;
                 const DockItem& item = items_[static_cast<size_t>(slot)];
                 calendarTarget_ = config_->clock.clickTarget;  // a widget's: the defaults' target
-                ShowCalendarPopup(item.x + item.slotW / 2.0f, r.day);
+                ShowCalendarPopup(item.targetX + item.slotW / 2.0f, r.day);
                 if (calendar_.Visible()) calendarOpener_ = key;
                 break;
             }
@@ -4930,7 +5044,7 @@ void DockWindow::OnWidgetPopupRequests() {
                 }
                 DismissClickPopups(false, false);
                 const DockItem& item = items_[static_cast<size_t>(slot)];
-                previewAnchor_ = PopupAnchorAt(item.x + item.slotW / 2.0f);
+                previewAnchor_ = PopupAnchorAt(item.targetX + item.slotW / 2.0f);
                 ShowPreview(app, true);
                 if (preview_.Visible()) previewOpener_ = key;
                 break;
@@ -5240,6 +5354,7 @@ void DockWindow::StartHide() {
         magnifyPending_ = false;
     }
     magnifying_ = false;
+    grown_ = false;  // slides off at rest
     SetHover(-1);
     hideState_ = HideState::Hiding;
     SyncWidgetVisibility();
@@ -6114,8 +6229,10 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     if (structural && dragPhase_ == DragPhase::Removing) dragSource_ = -1;  // keeps fading in its slot
     if (structural) {
         // The window is resized and re-centred: drop hover state. Windows sends a synthetic
-        // WM_MOUSEMOVE when the window moves under the cursor, which re-magnifies.
+        // WM_MOUSEMOVE when the window moves under the cursor, which re-magnifies. A grown bar
+        // stays grown while the pointer is on it or something holds the dock (9A follow-up).
         magnifying_ = false;
+        if (grown_ && !hold_ && !popupHolds_ && !CursorInZone()) grown_ = false;
         SetHover(-1);
         pressed_ = -1;
         pressedMiddle_ = -1;
@@ -6478,6 +6595,7 @@ void DockWindow::ApplyDragGroup(float stageX, bool canChangeGroup) {
 }
 
 void DockWindow::UpdateDragTarget(float stageX) {
+    stageX = RestMain(stageX);  // the targeting works in rest coordinates (a grown bar: 9A follow-up)
     const size_t n = items_.size();
     const int s = dragSource_;
     dragInsert_ = -1;
@@ -6795,13 +6913,14 @@ int DockWindow::GroupCandidateAt(POINT pt) const {
     if (!src.pinned && src.key.IsClassFallback()) return -1;  // nothing a group could keep
     const D2D1_POINT_2F c = layout_.Canon(pt);
     if (c.y < layout_.itemTop - layout_.iconPx * 0.5f) return -1;  // well above the icons (the unpin zone)
-    const int slot = SlotAt(c.x);
+    const float x = RestMain(c.x);
+    const int slot = SlotAt(x);
     if (slot < 0 || slot == dragSource_) return -1;
     const DockItem& t = items_[static_cast<size_t>(slot)];
     const bool pin = t.pinned && (t.kind == DockItem::Kind::App || t.kind == DockItem::Kind::Folder);
     if (!pin && t.kind != DockItem::Kind::Group) return -1;
     const float quarter = t.slotW * 0.25f;
-    if (c.x < t.slotX + quarter || c.x >= t.slotX + t.slotW - quarter) return -1;
+    if (x < t.slotX + quarter || x >= t.slotX + t.slotW - quarter) return -1;
     return slot;
 }
 
@@ -7053,6 +7172,7 @@ HRESULT DockWindow::RenderMarker() {
 }
 
 DockWindow::DropMode DockWindow::DropModeAt(float stageX, int* item, int* gap) const {
+    stageX = RestMain(stageX);  // rest coordinates (a grown bar: 9A follow-up)
     *item = -1;
     *gap = -1;
     if (!trayDragKey_.empty()) {
@@ -7771,21 +7891,87 @@ void DockWindow::EndDockDrag(bool commit) {
 }
 
 int DockWindow::HitTest(POINT pt) const {  // stage coordinates
-    // Rest-slot hit-testing inside the active zone. The magnified layout is anchored at the
-    // cursor, so the rest slot under the cursor is also the icon drawn under it.
     if (items_.empty() || !InZone(pt)) return -1;
-    const float x = layout_.Canon(pt).x;  // along the bar
-    const int slot = SlotAt(x);
-    if (slot >= 0) return slot;
-    // Beside a widget: its hit slack (half the gap to a neighbouring widget) still counts.
+    return HitAlong(layout_.Canon(pt).x);  // along the bar
+}
+
+bool DockWindow::LiveHits() const {
+    // The magnified (or grown) layout: its slots are where the targets put them. A drag or a file
+    // drag's gap layout keeps the rest slots (their targeting works in rest coordinates).
+    const bool dragLayout = dragPhase_ != DragPhase::None || dragLanding_ || dropGap_ >= 0;
+    return !dragLayout && (magnifying_ || GrownBar());
+}
+
+int DockWindow::HitAlong(float x) const {
+    if (items_.empty()) return -1;
+    if (!LiveHits()) {
+        const int slot = SlotAt(x);
+        if (slot >= 0) return slot;
+        // Beside a widget: its hit slack (half the gap to a neighbouring widget) still counts.
+        for (size_t i = 0; i < items_.size(); ++i) {
+            const DockItem& item = items_[i];
+            if (item.hitSlack > 0.0f && item.slotW > 0.0f && x >= item.slotX - item.hitSlack &&
+                x < item.slotX + item.slotW + item.hitSlack) {
+                return static_cast<int>(i);
+            }
+        }
+        return -1;
+    }
+    // 9A follow-up: the slots as targeted now. A magnifying slot is its scaled box plus the gap,
+    // centred on the box (scaled about its foot's centre); any other slot its rest width from its
+    // target. The magnified layout is anchored at the pointer, so this is the rest slot under it
+    // wherever the run fits; where it does not (the room beside a grown bar used up, a monitor end),
+    // it is still the one drawn under the pointer.
+    const Layout& l = layout_;
+    if (l.view.on && (x < l.view.clipStart || x >= l.view.clipEnd)) return -1;
+    auto span = [&](const DockItem& item, float& a, float& b) {
+        if (item.Magnifies()) {
+            const float box = BoxW(item), w = box * item.targetScale;
+            a = item.targetX + box / 2.0f - w / 2.0f - BoxInset(item);
+            b = a + w + l.gap;
+        } else {
+            a = item.targetX - BoxInset(item);
+            b = a + item.slotW;
+        }
+    };
     for (size_t i = 0; i < items_.size(); ++i) {
         const DockItem& item = items_[i];
-        if (item.hitSlack > 0.0f && item.slotW > 0.0f && x >= item.slotX - item.hitSlack &&
-            x < item.slotX + item.slotW + item.hitSlack) {
-            return static_cast<int>(i);
-        }
+        if (item.IsWidget() && item.slotW <= 0.0f) continue;  // takes no room
+        float a = 0.0f, b = 0.0f;
+        span(item, a, b);
+        if (x < a) break;  // in the spacer before it
+        if (x < b) return static_cast<int>(i);
+    }
+    for (size_t i = 0; i < items_.size(); ++i) {
+        const DockItem& item = items_[i];
+        if (item.hitSlack <= 0.0f || item.slotW <= 0.0f) continue;
+        float a = 0.0f, b = 0.0f;
+        span(item, a, b);
+        if (x >= a - item.hitSlack && x < b + item.hitSlack) return static_cast<int>(i);
     }
     return -1;
+}
+
+float DockWindow::RestMain(float x) const {
+    // The grown bar moved what lies before the first / after the last magnifying slot out by its
+    // room; a drag shows the run itself in rest places.
+    const Layout& l = layout_;
+    const float outS = GrownOutStart(), outE = GrownOutEnd();
+    if ((outS <= 0.0f && outE <= 0.0f) || l.firstMag < 0 || l.lastMag < 0 || l.lastMag >= static_cast<int>(items_.size())) return x;
+    const float a = items_[static_cast<size_t>(l.firstMag)].slotX;
+    const float b = items_[static_cast<size_t>(l.lastMag)].slotX + items_[static_cast<size_t>(l.lastMag)].slotW;
+    if (x < a) return std::min(a, x + outS);
+    if (x >= b) return std::max(b, x - outE);
+    return x;
+}
+
+float DockWindow::SlotPopupAnchor(int slot) const {
+    if (slot < 0 || slot >= static_cast<int>(items_.size())) return 0.0f;
+    const DockItem& item = items_[static_cast<size_t>(slot)];
+    const float anchor = ElementOf(static_cast<size_t>(slot)).PopupAnchor(item, Context());
+    // A widget's element anchors at its rest place: it is drawn where its target is (moved with the
+    // grown bar's end, 9A follow-up).
+    return item.IsWidget() ? anchor + (item.targetX - item.x) : anchor;
 }
 
 int DockWindow::SlotAt(float x) const {
@@ -8239,6 +8425,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return static_cast<LRESULT>(MAKELONG(static_cast<WORD>(std::clamp(std::lround(start), 0L, 65535L)),
                                                  static_cast<WORD>(std::clamp(std::lround(length), 0L, 65535L))));
         }
+        case 288:  // 9A follow-up: the slot at stage main coordinate LOWORD(lp) by the live hit test (clicks, menus, hover; -1 none)
+            return HitAlong(static_cast<float>(LOWORD(lp)));
         // --- overflow / scrolling (round 4 phase 11a) ---
         case 128:  // docks[].overflow (0 scroll, 1 shrink, 2 clip)
             return static_cast<LRESULT>(DockCfg().overflow);
@@ -8500,7 +8688,13 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (hideState_ == HideState::Hiding) StartShow();  // came back mid-slide: reverse
             magnifying_ = true;
+            // 9A follow-up: on the dock, a "steady" bar has its grown length until the pointer
+            // leaves (LeaveZone), whatever it is over meanwhile.
+            if (layout_.steady) grown_ = true;
             cursorX_ = layout_.Canon(pt).x;
+            // The targets for this pointer position first: the hit test reads them (what is drawn
+            // under the pointer once they are applied; ScheduleMagnify applies them).
+            ComputeTargets();
             {
                 const int hit = HitTest(pt);  // a widget is not hovered: no label, no preview
                 const bool widget = hit >= 0 && items_[static_cast<size_t>(hit)].IsWidget();
@@ -8679,6 +8873,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             OnAppBarNotify(wp, lp);
             return 0;
 
+        case kGrownCheckMessage:
+            grownCheckPosted_ = false;
+            if (grown_ && !hold_ && !popupHolds_ && hideState_ != HideState::Hidden && !CursorInZone()) LeaveZone();
+            return 0;
+
         case kWidgetRedrawMessage:
             widgetRedrawPosted_ = false;
             DispatchEvent(DockEvent::WidgetRedraw);
@@ -8699,7 +8898,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 DismissCentre(true);
                 return 0;
             }
-            ShowCentre(ElementOf(static_cast<size_t>(slot)).PopupAnchor(items_[static_cast<size_t>(slot)], Context()));
+            ShowCentre(SlotPopupAnchor(slot));
             if (centre_.OnScreen()) centreOpener_ = key;
             return 0;
         }

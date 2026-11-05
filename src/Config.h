@@ -122,11 +122,13 @@ enum class ThumbnailMode { Off, Live, Snapshots };
 // at least) or "clip" (the run goes on past the monitor's end, as before round 4 phase 11).
 enum class OverflowMode { Scroll, Shrink, Clip };
 // How the bar grows while magnified (round 9 phase 9A, docks[].magnifyBar): "steady" (default: it
-// grows once to its magnified length, symmetrically about its resting centre, and stays that long
-// while the pointer walks the icons) or "follow" (before round 9: anchored at the pointer, its ends
-// move as the pointer walks the run). Rings, a scrolling bar and a full-width or anchored bar
-// always grow as before.
-enum class MagnifyBar { Steady, Follow };
+// grows once to its magnified length, symmetrically about its resting centre, when the pointer
+// comes onto the dock, and keeps that length, every widget and separator in place, until the
+// pointer leaves it), "follow" (before round 9: anchored at the pointer, its ends move as the
+// pointer walks the run) or "always" (the bar always has its magnified length: room for the
+// magnified icons at both ends of the icons, nothing grows or shrinks). Rings, a scrolling bar and
+// a full-width or anchored bar always grow as before.
+enum class MagnifyBar { Steady, Follow, Always };
 // The dock's shape (round 4 phase 11b): "bar" (default), "arc" (a half ring whose diameter lies
 // on the screen edge, the items along the arc) or "circle" (a full ring floating on the monitor at
 // x / y; it ignores the edge, alignment and offset).
@@ -316,8 +318,8 @@ struct DockConfig {
     int iconSize = 48;
     double magnification = 1.5;  // hovered icon scale; 1.0 disables magnification (1.0 - 2.5)
     int magnifyRange = 2;        // falloff radius in icon slots (1 - 4)
-    // Round 9 phase 9A: how the bar grows while magnified ("steady" / "follow"). Saved only when
-    // not "steady".
+    // Round 9 phase 9A: how the bar grows while magnified ("steady" / "follow" / "always"). Saved
+    // only when not "steady".
     MagnifyBar magnifyBar = MagnifyBar::Steady;
     AutoHideMode autoHide = AutoHideMode::Always;
     int hideDelayMs = 400;
