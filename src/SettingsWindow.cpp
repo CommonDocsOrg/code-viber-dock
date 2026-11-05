@@ -480,15 +480,20 @@ void SettingsPage::Collapse(std::initializer_list<int> ids, bool hidden) {
     bool changed = false;
     for (int id : ids) {
         int buddy = 0;
+        int sectionCard = -1;
         for (Ctl& c : table_) {
             if (c.id != id) continue;
             if (c.collapsed != hidden) changed = true;
             c.collapsed = hidden;
             // A check box / radio with its caption, an edit with its up-down, a label with its hint.
             if (c.kind == CtlKind::Check || c.kind == CtlKind::Radio || c.kind == CtlKind::Edit || c.kind == CtlKind::Label) buddy = c.buddy;
+            // Round 9 phase 9E: a card's heading takes its "?" with it (a collapsed card left an
+            // empty card with only the "?", e.g. a folder's Item window).
+            if (c.kind == CtlKind::Section && c.card >= 0) sectionCard = c.card;
         }
         for (Ctl& c : table_) {
-            if (!buddy || c.id != buddy) continue;
+            const bool help = sectionCard >= 0 && c.kind == CtlKind::Help && c.card == sectionCard;
+            if (!help && (!buddy || c.id != buddy)) continue;
             if (c.collapsed != hidden) changed = true;
             c.collapsed = hidden;
         }
@@ -1589,6 +1594,21 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
                 if (!move[m] || cap.id != c.buddy) continue;
                 const int shiftX = cap.dip.left - cap.base.left;
                 OffsetRect(&c.dip, shiftX, 0);
+            }
+        }
+        // Round 9 phase 9E: a slider's value ("1.00×") past the right margin (the Global window's
+        // Animation speed at its minimum size showed "1..") pulls in: the slider before it gets
+        // shorter (down to 80 DIPs) and the value moves left by as much.
+        for (size_t k : row) {
+            Ctl& v = t[k];
+            if (v.kind != CtlKind::Value || v.dip.right <= W - kM) continue;
+            for (size_t m : row) {
+                Ctl& tb = t[m];
+                if (tb.kind != CtlKind::Trackbar || tb.dip.right > v.dip.left) continue;
+                const int take = std::min(static_cast<int>(v.dip.right) - (W - kM), std::max(0, static_cast<int>(tb.dip.right - tb.dip.left) - 80));
+                tb.dip.right -= take;
+                OffsetRect(&v.dip, -take, 0);
+                break;
             }
         }
         // Text never runs past the right margin (a narrow window): it wraps or ends with "…".

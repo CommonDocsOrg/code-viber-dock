@@ -705,7 +705,7 @@ has each phase's notes.
 | 8D Global window | Nav groups; Docks and displays toolbar, Lock all check box and row actions; Themes top menu, collapsible groups and the small reset button; Widget library primary button and More menu; Calendar feeds form as an expander; Tray icons / Notifications hints | Done (the commit "Group the Global nav, menus on Docks and displays, Themes and the Widget library"; STATUS.md "Round 8") |
 | 8E Regression | Every window kind at default and minimum size, light / dark if cheap, the drawer previews; the release build; the user's dock restarted | Done (folded into the 2026-11-04 release build the user runs; the Win+D desktop re-placement followed as "Re-place the desktop windows after Win+D raises Progman") |
 
-## Round 9 (in progress, 2026-11-04): full-screen apps, steady magnification, clearer auto-hide, settings search, presets, help
+## Round 9 (complete 2026-11-04): full-screen apps, steady magnification, clearer auto-hide, settings search, presets, help
 
 Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round9.md` (from the user's pasted
 wish list of 2026-11-04). Testing is light (one or two checks per change, a regression at the end).
@@ -717,7 +717,7 @@ One commit per phase on master, not pushed; STATUS.md "Round 9" has each phase's
 | 9B Settings search | Ctrl+F / a box in the Global nav / the Dock ⋯ menu opens a search over every setting of every window (name, label, hint, value); Go to opens, scrolls to, focuses and flashes the control; check boxes and combos change in place; QueryState 282 / 283, DockCommand 151 | Done (the commit "Search every setting from Ctrl+F, go to it, change it in place"; most of its code landed one commit earlier in cc20c17, whose subject "Implement late re-placement for desktop windows on foreground change" does not describe it; STATUS.md "Round 9") |
 | 9C Presets | Predefined dock setups as RCDATA JSON (basic, minimal, modern, windows and labels, sidebar, floating performance, desktop dashboard) with a chooser dialog (description + rendered preview); Docks and displays > Add ▾ > Dock from a preset…, the Dock ⋯ menu > Apply a preset…, the first-run Welcome dialog; QueryState 284, DockCommand 152 / 153 | Done (the commit "Start from a preset: seven dock setups, a chooser, the welcome dialog"; STATUS.md "Round 9") |
 | 9D Help | Human-readable guides in docs/ (quick start, settings, docks, items, troubleshooting), an in-app Help window (Markdown rendered in a RichEdit, F1, a Help nav row, "?" buttons on every settings card), every field labelled with a tooltip (QueryState 285 counts the gaps); QueryState 286 / 287, DockCommand 154 | Done (the commit "Help from every card: user guides, a Help window, F1, a tooltip on every setting"; STATUS.md "Round 9") |
-| 9E Regression | Every window kind at default and minimum size, the new dialogs, the guard, the docs link check; the release build; the user's dock restarted | Planned |
+| 9E Regression | Every window kind at default and minimum size, the new dialogs, the guard, the docs link check; the release build; the user's dock restarted | Done (STATUS.md "Round 9 final regression": every suite re-run on the release exe, pictures of every window kind at both sizes; two layout fixes: a collapsed card takes its "?" with it, a slider's value pulls in at a narrow width) |
 
 ## Dependencies at a glance
 
