@@ -73,6 +73,7 @@ add_executable(WinDock WIN32
   src/DarkMode.cpp
   src/SettingsWindow.cpp
   src/SettingsNav.cpp
+  src/SettingsSearch.cpp
   src/SettingsBands.cpp
   src/SettingsPages.cpp
   src/SettingsPagesAppearance.cpp

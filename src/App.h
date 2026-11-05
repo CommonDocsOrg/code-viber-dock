@@ -13,6 +13,7 @@
 #include "ContextMenu.h"
 #include "DockManager.h"
 #include "DockWindow.h"
+#include "SettingsSearch.h"
 #include "SettingsWindow.h"
 #include "TaskbarController.h"
 #include "WidgetConsole.h"
@@ -84,6 +85,7 @@ private:
     static constexpr UINT kDialogActivated = WM_APP + 3;  // posted (wParam = window): ChooseItemIcon's focus fix
     static constexpr UINT kDisplaySync = WM_APP + 4;      // posted: re-enumerate the monitors (coalesced)
     static constexpr UINT kConsoleClosed = WM_APP + 6;    // posted: delete the destroyed widget Console (WM_APP + 5: kReapMessage)
+    static constexpr UINT kSearchClosed = WM_APP + 8;     // posted: delete the closed search dialogs (WM_APP + 7: kRemoveFolderMessage)
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
 
@@ -206,8 +208,21 @@ private:
     // --- the settings windows (round 5 phase B) ---
     // The host of window `w`: every callback bound to that window (its dock by id each time).
     SettingsHost MakeSettingsHost(SettingsWindow* w);
-    // Creates, shows and keeps `w` (false: it could not be created).
-    bool AddSettingsWindow(std::unique_ptr<SettingsWindow> w);
+    // Creates, shows and keeps `w` (false: it could not be created). `show` false (round 9 phase
+    // 9B): created hidden for a settings search (searchHidden_).
+    bool AddSettingsWindow(std::unique_ptr<SettingsWindow> w, bool show = true);
+    // --- the settings search (round 9 phase 9B) ---
+    // Opens (or brings forward, with `text` typed) the search dialog owned by settings window `owner`.
+    void OpenSearch(SettingsWindow* owner, const std::wstring& text);
+    SettingsSearchHost MakeSearchHost();
+    // A settings window created hidden for the search's index (kept in searchHidden_ until the last
+    // search dialog closes, unless an Open* path shows it first).
+    SettingsWindow* CreateHiddenSettings(SettingsKind kind, const std::wstring& dock, size_t item = SIZE_MAX);
+    bool IsSearchHidden(const SettingsWindow* w) const;
+    // An Open* path found `w`: it is a window of the user's from now on (shown by Activate).
+    void ClaimSettings(SettingsWindow* w);
+    // The open search dialog owned by `w` (null: none).
+    SettingsSearch* SearchOf(const SettingsWindow* w) const;
     // An open window of that kind (Dock: of dock id `dock`; Item: of (dock, item)); null: none.
     SettingsWindow* FindSettings(SettingsKind kind, const std::wstring& dock = {}, size_t item = SIZE_MAX) const;
     int CountSettings(SettingsKind kind) const;
@@ -288,6 +303,10 @@ private:
     std::vector<std::unique_ptr<SettingsWindow>> settings_;
     SettingsWindow* activeSettings_ = nullptr;  // the settings window that is the active window
     std::unique_ptr<WidgetConsole> console_;    // null while closed
+    // Round 9 phase 9B: the open settings search dialogs (one per settings window; freed by a posted
+    // kSearchClosed) and the settings windows created hidden for their index.
+    std::vector<std::unique_ptr<SettingsSearch>> searches_;
+    std::vector<SettingsWindow*> searchHidden_;
     // The place search in flight (host.geocode): its tag, its window and where its result goes
     // (cleared when that window closes, so a late result is dropped).
     WPARAM geocodeTag_ = 0;

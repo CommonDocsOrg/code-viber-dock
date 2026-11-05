@@ -901,6 +901,10 @@ void App::Shutdown() {
     if (shutDown_) return;
     // First: closing them may commit a pending edit (focus loss), which must still be saved.
     {
+        std::vector<std::unique_ptr<SettingsSearch>> searches = std::move(searches_);  // round 9 phase 9B: before their owners
+        searches_.clear();
+        searches.clear();
+        searchHidden_.clear();
         std::vector<std::unique_ptr<SettingsWindow>> windows = std::move(settings_);
         settings_.clear();
         windows.clear();
@@ -1407,6 +1411,9 @@ bool App::PreTranslateMessage(MSG& msg) {
     for (size_t i = 0; i < settings_.size(); ++i) {
         if (SettingsWindow* w = settings_[i].get(); w->Hwnd() && w->PreTranslateMessage(msg)) return true;
     }
+    for (size_t i = 0; i < searches_.size(); ++i) {  // round 9 phase 9B: the search dialogs
+        if (SettingsSearch* s = searches_[i].get(); s->Hwnd() && s->PreTranslateMessage(msg)) return true;
+    }
     return false;
 }
 
@@ -1430,7 +1437,7 @@ SettingsWindow* App::FindSettings(SettingsKind kind, const std::wstring& dock, s
 int App::CountSettings(SettingsKind kind) const {
     int n = 0;
     for (const auto& w : settings_) {
-        if (w->Hwnd() && w->Kind() == kind) ++n;
+        if (w->Hwnd() && w->Kind() == kind && !IsSearchHidden(w.get())) ++n;  // round 9 phase 9B: not the search's hidden ones
     }
     return n;
 }
@@ -1619,7 +1626,7 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     host.anchor = [this, w] {
         // An Item window: 40 DIPs from its dock's window, when that is open (and not minimized).
         RECT r{};
-        if (SettingsWindow* d = FindSettings(SettingsKind::Dock, w->DockId()); d && !IsIconic(d->Hwnd())) {
+        if (SettingsWindow* d = FindSettings(SettingsKind::Dock, w->DockId()); d && !IsIconic(d->Hwnd()) && IsWindowVisible(d->Hwnd())) {
             GetWindowRect(d->Hwnd(), &r);
         }
         return r;
@@ -1658,6 +1665,7 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     host.destroyed = [this] {
         if (hwnd_) PostMessageW(hwnd_, kSettingsClosed, 0, 0);
     };
+    host.openSearch = [this, w](const std::wstring& text) { OpenSearch(w, text); };  // round 9 phase 9B
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
     host.dockWindows = [this](size_t index) {
         int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;
@@ -1733,10 +1741,10 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     return host;
 }
 
-bool App::AddSettingsWindow(std::unique_ptr<SettingsWindow> w) {
+bool App::AddSettingsWindow(std::unique_ptr<SettingsWindow> w, bool show) {
     SettingsWindow* raw = w.get();
     raw->Host() = MakeSettingsHost(raw);
-    if (!raw->Create(instance_)) {
+    if (!raw->Create(instance_, show)) {
         if (activeSettings_ == raw) activeSettings_ = nullptr;
         if (geocodeOwner_ == raw) {
             geocodeOwner_ = nullptr;
@@ -1752,6 +1760,7 @@ bool App::AddSettingsWindow(std::unique_ptr<SettingsWindow> w) {
 void App::OpenSettings(int page) {
     if (shutDown_) return;
     if (SettingsWindow* w = FindSettings(SettingsKind::Global)) {
+        ClaimSettings(w);
         if (page >= 0) w->ShowPage(page);
         w->Activate();
         return;
@@ -1767,6 +1776,7 @@ void App::OpenDockSettings(size_t dock, int tab) {
     if (shutDown_ || dock >= config_.docks.size()) return;
     const std::wstring id = config_.docks[dock].id;
     if (SettingsWindow* w = FindSettings(SettingsKind::Dock, id)) {
+        ClaimSettings(w);
         if (tab >= 0) w->ShowPage(tab);
         w->Activate();
         return;
@@ -1792,12 +1802,104 @@ void App::OpenItemSettings(size_t dock, size_t item) {
     }
     const std::wstring id = config_.docks[dock].id;
     if (SettingsWindow* w = FindSettings(SettingsKind::Item, id, item)) {
+        ClaimSettings(w);
         w->Activate();
         return;
     }
     auto w = std::make_unique<SettingsWindow>(SettingsHost{}, SettingsKind::Item, id, item);
     w->SetItemCopy(config_.docks[dock].items[item], config_.docks[dock].items.size());
     AddSettingsWindow(std::move(w));
+}
+
+// --- the settings search (round 9 phase 9B) ----------------------------------------------------
+
+bool App::IsSearchHidden(const SettingsWindow* w) const {
+    return std::find(searchHidden_.begin(), searchHidden_.end(), w) != searchHidden_.end();
+}
+
+void App::ClaimSettings(SettingsWindow* w) { std::erase(searchHidden_, w); }
+
+SettingsSearch* App::SearchOf(const SettingsWindow* w) const {
+    if (!w || !w->Hwnd()) return nullptr;
+    for (const auto& s : searches_) {
+        if (s->Hwnd() && s->Owner() == w) return s.get();
+    }
+    return nullptr;
+}
+
+SettingsWindow* App::CreateHiddenSettings(SettingsKind kind, const std::wstring& dock, size_t item) {
+    if (shutDown_) return nullptr;
+    auto w = std::make_unique<SettingsWindow>(SettingsHost{}, kind, dock, item);
+    if (kind == SettingsKind::Item) {
+        const size_t d = DockIndexOf(dock);
+        if (d == SIZE_MAX || item >= config_.docks[d].items.size()) return nullptr;
+        w->SetItemCopy(config_.docks[d].items[item], config_.docks[d].items.size());
+    }
+    SettingsWindow* raw = w.get();
+    if (!AddSettingsWindow(std::move(w), false)) return nullptr;  // never shown, activated or focused
+    searchHidden_.push_back(raw);
+    return raw;
+}
+
+SettingsSearchHost App::MakeSearchHost() {
+    SettingsSearchHost host;
+    host.config = &config_;
+    host.windows = [this] {
+        // The Global window and every docks[] entry's Dock window (a dock, a standalone widget, a
+        // folder window); those that are not open are created hidden.
+        std::vector<SettingsWindow*> out;
+        SettingsWindow* g = FindSettings(SettingsKind::Global);
+        if (!g && !config_.docks.empty()) g = CreateHiddenSettings(SettingsKind::Global, config_.docks.front().id);
+        if (g) out.push_back(g);
+        for (size_t i = 0; i < config_.docks.size(); ++i) {
+            const std::wstring id = config_.docks[i].id;
+            SettingsWindow* w = FindSettings(SettingsKind::Dock, id);
+            if (!w) w = CreateHiddenSettings(SettingsKind::Dock, id);
+            if (w) out.push_back(w);
+        }
+        return out;
+    };
+    host.open = [this](SettingsKind kind, const std::wstring& dock, size_t item, int page) -> SettingsWindow* {
+        // The paths of DockCommand 107 / 143 / 142 (a hidden window is shown by them).
+        if (kind == SettingsKind::Global) {
+            OpenSettings(page);
+            return FindSettings(SettingsKind::Global);
+        }
+        const size_t d = DockIndexOf(dock);
+        if (d == SIZE_MAX) return nullptr;
+        if (kind == SettingsKind::Dock) {
+            OpenDockSettings(d, page);
+            return FindSettings(SettingsKind::Dock, dock);
+        }
+        OpenItemSettings(d, item);
+        return FindSettings(SettingsKind::Item, dock, item);
+    };
+    host.itemWindow = [this](const std::wstring& dock, size_t item) -> SettingsWindow* {
+        if (SettingsWindow* w = FindSettings(SettingsKind::Item, dock, item)) return w;
+        const size_t d = DockIndexOf(dock);
+        if (d == SIZE_MAX || config_.docks[d].IsWidgetWindow() || !HasItemWindow(d, item)) return nullptr;
+        return CreateHiddenSettings(SettingsKind::Item, dock, item);
+    };
+    host.destroyed = [this] {
+        if (hwnd_) PostMessageW(hwnd_, kSearchClosed, 0, 0);
+    };
+    return host;
+}
+
+void App::OpenSearch(SettingsWindow* owner, const std::wstring& text) {
+    if (shutDown_ || !owner || !owner->Hwnd() || !IsWindowVisible(owner->Hwnd())) return;
+    if (SettingsSearch* s = SearchOf(owner)) {
+        s->Activate(text);
+        return;
+    }
+    auto s = std::make_unique<SettingsSearch>(MakeSearchHost(), owner);
+    SettingsSearch* raw = s.get();
+    searches_.push_back(std::move(s));  // before Create: the index may open hidden windows
+    if (!raw->Create(instance_, text)) {
+        std::erase_if(searches_, [raw](const std::unique_ptr<SettingsSearch>& p) { return p.get() == raw; });
+        MessageBeep(MB_ICONWARNING);
+        if (hwnd_) PostMessageW(hwnd_, kSearchClosed, 0, 0);  // the hidden windows it made go
+    }
 }
 
 bool App::EditDocks(SettingsDockEdit edit, size_t index) {
@@ -2173,7 +2275,7 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return CountSettings(SettingsKind::Item);
         case 225: {  // the Dock window of dock HIWORD(lParam) is open: 1 (LOWORD(lParam) 1: its HWND), else 0
             SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
-            if (!w) return 0;
+            if (!w || IsSearchHidden(w)) return 0;  // round 9 phase 9B: one made hidden for a search is not open
             return arg == 1 ? reinterpret_cast<LRESULT>(w->Hwnd()) : 1;
         }
         case 229:    // round 5 phase C, the Dock window's Contents tab: a strip tile's centre (item LOWORD(lParam))
@@ -2193,7 +2295,16 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             SettingsWindow* w = inst && inst->cfg < config_.docks.size() && arg >= 0
                                     ? FindSettings(SettingsKind::Item, config_.docks[inst->cfg].id, static_cast<size_t>(arg))
                                     : nullptr;
-            return w ? reinterpret_cast<LRESULT>(w->Hwnd()) : 0;
+            return w && !IsSearchHidden(w) ? reinterpret_cast<LRESULT>(w->Hwnd()) : 0;
+        }
+        case 282:    // round 9 phase 9B: a search dialog is open for the Dock window of dock HIWORD (LOWORD 1: the Global window's): 1 / 0
+        case 283: {  // ... its result count (the rows shown; -2: none open)
+            SettingsWindow* w = arg == 1 ? FindSettings(SettingsKind::Global)
+                                : inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id)
+                                                                           : nullptr;
+            SettingsSearch* s = SearchOf(w);
+            if (wp == 282) return s ? 1 : 0;
+            return s ? s->ResultCount() : -2;
         }
         case 264:    // round 6 phase 6E: the Dock window's drawer: entry LOWORD's preview size (MAKELONG(w, h) px; 0 none)
         case 267:    // ... its render time in microseconds (-1: not rendered)
@@ -2407,6 +2518,21 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         const LPARAM mode = lp & 0xFFFF;
         result = docks_.FullscreenGuardOn() && mode <= 2 ? 1 : 0;
         if (result) docks_.ForceFullscreen(static_cast<int>(mode));
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kFindSetting) {
+        // Round 9 phase 9B: the settings search of the Dock window of dock HIWORD(lParam) (LOWORD 1:
+        // of the Global window), that window opened first. 1: the dialog is open.
+        SettingsWindow* w = nullptr;
+        if ((lp & 0xFFFF) == 1) {
+            OpenSettings();
+            w = FindSettings(SettingsKind::Global);
+        } else if (DockManager::Instance* inst = docks_.At(DockOfParam(lp)); inst && inst->cfg < config_.docks.size()) {
+            OpenDockSettings(inst->cfg);
+            w = FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id);
+        }
+        if (w) OpenSearch(w, L"");
+        result = SearchOf(w) ? 1 : 0;
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kSimulateExplorerRestart) {
@@ -2668,6 +2794,19 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         if (console_ && !console_->Hwnd()) console_.reset();
         return 0;
     }
+    if (msg == kSearchClosed) {
+        // Round 9 phase 9B: a search dialog closed (Esc, its owner closed). With the last one gone,
+        // the windows made hidden for the index close too (those the user went to are shown: kept).
+        std::erase_if(searches_, [](const std::unique_ptr<SettingsSearch>& s) { return !s->Hwnd(); });
+        if (searches_.empty() && !searchHidden_.empty()) {
+            const std::vector<SettingsWindow*> hidden = std::move(searchHidden_);
+            searchHidden_.clear();
+            for (SettingsWindow* w : hidden) {
+                if (w->Hwnd() && !IsWindowVisible(w->Hwnd())) DestroyWindow(w->Hwnd());  // freed by kSettingsClosed
+            }
+        }
+        return 0;
+    }
     if (msg == kSettingsClosed) {
         // The window is gone (its WM_NCDESTROY posted this); a newly opened one is kept.
         // A closed window is gone (its WM_NCDESTROY posted this); open ones are kept.
@@ -2676,6 +2815,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
             geocodeDone_ = nullptr;
         }
         if (activeSettings_ && !activeSettings_->Hwnd()) activeSettings_ = nullptr;
+        std::erase_if(searchHidden_, [](const SettingsWindow* w) { return !w->Hwnd(); });  // round 9 phase 9B
         std::erase_if(settings_, [](const std::unique_ptr<SettingsWindow>& w) { return !w->Hwnd(); });
         if (settings_.empty()) docks_.Previews().Release();  // round 6 phase 6E: its factories go with the last window
         return 0;

@@ -75,6 +75,9 @@ enum Command : UINT {
     // Round 9 phase 9A (automation only, App::OnSharedMessage): the full-screen guard forced on
     // (LOWORD(lParam) 1) / off (0) for every monitor, or back to the real evaluation (2).
     kFullscreenGuard = 150,
+    // Round 9 phase 9B (automation only, App::OnSharedMessage): the settings search dialog of the
+    // Dock window of dock HIWORD(lParam) (LOWORD 1: of the Global window), the window opened first.
+    kFindSetting = 151,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>

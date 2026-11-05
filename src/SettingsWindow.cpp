@@ -492,7 +492,7 @@ void SettingsPage::MoveCtl(int id, RECT dip) {
 }
 
 void SettingsPage::PaintBackground(HDC dc) {
-    if (cards_.empty() && hairlines_.empty()) return;
+    if (cards_.empty() && hairlines_.empty() && flashRow_ < 0) return;
     const SettingsWindow& w = window_;
     const DarkMode::Palette& p = w.Colors();
     auto mix = [](COLORREF a, COLORREF b, int pa) {
@@ -522,6 +522,26 @@ void SettingsPage::PaintBackground(HDC dc) {
         FillRect(dc, &r, line);
     }
     DeleteObject(line);
+    // Round 9 phase 9B: the row the settings search went to, in the accent fading out.
+    if (flashRow_ >= 0 && p.highContrast && !IsRectEmpty(&flashDip_)) {
+        // High contrast: a frame in the highlight colour (no mixed colours), for as long as it lasts.
+        RECT r{w.Px(flashDip_.left), w.Px(flashDip_.top) - scrollPx_, w.Px(flashDip_.right), w.Px(flashDip_.bottom) - scrollPx_};
+        HBRUSH frame = CreateSolidBrush(p.accent);
+        for (int k = 0; k < std::max(2, w.Px(2)); ++k) {
+            FrameRect(dc, &r, frame);
+            InflateRect(&r, -1, -1);
+        }
+        DeleteObject(frame);
+    } else if (flashRow_ >= 0 && w.flashBrush_ && !IsRectEmpty(&flashDip_)) {
+        const RECT r{w.Px(flashDip_.left), w.Px(flashDip_.top) - scrollPx_, w.Px(flashDip_.right), w.Px(flashDip_.bottom) - scrollPx_};
+        HPEN none = CreatePen(PS_SOLID, 1, w.flashColor_);
+        HGDIOBJ ob2 = SelectObject(dc, w.flashBrush_);
+        HGDIOBJ op2 = SelectObject(dc, none);
+        RoundRect(dc, r.left, r.top, r.right, r.bottom, w.Px(4) * 2, w.Px(4) * 2);
+        SelectObject(dc, ob2);
+        SelectObject(dc, op2);
+        DeleteObject(none);
+    }
 }
 
 void SettingsPage::Relayout() {
@@ -722,6 +742,13 @@ bool SettingsWindow::RegisterClasses(HINSTANCE instance) {
     tabs.hCursor = LoadCursorW(nullptr, IDC_ARROW);
     tabs.lpszClassName = kTabsClassName;
     if (!RegisterClassExW(&tabs) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+
+    WNDCLASSEXW find{sizeof(find)};  // round 9 phase 9B: the nav column's Find a setting… box
+    find.lpfnWndProc = FindProcThunk;
+    find.hInstance = instance;
+    find.hCursor = LoadCursorW(nullptr, IDC_IBEAM);
+    find.lpszClassName = kFindClassName;
+    if (!RegisterClassExW(&find) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
     registered = true;
     return true;
 }
@@ -778,7 +805,7 @@ RECT SettingsWindow::InitialRect() const {
     return RECT{x, y, x + s.cx, y + s.cy};
 }
 
-bool SettingsWindow::Create(HINSTANCE instance) {
+bool SettingsWindow::Create(HINSTANCE instance, bool show) {
     instance_ = instance;
     static bool commonControls = false;
     if (!commonControls) {
@@ -821,6 +848,9 @@ bool SettingsWindow::Create(HINSTANCE instance) {
     UpdateIcons();
 
     if (kind_ == SettingsKind::Global) {
+        // Round 9 phase 9B: the Find a setting… box first (the first tab stop), then the page list.
+        find_ = CreateWindowExW(0, kFindClassName, L"Find a setting\x2026", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP, 0, 0, 0,
+                                0, hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kFindBox)), instance, this);
         nav_ = CreateWindowExW(0, kNavClassName, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP, 0, 0, 0, 0, hwnd_,
                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kNav)), instance, this);
     }
@@ -865,6 +895,7 @@ bool SettingsWindow::Create(HINSTANCE instance) {
     Refresh();
     active_ = -1;
     SelectPage(0);
+    if (!show) return true;  // round 9 phase 9B: hidden for the search's index (Activate shows it)
     ShowWindow(hwnd_, SW_SHOWNORMAL);
     SetForegroundWindow(hwnd_);
     if (!lastFocus_) SetFocus(DefaultFocus());
@@ -970,7 +1001,11 @@ void SettingsWindow::CreateControls(SettingsPage& page) {
 
 void SettingsWindow::Activate() {
     if (!hwnd_) return;
-    if (IsIconic(hwnd_)) ShowWindow(hwnd_, SW_RESTORE);
+    if (!IsWindowVisible(hwnd_)) {
+        ShowWindow(hwnd_, SW_SHOWNORMAL);  // round 9 phase 9B: created hidden for a search
+    } else if (IsIconic(hwnd_)) {
+        ShowWindow(hwnd_, SW_RESTORE);
+    }
     SetForegroundWindow(hwnd_);
 }
 
@@ -1124,7 +1159,7 @@ COLORREF SettingsWindow::BandColorFor() const {
 }
 
 void SettingsWindow::DestroyBrushes() {
-    for (HBRUSH* b : {&layerBrush_, &baseBrush_, &controlBrush_, &bandBrush_, &cardBrush_}) {
+    for (HBRUSH* b : {&layerBrush_, &baseBrush_, &controlBrush_, &bandBrush_, &cardBrush_, &flashBrush_}) {
         if (*b) DeleteObject(*b);
         *b = nullptr;
     }
@@ -1334,7 +1369,10 @@ void SettingsWindow::Layout() {
     // Global: the nav column on the left, the subtitle band over the pages. Dock: the header and
     // the tab strip over the pages. Item: the header over, the footer under the page.
     const int navW = nav_ ? Px(kNavWidthDip) : 0;
-    if (nav_) SetWindowPos(nav_, nullptr, 0, 0, navW, rc.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+    // Round 9 phase 9B: the Find a setting… box over the page list.
+    const int findH = find_ ? std::min(Px(kNavFindDip), static_cast<int>(rc.bottom)) : 0;
+    if (find_) SetWindowPos(find_, nullptr, Px(12), Px(12), std::max(0, navW - Px(24)), Px(30), SWP_NOZORDER | SWP_NOACTIVATE);
+    if (nav_) SetWindowPos(nav_, nullptr, 0, findH, navW, std::max(0, static_cast<int>(rc.bottom) - findH), SWP_NOZORDER | SWP_NOACTIVATE);
     int top = 0;
     int bottom = rc.bottom;
     if (header_) {
@@ -1374,6 +1412,7 @@ void SettingsWindow::Layout() {
     LayoutBands();
     InvalidateRect(hwnd_, nullptr, TRUE);
     if (nav_) InvalidateRect(nav_, nullptr, TRUE);
+    if (find_) InvalidateRect(find_, nullptr, TRUE);
     if (tabs_) InvalidateRect(tabs_, nullptr, TRUE);
 }
 
@@ -1829,6 +1868,11 @@ bool SettingsWindow::PreTranslateMessage(MSG& msg) {
         SelectPage(next);
         return true;
     }
+    if (msg.message == WM_KEYDOWN && msg.wParam == 'F' && GetKeyState(VK_CONTROL) < 0 && GetKeyState(VK_MENU) >= 0 &&
+        GetKeyState(VK_SHIFT) >= 0) {
+        OpenSearch(L"");  // round 9 phase 9B: Ctrl+F, the settings search
+        return true;
+    }
     if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN) {
         // Enter on an expander toggles it (Space does as a button press).
         if (SettingsPage* page = PageOf(msg.hwnd)) {
@@ -2184,6 +2228,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
             hwnd_ = nullptr;
             nav_ = nullptr;
+            find_ = nullptr;
             tabs_ = nullptr;
             header_ = nullptr;
             footer_ = nullptr;
@@ -2243,6 +2288,10 @@ LRESULT SettingsWindow::CtlColor(UINT msg, HDC hdc, HWND control, const Settings
         back = cardColor_;  // round 8 phase 8A: inside a card
         brush = cardBrush_;
     }
+    if (HBRUSH flash = FlashBrush(page, c)) {  // round 9 phase 9B: the row the search flashes
+        back = flashColor_;
+        brush = flash;
+    }
     const bool enabled = IsWindowEnabled(control) != FALSE;
     if (msg == WM_CTLCOLOREDIT || msg == WM_CTLCOLORLISTBOX || (c && c->kind == CtlKind::Edit) ||
         (!c && msg == WM_CTLCOLORSTATIC)) {
@@ -2266,7 +2315,8 @@ void SettingsWindow::DrawCaption(const SettingsPage& page, const DRAWITEMSTRUCT&
     const bool enabled = !button || IsWindowEnabled(button);
     const bool card = c && c->card >= 0 && static_cast<size_t>(c->card) < page.cards_.size() &&
                       !IsRectEmpty(&page.cards_[static_cast<size_t>(c->card)].dip);
-    FillRect(di.hDC, &di.rcItem, card ? cardBrush_ : layerBrush_);
+    HBRUSH flash = FlashBrush(page, c);
+    FillRect(di.hDC, &di.rcItem, flash ? flash : card ? cardBrush_ : layerBrush_);
     SetBkMode(di.hDC, TRANSPARENT);
     SetTextColor(di.hDC, enabled ? palette_.text : palette_.textDisabled);
     HGDIOBJ old = SelectObject(di.hDC, font_);
@@ -2468,6 +2518,10 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
             ScrollPage(page, page.scrollPx_ - MulDiv(GET_WHEEL_DELTA_WPARAM(wp), Px(48), WHEEL_DELTA));
             return 0;
         case WM_TIMER:  // round 8 phase 8C: a page's own timer (the place search's typing pause)
+            if (static_cast<UINT_PTR>(wp) == SettingsPage::kFlashTimerId) {
+                FlashStep(page);  // round 9 phase 9B: the search's row flash
+                return 0;
+            }
             page.OnTimer(static_cast<UINT_PTR>(wp));
             return 0;
         case WM_CTLCOLORSTATIC:
@@ -2506,4 +2560,335 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
             break;
     }
     return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+// --- the settings search (round 9 phase 9B) --------------------------------------------------
+
+namespace {
+
+COLORREF MixColor(COLORREF a, COLORREF b, int pa) {
+    auto ch = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pa + y * (100 - pa)) / 100); };
+    return RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
+}
+
+bool IsSearchInput(CtlKind k) {
+    return k == CtlKind::Check || k == CtlKind::Radio || k == CtlKind::Combo || k == CtlKind::Edit || k == CtlKind::Trackbar;
+}
+
+bool IsDropDownList(HWND combo) { return combo && (GetWindowLongW(combo, GWL_STYLE) & 0x3) == CBS_DROPDOWNLIST; }
+
+// A drop-down's shown text: the selected row (a list), else its edit's text.
+std::wstring ComboText(HWND combo) {
+    if (!combo) return {};
+    const LRESULT sel = SendMessageW(combo, CB_GETCURSEL, 0, 0);
+    if (sel == CB_ERR) return IsDropDownList(combo) ? std::wstring() : WindowText(combo);
+    const LRESULT n = SendMessageW(combo, CB_GETLBTEXTLEN, static_cast<WPARAM>(sel), 0);
+    if (n == CB_ERR || n <= 0) return {};
+    std::wstring s(static_cast<size_t>(n) + 1, L'\0');
+    const LRESULT got = SendMessageW(combo, CB_GETLBTEXT, static_cast<WPARAM>(sel), reinterpret_cast<LPARAM>(s.data()));
+    s.resize(got == CB_ERR ? 0 : static_cast<size_t>(got));
+    return s;
+}
+
+void Append(std::wstring& to, const std::wstring& s) {
+    if (s.empty()) return;
+    if (!to.empty()) to += L' ';
+    to += s;
+}
+
+}  // namespace
+
+std::wstring SettingsWindow::SearchName() {
+    switch (kind_) {
+        case SettingsKind::Global: return L"Global";
+        case SettingsKind::Item: return ItemName() + L" on " + dockId_;
+        case SettingsKind::Dock:
+        default:
+            if (IsFolderWindow()) return L"Folder window " + dockId_;
+            if (IsWidgetWindow()) return L"Widget " + dockId_;
+            return L"Dock " + dockId_;
+    }
+}
+
+std::wstring SettingsWindow::PageName(int index) const {
+    return index >= 0 && index < static_cast<int>(pages_.size()) ? pages_[static_cast<size_t>(index)]->Name() : std::wstring();
+}
+
+std::vector<SettingsWindow::SearchEntry> SettingsWindow::SearchEntries() {
+    std::vector<SearchEntry> out;
+    if (!hwnd_) return out;
+    for (size_t p = 0; p < pages_.size(); ++p) {
+        const SettingsPage& page = *pages_[p];
+        if (!page.hwnd_ || !page.InNav() || !page.reflow_) continue;  // the Contents tab lays itself out: not a list of settings
+        const std::vector<Ctl>& t = page.table_;
+        auto off = [](const Ctl& c) { return !c.hwnd || c.collapsed || !c.shown; };  // does not apply now
+        auto cardTitle = [&](int card) -> std::wstring {
+            if (card < 0 || static_cast<size_t>(card) >= page.cards_.size()) return {};
+            if (const int s = page.cards_[static_cast<size_t>(card)].section) {
+                if (const Ctl* h = page.Find(s)) return h->text;
+            }
+            for (const Ctl& h : t) {
+                if (h.card == card && h.kind == CtlKind::Expander && h.heading) {
+                    const size_t dot = h.text.find(L" \x00B7 ");  // "Bar · 2 changed"
+                    return dot == std::wstring::npos ? h.text : h.text.substr(0, dot);
+                }
+            }
+            return {};
+        };
+        // What a row says besides its controls: its notes (a label's hint, a unit) and tooltips.
+        auto rowExtra = [&](int row) {
+            std::wstring s;
+            if (row < 0) return s;
+            for (const Ctl& c : t) {
+                if (c.row != row) continue;
+                if (c.kind == CtlKind::Note && c.hwnd) Append(s, c.measured && c.maxLines > 0 ? c.text : WindowText(c.hwnd));
+                Append(s, c.tip);
+            }
+            return s;
+        };
+        std::vector<int> rowsDone;
+        for (size_t i = 0; i < t.size(); ++i) {
+            const Ctl& c = t[i];
+            if (!IsSearchInput(c.kind) || off(c)) continue;
+            SearchEntry e;
+            e.page = static_cast<int>(p);
+            e.id = c.id;
+            e.kind = c.kind;
+            e.card = cardTitle(c.card);
+            e.enabled = IsWindowEnabled(c.hwnd) != FALSE;
+            if (c.kind == CtlKind::Check || c.kind == CtlKind::Radio) {
+                // Its caption; a radio's value is the chosen caption of its group.
+                e.setting = c.text;
+                const Ctl* caption = page.Find(c.buddy);
+                e.tip = !c.tip.empty() ? c.tip : caption ? caption->tip : std::wstring();
+                e.extra = rowExtra(c.row);
+                if (c.kind == CtlKind::Check) {
+                    e.value = SendMessageW(c.hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED ? L"On" : L"Off";
+                } else {
+                    size_t first = i, last = i;
+                    while (first > 0 && t[first].kind == CtlKind::Radio && !(t[first].style & WS_GROUP)) --first;
+                    while (last + 1 < t.size() && t[last + 1].kind == CtlKind::Radio && !(t[last + 1].style & WS_GROUP)) ++last;
+                    for (size_t k = first; k <= last; ++k) {
+                        if (t[k].kind == CtlKind::Radio && t[k].hwnd && SendMessageW(t[k].hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED) {
+                            e.value = t[k].text;
+                        }
+                    }
+                }
+            } else {
+                // One entry per row: its label, its first input control (the one Go to focuses).
+                if (c.row >= 0) {
+                    if (std::find(rowsDone.begin(), rowsDone.end(), c.row) != rowsDone.end()) continue;
+                    rowsDone.push_back(c.row);
+                }
+                const Ctl* label = nullptr;
+                const Ctl* valueText = nullptr;
+                std::vector<const Ctl*> inputs;
+                for (const Ctl& o : t) {
+                    if (c.row < 0 ? &o != &c : o.row != c.row) continue;
+                    if (o.kind == CtlKind::Label && !label) label = &o;
+                    if (o.kind == CtlKind::Value && !off(o) && !valueText) valueText = &o;
+                    if ((o.kind == CtlKind::Edit || o.kind == CtlKind::Combo || o.kind == CtlKind::Trackbar) && !off(o)) inputs.push_back(&o);
+                }
+                e.setting = label ? label->text : e.card;
+                if (e.setting.empty()) continue;  // nothing names it
+                e.tip = label && !label->tip.empty() ? label->tip : c.tip;
+                e.extra = rowExtra(c.row);
+                if (valueText && GetWindowTextLengthW(valueText->hwnd) > 0) {
+                    e.value = WindowText(valueText->hwnd);  // "1.50x"
+                } else {
+                    const bool text = std::any_of(inputs.begin(), inputs.end(), [](const Ctl* o) { return o->kind != CtlKind::Trackbar; });
+                    for (const Ctl* o : inputs) {
+                        std::wstring v;
+                        if (o->kind == CtlKind::Edit) {
+                            v = WindowText(o->hwnd);
+                            // A unit right of it ("DIPs", "%", "minutes").
+                            for (const Ctl& u : t) {
+                                if (u.row == o->row && u.row >= 0 && u.kind == CtlKind::Note && !off(u) && u.base.left >= o->base.right &&
+                                    u.base.left <= o->base.right + 24 && !v.empty()) {
+                                    v += L" " + WindowText(u.hwnd);
+                                }
+                            }
+                        } else if (o->kind == CtlKind::Combo) {
+                            v = ComboText(o->hwnd);
+                        } else if (!text) {
+                            v = std::to_wstring(SendMessageW(o->hwnd, TBM_GETPOS, 0, 0));
+                        }
+                        if (v.empty()) continue;
+                        if (!e.value.empty()) e.value += L" \x00B7 ";
+                        e.value += v;
+                    }
+                }
+                if (c.kind == CtlKind::Combo && IsDropDownList(c.hwnd)) {
+                    const LRESULT n = SendMessageW(c.hwnd, CB_GETCOUNT, 0, 0);
+                    for (LRESULT k = 0; k < n && k < 400; ++k) {
+                        const LRESULT len = SendMessageW(c.hwnd, CB_GETLBTEXTLEN, static_cast<WPARAM>(k), 0);
+                        std::wstring s(len > 0 ? static_cast<size_t>(len) + 1 : 1, L'\0');
+                        const LRESULT got = len > 0 ? SendMessageW(c.hwnd, CB_GETLBTEXT, static_cast<WPARAM>(k), reinterpret_cast<LPARAM>(s.data())) : 0;
+                        s.resize(got > 0 ? static_cast<size_t>(got) : 0);
+                        e.choices.push_back(std::move(s));
+                    }
+                    e.choice = static_cast<int>(SendMessageW(c.hwnd, CB_GETCURSEL, 0, 0));
+                }
+            }
+            out.push_back(std::move(e));
+        }
+    }
+    return out;
+}
+
+bool SettingsWindow::SearchReveal(int pageIndex, int id, RECT* screen) {
+    if (!hwnd_ || pageIndex < 0 || pageIndex >= static_cast<int>(pages_.size())) return false;
+    SettingsPage& page = *pages_[static_cast<size_t>(pageIndex)];
+    const Ctl* c = page.Find(id);
+    if (!c || !c->hwnd) return false;
+    SelectPage(pageIndex);
+    if (c->expander && !page.ExpanderOpen(c->expander)) ToggleExpander(page, c->expander);  // opens and scrolls to it
+    c = page.Find(id);
+    if (!c || !c->hwnd) return false;
+    HWND target = c->hwnd;
+    EnsureVisible(target);
+    // Show the keyboard focus (a click opened the search: the cues may be hidden).
+    SendMessageW(hwnd_, WM_CHANGEUISTATE, MAKEWPARAM(UIS_CLEAR, UISF_HIDEFOCUS), 0);
+    if (IsWindowVisible(target) && IsWindowEnabled(target)) {
+        SetFocus(target);
+        lastFocus_ = target;
+        if (c->kind == CtlKind::Edit) SendMessageW(target, EM_SETSEL, 0, -1);
+    }
+    FlashRow(pageIndex, id);
+    if (screen) {
+        GetWindowRect(target, screen);
+        if (c->kind == CtlKind::Combo) screen->bottom = screen->top + Px(SettingsPage::kRowH - 8);
+    }
+    return true;
+}
+
+bool SettingsWindow::SearchChange(int pageIndex, int id, int choice) {
+    if (!hwnd_ || loading_ || pageIndex < 0 || pageIndex >= static_cast<int>(pages_.size())) return false;
+    SettingsPage& page = *pages_[static_cast<size_t>(pageIndex)];
+    const Ctl* c = page.Find(id);
+    HWND h = c ? c->hwnd : nullptr;
+    if (!h || !IsWindowEnabled(h) || !page.hwnd_) return false;
+    // The page hears what a click would send (PageProc -> OnCommand): BN_CLICKED / CBN_SELCHANGE.
+    switch (c->kind) {
+        case CtlKind::Check: {
+            const bool on = SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED;
+            SendMessageW(h, BM_SETCHECK, on ? BST_UNCHECKED : BST_CHECKED, 0);
+            SendMessageW(page.hwnd_, WM_COMMAND, MAKEWPARAM(id, BN_CLICKED), reinterpret_cast<LPARAM>(h));
+            return true;
+        }
+        case CtlKind::Radio: {
+            if (SendMessageW(h, BM_GETCHECK, 0, 0) == BST_CHECKED) return true;  // chosen already
+            const std::vector<Ctl>& t = page.table_;
+            size_t at = 0;
+            while (at < t.size() && t[at].id != id) ++at;
+            size_t first = at, last = at;
+            while (first > 0 && t[first].kind == CtlKind::Radio && !(t[first].style & WS_GROUP)) --first;
+            while (last + 1 < t.size() && t[last + 1].kind == CtlKind::Radio && !(t[last + 1].style & WS_GROUP)) ++last;
+            for (size_t k = first; k <= last && k < t.size(); ++k) {
+                if (t[k].kind == CtlKind::Radio && t[k].hwnd) SendMessageW(t[k].hwnd, BM_SETCHECK, k == at ? BST_CHECKED : BST_UNCHECKED, 0);
+            }
+            SendMessageW(page.hwnd_, WM_COMMAND, MAKEWPARAM(id, BN_CLICKED), reinterpret_cast<LPARAM>(h));
+            return true;
+        }
+        case CtlKind::Combo: {
+            if (!IsDropDownList(h)) return false;
+            const LRESULT n = SendMessageW(h, CB_GETCOUNT, 0, 0);
+            if (choice < 0 || choice >= n) return false;
+            if (SendMessageW(h, CB_GETCURSEL, 0, 0) == choice) return true;
+            SendMessageW(h, CB_SETCURSEL, static_cast<WPARAM>(choice), 0);
+            SendMessageW(page.hwnd_, WM_COMMAND, MAKEWPARAM(id, CBN_SELCHANGE), reinterpret_cast<LPARAM>(h));
+            return true;
+        }
+        default:
+            return false;
+    }
+}
+
+void SettingsWindow::FlashRow(int pageIndex, int id) {
+    if (!hwnd_ || pageIndex < 0 || pageIndex >= static_cast<int>(pages_.size())) return;
+    // One flash at a time in a window.
+    for (auto& other : pages_) {
+        if (other->flashRow_ < 0 || !other->hwnd_) continue;
+        other->flashStart_ = 0;  // ends at its next step
+        FlashStep(*other);
+    }
+    SettingsPage& page = *pages_[static_cast<size_t>(pageIndex)];
+    const Ctl* c = page.Find(id);
+    if (!c || !page.hwnd_) return;
+    RECT band = c->dip;
+    if (c->kind == CtlKind::Combo) band.bottom = band.top + SettingsPage::kRowH - 4;
+    if (c->row >= 0) {
+        for (const Ctl& o : page.table_) {
+            if (o.row != c->row || o.collapsed || !o.shown || (o.expander && !page.ExpanderOpen(o.expander))) continue;
+            RECT r = o.dip;
+            if (o.kind == CtlKind::Combo) r.bottom = r.top + SettingsPage::kRowH - 4;
+            UnionRect(&band, &band, &r);
+        }
+    }
+    // Across the card (the page's margins less the card's padding), a little taller than the row.
+    const int w = page.Width();
+    band.left = SettingsPage::kMargin - SettingsPage::kCardPadX + 3;
+    band.right = w - SettingsPage::kMargin + SettingsPage::kCardPadX - 3;
+    band.top -= 3;
+    band.bottom += 3;
+    page.flashRow_ = c->row >= 0 ? c->row : INT_MAX;
+    page.flashDip_ = band;
+    page.flashStart_ = GetTickCount64();
+    SetTimer(page.hwnd_, SettingsPage::kFlashTimerId, 30, nullptr);
+    FlashStep(page);
+}
+
+void SettingsWindow::FlashStep(SettingsPage& page) {
+    if (!page.hwnd_) return;
+    RECT px{Px(page.flashDip_.left), Px(page.flashDip_.top) - page.scrollPx_, Px(page.flashDip_.right),
+            Px(page.flashDip_.bottom) - page.scrollPx_};
+    InflateRect(&px, Px(2), Px(2));
+    const ULONGLONG elapsed = page.flashStart_ ? GetTickCount64() - page.flashStart_ : SettingsPage::kFlashMs;
+    if (page.flashRow_ < 0 || elapsed >= SettingsPage::kFlashMs) {
+        // The end: nothing of it stays, no timer runs.
+        KillTimer(page.hwnd_, SettingsPage::kFlashTimerId);
+        page.flashRow_ = -1;
+        page.flashDip_ = RECT{};
+        page.flashStart_ = 0;
+        if (flashBrush_) DeleteObject(flashBrush_);
+        flashBrush_ = nullptr;
+        RedrawWindow(page.hwnd_, &px, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+        return;
+    }
+    // The accent at 30 % over what is under the row (a card or the layer), fading out.
+    bool inCard = false;
+    for (const Ctl& c : page.table_) {
+        if (c.row == page.flashRow_ && c.card >= 0 && static_cast<size_t>(c.card) < page.cards_.size() &&
+            !IsRectEmpty(&page.cards_[static_cast<size_t>(c.card)].dip)) {
+            inCard = true;
+        }
+    }
+    const double left = 1.0 - static_cast<double>(elapsed) / SettingsPage::kFlashMs;
+    const int pct = static_cast<int>(std::lround(30.0 * left));
+    const COLORREF color = MixColor(palette_.accent, inCard ? cardColor_ : palette_.layer, pct);
+    if (!palette_.highContrast && (color != flashColor_ || !flashBrush_)) {
+        if (flashBrush_) DeleteObject(flashBrush_);
+        flashBrush_ = CreateSolidBrush(color);
+        flashColor_ = color;
+    }
+    RedrawWindow(page.hwnd_, &px, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+}
+
+HBRUSH SettingsWindow::FlashBrush(const SettingsPage& page, const Ctl* c) {
+    if (!c || page.flashRow_ < 0 || c->row != page.flashRow_ || !flashBrush_ || palette_.highContrast) return nullptr;
+    // Statics that paint their background (a trackbar keeps the brush it got first: never this one).
+    switch (c->kind) {
+        case CtlKind::Label:
+        case CtlKind::Note:
+        case CtlKind::Value:
+        case CtlKind::Caption:
+        case CtlKind::Section:
+            return flashBrush_;
+        default:
+            return nullptr;
+    }
+}
+
+void SettingsWindow::OpenSearch(const std::wstring& text) {
+    if (hwnd_ && host_.openSearch) host_.openSearch(text);
 }

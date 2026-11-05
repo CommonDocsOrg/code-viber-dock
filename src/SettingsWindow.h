@@ -164,6 +164,10 @@ struct SettingsHost {
     std::function<SettingsWidgetPreview(const std::wstring& id, float scale, SIZE fitPx, float maxZoom)> renderPreview;
     std::function<uint64_t()> previewStamp;
     std::function<uint32_t()> previewPanel;
+    // Round 9 phase 9B: the settings search dialog owned by this window (Ctrl+F, the Global nav's
+    // Find a setting… box, the Dock header's ⋯ menu), opened or brought forward with `text` typed
+    // into its box (empty: as it is).
+    std::function<void(const std::wstring& text)> openSearch;
 };
 
 class SettingsWindow;
@@ -439,6 +443,13 @@ private:
     // Round 9 phase 9A: the disabled control the page's rect tool (kDisabledTipId) is over (null: none).
     HWND tipProxy_ = nullptr;
     static constexpr UINT_PTR kDisabledTipId = 0x9A01;
+    // Round 9 phase 9B: a row flashed by the settings search's Go to (the accent at 30 % fading
+    // out over kFlashMs; one timer on the page window that kills itself at the end).
+    static constexpr UINT_PTR kFlashTimerId = 0x9B01;
+    static constexpr DWORD kFlashMs = 1200;
+    int flashRow_ = -1;        // the reflow row (-1: none)
+    RECT flashDip_{};          // its band (page DIPs)
+    ULONGLONG flashStart_ = 0;
     std::vector<Ctl> table_;
     std::vector<Card> cards_;
     std::vector<Hairline> hairlines_;
@@ -473,6 +484,7 @@ public:
     static constexpr wchar_t kPageClassName[] = L"WinDock.SettingsPage";
     static constexpr wchar_t kBandClassName[] = L"WinDock.SettingsBand";
     static constexpr wchar_t kTabsClassName[] = L"WinDock.SettingsTabs";
+    static constexpr wchar_t kFindClassName[] = L"WinDock.SettingsFind";  // round 9 phase 9B
 
     // `dock`: the config dock id (Global: the row its Docks and displays page selects first);
     // `item`: an Item window's index into that dock's items.
@@ -483,9 +495,10 @@ public:
 
     // Creates and shows the window (Global / Dock: centred on the dock's monitor, above its bar;
     // Item: 40 DIPs right / down of its dock's window, else like a Dock window) and activates it.
-    // Returns false if the window could not be created.
-    bool Create(HINSTANCE instance);
-    // Restores (if minimized) and activates the existing window.
+    // Returns false if the window could not be created. Round 9 phase 9B: `show` false creates it
+    // hidden (for the settings search's index): never shown, activated or focused until Activate.
+    bool Create(HINSTANCE instance, bool show = true);
+    // Restores (if minimized; shows it if it was created hidden) and activates the existing window.
     void Activate();
     HWND Hwnd() const { return hwnd_; }
     // Keyboard navigation (IsDialogMessage; Ctrl+Tab / Ctrl+Shift+Tab: the next / previous page)
@@ -510,6 +523,40 @@ public:
     void RequestRebuild(const SettingsPage& page);
     // Automation: the first page that answers QueryState `code` (SettingsPage::Query).
     bool QueryPages(int code, LPARAM arg, LRESULT& out);
+
+    // --- the settings search (round 9 phase 9B, SettingsSearch) ---
+    // One setting of a page as the search lists it, read from the live controls: a check box or a
+    // radio button (its caption), or a row's first input control (a drop-down list, an edit, a
+    // trackbar; its label). Collapsed and hidden controls are left out (they do not apply now); a
+    // control behind a closed expander is in (Go to opens it); pages laid out by themselves (the
+    // Contents tab) are not indexed.
+    struct SearchEntry {
+        int page = 0;            // page index (SettingsIds::kPage* / kTab*)
+        int id = 0;              // the control Go to focuses
+        CtlKind kind = CtlKind::Label;
+        std::wstring setting;    // the label / caption
+        std::wstring value;      // "On" / "Off", the chosen radio's caption, the combo's text, the edit's text, the number
+        std::wstring card;       // the card's title ("" none)
+        std::wstring extra;      // searched, not shown: the hint and the tooltip
+        std::wstring tip;        // the tooltip (the list's info tip)
+        std::vector<std::wstring> choices;  // a drop-down list's rows (in-place change)
+        int choice = -1;         // its selection
+        bool enabled = true;
+    };
+    std::vector<SearchEntry> SearchEntries();
+    // The window as the search's Where column names it: "Global", "Dock main", "Widget sw",
+    // "Folder window fw", "<item> on <dock>".
+    std::wstring SearchName();
+    std::wstring PageName(int index) const;
+    // Go to: selects page `page`, opens the expander that holds control `id`, scrolls it into view,
+    // focuses it and flashes its row. `screen`: the control's rect afterwards (screen px).
+    bool SearchReveal(int page, int id, RECT* screen = nullptr);
+    // A change in place, exactly as a click would make it: a check box toggles, a radio button is
+    // chosen, a drop-down list's row `choice` is selected (the page's own notification follows).
+    // False (nothing changed) for a greyed control or another kind.
+    bool SearchChange(int page, int id, int choice);
+    // Starts the flash of the row of control `id` on page `page`.
+    void FlashRow(int page, int id);
 
     // --- the target ---
     SettingsKind Kind() const { return kind_; }
@@ -629,6 +676,9 @@ private:
     static constexpr int kNavItemDip = 36;
     static constexpr int kNavCaptionDip = 22;  // round 8 phase 8D: a group caption ("GENERAL", "LOOK" ...)
     static constexpr int kNavGapDip = 12;      // the gap before About
+    // Round 9 phase 9B: the "Find a setting…" box at the top of the nav column (its band's height;
+    // the page list starts under it).
+    static constexpr int kNavFindDip = 48;
     static constexpr int kAboveBarDip = 24;    // gap between the window and the dock's bar
     static constexpr int kItemOffsetDip = 40;  // an Item window from its dock's window
     // The dock preview strip (SettingsPreview) under the Global Themes / Animation pages and a Dock
@@ -653,6 +703,13 @@ private:
     static LRESULT CALLBACK PageProcThunk(HWND, UINT, WPARAM, LPARAM);
     static LRESULT CALLBACK BandProcThunk(HWND, UINT, WPARAM, LPARAM);
     static LRESULT CALLBACK TabsProcThunk(HWND, UINT, WPARAM, LPARAM);
+    static LRESULT CALLBACK FindProcThunk(HWND, UINT, WPARAM, LPARAM);
+    LRESULT FindProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
+    void PaintFind(HWND hwnd, HDC hdc);
+    void OpenSearch(const std::wstring& text);
+    // The flash's next frame (its timer), the band repainted; the end kills the timer.
+    void FlashStep(SettingsPage& page);
+    HBRUSH FlashBrush(const SettingsPage& page, const Ctl* c);  // null: the control is not in the flashed row
     LRESULT WndProc(UINT msg, WPARAM wp, LPARAM lp);
     LRESULT NavProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp);
     LRESULT PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM lp);
@@ -753,6 +810,11 @@ private:
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
     HWND nav_ = nullptr;     // Global
+    HWND find_ = nullptr;    // Global: the nav column's Find a setting… box (round 9 phase 9B)
+    bool findHot_ = false;
+    bool findTracking_ = false;
+    HBRUSH flashBrush_ = nullptr;  // the flashed row's statics (FlashBrush)
+    COLORREF flashColor_ = 0;
     HWND tabs_ = nullptr;    // Dock with more than one page
     HWND header_ = nullptr;  // every kind (Global: the subtitle)
     HWND footer_ = nullptr;  // Item

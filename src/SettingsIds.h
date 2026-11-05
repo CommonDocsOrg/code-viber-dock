@@ -672,4 +672,14 @@ inline constexpr int kWwNote = 4529;            // how to move / resize it (8C: 
 inline constexpr int kWwWUnit = 4530;           // 8C: "DIPs" beside the width
 inline constexpr int kWwHUnit = 4531;           // 8C: "DIPs" beside the height
 
+// Round 9 phase 9B: the settings search (5000 - 5099). The entry points, then the children of the
+// search dialog (WinDock.SettingsSearch, owned by the settings window it was opened from).
+inline constexpr int kFindBox = 5001;       // Global: the nav column's "Find a setting…" box (WinDock.SettingsFind; a click or a key opens the dialog with that key)
+inline constexpr int kHeaderFind = 5002;    // Dock: the "⋯" menu's "Find a setting…  Ctrl+F" (WM_COMMAND to the header band)
+inline constexpr int kSearchEdit = 5010;    // the search box (WM_SETTEXT + WM_COMMAND(5010, EN_CHANGE) to the dialog filters)
+inline constexpr int kSearchList = 5011;    // SysListView32 (report, owner data): Setting, Where, Value
+inline constexpr int kSearchGo = 5012;      // "Go to" (the selected row)
+inline constexpr int kSearchStatus = 5013;  // "12 of 240 settings"
+inline constexpr int kSearchCombo = 5014;   // the drop-down placed over a combo row's Value cell (Space / a click there)
+
 }  // namespace SettingsIds

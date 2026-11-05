@@ -123,7 +123,8 @@ int SettingsWindow::NavItemDip(const std::vector<NavSlot>& order) const {
         captions += s.caption ? 1 : 0;
         gaps += s.gap ? 1 : 0;
     }
-    const int room = static_cast<int>(ClientDip().cy) - kNavTopDip - 4 - captions * kNavCaptionDip - gaps * kNavGapDip;
+    const int room = static_cast<int>(ClientDip().cy) - (find_ ? kNavFindDip : 0) - kNavTopDip - 4 - captions * kNavCaptionDip -
+                     gaps * kNavGapDip;
     return std::clamp(room / std::max(1, static_cast<int>(order.size())), 24, kNavItemDip);
 }
 
@@ -336,6 +337,158 @@ void SettingsWindow::PaintNav(HWND hwnd, HDC hdc) {
             drawText(part.font, part.text, part.len, part.rect, palette_.text,
                      DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         }
+    }
+    if (theme) CloseThemeData(theme);
+    if (buffer) EndBufferedPaint(buffer, TRUE);
+}
+
+// --- the Find a setting… box (round 9 phase 9B) ------------------------------------------------
+// A box at the top of the nav column that looks like a search box but only opens the settings
+// search dialog: a click, Enter, Space or Down opens it, a typed character opens it with that
+// character in its box. Painted like the nav (per-pixel alpha over the Mica column).
+
+LRESULT CALLBACK SettingsWindow::FindProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    SettingsWindow* self = nullptr;
+    if (msg == WM_NCCREATE) {
+        self = static_cast<SettingsWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
+        SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+    } else {
+        self = reinterpret_cast<SettingsWindow*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+    }
+    if (!self) return DefWindowProcW(hwnd, msg, wp, lp);
+    if (msg == WM_NCDESTROY) SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
+    return self->FindProc(hwnd, msg, wp, lp);
+}
+
+LRESULT SettingsWindow::FindProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+        case WM_GETDLGCODE: {
+            // Typed characters, and Enter (which the dialog manager would take as the default button).
+            const MSG* m = reinterpret_cast<const MSG*>(lp);
+            if (m && m->message == WM_KEYDOWN && m->wParam == VK_RETURN) return DLGC_WANTALLKEYS | DLGC_WANTCHARS;
+            return DLGC_WANTCHARS | DLGC_WANTARROWS;
+        }
+        case WM_KEYDOWN:
+            if (wp == VK_RETURN || wp == VK_SPACE || wp == VK_DOWN) {
+                OpenSearch(L"");
+                return 0;
+            }
+            break;
+        case WM_CHAR:
+            if (wp > L' ' && wp != 0x7F) OpenSearch(std::wstring(1, static_cast<wchar_t>(wp)));
+            return 0;
+        case WM_LBUTTONDOWN:
+            SetFocus(hwnd);
+            OpenSearch(L"");
+            return 0;
+        case WM_MOUSEMOVE:
+            if (!findTracking_) {
+                TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
+                findTracking_ = TrackMouseEvent(&tme) != FALSE;
+            }
+            if (!findHot_) {
+                findHot_ = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        case WM_MOUSELEAVE:
+            findTracking_ = false;
+            if (findHot_) {
+                findHot_ = false;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            return 0;
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return 0;
+        case WM_UPDATEUISTATE: {
+            const LRESULT r = DefWindowProcW(hwnd, msg, wp, lp);
+            InvalidateRect(hwnd, nullptr, FALSE);
+            return r;
+        }
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            PaintFind(hwnd, dc);
+            EndPaint(hwnd, &ps);
+            return 0;
+        }
+        case WM_PRINTCLIENT:
+            PaintFind(hwnd, reinterpret_cast<HDC>(wp));
+            return 0;
+        default:
+            break;
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+void SettingsWindow::PaintFind(HWND hwnd, HDC hdc) {
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    BP_PAINTPARAMS params{sizeof(params), BPPF_ERASE, nullptr, nullptr};
+    HDC dc = nullptr;
+    HPAINTBUFFER buffer = BeginBufferedPaint(hdc, &rc, BPBF_TOPDOWNDIB, &params, &dc);
+    if (!buffer) {
+        FillRect(hdc, &rc, baseBrush_);
+        dc = hdc;
+    }
+    RGBQUAD* bits = nullptr;
+    int stride = 0;
+    if (buffer && SUCCEEDED(GetBufferedPaintBits(buffer, &bits, &stride)) && bits && !mica_) {
+        const RGBQUAD base{GetBValue(palette_.base), GetGValue(palette_.base), GetRValue(palette_.base), 255};
+        for (int y = 0; y < rc.bottom; ++y) std::fill_n(bits + static_cast<ptrdiff_t>(y) * stride, rc.right, base);
+    }
+    const float radius = static_cast<float>(Px(4));
+    const bool focused = GetFocus() == hwnd;
+    // The field: the control colour, a hairline border (stronger on hover), the accent under it
+    // while it has the focus (as a text box does). High contrast: the system colours, opaque.
+    const BYTE fill = palette_.highContrast ? 255 : palette_.dark ? (findHot_ ? 0xD8 : 0xB8) : (findHot_ ? 0xFF : 0xE8);
+    BlendRoundRect(bits, stride, rc.right, rc.bottom, rc, radius, palette_.control, fill);
+    BlendRoundRect(bits, stride, rc.right, rc.bottom, rc, radius, palette_.highContrast ? palette_.text : palette_.textSecondary,
+                   palette_.highContrast ? 255 : static_cast<BYTE>(findHot_ ? 0x70 : 0x48), 1.0f);
+    if (focused) {
+        const RECT bar{rc.left + Px(2), rc.bottom - Px(2), rc.right - Px(2), rc.bottom};
+        BlendRoundRect(bits, stride, rc.right, rc.bottom, bar, static_cast<float>(Px(1)), palette_.accent, 255);
+    }
+    if (!bits && !buffer) {
+        // No buffered paint: plain GDI.
+        HBRUSH b = CreateSolidBrush(palette_.control);
+        FillRect(dc, &rc, b);
+        DeleteObject(b);
+    }
+    HTHEME theme = OpenThemeData(hwnd, L"WINDOW");
+    SetBkMode(dc, TRANSPARENT);
+    auto drawText = [&](HFONT font, const wchar_t* text, int len, RECT tr, COLORREF color) {
+        if (len == 0 || !font) return;
+        HGDIOBJ old = SelectObject(dc, font);
+        const DWORD flags = DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS;
+        if (theme && buffer) {
+            DTTOPTS opts{sizeof(opts)};
+            opts.dwFlags = DTT_COMPOSITED | DTT_TEXTCOLOR;
+            opts.crText = color;
+            DrawThemeTextEx(theme, dc, 0, 0, text, len, flags, &tr, &opts);
+        } else {
+            SetTextColor(dc, color);
+            DrawTextW(dc, text, len, &tr, flags);
+        }
+        SelectObject(dc, old);
+    };
+    int textLeft = Px(10);
+    if (fontIcons_) {
+        static const wchar_t kGlyph = L'\xE721';  // Search (Segoe Fluent Icons / MDL2 Assets)
+        drawText(fontIcons_, &kGlyph, 1, RECT{Px(9), rc.top, Px(30), rc.bottom}, palette_.textSecondary);
+        textLeft = Px(32);
+    }
+    static const wchar_t kText[] = L"Find a setting\x2026";
+    drawText(font_, kText, static_cast<int>(wcslen(kText)), RECT{textLeft, rc.top, rc.right - Px(8), rc.bottom}, palette_.textSecondary);
+    if (focused && !FocusCuesHidden(hwnd) && palette_.highContrast) {
+        RECT fr = rc;
+        InflateRect(&fr, -Px(2), -Px(2));
+        SetTextColor(dc, palette_.text);
+        DrawFocusRect(dc, &fr);
     }
     if (theme) CloseThemeData(theme);
     if (buffer) EndBufferedPaint(buffer, TRUE);

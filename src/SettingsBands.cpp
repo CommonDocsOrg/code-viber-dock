@@ -225,6 +225,7 @@ void SettingsWindow::ShowHeaderMenu() {
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
     AppendMenuW(menu, MF_STRING, kHeaderGlobal, L"Global settings…");
+    AppendMenuW(menu, MF_STRING, kHeaderFind, L"Find a setting…\tCtrl+F");  // round 9 phase 9B
     RECT r{};
     GetWindowRect(button, &r);
     const int cmd = static_cast<int>(
@@ -733,6 +734,9 @@ void SettingsWindow::OnBandCommand(int id) {
             break;
         case kHeaderMore:
             ShowHeaderMenu();
+            break;
+        case kHeaderFind:  // round 9 phase 9B: the "⋯" menu's Find a setting… (Ctrl+F)
+            OpenSearch(L"");
             break;
         case kHeaderDockLink:
             if (host_.openDock && DockIndex() != SIZE_MAX) host_.openDock(DockIndex(), -1);
