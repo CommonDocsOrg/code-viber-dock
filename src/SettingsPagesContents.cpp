@@ -1310,6 +1310,7 @@ protected:
     void Build() override {
         // Round 8 phase 8A: the tab lays itself out (LayoutColumns / FlowInspector): no reflow, no cards.
         NoReflow();
+        HelpTopic(L"guide-settings.md#contents-tab");  // round 9 phase 9D: F1 (no cards: no "?" buttons)
         SettingsStrip::Register();
         const int W = Width(), L = kMargin, R = Right(), dx = W - kDrawerW;
         // Round 8 phase 8B: the heading and its hint on one line, the strip right under them, the
@@ -1322,9 +1323,12 @@ protected:
                            L"settings. Ctrl+Left / Ctrl+Right move the selected item, Delete removes it.");
         Add(kContentsStrip, CtlKind::Custom, SettingsStrip::kClass, L"Items on the dock", WS_TABSTOP,
             RECT{L, kStripTop, R, kStripBottom});
+        Tip(kContentsStrip, L"The dock's items in their order. Click one to select it (its details and buttons are below), drag it "
+                            L"to move it, Delete removes it.");
         // The inspector (its frame is painted by PaintBackground; FlowInspector places the buttons).
         Add(kContentsInfo, CtlKind::Custom, SettingsStrip::kClass, L"Selected item", 0,
             RECT{L + 14, kInspectorTop + 10, R - 14 - 212, kInspectorTop + 46});
+        Tip(kContentsInfo, L"The selected item: its icon, its name and what it is.");
         y_ = kInspectorTop + 12;
         Button(kPinUp, L"◀ Move left", R - 14 - 206, 100);
         Button(kPinDown, L"Move right ▶", R - 14 - 100, 100);
@@ -1358,7 +1362,10 @@ protected:
             RECT{dx + 16 + kDrawerTitleW, 12, W - 16, 36});
         y_ = 38;
         EditBox(kDrawerSearch, dx + 16, kDrawerW - 32, 80);
+        Tip(kDrawerSearch, L"Type to filter the list below by name or description.");
         Add(kDrawerList, CtlKind::Custom, SettingsStrip::kClass, L"Add to the dock", WS_TABSTOP, RECT{dx + 16, 74, W - 16, 378});
+        Tip(kDrawerList, L"Everything you can put on the dock: apps and folders, the built-in items and the widgets, with live "
+                         L"previews. Drag a row onto the strip, or press its Add button to add it at the end.");
         // Two lines: the text does not fit the drawer's width on one.
         Add(kDrawerLibraryLink, CtlKind::Link, WC_LINK, L"<a>Manage installed widgets in Global > Widget library</a>", WS_TABSTOP,
             RECT{dx + 16, 386, W - 16, 422});

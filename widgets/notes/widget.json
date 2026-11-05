@@ -10,7 +10,7 @@
   },
   "standalone": { "minWidth": 80, "minHeight": 60, "defaultWidth": 220, "defaultHeight": 180 },
   "settings": [
-    { "key": "paper", "group": "Look", "type": "choice", "label": "Paper", "default": "yellow",
+    { "key": "paper", "group": "Look", "type": "choice", "label": "Paper", "description": "The note's background: coloured paper, the theme's panel, or none (just the text). Default: yellow.", "default": "yellow",
       "choices": [ { "value": "none", "label": "None (text only)" },
                    { "value": "yellow", "label": "Yellow" },
                    { "value": "pink", "label": "Pink" },
@@ -20,7 +20,7 @@
       "description": "On a dock the text gets smaller when the lines would not fit the tile." },
     { "key": "textColor", "group": "Look", "type": "colour", "label": "Text colour", "default": "#00000000",
       "description": "#00000000 (transparent): automatic, a dark ink on coloured paper, the theme's text colour otherwise." },
-    { "key": "boldTitle", "group": "Look", "type": "bool", "label": "Bold title (the first line)", "default": true },
+    { "key": "boldTitle", "group": "Look", "type": "bool", "label": "Bold title (the first line)", "description": "Writes the note's first line in bold. On by default.", "default": true },
     { "key": "lines", "group": "On a dock", "type": "int", "label": "Lines under the title", "min": 1, "max": 6, "default": 2,
       "description": "As many of them as fit the tile's height are shown; the wheel scrolls through the rest. A left or right dock shows the title only." },
     { "key": "maxWidth", "group": "On a dock", "type": "int", "label": "Widest tile", "min": 60, "max": 400, "default": 180, "unit": "DIPs",

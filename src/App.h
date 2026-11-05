@@ -13,6 +13,7 @@
 #include "ContextMenu.h"
 #include "DockManager.h"
 #include "DockWindow.h"
+#include "HelpWindow.h"
 #include "PresetDialog.h"
 #include "SettingsSearch.h"
 #include "SettingsWindow.h"
@@ -94,6 +95,7 @@ private:
     static constexpr UINT kSearchClosed = WM_APP + 8;     // posted: delete the closed search dialogs (WM_APP + 7: kRemoveFolderMessage)
     static constexpr UINT kPresetClosed = WM_APP + 9;     // round 9 phase 9C: posted: delete the closed preset chooser
     static constexpr UINT kShowWelcome = WM_APP + 12;     // posted: open the welcome dialog
+    static constexpr UINT kHelpClosed = WM_APP + 13;      // round 9 phase 9D: posted: delete the closed Help window
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
 
@@ -256,6 +258,11 @@ private:
     // the welcome variant (for the first dock). `owner`: the settings window it is modal to (null:
     // the app window).
     void OpenPresets(PresetMode mode, size_t cfg, HWND owner);
+    // Round 9 phase 9D: the Help window (one per process) at `topic` ("guide-settings.md#auto-hide";
+    // created when closed, near `nearWindow` when that is a shown window).
+    void OpenHelp(const std::wstring& topic, HWND nearWindow = nullptr);
+    // QueryState 285 for one settings window (made hidden for the count when it is not open).
+    LRESULT CountUnexplained(LPARAM lp);
     // Preset `index` (Presets::All()) applied to config dock `cfg` (keeping its pins at the marker
     // when `keepPins`): saved, every window refreshed, the dock flashed. False if refused.
     bool ApplyPreset(size_t index, size_t cfg, bool keepPins);
@@ -330,6 +337,8 @@ private:
     // whether this run started without a config file (the welcome dialog then opens once).
     std::unique_ptr<PresetDialog> presets_;
     bool firstRun_ = false;
+    // Round 9 phase 9D: the Help window (null while closed; freed by a posted kHelpClosed).
+    std::unique_ptr<HelpWindow> help_;
     UINT msgWelcome_ = 0;
     // The place search in flight (host.geocode): its tag, its window and where its result goes
     // (cleared when that window closes, so a late result is dropped).

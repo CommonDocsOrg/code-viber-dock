@@ -53,6 +53,14 @@ IDR_PRESET_SIDEBAR RCDATA "presets/sidebar.json"
 IDR_PRESET_PERFORMANCE RCDATA "presets/performance.json"
 IDR_PRESET_DASHBOARD RCDATA "presets/dashboard.json"
 
+// Round 9 phase 9D: the guides shown by the Help window (HelpWindow.cpp).
+IDR_DOC_QUICKSTART RCDATA "../docs/quick-start.md"
+IDR_DOC_SETTINGS RCDATA "../docs/guide-settings.md"
+IDR_DOC_DOCKS RCDATA "../docs/guide-docks.md"
+IDR_DOC_ITEMS RCDATA "../docs/guide-items.md"
+IDR_DOC_TROUBLESHOOTING RCDATA "../docs/troubleshooting.md"
+IDR_DOC_INDEX RCDATA "../docs/README.md"
+
 VS_VERSION_INFO VERSIONINFO
  FILEVERSION 0,1,0,0
  PRODUCTVERSION 0,1,0,0

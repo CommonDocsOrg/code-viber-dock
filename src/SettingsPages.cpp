@@ -165,6 +165,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"General");
+        HelpTopic(L"guide-settings.md#general");
         // Round 8 phase 8D: where the per-dock settings are, as a line under the title (it was the
         // System card's last row); the cards below are the app's own settings.
         EndCard();
@@ -174,10 +175,12 @@ protected:
         Tip(kPositionNote, L"Each dock's own settings (its items, position, behaviour, running apps and theme) are in its "
                            L"own window: right-click the dock and choose Dock settings…, or open it from Docks and displays.");
         NextRow(38);
-        Section(kSectionStartup, L"System");
+        Section(kSectionStartup, L"System", L"guide-settings.md#system");
         Check(kStartWithWindows, kStartWithWindowsCaption, L"Start with Windows");
+        Tip(kStartWithWindowsCaption, L"Starts WinDock when you sign in to Windows (a value under your user's Run key). Off until you turn it on.");
         NextRow();
         Check(kHideTaskbar, kHideTaskbarCaption, L"Hide the Windows taskbar");
+        Tip(kHideTaskbarCaption, L"Hides the Explorer taskbar while WinDock runs; it always comes back when WinDock quits. On by default.");
         NextRow();
         // Round 8 phase 8A: notes are one-line hints, the explanations tooltips.
         Label(kRendererLabel, L"Renderer", L"", kRendererNote);
@@ -186,7 +189,7 @@ protected:
         Combo(kRendererCombo, kColX, right - kColX, false);
         NextRow();
         // Round 9 phase 9A: settings.fullscreen (DockManager's full-screen guard).
-        Section(kSectionFullscreen, L"Full-screen apps");
+        Section(kSectionFullscreen, L"Full-screen apps", L"guide-settings.md#full-screen-apps");
         Check(kFullscreenHide, kFullscreenHideCaption, L"Hide the docks while a full-screen app is in front",
               L"Games keep their full-screen mode", kFullscreenHint);
         Tip(kFullscreenHideCaption,
@@ -197,7 +200,7 @@ protected:
             L"layers and folder windows stay. On by default.");
         NextRow();
         // Round 6 phase 6A.
-        Section(kSectionDashboard, L"Dashboard");
+        Section(kSectionDashboard, L"Dashboard", L"guide-settings.md#dashboard");
         Label(kDashboardHotkeyLabel, L"Hotkey", L"Click, then press the keys", kDashboardNote);
         Tip(kDashboardHotkeyLabel,
             L"The hotkey brings every dock on the desktop layers (\"On the desktop\" in a dock's Position tab) to the "
@@ -396,12 +399,14 @@ protected:
         // it at the window's minimum width).
         const int ctlW = std::clamp(silL - 16 - kColX, 160, 300);
         Title(L"Position");
-        Section(kSectionPosition, L"Placement");
+        HelpTopic(L"guide-settings.md#position-tab");
+        Section(kSectionPosition, L"Placement", L"guide-settings.md#placement");
         // A fixed control (row -1): beside the rows, never moved by them; at the right margin it
-        // follows the page's width.
+        // follows the page's width. Round 9 phase 9D: under the header's "?" button.
         Ctl& sil = Add(kPositionSilhouette, CtlKind::Custom, kSilhouetteClass, L"Where it sits", 0,
-                       RECT{silL, y_ - 22, right, y_ - 22 + kSilhouetteH});
+                       RECT{silL, y_ + 2, right, y_ + 2 + kSilhouetteH});
         sil.row = -1;
+        Tip(kPositionSilhouette, L"A small picture of the display with this dock where it sits now; it follows the choices beside it.");
         Label(kPlacementKindLabel, L"Kind");
         Tip(kPlacementKindLabel,
             L"Bar on an edge: the classic dock along a screen edge. Floating bar: a bar anywhere on the display; it faces "
@@ -411,9 +416,11 @@ protected:
         Combo(kPlacementKindCombo, kColX, ctlW, false);
         NextRow();
         Label(kMonitorLabel, L"Display");
+        Tip(kMonitorLabel, L"The display this dock is on: the primary one, another display, or every display (a copy of the dock on each). Default: the primary display.");
         Combo(kMonitorCombo, kColX, ctlW, false);
         NextRow();
         Label(kEdgeLabel, L"Edge");  // "Faces" for a floating bar
+        Tip(kEdgeLabel, L"The screen edge the dock sits on (a floating bar: the way its popups and labels open). Default: Bottom. Ctrl+drag the dock to move it to another edge.");
         Combo(kEdgeCombo, kColX, 160, false);
         NextRow();
         // Round 8 phase 8A: the notes are one-line hints (kCircleNote, kAlignNote, kPositionNote,
@@ -424,6 +431,7 @@ protected:
         EditBox(kCircleXEdit, kColX, 88, 7);
         NextRow();
         Label(kCircleYLabel, L"Position y");
+        Tip(kCircleYLabel, L"DIPs from the top of the work area to the bar's or circle's top (empty: centred). Default: empty.");
         EditBox(kCircleYEdit, kColX, 88, 7);
         NextRow();
         // Round 7 phase 7B: items[].anchor (the Contents tab's "Position on the dock").
@@ -439,25 +447,30 @@ protected:
                 SettingsScope::Appearance);
         NextRow();
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
+        Tip(kFullWidthCaption, L"The bar spans the whole edge like a taskbar; the icons sit where Alignment puts them. Off by default.");
         NextRow();
         Label(kRadiusLabel, L"Radius (pixels)", L"0: automatic");
         IntSpin(kRadiusEdit, kRadiusSpin, kColX, 88, 0, 2000, 10, [](Config&, DockConfig& d) -> int& { return d.radius; },
                 SettingsScope::Appearance);
         NextRow();
         Check(kRotateIcons, kRotateIconsCaption, L"Turn the icons with the ring");
+        Tip(kRotateIconsCaption, L"A half circle or circle turns each icon to face outward along the ring. Off by default: the icons stay upright.");
         NextRow();
         Label(kOverflowLabel, L"When the icons do not fit");
+        Tip(kOverflowLabel, L"What the dock does when its icons are longer than the edge (or the maximum length): scroll inside the bar (the default), make the icons smaller, or let them run past the end.");
         Combo(kOverflowCombo, kColX, ctlW, false);
         NextRow();
         // The shape drop-down and the Floating check box of earlier versions: always collapsed
         // (the Kind sets both); kept so automation that drives them still works.
         Label(kShapeLabel, L"Shape");
+        Tip(kShapeLabel, L"The dock's shape: a bar (the default), a half circle on the edge or a circle. Kind above chooses it.");
         Combo(kShapeCombo, kColX, 200, false);
         NextRow();
         Check(kFloating, kFloatingCaption, L"Floating");
+        Tip(kFloatingCaption, L"A bar that floats anywhere on the display instead of sitting on an edge. Off by default. Kind above chooses it.");
         NextRow();
 
-        Section(kSectionLayer, L"Layer");
+        Section(kSectionLayer, L"Layer", L"guide-settings.md#layer");
         Label(kLayerLabel, L"Layer", L"", kLayerNote);
         Tip(kLayerLabel,
             L"Normal: above every window; it auto-hides as set on the Behaviour tab. On the desktop, only while the "
@@ -468,7 +481,7 @@ protected:
         NextRow();
 
         // Bars only (collapsed for the rings).
-        UntitledCard();
+        UntitledCard(L"guide-settings.md#more-placement-options");
         Expander(kPositionMore, L"More: reserve screen space, peek, maximum length, title");
         Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
         Tip(kReserveSpaceCaption, L"Keeps maximized windows off the dock: reserves a strip along the whole edge (auto-hide "
@@ -480,6 +493,7 @@ protected:
                 SettingsScope::Appearance);
         NextRow();
         Label(kPeekOpacityLabel, L"Peek opacity (%)");
+        Tip(kPeekOpacityLabel, L"How solid the peek strip of a hidden dock is drawn (5 - 100 %). Default: 50 %.");
         Spin(kPeekOpacityEdit, kPeekOpacitySpin, kColX, 72, 5, 100, 5);
         NextRow();
         // Round 7 phase 7A: docks[].maxLength (a bar that is not full width).
@@ -498,13 +512,17 @@ protected:
     void BuildBehaviour() {
         const int right = Width() - kMargin;
         Title(L"Behaviour");
+        HelpTopic(L"guide-settings.md#behaviour-tab");
         // Round 8 phase 8B: the Size card (icon size, magnification, range) is on the Appearance tab.
-        Section(kSectionAutoHide, L"Auto-hide");
+        Section(kSectionAutoHide, L"Auto-hide", L"guide-settings.md#auto-hide");
         Radios({
             {kAutoHideOff, kAutoHideOffCaption, L"Off: the dock is always shown"},
             {kAutoHideAlways, kAutoHideAlwaysCaption, L"Always: hide when the mouse leaves the dock"},
             {kAutoHideIntelligent, kAutoHideIntelligentCaption, L"When a window overlaps the dock"},
         });
+        Tip(kAutoHideOffCaption, L"Off: the dock is always shown (other windows stop at it when Reserve screen space is on).");
+        Tip(kAutoHideAlwaysCaption, L"Always: the dock slides away when the pointer leaves it and comes back when the pointer touches the screen edge. The default for a new dock.");
+        Tip(kAutoHideIntelligentCaption, L"Hides only while a window covers the dock's place, like the macOS dock's smart hiding; touch the edge to show it.");
         Text(kAutoHideNote, CtlKind::Note, L"The dock stays shown while this window (or one of its item windows) is active.",
              kMargin, right - kMargin, 20);
         NextRow(22);
@@ -535,39 +553,45 @@ protected:
         NextRow();
         EndExpander();
 
-        Section(kSectionPreviews, L"Window previews");
+        Section(kSectionPreviews, L"Window previews", L"guide-settings.md#window-previews");
         Check(kPreviews, kPreviewsCaption, L"Show window previews for apps with several windows");
+        Tip(kPreviewsCaption, L"Resting the pointer on an app with several windows shows a picture of each window; click one to bring it to the front. On by default.");
         NextRow();
         Check(kPreviewSingle, kPreviewSingleCaption, L"Show window previews for apps with a single window",
               kMargin + kCaptionDx);
+        Tip(kPreviewSingleCaption, L"Also shows the preview for an app with one window. Off by default. Needs window previews on.");
         NextRow();
         Label(kPreviewDelayLabel, L"Preview delay");
+        Tip(kPreviewDelayLabel, L"How long the pointer rests on an app before its previews open. Default: 600 ms.");
         IntSpin(kPreviewDelayEdit, kPreviewDelaySpin, kColX, 90, 0, 10000, 50,
                 [](Config&, DockConfig& d) -> int& { return d.previewDelayMs; }, SettingsScope::SaveOnly);
         Text(kPreviewDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
 
         // Round 7 phase 7A: docks[].popupGap (read when a popup opens).
-        Section(kSectionPopups, L"Popups");
+        Section(kSectionPopups, L"Popups", L"guide-settings.md#popups");
         // (The label column is 196 DIPs: "Gap between the dock and its popups" did not fit there.)
         Label(kPopupGapLabel, L"Popup gap");
+        Tip(kPopupGapLabel, L"The space between the dock and its popups (folders, calendar, previews, widget popups). Default: 6 DIPs.");
         IntSpin(kPopupGapEdit, kPopupGapSpin, kColX, 90, 0, 64, 1,
                 [](Config&, DockConfig& d) -> int& { return d.popupGap; }, SettingsScope::SaveOnly);
         Text(kPopupGapUnit, CtlKind::Note, L"DIP between the dock and its popups", kColX + 98, right - kColX - 98);
         NextRow();
 
-        Section(kSectionMouse, L"Mouse");
+        Section(kSectionMouse, L"Mouse", L"guide-settings.md#mouse");
         Label(kMiddleClickLabel, L"Middle click on an app");
+        Tip(kMiddleClickLabel, L"What a middle click (wheel click) on an app does: start a new instance (the default), minimize its windows, close them, or nothing.");
         Combo(kMiddleClickCombo, kColX, right - kColX, false);
         NextRow();
         Label(kWheelLabel, L"Mouse wheel over an app");
+        Tip(kWheelLabel, L"What the mouse wheel does over a running app: nothing (the default) or cycle through its windows.");
         Combo(kWheelCombo, kColX, right - kColX, false);
         NextRow();
 
         // Round 5 phase D: this dock's part of the notifications (moved from Global > Notifications).
         // The notification centre itself is a widget: drag it from the Contents tab's drawer (no
         // check box here since round 5 phase E).
-        Section(kSectionDockNotifications, L"Notifications");
+        Section(kSectionDockNotifications, L"Notifications", L"guide-settings.md#notification-badges");
         Check(kBadges, kBadgesCaption, L"Notification badges on app icons");
         NextRow(kRowH);
         Text(kDockNotificationsNote, CtlKind::Note,
@@ -584,19 +608,22 @@ protected:
     void BuildRunning() {
         const int right = Width() - kMargin;
         Title(L"Running apps");
-        Section(kSectionTaskList, L"Running apps");
+        HelpTopic(L"guide-settings.md#running-apps-tab");
+        Section(kSectionTaskList, L"Running apps", L"guide-settings.md#running-apps-tab");
         // Round 8 phase 8A: the notes are the hints kTaskListNote / kThumbnailsNote and tooltips.
         Label(kWindowsLabel, L"Windows", L"A slot per app or per window", kTaskListNote);
         Tip(kWindowsLabel, L"One slot per window: a pinned app's icon is its first window and its other windows follow it.");
         Combo(kWindowsCombo, kColX, right - kColX, false);
         NextRow();
         Check(kRunningMonitorOnly, kRunningMonitorOnlyCaption, L"Show only the windows on this dock's display");
+        Tip(kRunningMonitorOnlyCaption, L"With several displays, this dock shows only the running apps whose windows are on its own display. Off by default: every window.");
         NextRow();
         Label(kTitlesLabel, L"Titles under icons");
         Tip(kTitlesLabel, L"Titles show the window title, or the app's name.");
         Combo(kTitlesCombo, kColX, right - kColX, false);
         NextRow();
         Label(kTitlesVerticalLabel, L"Titles on vertical docks");
+        Tip(kTitlesVerticalLabel, L"On a left or right dock, titles go beside the icons (the default) or are left out.");
         Combo(kTitlesVerticalCombo, kColX, right - kColX, false);
         NextRow();
         Label(kThumbnailsLabel, L"Window thumbnails", L"Live: GPU · snapshots: cheap", kThumbnailsNote);
@@ -607,16 +634,19 @@ protected:
         Combo(kThumbnailsCombo, kColX, right - kColX, false);
         NextRow();
         Label(kThumbIntervalLabel, L"Snapshot every");
+        Tip(kThumbIntervalLabel, L"With snapshot thumbnails: how often each window's picture is taken again. Default: 5 seconds.");
         IntSpin(kThumbIntervalEdit, kThumbIntervalSpin, kColX, 90, 1, 3600, 1,
                 [](Config&, DockConfig& d) -> int& { return d.thumbnailIntervalS; }, SettingsScope::Appearance);
         Text(kThumbIntervalUnit, CtlKind::Note, L"s", kColX + 98, 40);
         NextRow();
         Label(kThumbFpsLabel, L"Live frames per second");
+        Tip(kThumbFpsLabel, L"With live thumbnails: at most this many pictures a second per window (more is smoother but uses more GPU). Default: 10.");
         IntSpin(kThumbFpsEdit, kThumbFpsSpin, kColX, 90, 1, 60, 1, [](Config&, DockConfig& d) -> int& { return d.thumbnailFps; },
                 SettingsScope::Appearance);
         Text(kThumbFpsUnit, CtlKind::Note, L"at most", kColX + 98, 80);
         NextRow();
         Label(kThumbSizeLabel, L"Tile length");
+        Tip(kThumbSizeLabel, L"A thumbnail tile's length along the dock in DIPs (0: twice the icon size, the default).");
         IntSpin(kThumbSizeEdit, kThumbSizeSpin, kColX, 90, 0, 512, 8, [](Config&, DockConfig& d) -> int& { return d.thumbnailSize; },
                 SettingsScope::Appearance);
         Text(kThumbSizeUnit, CtlKind::Note, L"DIP (0: twice the icon)", kColX + 98, 200);
@@ -1086,6 +1116,8 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"About");
+        HelpTopic(L"guide-settings.md#about");
+        UntitledCard(L"guide-settings.md#about");
         Text(kAboutName, CtlKind::Section, L"WinDock", kMargin, right - kMargin, 24);
         NextRow(26);
         Text(kAboutVersion, CtlKind::Value, L"Version " + FileVersion(), kMargin, right - kMargin, 20);
@@ -1093,7 +1125,7 @@ protected:
         Text(kAboutNote, CtlKind::Note, L"A macOS-style dock for Windows 11.", kMargin, right - kMargin, 20);
         NextRow(22);
 
-        Section(kSectionConfig, L"Configuration");
+        Section(kSectionConfig, L"Configuration", L"guide-settings.md#configuration");
         Label(kConfigPathLabel, L"Settings are saved to");
         NextRow(kRowH - 6);
         Link(kConfigPathLink, L"<a>" + Config::FilePath() + L"</a>", kMargin, right - kMargin);
@@ -1108,6 +1140,10 @@ protected:
         Button(kAboutWelcome, L"Show the welcome dialog", kMargin, 200);
         Tip(kAboutWelcome, L"Opens the dialog WinDock shows on its first start: pick a predefined setup for your first dock. "
                            L"Your pinned apps and folders can stay.");
+        // Round 9 phase 9D: the Help window at the quick start.
+        Button(kAboutQuickStart, L"Quick start guide", kMargin + 212, 170);
+        Tip(kAboutQuickStart, L"Opens the Help at the quick start: five minutes from the first start to your own dock. "
+                              L"F1 in any settings window opens the Help at the page you are on.");
         NextRow();
     }
 
@@ -1119,6 +1155,7 @@ protected:
     void OnCommand(int id, int code, HWND) override {
         if (code != BN_CLICKED) return;
         if (id == kAboutWelcome && Host().openPresets) Host().openPresets(1, 0);
+        if (id == kAboutQuickStart && Host().openHelp) Host().openHelp(L"quick-start.md");
         if (!Host().command) return;
         if (id == kOpenConfig) Host().command(ContextMenu::kOpenConfig);
         if (id == kReloadConfig) Host().command(ContextMenu::kReloadConfig);  // refreshes every page

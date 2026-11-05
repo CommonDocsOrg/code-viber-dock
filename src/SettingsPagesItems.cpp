@@ -99,8 +99,10 @@ protected:
         // the header's third line says it too).
         const DockItemEntry* e = Entry();
         const bool group = e && e->Kind() == ItemKind::Group;
-        Section(kItemPopupSection, group ? L"Group" : L"Folder");
+        HelpTopic(group ? L"guide-items.md#groups" : L"guide-items.md#folders");
+        Section(kItemPopupSection, group ? L"Group" : L"Folder", group ? L"guide-items.md#groups" : L"guide-items.md#folders");
         Label(kGroupNameLabel, L"Name");
+        Tip(kGroupNameLabel, L"The group's name: its label on the dock and the title of its popup. Default: Group.");
         EditBox(kGroupNameEdit, kColX, 260, 128);
         NextRow();
         // Round 8 phase 8A: the note is the label's hint (kItemViewNote) and its tooltip.
@@ -114,17 +116,20 @@ protected:
         Tip(kItemNote, L"Drag an icon onto the group on the dock to add it, drag one out of the group's popup onto the dock "
                        L"to make it a pin again.");
         NextRow(22);
-        Section(kItemIconSection, L"Icon");
+        Section(kItemIconSection, L"Icon", L"guide-items.md#icons");
         Button(kItemChooseIcon, L"Choose icon…", kMargin, kButtonW);
         Button(kItemChooseImage, L"Choose image…", kMargin + kButtonStep, kButtonW);
         Button(kItemResetIcon, L"Reset icon", kMargin + 2 * kButtonStep, kButtonW);
         // Round 9 phase 9A: why Reset icon may be greyed.
         Tip(kItemResetIcon, L"Goes back to the item's own icon. Greyed while it has no icon of your choosing.");
         NextRow();
-        Section(kGroupMembersLabel, L"Shortcuts in the group");
+        Section(kGroupMembersLabel, L"Shortcuts in the group", L"guide-items.md#shortcuts-in-a-group");
+        Tip(kGroupNameEdit, L"The group's name: its label on the dock and the title of its popup. Default: Group.");
         Add(kGroupMembers, CtlKind::List, WC_LISTVIEWW, L"Shortcuts in the group",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kMembersH});
+        Tip(kGroupMembers, L"The shortcuts in this group, in the order its popup shows them. Add more with the buttons below, or drop "
+                           L"apps onto the group on the dock.");
         NextRow(kMembersH + 8);
         Button(kGroupAdd, L"Add app…", kMargin, kButtonW);
         Button(kGroupAddFolder, L"Add folder…", kMargin + kButtonStep, kButtonW);

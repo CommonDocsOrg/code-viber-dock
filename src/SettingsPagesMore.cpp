@@ -56,7 +56,8 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Animation");
-        Section(kSectionSpeed, L"Speed");
+        HelpTopic(L"guide-settings.md#animation");
+        Section(kSectionSpeed, L"Speed", L"guide-settings.md#speed");
         // Round 8 phase 8A: the note is the label's hint (kSpeedNote) and its tooltip.
         Label(kSpeedLabel, L"Animation speed", L"Off: no animation", kSpeedNote);
         Tip(kSpeedLabel, L"Off: the dock moves instantly. The speed divides every animation's duration.");
@@ -64,36 +65,47 @@ protected:
         Text(kSpeedValue, CtlKind::Value, L"", kColX + 216, 72);
         NextRow();
 
-        Section(kSectionHide, L"Hiding and showing");
+        Section(kSectionHide, L"Hiding and showing", L"guide-settings.md#hiding-and-showing");
         Radios({
             {kHideSlide, kHideSlideCaption, L"Slide and fade"},
             {kHideSlideOnly, kHideSlideOnlyCaption, L"Slide"},
             {kHideFade, kHideFadeCaption, L"Fade"},
             {kHideNone, kHideNoneCaption, L"None (instant)"},
         });
+        Tip(kHideSlideCaption, L"How an auto-hiding dock goes away and comes back: it slides off its edge while it fades (the default).");
+        Tip(kHideSlideOnlyCaption, L"The dock slides off its edge without fading.");
+        Tip(kHideFadeCaption, L"The dock fades out where it is, without moving.");
+        Tip(kHideNoneCaption, L"The dock disappears and appears at once.");
 
-        Section(kSectionLaunch, L"Launching an app");
+        Section(kSectionLaunch, L"Launching an app", L"guide-settings.md#launching-an-app");
         Radios({
             {kLaunchBounce, kLaunchBounceCaption, L"Bounce until the app opens"},
             {kLaunchHop, kLaunchHopCaption, L"Hop once"},
             {kLaunchPulse, kLaunchPulseCaption, L"Pulse"},
             {kLaunchNone, kLaunchNoneCaption, L"None"},
         });
+        Tip(kLaunchBounceCaption, L"A clicked app's icon bounces until its window opens (at most a few seconds). The default.");
+        Tip(kLaunchHopCaption, L"The icon hops once when you click it.");
+        Tip(kLaunchPulseCaption, L"The icon pulses (grows and shrinks) once when you click it.");
+        Tip(kLaunchNoneCaption, L"No launch animation.");
 
-        Section(kSectionMotion, L"Motion");
+        Section(kSectionMotion, L"Motion", L"guide-settings.md#motion");
         Label(kFalloffLabel, L"Magnification falloff");
+        Tip(kFalloffLabel, L"How the magnification fades from the icon under the pointer to its neighbours: smooth (cosine, the default) or linear.");
         Combo(kFalloffCombo, kColX, 220, false);
         NextRow();
         Label(kEasingLabel, L"Easing");
+        Tip(kEasingLabel, L"The feel of the dock's movements: ease out (fast, then slowing down; the default), linear, or spring (a small overshoot).");
         Combo(kEasingCombo, kColX, 220, false);
         NextRow();
         Label(kLabelFadeLabel, L"Name label fade");
+        Tip(kLabelFadeLabel, L"How long the app's name label above the icon takes to fade in and out (0: at once). Default: 120 ms.");
         IntSpin(kLabelFadeEdit, kLabelFadeSpin, kColX, 90, 0, 1000, 20,
                 [](Config& c, DockConfig&) -> int& { return c.animation.labelFadeMs; }, SettingsScope::Appearance);
         Text(kLabelFadeUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
 
-        Section(kSectionAccessibility, L"Accessibility");
+        Section(kSectionAccessibility, L"Accessibility", L"guide-settings.md#accessibility");
         Label(kReduceMotionLabel, L"Reduce motion", L"", kReduceMotionNote);
         Combo(kReduceMotionCombo, kColX, right - kColX, false);
         NextRow();

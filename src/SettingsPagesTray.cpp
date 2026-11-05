@@ -32,9 +32,10 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Tray icons");
+        HelpTopic(L"guide-settings.md#tray-icons");
         // Round 8 phase 8A: one-line notes, the explanations as their tooltips; round 8 phase 8D:
         // one card, the note the check box's hint.
-        Section(kTraySection, L"Notification area");
+        Section(kTraySection, L"Notification area", L"guide-settings.md#notification-area");
         Check(kTrayEnabled, kTrayEnabledCaption, L"Show the notification area icons in the dock",
               L"Needs a System tray item on a dock (from its Contents tab)", kTrayEnabledNote);
         static constexpr wchar_t kEnabledTip[] =
@@ -124,8 +125,9 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"System tray");  // a no-op in an Item window (the header names it)
+        HelpTopic(L"guide-items.md#the-tray");
         // Round 8 phase 8C: three cards, hints under the labels, the explanations as tooltips.
-        Section(kTrayGridSection, L"The grid");
+        Section(kTrayGridSection, L"The grid", L"guide-items.md#the-grid");
         Label(kTrayRowsLabel, L"Rows", L"Across the dock", kTrayGridNote);
         Tip(kTrayRowsLabel,
             L"Columns run along the dock and rows across it (on a left or right dock the grid is \"rows\" wide and "
@@ -138,18 +140,22 @@ protected:
         Spin(kTrayColumnsEdit, kTrayColumnsSpin, kColX, kNumberW, 1, 20, 1);
         NextRow();
         Label(kTrayIconSizeLabel, L"Icon size");
+        Tip(kTrayIconSizeLabel, L"The size of the notify icons in the grid: 16, 20 or 24 px. Default: 20 px.");
         Combo(kTrayIconSizeCombo, kColX, 120, false);
         NextRow();
-        Section(kTrayIconsLabel, L"Icons in the grid");
+        Section(kTrayIconsLabel, L"Icons in the grid", L"guide-items.md#icons-in-the-grid");
         Text(kTrayIconsNote, CtlKind::Note, L"In order; unchecked icons are only in the drawer", kMargin, right - kMargin, 20);
         Tip(kTrayIconsNote,
             L"Unchecked icons are only in the drawer. Icons of apps that are not running are listed while they are "
             L"hidden or ordered. Move up / down (or a drag within the grid on the dock) sets the order; drag an icon out "
             L"of the grid or the drawer onto the dock to pin it there (Ctrl + right click on it: Hide / Pin / Unpin).");
         NextRow(24);
+        Tip(kTrayIconSizeCombo, L"The size of the notify icons in the grid: 16, 20 or 24 px. Default: 20 px.");
         Add(kTrayIconList, CtlKind::List, WC_LISTVIEWW, L"Tray icons",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
+        Tip(kTrayIconList, L"The notify icons the tray has now. A cleared check box hides that icon from the grid (it stays in Windows' "
+                           L"own list); Move up / Move down change their order. Every icon is shown by default.");
         NextRow(kListH + 8);
         Button(kTrayIconUp, L"Move up", kMargin, 110);
         Button(kTrayIconDown, L"Move down", kMargin + 122, 110);
@@ -157,7 +163,7 @@ protected:
         Tip(kTrayIconUp, L"Moves the selected icon one place earlier in the grid (select an icon below the first one).");
         Tip(kTrayIconDown, L"Moves the selected icon one place later in the grid (select an icon above the last one).");
         NextRow();
-        Section(kTrayTakeoverSection, L"Takeover");
+        Section(kTrayTakeoverSection, L"Takeover", L"guide-items.md#takeover");
         Label(kTrayResetLabel, L"Explorer's icons", L"Back to the taskbar, every dock", kTrayResetNote);
         Tip(kTrayResetLabel, L"Reset to Explorer hands every icon back to Explorer and turns the takeover off (on every dock); "
                              L"Global settings > Tray icons turns it on again.");

@@ -701,4 +701,13 @@ inline constexpr int kPresetLookCaption = 5120;  // "Look (sample icons): Glass 
 inline constexpr int kPresetHeading = 5121;      // the welcome variant: "Welcome to WinDock"
 inline constexpr int kPresetIntro = 5122;        // ... and its line under it
 
+// Round 9 phase 9D: help (5200 - 5399). The entry points, then the children of the Help window
+// (WinDock.Help, one per process), then the cards' "?" buttons.
+inline constexpr int kNavHelp = 5201;         // Global: the nav column's "Help" row after About (not a page; opens the quick start)
+inline constexpr int kMenuHelp = 5202;        // the dock's right-click menu: "Help…" (the quick start)
+inline constexpr int kAboutQuickStart = 5203; // Global > About: "Quick start guide"
+inline constexpr int kHelpList = 5210;        // the guides (owner-drawn LISTBOX: LB_SETCURSEL + LBN_SELCHANGE)
+inline constexpr int kHelpView = 5211;        // the guide (RichEdit, read only; EM_GETFIRSTVISIBLELINE / EM_GETLINE)
+inline constexpr int kHelpButtonBase = 5300;  // a card's "?" button: 5300 + the card's index on its page (BM_CLICK opens the Help there)
+
 }  // namespace SettingsIds

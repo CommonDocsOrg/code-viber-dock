@@ -13,12 +13,12 @@
   "settings": [
     { "key": "unread", "type": "bool", "label": "Show the unread count", "default": true,
       "description": "Reads Windows' notifications (WinDock polls the notification list every few seconds). Off: nothing polls and the fixed number below shows." },
-    { "key": "click", "type": "choice", "label": "A click opens", "default": "centre",
+    { "key": "click", "type": "choice", "label": "A click opens", "description": "Which notification centre a click opens: WinDock's own or the Windows one (Win+N). Default: WinDock's.", "default": "centre",
       "choices": [ { "value": "centre", "label": "WinDock's notification centre" },
                    { "value": "windows", "label": "Windows' notification centre (Win+N)" } ] },
     { "key": "badge", "visibleIf": { "unread": false }, "type": "int", "label": "Fixed badge (0: none)", "min": 0, "max": 99, "default": 0,
       "description": "Shown while the unread count is off." },
-    { "key": "badgeColor", "type": "colour", "label": "Badge colour", "default": "#FFE0453A" },
+    { "key": "badgeColor", "type": "colour", "label": "Badge colour", "description": "The colour of the circle behind the number. Default: red.", "default": "#FFE0453A" },
     { "key": "image", "type": "string", "label": "Image instead of the bell", "default": "",
       "description": "A file of the widget (after exporting it) or the full path of any file, whose shell icon is drawn." }
   ]

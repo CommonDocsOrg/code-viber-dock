@@ -100,6 +100,9 @@ std::vector<SettingsWindow::NavSlot> SettingsWindow::NavOrder() const {
             if (!listed(i)) continue;
             if (std::none_of(order.begin(), order.end(), [i](const NavSlot& s) { return s.page == i; })) order.push_back(NavSlot{i, nullptr, false});
         }
+        // Round 9 phase 9D: the Help row (not a page: a click opens the Help window at the quick
+        // start; the arrow keys skip it, F1 is its key).
+        order.push_back(NavSlot{SettingsIds::kNavHelp, nullptr, false});
         return order;
     }
     for (int i = 0; i < n; ++i) {
@@ -162,7 +165,8 @@ RECT SettingsWindow::NavItemRect(int index) const {
 int SettingsWindow::NavStep(int from, int step) const {
     // In display order (round 8 phase 8D); `from` before the first (-1) or after the last
     // (pages_.size()) for Home / End.
-    const std::vector<NavSlot> order = NavOrder();
+    std::vector<NavSlot> order = NavOrder();
+    std::erase_if(order, [](const NavSlot& s) { return s.page == SettingsIds::kNavHelp; });  // round 9 phase 9D: not a page
     if (order.empty()) return from;
     if (from < 0) return step > 0 ? order.front().page : from;
     if (from >= static_cast<int>(pages_.size())) return step < 0 ? order.back().page : from;
@@ -211,7 +215,11 @@ LRESULT SettingsWindow::NavProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_LBUTTONDOWN: {
             SetFocus(hwnd);
             const int i = NavHitTest(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
-            if (i >= 0) SelectPage(i);
+            if (i == SettingsIds::kNavHelp) {
+                OpenHelp(L"quick-start.md");  // round 9 phase 9D: the Help row
+            } else if (i >= 0) {
+                SelectPage(i);
+            }
             return 0;
         }
         case WM_MOUSEMOVE: {
@@ -322,7 +330,13 @@ void SettingsWindow::PaintNav(HWND hwnd, HDC hdc) {
         } else if (i == navHot_) {
             BlendRoundRect(bits, stride, rc.right, rc.bottom, r, radius, palette_.pill, palette_.pillHoverAlpha);
         }
-        const SettingsPage& page = *pages_[static_cast<size_t>(i)];
+        // Round 9 phase 9D: the Help row has no page (Segoe Fluent Icons' Help glyph).
+        static const wchar_t kHelpGlyph = L'\xE897';
+        static const std::wstring kHelpName = L"Help";
+        const bool helpRow = i == SettingsIds::kNavHelp;
+        if (!helpRow && (i < 0 || i >= static_cast<int>(pages_.size()))) continue;
+        const wchar_t* glyph = helpRow ? &kHelpGlyph : &pages_[static_cast<size_t>(i)]->glyph_;
+        const std::wstring& name = helpRow ? kHelpName : pages_[static_cast<size_t>(i)]->name_;
         const int textLeft = fontIcons_ ? Px(44) : Px(18);
         const struct {
             HFONT font;
@@ -330,8 +344,8 @@ void SettingsWindow::PaintNav(HWND hwnd, HDC hdc) {
             int len;
             RECT rect;
         } parts[] = {
-            {fontIcons_, &page.glyph_, page.glyph_ && fontIcons_ ? 1 : 0, RECT{r.left + Px(12), r.top, r.left + Px(40), r.bottom}},
-            {font_, page.name_.c_str(), static_cast<int>(page.name_.size()), RECT{textLeft, r.top, r.right - Px(8), r.bottom}},
+            {fontIcons_, glyph, *glyph && fontIcons_ ? 1 : 0, RECT{r.left + Px(12), r.top, r.left + Px(40), r.bottom}},
+            {font_, name.c_str(), static_cast<int>(name.size()), RECT{textLeft, r.top, r.right - Px(8), r.bottom}},
         };
         for (const auto& part : parts) {
             drawText(part.font, part.text, part.len, part.rect, palette_.text,

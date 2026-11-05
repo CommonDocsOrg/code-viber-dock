@@ -11,18 +11,18 @@
   "standalone": { "minWidth": 120, "minHeight": 44, "defaultWidth": 320, "defaultHeight": 88 },
   "permissions": ["calendar", "shell"],
   "settings": [
-    { "key": "count", "group": "Popup", "type": "int", "label": "Events in the popup", "min": 1, "max": 20, "default": 6 },
+    { "key": "count", "group": "Popup", "type": "int", "label": "Events in the popup", "description": "How many upcoming events the popup lists. Default: 6.", "min": 1, "max": 20, "default": 6 },
     { "key": "lookaheadDays", "group": "Events", "unit": "days", "type": "int", "label": "Look ahead (days)", "min": 1, "max": 90, "default": 7,
       "description": "Events further away are not shown (the slot then says \"No events\")." },
-    { "key": "showLocation", "group": "Popup", "type": "bool", "label": "Show locations in the popup", "default": true },
+    { "key": "showLocation", "group": "Popup", "type": "bool", "label": "Show locations in the popup", "description": "Adds each event's location after its time in the popup. On by default.", "default": true },
     { "key": "feeds", "group": "Events", "type": "string", "label": "Only these feeds", "default": "",
       "description": "Feed names, comma separated (Settings > Calendar). Empty: every feed." },
-    { "key": "clickOpens", "group": "Click", "type": "choice", "label": "A click opens", "default": "popup",
+    { "key": "clickOpens", "group": "Click", "type": "choice", "label": "A click opens", "description": "What a click on the widget opens: the next events, the month calendar, or the app or address below. Default: the next events.", "default": "popup",
       "choices": [ { "value": "popup", "label": "The next events" },
                    { "value": "calendar", "label": "The month calendar" },
                    { "value": "target", "label": "The app or address below" } ] },
     { "key": "target", "group": "Click", "visibleIf": { "clickOpens": "target" }, "type": "string", "label": "App or address", "default": "",
       "description": "For \"The app or address below\": a program, a file or a URL (https://calendar.google.com)." },
-    { "key": "width", "group": "Size", "unit": "DIPs", "type": "int", "label": "Width (DIPs, horizontal docks)", "min": 80, "max": 400, "default": 160 }
+    { "key": "width", "group": "Size", "unit": "DIPs", "type": "int", "label": "Width (DIPs, horizontal docks)", "description": "How wide the widget is on a top or bottom dock. Default: 160.", "min": 80, "max": 400, "default": 160 }
   ]
 }

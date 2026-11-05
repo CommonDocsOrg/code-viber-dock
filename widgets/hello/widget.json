@@ -10,6 +10,6 @@
   },
   "standalone": { "minWidth": 64, "minHeight": 40, "defaultWidth": 160, "defaultHeight": 100 },
   "settings": [
-    { "key": "label", "type": "string", "label": "Label", "default": "Hello" }
+    { "key": "label", "type": "string", "label": "Label", "description": "The text shown above the counter. Default: Hello.", "default": "Hello" }
   ]
 }

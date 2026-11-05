@@ -911,6 +911,7 @@ void App::Shutdown() {
     // First: closing them may commit a pending edit (focus loss), which must still be saved.
     {
         presets_.reset();  // round 9 phase 9C: before its owner (its window re-enables it)
+        help_.reset();     // round 9 phase 9D
         std::vector<std::unique_ptr<SettingsSearch>> searches = std::move(searches_);  // round 9 phase 9B: before their owners
         searches_.clear();
         searches.clear();
@@ -1188,6 +1189,9 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kRerenderPreviews:  // round 6 phase 6E: every settings window's previews again
             InvalidatePreviews();
             break;
+        case ContextMenu::kHelpMenu:  // round 9 phase 9D: the dock menu's Help…
+            OpenHelp(L"quick-start.md");
+            break;
         case ContextMenu::kTaskManager: {  // round 7 phase 7A: Windows' Task Manager (it elevates by itself)
             const auto rc = reinterpret_cast<INT_PTR>(
                 ShellExecuteW(nullptr, L"open", L"taskmgr.exe", nullptr, nullptr, SW_SHOWNORMAL));
@@ -1419,6 +1423,7 @@ bool App::PreTranslateMessage(MSG& msg) {
     // A window may open another one from inside its own message: the index loop and raw pointer
     // stay valid (the objects themselves never move).
     if (presets_ && presets_->Hwnd() && presets_->PreTranslateMessage(msg)) return true;  // round 9 phase 9C
+    if (help_ && help_->Hwnd() && help_->PreTranslateMessage(msg)) return true;           // round 9 phase 9D
     for (size_t i = 0; i < settings_.size(); ++i) {
         if (SettingsWindow* w = settings_[i].get(); w->Hwnd() && w->PreTranslateMessage(msg)) return true;
     }
@@ -1680,6 +1685,7 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     host.openPresets = [this, w](int mode, size_t dock) {  // round 9 phase 9C
         OpenPresets(mode == 1 ? PresetMode::Welcome : mode == 2 ? PresetMode::NewDock : PresetMode::Apply, dock, w->Hwnd());
     };
+    host.openHelp = [this, w](const std::wstring& topic) { OpenHelp(topic, w->Hwnd()); };  // round 9 phase 9D
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
     host.dockWindows = [this](size_t index) {
         int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;
@@ -1989,6 +1995,84 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
     RequestSave();
     RefreshSettings();  // a removed dock's windows close; every window's header (indexes and colours moved)
     return true;
+}
+
+// --- help (round 9 phase 9D) ---------------------------------------------------------------------
+
+void App::OpenHelp(const std::wstring& topic, HWND nearWindow) {
+    if (shutDown_) return;
+    if (!help_) {
+        help_ = std::make_unique<HelpWindow>([this] {
+            if (hwnd_) PostMessageW(hwnd_, kHelpClosed, 0, 0);
+        });
+        if (!help_->Create(instance_, nearWindow)) {
+            help_.reset();
+            MessageBeep(MB_ICONWARNING);
+            return;
+        }
+    }
+    help_->Open(topic);
+}
+
+LRESULT App::CountUnexplained(LPARAM lp) {
+    // LOWORD bit 0: the Global window, else the Dock window of dock HIWORD; bit 1: its Item windows
+    // too; bit 2: the control id of gap number LOWORD >> 8 instead of the count (0: none). A window
+    // that is not open is made hidden for the count and closed again (unless a search uses it).
+    // Bit 3: the cards without a "?" button instead (bit 2: page index * 100 + card index).
+    const LPARAM low = lp & 0xFFFF;
+    std::vector<SettingsWindow*> windows, made;
+    auto get = [&](SettingsKind kind, const std::wstring& dock, size_t item) -> SettingsWindow* {
+        SettingsWindow* w = FindSettings(kind, dock, item);
+        if (!w) {
+            w = CreateHiddenSettings(kind, dock, item);
+            if (w) made.push_back(w);
+        }
+        return w;
+    };
+    if (low & 1) {
+        if (!config_.docks.empty()) {
+            if (SettingsWindow* g = FindSettings(SettingsKind::Global)) {
+                windows.push_back(g);
+            } else if (SettingsWindow* h = get(SettingsKind::Global, config_.docks.front().id, SIZE_MAX)) {
+                windows.push_back(h);
+            }
+        }
+    } else {
+        const DockManager::Instance* inst = docks_.At(DockOfParam(lp));
+        if (!inst || inst->cfg >= config_.docks.size()) return -2;
+        const size_t d = inst->cfg;
+        const std::wstring id = config_.docks[d].id;
+        if (SettingsWindow* w = get(SettingsKind::Dock, id, SIZE_MAX)) windows.push_back(w);
+        if (low & 2) {
+            for (size_t i = 0; i < config_.docks[d].items.size(); ++i) {
+                if (config_.docks[d].IsWidgetWindow() || !HasItemWindow(d, i)) continue;
+                if (SettingsWindow* w = get(SettingsKind::Item, id, i)) windows.push_back(w);
+            }
+        }
+    }
+    if (windows.empty()) return -2;
+    std::vector<int> ids;
+    int count = 0;
+    for (SettingsWindow* w : windows) {
+        if (low & 8) {  // bit 3: the cards without a "?" button instead
+            count += w->CardsWithoutHelp(&ids);
+            continue;
+        }
+        std::vector<std::wstring> gaps;
+        count += w->UnexplainedInputs(&gaps, &ids);
+        for (const std::wstring& g : gaps) OutputDebugStringW((L"WinDock 285: " + w->SearchName() + L" > " + g + L"\n").c_str());
+    }
+    if (searches_.empty()) {
+        for (SettingsWindow* w : made) {
+            std::erase(searchHidden_, w);
+            if (w->Hwnd()) DestroyWindow(w->Hwnd());  // freed by kSettingsClosed
+        }
+    }
+    if (low & 4) {
+        const size_t k = static_cast<size_t>((low >> 8) & 0xFF);
+        return k < ids.size() ? ids[k] : 0;
+    }
+    return count;
 }
 
 // --- dock presets (round 9 phase 9C) ------------------------------------------------------------
@@ -2461,6 +2545,12 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             if (arg == 2) return static_cast<LRESULT>(presets_->Mode());
             if (arg == 3) return presets_->Selected();
             return 1;
+        case 285:  // round 9 phase 9D: inputs without a tooltip / hint or a label (LOWORD bit 0: the Global window, bit 1: with the Item windows, bit 2: the id of gap LOWORD >> 8 instead; bit 3: cards without a "?" instead)
+            return CountUnexplained(lp);
+        case 286:  // round 9 phase 9D: the Help window is shown (1 / 0)
+            return help_ && help_->Hwnd() && IsWindowVisible(help_->Hwnd()) ? 1 : 0;
+        case 287:  // ... its guide (0 quick start ... 5 the index; -1 none)
+            return help_ && help_->Hwnd() ? help_->Guide() : -1;
         case 280:  // round 9 phase 9A: dock HIWORD (a dock or a standalone widget) is hidden by the full-screen guard (1 / 0; -2 no such dock)
             if (!inst) return -2;
             if (inst->window) return inst->window->FullscreenHidden() ? 1 : 0;
@@ -2662,6 +2752,18 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         // keep the dock's pins at the preset's marker. 1 applied, 0 refused.
         DockManager::Instance* inst = docks_.At(DockOfParam(lp));
         result = inst && ApplyPreset(static_cast<size_t>(lp & 0xFF), inst->cfg, (lp & 0x100) != 0) ? 1 : 0;
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kOpenHelp) {
+        // Round 9 phase 9D: the Help window at guide LOWORD(lParam) (0 quick start, 1 settings, 2 docks,
+        // 3 items, 4 troubleshooting, 5 the index). 1: it is shown.
+        const int guide = static_cast<int>(lp & 0xFFFF);
+        const auto& guides = HelpDoc::Guides();
+        result = 0;
+        if (guide >= 0 && guide < static_cast<int>(guides.size())) {
+            OpenHelp(guides[static_cast<size_t>(guide)].file);
+            result = help_ && help_->Hwnd() && IsWindowVisible(help_->Hwnd()) ? 1 : 0;
+        }
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kSimulateExplorerRestart) {
@@ -2934,6 +3036,10 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
                 if (w->Hwnd() && !IsWindowVisible(w->Hwnd())) DestroyWindow(w->Hwnd());  // freed by kSettingsClosed
             }
         }
+        return 0;
+    }
+    if (msg == kHelpClosed) {  // round 9 phase 9D
+        if (help_ && !help_->Hwnd()) help_.reset();
         return 0;
     }
     if (msg == kPresetClosed) {  // round 9 phase 9C

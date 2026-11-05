@@ -32,6 +32,21 @@ What it does (rounds 1 to 4 are complete; ROADMAP.md has the history, STATUS.md 
 - **Settings**: a window with a page for every part (see Settings); everything is also in
   `config.json`.
 
+## Documentation
+
+Guides for people using WinDock (the same pages open inside the app: F1 in any settings window,
+the "?" beside each card, the Help row of Global settings, the dock menu's Help…):
+
+- [Quick start](docs/quick-start.md): five minutes from the first start to your own dock.
+- [Settings guide](docs/guide-settings.md): every settings window, page, tab and card.
+- [Docks and displays](docs/guide-docks.md): placement kinds, layers, floating docks, the dashboard, several displays, folder windows, standalone widgets, presets.
+- [Items and widgets](docs/guide-items.md): apps, running apps, folders and groups, the clock, weather, the tray, notifications, widgets.
+- [Troubleshooting](docs/troubleshooting.md): the taskbar is missing, crashes, full-screen games, a missing dock, performance, widget errors, resetting.
+- [All guides](docs/README.md).
+
+For developers: the [widget developer reference](docs/widgets.md) (writing your own widgets); this
+README is the full reference (every setting, the config file and the automation messages).
+
 ## Build
 
 Requires Visual Studio 2022+ (MSVC, CMake, Ninja) and the Windows 10/11 SDK. Run from a
@@ -89,6 +104,8 @@ Right-click the tray icon or an empty part of the dock for the menu:
   the taskbar again. `WinDock.exe --restore-taskbar` does the same for a running dock.
 - **Task Manager** (round 7): opens Windows' Task Manager (`taskmgr.exe`, which asks for
   elevation by itself as it does from the taskbar).
+- **Help…** (round 9): opens the Help window at the quick start (see [Help](#settings) under
+  Settings and [Documentation](#documentation)).
 - **Quit**.
 
 ### Magnification, name label, auto-hide
@@ -1564,6 +1581,20 @@ grey (the row's tooltip says why). Windows that are not open are opened invisibl
 values and closed again with the last search dialog (unless you went to one). Not searched: the
 Contents tab (items are not settings), folder / group / tray item windows, and the dock menus.
 
+**Help** (round 9): the guides of [docs/](docs/README.md) are built into WinDock and open in a
+**Help** window (820 × 620 DIPs, resizable, dark like the settings windows; one per process): the
+guides at the left (Quick start, Settings, Docks and displays, Items and widgets,
+Troubleshooting, All guides), the chosen one at the right; a link to another guide or heading
+opens it there, a web link opens your browser, Tab moves between the list and the guide, Esc
+closes it. **F1** in any settings window opens it at the guide section of the page or tab you are
+on (Behaviour → the settings guide's "Behaviour tab"); every card has a small round **?** button at
+the right end of its heading (muted, in the accent while the pointer is on it, tooltip "Help:"
+and the card's title, in the tab order: Enter / Space) that opens it at that card's section; the Global window's
+page list has a **Help** row after About, the dock menu (right-click the dock) has **Help…** and
+About has **Quick start guide** (all three: the quick start). Every setting has a tooltip that says
+what it does and its default (a widget field without a description of its own: its name and
+default).
+
 **Presets** (round 9): predefined dock setups to start from. **Global settings > Docks and
 displays > Add ▾ > Dock from a preset…** adds a new dock from one (its id is the preset's, made
 unique: `modern`, `modern2` …; on the primary display), **⋯ > Apply a preset…** in a Dock window's
@@ -2954,6 +2985,32 @@ always there, also when every dock is parked) handle these registered messages:
   dialog), 5115 Cancel / Skip (basic dock) (= Esc, = `WM_CLOSE`), 5116 the name, 5117 the look strip
   (`WinDock.SettingsPreview`), 5118 the check box's caption (a click toggles it), 5120 the strip's
   caption, 5121 / 5122 the welcome heading and its line.
+  Round 9 phase 9D, **help** (ids 5200 - 5399): 5201 the Global nav column's Help row (not a page
+  and not a control: a posted `WM_LBUTTONDOWN` / `UP` on the row after About in
+  `WinDock.SettingsNav` opens the quick start; the arrow keys skip it, QueryState 279 never reports
+  it), 5202 the dock menu's "Help…" (a menu command), 5203 About's "Quick start guide" (page 208),
+  and each card's "?" button **5300 + k** on its page (k the card's index on the page; an
+  owner-drawn button, window text "Help: " and the card's title, `BM_CLICK` opens the Help at its topic).
+  F1 (a `WM_KEYDOWN` VK_F1 posted to a settings window) opens the Help at the active page's topic.
+  The Help window is a top-level `WinDock.Help` window (title "WinDock Help", unowned, one per
+  process): children 5210 the guides (an owner-drawn `LISTBOX`: `LB_SETCURSEL` +
+  `WM_COMMAND(5210, LBN_SELCHANGE)` to the window opens one) and 5211 the guide (a read-only
+  RichEdit 4.1+ `RICHEDIT50W`: `EM_GETFIRSTVISIBLELINE` + `EM_GETLINE` read the heading at the top,
+  `WM_GETTEXT` its text; a posted `WM_LBUTTONDOWN` / `UP` on a link follows it, Enter with the caret
+  in a link too). `DockCommand` **154** opens it at guide `LOWORD(lParam)` (0 quick start, 1 the
+  settings guide, 2 docks and displays, 3 items and widgets, 4 troubleshooting, 5 the index;
+  `HIWORD` unused; 1 when it is shown, 0 for another number). QueryState **286** = 1 while it is
+  shown, **287** = its guide (as 154 numbers them; -1 none). QueryState **285** counts the input
+  controls (check box, radio group, drop-down, edit, up-down, trackbar, list, custom) of a settings
+  window whose row has neither a tooltip nor a hint, plus input rows with no label or caption:
+  `LOWORD(lParam)` bit 0 the Global window, else the Dock window of dock `HIWORD(lParam)`; bit 1
+  (with a dock) its Item windows too; bit 2: the control id of gap number `LOWORD >> 8` instead of
+  the count (0 none); bit 3: the cards without a "?" button instead (with bit 2: page index × 100 +
+  the card's index). A window that is not open is made hidden for the count and closed again (the
+  plan's "lp bit 16" for the Item windows is `LOWORD` bit 1 here: bit 16 is the dock's index); each
+  gap is also written to the debugger output ("WinDock 285: Dock main > Behaviour: 2214 no tip").
+  `tools\check_docs.py` checks the guides' links and anchors, README's Documentation section and
+  every help topic literal in `src` against the guides' headings.
   Round 8 phase 8C: an Item window's header (92 DIPs) paints the item's description as its third
   line; a `tooltips_class32` window owned by the settings window has one tool (`TTM_GETTOOLCOUNT`
   = 1, `TTF_SUBCLASS` on the band 102, its rect that line) whose text is the whole description. Keyboard: Ctrl+Tab / Ctrl+Shift+Tab switch pages / tabs; the tab strip takes Left /

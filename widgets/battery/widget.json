@@ -12,8 +12,8 @@
   "preview": { "settings": { "showTimeLeft": true } },
   "permissions": ["perf", "shell"],
   "settings": [
-    { "key": "showPercent", "group": "Display", "type": "bool", "label": "Show the percentage", "default": true },
-    { "key": "showTimeLeft", "group": "Display", "type": "bool", "label": "Show the time left (on battery, when Windows knows it)", "default": false },
+    { "key": "showPercent", "group": "Display", "type": "bool", "label": "Show the percentage", "description": "Writes the charge level in percent next to the battery. On by default.", "default": true },
+    { "key": "showTimeLeft", "group": "Display", "type": "bool", "label": "Show the time left (on battery, when Windows knows it)", "description": "Adds how long the battery will last, when Windows has an estimate. Off by default.", "default": false },
     { "key": "lowPercent", "group": "Display", "type": "int", "label": "Low from", "min": 5, "max": 50, "step": 5, "default": 20, "unit": "%",
       "description": "At or below this level the battery is drawn red." },
     { "key": "fillColor", "group": "Display", "type": "colour", "label": "Fill colour", "default": "#00000000",

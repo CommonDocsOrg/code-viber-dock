@@ -186,12 +186,15 @@ protected:
         }
         const int right = Width() - kMargin;
         Title(L"Docks and displays");
+        HelpTopic(L"guide-settings.md#docks-and-displays");
         Add(kLayoutCanvas, CtlKind::Custom, kCanvasClass, L"Docks and displays", WS_TABSTOP, RECT{kMargin, y_, right, y_ + kCanvasH});
         NextRow(kCanvasH + 4);
         // Round 8 phase 8A: one line; round 8 phase 8D: the whole explanation is the canvas's tooltip.
         Ctl& hint = Text(kDocksNote, CtlKind::Note, L"Click a dock to select it, double-click to open it, drag to move it.",
                          kMargin, right - kMargin, 20);
         hint.maxLines = 2;
+        // Round 9 phase 9D: the card's "?" on the hint's line (the canvas above takes the whole width).
+        HelpButton(L"guide-settings.md#docks-and-displays");
         NextRow(24);
         // Round 8 phase 8D: one toolbar: "Add ▾" (Dock, Floating dock, Folder window…, Standalone
         // widget ▸), the selection / drop line, "Lock all docks" at the right.
@@ -202,6 +205,8 @@ protected:
         Add(kDocksList, CtlKind::List, WC_LISTVIEWW, L"Docks",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | LVS_SHAREIMAGELISTS,
             RECT{kMargin, y_, right, y_ + kListH});
+        Tip(kDocksList, L"Every dock, folder window and standalone widget, with its edge and display. Select one for the "
+                        L"buttons below; double-click it to open its settings.");
         NextRow(kListH + 8);
         // The selected row's actions.
         Button(kDocksOpen, L"Open settings", kMargin, kButtonW);

@@ -51,3 +51,12 @@
 #define IDR_PRESET_SIDEBAR 364
 #define IDR_PRESET_PERFORMANCE 365
 #define IDR_PRESET_DASHBOARD 366
+
+// Round 9 phase 9D: the guides of docs/ for the Help window (RCDATA, res/app.rc; HelpWindow.cpp lists
+// them in this order).
+#define IDR_DOC_QUICKSTART 370
+#define IDR_DOC_SETTINGS 371
+#define IDR_DOC_DOCKS 372
+#define IDR_DOC_ITEMS 373
+#define IDR_DOC_TROUBLESHOOTING 374
+#define IDR_DOC_INDEX 375

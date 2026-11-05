@@ -83,6 +83,11 @@ enum Command : UINT {
     // dock), and preset LOWORD & 0xFF applied to dock HIWORD without the dialog (bit 8: keep pins).
     kPresetDialog = 152,
     kApplyPreset = 153,
+    // Round 9 phase 9D (automation only, App::OnSharedMessage): the Help window at guide
+    // LOWORD(lParam) (0 quick start, 1 settings, 2 docks, 3 items, 4 troubleshooting, 5 the index).
+    kOpenHelp = 154,
+    // Round 9 phase 9D: the dock menu's "Help…" (the quick start; SettingsIds::kMenuHelp).
+    kHelpMenu = 5202,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>

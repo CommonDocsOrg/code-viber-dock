@@ -30,7 +30,8 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Calendar feeds");
-        Section(kCalSection, L"Feeds");
+        HelpTopic(L"guide-settings.md#calendar-feeds");
+        Section(kCalSection, L"Feeds", L"guide-settings.md#feeds");
         // Round 8 phase 8A: one line, the whole explanation as its tooltip (8D: in the Feeds card).
         Ctl& note = Text(kCalNote, CtlKind::Note, L"Web addresses or .ics files, for the clock's month calendar and widgets such as Agenda.",
                          kMargin, right - kMargin, 20);
@@ -42,6 +43,8 @@ protected:
         Add(kCalFeedList, CtlKind::List, WC_LISTVIEWW, L"Calendar feeds",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
+        Tip(kCalFeedList, L"Your calendar feeds: name, address, how often each is checked and its status. A check box turns a "
+                          L"feed on or off; double-click a feed to edit it below.");
         NextRow(kListH + 8);
         // Round 8 phase 8D: "Add feed…" opens the form below (so does a double click on a feed).
         Button(kCalNewFeed, L"Add feed\x2026", kMargin, kButtonW);
@@ -53,25 +56,35 @@ protected:
         // Round 8 phase 8D: the form is a card whose heading is an expander, closed until Add
         // feed… or a double click opens it.
         UntitledCard();
-        HeadingExpander(kCalEditSection, L"Add or edit a feed");
+        HeadingExpander(kCalEditSection, L"Add or edit a feed", false, L"guide-settings.md#adding-or-editing-a-feed");
         Label(kCalNameLabel, L"Name");
+        Tip(kCalNameLabel, L"The feed's name, shown in the month calendar and the agenda (e.g. Work).");
         EditBox(kCalNameEdit, kColX, right - kColX, 128);
         NextRow();
         Label(kCalUrlLabel, L"Address or file");
+        Tip(kCalUrlLabel, L"A web address (https://, http:// or webcal://, such as Google Calendar's secret address in iCal "
+                            L"format) or the path of an .ics file on this PC.");
         EditBox(kCalUrlEdit, kColX, right - kColX, 4096);
         NextRow();
         Label(kCalColorLabel, L"Colour (#AARRGGBB)");
+        Tip(kCalColorLabel, L"The colour of this feed's events and dots, as #AARRGGBB (empty: a colour of its own).");
         EditBox(kCalColorEdit, kColX, 120, 9);
         NextRow();
         Label(kCalRefreshLabel, L"Check for changes every");
+        Tip(kCalRefreshLabel, L"How often a web feed is downloaded again (5 - 1440 minutes). Default: 30. A file is re-read when it "
+                                L"changes.");
         Spin(kCalRefreshEdit, kCalRefreshSpin, kColX, kNumberW, 5, 1440, 5);
         Text(kCalRefreshUnit, CtlKind::Note, L"minutes (web feeds)", kColX + kNumberW + 8, 200);
         NextRow();
         Label(kCalReminderLabel, L"Remind me before events");
+        Tip(kCalReminderLabel, L"Minutes before each timed event of this feed that a reminder banner shows (0: the default reminder "
+                                 L"under Display). Default: 0.");
         Spin(kCalReminderEdit, kCalReminderSpin, kColX, kNumberW, 0, 1440, 5);
         Text(kCalReminderUnit, CtlKind::Note, L"minutes (0: the default)", kColX + kNumberW + 8, 260);
         NextRow();
         Check(kCalEnable, kCalEnableCaption, L"Enabled");
+        Tip(kCalEnableCaption, L"An enabled feed is downloaded and its events are shown; a disabled one is kept but not used. On by "
+                                L"default.");
         NextRow();
         Button(kCalAdd, L"Add feed", kMargin, kButtonW);
         Button(kCalSave, L"Save changes", kMargin + kButtonW + 8, kButtonW);
@@ -82,8 +95,10 @@ protected:
         fields.maxLines = 2;
         NextRow(22);
         EndExpander();
-        Section(kCalOptionsSection, L"Display");
+        Section(kCalOptionsSection, L"Display", L"guide-settings.md#calendar-display");
         Check(kCalShowDots, kCalShowDotsCaption, L"Show dots on days with events (month calendar, clock)");
+        Tip(kCalShowDotsCaption, L"Marks the days that have events with small dots in the month calendar and on the clock's date. On "
+                                  L"by default.");
         NextRow();
         Label(kCalDefaultReminderLabel, L"Default reminder", L"A banner before each event", kCalReminderNote);
         Tip(kCalDefaultReminderLabel, L"A reminder shows a banner beside the dock (Snooze 5 min, Dismiss) before each timed "

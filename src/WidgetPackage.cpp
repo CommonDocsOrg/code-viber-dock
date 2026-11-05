@@ -1422,10 +1422,12 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind) {
         const ClockConfig d;
         s.push_back(field(L"format", T::String, L"Time format", JsonUtil::Quote(d.format), L"Time",
                           L"strftime: %H:%M (14:05), %I:%M %p (02:05 PM), %#I:%M %p (2:05 PM), %H:%M:%S"));
-        s.push_back(field(L"showSeconds", T::Bool, L"Show seconds", L"false", L"Time"));
+        s.push_back(field(L"showSeconds", T::Bool, L"Show seconds", L"false", L"Time",
+                          L"Adds the seconds to the time (the clock then redraws every second). Off by default."));
         s.push_back(field(L"timeZone", T::TimeZone, L"Time zone", L"\"\"", L"Time",
                           L"Local time follows Windows; another zone shows its time (with its daylight saving)."));
-        s.push_back(field(L"showDate", T::Bool, L"Show the date under the time", L"false", L"Text"));
+        s.push_back(field(L"showDate", T::Bool, L"Show the date under the time", L"false", L"Text",
+                          L"A short date line (e.g. Wed 4 Nov) under the time. Off by default."));
         s.push_back(field(L"label", T::String, L"Label", L"\"\"", L"Text",
                           L"Shown on the date's line (alone under the time without the date), e.g. Tokyo."));
         SettingField face = field(L"face", T::Choice, L"Face", JsonUtil::Quote(ClockFaces::kDigital), L"Look",
@@ -1435,7 +1437,8 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind) {
             face.choices.emplace_back(e.id, e.name + (e.builtIn ? L"" : L" (file)"));
         }
         s.push_back(std::move(face));
-        SettingField click = field(L"click", T::Choice, L"Clicking the clock opens", L"\"calendar\"", L"Click");
+        SettingField click = field(L"click", T::Choice, L"Clicking the clock opens", L"\"calendar\"", L"Click",
+                                   L"What a click on the clock does: the month calendar (the default), an app or URL, or nothing.");
         click.choices = {{L"calendar", L"The month calendar"}, {L"launch", L"The app or URL below"}, {L"none", L"Nothing"}};
         s.push_back(std::move(click));
         SettingField target = field(L"clickTarget", T::String, L"App or URL", L"\"\"", L"Click",
@@ -1446,10 +1449,12 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind) {
         s.push_back(field(L"place", T::Place, L"Place", L"null", L"Place"));
         s.push_back(field(L"label", T::String, L"Name on the dock", L"\"\"", L"Place",
                           L"Shown under the temperature (empty: none)."));
-        SettingField units = field(L"units", T::Choice, L"Units", JsonUtil::Quote(ToString(LocaleUnits())), L"Updates");
+        SettingField units = field(L"units", T::Choice, L"Units", JsonUtil::Quote(ToString(LocaleUnits())), L"Updates",
+                                   L"Temperature and wind units. The default follows your Windows region.");
         units.choices = {{L"metric", L"Metric (°C, km/h)"}, {L"imperial", L"Imperial (°F, mph)"}};
         s.push_back(std::move(units));
-        SettingField refresh = field(L"refreshMinutes", T::Int, L"Refresh every", L"30", L"Updates");
+        SettingField refresh = field(L"refreshMinutes", T::Int, L"Refresh every", L"30", L"Updates",
+                                     L"How often the forecast is fetched again. Default: 30 minutes.");
         refresh.min = 5;
         refresh.max = 360;
         refresh.step = 5;

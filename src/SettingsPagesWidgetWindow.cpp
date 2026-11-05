@@ -31,8 +31,10 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Standalone widget");  // a no-op in a Dock window
-        Section(kWwPlaceSection, L"Place and size");
+        HelpTopic(L"guide-settings.md#window-tab");
+        Section(kWwPlaceSection, L"Place and size", L"guide-settings.md#place-and-size");
         Label(kWwDisplayLabel, L"Display");
+        Tip(kWwDisplayLabel, L"The display the widget's window is on (its position counts from that display's work area). Default: the primary display.");
         Combo(kWwDisplayCombo, kColX, right - kColX, false);
         NextRow();
         // Round 8 phase 8A: the notes are hints (kWwPositionNote, kWwLayerNote) and tooltips.
@@ -41,6 +43,7 @@ protected:
         EditBox(kWwXEdit, kColX, kNumberW, 7);
         NextRow();
         Label(kWwYLabel, L"Position y");
+        Tip(kWwYLabel, L"DIPs from the top of the work area to the window (empty: centred). Drag the widget to move it.");
         EditBox(kWwYEdit, kColX, kNumberW, 7);
         NextRow();
         // Round 8 phase 8C: the size note is the Width label's hint (the widget's minimum and shape).
@@ -52,11 +55,12 @@ protected:
         Text(kWwWUnit, CtlKind::Note, L"DIPs", kColX + kNumberW + 8, 80);
         NextRow();
         Label(kWwHLabel, L"Height");
+        Tip(kWwHLabel, L"The window's height in DIPs (at least 48). Default: the widget's own size. Drag its edge to resize it.");
         IntSpin(kWwHEdit, kWwHSpin, kColX, kNumberW, WidgetWindowConfig::kMinSize, WidgetWindowConfig::kMaxSize, 8,
                 [](Config&, DockConfig& d) -> int& { return d.widgetWindow.h; }, SettingsScope::Appearance);
         Text(kWwHUnit, CtlKind::Note, L"DIPs", kColX + kNumberW + 8, 80);
         NextRow();
-        Section(kWwLookSection, L"Layer and look");
+        Section(kWwLookSection, L"Layer and look", L"guide-settings.md#layer-and-look");
         Label(kWwLayerLabel, L"Layer", L"", kWwLayerNote);
         Tip(kWwLayerLabel,
             L"Normal: above every window, always. On the desktop, only while the desktop is showing: shown only while the "
@@ -65,6 +69,7 @@ protected:
         Combo(kWwLayerCombo, kColX, right - kColX, false);
         NextRow();
         Label(kWwBackgroundLabel, L"Background");
+        Tip(kWwBackgroundLabel, L"None (the default): the widget draws on the desktop as it is; Panel: a rounded panel in the theme's colour behind it.");
         Combo(kWwBackgroundCombo, kColX, right - kColX, false);
         NextRow();
         // Round 8 phase 8A: "Flash this widget" (4528) is gone: the header has it. 8C: the move /

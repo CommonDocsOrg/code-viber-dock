@@ -172,6 +172,9 @@ struct SettingsHost {
     // `dock` (the Dock window's ⋯ menu), 1 the welcome variant (About), 2 a new dock (Docks and
     // displays > Add ▾).
     std::function<void(int mode, size_t dock)> openPresets;
+    // Round 9 phase 9D: the Help window at `topic` ("guide-settings.md#behaviour-tab"; F1, the
+    // cards' "?" buttons, the Global nav's Help row, About's Quick start guide).
+    std::function<void(const std::wstring& topic)> openHelp;
 };
 
 class SettingsWindow;
@@ -208,6 +211,7 @@ enum class CtlKind {
     List,      // SysListView32 (report view): dark items view theme, palette colours
     Custom,    // a window class of the page's own (it paints itself in the palette colours)
     Expander,  // round 8 phase 8A: owner-drawn push button painted as a link ("▸ More…" / "▾ Less")
+    Help,      // round 9 phase 9D: a card's round "?" button (owner-drawn; opens the Help at Ctl::topic)
 };
 
 // One row of a page's layout table. Rects are in DIPs, page coordinates (unscrolled); the window
@@ -240,6 +244,11 @@ struct Ctl {
     // changed", semibold in the text colour, as wide as its row; HeadingExpander).
     bool heading = false;
     std::wstring tip;       // Tip(): its tooltip (and accessible description)
+    // Round 9 phase 9D: a Help button's topic ("guide-settings.md#auto-hide"); `hint`: the muted
+    // one-line hint of a Label(id, text, hint) / Check(..., hint) row (QueryState 285 counts rows
+    // with neither a tooltip nor a hint).
+    std::wstring topic;
+    bool hint = false;
 };
 
 // A page: a child window (WinDock.SettingsPage, WS_EX_CONTROLPARENT) holding the controls of its
@@ -323,6 +332,7 @@ protected:
     static constexpr int kCaptionDx = 26;  // check box / radio -> its caption
     static constexpr int kHintRowH = 46;   // a row whose label has a hint (Label(id, text, hint))
     static constexpr int kCardPadX = 12;   // a card's edge from the controls' margin
+    static constexpr int kHelpDip = 20;    // round 9 phase 9D: a card's round "?" button
     int Width() const;  // content width in DIPs
     Ctl& Add(int id, CtlKind kind, const wchar_t* cls, std::wstring text, DWORD style, RECT dip);
     // The page's title (Global window only; round 8 phase 8A: a no-op in Dock and Item windows,
@@ -330,12 +340,23 @@ protected:
     void Title(const wchar_t* text);
     // A section header; it opens a card (a rounded panel) that the next Section, EndCard() or the
     // end of the table closes. Rows before the first Section get an untitled card of their own.
-    void Section(int id, const wchar_t* text);
+    // Round 9 phase 9D: `topic` (a guide and heading, "guide-settings.md#auto-hide"): a round "?"
+    // button at the right end of the header row opens the Help there (HelpButton).
+    void Section(int id, const wchar_t* text, const wchar_t* topic = nullptr);
     // Closes the open card: the rows after it are outside any card until the next Section.
     void EndCard();
     // Round 8 phase 8B: opens an untitled card (26 DIPs under the last one), like Section without
-    // its header (the Position tab's "More" expander).
-    void UntitledCard();
+    // its header (the Position tab's "More" expander). Round 9 phase 9D: with a topic, the "?"
+    // button sits at the right end of the card's first row (the rows' controls there end before it).
+    void UntitledCard(const wchar_t* topic = nullptr);
+    // Round 9 phase 9D: the open card's "?" button in the current row (id kHelpButtonBase + the
+    // card's index; tooltip "Help: <title>", the page's name when null): for a card whose first row
+    // has no room for it (Docks and displays' canvas). Section / HeadingExpander / UntitledCard
+    // with a topic call it.
+    void HelpButton(const wchar_t* topic, const wchar_t* title = nullptr);
+    // Round 9 phase 9D: the page's own help topic (F1 opens the Help there; else its first card's).
+    void HelpTopic(const wchar_t* topic) { topic_ = topic ? topic : L""; }
+    const std::wstring& Topic() const;
     void Label(int id, const wchar_t* text);
     // A label with a one-line muted hint under it (the row is kHintRowH tall; the row's other
     // controls are centred in it). `hintId` 0: an id of the page's own (not stable).
@@ -348,7 +369,7 @@ protected:
     // Round 8 phase 8D: an expander that heads its card (a group of Themes fields, Calendar's
     // "Add or edit a feed"): it keeps its text when open, drawn like a section header with a
     // chevron. `openAtFirst`: open when the page is built the first time (then as the user left it).
-    void HeadingExpander(int id, const wchar_t* text, bool openAtFirst = false);
+    void HeadingExpander(int id, const wchar_t* text, bool openAtFirst = false, const wchar_t* topic = nullptr);
     void EndExpander();
     // Lets the page lay itself out (MoveCtl): no reflow, no cards (the Contents tab).
     void NoReflow() { reflow_ = false; }
@@ -467,6 +488,12 @@ private:
     std::vector<int> openExpanders_;  // expanders the user opened (kept across a rebuild)
     std::vector<int> expanderDefaults_;  // HeadingExpander(openAtFirst): applied once per page instance
     int nextAutoId_ = 0x6000;  // ids of hints without one of their own
+    // Round 9 phase 9D: the page's help topic (HelpTopic), and an UntitledCard(topic)'s "?" button
+    // waiting for the card's first control (it goes into that control's row).
+    std::wstring topic_;
+    std::wstring pendingHelp_;
+    int pendingHelpCard_ = -1;
+    mutable std::wstring firstTopic_;  // Topic() without HelpTopic: the first card's
     int buildW_ = 0;        // Width() when the table was built (DIPs)
     int layoutW_ = 0;       // Width() of the last layout (OnResized when it changes)
     bool reflow_ = true;
@@ -561,6 +588,18 @@ public:
     bool SearchChange(int page, int id, int choice);
     // Starts the flash of the row of control `id` on page `page`.
     void FlashRow(int page, int id);
+
+    // --- help (round 9 phase 9D) ---
+    // The help topic of the page shown now (F1): its HelpTopic, else its first card's, else the
+    // settings guide.
+    std::wstring CurrentHelpTopic() const;
+    // QueryState 285: the input controls (check box, radio group, drop-down, edit, up-down,
+    // trackbar, list, custom) whose row has neither a tooltip nor a hint, plus input rows with no
+    // label or caption at all. `gaps` (optional) gets one line per gap ("Behaviour: 2228 no tip").
+    int UnexplainedInputs(std::vector<std::wstring>* gaps = nullptr, std::vector<int>* ids = nullptr) const;
+    // QueryState 285 with LOWORD bit 3: the cards (of pages that have cards) without a "?" button;
+    // `ids` gets page index * 100 + the card's index for each.
+    int CardsWithoutHelp(std::vector<int>* ids = nullptr) const;
 
     // --- the target ---
     SettingsKind Kind() const { return kind_; }
@@ -673,6 +712,12 @@ private:
     void CreateTips(SettingsPage& page);
     void ThemeTips(HWND tip) const;
     void DrawExpander(const SettingsPage& page, const DRAWITEMSTRUCT& di);
+    // Round 9 phase 9D: a card's "?" button (muted ring and glyph, the accent while hot), and its
+    // hover tracking (a subclass: owner-drawn buttons get no hot state).
+    void DrawHelp(const SettingsPage& page, const DRAWITEMSTRUCT& di);
+    static LRESULT CALLBACK HelpSubclassProc(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+    void OpenHelp(const std::wstring& topic);
+    HWND helpHot_ = nullptr;
     void ToggleExpander(SettingsPage& page, int id);
     const SettingsPage* PageOfConst(HWND control) const;
     static constexpr int kNavWidthDip = 200;

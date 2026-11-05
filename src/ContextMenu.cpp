@@ -80,6 +80,7 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
     Append(menu, kRestoreTaskbar, L"Show taskbar until re-enabled", state.hideTaskbar);
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     Append(menu, kTaskManager, L"Task Manager", true);  // round 7 phase 7A
+    Append(menu, kHelpMenu, L"Help…", true);            // round 9 phase 9D: the Help window (quick start)
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     Append(menu, kQuit, L"Quit", true);
 }

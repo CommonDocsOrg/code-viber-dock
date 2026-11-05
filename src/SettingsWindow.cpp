@@ -91,6 +91,17 @@ int SettingsPage::Width() const {
 
 Ctl& SettingsPage::Add(int id, CtlKind kind, const wchar_t* cls, std::wstring text, DWORD style, RECT dip) {
     if (table_.empty()) buildW_ = Width();
+    if (!pendingHelp_.empty() && reflow_ && kind != CtlKind::Title && card_ >= 0 && card_ == pendingHelpCard_) {
+        // Round 9 phase 9D: an UntitledCard(topic)'s "?" goes into its first control's row, centred
+        // on that control's line (a drop-down: its selection field).
+        const int h = kind == CtlKind::Combo ? kRowH - 8 : std::min(static_cast<int>(dip.bottom - dip.top), kRowH);
+        const std::wstring topic = std::move(pendingHelp_);
+        pendingHelp_.clear();
+        const int keep = y_;
+        y_ = dip.top + (h - kHelpDip) / 2 - 2;  // HelpButton places it 2 DIPs under y_
+        HelpButton(topic.c_str(), nullptr);
+        y_ = keep;
+    }
     Ctl c;
     c.id = id;
     c.kind = kind;
@@ -126,7 +137,37 @@ void SettingsPage::ResetTable() {
     autoCard_ = true;
     expander_ = 0;
     nextAutoId_ = 0x6000;
+    pendingHelp_.clear();
+    pendingHelpCard_ = -1;
     buildW_ = Width();
+}
+
+void SettingsPage::HelpButton(const wchar_t* topic, const wchar_t* title) {
+    if (!topic || !*topic || !reflow_) return;
+    if (card_ < 0) {  // no card open yet: the untitled one the next control would open
+        cards_.push_back(Card{});
+        card_ = static_cast<int>(cards_.size()) - 1;
+    }
+    std::wstring name = title && *title ? title : name_.c_str();
+    const size_t dot = name.find(L" \x00B7 ");  // "Bar · 2 changed"
+    if (dot != std::wstring::npos) name.resize(dot);
+    const int right = Width() - kMargin;
+    Ctl& c = Add(SettingsIds::kHelpButtonBase + card_, CtlKind::Help, WC_BUTTONW, L"Help: " + name, WS_TABSTOP | BS_OWNERDRAW,
+                 RECT{right - kHelpDip, y_ + 2, right, y_ + 2 + kHelpDip});
+    c.topic = topic;
+    c.tip = L"Help: " + name;
+}
+
+const std::wstring& SettingsPage::Topic() const {
+    if (!topic_.empty()) return topic_;
+    firstTopic_.clear();
+    for (const Ctl& c : table_) {
+        if (c.kind == CtlKind::Help && !c.topic.empty()) {
+            firstTopic_ = c.topic;
+            break;
+        }
+    }
+    return firstTopic_;
 }
 
 void SettingsPage::Title(const wchar_t* text) {
@@ -141,7 +182,7 @@ void SettingsPage::Title(const wchar_t* text) {
     y_ = reflow_ ? 72 : 64;
 }
 
-void SettingsPage::Section(int id, const wchar_t* text) {
+void SettingsPage::Section(int id, const wchar_t* text, const wchar_t* topic) {
     int gap = 0;
     if (reflow_) {
         // A new card: 26 DIPs under the last one (y_ is a row's bottom + kRowGap after NextRow).
@@ -157,6 +198,7 @@ void SettingsPage::Section(int id, const wchar_t* text) {
     Ctl& c = Add(id, CtlKind::Section, WC_STATICW, text, SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
                  RECT{kMargin, y_, Width() - kMargin, y_ + 24});
     c.lo = gap;  // the reflow keeps this gap when the rows above it collapse
+    if (topic) HelpButton(topic, text);  // round 9 phase 9D: in the header's row (c is not used after this)
     y_ += 28;
     ++row_;
 }
@@ -167,12 +209,15 @@ void SettingsPage::EndCard() {
     autoCard_ = false;
 }
 
-void SettingsPage::UntitledCard() {
+void SettingsPage::UntitledCard(const wchar_t* topic) {
     if (!reflow_) return;
     if (std::any_of(table_.begin(), table_.end(), [](const Ctl& c) { return c.card >= 0; })) y_ += 26;
     if (std::any_of(table_.begin(), table_.end(), [&](const Ctl& c) { return c.row == row_; })) ++row_;
     cards_.push_back(Card{});
     card_ = static_cast<int>(cards_.size()) - 1;
+    // Round 9 phase 9D: the "?" waits for the card's first control (Add) and shares its row.
+    pendingHelp_ = topic ? topic : L"";
+    pendingHelpCard_ = card_;
 }
 
 void SettingsPage::Label(int id, const wchar_t* text) {
@@ -186,7 +231,8 @@ void SettingsPage::Label(int id, const wchar_t* text, const wchar_t* hint, int h
                      RECT{kMargin, y_ + 3, kMargin + labelW_, y_ + 24});
     label.buddy = hintId;
     Add(hintId, CtlKind::Note, WC_STATICW, hint ? hint : L"", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
-        RECT{kMargin, y_ + 24, kMargin + labelW_, y_ + 42});
+        RECT{kMargin, y_ + 24, kMargin + labelW_, y_ + 42})
+        .hint = true;
     hintRow_ = row_;
 }
 
@@ -208,7 +254,7 @@ void SettingsPage::Expander(int id, const wchar_t* text) {
     expander_ = id;
 }
 
-void SettingsPage::HeadingExpander(int id, const wchar_t* text, bool openAtFirst) {
+void SettingsPage::HeadingExpander(int id, const wchar_t* text, bool openAtFirst, const wchar_t* topic) {
     if (openAtFirst && std::find(expanderDefaults_.begin(), expanderDefaults_.end(), id) == expanderDefaults_.end()) {
         expanderDefaults_.push_back(id);
         if (!ExpanderOpen(id)) openExpanders_.push_back(id);  // no relayout: the table is being built
@@ -221,6 +267,13 @@ void SettingsPage::HeadingExpander(int id, const wchar_t* text, bool openAtFirst
                  RECT{kMargin, y_ + 2, Width() - kMargin, y_ + kRowH - 2});
     c.heading = true;
     c.lo = startsCard && after ? 26 : 0;
+    if (topic) {
+        // Round 9 phase 9D: the "?" at the right end of the heading's row (not one of its rows:
+        // it stays while the card is closed).
+        y_ += 4;
+        HelpButton(topic, text);
+        y_ -= 4;
+    }
     NextRow();
     expander_ = id;
 }
@@ -288,7 +341,8 @@ void SettingsPage::Check(int id, int captionId, const wchar_t* text, const wchar
                  RECT{x + kCaptionDx, y_ + 3, Width() - kMargin, y_ + 24});
     c.buddy = id;
     Add(hintId, CtlKind::Note, WC_STATICW, hint ? hint : L"", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
-        RECT{x + kCaptionDx, y_ + 24, Width() - kMargin, y_ + 42});
+        RECT{x + kCaptionDx, y_ + 24, Width() - kMargin, y_ + 42})
+        .hint = true;
     hintRow_ = row_;
 }
 
@@ -699,7 +753,15 @@ HWND SettingsWindow::DefaultFocus() const {
     if (nav_) return nav_;
     if (tabs_) return tabs_;
     if (SettingsPage* page = ActivePage(); page && page->hwnd_) {
-        if (HWND first = GetNextDlgTabItem(page->hwnd_, nullptr, FALSE)) return first;
+        // Round 9 phase 9D: the first setting, not a card's "?" button (it stays in the tab order).
+        HWND first = GetNextDlgTabItem(page->hwnd_, nullptr, FALSE);
+        for (HWND h = first; h;) {
+            const Ctl* c = page->Find(h);
+            if (!c || c->kind != CtlKind::Help) return h;
+            h = GetNextDlgTabItem(page->hwnd_, h, FALSE);
+            if (h == first) break;
+        }
+        if (first) return first;
     }
     return hwnd_;
 }
@@ -982,6 +1044,9 @@ void SettingsWindow::CreateControls(SettingsPage& page) {
             }
             case CtlKind::Edit:
                 if (c.hi > 0) SendMessageW(c.hwnd, EM_SETLIMITTEXT, static_cast<WPARAM>(c.hi), 0);
+                break;
+            case CtlKind::Help:  // round 9 phase 9D: hover tracking for the accent
+                SetWindowSubclass(c.hwnd, HelpSubclassProc, 2, reinterpret_cast<DWORD_PTR>(this));
                 break;
             case CtlKind::Link: {
                 // Links in the WM_CTLCOLORSTATIC text colour (the palette's link colour) instead
@@ -1533,6 +1598,22 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
                               c.kind == CtlKind::Caption || c.kind == CtlKind::Section;
             if (text && c.dip.right > W - kM) c.dip.right = std::max(static_cast<int>(c.dip.left) + 8, W - kM);
         }
+        // Round 9 phase 9D: a card's "?" button (at the right margin) keeps its row's other controls
+        // out of its place: a header / stretching control ends 6 DIPs before it, one at the right
+        // margin moves left of it.
+        for (size_t h : row) {
+            if (t[h].kind != CtlKind::Help) continue;
+            const int stop = t[h].dip.left - 6;
+            for (size_t k = 0; k < row.size(); ++k) {
+                Ctl& c = t[row[k]];
+                if (row[k] == h || c.dip.right <= stop) continue;
+                if (move[k] || c.dip.left >= stop) {
+                    OffsetRect(&c.dip, stop - c.dip.right, 0);
+                } else {
+                    c.dip.right = std::max(static_cast<int>(c.dip.left) + 8, stop);
+                }
+            }
+        }
     }
 
     // Vertical: each row moves by what the rows above it grew (measured notes) or lost (rows
@@ -1873,11 +1954,19 @@ bool SettingsWindow::PreTranslateMessage(MSG& msg) {
         OpenSearch(L"");  // round 9 phase 9B: Ctrl+F, the settings search
         return true;
     }
+    if (msg.message == WM_KEYDOWN && msg.wParam == VK_F1 && GetKeyState(VK_CONTROL) >= 0 && GetKeyState(VK_SHIFT) >= 0) {
+        OpenHelp(CurrentHelpTopic());  // round 9 phase 9D: the Help at this page's / tab's topic
+        return true;
+    }
     if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN) {
-        // Enter on an expander toggles it (Space does as a button press).
+        // Enter on an expander toggles it (Space does as a button press); on a "?" it opens the Help.
         if (SettingsPage* page = PageOf(msg.hwnd)) {
             if (const Ctl* c = page->Find(msg.hwnd); c && c->kind == CtlKind::Expander) {
                 ToggleExpander(*page, c->id);
+                return true;
+            }
+            if (const Ctl* c = page->Find(msg.hwnd); c && c->kind == CtlKind::Help) {
+                OpenHelp(c->topic);
                 return true;
             }
         }
@@ -2372,6 +2461,214 @@ void SettingsWindow::DrawExpander(const SettingsPage& page, const DRAWITEMSTRUCT
     SelectObject(di.hDC, old);
 }
 
+void SettingsWindow::DrawHelp(const SettingsPage& page, const DRAWITEMSTRUCT& di) {
+    const Ctl* c = page.Find(di.hwndItem);
+    const bool card = c && c->card >= 0 && static_cast<size_t>(c->card) < page.cards_.size() &&
+                      !IsRectEmpty(&page.cards_[static_cast<size_t>(c->card)].dip);
+    const COLORREF back = card ? cardColor_ : palette_.layer;
+    const bool hot = di.hwndItem == helpHot_ || (di.itemState & ODS_SELECTED) != 0;
+    const COLORREF ink = hot ? palette_.accent : palette_.highContrast ? palette_.text : palette_.textSecondary;
+    const RECT r = di.rcItem;
+    const int w = r.right - r.left, h = r.bottom - r.top;
+    if (w <= 0 || h <= 0) return;
+    // The ring, anti-aliased (a signed distance per pixel), blended over the card's colour.
+    BITMAPINFO bi{};
+    bi.bmiHeader.biSize = sizeof(bi.bmiHeader);
+    bi.bmiHeader.biWidth = w;
+    bi.bmiHeader.biHeight = -h;
+    bi.bmiHeader.biPlanes = 1;
+    bi.bmiHeader.biBitCount = 32;
+    bi.bmiHeader.biCompression = BI_RGB;
+    void* bits = nullptr;
+    HBITMAP dib = CreateDIBSection(di.hDC, &bi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (dib && bits) {
+        const float cx = w / 2.0f, cy = h / 2.0f;
+        const float radius = std::min(w, h) / 2.0f - 0.5f;
+        const float thick = std::max(1.0f, static_cast<float>(Px(1)) * 1.25f);
+        auto mix = [](COLORREF a, COLORREF b, float pa) {
+            return RGB(static_cast<BYTE>(GetRValue(a) * pa + GetRValue(b) * (1 - pa) + 0.5f),
+                       static_cast<BYTE>(GetGValue(a) * pa + GetGValue(b) * (1 - pa) + 0.5f),
+                       static_cast<BYTE>(GetBValue(a) * pa + GetBValue(b) * (1 - pa) + 0.5f));
+        };
+        // Pressed or hot: a faint fill in the accent inside the ring.
+        const COLORREF fill = hot && !palette_.highContrast ? mix(palette_.accent, back, 0.14f) : back;
+        auto* px = static_cast<RGBQUAD*>(bits);
+        for (int y = 0; y < h; ++y) {
+            for (int x = 0; x < w; ++x) {
+                const float fx = static_cast<float>(x) + 0.5f - cx, fy = static_cast<float>(y) + 0.5f - cy;
+                const float d = std::sqrt(fx * fx + fy * fy);
+                const float inside = std::clamp(radius - d + 0.5f, 0.0f, 1.0f);  // the disc
+                const float ring = std::clamp(std::min(radius - d, d - (radius - thick)) + 0.5f, 0.0f, 1.0f);
+                COLORREF col = mix(fill, back, inside);
+                col = mix(ink, col, ring);
+                px[y * w + x] = RGBQUAD{GetBValue(col), GetGValue(col), GetRValue(col), 0};
+            }
+        }
+        HDC mem = CreateCompatibleDC(di.hDC);
+        HGDIOBJ old = SelectObject(mem, dib);
+        BitBlt(di.hDC, r.left, r.top, w, h, mem, 0, 0, SRCCOPY);
+        SelectObject(mem, old);
+        DeleteDC(mem);
+    } else {
+        HBRUSH b = CreateSolidBrush(back);
+        FillRect(di.hDC, &r, b);
+        DeleteObject(b);
+    }
+    if (dib) DeleteObject(dib);
+    SetBkMode(di.hDC, TRANSPARENT);
+    SetTextColor(di.hDC, ink);
+    HGDIOBJ oldFont = SelectObject(di.hDC, fontSemibold_ ? fontSemibold_ : font_);
+    RECT tr = r;
+    DrawTextW(di.hDC, L"?", 1, &tr, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    SelectObject(di.hDC, oldFont);
+    if ((di.itemState & ODS_FOCUS) && !(di.itemState & ODS_NOFOCUSRECT)) {
+        SetTextColor(di.hDC, palette_.text);
+        SetBkColor(di.hDC, back);
+        DrawFocusRect(di.hDC, &r);
+    }
+}
+
+LRESULT CALLBACK SettingsWindow::HelpSubclassProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR id, DWORD_PTR data) {
+    auto* self = reinterpret_cast<SettingsWindow*>(data);
+    switch (msg) {
+        case WM_MOUSEMOVE:
+            if (self->helpHot_ != hwnd) {
+                HWND old = self->helpHot_;
+                self->helpHot_ = hwnd;
+                TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd, 0};
+                TrackMouseEvent(&tme);
+                if (old && IsWindow(old)) InvalidateRect(old, nullptr, FALSE);
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            break;
+        case WM_MOUSELEAVE:
+            if (self->helpHot_ == hwnd) {
+                self->helpHot_ = nullptr;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            }
+            break;
+        case WM_ERASEBKGND:
+            return 1;  // the owner draw paints every pixel
+        case WM_NCDESTROY:
+            if (self->helpHot_ == hwnd) self->helpHot_ = nullptr;
+            RemoveWindowSubclass(hwnd, HelpSubclassProc, id);
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(hwnd, msg, wp, lp);
+}
+
+void SettingsWindow::OpenHelp(const std::wstring& topic) {
+    if (hwnd_ && host_.openHelp) host_.openHelp(topic.empty() ? std::wstring(L"guide-settings.md") : topic);
+}
+
+std::wstring SettingsWindow::CurrentHelpTopic() const {
+    if (const SettingsPage* p = ActivePage()) {
+        if (const std::wstring& t = p->Topic(); !t.empty()) return t;
+    }
+    return L"guide-settings.md";
+}
+
+int SettingsWindow::CardsWithoutHelp(std::vector<int>* ids) const {
+    int count = 0;
+    for (size_t p = 0; p < pages_.size(); ++p) {
+        const SettingsPage& page = *pages_[p];
+        if (!page.hwnd_ || !page.InNav() || !page.reflow_) continue;
+        for (size_t k = 0; k < page.cards_.size(); ++k) {
+            const int card = static_cast<int>(k);
+            const bool used = std::any_of(page.table_.begin(), page.table_.end(), [&](const Ctl& c) { return c.card == card && c.kind != CtlKind::Help; });
+            const bool help = std::any_of(page.table_.begin(), page.table_.end(), [&](const Ctl& c) { return c.card == card && c.kind == CtlKind::Help; });
+            if (!used || help) continue;
+            ++count;
+            if (ids) ids->push_back(static_cast<int>(p) * 100 + card);  // page index * 100 + the card's index
+        }
+    }
+    return count;
+}
+
+int SettingsWindow::UnexplainedInputs(std::vector<std::wstring>* gaps, std::vector<int>* ids) const {
+    int count = 0;
+    for (const auto& pagePtr : pages_) {
+        const SettingsPage& page = *pagePtr;
+        if (!page.hwnd_ || !page.InNav()) continue;
+        const std::vector<Ctl>& t = page.table_;
+        auto input = [](CtlKind k) {
+            return k == CtlKind::Check || k == CtlKind::Radio || k == CtlKind::Combo || k == CtlKind::Edit || k == CtlKind::Spin ||
+                   k == CtlKind::Trackbar || k == CtlKind::List || k == CtlKind::Custom;
+        };
+        auto text = [](const Ctl& c) { return c.hwnd && !c.measured ? WindowText(c.hwnd) : c.text; };
+        // A tooltip on the control, its caption / buddy, or anything else of its row; or a hint in its row.
+        auto explainedOne = [&](const Ctl& c) {
+            if (!c.tip.empty()) return true;
+            if (c.buddy) {
+                if (const Ctl* b = page.Find(c.buddy); b && !b->tip.empty()) return true;
+            }
+            if (c.row < 0) return false;
+            for (const Ctl& o : t) {
+                if (o.row != c.row || o.kind == CtlKind::Help) continue;
+                if (!o.tip.empty()) return true;
+                if (o.hint && !text(o).empty()) return true;
+            }
+            return false;
+        };
+        auto labelled = [&](const Ctl& c) {
+            if (c.kind == CtlKind::Check || c.kind == CtlKind::Radio) {
+                const Ctl* cap = page.Find(c.buddy);
+                return (cap && !cap->text.empty()) || !c.text.empty();
+            }
+            if (c.kind == CtlKind::Spin) return true;  // its edit's row says it
+            if (c.row >= 0) {
+                for (const Ctl& o : t) {
+                    if (o.row == c.row && (o.kind == CtlKind::Label || o.kind == CtlKind::Caption) && !o.text.empty()) return true;
+                }
+            }
+            // A list / custom control names itself (its accessible name under its card's heading).
+            if (c.kind == CtlKind::List || c.kind == CtlKind::Custom) return !c.text.empty();
+            // An edit with a cue banner ("Search widgets") says what it is.
+            if (c.kind == CtlKind::Edit && c.hwnd) {
+                wchar_t cue[64]{};
+                if (SendMessageW(c.hwnd, EM_GETCUEBANNER, reinterpret_cast<WPARAM>(cue), static_cast<LPARAM>(std::size(cue))) && cue[0]) return true;
+            }
+            // A control the page lays out itself (no rows): a label on its line, left of it.
+            if (c.row < 0) {
+                for (const Ctl& o : t) {
+                    if ((o.kind == CtlKind::Label || o.kind == CtlKind::Caption) && !o.text.empty() && o.dip.top < c.dip.bottom &&
+                        o.dip.bottom > c.dip.top && o.dip.right <= c.dip.left + 4) {
+                        return true;
+                    }
+                }
+                return !c.text.empty();
+            }
+            return false;
+        };
+        for (size_t i = 0; i < t.size(); ++i) {
+            const Ctl& c = t[i];
+            if (!input(c.kind) || !c.hwnd) continue;
+            bool explained = explainedOne(c);
+            if (c.kind == CtlKind::Radio) {
+                if (!(c.style & WS_GROUP)) continue;  // the group counts once, at its first radio
+                for (size_t k = i + 1; !explained && k < t.size() && t[k].kind == CtlKind::Radio && !(t[k].style & WS_GROUP); ++k) {
+                    explained = explainedOne(t[k]);
+                }
+            }
+            if (c.kind == CtlKind::Spin) {
+                // Explained with its edit (the same row).
+                if (const Ctl* e = page.Find(c.buddy)) explained = explained || explainedOne(*e);
+            }
+            const bool named = labelled(c);
+            if (explained && named) continue;
+            ++count;
+            if (ids) ids->push_back(c.id);
+            if (gaps) {
+                gaps->push_back(page.Name() + L": " + std::to_wstring(c.id) + (explained ? L"" : L" no tip") + (named ? L"" : L" no label") +
+                                L" (" + c.text + L")");
+            }
+        }
+    }
+    return count;
+}
+
 void SettingsWindow::ToggleExpander(SettingsPage& page, int id) {
     page.SetExpander(id, !page.ExpanderOpen(id));
     if (HWND h = page.Item(id)) {
@@ -2462,6 +2759,10 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
                 if (code == BN_CLICKED) ToggleExpander(page, c->id);
                 return 0;
             }
+            if (c->kind == CtlKind::Help) {  // round 9 phase 9D: a card's "?"
+                if (code == BN_CLICKED) OpenHelp(c->topic);
+                return 0;
+            }
             // Statics with a tooltip (SS_NOTIFY) report clicks: not the pages' business.
             if (c->kind == CtlKind::Label || c->kind == CtlKind::Note || c->kind == CtlKind::Value ||
                 c->kind == CtlKind::Section || c->kind == CtlKind::Title) {
@@ -2537,6 +2838,10 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
             }
             if (const Ctl* c = page.Find(di->hwndItem); c && c->kind == CtlKind::Expander) {
                 DrawExpander(page, *di);
+                return TRUE;
+            }
+            if (const Ctl* c = page.Find(di->hwndItem); c && c->kind == CtlKind::Help) {
+                DrawHelp(page, *di);
                 return TRUE;
             }
             if (di->CtlType == ODT_BUTTON && page.OnDrawItem(*di)) return TRUE;

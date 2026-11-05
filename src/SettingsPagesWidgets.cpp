@@ -212,13 +212,17 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Widget library");
+        HelpTopic(L"guide-settings.md#widget-library");
         Add(kWidgetsList, CtlKind::List, WC_LISTVIEWW, L"Installed widgets",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
+        Tip(kWidgetsList, L"Every widget WinDock has: the built-in ones and those in your widgets folder. Select one to see its "
+                          L"preview and description below, then add it to a dock or the desktop.");
         NextRow(kListH + 8);
         // Round 6 phase 6E: the selected widget's live preview and description.
         PreviewPanel::Register();
         Add(kWidgetsPreview, CtlKind::Custom, PreviewPanel::kClass, L"Preview", 0, RECT{kMargin, y_, right, y_ + 124});
+        Tip(kWidgetsPreview, L"A live preview of the selected widget with sample data, and what it does.");
         NextRow(124 + 10);
         // Round 8 phase 8D: the adds, then "More ▾" (Add from folder…, Export built-in to folder,
         // Reload widgets, Open widgets folder, Console…: the old buttons' ids as its commands).
@@ -236,6 +240,7 @@ protected:
         // Round 8 phase 8A: one line, the whole explanation as its tooltip.
         Text(kWidgetsNote, CtlKind::Note, L"A widget is a folder with a widget.json and a main.js (see docs/widgets.md).",
              kMargin, right - kMargin, 20);
+        HelpButton(L"guide-settings.md#widget-library");  // round 9 phase 9D: the card's "?" on the note's line
         Tip(kWidgetsNote, L"A widget is a folder in " + Widgets::Directory() +
                               L" with a widget.json and a main.js (see docs/widgets.md). A folder with a built-in's id "
                               L"replaces the built-in: export one to edit it. Each widget item has its own settings window "
@@ -580,6 +585,12 @@ protected:
         }
         const Widgets::Manifest* m = Schema();
         Title(L"Widget settings");  // a no-op in Dock and Item windows (round 8 phase 8A)
+        // Round 9 phase 9D: the cards' "?" open the item's guide section; F1 there too (a standalone
+        // widget's Widget tab: the window's guide section).
+        cardTopic_ = kind == ItemKind::Clock     ? L"guide-items.md#the-clock"
+                     : kind == ItemKind::Weather ? L"guide-items.md#weather"
+                                                 : L"guide-items.md#widget-settings";
+        HelpTopic(standalone_ ? L"guide-settings.md#widget-tab" : cardTopic_);
         // Round 8 phase 8C: the description is the Item window header's third line (the page has
         // no title or description note); only the cases without fields say so here. A standalone
         // widget's compact header has no such line: its Widget tab keeps the description as one
@@ -597,6 +608,7 @@ protected:
             lines = 1;
         }
         if (!note.empty()) {
+            UntitledCard(cardTopic_);
             Ctl& n = Text(kWidgetSettingsNote, CtlKind::Note, note, kMargin, right - kMargin, 20 * lines);
             n.maxLines = lines;
             Tip(kWidgetSettingsNote, note);
@@ -609,7 +621,7 @@ protected:
         if (m) BuildFields(*m, right);
         if (standalone_ && item_ >= 0) {
             // The Item window's footer buttons (same ids) as the last card of the Widget tab.
-            UntitledCard();
+            UntitledCard(cardTopic_);
             Button(kFooterReset, L"Reset to defaults", kMargin, 150);
             if (kind == ItemKind::Widget) Button(kFooterConsole, L"Console…", kMargin + 158, 110);
             NextRow();
@@ -638,7 +650,7 @@ protected:
             const Widgets::SettingField& f = fields[k];
             const int base = kWidgetFieldBase + 10 * static_cast<int>(k);
             if (!Visible(f, values)) continue;
-            if (first || f.group != group) Section(base + 4, (f.group.empty() ? untitled : f.group).c_str());  // the card
+            if (first || f.group != group) Section(base + 4, (f.group.empty() ? untitled : f.group).c_str(), cardTopic_);  // the card
             first = false;
             group = f.group;
             using T = Widgets::SettingField::Type;
@@ -694,17 +706,32 @@ protected:
                     NextRow();
                     break;
             }
-            if (!f.description.empty() && f.type != T::Place) {
+            if (f.type != T::Place) {
                 // The whole description: the label's (and so its hint's), the control's tooltip.
-                Tip(f.type == T::Bool ? base + 2 : base, f.description);
-                Tip(base + 1, f.description);
-                if (f.type == T::Bool) Tip(base + 3, f.description);
+                // Round 9 phase 9D: a field without one (another author's widget) still gets a
+                // tooltip: its name and its default.
+                const std::wstring tip = !f.description.empty() ? f.description : f.label + L". Default: " + DefaultText(f) + L".";
+                Tip(f.type == T::Bool ? base + 2 : base, tip);
+                Tip(base + 1, tip);
+                if (f.type == T::Bool && !hint.empty()) Tip(base + 3, tip);
             }
             if (kind == ItemKind::Clock && f.key == L"face") {
                 Button(kClockFacesFolder, L"Open faces folder", kColX, 150);  // in the face's card
                 NextRow();
             }
         }
+    }
+
+    // Round 9 phase 9D: a field's default as the page shows it ("On", a choice's label, the text;
+    // "empty").
+    static std::wstring DefaultText(const Widgets::SettingField& f) {
+        std::wstring d = f.defaultJson;
+        if (f.type == Widgets::SettingField::Type::Bool) return d == L"true" ? L"on" : L"off";
+        if (d.size() >= 2 && d.front() == L'"' && d.back() == L'"') d = d.substr(1, d.size() - 2);
+        for (const auto& [value, label] : f.choices) {
+            if (value == d) return label;
+        }
+        return d.empty() || d == L"null" ? std::wstring(L"empty") : d;
     }
 
     // The row hint for a description: all of it when it is one line in `widthDip`, else its first
@@ -741,13 +768,16 @@ protected:
         NextRow();
         Expander(kPlaceCoordsExpander, L"Edit coordinates");
         Label(kPlaceLocationLabel, L"Name shown");
+        Tip(kPlaceLocationLabel, L"The place's name as the forecast popup shows it. Choosing a place above fills it in.");
         EditBox(kPlaceLocationEdit, kColX, right - kColX, 128);
         NextRow();
         Label(kPlaceLatLabel, L"Latitude");
+        Tip(kPlaceLatLabel, L"The place's latitude in degrees (-90 south to 90 north). Choosing a place above fills it in.");
         EditBox(kPlaceLatEdit, kColX, 120, 16);
         Text(kPlaceLatUnit, CtlKind::Note, L"-90 to 90", kColX + 128, 120);
         NextRow();
         Label(kPlaceLonLabel, L"Longitude");
+        Tip(kPlaceLonLabel, L"The place's longitude in degrees (-180 west to 180 east). Choosing a place above fills it in.");
         EditBox(kPlaceLonEdit, kColX, 120, 16);
         Text(kPlaceLonUnit, CtlKind::Note, L"-180 to 180", kColX + 128, 120);
         NextRow();
@@ -1272,6 +1302,7 @@ private:
     std::vector<WeatherService::Place> places_;  // the last search's results
     std::wstring searched_;      // the last search's text (or the chosen place's row): not searched again
     bool standalone_ = false;    // a standalone widget's Widget tab (round 8 phase 8C)
+    const wchar_t* cardTopic_ = L"guide-items.md#widget-settings";  // round 9 phase 9D
     std::vector<std::pair<std::wstring, std::wstring>> zones_;  // time zone rows: key, display name
 
     // Round 6 phase 6D: the rows of `"choiceFrom": "perf"` fields (field index -> value, label): the

@@ -123,8 +123,9 @@ enum class ThumbnailMode { Off, Live, Snapshots };
 enum class OverflowMode { Scroll, Shrink, Clip };
 // How the bar grows while magnified (round 9 phase 9A, docks[].magnifyBar): "steady" (default: it
 // grows once to its magnified length, symmetrically about its resting centre, when the pointer
-// comes onto the dock, and keeps that length, every widget and separator in place, until the
-// pointer leaves it), "follow" (before round 9: anchored at the pointer, its ends move as the
+// first reaches something that zooms (an app, a folder, a group, the Recycle Bin, tray apps; a
+// widget only when its hover makes it larger), and keeps that length, every widget and separator
+// in place, until the pointer leaves it), "follow" (before round 9: anchored at the pointer, its ends move as the
 // pointer walks the run) or "always" (the bar always has its magnified length: room for the
 // magnified icons at both ends of the icons, nothing grows or shrinks). Rings, a scrolling bar and
 // a full-width or anchored bar always grow as before.

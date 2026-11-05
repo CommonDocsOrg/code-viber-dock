@@ -30,9 +30,10 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Notifications");
+        HelpTopic(L"guide-settings.md#notifications");
         // Round 8 phase 8A: one-line notes and hints, the explanations as their tooltips; round 8
         // phase 8D: in cards (Centre, Access, Badges per app).
-        Section(kNotifCentreSection, L"Centre");
+        Section(kNotifCentreSection, L"Centre", L"guide-settings.md#notification-centre");
         Ctl& centre = Text(kNotifCentreNote, CtlKind::Note, L"A widget: drag it onto a dock from that dock's Contents tab.",
                            kMargin, right - kMargin, 20);
         centre.maxLines = 2;
@@ -52,6 +53,7 @@ protected:
         Tip(kNotifBalloonsNote, kBalloonsTip);
         NextRow();
         Check(kNotifClearOnActivate, kNotifClearOnActivateCaption, L"Clear an app's badge when it is opened from the dock");
+        Tip(kNotifClearOnActivateCaption, L"Opening an app from the dock marks its notifications read, so its badge goes. On by default.");
         NextRow();
         Label(kNotifPollLabel, L"Check for notifications every", L"Only while something needs it", kNotifPollNote);
         Tip(kNotifPollLabel,
@@ -61,7 +63,7 @@ protected:
         Spin(kNotifPollEdit, kNotifPollSpin, kColX, kNumberW, 1, 60, 1);
         Text(kNotifPollUnit, CtlKind::Note, L"seconds", kColX + kNumberW + 8, 120);
         NextRow();
-        Section(kNotifStatusSection, L"Access");
+        Section(kNotifStatusSection, L"Access", L"guide-settings.md#notification-access");
         Label(kNotifStatusLabel, L"Status");
         Text(kNotifStatus, CtlKind::Value, L"", kColX, right - kColX, 40);
         NextRow(44);
@@ -71,10 +73,12 @@ protected:
         Tip(kNotifDndNote, L"Do not disturb has no public interface for apps, so the centre has no switch for it (Windows' "
                            L"quick settings have one).");
         NextRow(22);
-        Section(kNotifAppsSection, L"Badges per app");
+        Section(kNotifAppsSection, L"Badges per app", L"guide-settings.md#badges-per-app");
         Add(kNotifAppList, CtlKind::List, WC_LISTVIEWW, L"Apps with badges",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
+        Tip(kNotifAppList, L"The apps of every dock and every app with a notification now, with their unread count. Clear an app's "
+                           L"check box and it never shows a badge on any dock. Every app is checked by default.");
         NextRow(kListH + 8);
         Ctl& apps = Text(kNotifAppsNote, CtlKind::Note, L"Unchecked apps never show a badge (on any dock).", kMargin, right - kMargin, 20);
         apps.maxLines = 2;

@@ -131,7 +131,8 @@ protected:
         const int right = Width() - kMargin;
         if (dockOnly_) {
             Title(L"Appearance");
-            Section(kSectionTheme, L"Theme");
+            HelpTopic(L"guide-settings.md#appearance-tab");
+            Section(kSectionTheme, L"Theme", L"guide-settings.md#dock-theme");
             // Round 8 phase 8A: the note is the label's hint (kDockThemeNote) and its tooltip.
             Label(kDockThemeLabel, L"This dock's theme", L"Its fields: Global > Themes", kDockThemeNote);
             Tip(kDockThemeLabel, L"\"Same as all docks\" uses the global theme. The theme's fields (colours, sizes, "
@@ -141,40 +142,45 @@ protected:
             NextRow();
             Link(kDockThemeLink, L"<a>Open Global settings > Themes</a>", kMargin, right - kMargin);
             NextRow();
-            Section(kSectionDock, L"Size");
+            Section(kSectionDock, L"Size", L"guide-settings.md#size");
             Label(kIconSizeLabel, L"Icon size");
+            Tip(kIconSizeLabel, L"The size of the icons at rest, in DIPs (16 - 256; the slider goes to 128). Default: 48.");
             Trackbar(kIconSizeTrack, kColX - 6, 212, 16, kMaxTrackIconSize, 8);
             IntSpin(kIconSizeEdit, kIconSizeSpin, kColX + 216, 72, 16, 256, 4,
                     [](Config&, DockConfig& d) -> int& { return d.iconSize; }, SettingsScope::Appearance);
             NextRow();
             Label(kMagnifyLabel, L"Magnification");
+            Tip(kMagnifyLabel, L"How much the icon under the pointer grows (1.00\x00D7: no magnification, up to 2.50\x00D7). Default: 1.50\x00D7.");
             Trackbar(kMagnifyTrack, kColX - 6, 212, 20, 50, 2);
             Text(kMagnifyValue, CtlKind::Value, L"", kColX + 216, 72);
             NextRow();
             Label(kRangeLabel, L"Magnification range (icons)");
+            Tip(kRangeLabel, L"How many icons on each side of the pointer grow too (1 - 4). Default: 2.");
             IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config&, DockConfig& d) -> int& { return d.magnifyRange; },
                     SettingsScope::Appearance);
             NextRow();
             // Round 9 phase 9A: docks[].magnifyBar.
             Label(kMagnifyBarLabel, L"Bar while magnified");
             Tip(kMagnifyBarLabel,
-                L"Grows once and stays: when the pointer comes onto the dock the bar grows to its magnified length "
-                L"at once, evenly at both ends, and keeps that length until the pointer leaves the dock (menus and "
-                L"popups keep it too): no wobble left and right, the widgets and separators stay where they are and "
-                L"only the magnified icons move. Follows the pointer: the bar grows away from the pointer and its ends move as you go along "
-                L"the icons (before round 9). Always wide: the bar always has its magnified length (room for the "
-                L"magnified icons at both ends of the icons), so nothing grows or shrinks. Rings, a scrolling dock "
-                L"and a full-width bar always grow as before.");
+                L"Grows once and stays (the default): when the pointer first reaches something that zooms (an app, a "
+                L"folder, a group, the Recycle Bin) the bar grows to its magnified length at once, evenly at both ends, "
+                L"and keeps that length until the pointer leaves the dock (menus and popups keep it too): no wobble left "
+                L"and right, the widgets and separators stay where they are and only the magnified icons move. Follows "
+                L"the pointer: the bar grows away from the pointer and its ends move as you go along the icons (the older "
+                L"behaviour). Always wide: the bar always has its magnified length (room for the magnified icons at both "
+                L"ends of the icons), so nothing grows or shrinks. Rings, a scrolling dock and a full-width bar always "
+                L"grow with the pointer.");
             Combo(kMagnifyBarCombo, kColX, 252, false);  // the longest entry: "Always wide (...)"
             NextRow();
             return;
         }
         Title(L"Themes");
+        HelpTopic(L"guide-settings.md#themes");
         // Round 8 phase 8A: a narrower label column, so a field row (swatch, #AARRGGBB, alpha,
         // Reset) fits the window's minimum width beside the scroll bar.
         labelW_ = kThemeLabelW;
         constexpr int cx = kThemeColX;
-        Section(kSectionTheme, L"Theme");
+        Section(kSectionTheme, L"Theme", L"guide-settings.md#choosing-a-theme");
         // Round 8 phase 8D: the hint counts the changes; Export / Open folder / Reset all are the
         // "⋯" menu's.
         Label(kThemeLabel, L"Theme", L"The preset's values", kThemeNote);
@@ -190,7 +196,7 @@ protected:
         // One card per group, its heading an expander ("Bar · 2 changed"); Bar open at first.
         for (const FieldGroup& g : FieldGroups()) {
             UntitledCard();
-            HeadingExpander(g.sectionId, g.title, g.sectionId == kSectionFieldsBar);
+            HeadingExpander(g.sectionId, g.title, g.sectionId == kSectionFieldsBar, L"guide-settings.md#theme-values");
             for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
             if (g.note) {
                 // One line (two at most); the whole note as its tooltip.
