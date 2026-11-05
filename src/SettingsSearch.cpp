@@ -401,6 +401,7 @@ void SettingsSearch::Filter() {
     for (const auto& [tier, i] : ranked) shown_.push_back(i);
     if (list_) {
         ListView_SetItemCountEx(list_, static_cast<int>(shown_.size()), 0);
+        SetColumns();  // the scroll bar may have come or gone
         InvalidateRect(list_, nullptr, TRUE);
         SetSelected(shown_.empty() ? -1 : 0);
     }
@@ -635,8 +636,10 @@ void SettingsSearch::SetColumns() {
     if (!list_) return;
     RECT rc{};
     GetClientRect(list_, &rc);
-    // Visible rows only: the client area already leaves out a shown vertical scroll bar.
-    const int w = std::max(0, static_cast<int>(rc.right) - Px(2));
+    // The room for a vertical scroll bar stays free (no horizontal scroll bar when one appears).
+    int w = static_cast<int>(rc.right) - Px(2);
+    if (!(GetWindowLongW(list_, GWL_STYLE) & WS_VSCROLL)) w -= GetSystemMetricsForDpi(SM_CXVSCROLL, dpi_);
+    w = std::max(0, w);
     const int setting = w * 34 / 100, where = w * 42 / 100;
     ListView_SetColumnWidth(list_, 0, setting);
     ListView_SetColumnWidth(list_, 1, where);
@@ -750,6 +753,13 @@ LRESULT SettingsSearch::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case DM_GETDEFID:
             return MAKELRESULT(kSearchGo, DC_HASDEFID);
+        case WM_NEXTDLGCTL:  // as a dialog does (automation: WM_NEXTDLGCTL(control, TRUE) focuses it)
+            if (LOWORD(lp) && wp && IsChild(hwnd_, reinterpret_cast<HWND>(wp))) {
+                SetFocus(reinterpret_cast<HWND>(wp));
+            } else if (!LOWORD(lp)) {
+                if (HWND next = GetNextDlgTabItem(hwnd_, GetFocus(), wp != 0)) SetFocus(next);
+            }
+            return 0;
         case WM_ACTIVATE:
             if (LOWORD(wp) == WA_INACTIVE) {
                 if (HWND f = GetFocus(); f && IsChild(hwnd_, f) && f != combo_) lastFocus_ = f;
@@ -903,6 +913,20 @@ LRESULT SettingsSearch::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                         const size_t i = static_cast<size_t>(cd->nmcd.dwItemSpec);
                         // A greyed setting reads greyed (its tooltip says why).
                         if (i < shown_.size() && !rows_[shown_[i]].enabled) cd->clrText = palette_.textDisabled;
+                        // The selected row (what Enter / Go to / Space act on) in the accent, also while
+                        // the box has the focus (the theme's unfocused selection is hardly visible).
+                        // (uItemState's CDIS_SELECTED is not reliable for a report list: ask the list.)
+                        if (!palette_.highContrast && i < shown_.size() &&
+                            (ListView_GetItemState(list_, static_cast<int>(i), LVIS_SELECTED) & LVIS_SELECTED)) {
+                            const bool focused = GetFocus() == list_;
+                            const int pa = focused ? 38 : 26;
+                            const COLORREF a = palette_.accent, b = palette_.control;
+                            cd->clrTextBk = RGB((GetRValue(a) * pa + GetRValue(b) * (100 - pa)) / 100,
+                                                (GetGValue(a) * pa + GetGValue(b) * (100 - pa)) / 100,
+                                                (GetBValue(a) * pa + GetBValue(b) * (100 - pa)) / 100);
+                            if (rows_[shown_[i]].enabled) cd->clrText = palette_.text;
+                            cd->nmcd.uItemState &= ~(CDIS_SELECTED | CDIS_FOCUS);
+                        }
                         return CDRF_DODEFAULT;
                     }
                     return CDRF_DODEFAULT;

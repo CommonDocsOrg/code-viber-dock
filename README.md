@@ -1516,6 +1516,31 @@ the focus (in the order it lists them), a Dock window's tab strip with Left / Ri
 window. Tab moves into the page, Esc
 closes the window, Enter applies the text in an edit box.
 
+**Find a setting** (round 9): **Ctrl+F** in any settings window, the **Find a setting…** box at
+the top of the Global window's page list (a click, or just start typing in it) and **⋯** > **Find
+a setting…** in a Dock window's header open a search dialog over that window (600 × 440 DIPs,
+resizable, dark like the settings windows; one per window, it closes with Esc and with its
+window). It lists every setting of every window at once: the Global pages, each dock's,
+standalone widget's and folder window's own window, and each clock, weather and widget item's
+fields, in three columns, **Setting** (the label or check box caption), **Where** ("Dock main ›
+Behaviour › Auto-hide", "Global › General › System", "Clock on main › Time") and **Value** (On /
+Off, the chosen option, the text or number as the window shows it now). Type to filter: a row
+matches when every word you type is in its label, hint, tooltip, card, page or window name or
+value (an item field also by its config key); labels that start with what you typed come first,
+then labels that contain it, then the rest. The line under the list counts them ("12 of 233
+settings"). **Enter** (in the box or the list), a double click or **Go to** opens the setting's
+window (as Dock settings… / Global settings… / an item's Settings… would), switches to its page or
+tab, opens the "More" section that holds it, scrolls to it, puts the keyboard focus on it and
+flashes its row in the accent colour for about a second; the dialog moves aside if it would cover
+the setting. **Change it right there**: Space on a check box or option row toggles or chooses it
+(the Value column follows; it is saved as if you had clicked it in its window), Space on a
+drop-down row (or a click on the Value cell of the selected row) opens a small drop-down over the
+cell; text boxes, numbers and sliders are Go to only. Down in the box goes to the list, Up on the
+first row back to the box, typing in the list goes on in the box; greyed settings are listed in
+grey (the row's tooltip says why). Windows that are not open are opened invisibly to read their
+values and closed again with the last search dialog (unless you went to one). Not searched: the
+Contents tab (items are not settings), folder / group / tray item windows, and the dock menus.
+
 **The Global window** (pages in its left column; round 8 phase 8D: grouped under small captions:
 **GENERAL** General, Docks and displays; **LOOK** Themes, Animation; **DATA** Calendar feeds,
 Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
@@ -2576,6 +2601,9 @@ always there, also when every dock is parked) handle these registered messages:
   a real full-screen window in front, nothing is hidden), 2 = released (back to the real test,
   evaluated at once); a forced state lasts until 2 is sent. Returns 1, or 0 while the guard is off
   (`settings.fullscreen` "ignore") or for another `LOWORD`. Any dock index.
+  Round 9 phase 9B: 151 opens the settings search dialog of the Dock window of dock
+  `HIWORD(lParam)` (`LOWORD(lParam)` 1: of the Global window; that window is opened or activated
+  first, as 143 / 107 do); returns 1 when the dialog is open (see Settings windows).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -2748,6 +2776,9 @@ always there, also when every dock is parked) handle these registered messages:
   gap open, or at rest), `MAKELONG(start px, length px)` in stage coordinates (the stage's screen
   coordinate is QueryState 144): with `magnifyBar` "steady" it is the same for every slot that
   ItemCommand 834 magnifies, with "follow" it changes with the slot.
+  Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
+  window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the Global window), else 0; 283 = its
+  rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
   this is what `WinDock.exe --settings` sends to a running dock.
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
@@ -2792,6 +2823,26 @@ always there, also when every dock is parked) handle these registered messages:
   Global window; it was the Global settings link until 8B), 113 an Item window's "on <dock>" link
   (SysLinks: `NM_CLICK`; round 8 phase 8C: its text also carries a script widget's id and version,
   `on <a>main</a> · item 4 of 10 · system-monitor 1.0.0`), 114 Reset to defaults, 115 Console….
+  Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the Global window's Find a
+  setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
+  `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that
+  character in its box), 5002 the Dock header ⋯ menu's "Find a setting…  Ctrl+F"
+  (`WM_COMMAND(5002, BN_CLICKED)` to the band 102); Ctrl+F (a real key) in any settings window.
+  The dialog is a top-level `WinDock.SettingsSearch` window (title "Find a setting") owned by
+  the settings window it was opened from (`GetWindow(GW_OWNER)`); children 5010 the search box
+  (`WM_SETTEXT`, then `WM_COMMAND(5010, EN_CHANGE)` to the dialog filters), 5011 the list
+  (`SysListView32`, report, owner data: read cells with `LVM_GETITEMTEXTW`, columns 0 Setting, 1
+  Where, 2 Value; select a row with `LVM_SETITEMSTATE`), 5012 Go to (`WM_COMMAND(5012)`; Enter
+  in the box does the same), 5013 the status line ("233 settings", "13 of 233 settings", "No
+  setting matches “…” (of 233)"), 5014 the drop-down placed over a drop-down row's Value cell (a
+  posted Space to the list shows it; `CB_SETCURSEL` + `WM_COMMAND(5014, CBN_SELENDOK)` to the
+  dialog chooses). A posted `WM_KEYDOWN` Space to the list toggles / chooses the selected check
+  box / radio row; Esc (posted to the box) closes the dialog; `WM_NEXTDLGCTL(control, TRUE)`
+  focuses a child. `DockCommand` 151 opens it (`HIWORD(lParam)` the dock whose Dock window owns
+  it, `LOWORD(lParam)` 1: the Global window's; the window is opened first; 1 when the dialog is
+  open), QueryState 282 / 283 report it. The windows it opens hidden for its index are
+  `WinDock.Settings` windows without `WS_VISIBLE`: QueryState 222 - 224, 225 and 227 do not count
+  them, and they are destroyed when the last search dialog closes unless Go to showed one.
   Round 8 phase 8C: an Item window's header (92 DIPs) paints the item's description as its third
   line; a `tooltips_class32` window owned by the settings window has one tool (`TTM_GETTOOLCOUNT`
   = 1, `TTF_SUBCLASS` on the band 102, its rect that line) whose text is the whole description. Keyboard: Ctrl+Tab / Ctrl+Shift+Tab switch pages / tabs; the tab strip takes Left /
