@@ -74,6 +74,8 @@ add_executable(WinDock WIN32
   src/SettingsWindow.cpp
   src/SettingsNav.cpp
   src/SettingsSearch.cpp
+  src/Presets.cpp
+  src/PresetDialog.cpp
   src/SettingsBands.cpp
   src/SettingsPages.cpp
   src/SettingsPagesAppearance.cpp
@@ -119,6 +121,7 @@ file(GLOB_RECURSE WINDOCK_BUILTIN_WIDGETS CONFIGURE_DEPENDS
   ${CMAKE_CURRENT_SOURCE_DIR}/widgets/*.json
   ${CMAKE_CURRENT_SOURCE_DIR}/widgets/*.js
   ${CMAKE_CURRENT_SOURCE_DIR}/res/clock-faces/*.json
+  ${CMAKE_CURRENT_SOURCE_DIR}/res/presets/*.json
 )
 set_source_files_properties(res/app.rc PROPERTIES OBJECT_DEPENDS "${WINDOCK_BUILTIN_WIDGETS}")
 

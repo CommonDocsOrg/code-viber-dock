@@ -55,8 +55,12 @@ build\x64-release\WinDock.exe                     :: start the dock (only one in
 build\x64-release\WinDock.exe --quit              :: ask the running dock to exit
 build\x64-release\WinDock.exe --restore-taskbar   :: bring the Explorer taskbar back
 build\x64-release\WinDock.exe --settings          :: open the Global settings window (starts the dock if needed)
+build\x64-release\WinDock.exe --welcome           :: open the welcome dialog: pick a preset for the first dock (starts the dock if needed)
 build\x64-release\WinDock.exe --validate-widget examples\minimal   :: check a widget folder's manifest, print, exit
 ```
+
+The very first start (no `config.json` yet) opens the **welcome dialog** once the dock is up (see
+[Presets](#settings) under Settings); `--welcome` opens it again later.
 
 `--validate-widget <folder>` starts no dock: it prints the folder's manifest problems with their
 fields and fixes and exits with 0 (no errors), 1 (errors) or 2 (not a widget folder); see
@@ -1560,6 +1564,43 @@ grey (the row's tooltip says why). Windows that are not open are opened invisibl
 values and closed again with the last search dialog (unless you went to one). Not searched: the
 Contents tab (items are not settings), folder / group / tray item windows, and the dock menus.
 
+**Presets** (round 9): predefined dock setups to start from. **Global settings > Docks and
+displays > Add ▾ > Dock from a preset…** adds a new dock from one (its id is the preset's, made
+unique: `modern`, `modern2` …; on the primary display), **⋯ > Apply a preset…** in a Dock window's
+header turns that dock into one, and the **welcome dialog** offers them on the very first start
+(no config file yet; About > **Show the welcome dialog** and `WinDock.exe --welcome` open it again;
+it works on the first dock). The chooser (720 × 480 DIPs, dark like the settings windows, modal to
+the window it was opened from) lists the presets at the left with a one-line tagline; at the right
+the chosen one's name and description, a preview (a small monitor with the dock where it sits, a
+line on where and how it hides, and its items in order) and a strip that draws the bar in the
+preset's theme with its icon size and magnification (sample icons: it shows the look, not your
+apps), then **Keep my pinned apps and folders** (a new dock: **Copy my pinned apps from the first
+dock**; on by default). Up / Down choose, Enter (or a double click) applies, Esc cancels; the
+welcome dialog's buttons are **Use this dock** and **Skip (basic dock)** (Skip, Esc and closing it
+apply the basic preset). Applying replaces every setting of the dock with the preset's (a setting
+the preset does not name goes back to its default) except its id, colour and display; its items
+become the preset's, with your apps, folders, groups, separators and the Recycle Bin at the
+preset's "your pins" place when the box is checked (their item positions / offsets are cleared so
+they stay there), or gone when not; a preset without that place (performance, dashboard) says so
+instead of the box. It is saved, every window refreshes and the dock flashes. Clock and weather
+items start from your defaults (the top-level `clock` / `weather`), with the preset's own keys
+over them.
+
+| Preset | For | Dock | Items |
+| --- | --- | --- | --- |
+| **Basic dock** (`basic`) | the default experience | bottom, centred, 48 px, magnification 1.5 / range 2, steady bar, window previews, hides while a window covers it | your pins, running apps, separator, clock |
+| **Minimal** (`minimal`) | a small, quiet dock | bottom, 36 px, no magnification, no previews, hides when the pointer leaves (200 ms), the Solid theme | your pins, running apps, clock without the date |
+| **Modern** (`modern`) | a showy dock with widgets | bottom, 52 px, magnification 2.0 / range 3, previews, hides while covered, the Glass theme | Start, your pins, separator, running apps, separator, Volume, Media, notifications, weather, clock |
+| **Windows and labels** (`windows`) | taskbar-like: every window | bottom, 44 px, no magnification, previews, one slot per window, one line of title, window pictures every 5 s, hides while covered | your pins, running apps, clock |
+| **Sidebar** (`sidebar`) | a bar along the left edge | left, full length, items from the top, 40 px, no magnification, one slot per window, titles beside the icons, hides while covered | Start, your pins, separator, running apps, separator, Volume, clock |
+| **Floating performance** (`performance`) | system load at a glance | floating at the top right (`x` 16000 = against the right end, `y` 8), facing the top edge (popups open downward), on the desktop under your windows, 40 px, no magnification, locked | System monitor, System overview, Battery, clock (no pins) |
+| **Desktop dashboard** (`dashboard`) | a desktop panel | floating in the middle, on the desktop under your windows, 56 px, no magnification | Analog clock, weather, Agenda, Notes (no pins) |
+
+A theme preset's fields (the glow, the reflection) are global (Global > Themes), so a preset can
+only pick a dock theme preset (`themePreset`): Modern uses Glass, Minimal Solid; the System tray
+item is not in the Sidebar (it shows nothing while the notification area takeover is off, which
+a preset does not turn on): Volume is there instead.
+
 **The Global window** (pages in its left column; round 8 phase 8D: grouped under small captions:
 **GENERAL** General, Docks and displays; **LOOK** Themes, Animation; **DATA** Calendar feeds,
 Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
@@ -1581,7 +1622,8 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   locked). Click a dock in the drawing to select it and its row, double-click it (or its row) to
   open its own window; drag it along its edge (it snaps to the centre and the ends), onto another
   edge or onto another display: it moves when you let go. Round 8 phase 8D: the toolbar has
-  **Add ▾** (a menu: **Dock**, **Floating dock** (round 6 phase 6A), **Folder window…**,
+  **Add ▾** (a menu: **Dock**, **Floating dock** (round 6 phase 6A), **Dock from a preset…**
+  (round 9: the preset chooser, see Presets above), **Folder window…**,
   **Standalone widget ▸** (6B: a submenu of the installed widgets)), the selected dock's line
   (while dragging: where it would drop) and at the right **Lock all docks**, a check box that is
   checked while every dock and standalone widget is locked (folder windows have no lock; a mix
@@ -1640,7 +1682,8 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   replaces is selected), **Reload widgets**, **Open widgets folder** and **Console…**; see
   **Widgets** above), and the last action's result line.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
-  file**, **Reload config**, and the renderer in use.
+  file**, **Reload config**, the renderer in use and (round 9) **Show the welcome dialog** (the
+  first start's preset chooser for the first dock, see Presets above).
 
 The Themes and Animation pages have the **preview strip** under them (the global theme).
 
@@ -1649,7 +1692,8 @@ The Themes and Animation pages have the **preview strip** under them (the global
 the dock's place in `docks`), the chips on one line right of the id (its edge, its display, how
 many items, Shown / Parked, Locked; chips that do not fit are left out from the right) and at
 the right **Flash** (the dock shows itself and its border pulses in its colour for about 1.5 s),
-**Lock** / **Unlock** and **⋯** (a menu: **Global settings…**); the title bar ("main · Dock
+**Lock** / **Unlock** and **⋯** (a menu: **Global settings…**, **Find a setting…** and, round 9
+for a dock, **Apply a preset…**: see Presets above); the title bar ("main · Dock
 settings · Bottom · Primary") and the window border take the dock's colour (Windows 11). The
 subtitle line and the monitor silhouette of earlier versions are gone from the header (the
 silhouette is on the Position tab). Tabs (round 8 phase 8B: Contents, Position, Appearance,
@@ -1938,7 +1982,14 @@ defaults** in an item's settings window restores, and they are still read and wr
 items that exist. A file whose items have settings already is left alone.
 
 - `docks`: the docks, every one shown (see Multiple docks and monitors); a file without any gets
-  one with the defaults. Per dock:
+  one with the defaults. A **preset** (round 9, Settings > Presets) is just a saved `docks[]` entry:
+  the exe holds them as `res/presets/<id>.json` = `{ "id", "name", "tagline", "description",
+  "dock": { any of the dock keys below }, "items": [ items as below ] }`, read with the same
+  reader and clamps as this file (a preset that does not validate is left out of the list, with a
+  debugger output line). In its items `{ "kind": "pins" }` marks where the dock's apps, folders,
+  groups, separators and Recycle Bin go when they are kept; the marker is never written to
+  `config.json`. Applying one writes a normal dock entry (its keys, like every key, only where the
+  writer always writes them or they differ from the default). Per dock:
   - `id` (default `"main"`; unique: a repeated id gets a number appended on load).
   - `color` (round 5; `"#AARRGGBB"` or `"#RRGGBB"`, written only when set): the dock's identity
     colour for the settings windows. Without it a dock gets one from a palette by its index in
@@ -2626,6 +2677,17 @@ always there, also when every dock is parked) handle these registered messages:
   Round 9 phase 9B: 151 opens the settings search dialog of the Dock window of dock
   `HIWORD(lParam)` (`LOWORD(lParam)` 1: of the Global window; that window is opened or activated
   first, as 143 / 107 do); returns 1 when the dialog is open (see Settings windows).
+  Round 9 phase 9C: 152 opens the preset chooser (`LOWORD(lParam)` 1: the welcome variant, for the
+  first dock; 2: the "new dock" variant, owned by the Global window when it is open; anything else:
+  apply to dock `HIWORD(lParam)`, owned by that dock's Dock window when it is open, else by the app
+  window); it is not modal for the sender (the call returns at once): 1 when a chooser is open (an
+  open one is brought forward), 0 refused (a folder window / standalone widget, no presets). 153
+  applies preset `LOWORD(lParam) & 0xFF` (its index in the list: 0 basic, 1 minimal, 2 modern, 3
+  windows, 4 sidebar, 5 performance, 6 dashboard) to dock `HIWORD(lParam)` without the dialog; bit 8
+  (`0x100`) keeps the dock's pins at the preset's marker; 1 applied (saved, the windows refreshed,
+  the dock flashed), 0 refused (no such preset or dock, not a dock, a dock menu or dialog open).
+  `WinDock.Welcome` (a registered message, posted by `WinDock.exe --welcome`) opens the welcome
+  variant.
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -2810,8 +2872,11 @@ always there, also when every dock is parked) handle these registered messages:
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the Global window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.
+  Round 9 phase 9C: 284 = 1 while a preset chooser (any variant) is open, -2 none; `LOWORD(lParam)`
+  2: its variant (0 apply, 1 welcome, 2 new dock), 3: the selected preset's index (-1 none).
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the Global settings window;
-  this is what `WinDock.exe --settings` sends to a running dock.
+  this is what `WinDock.exe --settings` sends to a running dock. `WinDock.Welcome` (round 9,
+  posted, no parameters): the welcome dialog (`--welcome`).
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
   `WinDock.Settings`; find them with `EnumWindows` by class (several may be open). Titles: Global
   "WinDock settings"; a dock's "<id> · Dock settings · <Edge> · <display>" (e.g. "main · Dock
@@ -2874,6 +2939,21 @@ always there, also when every dock is parked) handle these registered messages:
   open), QueryState 282 / 283 report it. The windows it opens hidden for its index are
   `WinDock.Settings` windows without `WS_VISIBLE`: QueryState 222 - 224, 225 and 227 do not count
   them, and they are destroyed when the last search dialog closes unless Go to showed one.
+  Round 9 phase 9C, **the presets** (ids 5100 - 5199): 5101 Docks and displays' Add ▾ menu item
+  "Dock from a preset…" (also a page command: `WM_COMMAND(5101)` to the page 207), 5102 the Dock
+  header ⋯ menu's "Apply a preset…" (`WM_COMMAND(5102)` to the band 102; only on a dock's window),
+  5103 About's "Show the welcome dialog" (page 208). The chooser is a top-level `WinDock.Presets`
+  window owned by the window it was opened from (`GetWindow(GW_OWNER)`; that window is disabled
+  while it is open; the welcome variant from the first run, `--welcome` or 152 is owned by the app
+  window), titled "Apply a preset to <dock>", "New dock from a preset" or "Welcome to WinDock";
+  children 5110 the list (an owner-drawn `LISTBOX`: `LB_SETCURSEL` + `WM_COMMAND(5110,
+  LBN_SELCHANGE)` to the dialog chooses; posted Up / Down / Enter / Esc work as keys), 5111 the
+  description, 5112 the preview (`WinDock.PresetPreview`; its window text is the "where" line and
+  "On the dock: …" with the items), 5113 the keep / copy check box (hidden for a preset without a
+  marker: 5119 says so), 5114 Apply / Add dock / Use this dock (`WM_COMMAND(5114)` posted to the
+  dialog), 5115 Cancel / Skip (basic dock) (= Esc, = `WM_CLOSE`), 5116 the name, 5117 the look strip
+  (`WinDock.SettingsPreview`), 5118 the check box's caption (a click toggles it), 5120 the strip's
+  caption, 5121 / 5122 the welcome heading and its line.
   Round 8 phase 8C: an Item window's header (92 DIPs) paints the item's description as its third
   line; a `tooltips_class32` window owned by the settings window has one tool (`TTM_GETTOOLCOUNT`
   = 1, `TTF_SUBCLASS` on the band 102, its rect that line) whose text is the whole description. Keyboard: Ctrl+Tab / Ctrl+Shift+Tab switch pages / tabs; the tab strip takes Left /

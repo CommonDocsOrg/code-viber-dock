@@ -728,6 +728,12 @@ struct Config {
     void Sanitize();
 };
 
+// Round 9 phase 9C: a dock object as JSON text (the keys of a docks[] entry of kind "dock" and its
+// "items" array) read over `d` exactly as LoadFile reads a docks[] entry (unknown keys ignored,
+// an unknown item kind kept as written: a preset's { "kind": "pins" } marker). False when the text
+// is not a JSON object. Not sanitized (the caller runs Config::Sanitize).
+bool ReadDockJson(const std::wstring& text, DockConfig& d);
+
 // "#AARRGGBB" or "#RRGGBB" -> ARGB. Returns false on parse failure.
 bool ParseArgbColor(const std::wstring& text, uint32_t& argb);
 std::wstring FormatArgbColor(uint32_t argb);

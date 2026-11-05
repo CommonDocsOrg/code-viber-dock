@@ -1104,6 +1104,11 @@ protected:
         Label(kAboutRendererLabel, L"Renderer in use");
         Text(kAboutRenderer, CtlKind::Value, L"", kColX, right - kColX);
         NextRow();
+        // Round 9 phase 9C: the first run's preset chooser again (for the first dock).
+        Button(kAboutWelcome, L"Show the welcome dialog", kMargin, 200);
+        Tip(kAboutWelcome, L"Opens the dialog WinDock shows on its first start: pick a predefined setup for your first dock. "
+                           L"Your pinned apps and folders can stay.");
+        NextRow();
     }
 
     void Load() override {
@@ -1112,7 +1117,9 @@ protected:
     }
 
     void OnCommand(int id, int code, HWND) override {
-        if (code != BN_CLICKED || !Host().command) return;
+        if (code != BN_CLICKED) return;
+        if (id == kAboutWelcome && Host().openPresets) Host().openPresets(1, 0);
+        if (!Host().command) return;
         if (id == kOpenConfig) Host().command(ContextMenu::kOpenConfig);
         if (id == kReloadConfig) Host().command(ContextMenu::kReloadConfig);  // refreshes every page
     }

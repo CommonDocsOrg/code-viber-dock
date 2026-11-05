@@ -326,7 +326,85 @@ void ReadWidgetWindowFields(const json::JsonObject& o, DockConfig& d) {
     }
 }
 
+// A docks[] entry of kind "dock" (its keys over `d`; the items when "items" is an array). Also a
+// preset's dock (round 9 phase 9C: ReadDockJson).
+void ReadDockObject(const json::JsonObject& obj, DockConfig& d) {
+    ReadBool(obj, L"locked", d.locked);
+    std::wstring color;
+    ReadString(obj, L"color", color);
+    if (!color.empty() && !ParseArgbColor(color, d.color)) d.color = 0;
+    ReadDockFields(obj, d);
+    ReadDockOnlyFields(obj, d);
+    auto items = ReadArray(obj, L"items");
+    if (!items) return;
+    d.items.clear();
+    for (const auto& iv : items) {
+        if (iv.ValueType() != json::JsonValueType::Object) continue;
+        const json::JsonObject io = iv.GetObject();
+        DockItemEntry e;
+        e.kind.clear();
+        ReadString(io, L"kind", e.kind);
+        ReadString(io, L"path", e.path);
+        ReadString(io, L"aumid", e.aumid);
+        ReadString(io, L"icon", e.icon);
+        ReadString(io, L"id", e.id);
+        if (auto so = ReadObject(io, L"settings")) e.settings = std::wstring(so.Stringify());
+        ReadEnum(io, L"view", e.view);
+        ReadEnum(io, L"anchor", e.anchor);  // round 7 phase 7B (unknown text: none)
+        ReadInt(io, L"offset", e.offset);
+        if (e.Kind() == ItemKind::Tray) {
+            ReadInt(io, L"rows", e.rows);
+            ReadInt(io, L"columns", e.columns);
+            ReadInt(io, L"iconSize", e.trayIconSize);
+            ReadStrings(io, L"hidden", e.hidden);
+            ReadStrings(io, L"order", e.order);
+        }
+        if (e.Kind() == ItemKind::Group) {
+            ReadString(io, L"name", e.name);
+            if (auto members = ReadArray(io, L"items")) {
+                for (const auto& mv : members) {
+                    if (mv.ValueType() != json::JsonValueType::Object) continue;
+                    const json::JsonObject mo = mv.GetObject();
+                    DockItemEntry m;
+                    m.kind.clear();
+                    ReadString(mo, L"kind", m.kind);
+                    ReadString(mo, L"path", m.path);
+                    ReadString(mo, L"aumid", m.aumid);
+                    ReadString(mo, L"icon", m.icon);
+                    if (m.kind.empty()) m.kind = L"app";
+                    const ItemKind mk = m.Kind();
+                    // Members are shortcuts: apps and folders with a target.
+                    if ((mk != ItemKind::App && mk != ItemKind::Folder) || (m.path.empty() && m.aumid.empty())) {
+                        continue;
+                    }
+                    e.members.push_back(std::move(m));
+                }
+            }
+        }
+        const bool target = !e.path.empty() || !e.aumid.empty();
+        if (e.kind.empty()) {
+            if (!target) continue;
+            e.kind = L"app";  // a hand-written entry without a kind
+        }
+        const ItemKind k = e.Kind();
+        if ((k == ItemKind::App || k == ItemKind::Folder) && !target) continue;  // nothing to show
+        if ((k == ItemKind::Widget || k == ItemKind::TrayApp) && e.id.empty()) continue;  // which one?
+        d.items.push_back(std::move(e));
+    }
+}
+
 }  // namespace
+
+bool ReadDockJson(const std::wstring& text, DockConfig& d) {
+    try {
+        json::JsonObject o{nullptr};
+        if (!json::JsonObject::TryParse(text, o) || !o) return false;
+        ReadDockObject(o, d);
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
 
 const wchar_t* ToString(AutoHideMode v) { return EnumToString(v, kAutoHideNames); }
 const wchar_t* ToString(HideStyle v) { return EnumToString(v, kHideStyleNames); }
@@ -976,68 +1054,7 @@ Config::LoadResult Config::LoadFile() {
                         docks.push_back(std::move(d));
                         continue;
                     }
-                    ReadBool(obj, L"locked", d.locked);
-                    std::wstring color;
-                    ReadString(obj, L"color", color);
-                    if (!color.empty() && !ParseArgbColor(color, d.color)) d.color = 0;
-                    ReadDockFields(obj, d);
-                    ReadDockOnlyFields(obj, d);
-                    if (auto items = ReadArray(obj, L"items")) {
-                        d.items.clear();
-                        for (const auto& iv : items) {
-                            if (iv.ValueType() != json::JsonValueType::Object) continue;
-                            const json::JsonObject io = iv.GetObject();
-                            DockItemEntry e;
-                            e.kind.clear();
-                            ReadString(io, L"kind", e.kind);
-                            ReadString(io, L"path", e.path);
-                            ReadString(io, L"aumid", e.aumid);
-                            ReadString(io, L"icon", e.icon);
-                            ReadString(io, L"id", e.id);
-                            if (auto so = ReadObject(io, L"settings")) e.settings = std::wstring(so.Stringify());
-                            ReadEnum(io, L"view", e.view);
-                            ReadEnum(io, L"anchor", e.anchor);  // round 7 phase 7B (unknown text: none)
-                            ReadInt(io, L"offset", e.offset);
-                            if (e.Kind() == ItemKind::Tray) {
-                                ReadInt(io, L"rows", e.rows);
-                                ReadInt(io, L"columns", e.columns);
-                                ReadInt(io, L"iconSize", e.trayIconSize);
-                                ReadStrings(io, L"hidden", e.hidden);
-                                ReadStrings(io, L"order", e.order);
-                            }
-                            if (e.Kind() == ItemKind::Group) {
-                                ReadString(io, L"name", e.name);
-                                if (auto members = ReadArray(io, L"items")) {
-                                    for (const auto& mv : members) {
-                                        if (mv.ValueType() != json::JsonValueType::Object) continue;
-                                        const json::JsonObject mo = mv.GetObject();
-                                        DockItemEntry m;
-                                        m.kind.clear();
-                                        ReadString(mo, L"kind", m.kind);
-                                        ReadString(mo, L"path", m.path);
-                                        ReadString(mo, L"aumid", m.aumid);
-                                        ReadString(mo, L"icon", m.icon);
-                                        if (m.kind.empty()) m.kind = L"app";
-                                        const ItemKind mk = m.Kind();
-                                        // Members are shortcuts: apps and folders with a target.
-                                        if ((mk != ItemKind::App && mk != ItemKind::Folder) || (m.path.empty() && m.aumid.empty())) {
-                                            continue;
-                                        }
-                                        e.members.push_back(std::move(m));
-                                    }
-                                }
-                            }
-                            const bool target = !e.path.empty() || !e.aumid.empty();
-                            if (e.kind.empty()) {
-                                if (!target) continue;
-                                e.kind = L"app";  // a hand-written entry without a kind
-                            }
-                            const ItemKind k = e.Kind();
-                            if ((k == ItemKind::App || k == ItemKind::Folder) && !target) continue;  // nothing to show
-                            if ((k == ItemKind::Widget || k == ItemKind::TrayApp) && e.id.empty()) continue;  // which one?
-                            d.items.push_back(std::move(e));
-                        }
-                    }
+                    ReadDockObject(obj, d);
                     docks.push_back(std::move(d));
                 }
             }

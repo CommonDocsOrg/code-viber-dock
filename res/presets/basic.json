@@ -1,0 +1,17 @@
+{
+  "id": "basic",
+  "name": "Basic dock",
+  "tagline": "Your apps, the running ones and a clock",
+  "description": "The classic dock at the bottom of the screen. Your pinned apps and folders come first, then the apps that are running, then a clock. Icons grow a little under the pointer, and the dock slides away while a window covers it.",
+  "dock": {
+    "edge": "bottom", "align": "center", "iconSize": 48,
+    "magnification": 1.5, "magnifyRange": 2, "magnifyBar": "steady",
+    "previews": true, "autoHide": "intelligent"
+  },
+  "items": [
+    { "kind": "pins" },
+    { "kind": "running" },
+    { "kind": "separator" },
+    { "kind": "clock" }
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "id": "dashboard",
+  "name": "Desktop dashboard",
+  "tagline": "Clock, weather, agenda, notes",
+  "description": "A floating bar in the middle of the desktop, under your windows, with a large clock, the weather, today's agenda and your notes. Show the desktop or press the dashboard hotkey to see it.",
+  "dock": {
+    "floating": true, "edge": "bottom", "layer": "behind",
+    "iconSize": 56, "magnification": 1.0, "magnifyBar": "always",
+    "autoHide": "off", "reserveSpace": false
+  },
+  "items": [
+    { "kind": "widget", "id": "analog-clock" },
+    { "kind": "weather" },
+    { "kind": "widget", "id": "agenda" },
+    { "kind": "widget", "id": "notes" }
+  ]
+}

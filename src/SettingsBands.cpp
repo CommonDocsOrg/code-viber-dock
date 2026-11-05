@@ -226,6 +226,8 @@ void SettingsWindow::ShowHeaderMenu() {
     if (!menu) return;
     AppendMenuW(menu, MF_STRING, kHeaderGlobal, L"Global settings…");
     AppendMenuW(menu, MF_STRING, kHeaderFind, L"Find a setting…\tCtrl+F");  // round 9 phase 9B
+    // Round 9 phase 9C: a predefined setup for this dock (not for folder windows / standalone widgets).
+    if (DockIndex() != SIZE_MAX && Dock().IsDock()) AppendMenuW(menu, MF_STRING, kHeaderPreset, L"Apply a preset…");
     RECT r{};
     GetWindowRect(button, &r);
     const int cmd = static_cast<int>(
@@ -737,6 +739,9 @@ void SettingsWindow::OnBandCommand(int id) {
             break;
         case kHeaderFind:  // round 9 phase 9B: the "⋯" menu's Find a setting… (Ctrl+F)
             OpenSearch(L"");
+            break;
+        case kHeaderPreset:  // round 9 phase 9C: the "⋯" menu's Apply a preset… (the chooser, modal to this window)
+            if (DockIndex() != SIZE_MAX && Dock().IsDock() && host_.openPresets) host_.openPresets(0, DockIndex());
             break;
         case kHeaderDockLink:
             if (host_.openDock && DockIndex() != SIZE_MAX) host_.openDock(DockIndex(), -1);

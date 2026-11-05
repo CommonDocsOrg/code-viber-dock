@@ -168,6 +168,10 @@ struct SettingsHost {
     // Find a setting… box, the Dock header's ⋯ menu), opened or brought forward with `text` typed
     // into its box (empty: as it is).
     std::function<void(const std::wstring& text)> openSearch;
+    // Round 9 phase 9C: the preset chooser, modal to this window: `mode` 0 apply to config dock
+    // `dock` (the Dock window's ⋯ menu), 1 the welcome variant (About), 2 a new dock (Docks and
+    // displays > Add ▾).
+    std::function<void(int mode, size_t dock)> openPresets;
 };
 
 class SettingsWindow;

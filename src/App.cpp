@@ -19,6 +19,7 @@
 #include "Hotkey.h"
 #include "IconUtil.h"
 #include "JsonUtil.h"
+#include "Presets.h"
 #include "SettingsIds.h"
 #include "WidgetPackage.h"
 #include "resource.h"
@@ -112,11 +113,14 @@ bool App::Initialize(HINSTANCE instance) {
     msgItemCommand_ = RegisterWindowMessageW(AppIpc::kItemCommandMessage);
     msgDockCommand_ = RegisterWindowMessageW(AppIpc::kDockCommandMessage);
     msgOpenSettings_ = RegisterWindowMessageW(AppIpc::kOpenSettingsMessage);
+    msgWelcome_ = RegisterWindowMessageW(AppIpc::kWelcomeMessage);
     msgQueryState_ = RegisterWindowMessageW(DockWindow::kQueryStateMessage);
     msgQueryItem_ = RegisterWindowMessageW(DockWindow::kQueryItemMessage);
 
     if (config_.Load()) {
-        // First run: no config file yet. Seed the default pins and write the file.
+        // First run: no config file yet. Seed the default pins and write the file; the welcome
+        // dialog opens once the first dock is up (round 9 phase 9C).
+        firstRun_ = true;
         SeedDefaultPins();
         config_.EnsureItemSettings();  // the default clock item's settings (from the defaults)
         config_.Save();
@@ -198,7 +202,12 @@ bool App::Initialize(HINSTANCE instance) {
     docks_.AllowAppBar(true);
     UpdateReservedMonitors();
     ApplyHotkey();  // the dashboard hotkey (round 6 phase 6A)
+    if (firstRun_) OpenWelcome();  // round 9 phase 9C: posted, after the docks are shown
     return true;
+}
+
+void App::OpenWelcome() {
+    if (hwnd_ && !shutDown_) PostMessageW(hwnd_, kShowWelcome, 0, 0);
 }
 
 void App::ApplyHotkey() {
@@ -901,6 +910,7 @@ void App::Shutdown() {
     if (shutDown_) return;
     // First: closing them may commit a pending edit (focus loss), which must still be saved.
     {
+        presets_.reset();  // round 9 phase 9C: before its owner (its window re-enables it)
         std::vector<std::unique_ptr<SettingsSearch>> searches = std::move(searches_);  // round 9 phase 9B: before their owners
         searches_.clear();
         searches.clear();
@@ -1408,6 +1418,7 @@ void App::InvalidatePreviews() {
 bool App::PreTranslateMessage(MSG& msg) {
     // A window may open another one from inside its own message: the index loop and raw pointer
     // stay valid (the objects themselves never move).
+    if (presets_ && presets_->Hwnd() && presets_->PreTranslateMessage(msg)) return true;  // round 9 phase 9C
     for (size_t i = 0; i < settings_.size(); ++i) {
         if (SettingsWindow* w = settings_[i].get(); w->Hwnd() && w->PreTranslateMessage(msg)) return true;
     }
@@ -1666,6 +1677,9 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         if (hwnd_) PostMessageW(hwnd_, kSettingsClosed, 0, 0);
     };
     host.openSearch = [this, w](const std::wstring& text) { OpenSearch(w, text); };  // round 9 phase 9B
+    host.openPresets = [this, w](int mode, size_t dock) {  // round 9 phase 9C
+        OpenPresets(mode == 1 ? PresetMode::Welcome : mode == 2 ? PresetMode::NewDock : PresetMode::Apply, dock, w->Hwnd());
+    };
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
     host.dockWindows = [this](size_t index) {
         int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;
@@ -1975,6 +1989,89 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
     RequestSave();
     RefreshSettings();  // a removed dock's windows close; every window's header (indexes and colours moved)
     return true;
+}
+
+// --- dock presets (round 9 phase 9C) ------------------------------------------------------------
+
+void App::OpenPresets(PresetMode mode, size_t cfg, HWND owner) {
+    if (shutDown_) return;
+    if (presets_ && presets_->Hwnd()) {
+        presets_->Activate();  // one chooser at a time
+        return;
+    }
+    if (Presets::All().empty()) {
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    // Welcome: the first dock (the one a first run made).
+    if (mode == PresetMode::Welcome) {
+        cfg = SIZE_MAX;
+        for (size_t i = 0; i < config_.docks.size() && cfg == SIZE_MAX; ++i) {
+            if (config_.docks[i].IsDock()) cfg = i;
+        }
+    }
+    if (mode != PresetMode::NewDock && (cfg >= config_.docks.size() || !config_.docks[cfg].IsDock())) {
+        MessageBeep(MB_ICONWARNING);  // a folder window / standalone widget takes no preset
+        return;
+    }
+    const std::wstring id = mode == PresetMode::NewDock ? std::wstring() : config_.docks[cfg].id;
+    PresetDialogHost host;
+    host.config = &config_;
+    host.apply = [this, mode, id](size_t index, bool keepPins) {
+        if (mode == PresetMode::NewDock) return AddPresetDock(index, keepPins) != SIZE_MAX;
+        const size_t at = DockIndexOf(id);  // by id: the docks may have moved while it was open
+        return at != SIZE_MAX && ApplyPreset(index, at, keepPins);
+    };
+    host.destroyed = [this] {
+        if (hwnd_) PostMessageW(hwnd_, kPresetClosed, 0, 0);
+    };
+    presets_ = std::make_unique<PresetDialog>(std::move(host), mode, owner ? owner : hwnd_, id);
+    if (!presets_->Create(instance_)) {
+        presets_.reset();
+        MessageBeep(MB_ICONWARNING);
+    }
+}
+
+bool App::ApplyPreset(size_t index, size_t cfg, bool keepPins) {
+    if (shutDown_ || modalDepth_ > 0) return false;  // a dock's menu / dialog is open
+    const std::vector<Presets::Preset>& all = Presets::All();
+    if (index >= all.size() || cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return false;
+    DockConfig& d = config_.docks[cfg];
+    d = Presets::Apply(all[index], config_, d, Presets::PinsOf(d), keepPins);
+    config_.Sanitize();  // as a loaded file is (the preset's values are in range already)
+    config_.ResolveDockThemes();
+    if (cfg == 0 && config_.Main().AutoHideOn()) lastOnMode_ = config_.Main().autoHide;
+    // As Reload config: the windows that must exist, then every key and item re-read.
+    SyncDocks();
+    docks_.ForConfig(cfg, [](DockWindow& w) {
+        w.ApplyConfig();
+        w.ReloadPins();
+    });
+    RequestSave();
+    RefreshSettings();
+    FlashDock(cfg);
+    return true;
+}
+
+size_t App::AddPresetDock(size_t index, bool copyPins) {
+    if (shutDown_ || modalDepth_ > 0) return SIZE_MAX;
+    const std::vector<Presets::Preset>& all = Presets::All();
+    if (index >= all.size()) return SIZE_MAX;
+    std::vector<DockItemEntry> pins;
+    if (copyPins && all[index].hasPins) {
+        const auto first = std::find_if(config_.docks.begin(), config_.docks.end(), [](const DockConfig& d) { return d.IsDock(); });
+        if (first != config_.docks.end()) pins = Presets::PinsOf(*first);
+    }
+    config_.docks.push_back(Presets::MakeNew(all[index], config_, pins));
+    const size_t cfg = config_.docks.size() - 1;
+    config_.ResolveDockThemes();
+    // The Global window's Docks and displays page selects the new dock.
+    if (SettingsWindow* g = FindSettings(SettingsKind::Global)) g->SelectDock(config_.docks[cfg].id);
+    SyncDocks();
+    RequestSave();
+    RefreshSettings();
+    FlashDock(cfg);
+    return cfg;
 }
 
 void App::NewFolderWindow(HWND owner) {
@@ -2359,6 +2456,11 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             if (w && !w->QueryPages(269, arg, out)) out = -2;
             return out;
         }
+        case 284:  // round 9 phase 9C: a preset / welcome chooser is open: 1 (LOWORD 2: its variant 0 apply, 1 welcome, 2 new dock; 3: the selected preset); -2 none
+            if (!presets_ || !presets_->Hwnd()) return -2;
+            if (arg == 2) return static_cast<LRESULT>(presets_->Mode());
+            if (arg == 3) return presets_->Selected();
+            return 1;
         case 280:  // round 9 phase 9A: dock HIWORD (a dock or a standalone widget) is hidden by the full-screen guard (1 / 0; -2 no such dock)
             if (!inst) return -2;
             if (inst->window) return inst->window->FullscreenHidden() ? 1 : 0;
@@ -2459,6 +2561,10 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         OpenSettings();
         return true;
     }
+    if (msg == msgWelcome_) {  // round 9 phase 9C: `WinDock.exe --welcome`
+        OpenPresets(PresetMode::Welcome, 0, nullptr);
+        return true;
+    }
     if (msg == msgQueryState_) {
         result = QueryState(wp, lp);
         return true;
@@ -2533,6 +2639,29 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         }
         if (w) OpenSearch(w, L"");
         result = SearchOf(w) ? 1 : 0;
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kPresetDialog) {
+        // Round 9 phase 9C: the preset chooser for dock HIWORD(lParam); LOWORD 1 the welcome variant,
+        // 2 the "new dock" one, else apply to that dock. Owned by the dock's (or for a new dock the
+        // Global) settings window when it is open. Not modal for the sender: 1 when it is open.
+        const LPARAM variant = lp & 0xFFFF;
+        const PresetMode mode = variant == 1 ? PresetMode::Welcome : variant == 2 ? PresetMode::NewDock : PresetMode::Apply;
+        DockManager::Instance* inst = docks_.At(DockOfParam(lp));
+        const size_t cfg = inst ? inst->cfg : SIZE_MAX;
+        SettingsWindow* w = mode == PresetMode::NewDock ? FindSettings(SettingsKind::Global)
+                            : mode == PresetMode::Apply && cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[cfg].id)
+                                                                                     : nullptr;
+        const HWND owner = w && w->Hwnd() && IsWindowVisible(w->Hwnd()) ? w->Hwnd() : nullptr;
+        OpenPresets(mode, cfg, owner);
+        result = presets_ && presets_->Hwnd() ? 1 : 0;
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kApplyPreset) {
+        // Preset LOWORD(lParam) & 0xFF (its index in the list) applied to dock HIWORD(lParam); bit 8:
+        // keep the dock's pins at the preset's marker. 1 applied, 0 refused.
+        DockManager::Instance* inst = docks_.At(DockOfParam(lp));
+        result = inst && ApplyPreset(static_cast<size_t>(lp & 0xFF), inst->cfg, (lp & 0x100) != 0) ? 1 : 0;
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kSimulateExplorerRestart) {
@@ -2805,6 +2934,14 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
                 if (w->Hwnd() && !IsWindowVisible(w->Hwnd())) DestroyWindow(w->Hwnd());  // freed by kSettingsClosed
             }
         }
+        return 0;
+    }
+    if (msg == kPresetClosed) {  // round 9 phase 9C
+        if (presets_ && !presets_->Hwnd()) presets_.reset();
+        return 0;
+    }
+    if (msg == kShowWelcome) {
+        OpenPresets(PresetMode::Welcome, 0, nullptr);
         return 0;
     }
     if (msg == kSettingsClosed) {

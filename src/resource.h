@@ -41,3 +41,13 @@
 #define IDR_CLOCKFACE_MONO_PILL 352
 #define IDR_WIDGET_BATTERY_JSON 353
 #define IDR_WIDGET_BATTERY_MAIN 354
+
+// Round 9 phase 9C: the predefined dock setups (RCDATA, res/presets/<id>.json; Presets.cpp lists
+// them in this order).
+#define IDR_PRESET_BASIC 360
+#define IDR_PRESET_MINIMAL 361
+#define IDR_PRESET_MODERN 362
+#define IDR_PRESET_WINDOWS 363
+#define IDR_PRESET_SIDEBAR 364
+#define IDR_PRESET_PERFORMANCE 365
+#define IDR_PRESET_DASHBOARD 366

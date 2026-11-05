@@ -35,6 +35,12 @@ public:
         dock_ = std::move(dock);
         globalTheme_ = globalTheme;
     }
+    // Round 9 phase 9C: without the sample preview popup at the right (the bar gets the whole width;
+    // the preset chooser's narrow strip).
+    void SetShowPopup(bool show) {
+        showPopup_ = show;
+        Invalidate();
+    }
     // Background colours of the strip (the settings window's content layer and a divider).
     void SetColors(COLORREF layer, COLORREF divider);
     // The window moved to a monitor with another DPI: re-create the target at that DPI.
@@ -57,6 +63,7 @@ private:
     const Config* config_ = nullptr;
     std::function<const DockConfig*()> dock_;
     bool globalTheme_ = false;
+    bool showPopup_ = true;
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
     COLORREF layer_ = RGB(0x2B, 0x2B, 0x2B);
     COLORREF divider_ = RGB(0x3A, 0x3A, 0x3A);

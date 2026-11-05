@@ -1,0 +1,24 @@
+{
+  "id": "modern",
+  "name": "Modern",
+  "tagline": "Glass, big icons and widgets",
+  "description": "A glass dock with large icons that grow strongly under the pointer. A Start button sits at the left end. Volume, now playing, notifications, the weather and a clock sit at the right end.",
+  "dock": {
+    "edge": "bottom", "align": "center", "iconSize": 52,
+    "magnification": 2.0, "magnifyRange": 3, "magnifyBar": "steady",
+    "previews": true, "autoHide": "intelligent",
+    "themePreset": "glass"
+  },
+  "items": [
+    { "kind": "widget", "id": "start" },
+    { "kind": "pins" },
+    { "kind": "separator" },
+    { "kind": "running" },
+    { "kind": "separator" },
+    { "kind": "widget", "id": "volume" },
+    { "kind": "widget", "id": "media" },
+    { "kind": "notifications" },
+    { "kind": "weather" },
+    { "kind": "clock" }
+  ]
+}

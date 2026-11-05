@@ -1,0 +1,17 @@
+{
+  "id": "performance",
+  "name": "Floating performance",
+  "tagline": "System load, top right",
+  "description": "A small floating bar at the top right of the screen with a processor graph, an overview of the processor, memory, graphics, disk and network, the battery and a clock. It lives on the desktop under your windows; the dashboard hotkey brings it to the front. It is locked so it does not move by accident.",
+  "dock": {
+    "floating": true, "edge": "top", "x": 16000, "y": 8, "layer": "behind",
+    "iconSize": 40, "magnification": 1.0, "magnifyBar": "always",
+    "autoHide": "off", "reserveSpace": false, "locked": true
+  },
+  "items": [
+    { "kind": "widget", "id": "system-monitor" },
+    { "kind": "widget", "id": "system-overview" },
+    { "kind": "widget", "id": "battery" },
+    { "kind": "clock" }
+  ]
+}

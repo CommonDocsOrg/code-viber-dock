@@ -22,6 +22,7 @@ struct Options {
     bool quit = false;
     bool restoreTaskbar = false;
     bool settings = false;  // open the settings window (in the running dock, or after starting)
+    bool welcome = false;   // round 9 phase 9C: the welcome dialog (in the running dock, or after starting)
     bool validate = false;  // --validate-widget <folder>: check a widget's manifest, print, exit
     std::wstring validateFolder;
 };
@@ -36,6 +37,7 @@ Options ParseCommandLine() {
         if (a == L"--quit") o.quit = true;
         else if (a == L"--restore-taskbar") o.restoreTaskbar = true;
         else if (a == L"--settings") o.settings = true;
+        else if (a == L"--welcome") o.welcome = true;
         else if (a == L"--validate-widget") {
             o.validate = true;
             if (i + 1 < argc) o.validateFolder = argv[++i];
@@ -158,6 +160,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
     }
     // A running dock opens its settings window; otherwise start normally and open it then.
     if (options.settings && SignalRunningInstance(AppIpc::kOpenSettingsMessage, false, true)) return 0;
+    if (options.welcome && SignalRunningInstance(AppIpc::kWelcomeMessage, false, true)) return 0;
 
     HANDLE mutex = CreateMutexW(nullptr, FALSE, AppIpc::kMutexName);
     if (!mutex) return 1;
@@ -183,6 +186,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
             exitCode = 1;
         } else {
             if (options.settings) app.OpenSettings();
+            if (options.welcome) app.OpenWelcome();
             MSG msg;
             while (GetMessageW(&msg, nullptr, 0, 0) > 0) {
                 if (app.PreTranslateMessage(msg)) continue;  // settings window keyboard navigation

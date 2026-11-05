@@ -682,4 +682,23 @@ inline constexpr int kSearchGo = 5012;      // "Go to" (the selected row)
 inline constexpr int kSearchStatus = 5013;  // "12 of 240 settings"
 inline constexpr int kSearchCombo = 5014;   // the drop-down placed over a combo row's Value cell (Space / a click there)
 
+// Round 9 phase 9C: the dock presets (5100 - 5199). The entry points, then the children of the
+// chooser (WinDock.Presets, modal to the settings window it was opened from, or the app window).
+inline constexpr int kDockAddPreset = 5101;      // Global > Docks and displays: Add ▾ > "Dock from a preset…" (a page command)
+inline constexpr int kHeaderPreset = 5102;       // Dock: the "⋯" menu's "Apply a preset…" (WM_COMMAND to the header band)
+inline constexpr int kAboutWelcome = 5103;       // Global > About: "Show the welcome dialog"
+inline constexpr int kPresetList = 5110;         // the presets (owner-drawn LISTBOX: name + tagline; LB_SETCURSEL + LBN_SELCHANGE)
+inline constexpr int kPresetDescription = 5111;  // the selected preset's description
+inline constexpr int kPresetPreview = 5112;      // the preview (WinDock.PresetPreview: where it sits, what it puts on the dock; its window text says both)
+inline constexpr int kPresetKeep = 5113;         // check box: "Keep my pinned apps and folders" / "Copy my pinned apps from the first dock"
+inline constexpr int kPresetApply = 5114;        // "Apply" / "Add dock" / "Use this dock" (the default button)
+inline constexpr int kPresetCancel = 5115;       // "Cancel" / "Skip (basic dock)" (= Esc)
+inline constexpr int kPresetName = 5116;         // the selected preset's name
+inline constexpr int kPresetLook = 5117;         // the look strip (WinDock.SettingsPreview drawing the preset's dock and theme)
+inline constexpr int kPresetKeepCaption = 5118;  // the check box's caption (a click toggles it)
+inline constexpr int kPresetNote = 5119;         // instead of the check box when the preset has no pins marker
+inline constexpr int kPresetLookCaption = 5120;  // "Look (sample icons): Glass theme · grows to 2.0×"
+inline constexpr int kPresetHeading = 5121;      // the welcome variant: "Welcome to WinDock"
+inline constexpr int kPresetIntro = 5122;        // ... and its line under it
+
 }  // namespace SettingsIds

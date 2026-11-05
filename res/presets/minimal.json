@@ -1,0 +1,17 @@
+{
+  "id": "minimal",
+  "name": "Minimal",
+  "tagline": "Small, flat and out of the way",
+  "description": "A small, flat dock that stays out of your way. Icons do not grow and there are no window previews. It hides as soon as the pointer leaves it and comes back when you touch the bottom edge.",
+  "dock": {
+    "edge": "bottom", "align": "center", "iconSize": 36,
+    "magnification": 1.0, "previews": false,
+    "autoHide": "always", "hideDelayMs": 200,
+    "themePreset": "solid"
+  },
+  "items": [
+    { "kind": "pins" },
+    { "kind": "running" },
+    { "kind": "clock", "settings": { "showDate": false } }
+  ]
+}

@@ -13,6 +13,7 @@
 #include "ContextMenu.h"
 #include "DockManager.h"
 #include "DockWindow.h"
+#include "PresetDialog.h"
 #include "SettingsSearch.h"
 #include "SettingsWindow.h"
 #include "TaskbarController.h"
@@ -47,6 +48,8 @@ inline constexpr wchar_t kItemCommandMessage[] = L"WinDock.ItemCommand";
 inline constexpr wchar_t kDockCommandMessage[] = L"WinDock.DockCommand";
 // Posted by `WinDock.exe --settings` to the running dock: open (or activate) the settings window.
 inline constexpr wchar_t kOpenSettingsMessage[] = L"WinDock.OpenSettings";
+// Round 9 phase 9C: posted by `WinDock.exe --welcome` to the running dock: the welcome dialog.
+inline constexpr wchar_t kWelcomeMessage[] = L"WinDock.Welcome";
 }  // namespace AppIpc
 
 // Wires the modules together: config, the docks (DockManager), tray icon, taskbar controller,
@@ -74,6 +77,9 @@ public:
     // menu's Settings…, Contents > Settings…, the weather widget's map pin, weather.openSettings(),
     // DockCommand 113 / 142, ItemCommand 854.
     void OpenItemSettings(size_t dock, size_t item);
+    // Round 9 phase 9C: the welcome dialog (the preset chooser's welcome variant for the first dock;
+    // posted: it opens once the message loop runs). The first run, `--welcome`, About.
+    void OpenWelcome();
     // Called by the message loop for every message: keyboard navigation in the settings windows.
     // Returns true if the message was handled (do not translate / dispatch it).
     bool PreTranslateMessage(MSG& msg);
@@ -86,6 +92,8 @@ private:
     static constexpr UINT kDisplaySync = WM_APP + 4;      // posted: re-enumerate the monitors (coalesced)
     static constexpr UINT kConsoleClosed = WM_APP + 6;    // posted: delete the destroyed widget Console (WM_APP + 5: kReapMessage)
     static constexpr UINT kSearchClosed = WM_APP + 8;     // posted: delete the closed search dialogs (WM_APP + 7: kRemoveFolderMessage)
+    static constexpr UINT kPresetClosed = WM_APP + 9;     // round 9 phase 9C: posted: delete the closed preset chooser
+    static constexpr UINT kShowWelcome = WM_APP + 12;     // posted: open the welcome dialog
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
 
@@ -243,6 +251,17 @@ private:
     bool HasItemWindow(size_t cfg, size_t item);
     // Docks page: add / duplicate / remove a config dock (refused while a menu or dialog is open).
     bool EditDocks(SettingsDockEdit edit, size_t index);
+    // --- dock presets (round 9 phase 9C) ---
+    // Opens the chooser (or brings the open one forward): Apply to config dock `cfg`, a new dock, or
+    // the welcome variant (for the first dock). `owner`: the settings window it is modal to (null:
+    // the app window).
+    void OpenPresets(PresetMode mode, size_t cfg, HWND owner);
+    // Preset `index` (Presets::All()) applied to config dock `cfg` (keeping its pins at the marker
+    // when `keepPins`): saved, every window refreshed, the dock flashed. False if refused.
+    bool ApplyPreset(size_t index, size_t cfg, bool keepPins);
+    // A new dock from preset `index` (the first dock's pins at the marker when `copyPins`); its
+    // config index (SIZE_MAX: refused).
+    size_t AddPresetDock(size_t index, bool copyPins);
     // --- desktop folder windows (round 4 phase 12) ---
     // "New folder window…": a folder picker owned by `owner`, then AddFolderWindow at the pointer.
     void NewFolderWindow(HWND owner);
@@ -307,6 +326,11 @@ private:
     // kSearchClosed) and the settings windows created hidden for their index.
     std::vector<std::unique_ptr<SettingsSearch>> searches_;
     std::vector<SettingsWindow*> searchHidden_;
+    // Round 9 phase 9C: the open preset chooser (at most one; freed by a posted kPresetClosed) and
+    // whether this run started without a config file (the welcome dialog then opens once).
+    std::unique_ptr<PresetDialog> presets_;
+    bool firstRun_ = false;
+    UINT msgWelcome_ = 0;
     // The place search in flight (host.geocode): its tag, its window and where its result goes
     // (cleared when that window closes, so a late result is dropped).
     WPARAM geocodeTag_ = 0;

@@ -1,0 +1,18 @@
+{
+  "id": "windows",
+  "name": "Windows and labels",
+  "tagline": "Every window with its title and a picture",
+  "description": "Like the Windows taskbar: every open window gets its own place on the dock, with its title under it. Window pictures are taken every 5 seconds, so you can tell your windows apart at a glance.",
+  "dock": {
+    "edge": "bottom", "align": "center", "iconSize": 44,
+    "magnification": 1.0, "previews": true,
+    "windows": "unstacked", "titles": "one",
+    "thumbnails": "snapshots", "thumbnailIntervalS": 5,
+    "autoHide": "intelligent"
+  },
+  "items": [
+    { "kind": "pins" },
+    { "kind": "running" },
+    { "kind": "clock" }
+  ]
+}

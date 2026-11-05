@@ -331,6 +331,9 @@ protected:
             case kDockAddFolder:
                 if (Host().command) Host().command(ContextMenu::kNewFolderWindow);  // the picker, then a refresh
                 break;
+            case kDockAddPreset:  // round 9 phase 9C: the chooser's "new dock" variant (it selects the new dock)
+                if (Host().openPresets) Host().openPresets(2, SIZE_MAX);
+                break;
             case kDockAddWidget: {
                 // Round 6 phase 6B: which widget (round 8 phase 8D: as a command, the catalog in a
                 // menu under Add ▾; the Add ▾ menu has it as a submenu).
@@ -397,13 +400,14 @@ private:
         AppendWidgets(widgets, catalog);
         AppendMenuW(menu, MF_STRING, kDockAdd, L"Dock");
         AppendMenuW(menu, MF_STRING, kDockAddFloating, L"Floating dock");
+        AppendMenuW(menu, MF_STRING, kDockAddPreset, L"Dock from a preset\x2026");  // round 9 phase 9C
         AppendMenuW(menu, MF_STRING, kDockAddFolder, L"Folder window\x2026");
         AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(widgets), L"Standalone widget");  // destroyed with its parent
         const UINT cmd = TrackUnderAdd(menu);
         DestroyMenu(menu);
         if (cmd >= kWidgetCmd && cmd - kWidgetCmd < catalog.size()) {
             AddWidget(catalog[cmd - kWidgetCmd].id);
-        } else if (cmd == kDockAdd || cmd == kDockAddFloating || cmd == kDockAddFolder) {
+        } else if (cmd == kDockAdd || cmd == kDockAddFloating || cmd == kDockAddFolder || cmd == kDockAddPreset) {
             OnCommand(static_cast<int>(cmd), BN_CLICKED, nullptr);
         }
     }

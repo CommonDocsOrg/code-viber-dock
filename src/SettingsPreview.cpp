@@ -315,7 +315,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const float cardW = px(kCardW), cardH = std::min(px(kCardH), wall.bottom - wall.top - px(8.0f));
     const float cardRight = wall.right - px(kCardRight);
     const float cardLeft = cardRight - cardW;
-    const float regionLeft = wall.left, regionRight = cardLeft - px(12.0f);
+    const float regionLeft = wall.left, regionRight = showPopup_ ? cardLeft - px(12.0f) : wall.right;
     const float barLeft = std::round(regionLeft + std::max(0.0f, (regionRight - regionLeft - barW) / 2.0f));
     const float barBottom = wall.bottom - px(kBarBottom);
     const float barTop = barBottom - barH;
@@ -492,6 +492,10 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     }
 
     // --- preview popup sample: a hot card (close button hovered) and a plain one ---
+    if (!showPopup_) {
+        dc->PopLayer();
+        return;
+    }
     const float cardTop = std::round((wall.top + wall.bottom - cardH) / 2.0f);
     const D2D1_RECT_F popup = D2D1::RectF(cardLeft, cardTop, cardRight, cardTop + cardH);
     const float popupRadius = std::round((acrylic ? t.cornerRadius : std::min(t.cornerRadius, 12.0f)) * 0.6f * s);

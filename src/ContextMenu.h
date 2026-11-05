@@ -78,6 +78,11 @@ enum Command : UINT {
     // Round 9 phase 9B (automation only, App::OnSharedMessage): the settings search dialog of the
     // Dock window of dock HIWORD(lParam) (LOWORD 1: of the Global window), the window opened first.
     kFindSetting = 151,
+    // Round 9 phase 9C (automation only, App::OnSharedMessage): the preset chooser for dock
+    // HIWORD(lParam) (LOWORD 1: the welcome variant, 2: the "new dock" variant, else apply to the
+    // dock), and preset LOWORD & 0xFF applied to dock HIWORD without the dialog (bit 8: keep pins).
+    kPresetDialog = 152,
+    kApplyPreset = 153,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
     kNewWindow,            // per-item: launch (a new instance); the Recycle Bin's Open
     kOpenFileLocation,     // per-item: explorer /select,<target>
