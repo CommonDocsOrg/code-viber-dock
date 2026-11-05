@@ -500,11 +500,12 @@ private:
         // is kept on the monitor, so a dock at a monitor end grows away from it).
         float growRoomStart = 0.0f;
         float growRoomEnd = 0.0f;
-        // Round 9 phase 9A, docks[].magnifyBar "steady": while the pointer is on the dock (grown_)
-        // the bar is longer than at rest by steadyStart at its start and steadyEnd at its end
-        // (half each about the resting centre, the rest going to the other end where the room cuts
-        // one); everything before the first / after the last magnifying slot moves out with the
-        // bar's ends once, the magnified run slides inside the room this leaves. "always" (9A
+        // Round 9 phase 9A, docks[].magnifyBar "steady": from the first time something zooms under
+        // the pointer until it leaves the dock (grown_) the bar is longer than at rest by
+        // steadyStart at its start and steadyEnd at its end (half each about the resting centre,
+        // the rest going to the other end where the room cuts one); everything before the first /
+        // after the last magnifying slot moves out with the bar's ends once, the magnified run
+        // slides inside the room this leaves. "always" (9A
         // follow-up): the resting layout has that room already (steadyStart before the first
         // magnifying slot, steadyEnd after the last one) and the bar never grows. False: the bar
         // follows the pointer (or never grows).
@@ -1058,6 +1059,10 @@ private:
     bool GrownBar() const { return layout_.steady && (layout_.always || grown_); }
     float GrownOutStart() const { return layout_.steady && !layout_.always && grown_ ? layout_.steadyStart : 0.0f; }
     float GrownOutEnd() const { return layout_.steady && !layout_.always && grown_ ? layout_.steadyEnd : 0.0f; }
+    // 9A follow-up 2: a "steady" bar not grown yet grows when slot `slot` (under the pointer, or
+    // ItemCommand 834's coordinate) zooms (a magnifying slot); the targets are computed again for
+    // it. True if it grew.
+    bool GrowForZoom(int slot);
     // A stage main coordinate on the grown bar -> the rest layout's (drag / drop targeting).
     float RestMain(float stageX) const;
     // The popup anchor of slot `slot` (its element's, a widget moved with the grown bar's end).
@@ -1249,6 +1254,7 @@ private:
     std::vector<std::wstring> widgetsClaimed_;  // keys AcquireWidget handed out during BuildElements
     bool widgetRedrawPosted_ = false;           // kWidgetRedrawMessage is posted
     AppKey hoverWidget_;                        // the widget slot under the pointer (empty: none)
+    double hoverWidgetSince_ = 0.0;             // Renderer::Now() when the pointer came onto it
     ScriptPopup widgetPopup_;                   // the script popup (one at a time)
     std::wstring popupWidget_;                  // the instance key it belongs to ("" none)
     std::wstring editorWidget_;                 // round 6 phase 6C: the widget whose text editor is open ("" none)
@@ -1284,10 +1290,13 @@ private:
     // Magnification
     bool magnifying_ = false;
     // 9A follow-up: the pointer is on the dock (or a menu / popup / drag holds it): a "steady" bar
-    // keeps its grown length. Set when the pointer comes onto the bar (and by ItemCommand 834),
-    // cleared only by a LeaveZone with nothing holding the dock (and when it hides).
+    // keeps its grown length. 9A follow-up 2: set the first time the pointer is over something that
+    // zooms (GrowForZoom: a magnifying slot, by the pointer or ItemCommand 834; a widget that grows
+    // while hovered: RefreshDirtyWidgets), cleared only by a LeaveZone with nothing holding the
+    // dock (and when it hides). Until then nothing magnifies and the bar stays at rest.
     bool grown_ = false;
     bool grownCheckPosted_ = false;  // kGrownCheckMessage is posted
+    bool leaveRearmed_ = false;      // a WM_MOUSELEAVE over the dock re-armed the tracking (until the next move)
     float cursorX_ = 0.0f;       // stage main coordinate (canonical x) of the last mouse position in the zone
     double lastMagnify_ = 0.0;    // Renderer::Now() of the last applied update
     bool magnifyPending_ = false;

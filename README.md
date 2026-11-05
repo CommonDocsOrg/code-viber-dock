@@ -102,13 +102,20 @@ screen, and auto-hide slides the dock off its own edge.
   animates with the icons.
 - **Steady bar growth** (round 9: `magnifyBar`, `"steady"` by default, Dock settings >
   Appearance > Size > **Bar while magnified**: **Grows once and stays** / **Follows the
-  pointer** / **Always wide (never grows or shrinks)**): when the pointer comes onto the dock,
-  the bar grows at once (the usual 80 ms ease) to its magnified length, its resting length plus
-  the most the magnification can add (`(magnification - 1) x icon x min(icons, magnifyRange)`
-  plus 2 px), half at each end about its resting centre, and keeps that length until the pointer
-  leaves the dock (9A follow-up: whatever it is over meanwhile, a widget, a separator or the
-  padding, and while a menu, a popup or a drag of the dock's holds it; a right-click, a press, the
-  wheel never shrink it). The widgets, separators and anything else before the first / after the
+  pointer** / **Always wide (never grows or shrinks)**): when the pointer first reaches something
+  that zooms (9A follow-up 2: an icon that magnifies, i.e. a pin, a running app, a folder, the
+  Recycle Bin, a group or a thumbnail, or a widget that grows while hovered, such as the analog
+  clock with its `hoverScale` above 1), the bar grows at once (the usual 80 ms ease) to its
+  magnified length, its resting length plus the most the magnification can add
+  (`(magnification - 1) x icon x min(icons, magnifyRange)` plus 2 px), half at each end about its
+  resting centre, and keeps that length until the pointer leaves the dock (9A follow-up: whatever
+  it is over meanwhile, a widget, a separator or the padding, and while a menu, a popup or a drag
+  of the dock's holds it; a right-click, a press, the wheel never shrink it). Until then the
+  pointer over things that do not zoom (the digital clock, the system monitor, volume, media,
+  separators, the bar's padding) leaves the bar and the icons at rest: nothing magnifies before
+  the bar has grown. A widget counts as zooming when it grows within a second of the pointer
+  coming onto it; one at the bar's ends then moves out with the end (so it slides out from under
+  the pointer once). The widgets, separators and anything else before the first / after the
   last icon move out with the bar's ends once, when it grows, and stay there; only the magnified
   icons move as the pointer walks the dock (no "wobble" left and right). The run of icons slides
   inside the room this leaves beside it, so the icon under the pointer stays under it; where that
@@ -2039,7 +2046,8 @@ items that exist. A file whose items have settings already is left alone.
     see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
   - `magnifyBar` (round 9; `"steady"` (default; not written), `"follow"` or `"always"`; unknown
     text reads as `"steady"`): how the bar grows while magnified: once, to a fixed length about its
-    resting centre, while the pointer is on the dock (`"steady"`), following the pointer as before
+    resting centre, from the moment the pointer first reaches something that zooms (an icon, a
+    widget growing on hover) until it leaves the dock (`"steady"`), following the pointer as before
     round 9 (`"follow"`), or never: the resting bar has the magnified length, with the room beside
     the icons (`"always"`). Ignored for rings, a scrolling run, a full-width and an anchored bar. See [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
   - `shape` (default `"bar"`; `"arc"`, `"circle"`), `radius` (DIPs, default 0 = automatic, 60 -
@@ -2789,13 +2797,16 @@ always there, also when every dock is parked) handle these registered messages:
   the dock's bar along the main axis as laid out now (the background's targets: magnified, a drop
   gap open, or at rest), `MAKELONG(start px, length px)` in stage coordinates (the stage's screen
   coordinate is QueryState 144): with `magnifyBar` "steady" it is the same for every slot that
-  ItemCommand 834 magnifies (and for every pointer position from the moment the pointer comes onto
-  the dock until it leaves), with "always" also at rest, with "follow" it changes with the slot.
+  ItemCommand 834 magnifies (and for every pointer position from the moment the pointer first
+  reaches something that zooms until it leaves the dock; before that, over widgets, separators or
+  the padding only, the resting bar), with "always" also at rest, with "follow" it changes with
+  the slot.
   9A follow-up: 288 = the slot at stage main coordinate `LOWORD(lParam)` by the hit test clicks,
   menus and the hover use (while the dock is magnified or its bar grown: the slots where they are
   drawn, from their targets as QueryState 142 / 143 report them; else the resting slots; widgets
   with their hit slack; no zone check), -1 none. ItemCommand 834 grows a "steady" bar as a real
-  pointer coming onto the dock does (834 with 0xFFFF: as if it left).
+  pointer does: only when its coordinate is over a magnifying icon (9A follow-up 2; over a widget,
+  a separator or the padding the bar stays at rest; 834 with 0xFFFF: as if it left).
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the Global window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.

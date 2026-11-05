@@ -51,6 +51,9 @@ constexpr ULONGLONG kBounceTimeoutMs = 5000; // stop bouncing if no window appea
 
 // Interaction timing (the animation durations are DockWindow::k*DurS, scaled by motion_).
 constexpr double kMagnifyIntervalS = 0.016;  // at most ~60 magnification updates per second
+// 9A follow-up 2: a hovered widget that grows this soon after the pointer came onto it grows on
+// hover (it zooms: a "steady" bar grows); later growth is its content changing.
+constexpr double kHoverGrowWindowS = 1.0;
 constexpr UINT kLabelDelayMs = 250;
 // Dragging icons.
 constexpr float kDragScale = 1.1f;           // the dragged icon, relative to rest size
@@ -1162,8 +1165,9 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // whole hover: rest + the magnification's growth, half at each end, except where the stage's
     // room cuts an end (a monitor end, a start / end aligned bar): that part goes to the other end.
     // Not for a ring, a scrolling run, a full-width or an anchored bar (their growth is as before).
-    // 9A follow-up: the bar keeps that length from the moment the pointer comes onto the dock until
-    // it leaves (grown_), not only while magnifying; "always" has the same room at rest (above).
+    // 9A follow-up: the bar keeps that length from the first time something zooms under the pointer
+    // (follow-up 2) until it leaves (grown_), not only while magnifying; "always" has the same room
+    // at rest (above).
     l.steady = d.magnifyBar == MagnifyBar::Steady && !polar && !l.view.on && !l.fullWidth && !l.anchored && magGrow > 0.0f &&
                l.firstMag >= 0;
     l.steadyStart = l.steadyEnd = 0.0f;
@@ -2836,10 +2840,11 @@ bool DockWindow::ScrollCommand(UINT cmd, int arg) {
         // tracking would end the magnification at once).
         if (hideState_ != HideState::Shown || dragPhase_ != DragPhase::None) return false;
         magnifying_ = true;
-        if (layout_.steady) grown_ = true;  // as a real pointer coming onto the dock (9A follow-up)
         cursorX_ = static_cast<float>(arg);
         ComputeTargets();  // the hit test below reads them
-        const int slot = HitAlong(cursorX_);
+        int slot = HitAlong(cursorX_);
+        // As a real pointer: a "steady" bar grows over something that zooms (9A follow-up 2).
+        if (GrowForZoom(slot)) slot = HitAlong(cursorX_);
         SetHover(slot >= 0 && !items_[static_cast<size_t>(slot)].IsWidget() ? slot : -1);  // the label follows
         ApplyMagnify();
         return true;
@@ -3409,14 +3414,24 @@ void DockWindow::RefreshDirtyWidgets() {
     // Re-measure the changed widgets: a new size needs a relayout (the bar width depends on it),
     // otherwise only their slots are redrawn.
     const LayoutContext ctx = Context();
-    bool resized = false, any = false;
+    bool resized = false, any = false, hoverGrew = false;
     for (DockItem& item : items_) {
         if (!item.dirty || !item.IsWidget()) continue;
         any = true;
         const ElementSize box = elements_[item.element]->Measure(ctx);
         if (box.main != item.slotW || box.cross != item.boxCross) resized = true;
+        // 9A follow-up 2: the widget under the pointer grows within a second of the pointer coming
+        // onto it (the analog clock's hoverScale, any script widget's measure() growing in its
+        // onHover): it zooms, so a "steady" bar grows as for a magnifying icon.
+        if (!hoverWidget_.id.empty() && item.key == hoverWidget_ && Renderer::Now() - hoverWidgetSince_ < kHoverGrowWindowS &&
+            (box.main > item.slotW + 0.5f || box.cross > item.boxCross + 0.5f)) {
+            hoverGrew = true;
+        }
     }
     if (!any) return;
+    if (hoverGrew && layout_.steady && !layout_.always && !grown_ && magnifying_ && hideState_ == HideState::Shown) {
+        grown_ = true;  // the relayout below (it resized) lays the grown bar out
+    }
     if (resized) {
         Relayout();
         return;
@@ -3448,7 +3463,9 @@ void DockWindow::ComputeTargets() {
     const size_t n = items_.size();
     const float stride = l.iconPx + l.gap;  // an icon's slot
     const float half = std::floor(l.gap / 2.0f);
-    const bool magnify = magnifying_ && l.magnification > 1.001f && n > 0;
+    // 9A follow-up 2: a "steady" bar not grown yet (the pointer only over widgets, separators or
+    // the bar's padding so far) magnifies nothing: the icons zoom together with the bar's growth.
+    const bool magnify = magnifying_ && l.magnification > 1.001f && n > 0 && (!l.steady || GrownBar());
     const float range = static_cast<float>(DockCfg().magnifyRange) * stride;
 
     // Dragging an icon: no magnification; the others make room at the insertion slot and the
@@ -3645,10 +3662,10 @@ void DockWindow::ComputeTargets() {
         }
     }
     // How far the bar's ends move out: with the run (follow), or (round 9 phase 9A, steady) by the
-    // layout's fixed amounts. 9A follow-up: from the moment the pointer comes onto the dock until it
-    // leaves (grown_; a menu, a popup or a drag holding the dock keeps it), whether or not anything
-    // magnifies, so the widgets and separators at the ends move once, never while the pointer walks
-    // the dock; "always": the resting bar has that room already and its ends never move. The run
+    // layout's fixed amounts. 9A follow-up: from the first time something zooms under the pointer
+    // (follow-up 2: GrowForZoom) until it leaves (grown_; a menu, a popup or a drag holding the dock
+    // keeps it), whether or not anything magnifies meanwhile, so the widgets and separators at the
+    // ends move once, never while the pointer walks the dock; "always": the resting bar has that room already and its ends never move. The run
     // slides inside the room (padS / padE beside it), anchored at the pointer while it fits; where
     // it does not, the hovered icon drifts off the pointer (the hit test follows the targets) and
     // only where the run's growth exceeds both rooms (both cut by the stage) the bar grows further.
@@ -5979,6 +5996,7 @@ void DockWindow::UpdateWidgetHover(int index) {
         }
     }
     hoverWidget_ = key;
+    hoverWidgetSince_ = Renderer::Now();  // a growth soon after this is a hover growth (RefreshDirtyWidgets)
     if (index >= 0 && !key.id.empty() && elements_[items_[static_cast<size_t>(index)].element]) {
         ElementOf(static_cast<size_t>(index)).OnHover(index, true);
     }
@@ -7902,6 +7920,17 @@ bool DockWindow::LiveHits() const {
     return !dragLayout && (magnifying_ || GrownBar());
 }
 
+bool DockWindow::GrowForZoom(int slot) {
+    // 9A follow-up 2: what zooms under the pointer is a magnifying slot (pins, running apps,
+    // folders, the Recycle Bin, groups, thumbnails); widgets, separators and the bar's padding do
+    // not (a widget growing on hover counts too: RefreshDirtyWidgets).
+    if (!layout_.steady || layout_.always || grown_ || layout_.magnification <= 1.001f) return false;
+    if (slot < 0 || slot >= static_cast<int>(items_.size()) || !items_[static_cast<size_t>(slot)].Magnifies()) return false;
+    grown_ = true;
+    ComputeTargets();  // the grown bar, the run magnified about the pointer
+    return true;
+}
+
 int DockWindow::HitAlong(float x) const {
     if (items_.empty()) return -1;
     if (!LiveHits()) {
@@ -8616,6 +8645,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return MA_NOACTIVATE;  // clicks never focus the dock
 
         case WM_MOUSEMOVE: {
+            leaveRearmed_ = false;
             ArmMouseTracking();
             const POINT pt = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
             if (dockDrag_) {
@@ -8688,15 +8718,17 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             if (hideState_ == HideState::Hiding) StartShow();  // came back mid-slide: reverse
             magnifying_ = true;
-            // 9A follow-up: on the dock, a "steady" bar has its grown length until the pointer
-            // leaves (LeaveZone), whatever it is over meanwhile.
-            if (layout_.steady) grown_ = true;
             cursorX_ = layout_.Canon(pt).x;
             // The targets for this pointer position first: the hit test reads them (what is drawn
             // under the pointer once they are applied; ScheduleMagnify applies them).
             ComputeTargets();
             {
-                const int hit = HitTest(pt);  // a widget is not hovered: no label, no preview
+                int hit = HitTest(pt);  // a widget is not hovered: no label, no preview
+                // 9A follow-up 2: a "steady" bar grows the first time the pointer is over something
+                // that zooms (a magnifying slot here; a widget growing on hover: RefreshDirtyWidgets)
+                // and keeps that length until the pointer leaves (LeaveZone), whatever it is over
+                // meanwhile. Grown, the run is anchored at the pointer: test again.
+                if (GrowForZoom(hit)) hit = HitTest(pt);
                 const bool widget = hit >= 0 && items_[static_cast<size_t>(hit)].IsWidget();
                 // ... unless it has cells (the tray grid): the label shows the cell's label.
                 std::wstring cellLabel;
@@ -8728,6 +8760,18 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 revealArmed_ = true;
                 return 0;
+            }
+            // 9A follow-up 2: a grown bar with the pointer still on the dock window, in its zone (a
+            // leave handled after a menu closed): not a leave; tracking again (a pointer that is
+            // gone after all posts the leave at once). Leaving here would keep the bar at rest
+            // over a widget, which does not grow it again. Once per mouse move (no leave loop).
+            if (grown_ && !hold_ && !leaveRearmed_) {
+                POINT cursor{};
+                if (GetCursorPos(&cursor) && GetAncestor(WindowFromPoint(cursor), GA_ROOT) == hwnd_ && CursorInZone()) {
+                    leaveRearmed_ = true;
+                    ArmMouseTracking();
+                    return 0;
+                }
             }
             LeaveZone();
             return 0;
