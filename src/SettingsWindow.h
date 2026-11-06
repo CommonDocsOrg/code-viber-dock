@@ -363,6 +363,9 @@ protected:
     void Label(int id, const wchar_t* text, const wchar_t* hint, int hintId = 0);
     // The full explanation of control `id` (and of its label's hint) as a multi-line tooltip.
     void Tip(int id, std::wstring text);
+    // Round 10 phase 10B: a new tooltip for a control that already exists (it had a Tip at Build;
+    // the Contents tab's inspector rows change meaning with the selection).
+    void SetTip(int id, const std::wstring& text);
     // A link-styled toggle ("▸ <text>" / "▾ Less", Space / Enter) whose rows (up to EndExpander)
     // are collapsed while it is closed (closed at first; per page instance, not saved).
     void Expander(int id, const wchar_t* text);

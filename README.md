@@ -1200,7 +1200,9 @@ write and edit without compiling anything. The full reference (every call, every
   `WinDock.exe --validate-widget <folder>` runs the same check from a command line (exit code 0 / 1
   / 2), for authors and CI.
 - **Settings page layout**: schema entries can carry `group` (section headers), `unit` (after a
-  stepper) and `visibleIf` (shown only for some value of another field).
+  stepper), `visibleIf` (shown only for some value of another field) and (round 10 phase 10B)
+  `common` (`true`: the field is one of the few the Dock window's Contents tab edits in its
+  inspector; every built-in widget marks two to four, Hello its only one).
 - **Safety**: every widget has its own script engine (QuickJS-ng) with its own heap limit; a call
   that runs longer than its time limit is stopped and the widget suspended ("Stopped" tile), an
   uncaught exception shows an "Error" tile with the message; **Reload widgets** (dock menu) starts
@@ -1785,12 +1787,27 @@ Behaviour, Running apps; the Theme tab became Appearance):
     default size): the selected item's icon, name, kind and details (the target; the clock's
     format; the weather's place; a second running apps item reads "Not shown: only the first
     running apps item is used"; a kind this version does not know is listed as written),
-    **◀ Move left** / **Move right ▶**, **Settings…** (a clock, weather, script widget, tray,
-    folder (or a shortcut to one) or group: its Item window; Enter or a double click on a pinned
+    **◀ Move left** / **Move right ▶**, **More settings…** (a clock, weather, script widget, tray,
+    folder (or a shortcut to one) or group: its Item window; round 10: named for its target,
+    "Tray settings…", when the inspector shows no settings of the item above it; Enter or a double click on a pinned
     tray icon opens its dock's tray item's window, on the running apps the Running apps tab, on
-    the notification centre App settings > Notifications), **More ▾** for apps, folders, groups and the
+    the notification centre App settings > Notifications), **Customize icon ▾** (round 10 phase 10B; was
+    More ▾) for apps, folders, groups and the
     Recycle Bin (a menu: **Choose icon…**, **Choose image…**, **Reset icon** (greyed without a
-    custom icon), as in the dock's menu, see Custom icons) and **Remove**. Under them, for every
+    custom icon), as in the dock's menu, see Custom icons) and **Remove**. Under them (round 10
+    phase 10B) the item's **common settings, edited in place**: a folder (or a shortcut to one)
+    **Contents layout** (Automatic / Grid / List, the item's `view`); a group **Name** and
+    **Contents layout**; a clock **Time format**, **Time zone**, **Show the date under the time**,
+    **Label**; a weather item its **Place** (a read-only line, "Seattle · 47.61, −122.33"; More
+    settings… has the place search), **Name on the dock**, **Units**; a script widget the
+    manifest fields marked `"common": true` (docs/widgets.md "Settings schema"; without any, its
+    first three fields of a simple type), each while its `visibleIf` holds, at most six (a check
+    box per `bool`, an up-down per `int`, a drop-down per `choice` / `timezone`, an edit box per
+    `number` / `string` / `colour` / `font`; a place as a line; a `"choiceFrom": "perf"` choice is
+    left to the Item window); apps, separators, the Recycle Bin, running apps, the tray and the
+    notification centre have none. They write the item exactly as its Item window does (the same
+    code: `settings` keys, `name`, `view`; applied at once and saved), an open Item window of the
+    item follows and a change made there shows in the inspector. Under them, for every
     kind (round 7): **Position on the dock** (Follow the dock's alignment / Start (left / top) /
     Centre / End (right / bottom): the item's `anchor`, see Item anchors under Position; the
     strip then shows the items re-sorted into group order) and **Offset (DIPs)** (-4000 - 4000;
@@ -1916,7 +1933,8 @@ weather or tray item, **Console…** for a widget):
   cut with "…" when still too long; the whole description is the tooltip of the label, the hint
   and the control. Fields that appear only for some value of another (`visibleIf`: the analog
   clock's motion only with a second hand; the clock's App or URL only for "launch") come and go as
-  before. A **Place** (round 8 phase 8C): **Find a place** is an autocomplete box: type a place's
+  before (round 10 phase 10B: also when the value they depend on is changed in the Contents tab's
+  inspector; the page then generates itself again). A **Place** (round 8 phase 8C): **Find a place** is an autocomplete box: type a place's
   name and its list fills with the places found (Open-Meteo's geocoding) after a 400 ms pause in
   typing or when you press Enter (or leave the box); the hint under the label says "Searching…",
   "10 places found: choose one", "No places found" or the error; choosing a row sets the name,
@@ -2985,6 +3003,11 @@ always there, also when every dock is parked) handle these registered messages:
   outside the drawer); 231 = the strip's selected item (-1 none); 232 = 1 while the drawer is
   shown (always since round 8 phase 8B); 233 = the insertion slot a drop
   would land in while a tile or a drawer row is dragged over the strip (the marker; -1 none).
+  Round 10 phase 10B: 289 = the inspector's common-setting rows shown for the selected item (0
+  none: an app, a separator ...; at most 6), 290 = the control id of row `LOWORD(lParam)` (the
+  shown input: `2640 + 10 n` + 1 check box, 3 drop-down, 4 an int's edit, 6 an edit; + 8 a
+  read-only value's static; -1 no such row); the row's label is `2640 + 10 n` (a check box's
+  caption + 2). (288 was taken by the 9A follow-up, so these are 289 / 290.)
   `DockCommand` 107 / 143 / 142 open them, `ItemCommand` 854 an item's from its slot. The frame's
   children: 100 the Global page list (`WinDock.SettingsNav`; its window text is the selected
   page's name; round 8 phase 8D: it lists the pages in groups, not by index (GENERAL: General,
@@ -3164,11 +3187,21 @@ always there, also when every dock is parked) handle these registered messages:
   2612 are retired) = 2616 the item strip (class `WinDock.SettingsStrip`; one tile per config item
   in order; its window text is its accessible name: "Items on the dock: <name>, <kind>, item k of
   n"), 2617 the note, 2618 the inspector's identity line (the same class; window text "<name>,
-  <kind> · <details>"), 2603 ◀ Move left, 2604 Move right ▶, 2613 Settings… (round 8 phase 8B:
-  was "Open settings in its own window"; shown for items with settings), 2631 More ▾ (8B; shown
+  <kind> · <details>"), 2603 ◀ Move left, 2604 Move right ▶, 2613 More settings… (round 8 phase 8B:
+  was "Open settings in its own window"; round 10: named for its target ("Tray settings…") when the inspector shows no
+  common settings of the item; shown for items with settings), 2631 Customize icon ▾ (8B; was More
+  ▾ until round 10 phase 10B; shown
   for apps, folders, groups and the Recycle Bin: a popup menu of 2609 Choose icon…, 2610 Choose
   image…, 2611 Reset icon (greyed without an `icon`); press it with a posted `BM_CLICK`), 2602
-  Remove (was "Remove from dock"), page commands without a button since 8B: 2601 Add app…, 2606
+  Remove (was "Remove from dock"), round 10 phase 10B **the inspector's common-setting rows**:
+  row n (0 - 5) uses ids `2640 + 10 n` + 0 its label, 1 a check box (a `bool`; `BM_SETCHECK` +
+  `WM_COMMAND(id, BN_CLICKED)` to the page), 2 its caption, 3 a drop-down list (a `choice`, a time
+  zone, Contents layout; `CB_SETCURSEL` + `CBN_SELCHANGE`), 4 / 5 an `int`'s edit and up-down
+  (`WM_SETTEXT` + `EN_KILLFOCUS`, or the up-down), 6 an edit (a string / number / colour / font, a
+  group's name; `WM_SETTEXT` + `EN_KILLFOCUS`), 7 the unit, 8 a read-only value (a place); only
+  the control of the row's kind is shown; QueryState 289 / 290 below find them (2639 is a page
+  command the inspector posts to itself after a change: it refreshes the strip and the rows),
+  page commands without a button since 8B: 2601 Add app…, 2606
   Add folder…, 2607 Add separator (after the selection), 2608 Add Recycle Bin, (2614 Lock the
   dock: removed in 8A, 2619 Hide / Show widget drawer: removed in 8B), the drawer ("Add to the
   dock"): 2620 / 2621 its title and hint, 2622 the search box (send `WM_SETTEXT`, then

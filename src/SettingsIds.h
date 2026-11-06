@@ -390,6 +390,21 @@ inline constexpr int kItemOffsetNote = 2630;      // "Shifts this item and the o
 // image… 2610, Reset icon 2611). The add buttons 2601 / 2606 / 2607 / 2608, the drawer toggle 2619
 // and the icon buttons are gone; their ids stay page commands (WM_COMMAND with lParam 0 to the page).
 inline constexpr int kPinMore = 2631;
+// Round 10 phase 10B: the inspector's common settings of the selected item (edited in place; More
+// settings… = kPinSettings opens the whole Item window). Up to kInspectorRowMax rows; row n uses
+// kInspectorRowBase + 10 n + one of the kInspector* offsets below (only the control of the row's
+// kind is shown; QueryState 290 answers the shown input's id). Read with QueryState 289 / 290.
+inline constexpr int kInspectorRowBase = 2640;
+inline constexpr int kInspectorRowMax = 6;       // 2640 - 2699
+inline constexpr int kInspectorLabel = 0;        // the row's label (static)
+inline constexpr int kInspectorCheck = 1;        // a bool: check box (BM_SETCHECK + WM_COMMAND BN_CLICKED to the page)
+inline constexpr int kInspectorCaption = 2;      // ... its caption
+inline constexpr int kInspectorCombo = 3;        // a choice / time zone / Contents layout: drop-down list (CB_SETCURSEL + CBN_SELCHANGE)
+inline constexpr int kInspectorIntEdit = 4;      // an int: edit (WM_SETTEXT + EN_KILLFOCUS) ...
+inline constexpr int kInspectorIntSpin = 5;      // ... with its up-down
+inline constexpr int kInspectorTextEdit = 6;     // a string / number / colour, a group's name: edit (WM_SETTEXT + EN_KILLFOCUS)
+inline constexpr int kInspectorUnit = 7;         // an int's / number's unit ("minutes")
+inline constexpr int kInspectorValue = 8;        // a read-only value (a weather place: "Seattle · 47.61, −122.33")
 
 // Weather (2700 - 2799): the Weather page until round 5 phase A (retired: each weather item's place
 // is a Place field of the generated page, 3610 - 3629); reserved.

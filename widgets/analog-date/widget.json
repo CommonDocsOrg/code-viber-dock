@@ -11,13 +11,13 @@
   "standalone": { "minWidth": 64, "minHeight": 64, "defaultWidth": 180, "defaultHeight": 180 },
   "permissions": ["shell"],
   "settings": [
-    { "key": "style", "type": "choice", "label": "Style", "description": "A flip calendar (stacked pages that turn over at midnight) or a plain flat page. Default: flip calendar.", "default": "flip",
+    { "key": "style", "common": true, "type": "choice", "label": "Style", "description": "A flip calendar (stacked pages that turn over at midnight) or a plain flat page. Default: flip calendar.", "default": "flip",
       "choices": [
         { "value": "flip", "label": "Flip calendar (split page, stacked pages, page curl)" },
         { "value": "flat", "label": "Flat page" }
       ] },
     { "key": "showMonth", "type": "bool", "label": "Show the month in the header", "description": "Writes the month in the coloured header; when off, the weekday goes there instead. On by default.", "default": true },
-    { "key": "showWeekday", "type": "bool", "label": "Show the weekday", "default": true,
+    { "key": "showWeekday", "common": true, "type": "bool", "label": "Show the weekday", "default": true,
       "description": "In the header when the month is off, else under the day." },
     { "key": "showYear", "type": "bool", "label": "Show the year", "description": "Adds the year under the day number. Off by default.", "default": false },
     { "key": "accent", "type": "colour", "label": "Header colour", "description": "The colour of the page's header. Default: red.", "default": "#FFE0453A" },
@@ -30,7 +30,7 @@
     { "key": "clickTarget", "visibleIf": { "click": "target" }, "type": "string", "label": "App or URL", "default": "outlookcal:",
       "description": "Opened by a click when \"Clicking the page opens\" is the app or URL (needs the widget's shell permission)." },
     { "key": "size", "unit": "DIPs", "type": "int", "label": "Size in DIPs (0: the dock's icon size)", "description": "How big the page is drawn on a dock; 0 uses the dock's icon size. Default: 0.", "min": 0, "max": 128, "default": 0 },
-    { "key": "timeZone", "type": "timezone", "label": "Time zone", "default": "",
+    { "key": "timeZone", "common": true, "type": "timezone", "label": "Time zone", "default": "",
       "description": "Today's date in the local time, or in any Windows time zone (the page turns over at that zone's midnight)." }
   ]
 }

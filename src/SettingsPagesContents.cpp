@@ -20,7 +20,9 @@
 #include <winrt/base.h>
 
 #include <algorithm>
+#include <cmath>
 #include <cwctype>
+#include <memory>
 #include <functional>
 #include <iterator>
 #include <map>
@@ -28,7 +30,9 @@
 #include <string>
 #include <vector>
 
+#include "Clock.h"
 #include "IconUtil.h"
+#include "JsonUtil.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
 #include "WidgetPackage.h"
@@ -36,6 +40,7 @@
 namespace {
 
 using namespace SettingsIds;
+namespace json = winrt::Windows::Data::Json;
 
 // --- GDI helpers -----------------------------------------------------------------------------
 
@@ -1335,8 +1340,31 @@ protected:
         y_ = kInspectorTop + 50;
         // Round 10 phase 10A: names its target ("Folder settings…", "Weather settings…"; UpdateInspector).
         Button(kPinSettings, L"Item settings…", L + 14, kSettingsW);
-        Button(kPinMore, L"More ▾", L + 14 + kSettingsW + 6, kMoreW);  // pinned items: Choose icon… / Choose image… / Reset icon
+        Tip(kPinSettings, L"Opens every setting of the selected item in a window of its own.");  // per selection: UpdateInspector
+        // Round 10 phase 10B: "Customize icon ▾" (was "More ▾"; the item menu's submenu has that name since 10A).
+        Button(kPinMore, L"Customize icon ▾", L + 14 + kSettingsW + 6, kMoreW);  // pinned items: Choose icon… / Choose image… / Reset icon
+        Tip(kPinMore, L"Choose icon…, Choose image… or Reset icon for the selected pinned item.");
         Button(kPinRemove, L"Remove", R - 14 - kRemoveW, kRemoveW);
+        // Round 10 phase 10B: the selected item's common settings, edited in place. A pool of rows
+        // (each with every kind of control; UpdateInspector shows the one its setting needs and
+        // FlowInspector places them above the placement rows). The tips are set per selection.
+        for (int n = 0; n < kInspectorRowMax; ++n) {
+            const int b = RowId(n);
+            const int cx = L + 14 + kPlaceLabelW + 6;
+            y_ = kInspectorTop + 90;
+            Add(b + kInspectorLabel, CtlKind::Label, WC_STATICW, L"Setting", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS,
+                RECT{L + 14, y_, L + 14 + kPlaceLabelW, y_ + kRowH});
+            Check(b + kInspectorCheck, b + kInspectorCaption, L"Setting", L + 14);
+            Combo(b + kInspectorCombo, cx, kFieldW, false);
+            Spin(b + kInspectorIntEdit, b + kInspectorIntSpin, cx, 96, 0, 100, 1);
+            EditBox(b + kInspectorTextEdit, cx, kFieldW, 1024);
+            Text(b + kInspectorUnit, CtlKind::Note, L"", cx + 104, 120);
+            Text(b + kInspectorValue, CtlKind::Value, L"", cx, R - 14 - cx);
+            for (int part : {kInspectorLabel, kInspectorCheck, kInspectorCaption, kInspectorCombo, kInspectorIntEdit, kInspectorTextEdit,
+                             kInspectorValue}) {
+                Tip(b + part, L"A setting of the selected item.");
+            }
+        }
         // Round 9 phase 9A: why they may be greyed.
         Tip(kPinUp, L"Moves the selected item one place left on the dock (Ctrl+Left). Greyed for the first item.");
         Tip(kPinDown, L"Moves the selected item one place right on the dock (Ctrl+Right). Greyed for the last item.");
@@ -1396,6 +1424,10 @@ protected:
     }
 
     void Load() override {
+        // Round 10 phase 10B: the schemas again (Reload widgets, a new clock face file).
+        schemas_.clear();
+        clockSchema_.settings.clear();
+        weatherSchema_.settings.clear();
         BuildEntries();
         FillStrip(sel_);
         FillDrawer();
@@ -1489,6 +1521,13 @@ protected:
             case 268:  // round 6 phase 6E: the inspector shows a widget preview (1 / 0)
                 out = infoPreview_ ? 1 : 0;
                 return true;
+            case 289:  // round 10 phase 10B: the inspector's common-setting rows shown for the selection
+                out = static_cast<LRESULT>(rows_.size());
+                return true;
+            case 290:  // ... the id of row `arg`'s control (its input; a read-only value's static), -1 none
+                out = arg >= 0 && static_cast<size_t>(arg) < rows_.size() ? RowId(static_cast<int>(arg)) + PartOf(rows_[static_cast<size_t>(arg)].kind)
+                                                                         : -1;
+                return true;
             default:
                 return false;
         }
@@ -1511,6 +1550,19 @@ protected:
         }
         if (id == kItemAnchorCombo) {
             if (code == CBN_SELCHANGE) SetAnchor(ComboSel(kItemAnchorCombo));
+            return;
+        }
+        // Round 10 phase 10B: the common-setting rows (and the refresh posted after a change).
+        if (id == kInspectorRefreshCmd) {
+            refreshPosted_ = false;
+            FillStrip(sel_);
+            return;
+        }
+        if (id >= kInspectorRowBase && id < RowId(kInspectorRowMax)) {
+            const int part = (id - kInspectorRowBase) % 10;
+            if ((part == kInspectorCheck && code == BN_CLICKED) || (part == kInspectorCombo && code == CBN_SELCHANGE)) {
+                ApplyRow((id - kInspectorRowBase) / 10, part);
+            }
             return;
         }
         if (code != BN_CLICKED) return;
@@ -1567,6 +1619,11 @@ protected:
 
     // Round 7 phase 7B: the offset edit (Enter / focus loss) and its up-down.
     void Commit(int id) override {
+        if (id >= kInspectorRowBase && id < RowId(kInspectorRowMax)) {  // round 10 phase 10B
+            const int part = (id - kInspectorRowBase) % 10;
+            if (part == kInspectorIntEdit || part == kInspectorTextEdit) ApplyRow((id - kInspectorRowBase) / 10, part);
+            return;
+        }
         if (id != kItemOffsetEdit) return;
         int value = 0;
         if (ReadInt(kItemOffsetEdit, -DockConfig::kMaxItemOffset, DockConfig::kMaxItemOffset, value)) {
@@ -1577,13 +1634,376 @@ protected:
     }
     void Spun(int spin, int pos) override {
         if (spin == kItemOffsetSpin) SetOffset(pos);
+        if (spin >= kInspectorRowBase && spin < RowId(kInspectorRowMax) && (spin - kInspectorRowBase) % 10 == kInspectorIntSpin) {
+            ApplyRow((spin - kInspectorRowBase) / 10, kInspectorIntSpin, pos);  // round 10 phase 10B
+        }
     }
 
 private:
     static constexpr int kPlaceLabelW = 150, kPlaceComboW = 220;  // the inspector's placement rows (DIPs)
     static constexpr int kTitleW = 128, kDrawerTitleW = 124;       // the headings (DIPs)
     // The inspector's buttons (DIPs; round 10 phase 10A: Settings… 96 -> 200 for "<name> settings…").
-    static constexpr int kSettingsW = 200, kMoreW = 84, kRemoveW = 96;
+    // Round 10 phase 10B: More ▾ 84 -> 140 for "Customize icon ▾".
+    static constexpr int kSettingsW = 200, kMoreW = 140, kRemoveW = 96;
+    static constexpr int kFieldW = 300;  // round 10 phase 10B: a row's drop-down / edit (DIPs; at most to the inspector's edge)
+    // Round 10 phase 10B: posted to the page after an inspector row changed the config (the strip's
+    // names and the rows follow once the change is through; not a control).
+    static constexpr int kInspectorRefreshCmd = kInspectorRowBase - 1;
+
+    // --- the inspector's common settings (round 10 phase 10B) ---
+
+    // One row: a setting of the selected item and the control it is edited with.
+    enum class RowKind { Check, Combo, Int, Text, Value };
+    enum class RowSource { Field, GroupName, View, Place };
+    struct InspectorRow {
+        RowKind kind = RowKind::Text;
+        RowSource source = RowSource::Field;
+        size_t field = 0;  // RowSource::Field: the index in the schema's settings
+        std::wstring label, tip, unit;
+        std::vector<std::pair<std::wstring, std::wstring>> choices;  // RowKind::Combo: value, label
+        int lo = 0, hi = 100, step = 1;                               // RowKind::Int
+    };
+    static int RowId(int n) { return kInspectorRowBase + 10 * n; }
+    static int PartOf(RowKind k) {
+        switch (k) {
+            case RowKind::Check: return kInspectorCheck;
+            case RowKind::Combo: return kInspectorCombo;
+            case RowKind::Int: return kInspectorIntEdit;
+            case RowKind::Text: return kInspectorTextEdit;
+            case RowKind::Value:
+            default: return kInspectorValue;
+        }
+    }
+
+    // The settings schema of item `e` (a widget's manifest, a clock's / weather item's built-in
+    // one; null: none), read once per id / kind until the next Load.
+    const Widgets::Manifest* SchemaOf(const DockItemEntry& e) {
+        const ItemKind k = e.Kind();
+        if (k == ItemKind::Clock || k == ItemKind::Weather) {
+            Widgets::Manifest& m = k == ItemKind::Clock ? clockSchema_ : weatherSchema_;
+            if (m.settings.empty()) {
+                m.name = k == ItemKind::Clock ? L"Clock" : L"Weather";
+                m.settings = Widgets::BuiltInSchema(k);
+            }
+            return &m;
+        }
+        if (k != ItemKind::Widget) return nullptr;
+        auto it = schemas_.find(e.id);
+        if (it == schemas_.end()) {
+            std::wstring error;
+            it = schemas_.emplace(e.id, Widgets::Load(e.id, error)).first;
+        }
+        return it->second ? &it->second->manifest : nullptr;
+    }
+
+    bool IsFolderLike(size_t item) {
+        const DockConfig& d = Dock();
+        if (item >= d.items.size()) return false;
+        const ItemKind k = d.items[item].Kind();
+        if (k == ItemKind::Folder || k == ItemKind::Group) return true;
+        const AppIdentity::ResolvedPin* pin = k == ItemKind::App ? PinFor(item) : nullptr;
+        return pin && pin->kind == AppIdentity::PinKind::Folder;  // a shortcut to a folder
+    }
+
+    // The rows of item `item`: a folder's / group's (name, Contents layout), a clock's / weather
+    // item's / widget's common fields (Widgets::CommonFields, those whose visibleIf holds, of the
+    // types the inspector edits; a place as a read-only line), none for the other kinds.
+    std::vector<InspectorRow> RowsFor(size_t item) {
+        std::vector<InspectorRow> rows;
+        const DockConfig& d = Dock();
+        if (item >= d.items.size()) return rows;
+        const DockItemEntry& e = d.items[item];
+        if (IsFolderLike(item)) {
+            if (e.Kind() == ItemKind::Group) {
+                InspectorRow r;
+                r.kind = RowKind::Text;
+                r.source = RowSource::GroupName;
+                r.label = L"Name";
+                r.tip = L"The group's name: its label on the dock and the title of its popup. Default: Group.";
+                rows.push_back(std::move(r));
+            }
+            InspectorRow v;
+            v.kind = RowKind::Combo;
+            v.source = RowSource::View;
+            v.label = L"Contents layout";
+            v.tip = L"How the popup shows the contents. Automatic: a grid up to 48 entries, a scrolling list above.";
+            v.choices = {{L"auto", L"Automatic"}, {L"grid", L"Grid"}, {L"list", L"List"}};
+            rows.push_back(std::move(v));
+            return rows;
+        }
+        const Widgets::Manifest* m = SchemaOf(e);
+        if (!m) return rows;
+        const std::wstring values = ItemSettingsValues(Cfg(), e, m);
+        using T = Widgets::SettingField::Type;
+        for (size_t k : Widgets::CommonFields(*m)) {
+            if (rows.size() >= static_cast<size_t>(kInspectorRowMax)) break;
+            const Widgets::SettingField& f = m->settings[k];
+            if (!SettingFieldVisible(f, values)) continue;
+            InspectorRow r;
+            r.field = k;
+            r.label = f.label;
+            r.unit = f.unit;
+            r.tip = !f.description.empty() ? f.description : f.label + L".";
+            switch (f.type) {
+                case T::Bool: r.kind = RowKind::Check; break;
+                case T::Int:
+                    r.kind = RowKind::Int;
+                    r.lo = static_cast<int>(std::max(-1e9, f.min));
+                    r.hi = static_cast<int>(std::min(1e9, f.max));
+                    r.step = std::max(1, static_cast<int>(f.step));
+                    break;
+                case T::Choice:
+                    if (f.ChoiceFromPerf()) continue;  // the perf metrics: More settings… lists them
+                    r.kind = RowKind::Combo;
+                    r.choices = f.choices;
+                    break;
+                case T::TimeZone:
+                    r.kind = RowKind::Combo;
+                    if (zones_.empty()) {
+                        zones_.push_back({L"", L"Local time"});
+                        for (const Clock::TimeZoneInfo& z : Clock::TimeZones()) zones_.push_back({z.key, z.display});
+                    }
+                    r.choices = zones_;
+                    break;
+                case T::Place:
+                    r.kind = RowKind::Value;
+                    r.source = RowSource::Place;
+                    r.tip = L"The place this item shows. More settings… finds another one (the place search) or edits its "
+                            L"coordinates.";
+                    break;
+                case T::Number:
+                case T::String:
+                case T::Color:
+                case T::Font:
+                default: r.kind = RowKind::Text; break;
+            }
+            rows.push_back(std::move(r));
+        }
+        return rows;
+    }
+
+    // A place as the inspector's read-only line ("Colorado Springs · 38.83, −104.82").
+    static std::wstring PlaceLine(const WeatherConfig& p) {
+        if (!p.Configured()) return L"None yet: choose one in More settings…";
+        auto coord = [](double v) {
+            wchar_t buf[32];
+            swprintf_s(buf, L"%.2f", std::fabs(v));
+            std::wstring s = buf;
+            return (v < 0 && s != L"0.00" ? std::wstring(L"\x2212") : std::wstring()) + s;
+        };
+        return (!p.location.empty() ? p.location : std::wstring(L"Unnamed place")) + L" · " + coord(p.latitude) + L", " +
+               coord(p.longitude);
+    }
+
+    // rows_ for the selection -> the pool's controls: each row's control shown (the others hidden),
+    // its label, tips, choices and value. Under updatingRows_ (no row applies anything meanwhile).
+    void LoadRows() {
+        updatingRows_ = true;
+        const DockConfig& d = Dock();
+        const bool valid = sel_ >= 0 && sel_ < static_cast<int>(d.items.size());
+        const DockItemEntry* e = valid ? &d.items[static_cast<size_t>(sel_)] : nullptr;
+        const Widgets::Manifest* m = e ? SchemaOf(*e) : nullptr;
+        json::JsonObject values{nullptr};
+        if (e && m) {
+            try {
+                if (!json::JsonObject::TryParse(ItemSettingsValues(Cfg(), *e, m), values)) values = nullptr;
+            } catch (...) {
+                values = nullptr;
+            }
+        }
+        // The rows' shape (kinds, labels, choices) decides whether the controls are set up again;
+        // their values are set every time.
+        std::wstring shape;
+        for (const InspectorRow& r : rows_) {
+            shape += std::to_wstring(static_cast<int>(r.kind)) + L":" + r.label + L":" + std::to_wstring(r.choices.size()) + L":" +
+                     std::to_wstring(r.lo) + L"," + std::to_wstring(r.hi) + L"|";
+        }
+        const bool reshape = shape != rowsShape_;
+        rowsShape_ = shape;
+        for (int n = 0; n < kInspectorRowMax; ++n) {
+            const int b = RowId(n);
+            const InspectorRow* r = static_cast<size_t>(n) < rows_.size() ? &rows_[static_cast<size_t>(n)] : nullptr;
+            const RowKind k = r ? r->kind : RowKind::Value;
+            Show(b + kInspectorLabel, r && k != RowKind::Check);
+            Show(b + kInspectorCheck, r && k == RowKind::Check);
+            Show(b + kInspectorCaption, r && k == RowKind::Check);
+            Show(b + kInspectorCombo, r && k == RowKind::Combo);
+            Show(b + kInspectorIntEdit, r && k == RowKind::Int);
+            Show(b + kInspectorIntSpin, r && k == RowKind::Int);
+            Show(b + kInspectorTextEdit, r && k == RowKind::Text);
+            Show(b + kInspectorUnit, r && !r->unit.empty() && (k == RowKind::Int || k == RowKind::Text));
+            Show(b + kInspectorValue, r && k == RowKind::Value);
+            if (!r) continue;
+            if (reshape) {
+                SetText(b + kInspectorLabel, r->label);
+                SetText(b + kInspectorCaption, r->label);
+                if (HWND check = Item(b + kInspectorCheck)) SetWindowTextW(check, r->label.c_str());  // its accessible name
+                if (HWND cap = Item(b + kInspectorCaption)) InvalidateRect(cap, nullptr, TRUE);
+                SetText(b + kInspectorUnit, r->unit);
+                for (int part : {kInspectorLabel, kInspectorCheck, kInspectorCaption, kInspectorCombo, kInspectorIntEdit, kInspectorTextEdit,
+                                 kInspectorValue}) {
+                    SetTip(b + part, r->tip);
+                }
+                if (k == RowKind::Combo) {
+                    HWND combo = Item(b + kInspectorCombo);
+                    SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+                    for (const auto& c : r->choices) ComboAdd(b + kInspectorCombo, c.second.c_str());
+                    // A time zone's display names are wider than the box.
+                    SendMessageW(combo, CB_SETDROPPEDWIDTH, static_cast<WPARAM>(Window().Px(r->choices.size() > 20 ? 420 : kFieldW)), 0);
+                }
+                if (k == RowKind::Int) {
+                    if (HWND spin = Item(b + kInspectorIntSpin)) {
+                        SendMessageW(spin, UDM_SETRANGE32, static_cast<WPARAM>(r->lo), r->hi);
+                        UDACCEL accel[] = {{0, static_cast<UINT>(r->step)}, {2, static_cast<UINT>(r->step * 5)}};
+                        SendMessageW(spin, UDM_SETACCEL, std::size(accel), reinterpret_cast<LPARAM>(accel));
+                    }
+                }
+            }
+            // The value.
+            if (r->source == RowSource::GroupName) {
+                SetText(b + kInspectorTextEdit, e && !e->name.empty() ? e->name : std::wstring(L"Group"));
+                continue;
+            }
+            if (r->source == RowSource::View) {
+                SetComboSel(b + kInspectorCombo, e ? static_cast<int>(e->view) : -1);
+                continue;
+            }
+            if (r->source == RowSource::Place) {
+                if (e) SetText(b + kInspectorValue, PlaceLine(e->Kind() == ItemKind::Weather ? WeatherOf(Cfg(), *e) : ScriptWeatherOf(Cfg(), d, *e)));
+                continue;
+            }
+            if (!m || r->field >= m->settings.size()) continue;
+            const Widgets::SettingField& f = m->settings[r->field];
+            const json::IJsonValue v = values ? JsonUtil::Find(values, f.key.c_str()) : nullptr;
+            using JT = json::JsonValueType;
+            switch (k) {
+                case RowKind::Check: SetCheck(b + kInspectorCheck, v && v.ValueType() == JT::Boolean && v.GetBoolean()); break;
+                case RowKind::Int:
+                    SetSpin(b + kInspectorIntSpin, v && v.ValueType() == JT::Number ? static_cast<int>(std::lround(v.GetNumber())) : r->lo);
+                    break;
+                case RowKind::Combo: {
+                    const std::wstring s = v && v.ValueType() == JT::String ? std::wstring(v.GetString()) : std::wstring();
+                    int pick = f.type == Widgets::SettingField::Type::TimeZone ? 0 : -1;  // a zone this Windows lacks: local
+                    for (size_t c = 0; c < r->choices.size(); ++c) {
+                        if (f.type == Widgets::SettingField::Type::TimeZone ? _wcsicmp(r->choices[c].first.c_str(), s.c_str()) == 0
+                                                                            : r->choices[c].first == s) {
+                            pick = static_cast<int>(c);
+                        }
+                    }
+                    SetComboSel(b + kInspectorCombo, pick);
+                    break;
+                }
+                case RowKind::Text:
+                    if (v && v.ValueType() == JT::Number) {
+                        SetText(b + kInspectorTextEdit, JsonUtil::Num(v.GetNumber()));
+                    } else {
+                        SetText(b + kInspectorTextEdit, v && v.ValueType() == JT::String ? std::wstring(v.GetString()) : std::wstring());
+                    }
+                    break;
+                default: break;
+            }
+        }
+        updatingRows_ = false;
+    }
+
+    // Row `n`'s control `part` changed: its value -> the item (the generated page's write,
+    // StoreItemSettings), applied through SettingsScope::Pins like every other edit of the tab. A
+    // value that is not valid puts the row back.
+    void ApplyRow(int n, int part, int spinPos = 0) {
+        if (updatingRows_ || Loading() || n < 0 || static_cast<size_t>(n) >= rows_.size()) return;
+        DockConfig& d = Dock();
+        if (sel_ < 0 || sel_ >= static_cast<int>(d.items.size())) return;
+        const InspectorRow r = rows_[static_cast<size_t>(n)];
+        if (PartOf(r.kind) != (part == kInspectorIntSpin ? kInspectorIntEdit : part)) return;  // not this row's control now
+        DockItemEntry& e = d.items[static_cast<size_t>(sel_)];
+        const int b = RowId(n);
+        if (r.source == RowSource::GroupName) {
+            if (e.Kind() != ItemKind::Group) return;
+            std::wstring name = GetText(b + kInspectorTextEdit);
+            while (!name.empty() && std::iswspace(name.back())) name.pop_back();
+            while (!name.empty() && std::iswspace(name.front())) name.erase(name.begin());
+            if (name.size() > 128) name.resize(128);
+            if (name == L"Group") name.clear();  // the default is not written (as the Item window)
+            if (name == e.name) return;
+            e.name = name;
+            ChangedRow();
+            return;
+        }
+        if (r.source == RowSource::View) {
+            const int s = ComboSel(b + kInspectorCombo);
+            if (s < 0 || s > 2 || static_cast<int>(e.view) == s) return;
+            e.view = static_cast<ItemView>(s);
+            ChangedRow();
+            return;
+        }
+        if (r.source != RowSource::Field) return;
+        const Widgets::Manifest* m = SchemaOf(e);
+        if (!m || r.field >= m->settings.size()) return;
+        const Widgets::SettingField& f = m->settings[r.field];
+        using T = Widgets::SettingField::Type;
+        std::wstring value;  // JSON text
+        switch (r.kind) {
+            case RowKind::Check: value = GetCheck(b + kInspectorCheck) ? L"true" : L"false"; break;
+            case RowKind::Int: {
+                int v = spinPos;
+                if (part != kInspectorIntSpin && !ReadInt(b + kInspectorIntEdit, r.lo, r.hi, v)) {
+                    LoadRows();  // not a number: back to the item's value
+                    return;
+                }
+                value = JsonUtil::Num(std::clamp(v, r.lo, r.hi));
+                break;
+            }
+            case RowKind::Combo: {
+                const int s = ComboSel(b + kInspectorCombo);
+                if (s < 0 || static_cast<size_t>(s) >= r.choices.size()) return;
+                value = JsonUtil::Quote(r.choices[static_cast<size_t>(s)].first);
+                break;
+            }
+            case RowKind::Text: {
+                const std::wstring text = GetText(b + kInspectorTextEdit);
+                if (f.type == T::Number) {
+                    wchar_t* end = nullptr;
+                    const double v = std::wcstod(text.c_str(), &end);
+                    if (end == text.c_str() || !std::isfinite(v)) {
+                        LoadRows();
+                        return;
+                    }
+                    value = JsonUtil::Num(std::clamp(v, f.min, f.max));
+                } else if (f.type == T::Color) {
+                    uint32_t argb = 0;
+                    if (!ParseArgbColor(text, argb)) {
+                        MessageBeep(MB_ICONWARNING);
+                        LoadRows();
+                        return;
+                    }
+                    value = JsonUtil::Quote(FormatArgbColor(argb));
+                } else {
+                    // A clock's format may not be empty (it would hide the clock), as on its page.
+                    bool blank = true;
+                    for (wchar_t ch : text) blank = blank && std::iswspace(ch);
+                    if (e.Kind() == ItemKind::Clock && f.key == L"format" && blank) {
+                        LoadRows();
+                        return;
+                    }
+                    value = JsonUtil::Quote(text);
+                }
+                break;
+            }
+            default: return;
+        }
+        if (!StoreItemSettings(Cfg(), e, {{f.key, value}})) return;
+        ChangedRow();
+    }
+
+    // An inspector row changed the item: the dock re-reads it, the Item window (if open) follows
+    // (App refreshes the other windows); the strip's names and the rows (visibleIf) follow posted.
+    void ChangedRow() {
+        Changed(SettingsScope::Pins);
+        if (!refreshPosted_ && Hwnd()) {
+            refreshPosted_ = true;
+            PostMessageW(Hwnd(), WM_COMMAND, MAKEWPARAM(kInspectorRefreshCmd, 0), 0);
+        }
+    }
     static constexpr int kEntryRunning = 0, kEntryClock = 1, kEntryWeather = 2, kEntryTray = 3, kEntryBell = 4,
                          kEntryRecycleBin = 5, kEntrySeparator = 6, kBuiltInEntries = 7;
     // Round 8 phase 8B: the "Apps and folders" rows (refs of their own: the entries' indexes, which
@@ -1797,6 +2217,8 @@ private:
         };
         std::wstring key = std::to_wstring(R) + (infoPreview_ ? L"p" : L"");
         for (int id : {kPinSettings, kPinMore}) key += shown(id) ? L"1" : L"0";
+        key += L"|" + rowsShape_;  // round 10 phase 10B: the common-setting rows
+        for (const InspectorRow& r : rows_) key += r.unit.empty() ? L"" : L"u";
         if (!force && key == flowKey_) return;
         flowKey_ = key;
         // Round 6 phase 6E: a widget's preview makes the identity line taller (the preview above it).
@@ -1812,6 +2234,25 @@ private:
         // everything else; returns the inspector's bottom.
         auto placeRows = [&](int top) {
             const int cx = left + kPlaceLabelW + 6;
+            // Round 10 phase 10B: the common-setting rows first (the same label / control columns).
+            const int fieldRight = std::min(right, cx + kFieldW);
+            for (int n = 0; n < kInspectorRowMax; ++n) {
+                const int b = RowId(n);
+                if (static_cast<size_t>(n) >= rows_.size()) continue;  // hidden (LoadRows)
+                MoveCtl(b + kInspectorLabel, RECT{left, top, left + kPlaceLabelW, top + kRowH});
+                MoveCtl(b + kInspectorCheck, RECT{left, top, left + kCaptionDx, top + kRowH});
+                MoveCtl(b + kInspectorCaption, RECT{left + kCaptionDx, top, right, top + kRowH});
+                MoveCtl(b + kInspectorCombo, RECT{cx, top + 4, fieldRight, top + 4 + 220});
+                MoveCtl(b + kInspectorIntEdit, RECT{cx, top + 4, cx + 96 - 18, top + kRowH - 4});
+                MoveCtl(b + kInspectorIntSpin, RECT{cx + 96 - 18, top + 4, cx + 96, top + kRowH - 4});
+                const bool intRow = rows_[static_cast<size_t>(n)].kind == RowKind::Int;
+                const int editRight = rows_[static_cast<size_t>(n)].unit.empty() ? fieldRight : std::min(fieldRight, right - 128);
+                MoveCtl(b + kInspectorTextEdit, RECT{cx, top + 4, editRight, top + kRowH - 4});
+                const int unitX = intRow ? cx + 104 : editRight + 8;
+                MoveCtl(b + kInspectorUnit, RECT{unitX, top, std::min(right, unitX + 120), top + kRowH});
+                MoveCtl(b + kInspectorValue, RECT{cx, top, right, top + kRowH});
+                top += kRowH + 2;
+            }
             MoveCtl(kItemAnchorLabel, RECT{left, top, left + kPlaceLabelW, top + kRowH});
             MoveCtl(kItemAnchorCombo, RECT{cx, top + 4, std::min(right, cx + kPlaceComboW), top + 4 + 220});
             top += kRowH + 2;
@@ -1990,17 +2431,25 @@ private:
         Enable(kPinDown, valid && sel_ < n - 1);
         Enable(kPinRemove, valid);
         Show(kPinSettings, valid && HasSettings(static_cast<size_t>(sel_)));
+        // Round 10 phase 10B: the common settings in place (rows_), before the button's text (it
+        // depends on them).
+        rows_ = valid ? RowsFor(static_cast<size_t>(sel_)) : std::vector<InspectorRow>{};
+        LoadRows();
         // Round 10 phase 10A: the button names its target (as the item's dock menu entry does).
+        // Round 10 phase 10B: "More settings…" when the inspector shows the item's common settings
+        // above it (the tooltip names the window it opens).
         if (e) {
-            const std::wstring text = k == ItemKind::Clock     ? std::wstring(L"Clock settings…")
-                                      : k == ItemKind::Weather ? std::wstring(L"Weather settings…")
-                                      : k == ItemKind::Tray    ? std::wstring(L"Tray settings…")
-                                      : k == ItemKind::Group   ? std::wstring(L"Group settings…")
-                                      : k == ItemKind::Widget  ? Widgets::DisplayName(e->id) + L" settings…"
-                                                               : std::wstring(L"Folder settings…");  // a folder (or a shortcut to one)
-            SetText(kPinSettings, text);
+            const std::wstring target = k == ItemKind::Clock     ? std::wstring(L"Clock settings")
+                                        : k == ItemKind::Weather ? std::wstring(L"Weather settings")
+                                        : k == ItemKind::Tray    ? std::wstring(L"Tray settings")
+                                        : k == ItemKind::Group   ? std::wstring(L"Group settings")
+                                        : k == ItemKind::Widget  ? Widgets::DisplayName(e->id) + L" settings"
+                                                                 : std::wstring(L"Folder settings");  // a folder (or a shortcut to one)
+            SetText(kPinSettings, rows_.empty() ? target + L"…" : std::wstring(L"More settings…"));
+            SetTip(kPinSettings, L"Opens " + target + L": every setting of this item in a window of its own (Enter or a double "
+                                 L"click on the tile does the same).");
         }
-        // Round 8 phase 8B: the icon commands are in the More ▾ menu (pinned items only).
+        // Round 8 phase 8B: the icon commands are in the Customize icon ▾ menu (pinned items only).
         Show(kPinMore, e && e->IsPin() && k != ItemKind::Separator);
         // Round 7 phase 7B: the item's anchor and offset (every kind).
         SetComboSel(kItemAnchorCombo, e ? static_cast<int>(e->anchor) : -1);
@@ -2293,6 +2742,15 @@ private:
     std::wstring flowKey_;
     int inspectorBottom_ = kInspectorTop + 90;
     bool infoPreview_ = false;  // the inspector shows the selected widget's preview (round 6 phase 6E)
+    // Round 10 phase 10B: the inspector's common-setting rows of the selection, the shape the pool's
+    // controls were set up for, and the schemas read for them (until the next Load).
+    std::vector<InspectorRow> rows_;
+    std::wstring rowsShape_;
+    bool updatingRows_ = false;
+    bool refreshPosted_ = false;
+    Widgets::Manifest clockSchema_, weatherSchema_;
+    std::map<std::wstring, std::shared_ptr<const Widgets::Package>> schemas_;
+    std::vector<std::pair<std::wstring, std::wstring>> zones_;  // time zone rows: key, display name
 };
 
 }  // namespace

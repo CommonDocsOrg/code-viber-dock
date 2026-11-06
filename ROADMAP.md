@@ -730,7 +730,7 @@ not pushed; STATUS.md "Round 10" has each phase's notes.
 | Phase | Scope | Status |
 |---|---|---|
 | 10A Menus and names | Three menus instead of one appended everywhere: the dock menu grouped by task (Add / Position / Auto-hide / Lock, then All docks / App / Tools submenus, Help, Quit), a tray-icon menu of its own for app-wide commands (Docks submenu, Show Windows taskbar temporarily at the top level), item menus with the item's entries first and the dock menu in a Dock submenu; real item menus for the widget kinds with Remove from dock (ItemCommand 861); Customize icon and Contents layout submenus; "Global settings" -> "App settings" everywhere user-visible; settings named for their target; Item window titles "<item> · <dock>" with ordinals; DockCommand 155 | Done (the commit "Menus grouped by task, explicit settings names, App settings"; STATUS.md "Round 10") |
-| 10B Contents tab as the editor | Common settings in the inspector, More settings… for the full Item window | Planned |
+| 10B Contents tab as the editor | Common settings in the inspector, More settings… for the full Item window | Done (the commit "Contents inspector edits common settings in place"; STATUS.md "Round 10") |
 | 10C One widget settings structure | Content / Appearance (/ Placement) sections; manifest `section` key | Planned |
 | 10D Common first, inherited vs local | Named collapsed expanders; Use app default / Reset to app default / Reset to factory defaults… | Planned |
 | 10E Regression and release | Suites re-run, pictures, the release build, the user's dock restarted | Planned |
@@ -764,6 +764,35 @@ Design notes for 10A:
   label / weather place), so it appears only where nothing else tells two items apart, and the
   first keeps no number. The Dock window title keeps its edge / display tail after
   "<id> · Dock settings" (it identifies the dock further; the plan's form is its prefix).
+
+Design notes for 10B:
+
+- **Why not the generated page's own controls.** A `SettingsPage` is a child window of its
+  `SettingsWindow`, which creates, colours, lays out and routes notifications only for its
+  top-level pages (and the loading guard is the window's). Hosting `WidgetSettingsPage` inside
+  the Contents page would mean nested pages in SettingsWindow: the large refactor the plan
+  allowed to skip. What both editors share instead is the part that matters for consistency:
+  the values (`ItemSettingsValues`), the write (`StoreItemSettings`), `visibleIf`
+  (`SettingFieldVisible`) and the scope (`SettingsScope::Pins`); the inspector's controls are
+  a small fixed pool.
+- **A pool of rows, not a rebuild.** The Contents tab lays itself out; rebuilding the page per
+  selection would recreate the strip and the drawer (their previews) and lose a drag. Six rows of
+  every control kind are created once; a selection shows one control per row and moves them.
+  The pool's ids are stable (`2640 + 10 n + part`), so tests and later phases can drive them by
+  row; QueryState 289 / 290 say which rows and controls are live.
+- **What counts as common.** Built-in kinds by hand (the clock's first Item-page rows: format,
+  zone, date, label; weather: place, name, units), script widgets by the new `common` key, with a
+  fallback of the first three simple fields so other authors' widgets get something. Perf choices
+  (a sample of the metrics may be taken to list them) and the place search (a geocoder, a typing
+  timer, an autocomplete drop-down) stay in the Item window; the weather place is a read-only line.
+- **Refresh both ways.** App already refreshes every window but the source after a change, so an
+  open Item window followed; it did not rebuild when the change flipped a `visibleIf`, so it now
+  compares the visible set on Load. The inspector refreshes its own strip and rows through a
+  posted page command: its change may come from an edit losing the focus to the strip in the
+  middle of the strip's own mouse handling.
+- **Names.** The button is "More settings…" when the inspector shows settings above it (its
+  tooltip names the window), else keeps 10A's "<Kind> settings…" (tray). "More ▾" became
+  "Customize icon ▾", the name of the item menu's submenu since 10A.
 
 ## Dependencies at a glance
 

@@ -248,6 +248,21 @@ void SettingsPage::Tip(int id, std::wstring text) {
     if (hint) Tip(hint, std::move(text));
 }
 
+void SettingsPage::SetTip(int id, const std::wstring& text) {
+    for (Ctl& c : table_) {
+        if (c.id != id || c.tip == text) continue;
+        c.tip = text;
+        // The tool exists when the control had a tip at creation (CreateTips): its text is copied.
+        if (!tip_ || !c.hwnd) continue;
+        TTTOOLINFOW ti{};
+        ti.cbSize = sizeof(ti);
+        ti.hwnd = hwnd_;
+        ti.uId = reinterpret_cast<UINT_PTR>(c.hwnd);
+        ti.lpszText = c.tip.data();
+        SendMessageW(tip_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
+    }
+}
+
 void SettingsPage::Expander(int id, const wchar_t* text) {
     Add(id, CtlKind::Expander, WC_BUTTONW, text, WS_TABSTOP | BS_OWNERDRAW, RECT{kMargin, y_ + 4, Width() - kMargin, y_ + kRowH - 4});
     NextRow();
@@ -406,7 +421,22 @@ void SettingsPage::SetText(int id, const std::wstring& text) {
         if (hwnd_) Relayout();
         return;
     }
+    // Round 10 phase 10B: a label's / caption's table text follows too (a caption is clickable
+    // only over its text, measured from Ctl::text at layout; QueryState 285 reads labels there):
+    // the Contents tab's inspector renames its rows per selection.
+    bool captionChanged = false;
+    for (Ctl& m : table_) {
+        if (m.id != id || (m.kind != CtlKind::Caption && m.kind != CtlKind::Label) || m.text == text) continue;
+        m.text = text;
+        captionChanged = m.kind == CtlKind::Caption;
+    }
     const Ctl* c = Find(id);
+    if (captionChanged && c && c->hwnd && hwnd_) {
+        SetWindowTextW(c->hwnd, text.c_str());
+        InvalidateRect(c->hwnd, nullptr, TRUE);
+        Relayout();
+        return;
+    }
     if (!c || !c->hwnd || WindowText(c->hwnd) == text) return;
     SetWindowTextW(c->hwnd, text.c_str());
     UnselectComboText(*c);

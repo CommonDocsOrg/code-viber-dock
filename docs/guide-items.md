@@ -89,7 +89,7 @@ To give an app its own icon:
 1. Right-click the app on the dock.
 2. Open **Customize icon** and choose **Choose icon…** to pick an icon from a program or icon file, or **Choose image…** to use a picture.
 
-**Reset icon** goes back to the app's own icon. The same choices are under **More ▾** on the Contents tab.
+**Reset icon** goes back to the app's own icon. The same choices are under **Customize icon ▾** on the Contents tab.
 
 If a pinned program or shortcut no longer exists, the dock shows a placeholder icon instead. It never removes the pin by itself.
 

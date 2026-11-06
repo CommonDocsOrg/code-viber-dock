@@ -12,20 +12,20 @@
   "preview": { "settings": { "dockForecast": "days", "dockDays": 3 } },
   "permissions": ["weather", "shell"],
   "settings": [
-    { "key": "place", "type": "place", "label": "Place", "description": "The town or city whose weather is shown. Empty: the place of this dock's first Weather item.", "group": "Place" },
+    { "key": "place", "common": true, "type": "place", "label": "Place", "description": "The town or city whose weather is shown. Empty: the place of this dock's first Weather item.", "group": "Place" },
     { "key": "label", "type": "string", "label": "Name on the dock", "default": "", "group": "Place",
       "description": "Shown under the temperature (empty: none)." },
-    { "key": "units", "type": "choice", "label": "Units", "description": "Metric shows °C and km/h, imperial °F and mph. Default: metric.", "default": "metric", "group": "Place",
+    { "key": "units", "common": true, "type": "choice", "label": "Units", "description": "Metric shows °C and km/h, imperial °F and mph. Default: metric.", "default": "metric", "group": "Place",
       "choices": [
         { "value": "metric", "label": "Metric (°C, km/h)" },
         { "value": "imperial", "label": "Imperial (°F, mph)" }
       ] },
     { "key": "refreshMinutes", "type": "int", "label": "Refresh every", "description": "How often a new forecast is fetched. Default: 30.", "min": 5, "max": 360, "step": 5, "default": 30,
       "unit": "minutes", "group": "Place" },
-    { "key": "showPlace", "type": "bool", "label": "Show the place under the temperature", "description": "Writes the place's name under the temperature. Off by default.", "default": false, "group": "Slot" },
+    { "key": "showPlace", "common": true, "type": "bool", "label": "Show the place under the temperature", "description": "Writes the place's name under the temperature. Off by default.", "default": false, "group": "Slot" },
     { "key": "showHigh", "type": "bool", "label": "Show today's high", "description": "Adds today's highest temperature under the current one. Off by default.", "default": false, "group": "Slot" },
     { "key": "showLow", "type": "bool", "label": "Show today's low", "description": "Adds today's lowest temperature under the current one. Off by default.", "default": false, "group": "Slot" },
-    { "key": "dockForecast", "type": "choice", "label": "Forecast on the dock", "default": "none", "group": "Slot",
+    { "key": "dockForecast", "common": true, "type": "choice", "label": "Forecast on the dock", "default": "none", "group": "Slot",
       "choices": [
         { "value": "none", "label": "None" },
         { "value": "today", "label": "Today's high and low (under the temperature)" },

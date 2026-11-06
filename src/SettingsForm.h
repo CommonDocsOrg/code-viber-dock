@@ -142,6 +142,22 @@ std::unique_ptr<SettingsPage> MakeWidgetWindowPage(SettingsWindow& window);    /
 std::wstring ClockDetail(const ClockConfig& c);
 std::wstring WeatherDetail(const WeatherConfig& w);
 
+// Round 10 phase 10B: the generated page's values and apply path (SettingsPagesWidgets.cpp), shared
+// with the Contents tab's inspector so both editors read and write an item's settings the same way.
+namespace Widgets {
+struct Manifest;
+struct SettingField;
+}
+// The values a clock / weather / script widget item shows (JSON object text): a clock's / weather
+// item's effective settings (its own over the defaults), a widget's merged over its schema's defaults.
+std::wstring ItemSettingsValues(const Config& config, const DockItemEntry& item, const Widgets::Manifest* schema);
+// Writes keys (each value as JSON text) into the item's `settings` object (a clock / weather item
+// without one starts from its effective values). False when nothing changed; the caller then tells
+// the host (SettingsScope::Pins).
+bool StoreItemSettings(const Config& config, DockItemEntry& item, const std::vector<std::pair<std::wstring, std::wstring>>& keys);
+// A field's `visibleIf` holds in `valuesJson` (ItemSettingsValues).
+bool SettingFieldVisible(const Widgets::SettingField& field, const std::wstring& valuesJson);
+
 // The icon of a pin entry as the Contents tab's item strip shows it (its custom icon, a shortcut's
 // icon, the file's / app's icon, the Recycle Bin's), `px` square (above 32 px from the system's
 // 48 px image list); null for kinds without one (separators, a group without an icon of its own).

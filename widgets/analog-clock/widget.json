@@ -11,7 +11,7 @@
   "standalone": { "minWidth": 64, "minHeight": 64, "defaultWidth": 200, "defaultHeight": 200 },
   "preview": { "settings": { "face": "classic", "seconds": true, "dateOnFace": "day" } },
   "settings": [
-    { "key": "face", "group": "Face", "type": "choice", "label": "Face", "choiceFrom": "faces/*.json", "default": "classic",
+    { "key": "face", "common": true, "group": "Face", "type": "choice", "label": "Face", "choiceFrom": "faces/*.json", "default": "classic",
       "description": "Every faces/*.json of the widget. Export the widget (Settings > Widgets) and add your own face files to its faces folder." },
     { "key": "dateOnFace", "group": "Face", "type": "choice", "label": "Date on the face", "description": "Shows the date in small windows on the dial; each choice says what is shown and where. Default: none.", "default": "none",
       "choices": [
@@ -22,7 +22,7 @@
         { "value": "full", "label": "Weekday and day (at 12), month and year (at 6)" }
       ] },
     { "key": "showDigital", "group": "Face", "type": "bool", "label": "Digital time under the dial", "description": "Writes the time in digits under the dial. Off by default.", "default": false },
-    { "key": "seconds", "group": "Second hand", "type": "bool", "label": "Second hand", "description": "Adds a second hand; the clock then updates every second. Off by default.", "default": false },
+    { "key": "seconds", "common": true, "group": "Second hand", "type": "bool", "label": "Second hand", "description": "Adds a second hand; the clock then updates every second. Off by default.", "default": false },
     { "key": "secondsMotion", "group": "Second hand", "visibleIf": { "seconds": true }, "type": "choice", "label": "Second hand motion", "default": "ticking",
       "choices": [
         { "value": "ticking", "label": "Ticking (wakes once a second)" },
@@ -34,9 +34,9 @@
     { "key": "size", "group": "Motion and size", "unit": "DIPs", "type": "int", "label": "Size in DIPs (0: the dock's icon size)", "description": "How big the clock is drawn on a dock; 0 uses the dock's icon size. Default: 0.", "min": 0, "max": 128, "default": 0 },
     { "key": "hoverScale", "group": "Motion and size", "unit": "x", "type": "number", "label": "Grow while the pointer is over it", "min": 1, "max": 2.5, "step": 0.1, "default": 1.6,
       "description": "1: off. The clock eases to this size in about 0.15 s and back when the pointer leaves (it jumps with reduce motion); its neighbours make room. Not on the desktop." },
-    { "key": "timeZone", "group": "Time zone", "type": "timezone", "label": "Time zone", "default": "",
+    { "key": "timeZone", "common": true, "group": "Time zone", "type": "timezone", "label": "Time zone", "default": "",
       "description": "Local time, or the time of any Windows time zone (with its own daylight saving)." },
-    { "key": "label", "group": "Time zone", "type": "string", "label": "Label (e.g. Tokyo)", "default": "",
+    { "key": "label", "common": true, "group": "Time zone", "type": "string", "label": "Label (e.g. Tokyo)", "default": "",
       "description": "Drawn small under the dial (before the digital time when that is shown)." }
   ]
 }

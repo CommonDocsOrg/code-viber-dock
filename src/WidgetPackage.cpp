@@ -275,6 +275,7 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
         JsonUtil::ReadString(o, L"description", f.description);
         JsonUtil::ReadString(o, L"group", f.group);
         JsonUtil::ReadString(o, L"unit", f.unit);
+        JsonUtil::ReadBool(o, L"common", f.common);  // round 10 phase 10B
         if (const json::JsonObject vis = JsonUtil::ReadObject(o, L"visibleIf")) {
             for (const auto& kv : vis) f.visibleIf.emplace_back(std::wstring(kv.Key()), std::wstring(kv.Value().Stringify()));
         }
@@ -644,7 +645,7 @@ constexpr const wchar_t* kTopKeys[] = {L"name",         L"version",     L"author
                                        L"standalone",   L"preview"};
 constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"description", L"default", L"min",
                                          L"max",     L"step",       L"choices", L"choiceFrom", L"group", L"unit",
-                                         L"visibleIf"};
+                                         L"visibleIf", L"common"};  // common: round 10 phase 10B
 constexpr wchar_t kPermissionFix[] =
     L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\" or { \"http\": [\"host\"] }";
 
@@ -883,6 +884,7 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
         for (const wchar_t* k : {L"label", L"description", L"group", L"unit", L"choiceFrom"}) {
             c.Type(o, k, json::JsonValueType::String, field + L"." + k, L"a string");
         }
+        c.Type(o, L"common", json::JsonValueType::Boolean, field + L".common", L"\"common\": true");  // round 10 phase 10B
         const json::IJsonValue d = JsonUtil::Find(o, L"default");
         const json::JsonValueType dt = d ? d.ValueType() : json::JsonValueType::Null;
         if (t == SettingField::Type::Int || t == SettingField::Type::Number) {
@@ -1420,16 +1422,22 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind) {
     std::vector<SettingField> s;
     if (kind == ItemKind::Clock) {
         const ClockConfig d;
+        // Round 10 phase 10B: format, time zone, the date and the label are "common" (the Contents
+        // tab's inspector, in schema order).
         s.push_back(field(L"format", T::String, L"Time format", JsonUtil::Quote(d.format), L"Time",
                           L"strftime: %H:%M (14:05), %I:%M %p (02:05 PM), %#I:%M %p (2:05 PM), %H:%M:%S"));
+        s.back().common = true;
         s.push_back(field(L"showSeconds", T::Bool, L"Show seconds", L"false", L"Time",
                           L"Adds the seconds to the time (the clock then redraws every second). Off by default."));
         s.push_back(field(L"timeZone", T::TimeZone, L"Time zone", L"\"\"", L"Time",
                           L"Local time follows Windows; another zone shows its time (with its daylight saving)."));
+        s.back().common = true;
         s.push_back(field(L"showDate", T::Bool, L"Show the date under the time", L"false", L"Text",
                           L"A short date line (e.g. Wed 4 Nov) under the time. Off by default."));
+        s.back().common = true;
         s.push_back(field(L"label", T::String, L"Label", L"\"\"", L"Text",
                           L"Shown on the date's line (alone under the time without the date), e.g. Tokyo."));
+        s.back().common = true;
         SettingField face = field(L"face", T::Choice, L"Face", JsonUtil::Quote(ClockFaces::kDigital), L"Look",
                                   L"Digital is the clock's own look; the others are face files (docs/widgets.md \"Clock faces\").");
         face.choices.emplace_back(ClockFaces::kDigital, L"Digital (built in)");
@@ -1446,12 +1454,16 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind) {
         target.visibleIf.emplace_back(L"click", L"\"launch\"");
         s.push_back(std::move(target));
     } else if (kind == ItemKind::Weather) {
+        // Round 10 phase 10B: the place (read only in the inspector), the name and the units are "common".
         s.push_back(field(L"place", T::Place, L"Place", L"null", L"Place"));
+        s.back().common = true;
         s.push_back(field(L"label", T::String, L"Name on the dock", L"\"\"", L"Place",
                           L"Shown under the temperature (empty: none)."));
+        s.back().common = true;
         SettingField units = field(L"units", T::Choice, L"Units", JsonUtil::Quote(ToString(LocaleUnits())), L"Updates",
                                    L"Temperature and wind units. The default follows your Windows region.");
         units.choices = {{L"metric", L"Metric (°C, km/h)"}, {L"imperial", L"Imperial (°F, mph)"}};
+        units.common = true;
         s.push_back(std::move(units));
         SettingField refresh = field(L"refreshMinutes", T::Int, L"Refresh every", L"30", L"Updates",
                                      L"How often the forecast is fetched again. Default: 30 minutes.");
@@ -1462,6 +1474,24 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind) {
         s.push_back(std::move(refresh));
     }
     return s;
+}
+
+std::vector<size_t> CommonFields(const Manifest& manifest) {
+    std::vector<size_t> out;
+    const auto& fields = manifest.settings;
+    for (size_t k = 0; k < fields.size(); ++k) {
+        if (fields[k].common) out.push_back(k);
+    }
+    if (!out.empty()) return out;
+    // None marked (another author's widget): the first three of a simple type.
+    using T = SettingField::Type;
+    for (size_t k = 0; k < fields.size() && out.size() < 3; ++k) {
+        const SettingField& f = fields[k];
+        const bool simple = f.type == T::Bool || f.type == T::Int || f.type == T::Number || f.type == T::String ||
+                            (f.type == T::Choice && !f.ChoiceFromPerf());
+        if (simple) out.push_back(k);
+    }
+    return out;
 }
 
 }  // namespace Widgets

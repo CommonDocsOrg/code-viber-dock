@@ -11,9 +11,9 @@
   "standalone": { "minWidth": 48, "minHeight": 48, "aspect": 1, "defaultWidth": 96, "defaultHeight": 96 },
   "permissions": ["shell", "notifications"],
   "settings": [
-    { "key": "unread", "type": "bool", "label": "Show the unread count", "default": true,
+    { "key": "unread", "common": true, "type": "bool", "label": "Show the unread count", "default": true,
       "description": "Reads Windows' notifications (WinDock polls the notification list every few seconds). Off: nothing polls and the fixed number below shows." },
-    { "key": "click", "type": "choice", "label": "A click opens", "description": "Which notification centre a click opens: WinDock's own or the Windows one (Win+N). Default: WinDock's.", "default": "centre",
+    { "key": "click", "common": true, "type": "choice", "label": "A click opens", "description": "Which notification centre a click opens: WinDock's own or the Windows one (Win+N). Default: WinDock's.", "default": "centre",
       "choices": [ { "value": "centre", "label": "WinDock's notification centre" },
                    { "value": "windows", "label": "Windows' notification centre (Win+N)" } ] },
     { "key": "badge", "visibleIf": { "unread": false }, "type": "int", "label": "Fixed badge (0: none)", "min": 0, "max": 99, "default": 0,

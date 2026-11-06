@@ -11,8 +11,8 @@
   "standalone": { "minWidth": 48, "minHeight": 48, "defaultWidth": 96, "defaultHeight": 96 },
   "permissions": ["shell"],
   "settings": [
-    { "key": "showLabel", "type": "bool", "label": "Show \"Search\" beside the glyph (horizontal docks)", "description": "Writes a word (the label below) next to the magnifier on a top or bottom dock. Off by default.", "default": false },
-    { "key": "label", "type": "string", "label": "Label", "description": "The word shown next to the magnifier when the label is on. Default: Search.", "default": "Search" },
+    { "key": "showLabel", "common": true, "type": "bool", "label": "Show \"Search\" beside the glyph (horizontal docks)", "description": "Writes a word (the label below) next to the magnifier on a top or bottom dock. Off by default.", "default": false },
+    { "key": "label", "common": true, "type": "string", "label": "Label", "description": "The word shown next to the magnifier when the label is on. Default: Search.", "default": "Search" },
     { "key": "image", "type": "string", "label": "Image instead of the glyph", "default": "",
       "description": "A file of the widget (assets/search.png, after exporting it) or the full path of any file, whose shell icon is drawn." }
   ]

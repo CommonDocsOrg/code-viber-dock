@@ -557,6 +557,23 @@ bool ParseCoord(std::wstring text, double lo, double hi, double& value) {
 
 bool HasSettings(ItemKind k) { return k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather; }
 
+// visibleIf: every named field has that value now (compared as JSON). Round 10 phase 10B: shared
+// with the Contents tab's inspector (SettingFieldVisible).
+bool FieldVisible(const Widgets::SettingField& f, const json::JsonObject& values) {
+    if (f.visibleIf.empty()) return true;
+    if (!values) return true;
+    for (const auto& [key, want] : f.visibleIf) {
+        const json::IJsonValue v = JsonUtil::Find(values, key.c_str());
+        if (!v) return false;
+        try {
+            if (std::wstring(v.Stringify()) != std::wstring(json::JsonValue::Parse(want).Stringify())) return false;
+        } catch (...) {
+            return false;
+        }
+    }
+    return true;
+}
+
 class WidgetSettingsPage : public FormPage {
 public:
     // `standaloneItem` >= 0: the Widget tab of a standalone widget's Dock window (round 8 phase 8C).
@@ -618,6 +635,7 @@ protected:
         places_.clear();  // the new search box has an empty list
         searched_.clear();
         KillTimer(Hwnd(), kPlaceTimer);
+        builtVisible_ = VisibleSignature();
         if (m) BuildFields(*m, right);
         if (standalone_ && item_ >= 0) {
             // The Item window's footer buttons (same ids) as the last card of the Widget tab.
@@ -815,7 +833,9 @@ protected:
 
     void Load() override {
         // The dock's items may have changed (another dock picked, items added / removed).
-        if (Signature() != builtFor_) {
+        // Round 10 phase 10B: also when another editor (the Contents tab) changed a value that
+        // other fields' visibleIf name.
+        if (Signature() != builtFor_ || VisibleSignature() != builtVisible_) {
             Window().RequestRebuild(*this);
             return;
         }
@@ -1072,14 +1092,7 @@ private:
         const Widgets::Manifest* m = Schema();
         if (!m || item_ < 0) return values;
         const DockItemEntry& e = Entry();
-        std::wstring text;
-        if (e.Kind() == ItemKind::Clock) {
-            text = ClockSettingsJson(ClockOf(Cfg(), e));
-        } else if (e.Kind() == ItemKind::Weather) {
-            text = WeatherSettingsJson(WeatherOf(Cfg(), e));
-        } else {
-            text = JsonUtil::Utf8ToWide(Widgets::MergeSettings(*m, e.settings));
-        }
+        const std::wstring text = ItemSettingsValues(Cfg(), e, m);  // round 10 phase 10B: shared with the inspector
         try {
             if (!json::JsonObject::TryParse(text, values)) values = nullptr;
             if (values && e.Kind() == ItemKind::Widget && HasPlaceField()) {
@@ -1245,21 +1258,14 @@ private:
     // Writes keys into the item's settings object and applies them. False if nothing changed.
     bool StoreKeys(std::initializer_list<std::pair<const wchar_t*, json::IJsonValue>> keys) {
         if (item_ < 0 || Loading()) return false;
-        DockItemEntry& e = Entry();
-        json::JsonObject o{nullptr};
+        // Round 10 phase 10B: the write is shared with the Contents tab's inspector.
+        std::vector<std::pair<std::wstring, std::wstring>> texts;
         try {
-            std::wstring base = e.settings;
-            // A clock / weather item without settings (written by hand): its effective values first.
-            if (base.empty() && e.Kind() == ItemKind::Clock) base = ClockSettingsJson(ClockOf(Cfg(), e));
-            if (base.empty() && e.Kind() == ItemKind::Weather) base = WeatherSettingsJson(WeatherOf(Cfg(), e));
-            if (base.empty() || !json::JsonObject::TryParse(base, o) || !o) o = json::JsonObject();
-            for (const auto& [key, value] : keys) o.SetNamedValue(key, value);
-            const std::wstring text(o.Stringify());
-            if (text == e.settings) return false;
-            e.settings = text;
+            for (const auto& [key, value] : keys) texts.emplace_back(key, std::wstring(value.Stringify()));
         } catch (...) {
             return false;
         }
+        if (!StoreItemSettings(Cfg(), Entry(), texts)) return false;
         Changed(SettingsScope::Pins);  // the dock re-reads the item: onSettingsChanged / a new place
         return true;
     }
@@ -1277,21 +1283,19 @@ private:
         if (f.key == L"units" || f.key == L"refreshMinutes") UpdatePlaceStatus();
     }
 
-    // visibleIf: every named field has that value now (compared as JSON).
-    static bool Visible(const Widgets::SettingField& f, const json::JsonObject& values) {
-        if (f.visibleIf.empty()) return true;
-        if (!values) return true;
-        for (const auto& [key, want] : f.visibleIf) {
-            const json::IJsonValue v = JsonUtil::Find(values, key.c_str());
-            if (!v) return false;
-            try {
-                if (std::wstring(v.Stringify()) != std::wstring(json::JsonValue::Parse(want).Stringify())) return false;
-            } catch (...) {
-                return false;
-            }
-        }
-        return true;
+    static bool Visible(const Widgets::SettingField& f, const json::JsonObject& values) { return FieldVisible(f, values); }
+
+    // Round 10 phase 10B: which fields the table was generated with (visibleIf), so a change made
+    // elsewhere (the Contents tab's inspector) that shows / hides fields generates it again.
+    std::wstring VisibleSignature() {
+        const Widgets::Manifest* m = Schema();
+        if (!m || item_ < 0) return L"";
+        const json::JsonObject values = Values();
+        std::wstring s;
+        for (size_t k = 0; k < m->settings.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) s += Visible(m->settings[k], values) ? L'1' : L'0';
+        return s;
     }
+    std::wstring builtVisible_;
 
     int asked_ = -1;  // the Item window's item (SelectItem)
     int item_ = -1;   // asked_ when it is a clock, weather or widget item, else -1
@@ -1352,6 +1356,42 @@ std::wstring WeatherDetail(const WeatherConfig& w) {
     if (!w.Configured()) return L"No location yet";
     std::wstring s = !w.label.empty() ? w.label : !w.location.empty() ? w.location : std::wstring(L"Location set");
     return s + (w.units == Units::Imperial ? L", °F" : L", °C");
+}
+
+std::wstring ItemSettingsValues(const Config& config, const DockItemEntry& e, const Widgets::Manifest* schema) {
+    if (e.Kind() == ItemKind::Clock) return ClockSettingsJson(ClockOf(config, e));
+    if (e.Kind() == ItemKind::Weather) return WeatherSettingsJson(WeatherOf(config, e));
+    if (schema) return JsonUtil::Utf8ToWide(Widgets::MergeSettings(*schema, e.settings));
+    return e.settings.empty() ? std::wstring(L"{}") : e.settings;
+}
+
+bool StoreItemSettings(const Config& config, DockItemEntry& e, const std::vector<std::pair<std::wstring, std::wstring>>& keys) {
+    json::JsonObject o{nullptr};
+    try {
+        std::wstring base = e.settings;
+        // A clock / weather item without settings (written by hand): its effective values first.
+        if (base.empty() && e.Kind() == ItemKind::Clock) base = ClockSettingsJson(ClockOf(config, e));
+        if (base.empty() && e.Kind() == ItemKind::Weather) base = WeatherSettingsJson(WeatherOf(config, e));
+        if (base.empty() || !json::JsonObject::TryParse(base, o) || !o) o = json::JsonObject();
+        for (const auto& [key, value] : keys) o.SetNamedValue(key, json::JsonValue::Parse(value));
+        const std::wstring text(o.Stringify());
+        if (text == e.settings) return false;
+        e.settings = text;
+    } catch (...) {
+        return false;
+    }
+    return true;
+}
+
+bool SettingFieldVisible(const Widgets::SettingField& field, const std::wstring& valuesJson) {
+    if (field.visibleIf.empty()) return true;
+    json::JsonObject values{nullptr};
+    try {
+        if (!json::JsonObject::TryParse(valuesJson, values)) values = nullptr;
+    } catch (...) {
+        values = nullptr;
+    }
+    return FieldVisible(field, values);
 }
 
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window) { return std::make_unique<WidgetsPage>(window); }

@@ -333,7 +333,7 @@ Applying a preset replaces all of the dock's settings and items. Its name, colou
 
 ### Contents tab
 
-The Contents tab shows and arranges everything on the dock.
+The Contents tab shows, arranges and edits everything on the dock: add an item from the drawer, move it, change its everyday settings and remove it, all in one place.
 
 **Items on the dock** is a strip with a tile for every item, in the dock's order:
 
@@ -344,9 +344,21 @@ The Contents tab shows and arranges everything on the dock.
 Under the strip is the selected item's inspector: its icon, name and details, and these buttons:
 
 - **◀ Move left** and **Move right ▶**: move the item one place.
-- **Weather settings…**, **Folder settings…** and so on (named for the selected item): opens the item's own settings window (for a clock, weather, widget, tray, folder or group).
-- **More ▾**: for apps, folders, groups and the Recycle Bin: **Choose icon…**, **Choose image…** and **Reset icon**.
+- **More settings…**: opens the item's own settings window with all of its settings. For an item whose settings are not shown in the inspector (the tray) the button is named for it, for example **Tray settings…**.
+- **Customize icon ▾**: for apps, folders, groups and the Recycle Bin: **Choose icon…**, **Choose image…** and **Reset icon**.
 - **Remove**: takes the item off the dock.
+
+Under the buttons are the selected item's everyday settings, which you change right there. They are the same settings as in its own window and apply at once; an open settings window of the item shows the change too, and a change made there shows here.
+
+- A folder: **Contents layout** (Automatic, Grid or List).
+- A group: its **Name** and **Contents layout**.
+- A clock: **Time format**, **Time zone**, **Show the date under the time** and **Label**.
+- Weather: the **Place** it shows (choose another one in **More settings…**), **Name on the dock** and **Units**.
+- A widget: the few settings its author marked as the common ones (for example the Analog clock's face, second hand, time zone and label). Some appear only while another setting has a certain value, as in the widget's own window.
+- Apps, separators, the Recycle Bin, Running apps, the tray and the notification centre have none here.
+
+Below them, for every item:
+
 - **Position on the dock**: **Follow the dock's alignment**, or give the item a place of its own: **Start (left / top)**, **Centre** or **End (right / bottom)**.
 - **Offset**: shifts this item and the ones after it in its group, in pixels.
 

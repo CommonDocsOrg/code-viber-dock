@@ -2534,6 +2534,8 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         case 233:    // the strip's insertion marker (-1 none)
         case 277:    // round 8 phase 8B: the Position tab's placement kind (0 bar on an edge, 1 floating bar, 2 half circle, 3 circle)
         case 278:    // ... the Contents drawer's row count of group LOWORD (0 apps and folders, 1 built in, 2 script widgets)
+        case 289:    // round 10 phase 10B: the Contents inspector's common-setting rows for the selection
+        case 290:    // ... the control id of row LOWORD (its input; a read-only value's static; -1 none)
         case 252: {  // round 6 phase 6B: a drawer row's "Desktop" button centre (entry LOWORD); -2 for each: no Dock window of that dock
             SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
             LRESULT out = -2;

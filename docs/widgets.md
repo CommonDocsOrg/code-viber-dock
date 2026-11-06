@@ -83,7 +83,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 ### Settings schema
 
 Each entry: `key` (required), `type`, `label`, `description`, `default`, the page's layout keys
-`group`, `unit` and `visibleIf` (below), and per type:
+`group`, `unit`, `visibleIf` and `common` (below), and per type:
 
 | `type` | Value | Extra keys |
 |---|---|---|
@@ -138,8 +138,8 @@ defaults overridden by the item's values (a value of the wrong type or out of ra
 the default; ints are rounded, numbers clamped); keys the schema does not name are passed through
 unchanged. Each widget item has its own settings window (an Item window, round 5), generated from
 the schema: **<name> settings…** in the widget's own right-click menu, or Dock settings >
-Contents > **<name> settings…** in the inspector of the widget's tile (a double click or Enter on it
-does the same). It has a check box per `bool`, an up-down (stepper, `step` per click, `min` -
+Contents > **More settings…** in the inspector of the widget's tile (a double click or Enter on it
+does the same; round 10 phase 10B: the inspector itself edits the fields marked `common`, below). It has a check box per `bool`, an up-down (stepper, `step` per click, `min` -
 `max`) per `int`, a drop-down per `choice` and `timezone`, the place block for a `place`, an edit
 box for the others (`colour` as `#AARRGGBB`), and **Reset to defaults** in its footer (removes the
 item's `settings`). A change is saved and reaches the widget at once (`onSettingsChanged`). Round 8
@@ -159,6 +159,7 @@ The page's layout keys (round 4 phase 14):
 | `group` | `"group": "Second hand"` | Round 8 phase 8C: a card titled with the group around the field and the ones after it with the same group; a field whose group differs from the field above it starts a new card (so fields of one group should be next to each other: a group that comes back later gets a second card). Fields without a group: a card titled with the widget's `name`. |
 | `unit` | `"unit": "DIPs"` | A unit after an `int`'s stepper or a `number`'s edit box ("%", "minutes"). |
 | `visibleIf` | `"visibleIf": { "seconds": true }` | The field (and a group header that would be left empty) is shown only while every named field has that value; the page is generated again when one of them changes. A key that names no other field is an error. |
+| `common` | `"common": true` | Round 10 phase 10B: one of the widget's few everyday settings. Dock settings > Contents shows the fields marked `common` in the inspector of the selected widget, editable in place (in schema order, at most six, each only while its `visibleIf` holds), above **More settings…**, which opens the whole page. Without any `common` field the inspector shows the first three fields of a simple type (`bool`, `int`, `number`, `string`, a `choice` not from `"perf"`). The inspector edits `bool`, `int`, `number`, `string`, `colour`, `font`, `choice` and `timezone` fields; a `place` shows as a read-only line, a `"choiceFrom": "perf"` choice is left to the page. Not a boolean: an error. Mark two to four fields. |
 
 ```json
 { "key": "seconds", "type": "bool", "label": "Second hand", "default": false, "group": "Second hand" },

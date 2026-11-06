@@ -52,6 +52,9 @@ struct SettingField {
     std::wstring group;
     std::wstring unit;
     std::vector<std::pair<std::wstring, std::wstring>> visibleIf;
+    // Round 10 phase 10B: `"common": true`: one of the few settings the Dock window's Contents tab
+    // shows in its inspector for the selected item (CommonFields), editable in place.
+    bool common = false;
 };
 
 // A problem found in a widget's manifest (Validate): `field` names the key ("main",
@@ -193,5 +196,10 @@ std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson
 // The clock's face choices are read now (Digital, then ClockFaces::List()). The keys are those of
 // ClockConfig / WeatherConfig (Config.h: ClockOf / WeatherOf read them).
 std::vector<SettingField> BuiltInSchema(ItemKind kind);
+
+// Round 10 phase 10B: the fields the Contents tab's inspector offers (indexes into
+// manifest.settings, in schema order): the ones marked `"common": true`; a schema without any: its
+// first three fields of a simple type (bool, int, number, string, a choice not from "perf").
+std::vector<size_t> CommonFields(const Manifest& manifest);
 
 }  // namespace Widgets
