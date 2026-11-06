@@ -4660,6 +4660,15 @@ void DockWindow::TogglePopup(ItemKind kind) {
     }
 }
 
+void DockWindow::ToggleSlotPopup(int slot) {
+    if (slot < 0 || slot >= static_cast<int>(items_.size()) || !elements_[items_[static_cast<size_t>(slot)].element]) return;
+    if (PopupShownFor(slot)) {
+        DismissClickPopups(true);
+    } else {
+        ShowClickPopup(slot);
+    }
+}
+
 WeatherPopup::Style DockWindow::WeatherPopupStyle() const {
     const Layout& l = layout_;
     const ThemeConfig& theme = DockTheme();

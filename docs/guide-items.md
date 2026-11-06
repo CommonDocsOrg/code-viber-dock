@@ -39,9 +39,25 @@ The drawer has three parts:
 There are quicker ways for some items:
 
 - Drag a shortcut, a program or a folder from File Explorer onto the dock.
-- Right-click the dock and choose **Add separator**, or **Add widget** > **Clock**, **Weather**, **Running apps**, **Tray (notify icons)** or **Notification centre**.
+- Right-click the dock and open **Add**: **Clock**, **Weather**, **Running apps**, **Tray (notify icons)**, **Notification centre** or **Separator**. **Apps, folders and more widgets…** opens the Contents tab, and **Folder window on the desktop…** makes a folder window.
 
-To remove an item, select it on the Contents tab and click **Remove** (or press Delete). You can also drag a pinned app that is not running up and off the dock.
+To remove an item, select it on the Contents tab and click **Remove** (or press Delete). A clock, a weather item, a widget, the tray and the notification centre also have **Remove from dock** at the end of their right-click menu. You can also drag a pinned app that is not running up and off the dock.
+
+## Right-click menus
+
+Right-click an item and its menu starts with what the item does, then how it looks, then its settings, and ends with removal. The last entry, **Dock**, holds the dock menu: the same menu you get by right-clicking an empty part of the dock.
+
+- An app: **Open** or **New window**, **Open file location**, **Close** for each window, **Customize icon**, then **Pin to dock** or **Unpin from dock**.
+- A folder: **Open in Explorer**, **Show contents**, **Contents layout**, **Customize icon**, **Folder settings…**, then **Unpin from dock**.
+- A group: **Show contents**, **Rename…**, **Contents layout**, **Customize icon**, **Group settings…**, then **Ungroup (shortcuts stay pinned)** and **Unpin group and its shortcuts**.
+- The weather: **Refresh weather**, **Show forecast**, **Weather settings…**, then **Remove from dock**.
+- The clock: **Show calendar**, **Clock settings…**, then **Remove from dock**.
+- A widget: its settings (such as **System monitor settings…**), **Reload widget**, then **Remove from dock**.
+- A separator: **Remove separator**.
+
+The dock menu is grouped by task: **Dock settings…**, **Add**, **Position on screen**, **Auto-hide** and **Lock dock** for this dock; then **All docks** (the dashboard, lock all), **App** (App settings, the taskbar, Start with Windows), **Tools** (the config file, widgets, Task Manager), **Help…** and **Quit**.
+
+The WinDock icon in the notification area has the app-wide commands: **App settings…**, **Docks** (each dock's settings), **Show dashboard**, **Show Windows taskbar temporarily**, **Hide taskbar**, **Start with Windows**, **Tools**, **Help…** and **Quit**.
 
 To move an item, drag it on the dock, or drag its tile on the Contents tab. To give an item a fixed place, such as the right end, use **Position on the dock** in the Contents tab's inspector.
 
@@ -51,8 +67,8 @@ A clock, a weather item, a widget, the tray, a folder and a group each have thei
 
 To open an item's settings:
 
-- Right-click the item on the dock and choose its settings entry at the top of the menu (or **Settings…** for a folder or a group).
-- Or select its tile on the dock's Contents tab and click **Settings…**, or double-click the tile.
+- Right-click the item on the dock and choose its settings entry, named for the item: **Clock settings…**, **Weather settings…**, **Folder settings…**, **Group settings…**, **Tray settings…** or the widget's name.
+- Or select its tile on the dock's Contents tab and click the button of the same name, or double-click the tile.
 
 The settings are described in [Item settings](guide-settings.md#item-settings).
 
@@ -63,7 +79,7 @@ A pinned app stays on the dock whether it runs or not.
 - **Click** an app to start it. If it is running, a click brings its window to the front, and a second click minimizes it. With several windows, clicks cycle through them.
 - **Middle-click** starts a new copy of the app. The dock's Behaviour tab can make it minimize or close the app's windows instead.
 - **Mouse wheel** over an app can switch between its windows, if you turn that on in the Behaviour tab.
-- **Right-click** for **Pin to dock** or **Unpin from dock**, **New window**, **Open file location**, **Close** for each window, and the icon choices.
+- **Right-click** for **New window**, **Open file location**, **Close** for each window, **Customize icon**, and **Pin to dock** or **Unpin from dock**.
 - **Drop files** on an app to open them with it.
 
 While an app starts, its icon bounces until its window appears. A dot under the icon shows that it is running: brighter for the app in front, orange when the app wants your attention.
@@ -71,7 +87,7 @@ While an app starts, its icon bounces until its window appears. A dot under the 
 To give an app its own icon:
 
 1. Right-click the app on the dock.
-2. Choose **Choose icon…** to pick an icon from a program or icon file, or **Choose image…** to use a picture.
+2. Open **Customize icon** and choose **Choose icon…** to pick an icon from a program or icon file, or **Choose image…** to use a picture.
 
 **Reset icon** goes back to the app's own icon. The same choices are under **More ▾** on the Contents tab.
 
@@ -122,7 +138,7 @@ Working with a folder:
 - Drop files on the popup to move or copy them into the folder.
 - Middle-click the folder to open it in File Explorer.
 
-The popup shows a grid or a list. To choose, right-click the folder and open **View**, or open the folder's settings window and set **Show the contents as**: **Automatic** (a grid up to 48 entries, a list for more), **Grid** or **List**.
+The popup shows a grid or a list. To choose, right-click the folder and open **Contents layout**, or open the folder's settings window and set **Show the contents as**: **Automatic** (a grid up to 48 entries, a list for more), **Grid** or **List**.
 
 The folder's settings window has the same view choice and an Icon card to give it a picture of your own.
 
@@ -138,9 +154,9 @@ To make a group:
 
 To add another app, drag it onto the group. To take one out, drag it from the group's popup back onto the dock, or right-click it in the popup and choose **Remove from group** or **Move to dock**.
 
-Right-click a group for **Show contents**, **Rename…**, **Ungroup** (its shortcuts become pins again), **Unpin group** and **View**. A group shows a running dot while any of its apps runs.
+Right-click a group for **Show contents**, **Rename…**, **Contents layout**, **Customize icon**, **Group settings…**, **Ungroup (shortcuts stay pinned)** (its shortcuts become pins again) and **Unpin group and its shortcuts**. A group shows a running dot while any of its apps runs.
 
-The group's settings window (right-click > **Settings…**) has these cards:
+The group's settings window (right-click > **Group settings…**) has these cards:
 
 - **Group**: its **Name** and **Show the contents as**.
 - **Icon**: see below.
@@ -162,7 +178,7 @@ When the last member is removed, the group goes away.
 
 ## Separators and the Recycle Bin
 
-A **separator** is a thin line between parts of the dock, for example between your apps and your widgets. Add as many as you like. Drag it to move it; right-click it and choose **Remove** to take it away.
+A **separator** is a thin line between parts of the dock, for example between your apps and your widgets. Add as many as you like. Drag it to move it; right-click it and choose **Remove separator** to take it away.
 
 The **Recycle Bin** shows whether it is empty or full, and its name label says how many items it holds.
 
@@ -207,7 +223,7 @@ The weather settings window has two cards:
 - **Place**: **Find a place**, the chosen **Place**, **Edit coordinates** (to type a latitude and longitude), the **Name on the dock** under the temperature, and the **Status** with **Refresh now**.
 - **Updates**: **Units** (metric or imperial) and **Refresh every** (minutes).
 
-Each weather item has its own place, so a dock can show two cities. Right-click the dock and choose **Refresh weather** to update every place now.
+Each weather item has its own place, so a dock can show two cities. Right-click a weather item and choose **Refresh weather** to update every place now.
 
 There is also a **Weather (script)** widget that shows the same data, with more choices such as a forecast of several days on the dock.
 
@@ -215,7 +231,7 @@ There is also a **Weather (script)** widget that shows the same data, with more 
 
 WinDock reads calendars in iCal format: a web address, such as the secret address of a Google calendar or a published Outlook calendar, or an `.ics` file on your PC. It cannot sign in to an account.
 
-To add a calendar, go to Global settings > Calendar feeds and click **Add feed…**. See [Calendar feeds](guide-settings.md#calendar-feeds).
+To add a calendar, go to App settings > Calendar feeds and click **Add feed…**. See [Calendar feeds](guide-settings.md#calendar-feeds).
 
 Your events then show up:
 
@@ -232,8 +248,8 @@ The tray shows the notification area icons (the small icons at the right of the 
 
 To show the tray icons on a dock:
 
-1. Right-click the dock and choose **Add widget** > **Tray (notify icons)**. This also turns on the takeover.
-2. Or add **System tray** from the Contents tab's drawer, then check **Show the notification area icons in the dock** on Global settings > Tray icons.
+1. Right-click the dock and choose **Add** > **Tray (notify icons)**. This also turns on the takeover.
+2. Or add **System tray** from the Contents tab's drawer, then check **Show the notification area icons in the dock** on App settings > Tray icons.
 
 Clicks on the icons go to their apps as they would on the taskbar: a right-click opens the app's own menu. **Ctrl+right-click** an icon opens WinDock's tray menu: hide it from the grid, pin it to the dock, or open the tray settings.
 
@@ -241,7 +257,7 @@ When there are more icons than cells, the last cell is an arrow that opens a dra
 
 Windows' own items (network, battery, language, its clock and volume) stay with Windows. The Volume, Battery and clock widgets cover them.
 
-To give the tray a small dock of its own at the bottom right, click **Put the tray in its own dock** on Global settings > Tray icons.
+To give the tray a small dock of its own at the bottom right, click **Put the tray in its own dock** on App settings > Tray icons.
 
 ### The grid
 
@@ -257,7 +273,7 @@ This card lists every icon in the grid's order. Clear an icon's check box to kee
 
 ### Takeover
 
-**Reset to Explorer** hands every icon back to Windows and turns the takeover off, on every dock. Turn it on again on Global settings > Tray icons.
+**Reset to Explorer** hands every icon back to Windows and turns the takeover off, on every dock. Turn it on again on App settings > Tray icons.
 
 ## Notifications
 
@@ -269,7 +285,7 @@ The **notification centre** is a bell on the dock with the number of unread noti
 - Click a notification to open its app.
 - Click the × on a notification, or press Delete, to dismiss it. **Clear all** dismisses every one.
 
-**Badges** put the number of unread notifications on each app's icon. Turn them on with **Notification badges on app icons** on the dock's Behaviour tab. To keep an app from ever showing a badge, clear it in Global settings > Notifications > Badges per app.
+**Badges** put the number of unread notifications on each app's icon. Turn them on with **Notification badges on app icons** on the dock's Behaviour tab. To keep an app from ever showing a badge, clear it in App settings > Notifications > Badges per app.
 
 An app's notifications count as read when you dismiss them in Windows, or when you open the app from the dock.
 
@@ -300,7 +316,7 @@ The System monitor can also show any sensor of HWiNFO (temperatures, fans, power
 
 ### Widget settings
 
-Every widget on a dock has its own settings window. To open it, right-click the widget and choose its settings entry at the top of the menu, or select it on the Contents tab and click **Settings…**.
+Every widget on a dock has its own settings window. To open it, right-click the widget and choose the entry with its name, such as **System monitor settings…**, or select it on the Contents tab and click the button of the same name.
 
 The settings are grouped in cards. Each setting has a short hint under it; rest the mouse on it for the full explanation. Some settings appear only when another one has a certain value.
 
@@ -310,13 +326,13 @@ A widget with a place, such as Weather (script), has the same **Find a place** b
 
 ### Widgets on the desktop
 
-A widget can also live on the desktop in a window of its own, moved and sized freely. Click **Desktop** on its row in the Contents tab's drawer, or **Add to the desktop** in Global settings > Widget library. See [Standalone widgets](guide-docks.md#standalone-widgets).
+A widget can also live on the desktop in a window of its own, moved and sized freely. Click **Desktop** on its row in the Contents tab's drawer, or **Add to the desktop** in App settings > Widget library. See [Standalone widgets](guide-docks.md#standalone-widgets).
 
 ### Your own widgets
 
 A widget is a folder with a small description file and a JavaScript file. You can write your own, or change a copy of a built-in one, without any tools.
 
-- Global settings > Widget library > **More ▾** > **Add from folder…** installs a widget from a folder.
+- App settings > Widget library > **More ▾** > **Add from folder…** installs a widget from a folder.
 - **Export built-in to folder** makes an editable copy of a built-in widget.
 - **Open widgets folder** opens the folder where your widgets live.
 - **Console…** shows each widget's log and errors.

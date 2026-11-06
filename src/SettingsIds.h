@@ -16,11 +16,11 @@ inline constexpr int kFooter = 104;     // Item: WinDock.SettingsBand, the foote
 // Children of the header / footer bands.
 inline constexpr int kHeaderFlash = 110;    // Dock: "Flash" (round 8 phase 8B: was "Flash this dock")
 inline constexpr int kHeaderLock = 111;     // Dock: "Lock" / "Unlock" (docks[].locked; was "Lock dock" / "Unlock dock")
-inline constexpr int kHeaderGlobal = 112;   // Dock: the "⋯" menu's "Global settings…" command (round 8 phase 8B; was a SysLink)
+inline constexpr int kHeaderGlobal = 112;   // Dock: the "⋯" menu's "App settings…" command (round 8 phase 8B; was a SysLink; round 10 10A: was "Global settings…")
 inline constexpr int kHeaderDockLink = 113; // Item: SysLink "on <dock id>" (opens / activates the dock window)
 inline constexpr int kFooterReset = 114;    // Item (widget / clock / weather): "Reset to defaults"
 inline constexpr int kFooterConsole = 115;  // Item (widget): "Console…"
-inline constexpr int kHeaderMore = 116;     // Dock: round 8 phase 8B: the "⋯" button (a menu: Global settings… = kHeaderGlobal)
+inline constexpr int kHeaderMore = 116;     // Dock: round 8 phase 8B: the "⋯" button (a menu: App settings… = kHeaderGlobal)
 
 // Page indices of the Global window (round 5 phase B renumbered them). Round 8 phase 8D: the nav
 // lists them in groups in another order (GENERAL: General, Docks and displays; LOOK: Themes,

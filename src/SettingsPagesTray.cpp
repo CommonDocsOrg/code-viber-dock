@@ -53,8 +53,8 @@ protected:
         grid.maxLines = 2;
         Tip(kTrayGlobalNote,
             L"Each tray item's grid (rows, columns, icon size, which icons it shows and their order) is in that item's own "
-            L"settings window: select the System tray tile on its dock's Contents tab and choose Settings…, or Ctrl + "
-            L"right click a tray icon > Tray settings….");
+            L"settings window: right-click the tray on the dock > Tray settings…, select the System tray tile on its "
+            L"dock's Contents tab and choose Tray settings…, or Ctrl + right click a tray icon > Tray settings….");
         NextRow(24);
         Button(kTrayOwnDock, L"Put the tray in its own dock", kMargin, kButtonW);
         Text(kTrayOwnDockNote, CtlKind::Note, L"A new dock with only the tray", kMargin + kButtonW + 12,
@@ -166,10 +166,10 @@ protected:
         Section(kTrayTakeoverSection, L"Takeover", L"guide-items.md#takeover");
         Label(kTrayResetLabel, L"Explorer's icons", L"Back to the taskbar, every dock", kTrayResetNote);
         Tip(kTrayResetLabel, L"Reset to Explorer hands every icon back to Explorer and turns the takeover off (on every dock); "
-                             L"Global settings > Tray icons turns it on again.");
+                             L"App settings > Tray icons turns it on again.");
         Button(kTrayReset, L"Reset to Explorer", kColX, 160);
         Tip(kTrayReset, L"Hands every icon back to Explorer and turns the takeover off (on every dock). Greyed while the "
-                        L"takeover is off: Explorer has the icons already (Global settings > Tray icons turns it on).");
+                        L"takeover is off: Explorer has the icons already (App settings > Tray icons turns it on).");
         NextRow();
     }
 

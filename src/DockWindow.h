@@ -339,7 +339,7 @@ public:
     // Index of the item under a client-area point (relative to the current window rect), or -1.
     int IndexAt(POINT clientPt) const { return HitTest(ToStage(clientPt)); }
     // A right click at a client-area point: the index of the item whose item menu opens, or -1
-    // for the dock menu (no item there, or a widget).
+    // for the dock menu (no item there, or a widget: App gives a widget slot its own menu, 10A).
     int MenuIndexAt(POINT clientPt) const;
     // Index of the item owning a tracked top-level window (its window slot when the dock is
     // unstacked), or -1.
@@ -373,6 +373,9 @@ public:
     // Shows / hides the click popup of the first item of `kind`: the forecast over the weather
     // widget, the month calendar over the clock (no-op without such an item).
     void TogglePopup(ItemKind kind);
+    // Round 10 phase 10A: the same for the click popup of slot `slot` (an item menu's Show
+    // forecast / Show calendar / Show notification centre: that slot's, not the kind's first).
+    void ToggleSlotPopup(int slot);
     const WeatherService* WeatherFor(const WeatherConfig& place) const override {
         return shared_ ? shared_->FindWeather(place) : nullptr;
     }

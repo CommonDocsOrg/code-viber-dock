@@ -2925,7 +2925,7 @@ void Append(std::wstring& to, const std::wstring& s) {
 
 std::wstring SettingsWindow::SearchName() {
     switch (kind_) {
-        case SettingsKind::Global: return L"Global";
+        case SettingsKind::Global: return L"App";  // round 10 phase 10A: the App settings window
         case SettingsKind::Item: return ItemName() + L" on " + dockId_;
         case SettingsKind::Dock:
         default:

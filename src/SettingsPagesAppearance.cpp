@@ -134,13 +134,14 @@ protected:
             HelpTopic(L"guide-settings.md#appearance-tab");
             Section(kSectionTheme, L"Theme", L"guide-settings.md#dock-theme");
             // Round 8 phase 8A: the note is the label's hint (kDockThemeNote) and its tooltip.
-            Label(kDockThemeLabel, L"This dock's theme", L"Its fields: Global > Themes", kDockThemeNote);
-            Tip(kDockThemeLabel, L"\"Same as all docks\" uses the global theme. The theme's fields (colours, sizes, "
-                                 L"effects) are in Global settings > Themes: they apply to every dock, on top of this "
+            // Round 10 phase 10A: "App settings" (was "Global settings").
+            Label(kDockThemeLabel, L"This dock's theme", L"Its fields: App settings > Themes", kDockThemeNote);
+            Tip(kDockThemeLabel, L"\"Same as all docks\" uses the app's theme. The theme's fields (colours, sizes, "
+                                 L"effects) are in App settings > Themes: they apply to every dock, on top of this "
                                  L"dock's preset.");
             Combo(kDockThemeCombo, kColX, right - kColX, false);
             NextRow();
-            Link(kDockThemeLink, L"<a>Open Global settings > Themes</a>", kMargin, right - kMargin);
+            Link(kDockThemeLink, L"<a>Open App settings > Themes</a>", kMargin, right - kMargin);
             NextRow();
             Section(kSectionDock, L"Size", L"guide-settings.md#size");
             Label(kIconSizeLabel, L"Icon size");

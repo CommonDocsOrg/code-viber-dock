@@ -124,7 +124,7 @@ void SettingsWindow::CreateBands(bool footer) {
     if (!header_) return;
     if (kind_ == SettingsKind::Dock) {
         // Round 8 phase 8B: the compact header's actions: small Flash / Lock buttons (a dock, a
-        // standalone widget) and "⋯" (a menu: Global settings…; the link is gone).
+        // standalone widget) and "⋯" (a menu: App settings…; the link is gone).
         if (!IsFolderWindow()) {
             child(header_, kHeaderFlash, WC_BUTTONW, L"Flash");
             child(header_, kHeaderLock, WC_BUTTONW, L"Lock");
@@ -224,7 +224,7 @@ void SettingsWindow::ShowHeaderMenu() {
     if (!button) return;
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
-    AppendMenuW(menu, MF_STRING, kHeaderGlobal, L"Global settings…");
+    AppendMenuW(menu, MF_STRING, kHeaderGlobal, L"App settings…");  // round 10 phase 10A: was "Global settings…"
     AppendMenuW(menu, MF_STRING, kHeaderFind, L"Find a setting…\tCtrl+F");  // round 9 phase 9B
     // Round 9 phase 9C: a predefined setup for this dock (not for folder windows / standalone widgets).
     if (DockIndex() != SIZE_MAX && Dock().IsDock()) AppendMenuW(menu, MF_STRING, kHeaderPreset, L"Apply a preset…");
@@ -238,9 +238,30 @@ void SettingsWindow::ShowHeaderMenu() {
 
 // --- identity ----------------------------------------------------------------------------------
 
+// Round 10 phase 10A: the item's name, with an ordinal when the dock holds several items of its
+// kind with the same name ("Weather 2", "Weather 2 · Oslo"); a clock's label or a weather item's
+// place already tells them apart, so it is part of the name compared. The first keeps no number.
 std::wstring SettingsWindow::ItemName() {
     const DockItemEntry* e = TargetItem();
     if (!e) return L"Item";
+    std::wstring name = ItemNameOf(item_);
+    const std::vector<DockItemEntry>& items = Dock().items;
+    size_t same = 0, before = 0;
+    for (size_t k = 0; k < items.size(); ++k) {
+        if (items[k].Kind() != e->Kind() || ItemNameOf(k) != name) continue;
+        ++same;
+        if (k < item_) ++before;
+    }
+    if (same < 2 || before == 0) return name;
+    const std::wstring n = L" " + std::to_wstring(before + 1);
+    const size_t dot = name.find(L" · ");
+    return dot == std::wstring::npos ? name + n : name.insert(dot, n);
+}
+
+std::wstring SettingsWindow::ItemNameOf(size_t index) {
+    const std::vector<DockItemEntry>& items = Dock().items;
+    if (index >= items.size()) return L"Item";
+    const DockItemEntry* e = &items[index];
     const Config& c = *host_.config;
     switch (e->Kind()) {
         case ItemKind::Clock: {
@@ -261,7 +282,7 @@ std::wstring SettingsWindow::ItemName() {
                 const std::vector<size_t> idx = Dock().PinIndexes();
                 const auto& pins = host_.pins();
                 for (size_t k = 0; k < idx.size() && k < pins.size(); ++k) {
-                    if (idx[k] == item_ && !pins[k].displayName.empty()) return pins[k].displayName;
+                    if (idx[k] == index && !pins[k].displayName.empty()) return pins[k].displayName;
                 }
             }
             return e->path.empty() ? std::wstring(L"Folder") : StemOf(e->path);
@@ -322,9 +343,11 @@ std::vector<std::wstring> SettingsWindow::HeaderChips() {
 }
 
 std::wstring SettingsWindow::WindowTitle() {
-    if (kind_ == SettingsKind::Global) return L"WinDock settings";
+    // Round 10 phase 10A: titles name the target first ("App settings" was "WinDock settings";
+    // an Item window "<item> · <dock>", e.g. "Weather 2 · main", was "… · Item settings").
+    if (kind_ == SettingsKind::Global) return L"App settings";
     const DockConfig& d = Dock();
-    if (kind_ == SettingsKind::Item) return ItemName() + L" · " + dockId_ + L" · Item settings";
+    if (kind_ == SettingsKind::Item) return ItemName() + L" · " + dockId_;
     if (d.IsFolderWindow()) return dockId_ + L" · Folder window settings · " + SettingsDisplayName(d.monitor);
     if (d.IsWidgetWindow()) {
         const DockItemEntry* w = d.WidgetItem();
@@ -388,7 +411,7 @@ void SettingsWindow::UpdateIdentity() {
     ApplyCaptionColor();
     std::wstring summary;
     if (kind_ == SettingsKind::Global) {
-        summary = L"Global · applies to every dock";
+        summary = L"App settings · apply to every dock";
     } else if (kind_ == SettingsKind::Dock) {
         summary = dockId_;
         for (const std::wstring& c : HeaderChips()) summary += L" · " + c;
@@ -480,7 +503,7 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
         text(L"Changes apply at once", RECT{Px(20), 0, rc.right / 2, rc.bottom}, font_, palette_.textSecondary,
              DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
     } else if (kind_ == SettingsKind::Global) {
-        text(L"Global · applies to every dock", RECT{Px(24), 0, rc.right - Px(16), rc.bottom}, font_, palette_.textSecondary,
+        text(L"App settings · apply to every dock", RECT{Px(24), 0, rc.right - Px(16), rc.bottom}, font_, palette_.textSecondary,
              DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         Fill(dc, RECT{Px(24), rc.bottom - std::max(1, Px(1)), rc.right - Px(24), rc.bottom}, hair);
     } else if (kind_ == SettingsKind::Dock) {
@@ -520,7 +543,9 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
             const std::wstring letter = name.empty() ? std::wstring(L"?") : name.substr(0, 1);
             text(letter, icon, fontSemibold_, Luma(dock) > 150 ? RGB(0, 0, 0) : RGB(0xFF, 0xFF, 0xFF), DT_CENTER | DT_VCENTER);
         }
-        text(name, RECT{Px(70), Px(8), rc.right - Px(16), Px(40)}, fontTitle_, palette_.text, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+        // Round 10 phase 10A: the header names the target as the title bar does ("Weather · main").
+        text(name + L" · " + dockId_, RECT{Px(70), Px(8), rc.right - Px(16), Px(40)}, fontTitle_, palette_.text,
+             DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         // Round 8 phase 8C: the third line, the description (the widget's id and version moved to
         // the link's line); the whole text is the line's tooltip (headerTip_).
         if (!itemDescription_.empty()) {

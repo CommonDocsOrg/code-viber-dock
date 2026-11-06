@@ -575,7 +575,7 @@ public:
         bool enabled = true;
     };
     std::vector<SearchEntry> SearchEntries();
-    // The window as the search's Where column names it: "Global", "Dock main", "Widget sw",
+    // The window as the search's Where column names it: "App" (round 10 phase 10A: was "Global"), "Dock main", "Widget sw",
     // "Folder window fw", "<item> on <dock>".
     std::wstring SearchName();
     std::wstring PageName(int index) const;
@@ -837,7 +837,8 @@ private:
     // The header's chips and summary: "Bottom edge", "Primary", "5 items", "Shown".
     std::vector<std::wstring> HeaderChips();
     std::wstring WindowTitle();
-    std::wstring ItemName();
+    std::wstring ItemName();  // round 10 phase 10A: with an ordinal among same-named items
+    std::wstring ItemNameOf(size_t index);  // item `index` of the dock, without the ordinal
     // The item's icon for the header (the same source as the Contents tab's strip; null: a letter tile).
     void UpdateItemIcon();
     // Page colours

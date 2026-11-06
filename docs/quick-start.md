@@ -16,7 +16,7 @@ You can also start and control WinDock from a command prompt:
 
 ```
 WinDock.exe                     start the dock
-WinDock.exe --settings          open the Global settings window
+WinDock.exe --settings          open the App settings window
 WinDock.exe --welcome           open the welcome dialog again
 WinDock.exe --quit              ask the running dock to quit
 WinDock.exe --restore-taskbar   bring the Windows taskbar back
@@ -38,7 +38,8 @@ Move the mouse along the dock and the icons grow under the pointer. The app's na
 - Click an app to start it, or to bring its window to the front.
 - Rest the mouse on an app with several windows to see a preview of each window.
 - Click the clock to open a month calendar.
-- Right-click an empty part of the dock for the dock menu.
+- Right-click an empty part of the dock for the dock menu. Right-click an item for that item's own menu; its **Dock** submenu holds the dock menu.
+- Right-click the WinDock icon in the notification area for the app menu: **App settings…**, your docks' settings, the taskbar and **Quit**.
 
 ## The taskbar
 
@@ -46,7 +47,7 @@ While WinDock runs, it hides the Windows taskbar. The Start menu still opens wit
 
 WinDock always gives the taskbar back when it quits. If it ever stays hidden, see [The taskbar is missing](troubleshooting.md#the-taskbar-is-missing).
 
-If you want the taskbar and the dock at the same time, right-click the dock and clear **Hide taskbar**.
+If you want the taskbar and the dock at the same time, right-click the dock, open **App** and clear **Hide taskbar**.
 
 ## Pin an app
 
@@ -68,14 +69,16 @@ To move a pinned app, drag its icon to a new place. To unpin it, right-click it 
 
 WinDock has three kinds of settings window:
 
-- **Global settings**: what applies to every dock, such as themes and animation.
+- **App settings**: what applies to every dock, such as themes and animation.
 - **Dock settings**: one dock: its items, where it sits, how it hides.
 - **Item settings**: one item, such as a clock, the weather or a widget.
 
 To open them:
 
 1. Right-click an empty part of the dock.
-2. Choose **Dock settings…** or **Global settings…**.
+2. Choose **Dock settings…**, or open **App** and choose **App settings…**.
+
+You can also right-click the WinDock icon in the notification area: it has **App settings…** and, under **Docks**, the settings of each dock. An item's own settings are in its right-click menu, such as **Weather settings…** or **Folder settings…**.
 
 Every change applies at once and is saved by itself. There is no OK or Apply button.
 
@@ -125,7 +128,9 @@ To add a widget:
 3. Find the widget in **Add to the dock** at the right.
 4. Drag it onto the strip of items at the top, or click its **Add** button.
 
-To change a widget's settings, right-click it on the dock and choose its settings entry at the top of the menu. See [Widgets](guide-items.md#widgets).
+You can also right-click the dock and open **Add**: it adds a clock, the weather and the other built-in items at once, and **Apps, folders and more widgets…** opens the Contents tab.
+
+To change a widget's settings, right-click it on the dock and choose its settings entry, such as **Weather settings…**. See [Widgets](guide-items.md#widgets).
 
 ## Where your settings live
 
@@ -135,9 +140,9 @@ WinDock keeps everything in one file:
 %LocalAppData%\WinDock\config.json
 ```
 
-You do not need to edit it: every setting is in the settings windows. If you do edit it by hand, save the file and then right-click the dock and choose **Reload config**.
+You do not need to edit it: every setting is in the settings windows. If you do edit it by hand, save the file and then right-click the dock and choose **Tools** > **Reload config**.
 
-Global settings > About shows the file's full path. Click the path to show the file in File Explorer.
+App settings > About shows the file's full path. Click the path to show the file in File Explorer.
 
 The same folder holds your own themes, widgets and clock faces. To back up WinDock, copy this folder.
 
@@ -145,7 +150,7 @@ The same folder holds your own themes, widgets and clock faces. To back up WinDo
 
 To quit WinDock, right-click the dock and choose **Quit**. The Windows taskbar comes back at once.
 
-To keep WinDock running but see the taskbar for a while, right-click the dock and choose **Show taskbar until re-enabled**. The next time WinDock starts it hides the taskbar again.
+To keep WinDock running but see the taskbar for a while, right-click the WinDock icon in the notification area and choose **Show Windows taskbar temporarily** (on the dock it is under **App**). The next time WinDock starts it hides the taskbar again.
 
 If the taskbar does not come back, run this from a command prompt in the WinDock folder:
 

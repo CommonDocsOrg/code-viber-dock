@@ -6,11 +6,11 @@ This guide is about the docks themselves: how many you have, where they sit, how
 
 You can have as many docks as you like. Each dock has its own items, its own place on the screen, its own auto-hide and its own settings window. For example, you can have your apps at the bottom, a small dock with widgets at the top, and a dock on a second display.
 
-Each dock has a name and a colour. The colour shows in its settings window's title bar and header and in the drawing on Global settings > Docks and displays, so you can tell the docks apart.
+Each dock has a name and a colour. The colour shows in its settings window's title bar and header and in the drawing on App settings > Docks and displays, so you can tell the docks apart.
 
 To add a dock:
 
-1. Open Global settings > Docks and displays.
+1. Open App settings > Docks and displays.
 2. Click **Add ▾**.
 3. Choose **Dock** for a new dock with the running apps and a clock, **Floating dock** for a bar you can place anywhere, or **Dock from a preset…** to start from a ready-made setup.
 
@@ -52,7 +52,7 @@ On the Position tab you can also set these precisely:
 - **Full width**: the bar spans the whole edge, flush with the screen edge, like a taskbar.
 - **When the icons do not fit**: a dock with more items than fit can **Scroll** (use the mouse wheel or drag the bar), **Shrink the icons**, or **Clip at the screen's end**.
 
-You can also drag a dock to another place, edge or display on Global settings > Docks and displays.
+You can also drag a dock to another place, edge or display on App settings > Docks and displays.
 
 Under **More** on the Position tab:
 
@@ -71,7 +71,7 @@ Auto-hide slides a dock off the screen when you do not need it. Set it from the 
 
 The dock does not hide while one of its menus, popups or previews is open, or while you drag something.
 
-Under **More: hide and reveal delays** you can set how long the dock waits before hiding and before showing again. Global settings > Animation sets how it hides: slide and fade, slide, fade or at once.
+Under **More: hide and reveal delays** you can set how long the dock waits before hiding and before showing again. App settings > Animation sets how it hides: slide and fade, slide, fade or at once.
 
 A floating bar never auto-hides. Its layer and the dashboard hotkey decide when you see it.
 
@@ -91,7 +91,7 @@ The choices for **Bar while magnified** are:
 - **Follows the pointer**: the bar's ends move as the pointer moves along the icons.
 - **Always wide (never grows or shrinks)**: the bar always has room for the magnified icons, so nothing but the icons ever moves.
 
-Global settings > Animation sets the magnification falloff (smooth or linear) and the speed of every animation.
+App settings > Animation sets the magnification falloff (smooth or linear) and the speed of every animation.
 
 ## Layers
 
@@ -111,7 +111,7 @@ A floating dock is a bar placed anywhere on the screen, not on an edge. It suits
 
 To add a floating dock:
 
-1. Open Global settings > Docks and displays.
+1. Open App settings > Docks and displays.
 2. Click **Add ▾** and choose **Floating dock**.
 
 A new floating dock sits in the middle of the primary display, on the desktop layer. You can also turn any dock into one: choose **Floating bar** under **Kind** on its Position tab.
@@ -134,7 +134,7 @@ To use the dashboard:
 
 Clicking the wallpaper keeps the dashboard up.
 
-You can also choose **Show dashboard** in the dock menu. To change the hotkey, go to Global settings > General > Dashboard, click the hotkey box and press the new combination.
+You can also choose **Show dashboard** in the dock menu. To change the hotkey, go to App settings > General > Dashboard, click the hotkey box and press the new combination.
 
 ## Full-screen apps and games
 
@@ -142,7 +142,7 @@ A window placed above a full-screen game makes the game leave its full-screen mo
 
 While a full-screen app (a game, a video, a presentation) is in front on a display, every dock, the tray dock and every standalone widget that sits above the windows on that display is hidden. They come back as they were when the app closes or another window comes to the front. Docks and widgets on the desktop layers and folder windows sit under the windows, so they stay.
 
-This is on by default. You find it in Global settings > General > Full-screen apps > **Hide the docks while a full-screen app is in front**.
+This is on by default. You find it in App settings > General > Full-screen apps > **Hide the docks while a full-screen app is in front**.
 
 A hidden dock also does not come back from the screen edge while a full-screen app or presentation runs.
 
@@ -156,7 +156,7 @@ Each dock lives on one display. Choose it with **Display** on the dock's Positio
 
 **Show only the windows on this dock's display** on the Running apps tab makes each dock show only the windows on its own display. Use it together with a dock on each display.
 
-When a display is unplugged, its docks are parked: they keep their settings but have no window. Global settings > Docks and displays lists them as "Parked (display not connected)". They come back when the display is connected again.
+When a display is unplugged, its docks are parked: they keep their settings but have no window. App settings > Docks and displays lists them as "Parked (display not connected)". They come back when the display is connected again.
 
 The docks follow changes of resolution, scaling and layout by themselves.
 
@@ -166,10 +166,10 @@ A folder window shows a folder's contents in a panel on your desktop, under your
 
 To add a folder window:
 
-1. Right-click the dock and choose **New folder window…**.
+1. Right-click the dock and choose **Add** > **Folder window on the desktop…**.
 2. Pick a folder.
 
-It opens at the pointer. You can also add one on Global settings > Docks and displays > **Add ▾** > **Folder window…**.
+It opens at the pointer. You can also add one on App settings > Docks and displays > **Add ▾** > **Folder window…**.
 
 Working with a folder window:
 
@@ -184,7 +184,7 @@ The window follows the folder: new, changed and deleted files show up by themsel
 
 **Desktop rules** move files from your desktop into the folder window's folder, for example every picture into a Pictures window. Set them in the folder window's settings. See [Desktop rules](guide-settings.md#desktop-rules).
 
-Its right-click menu has the most used options. All of them are in its settings window: open Global settings > Docks and displays, select the folder window and click **Open settings**. See [Folder window settings](guide-settings.md#folder-window-settings).
+Its right-click menu has the most used options. All of them are in its settings window: open App settings > Docks and displays, select the folder window and click **Open settings**. See [Folder window settings](guide-settings.md#folder-window-settings).
 
 ## Standalone widgets
 
@@ -193,8 +193,8 @@ A standalone widget is a widget on the desktop in a window of its own, not on a 
 To put a widget on the desktop:
 
 - In a dock's Contents tab, click **Desktop** on a script widget's row in **Add to the dock**.
-- Or in Global settings > Widget library, select a widget and click **Add to the desktop**.
-- Or in Global settings > Docks and displays, click **Add ▾** > **Standalone widget** and choose the widget.
+- Or in App settings > Widget library, select a widget and click **Add to the desktop**.
+- Or in App settings > Docks and displays, click **Add ▾** > **Standalone widget** and choose the widget.
 
 The widget appears in the middle of the display, on the desktop under your windows, and its settings window opens.
 
@@ -202,7 +202,7 @@ Working with a standalone widget:
 
 - Drag it to move it. Drag its edges or corners to resize it. It snaps to the screen edges, to floating docks and to other standalone widgets.
 - A click without moving goes to the widget, as on a dock.
-- Right-click it for its menu: its settings, **Window settings…**, **Lock** / **Unlock**, **Reload widget**, **Remove from desktop** and **Global settings…**.
+- Right-click it for its menu: its settings, **Window settings…**, **Lock** / **Unlock**, **Reload widget**, **App settings…** and, last, **Remove from desktop**.
 
 Its settings window has a Widget tab (the widget's own settings) and a Window tab (place, size, layer, background, lock). See [Standalone widget settings](guide-settings.md#standalone-widget-settings).
 
@@ -212,8 +212,8 @@ A preset is a ready-made dock setup. It sets everything about a dock at once: wh
 
 There are three ways to use a preset:
 
-- **The welcome dialog**: on the very first start, WinDock asks you to pick a setup for your first dock. Click **Use this dock**, or **Skip (basic dock)** to take the basic dock. To see it again, click **Show the welcome dialog** in Global settings > About, or run `WinDock.exe --welcome`.
-- **A new dock from a preset**: Global settings > Docks and displays > **Add ▾** > **Dock from a preset…**. Check **Copy my pinned apps from the first dock** to bring your pins along, then click **Add dock**.
+- **The welcome dialog**: on the very first start, WinDock asks you to pick a setup for your first dock. Click **Use this dock**, or **Skip (basic dock)** to take the basic dock. To see it again, click **Show the welcome dialog** in App settings > About, or run `WinDock.exe --welcome`.
+- **A new dock from a preset**: App settings > Docks and displays > **Add ▾** > **Dock from a preset…**. Check **Copy my pinned apps from the first dock** to bring your pins along, then click **Add dock**.
 - **Turn a dock into a preset**: in the dock's settings window, click **⋯** > **Apply a preset…**. Check **Keep my pinned apps and folders** to keep your apps, folders, groups, separators and the Recycle Bin, then click **Apply**.
 
 The chooser lists the presets at the left. At the right it shows the chosen one's description, a small picture of where the dock sits, how it hides, its items in order, and a strip that draws the bar in the preset's look. Use Up and Down to choose and Enter to apply.

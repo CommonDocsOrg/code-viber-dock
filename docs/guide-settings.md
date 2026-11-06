@@ -4,7 +4,7 @@ This guide walks through every settings window of WinDock, page by page and card
 
 WinDock has three kinds of settings window:
 
-- **Global settings**: what applies to every dock and to WinDock as a whole.
+- **App settings**: what applies to every dock and to WinDock as a whole.
 - **Dock settings**: one dock. Every dock has its own window. Standalone widgets and folder windows have one too.
 - **Item settings**: one item on a dock, such as a clock, a weather item, a widget, the tray, a folder or a group.
 
@@ -14,22 +14,25 @@ Every change applies at once and is saved within a moment. There is no OK or App
 
 ## Opening the settings
 
-To open the Global settings:
+To open the App settings:
 
-- Right-click the dock (or the WinDock tray icon) and choose **Global settings…**.
-- Or, in a Dock settings window, click **⋯** at the top right and choose **Global settings…**.
+- Right-click the WinDock icon in the notification area and choose **App settings…**.
+- Or right-click the dock, open **App** and choose **App settings…**.
+- Or, in a Dock settings window, click **⋯** at the top right and choose **App settings…**.
 - Or run `WinDock.exe --settings`.
 
 To open a dock's own settings:
 
 - Right-click an empty part of that dock and choose **Dock settings…**.
-- Or, in Global settings > Docks and displays, double-click the dock.
+- Or right-click the WinDock icon in the notification area, open **Docks** and choose the dock.
+- Or, in App settings > Docks and displays, double-click the dock.
 
 To open an item's settings:
 
-- Right-click the clock, the weather or a widget on the dock and choose its settings entry at the top of the menu.
-- Right-click a folder or a group and choose **Settings…**.
-- Or select the item on the dock's Contents tab and click **Settings…**.
+- Right-click the item on the dock and choose its settings entry. It names the item: **Clock settings…**, **Weather settings…**, **Folder settings…**, **Group settings…**, **Tray settings…** or the widget's name, such as **System monitor settings…**.
+- Or select the item on the dock's Contents tab and click its settings button (it has the same name).
+
+Each window's title names what it edits: an item's window reads like "Weather · main" (the item, then the dock). When a dock holds two items with the same name, the second is "Weather 2", unless their places or labels already tell them apart.
 
 The settings windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. They follow the Windows light or dark app mode. A dock stays shown while its settings window is the active window, so you can watch your changes.
 
@@ -41,13 +44,13 @@ You do not need to know where a setting lives. The search finds every setting of
 
 To find a setting:
 
-1. Press **Ctrl+F** in any settings window. You can also start typing in the **Find a setting…** box at the top of the Global window's page list, or choose **⋯** > **Find a setting…** in a Dock window.
+1. Press **Ctrl+F** in any settings window. You can also start typing in the **Find a setting…** box at the top of the App settings window's page list, or choose **⋯** > **Find a setting…** in a Dock window.
 2. Type a few words, for example `hide delay` or `magnification`.
 3. Pick a result and press **Enter**, double-click it, or click **Go to**.
 
 WinDock opens the right window and page, scrolls to the setting and flashes it, so you can see where it is.
 
-The results show three columns: the setting, where it is (such as "Global › General › System") and its current value.
+The results show three columns: the setting, where it is (such as "App › General › System") and its current value.
 
 You can also change many settings right in the search:
 
@@ -66,15 +69,15 @@ To open the Help:
 
 - Press **F1** in any settings window. The Help opens at the part of the guide for the page or tab you are on.
 - Click the small round **?** button at the right of a card's heading. The Help opens at that card's section.
-- Click **Help** in the Global window's page list, after About. It opens the quick start.
-- Right-click the dock and choose **Help…**.
-- In Global settings > About, click **Quick start guide**.
+- Click **Help** in the App settings window's page list, after About. It opens the quick start.
+- Right-click the dock (or the WinDock icon in the notification area) and choose **Help…**.
+- In App settings > About, click **Quick start guide**.
 
 The Help window lists the guides at the left and shows the chosen guide at the right. Links inside a guide move between the guides. Web links open in your browser.
 
-## Global settings
+## App settings
 
-The Global settings window holds what applies to every dock. Its pages are listed at the left in small groups:
+The App settings window holds what applies to every dock. Its pages are listed at the left in small groups:
 
 - **General**: General, Docks and displays.
 - **Look**: Themes, Animation.
@@ -317,7 +320,7 @@ At the right:
 
 - **Flash**: shows the dock and makes its border pulse for a moment, so you can see which dock this window is for.
 - **Lock** / **Unlock**: a locked dock cannot be changed by dragging: no reordering, no unpinning by dragging, no moving the dock. The settings window still changes everything.
-- **⋯**: a menu with **Global settings…**, **Find a setting…** (Ctrl+F) and **Apply a preset…**.
+- **⋯**: a menu with **App settings…**, **Find a setting…** (Ctrl+F) and **Apply a preset…**.
 
 To turn a dock into a preset:
 
@@ -341,7 +344,7 @@ The Contents tab shows and arranges everything on the dock.
 Under the strip is the selected item's inspector: its icon, name and details, and these buttons:
 
 - **◀ Move left** and **Move right ▶**: move the item one place.
-- **Settings…**: opens the item's own settings window (for a clock, weather, widget, tray, folder or group).
+- **Weather settings…**, **Folder settings…** and so on (named for the selected item): opens the item's own settings window (for a clock, weather, widget, tray, folder or group).
 - **More ▾**: for apps, folders, groups and the Recycle Bin: **Choose icon…**, **Choose image…** and **Reset icon**.
 - **Remove**: takes the item off the dock.
 - **Position on the dock**: **Follow the dock's alignment**, or give the item a place of its own: **Start (left / top)**, **Centre** or **End (right / bottom)**.
@@ -409,7 +412,7 @@ Click **More: reserve screen space, peek, maximum length, title** to show these 
 
 - **This dock's theme**: **Same as all docks** uses the global theme. Pick another theme to give only this dock a different look.
 
-The theme's colours and effects are on Global settings > Themes (the link opens it). They apply to every dock, on top of this dock's theme.
+The theme's colours and effects are on App settings > Themes (the link opens it). They apply to every dock, on top of this dock's theme.
 
 #### Size
 
@@ -457,7 +460,7 @@ A floating bar has no auto-hide. For a floating bar this card shows one line ins
 
 - **Notification badges on app icons**: shows the number of unread notifications on each app's icon.
 
-The notification centre itself is a widget: add it on the Contents tab. Which apps may show badges is set in Global settings > Notifications.
+The notification centre itself is a widget: add it on the Contents tab. Which apps may show badges is set in App settings > Notifications.
 
 ### Running apps tab
 
@@ -476,7 +479,7 @@ Live thumbnails use the graphics card; snapshots cost almost nothing. See [Runni
 
 A standalone widget is a widget on the desktop in a window of its own. Its settings window has the same kind of header as a dock's (its display, layer, size and lock, with **Flash**, **Lock** and **⋯**) and two tabs.
 
-To open it, right-click the widget and choose its settings entry or **Window settings…**, or double-click it on Global settings > Docks and displays.
+To open it, right-click the widget and choose its settings entry or **Window settings…**, or double-click it on App settings > Docks and displays.
 
 ### Widget tab
 

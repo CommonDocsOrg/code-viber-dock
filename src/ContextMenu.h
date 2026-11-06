@@ -17,13 +17,15 @@ enum Command : UINT {
     kHideTaskbar,
     kStartWithWindows,
     kOpenConfig,
-    kRestoreTaskbar,  // show the taskbar for this session (unchecks "Hide taskbar"; config unchanged)
+    kRestoreTaskbar,  // "Show Windows taskbar temporarily": for this session (unchecks "Hide taskbar"; config unchanged)
     kQuit,
     kReloadConfig,
-    kOpenSettings = 107,  // opens (or activates) the Global settings window ("Global settings…")
+    kOpenSettings = 107,  // opens (or activates) the App settings window (SettingsKind::Global; "App settings…")
     kAutoHideOff = 108,
     kAutoHideAlways = 109,
     kAutoHideIntelligent = 110,
+    // Round 10 phase 10A: 111 and 113 left the dock menu (the weather item's own menu has Refresh
+    // weather = 111 and "Weather settings…" = 854); both still work as DockCommands.
     kRefreshWeather = 111,  // fetches the weather now
     kAddSeparator = 112,  // appends a separator item to the pinned list
     kWeatherSettings = 113,     // the dock's first weather item's settings window (none: the dock's window)
@@ -86,6 +88,12 @@ enum Command : UINT {
     // Round 9 phase 9D (automation only, App::OnSharedMessage): the Help window at guide
     // LOWORD(lParam) (0 quick start, 1 settings, 2 docks, 3 items, 4 troubleshooting, 5 the index).
     kOpenHelp = 154,
+    // Round 10 phase 10A: the dock menu's Add > "Apps, folders and more widgets…": the dock's
+    // Dock settings window on its Contents tab (the add drawer is always shown there).
+    kAddFromDrawer = 155,
+    // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
+    // entries, kDockSettingsBase + the docks[] index (at most 200).
+    kDockSettingsBase = 3000,
     // Round 9 phase 9D: the dock menu's "Help…" (the quick start; SettingsIds::kMenuHelp).
     kHelpMenu = 5202,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
@@ -148,11 +156,13 @@ enum Command : UINT {
     kFolderCopy = 851,          // 12b: Ctrl+C on the selection (the shell data object, "Preferred DropEffect" copy)
     kFolderCut = 852,           // Ctrl+X (a move when pasted)
     kFolderPaste = 853,         // Ctrl+V: the clipboard's files into the folder
-    // Round 5 phase B: "Settings…" of a widget / clock / weather / folder / group slot (its Item window).
+    // Round 5 phase B: the settings of a widget / clock / weather / folder / group slot (its Item
+    // window). Round 10 phase 10A: its menu entry names the target ("Folder settings…", "Weather
+    // settings…", "<widget name> settings…"; the notification centre: App settings > Notifications).
     kOpenItemSettings = 854,
     // Round 6 phase 6B: a standalone widget entry (lParam: its dock index in the high word; also its
-    // right-click menu's ids, with 854 Widget settings…, 809 Reload widget, 143 Window settings… and
-    // 107 Global settings…).
+    // right-click menu's ids, with 854 <name> settings…, 809 Reload widget, 143 Window settings… and
+    // 107 App settings…).
     kWidgetToggleLock = 855,    // Lock / Unlock (docks[].locked: no move, no resize)
     kWidgetRemove = 856,        // Remove from desktop (the entry goes; posted)
     // Round 6 phase 6C: a widget's open text editor (popup.editText). lParam: the dock in its high
@@ -164,33 +174,49 @@ enum Command : UINT {
     // argument in HIWORD(wParam)); the slot's config item changes, the items are sorted into group order.
     kSetItemAnchor = 859,       // anchor HIWORD(wParam): 0 none (the dock's align), 1 start, 2 centre, 3 end
     kSetItemOffset = 860,       // offset (int16) HIWORD(wParam) DIPs, clamped to -4000 - 4000
+    // Round 10 phase 10A: "Remove from dock" of a clock / weather / script widget / tray /
+    // notification centre slot (its config item goes, as the Contents tab's Remove; refused while
+    // the dock is locked, and for any other kind of slot).
+    kRemoveFromDock = 861,
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
 
+// The dock menu's state (the dock's background menu and an item menu's Dock submenu).
 struct TrayMenuState {
     AutoHideMode autoHide = AutoHideMode::Off;
     bool hideTaskbar = false;       // the taskbar controller is enabled (taskbar hidden by the dock)
     bool startWithWindows = false;  // the HKCU Run value exists
-    bool weatherShown = false;      // the dock has a weather item: Refresh weather / Weather settings… entries
-    bool weatherConfigured = false; // ... and a location is set (Refresh weather enabled)
-    bool locked = false;            // the dock is locked: Lock dock checked, Add separator / widget greyed
-    bool hasRunning = false;        // the dock has a running item (Add widget > Running apps greyed)
+    bool locked = false;            // the dock is locked: Lock dock checked, Add's dock items greyed
+    bool hasRunning = false;        // the dock has a running item (Add > Running apps greyed)
     DockEdge edge = DockEdge::Bottom;  // Position > (radio)
     int dockCount = 1;              // config docks: Lock all / Unlock all docks with more than one
     bool anyLocked = false;         // some dock is locked (Unlock all docks enabled)
     bool anyUnlocked = false;       // some dock is not (Lock all docks enabled)
-    bool hasWidgets = false;        // some dock shows a script widget: Reload widgets
-    bool hasTray = false;           // the dock has a tray item (Add widget > Tray greyed)
-    bool hasNotifications = false;  // the dock has a notifications item (Add widget > Notification centre greyed)
+    bool hasWidgets = false;        // some dock shows a script widget: Tools > Reload widgets / Widget console… enabled
+    bool hasTray = false;           // the dock has a tray item (Add > Tray greyed)
+    bool hasNotifications = false;  // the dock has a notifications item (Add > Notification centre greyed)
     bool dashboard = false;         // dashboard mode is on ("Show dashboard" checked)
-    // The dock menu opened over a widget / clock / weather slot: its "<name> settings…" entry
-    // (kOpenItemSettings) at the top; empty: none.
-    std::wstring itemSettings;
 };
 
-// Shows the dock/tray menu at a screen point and returns the chosen Command (kNone if dismissed).
-UINT ShowTrayMenu(HWND owner, POINT screenPt, const TrayMenuState& state);
+// Round 10 phase 10A: the dock menu, grouped by task (README "Menus"):
+//   Dock settings… · Add ▸ · Position on screen ▸ · Auto-hide ▸ · Lock dock · ─ · All docks ▸ ·
+//   App ▸ · Tools ▸ · Help… · Quit
+// Shown at a screen point; returns the chosen Command (kNone if dismissed).
+UINT ShowDockMenu(HWND owner, POINT screenPt, const TrayMenuState& state);
+
+// Round 10 phase 10A: the notification-area icon's menu (the main place for app-wide commands):
+//   App settings… · Docks ▸ (one "<id> settings…" per docks[] entry, kDockSettingsBase + index) ·
+//   Show dashboard · ─ · Show Windows taskbar temporarily · Hide taskbar · Start with Windows · ─ ·
+//   Tools ▸ · Help… · Quit
+struct AppMenuState {
+    bool hideTaskbar = false;
+    bool startWithWindows = false;
+    bool dashboard = false;
+    bool hasWidgets = false;
+    std::vector<std::wstring> docks;  // the Docks submenu's labels, by docks[] index
+};
+UINT ShowAppMenu(HWND owner, POINT screenPt, const AppMenuState& state);
 
 struct ItemMenuState {
     DockItem::Kind kind = DockItem::Kind::App;
@@ -201,18 +227,32 @@ struct ItemMenuState {
     bool canOpenLocation = false;  // path-based items
     bool binEmpty = false;         // the Recycle Bin has nothing in it (Empty is greyed)
     bool hasIcon = false;          // the pin's config entry names an `icon` (Reset icon is greyed otherwise)
-    ItemView view = ItemView::Auto;  // folders / groups: the popup's layout (View submenu)
+    ItemView view = ItemView::Auto;  // folders / groups: the popup's layout (Contents layout submenu)
     size_t members = 0;              // groups: how many members (Unpin group's text)
+    // Round 10 phase 10A, the widget kinds (clock, weather, script widget, tray, notification centre):
+    std::wstring settingsText;       // "<name> settings…" (kOpenItemSettings); empty: no entry
+    bool weatherConfigured = false;  // a weather item with a place (Refresh weather enabled)
+    bool locked = false;             // the dock is locked (Remove from dock greyed)
 };
 
-// Per-item menu, then the dock menu. Apps: the app name (disabled header), Pin/Unpin, the icon
-// entries (pinned apps only), New window (Open when not running), Open file location, one
-// "Close <title>" entry per window (kCloseWindowBase + index), "Close all windows" when there
-// are several. Folders: the name, Unpin, the icon entries, Open in Explorer, View (Automatic /
-// Grid / List), Settings… (its Item window). Groups: the name, Show contents, Rename…, Ungroup,
-// Unpin group (with its members), the icon entries, View, Settings…. Separators: Remove.
-// The Recycle Bin: Open, Empty Recycle Bin, Unpin, the icon entries. The icon entries: Choose
-// icon…, Choose image…, Reset icon.
+// Round 10 phase 10A: the item's own entries (what it does, how it looks, its settings, removal
+// last), then a separator and a "Dock" submenu holding the dock menu (ShowDockMenu's entries).
+// - App: the name (disabled header) · Open / New window · Open file location · ─ · Close "<title>"
+//   per window (kCloseWindowBase + index) · Close all windows (several) · Customize icon ▸ (pinned) ·
+//   ─ · Pin to dock / Unpin from dock
+// - Folder: the name · Open in Explorer · Show contents · Contents layout ▸ · Customize icon ▸ ·
+//   Folder settings… · ─ · Unpin from dock
+// - Group: the name · Show contents · Rename… · Contents layout ▸ · Customize icon ▸ · Group
+//   settings… · ─ · Ungroup (shortcuts stay pinned) · Unpin group and its N shortcuts
+// - Recycle Bin: Open · Empty Recycle Bin · Customize icon ▸ · ─ · Unpin from dock
+// - Separator: Remove separator
+// - Weather: Refresh weather · Show forecast · Weather settings… · ─ · Remove from dock
+// - Clock: Show calendar · Clock settings… · ─ · Remove from dock
+// - Script widget: <name> settings… · Reload widget · ─ · Remove from dock
+// - Tray: Tray settings… · ─ · Remove from dock; notification centre: Show notification centre ·
+//   Notification settings… · ─ · Remove from dock
+// Customize icon ▸ = Choose icon… / Choose image… / Reset icon; Contents layout ▸ = Automatic /
+// Grid / List.
 UINT ShowItemMenu(HWND owner, POINT screenPt, const std::wstring& appName, const std::vector<std::wstring>& windowTitles,
                   const ItemMenuState& item, const TrayMenuState& state);
 

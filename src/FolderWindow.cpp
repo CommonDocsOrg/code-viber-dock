@@ -943,7 +943,8 @@ void FolderWindow::BackgroundMenu(POINT screen) {
         AppendMenuW(sub, MF_STRING, kViewGrid, L"Grid");
         AppendMenuW(sub, MF_STRING, kViewList, L"List");
         CheckMenuRadioItem(sub, kViewAuto, kViewList, kViewAuto + static_cast<UINT>(f.view), MF_BYCOMMAND);
-        AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(sub), L"View");
+        // Round 10 phase 10A: "Contents layout" (was "View": it only chooses the layout).
+        AppendMenuW(menu, MF_POPUP | MF_STRING, reinterpret_cast<UINT_PTR>(sub), L"Contents layout");
     }
     if (HMENU sub = CreatePopupMenu()) {
         AppendMenuW(sub, MF_STRING, kSortName, L"Name");

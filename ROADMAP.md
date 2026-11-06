@@ -719,6 +719,52 @@ One commit per phase on master, not pushed; STATUS.md "Round 9" has each phase's
 | 9D Help | Human-readable guides in docs/ (quick start, settings, docks, items, troubleshooting), an in-app Help window (Markdown rendered in a RichEdit, F1, a Help nav row, "?" buttons on every settings card), every field labelled with a tooltip (QueryState 285 counts the gaps); QueryState 286 / 287, DockCommand 154 | Done (the commit "Help from every card: user guides, a Help window, F1, a tooltip on every setting"; STATUS.md "Round 9") |
 | 9E Regression | Every window kind at default and minimum size, the new dialogs, the guard, the docs link check; the release build; the user's dock restarted | Done (STATUS.md "Round 9 final regression": every suite re-run on the release exe, pictures of every window kind at both sizes; two layout fixes: a collapsed card takes its "?" with it, a slider's value pulls in at a narrow width) |
 
+## Round 10 (in progress, 2026-11-06): shorter menus, explicit names, one editing workflow, clearer settings
+
+Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round10.md` (from the user's pasted
+wish list of 2026-11-06: shorter item menus, a dock menu grouped by task, explicit settings names,
+the Contents tab as the main editor, one settings structure for every widget, common controls first,
+inherited versus local settings, labels that describe the effect). One commit per phase on master,
+not pushed; STATUS.md "Round 10" has each phase's notes.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 10A Menus and names | Three menus instead of one appended everywhere: the dock menu grouped by task (Add / Position / Auto-hide / Lock, then All docks / App / Tools submenus, Help, Quit), a tray-icon menu of its own for app-wide commands (Docks submenu, Show Windows taskbar temporarily at the top level), item menus with the item's entries first and the dock menu in a Dock submenu; real item menus for the widget kinds with Remove from dock (ItemCommand 861); Customize icon and Contents layout submenus; "Global settings" -> "App settings" everywhere user-visible; settings named for their target; Item window titles "<item> · <dock>" with ordinals; DockCommand 155 | Done (the commit "Menus grouped by task, explicit settings names, App settings"; STATUS.md "Round 10") |
+| 10B Contents tab as the editor | Common settings in the inspector, More settings… for the full Item window | Planned |
+| 10C One widget settings structure | Content / Appearance (/ Placement) sections; manifest `section` key | Planned |
+| 10D Common first, inherited vs local | Named collapsed expanders; Use app default / Reset to app default / Reset to factory defaults… | Planned |
+| 10E Regression and release | Suites re-run, pictures, the release build, the user's dock restarted | Planned |
+
+Design notes for 10A:
+
+- **Why three builders.** `ShowTrayMenu` served the dock background and the notify icon, and
+  `ShowItemMenu` appended it whole after an item's entries, so every item menu was 30+ rows with the
+  item's own 3 - 8 at the top. Now `AppendDockEntries` builds the dock menu once and is used flat
+  (`ShowDockMenu`) or as the item menu's last "Dock" submenu (Quit included, as the plan asks);
+  `ShowAppMenu` has only app-wide entries and no dock state. The tray-icon menu is still owned by
+  the first dock's window (an activatable, shown window: KB135788's "menu closes on a click
+  elsewhere" needs the owner in the foreground; the app window is a hidden `WS_EX_NOACTIVATE`
+  popup) and holds that dock shown while open, as before.
+- **Widget slots.** Their elements still answer `RightClickAction::DockMenu` (the hit-test path in
+  `DockWindow` is unchanged); `App::OnDockMessage` turns a widget slot (`DockItem::IsWidget`) into
+  an item menu itself. The tray's icons keep their own behaviour (`OnRightClickAt`: the app's menu,
+  Ctrl + right click the tray icon menu); only a right click beside them reaches the new menu.
+- **Remove from dock** reuses the Contents tab's removal (erase the config item, reload, save,
+  `RefreshSettings`, which closes a removed item's Item window) and only for widget kinds: a pin
+  already has Unpin / Remove separator with their own semantics (800). Refused while locked like
+  the Add entries.
+- **Show forecast / calendar / centre** from an item menu toggle that slot's popup
+  (`DockWindow::ToggleSlotPopup`), so the second weather item shows its own forecast; the
+  DockCommands 114 / 115 / 133 keep meaning "the kind's first item" (automation unchanged).
+- **Stable positions.** Reload widgets / Widget console… are greyed instead of hidden without a
+  script widget, so a menu-walking script finds Tools' entries at fixed positions; All docks' lock
+  pair still only shows with more than one dock (the plan says so).
+- **Names.** Only user-visible strings changed ("App settings"); `SettingsKind::Global`,
+  `kHeaderGlobal`, `openGlobal` stay. The ordinal rule compares the full item name (with a clock's
+  label / weather place), so it appears only where nothing else tells two items apart, and the
+  first keeps no number. The Dock window title keeps its edge / display tail after
+  "<id> · Dock settings" (it identifies the dock further; the plan's form is its prefix).
+
 ## Dependencies at a glance
 
 ```

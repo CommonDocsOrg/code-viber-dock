@@ -599,7 +599,7 @@ protected:
         static constexpr wchar_t kBadgesTip[] =
             L"Badges: the unread count of each app's notifications on its icon. The notification centre (a bell with the "
             L"list) is a widget: drag it onto the dock from the Contents tab. Which apps may badge, tray balloons and the "
-            L"poll interval apply to every dock: Global settings > Notifications.";
+            L"poll interval apply to every dock: App settings > Notifications.";
         Tip(kBadgesCaption, kBadgesTip);
         Tip(kDockNotificationsNote, kBadgesTip);
         NextRow(22);

@@ -1,6 +1,6 @@
 # WinDock documentation
 
-WinDock is a macOS-style dock for Windows 11: a bar of app icons that grow under the mouse, with folders, the running apps, a clock, the weather, the tray icons, notifications and widgets. These guides explain how to use it, from the first start to every setting. The same guides open inside WinDock: press F1 in any settings window, or click the Help row in the Global settings window.
+WinDock is a macOS-style dock for Windows 11: a bar of app icons that grow under the mouse, with folders, the running apps, a clock, the weather, the tray icons, notifications and widgets. These guides explain how to use it, from the first start to every setting. The same guides open inside WinDock: press F1 in any settings window, or click the Help row in the App settings window.
 
 - [Quick start](quick-start.md): start WinDock, pin an app, open the settings, pick a preset and quit, in five minutes.
 - [Settings guide](guide-settings.md): every settings window, page, tab and card, and what each setting does.

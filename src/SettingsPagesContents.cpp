@@ -189,7 +189,7 @@ void Describe(const Config& c, const DockItemEntry& e, const AppIdentity::Resolv
             name = L"Tray";
             details = std::to_wstring(e.rows) + (e.rows == 1 ? L" row, " : L" rows, ") + std::to_wstring(e.columns) + L" columns, " +
                       std::to_wstring(e.trayIconSize) + L" px" +
-                      (c.tray.enabled ? std::wstring() : std::wstring(L" (the tray is off: Global > Tray icons)"));
+                      (c.tray.enabled ? std::wstring() : std::wstring(L" (the tray is off: App settings > Tray icons)"));
             if (!e.hidden.empty()) details += L", " + std::to_wstring(e.hidden.size()) + L" hidden";
             break;
         case ItemKind::TrayApp:
@@ -1333,7 +1333,8 @@ protected:
         Button(kPinUp, L"◀ Move left", R - 14 - 206, 100);
         Button(kPinDown, L"Move right ▶", R - 14 - 100, 100);
         y_ = kInspectorTop + 50;
-        Button(kPinSettings, L"Settings…", L + 14, kSettingsW);
+        // Round 10 phase 10A: names its target ("Folder settings…", "Weather settings…"; UpdateInspector).
+        Button(kPinSettings, L"Item settings…", L + 14, kSettingsW);
         Button(kPinMore, L"More ▾", L + 14 + kSettingsW + 6, kMoreW);  // pinned items: Choose icon… / Choose image… / Reset icon
         Button(kPinRemove, L"Remove", R - 14 - kRemoveW, kRemoveW);
         // Round 9 phase 9A: why they may be greyed.
@@ -1367,7 +1368,7 @@ protected:
         Tip(kDrawerList, L"Everything you can put on the dock: apps and folders, the built-in items and the widgets, with live "
                          L"previews. Drag a row onto the strip, or press its Add button to add it at the end.");
         // Two lines: the text does not fit the drawer's width on one.
-        Add(kDrawerLibraryLink, CtlKind::Link, WC_LINK, L"<a>Manage installed widgets in Global > Widget library</a>", WS_TABSTOP,
+        Add(kDrawerLibraryLink, CtlKind::Link, WC_LINK, L"<a>Manage installed widgets in App settings > Widget library</a>", WS_TABSTOP,
             RECT{dx + 16, 386, W - 16, 422});
     }
 
@@ -1581,7 +1582,8 @@ protected:
 private:
     static constexpr int kPlaceLabelW = 150, kPlaceComboW = 220;  // the inspector's placement rows (DIPs)
     static constexpr int kTitleW = 128, kDrawerTitleW = 124;       // the headings (DIPs)
-    static constexpr int kSettingsW = 96, kMoreW = 84, kRemoveW = 96;  // the inspector's buttons (DIPs)
+    // The inspector's buttons (DIPs; round 10 phase 10A: Settings… 96 -> 200 for "<name> settings…").
+    static constexpr int kSettingsW = 200, kMoreW = 84, kRemoveW = 96;
     static constexpr int kEntryRunning = 0, kEntryClock = 1, kEntryWeather = 2, kEntryTray = 3, kEntryBell = 4,
                          kEntryRecycleBin = 5, kEntrySeparator = 6, kBuiltInEntries = 7;
     // Round 8 phase 8B: the "Apps and folders" rows (refs of their own: the entries' indexes, which
@@ -1988,6 +1990,16 @@ private:
         Enable(kPinDown, valid && sel_ < n - 1);
         Enable(kPinRemove, valid);
         Show(kPinSettings, valid && HasSettings(static_cast<size_t>(sel_)));
+        // Round 10 phase 10A: the button names its target (as the item's dock menu entry does).
+        if (e) {
+            const std::wstring text = k == ItemKind::Clock     ? std::wstring(L"Clock settings…")
+                                      : k == ItemKind::Weather ? std::wstring(L"Weather settings…")
+                                      : k == ItemKind::Tray    ? std::wstring(L"Tray settings…")
+                                      : k == ItemKind::Group   ? std::wstring(L"Group settings…")
+                                      : k == ItemKind::Widget  ? Widgets::DisplayName(e->id) + L" settings…"
+                                                               : std::wstring(L"Folder settings…");  // a folder (or a shortcut to one)
+            SetText(kPinSettings, text);
+        }
         // Round 8 phase 8B: the icon commands are in the More ▾ menu (pinned items only).
         Show(kPinMore, e && e->IsPin() && k != ItemKind::Separator);
         // Round 7 phase 7B: the item's anchor and offset (every kind).

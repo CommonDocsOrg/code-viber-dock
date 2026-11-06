@@ -244,7 +244,7 @@ protected:
         Tip(kWidgetsNote, L"A widget is a folder in " + Widgets::Directory() +
                               L" with a widget.json and a main.js (see docs/widgets.md). A folder with a built-in's id "
                               L"replaces the built-in: export one to edit it. Each widget item has its own settings window "
-                              L"(right-click it on the dock, or Settings… on its dock's Contents tab).");
+                              L"(right-click it on the dock > <name> settings…, or select it on its dock's Contents tab).");
         NextRow(22);
     }
 

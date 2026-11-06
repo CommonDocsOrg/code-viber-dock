@@ -67,8 +67,9 @@ public:
     bool Initialize(HINSTANCE instance);
     void Shutdown();
     // Round 5 phase B: three kinds of settings window (SettingsKind), any number open at once.
-    // Opens the Global settings window, or activates it if it is open; `page` >= 0 selects that
-    // page (SettingsIds::kPage*). DockCommand 107, the tray / dock menu's Global settings…, --settings.
+    // Opens the Global settings window (shown as "App settings" since round 10 phase 10A), or
+    // activates it if it is open; `page` >= 0 selects that page (SettingsIds::kPage*). DockCommand
+    // 107, the tray / dock menu's App settings…, --settings.
     void OpenSettings(int page = -1);
     // The settings window of docks[`dock`] (a dock, or a folder window entry), or activates it;
     // `tab` >= 0 selects that tab (SettingsIds::kTab*). The dock menu's Dock settings…, DockCommand 143.
@@ -112,9 +113,11 @@ private:
 
     void AddTrayIcon();
     void RemoveTrayIcon();
-    // The dock / tray menu of `dock` (null: the first dock, or none at all). `slot`: the slot the
-    // right click was on (a widget / clock / weather slot adds its "settings…" entry; -1 none).
-    void ShowMenu(DockWindow* dock, POINT screenPt, int slot = -1);
+    // Round 10 phase 10A: three menus. The dock menu of `dock` (a right click on its background),
+    // the notification-area icon's app menu, and an item's menu (any slot, the widget kinds
+    // included; its shared dock commands in a Dock submenu).
+    void ShowMenu(DockWindow* dock, POINT screenPt);
+    void ShowAppMenu(POINT screenPt);
     void ShowItemMenu(DockWindow& dock, int index, POINT screenPt);
     // Runs a per-item command on the item with `key` of `dock` (looked up again: the item list may
     // have changed while a menu was open). `windows` are the windows the menu listed.

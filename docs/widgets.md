@@ -137,8 +137,8 @@ The values live in the dock item's `settings` object in config.json. The script 
 defaults overridden by the item's values (a value of the wrong type or out of range falls back to
 the default; ints are rounded, numbers clamped); keys the schema does not name are passed through
 unchanged. Each widget item has its own settings window (an Item window, round 5), generated from
-the schema: **<name> settings…** in the dock menu opened over the widget, or Dock settings >
-Contents > **Settings…** in the inspector of the widget's tile (a double click or Enter on it
+the schema: **<name> settings…** in the widget's own right-click menu, or Dock settings >
+Contents > **<name> settings…** in the inspector of the widget's tile (a double click or Enter on it
 does the same). It has a check box per `bool`, an up-down (stepper, `step` per click, `min` -
 `max`) per `int`, a drop-down per `choice` and `timezone`, the place block for a `place`, an edit
 box for the others (`colour` as `#AARRGGBB`), and **Reset to defaults** in its footer (removes the
@@ -437,7 +437,7 @@ the dock) until the widget goes or reloads; while it runs every change calls `on
 ### calendar
 
 Needs `"calendar"` in `permissions`. The events of the dock's calendar feeds (README "Calendar
-feeds", Global settings > Calendar feeds: ICS web feeds and files). The feeds belong to the dock, not to the
+feeds", App settings > Calendar feeds: ICS web feeds and files). The feeds belong to the dock, not to the
 widget: they are fetched and expanded whether or not a widget asks (and not at all while no feed is
 enabled; every call then returns empty lists). Calls answer from the dock's expanded occurrences
 at once (no I/O); nothing polls, changes arrive through `onChange`.
@@ -455,7 +455,7 @@ Dates in arguments: a `Date`, a number (ms since 1970, UTC; its local day where 
 | `calendar.refresh()` | Every feed fetches / is read now. |
 | `calendar.openPopup(date)` | The dock's month calendar over the widget, showing that day's month with the day selected (default today); after the current call returns. |
 | `calendar.onChange(fn)` | `fn(feeds)` (the `feeds()` array) after the feeds' data or status changed. Returns a remover. |
-| `calendar.onReminder(fn)` | `fn(event)` when a reminder fires (feeds with reminders, Global settings > Calendar feeds; the dock also shows its banner). Returns a remover. |
+| `calendar.onReminder(fn)` | `fn(event)` when a reminder fires (feeds with reminders, App settings > Calendar feeds; the dock also shows its banner). Returns a remover. |
 
 An event: `{ id, feed, color, title, location, description, start, end, allDay, url, recurring,
 startDay, endDay, startTime, endTime, reminder }`: `id` stable across refreshes (the feed, the
@@ -720,7 +720,7 @@ package, the dock's clock only files with `"type": "digital"`.
 ### Analog clock faces (format 1)
 
 The analog clock widget draws a face file: `faces/<name>.json` in its package (the built-ins:
-`classic`, `minimal`, `modern-dark`, `roman`, `station`). To add one, export the widget (Global
+`classic`, `minimal`, `modern-dark`, `roman`, `station`). To add one, export the widget (App
 settings > Widget library > **Export built-in to folder**), put a new `.json` next to the others in
 `%LocalAppData%\WinDock\widgets\analog-clock\faces\`, and press **Reload widgets**: the Face
 drop-down lists it (`choiceFrom`). A face only needs the keys it changes; everything else has a
@@ -841,8 +841,8 @@ An analog clock on the dock is the Analog clock widget (Dock settings > Contents
 - **Memory.** Each widget has its own runtime with a `memoryLimitMB` heap limit; running out is an
   error. Deep recursion throws a `RangeError` (the script's stack is limited well inside the dock's
   own).
-- **Reload.** **Reload widgets** in the dock menu (shown when a dock has a widget), Global
-  settings > Widget library, the Console or `WinDock.DockCommand` 126 reloads every widget; the Console's Reload or
+- **Reload.** **Reload widgets** in the dock menu's Tools submenu (greyed while no dock has a
+  widget), a widget's own menu (**Reload widget**), App settings > Widget library, the Console or `WinDock.DockCommand` 126 reloads every widget; the Console's Reload or
   `WinDock.ItemCommand` 809 reloads one. Reloading reads the package again (the folder version if
   there is one) and starts the script over (its storage stays). Editing config.json and **Reload
   config** also re-creates widgets whose items changed.
@@ -872,7 +872,7 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
 ## Developing a widget
 
-- **Export a built-in** to start from it: Global settings > **Widget library** lists every installed widget (name,
+- **Export a built-in** to start from it: App settings > **Widget library** lists every installed widget (name,
   id, source: built-in, folder, or folder replacing a built-in; version). **Export built-in to
   folder** writes its files to `widgets\<id>\` (refused if that folder exists), sub-folders such as
   the analog clock's `faces\` included, plus a `README.md` stub pointing here; the copy then
@@ -891,7 +891,7 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
   writes by an editor is one reload). One
   thread waits in `ReadDirectoryChangesW` on every watched folder while any watched widget is on a
   dock; nothing polls, and it costs nothing while the files do not change.
-- **The Console** (Global settings > Widget library > Console…, the dock menu's **Widget console…**,
+- **The Console** (App settings > Widget library > Console…, the dock menu's **Tools** > **Widget console…**,
   `WinDock.DockCommand` 127): every widget instance of every dock with its state (ok, error,
   stopped), the selected one's log (console output, errors with their stacks, the host's own
   lines: loading, reloads, file changes, shell.open), **Reload**, **Open folder** (the widget's
@@ -967,7 +967,7 @@ Round 6 phase 6E. The settings windows show every installed widget **live**: Doc
 Contents > the widget drawer draws each script widget's row with its preview (72 x 44 DIPs on the
 left of the row; the letter tile while it renders or when the widget fails), the inspector shows the
 selected widget item's preview larger (fitted into 200 x 100 DIPs, above its name; the preview's
-settings, not the item's own), and Global settings >
+settings, not the item's own), and App settings >
 Widget library shows the selected widget fitted into 240 x 120 DIPs beside its description.
 
 Each preview is the widget's own `draw()`, run once by a **preview instance**:
@@ -1032,7 +1032,7 @@ what it sees in preview mode by throwing it).
 ## Adding a widget to a dock
 
 The widget drawer of Dock settings > Contents lists the installed widgets (built-in and from the
-widgets folder, each with its [live preview](#preview-mode)) under the built-in kinds (Global settings > Widget library has **Add to dock**
+widgets folder, each with its [live preview](#preview-mode)) under the built-in kinds (App settings > Widget library has **Add to dock**
 too): drag a widget onto the item strip to put it there, or press its **Add** to add it before a
 clock that ends the dock (else at the end); it can then be moved like any item, and **Open
 settings in its own window** opens its settings. In config.json:
@@ -1047,7 +1047,7 @@ settings and state) and on several docks. Like every item it can take `"anchor"`
 > Item anchors); the widget's script sees nothing of it.
 
 **On the desktop**: the drawer's **Desktop** button on a script widget's row (and **Add to the
-desktop** in Global settings > Widget library, **Add standalone widget…** in Docks and displays)
+desktop** in App settings > Widget library, **Add standalone widget…** in Docks and displays)
 makes it a [standalone widget](#standalone-widgets): a window of the manifest's default size,
 centred on the dock's display, under the other windows; its own settings window opens. In
 config.json:
@@ -1059,7 +1059,7 @@ config.json:
 ## Examples
 
 The repository's `examples\` folder holds four small annotated widgets to start from (README.md
-in each; install with Global settings > Widget library > **Add from folder…**): `examples/minimal`,
+in each; install with App settings > Widget library > **Add from folder…**): `examples/minimal`,
 `examples/http-json`, `examples/popup-list`, `examples/edit-text` ([Developing a widget](#developing-a-widget)). The
 built-ins are worked examples too:
 

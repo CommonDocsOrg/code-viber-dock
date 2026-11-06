@@ -8,8 +8,8 @@ WinDock hides the Windows taskbar while it runs, and gives it back when it quits
 
 To see the taskbar while WinDock keeps running:
 
-- Right-click the dock and choose **Show taskbar until re-enabled**. The taskbar comes back for this session.
-- Or clear **Hide taskbar** in the dock menu (or **Hide the Windows taskbar** in Global settings > General) to keep it shown for good.
+- Right-click the WinDock icon in the notification area and choose **Show Windows taskbar temporarily** (on the dock: right-click it, then **App** > **Show Windows taskbar temporarily**). The taskbar comes back for this session.
+- Or clear **Hide taskbar** in the same menus (or **Hide the Windows taskbar** in App settings > General) to keep it shown for good.
 
 If WinDock is not running and the taskbar is still hidden:
 
@@ -44,7 +44,7 @@ Any window placed above a full-screen game makes the game drop out of its full-s
 
 To make sure this is on:
 
-1. Open Global settings > General.
+1. Open App settings > General.
 2. In the **Full-screen apps** card, check **Hide the docks while a full-screen app is in front**.
 
 While a game, a video or a presentation fills a display, every dock, the tray dock and every standalone widget above the windows on that display is hidden. They come back when you leave the game.
@@ -57,7 +57,7 @@ If a game still leaves full screen, or a dock shows over it:
 
 ## A dock is missing
 
-A dock can be out of sight for several reasons. Open Global settings > Docks and displays: every dock is listed there with its edge, display and state.
+A dock can be out of sight for several reasons. Open App settings > Docks and displays: every dock is listed there with its edge, display and state.
 
 - **Parked (display not connected)**: the dock lives on a display that is unplugged. Plug the display in again, or open the dock's settings and pick another **Display** on its Position tab.
 - **Auto-hide**: the dock is hidden until you push the mouse against its screen edge. Check the dock's edge in the list.
@@ -72,11 +72,11 @@ To find a dock, open its settings window (double-click it in the list) and click
 WinDock costs almost nothing while you do not use it: it does no work while nothing changes. Some features do cost a little:
 
 - **Live thumbnails** use the graphics card while the dock is visible. **Snapshots** cost much less. Change it on the dock's Running apps tab.
-- **Notifications** (badges, the notification centre, the Notification bell) check Windows' list every few seconds, a few hundredths of a second of processor time each. Raise **Check for notifications every** in Global settings > Notifications, or turn badges off.
+- **Notifications** (badges, the notification centre, the Notification bell) check Windows' list every few seconds, a few hundredths of a second of processor time each. Raise **Check for notifications every** in App settings > Notifications, or turn badges off.
 - **The System monitor and System overview** widgets take a measurement at the fastest **Update every** any of them asks for. A slower update costs less.
 - **Icon effects** (glow, reflection, 3D) use a few more megabytes of memory.
 
-To use less memory, choose **Software** as the **Renderer** in Global settings > General and restart WinDock. Global settings > About shows the renderer in use.
+To use less memory, choose **Software** as the **Renderer** in App settings > General and restart WinDock. App settings > About shows the renderer in use.
 
 To show HWiNFO sensors (temperatures, fans, power) in a System monitor:
 
@@ -96,7 +96,7 @@ A widget that fails shows its problem on its tile:
 
 To see what happened:
 
-1. Open the **Console**: right-click the dock and choose **Widget console…**, or click **Console…** in the widget's settings window, or use Global settings > Widget library > **More ▾** > **Console…**.
+1. Open the **Console**: right-click the dock and choose **Tools** > **Widget console…**, or click **Console…** in the widget's settings window, or use App settings > Widget library > **More ▾** > **Console…**.
 2. Find the widget in the list. Its log shows the errors and warnings.
 
 To start the widgets again, right-click the dock and choose **Reload widgets** (or click Reload in the Console).
@@ -112,7 +112,7 @@ To reset one item (a clock, a weather item, a widget or the tray):
 1. Open its settings window.
 2. Click **Reset to defaults** at the bottom.
 
-To reset the theme, open Global settings > Themes, click **⋯** and choose **Reset all to preset**. Each changed value also has its own **↺** button.
+To reset the theme, open App settings > Themes, click **⋯** and choose **Reset all to preset**. Each changed value also has its own **↺** button.
 
 To reset one dock, apply the **Basic dock** preset to it: in its settings window click **⋯** > **Apply a preset…**. Clear **Keep my pinned apps and folders** for a clean dock.
 
@@ -123,4 +123,4 @@ To start over completely:
 3. Rename `config.json`, for example to `config-old.json`, so you keep a copy.
 4. Start WinDock. It creates a new settings file with the defaults and shows the welcome dialog.
 
-If your settings file has a mistake in it, WinDock starts with the defaults and leaves the file as it is, so you can fix it. After you fix it, choose **Reload config** in the dock menu.
+If your settings file has a mistake in it, WinDock starts with the defaults and leaves the file as it is, so you can fix it. After you fix it, choose **Tools** > **Reload config** in the dock menu.

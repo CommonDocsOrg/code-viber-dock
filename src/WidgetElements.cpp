@@ -23,7 +23,7 @@ constexpr float kWeatherStaleAlpha = 0.6f;  // stale / missing weather data
 
 // A widget: one slot keyed "kind:<kind>" ("#n" for the second one of a kind and on), never
 // magnified or labelled. It can be dragged to another place (unless the dock is locked); a right
-// click opens the dock menu.
+// click opens its own item menu (round 10 phase 10A; App::OnDockMessage; it was the dock menu).
 class WidgetElement : public DockElement {
 public:
     WidgetElement(ElementHost& host, const DockItemEntry& entry, DockItem::Kind slotKind, const wchar_t* name,

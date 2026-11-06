@@ -41,8 +41,8 @@ class DropTarget;
 //   unlocked (the manifest's standalone.minWidth / minHeight / aspect respected), redrawing live.
 //   Moves and resizes snap within 8 DIP to the work area and to the other floating things
 //   (floating docks, other standalone widgets); x / y / w / h are saved on release. A right click
-//   opens the window's menu (App: Widget settings…, Window settings…, Lock / Unlock, Reload widget,
-//   Remove from desktop, Global settings…).
+//   opens the window's menu (App: <name> settings…, Window settings…, Lock / Unlock, Reload widget,
+//   App settings…, Remove from desktop; round 10 phase 10A: renamed and reordered).
 // - Layers: "behind" (default) registers with DesktopLayer (under every app window, activatable
 //   without rising; with background "panel" and acrylic its Backdrop window is kept beneath it);
 //   "desktop" is shown only while the desktop is the foreground (DesktopLayer::DesktopForeground,

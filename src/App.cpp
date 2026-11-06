@@ -874,7 +874,52 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
         case ContextMenu::kOpenItemSettings: {
             // The item's own settings window (the slot's config item).
             const int index = IndexOfKey(dock, key);
-            if (index >= 0) OpenItemSettings(dock.ConfigIndex(), dock.Items()[static_cast<size_t>(index)].element);
+            if (index < 0) return;
+            const size_t element = dock.Items()[static_cast<size_t>(index)].element;
+            const size_t cfg = dock.ConfigIndex();
+            // Round 10 phase 10A: the notification centre has nothing of its own per dock: its
+            // "Notification settings…" is App settings > Notifications (as on the Contents tab).
+            if (cfg < config_.docks.size() && element < config_.docks[cfg].items.size() &&
+                config_.docks[cfg].items[element].Kind() == ItemKind::Notifications) {
+                OpenSettings(SettingsIds::kPageNotifications);
+                return;
+            }
+            OpenItemSettings(cfg, element);
+            return;
+        }
+        case ContextMenu::kToggleCalendar:
+        case ContextMenu::kToggleWeatherPopup:
+        case ContextMenu::kToggleCentre: {
+            // Round 10 phase 10A: from an item's menu (or ItemCommand on a slot of that kind) the
+            // popup of that slot, not of the dock's first item of the kind (DockCommand 114 / 115 /
+            // 133 keep doing that).
+            const int index = IndexOfKey(dock, key);
+            const DockItem::Kind want = cmd == ContextMenu::kToggleCalendar       ? DockItem::Kind::Clock
+                                        : cmd == ContextMenu::kToggleWeatherPopup ? DockItem::Kind::Weather
+                                                                                  : DockItem::Kind::Notifications;
+            if (index >= 0 && dock.Items()[static_cast<size_t>(index)].kind == want) {
+                dock.ToggleSlotPopup(index);
+            } else {
+                OnCommand(cmd, dock.ConfigIndex(), &dock);
+            }
+            return;
+        }
+        case ContextMenu::kRemoveFromDock: {
+            // Round 10 phase 10A: a widget kind's config item goes, as the Contents tab's Remove does
+            // (its Item window closes in RefreshSettings). Not while the dock is locked (greyed).
+            const int index = IndexOfKey(dock, key);
+            const size_t cfg = dock.ConfigIndex();
+            if (index < 0 || cfg >= config_.docks.size()) return;
+            const DockItem& slot = dock.Items()[static_cast<size_t>(index)];
+            DockConfig& d = config_.docks[cfg];
+            if (!slot.IsWidget() || slot.element >= d.items.size() || d.locked) {
+                MessageBeep(MB_ICONWARNING);
+                return;
+            }
+            d.items.erase(d.items.begin() + static_cast<ptrdiff_t>(slot.element));
+            ReloadPins(cfg);
+            RequestSave();
+            RefreshSettings();
             return;
         }
         case ContextMenu::kEmptyRecycleBin: {
@@ -980,12 +1025,8 @@ ContextMenu::TrayMenuState App::MenuState(size_t cfg) const {
     state.autoHide = d.autoHide;
     state.hideTaskbar = taskbar_.Enabled();
     state.startWithWindows = AutostartEnabled();
-    state.weatherShown = d.Has(ItemKind::Weather);
     state.hasTray = d.Has(ItemKind::Tray);
     state.hasNotifications = d.Has(ItemKind::Notifications);
-    state.weatherConfigured = std::any_of(d.items.begin(), d.items.end(), [&](const DockItemEntry& e) {
-        return e.Kind() == ItemKind::Weather && WeatherOf(config_, e).Configured();
-    });
     state.locked = d.locked;
     state.hasRunning = d.Has(ItemKind::Running);
     state.edge = d.edge;
@@ -1014,41 +1055,47 @@ void App::EndModal() {
     if (modalDepth_ == 0 && syncPending_ && hwnd_) PostMessageW(hwnd_, kDisplaySync, 0, 0);
 }
 
-void App::ShowMenu(DockWindow* dock, POINT pt, int slot) {
-    if (!dock) dock = docks_.First();
-    const size_t cfg = dock ? dock->ConfigIndex() : 0;
-    const HWND owner = dock ? dock->Hwnd() : hwnd_;
-    ContextMenu::TrayMenuState state = MenuState(cfg);
-    // Over a widget / clock / weather slot: "<its name> settings…" first (its Item window).
-    size_t item = SIZE_MAX;
-    DockItemEntry entry;
-    if (dock && slot >= 0 && slot < static_cast<int>(dock->Items().size()) && cfg < config_.docks.size()) {
-        const size_t element = dock->Items()[static_cast<size_t>(slot)].element;
-        const auto& items = config_.docks[cfg].items;
-        if (element < items.size()) {
-            const ItemKind k = items[element].Kind();
-            if (k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Widget || k == ItemKind::Tray) {
-                item = element;
-                entry = items[element];
-                state.itemSettings = k == ItemKind::Clock     ? std::wstring(L"Clock settings…")
-                                     : k == ItemKind::Weather ? std::wstring(L"Weather settings…")
-                                     : k == ItemKind::Tray    ? std::wstring(L"Tray settings…")
-                                                              : Widgets::DisplayName(entry.id) + L" settings…";
-            }
-        }
-    }
-    const UINT cmd = RunMenu(dock, [&] { return ContextMenu::ShowTrayMenu(owner, pt, state); });
+void App::ShowMenu(DockWindow* dock, POINT pt) {
+    // Round 10 phase 10A: only the dock's background (a widget slot has its own item menu).
+    if (!dock) return;
+    const size_t cfg = dock->ConfigIndex();
+    const HWND owner = dock->Hwnd();
+    const ContextMenu::TrayMenuState state = MenuState(cfg);
+    const UINT cmd = RunMenu(dock, [&] { return ContextMenu::ShowDockMenu(owner, pt, state); });
     if (cmd == ContextMenu::kNone || shutDown_) return;
-    if (cmd == ContextMenu::kOpenItemSettings) {
-        // The items may have changed while the menu was open: only the same entry.
-        if (cfg < config_.docks.size() && item < config_.docks[cfg].items.size() && config_.docks[cfg].items[item] == entry) {
-            OpenItemSettings(cfg, item);
+    OnCommand(cmd, cfg, docks_.ByHwnd(owner));
+}
+
+void App::ShowAppMenu(POINT pt) {
+    // Round 10 phase 10A: the notification-area icon's own menu (it showed the first dock's menu).
+    // The first dock still owns it (a shown, activatable window, so the menu closes on a click
+    // elsewhere; KB135788) and is held shown meanwhile, as before.
+    DockWindow* dock = docks_.First();
+    const HWND owner = dock ? dock->Hwnd() : hwnd_;
+    ContextMenu::AppMenuState state;
+    state.hideTaskbar = taskbar_.Enabled();
+    state.startWithWindows = AutostartEnabled();
+    state.dashboard = docks_.Dashboard();
+    std::vector<std::wstring> ids;  // the entries by docks[] index, to find them again afterwards
+    for (const DockConfig& d : config_.docks) {
+        if (d.Has(ItemKind::Widget)) state.hasWidgets = true;
+        const std::wstring kind = d.IsFolderWindow() ? L" (folder window)" : d.IsWidgetWindow() ? L" (desktop widget)" : L"";
+        state.docks.push_back(d.id + kind + L" settings…");
+        ids.push_back(d.id);
+    }
+    const UINT cmd = RunMenu(dock, [&] { return ContextMenu::ShowAppMenu(owner, pt, state); });
+    if (cmd == ContextMenu::kNone || shutDown_) return;
+    if (cmd >= ContextMenu::kDockSettingsBase && cmd - ContextMenu::kDockSettingsBase < ids.size()) {
+        // The entries may have changed while the menu was open: the same entry by id.
+        const size_t now = DockIndexOf(ids[cmd - ContextMenu::kDockSettingsBase]);
+        if (now != SIZE_MAX) {
+            OpenDockSettings(now);
         } else {
             MessageBeep(MB_ICONWARNING);
         }
         return;
     }
-    OnCommand(cmd, cfg, dock ? docks_.ByHwnd(owner) : nullptr);
+    OnCommand(cmd, 0, nullptr);  // app-wide commands only (none of them acts on a dock)
 }
 
 void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
@@ -1076,6 +1123,22 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
             if (!dc.items[idx[i]].icon.empty()) itemState.hasIcon = true;
             itemState.view = dc.items[idx[i]].view;
             itemState.members = dc.items[idx[i]].members.size();
+        }
+    }
+    // Round 10 phase 10A: a widget kind's own entries (its settings named, Refresh weather, Remove).
+    itemState.locked = config_.docks[cfg].locked;
+    if (item.IsWidget() && item.element < config_.docks[cfg].items.size()) {
+        const DockItemEntry& e = config_.docks[cfg].items[item.element];
+        switch (e.Kind()) {
+            case ItemKind::Clock: itemState.settingsText = L"Clock settings…"; break;
+            case ItemKind::Weather:
+                itemState.settingsText = L"Weather settings…";
+                itemState.weatherConfigured = WeatherOf(config_, e).Configured();
+                break;
+            case ItemKind::Tray: itemState.settingsText = L"Tray settings…"; break;
+            case ItemKind::Notifications: itemState.settingsText = L"Notification settings…"; break;  // App settings > Notifications
+            case ItemKind::Widget: itemState.settingsText = Widgets::DisplayName(e.id) + L" settings…"; break;
+            default: break;
         }
     }
     itemState.canPin = !key.IsClassFallback();
@@ -1127,6 +1190,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             case ContextMenu::kToggleBadges:
             case ContextMenu::kToggleCentre:
             case ContextMenu::kAddNotifications:
+            case ContextMenu::kAddFromDrawer:
                 return;
             default:
                 break;
@@ -1173,6 +1237,9 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         case ContextMenu::kDockSettings:
             OpenDockSettings(cfg);
+            break;
+        case ContextMenu::kAddFromDrawer:  // round 10 phase 10A: Add > Apps, folders and more widgets…
+            OpenDockSettings(cfg, SettingsIds::kTabContents);  // its add drawer is always shown
             break;
         case ContextMenu::kFlashDock:
             FlashDock(cfg);
@@ -2290,9 +2357,10 @@ void App::ShowWidgetMenu(size_t cfg, POINT pt) {
     AppendMenuW(menu, MF_STRING | (locked ? MF_CHECKED : 0), ContextMenu::kWidgetToggleLock, locked ? L"Unlock" : L"Lock");
     AppendMenuW(menu, MF_STRING, ContextMenu::kReloadWidget, L"Reload widget");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, ContextMenu::kWidgetRemove, L"Remove from desktop");
+    // Round 10 phase 10A: "App settings…" (was "Global settings…"), removal last.
+    AppendMenuW(menu, MF_STRING, ContextMenu::kOpenSettings, L"App settings…");
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(menu, MF_STRING, ContextMenu::kOpenSettings, L"Global settings…");
+    AppendMenuW(menu, MF_STRING, ContextMenu::kWidgetRemove, L"Remove from desktop");
     const UINT cmd = RunMenu(nullptr, [&] {
         SetForegroundWindow(owner);
         const UINT c = static_cast<UINT>(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_NONOTIFY, pt.x, pt.y, owner, nullptr));
@@ -2779,7 +2847,8 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     if (msg == msgDockCommand_) {
         const UINT cmd = static_cast<UINT>(wp);
         DockManager::Instance* inst = docks_.At(DockOfParam(lp));
-        const bool known = inst && cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand;
+        const bool known = inst && ((cmd >= ContextMenu::kAutoHide && cmd <= ContextMenu::kLastDockCommand) ||
+                                    cmd == ContextMenu::kAddFromDrawer);
         result = known ? 1 : 0;
         if (known) OnCommand(cmd, inst->cfg, inst->window.get());  // after setting result: kQuit closes the docks
         return true;
@@ -2972,11 +3041,18 @@ bool App::OnDockMessage(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT& resu
             ClientToScreen(hwnd, &pt);
             // A tray icon's menu is its app's (forwarded); Ctrl + right click is the dock's.
             if (dock->RightClickAt(client, (wp & MK_CONTROL) != 0)) return true;
-            // An item's own menu, or the dock menu (no item there, or a widget).
-            if (const int index = dock->MenuIndexAt(client); index >= 0) {
+            // An item's own menu, or the dock menu (no item there). Round 10 phase 10A: a widget
+            // slot (its element asks for the dock menu: RightClickAction::DockMenu) gets its own
+            // item menu too, with the dock menu in its Dock submenu.
+            int index = dock->MenuIndexAt(client);
+            if (index < 0) {
+                const int at = dock->IndexAt(client);
+                if (at >= 0 && dock->Items()[static_cast<size_t>(at)].IsWidget()) index = at;
+            }
+            if (index >= 0) {
                 ShowItemMenu(*dock, index, pt);
             } else {
-                ShowMenu(dock, pt, dock->IndexAt(client));  // over a widget: its settings entry too
+                ShowMenu(dock, pt);
             }
             return true;
         }
@@ -2999,7 +3075,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
             case WM_CONTEXTMENU:
             case NIN_SELECT:
             case NIN_KEYSELECT:
-                ShowMenu(nullptr, POINT{GET_X_LPARAM(wp), GET_Y_LPARAM(wp)});
+                ShowAppMenu(POINT{GET_X_LPARAM(wp), GET_Y_LPARAM(wp)});  // round 10 phase 10A: its own menu
                 break;
             default:
                 break;
