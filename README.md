@@ -328,7 +328,10 @@ icon cache and popups). Per dock:
   on its monitor (a minimized window counts where it was restored); this applies to the running
   apps and to the dots and window lists of pinned apps. (A virtual-desktop filter is not planned.)
 - `themePreset`: a theme preset (built-in id or theme file) for this dock only; empty (default) =
-  the global `theme.preset`. The global inline theme fields still apply on top of it.
+  the global `theme.preset`. The global inline theme fields still apply on top of it. Round 10
+  phase 10D: the empty value is what Dock settings > Appearance shows as **Use app default
+  (<the app's theme>)**; its ↺ (Reset to app default) writes it back (`"themePreset": ""`, as every
+  save writes it).
 
 - `layer` (Dock settings > Position > **Layer**): where the dock lives in the z-order.
   - `"normal"` (default; "Normal (above windows)"): topmost, above every window.
@@ -1299,7 +1302,8 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   in the grid's order, a check box each: unchecked = only in the drawer; icons of apps that are not
   running are listed while they are hidden or ordered), **Move up** / **Move down** (the selected
   icon; the list's order becomes the item's `order`), **Reset to Explorer**, and in the footer
-  **Reset to defaults** (1 row, 8 columns, 20 DIPs, nothing hidden, the registration order).
+  **Reset to factory defaults…** (round 10 phase 10D: was Reset to defaults; it asks first) (1 row,
+  8 columns, 20 DIPs, nothing hidden, the registration order).
 - **Pinned tray icons** (`{ "kind": "trayApp", "id": "<icon key>" }`): one icon as a full-size dock
   icon that magnifies like an app (its picture drawn at the icon size: the icon's own resource at
   that size when Windows still knows it, else the app's handle scaled). Its tooltip is the label;
@@ -1542,7 +1546,8 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
   Round 10 phase 10C: the tabs are **Content**, **Appearance** and **Placement**, the structure
   every widget's settings share: Content and Appearance are the widget's own settings split by
   their manifest `section` (a widget whose fields are all of one section has only that tab, named
-  for it), each with the last card **Reset to defaults** / **Console…**; **Placement** (was
+  for it), each with the last card **Reset to defaults** / **Console…** (round 10 phase 10D: **Reset
+  to factory defaults…**, which asks first); **Placement** (was
   Window) has a **Place** card (display, layer with its hint, **Locked**), a **Look** card
   (background) and a closed **Exact position and size** expander (position x / y, width / height
   with the minimum-size hint).
@@ -1576,7 +1581,9 @@ but the configuration, and opening one that is already open brings it to the fro
   click and wheel actions, refresh) and **Appearance** (faces, styles, colours, fonts, sizes,
   motion) when its settings have both; one page without a tab strip when they are all of one
   kind (the weather item, Hello, Digital clock, Start, Search). **Reset to defaults** and
-  **Console…** stay in the footer under both tabs.
+  **Console…** stay in the footer under both tabs. Round 10 phase 10D: the footer's reset is
+  **Reset to factory defaults…** (it asks first) and a script widget with a place of its own gets
+  **Reset to app default** beside it (see Common first, app defaults and the two resets).
 
 What applies to every dock is in the App settings window, what applies to one dock in that dock's window
 and what applies to one item in that item's window: no Global page acts on "the selected dock"
@@ -1608,6 +1615,41 @@ bar settings (round 8 phase 8B), a Place one for its name and coordinates (**Edi
 8C). Round 8 phase 8D: a card can be headed by an expander ("▸ Bar · 2 changed" / "▾ Bar · 2
 changed", like a card title with a chevron): it keeps its text when open and its card shrinks to
 the heading when closed (the Themes field groups, Calendar feeds' Add or edit a feed).
+
+**Common first, app defaults and the two resets** (round 10 phase 10D). Every Dock window tab
+starts with its common controls: Appearance's first card **Theme and size** holds This dock's
+theme, Icon size and Magnification; Position leads with Kind, Display and Edge; Behaviour with
+Auto-hide. Fine tuning sits in heading expanders named for what they hold, closed whenever a
+window opens: Position **Exact offsets** (Position x / y, Offset, Peek when hidden, Peek opacity,
+Maximum length: only the rows the placement kind uses; the card is gone for a half circle),
+Behaviour **Delays and popup gap** (Hide delay and Reveal delay while auto-hide is on, Preview
+delay while previews are on, Popup gap), Appearance **Magnification details** (range, Bar while
+magnified), the Contents inspector's **Anchor and offset** (Position on the dock, Offset), App
+settings > Animation **Motion and timings** (falloff, easing, name label fade; after the
+Accessibility card now) and every Themes group (Bar is closed at first too). A heading counts the
+values in it that differ from a new dock's / the defaults ("Exact offsets · 2 changed"; Themes
+count the overridden fields as before; the inspector's counts the selection's anchor and offset).
+Reserve screen space moved to the Placement card, Title to the **Layer and title** card; the
+Popups card and the Size card are gone (their rows are in the expanders above). The other App
+settings pages are shorter than two screens and were left as they were. The settings search
+finds every control in a closed expander and opens it on Go to (as since 9B).
+
+Where a dock or item value falls back to an app-wide one, the control says so: a dock's theme
+(**Use app default (Dark)**, the first entry of This dock's theme: `themePreset` empty), a
+calendar feed's reminder (**Use the default reminder (15 min)** in the feed form: `reminderMin` 0,
+the value of Display > Default reminder in brackets; cleared, the minutes row (1 - 1440) appears)
+and a script widget's place (the Place hint "Its own place" / "This dock's Weather item's" / "The
+default place"). While the value is local a **↺** at the end of its row (tooltip "Reset to app
+default") makes it inherited again; the theme value rows of App settings > Themes keep "Reset to
+the preset's value" (their fallback is the preset). Every other dock / item setting is local only
+(no app default behind it: see the table in STATUS.md "Round 10", 10D). Item windows' **Reset to
+factory defaults…** (was Reset to defaults; a standalone widget's Content tab has it as its last
+card) asks first with a Yes / No message box owned by the settings window ("Resets all of Weather's
+settings on main to the values WinDock ships with … App defaults are not changed.", No is the
+default); a clock or weather item gets the settings a new one starts with (the top-level `clock` /
+`weather` objects, WinDock's own unless edited by hand), a widget its schema's defaults, the tray
+its grid's. A script widget with a place of its own has **Reset to app default** beside it in the
+footer (drops `latitude` / `longitude` / `location`, as the place's ↺ does).
 
 Keyboard: the App settings window's page list switches pages with Up / Down / Home / End while it has
 the focus (in the order it lists them), a Dock window's tab strip with Left / Right / Home / End;
@@ -1882,11 +1924,16 @@ Behaviour, Running apps; the Theme tab became Appearance):
   screen space** and **Peek when hidden** (pixels) / **Peek opacity** (%) (a bar on an edge),
   **Maximum length** (round 7: `maxLength` in pixels at 100 % scale, 0 = no limit; a value from
   1 to 95 becomes 96, the spinner steps from 0 to 96 and back; not for a full-width bar) and
-  **Title** (see Position). Round 9: a floating dock's Behaviour tab shows, instead of the
+  **Title** (see Position). Round 10 phase 10D: Reserve screen space is in the Placement card
+  (after Full width), Title in the **Layer and title** card, and Position x / y, Offset, Peek when
+  hidden, Peek opacity and Maximum length in the closed heading expander **Exact offsets**. Round 9: a floating dock's Behaviour tab shows, instead of the
   auto-hide choices, a line saying why it has none and a **Position tab** link (no greyed
   controls).
-- **Appearance** (round 8 phase 8B: the Theme tab's contents and Behaviour's Size card): **This
-  dock's theme** ("Same as all docks", the presets and theme files) and a link to Global >
+- **Appearance** (round 8 phase 8B: the Theme tab's contents and Behaviour's Size card; round 10
+  phase 10D: one first card **Theme and size**, with range and Bar while magnified in the closed
+  **Magnification details** expander): **This dock's theme** ("Use app default (<the app's
+  theme>)", was "Same as all docks"; the presets and theme files; a ↺ while the dock has its own)
+  and a link to Global >
   Themes, where the theme's fields are (they apply to every dock, on top of a dock's own preset);
   **Size**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
   magnification range (1-4 icons) and (round 9) **Bar while magnified**: **Grows once and stays**
@@ -1898,7 +1945,9 @@ Behaviour, Running apps; the Theme tab became Appearance):
   delays (behind an expander; round 9: collapsed while auto-hide is off), window previews on /
   off, **Show window previews for apps with a single window** and the preview delay (round 9:
   collapsed while previews are off), **Popups** (round 7: **Popup gap**, DIPs between the dock
-  and its popups, 0 - 64: `popupGap`), what a middle click on an app does and what the mouse
+  and its popups, 0 - 64: `popupGap`; round 10 phase 10D: the hide / reveal delays, the preview
+  delay and the popup gap are in the last card, the closed **Delays and popup gap** expander),
+  what a middle click on an app does and what the mouse
   wheel over an app does, and (round 5 phase D) **Notification badges on app icons** (`badges`;
   see Notifications and badges). Round 9: the Auto-hide card is never greyed: for a floating bar
   its radios, their note and the delays are collapsed and one line says "A floating bar has no
@@ -1941,7 +1990,8 @@ clock's own settings: other clocks keep theirs.", the weather item's "This weath
 and units: other weather items keep theirs.", a folder's path, a group's member count, the tray's
 grid; the caption in its dock's colour), the item's page (no title and no description note above
 it since 8C), and a footer ("Changes apply at once", **Reset to defaults** for a widget, clock,
-weather or tray item, **Console…** for a widget):
+weather or tray item (round 10 phase 10D: **Reset to factory defaults…**, asks first; **Reset to
+app default** beside it for a script widget with a place of its own), **Console…** for a widget):
 
 - a **widget, clock or weather item**: its settings generated from its schema (a script widget's
   widget.json; the clock's and the weather's built-in schemas, round 5), in **cards** (round 8
@@ -1965,8 +2015,10 @@ weather or tray item, **Console…** for a widget):
   invalid value beeps and goes back). **Status** ("Updated 10:15", "(stale)", "Updating…", "Not
   configured", "Not shown on a dock", "Error: …") with **Refresh now** on its row, and the
   Open-Meteo credit. A **Time zone** drop-down (Local time, then every zone) and, for a clock,
-  **Open faces folder** (in the Look card, under the face). **Reset to defaults**: a clock /
-  weather item takes the top-level `clock` / `weather` defaults, a widget its schema's.
+  **Open faces folder** (in the Look card, under the face). **Reset to defaults** (round 10 phase
+  10D: Reset to factory defaults…, after a Yes): a clock / weather item takes the top-level
+  `clock` / `weather` defaults, a widget its schema's. Round 10 phase 10D: a script widget's Place
+  row has a ↺ (Reset to app default) while it has a place of its own.
 - a **tray** item (round 5 phase D, "System tray"; round 8 phase 8C in three cards): **The grid**
   (Rows "Across the dock", Columns "Along the dock", Icon size), **Icons in the grid** (in the
   grid's order with a check box each, Move up / Move down) and **Takeover** (Reset to Explorer,
@@ -2341,7 +2393,8 @@ items that exist. A file whose items have settings already is left alone.
   fixed palette), "enabled": true, "refreshMin": 30 (5 - 1440; web feeds) }`, at most 32.
   `showDots`: dots on event days in the month calendar and after the clock's date.
   `defaultReminderMin`: reminders before events (0 off; 0 - 1440), for feeds without their own
-  `reminderMin` (per feed, 0 - 1440; written only when set). See Calendar feeds.
+  `reminderMin` (per feed, 0 - 1440; written only when set; 0 = the default reminder: round 10
+  phase 10D shows it as the form's **Use the default reminder (n min)** check box). See Calendar feeds.
 - `dashboard` (round 6 phase 6A): `{ "hotkey": "Win+Shift+D" }` (the default; the object is written
   only when it differs). `hotkey`: `"Mod+Mod+Key"` with the modifiers `Win`, `Ctrl`, `Alt`, `Shift`
   (any order and case when read; written as Win, Ctrl, Alt, Shift) and one key: `A` - `Z`, `0` -
@@ -2961,7 +3014,11 @@ always there, also when every dock is parked) handle these registered messages:
   as 263; -2 when it is not open; the live size, also while maximized); 276 = 1 while the expander
   whose control id is `LOWORD(lParam)` is open, 0 while it is closed (looked up in the Dock window
   of dock `HIWORD(lParam)`, then that dock's Item windows, then the App settings window; -1: no such
-  expander in any of them). The expanders so far: Behaviour's 2269, Position's 2272 (8B), a Place
+  expander in any of them). Round 10 phase 10D: also 5401 (Appearance, Magnification details),
+  5402 (Contents, Anchor and offset), 2522 (App settings > Animation, Motion and timings); 2269 is
+  Behaviour's Delays and popup gap and 2272 Position's Exact offsets now (heading expanders, closed
+  at first; their window text is the title with " · n changed"), and the Themes groups are all
+  closed at first. The expanders so far: Behaviour's 2269, Position's 2272 (8B), a Place
   field's Edit coordinates 3630 (8C; an Item window of the dock, or a standalone widget's window),
   and in the App settings window (8D) the Themes group headings 2410 Bar, 2411 Name label, 2412
   Indicator dots, 2421 Notification badges, 2413 Clock, 2414 Placeholder icon, 2415 Window
@@ -3048,6 +3105,17 @@ always there, also when every dock is parked) handle these registered messages:
   App settings window; it was the Global settings link until 8B), 113 an Item window's "on <dock>" link
   (SysLinks: `NM_CLICK`; round 8 phase 8C: its text also carries a script widget's id and version,
   `on <a>main</a> · item 4 of 10 · system-monitor 1.0.0`), 114 Reset to defaults, 115 Console….
+  Round 10 phase 10D: 114 reads **Reset to factory defaults…** and opens a Yes / No `#32770`
+  owned by the settings window first (post the `WM_COMMAND(114)` to the footer band 104 and answer
+  with a posted `WM_COMMAND(IDYES 6 / IDNO 7)` to the dialog; nothing changes on No); 117 **Reset
+  to app default** (a script widget with a place of its own; hidden otherwise) drops the place.
+  New page controls (5400 - 5499): 5400 the ↺ beside This dock's theme (Dock > Appearance; shown
+  only while `themePreset` is set; `WM_COMMAND(5400, BN_CLICKED)` to page 202), 5401 / 5402 the
+  expanders above, 5403 the feed form's **Use the default reminder** check box (+ caption 5404, its
+  text "Use the default reminder (15 min)" / "(none)"; checked: the minutes row 4325 - 4328 and 5405 are
+  collapsed and Add feed / Save changes write `reminderMin` 0), 5405 the ↺ on the minutes row (checks
+  5403), 5406 the ↺ beside a script widget's Place line (removes its own place). The Dock
+  window's first combo entry of 2420 reads "Use app default (<name>)".
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that

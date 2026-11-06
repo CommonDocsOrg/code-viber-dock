@@ -732,7 +732,7 @@ not pushed; STATUS.md "Round 10" has each phase's notes.
 | 10A Menus and names | Three menus instead of one appended everywhere: the dock menu grouped by task (Add / Position / Auto-hide / Lock, then All docks / App / Tools submenus, Help, Quit), a tray-icon menu of its own for app-wide commands (Docks submenu, Show Windows taskbar temporarily at the top level), item menus with the item's entries first and the dock menu in a Dock submenu; real item menus for the widget kinds with Remove from dock (ItemCommand 861); Customize icon and Contents layout submenus; "Global settings" -> "App settings" everywhere user-visible; settings named for their target; Item window titles "<item> · <dock>" with ordinals; DockCommand 155 | Done (the commit "Menus grouped by task, explicit settings names, App settings"; STATUS.md "Round 10") |
 | 10B Contents tab as the editor | Common settings in the inspector, More settings… for the full Item window | Done (the commit "Contents inspector edits common settings in place"; STATUS.md "Round 10") |
 | 10C One widget settings structure | Content / Appearance (/ Placement) sections; manifest `section` key | Done (the commit "One settings structure for every widget: Content, Appearance, Placement"; STATUS.md "Round 10") |
-| 10D Common first, inherited vs local | Named collapsed expanders; Use app default / Reset to app default / Reset to factory defaults… | Planned |
+| 10D Common first, inherited vs local | Named collapsed expanders; Use app default / Reset to app default / Reset to factory defaults… | Done (the commit "Common settings first, detail folded, app defaults shown"; STATUS.md "Round 10") |
 | 10E Regression and release | Suites re-run, pictures, the release build, the user's dock restarted | Planned |
 
 Design notes for 10A:
@@ -829,6 +829,48 @@ Design notes for 10C:
   default or what the user dragged), so the tab leads with display, layer and lock; background is
   a Look card; x / y / width / height sit in a heading expander closed per window instance, which
   the search opens (9B) when it goes to one of them.
+
+Design notes for 10D:
+
+- **Where the common controls were.** Theme, icon size and magnification were already on one tab
+  (Appearance, since 8B) but in two cards; they are one first card now ("Theme and size"), so the
+  plan's "gather those three" was a merge, not a move between tabs. Position already led with Kind,
+  Display and Edge; Kind stays first (it decides whether Edge applies at all). Behaviour already
+  led with Auto-hide.
+- **What folds away.** Only what the plan names, each in a heading expander (a card heading with
+  a chevron, closed per window instance, `HeadingExpander(openAtFirst = false)`): x / y, offset,
+  peek, peek opacity and maximum length ("Exact offsets"); hide / reveal / preview delays and the
+  popup gap ("Delays and popup gap": the plan lists the popup gap with the offsets, but it lives
+  on Behaviour and moving it to another tab would move its control to another page window, which
+  older automation finds by page; it got the delays' card instead); the magnification range and
+  bar mode ("Magnification details": tuning of the common magnification); the Contents
+  inspector's anchor and offset ("Anchor and offset"); Animation's falloff / easing / label fade
+  ("Motion and timings", now after Accessibility); every Themes group, Bar included. The old
+  "More: …" expanders became headings with the same ids (2269, 2272), so QueryState 276 and
+  scripts keep working. Reserve screen space and Title were in "More" but are neither offsets nor
+  timings: they moved to the Placement and the (renamed) Layer and title cards.
+- **"· n changed".** Counted against a value-initialised `DockConfig` / `AnimationConfig` (the
+  defaults are the structs', so nothing is duplicated), only for the rows that apply to the
+  current placement / auto-hide / previews state, refreshed on every change of a bound number
+  (`IntChanged`) and on Load. The Contents inspector's counts the selection's anchor and offset.
+- **The Contents tab lays itself out** (NoReflow): `Add` tagged controls with their expander only
+  on reflowing pages, so a closed expander there hid nothing; it tags them on every page now, and
+  `SettingsPage::OnExpanderToggled` lets the page place its rows again (FlowInspector).
+- **Inheritance was mapped, not invented.** The config has three real fallbacks from a dock / item
+  to a shared value: `docks[].themePreset` "" (the app theme), a feed's `reminderMin` 0
+  (`calendars.defaultReminderMin`) and a script widget without `latitude` / `longitude` (its dock's
+  first Weather item, else `config.weather`). Each now says so and has a ↺ while local. Clock /
+  weather items copy `config.clock` / `config.weather` when created (EnsureItemSettings) and hold
+  every key afterwards, so they are local, not inherited: no "Use app default" there. The theme
+  fields are app-wide only (a dock has no per-field overrides), so "Reset to the preset's value"
+  is the only theme-row wording that applies. No sentinel was added: "" and 0 are the existing
+  ones, and the absent place keys are what the provider already reads.
+- **Reset to factory defaults….** A Yes / No MessageBox owned by the settings window (No the
+  default), between `host.modal(true / false)`, which holds `App::modalDepth_` as a dock dialog
+  does (no Reload config, no dock edits, display changes wait), so the item is still there when
+  it returns; the window checks its HWND after it. For a clock / weather item "factory" is the
+  settings a new one starts with (WinDock's own unless config.json's top-level objects were
+  edited by hand), the behaviour the button had; the text says so.
 
 ## Dependencies at a glance
 

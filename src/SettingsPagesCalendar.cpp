@@ -76,11 +76,21 @@ protected:
         Spin(kCalRefreshEdit, kCalRefreshSpin, kColX, kNumberW, 5, 1440, 5);
         Text(kCalRefreshUnit, CtlKind::Note, L"minutes (web feeds)", kColX + kNumberW + 8, 200);
         NextRow();
+        // Round 10 phase 10D: the feed's reminder falls back to the Default reminder (Display, below;
+        // calendars.defaultReminderMin) while reminderMin is 0: the check box says so with the value
+        // it gives; cleared, the minutes row (a reminder of the feed's own, 1 - 1440) appears with
+        // a ↺ that goes back to the default. Saved with the form (Save changes / Add feed).
+        Check(kCalReminderDefault, kCalReminderDefaultCaption, L"Use the default reminder");
+        Tip(kCalReminderDefaultCaption, L"On (the default for a feed): this feed's events get the Default reminder set under "
+                                        L"Display below (its value in brackets). Off: a reminder of this feed's own, in minutes.");
+        NextRow();
         Label(kCalReminderLabel, L"Remind me before events");
-        Tip(kCalReminderLabel, L"Minutes before each timed event of this feed that a reminder banner shows (0: the default reminder "
-                                 L"under Display). Default: 0.");
+        Tip(kCalReminderLabel, L"Minutes before each timed event of this feed that a reminder banner shows (1 - 1440): this "
+                                 L"feed's own reminder instead of the default one.");
         Spin(kCalReminderEdit, kCalReminderSpin, kColX, kNumberW, 0, 1440, 5);
-        Text(kCalReminderUnit, CtlKind::Note, L"minutes (0: the default)", kColX + kNumberW + 8, 260);
+        Text(kCalReminderUnit, CtlKind::Note, L"minutes", kColX + kNumberW + 8, 120);
+        Button(kCalReminderReset, L"\x21BA", right - 32, 32);
+        Tip(kCalReminderReset, L"Reset to app default: this feed uses the Default reminder again (saved with the form).");
         NextRow();
         Check(kCalEnable, kCalEnableCaption, L"Enabled");
         Tip(kCalEnableCaption, L"An enabled feed is downloaded and its events are shown; a disabled one is kept but not used. On by "
@@ -161,6 +171,13 @@ protected:
                 OpenForm(kCalNameEdit);
                 break;
             }
+            case kCalReminderDefault:  // round 10 phase 10D
+                SetReminderDefault(GetCheck(kCalReminderDefault), GetSpin(kCalReminderSpin));
+                break;
+            case kCalReminderReset:
+                SetReminderDefault(true, GetSpin(kCalReminderSpin));
+                if (HWND h = Item(kCalReminderDefault)) SetFocus(h);
+                break;
             case kCalShowDots:
                 c.showDots = GetCheck(kCalShowDots);
                 Changed(SettingsScope::Calendars);
@@ -275,10 +292,27 @@ private:
         SetText(kCalUrlEdit, f.url);
         SetText(kCalColorEdit, FormatArgbColor(f.color));
         SetSpin(kCalRefreshSpin, f.refreshMin);
-        SetSpin(kCalReminderSpin, f.reminderMin);
+        SetReminderDefault(f.reminderMin == 0, f.reminderMin);
         SetCheck(kCalEnable, f.enabled);
         Enable(kCalSave, row >= 0);
         Enable(kCalRemove, row >= 0);
+    }
+
+    // Round 10 phase 10D: the form's reminder: the default (the check box, the minutes row
+    // collapsed) or its own minutes (`minutes`; 0 there: the default's, else 15, as a start).
+    void SetReminderDefault(bool useDefault, int minutes) {
+        SetCheck(kCalReminderDefault, useDefault);
+        if (minutes <= 0) minutes = Cfg().calendars.defaultReminderMin > 0 ? Cfg().calendars.defaultReminderMin : 15;
+        SetSpin(kCalReminderSpin, minutes);
+        Collapse({kCalReminderLabel, kCalReminderEdit, kCalReminderUnit, kCalReminderReset}, useDefault);
+        UpdateReminderCaption();
+    }
+
+    // "Use the default reminder (15 min)" / "(none)": the value the feed gets from Display.
+    void UpdateReminderCaption() {
+        const int d = Cfg().calendars.defaultReminderMin;
+        SetText(kCalReminderDefaultCaption, d > 0 ? L"Use the default reminder (" + std::to_wstring(d) + L" min)"
+                                                  : std::wstring(L"Use the default reminder (none)"));
     }
 
     bool ReadFields(CalendarFeed& f, size_t index, std::wstring& error) {
@@ -315,9 +349,9 @@ private:
             return false;
         }
         f.refreshMin = minutes;
-        int remind = 0;
-        if (!ReadInt(kCalReminderEdit, 0, 1440, remind)) {
-            error = L"Reminder: a number of minutes (0 - 1440).";
+        int remind = 0;  // round 10 phase 10D: 0 = the default reminder (the check box)
+        if (!GetCheck(kCalReminderDefault) && !ReadInt(kCalReminderEdit, 0, 1440, remind)) {
+            error = L"Reminder: a number of minutes (1 - 1440).";
             return false;
         }
         f.reminderMin = remind;
@@ -390,6 +424,7 @@ private:
         if (Cfg().calendars.defaultReminderMin == value) return;
         Cfg().calendars.defaultReminderMin = value;
         Changed(SettingsScope::Calendars);
+        UpdateReminderCaption();  // round 10 phase 10D: the form's "Use the default reminder (n min)"
     }
 
     bool filling_ = false;

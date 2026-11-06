@@ -110,7 +110,10 @@ You can go back to the defaults one part at a time, or start over completely.
 To reset one item (a clock, a weather item, a widget or the tray):
 
 1. Open its settings window.
-2. Click **Reset to defaults** at the bottom.
+2. Click **Reset to factory defaults…** at the bottom.
+3. Click **Yes** in the question that follows. It says what is reset; your App settings are not changed.
+
+A dock or item setting that can follow an app-wide value (a dock's theme, a feed's reminder, a script widget's place) has a **↺** while it has a value of its own: it goes back to the app default. See [Resetting](guide-settings.md#resetting).
 
 To reset the theme, open App settings > Themes, click **⋯** and choose **Reset all to preset**. Each changed value also has its own **↺** button.
 

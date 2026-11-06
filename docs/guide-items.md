@@ -326,9 +326,9 @@ Every widget's window has the same structure, in two tabs:
 
 A widget whose settings are all of one kind (Hello, Digital clock, Start, Search) has one page and no tabs. Inside a tab the settings are grouped in cards. Each setting has a short hint under it; rest the mouse on it for the full explanation. Some settings appear only when another one has a certain value.
 
-The footer, under both tabs, has **Reset to defaults** (back to the widget's own defaults) and **Console…** (the widget's log and errors).
+The footer, under both tabs, has **Reset to factory defaults…** (back to the widget's own defaults, after asking) and **Console…** (the widget's log and errors).
 
-A widget with a place, such as Weather (script), has the same **Find a place** box as the weather item.
+A widget with a place, such as Weather (script), has the same **Find a place** box as the weather item. Without a place of its own it shows its dock's Weather item's place, else the default place; the hint under **Place** says which. Once you choose a place for it, a **↺** beside the place and **Reset to app default** in the footer make it show the shared place again.
 
 ### Widgets on the desktop
 

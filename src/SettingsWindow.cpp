@@ -119,8 +119,10 @@ Ctl& SettingsPage::Add(int id, CtlKind kind, const wchar_t* cls, std::wstring te
             }
             c.card = card_;
         }
-        c.expander = expander_;
     }
+    // Round 10 phase 10D: also on a page that lays itself out (the Contents tab's Anchor and
+    // offset): its rows are gone while the expander is closed; the page places them.
+    c.expander = expander_;
     c.dip = c.base = dip;
     table_.push_back(std::move(c));
     return table_.back();
@@ -520,6 +522,8 @@ void SettingsPage::Collapse(std::initializer_list<int> ids, bool hidden) {
             // Round 9 phase 9E: a card's heading takes its "?" with it (a collapsed card left an
             // empty card with only the "?", e.g. a folder's Item window).
             if (c.kind == CtlKind::Section && c.card >= 0) sectionCard = c.card;
+            // Round 10 phase 10D: so does a heading expander (Position's Exact offsets for a half circle).
+            if (c.kind == CtlKind::Expander && c.heading && c.card >= 0) sectionCard = c.card;
         }
         for (Ctl& c : table_) {
             const bool help = sectionCard >= 0 && c.kind == CtlKind::Help && c.card == sectionCard;
@@ -562,6 +566,10 @@ void SettingsPage::SetExpanderText(int id, const std::wstring& text) {
         }
         return;
     }
+}
+
+std::wstring SettingsPage::ChangedTitle(const wchar_t* title, int n) {
+    return n > 0 ? std::wstring(title) + L" \x00B7 " + std::to_wstring(n) + L" changed" : std::wstring(title);
 }
 
 void SettingsPage::ScrollIntoView(int id) {
@@ -2723,6 +2731,7 @@ int SettingsWindow::UnexplainedInputs(std::vector<std::wstring>* gaps, std::vect
 
 void SettingsWindow::ToggleExpander(SettingsPage& page, int id) {
     page.SetExpander(id, !page.ExpanderOpen(id));
+    page.OnExpanderToggled(id);  // round 10 phase 10D: the Contents tab places its rows again
     if (HWND h = page.Item(id)) {
         // The accessible name says what a press does.
         const Ctl* c = page.Find(id);

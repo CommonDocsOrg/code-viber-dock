@@ -650,8 +650,11 @@ protected:
         if (standalone_ && item_ >= 0) {
             // The Item window's footer buttons (same ids) as the last card of the Widget tab.
             UntitledCard(cardTopic_);
-            Button(kFooterReset, L"Reset to defaults", kMargin, 150);
-            if (kind == ItemKind::Widget) Button(kFooterConsole, L"Console…", kMargin + 158, 110);
+            // Round 10 phase 10D: "Reset to factory defaults…" (asks first; was "Reset to defaults").
+            Button(kFooterReset, L"Reset to factory defaults\x2026", kMargin, 190);
+            Tip(kFooterReset, L"Resets every setting of this widget to the values WinDock ships with (it asks first). App "
+                              L"defaults and the window's place are not changed.");
+            if (kind == ItemKind::Widget) Button(kFooterConsole, L"Console…", kMargin + 198, 110);
             NextRow();
         }
     }
@@ -792,7 +795,17 @@ protected:
         } else {
             Label(kPlaceSummaryLabel, L"Place");
         }
-        Text(kPlaceSummary, CtlKind::Value, L"", kColX, right - kColX);
+        if (Kind() == ItemKind::Widget) {
+            // Round 10 phase 10D: a place of its own overrides the shared one (this dock's Weather
+            // item's, else the default place): the hint says whose, the ↺ (only while it has its
+            // own) drops it. The footer's Reset to app default does the same.
+            Text(kPlaceSummary, CtlKind::Value, L"", kColX, right - kColX - 40);
+            Button(kPlaceUseShared, L"\x21BA", right - 32, 32);
+            Tip(kPlaceUseShared, L"Reset to app default: forget this widget's own place and show the shared one (this dock's "
+                                 L"Weather item's, else the default place).");
+        } else {
+            Text(kPlaceSummary, CtlKind::Value, L"", kColX, right - kColX);
+        }
         NextRow();
         Expander(kPlaceCoordsExpander, L"Edit coordinates");
         Label(kPlaceLocationLabel, L"Name shown");
@@ -918,7 +931,11 @@ protected:
             if (Host().command) Host().command(ContextMenu::kWidgetConsole);
             return;
         }
-        if (standalone_ && id == kFooterReset) id = kWidgetReset;  // the Widget tab's Reset to defaults
+        if (standalone_ && id == kFooterReset && code == BN_CLICKED) {
+            // The Widget tab's Reset to factory defaults… (round 10 phase 10D: asks first).
+            if (item_ < 0 || !Window().ConfirmFactoryReset(Widgets::DisplayName(Entry().id), Kind())) return;
+            id = kWidgetReset;
+        }
         if (id == kWidgetReset && code == BN_CLICKED) {  // the footer's Reset to defaults
             if (item_ < 0) return;
             // A clock / weather item: the defaults' values (config.clock / config.weather); a
@@ -949,6 +966,10 @@ protected:
             } else if (code == CBN_SELCHANGE && !SendMessageW(Item(id), CB_GETDROPPEDSTATE, 0, 0)) {
                 ChoosePlace(ComboSel(id));
             }
+            return;
+        }
+        if ((id == kPlaceUseShared || id == kFooterResetApp) && code == BN_CLICKED) {  // round 10 phase 10D
+            DropOwnPlace();
             return;
         }
         if (id == kPlaceRefreshNow && code == BN_CLICKED) {
@@ -1156,6 +1177,8 @@ private:
             const bool dockItem = std::any_of(Dock().items.begin(), Dock().items.end(),
                                               [](const DockItemEntry& i) { return i.Kind() == ItemKind::Weather; });
             SetText(kPlaceNote, own ? L"Its own place" : dockItem ? L"This dock's Weather item's" : L"The default place");
+            Show(kPlaceUseShared, own);  // round 10 phase 10D
+            Window().ShowFooterResetApp(own);
         }
         UpdatePlaceStatus();
     }
@@ -1252,7 +1275,11 @@ private:
         SetText(kPlaceLocationEdit, name);
         SetText(kPlaceLatEdit, FormatCoord(RoundCoord(p.latitude)));
         SetText(kPlaceLonEdit, FormatCoord(RoundCoord(p.longitude)));
-        if (Kind() == ItemKind::Widget) SetText(kPlaceNote, L"Its own place");
+        if (Kind() == ItemKind::Widget) {
+            SetText(kPlaceNote, L"Its own place");
+            Show(kPlaceUseShared, true);  // round 10 phase 10D
+            Window().ShowFooterResetApp(true);
+        }
         SetText(kPlaceSearchNote, L"Place set");
         UpdatePlaceStatus();
     }
@@ -1263,6 +1290,27 @@ private:
         const int k = (id - kWidgetFieldBase) / 10, part = (id - kWidgetFieldBase) % 10;
         if (part != 1 || k >= static_cast<int>(m->settings.size())) return nullptr;
         return &m->settings[static_cast<size_t>(k)];
+    }
+
+    // Round 10 phase 10D: "Reset to app default" for a script widget's place: removes latitude /
+    // longitude / location from its settings, so it shows the shared place again (ScriptWeatherOf).
+    void DropOwnPlace() {
+        if (item_ < 0 || Kind() != ItemKind::Widget || Loading()) return;
+        DockItemEntry& e = Entry();
+        if (!SettingsHavePlace(e.settings)) return;
+        try {
+            json::JsonObject o{nullptr};
+            if (!json::JsonObject::TryParse(e.settings, o) || !o) return;
+            for (const wchar_t* key : {L"latitude", L"longitude", L"location"}) {
+                if (o.HasKey(key)) o.Remove(key);
+            }
+            e.settings = o.Size() == 0 ? std::wstring() : std::wstring(o.Stringify());
+        } catch (...) {
+            return;
+        }
+        Changed(SettingsScope::Pins);
+        if (const json::JsonObject values = Values()) LoadPlace(values);
+        if (HWND h = Item(kPlaceResults); h && GetFocus() == nullptr) SetFocus(h);
     }
 
     // Writes keys into the item's settings object and applies them. False if nothing changed.

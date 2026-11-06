@@ -1370,7 +1370,12 @@ protected:
         Tip(kPinDown, L"Moves the selected item one place right on the dock (Ctrl+Right). Greyed for the last item.");
         Tip(kPinRemove, L"Removes the selected item from the dock (Delete). Select an item in the strip first.");
         // Round 7 phase 7B: the item's place on the dock (FlowInspector places them under the buttons).
+        // Round 10 phase 10D: under a heading expander, closed at first (its title counts the
+        // selection's anchor / offset when set: "Anchor and offset · 1 changed").
         y_ = kInspectorTop + 90;
+        HeadingExpander(kItemPlaceExpander, L"Anchor and offset");
+        Tip(kItemPlaceExpander, L"Where the selected item sits on the dock (its own group at the start, centre or end) and "
+                                L"a shift along the dock. Closed at first: most items follow the dock's alignment.");
         Add(kItemAnchorLabel, CtlKind::Label, WC_STATICW, L"Position on the dock",
             SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS, RECT{L + 14, y_, L + 14 + kPlaceLabelW, y_ + kRowH});
         Combo(kItemAnchorCombo, L + 14 + kPlaceLabelW + 6, kPlaceComboW, false);
@@ -1384,6 +1389,7 @@ protected:
                              L"first.");
         y_ += kRowH;
         Text(kItemOffsetNote, CtlKind::Note, L"Shifts this item and the ones after it in its group", L + 14, R - L - 28, 20);
+        EndExpander();
         // The drawer: everything that can be added (round 8 phase 8B: apps and folders too).
         Add(kDrawerTitle, CtlKind::Section, WC_STATICW, L"Add to the dock", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
             RECT{dx + 16, 12, dx + 16 + kDrawerTitleW, 36});
@@ -2218,6 +2224,7 @@ private:
         std::wstring key = std::to_wstring(R) + (infoPreview_ ? L"p" : L"");
         for (int id : {kPinSettings, kPinMore}) key += shown(id) ? L"1" : L"0";
         key += L"|" + rowsShape_;  // round 10 phase 10B: the common-setting rows
+        key += ExpanderOpen(kItemPlaceExpander) ? L"|o" : L"|c";  // round 10 phase 10D
         for (const InspectorRow& r : rows_) key += r.unit.empty() ? L"" : L"u";
         if (!force && key == flowKey_) return;
         flowKey_ = key;
@@ -2253,6 +2260,10 @@ private:
                 MoveCtl(b + kInspectorValue, RECT{cx, top, right, top + kRowH});
                 top += kRowH + 2;
             }
+            // Round 10 phase 10D: the heading expander, then its rows only while it is open.
+            MoveCtl(kItemPlaceExpander, RECT{left, top + 2, right, top + kRowH - 2});
+            top += kRowH + 2;
+            if (!ExpanderOpen(kItemPlaceExpander)) return top + 8;
             MoveCtl(kItemAnchorLabel, RECT{left, top, left + kPlaceLabelW, top + kRowH});
             MoveCtl(kItemAnchorCombo, RECT{cx, top + 4, std::min(right, cx + kPlaceComboW), top + 4 + 220});
             top += kRowH + 2;
@@ -2455,6 +2466,7 @@ private:
         SetComboSel(kItemAnchorCombo, e ? static_cast<int>(e->anchor) : -1);
         SetSpin(kItemOffsetSpin, e ? e->offset : 0);
         for (int id : {kItemAnchorLabel, kItemAnchorCombo, kItemOffsetLabel, kItemOffsetEdit, kItemOffsetSpin}) Enable(id, valid);
+        UpdatePlaceTitle();
         FlowInspector();
         // A button that just got disabled must not keep the keyboard focus.
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(strip_.Hwnd());
@@ -2484,6 +2496,18 @@ private:
         return at;
     }
 
+    // Round 10 phase 10D: "Anchor and offset · n changed" for the selection.
+    void UpdatePlaceTitle() {
+        const DockConfig& d = Dock();
+        const DockItemEntry* e = sel_ >= 0 && sel_ < static_cast<int>(d.items.size()) ? &d.items[static_cast<size_t>(sel_)] : nullptr;
+        const int n = e ? (e->anchor != ItemAnchor::None ? 1 : 0) + (e->offset != 0 ? 1 : 0) : 0;
+        SetExpanderText(kItemPlaceExpander, ChangedTitle(L"Anchor and offset", n));
+    }
+
+    void OnExpanderToggled(int id) override {
+        if (id == kItemPlaceExpander) FlowInspector(true);
+    }
+
     // Round 7 phase 7B: "Position on the dock" (an ItemAnchor) and "Offset" of the selected item.
     void SetAnchor(int anchor) {
         DockConfig& d = Dock();
@@ -2506,6 +2530,7 @@ private:
         if (e.offset == offset) return;
         e.offset = offset;
         Changed(SettingsScope::Pins);
+        UpdatePlaceTitle();
     }
 
     void RemoveItem(int item) {

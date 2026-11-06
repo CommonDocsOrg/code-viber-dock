@@ -132,18 +132,24 @@ protected:
         if (dockOnly_) {
             Title(L"Appearance");
             HelpTopic(L"guide-settings.md#appearance-tab");
-            Section(kSectionTheme, L"Theme", L"guide-settings.md#dock-theme");
+            // Round 10 phase 10D: one first card with the common controls (theme, icon size,
+            // magnification; the Size card of 8B joined it), the magnification's tuning in a closed
+            // heading expander under it.
+            Section(kSectionTheme, L"Theme and size", L"guide-settings.md#dock-theme");
             // Round 8 phase 8A: the note is the label's hint (kDockThemeNote) and its tooltip.
             // Round 10 phase 10A: "App settings" (was "Global settings").
             Label(kDockThemeLabel, L"This dock's theme", L"Its fields: App settings > Themes", kDockThemeNote);
-            Tip(kDockThemeLabel, L"\"Same as all docks\" uses the app's theme. The theme's fields (colours, sizes, "
-                                 L"effects) are in App settings > Themes: they apply to every dock, on top of this "
-                                 L"dock's preset.");
-            Combo(kDockThemeCombo, kColX, right - kColX, false);
+            Tip(kDockThemeLabel, L"\"Use app default\" uses the app's theme (App settings > Themes; its name in brackets). "
+                                 L"Choose a preset to give this dock one of its own; \x21BA goes back to the app default. "
+                                 L"The theme's fields (colours, sizes, effects) are in App settings > Themes: they apply "
+                                 L"to every dock, on top of this dock's preset.");
+            Combo(kDockThemeCombo, kColX, right - kRevertW - 8 - kColX, false);
+            // Round 10 phase 10D: back to the inherited theme (shown only while the dock has its own).
+            Button(kDockThemeReset, L"\x21BA", right - kRevertW, kRevertW);
+            Tip(kDockThemeReset, L"Reset to app default: this dock uses the app's theme again.");
             NextRow();
             Link(kDockThemeLink, L"<a>Open App settings > Themes</a>", kMargin, right - kMargin);
             NextRow();
-            Section(kSectionDock, L"Size", L"guide-settings.md#size");
             Label(kIconSizeLabel, L"Icon size");
             Tip(kIconSizeLabel, L"The size of the icons at rest, in DIPs (16 - 256; the slider goes to 128). Default: 48.");
             Trackbar(kIconSizeTrack, kColX - 6, 212, 16, kMaxTrackIconSize, 8);
@@ -155,6 +161,9 @@ protected:
             Trackbar(kMagnifyTrack, kColX - 6, 212, 20, 50, 2);
             Text(kMagnifyValue, CtlKind::Value, L"", kColX + 216, 72);
             NextRow();
+            // Round 10 phase 10D: the magnification's tuning, closed at first.
+            UntitledCard();
+            HeadingExpander(kMagnifyMore, L"Magnification details", false, L"guide-settings.md#size");
             Label(kRangeLabel, L"Magnification range (icons)");
             Tip(kRangeLabel, L"How many icons on each side of the pointer grow too (1 - 4). Default: 2.");
             IntSpin(kRangeEdit, kRangeSpin, kColX, 72, 1, 4, 1, [](Config&, DockConfig& d) -> int& { return d.magnifyRange; },
@@ -173,6 +182,7 @@ protected:
                 L"grow with the pointer.");
             Combo(kMagnifyBarCombo, kColX, 252, false);  // the longest entry: "Always wide (...)"
             NextRow();
+            EndExpander();
             return;
         }
         Title(L"Themes");
@@ -194,10 +204,11 @@ protected:
         Tip(kThemeMore, L"Export current theme\x2026, Open themes folder, Reset all to preset");
         NextRow();
 
-        // One card per group, its heading an expander ("Bar · 2 changed"); Bar open at first.
+        // One card per group, its heading an expander ("Bar · 2 changed"). Round 10 phase 10D: every
+        // group closed at first (Bar was open): the individual values are detail.
         for (const FieldGroup& g : FieldGroups()) {
             UntitledCard();
-            HeadingExpander(g.sectionId, g.title, g.sectionId == kSectionFieldsBar, L"guide-settings.md#theme-values");
+            HeadingExpander(g.sectionId, g.title, false, L"guide-settings.md#theme-values");
             for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
             if (g.note) {
                 // One line (two at most); the whole note as its tooltip.
@@ -228,6 +239,7 @@ protected:
             SetTrack(kMagnifyTrack, mag);
             SetText(kMagnifyValue, FormatMagnification(mag));
             SetComboSel(kMagnifyBarCombo, static_cast<int>(d.magnifyBar));
+            UpdateDockCounts();
             return;
         }
         for (size_t i = 0; i < Theme::FieldCount(); ++i) UpdateRow(static_cast<int>(i));
@@ -246,6 +258,7 @@ protected:
             if (code == CBN_SELCHANGE && sel >= 0 && sel <= static_cast<int>(MagnifyBar::Always) && static_cast<MagnifyBar>(sel) != Dock().magnifyBar) {
                 Dock().magnifyBar = static_cast<MagnifyBar>(sel);
                 Changed(SettingsScope::Appearance);  // relayout: the steady growth is part of the layout
+                UpdateDockCounts();
             }
             return;
         }
@@ -270,6 +283,12 @@ protected:
             return;
         }
         if (code != BN_CLICKED) return;
+        if (id == kDockThemeReset) {  // round 10 phase 10D: back to the app's theme
+            SelectDockPreset(std::wstring());
+            FillThemes();
+            if (HWND combo = Item(kDockThemeCombo); combo && GetFocus() == nullptr) SetFocus(combo);
+            return;
+        }
         if (id == kThemeMore) {
             ShowThemeMenu();
             return;
@@ -315,6 +334,7 @@ protected:
     // The Size card's icon size box moves its slider; the sliders apply on release.
     void IntChanged(int spin, int value) override {
         if (spin == kIconSizeSpin) SetTrack(kIconSizeTrack, std::min(value, kMaxTrackIconSize));
+        if (spin == kRangeSpin) UpdateDockCounts();
     }
 
     void Track(int id, int pos, bool released) override {
@@ -420,6 +440,7 @@ private:
 
     static constexpr int kThemeLabelW = 156, kThemeColX = kMargin + kThemeLabelW + 8;  // round 8 phase 8A
     static constexpr int kMoreW = 32;  // round 8 phase 8D: the "⋯" button beside the theme combo
+    static constexpr int kRevertW = 32;  // round 10 phase 10D: the "↺" beside This dock's theme
 
     void FieldRowCtl(int field) {
         const Theme::FieldInfo& info = Theme::Fields()[field];
@@ -667,8 +688,10 @@ private:
             InvalidateRect(combo, nullptr, TRUE);
         }
 
-        // This dock's theme: "Same as all docks", then the same list (an unknown id: "(missing)").
+        // This dock's theme: "Use app default (<the app's theme>)" (round 10 phase 10D: was "Same as
+        // all docks"), then the same list (an unknown id: "(missing)").
         if (!dock) return;
+        const std::wstring appName = names[static_cast<size_t>(sel)];
         const std::wstring& own = Dock().themePreset;
         int dockSel = 0;
         for (size_t i = 0; i < themeIds_.size() && !own.empty(); ++i) {
@@ -683,9 +706,19 @@ private:
             dockSel = static_cast<int>(themeIds_.size());
         }
         SendMessageW(dock, CB_RESETCONTENT, 0, 0);
-        ComboAdd(kDockThemeCombo, L"Same as all docks");
+        ComboAdd(kDockThemeCombo, (L"Use app default (" + appName + L")").c_str());
         for (const std::wstring& n : names) ComboAdd(kDockThemeCombo, n.c_str());
         SetComboSel(kDockThemeCombo, dockSel);
+        Show(kDockThemeReset, !own.empty());  // the ↺ only while the dock's theme is its own
+    }
+
+    // Round 10 phase 10D: "Magnification details · n changed" (range and bar mode against the
+    // defaults of a new dock).
+    void UpdateDockCounts() {
+        const DockConfig& d = Dock();
+        const DockConfig fresh;
+        const int n = (d.magnifyRange != fresh.magnifyRange ? 1 : 0) + (d.magnifyBar != fresh.magnifyBar ? 1 : 0);
+        SetExpanderText(kMagnifyMore, ChangedTitle(L"Magnification details", n));
     }
 
     // The window's dock's own preset (docks[].themePreset; "" = the global theme).
@@ -695,6 +728,7 @@ private:
         Dock().themePreset = id;
         c.ResolveDockThemes();
         Changed(SettingsScope::Appearance);
+        Show(kDockThemeReset, !id.empty());
     }
 
     void Export() {

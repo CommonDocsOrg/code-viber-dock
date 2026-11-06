@@ -228,7 +228,7 @@ protected:
             MoveSelected(id == kTrayIconUp ? -1 : 1);
             return;
         }
-        if (id == kWidgetReset && code == BN_CLICKED) {  // the footer's Reset to defaults
+        if (id == kWidgetReset && code == BN_CLICKED) {  // the footer's Reset to factory defaults… (confirmed: round 10 phase 10D)
             DockItemEntry* e = Tray();
             if (!e) return;
             DockItemEntry fresh{e->kind};

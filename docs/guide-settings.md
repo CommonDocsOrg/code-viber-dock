@@ -75,6 +75,35 @@ To open the Help:
 
 The Help window lists the guides at the left and shows the chosen guide at the right. Links inside a guide move between the guides. Web links open in your browser.
 
+## Common settings first
+
+Each page and tab starts with the settings you change most often. On a dock's window that is the theme, the icon size and the magnification (the Appearance tab's first card), the display and the screen edge (Position) and auto-hide (Behaviour).
+
+Fine tuning is folded away in cards whose heading opens them, named for what they hold: **Exact offsets**, **Delays and popup gap**, **Magnification details**, **Motion and timings**, **Anchor and offset**, and the theme value groups. They are closed when a window opens. Click a heading (or press Space or Enter on it) to open or close the card. A heading that ends in "· 2 changed" holds two values that differ from the defaults, so you can see at a glance where something was changed.
+
+The search still finds every setting in a closed card: **Go to** opens the card for you.
+
+## App defaults and local values
+
+A few settings of a dock or an item can either follow an app-wide value or have a value of their own:
+
+- **This dock's theme** (Dock settings > Appearance): **Use app default (Dark)** follows the theme of App settings > Themes, whose name is in brackets. Picking a theme gives the dock its own.
+- **Use the default reminder** (App settings > Calendar feeds, a feed's form): the feed's events get the Default reminder of the Display card, whose value is in brackets. Clear it to give the feed a reminder of its own.
+- **Place** of a script weather widget (its settings window): without a place of its own it shows its dock's Weather item's place, else the default place; the hint under **Place** says which.
+
+While such a setting has a value of its own, a small **↺** at the end of its row (its tooltip says "Reset to app default") makes it follow the app-wide value again.
+
+Everything else is simply the dock's or the item's own setting: there is no app default behind it.
+
+## Resetting
+
+There are two kinds of reset, and they never touch each other's values:
+
+- **Reset to app default** (the **↺** buttons above, and the button of that name in a widget's footer): drops the dock's or item's own value, so it follows the app-wide one again.
+- **Reset to factory defaults…** (an item's settings window, the last card of a standalone widget's Content tab): puts every setting of that one item back to the values WinDock ships with. It asks first, and says what it resets. App defaults (App settings) are not changed.
+
+On App settings > Themes, the **↺** of a theme value goes back to the theme preset's value instead (its tooltip says "Reset to the preset's value"), and **⋯** > **Reset all to preset** does that for every value.
+
 ## App settings
 
 The App settings window holds what applies to every dock. Its pages are listed at the left in small groups:
@@ -166,7 +195,7 @@ A single dock can use a different theme: see [Dock theme](#dock-theme). Your cha
 
 #### Theme values
 
-Under the Theme card are cards for each part of the theme: Bar, Name label, Indicator dots, Notification badges, Clock, Placeholder icon, Window previews and Icon effects. Click a card's heading to open or close it. The heading counts its changed values, for example "Bar · 2 changed".
+Under the Theme card are cards for each part of the theme: Bar, Name label, Indicator dots, Notification badges, Clock, Placeholder icon, Window previews and Icon effects. They are closed when the window opens. Click a card's heading to open or close it. The heading counts its changed values, for example "Bar · 2 changed".
 
 - A colour has a swatch (click it to pick a colour), its value as `#AARRGGBB` and its opacity from 0 (clear) to 255 (solid).
 - On and off values are check boxes; sizes and amounts are number boxes.
@@ -190,17 +219,19 @@ How a dock with auto-hide goes away and comes back: **Slide and fade**, **Slide*
 
 What the icon does while an app starts: **Bounce until the app opens**, **Hop once**, **Pulse** or **None**.
 
-#### Motion
-
-- **Magnification falloff**: how quickly the icons beside the pointer get smaller. **Smooth (cosine)** or **Linear**.
-- **Easing**: the curve of the movements. **Ease out**, **Linear**, or **Spring**, which overshoots a little and settles.
-- **Name label fade**: how long the app name takes to fade in and out, in milliseconds. 0 shows it at once.
-
 #### Accessibility
 
 - **Reduce motion**: **Follow Windows** uses the Windows setting (Settings > Accessibility > Visual effects > Animation effects). **On** turns off the slides, bounces and fades. **Off** always animates.
 
 The icons still follow the mouse smoothly when motion is reduced.
+
+#### Motion and timings
+
+This card is closed when the window opens. Click its heading to open it. The heading counts the values you changed, for example "Motion and timings · 1 changed".
+
+- **Magnification falloff**: how quickly the icons beside the pointer get smaller. **Smooth (cosine)** or **Linear**.
+- **Easing**: the curve of the movements. **Ease out**, **Linear**, or **Spring**, which overshoots a little and settles.
+- **Name label fade**: how long the app name takes to fade in and out, in milliseconds. 0 shows it at once.
 
 ### Calendar feeds
 
@@ -225,7 +256,8 @@ The **Add or edit a feed** card opens when you click **Add feed…** or double-c
 - **Address or file**: the web address (`https://`, `http://` or `webcal://`) or the full path of an `.ics` file.
 - **Colour**: the feed's colour as `#AARRGGBB`.
 - **Check for changes every**: minutes between checks of a web feed.
-- **Remind me before events**: minutes before each event to show a reminder. 0 uses the default reminder.
+- **Use the default reminder**: on for a new feed. The feed's events get the **Default reminder** of the Display card below; its value is in brackets, for example "Use the default reminder (15 min)". Turn it off to give the feed a reminder of its own.
+- **Remind me before events**: shown while the feed has a reminder of its own: minutes before each event to show it. The **↺** at the end of the row goes back to the default reminder.
 - **Enabled**: the feed is used.
 
 Then click **Add feed** for a new feed, or **Save changes** for the selected one.
@@ -357,7 +389,7 @@ Under the buttons are the selected item's everyday settings, which you change ri
 - A widget: the few settings its author marked as the common ones (for example the Analog clock's face, second hand, time zone and label). Some appear only while another setting has a certain value, as in the widget's own window.
 - Apps, separators, the Recycle Bin, Running apps, the tray and the notification centre have none here.
 
-Below them, for every item:
+Below them, for every item, is **Anchor and offset**, closed at first (most items follow the dock's alignment). Click it to open it. Its heading counts what is set for the selected item, for example "Anchor and offset · 1 changed".
 
 - **Position on the dock**: **Follow the dock's alignment**, or give the item a place of its own: **Start (left / top)**, **Centre** or **End (right / bottom)**.
 - **Offset**: shifts this item and the ones after it in its group, in pixels.
@@ -386,43 +418,49 @@ For a bar on an edge:
 
 - **Edge**: Bottom, Top, Left or Right.
 - **Alignment**: Centre, Start (left / top) or End (right / bottom).
-- **Offset**: moves the dock along its edge from its aligned place, in pixels at 100 % scaling.
 - **Full width**: the bar spans the whole edge.
+- **Reserve screen space**: maximized windows stop at the dock instead of going under it. Only for a dock with auto-hide off.
 - **When the icons do not fit**: **Scroll** (use the wheel or drag the bar), **Shrink the icons**, or **Clip at the screen's end**.
 
 For a floating bar:
 
 - **Faces**: the edge it faces: where its icons grow and its popups open.
-- **Position x** and **Position y**: its top-left corner, from the top-left of the screen. Leave them empty to centre it.
 - **When the icons do not fit**, as above.
 
-For a half circle: **Edge**, **Radius** (0: automatic) and **Turn the icons with the ring**. For a circle: **Position x** and **Position y** (its centre), **Radius** and **Turn the icons with the ring**.
+For a half circle: **Edge**, **Radius** (0: automatic) and **Turn the icons with the ring**. For a circle: **Radius** and **Turn the icons with the ring**.
 
 The small monitor at the right shows where the dock sits. It follows every change.
 
 #### Layer
 
+The **Layer and title** card:
+
 - **Normal (above windows)**: the dock sits above every window. Auto-hide keeps it out of the way.
 - **On the desktop, only while the desktop is showing**: the dock shows only while the desktop is in front (after Win+D or a click on the wallpaper).
 - **On the desktop, under every window**: the dock is always on the desktop, under your windows, like a folder window.
+- **Title** (bars): a text drawn beside the bar, for example to tell two docks apart.
 
 The dashboard hotkey brings the desktop layers to the front. See [Layers](guide-docks.md#layers).
 
-#### More placement options
+#### Exact offsets
 
-Click **More: reserve screen space, peek, maximum length, title** to show these settings for bars:
+The exact numbers are in the **Exact offsets** card, closed when the window opens: dragging the dock (Ctrl+drag on an edge) is the usual way to move it. Click its heading to open it. The heading counts the values that differ from a new dock's, for example "Exact offsets · 2 changed". It shows only the rows that apply to the kind of placement:
 
-- **Reserve screen space**: maximized windows stop at the dock instead of going under it. Only for a dock with auto-hide off.
-- **Peek when hidden**: keeps a thin strip of the hidden dock on screen, in pixels. 0 is off.
+- **Position x** and **Position y** (a floating bar: its top-left corner; a circle: its centre): from the top-left of the screen. Leave them empty to centre it.
+- **Offset** (a bar on an edge): moves the dock along its edge from its aligned place, in pixels at 100 % scaling.
+- **Peek when hidden** (a bar on an edge): keeps a thin strip of the hidden dock on screen, in pixels. 0 is off.
 - **Peek opacity**: how visible that strip is, in percent.
-- **Maximum length**: the longest the bar may get, in pixels. 0 means no limit. A longer dock scrolls or shrinks its icons.
-- **Title**: a text drawn beside the bar, for example to tell two docks apart.
+- **Maximum length** (bars that are not full width): the longest the bar may get, in pixels. 0 means no limit. A longer dock scrolls or shrinks its icons.
+
+A half circle has none of these, so the card is not shown for it.
 
 ### Appearance tab
 
 #### Dock theme
 
-- **This dock's theme**: **Same as all docks** uses the global theme. Pick another theme to give only this dock a different look.
+The first card, **Theme and size**, holds what you change most often.
+
+- **This dock's theme**: **Use app default** uses the app's theme from App settings > Themes; its name is in brackets, for example "Use app default (Dark)". Pick another theme to give only this dock a different look. While it has one, a **↺** (Reset to app default) at the end of the row goes back to the app's theme.
 
 The theme's colours and effects are on App settings > Themes (the link opens it). They apply to every dock, on top of this dock's theme.
 
@@ -430,6 +468,9 @@ The theme's colours and effects are on App settings > Themes (the link opens it)
 
 - **Icon size**: the size of the icons at rest.
 - **Magnification**: how much the icon under the pointer grows. 1.00 turns magnification off; 2.50 is the largest.
+
+The **Magnification details** card under it is closed at first (its heading counts the values you changed):
+
 - **Magnification range (icons)**: how many icons beside the pointer grow too, from 1 to 4.
 - **Bar while magnified**: what the bar does while icons grow.
 
@@ -449,7 +490,7 @@ The preview strip under this tab shows the dock with its theme and sizes.
 - **Always**: the dock hides when the mouse leaves it. Push the mouse against the screen edge to bring it back.
 - **When a window overlaps the dock**: the dock hides only while the active window covers it, and comes back by itself when it does not.
 
-Click **More: hide and reveal delays** to set how long the dock waits before it hides (**Hide delay**) and before it shows again when you touch the edge (**Reveal delay**), in milliseconds.
+The delays are in the **Delays and popup gap** card at the end of the tab.
 
 A floating bar has no auto-hide. For a floating bar this card shows one line instead of the options: it is shown by its layer and by the dashboard hotkey. To auto-hide it, choose **Bar on an edge** on the Position tab (click the **Position tab** link).
 
@@ -457,11 +498,6 @@ A floating bar has no auto-hide. For a floating bar this card shows one line ins
 
 - **Show window previews for apps with several windows**: rest the mouse on an app with two or more windows to see a card for each window. Click a card to bring that window to the front; click its × to close it.
 - **Show window previews for apps with a single window**: also show a preview for apps with one window.
-- **Preview delay**: how long the mouse must rest on the icon, in milliseconds.
-
-#### Popups
-
-- **Popup gap**: the space between the dock and the popups it opens (previews, folders, the calendar, the weather), in pixels.
 
 #### Mouse
 
@@ -473,6 +509,14 @@ A floating bar has no auto-hide. For a floating bar this card shows one line ins
 - **Notification badges on app icons**: shows the number of unread notifications on each app's icon.
 
 The notification centre itself is a widget: add it on the Contents tab. Which apps may show badges is set in App settings > Notifications.
+
+#### Delays and popup gap
+
+The timings, closed when the window opens. Click the heading to open it. It counts the values that differ from a new dock's, for example "Delays and popup gap · 1 changed".
+
+- **Hide delay** and **Reveal delay** (only while auto-hide is on): how long the dock waits before it hides after the mouse leaves, and before it shows again when you touch the edge, in milliseconds.
+- **Preview delay** (only while window previews are on): how long the mouse must rest on an app before its previews open, in milliseconds.
+- **Popup gap**: the space between the dock and the popups it opens (previews, folders, the calendar, the weather), in pixels.
 
 ### Running apps tab
 
@@ -495,7 +539,7 @@ To open it, right-click the widget and choose its settings entry (it opens on Co
 
 ### Content and Appearance tabs
 
-The widget's own settings, in cards, the same as for a widget on a dock: what it shows and does on **Content**, how it looks on **Appearance**. A widget whose settings are all of one kind has only that tab. See [Widget settings](guide-items.md#widget-settings). The last card of each has **Reset to defaults** and **Console…**.
+The widget's own settings, in cards, the same as for a widget on a dock: what it shows and does on **Content**, how it looks on **Appearance**. A widget whose settings are all of one kind has only that tab. See [Widget settings](guide-items.md#widget-settings). The last card of each has **Reset to factory defaults…** and **Console…** (see [Resetting](#resetting)).
 
 ### Placement tab
 
@@ -563,9 +607,9 @@ A move never overwrites a file, and you can undo it with Ctrl+Z in File Explorer
 
 An item's settings window edits one item on a dock. Each clock, weather item and widget has its own settings, so two clocks can show two time zones.
 
-The header shows the item's icon, its name, the dock it is on (click it to open that dock's window), its place on the dock and a one-line description. The footer says "Changes apply at once" and has **Reset to defaults** (for a widget, clock, weather or tray item) and **Console…** (for a widget).
+The header shows the item's icon, its name, the dock it is on (click it to open that dock's window), its place on the dock and a one-line description. The footer says "Changes apply at once" and has **Reset to factory defaults…** (for a widget, clock, weather or tray item) and **Console…** (for a widget). A widget that shows a shared value has **Reset to app default** beside them while it has a value of its own (see [App defaults and local values](#app-defaults-and-local-values)).
 
-Every widget, clock and weather item has the same structure: what it shows and does is on the **Content** tab (places, feeds, metrics, time zones, labels, what a click does), how it looks on the **Appearance** tab (faces, styles, colours, sizes, motion). An item whose settings are all of one kind has one page and no tabs. **Reset to defaults** and **Console…** stay in the footer under both tabs.
+Every widget, clock and weather item has the same structure: what it shows and does is on the **Content** tab (places, feeds, metrics, time zones, labels, what a click does), how it looks on the **Appearance** tab (faces, styles, colours, sizes, motion). An item whose settings are all of one kind has one page and no tabs. **Reset to factory defaults…** and **Console…** stay in the footer under both tabs.
 
 What the page holds depends on the item:
 
@@ -575,6 +619,6 @@ What the page holds depends on the item:
 - **System tray**: the cards The grid, Icons in the grid and Takeover. See [The tray](guide-items.md#the-tray).
 - **A folder or a group**: how it shows its contents, its icon, and for a group its shortcuts. See [Folders](guide-items.md#folders) and [Groups](guide-items.md#groups).
 
-**Reset to defaults** puts the item back to its default settings. A clock or weather item takes the defaults for new clocks and weather items; a widget takes its own defaults.
+**Reset to factory defaults…** puts the item back to the settings WinDock ships with, after asking (see [Resetting](#resetting)). A clock or weather item takes the settings a new clock or weather item starts with; a widget takes its own defaults.
 
 If the item moves on the dock, its window follows it. If the item is removed, its window closes.

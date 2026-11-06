@@ -89,7 +89,16 @@ protected:
         Tip(kLaunchPulseCaption, L"The icon pulses (grows and shrinks) once when you click it.");
         Tip(kLaunchNoneCaption, L"No launch animation.");
 
-        Section(kSectionMotion, L"Motion", L"guide-settings.md#motion");
+        Section(kSectionAccessibility, L"Accessibility", L"guide-settings.md#accessibility");
+        Label(kReduceMotionLabel, L"Reduce motion", L"", kReduceMotionNote);
+        Combo(kReduceMotionCombo, kColX, right - kColX, false);
+        NextRow();
+
+        // Round 10 phase 10D: the fine tuning (was the Motion card, same id) in a heading expander
+        // after the common cards, closed at first; its title counts the values that are not the
+        // defaults ("Motion and timings · 1 changed").
+        UntitledCard();
+        HeadingExpander(kSectionMotion, L"Motion and timings", false, L"guide-settings.md#motion-and-timings");
         Label(kFalloffLabel, L"Magnification falloff");
         Tip(kFalloffLabel, L"How the magnification fades from the icon under the pointer to its neighbours: smooth (cosine, the default) or linear.");
         Combo(kFalloffCombo, kColX, 220, false);
@@ -104,12 +113,19 @@ protected:
                 [](Config& c, DockConfig&) -> int& { return c.animation.labelFadeMs; }, SettingsScope::Appearance);
         Text(kLabelFadeUnit, CtlKind::Note, L"ms", kColX + 98, 40);
         NextRow();
-
-        Section(kSectionAccessibility, L"Accessibility", L"guide-settings.md#accessibility");
-        Label(kReduceMotionLabel, L"Reduce motion", L"", kReduceMotionNote);
-        Combo(kReduceMotionCombo, kColX, right - kColX, false);
-        NextRow();
+        EndExpander();
     }
+
+    // Round 10 phase 10D: "Motion and timings · n changed".
+    void UpdateCounts() {
+        const AnimationConfig& a = Cfg().animation;
+        const AnimationConfig fresh;
+        const int n = (a.magnifyFalloff != fresh.magnifyFalloff ? 1 : 0) + (a.easing != fresh.easing ? 1 : 0) +
+                      (a.labelFadeMs != fresh.labelFadeMs ? 1 : 0);
+        SetExpanderText(kSectionMotion, ChangedTitle(L"Motion and timings", n));
+    }
+
+    void IntChanged(int, int) override { UpdateCounts(); }
 
     void Created() override {
         ComboAdd(kFalloffCombo, L"Smooth (cosine)");  // Falloff order
@@ -139,6 +155,7 @@ protected:
         SetComboSel(kEasingCombo, static_cast<int>(a.easing));
         SetComboSel(kReduceMotionCombo, static_cast<int>(a.reduceMotion));
         UpdateSystemNote();
+        UpdateCounts();
     }
 
     void OnSettingChange(WPARAM wp, LPARAM) override {
@@ -187,6 +204,7 @@ private:
         if (field == value) return;
         field = value;
         Changed(SettingsScope::Appearance);
+        UpdateCounts();
     }
 
     void UpdateSystemNote() {

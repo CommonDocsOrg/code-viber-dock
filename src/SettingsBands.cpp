@@ -115,7 +115,13 @@ void SettingsWindow::CreateBands(bool footer) {
         const DockItemEntry* e = TargetItem();
         const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
         if (footer_ && (k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Tray)) {
-            child(footer_, kFooterReset, WC_BUTTONW, L"Reset to defaults");
+            // Round 10 phase 10D: was "Reset to defaults"; it asks first (ConfirmFactoryReset).
+            child(footer_, kFooterReset, WC_BUTTONW, L"Reset to factory defaults\x2026");
+        }
+        if (footer_ && k == ItemKind::Widget) {
+            // Round 10 phase 10D: beside it while the widget has a value of its own over a shared
+            // one (a place; the page shows it: ShowFooterResetApp). Hidden at first.
+            if (HWND h = child(footer_, kFooterResetApp, WC_BUTTONW, L"Reset to app default")) ShowWindow(h, SW_HIDE);
         }
         if (footer_ && k == ItemKind::Widget) child(footer_, kFooterConsole, WC_BUTTONW, L"Console…");
         return;
@@ -204,7 +210,9 @@ void SettingsWindow::LayoutBands() {
             place(footer_, kFooterConsole, right - Px(110), top, Px(110), Px(30));
             right -= Px(110) + Px(8);
         }
-        place(footer_, kFooterReset, right - Px(150), top, Px(150), Px(30));
+        place(footer_, kFooterReset, right - Px(180), top, Px(180), Px(30));  // round 10 phase 10D: 150 -> 180
+        right -= Px(180) + Px(8);
+        place(footer_, kFooterResetApp, right - Px(150), top, Px(150), Px(30));
         InvalidateRect(footer_, nullptr, TRUE);
     }
 }
@@ -500,7 +508,17 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
     };
     if (isFooter) {
         Fill(dc, RECT{0, 0, rc.right, std::max(1, Px(1))}, hair);
-        text(L"Changes apply at once", RECT{Px(20), 0, rc.right / 2, rc.bottom}, font_, palette_.textSecondary,
+        // Round 10 phase 10D: up to the leftmost shown button (with Reset to app default beside
+        // the two others there is less than half the footer left; "…" when it does not fit).
+        int end = rc.right / 2;
+        for (HWND c = GetWindow(footer_, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
+            if (!(GetWindowLongW(c, GWL_STYLE) & WS_VISIBLE)) continue;
+            RECT cr{};
+            GetWindowRect(c, &cr);
+            MapWindowPoints(nullptr, footer_, reinterpret_cast<POINT*>(&cr), 2);
+            end = std::min(end, static_cast<int>(cr.left) - Px(8));
+        }
+        text(L"Changes apply at once", RECT{Px(20), 0, std::max(static_cast<int>(Px(20)), end), rc.bottom}, font_, palette_.textSecondary,
              DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
     } else if (kind_ == SettingsKind::Global) {
         text(L"App settings · apply to every dock", RECT{Px(24), 0, rc.right - Px(16), rc.bottom}, font_, palette_.textSecondary,
@@ -772,7 +790,18 @@ void SettingsWindow::OnBandCommand(int id) {
             if (host_.openDock && DockIndex() != SIZE_MAX) host_.openDock(DockIndex(), -1);
             break;
         case kFooterReset:
-            if (SettingsPage* page = ActivePage()) page->OnCommand(kWidgetReset, BN_CLICKED, nullptr);
+            // Round 10 phase 10D: "Reset to factory defaults…" asks first.
+            if (TargetItem() && ConfirmFactoryReset(ItemName(), TargetItem()->Kind())) {
+                if (SettingsPage* page = ActivePage()) page->OnCommand(kWidgetReset, BN_CLICKED, nullptr);
+            }
+            break;
+        case kFooterResetApp:  // round 10 phase 10D: the page that shows the place drops it
+            for (const auto& page : pages_) {
+                if (page->Item(kPlaceUseShared)) {
+                    page->OnCommand(kFooterResetApp, BN_CLICKED, nullptr);
+                    break;
+                }
+            }
             break;
         case kFooterConsole:
             if (host_.command) host_.command(ContextMenu::kWidgetConsole);
@@ -780,4 +809,43 @@ void SettingsWindow::OnBandCommand(int id) {
         default:
             break;
     }
+}
+
+bool SettingsWindow::ConfirmFactoryReset(const std::wstring& name, ItemKind kind) {
+    if (!hwnd_) return false;
+    const std::wstring dock = dockId_.empty() ? std::wstring() : L" on " + dockId_;
+    std::wstring text;
+    switch (kind) {
+        case ItemKind::Clock:
+        case ItemKind::Weather:
+            // The values a new clock / weather item gets (Config::EnsureItemSettings): WinDock's,
+            // unless config.json's top-level "clock" / "weather" objects were edited by hand.
+            text = L"Resets all of " + name + L"'s settings" + dock + L" to the values WinDock ships with (the ones a new " +
+                   (kind == ItemKind::Clock ? std::wstring(L"clock") : std::wstring(L"weather item")) +
+                   L" starts with). App defaults are not changed.";
+            break;
+        case ItemKind::Tray:
+            text = L"Resets " + name + dock + L" (rows, columns, icon size, hidden icons and their order) to the values "
+                   L"WinDock ships with. The tray takeover and other app defaults are not changed.";
+            break;
+        default:
+            text = L"Resets all of " + name + L"'s settings" + dock + L" to the values WinDock ships with (the widget's "
+                   L"own defaults). App defaults are not changed.";
+            break;
+    }
+    text += L"\n\nReset now?";
+    // Owned by this window (it is disabled meanwhile); App holds what a dock's dialog holds, so
+    // the item cannot be removed or the config reloaded under it (host.modal).
+    if (host_.modal) host_.modal(true);
+    const int answer = MessageBoxW(hwnd_, text.c_str(), L"Reset to factory defaults", MB_YESNO | MB_ICONWARNING | MB_DEFBUTTON2);
+    if (host_.modal) host_.modal(false);
+    return answer == IDYES && hwnd_ && IsWindow(hwnd_);
+}
+
+void SettingsWindow::ShowFooterResetApp(bool show) {
+    HWND h = footer_ ? GetDlgItem(footer_, kFooterResetApp) : nullptr;
+    if (!h || ((GetWindowLongW(h, GWL_STYLE) & WS_VISIBLE) != 0) == show) return;
+    if (!show && GetFocus() == h) SetFocus(hwnd_);
+    ShowWindow(h, show ? SW_SHOWNA : SW_HIDE);
+    InvalidateRect(footer_, nullptr, TRUE);  // "Changes apply at once" ends before the buttons
 }

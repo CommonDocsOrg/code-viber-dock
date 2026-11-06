@@ -1753,6 +1753,13 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         OpenPresets(mode == 1 ? PresetMode::Welcome : mode == 2 ? PresetMode::NewDock : PresetMode::Apply, dock, w->Hwnd());
     };
     host.openHelp = [this, w](const std::wstring& topic) { OpenHelp(topic, w->Hwnd()); };  // round 9 phase 9D
+    host.modal = [this](bool open) {  // round 10 phase 10D: Reset to factory defaults…'s confirmation
+        if (open) {
+            ++modalDepth_;
+        } else {
+            EndModal();
+        }
+    };
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
     host.dockWindows = [this](size_t index) {
         int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;

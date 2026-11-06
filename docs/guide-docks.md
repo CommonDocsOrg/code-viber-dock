@@ -6,6 +6,8 @@ This guide is about the docks themselves: how many you have, where they sit, how
 
 You can have as many docks as you like. Each dock has its own items, its own place on the screen, its own auto-hide and its own settings window. For example, you can have your apps at the bottom, a small dock with widgets at the top, and a dock on a second display.
 
+What a dock shares with the others is its theme: a new dock's **This dock's theme** (its Appearance tab) reads **Use app default (Dark)**, the theme of App settings > Themes. Pick another theme there to give one dock a look of its own; the **↺** beside it goes back to the app default. See [App defaults and local values](guide-settings.md#app-defaults-and-local-values).
+
 Each dock has a name and a colour. The colour shows in its settings window's title bar and header and in the drawing on App settings > Docks and displays, so you can tell the docks apart.
 
 To add a dock:
@@ -45,21 +47,23 @@ To move a dock by dragging:
 
 A locked dock does not move. Press Esc while dragging to cancel.
 
-On the Position tab you can also set these precisely:
+On the Position tab's first card you can also set:
 
 - **Alignment**: Centre, Start (the left or top end) or End (the right or bottom end).
-- **Offset**: moves the dock from its aligned place along the edge, in pixels at 100 % scaling.
 - **Full width**: the bar spans the whole edge, flush with the screen edge, like a taskbar.
+- **Reserve screen space** keeps maximized windows from covering a dock with auto-hide off.
 - **When the icons do not fit**: a dock with more items than fit can **Scroll** (use the mouse wheel or drag the bar), **Shrink the icons**, or **Clip at the screen's end**.
 
 You can also drag a dock to another place, edge or display on App settings > Docks and displays.
 
-Under **More** on the Position tab:
+The **Layer and title** card has **Title**, a short text drawn beside the bar.
 
-- **Reserve screen space** keeps maximized windows from covering a dock with auto-hide off.
+The numbers are in the **Exact offsets** card, closed until you click its heading (it says "· 1 changed" when one of them is set):
+
+- **Offset**: moves the dock from its aligned place along the edge, in pixels at 100 % scaling.
 - **Peek when hidden** keeps a thin strip of a hidden dock visible, so you can see where it is.
 - **Maximum length** stops the bar from growing past a length. A longer dock scrolls or shrinks its icons.
-- **Title** draws a short text beside the bar.
+- **Position x** and **Position y** place a floating bar or a circle.
 
 ## Auto-hide
 
@@ -71,7 +75,7 @@ Auto-hide slides a dock off the screen when you do not need it. Set it from the 
 
 The dock does not hide while one of its menus, popups or previews is open, or while you drag something.
 
-Under **More: hide and reveal delays** you can set how long the dock waits before hiding and before showing again. App settings > Animation sets how it hides: slide and fade, slide, fade or at once.
+In the **Delays and popup gap** card at the end of the Behaviour tab (closed until you click its heading) you can set how long the dock waits before hiding and before showing again. App settings > Animation sets how it hides: slide and fade, slide, fade or at once.
 
 A floating bar never auto-hides. Its layer and the dashboard hotkey decide when you see it.
 

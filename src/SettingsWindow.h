@@ -175,6 +175,10 @@ struct SettingsHost {
     // Round 9 phase 9D: the Help window at `topic` ("guide-settings.md#behaviour-tab"; F1, the
     // cards' "?" buttons, the Global nav's Help row, About's Quick start guide).
     std::function<void(const std::wstring& topic)> openHelp;
+    // Round 10 phase 10D: a dialog of the window's own is open (true) / closed (false): App holds
+    // what a dock's dialog holds (App::modalDepth_: no Reload config, no dock removal, display
+    // changes wait), so the window and its item are still there when the dialog returns.
+    std::function<void(bool open)> modal;
 };
 
 class SettingsWindow;
@@ -434,6 +438,11 @@ protected:
     void SetExpander(int id, bool open);
     // Round 8 phase 8D: an expander's text ("Bar · 2 changed").
     void SetExpanderText(int id, const std::wstring& text);
+    // Round 10 phase 10D: "<title> · n changed" (n > 0), else the title.
+    static std::wstring ChangedTitle(const wchar_t* title, int n);
+    // Round 10 phase 10D: the page's heading expander `id` was opened or closed (a page that lays
+    // itself out, NoReflow, places its rows again).
+    virtual void OnExpanderToggled(int /*id*/) {}
     // Scrolls the page so control `id` is in view (as the Tab key does).
     void ScrollIntoView(int id);
     // A note's measured height in DIPs at `widthDip` (the page's own layouts, e.g. the Contents
@@ -541,6 +550,13 @@ public:
     bool PreTranslateMessage(MSG& msg);
     // Reloads every control from *host.config (after tray toggles, Reload config) and the header.
     void Refresh();
+    // Round 10 phase 10D: "Reset to factory defaults…" asks first: a Yes / No MessageBox owned by
+    // this window (under host.modal's hold) saying what resets (all of `name`'s settings on this
+    // window's dock, `kind` words it) and that app defaults are untouched. True: Yes.
+    bool ConfirmFactoryReset(const std::wstring& name, ItemKind kind);
+    // Round 10 phase 10D: the Item footer's "Reset to app default" (kFooterResetApp, a script widget
+    // with a place of its own) shown beside Reset to factory defaults… or hidden.
+    void ShowFooterResetApp(bool show);
     // Selects a page (Global: SettingsIds::kPage*, Dock: kTab*), as a click in the nav / tabs would.
     void ShowPage(int index);
     int ActivePageIndex() const { return active_; }

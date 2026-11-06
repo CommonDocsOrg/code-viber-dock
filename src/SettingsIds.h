@@ -18,8 +18,9 @@ inline constexpr int kHeaderFlash = 110;    // Dock: "Flash" (round 8 phase 8B: 
 inline constexpr int kHeaderLock = 111;     // Dock: "Lock" / "Unlock" (docks[].locked; was "Lock dock" / "Unlock dock")
 inline constexpr int kHeaderGlobal = 112;   // Dock: the "⋯" menu's "App settings…" command (round 8 phase 8B; was a SysLink; round 10 10A: was "Global settings…")
 inline constexpr int kHeaderDockLink = 113; // Item: SysLink "on <dock id>" (opens / activates the dock window)
-inline constexpr int kFooterReset = 114;    // Item (widget / clock / weather): "Reset to defaults"
+inline constexpr int kFooterReset = 114;    // Item (widget / clock / weather / tray): "Reset to factory defaults…" (round 10 phase 10D: was "Reset to defaults"; asks first: post it, the MessageBox is modal)
 inline constexpr int kFooterConsole = 115;  // Item (widget): "Console…"
+inline constexpr int kFooterResetApp = 117; // Item (round 10 phase 10D): "Reset to app default" beside it (a script widget with a place of its own: drops it)
 inline constexpr int kHeaderMore = 116;     // Dock: round 8 phase 8B: the "⋯" button (a menu: App settings… = kHeaderGlobal)
 
 // Page indices of the Global window (round 5 phase B renumbered them). Round 8 phase 8D: the nav
@@ -242,13 +243,13 @@ inline constexpr int kMaxLengthNote = 2267;        // "0: no limit. Longer runs 
 inline constexpr int kAlignNote = 2268;            // "Where the dock sits on its edge; with full width or anchored items, …"
 // Round 8 phase 8A: Behaviour > Auto-hide, the expander over Hide delay / Reveal delay
 // (QueryState 276 with this id: 1 while it is open).
-inline constexpr int kAutoHideMore = 2269;
+inline constexpr int kAutoHideMore = 2269;  // round 10 phase 10D: the heading "Delays and popup gap" (hide / reveal / preview delays, popup gap)
 // Round 8 phase 8B: the Position tab's placement kind (it sets shape + floating; the shape combo
 // 2169 and the Floating check box 2189 stay as hidden controls for automation), the "More"
 // expander, the dock silhouette (moved from the header) and the Layer card.
 inline constexpr int kPlacementKindLabel = 2270;
 inline constexpr int kPlacementKindCombo = 2271;   // 0 bar on an edge, 1 floating bar, 2 half circle, 3 circle (QueryState 277)
-inline constexpr int kPositionMore = 2272;         // expander: reserve screen space, peek, maximum length, title (bars only)
+inline constexpr int kPositionMore = 2272;         // expander: reserve screen space, peek, maximum length, title (bars only); round 10 phase 10D: the heading "Exact offsets" (x / y, offset, peek, maximum length)
 inline constexpr int kPositionSilhouette = 2273;   // WinDock.SettingsSilhouette: the display with the dock on it (window text: "Where it sits: …")
 inline constexpr int kSectionLayer = 2274;
 // Round 9 phase 9A. The General range 2100 - 2199 has only retired ids left (and 2199), so the
@@ -300,7 +301,7 @@ inline constexpr int kSectionFieldsEffects = 2417;  // "Icon effects": glow, ref
 inline constexpr int kEffectsNote = 2418;
 // Round 4 phase 3: the edited dock's own theme preset (docks[].themePreset).
 inline constexpr int kDockThemeLabel = 2419;
-inline constexpr int kDockThemeCombo = 2420;     // 0 "Same as all docks" (""), then the presets / theme files of kThemeCombo
+inline constexpr int kDockThemeCombo = 2420;     // 0 "Use app default (<app theme>)" ("", round 10 phase 10D: was "Same as all docks"), then the presets / theme files of kThemeCombo
 inline constexpr int kSectionFieldsBadges = 2421; // round 4 phase 9: "Notification badges" (badgeFill, badgeText, badgeSize)
 // Round 5 phase B: the Dock window's Theme tab (kDockThemeCombo, then these).
 inline constexpr int kDockThemeNote = 2422;
@@ -735,5 +736,19 @@ inline constexpr int kAboutQuickStart = 5203; // Global > About: "Quick start gu
 inline constexpr int kHelpList = 5210;        // the guides (owner-drawn LISTBOX: LB_SETCURSEL + LBN_SELCHANGE)
 inline constexpr int kHelpView = 5211;        // the guide (RichEdit, read only; EM_GETFIRSTVISIBLELINE / EM_GETLINE)
 inline constexpr int kHelpButtonBase = 5300;  // a card's "?" button: 5300 + the card's index on its page (BM_CLICK opens the Help there)
+
+// Round 10 phase 10D: common first, detail collapsed; inherited versus local (5400 - 5499). The
+// heading expanders are closed when a window opens (QueryState 276 by id); their titles end in
+// " · n changed" while values in them differ from the defaults. Expanders that existed before keep
+// their ids and became heading expanders: 2269 (Behaviour "Delays and popup gap"), 2272 (Position
+// "Exact offsets"), 2522 (Animation "Motion and timings", was the Motion section), the Themes
+// groups 2410 - 2421 (all closed now; Bar was open at first).
+inline constexpr int kDockThemeReset = 5400;     // Dock > Appearance: "↺" beside This dock's theme (tooltip "Reset to app default"; shown only while the dock has a preset of its own)
+inline constexpr int kMagnifyMore = 5401;        // Dock > Appearance: heading expander "Magnification details" (range, bar while magnified)
+inline constexpr int kItemPlaceExpander = 5402;  // Dock > Contents inspector: heading expander "Position on the dock" (anchor, offset)
+inline constexpr int kCalReminderDefault = 5403; // Calendar feeds form: check box "Use the default reminder (n min)" (+ caption 5404); checked = reminderMin 0
+inline constexpr int kCalReminderDefaultCaption = 5404;
+inline constexpr int kCalReminderReset = 5405;   // ... "↺" on the minutes row (tooltip "Reset to app default"; shown only while the form has a reminder of its own)
+inline constexpr int kPlaceUseShared = 5406;     // a script widget's place: "↺" beside the Place line (tooltip "Reset to app default"; shown only while it has a place of its own)
 
 }  // namespace SettingsIds

@@ -425,29 +425,20 @@ protected:
         NextRow();
         // Round 8 phase 8A: the notes are one-line hints (kCircleNote, kAlignNote, kPositionNote,
         // kMaxLengthNote, kPositionNote2, kLayerNote are the hints' ids) and tooltips.
-        Label(kCircleXLabel, L"Position x", L"DIPs; empty: centred", kCircleNote);
-        Tip(kCircleXLabel, L"Position (DIPs from the work area's top-left; empty = centred): a floating bar's top-left "
-                           L"corner, a circle's centre. Ctrl+drag a circle to move it.");
-        EditBox(kCircleXEdit, kColX, 88, 7);
-        NextRow();
-        Label(kCircleYLabel, L"Position y");
-        Tip(kCircleYLabel, L"DIPs from the top of the work area to the bar's or circle's top (empty: centred). Default: empty.");
-        EditBox(kCircleYEdit, kColX, 88, 7);
-        NextRow();
+        // Round 10 phase 10D: x / y and the offset are in the Exact offsets card below.
         // Round 7 phase 7B: items[].anchor (the Contents tab's "Position on the dock").
         Label(kAlignLabel, L"Alignment", L"Where the dock sits", kAlignNote);
         Tip(kAlignLabel, L"Where the dock sits on its edge; with full width or anchored items, where the items without a "
                          L"position of their own sit.");
         Combo(kAlignCombo, kColX, 160, false);
         NextRow();
-        Label(kOffsetLabel, L"Offset (pixels)", L"Along the edge", kPositionNote);
-        Tip(kOffsetLabel, L"Moves the dock along its edge from the aligned place (right / down). Ctrl+drag the dock to "
-                          L"move it along its edge or onto another edge (unless it is locked).");
-        IntSpin(kOffsetEdit, kOffsetSpin, kColX, 88, -16000, 16000, 10, [](Config&, DockConfig& d) -> int& { return d.offset; },
-                SettingsScope::Appearance);
-        NextRow();
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
         Tip(kFullWidthCaption, L"The bar spans the whole edge like a taskbar; the icons sit where Alignment puts them. Off by default.");
+        NextRow();
+        // Round 10 phase 10D: from the "More" expander (a bar on an edge with auto-hide off).
+        Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
+        Tip(kReserveSpaceCaption, L"Keeps maximized windows off the dock: reserves a strip along the whole edge (auto-hide "
+                                  L"off only). On by default.");
         NextRow();
         Label(kRadiusLabel, L"Radius (pixels)", L"0: automatic");
         IntSpin(kRadiusEdit, kRadiusSpin, kColX, 88, 0, 2000, 10, [](Config&, DockConfig& d) -> int& { return d.radius; },
@@ -470,7 +461,7 @@ protected:
         Tip(kFloatingCaption, L"A bar that floats anywhere on the display instead of sitting on an edge. Off by default. Kind above chooses it.");
         NextRow();
 
-        Section(kSectionLayer, L"Layer", L"guide-settings.md#layer");
+        Section(kSectionLayer, L"Layer and title", L"guide-settings.md#layer");
         Label(kLayerLabel, L"Layer", L"", kLayerNote);
         Tip(kLayerLabel,
             L"Normal: above every window; it auto-hides as set on the Behaviour tab. On the desktop, only while the "
@@ -479,13 +470,31 @@ protected:
             L"The dashboard hotkey brings the desktop layers to the front.");
         Combo(kLayerCombo, kColX, right - kColX, false);
         NextRow();
+        // Round 10 phase 10D: from the "More" expander (bars only).
+        Label(kTitleLabel, L"Title", L"Drawn beside the bar", kPositionNote2);
+        Tip(kTitleLabel, L"The title is drawn beside the bar, toward the middle of the screen (empty: none).");
+        EditBox(kTitleEdit, kColX, right - kColX, 128);
+        NextRow();
 
-        // Bars only (collapsed for the rings).
-        UntitledCard(L"guide-settings.md#more-placement-options");
-        Expander(kPositionMore, L"More: reserve screen space, peek, maximum length, title");
-        Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
-        Tip(kReserveSpaceCaption, L"Keeps maximized windows off the dock: reserves a strip along the whole edge (auto-hide "
-                                  L"off only).");
+        // Round 10 phase 10D: the exact numbers (x / y, offset, maximum length, peek) in a heading
+        // expander, closed at first (was "More: reserve screen space, peek, maximum length, title";
+        // same id). Its rows follow the placement kind; with none (a half circle) it is collapsed.
+        UntitledCard();
+        HeadingExpander(kPositionMore, L"Exact offsets", false, L"guide-settings.md#exact-offsets");
+        Label(kCircleXLabel, L"Position x", L"DIPs; empty: centred", kCircleNote);
+        Tip(kCircleXLabel, L"Position (DIPs from the work area's top-left; empty = centred): a floating bar's top-left "
+                           L"corner, a circle's centre. Drag a floating bar (Ctrl+drag a circle) to move it.");
+        EditBox(kCircleXEdit, kColX, 88, 7);
+        NextRow();
+        Label(kCircleYLabel, L"Position y");
+        Tip(kCircleYLabel, L"DIPs from the top of the work area to the bar's or circle's top (empty: centred). Default: empty.");
+        EditBox(kCircleYEdit, kColX, 88, 7);
+        NextRow();
+        Label(kOffsetLabel, L"Offset (pixels)", L"Along the edge", kPositionNote);
+        Tip(kOffsetLabel, L"Moves the dock along its edge from the aligned place (right / down). Ctrl+drag the dock to "
+                          L"move it along its edge or onto another edge (unless it is locked). Default: 0.");
+        IntSpin(kOffsetEdit, kOffsetSpin, kColX, 88, -16000, 16000, 10, [](Config&, DockConfig& d) -> int& { return d.offset; },
+                SettingsScope::Appearance);
         NextRow();
         Label(kPeekLabel, L"Peek when hidden (pixels)", L"0: off");
         Tip(kPeekLabel, L"Keeps that much of the hidden dock on screen (0: off).");
@@ -501,10 +510,6 @@ protected:
         Tip(kMaxLengthLabel, L"0: no limit. A longer run of icons scrolls (see When the icons do not fit). Not for a "
                              L"ring or a full-width bar.");
         Spin(kMaxLengthEdit, kMaxLengthSpin, kColX, 88, 0, 8000, 50);
-        NextRow();
-        Label(kTitleLabel, L"Title", L"Drawn beside the bar", kPositionNote2);
-        Tip(kTitleLabel, L"The title is drawn beside the bar, toward the middle of the screen (empty: none).");
-        EditBox(kTitleEdit, kColX, right - kColX, 128);
         NextRow();
         EndExpander();
     }
@@ -538,20 +543,7 @@ protected:
         Tip(kAutoHideFloatingLink, L"Opens the Position tab, where Kind chooses a bar on an edge (which can auto-hide) or a "
                                    L"floating bar.");
         NextRow();
-        // Round 8 phase 8A: the delays behind an expander (round 9 phase 9A: collapsed while
-        // auto-hide is off).
-        Expander(kAutoHideMore, L"More: hide and reveal delays");
-        Label(kHideDelayLabel, L"Hide delay", L"After the mouse leaves");
-        IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50,
-                [](Config&, DockConfig& d) -> int& { return d.hideDelayMs; }, SettingsScope::SaveOnly);
-        Text(kHideDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
-        NextRow();
-        Label(kRevealDelayLabel, L"Reveal delay", L"Before it shows again");
-        IntSpin(kRevealDelayEdit, kRevealDelaySpin, kColX, 90, 0, 10000, 50,
-                [](Config&, DockConfig& d) -> int& { return d.revealDelayMs; }, SettingsScope::SaveOnly);
-        Text(kRevealDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
-        NextRow();
-        EndExpander();
+        // Round 10 phase 10D: the hide / reveal delays are in the Delays card at the end.
 
         Section(kSectionPreviews, L"Window previews", L"guide-settings.md#window-previews");
         Check(kPreviews, kPreviewsCaption, L"Show window previews for apps with several windows");
@@ -560,22 +552,6 @@ protected:
         Check(kPreviewSingle, kPreviewSingleCaption, L"Show window previews for apps with a single window",
               kMargin + kCaptionDx);
         Tip(kPreviewSingleCaption, L"Also shows the preview for an app with one window. Off by default. Needs window previews on.");
-        NextRow();
-        Label(kPreviewDelayLabel, L"Preview delay");
-        Tip(kPreviewDelayLabel, L"How long the pointer rests on an app before its previews open. Default: 600 ms.");
-        IntSpin(kPreviewDelayEdit, kPreviewDelaySpin, kColX, 90, 0, 10000, 50,
-                [](Config&, DockConfig& d) -> int& { return d.previewDelayMs; }, SettingsScope::SaveOnly);
-        Text(kPreviewDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
-        NextRow();
-
-        // Round 7 phase 7A: docks[].popupGap (read when a popup opens).
-        Section(kSectionPopups, L"Popups", L"guide-settings.md#popups");
-        // (The label column is 196 DIPs: "Gap between the dock and its popups" did not fit there.)
-        Label(kPopupGapLabel, L"Popup gap");
-        Tip(kPopupGapLabel, L"The space between the dock and its popups (folders, calendar, previews, widget popups). Default: 6 DIPs.");
-        IntSpin(kPopupGapEdit, kPopupGapSpin, kColX, 90, 0, 64, 1,
-                [](Config&, DockConfig& d) -> int& { return d.popupGap; }, SettingsScope::SaveOnly);
-        Text(kPopupGapUnit, CtlKind::Note, L"DIP between the dock and its popups", kColX + 98, right - kColX - 98);
         NextRow();
 
         Section(kSectionMouse, L"Mouse", L"guide-settings.md#mouse");
@@ -603,6 +579,40 @@ protected:
         Tip(kBadgesCaption, kBadgesTip);
         Tip(kDockNotificationsNote, kBadgesTip);
         NextRow(22);
+
+        // Round 10 phase 10D: the timings and the popup gap in one heading expander, closed at
+        // first (kAutoHideMore was the "More: hide and reveal delays" expander of the Auto-hide card;
+        // the Popups card and the preview delay row joined it). The hide / reveal rows are
+        // collapsed while auto-hide is off (round 9 phase 9A).
+        UntitledCard();
+        HeadingExpander(kAutoHideMore, L"Delays and popup gap", false, L"guide-settings.md#delays-and-popup-gap");
+        Label(kHideDelayLabel, L"Hide delay", L"After the mouse leaves");
+        Tip(kHideDelayLabel, L"How long an auto-hiding dock waits after the pointer leaves it before it hides. Default: 400 ms.");
+        IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50,
+                [](Config&, DockConfig& d) -> int& { return d.hideDelayMs; }, SettingsScope::SaveOnly);
+        Text(kHideDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
+        NextRow();
+        Label(kRevealDelayLabel, L"Reveal delay", L"Before it shows again");
+        Tip(kRevealDelayLabel, L"How long the pointer rests at the screen edge before a hidden dock comes back. Default: 150 ms.");
+        IntSpin(kRevealDelayEdit, kRevealDelaySpin, kColX, 90, 0, 10000, 50,
+                [](Config&, DockConfig& d) -> int& { return d.revealDelayMs; }, SettingsScope::SaveOnly);
+        Text(kRevealDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
+        NextRow();
+        Label(kPreviewDelayLabel, L"Preview delay");
+        Tip(kPreviewDelayLabel, L"How long the pointer rests on an app before its window previews open. Default: 600 ms.");
+        IntSpin(kPreviewDelayEdit, kPreviewDelaySpin, kColX, 90, 0, 10000, 50,
+                [](Config&, DockConfig& d) -> int& { return d.previewDelayMs; }, SettingsScope::SaveOnly);
+        Text(kPreviewDelayUnit, CtlKind::Note, L"ms", kColX + 98, 40);
+        NextRow();
+        // Round 7 phase 7A: docks[].popupGap (read when a popup opens). (The label column is 196
+        // DIPs: "Gap between the dock and its popups" did not fit there.)
+        Label(kPopupGapLabel, L"Popup gap");
+        Tip(kPopupGapLabel, L"The space between the dock and its popups (folders, calendar, previews, widget popups). Default: 6 DIPs.");
+        IntSpin(kPopupGapEdit, kPopupGapSpin, kColX, 90, 0, 64, 1,
+                [](Config&, DockConfig& d) -> int& { return d.popupGap; }, SettingsScope::SaveOnly);
+        Text(kPopupGapUnit, CtlKind::Note, L"DIP between the dock and its popups", kColX + 98, right - kColX - 98);
+        NextRow();
+        EndExpander();
     }
 
     void BuildRunning() {
@@ -968,6 +978,7 @@ protected:
             if (v != field) {
                 field = v;
                 Changed(SettingsScope::Appearance);
+                EnableDependents();  // round 10 phase 10D: "Exact offsets · n changed"
             }
         }
     }
@@ -976,6 +987,10 @@ protected:
         if (spin == kPeekOpacitySpin) SetPeekOpacity(pos);
         if (spin == kMaxLengthSpin) SetMaxLength(pos, true);
     }
+
+    // Round 10 phase 10D: a bound number changed (offset, peek, delays, popup gap): the
+    // expanders' "· n changed" follow.
+    void IntChanged(int, int) override { EnableDependents(); }
 
 private:
     // The dock this page edits (the window's, looked up by id each time).
@@ -999,6 +1014,7 @@ private:
         if (std::fabs(d.peekOpacity - v) < 1e-9) return;
         d.peekOpacity = v;
         Changed(SettingsScope::Appearance);
+        EnableDependents();  // round 10 phase 10D: "Exact offsets · n changed"
     }
 
     // docks[].maxLength (round 7 phase 7A): 0 = no limit, else 96 - 8000 (Config::Sanitize). A value
@@ -1012,6 +1028,7 @@ private:
         if (value == d.maxLength) return;
         d.maxLength = value;
         Changed(SettingsScope::Appearance);  // relayout: the bar's room along the edge
+        EnableDependents();  // round 10 phase 10D: "Exact offsets · n changed"
     }
 
     void EnableDependents() {
@@ -1026,16 +1043,27 @@ private:
             SetText(kEdgeLabel, floating ? L"Faces" : L"Edge");
             Collapse({kEdgeLabel, kEdgeCombo}, kind == 3);
             // x / y: a floating bar's top-left or a circle's centre (round 6 phase 6A).
-            Collapse({kCircleXLabel, kCircleXEdit, kCircleYLabel, kCircleYEdit}, !(floating || kind == 3));
+            const bool xy = floating || kind == 3;
+            const bool maxLength = !ring && !(edgeBar && d.fullWidth);
+            Collapse({kCircleXLabel, kCircleXEdit, kCircleYLabel, kCircleYEdit}, !xy);
             Collapse({kAlignLabel, kAlignCombo, kOffsetLabel, kOffsetEdit, kFullWidth}, !edgeBar);
             Collapse({kRadiusLabel, kRadiusEdit, kRotateIcons}, !ring);
             Collapse({kOverflowLabel, kOverflowCombo}, ring);
-            // "More": bars only; reserve space and peek for a bar on an edge; the maximum length
-            // (round 7 phase 7A) for a bar that is not full width (a floating bar too).
-            Collapse(kPositionMore, ring);
+            // Reserve space and peek for a bar on an edge; the maximum length (round 7 phase 7A)
+            // for a bar that is not full width (a floating bar too); the title for bars.
             Collapse({kReserveSpace, kPeekLabel, kPeekEdit, kPeekOpacityLabel, kPeekOpacityEdit}, !edgeBar);
-            Collapse({kMaxLengthLabel, kMaxLengthEdit}, ring || (edgeBar && d.fullWidth));
+            Collapse({kMaxLengthLabel, kMaxLengthEdit}, !maxLength);
             Collapse({kTitleLabel, kTitleEdit}, ring);
+            // Round 10 phase 10D: Exact offsets: gone when none of its rows applies (a half circle);
+            // its title counts the applicable values that are not a new dock's.
+            Collapse(kPositionMore, !(xy || edgeBar || maxLength));
+            const DockConfig fresh;
+            int n = 0;
+            if (xy) n += (d.x != fresh.x ? 1 : 0) + (d.y != fresh.y ? 1 : 0);
+            if (edgeBar) n += (d.offset != fresh.offset ? 1 : 0) + (d.peekPx != fresh.peekPx ? 1 : 0) +
+                              (std::fabs(d.peekOpacity - fresh.peekOpacity) > 1e-9 ? 1 : 0);
+            if (maxLength) n += d.maxLength != fresh.maxLength ? 1 : 0;
+            SetExpanderText(kPositionMore, ChangedTitle(L"Exact offsets", n));
             return;
         }
         // Round 9 phase 9A: never greyed. Auto-hide is off for a floating dock (Config::Sanitize):
@@ -1043,12 +1071,19 @@ private:
         // to the Position tab; the delays are collapsed (not greyed) while auto-hide is off.
         Collapse({kAutoHideOff, kAutoHideAlways, kAutoHideIntelligent, kAutoHideNote}, floating);
         Collapse({kAutoHideFloatingNote, kAutoHideFloatingLink}, !floating);
-        Collapse({kAutoHideMore, kHideDelayLabel, kHideDelayEdit, kHideDelayUnit, kRevealDelayLabel, kRevealDelayEdit,
-                  kRevealDelayUnit},
+        Collapse({kHideDelayLabel, kHideDelayEdit, kHideDelayUnit, kRevealDelayLabel, kRevealDelayEdit, kRevealDelayUnit},
                  !d.AutoHideOn());
         // The preview options while previews are on, the vertical titles while titles are on
         // (collapsed, not greyed).
         Collapse({kPreviewSingle, kPreviewDelayLabel, kPreviewDelayEdit, kPreviewDelayUnit}, !d.previews);
+        if (part_ == Part::Behaviour) {
+            // Round 10 phase 10D: "Delays and popup gap · n changed" (the rows that apply).
+            const DockConfig fresh;
+            int n = d.popupGap != fresh.popupGap ? 1 : 0;
+            if (d.AutoHideOn()) n += (d.hideDelayMs != fresh.hideDelayMs ? 1 : 0) + (d.revealDelayMs != fresh.revealDelayMs ? 1 : 0);
+            if (d.previews) n += d.previewDelayMs != fresh.previewDelayMs ? 1 : 0;
+            SetExpanderText(kAutoHideMore, ChangedTitle(L"Delays and popup gap", n));
+        }
         Collapse({kTitlesVerticalLabel, kTitlesVerticalCombo}, d.titles == TitlesMode::Off);
         // Round 8 phase 8B: the thumbnail rows only for the mode that uses them (collapsed, not greyed).
         Collapse({kThumbIntervalLabel, kThumbIntervalEdit, kThumbIntervalUnit}, d.thumbnails != ThumbnailMode::Snapshots);
