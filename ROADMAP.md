@@ -731,7 +731,7 @@ not pushed; STATUS.md "Round 10" has each phase's notes.
 |---|---|---|
 | 10A Menus and names | Three menus instead of one appended everywhere: the dock menu grouped by task (Add / Position / Auto-hide / Lock, then All docks / App / Tools submenus, Help, Quit), a tray-icon menu of its own for app-wide commands (Docks submenu, Show Windows taskbar temporarily at the top level), item menus with the item's entries first and the dock menu in a Dock submenu; real item menus for the widget kinds with Remove from dock (ItemCommand 861); Customize icon and Contents layout submenus; "Global settings" -> "App settings" everywhere user-visible; settings named for their target; Item window titles "<item> · <dock>" with ordinals; DockCommand 155 | Done (the commit "Menus grouped by task, explicit settings names, App settings"; STATUS.md "Round 10") |
 | 10B Contents tab as the editor | Common settings in the inspector, More settings… for the full Item window | Done (the commit "Contents inspector edits common settings in place"; STATUS.md "Round 10") |
-| 10C One widget settings structure | Content / Appearance (/ Placement) sections; manifest `section` key | Planned |
+| 10C One widget settings structure | Content / Appearance (/ Placement) sections; manifest `section` key | Done (the commit "One settings structure for every widget: Content, Appearance, Placement"; STATUS.md "Round 10") |
 | 10D Common first, inherited vs local | Named collapsed expanders; Use app default / Reset to app default / Reset to factory defaults… | Planned |
 | 10E Regression and release | Suites re-run, pictures, the release build, the user's dock restarted | Planned |
 
@@ -793,6 +793,42 @@ Design notes for 10B:
 - **Names.** The button is "More settings…" when the inspector shows settings above it (its
   tooltip names the window), else keeps 10A's "<Kind> settings…" (tray). "More ▾" became
   "Customize icon ▾", the name of the item menu's submenu since 10A.
+
+Design notes for 10C:
+
+- **Tabs in the Item window were cheap.** The tab strip (`WinDock.SettingsTabs`) only needed the
+  Item kind in its creation condition: layout, painting, keys, Ctrl+Tab and the search's page
+  selection were already per page. So no section headings on one page (the plan's fallback): the
+  generated page class takes a part (All / Content / Appearance), and `MakeWidgetSettingsPages`
+  makes two instances when the schema's `SectionMask` has both sections, else one with every
+  field. A section with no fields gets no page, so a schema of one section has one page and no
+  strip (the weather item, Hello, Digital clock, Start, Search); its page is named for the section
+  it uses (search's Where column for a standalone widget). The tabs are decided when the window is
+  made: a manifest that changes while it is open keeps the window's tabs until it is reopened.
+- **The two pages stay in step** through `OnPeerChanged` (9A's hook: a change on one page makes
+  the window's other pages Load); Reset to defaults in the footer goes to the active page, which
+  resets the whole item, and the other tab follows. `VisibleSignature` only covers the page's own
+  fields, so a `visibleIf` flip on one tab does not rebuild the other.
+- **Standalone widgets keep their page indexes.** Placement stays page 1 (`kTabWidgetWindow`, the
+  Window settings… path and automation unchanged) and Appearance is page 2; `NavOrder` lists them
+  Content, Appearance, Placement and `TabRect` now lays the tabs out in that order (it used the
+  index order).
+- **The default rule** (no `section`): colour fields and the groups Colours / Colors / Look / Face
+  / Size / Slot / Display / Motion / Motion and size are Appearance, as the plan lists them (font
+  fields are not in the rule: the plan names colour only; every built-in widget sets `section`
+  anyway). An unknown value is a validation error and, at load, a warning plus the default.
+- **The built-in mapping** follows "what it shows and does" versus "how it looks": data choices,
+  feeds, places, metrics, time zones, labels, click / wheel actions and refresh intervals are
+  Content; faces, styles, colours, sizes, motion and the slot's layout toggles (percent text,
+  compact, the weather slot's lines) are Appearance. The seven ungrouped widgets got groups; two
+  fields whose group would have been split across the tabs got a group of their own (Battery's low level "Level",
+  System overview's refresh "Updates"), the rest keep their cards. The built-in clock has no
+  colour / font / size of its own (the theme draws it), so only its face is Appearance; the
+  weather item's fields are all Content.
+- **Placement**: the plan's "size presets" do not exist (the window's size is the manifest's
+  default or what the user dragged), so the tab leads with display, layer and lock; background is
+  a Look card; x / y / width / height sit in a heading expander closed per window instance, which
+  the search opens (9B) when it goes to one of them.
 
 ## Dependencies at a glance
 

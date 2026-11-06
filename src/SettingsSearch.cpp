@@ -296,6 +296,9 @@ void SettingsSearch::IndexItems(std::vector<Row>& rows) {
             const std::wstring where = name + L" on " + dock.id;
             const std::wstring untitled = m->name.empty() ? std::wstring(L"Settings") : m->name;
             const auto& fields = m->settings;
+            // Round 10 phase 10C: a schema with both sections is two tabs (MakeWidgetSettingsPages):
+            // an Appearance field is on the second, and the Where column names the tab.
+            const bool tabs = Widgets::SectionMask(fields, static_cast<size_t>(kWidgetFieldMax)) == 3;
             for (size_t f = 0; f < fields.size() && f < static_cast<size_t>(kWidgetFieldMax); ++f) {
                 const Widgets::SettingField& s = fields[f];
                 if (!FieldVisible(s, values)) continue;  // not on the page now
@@ -304,13 +307,15 @@ void SettingsSearch::IndexItems(std::vector<Row>& rows) {
                 r.kind = SettingsKind::Item;
                 r.dock = dock.id;
                 r.item = k;
-                r.page = kItemPage;
+                const bool appearance = s.section == Widgets::SettingField::Section::Appearance;
+                r.page = tabs && appearance ? kItemAppearancePage : kItemPage;
                 r.id = s.type == T::Place ? kPlaceResults : kWidgetFieldBase + 10 * static_cast<int>(f) + 1;
                 r.ctl = s.type == T::Bool                                                            ? CtlKind::Check
                         : s.type == T::Choice || s.type == T::TimeZone || s.type == T::Place ? CtlKind::Combo
                                                                                                : CtlKind::Edit;
                 r.setting = s.label.empty() ? s.key : s.label;
-                r.where = where + L" \x203A " + (s.group.empty() ? untitled : s.group);
+                r.where = where + L" \x203A " + (tabs ? std::wstring(Widgets::SectionName(s.section)) + L" \x203A " : std::wstring()) +
+                          (s.group.empty() ? untitled : s.group);
                 r.tip = s.description;
                 const json::IJsonValue v = values ? JsonUtil::Find(values, s.key.c_str()) : nullptr;
                 const bool isString = v && v.ValueType() == json::JsonValueType::String;
@@ -366,7 +371,7 @@ void SettingsSearch::IndexItems(std::vector<Row>& rows) {
                 }
                 if (!r.value.empty() && !s.unit.empty() && (s.type == T::Int || s.type == T::Number)) r.value += L" " + s.unit;
                 r.label = Lower(r.setting);
-                r.hay = Lower(r.setting + L"\n" + r.where + L"\n" + r.value + L"\n" + s.description + L"\n" + s.key + L"\n" + s.group);
+                r.hay = Lower(r.setting + L"\n" + r.where + L"\n" + r.value + L"\n" + s.description + L"\n" + s.key + L"\n" + s.group);  // r.where carries the tab (10C)
                 rows.push_back(std::move(r));
             }
         }

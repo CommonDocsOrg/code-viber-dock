@@ -9,7 +9,7 @@
     "vertical": { "main": 40, "cross": 48 }
   },
   "settings": [
-    { "key": "text", "type": "string", "label": "Text", "default": "Hello" },
-    { "key": "accent", "type": "bool", "label": "Use the accent colour", "default": false }
+    { "key": "text", "section": "content", "type": "string", "label": "Text", "default": "Hello" },
+    { "key": "accent", "section": "appearance", "type": "bool", "label": "Use the accent colour", "default": false }
   ]
 }

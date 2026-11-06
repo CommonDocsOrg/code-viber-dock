@@ -11,24 +11,24 @@
   "standalone": { "minWidth": 96, "minHeight": 48, "defaultWidth": 340, "defaultHeight": 96 },
   "permissions": ["media", "audio"],
   "settings": [
-    { "key": "showText", "common": true, "group": "Face", "type": "bool", "label": "Show the title and artist beside the art", "default": true,
+    { "key": "showText", "common": true, "section": "appearance", "group": "Face", "type": "bool", "label": "Show the title and artist beside the art", "default": true,
       "description": "Horizontal docks only; a vertical dock shows the art." },
-    { "key": "textWidth", "group": "Face", "unit": "DIPs", "visibleIf": { "showText": true }, "type": "int", "label": "Text width (DIPs)", "description": "How much room the title and artist get beside the art on a top or bottom dock. Default: 120.", "min": 40, "max": 400, "default": 120 },
-    { "key": "controls", "common": true, "group": "Controls", "type": "choice", "label": "Previous / play-pause / next", "default": "hover",
+    { "key": "textWidth", "section": "appearance", "group": "Face", "unit": "DIPs", "visibleIf": { "showText": true }, "type": "int", "label": "Text width (DIPs)", "description": "How much room the title and artist get beside the art on a top or bottom dock. Default: 120.", "min": 40, "max": 400, "default": 120 },
+    { "key": "controls", "common": true, "section": "content", "group": "Controls", "type": "choice", "label": "Previous / play-pause / next", "default": "hover",
       "choices": [
         { "value": "hover", "label": "Over the face while the pointer is over it" },
         { "value": "always", "label": "Always over the face" },
         { "value": "sides", "label": "Beside it: previous on the left, next on the right" }
       ],
       "description": "Beside it: the widget grows by two buttons (above and below the art on a left or right dock); play / pause shows over the art while hovered and as a small badge otherwise." },
-    { "key": "marqueeMode", "group": "Scrolling", "visibleIf": { "showText": true }, "type": "choice", "label": "Scroll a title or artist that does not fit", "default": "hover",
+    { "key": "marqueeMode", "section": "appearance", "group": "Scrolling", "visibleIf": { "showText": true }, "type": "choice", "label": "Scroll a title or artist that does not fit", "default": "hover",
       "choices": [
         { "value": "hover", "label": "While the pointer is over it" },
         { "value": "always", "label": "Always (while the dock is on screen)" },
         { "value": "off", "label": "Never (fade out at the edge)" }
       ],
       "description": "Never with reduce motion. Always costs 10 - 30 wake-ups a second (by the speed) while a line is too long and the dock is shown." },
-    { "key": "marqueeSpeed", "group": "Scrolling", "visibleIf": { "showText": true }, "type": "int", "label": "Scrolling speed", "description": "How fast a title or artist that does not fit scrolls. Default: 28.", "min": 5, "max": 120, "step": 5, "default": 28, "unit": "DIPs a second" },
-    { "key": "wheelVolume", "common": true, "group": "Wheel", "type": "bool", "label": "The wheel changes the volume (with a volume bar)", "description": "Turning the mouse wheel over the widget changes the volume and shows a volume bar beside the dock. On by default.", "default": true }
+    { "key": "marqueeSpeed", "section": "appearance", "group": "Scrolling", "visibleIf": { "showText": true }, "type": "int", "label": "Scrolling speed", "description": "How fast a title or artist that does not fit scrolls. Default: 28.", "min": 5, "max": 120, "step": 5, "default": 28, "unit": "DIPs a second" },
+    { "key": "wheelVolume", "common": true, "section": "content", "group": "Wheel", "type": "bool", "label": "The wheel changes the volume (with a volume bar)", "description": "Turning the mouse wheel over the widget changes the volume and shows a volume bar beside the dock. On by default.", "default": true }
   ]
 }

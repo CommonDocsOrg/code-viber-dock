@@ -123,10 +123,13 @@ std::unique_ptr<SettingsPage> MakeAnimationPage(SettingsWindow& window);   // Se
 std::unique_ptr<SettingsPage> MakeContentsPage(SettingsWindow& window);    // SettingsPagesContents.cpp (Dock > Contents)
 std::unique_ptr<SettingsPage> MakeLayoutPage(SettingsWindow& window);      // SettingsPagesLayout.cpp (Global > Docks and displays)
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window);     // SettingsPagesWidgets.cpp
-// SettingsPagesWidgets.cpp. `standaloneItem` >= 0 (round 8 phase 8C): the Widget tab of a standalone
-// widget's Dock window, item `standaloneItem` of its entry (named "Widget"; Reset to defaults and
-// Console… as a last card's buttons, the ids of the Item window's footer).
-std::unique_ptr<SettingsPage> MakeWidgetSettingsPage(SettingsWindow& window, int standaloneItem = -1);
+// SettingsPagesWidgets.cpp: the generated settings of a widget / clock / weather item. Round 10
+// phase 10C: two pages, "Content" and "Appearance", when its schema has fields of both sections
+// (SettingField::section), else one page with every field (named after the section it uses).
+// `standaloneItem` >= 0 (round 8 phase 8C): the widget tabs of a standalone widget's Dock window,
+// item `standaloneItem` of its entry (Reset to defaults and Console… as each page's last card, the
+// ids of the Item window's footer).
+std::vector<std::unique_ptr<SettingsPage>> MakeWidgetSettingsPages(SettingsWindow& window, int standaloneItem = -1);
 // The clock's / weather item's sentence on its Item window's header (round 8 phase 8C).
 std::wstring BuiltInItemDescription(ItemKind kind);
 std::unique_ptr<SettingsPage> MakeTrayPage(SettingsWindow& window);            // SettingsPagesTray.cpp (Global > Tray icons)

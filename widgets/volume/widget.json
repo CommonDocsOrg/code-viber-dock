@@ -11,10 +11,10 @@
   "standalone": { "minWidth": 48, "minHeight": 48, "aspect": 1, "defaultWidth": 96, "defaultHeight": 96 },
   "permissions": ["audio", "shell"],
   "settings": [
-    { "key": "showPercent", "common": true, "type": "bool", "label": "Show the level in percent", "description": "Writes the volume level in percent next to the speaker. On by default.", "default": true },
-    { "key": "step", "common": true, "unit": "%", "type": "int", "label": "Wheel step (percent per notch)", "description": "How much one notch of the mouse wheel changes the volume. Default: 2%.", "min": 1, "max": 10, "default": 2 },
-    { "key": "wheelBar", "common": true, "type": "bool", "label": "Show a volume bar while the wheel changes the level", "description": "Shows a volume bar beside the dock while the wheel changes the level. On by default.", "default": true },
-    { "key": "middleClick", "type": "choice", "label": "Middle click", "description": "What a middle click on the widget does: mute or unmute the sound, or nothing. Default: mutes / unmutes.", "default": "mute",
+    { "key": "showPercent", "section": "appearance", "group": "Look", "common": true, "type": "bool", "label": "Show the level in percent", "description": "Writes the volume level in percent next to the speaker. On by default.", "default": true },
+    { "key": "step", "section": "content", "group": "Wheel and clicks", "common": true, "unit": "%", "type": "int", "label": "Wheel step (percent per notch)", "description": "How much one notch of the mouse wheel changes the volume. Default: 2%.", "min": 1, "max": 10, "default": 2 },
+    { "key": "wheelBar", "section": "appearance", "group": "Look", "common": true, "type": "bool", "label": "Show a volume bar while the wheel changes the level", "description": "Shows a volume bar beside the dock while the wheel changes the level. On by default.", "default": true },
+    { "key": "middleClick", "section": "content", "group": "Wheel and clicks", "type": "choice", "label": "Middle click", "description": "What a middle click on the widget does: mute or unmute the sound, or nothing. Default: mutes / unmutes.", "default": "mute",
       "choices": [
         { "value": "mute", "label": "Mutes / unmutes" },
         { "value": "none", "label": "Nothing" }

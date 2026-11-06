@@ -574,15 +574,24 @@ bool FieldVisible(const Widgets::SettingField& f, const json::JsonObject& values
     return true;
 }
 
+// Round 10 phase 10C: which fields a generated page shows: every field (the window's only page of
+// the widget's settings), or one section's (the Content / Appearance tabs of a schema with both).
+enum class WidgetPart { All, Content, Appearance };
+
 class WidgetSettingsPage : public FormPage {
 public:
-    // `standaloneItem` >= 0: the Widget tab of a standalone widget's Dock window (round 8 phase 8C).
-    WidgetSettingsPage(SettingsWindow& w, int standaloneItem)
-        : FormPage(w, standaloneItem >= 0 ? L"Widget" : L"Widget settings", L'\xE713'), standalone_(standaloneItem >= 0) {
+    // `standaloneItem` >= 0: a widget tab of a standalone widget's Dock window (round 8 phase 8C).
+    // Round 10 phase 10C: `name` is the tab's ("Content" / "Appearance"), `part` its fields.
+    WidgetSettingsPage(SettingsWindow& w, int standaloneItem, WidgetPart part, const wchar_t* name)
+        : FormPage(w, name, part == WidgetPart::Appearance ? L'\xE790' : L'\xE713'), part_(part), standalone_(standaloneItem >= 0) {
         if (standalone_) asked_ = standaloneItem;
     }
 
     void SelectItem(int item) override { asked_ = item; }
+
+    // Round 10 phase 10C: the window's other tab (the other section, a standalone widget's Placement)
+    // changed the config: this tab's values follow (and its table, when a visibleIf flipped).
+    void OnPeerChanged() override { Load(); }
 
 protected:
     void Build() override {
@@ -607,7 +616,7 @@ protected:
         cardTopic_ = kind == ItemKind::Clock     ? L"guide-items.md#the-clock"
                      : kind == ItemKind::Weather ? L"guide-items.md#weather"
                                                  : L"guide-items.md#widget-settings";
-        HelpTopic(standalone_ ? L"guide-settings.md#widget-tab" : cardTopic_);
+        HelpTopic(standalone_ ? L"guide-settings.md#content-and-appearance-tabs" : cardTopic_);
         // Round 8 phase 8C: the description is the Item window header's third line (the page has
         // no title or description note); only the cases without fields say so here. A standalone
         // widget's compact header has no such line: its Widget tab keeps the description as one
@@ -624,6 +633,7 @@ protected:
             note = m->description;
             lines = 1;
         }
+        if (part_ == WidgetPart::Appearance) note.clear();  // round 10 phase 10C: the Content tab says it
         if (!note.empty()) {
             UntitledCard(cardTopic_);
             Ctl& n = Text(kWidgetSettingsNote, CtlKind::Note, note, kMargin, right - kMargin, 20 * lines);
@@ -667,7 +677,7 @@ protected:
         for (size_t k = 0; k < fields.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) {
             const Widgets::SettingField& f = fields[k];
             const int base = kWidgetFieldBase + 10 * static_cast<int>(k);
-            if (!Visible(f, values)) continue;
+            if (!OnPage(f) || !Visible(f, values)) continue;  // round 10 phase 10C: the other tab's
             if (first || f.group != group) Section(base + 4, (f.group.empty() ? untitled : f.group).c_str(), cardTopic_);  // the card
             first = false;
             group = f.group;
@@ -1292,10 +1302,19 @@ private:
         if (!m || item_ < 0) return L"";
         const json::JsonObject values = Values();
         std::wstring s;
-        for (size_t k = 0; k < m->settings.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) s += Visible(m->settings[k], values) ? L'1' : L'0';
+        for (size_t k = 0; k < m->settings.size() && k < static_cast<size_t>(kWidgetFieldMax); ++k) {
+            s += !OnPage(m->settings[k]) ? L'-' : Visible(m->settings[k], values) ? L'1' : L'0';
+        }
         return s;
     }
     std::wstring builtVisible_;
+
+    // Round 10 phase 10C: field `f` belongs on this tab.
+    bool OnPage(const Widgets::SettingField& f) const {
+        using S = Widgets::SettingField::Section;
+        return part_ == WidgetPart::All || (f.section == S::Appearance) == (part_ == WidgetPart::Appearance);
+    }
+    WidgetPart part_ = WidgetPart::All;
 
     int asked_ = -1;  // the Item window's item (SelectItem)
     int item_ = -1;   // asked_ when it is a clock, weather or widget item, else -1
@@ -1396,8 +1415,33 @@ bool SettingFieldVisible(const Widgets::SettingField& field, const std::wstring&
 
 std::unique_ptr<SettingsPage> MakeWidgetsPage(SettingsWindow& window) { return std::make_unique<WidgetsPage>(window); }
 
-std::unique_ptr<SettingsPage> MakeWidgetSettingsPage(SettingsWindow& window, int standaloneItem) {
-    return std::make_unique<WidgetSettingsPage>(window, standaloneItem);
+std::vector<std::unique_ptr<SettingsPage>> MakeWidgetSettingsPages(SettingsWindow& window, int standaloneItem) {
+    // Round 10 phase 10C: the schema's sections decide the tabs, once, when the window is made (a
+    // widget whose manifest changes while its window is open keeps the window's tabs; a section
+    // that is not used gets none: a schema with only Content fields, the weather item's, has one
+    // page and no tab strip).
+    const DockItemEntry* e = nullptr;
+    if (standaloneItem >= 0) {
+        const DockConfig& d = window.Dock();
+        if (static_cast<size_t>(standaloneItem) < d.items.size()) e = &d.items[static_cast<size_t>(standaloneItem)];
+    } else {
+        e = window.TargetItem();
+    }
+    unsigned mask = 0;
+    if (e && (e->Kind() == ItemKind::Clock || e->Kind() == ItemKind::Weather)) {
+        mask = Widgets::SectionMask(Widgets::BuiltInSchema(e->Kind()), static_cast<size_t>(SettingsIds::kWidgetFieldMax));
+    } else if (e && e->Kind() == ItemKind::Widget) {
+        std::wstring error;
+        if (const auto pkg = Widgets::Load(e->id, error)) mask = Widgets::SectionMask(pkg->manifest.settings, static_cast<size_t>(SettingsIds::kWidgetFieldMax));
+    }
+    std::vector<std::unique_ptr<SettingsPage>> pages;
+    if (mask == 3) {
+        pages.push_back(std::make_unique<WidgetSettingsPage>(window, standaloneItem, WidgetPart::Content, L"Content"));
+        pages.push_back(std::make_unique<WidgetSettingsPage>(window, standaloneItem, WidgetPart::Appearance, L"Appearance"));
+    } else {
+        pages.push_back(std::make_unique<WidgetSettingsPage>(window, standaloneItem, WidgetPart::All, mask == 2 ? L"Appearance" : L"Content"));
+    }
+    return pages;
 }
 
 std::wstring BuiltInItemDescription(ItemKind kind) {

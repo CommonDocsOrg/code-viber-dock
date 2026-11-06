@@ -2599,6 +2599,17 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         }
         case 266:  // round 6 phase 6E: live widget instances in the runtime (previews never count: none outlives its render)
             return static_cast<LRESULT>(docks_.Widgets().Instances().size()) + docks_.Previews().Alive();
+        case 291:    // round 10 phase 10C: the tabs of the Item window of item LOWORD of dock HIWORD (LOWORD 0xFFFF: of its Dock window); 0 no tab strip, -2 not open
+        case 292: {  // ... the selected tab's place in the strip (0 the first; -1 no tab strip), -2 not open
+            SettingsWindow* w = nullptr;
+            if (inst && inst->cfg < config_.docks.size()) {
+                const std::wstring& id = config_.docks[inst->cfg].id;
+                w = arg == 0xFFFF ? FindSettings(SettingsKind::Dock, id) : arg >= 0 ? FindSettings(SettingsKind::Item, id, static_cast<size_t>(arg)) : nullptr;
+            }
+            if (!w || !w->Hwnd()) return -2;
+            if (wp == 291) return w->TabCount();
+            return w->TabCount() > 0 ? w->NavDisplayIndex(w->ActivePageIndex()) : -1;
+        }
         case 279: {  // round 8 phase 8D: the Global window's nav row of the active page (0 General, 1 Docks and displays, ... 8 About; -2 no Global window)
             SettingsWindow* w = FindSettings(SettingsKind::Global);
             if (!w || !w->Hwnd()) return -2;

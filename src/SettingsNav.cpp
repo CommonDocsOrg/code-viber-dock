@@ -106,9 +106,16 @@ std::vector<SettingsWindow::NavSlot> SettingsWindow::NavOrder() const {
         return order;
     }
     for (int i = 0; i < n; ++i) {
-        if (listed(i)) order.push_back(NavSlot{i, nullptr, false});
+        // Round 10 phase 10C: a standalone widget's Placement tab (page kTabWidgetWindow, kept at
+        // index 1 for automation) is listed after its Content / Appearance tabs.
+        if (listed(i) && !(i == SettingsIds::kTabWidgetWindow && IsWidgetWindow())) order.push_back(NavSlot{i, nullptr, false});
     }
+    if (IsWidgetWindow() && listed(SettingsIds::kTabWidgetWindow)) order.push_back(NavSlot{SettingsIds::kTabWidgetWindow, nullptr, false});
     return order;
+}
+
+int SettingsWindow::TabCount() const {
+    return tabs_ ? static_cast<int>(NavOrder().size()) : 0;
 }
 
 int SettingsWindow::NavDisplayIndex(int index) const {
@@ -531,20 +538,25 @@ RECT SettingsWindow::TabRect(int index) const {
     HDC dc = GetDC(tabs_);
     HGDIOBJ old = dc ? SelectObject(dc, font_) : nullptr;
     int x = Px(16);
-    RECT r{};
-    for (int i = 0; i <= index; ++i) {
-        const std::wstring& name = pages_[static_cast<size_t>(i)]->Name();
+    RECT r{}, found{};
+    // Round 10 phase 10C: in display order (NavOrder: a standalone widget's Placement tab last).
+    for (const NavSlot& s : NavOrder()) {
+        const std::wstring& name = pages_[static_cast<size_t>(s.page)]->Name();
         SIZE ext{};
         if (dc) GetTextExtentPoint32W(dc, name.c_str(), static_cast<int>(name.size()), &ext);
         const int w = ext.cx + Px(28);
         r = RECT{x, Px(4), x + w, client.bottom - Px(2)};
         x += w + Px(4);
+        if (s.page == index) {
+            found = r;
+            break;
+        }
     }
     if (dc) {
         SelectObject(dc, old);
         ReleaseDC(tabs_, dc);
     }
-    return r;
+    return found;
 }
 
 int SettingsWindow::TabHitTest(POINT pt) const {

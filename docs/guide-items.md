@@ -193,12 +193,13 @@ The clock shows the time and, if you like, the date and a label.
 - Click the clock to open a month calendar. Use the arrows (or Page Up and Page Down) to change the month; click the month name to go back to today.
 - With calendar feeds, the calendar also shows your events. See [Calendar and reminders](#calendar-and-reminders).
 
-Each clock has its own settings window, in four cards:
+Each clock has its own settings window, with two tabs. The **Content** tab has three cards:
 
 - **Time**: the **Time format** (for example `%H:%M` for 14:05 or `%I:%M %p` for 02:05 PM), **Show seconds** and the **Time zone**.
 - **Text**: **Show the date under the time** and a **Label**, such as "Tokyo".
-- **Look**: the **Face**. **Digital (built in)** is the usual look; the others are clock face files. **Open faces folder** opens the folder for your own faces.
 - **Click**: **Clicking the clock opens** the month calendar, an app or web address of your choice, or nothing.
+
+The **Appearance** tab has the **Look** card: the **Face**. **Digital (built in)** is the usual look; the others are clock face files. **Open faces folder** opens the folder for your own faces. The clock's colours and font come from the dock's theme.
 
 To show the time in another city:
 
@@ -218,7 +219,7 @@ To set the place:
 2. In **Find a place**, type the name of your town.
 3. Pick it from the list.
 
-The weather settings window has two cards:
+The weather settings window has one page (its settings are all content, so it has no tabs) with two cards:
 
 - **Place**: **Find a place**, the chosen **Place**, **Edit coordinates** (to type a latitude and longitude), the **Name on the dock** under the temperature, and the **Status** with **Refresh now**.
 - **Updates**: **Units** (metric or imperial) and **Refresh every** (minutes).
@@ -318,9 +319,14 @@ The System monitor can also show any sensor of HWiNFO (temperatures, fans, power
 
 Every widget on a dock has its own settings window. To open it, right-click the widget and choose the entry with its name, such as **System monitor settings…**, or select it on the Contents tab and click the button of the same name.
 
-The settings are grouped in cards. Each setting has a short hint under it; rest the mouse on it for the full explanation. Some settings appear only when another one has a certain value.
+Every widget's window has the same structure, in two tabs:
 
-The footer has **Reset to defaults** (back to the widget's own defaults) and **Console…** (the widget's log and errors).
+- **Content**: what the widget shows and does: its place, feeds, metric or data choices, time zone, labels, and what a click or the wheel does.
+- **Appearance**: how it looks: its style, face, colours, sizes and motion.
+
+A widget whose settings are all of one kind (Hello, Digital clock, Start, Search) has one page and no tabs. Inside a tab the settings are grouped in cards. Each setting has a short hint under it; rest the mouse on it for the full explanation. Some settings appear only when another one has a certain value.
+
+The footer, under both tabs, has **Reset to defaults** (back to the widget's own defaults) and **Console…** (the widget's log and errors).
 
 A widget with a place, such as Weather (script), has the same **Find a place** box as the weather item.
 

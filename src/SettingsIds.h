@@ -51,10 +51,17 @@ inline constexpr int kTabCount = 5;
 inline constexpr int kTabFolderWindow = 0;
 // Round 8 phase 8C: a standalone widget entry's window has two tabs: Widget (its widget's generated
 // settings, item 0 of the entry) and Window (place, size, layer, look; until 8C its one page, 0).
+// Round 10 phase 10C: Widget is "Content" (or "Appearance" for a schema of only Appearance fields),
+// Window is "Placement"; a schema with both sections adds its Appearance tab as page 2. The strip
+// lists Content, Appearance, Placement (the page indexes stay).
 inline constexpr int kTabWidgetSettings = 0;
 inline constexpr int kTabWidgetWindow = 1;
-// The one page of an Item window (the generated schema page or Folders and groups).
+inline constexpr int kTabWidgetAppearance = 2;
+// The one page of an Item window (the generated schema page or Folders and groups). Round 10 phase
+// 10C: a generated page of a schema with Content and Appearance fields is two tabs, these two.
 inline constexpr int kItemPage = 0;
+inline constexpr int kItemContentPage = 0;
+inline constexpr int kItemAppearancePage = 1;
 
 // Every page: its title static.
 inline constexpr int kPageTitle = 2000;
@@ -686,6 +693,10 @@ inline constexpr int kWwFlash = 4528;           // "Flash this widget" (removed 
 inline constexpr int kWwNote = 4529;            // how to move / resize it (8C: the Locked check box's hint)
 inline constexpr int kWwWUnit = 4530;           // 8C: "DIPs" beside the width
 inline constexpr int kWwHUnit = 4531;           // 8C: "DIPs" beside the height
+// Round 10 phase 10C: the tab is "Placement": the Place card (4505) leads with display, layer and
+// lock; x / y / width / height (4508 - 4519, 4530 / 4531) are in this heading expander's card,
+// closed when the window opens (QueryState 276); Background is in the Look card (4520).
+inline constexpr int kWwExactExpander = 4532;   // "Exact position and size"
 
 // Round 9 phase 9B: the settings search (5000 - 5099). The entry points, then the children of the
 // search dialog (WinDock.SettingsSearch, owned by the settings window it was opened from).

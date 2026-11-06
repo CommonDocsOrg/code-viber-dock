@@ -204,7 +204,7 @@ Working with a standalone widget:
 - A click without moving goes to the widget, as on a dock.
 - Right-click it for its menu: its settings, **Window settings…**, **Lock** / **Unlock**, **Reload widget**, **App settings…** and, last, **Remove from desktop**.
 
-Its settings window has a Widget tab (the widget's own settings) and a Window tab (place, size, layer, background, lock). See [Standalone widget settings](guide-settings.md#standalone-widget-settings).
+Its settings window has a Content and an Appearance tab (the widget's own settings) and a Placement tab (display, layer, lock, background, and the exact position and size). See [Standalone widget settings](guide-settings.md#standalone-widget-settings).
 
 ## Presets
 

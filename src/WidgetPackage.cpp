@@ -276,6 +276,18 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
         JsonUtil::ReadString(o, L"group", f.group);
         JsonUtil::ReadString(o, L"unit", f.unit);
         JsonUtil::ReadBool(o, L"common", f.common);  // round 10 phase 10B
+        // Round 10 phase 10C: the tab the field is on (an unknown value: the default, with a warning;
+        // Validate makes it an error).
+        std::wstring section;
+        JsonUtil::ReadString(o, L"section", section);
+        if (section == L"content") {
+            f.section = SettingField::Section::Content;
+        } else if (section == L"appearance") {
+            f.section = SettingField::Section::Appearance;
+        } else {
+            if (!section.empty()) m.warnings.push_back(L"settings." + f.key + L": unknown section \"" + section + L"\" (the default used)");
+            f.section = DefaultSection(f);
+        }
         if (const json::JsonObject vis = JsonUtil::ReadObject(o, L"visibleIf")) {
             for (const auto& kv : vis) f.visibleIf.emplace_back(std::wstring(kv.Key()), std::wstring(kv.Value().Stringify()));
         }
@@ -645,7 +657,8 @@ constexpr const wchar_t* kTopKeys[] = {L"name",         L"version",     L"author
                                        L"standalone",   L"preview"};
 constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"description", L"default", L"min",
                                          L"max",     L"step",       L"choices", L"choiceFrom", L"group", L"unit",
-                                         L"visibleIf", L"common"};  // common: round 10 phase 10B
+                                         L"visibleIf", L"common",  // common: round 10 phase 10B
+                                         L"section"};              // round 10 phase 10C
 constexpr wchar_t kPermissionFix[] =
     L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\" or { \"http\": [\"host\"] }";
 
@@ -885,6 +898,14 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
             c.Type(o, k, json::JsonValueType::String, field + L"." + k, L"a string");
         }
         c.Type(o, L"common", json::JsonValueType::Boolean, field + L".common", L"\"common\": true");  // round 10 phase 10B
+        // Round 10 phase 10C: the field's tab; an unknown name is an error like an unknown type.
+        if (c.Type(o, L"section", json::JsonValueType::String, field + L".section", L"\"content\" or \"appearance\"")) {
+            std::wstring section;
+            JsonUtil::ReadString(o, L"section", section);
+            if (o.HasKey(L"section") && section != L"content" && section != L"appearance") {
+                c.Error(field + L".section", L"unknown section \"" + section + L"\"", L"\"content\" or \"appearance\"");
+            }
+        }
         const json::IJsonValue d = JsonUtil::Find(o, L"default");
         const json::JsonValueType dt = d ? d.ValueType() : json::JsonValueType::Null;
         if (t == SettingField::Type::Int || t == SettingField::Type::Number) {
@@ -1453,6 +1474,9 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind) {
                                     L"An app, a document or a URL; the month calendar shows a button that opens it too.");
         target.visibleIf.emplace_back(L"click", L"\"launch\"");
         s.push_back(std::move(target));
+        // Round 10 phase 10C: the face is Appearance (the clock has no colour / font / size of its
+        // own: the theme draws it); the time, the zone, the date, the label and the click Content.
+        for (SettingField& f : s) f.section = f.key == L"face" ? SettingField::Section::Appearance : SettingField::Section::Content;
     } else if (kind == ItemKind::Weather) {
         // Round 10 phase 10B: the place (read only in the inspector), the name and the units are "common".
         s.push_back(field(L"place", T::Place, L"Place", L"null", L"Place"));
@@ -1472,8 +1496,31 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind) {
         refresh.step = 5;
         refresh.unit = L"minutes";
         s.push_back(std::move(refresh));
+        // Round 10 phase 10C: every field is Content (the place, the name, the units, the refresh):
+        // the Item window then shows no tab strip.
+        for (SettingField& f : s) f.section = SettingField::Section::Content;
     }
     return s;
+}
+
+SettingField::Section DefaultSection(const SettingField& field) {
+    if (field.type == SettingField::Type::Color) return SettingField::Section::Appearance;
+    for (const wchar_t* g : {L"Colours", L"Colors", L"Look", L"Face", L"Size", L"Slot", L"Display", L"Motion", L"Motion and size"}) {
+        if (_wcsicmp(field.group.c_str(), g) == 0) return SettingField::Section::Appearance;
+    }
+    return SettingField::Section::Content;
+}
+
+unsigned SectionMask(const std::vector<SettingField>& fields, size_t limit) {
+    unsigned mask = 0;
+    for (size_t k = 0; k < fields.size() && k < limit; ++k) {
+        mask |= fields[k].section == SettingField::Section::Appearance ? 2u : 1u;
+    }
+    return mask;
+}
+
+const wchar_t* SectionName(SettingField::Section section) {
+    return section == SettingField::Section::Appearance ? L"Appearance" : L"Content";
 }
 
 std::vector<size_t> CommonFields(const Manifest& manifest) {

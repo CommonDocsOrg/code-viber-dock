@@ -1,7 +1,9 @@
 // The Standalone widget page (round 6 phase 6B): a "widget" docks[] entry's own window. Round 8
 // phase 8C: its Window tab (tab 1; tab 0, Widget, is the widget's generated settings page, item 0
 // of the entry): display, position, size, layer, background, lock, in two cards (round 8 phase 8A:
-// Flash is the header's). Every change applies at once.
+// Flash is the header's). Every change applies at once. Round 10 phase 10C: the Placement tab
+// (still page 1, listed after Content / Appearance): Place (display, layer, lock), Look
+// (background), and the closed "Exact position and size" expander (x, y, width, height).
 
 #include <windows.h>
 #include <commctrl.h>
@@ -25,18 +27,46 @@ class WidgetWindowPage : public FormPage {
 public:
     // Round 8 phase 8C: the Window tab (the Widget tab, kTabWidgetSettings, has the widget's own
     // settings); the info line, the Widget card and Open widget settings are gone.
-    explicit WidgetWindowPage(SettingsWindow& w) : FormPage(w, L"Window", L'\xE737') {}
+    // Round 10 phase 10C: "Placement" (was "Window"): display, layer and lock first; the exact
+    // position and size in a closed expander; the background in its own card.
+    explicit WidgetWindowPage(SettingsWindow& w) : FormPage(w, L"Placement", L'\xE737') {}
 
 protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Standalone widget");  // a no-op in a Dock window
-        HelpTopic(L"guide-settings.md#window-tab");
-        Section(kWwPlaceSection, L"Place and size", L"guide-settings.md#place-and-size");
+        HelpTopic(L"guide-settings.md#placement-tab");
+        Section(kWwPlaceSection, L"Place", L"guide-settings.md#place-layer-and-lock");
         Label(kWwDisplayLabel, L"Display");
         Tip(kWwDisplayLabel, L"The display the widget's window is on (its position counts from that display's work area). Default: the primary display.");
         Combo(kWwDisplayCombo, kColX, right - kColX, false);
         NextRow();
+        Label(kWwLayerLabel, L"Layer", L"", kWwLayerNote);
+        Tip(kWwLayerLabel,
+            L"Normal: above every window, always. On the desktop, only while the desktop is showing: shown only while the "
+            L"desktop is in front (Win+D, a click on the wallpaper). On the desktop, under every window: always on the "
+            L"desktop, like folder windows. The dashboard hotkey brings the desktop layers to the front.");
+        Combo(kWwLayerCombo, kColX, right - kColX, false);
+        NextRow();
+        // Round 8 phase 8A: "Flash this widget" (4528) is gone: the header has it. 8C: the move /
+        // resize note is the Locked check box's hint.
+        Check(kWwLocked, kWwLockedCaption, L"Locked (it can be neither moved nor resized)",
+              L"Unlocked: drag it to move it, its edges to resize it", kWwNote);
+        const std::wstring how = L"Drag the widget with the left button to move it, drag its edges or corners to resize it (while it is "
+                                 L"unlocked); a click without moving is the widget's own. It snaps to the edges of the work area, to "
+                                 L"floating docks and to other standalone widgets. Right-click it for its menu.";
+        Tip(kWwLockedCaption, how);
+        Tip(kWwNote, how);
+        NextRow();
+        Section(kWwLookSection, L"Look", L"guide-settings.md#window-look");
+        Label(kWwBackgroundLabel, L"Background");
+        Tip(kWwBackgroundLabel, L"None (the default): the widget draws on the desktop as it is; Panel: a rounded panel in the theme's colour behind it.");
+        Combo(kWwBackgroundCombo, kColX, right - kColX, false);
+        NextRow();
+        // Round 10 phase 10C: the numbers behind a heading expander, closed at first (dragging the
+        // widget and its edges is the usual way; the search opens it when it goes to one of them).
+        UntitledCard();
+        HeadingExpander(kWwExactExpander, L"Exact position and size", false, L"guide-settings.md#exact-position-and-size");
         // Round 8 phase 8A: the notes are hints (kWwPositionNote, kWwLayerNote) and tooltips.
         Label(kWwXLabel, L"Position x", L"DIPs; empty: centred", kWwPositionNote);
         Tip(kWwXLabel, L"DIPs from the display's work area's top-left corner; empty: centred.");
@@ -60,28 +90,7 @@ protected:
                 [](Config&, DockConfig& d) -> int& { return d.widgetWindow.h; }, SettingsScope::Appearance);
         Text(kWwHUnit, CtlKind::Note, L"DIPs", kColX + kNumberW + 8, 80);
         NextRow();
-        Section(kWwLookSection, L"Layer and look", L"guide-settings.md#layer-and-look");
-        Label(kWwLayerLabel, L"Layer", L"", kWwLayerNote);
-        Tip(kWwLayerLabel,
-            L"Normal: above every window, always. On the desktop, only while the desktop is showing: shown only while the "
-            L"desktop is in front (Win+D, a click on the wallpaper). On the desktop, under every window: always on the "
-            L"desktop, like folder windows. The dashboard hotkey brings the desktop layers to the front.");
-        Combo(kWwLayerCombo, kColX, right - kColX, false);
-        NextRow();
-        Label(kWwBackgroundLabel, L"Background");
-        Tip(kWwBackgroundLabel, L"None (the default): the widget draws on the desktop as it is; Panel: a rounded panel in the theme's colour behind it.");
-        Combo(kWwBackgroundCombo, kColX, right - kColX, false);
-        NextRow();
-        // Round 8 phase 8A: "Flash this widget" (4528) is gone: the header has it. 8C: the move /
-        // resize note is the Locked check box's hint.
-        Check(kWwLocked, kWwLockedCaption, L"Locked (it can be neither moved nor resized)",
-              L"Unlocked: drag it to move it, its edges to resize it", kWwNote);
-        const std::wstring how = L"Drag the widget with the left button to move it, drag its edges or corners to resize it (while it is "
-                                 L"unlocked); a click without moving is the widget's own. It snaps to the edges of the work area, to "
-                                 L"floating docks and to other standalone widgets. Right-click it for its menu.";
-        Tip(kWwLockedCaption, how);
-        Tip(kWwNote, how);
-        NextRow();
+        EndExpander();
     }
 
     void Created() override {

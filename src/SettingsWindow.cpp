@@ -953,7 +953,9 @@ bool SettingsWindow::Create(HINSTANCE instance, bool show) {
     }
     CreateBands(false);
     pages_ = CreateSettingsPages(*this);
-    if (kind_ == SettingsKind::Dock && pages_.size() > 1) {
+    // Round 10 phase 10C: an Item window with two pages (a widget's Content and Appearance) has
+    // the Dock window's tab strip too.
+    if ((kind_ == SettingsKind::Dock || kind_ == SettingsKind::Item) && pages_.size() > 1) {
         tabs_ = CreateWindowExW(0, kTabsClassName, L"", WS_CHILD | WS_VISIBLE | WS_TABSTOP | WS_GROUP, 0, 0, 0, 0, hwnd_,
                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kTabs)), instance, this);
     }

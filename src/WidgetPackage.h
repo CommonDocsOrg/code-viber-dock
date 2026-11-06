@@ -55,7 +55,20 @@ struct SettingField {
     // Round 10 phase 10B: `"common": true`: one of the few settings the Dock window's Contents tab
     // shows in its inspector for the selected item (CommonFields), editable in place.
     bool common = false;
+    // Round 10 phase 10C: `"section": "content" | "appearance"`: the tab of the Item window (and a
+    // standalone widget's window) the field is on. Without the key: DefaultSection.
+    enum class Section { Content, Appearance };
+    Section section = Section::Content;
 };
+
+// Round 10 phase 10C: the section of a field whose schema entry has no `section`: Appearance for a
+// colour-typed field and for a field in a group named Colours / Colors / Look / Face / Size / Slot /
+// Display / Motion / "Motion and size" (case ignored), else Content. Third-party schemas written
+// before the key keep working: their fields fall on the tab that matches their group.
+SettingField::Section DefaultSection(const SettingField& field);
+// Which sections the first `limit` fields use: bit 0 Content, bit 1 Appearance (0: no fields).
+unsigned SectionMask(const std::vector<SettingField>& fields, size_t limit = SIZE_MAX);
+const wchar_t* SectionName(SettingField::Section section);  // "Content" / "Appearance"
 
 // A problem found in a widget's manifest (Validate): `field` names the key ("main",
 // "settings[2].choiceFrom" ...), `fix` says what to change. Errors stop the widget from loading

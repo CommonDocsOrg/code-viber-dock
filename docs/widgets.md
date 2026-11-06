@@ -83,7 +83,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 ### Settings schema
 
 Each entry: `key` (required), `type`, `label`, `description`, `default`, the page's layout keys
-`group`, `unit`, `visibleIf` and `common` (below), and per type:
+`section`, `group`, `unit`, `visibleIf` and `common` (below), and per type:
 
 | `type` | Value | Extra keys |
 |---|---|---|
@@ -148,24 +148,32 @@ has all of it); a field's `description` is a one-line hint under its label (a ch
 caption) when it fits that line at the window's default width (600 DIPs), else its first sentence
 (up to the first ". ") is the hint; the whole description is always the tooltip of the label, the
 hint and the control. So write a first sentence that stands on its own and keep it short (about 30
-characters fit under a label, about 60 under a check box). A
-[standalone widget](#standalone-widgets) shows the same page as the **Widget** tab of its window
-(with the description as its first line, and Reset to defaults / Console… at its end).
+characters fit under a label, about 60 under a check box). Round 10 phase 10C: when the schema has
+fields of both sections (`section`, below) the window shows them on two tabs, **Content** (what the
+widget shows and does: places, feeds, metrics and data choices, time zones, labels, click and wheel
+actions, refresh intervals) and **Appearance** (how it looks: styles, faces, colours, fonts, sizes,
+motion, the layout of its slot); a schema whose fields are all of one section gets one page and no
+tab strip. Reset to defaults and Console… stay in the footer under both tabs. A
+[standalone widget](#standalone-widgets) shows the same pages as the **Content** (and
+**Appearance**) tabs of its window, before its **Placement** tab (with the description as the
+Content tab's first line, and Reset to defaults / Console… at the end of each).
 
 The page's layout keys (round 4 phase 14):
 
 | Key | Example | Effect |
 |---|---|---|
+| `section` | `"section": "appearance"` | Round 10 phase 10C: the tab the field is on, `"content"` or `"appearance"` (any other value, or not a string: an error). Without it the field goes to **Appearance** when its `type` is `colour` or its `group` is one of Colours, Colors, Look, Face, Size, Slot, Display, Motion, Motion and size (case ignored), else to **Content**, so a schema written before the key keeps working. Groups stay the cards inside a tab (a group whose fields are on both tabs gets a card on each). `common` (the Contents inspector) does not depend on it. Every built-in widget sets it on every field. |
 | `group` | `"group": "Second hand"` | Round 8 phase 8C: a card titled with the group around the field and the ones after it with the same group; a field whose group differs from the field above it starts a new card (so fields of one group should be next to each other: a group that comes back later gets a second card). Fields without a group: a card titled with the widget's `name`. |
 | `unit` | `"unit": "DIPs"` | A unit after an `int`'s stepper or a `number`'s edit box ("%", "minutes"). |
 | `visibleIf` | `"visibleIf": { "seconds": true }` | The field (and a group header that would be left empty) is shown only while every named field has that value; the page is generated again when one of them changes. A key that names no other field is an error. |
 | `common` | `"common": true` | Round 10 phase 10B: one of the widget's few everyday settings. Dock settings > Contents shows the fields marked `common` in the inspector of the selected widget, editable in place (in schema order, at most six, each only while its `visibleIf` holds), above **More settings…**, which opens the whole page. Without any `common` field the inspector shows the first three fields of a simple type (`bool`, `int`, `number`, `string`, a `choice` not from `"perf"`). The inspector edits `bool`, `int`, `number`, `string`, `colour`, `font`, `choice` and `timezone` fields; a `place` shows as a read-only line, a `"choiceFrom": "perf"` choice is left to the page. Not a boolean: an error. Mark two to four fields. |
 
 ```json
-{ "key": "seconds", "type": "bool", "label": "Second hand", "default": false, "group": "Second hand" },
-{ "key": "secondsMotion", "type": "choice", "label": "Second hand motion", "group": "Second hand",
+{ "key": "seconds", "type": "bool", "label": "Second hand", "default": false, "group": "Second hand", "section": "appearance" },
+{ "key": "secondsMotion", "type": "choice", "label": "Second hand motion", "group": "Second hand", "section": "appearance",
   "visibleIf": { "seconds": true }, "choices": ["ticking", "smooth"], "default": "ticking" },
-{ "key": "size", "type": "int", "label": "Size", "min": 0, "max": 128, "default": 0, "unit": "DIPs" }
+{ "key": "size", "type": "int", "label": "Size", "min": 0, "max": 128, "default": 0, "unit": "DIPs", "section": "appearance" },
+{ "key": "timeZone", "type": "timezone", "label": "Time zone", "default": "", "group": "Time zone", "section": "content" }
 ```
 
 ## main.js

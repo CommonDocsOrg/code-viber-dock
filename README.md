@@ -1202,7 +1202,11 @@ write and edit without compiling anything. The full reference (every call, every
 - **Settings page layout**: schema entries can carry `group` (section headers), `unit` (after a
   stepper), `visibleIf` (shown only for some value of another field) and (round 10 phase 10B)
   `common` (`true`: the field is one of the few the Dock window's Contents tab edits in its
-  inspector; every built-in widget marks two to four, Hello its only one).
+  inspector; every built-in widget marks two to four, Hello its only one) and (round 10 phase 10C)
+  `section` (`"content"` or `"appearance"`: the tab of the settings window the field is on; any
+  other value is a manifest error; without it a colour field or one grouped Colours / Colors /
+  Look / Face / Size / Slot / Display / Motion / Motion and size is Appearance, the rest Content).
+  Every built-in widget sets it on every field.
 - **Safety**: every widget has its own script engine (QuickJS-ng) with its own heap limit; a call
   that runs longer than its time limit is stopped and the widget suspended ("Stopped" tile), an
   uncaught exception shows an "Error" tile with the message; **Reload widgets** (dock menu) starts
@@ -1507,8 +1511,9 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
   standalone widgets (floating docks snap to standalone widgets too); `x` / `y` / `w` / `h` are
   saved on release. **Locked** (`locked`): neither moved nor resized (clicks still reach the
   widget).
-- **Right click**: "<widget> settings…" (its own widget settings: its window's **Widget** tab),
-  **Window settings…** (its window's **Window** tab), **Lock** / **Unlock**, **Reload widget**,
+- **Right click**: "<widget> settings…" (its own widget settings: its window's **Content** tab;
+  the **Widget** tab until round 10 phase 10C), **Window settings…** (its window's **Placement**
+  tab, the **Window** tab until 10C), **Lock** / **Unlock**, **Reload widget**,
   **App settings…** (was "Global settings…"), **Remove from desktop** (last since round 10).
 - **Layers** (`layer`): `"behind"` (default: always shown, on the desktop under every window, like
   folder windows; with background "panel" and acrylic its blur window stays beneath it),
@@ -1534,6 +1539,13 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
   background, **Locked** with the "drag it to move it" hint). Until 8C it was one page with
   **Open widget settings**, which opened an Item window for the widget (item 0 of the entry); a
   standalone widget has no Item window any more (the paths that opened one open the Widget tab).
+  Round 10 phase 10C: the tabs are **Content**, **Appearance** and **Placement**, the structure
+  every widget's settings share: Content and Appearance are the widget's own settings split by
+  their manifest `section` (a widget whose fields are all of one section has only that tab, named
+  for it), each with the last card **Reset to defaults** / **Console…**; **Placement** (was
+  Window) has a **Place** card (display, layer with its hint, **Locked**), a **Look** card
+  (background) and a closed **Exact position and size** expander (position x / y, width / height
+  with the minimum-size hint).
 
 ## Settings
 
@@ -1558,7 +1570,13 @@ but the configuration, and opening one that is already open brings it to the fro
   of the same name in the inspector of the dock window's Contents tab, the weather item's map
   pin, a widget's `weather.openSettings()`, `WinDock.DockCommand` 113 / 142 and
   `WinDock.ItemCommand` 854 open it. A [standalone widget](#standalone-widgets)'s widget has none
-  (round 8 phase 8C): those paths open its own window on the Widget tab.
+  (round 8 phase 8C): those paths open its own window on the Widget tab (Content since round 10
+  phase 10C). Round 10 phase 10C: the window of a widget, clock or weather item has the tabs
+  **Content** (what it shows and does: place, feeds, metric and data choices, time zone, labels,
+  click and wheel actions, refresh) and **Appearance** (faces, styles, colours, fonts, sizes,
+  motion) when its settings have both; one page without a tab strip when they are all of one
+  kind (the weather item, Hello, Digital clock, Start, Search). **Reset to defaults** and
+  **Console…** stay in the footer under both tabs.
 
 What applies to every dock is in the App settings window, what applies to one dock in that dock's window
 and what applies to one item in that item's window: no Global page acts on "the selected dock"
@@ -1604,7 +1622,9 @@ resizable, dark like the settings windows; one per window, it closes with Esc an
 window). It lists every setting of every window at once: the Global pages, each dock's,
 standalone widget's and folder window's own window, and each clock, weather and widget item's
 fields, in three columns, **Setting** (the label or check box caption), **Where** ("Dock main ›
-Behaviour › Auto-hide", "App › General › System", "Clock on main › Time") and **Value** (On /
+Behaviour › Auto-hide", "App › General › System", "Clock on main › Content › Time"; round 10
+phase 10C: an item field names its Content / Appearance tab when the item's window has both, and
+Go to selects that tab) and **Value** (On /
 Off, the chosen option, the text or number as the window shows it now). Type to filter: a row
 matches when every word you type is in its label, hint, tooltip, card, page or window name or
 value (an item field also by its config key); labels that start with what you typed come first,
@@ -3017,7 +3037,8 @@ always there, also when every dock is parked) handle these registered messages:
   summary: the App settings window "App settings · apply to every dock" (was "Global · applies to
   every dock"), a dock "main · Bottom edge · Primary · 4
   items · Shown[ · Locked]", an item "Clock · Two · on main · item 3 of 4"), 103 a Dock window's
-  tab strip (`WinDock.SettingsTabs`; window text = the selected tab), 104 an Item window's footer
+  tab strip (`WinDock.SettingsTabs`; window text = the selected tab; round 10 phase 10C: also an
+  Item window's with Content / Appearance pages, QueryState 291 / 292), 104 an Item window's footer
   (a band), 101 the preview strip (`WinDock.SettingsPreview`; the Global Themes / Animation pages,
   a Dock window's Appearance tab: round 8 phase 8B, before that every tab but Contents). Header /
   footer children: 110 Flash, 111 Lock / Unlock (round 8 phase 8B: the short captions; buttons:
@@ -3101,7 +3122,22 @@ always there, also when every dock is parked) handle these registered messages:
   window: 0 its page; a standalone widget's window, round 8 phase 8C: 0 **Widget** (`kTabWidgetSettings`,
   page 200: the generated page of the entry's item 0) and 1 **Window** (`kTabWidgetWindow`, page
   201; until 8C the one page 0), with the tab strip 103; DockCommand 142 / ItemCommand 854 on the
-  entry and its menu's "<widget> settings…" open it on tab 0, its menu's Window settings… on tab 1). Round 8 phase 8A: the windows are resizable (`SetWindowPos` works;
+  entry and its menu's "<widget> settings…" open it on tab 0, its menu's Window settings… on tab 1).
+  Round 10 phase 10C: a standalone widget's window has the pages 0 **Content** (200, still
+  `kTabWidgetSettings`; named **Appearance** when every field of the schema is), 1 **Placement**
+  (201, `kTabWidgetWindow`, was Window) and, for a schema with fields of both sections, 2
+  **Appearance** (202, `kTabWidgetAppearance`); the tab strip lists them Content, Appearance,
+  Placement (Left / Right / Home / End and Ctrl+Tab follow that order, `QueryState` 292 reads the
+  place). An Item window of a widget / clock / weather item whose schema has both sections has
+  two pages, 0 **Content** (200, `kItemContentPage`) and 1 **Appearance** (201,
+  `kItemAppearancePage`), with the tab strip 103 (`WinDock.SettingsTabs`, as a Dock window's:
+  posted `WM_KEYDOWN` Home / Right select, its window text is the selected tab); otherwise its one
+  page 0 (`kItemPage`), no tab strip. A field's controls (`3700 + 10 k + part`) are on the page of
+  its section only (the ids do not change). `QueryState` **291** = the tab count of the settings
+  window of dock `HIWORD(lParam)`: `LOWORD(lParam)` an item's index for its Item window, 0xFFFF
+  for its Dock window (0: no tab strip; -2: not open; a window opened hidden for the search
+  counts), **292** = the selected tab's place in the strip (0 the first; -1 no strip; -2 not
+  open). Round 8 phase 8A: the windows are resizable (`SetWindowPos` works;
   QueryState 275 reads the size, config `settings.windows` keeps it); each page that has tooltips
   owns one `tooltips_class32` window owned by the settings window (`TTM_GETTOOLCOUNT` counts its
   tools; the tools are the controls' windows, `TTF_IDISHWND | TTF_SUBCLASS`, plus (round 9 phase
@@ -3251,6 +3287,11 @@ always there, also when every dock is parked) handle these registered messages:
   label's hint (the widget's minimum and shape), 4522 layer (DockLayer order), 4523 its hint,
   4525 background (0 none, 1 panel), 4526 Locked (4529 its hint) (4528 Flash this widget: removed
   in 8A; 4500 - 4504, the info line, the widget's name and Open widget settings: removed in 8C);
+  round 10 phase 10C: the tab is **Placement**: the card 4505 is **Place** (display, layer,
+  Locked), 4520 **Look** (background), and the new heading expander **4532** "Exact position and
+  size" (closed when the window opens; QueryState 276 with the standalone widget's dock in the
+  high word; `WM_COMMAND(4532, BN_CLICKED)` to page 201 toggles it) holds x / y / width / height
+  (the controls stay drivable while it is closed);
   Appearance (round 8 phase 8B) = 2420 / 2422 / 2423 (below, the Theme tab's) and 2126 the Size
   card with 2101 - 2109 (icon size, magnification, range; on Behaviour until 8B) and (round 9
   phase 9A) 2280 **Bar while magnified** (`magnifyBar`: 0 Grows once and stays (`"steady"`), 1
@@ -3298,7 +3339,8 @@ always there, also when every dock is parked) handle these registered messages:
   description or its first sentence; the whole description is the tooltip of the label, the
   hint and the control; until 8C a note of up to two lines under the control), 4 the card's
   header (a Section: the field's group, or the widget's name, on the first field of each run of
-  one group), 5 the unit; its title 2000 is gone since round 8 phase 8A (the header names the widget); the item picker 3601
+  one group), 5 the unit (round 10 phase 10C: on the Content or the Appearance page, by the
+  field's `section`; a card starts at each run of one group on that page); its title 2000 is gone since round 8 phase 8A (the header names the widget); the item picker 3601
   and the page's own Reset 3603 are gone: the window is the item, Reset is the footer's 114; on a
   standalone widget's Widget tab (8C) the last card's 114 Reset to defaults and 115 Console… are
   page buttons with the footer's ids: `WM_COMMAND(114 / 115, BN_CLICKED)` to the page);

@@ -489,27 +489,32 @@ Live thumbnails use the graphics card; snapshots cost almost nothing. See [Runni
 
 ## Standalone widget settings
 
-A standalone widget is a widget on the desktop in a window of its own. Its settings window has the same kind of header as a dock's (its display, layer, size and lock, with **Flash**, **Lock** and **⋯**) and two tabs.
+A standalone widget is a widget on the desktop in a window of its own. Its settings window has the same kind of header as a dock's (its display, layer, size and lock, with **Flash**, **Lock** and **⋯**) and the tabs **Content**, **Appearance** and **Placement**.
 
-To open it, right-click the widget and choose its settings entry or **Window settings…**, or double-click it on App settings > Docks and displays.
+To open it, right-click the widget and choose its settings entry (it opens on Content) or **Window settings…** (it opens on Placement), or double-click it on App settings > Docks and displays.
 
-### Widget tab
+### Content and Appearance tabs
 
-The widget's own settings, in cards, the same as for a widget on a dock. See [Widget settings](guide-items.md#widget-settings). The last card has **Reset to defaults** and **Console…**.
+The widget's own settings, in cards, the same as for a widget on a dock: what it shows and does on **Content**, how it looks on **Appearance**. A widget whose settings are all of one kind has only that tab. See [Widget settings](guide-items.md#widget-settings). The last card of each has **Reset to defaults** and **Console…**.
 
-### Window tab
+### Placement tab
 
-#### Place and size
+#### Place, layer and lock
 
 - **Display**: the display the widget is on.
-- **Position x** and **Position y**: its top-left corner, from the top-left of the screen. Leave them empty to centre it.
-- **Width** and **Height**: its size. The hint shows the smallest size the widget allows. You can also drag the window's edges.
-
-#### Layer and look
-
 - **Layer**: **Normal (above windows)**, **On the desktop, only while the desktop is showing**, or **On the desktop, under every window** (the default).
-- **Background**: **None** (the widget over the wallpaper) or **Panel** (the theme's bar background).
 - **Locked**: the widget can be neither moved nor resized. Unlocked, drag it to move it and drag its edges to resize it.
+
+#### Window look
+
+- **Background**: **None** (the widget over the wallpaper) or **Panel** (the theme's bar background).
+
+#### Exact position and size
+
+Closed at first: dragging the widget and its edges is the usual way to place and size it. Open it to type the numbers.
+
+- **Position x** and **Position y**: its top-left corner, from the top-left of the screen. Leave them empty to centre it.
+- **Width** and **Height**: its size. The hint shows the smallest size the widget allows.
 
 ## Folder window settings
 
@@ -560,11 +565,13 @@ An item's settings window edits one item on a dock. Each clock, weather item and
 
 The header shows the item's icon, its name, the dock it is on (click it to open that dock's window), its place on the dock and a one-line description. The footer says "Changes apply at once" and has **Reset to defaults** (for a widget, clock, weather or tray item) and **Console…** (for a widget).
 
+Every widget, clock and weather item has the same structure: what it shows and does is on the **Content** tab (places, feeds, metrics, time zones, labels, what a click does), how it looks on the **Appearance** tab (faces, styles, colours, sizes, motion). An item whose settings are all of one kind has one page and no tabs. **Reset to defaults** and **Console…** stay in the footer under both tabs.
+
 What the page holds depends on the item:
 
-- **Clock**: the cards Time (time format, seconds, time zone), Text (the date, a label), Look (the face, **Open faces folder**) and Click (what a click opens). See [The clock](guide-items.md#the-clock).
-- **Weather**: the Place card (find a place, the name on the dock, the status and **Refresh now**) and the Updates card (units, how often it refreshes). See [Weather](guide-items.md#weather).
-- **A script widget**: its own settings, in cards. See [Widget settings](guide-items.md#widget-settings).
+- **Clock**: Content has the cards Time (time format, seconds, time zone), Text (the date, a label) and Click (what a click opens); Appearance has Look (the face, **Open faces folder**). See [The clock](guide-items.md#the-clock).
+- **Weather**: one page (it is all content): the Place card (find a place, the name on the dock, the status and **Refresh now**) and the Updates card (units, how often it refreshes). See [Weather](guide-items.md#weather).
+- **A script widget**: its own settings, in cards, on Content and Appearance as the widget sorts them. See [Widget settings](guide-items.md#widget-settings).
 - **System tray**: the cards The grid, Icons in the grid and Takeover. See [The tray](guide-items.md#the-tray).
 - **A folder or a group**: how it shows its contents, its icon, and for a group its shortcuts. See [Folders](guide-items.md#folders) and [Groups](guide-items.md#groups).
 

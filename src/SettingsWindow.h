@@ -508,7 +508,8 @@ private:
 // showing one page at a time on a solid content layer. Global: a
 // navigation column (WinDock.SettingsNav, Mica behind it where available) and a subtitle band;
 // Dock: an identity header (WinDock.SettingsBand) and a tab strip (WinDock.SettingsTabs); Item: a
-// header, the one page and a footer. Windows share nothing but the Config: each finds its dock by
+// header, the one page (round 10 phase 10C: or two, Content / Appearance, under a tab strip) and a
+// footer. Windows share nothing but the Config: each finds its dock by
 // id every time (DockIndex) and an Item window its item by index (App re-points it). Nothing of a
 // window exists while it is closed: no timers, fonts, brushes or windows.
 class SettingsWindow {
@@ -546,6 +547,8 @@ public:
     // Round 8 phase 8D: where page `index` is listed in the nav column / tab strip (0 the first
     // row; -1 not listed). The Global window lists its pages in groups (NavOrder), not by index.
     int NavDisplayIndex(int index) const;
+    // Round 10 phase 10C: the tabs of the tab strip (0: the window has none; QueryState 291).
+    int TabCount() const;
     // The dock's weather data / status changed: pages update what shows it (no config reload).
     void WeatherChanged();
     // The notification list or service state changed: the Notifications page's status line.
@@ -868,7 +871,7 @@ private:
     bool findTracking_ = false;
     HBRUSH flashBrush_ = nullptr;  // the flashed row's statics (FlashBrush)
     COLORREF flashColor_ = 0;
-    HWND tabs_ = nullptr;    // Dock with more than one page
+    HWND tabs_ = nullptr;    // Dock / Item (round 10 phase 10C) with more than one page
     HWND header_ = nullptr;  // every kind (Global: the subtitle)
     HWND footer_ = nullptr;  // Item
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
@@ -927,5 +930,7 @@ private:
 
 // The pages of a window (SettingsPages.cpp): Global in nav order (SettingsIds::kPage*), Dock in tab
 // order (kTab*; a folder window entry: its one page; a standalone widget entry, round 8 phase 8C:
-// Widget and Window, kTabWidgetSettings / kTabWidgetWindow), Item: its one page (kItemPage).
+// Widget and Window, kTabWidgetSettings / kTabWidgetWindow; round 10 phase 10C: Content, Placement
+// and, with both sections, Appearance as page 2), Item: its one page (kItemPage; round 10 phase 10C:
+// a widget / clock / weather item with fields of both sections, Content 0 and Appearance 1).
 std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& window);

@@ -1202,9 +1202,14 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
             }
             if (window.IsWidgetWindow()) {
                 // Round 8 phase 8C: two tabs: the widget's generated settings (item 0 of the entry)
-                // and the window's place, size and look (until 8C its one page).
-                pages.push_back(MakeWidgetSettingsPage(window, 0));  // kTabWidgetSettings
-                pages.push_back(MakeWidgetWindowPage(window));       // kTabWidgetWindow (round 6 phase 6B)
+                // and the window's place, size and look (until 8C its one page). Round 10 phase
+                // 10C: Content (page 0), Placement (page 1, kTabWidgetWindow as before) and, when
+                // the schema has both sections, Appearance (page 2); the tab strip lists them
+                // Content, Appearance, Placement (NavOrder).
+                std::vector<std::unique_ptr<SettingsPage>> widget = MakeWidgetSettingsPages(window, 0);
+                pages.push_back(std::move(widget[0]));          // kTabWidgetSettings
+                pages.push_back(MakeWidgetWindowPage(window));  // kTabWidgetWindow (round 6 phase 6B)
+                for (size_t k = 1; k < widget.size(); ++k) pages.push_back(std::move(widget[k]));
                 break;
             }
             // Round 8 phase 8B: Appearance (the old Theme tab + Behaviour's Size) is the third tab.
@@ -1220,7 +1225,8 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
             const DockItemEntry* e = window.TargetItem();
             const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
             if (k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather) {
-                pages.push_back(MakeWidgetSettingsPage(window));
+                // Round 10 phase 10C: Content and Appearance (tabs) when the schema has both.
+                pages = MakeWidgetSettingsPages(window);
             } else if (k == ItemKind::Tray) {
                 pages.push_back(MakeTrayItemPage(window));
             } else {

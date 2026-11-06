@@ -12,39 +12,39 @@
   "preview": { "settings": { "dockForecast": "days", "dockDays": 3 } },
   "permissions": ["weather", "shell"],
   "settings": [
-    { "key": "place", "common": true, "type": "place", "label": "Place", "description": "The town or city whose weather is shown. Empty: the place of this dock's first Weather item.", "group": "Place" },
-    { "key": "label", "type": "string", "label": "Name on the dock", "default": "", "group": "Place",
+    { "key": "place", "common": true, "section": "content", "type": "place", "label": "Place", "description": "The town or city whose weather is shown. Empty: the place of this dock's first Weather item.", "group": "Place" },
+    { "key": "label", "section": "content", "type": "string", "label": "Name on the dock", "default": "", "group": "Place",
       "description": "Shown under the temperature (empty: none)." },
-    { "key": "units", "common": true, "type": "choice", "label": "Units", "description": "Metric shows °C and km/h, imperial °F and mph. Default: metric.", "default": "metric", "group": "Place",
+    { "key": "units", "common": true, "section": "content", "type": "choice", "label": "Units", "description": "Metric shows °C and km/h, imperial °F and mph. Default: metric.", "default": "metric", "group": "Place",
       "choices": [
         { "value": "metric", "label": "Metric (°C, km/h)" },
         { "value": "imperial", "label": "Imperial (°F, mph)" }
       ] },
-    { "key": "refreshMinutes", "type": "int", "label": "Refresh every", "description": "How often a new forecast is fetched. Default: 30.", "min": 5, "max": 360, "step": 5, "default": 30,
+    { "key": "refreshMinutes", "section": "content", "type": "int", "label": "Refresh every", "description": "How often a new forecast is fetched. Default: 30.", "min": 5, "max": 360, "step": 5, "default": 30,
       "unit": "minutes", "group": "Place" },
-    { "key": "showPlace", "common": true, "type": "bool", "label": "Show the place under the temperature", "description": "Writes the place's name under the temperature. Off by default.", "default": false, "group": "Slot" },
-    { "key": "showHigh", "type": "bool", "label": "Show today's high", "description": "Adds today's highest temperature under the current one. Off by default.", "default": false, "group": "Slot" },
-    { "key": "showLow", "type": "bool", "label": "Show today's low", "description": "Adds today's lowest temperature under the current one. Off by default.", "default": false, "group": "Slot" },
-    { "key": "dockForecast", "common": true, "type": "choice", "label": "Forecast on the dock", "default": "none", "group": "Slot",
+    { "key": "showPlace", "common": true, "section": "appearance", "type": "bool", "label": "Show the place under the temperature", "description": "Writes the place's name under the temperature. Off by default.", "default": false, "group": "Slot" },
+    { "key": "showHigh", "section": "appearance", "type": "bool", "label": "Show today's high", "description": "Adds today's highest temperature under the current one. Off by default.", "default": false, "group": "Slot" },
+    { "key": "showLow", "section": "appearance", "type": "bool", "label": "Show today's low", "description": "Adds today's lowest temperature under the current one. Off by default.", "default": false, "group": "Slot" },
+    { "key": "dockForecast", "common": true, "section": "appearance", "type": "choice", "label": "Forecast on the dock", "default": "none", "group": "Slot",
       "choices": [
         { "value": "none", "label": "None" },
         { "value": "today", "label": "Today's high and low (under the temperature)" },
         { "value": "days", "label": "Several days (a column per day)" }
       ],
       "description": "Days: the weekday, the condition and the high over the low for each day after the current conditions (rows under them on a left or right dock); the slot grows." },
-    { "key": "dockDays", "type": "int", "label": "Days on the dock", "description": "How many days the forecast on the dock shows. Default: 3.", "min": 2, "max": 5, "step": 1, "default": 3,
+    { "key": "dockDays", "section": "appearance", "type": "int", "label": "Days on the dock", "description": "How many days the forecast on the dock shows. Default: 3.", "min": 2, "max": 5, "step": 1, "default": 3,
       "unit": "days", "group": "Slot", "visibleIf": { "dockForecast": "days" } },
-    { "key": "compact", "type": "bool", "label": "Compact (the glyph only)", "default": false, "group": "Slot",
+    { "key": "compact", "section": "appearance", "type": "bool", "label": "Compact (the glyph only)", "default": false, "group": "Slot",
       "description": "The temperature is left out; the popup still shows everything." },
-    { "key": "clickOpens", "type": "choice", "label": "Clicking the widget opens", "description": "What a click does: open the forecast popup, open the widget's settings to choose the place, or nothing. Default: the forecast popup.", "default": "popup", "group": "Click",
+    { "key": "clickOpens", "section": "content", "type": "choice", "label": "Clicking the widget opens", "description": "What a click does: open the forecast popup, open the widget's settings to choose the place, or nothing. Default: the forecast popup.", "default": "popup", "group": "Click",
       "choices": [
         { "value": "popup", "label": "The forecast popup" },
         { "value": "settings", "label": "Its settings (the place)" },
         { "value": "none", "label": "Nothing" }
       ] },
-    { "key": "days", "type": "int", "label": "Days in the popup", "description": "How many days the popup's daily forecast lists. Default: 7.", "min": 3, "max": 7, "step": 1, "default": 7,
+    { "key": "days", "section": "content", "type": "int", "label": "Days in the popup", "description": "How many days the popup's daily forecast lists. Default: 7.", "min": 3, "max": 7, "step": 1, "default": 7,
       "unit": "days", "group": "Popup", "visibleIf": { "clickOpens": "popup" } },
-    { "key": "hours", "type": "int", "label": "Hours in the popup's strip", "description": "How many hours the popup's hourly strip covers. Default: 24.", "min": 12, "max": 24, "step": 2, "default": 24,
+    { "key": "hours", "section": "content", "type": "int", "label": "Hours in the popup's strip", "description": "How many hours the popup's hourly strip covers. Default: 24.", "min": 12, "max": 24, "step": 2, "default": 24,
       "unit": "hours", "group": "Popup", "visibleIf": { "clickOpens": "popup" } }
   ]
 }

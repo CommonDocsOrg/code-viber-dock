@@ -11,12 +11,12 @@
   "standalone": { "minWidth": 64, "minHeight": 32, "defaultWidth": 240, "defaultHeight": 110 },
   "preview": { "settings": { "showDate": true } },
   "settings": [
-    { "key": "format", "common": true, "type": "string", "label": "Time format (strftime, as clock.format)", "description": "How the time is written: %H is the hour (24-hour), %I the hour (12-hour), %M the minutes, %p AM or PM. Default: %H:%M.", "default": "%H:%M" },
-    { "key": "showSeconds", "common": true, "type": "bool", "label": "Show seconds", "description": "Adds the seconds after the minutes; the clock then updates every second. Off by default.", "default": false },
-    { "key": "showDate", "common": true, "type": "bool", "label": "Show the date under the time", "description": "Writes the date (e.g. Tue 03 Nov) in a smaller line under the time. Off by default.", "default": false },
-    { "key": "timeZone", "common": true, "type": "timezone", "label": "Time zone", "default": "",
+    { "key": "format", "section": "content", "group": "Time", "common": true, "type": "string", "label": "Time format (strftime, as clock.format)", "description": "How the time is written: %H is the hour (24-hour), %I the hour (12-hour), %M the minutes, %p AM or PM. Default: %H:%M.", "default": "%H:%M" },
+    { "key": "showSeconds", "section": "content", "group": "Time", "common": true, "type": "bool", "label": "Show seconds", "description": "Adds the seconds after the minutes; the clock then updates every second. Off by default.", "default": false },
+    { "key": "showDate", "section": "content", "group": "Time", "common": true, "type": "bool", "label": "Show the date under the time", "description": "Writes the date (e.g. Tue 03 Nov) in a smaller line under the time. Off by default.", "default": false },
+    { "key": "timeZone", "section": "content", "group": "Time", "common": true, "type": "timezone", "label": "Time zone", "default": "",
       "description": "Local time, or the time of any Windows time zone (with its own daylight saving)." },
-    { "key": "label", "type": "string", "label": "Label (e.g. Tokyo)", "default": "",
+    { "key": "label", "section": "content", "group": "Time", "type": "string", "label": "Label (e.g. Tokyo)", "default": "",
       "description": "Drawn small under the time: before the date, or alone without it." }
   ]
 }
