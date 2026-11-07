@@ -719,7 +719,7 @@ One commit per phase on master, not pushed; STATUS.md "Round 9" has each phase's
 | 9D Help | Human-readable guides in docs/ (quick start, settings, docks, items, troubleshooting), an in-app Help window (Markdown rendered in a RichEdit, F1, a Help nav row, "?" buttons on every settings card), every field labelled with a tooltip (QueryState 285 counts the gaps); QueryState 286 / 287, DockCommand 154 | Done (the commit "Help from every card: user guides, a Help window, F1, a tooltip on every setting"; STATUS.md "Round 9") |
 | 9E Regression | Every window kind at default and minimum size, the new dialogs, the guard, the docs link check; the release build; the user's dock restarted | Done (STATUS.md "Round 9 final regression": every suite re-run on the release exe, pictures of every window kind at both sizes; two layout fixes: a collapsed card takes its "?" with it, a slider's value pulls in at a narrow width) |
 
-## Round 10 (in progress, 2026-11-06): shorter menus, explicit names, one editing workflow, clearer settings
+## Round 10 (complete 2026-11-06): shorter menus, explicit names, one editing workflow, clearer settings
 
 Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round10.md` (from the user's pasted
 wish list of 2026-11-06: shorter item menus, a dock menu grouped by task, explicit settings names,
@@ -733,7 +733,7 @@ not pushed; STATUS.md "Round 10" has each phase's notes.
 | 10B Contents tab as the editor | Common settings in the inspector, More settings… for the full Item window | Done (the commit "Contents inspector edits common settings in place"; STATUS.md "Round 10") |
 | 10C One widget settings structure | Content / Appearance (/ Placement) sections; manifest `section` key | Done (the commit "One settings structure for every widget: Content, Appearance, Placement"; STATUS.md "Round 10") |
 | 10D Common first, inherited vs local | Named collapsed expanders; Use app default / Reset to app default / Reset to factory defaults… | Done (the commit "Common settings first, detail folded, app defaults shown"; STATUS.md "Round 10") |
-| 10E Regression and release | Suites re-run, pictures, the release build, the user's dock restarted | Planned |
+| 10E Regression and release | Suites re-run, pictures, the release build, the user's dock restarted | Done (STATUS.md "Round 10 final regression": the four phases' suites and a cross-phase suite on one dev build, pictures of every settings window kind and the six guides, three naming fixes; the release build; the user's dock restarted on it) |
 
 Design notes for 10A:
 
@@ -871,6 +871,19 @@ Design notes for 10D:
   it returns; the window checks its HWND after it. For a clock / weather item "factory" is the
   settings a new one starts with (WinDock's own unless config.json's top-level objects were
   edited by hand), the behaviour the button had; the text says so.
+
+Notes for 10E (round 10 closed 2026-11-06):
+
+- **What the regression found** was naming left over from before 10A: the folder window page's
+  "View" and the folder / group page's "Show the contents as" (now "Contents layout", the menus'
+  and the inspector's word), and "Settings > Calendar / Widgets" paths in built-in widget texts and
+  the export README. No behaviour regression: every phase suite passed again on the final tree.
+- **A confirmation changes automation.** 10D's Reset to factory defaults… turned a button that
+  returned at once into a modal one; a test that *sends* the command now blocks until the dialog is
+  answered (10C's suite did). Post such commands and answer the `#32770` (README "Automation").
+- **Left open** for a later round: real-input checks of the new surfaces, light mode / high
+  contrast, other DPIs and displays, a "Folder window settings…" entry in the folder window's own
+  menu (STATUS.md "Round 10 final regression", Found and left).
 
 ## Dependencies at a glance
 

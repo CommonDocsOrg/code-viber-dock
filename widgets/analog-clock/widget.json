@@ -12,7 +12,7 @@
   "preview": { "settings": { "face": "classic", "seconds": true, "dateOnFace": "day" } },
   "settings": [
     { "key": "face", "common": true, "section": "appearance", "group": "Face", "type": "choice", "label": "Face", "choiceFrom": "faces/*.json", "default": "classic",
-      "description": "Every faces/*.json of the widget. Export the widget (Settings > Widgets) and add your own face files to its faces folder." },
+      "description": "Every faces/*.json of the widget. Export the widget (App settings > Widget library) and add your own face files to its faces folder." },
     { "key": "dateOnFace", "section": "appearance", "group": "Face", "type": "choice", "label": "Date on the face", "description": "Shows the date in small windows on the dial; each choice says what is shown and where. Default: none.", "default": "none",
       "choices": [
         { "value": "none", "label": "None" },

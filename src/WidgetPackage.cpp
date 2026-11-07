@@ -1283,12 +1283,12 @@ bool ExportBuiltIn(const std::wstring& id, std::wstring& folder, std::wstring& e
         "# " + WideToUtf8(name) + " (exported from WinDock)\n\n"
         "This folder is a copy of WinDock's built-in `" + WideToUtf8(id) + "` widget. While it exists it replaces the\n"
         "built-in: edit `widget.json` and `main.js` (and any `faces/` or `assets/` files), then press **Reload widgets**\n"
-        "(the dock menu, Settings > Widgets or the Console). Set `\"watch\": true` in widget.json to reload on every save.\n"
+        "(the dock menu's Tools, App settings > Widget library or the Console). Set `\"watch\": true` in widget.json to reload on every save.\n"
         "Delete the folder to get the built-in back.\n\n"
         "- The API (canvas, dock, timer, settings, storage, providers, popups, the manifest and its settings schema):\n"
         "  docs/widgets.md in the WinDock repository.\n"
         "- Check the manifest: `WinDock.exe --validate-widget \"<this folder>\"`.\n"
-        "- Errors and `console.log` output: Settings > Widgets > Console.\n";
+        "- Errors and `console.log` output: the dock menu's Tools > Widget console (or the Console button of the widget's settings).\n";
     if (!JsonUtil::WriteFileAtomic(folder + L"\\README.md", readme)) {
         error = L"cannot write " + folder + L"\\README.md";
         return false;

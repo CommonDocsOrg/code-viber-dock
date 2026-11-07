@@ -6,7 +6,7 @@ European air quality index as "AQI 23" with the band's colour. A click fetches a
 | File | What it shows |
 |---|---|
 | `widget.json` | The **host allow-list**: `"permissions": [{ "http": ["air-quality-api.open-meteo.com"] }]`. A request to any other host throws a TypeError at the call. Settings with groups and units (`"group"`, `"unit"`). |
-| `main.js` | `http.get(url, { type: "json" })` as a promise, errors caught and logged (`console.warn`: Settings > Widgets > Console…), `timer.setRefresh(ms)` + `tick()` for the cadence (one wake-up per refresh, nothing in between), `storage` for the last value across restarts, `requestRedraw()` when the answer arrives. |
+| `main.js` | `http.get(url, { type: "json" })` as a promise, errors caught and logged (`console.warn`: the dock menu's Tools > Widget console…), `timer.setRefresh(ms)` + `tick()` for the cadence (one wake-up per refresh, nothing in between), `storage` for the last value across restarts, `requestRedraw()` when the answer arrives. |
 
 Install: Settings > **Widgets** > **Add from folder…**, pick this folder, then **Add to dock**; set
 the place on Settings > **Widget settings**. Check it first with

@@ -63,7 +63,9 @@ protected:
         EditBox(kFwTitleEdit, kColX, right - kColX, 128);
         NextRow();
         Section(kFwContentsSection, L"Contents", L"guide-settings.md#contents-of-the-window");
-        Label(kFwViewLabel, L"View");
+        // Round 10 phase 10E: "Contents layout" (was "View"), the name the window's menu and the
+        // dock items' settings use for the same choice since 10A / 10B.
+        Label(kFwViewLabel, L"Contents layout");
         Tip(kFwViewLabel, L"Grid (icons with names) or list (one line each). Automatic (the default): a grid up to 48 items, a list above.");
         Combo(kFwViewCombo, kColX, 200, false);
         NextRow();

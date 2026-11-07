@@ -2,7 +2,7 @@
   "name": "Agenda",
   "version": "1.0.0",
   "author": "WinDock",
-  "description": "The next event of the dock's calendar feeds (Settings > Calendar): how long until it starts (\"In 25 min\", \"Now\", the time) and its title; a click shows the next events in a popup, the month calendar or an app / address. It wakes only when what it shows changes: at an event's start or end, each minute of the last hour before one, at midnight, and when the feeds change.",
+  "description": "The next event of the dock's calendar feeds (App settings > Calendar feeds): how long until it starts (\"In 25 min\", \"Now\", the time) and its title; a click shows the next events in a popup, the month calendar or an app / address. It wakes only when what it shows changes: at an event's start or end, each minute of the last hour before one, at midnight, and when the feeds change.",
   "api": 1,
   "size": {
     "horizontal": { "main": 160, "cross": 44 },
@@ -16,7 +16,7 @@
       "description": "Events further away are not shown (the slot then says \"No events\")." },
     { "key": "showLocation", "section": "content", "group": "Popup", "type": "bool", "label": "Show locations in the popup", "description": "Adds each event's location after its time in the popup. On by default.", "default": true },
     { "key": "feeds", "section": "content", "group": "Events", "type": "string", "label": "Only these feeds", "default": "",
-      "description": "Feed names, comma separated (Settings > Calendar). Empty: every feed." },
+      "description": "Feed names, comma separated (App settings > Calendar feeds). Empty: every feed." },
     { "key": "clickOpens", "common": true, "section": "content", "group": "Click", "type": "choice", "label": "A click opens", "description": "What a click on the widget opens: the next events, the month calendar, or the app or address below. Default: the next events.", "default": "popup",
       "choices": [ { "value": "popup", "label": "The next events" },
                    { "value": "calendar", "label": "The month calendar" },

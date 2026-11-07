@@ -138,7 +138,7 @@ Working with a folder:
 - Drop files on the popup to move or copy them into the folder.
 - Middle-click the folder to open it in File Explorer.
 
-The popup shows a grid or a list. To choose, right-click the folder and open **Contents layout**, or open the folder's settings window and set **Show the contents as**: **Automatic** (a grid up to 48 entries, a list for more), **Grid** or **List**.
+The popup shows a grid or a list. To choose, right-click the folder and open **Contents layout**, or open the folder's settings window and set **Contents layout**: **Automatic** (a grid up to 48 entries, a list for more), **Grid** or **List**.
 
 The folder's settings window has the same view choice and an Icon card to give it a picture of your own.
 
@@ -158,7 +158,7 @@ Right-click a group for **Show contents**, **Rename…**, **Contents layout**, *
 
 The group's settings window (right-click > **Group settings…**) has these cards:
 
-- **Group**: its **Name** and **Show the contents as**.
+- **Group**: its **Name** and **Contents layout**.
 - **Icon**: see below.
 - **Shortcuts in the group**: see below.
 

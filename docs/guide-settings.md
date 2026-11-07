@@ -575,7 +575,7 @@ The **Folder** card:
 
 The **Contents** card:
 
-- **View**: **Automatic** (a grid for up to 48 entries, a list for more), **Grid** or **List**.
+- **Contents layout**: **Automatic** (a grid for up to 48 entries, a list for more), **Grid** or **List**.
 - **Icon size**: from 32 to 96.
 - **Sort by**: **Name**, **Date modified**, **Type** or **Size**.
 - **Show hidden items**: also show hidden files.

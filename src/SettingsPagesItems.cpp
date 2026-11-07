@@ -106,7 +106,9 @@ protected:
         EditBox(kGroupNameEdit, kColX, 260, 128);
         NextRow();
         // Round 8 phase 8A: the note is the label's hint (kItemViewNote) and its tooltip.
-        Label(kItemViewLabel, L"Show the contents as", L"Automatic: a grid up to 48", kItemViewNote);
+        // Round 10 phase 10E: "Contents layout" (was "Show the contents as"), as the item menu's
+        // submenu and the Contents inspector's row name it.
+        Label(kItemViewLabel, L"Contents layout", L"Automatic: a grid up to 48", kItemViewNote);
         Tip(kItemViewLabel, L"Automatic: a grid up to 48 entries, a scrolling list above. Both scroll with the wheel or by "
                             L"dragging; type to select, Enter opens.");
         Combo(kItemViewCombo, kColX, 260, false);

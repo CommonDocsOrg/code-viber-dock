@@ -1453,7 +1453,8 @@ folder, the window opens at the pointer) or on App settings > Docks and displays
   the window gives it the keyboard without bringing it in front of other windows.
 - **Context menus**: right-click an entry for the shell's own menu (Open, Open with, Send to, Cut,
   Copy, Rename (inline), Delete, Properties, and every shell extension's entries); right-click the
-  background or the title for the window's menu: Open in Explorer, Refresh, View, Sort by, Show
+  background or the title for the window's menu: Open in Explorer, Refresh, Paste, Contents layout
+  (was View), Sort by, Show
   hidden items, Open items with a single click, Collapse, New folder window…, Remove this folder
   window.
 - **Drag and drop**: entries drag out as the shell's data object, so Explorer, the desktop, other
@@ -2024,7 +2025,8 @@ app default** beside it for a script widget with a place of its own), **Console�
   grid's order with a check box each, Move up / Move down) and **Takeover** (Reset to Explorer,
   with its hint; see System tray).
 - a **folder** (or a shortcut to one) or a **group** (round 8 phase 8C: a card per section): a
-  **Folder** / **Group** card (a group's **Name**; **Show the contents as** Automatic (a grid up to
+  **Folder** / **Group** card (a group's **Name**; **Contents layout** (round 10 phase 10E; was
+  "Show the contents as") Automatic (a grid up to
   48 entries, a list above) / Grid / List; a group's member count line), an **Icon** card (Choose
   icon…, Choose image…, Reset icon) and, for a group, **Shortcuts in the group** (Add app…, Add
   folder…, Remove, Move up / down). A folder's path is the header's third line.
@@ -3220,7 +3222,7 @@ always there, also when every dock is parked) handle these registered messages:
   Window thumbnails; General 2125 Renderer, 2196 Dashboard hotkey; Dock > Appearance 2422; Themes 2406
   Theme (`kThemeNote`); Animation 2535 Animation speed, 2534 Reduce motion; Calendar feeds 4333
   Default reminder (`kCalReminderNote`); Notifications 4214 Check for notifications every;
-  Folders and groups 4004 Show the contents as; a standalone widget's 4512 Position x, 4523 Layer;
+  Folders and groups 4004 Contents layout (was Show the contents as); a standalone widget's 4512 Position x, 4523 Layer;
   a folder window's 4444 Desktop files matching; their window text is the hint). **Removed
   controls** (8A): the page title 2000 in Dock and Item windows (the tab or the header names the
   page; the App settings window keeps its titles, and the Contents tab's "Items on the dock" heading
