@@ -885,7 +885,7 @@ Notes for 10E (round 10 closed 2026-11-06):
   contrast, other DPIs and displays, a "Folder window settings…" entry in the folder window's own
   menu (STATUS.md "Round 10 final regression", Found and left).
 
-## Round 11 (in progress, 2026-11-06): the Windows 7 look
+## Round 11 (complete 2026-11-07): the Windows 7 look
 
 Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round11.md` (from the user's request
 of 2026-11-06: "need to be able to customize the dock to the point where it looks almost identical
@@ -898,7 +898,7 @@ notes.
 | 11B Widgets | The Start orb (`icon` `orb`, Start 1.1.0), the new built-in Show desktop widget (strip / glyph, Win+D / Win+M), the digital clock's `dateFormat` and `timeStyle` `taskbar` (1.1.0), three `sendKeys` entries, the `WINDOCK_SENDKEYS_LOG` dry run, ItemCommand 834 hovering widgets | Done (the commit "Start orb, Show desktop widget, taskbar clock layout"; STATUS.md "Round 11") |
 | 11C The "Windows 7" preset | `res/presets/win7.json` (after `windows`), presets with a tray turn the takeover on, `measure()`'s `flush` (the Show desktop strip flush with the screen's end and as thick as a full-width bar), guide-docks "Make it look like Windows 7", README; no QueryState 295 | Done (the commit "Windows 7 preset, flush Show desktop strip, the guide"; STATUS.md "Round 11") |
 | 11D Disable / enable a dock | `docks[].enabled` (any kind; written only when false), Sync parks a disabled entry (no window, weather, tray takeover or desktop rules for it), Docks and displays' Disable / Enable button (2815), DockCommand 156, QueryState 295; the last enabled dock stays on (also on load). From the user's request of 2026-11-07 ("hide/disable docks ... temporarily ... rather than deleting") | Done (STATUS.md "Round 11") |
-| 11E Regression and release | Suites, pictures, the release build | Planned |
+| 11E Regression and release | Every round 11 phase script and round 10's suites on one clean dev build of the final tree, the cross-phase checks of the Windows 7 dock (pictures, Themes cards, the drawer, the three Item windows, the chooser and the welcome dialog, the Help sections, QueryState 285), a light check of 11D, the release build | Done (STATUS.md "Round 11 final regression") |
 
 Design notes for 11A:
 
@@ -999,6 +999,21 @@ Design notes for 11C:
 - **Left as differences** (guide-docks): titles beside icons, Aero Peek, the orb overhang, jump
   lists, progress bars, the colour names, and the faint line the dock draws between leading
   widgets and icons (after the orb; the theme's Separator opacity 0 hides it).
+
+Notes for 11E (round 11 closed 2026-11-07):
+
+- **Numbering.** The regression was planned as 11D; the user's request of 2026-11-07 (disable a
+  dock without removing it) became 11D (b1aeb9a) while the regression's first run was paused, so
+  the regression is 11E and was run again, in full, on a clean build of that final tree.
+- **What it found.** No behaviour regression: every round 11 phase script and every round 10 suite
+  passes on the final tree (one flake each in two runs, both passing on a re-run), and the plain
+  dark dock is still pixel-identical to round 10's exe. The only product fix is in README: 11D's
+  QueryState 295 sentence had been inserted inside 11C's paragraph. Three scripts had gone stale
+  through later phases (the strip's box after 11C's `flush`, the digital clock's tabs after 11B).
+- **Left open**: the welcome dialog's list now needs its scroll bar for 8 presets (the chooser's
+  fits); the inspector previews an orb Start item with the logo; the phases' "Not verified" lists,
+  consolidated in STATUS.md "Round 11 final regression" (real pointer input and a real Win+D above
+  all).
 
 ## Dependencies at a glance
 

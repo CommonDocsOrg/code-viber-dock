@@ -3140,10 +3140,11 @@ always there, also when every dock is parked) handle these registered messages:
   windows.
   Round 11 phase 11C, the Windows 7 preset: no new numbers (the theme preset a dock resolves was
   not needed: 294 = 28 is only the `aero` preset among the built-ins, and `docks[].themePreset` is
-  in the saved file). Round 11 phase 11D: **295** = `docks[]` entry `HIWORD(lParam)` (any kind) is
-  enabled (1) or disabled (0); -2 no such entry (DockCommand 156 sets it). DockCommand 153 index 4 applies it; QueryState 61 /
-  62 give the Show desktop strip's box (on a full-width dock its cross is the bar's thickness) and
-  `QueryItemPoint` its centre (flush: its box ends at the screen's end).
+  in the saved file). DockCommand 153 index 4 applies the preset; QueryState 61 / 62 give the Show
+  desktop strip's box (on a full-width dock its cross is the bar's thickness) and `QueryItemPoint`
+  its centre (flush: its box ends at the screen's end).
+  Round 11 phase 11D, disable / enable a dock: **295** = `docks[]` entry `HIWORD(lParam)` (any
+  kind) is enabled (1) or disabled (0); -2 no such entry (DockCommand 156 sets it).
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the App settings window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.
