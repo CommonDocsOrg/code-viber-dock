@@ -41,6 +41,9 @@
 #define IDR_CLOCKFACE_MONO_PILL 352
 #define IDR_WIDGET_BATTERY_JSON 353
 #define IDR_WIDGET_BATTERY_MAIN 354
+// Round 11 phase 11B: the Show desktop sliver.
+#define IDR_WIDGET_SHOWDESKTOP_JSON 355
+#define IDR_WIDGET_SHOWDESKTOP_MAIN 356
 
 // Round 9 phase 9C: the predefined dock setups (RCDATA, res/presets/<id>.json; Presets.cpp lists
 // them in this order).

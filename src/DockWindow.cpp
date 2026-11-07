@@ -2975,6 +2975,9 @@ bool DockWindow::ScrollCommand(UINT cmd, int arg) {
         // As a real pointer: a "steady" bar grows over something that zooms (9A follow-up 2).
         if (GrowForZoom(slot)) slot = HitAlong(cursorX_);
         SetHover(slot >= 0 && !items_[static_cast<size_t>(slot)].IsWidget() ? slot : -1);  // the label follows
+        // Round 11 phase 11B: a script widget there gets onHover as under a real pointer (the Start
+        // orb's hover glow can be tested in a locked session); 0xFFFF's LeaveZone ends it.
+        UpdateWidgetHover(slot >= 0 && items_[static_cast<size_t>(slot)].IsWidget() ? slot : -1);
         ApplyMagnify();
         return true;
     }

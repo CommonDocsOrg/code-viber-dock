@@ -1,8 +1,8 @@
 {
   "name": "Digital clock (script)",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "WinDock",
-  "description": "A scripted copy of the built-in clock: the time in a strftime format, optional seconds, the date under it, any time zone and a label.",
+  "description": "A scripted copy of the built-in clock: the time in a strftime format, optional seconds, the date under it in a format of your own, any time zone and a label; stacked (a smaller date line) or the Windows 7 taskbar look (time over date, the same size).",
   "api": 1,
   "size": {
     "horizontal": { "main": 48, "cross": 22 },
@@ -11,12 +11,20 @@
   "standalone": { "minWidth": 64, "minHeight": 32, "defaultWidth": 240, "defaultHeight": 110 },
   "preview": { "settings": { "showDate": true } },
   "settings": [
-    { "key": "format", "section": "content", "group": "Time", "common": true, "type": "string", "label": "Time format (strftime, as clock.format)", "description": "How the time is written: %H is the hour (24-hour), %I the hour (12-hour), %M the minutes, %p AM or PM. Default: %H:%M.", "default": "%H:%M" },
+    { "key": "format", "section": "content", "group": "Time", "common": true, "type": "string", "label": "Time format (strftime, as clock.format)", "description": "How the time is written: %H is the hour (24-hour), %I the hour (12-hour), %M the minutes, %p AM or PM; %#I drops the leading zero (%#I:%M %p: 2:05 PM). Default: %H:%M.", "default": "%H:%M" },
     { "key": "showSeconds", "section": "content", "group": "Time", "common": true, "type": "bool", "label": "Show seconds", "description": "Adds the seconds after the minutes; the clock then updates every second. Off by default.", "default": false },
-    { "key": "showDate", "section": "content", "group": "Time", "common": true, "type": "bool", "label": "Show the date under the time", "description": "Writes the date (e.g. Tue 03 Nov) in a smaller line under the time. Off by default.", "default": false },
+    { "key": "showDate", "section": "content", "group": "Time", "common": true, "type": "bool", "label": "Show the date under the time", "description": "Writes the date (e.g. Tue 03 Nov) in a line under the time. Off by default.", "default": false },
+    { "key": "dateFormat", "section": "content", "group": "Time", "common": true, "visibleIf": { "showDate": true }, "type": "string", "label": "Date format (strftime)", "default": "%a %d %b",
+      "description": "How the date is written: %a the short weekday, %d the day, %b the short month, %m the month number, %Y the year; %#d and %#m drop the leading zero (%#m/%#d/%Y: 11/6/2026). Default: %a %d %b." },
     { "key": "timeZone", "section": "content", "group": "Time", "common": true, "type": "timezone", "label": "Time zone", "default": "",
       "description": "Local time, or the time of any Windows time zone (with its own daylight saving)." },
     { "key": "label", "section": "content", "group": "Time", "type": "string", "label": "Label (e.g. Tokyo)", "default": "",
-      "description": "Drawn small under the time: before the date, or alone without it." }
+      "description": "Drawn small under the time: before the date, or alone without it." },
+    { "key": "timeStyle", "section": "appearance", "group": "Look", "common": true, "type": "choice", "label": "Layout", "default": "stacked",
+      "description": "Stacked: the time large with the date smaller under it. Taskbar: the time and the date centred in two lines of the same size, as the Windows 7 taskbar clock. Default: stacked.",
+      "choices": [
+        { "value": "stacked", "label": "Stacked (a smaller date line)" },
+        { "value": "taskbar", "label": "Taskbar (two lines of the same size)" }
+      ] }
   ]
 }

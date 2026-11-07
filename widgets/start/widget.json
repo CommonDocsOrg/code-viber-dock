@@ -1,8 +1,8 @@
 {
   "name": "Start",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "author": "WinDock",
-  "description": "A Start button: opens the Start menu (the Windows key, sent with SendInput; if Windows refuses the input, the All apps folder opens instead). The Windows logo or your own icon.",
+  "description": "A Start button: opens the Start menu (the Windows key, sent with SendInput; if Windows refuses the input, the All apps folder opens instead). The Windows logo, the Windows 7 orb or your own icon.",
   "api": 1,
   "size": {
     "horizontal": { "main": 48, "cross": 48 },
@@ -11,14 +11,15 @@
   "standalone": { "minWidth": 48, "minHeight": 48, "aspect": 1, "defaultWidth": 96, "defaultHeight": 96 },
   "permissions": ["shell"],
   "settings": [
-    { "key": "icon", "section": "appearance", "group": "Icon", "common": true, "type": "choice", "label": "Icon", "description": "What the button shows: the blue Windows logo, the logo in the theme's text colour, or your own image (below). Default: the blue logo.", "default": "windows",
+    { "key": "icon", "section": "appearance", "group": "Icon", "common": true, "type": "choice", "label": "Icon", "description": "What the button shows: the blue Windows logo, the logo in the theme's text colour, the Windows 7 orb (a glossy sphere with the four-colour flag; it lights up under the pointer), or your own image (below). Default: the blue logo.", "default": "windows",
       "choices": [
         { "value": "windows", "label": "Windows logo (blue)" },
         { "value": "mono", "label": "Windows logo (the theme's text colour)" },
+        { "value": "orb", "label": "Windows 7 orb" },
         { "value": "image", "label": "An image or a file's icon (below)" }
       ] },
     { "key": "image", "section": "appearance", "group": "Icon", "common": true, "visibleIf": { "icon": "image" }, "type": "string", "label": "Image", "default": "",
       "description": "A file of the widget (assets/start.png, after exporting it) or the full path of any file, whose shell icon is drawn (an .exe, .ico, .lnk ...)." },
-    { "key": "size", "section": "appearance", "group": "Icon", "common": true, "unit": "%", "type": "int", "label": "Icon size (percent of the slot)", "description": "How much of the slot the icon fills. Default: 62%.", "min": 30, "max": 100, "default": 62 }
+    { "key": "size", "section": "appearance", "group": "Icon", "common": true, "unit": "%", "type": "int", "label": "Icon size (0 = automatic)", "description": "How much of the slot the icon fills, in percent. 0 (the default) is automatic: 62% for the logos and images, 100% for the orb, which looks best at 95 - 100%.", "min": 0, "max": 100, "default": 0 }
   ]
 }

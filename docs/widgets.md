@@ -372,7 +372,10 @@ Needs `"shell"` in `permissions` (else every call throws).
 | `shell.list(folder)` | The folder's entries, folders first, in Explorer's name order, hidden and system entries left out (up to 1000): `[{ name, path, folder, size, modified }]` (`modified`: ms since 1970, UTC). Draw their icons with `canvas.fileIcon`. |
 | `shell.sendKeys(name)` | Presses one key combination of a fixed allow-list with `SendInput` (as if typed: the keys go to whatever has the focus, the shell handles the Windows-key ones). Anything else throws, and so does input Windows refuses (a window of higher integrity has the focus). Returns `true`. |
 
-The `sendKeys` allow-list (names are case-insensitive):
+The `sendKeys` allow-list (names are case-insensitive). It is a fixed list on purpose, not a parser
+of `"modifier+key"` strings: a widget may open Windows' own UI and press the media keys, never type
+shortcuts (Ctrl+C, Alt+F4) into the app that has the focus. Round 11 phase 11B added `win+m`,
+`win+shift+m` and `ctrl+shift+esc`; a combination's modifiers are held while its last key is pressed.
 
 | Name | Keys | Opens |
 |---|---|---|
@@ -382,12 +385,15 @@ The `sendKeys` allow-list (names are case-insensitive):
 | `win+d` | Windows + D | Show / hide the desktop |
 | `win+e` | Windows + E | File Explorer |
 | `win+i` | Windows + I | Settings |
+| `win+m` | Windows + M | Minimizes every window (the Show desktop widget's "minimize") |
+| `win+shift+m` | Windows + Shift + M | Restores what Windows + M minimized |
 | `win+n` | Windows + N | The notification centre and calendar |
 | `win+s` | Windows + S | Search |
 | `win+tab` | Windows + Tab | Task view |
 | `win+v` | Windows + V | Clipboard history |
 | `win+w` | Windows + W | Widgets |
 | `win+x` | Windows + X | The Start button's menu |
+| `ctrl+shift+esc` | Ctrl + Shift + Esc | Task Manager |
 | `volume-up`, `volume-down`, `volume-mute` | the volume keys | (the system volume; prefer `audio`) |
 | `media-play-pause`, `media-next`, `media-previous`, `media-stop` | the media keys | (the focused media app; prefer `media`) |
 
@@ -1022,7 +1028,8 @@ The manifest's `preview` object (see [widget.json](#widgetjson)) picks what the 
 The built-ins: the Analog clock previews the classic face with a second hand and the date window,
 the Digital clock with its date line, the Weather widget with a three-day forecast on the slot
 (round 7), the System monitor as a CPU graph, the Battery widget the sample laptop with its time
-left; the Notes widget draws a sample note when `dock.preview` is true; the others preview as
+left, Show desktop its desktop glyph (round 11: a 10 DIP strip would be a faint line in the
+drawer); the Notes widget draws a sample note when `dock.preview` is true; the others preview as
 they are. A widget that throws (or fails to load, or measures an empty box) gets no preview: its row
 keeps the letter tile and the failure goes to the debugger output once per widget id
 (`WinDock preview <id>: <message>`).
@@ -1082,7 +1089,12 @@ built-ins are worked examples too:
   any Windows zone, passed to `system.format` and `setRefresh`; once per load or settings change it
   logs the zone, its UTC offset and the time it shows, and it warns about a zone this Windows does
   not know) and `label` (drawn small under the time: before the date, or alone, as the built-in
-  clock draws its label).
+  clock draws its label). Round 11 phase 11B (1.1.0): `dateFormat` (strftime, default
+  `"%a %d %b"`, the old fixed date; shown only with `showDate`) and `timeStyle` `"stacked"` (as
+  before: the time semibold, a smaller date line in `dock.theme.dateText`) or `"taskbar"` (the
+  Windows 7 clock: the time over the date in two centred lines of the same size and weight, both
+  in `dock.theme.text`, 4 DIPs of room either side). `system.format` passes MSVC's `#` flag
+  through, so `"%#I:%M %p"` gives `2:05 PM` and `"%#m/%#d/%Y"` `11/6/2026`.
 - `widgets/analog-clock`: faces as data (`faces/*.json`, [the format](#analog-clock-faces-format-1)) listed
   by a `choiceFrom` setting and read with `widget.readJson`; settings (grouped: Face, Second hand,
   Motion and size; the motion shown only with a second hand: `visibleIf`) `face`, `seconds` (second
@@ -1139,7 +1151,26 @@ built-ins are worked examples too:
   Permissions `media`, `audio`.
 - `widgets/start`: `shell.sendKeys('win')`, falling back to `shell.open('shell:AppsFolder')` when
   Windows refuses the input; `icon` `windows` / `mono` / `image` with `image` (a package file, or
-  any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot).
+  any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot). Round
+  11 phase 11B (1.1.0): `icon` **`orb`**, the Windows 7 Start orb drawn with canvas calls only: a
+  sphere of radial gradients (navy rim, a lighter glow from below), the four-colour flag as four
+  `canvas.path` panes whose horizontal edges follow one S-curve (the left column lower), an
+  elliptical highlight and a radial gloss over the upper half, a thin light rim. Hovered
+  (`onHover`) the sphere's colours are 20 % lighter and a radial-gradient glow rings it; pressed
+  (`onPress`, until `onClick` or the pointer leaving, with one 2 s `setTimeout` as a backstop for a
+  press that turns into a drag) they are 20 % darker. `size` 0 (the new default) is automatic: 62 %
+  for the logos and images (the old default), 100 % for the orb (it fills 92 % of the slot's
+  shorter side). Nothing runs at rest.
+- `widgets/show-desktop` ("Show desktop", round 11 phase 11B): the Windows 7 taskbar's sliver. A
+  click sends `win+d` (`click` `desktop`, the default: show the desktop, a second click brings the
+  windows back) or `win+m` (`minimize`). `style` `strip` (default): `measure()` returns `width`
+  (6 - 24 DIPs, default 10) along the dock and the icon size across; the strip is the theme's text
+  colour at 10 % (25 % hovered, 40 % pressed) with a one-pixel hairline at 35 % on the side towards
+  the other items (left on a top / bottom dock, top on a left / right one). `style` `icon`: an
+  icon-sized slot with a monitor glyph in the text colour (a standalone widget always draws the
+  glyph; so does the drawer preview, through the manifest's `preview.settings`). Aero Peek
+  (hovering the sliver turns the windows into glass) is not done: it needs DWM's peek on every
+  window, which no API offers an app. Permission `shell`.
 - `widgets/search`: `shell.sendKeys('win+s')`; `showLabel`, `label`, `image`.
 - `widgets/agenda` ("Agenda"): the next event of the calendar feeds (`calendar.next`) in the slot:
   how long until it starts ("In 25 min", "Now", the time, "Tomorrow 9:00 AM") over its title, with

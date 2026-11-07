@@ -1082,7 +1082,9 @@ write and edit without compiling anything. The full reference (every call, every
   (an ES module), more modules and an `assets` folder if it needs them. Built in (their sources
   are in this repository's `widgets\` folder): **Hello** (`hello`: a label and a click counter),
   **Digital clock (script)** (`digital-clock`: a scripted copy of the dock's own clock, with the
-  same format, seconds, date, time zone and label options as its settings), **Analog clock**
+  same format, seconds, date, time zone and label options as its settings; round 11: a date format
+  of its own and the **Layout** "Taskbar", the Windows 7 clock: the time over the date in two
+  centred lines of the same size), **Analog clock**
   (`analog-clock`: five faces as data files, `faces/*.json`: Classic, Minimal, Modern dark, Roman,
   Station; an optional second hand that ticks or sweeps smoothly, the date on the face, the time
   under the dial, a sweep-in animation, a time zone and a label; round 7: it grows to 1.6 times its
@@ -1099,7 +1101,11 @@ write and edit without compiling anything. The full reference (every call, every
   next on the right (above / below on a left / right dock); a title or artist that does not fit
   scrolls while hovered, always or never, at a speed you set; middle-click for a popup; the wheel
   changes the volume with the same volume bar (a setting)), **Start**
-  (`start`: the Windows logo or your icon, opens Start), **Search** (`search`: opens Windows Search)
+  (`start`: the Windows logo, the Windows 7 orb (round 11: a glossy sphere with the waving flag,
+  lighter and glowing under the pointer, darker while pressed) or your icon, opens Start), **Show
+  desktop** (`show-desktop`, round 11: the Windows 7 sliver at the end of the bar, a narrow
+  translucent strip (6 - 24 DIPs) or a desktop glyph; a click shows the desktop (Win+D) or
+  minimizes every window (Win+M); Aero Peek is not done), **Search** (`search`: opens Windows Search)
   and **Notification bell** (`notification-bell`: a scriptable bell that behaves like the
   notification centre by default, the unread count in a badge and a click that opens WinDock's
   centre; its settings make it open Windows' notification centre (Win+N) instead, and with "Show
@@ -2702,7 +2708,8 @@ always there, also when every dock is parked) handle these registered messages:
   when the run scrolls), 834 magnifies as if the pointer rested at stage main coordinate
   `HIWORD(wParam)` (0xFFFF: as if it left; any dock; the targets only, the window does not expand:
   for checking the magnified layout without a real pointer, e.g. while the session is locked; it
-  also hovers the icon slot there, so the name label appears after its delay).
+  also hovers the icon slot there, so the name label appears after its delay; round 11 phase 11B:
+  a script widget there gets `onHover` as under a real pointer, and 0xFFFF ends it).
   Settings: 2167 the overflow combo (0 scroll, 1 shrink, 2 clip).
 - **Rings** (round 4 phase 11b; main coordinates are arc length along the ring): `QueryState` 145 =
   the shape laid out (0 bar, 1 arc, 2 circle), 146 = the radius in px (to the icons' centre line;
@@ -3101,6 +3108,13 @@ always there, also when every dock is parked) handle these registered messages:
   windows); 0 for every slot while the style is "none", on a ring, and for separators and widgets;
   -1 no such slot. 294 = the dock's effective theme `iconGap` in DIPs (rounded; 8 by default, 28
   with the `aero` preset), so a test can tell a theme applied without pixels.
+  Round 11 phase 11B, the Start orb and Show desktop widgets: no new numbers. ItemCommand 834 hovers
+  a script widget (its `onHover`), a posted `WM_LBUTTONDOWN` on a widget's slot is its `onPress`
+  and ItemCommand 810 its click. Test hook: the environment variable `WINDOCK_SENDKEYS_LOG` of the
+  dock process names a file that gets a line per accepted `shell.sendKeys` call (`<name>` TAB the
+  virtual keys in hex, e.g. `win+d` TAB `5B 44`), and then **nothing is pressed** (a dry run), so a
+  test can click the Start or Show desktop widget without opening Start or minimizing the session's
+  windows.
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the App settings window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.

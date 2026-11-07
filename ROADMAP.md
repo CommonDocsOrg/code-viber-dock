@@ -895,7 +895,7 @@ notes.
 | Phase | Scope | Status |
 |---|---|---|
 | 11A Theme: slot buttons, sheen, spacing | Eleven theme fields (`slotStyle` + seven `slot*`, `sheen`, `iconGap`, `barPadding`), taskbar-button frames behind icon slots by state (running / active / attention pulse / hover with hot tracking / pressed / stacked), the sheen, the spacing in the layout, the `aero` preset, the Themes page's Slot buttons card, the preview strip, QueryState 293 / 294 | Done (the commit "Theme slot buttons, sheen and spacing; the aero preset"; STATUS.md "Round 11") |
-| 11B Widgets | The Start orb, Show desktop, the two-line clock | Planned |
+| 11B Widgets | The Start orb (`icon` `orb`, Start 1.1.0), the new built-in Show desktop widget (strip / glyph, Win+D / Win+M), the digital clock's `dateFormat` and `timeStyle` `taskbar` (1.1.0), three `sendKeys` entries, the `WINDOCK_SENDKEYS_LOG` dry run, ItemCommand 834 hovering widgets | Done (the commit "Start orb, Show desktop widget, taskbar clock layout"; STATUS.md "Round 11") |
 | 11C The "Windows 7" preset | `res/presets/win7.json`, the guide, the automation | Planned |
 | 11D Regression and release | Suites, pictures, the release build | Planned |
 
@@ -936,6 +936,40 @@ Design notes for 11A:
   on screen), not the code the state would give, so a test sees what the user sees.
 - **The `aero` colours** are the plan's; they were not tuned against a Windows 7 screenshot in
   this phase (11C's picture with the full preset is the place to judge them).
+
+Design notes for 11B:
+
+- **The orb is canvas calls.** No image asset: gradients and four paths scale to any DPI and size
+  and are lit / darkened per state by moving every colour stop (`shade`). The flag's panes share
+  one S-curve (`cos(pi u)`) for their horizontal edges, so the gaps stay even while the flag
+  waves; eight segments per edge are smooth at 32 px. The plan's "3 concentric rings" for the
+  hover glow became one radial gradient (the same soft edge, one fill). At 100 % the orb is 0.92
+  of the slot, so the glow has only the box's last 4 % to show in: the lighter sphere and the
+  brighter rim carry most of the hover (measured: mean brightness +15.6 on the orb's 32 x 32 px).
+- **Pressed is `onPress`.** The widget API has `onPress` (the plan's fallback, a 120 ms flash on
+  `onClick`, was not needed). There is no release export, so the pressed look ends on `onClick`,
+  on the pointer leaving (`onHover` false) or after a one-shot 2 s timer (a press that turns into a
+  drag gets no click and may keep the hover); the timer exists only after a press, so nothing runs
+  at rest.
+- **"Default 100 % for the orb" without a per-choice default.** A schema default is one value and
+  `visibleIf` only tests equality, so `size` became 0 - 100 with 0 = automatic (62 % for the
+  logos, as before; 100 % for the orb). A stored size keeps its meaning; 11C's preset can still
+  say 100.
+- **`sendKeys` stays an allow-list.** It already accepted `win+d`; a general "modifiers + key"
+  parser would let any `shell` widget type Ctrl+C or Alt+F4 into the focused app, so only three
+  named entries were added (`win+m`, `win+shift+m`, `ctrl+shift+esc`) and a combination may hold
+  three keys. The dry-run hook (`WINDOCK_SENDKEYS_LOG`) answers the plan's "a check that the key
+  combination reaches SendInput" without pressing anything: it logs the exact VKs the INPUT array
+  would hold. The test clicks the Start orb first as the canary (a failed dry run would only open
+  Start) before the Show desktop widgets.
+- **Show desktop previews as the glyph.** A 10 DIP translucent strip is a faint line in a 72 x 44
+  drawer row, so the manifest's `preview.settings` pick the glyph style.
+- **The taskbar clock** draws both lines at 12 DIPs regular (Windows 7: 9 pt Segoe UI) in
+  `dock.theme.text` (white with `aero`) with 4 DIPs either side; `%#` reaches MSVC's `wcsftime`
+  through `system.format` unchanged (verified: `11/6/2026`).
+- **Left for 11C**: the strip sits 4 DIPs from the screen edge and `iconGap` (28) after its
+  neighbour, and is as tall as the icon row, not the bar; the preset decides whether that is close
+  enough or the end padding needs a theme / layout key.
 
 ## Dependencies at a glance
 

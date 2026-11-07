@@ -1,0 +1,30 @@
+{
+  "name": "Show desktop",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "The Windows 7 \"Show desktop\" sliver: a narrow strip at the end of the dock (or a small desktop glyph). A click shows the desktop (Win+D, a second click brings the windows back) or minimizes every window (Win+M), sent with SendInput.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 10, "cross": 48 },
+    "vertical": { "main": 10, "cross": 48 }
+  },
+  "standalone": { "minWidth": 48, "minHeight": 48, "aspect": 1, "defaultWidth": 64, "defaultHeight": 64 },
+  "permissions": ["shell"],
+  "preview": { "settings": { "style": "icon" } },
+  "settings": [
+    { "key": "click", "section": "content", "group": "Click", "common": true, "type": "choice", "label": "A click", "default": "desktop",
+      "description": "What a click does: show the desktop (Win+D; a second click brings the windows back, as in Windows 7) or minimize every window (Win+M). Default: show the desktop.",
+      "choices": [
+        { "value": "desktop", "label": "Shows the desktop (Win+D)" },
+        { "value": "minimize", "label": "Minimizes every window (Win+M)" }
+      ] },
+    { "key": "style", "section": "appearance", "group": "Look", "common": true, "type": "choice", "label": "Style", "default": "strip",
+      "description": "A translucent strip in the theme's text colour that brightens under the pointer (the Windows 7 look), or a desktop glyph in an icon-sized slot (for other themes). Default: the strip.",
+      "choices": [
+        { "value": "strip", "label": "Strip (Windows 7)" },
+        { "value": "icon", "label": "Desktop glyph" }
+      ] },
+    { "key": "width", "section": "appearance", "group": "Look", "common": true, "visibleIf": { "style": "strip" }, "unit": "DIPs", "type": "int", "label": "Strip width", "min": 6, "max": 24, "default": 10,
+      "description": "How wide the strip is along the dock (on a left or right dock: how tall). Default: 10 DIPs." }
+  ]
+}

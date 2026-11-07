@@ -9,6 +9,12 @@
 // own rules. Every zone is a whole number of minutes from UTC, so the minute / second wake-ups are
 // the same instants in every zone. settings.label goes on the date's line ("Tokyo · Tue 03 Nov"),
 // or alone under the time without the date, as the built-in clock draws its label.
+//
+// Round 11 phase 11B (1.1.0): settings.dateFormat (strftime, default "%a %d %b", the old fixed
+// format) and settings.timeStyle: "stacked" (as before: the time semibold, the date line smaller in
+// the date colour) or "taskbar" (the Windows 7 clock: two centred lines of the same size and weight,
+// both in the text colour). "%#I" / "%#m" / "%#d" (no leading zero) are MSVC's wcsftime flag, which
+// system.format passes through (the Windows 7 preset uses "%#I:%M %p" over "%#m/%#d/%Y").
 
 const DATE_FORMAT = '%a %d %b';
 
@@ -39,10 +45,12 @@ function effectiveFormat(format, seconds) {
 }
 
 let format = '%H:%M';
+let dateFormat = DATE_FORMAT;
 let zone = '';
 
 function configure() {
   format = effectiveFormat(settings.format || '%H:%M', settings.showSeconds);
+  dateFormat = settings.dateFormat || DATE_FORMAT;
   zone = settings.timeZone || '';
   timer.setRefresh(hasSeconds(format) ? 1000 : 60000, { timeZone: zone });
   if (zone) {
@@ -65,7 +73,7 @@ export function onSettingsChanged() {
 
 function lines(dock) {
   let time = system.format(format, zone);
-  let date = settings.showDate ? system.format(DATE_FORMAT, zone) : '';
+  let date = settings.showDate ? system.format(dateFormat, zone) : '';
   if (settings.label) date = date ? settings.label + ' · ' + date : settings.label;
   if (dock.axis === 'vertical') {
     time = time.replaceAll(' ', '\n');
@@ -74,21 +82,26 @@ function lines(dock) {
   return { time, date };
 }
 
-const timeStyle = () => ({ size: settings.showDate || settings.label ? 14 : 16, weight: 'semibold', align: 'center' });
-const dateStyle = { size: 11, align: 'center' };
+const taskbar = () => settings.timeStyle === 'taskbar';
+// Taskbar: both lines 12 DIPs, regular weight (Windows 7 draws the clock in 9 pt Segoe UI).
+const timeStyle = () => (taskbar() ? { size: 12, align: 'center' }
+  : { size: settings.showDate || settings.label ? 14 : 16, weight: 'semibold', align: 'center' });
+const dateStyle = () => (taskbar() ? { size: 12, align: 'center' } : { size: 11, align: 'center' });
 
 export function measure(canvas, dock) {
   const t = lines(dock);
   const a = canvas.measureText(t.time, timeStyle());
-  const b = t.date ? canvas.measureText(t.date, dateStyle) : { width: 0, height: 0 };
-  const width = Math.ceil(Math.max(a.width, b.width));
+  const b = t.date ? canvas.measureText(t.date, dateStyle()) : { width: 0, height: 0 };
+  // Taskbar: a little room either side, as the Windows 7 clock has (its text is not as wide as
+  // the button it sits in).
+  const width = Math.ceil(Math.max(a.width, b.width)) + (taskbar() ? 8 : 0);
   const height = Math.ceil(a.height + b.height);
   return dock.axis === 'vertical' ? { main: height, cross: width } : { main: width, cross: height };
 }
 
 export function draw(canvas, dock) {
   const t = lines(dock);
-  let style = timeStyle(), date = dateStyle, top = 0;
+  let style = timeStyle(), date = dateStyle(), top = 0;
   if (dock.standalone) {
     // A window of its own (round 6 phase 6B): the lines grow to fill it, centred.
     const a0 = canvas.measureText(t.time, style);
@@ -101,5 +114,5 @@ export function draw(canvas, dock) {
   }
   const a = canvas.measureText(t.time, style);
   canvas.text(t.time, canvas.width / 2, top, { ...style, color: dock.theme.text });
-  if (t.date) canvas.text(t.date, canvas.width / 2, top + a.height, { ...date, color: dock.theme.dateText });
+  if (t.date) canvas.text(t.date, canvas.width / 2, top + a.height, { ...date, color: taskbar() ? dock.theme.text : dock.theme.dateText });
 }

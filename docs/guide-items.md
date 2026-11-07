@@ -299,7 +299,7 @@ Widgets are small programs that live in a slot of the dock or on the desktop. Ea
 WinDock comes with these widgets:
 
 - **Analog clock**: a clock with hands and five faces, optionally with a second hand, the date and a time zone. It grows a little while the pointer is over it.
-- **Digital clock (script)**: a scripted copy of the dock's own clock.
+- **Digital clock (script)**: a scripted copy of the dock's own clock, with a date format of your own. Its **Layout** "Taskbar" writes the time over the date in two lines of the same size, as the Windows 7 taskbar clock (for example the time format `%#I:%M %p` over the date format `%#m/%#d/%Y`: 2:05 PM over 11/6/2026).
 - **Calendar page**: today's date as a small calendar page. A click opens the month calendar.
 - **Agenda**: your next calendar event. A click shows the next events.
 - **Weather (script)**: the weather with more choices, such as a forecast of several days on the dock.
@@ -309,7 +309,8 @@ WinDock comes with these widgets:
 - **System monitor**: one measurement, such as processor, memory, graphics, disk, network or battery, as a graph, a bar, a dial or a number.
 - **System overview**: processor, memory, graphics, disk and network at once.
 - **Battery**: the battery level, whether it charges and the time left.
-- **Start** and **Search**: open the Start menu and Windows Search.
+- **Start** and **Search**: open the Start menu and Windows Search. Start shows the Windows logo, your own icon or the **Windows 7 orb**, a glossy sphere with the four-colour flag that lights up under the pointer and darkens while pressed. Its icon size 0 is automatic: the orb then fills the slot.
+- **Show desktop**: the narrow strip at the end of the Windows 7 taskbar. A click shows the desktop (Win+D; a second click brings the windows back) or, if you choose, minimizes every window (Win+M). Its style can also be a small desktop glyph, for other themes. Hovering it does not make the windows transparent (Aero Peek is not available).
 - **Notification bell**: a bell like the notification centre, with more choices.
 - **Hello**: a tiny example widget.
 
@@ -324,7 +325,7 @@ Every widget's window has the same structure, in two tabs:
 - **Content**: what the widget shows and does: its place, feeds, metric or data choices, time zone, labels, and what a click or the wheel does.
 - **Appearance**: how it looks: its style, face, colours, sizes and motion.
 
-A widget whose settings are all of one kind (Hello, Digital clock, Start, Search) has one page and no tabs. Inside a tab the settings are grouped in cards. Each setting has a short hint under it; rest the mouse on it for the full explanation. Some settings appear only when another one has a certain value.
+A widget whose settings are all of one kind (Hello, Start, Search) has one page and no tabs. Inside a tab the settings are grouped in cards. Each setting has a short hint under it; rest the mouse on it for the full explanation. Some settings appear only when another one has a certain value.
 
 The footer, under both tabs, has **Reset to factory defaults…** (back to the widget's own defaults, after asking) and **Console…** (the widget's log and errors).
 

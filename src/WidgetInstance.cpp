@@ -1032,9 +1032,13 @@ std::string Num(double v) { return JsonUtil::WideToUtf8(JsonUtil::Num(v)); }
 const char* Bool(bool b) { return b ? "true" : "false"; }
 
 // The keys shell.sendKeys may press: Windows' own UI and the media keys only (docs/widgets.md).
+// Round 11 phase 11B: a fixed list on purpose, not a parser of "modifier+key" strings: a widget with
+// the "shell" permission must not be able to type Ctrl+C / Alt+F4 into whatever has the focus. Up to
+// three keys (the modifiers first, held while the last one is pressed).
+constexpr size_t kMaxComboKeys = 3;
 struct KeyCombo {
     const wchar_t* name;
-    WORD keys[2];  // pressed in order, released in reverse; 0 ends the list
+    WORD keys[kMaxComboKeys];  // pressed in order, released in reverse; 0 ends the list
 };
 constexpr KeyCombo kKeyCombos[] = {
     {L"win", {VK_LWIN, 0}},             // Start
@@ -1043,12 +1047,15 @@ constexpr KeyCombo kKeyCombos[] = {
     {L"win+d", {VK_LWIN, 'D'}},         // show / hide the desktop
     {L"win+e", {VK_LWIN, 'E'}},         // File Explorer
     {L"win+i", {VK_LWIN, 'I'}},         // Settings
+    {L"win+m", {VK_LWIN, 'M'}},         // minimize every window (round 11 phase 11B: Show desktop)
+    {L"win+shift+m", {VK_LWIN, VK_SHIFT, 'M'}},  // restore what Win+M minimized (11B)
     {L"win+n", {VK_LWIN, 'N'}},         // the notification centre and calendar
     {L"win+s", {VK_LWIN, 'S'}},         // Search
     {L"win+tab", {VK_LWIN, VK_TAB}},    // Task view
     {L"win+v", {VK_LWIN, 'V'}},         // clipboard history
     {L"win+w", {VK_LWIN, 'W'}},         // Widgets
     {L"win+x", {VK_LWIN, 'X'}},         // the Start button's context menu
+    {L"ctrl+shift+esc", {VK_CONTROL, VK_SHIFT, VK_ESCAPE}},  // Task Manager (11B)
     {L"volume-up", {VK_VOLUME_UP, 0}},
     {L"volume-down", {VK_VOLUME_DOWN, 0}},
     {L"volume-mute", {VK_VOLUME_MUTE, 0}},
@@ -1057,6 +1064,30 @@ constexpr KeyCombo kKeyCombos[] = {
     {L"media-previous", {VK_MEDIA_PREV_TRACK, 0}},
     {L"media-stop", {VK_MEDIA_STOP, 0}},
 };
+
+// Test hook (round 11 phase 11B): the environment variable WINDOCK_SENDKEYS_LOG of the dock process
+// names a file that gets a line per accepted shell.sendKeys call ("<name>\t<virtual keys, hex>") and
+// then NOTHING is pressed (a dry run), so a test can click the Start / Show desktop widgets without
+// opening Start or minimizing the session's windows. False without the variable.
+bool SendKeysDryRun(const std::wstring& name, const WORD* keys, size_t count) {
+    wchar_t path[MAX_PATH]{};
+    const DWORD n = GetEnvironmentVariableW(L"WINDOCK_SENDKEYS_LOG", path, MAX_PATH);
+    if (n == 0 || n >= MAX_PATH) return false;
+    std::wstring line = name + L"\t";
+    for (size_t i = 0; i < count; ++i) {
+        wchar_t hex[8];
+        swprintf_s(hex, i ? L" %02X" : L"%02X", keys[i]);
+        line += hex;
+    }
+    const std::string bytes = JsonUtil::WideToUtf8(line) + "\r\n";
+    HANDLE f = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (f != INVALID_HANDLE_VALUE) {
+        DWORD written = 0;
+        WriteFile(f, bytes.data(), static_cast<DWORD>(bytes.size()), &written, nullptr);
+        CloseHandle(f);
+    }
+    return true;  // a dry run even when the file cannot be written: never press keys under a test
+}
 
 bool ExtendedKey(WORD vk) {
     switch (vk) {
@@ -1093,8 +1124,13 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
         return false;
     }
     if (preview_) return true;  // nothing is pressed in a preview (the script gets false)
-    const size_t count = combo->keys[1] ? 2 : 1;
-    INPUT in[4]{};
+    size_t count = 0;
+    while (count < kMaxComboKeys && combo->keys[count]) ++count;
+    if (SendKeysDryRun(n, combo->keys, count)) {
+        Log(ScriptLogLevel::Info, L"shell.sendKeys " + n + L" (dry run: WINDOCK_SENDKEYS_LOG)");
+        return true;
+    }
+    INPUT in[2 * kMaxComboKeys]{};
     for (size_t i = 0; i < count; ++i) {
         INPUT& down = in[i];
         down.type = INPUT_KEYBOARD;
