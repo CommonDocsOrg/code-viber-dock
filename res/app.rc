@@ -54,6 +54,8 @@ IDR_PRESET_WINDOWS RCDATA "presets/windows.json"
 IDR_PRESET_SIDEBAR RCDATA "presets/sidebar.json"
 IDR_PRESET_PERFORMANCE RCDATA "presets/performance.json"
 IDR_PRESET_DASHBOARD RCDATA "presets/dashboard.json"
+// Round 11 phase 11C: the Windows 7 taskbar (listed after "windows").
+IDR_PRESET_WIN7 RCDATA "presets/win7.json"
 
 // Round 9 phase 9D: the guides shown by the Help window (HelpWindow.cpp).
 IDR_DOC_QUICKSTART RCDATA "../docs/quick-start.md"

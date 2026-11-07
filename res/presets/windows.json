@@ -2,7 +2,7 @@
   "id": "windows",
   "name": "Windows and labels",
   "tagline": "Every window with its title and a picture",
-  "description": "Like the Windows taskbar: every open window gets its own place on the dock, with its title under it. Window pictures are taken every 5 seconds, so you can tell your windows apart at a glance.",
+  "description": "Like the Windows taskbar: every open window gets its own place on the dock, with its title under it. Window pictures are taken every 5 seconds, so you can tell your windows apart at a glance. For the Aero look of Windows 7, pick Windows 7.",
   "dock": {
     "edge": "bottom", "align": "center", "iconSize": 44,
     "magnification": 1.0, "previews": true,

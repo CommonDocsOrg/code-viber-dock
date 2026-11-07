@@ -184,7 +184,7 @@ available), then calls its exports:
 | Export | Called | Arguments | Returns |
 |---|---|---|---|
 | `draw(canvas, dock)` | **required.** When the widget asked for a redraw (`requestRedraw()`, a tick), when its settings changed, and when the dock lays it out again (its size, scale, theme or edge changed). Never per frame while idle. | the canvas, the dock | |
-| `measure(canvas, dock)` | Before the dock lays the widget out (and after every redraw request). Only `canvas.measureText` works here. | | `{ main, cross }` in DIPs; without this export the manifest's size hint for the dock's axis is used. `main` 0: the widget takes no room on the dock (it is not drawn; the Battery widget without a battery). A box thicker than the bar stands on the bar's near (screen-edge) side and sticks out on the far side only, like a magnified icon (round 7; thinner boxes are centred on the icon row). A changed size lays the dock out again at once: a widget can grow and shrink by frames (the Analog clock's hover growth) |
+| `measure(canvas, dock)` | Before the dock lays the widget out (and after every redraw request). Only `canvas.measureText` works here. | | `{ main, cross }` in DIPs; without this export the manifest's size hint for the dock's axis is used. `main` 0: the widget takes no room on the dock (it is not drawn; the Battery widget without a battery). A box thicker than the bar stands on the bar's near (screen-edge) side and sticks out on the far side only, like a magnified icon (round 7; thinner boxes are centred on the icon row). A changed size lays the dock out again at once: a widget can grow and shrink by frames (the Analog clock's hover growth). Round 11 phase 11C: `flush: true` in the result asks for the Windows 7 "Show desktop" placement: on a full-width dock the box is the bar's whole thickness (`cross` is ignored; `canvas.height` / `dock.cross` are that thickness in `draw()`) and, as the dock's first or last item, it takes no end padding, so it touches the screen's end; anywhere else (a centred, floating or ring dock, standalone, previews) it is ignored |
 | `tick(dock)` | Every `refreshMs` (see the manifest, `timer.setRefresh`). | the dock | `false` to skip the redraw that follows |
 | `onPress(e)` | The left button went down on the widget. | `{ x, y, button }`: DIPs from the box's top-left | |
 | `onClick(e)` | A left click on the widget (press and release on it). | `{ x, y, button, closedPopup }`: `closedPopup` is true when that press closed this widget's popup (so a click toggles it: `if (!e.closedPopup) popup.open(...)`) | |
@@ -1164,7 +1164,9 @@ built-ins are worked examples too:
 - `widgets/show-desktop` ("Show desktop", round 11 phase 11B): the Windows 7 taskbar's sliver. A
   click sends `win+d` (`click` `desktop`, the default: show the desktop, a second click brings the
   windows back) or `win+m` (`minimize`). `style` `strip` (default): `measure()` returns `width`
-  (6 - 24 DIPs, default 10) along the dock and the icon size across; the strip is the theme's text
+  (6 - 24 DIPs, default 10) along the dock and the icon size across, with `flush: true` (round 11
+  phase 11C: on a full-width dock it is as thick as the bar and, as the last item, touches the
+  screen's end); the strip is the theme's text
   colour at 10 % (25 % hovered, 40 % pressed) with a one-pixel hairline at 35 % on the side towards
   the other items (left on a top / bottom dock, top on a left / right one). `style` `icon`: an
   icon-sized slot with a monitor glyph in the text colour (a standalone widget always draws the

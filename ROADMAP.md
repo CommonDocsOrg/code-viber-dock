@@ -896,7 +896,7 @@ notes.
 |---|---|---|
 | 11A Theme: slot buttons, sheen, spacing | Eleven theme fields (`slotStyle` + seven `slot*`, `sheen`, `iconGap`, `barPadding`), taskbar-button frames behind icon slots by state (running / active / attention pulse / hover with hot tracking / pressed / stacked), the sheen, the spacing in the layout, the `aero` preset, the Themes page's Slot buttons card, the preview strip, QueryState 293 / 294 | Done (the commit "Theme slot buttons, sheen and spacing; the aero preset"; STATUS.md "Round 11") |
 | 11B Widgets | The Start orb (`icon` `orb`, Start 1.1.0), the new built-in Show desktop widget (strip / glyph, Win+D / Win+M), the digital clock's `dateFormat` and `timeStyle` `taskbar` (1.1.0), three `sendKeys` entries, the `WINDOCK_SENDKEYS_LOG` dry run, ItemCommand 834 hovering widgets | Done (the commit "Start orb, Show desktop widget, taskbar clock layout"; STATUS.md "Round 11") |
-| 11C The "Windows 7" preset | `res/presets/win7.json`, the guide, the automation | Planned |
+| 11C The "Windows 7" preset | `res/presets/win7.json` (after `windows`), presets with a tray turn the takeover on, `measure()`'s `flush` (the Show desktop strip flush with the screen's end and as thick as a full-width bar), guide-docks "Make it look like Windows 7", README; no QueryState 295 | Done (the commit "Windows 7 preset, flush Show desktop strip, the guide"; STATUS.md "Round 11") |
 | 11D Regression and release | Suites, pictures, the release build | Planned |
 
 Design notes for 11A:
@@ -970,6 +970,34 @@ Design notes for 11B:
 - **Left for 11C**: the strip sits 4 DIPs from the screen edge and `iconGap` (28) after its
   neighbour, and is as tall as the icon row, not the bar; the preset decides whether that is close
   enough or the end padding needs a theme / layout key.
+
+Design notes for 11C:
+
+- **`flush` is a measure() result, not a manifest key.** Show desktop has two styles and only the
+  strip should touch the screen's end (a glyph flush with the edge looks cramped), so the flag
+  comes with each measure. The layout passes the bar's thickness (`LayoutContext::barCross`, the
+  icon row, its padding and titles, no reflections) only on a full-width bar: a flush box takes it
+  as its cross size (the canvas grows with it) and, as the first or last slot, drops the end
+  padding on that side (one helper, `EndPadding`, shared by the plain lead / trail, the anchored
+  groups and the drag layout). On a centred, floating or ring dock it means nothing: a strip
+  against a rounded panel's end would cut its corner. Measured: the strip is 10 x 40 px with its
+  right edge at the monitor's 5120 px; the clock sits the widget gap (10 px) before it, close to
+  Windows 7's spacing, so no gap key was added.
+- **The tray in a preset turns the takeover on.** Every other way of adding the tray item (the
+  dock menu's Add > Tray, the drawer, Put the tray in its own dock) does, and without it the slot is
+  a dim dot; choosing the Windows 7 setup is asking for the notification area. The description
+  and the guide say App settings > Tray icons turns it off. (Round 9 left the tray out of the
+  Sidebar because presets did not turn it on; Sidebar is unchanged.)
+- **The list order moves DockCommand 153's indexes.** `win7` goes after `windows` as the plan
+  says, so sidebar / performance / dashboard are 5 - 7 now; 153 is a list index, not an id, and
+  README lists the new order.
+- **No QueryState 295.** 294 = 28 identifies `aero` among the built-ins and the saved file holds
+  `themePreset`; a resolved-preset id would only duplicate them.
+- **Start keeps `size` 0** (automatic = 100 % for the orb, 62 % for the logos) rather than the
+  plan's 100, so switching the icon back to the logo keeps a sensible size.
+- **Left as differences** (guide-docks): titles beside icons, Aero Peek, the orb overhang, jump
+  lists, progress bars, the colour names, and the faint line the dock draws between leading
+  widgets and icons (after the orb; the theme's Separator opacity 0 hides it).
 
 ## Dependencies at a glance
 

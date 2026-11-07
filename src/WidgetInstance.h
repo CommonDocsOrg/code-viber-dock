@@ -312,6 +312,7 @@ private:
     DockAxis measuredAxis_ = DockAxis::Horizontal;
     float measuredScale_ = 0.0f;
     float measuredIcon_ = 0.0f;
+    float measuredBarCross_ = 0.0f;  // round 11 phase 11C: LayoutContext::barCross (a flush box)
     ElementSize size_{};  // px
     float boxW_ = 0.0f, boxH_ = 0.0f;  // standalone: the window's client size, DIPs
     uint64_t draws_ = 0;

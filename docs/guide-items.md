@@ -250,7 +250,8 @@ The tray shows the notification area icons (the small icons at the right of the 
 To show the tray icons on a dock:
 
 1. Right-click the dock and choose **Add** > **Tray (notify icons)**. This also turns on the takeover.
-2. Or add **System tray** from the Contents tab's drawer, then check **Show the notification area icons in the dock** on App settings > Tray icons.
+2. Or add **System tray** from the Contents tab's drawer. This also turns on the takeover (the check box **Show the notification area icons in the dock** on App settings > Tray icons).
+3. Or apply the **Windows 7** preset, which has the tray at the right end and turns on the takeover too (see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7)).
 
 Clicks on the icons go to their apps as they would on the taskbar: a right-click opens the app's own menu. **Ctrl+right-click** an icon opens WinDock's tray menu: hide it from the grid, pin it to the dock, or open the tray settings.
 
@@ -310,7 +311,7 @@ WinDock comes with these widgets:
 - **System overview**: processor, memory, graphics, disk and network at once.
 - **Battery**: the battery level, whether it charges and the time left.
 - **Start** and **Search**: open the Start menu and Windows Search. Start shows the Windows logo, your own icon or the **Windows 7 orb**, a glossy sphere with the four-colour flag that lights up under the pointer and darkens while pressed. Its icon size 0 is automatic: the orb then fills the slot.
-- **Show desktop**: the narrow strip at the end of the Windows 7 taskbar. A click shows the desktop (Win+D; a second click brings the windows back) or, if you choose, minimizes every window (Win+M). Its style can also be a small desktop glyph, for other themes. Hovering it does not make the windows transparent (Aero Peek is not available).
+- **Show desktop**: the narrow strip at the end of the Windows 7 taskbar. On a full-width dock it is as tall as the bar and, as the last item, sits right against the screen's end. A click shows the desktop (Win+D; a second click brings the windows back) or, if you choose, minimizes every window (Win+M). Its style can also be a small desktop glyph, for other themes. Hovering it does not make the windows transparent (Aero Peek is not available).
 - **Notification bell**: a bell like the notification centre, with more choices.
 - **Hello**: a tiny example widget.
 

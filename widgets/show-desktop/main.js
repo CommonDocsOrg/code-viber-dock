@@ -4,7 +4,7 @@
 // needs DWM's peek on every window, which no API offers an app.
 //
 // style "strip": a translucent strip in the theme's text colour (10 %, 25 % hovered, 40 % pressed),
-// `width` DIPs along the dock and as thick as the icons, with a hairline (35 %) on the side towards
+// `width` DIPs along the dock and as thick as the icons (a full-width bar: the bar), with a hairline (35 %) on the side towards
 // the other items (left on a top / bottom dock, top on a left / right one), as Windows 7 draws it.
 // style "icon": a desktop glyph (a monitor) in an icon-sized slot, for other themes; a standalone
 // widget always draws the glyph. Idle: nothing runs (one 2 s backstop timer after a press).
@@ -15,11 +15,14 @@ let pressTimer = 0;
 
 const glyph = () => settings.style === 'icon';
 
+// The strip is `flush` (round 11 phase 11C): on a full-width dock it is as thick as the bar and, as
+// the last (or first) item, it touches the screen's end, like Windows 7's sliver; elsewhere it is
+// as thick as the icons.
 export function measure(canvas, dock) {
   const s = Math.round(dock.iconSize);
   if (glyph()) return { main: s, cross: s };
   const width = Math.max(6, Math.min(24, Math.round(settings.width || 10)));
-  return { main: width, cross: s };
+  return { main: width, cross: s, flush: true };
 }
 
 // "#AARRGGBB" with its alpha multiplied by a (0 - 1).

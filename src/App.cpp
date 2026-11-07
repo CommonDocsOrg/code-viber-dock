@@ -2196,6 +2196,10 @@ bool App::ApplyPreset(size_t index, size_t cfg, bool keepPins) {
     if (index >= all.size() || cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return false;
     DockConfig& d = config_.docks[cfg];
     d = Presets::Apply(all[index], config_, d, Presets::PinsOf(d), keepPins);
+    // Round 11 phase 11C: a preset with the tray (Windows 7) asks for the notify icons, as adding the
+    // tray item does (the dock menu's Add widget > Tray, the drawer): the takeover goes on (SyncDocks
+    // starts the host). App settings > Tray icons turns it off again.
+    if (d.Has(ItemKind::Tray)) config_.tray.enabled = true;
     config_.Sanitize();  // as a loaded file is (the preset's values are in range already)
     config_.ResolveDockThemes();
     if (cfg == 0 && config_.Main().AutoHideOn()) lastOnMode_ = config_.Main().autoHide;
@@ -2222,6 +2226,7 @@ size_t App::AddPresetDock(size_t index, bool copyPins) {
     }
     config_.docks.push_back(Presets::MakeNew(all[index], config_, pins));
     const size_t cfg = config_.docks.size() - 1;
+    if (config_.docks[cfg].Has(ItemKind::Tray)) config_.tray.enabled = true;  // as ApplyPreset (round 11 phase 11C)
     config_.ResolveDockThemes();
     // The Global window's Docks and displays page selects the new dock.
     if (SettingsWindow* g = FindSettings(SettingsKind::Global)) g->SelectDock(config_.docks[cfg].id);

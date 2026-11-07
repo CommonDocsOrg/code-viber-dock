@@ -111,7 +111,14 @@ struct AnchorSlot {
     float w = 0.0f;       // the slot's length along the bar
     int group = 1;        // 0 start, 1 centre, 2 end
     float offset = 0.0f;  // px: shifts it and the slots after it in its group
+    bool flush = false;   // round 11 phase 11C: DockItem::flush (no end padding beside it)
 };
+
+// The bar's padding beside its first / last slot: half a gap less beside an icon (its slot holds
+// half a gap on each side), none beside a flush widget (round 11 phase 11C).
+float EndPadding(const AnchorSlot& s, float padding, float half) {
+    return s.flush ? 0.0f : s.run == Run::Icon ? padding - half : padding;
+}
 
 // The leads (the spacer before each slot, px) of anchored groups in the bar [barLeft, barRight]:
 // the start group packed from the bar's start padding, the end group packed back from its end
@@ -132,8 +139,8 @@ bool AnchoredLeads(const std::vector<AnchorSlot>& slots, float barLeft, float ba
         lastReal = static_cast<int>(k);
     }
     if (firstReal < 0) return false;
-    const float startInner = barLeft + (slots[static_cast<size_t>(firstReal)].run == Run::Icon ? padding - half : padding);
-    const float endInner = barRight - (slots[static_cast<size_t>(lastReal)].run == Run::Icon ? padding - half : padding);
+    const float startInner = barLeft + EndPadding(slots[static_cast<size_t>(firstReal)], padding, half);
+    const float endInner = barRight - EndPadding(slots[static_cast<size_t>(lastReal)], padding, half);
     // Each group packed (its own spacers), and the spacers the groups need between them.
     float width[3] = {0.0f, 0.0f, 0.0f};
     Run firstRun[3] = {Run::None, Run::None, Run::None}, lastRun[3] = {Run::None, Run::None, Run::None};
@@ -207,7 +214,8 @@ std::vector<AnchorSlot> MakeAnchorSlots(const std::vector<DockItem>& items, cons
         AnchorSlot s;
         s.run = !item.IsWidget() ? Run::Icon : item.slotW > 0.0f ? Run::Widget : Run::None;
         s.w = s.run == Run::None ? 0.0f : item.slotW;
-        s.group = static_cast<int>(i) == dragged && draggedGroup >= 0 ? draggedGroup : d.GroupOf(item.element);
+        s.flush = s.run == Run::Widget && item.flush;
+        s.group =static_cast<int>(i) == dragged && draggedGroup >= 0 ? draggedGroup : d.GroupOf(item.element);
         if (item.element != lastElement && item.element < d.items.size()) {
             s.offset = std::round(static_cast<float>(d.items[item.element].offset) * scale);
         }
@@ -800,8 +808,11 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     const float stride = l.iconPx + l.gap;
     const float sepW = std::round(kSeparatorWidth * s);
     const float widgetGap = std::round(kWidgetGap * s);
-    const LayoutContext ctx{l.vertical ? DockAxis::Vertical : DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite()};
+    // Round 11 phase 11C: a full-width bar tells flush widgets its thickness (l.barCross).
+    l.barCross = l.fullWidth ? iconBarH : 0.0f;
+    const LayoutContext ctx{l.vertical ? DockAxis::Vertical : DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite(), l.barCross};
     Run first = Run::None, prev = Run::None;
+    bool firstFlush = false, lastFlush = false;  // the first / last real slot is a flush widget
     const float tilePx = std::round(
         static_cast<float>(d.thumbnailSize > 0 ? d.thumbnailSize : 2 * iconDip) * s);
     float maxBox = l.iconPx;  // the longest magnifying box (a thumbnail tile is longer than an icon)
@@ -819,8 +830,10 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
             item.slotW = box.main;
             item.boxCross = box.cross;
             item.hitSlack = element.HitSlack(ctx);
+            item.flush = box.flush && l.fullWidth;
             run = box.main > 0.0f ? Run::Widget : Run::None;  // nothing to show: takes no room
         } else {
+            item.flush = false;
             const ElementSize box = element.Measure(ctx);
             // A thumbnail tile (docks[].thumbnails) is longer along the bar than an icon.
             const float main = item.thumbWindow && item.Magnifies() ? tilePx : box.main;
@@ -838,13 +851,18 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         item.lead = 0.0f;
         if (run == Run::None) continue;
         item.lead = SpacerBetween(prev, run, sepW, widgetGap);
-        if (first == Run::None) first = run;
+        if (first == Run::None) {
+            first = run;
+            firstFlush = item.flush;
+        }
         prev = run;
+        lastFlush = item.flush;
         itemsW += item.lead + item.slotW;
     }
     l.itemsW = itemsW;
-    const float lead = first == Run::Icon ? l.padding - half : l.padding;
-    float trail = prev == Run::Icon ? l.padding - half : l.padding;
+    // A flush widget at an end of a full-width bar has no padding on that side (round 11 phase 11C).
+    const float lead = firstFlush ? 0.0f : first == Run::Icon ? l.padding - half : l.padding;
+    float trail = lastFlush ? 0.0f : prev == Run::Icon ? l.padding - half : l.padding;
     const size_t n = icons;
     float barW = lead + itemsW + trail;
     barW = std::round(std::max(barW, l.iconPx + 2.0f * l.padding));
@@ -3555,7 +3573,7 @@ void DockWindow::RefreshDirtyWidgets() {
         if (!item.dirty || !item.IsWidget()) continue;
         any = true;
         const ElementSize box = elements_[item.element]->Measure(ctx);
-        if (box.main != item.slotW || box.cross != item.boxCross) resized = true;
+        if (box.main != item.slotW || box.cross != item.boxCross || (box.flush && layout_.fullWidth) != item.flush) resized = true;
         // 9A follow-up 2: the widget under the pointer grows within a second of the pointer coming
         // onto it (the analog clock's hoverScale, any script widget's measure() growing in its
         // onHover): it zooms, so a "steady" bar grows as for a magnifying icon.
@@ -3660,7 +3678,7 @@ void DockWindow::ComputeTargets() {
             if (l.anchored) slots = MakeAnchorSlots(items_, dragOrder_, DockCfg(), l.scale, src, dragGroup_);
             if (l.anchored && AnchoredLeads(slots, l.bar.left, l.bar.right, l.padding, half, sepW, widgetGap, leads)) {
                 const auto first = std::find_if(slots.begin(), slots.end(), [](const AnchorSlot& a) { return a.run != Run::None; });
-                slotLeft = l.bar.left + (first != slots.end() && first->run == Run::Icon ? l.padding - half : l.padding);
+                slotLeft = l.bar.left + (first != slots.end() ? EndPadding(*first, l.padding, half) : l.padding);
             } else {
                 leads.assign(n, 0.0f);
                 float width = 0.0f;
@@ -6236,7 +6254,7 @@ void DockWindow::OpenTarget(const std::wstring& target) {
 
 LayoutContext DockWindow::Context() const {
     return LayoutContext{layout_.vertical ? DockAxis::Vertical : DockAxis::Horizontal, layout_.scale, layout_.iconPx,
-                         renderer_.DWrite()};
+                         renderer_.DWrite(), layout_.barCross};
 }
 
 void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {

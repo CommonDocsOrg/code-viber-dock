@@ -229,7 +229,8 @@ void WidgetInstance::SetStandaloneBox(float widthDip, float heightDip) {
 }
 
 ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
-    if (measured_ && measuredAxis_ == ctx.axis && measuredScale_ == ctx.scale && measuredIcon_ == ctx.iconPx) {
+    if (measured_ && measuredAxis_ == ctx.axis && measuredScale_ == ctx.scale && measuredIcon_ == ctx.iconPx &&
+        measuredBarCross_ == ctx.barCross) {
         return size_;
     }
     const bool vertical = ctx.axis == DockAxis::Vertical;
@@ -247,6 +248,7 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
         measuredAxis_ = DockAxis::Horizontal;
         measuredScale_ = ctx.scale;
         measuredIcon_ = ctx.iconPx;
+        measuredBarCross_ = ctx.barCross;
         dock_.main = dock_.width = size_.main / s;
         dock_.cross = dock_.height = size_.cross / s;
         return size_;
@@ -261,6 +263,7 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
     dock_.cross = crossDip;
     dock_.width = vertical ? crossDip : mainDip;
     dock_.height = vertical ? mainDip : crossDip;
+    bool flush = false;
     if (state_ == State::Ok && engine_ && engine_->Has(ScriptEngine::Fn::Measure)) {
         canvas_.Begin(nullptr, s, dock_.width, dock_.height);
         inCanvas_ = true;
@@ -278,6 +281,7 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
                         mainDip = static_cast<float>(std::clamp(m, 0.0, 1024.0));
                         crossDip = static_cast<float>(std::clamp(c, 0.0, 512.0));
                     }
+                    JsonUtil::ReadBool(o, L"flush", flush);  // round 11 phase 11C
                 }
             } catch (...) {
             }
@@ -296,10 +300,17 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
         crossDip = std::max(crossDip, 24.0f);
     }
     size_ = ElementSize{std::ceil(mainDip * s), std::ceil(crossDip * s)};
+    // Round 11 phase 11C: `flush` (measure()'s result) on a full-width bar: the box is the bar's
+    // whole thickness, so the canvas the widget draws in is too (dock.cross / height below).
+    if (flush && state_ == State::Ok && !preview_ && ctx.barCross > 0.0f) {
+        size_.cross = std::round(ctx.barCross);
+        size_.flush = true;
+    }
     measured_ = true;
     measuredAxis_ = ctx.axis;
     measuredScale_ = ctx.scale;
     measuredIcon_ = ctx.iconPx;
+    measuredBarCross_ = ctx.barCross;
     dock_.main = size_.main / s;
     dock_.cross = size_.cross / s;
     dock_.width = vertical ? dock_.cross : dock_.main;

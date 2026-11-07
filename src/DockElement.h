@@ -40,6 +40,11 @@ enum class DockAxis { Horizontal, Vertical };
 struct ElementSize {
     float main = 0.0f;
     float cross = 0.0f;
+    // Round 11 phase 11C: a script widget's measure() returned `flush: true` (the Show desktop
+    // strip). On a full-width bar its box is the bar's whole thickness (LayoutContext::barCross;
+    // `cross` is that then) and, as the first or the last slot, it takes no end padding: it touches
+    // the screen's end, as Windows 7's "Show desktop" sliver does.
+    bool flush = false;
     bool operator==(const ElementSize&) const = default;
 };
 
@@ -48,6 +53,10 @@ struct LayoutContext {
     float scale = 1.0f;   // DPI scale (physical px per DIP)
     float iconPx = 0.0f;  // the unmagnified icon box, both axes
     IDWriteFactory* dwrite = nullptr;
+    // Round 11 phase 11C: the bar's thickness at rest (px: the icon row, its padding and any
+    // titles; no reflections) on a full-width bar, 0 elsewhere (a centred bar, a ring, a floating
+    // bar, a standalone widget, a preview): what a flush box's cross becomes.
+    float barCross = 0.0f;
 };
 
 // Something outside the dock changed that an element may show.

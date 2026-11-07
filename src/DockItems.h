@@ -170,6 +170,9 @@ struct DockItem {
     float lead = 0.0f;
     float boxCross = 0.0f;  // a widget's content length on the cross axis (icons: the icon size)
     float hitSlack = 0.0f;  // a widget also takes clicks this far beyond its box on the main axis
+    // Round 11 phase 11C: a flush widget on a full-width bar (ElementSize::flush): as the first /
+    // last slot it takes no end padding (it touches the screen's end).
+    bool flush = false;
     float appliedY = -1.0f; // a widget: its visual's OffsetY as last set (< 0: not yet)
     float targetX = 0.0f;   // current target of the icon box's left edge (magnified layout)
     float targetScale = 1.0f;

@@ -17,9 +17,11 @@ namespace {
 
 using namespace JsonUtil;
 
-// In list order.
-constexpr int kResources[] = {IDR_PRESET_BASIC,   IDR_PRESET_MINIMAL,     IDR_PRESET_MODERN,   IDR_PRESET_WINDOWS,
-                              IDR_PRESET_SIDEBAR, IDR_PRESET_PERFORMANCE, IDR_PRESET_DASHBOARD};
+// In list order (DockCommand 153's index). Round 11 phase 11C: "win7" after "windows" (sidebar,
+// performance and dashboard moved from 4 - 6 to 5 - 7).
+constexpr int kResources[] = {IDR_PRESET_BASIC,   IDR_PRESET_MINIMAL,     IDR_PRESET_MODERN,
+                              IDR_PRESET_WINDOWS, IDR_PRESET_WIN7,        IDR_PRESET_SIDEBAR,
+                              IDR_PRESET_PERFORMANCE, IDR_PRESET_DASHBOARD};
 
 void Log(int resource, const std::wstring& text) {
     OutputDebugStringW((L"WinDock: preset resource " + std::to_wstring(resource) + L" skipped: " + text + L"\n").c_str());

@@ -183,7 +183,7 @@ The Themes page sets the look of every dock: colours, corners, the name label, t
 
 - **Theme**: pick one of the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast, Aero glass) or one of your own theme files.
 
-**Aero glass** is the look of the Windows 7 taskbar: a blue-grey glass tint over the blur, square corners, a glossy sheen, taskbar buttons instead of the dots, wide gaps between the icons, a thin bar and light name labels. It looks best on a full-width bar with 32 DIP icons and magnification 1.00×.
+**Aero glass** is the look of the Windows 7 taskbar: a blue-grey glass tint over the blur, square corners, a glossy sheen, taskbar buttons instead of the dots, wide gaps between the icons, a thin bar and light name labels. It looks best on a full-width bar with 32 DIP icons and magnification 1.00×. The **Windows 7** dock preset builds the whole taskbar on it: see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7).
 
 The hint under the label counts how many values you changed. Choosing another theme clears your changes.
 

@@ -229,9 +229,43 @@ The presets:
 - **Basic dock**: your apps, the running ones and a clock. The classic dock at the bottom of the screen. Icons grow a little under the pointer, and the dock slides away while a window covers it.
 - **Minimal**: small, flat and out of the way. Icons do not grow and there are no window previews. It hides as soon as the pointer leaves it and comes back when you touch the bottom edge.
 - **Modern**: glass, big icons and widgets. Icons grow strongly under the pointer. A Start button sits at the left end; volume, now playing, notifications, the weather and a clock at the right end.
-- **Windows and labels**: every window with its title and a picture, like the Windows taskbar. Every open window gets its own place, with its title under it and a picture taken every 5 seconds.
+- **Windows and labels**: every window with its title and a picture, like the Windows taskbar. Every open window gets its own place, with its title under it and a picture taken every 5 seconds. For the Aero look of Windows 7, pick Windows 7.
+- **Windows 7**: the classic Aero taskbar. A full-width glass bar at the bottom with the Start orb, your apps as taskbar buttons, the tray icons, a two-line clock and Show desktop at the right end. It never hides, and maximized windows stop above it. See [Make it look like Windows 7](#make-it-look-like-windows-7).
 - **Sidebar**: a bar along the whole left edge, its items from the top down. Every window has its own row with its title beside the icon. It hides while a window covers it.
 - **Floating performance**: system load at the top right. A small floating bar with a processor graph, an overview of processor, memory, graphics, disk and network, the battery and a clock. It lives on the desktop under your windows and is locked so it does not move by accident.
 - **Desktop dashboard**: a floating bar in the middle of the desktop, under your windows, with a large analog clock, the weather, today's agenda and your notes. Show the desktop or press the dashboard hotkey to see it.
 
 Floating performance and Desktop dashboard have no place for your pinned apps; the chooser says so.
+
+## Make it look like Windows 7
+
+The **Windows 7** preset turns a dock into the Windows 7 taskbar in one step.
+
+1. Apply it: in App settings > Docks and displays click **Add ▾** > **Dock from a preset…** for a new dock, or in a dock's settings window click **⋯** > **Apply a preset…** to change that dock. Choose **Windows 7** in the list, keep **Keep my pinned apps and folders** checked and click **Apply** (or **Add dock**).
+2. In App settings > Animation, under **Launching an app**, choose **None**: Windows 7 icons do not bounce. This setting is for every dock, so the preset cannot set it.
+3. If you use several docks, turn off or remove the ones you do not need, so only the taskbar is at the bottom.
+
+What you get:
+
+- A bar along the whole bottom edge, with the **Aero glass** theme: a blue-grey glass tint over the blur, square corners, a glossy sheen and taskbar buttons behind your apps. A running app has a glass frame, the app you are using a brighter one, and an app with two or more windows shows stacked outlines.
+- The bar keeps its room: maximized windows stop above it, and it never hides.
+- At the left the **Start** orb, then your pinned apps and the running ones as 32 DIP icons. Icons do not grow under the pointer. Hovering an app shows its window previews, even for a single window. A middle click opens a new window of the app.
+- At the right the tray icons in one row, the clock (the time over the date, for example 2:05 PM over 11/6/2026) and the **Show desktop** strip, flush with the screen's right end. Click it to show the desktop; click again to bring the windows back.
+- Applying the preset turns on the tray takeover: the notification area icons move from the Windows taskbar to the dock. To turn that off, go to App settings > Tray icons.
+
+Tuning it:
+
+- **The glass colour**: App settings > Themes, open the **Bar** card and change **Acrylic tint** (the colour over the blur; its opacity sets how strong the colour is). **Background** is the colour used when transparency effects are off. **Sheen** sets how glossy the bar is. Changes on the Themes page apply to every dock, on top of each dock's own theme (see [Dock theme](guide-settings.md#dock-theme)).
+- **The orb**: open the Start item's settings (right-click it, then **Start settings…**). **Icon** switches between the orb, the Windows logo and your own image; **Icon size** 0 lets the orb fill the slot.
+- **The clock**: open the clock's settings. **Time format** `%#I:%M %p` writes 2:05 PM, `%H:%M` writes 14:05; **Date format** `%#m/%#d/%Y` writes 11/6/2026, `%#d.%#m.%Y` writes 6.11.2026. **Layout** "Taskbar" writes both lines in the same size.
+- **Show desktop**: its settings choose what a click does (show the desktop, or minimize every window) and how wide the strip is.
+- **Smaller icons**: the dock's Appearance tab sets the icon size; the tray keeps its own icon size in its settings.
+
+What it does not reproduce:
+
+- Labels beside the icons ("never combine"): the dock writes titles under the icons, not beside them, on a bottom bar.
+- Aero Peek: hovering Show desktop does not turn the windows into glass.
+- The orb sticking out above the bar's top edge.
+- Jump lists on a right-click and the progress bars in taskbar buttons.
+- A colour picker with the Windows 7 colour names (Sky, Twilight, …): the colour is the theme's **Acrylic tint**.
+- Windows 7 has no line between the Start orb and the apps. The dock draws a faint one between its widgets and its icons; to hide it, set the opacity of **Separator** in the theme's **Bar** card to 0 (this also hides the separators you add).

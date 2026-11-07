@@ -1104,7 +1104,8 @@ write and edit without compiling anything. The full reference (every call, every
   (`start`: the Windows logo, the Windows 7 orb (round 11: a glossy sphere with the waving flag,
   lighter and glowing under the pointer, darker while pressed) or your icon, opens Start), **Show
   desktop** (`show-desktop`, round 11: the Windows 7 sliver at the end of the bar, a narrow
-  translucent strip (6 - 24 DIPs) or a desktop glyph; a click shows the desktop (Win+D) or
+  translucent strip (6 - 24 DIPs; on a full-width dock as thick as the bar and, as the last item,
+  flush with the screen's end: `measure()`'s `flush`, round 11 phase 11C) or a desktop glyph; a click shows the desktop (Win+D) or
   minimizes every window (Win+M); Aero Peek is not done), **Search** (`search`: opens Windows Search)
   and **Notification bell** (`notification-bell`: a scriptable bell that behaves like the
   notification centre by default, the unread count in a badge and a click that opens WinDock's
@@ -1733,14 +1734,20 @@ over them.
 | **Minimal** (`minimal`) | a small, quiet dock | bottom, 36 px, no magnification, no previews, hides when the pointer leaves (200 ms), the Solid theme | your pins, running apps, clock without the date |
 | **Modern** (`modern`) | a showy dock with widgets | bottom, 52 px, magnification 2.0 / range 3, previews, hides while covered, the Glass theme | Start, your pins, separator, running apps, separator, Volume, Media, notifications, weather, clock |
 | **Windows and labels** (`windows`) | taskbar-like: every window | bottom, 44 px, no magnification, previews, one slot per window, one line of title, window pictures every 5 s, hides while covered | your pins, running apps, clock |
+| **Windows 7** (`win7`, round 11 phase 11C) | the classic Aero taskbar | bottom, full length, items from the left, reserves its space (`reserveSpace`), never hides, 32 px, no magnification, previews (also of a single window), one slot per app, no titles, no badges, middle click opens a new window, the **Aero glass** theme (`aero`: glass, sheen, slot buttons, `iconGap` 28) | Start (the orb), your pins, running apps, then at the end: the System tray (one row of 8, 16 DIP icons), the Digital clock (`timeStyle` `taskbar`, `%#I:%M %p` over `%#m/%#d/%Y`), Show desktop (the strip, flush with the screen's end) |
 | **Sidebar** (`sidebar`) | a bar along the left edge | left, full length, items from the top, 40 px, no magnification, one slot per window, titles beside the icons, hides while covered | Start, your pins, separator, running apps, separator, Volume, clock |
 | **Floating performance** (`performance`) | system load at a glance | floating at the top right (`x` 16000 = against the right end, `y` 8), facing the top edge (popups open downward), on the desktop under your windows, 40 px, no magnification, locked | System monitor, System overview, Battery, clock (no pins) |
 | **Desktop dashboard** (`dashboard`) | a desktop panel | floating in the middle, on the desktop under your windows, 56 px, no magnification | Analog clock, weather, Agenda, Notes (no pins) |
 
 A theme preset's fields (the glow, the reflection) are global (App settings > Themes), so a preset can
-only pick a dock theme preset (`themePreset`): Modern uses Glass, Minimal Solid; the System tray
-item is not in the Sidebar (it shows nothing while the notification area takeover is off, which
-a preset does not turn on): Volume is there instead.
+only pick a dock theme preset (`themePreset`): Modern uses Glass, Minimal Solid, Windows 7 Aero
+glass. The System tray item is not in the Sidebar (it shows only a dim dot while the notification
+area takeover is off): Volume is there instead. Windows 7 has it: applying a preset with a tray
+item (or adding a dock from one) turns the takeover (`tray.enabled`) on, as adding the tray item
+from the dock menu or the drawer does (round 11 phase 11C); App settings > Tray icons turns it off.
+The Windows 7 look is finished by App settings > Animation > Launching an app: **None** (a global
+setting, so the preset cannot set it); docs/guide-docks.md "Make it look like Windows 7" lists
+what it does not reproduce.
 
 **The App settings window** (pages in its left column; round 8 phase 8D: grouped under small captions:
 **GENERAL** General, Docks and displays; **LOOK** Themes, Animation; **DATA** Calendar feeds,
@@ -2445,7 +2452,8 @@ grey glass shelf with icon reflections, a glow on the hovered icon and the 3D pe
 (`#F0496A94` without it), square corners, `sheen` 0.6, `slotStyle` `"buttons"` with the default
 slot colours, `iconGap` 28, `barPadding` 4 (a 40 DIP bar for 32 DIP icons), white labels with
 black text and a grey hairline (`labelCornerRadius` 3), white clock text, a blue preview hover; no
-glow, reflection or tilt; the dots as `dark`). Ids are case-insensitive.
+glow, reflection or tilt; the dots as `dark`; the dock preset **Windows 7** (`win7`, Presets)
+builds the whole taskbar on it). Ids are case-insensitive.
 
 User themes live in `%LocalAppData%\WinDock\themes\<id>.json`; the file name without `.json` is
 the id used in `preset` (case-insensitive). A file named like a built-in id is ignored.
@@ -2909,7 +2917,8 @@ always there, also when every dock is parked) handle these registered messages:
   window); it is not modal for the sender (the call returns at once): 1 when a chooser is open (an
   open one is brought forward), 0 refused (a folder window / standalone widget, no presets). 153
   applies preset `LOWORD(lParam) & 0xFF` (its index in the list: 0 basic, 1 minimal, 2 modern, 3
-  windows, 4 sidebar, 5 performance, 6 dashboard) to dock `HIWORD(lParam)` without the dialog; bit 8
+  windows, 4 win7 (round 11 phase 11C; before it sidebar, performance and dashboard were 4 - 6), 5
+  sidebar, 6 performance, 7 dashboard) to dock `HIWORD(lParam)` without the dialog; bit 8
   (`0x100`) keeps the dock's pins at the preset's marker; 1 applied (saved, the windows refreshed,
   the dock flashed), 0 refused (no such preset or dock, not a dock, a dock menu or dialog open).
   `WinDock.Welcome` (a registered message, posted by `WinDock.exe --welcome`) opens the welcome
@@ -3115,6 +3124,11 @@ always there, also when every dock is parked) handle these registered messages:
   virtual keys in hex, e.g. `win+d` TAB `5B 44`), and then **nothing is pressed** (a dry run), so a
   test can click the Start or Show desktop widget without opening Start or minimizing the session's
   windows.
+  Round 11 phase 11C, the Windows 7 preset: no new numbers (the planned 295, the theme preset a
+  dock resolves, was not needed: 294 = 28 is only the `aero` preset among the built-ins, and
+  `docks[].themePreset` is in the saved file). DockCommand 153 index 4 applies it; QueryState 61 /
+  62 give the Show desktop strip's box (on a full-width dock its cross is the bar's thickness) and
+  `QueryItemPoint` its centre (flush: its box ends at the screen's end).
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the App settings window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.

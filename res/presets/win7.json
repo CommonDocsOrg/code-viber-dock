@@ -1,0 +1,23 @@
+{
+  "id": "win7",
+  "name": "Windows 7",
+  "tagline": "The classic Aero taskbar",
+  "description": "The Windows 7 taskbar: a full-width Aero glass bar with the Start orb, your apps as buttons, the tray icons (taken over from Windows: App settings > Tray icons), a two-line clock and Show desktop. Maximized windows stop above it. Finish the look with App settings > Animation > Launching an app: None.",
+  "dock": {
+    "edge": "bottom", "align": "start", "fullWidth": true, "reserveSpace": true,
+    "iconSize": 32, "magnification": 1.0, "autoHide": "off",
+    "previews": true, "previewsSingleWindow": true,
+    "windows": "stacked", "titles": "off", "badges": false,
+    "middleClick": "newInstance",
+    "themePreset": "aero"
+  },
+  "items": [
+    { "kind": "widget", "id": "start", "settings": { "icon": "orb" } },
+    { "kind": "pins" },
+    { "kind": "running" },
+    { "kind": "tray", "anchor": "end", "rows": 1, "columns": 8, "iconSize": 16 },
+    { "kind": "widget", "id": "digital-clock", "anchor": "end",
+      "settings": { "timeStyle": "taskbar", "format": "%#I:%M %p", "showDate": true, "dateFormat": "%#m/%#d/%Y" } },
+    { "kind": "widget", "id": "show-desktop", "anchor": "end", "settings": { "style": "strip" } }
+  ]
+}

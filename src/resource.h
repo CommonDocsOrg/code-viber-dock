@@ -54,6 +54,7 @@
 #define IDR_PRESET_SIDEBAR 364
 #define IDR_PRESET_PERFORMANCE 365
 #define IDR_PRESET_DASHBOARD 366
+#define IDR_PRESET_WIN7 367  // round 11 phase 11C (listed after "windows")
 
 // Round 9 phase 9D: the guides of docs/ for the Help window (RCDATA, res/app.rc; HelpWindow.cpp lists
 // them in this order).
