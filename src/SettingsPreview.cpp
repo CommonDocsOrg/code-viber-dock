@@ -19,10 +19,11 @@ enum class Dot { None, Running, Active, Attention };
 struct PreviewApp {
     const wchar_t* name;
     Dot dot;
+    bool stacked = false;  // round 11 phase 11A: two windows (the slot button's stacked edge)
 };
 constexpr PreviewApp kApps[] = {
-    {L"File Explorer", Dot::Active}, {L"Browser", Dot::Running}, {L"Calendar", Dot::Running},
-    {L"Music", Dot::Attention},      {L"Photos", Dot::None},     {L"Terminal", Dot::Running},
+    {L"File Explorer", Dot::Active}, {L"Browser", Dot::Running, true}, {L"Calendar", Dot::Running},
+    {L"Music", Dot::Attention},      {L"Photos", Dot::None},           {L"Terminal", Dot::Running},
 };
 constexpr int kAppCount = static_cast<int>(std::size(kApps));
 constexpr int kDefaultFocus = 2;  // the magnified app while the mouse is elsewhere
@@ -242,7 +243,8 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
 
     const bool acrylic = t.acrylic && !t.shelf && !t.perspective && Backdrop::SystemAllowsTransparency();
     const D2D1_COLOR_F frost = D2D1::ColorF(0x6E6A8E, 0.85f);  // the blurred wallpaper under acrylic
-    auto fillPanel = [&](const D2D1_ROUNDED_RECT& shape) {
+    // `sheen`: the bar (round 11 phase 11A: theme.sheen over the fill, under the border, as the dock draws it).
+    auto fillPanel = [&](const D2D1_ROUNDED_RECT& shape, bool sheen) {
         if (acrylic) {
             brush->SetColor(frost);
             dc->FillRoundedRectangle(shape, brush.get());
@@ -251,6 +253,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
             brush->SetColor(Theme::ToColor(t.background));
         }
         dc->FillRoundedRectangle(shape, brush.get());
+        if (sheen) Theme::DrawSheen(dc, shape.rect, shape.radiusX, t, stroke);
         const float inset = stroke / 2.0f;
         brush->SetColor(Theme::ToColor(t.barBorder));
         D2D1_ROUNDED_RECT edge = shape;
@@ -268,11 +271,15 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
                                kMinUnit, kMaxUnit);
     const float u = b * s;  // dock DIP -> preview pixel
     const float iconPx = std::round(48.0f * u);
-    const float gap = std::max(2.0f, std::round(8.0f * u));
+    // Round 11 phase 11A: the theme's gap and bar padding (8 / 8: the numbers of before) and slot
+    // buttons instead of the dots (the icons centred on the row then, as on the dock).
+    const float gap = std::max(std::round(t.iconGap * u), std::min(2.0f, t.iconGap));
+    const float barPad = std::clamp(t.barPadding, 0.0f, 24.0f);
+    const bool buttons = SlotStyleOf(t) == SlotStyle::Buttons;
     const float half = std::floor(gap / 2.0f);
     const float padding = std::round(12.0f * u);
     const float reflH = t.reflection ? std::ceil(iconPx * t.reflectionHeight) : 0.0f;
-    const float rowH = std::round(iconPx + 16.0f * u);  // the icon row (the bar without reflections)
+    const float rowH = std::round(iconPx + 2.0f * barPad * u);  // the icon row (the bar without reflections)
     const float barH = rowH + reflH;
     const float stride = iconPx + gap;
     const float lead = padding - half;
@@ -320,7 +327,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const float barBottom = wall.bottom - px(kBarBottom);
     const float barTop = barBottom - barH;
     const float itemsLeft = barLeft + lead;
-    const float itemTop = barTop + std::round(5.0f * u);
+    const float itemTop = barTop + std::round((buttons ? barPad : barPad * 0.625f) * u);
 
     // Magnification about the focus (the cursor, else the default app), as DockWindow::ComputeTargets.
     const float focusX = mouseX_ >= 0 ? static_cast<float>(mouseX_)
@@ -373,7 +380,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     if (shelf) {
         Theme::DrawShelf(dc, bar, t, u, stroke, widgets ? separatorX : -1.0f, reflH);
     } else {
-        fillPanel(Rounded(bar, std::round(radiusDip * u)));
+        fillPanel(Rounded(bar, std::round(radiusDip * u)), true);
     }
     if (widgets) {
         if (!shelf) {
@@ -407,7 +414,11 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const D2D1_COLOR_F dotColors[3] = {Theme::ToColor(t.dotRunning), Theme::ToColor(t.dotActive),
                                        Theme::ToColor(t.dotAttention)};
     const float dotR = std::max(1.5f, 2.0f * u);
-    const float dotY = reflH > 0.0f ? itemTop + iconPx + std::round(5.0f * u) : barBottom - std::round(5.0f * u);
+    const float dotFromEdge = std::round(barPad * 0.625f * u);
+    const float dotY = reflH > 0.0f ? itemTop + iconPx + dotFromEdge : barBottom - dotFromEdge;
+    // Slot buttons: the slot inset 1 DIP along the bar, the bar inset max(1, barPadding / 2) across.
+    const float buttonInset = std::max(1.0f, std::round(u));
+    const float buttonCross = std::round(std::max(1.0f, barPad / 2.0f) * u);
     // Icon effects, as the dock bakes them into its icon surfaces (here at rest size, every paint).
     const GlowMode glowMode = GlowOf(t);
     const float glowRadius = t.glowRadius * u;
@@ -418,6 +429,22 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     for (int i = 0; i < kAppCount; ++i) {
         const float w = iconPx * scales[i];
         const float cx = slotLeft + half + w / 2.0f;
+        if (buttons) {
+            // Round 11 phase 11A: the slot's button by the sample's state (Browser has two windows:
+            // the stacked edge), hovered with the light at the focus, as the dock draws it.
+            Theme::SlotButton sb;
+            sb.state = kApps[i].dot == Dot::Attention ? 3 : kApps[i].dot == Dot::Active ? 2 : kApps[i].dot == Dot::Running ? 1 : 0;
+            sb.hovered = i == hovered;
+            sb.stacked = kApps[i].stacked && sb.state != 0 ? 1 : 0;
+            const D2D1_RECT_F br = D2D1::RectF(std::round(slotLeft + buttonInset), barTop + buttonCross,
+                                               std::round(slotLeft + w + gap - buttonInset), barBottom - buttonCross);
+            sb.hot = sb.hovered && t.slotHotTrack;
+            sb.hotAt = D2D1::Point2F(focusX - br.left, (br.bottom - br.top) / 2.0f);
+            sb.hotColor = t.accent;  // the placeholders' colour, as on the dock
+            dc->SetTransform(D2D1::Matrix3x2F::Translation(br.left, br.top));
+            Theme::DrawSlotButton(dc, D2D1::RectF(0.0f, 0.0f, br.right - br.left, br.bottom - br.top), t, u, sb);
+            dc->SetTransform(D2D1::Matrix3x2F::Identity());
+        }
         slotLeft += w + gap;
         const float bottom = itemTop + iconPx;
         if (i == hovered) {
@@ -457,7 +484,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
         dc->SetTransform(placed);
         drawIcon(dc, iconPx);
         dc->SetTransform(D2D1::Matrix3x2F::Identity());
-        if (kApps[i].dot != Dot::None) {
+        if (kApps[i].dot != Dot::None && !buttons) {  // round 11 phase 11A: the buttons replace the dots
             brush->SetColor(dotColors[static_cast<int>(kApps[i].dot) - 1]);
             dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, dotY), dotR, dotR), brush.get());
         }
@@ -499,7 +526,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     const float cardTop = std::round((wall.top + wall.bottom - cardH) / 2.0f);
     const D2D1_RECT_F popup = D2D1::RectF(cardLeft, cardTop, cardRight, cardTop + cardH);
     const float popupRadius = std::round((acrylic ? t.cornerRadius : std::min(t.cornerRadius, 12.0f)) * 0.6f * s);
-    fillPanel(Rounded(popup, popupRadius));
+    fillPanel(Rounded(popup, popupRadius), false);
     const float pad = px(kCardPad);
     const float cw = std::floor((cardW - 3.0f * pad) / 2.0f);
     const float cardRadius = px(4.0f * 0.75f);

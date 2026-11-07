@@ -31,6 +31,9 @@ enum class Field : uint32_t {
     Glow, GlowColor, GlowRadius, GlowStrength, Reflection, ReflectionHeight, ReflectionOpacity, Perspective,
     PerspectiveAngle, ReflectionClip,
     BadgeFill, BadgeText, BadgeSize,
+    // Round 11 phase 11A (appended: the override mask is one bit per field, ids never renumbered).
+    SlotStyle, SlotRunning, SlotActive, SlotAttention, SlotHover, SlotBorder, SlotCornerRadius, SlotHotTrack,
+    Sheen, IconGap, BarPadding,
     Count
 };
 static_assert(static_cast<uint32_t>(Field::Count) <= 64, "one override bit per field");
@@ -78,7 +81,7 @@ int GetInt(const ThemeConfig& t, const FieldInfo& f);
 void SetInt(ThemeConfig& t, const FieldInfo& f, int v);  // clamped to [min, max]
 
 struct Preset {
-    const wchar_t* id;    // "dark", "light", "glass", "solid", "shelf", "leopard", "contrast"
+    const wchar_t* id;    // "dark", "light", "glass", "solid", "shelf", "leopard", "contrast", "aero"
     const wchar_t* name;  // "Dark", "Light", ...
     ThemeConfig values;
 };
@@ -117,6 +120,27 @@ bool Export(const std::wstring& path, const ThemeConfig& t, const std::wstring& 
 // `separatorX2`: a second separator (< 0 = none), e.g. after widgets at the start of the dock.
 void DrawShelf(ID2D1DeviceContext* dc, const D2D1_RECT_F& bar, const ThemeConfig& t, float unit, float stroke,
                float separatorX, float reflectionPx = 0.0f, float separatorX2 = -1.0f);
+
+// Round 11 phase 11A: the glossy sheen (t.sheen) over a panel `bar` with corner `radius` (pixels),
+// in canonical coordinates (the top is the side away from the screen edge): white at sheen x 35 %
+// fading to 0 over the upper 55 %, and a `stroke` wide white line at sheen x 60 % along the top
+// between the corners. No-op for sheen 0. The dock and the settings preview draw it the same way.
+void DrawSheen(ID2D1DeviceContext* dc, const D2D1_RECT_F& bar, float radius, const ThemeConfig& t, float stroke);
+
+// Round 11 phase 11A: one slot button (t.slotStyle "buttons"), drawn into `r` (canonical pixels:
+// the slot inset on the main axis, the bar's cross extent inset; the top is away from the edge).
+struct SlotButton {
+    int state = 0;           // 0 none, 1 running, 2 active (owns the foreground), 3 attention
+    bool hovered = false;    // + the hover fill (a pinned app that does not run gets only this)
+    bool pressed = false;    // + black at 25 %
+    int stacked = 0;         // extra outlines (0 - 2) 3 DIPs apart behind the frame, toward r.right
+    bool hot = false;        // hot tracking: a radial light at hotAt in hotColor
+    D2D1_POINT_2F hotAt{};
+    uint32_t hotColor = 0;   // ARGB (its alpha is ignored)
+};
+// True when the button draws anything (a state, hovered or pressed).
+inline bool SlotButtonVisible(const SlotButton& b) { return b.state != 0 || b.hovered || b.pressed; }
+void DrawSlotButton(ID2D1DeviceContext* dc, const D2D1_RECT_F& r, const ThemeConfig& t, float unit, const SlotButton& b);
 
 inline D2D1_COLOR_F ToColor(uint32_t argb, float alphaScale = 1.0f) {
     return D2D1::ColorF(static_cast<float>((argb >> 16) & 0xFF) / 255.0f,

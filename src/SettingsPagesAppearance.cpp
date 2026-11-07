@@ -33,17 +33,32 @@ struct FieldGroup {
     int noteId = 0;                  // optional note under the rows
     const wchar_t* note = nullptr;   // its tooltip (round 8 phase 8A)
     const wchar_t* hint = nullptr;   // the one line shown
+    const wchar_t* topic = nullptr;  // round 11 phase 11A: the card's "?" (null: the Theme values section)
 };
 
 // Rows in this order; a field missing here lands in "Other" (the table stays the source of truth).
 std::vector<FieldGroup> FieldGroups() {
     std::vector<FieldGroup> groups = {
+        // Round 11 phase 11A: Sheen, Gap between icons and Bar padding joined the Bar group.
         {kSectionFieldsBar, L"Bar",
          {Field::Background, Field::Acrylic, Field::AcrylicBackground, Field::CornerRadius, Field::BarBorder,
-          Field::Separator, Field::Accent, Field::Shelf, Field::ShelfSlant, Field::ShelfEdge}},
+          Field::Sheen, Field::Separator, Field::Accent, Field::IconGap, Field::BarPadding, Field::Shelf,
+          Field::ShelfSlant, Field::ShelfEdge}},
         {kSectionFieldsLabel, L"Name label",
          {Field::LabelBackground, Field::LabelText, Field::LabelBorder, Field::LabelCornerRadius}},
         {kSectionFieldsDots, L"Indicator dots", {Field::DotRunning, Field::DotActive, Field::DotAttention}},
+        // Round 11 phase 11A: the taskbar-button look (its rows under Slot style collapse while it is None).
+        {kSectionFieldsSlots, L"Slot buttons",
+         {Field::SlotStyle, Field::SlotRunning, Field::SlotActive, Field::SlotAttention, Field::SlotHover,
+          Field::SlotBorder, Field::SlotCornerRadius, Field::SlotHotTrack},
+         kSlotsNote,
+         L"Buttons draw a frame behind every app, folder, group and Recycle Bin slot instead of the indicator dots: "
+         L"a running app's frame, a brighter one for the app you are using, an orange pulsing one for an app that "
+         L"wants attention, outlines behind it for two or more windows. Hovering adds the Hover fill and, with the "
+         L"light under the pointer, a glow in the icon's colour that follows the pointer. The frames do not grow with "
+         L"magnification: they are meant for a dock with magnification 1.00\x00D7. Rings keep their dots.",
+         L"Instead of the dots. Meant for magnification 1.00\x00D7; rings keep their dots.",
+         L"guide-settings.md#slot-buttons"},
         {kSectionFieldsBadges, L"Notification badges", {Field::BadgeFill, Field::BadgeText, Field::BadgeSize}},
         {kSectionFieldsClock, L"Clock", {Field::ClockText, Field::ClockDateText}},
         {kSectionFieldsIcons, L"Placeholder icon", {Field::PlaceholderFill, Field::PlaceholderText}},
@@ -208,7 +223,7 @@ protected:
         // group closed at first (Bar was open): the individual values are detail.
         for (const FieldGroup& g : FieldGroups()) {
             UntitledCard();
-            HeadingExpander(g.sectionId, g.title, false, L"guide-settings.md#theme-values");
+            HeadingExpander(g.sectionId, g.title, false, g.topic ? g.topic : L"guide-settings.md#theme-values");
             for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
             if (g.note) {
                 // One line (two at most); the whole note as its tooltip.
@@ -473,6 +488,10 @@ private:
                 Combo(FieldRow(field, kFieldValue), colX, 168, false);
                 break;
         }
+        // Round 11 phase 11A: the new fields explain themselves (on the label, or a check box).
+        if (const wchar_t* tip = FieldTip(info.field)) {
+            Tip(FieldRow(field, info.kind == Theme::Kind::Bool ? kFieldSwatch : kFieldLabel), tip);
+        }
         // Round 8 phase 8D: a 24 DIP "↺" (was a "Reset" button), shown only while overridden.
         Add(FieldRow(field, kFieldReset), CtlKind::Button, WC_BUTTONW, L"\x21BA", WS_TABSTOP | BS_PUSHBUTTON,
             RECT{right - kResetW, y_ + 4, right, y_ + 4 + kResetW});
@@ -480,9 +499,53 @@ private:
         NextRow();
     }
 
+    // Round 11 phase 11A: the tooltips of the fields this round added (the older rows have none:
+    // their labels say enough).
+    static const wchar_t* FieldTip(Field f) {
+        switch (f) {
+            case Field::SlotStyle:
+                return L"None: the indicator dots under running apps (the default). Buttons: a frame behind each app, "
+                       L"folder, group and Recycle Bin slot shows its state instead, like the Windows 7 taskbar.";
+            case Field::SlotRunning: return L"The frame of a running app (a top-to-bottom gradient to 60 % of this alpha).";
+            case Field::SlotActive: return L"The frame of the app that owns the foreground window.";
+            case Field::SlotAttention: return L"The frame of an app flashing for attention; it pulses.";
+            case Field::SlotHover:
+                return L"Added while the pointer is over a slot. A pinned app that does not run shows only this.";
+            case Field::SlotBorder: return L"The frames' hairline (with a fainter inner highlight) and the stacked outlines.";
+            case Field::SlotCornerRadius: return L"The frames' corners, 0 - 16 DIPs. Default: 3.";
+            case Field::SlotHotTrack:
+                return L"While the pointer moves over a frame, a soft light in the icon's own colour follows it inside the "
+                       L"frame. Drawn only while the pointer moves.";
+            case Field::Sheen:
+                return L"A glossy highlight over the upper half of the bar and a bright line along its far edge, 0 - 100 %. "
+                       L"Not on the glass shelf or a ring. Default: 0 (none).";
+            case Field::IconGap:
+                return L"The space between two icon slots, 0 - 48 DIPs (a slot is the icon size plus this). Default: 8. "
+                       L"Wide gaps suit slot buttons.";
+            case Field::BarPadding:
+                return L"The space between the icons and the bar's long edges, 0 - 24 DIPs (the bar is the icon size plus "
+                       L"twice this). Default: 8.";
+            default: return nullptr;
+        }
+    }
+
+    // Round 11 phase 11A: the Slot buttons rows under Slot style collapse while it is None.
+    void UpdateSlotRows() {
+        const bool none = SlotStyleOf(Cfg().theme) == SlotStyle::None;
+        for (Field f : {Field::SlotRunning, Field::SlotActive, Field::SlotAttention, Field::SlotHover, Field::SlotBorder,
+                        Field::SlotCornerRadius, Field::SlotHotTrack}) {
+            const int field = static_cast<int>(f);
+            Collapse({FieldRow(field, kFieldLabel), FieldRow(field, kFieldSwatch), FieldRow(field, kFieldHex),
+                      FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), FieldRow(field, kFieldReset),
+                      FieldRow(field, kFieldUnit)},
+                     none);
+        }
+    }
+
     // Round 8 phase 8D: each group's heading counts its overridden fields ("Bar · 2 changed") and
     // the Theme label's hint all of them.
     void UpdateCounts() {
+        UpdateSlotRows();
         const uint64_t over = Cfg().themeOverrides;
         int total = 0;
         for (const FieldGroup& g : FieldGroups()) {

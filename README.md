@@ -1772,11 +1772,14 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   from the themes folder by name; a `preset` that is not found is listed as "<id> (missing)"; its
   hint counts your changes: "3 values changed") and a **⋯** button (round 8 phase 8D: a menu with
   **Export current theme…**, **Open themes folder** and **Reset all to preset**, greyed while
-  nothing is changed), then one card per group of theme fields (see [Themes](#themes)): Bar, Name
-  label, Indicator dots, Notification badges, Clock, Placeholder icon, Window previews, Icon
-  effects. Each card's heading opens and closes it and counts its changed fields ("Bar · 2
-  changed"); Bar is open when the window opens, the others closed (each window remembers what
-  you opened until it closes). A colour row has a swatch (click it for the
+  nothing is changed), then one card per group of theme fields (see [Themes](#themes)): Bar (round
+  11 phase 11A: with Sheen, Gap between icons and Bar padding), Name label, Indicator dots, **Slot
+  buttons** (round 11 phase 11A: Slot style, then the frames' colours, corner radius and the light
+  under the pointer, those rows hidden while Slot style is None; a one-line note; its "?" opens the
+  Themes guide's Slot buttons section; see [Slot buttons](#slot-buttons)), Notification badges,
+  Clock, Placeholder icon, Window previews, Icon effects. Each card's heading opens and closes it
+  and counts its changed fields ("Bar · 2 changed"); every card is closed when the window opens
+  (round 10 phase 10D; each window remembers what you opened until it closes). A colour row has a swatch (click it for the
   Windows colour picker; it replaces the colour and keeps the alpha), the `#AARRGGBB` value
   (applied on Enter or when the box loses the focus; an invalid value beeps and goes back) and the
   alpha 0-255. On / off keys are check boxes, numbers are number boxes with their unit (DIPs;
@@ -2430,8 +2433,13 @@ the inline keys over the dark defaults.
 Built-in presets: `dark` (Dark, the default), `light` (Light), `glass` (Glass, a thinner
 acrylic tint), `solid` (Solid, opaque, no acrylic, 12 DIP corners), `shelf` (Glass shelf, a pale
 sea-green glass shelf in perspective with angled sides, see `shelf`), `leopard` (3D shelf: a cool
-grey glass shelf with icon reflections, a glow on the hovered icon and the 3D perspective tilt) and
-`contrast` (High contrast, black with white borders, square corners). Ids are case-insensitive.
+grey glass shelf with icon reflections, a glow on the hovered icon and the 3D perspective tilt),
+`contrast` (High contrast, black with white borders, square corners) and `aero` (Aero glass, round
+11 phase 11A: the Windows 7 taskbar look: a blue-grey "Sky" tint `#B8587BA8` over the blur
+(`#F0496A94` without it), square corners, `sheen` 0.6, `slotStyle` `"buttons"` with the default
+slot colours, `iconGap` 28, `barPadding` 4 (a 40 DIP bar for 32 DIP icons), white labels with
+black text and a grey hairline (`labelCornerRadius` 3), white clock text, a blue preview hover; no
+glow, reflection or tilt; the dots as `dark`). Ids are case-insensitive.
 
 User themes live in `%LocalAppData%\WinDock\themes\<id>.json`; the file name without `.json` is
 the id used in `preset` (case-insensitive). A file named like a built-in id is ignored.
@@ -2486,6 +2494,17 @@ Theme keys (colours are `#AARRGGBB` or `#RRGGBB`; defaults are the `dark` preset
 | `badgeFill` | `#FFFF3B30` | notification badge bubble (light `#FFE5342A`, contrast `#FFFFD400`) |
 | `badgeText` | `#FFFFFFFF` | the badge's count (contrast `#FF000000`) |
 | `badgeSize` | `0.36` | the bubble's height as a fraction of the icon size, 0.2 - 0.6 (at least 12 DIPs) |
+| `slotStyle` | `"none"` | round 11 phase 11A: `"buttons"` draws a button frame behind each app, folder, group, Recycle Bin and pinned tray icon slot by its state, and no indicator dots (see [Slot buttons](#slot-buttons)); `"none"`: the dots; case-insensitive, an unknown value keeps the preset's |
+| `slotRunning` | `#30FFFFFF` | the frame's fill for a running app (a top-to-bottom gradient to 60 % of its alpha) |
+| `slotActive` | `#55FFFFFF` | the fill for the app owning the foreground window |
+| `slotAttention` | `#D0F0A030` | the fill for an app flashing for attention (it pulses) |
+| `slotHover` | `#28FFFFFF` | the fill added while the slot is hovered (a pinned app that does not run gets only this) |
+| `slotBorder` | `#66FFFFFF` | the frame's hairline (an inner highlight at 40 % of its alpha under it) and the stacked outlines |
+| `slotCornerRadius` | `3` | the frame's corner radius in DIPs, 0 - 16 |
+| `slotHotTrack` | `true` | while the pointer moves over a frame, a radial light in the icon's dominant colour under it, clipped to the frame |
+| `sheen` | `0` | round 11 phase 11A: a glossy highlight over the bar, 0 - 1: white at `sheen` x 35 % fading to 0 over the upper 55 % of the bar (the half toward the middle of the screen on every edge), plus a 1 px white line at `sheen` x 60 % along that edge; over the fill and the acrylic tint, under the border; not on the glass shelf or a ring |
+| `iconGap` | `8` | round 11 phase 11A: the gap between icon slots in DIPs, 0 - 48 (a slot is `iconSize` + `iconGap` long; the hover label, titles, drop gaps and magnification follow it) |
+| `barPadding` | `8` | round 11 phase 11A: between the icon row and the bar's long edges in DIPs, 0 - 24: the bar is `iconSize` + 2 x `barPadding` thick; with the dots the icons sit 5/8 of it from the bar's far edge and the dots' centre as far from its near edge (5 and 5 at 8, the layout before); with slot buttons the icons are centred |
 
 #### Icon effects
 
@@ -2518,6 +2537,31 @@ Memory (measured, 13 items): with the hardware renderer the effects add about 3 
 to 7 MB (`leopard` with an always-on glow) of private bytes; with `"renderer": "software"` (WARP)
 the effect and layer pipeline adds about 12 - 14 MB (reflection) to 18 - 22 MB (`leopard` with an
 always-on glow) on top of ~24 MB.
+
+#### Slot buttons
+
+Round 11 phase 11A. With `slotStyle` `"buttons"` every app, folder, group, Recycle Bin and pinned
+tray icon slot gets a button frame behind its icon, the way the Windows 7 taskbar draws its
+buttons, and the indicator dots are not drawn (the frame is the indicator). The frame is the slot
+at rest inset 1 DIP along the bar and the bar inset `max(1, barPadding / 2)` DIPs across it; the
+icon stays centred in the slot. Its look follows the slot's state: nothing for a pinned app that
+does not run, `slotRunning` for a running app (a minimized-only app counts as running),
+`slotActive` for the app owning the foreground window, `slotAttention` for one flashing for
+attention (the frame pulses between 100 % and 55 % opacity every 0.8 s; a DirectComposition
+animation, no timer; not with reduced motion), `slotHover` added while hovered, black at 25 % on top
+while the left button is pressed on it (until the release or a drag starts). An app with two or
+more windows (stacked: `docks[].windows` "stacked") shows its outline repeated 3 DIPs further
+along the bar for each extra window (two at most), behind the frame: the frame gives up that room
+inside the slot, so the outlines reach into the gap between icons (the `aero` preset's `iconGap`
+is 28 for that). With `slotHotTrack` a radial light in the icon's dominant colour (the accent for
+group tiles and placeholders) sits under the pointer inside the hovered frame (55 % at the pointer
+to 0 at 0.9 x the frame's length). Separators and widgets get no frame; titles under the icons and
+badges are unchanged. Each frame is its own surface, redrawn only when its state changes; hot
+tracking redraws the hovered frame on mouse moves, at most every 16 ms (with the magnification
+follow), never while the pointer rests. The frames are drawn at rest size and follow the icon box
+along the bar but do not grow with magnification: buttons are meant for `magnification` 1.0. A
+ring (`shape` "arc" / "circle") keeps its dots and gets no frames (and no `sheen`).
+`WinDock.QueryState` 293 reports a slot's drawn state and 294 the dock's `iconGap`.
 
 ### Animation
 
@@ -3023,9 +3067,12 @@ always there, also when every dock is parked) handle these registered messages:
   closed at first. The expanders so far: Behaviour's 2269, Position's 2272 (8B), a Place
   field's Edit coordinates 3630 (8C; an Item window of the dock, or a standalone widget's window),
   and in the App settings window (8D) the Themes group headings 2410 Bar, 2411 Name label, 2412
-  Indicator dots, 2421 Notification badges, 2413 Clock, 2414 Placeholder icon, 2415 Window
-  previews, 2417 Icon effects (Bar open when the window opens, the others closed) and Calendar
-  feeds' Add or edit a feed 4321.
+  Indicator dots, 2425 Slot buttons (round 11 phase 11A; its note 5500), 2421 Notification
+  badges, 2413 Clock, 2414 Placeholder icon, 2415 Window previews, 2417 Icon effects (Bar open when
+  the window opens, the others closed) and Calendar feeds' Add or edit a feed 4321. Round 11 phase
+  11A: the theme field rows run to 3476 (48 fields; `FieldRow(field, part)` = 3000 + 10 x the
+  field's index + the part); the Slot buttons rows below Slot style (fields 38 - 44) are collapsed
+  while `slotStyle` is "none".
   Round 8 phase 8B, a Dock window (dock `HIWORD(lParam)`; -2 for each while it is not open): 277
   = the Position tab's placement kind as shown (its Kind drop-down 2271: 0 bar on an edge, 1
   floating bar, 2 half circle, 3 circle); 278 = the Contents drawer's rows in group
@@ -3048,6 +3095,12 @@ always there, also when every dock is parked) handle these registered messages:
   with their hit slack; no zone check), -1 none. ItemCommand 834 grows a "steady" bar as a real
   pointer does: only when its coordinate is over a magnifying icon (9A follow-up 2; over a widget,
   a separator or the padding the bar stays at rest; 834 with 0xFFFF: as if it left).
+  Round 11 phase 11A, slot buttons (theme `slotStyle` "buttons", see [Slot buttons](#slot-buttons)):
+  293 = the button state drawn for slot `LOWORD(lParam)` of dock `HIWORD(lParam)`: 0 none, 1
+  running, 2 active, 3 attention, + 16 hovered, + 32 pressed, + 64 stacked edge (two or more
+  windows); 0 for every slot while the style is "none", on a ring, and for separators and widgets;
+  -1 no such slot. 294 = the dock's effective theme `iconGap` in DIPs (rounded; 8 by default, 28
+  with the `aero` preset), so a test can tell a theme applied without pixels.
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the App settings window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.

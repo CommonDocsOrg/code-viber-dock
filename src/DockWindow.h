@@ -475,7 +475,17 @@ private:
         UINT bitmapPx = 0;     // icon bitmap size (iconPx * magnification, for crisp magnification)
         float magnification = 1.0f;
         float padding = 0.0f;
-        float gap = 0.0f;      // between icons
+        float gap = 0.0f;      // between icons (round 11 phase 11A: theme.iconGap, was the constant 8 DIPs)
+        // Round 11 phase 11A: bar top -> icon top (theme.barPadding: 5/8 of it with the dots, as the
+        // 5 DIPs of before; all of it with slot buttons, the icons centred).
+        float iconTopPx = 0.0f;
+        // Slot buttons (theme.slotStyle "buttons"; not on a ring): each icon slot's button layer is
+        // its rest slot inset buttonInsetMain on the main axis, [buttonTop, buttonTop + buttonH]
+        // across (the bar inset max(1, barPadding / 2) DIPs); no dots then.
+        bool buttons = false;
+        float buttonInsetMain = 0.0f;
+        float buttonTop = 0.0f;
+        float buttonH = 0.0f;
         float itemsLeft = 0.0f;  // left edge of slot 0 (a slot is iconPx + gap wide; separators, widgets: their box)
         float itemsW = 0.0f;     // all slots and the spacers between them
         int firstMag = -1;       // first / last slot that magnifies (-1: none); the slots before /
@@ -738,6 +748,17 @@ private:
     void OnThumbnailFrames(const std::vector<HWND>& windows);
     HRESULT RenderDotSources();
     HRESULT RenderDot(DockItem& item);
+    // Round 11 phase 11A, slot buttons. The state code of slot `i` as QueryState 293 reports it
+    // (0 none / 1 running / 2 active / 3 attention, +16 hovered, +32 pressed, +64 stacked edge; 0
+    // whenever buttons are off or the slot gets none), `stacked` the outlines behind it (0 - 2).
+    int ButtonStateOf(size_t i, int* stacked = nullptr) const;
+    // Redraws the button surfaces whose state (or hot-track point) changed since they were drawn
+    // and starts / stops the attention pulse. Runs at the end of every ApplyTargets (the hover, the
+    // magnification follow at most every 16 ms, a snapshot's DrawFrame), so nothing of its own ticks.
+    HRESULT RenderButtons();
+    // RenderButtons committed on its own (a press / release changes the pressed state without a
+    // placement pass). No-op without buttons.
+    void RefreshButtons();
     // --- notification badges (docks[].badges) ---
     // Recomputes every slot's badgeCount from the notification service (marks changed slots
     // badgeDirty). True if any changed.
@@ -1301,6 +1322,7 @@ private:
     bool grownCheckPosted_ = false;  // kGrownCheckMessage is posted
     bool leaveRearmed_ = false;      // a WM_MOUSELEAVE over the dock re-armed the tracking (until the next move)
     float cursorX_ = 0.0f;       // stage main coordinate (canonical x) of the last mouse position in the zone
+    float cursorV_ = 0.0f;       // round 11 phase 11A: its cross coordinate (canonical y; the hot tracking)
     double lastMagnify_ = 0.0;    // Renderer::Now() of the last applied update
     bool magnifyPending_ = false;
     bool restPending_ = false;

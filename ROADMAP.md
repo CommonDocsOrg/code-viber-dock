@@ -885,6 +885,58 @@ Notes for 10E (round 10 closed 2026-11-06):
   contrast, other DPIs and displays, a "Folder window settings…" entry in the folder window's own
   menu (STATUS.md "Round 10 final regression", Found and left).
 
+## Round 11 (in progress, 2026-11-06): the Windows 7 look
+
+Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round11.md` (from the user's request
+of 2026-11-06: "need to be able to customize the dock to the point where it looks almost identical
+to windows 7"). One commit per phase on master, not pushed; STATUS.md "Round 11" has each phase's
+notes.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 11A Theme: slot buttons, sheen, spacing | Eleven theme fields (`slotStyle` + seven `slot*`, `sheen`, `iconGap`, `barPadding`), taskbar-button frames behind icon slots by state (running / active / attention pulse / hover with hot tracking / pressed / stacked), the sheen, the spacing in the layout, the `aero` preset, the Themes page's Slot buttons card, the preview strip, QueryState 293 / 294 | Done (the commit "Theme slot buttons, sheen and spacing; the aero preset"; STATUS.md "Round 11") |
+| 11B Widgets | The Start orb, Show desktop, the two-line clock | Planned |
+| 11C The "Windows 7" preset | `res/presets/win7.json`, the guide, the automation | Planned |
+| 11D Regression and release | Suites, pictures, the release build | Planned |
+
+Design notes for 11A:
+
+- **Defaults are the old constants.** `iconGap` 8 is `kGap`; `barPadding` 8 makes the bar
+  `iconSize` + 16 (`kBarExtraHeight`). The plan left "today's cross-axis constant" open: the bar's
+  extra 16 DIPs were never split evenly (5 above the icons, 11 below with the dots), so `barPadding`
+  is half of it and, with the dots, the icon row sits at 5/8 of it from the far edge and the dots'
+  centre 5/8 from the near edge: 5 and 5 at 8, exactly the old numbers (the plain dock's picture is
+  identical to round 10's exe, pixel for pixel). With buttons there are no dots, so the icons are
+  centred (Windows 7: a 32 px icon in a 40 px bar).
+- **One layer per slot, drawn on change.** The button is a surface per slot (not a shared one like
+  the dots: the stacked count, the hot point and the size differ per slot) behind the icon
+  container, moved by the same animation as the dot, so a reorder / magnification moves it for
+  free. `RenderButtons` runs at the end of every `ApplyTargets` and compares each slot's state code,
+  stacked count, hot point (whole px) and surface size with what it drew: a pass where nothing
+  changed draws nothing. The only redraw source while the pointer moves is the existing 16 ms
+  magnification throttle (`ApplyMagnify`), and nothing runs at rest (measured: 0 ms of CPU in 3 s
+  with a hovered frame). A press / release changes no placement, so they commit `RenderButtons`
+  themselves.
+- **The pulse is DWM's.** Attention attaches a repeating opacity animation (two smoothsteps,
+  1 -> 0.55 -> 1 in 0.8 s, like the launch pulse) to the button layer once and detaches it when the
+  attention clears; reduced motion shows it steady. The scrolling run's edge fade leaves a pulsing
+  button alone (both drive the layer's opacity).
+- **What gets a frame.** The slots that magnify (apps, folders, groups, the Recycle Bin, pinned tray
+  icons); separators and widgets never. Running is the dot's rule, except that a minimized-only
+  window slot keeps its frame (the plan: minimized apps count as running). Stacked = an app slot
+  (not a window slot, not a group) with two or more windows. A ring keeps its dots and gets no frames
+  (a rectangle does not follow a sector) and no sheen.
+- **Shared drawing.** `Theme::DrawSlotButton` and `Theme::DrawSheen` draw the frame and the sheen
+  in canonical pixels for both the dock (`DrawCanonical` maps them to the edge) and the settings
+  preview strip, so the two cannot drift. The stacked outlines are clipped to the part beyond the
+  frame in front (a translucent fill would otherwise show them through).
+- **Ids.** 2422 (the plan's first choice for the group) is `kDockThemeNote`, so the Slot buttons
+  heading is 2425; its note is 5500, the first of round 11's range. The theme field rows grew past
+  3399 into 3400 - 3476 (that range was unused). QueryState 293 reports the code last drawn (what is
+  on screen), not the code the state would give, so a test sees what the user sees.
+- **The `aero` colours** are the plan's; they were not tuned against a Windows 7 screenshot in
+  this phase (11C's picture with the full preset is the place to judge them).
+
 ## Dependencies at a glance
 
 ```

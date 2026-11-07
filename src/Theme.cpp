@@ -32,6 +32,10 @@ namespace {
 const wchar_t* const kGlowNames[] = {L"off", L"hover", L"active", L"always"};
 const wchar_t* const kGlowChoices[] = {L"Off", L"While hovered", L"Active app", L"Always"};
 static_assert(std::size(kGlowNames) == std::size(kGlowChoices), "one UI choice per name");
+// SlotStyle order (round 11 phase 11A).
+const wchar_t* const kSlotStyleNames[] = {L"none", L"buttons"};
+const wchar_t* const kSlotStyleChoices[] = {L"None (indicator dots)", L"Buttons (taskbar style)"};
+static_assert(std::size(kSlotStyleNames) == std::size(kSlotStyleChoices), "one UI choice per name");
 
 const FieldInfo kFields[] = {
     WD_FIELD(Background, background, L"Background", Color, 0.0f, 0.0f),
@@ -71,6 +75,18 @@ const FieldInfo kFields[] = {
     WD_FIELD(BadgeFill, badgeFill, L"Badge", Color, 0.0f, 0.0f),
     WD_FIELD(BadgeText, badgeText, L"Badge count", Color, 0.0f, 0.0f),
     WD_FLOAT(BadgeSize, badgeSize, L"Badge size", 0.2f, 0.6f, L"% of icon", 100.0f),
+    // Round 11 phase 11A.
+    WD_ENUM(SlotStyle, slotStyle, L"Slot style", kSlotStyleNames, kSlotStyleChoices),
+    WD_FIELD(SlotRunning, slotRunning, L"Running app", Color, 0.0f, 0.0f),
+    WD_FIELD(SlotActive, slotActive, L"Active app", Color, 0.0f, 0.0f),
+    WD_FIELD(SlotAttention, slotAttention, L"Attention", Color, 0.0f, 0.0f),
+    WD_FIELD(SlotHover, slotHover, L"Hover", Color, 0.0f, 0.0f),
+    WD_FIELD(SlotBorder, slotBorder, L"Button border", Color, 0.0f, 0.0f),
+    WD_FLOAT(SlotCornerRadius, slotCornerRadius, L"Button corner radius", 0.0f, 16.0f, L"DIPs", 1.0f),
+    WD_FIELD(SlotHotTrack, slotHotTrack, L"Light under the pointer (hot tracking)", Bool, 0.0f, 0.0f),
+    WD_FLOAT(Sheen, sheen, L"Sheen", 0.0f, 1.0f, L"%", 100.0f),
+    WD_FLOAT(IconGap, iconGap, L"Gap between icons", 0.0f, 48.0f, L"DIPs", 1.0f),
+    WD_FLOAT(BarPadding, barPadding, L"Bar padding", 0.0f, 24.0f, L"DIPs", 1.0f),
 };
 
 #undef WD_FIELD
@@ -223,6 +239,35 @@ ThemeConfig MakeContrast() {
     return t;
 }
 
+// Round 11 phase 11A: "Aero glass", the Windows 7 taskbar: a blue-grey ("Sky") tint over the blur,
+// square corners, a sheen, taskbar buttons instead of dots, wide slots on a 40 DIP bar (32 DIP
+// icons + 2 x 4), light labels. Fields not set here are dark's (dots, badges, the accent).
+ThemeConfig MakeAero() {
+    ThemeConfig t;
+    t.acrylic = true;
+    t.acrylicBackground = 0xB8587BA8;  // the "Sky" tint over the blur
+    t.background = 0xF0496A94;         // without blur (transparency effects off)
+    t.cornerRadius = 0.0f;
+    t.barBorder = 0x50FFFFFF;
+    t.separator = 0x40FFFFFF;
+    t.sheen = 0.6f;
+    t.slotStyle = static_cast<int>(SlotStyle::Buttons);
+    t.iconGap = 28.0f;
+    t.barPadding = 4.0f;
+    t.labelBackground = 0xF2FFFFFF;
+    t.labelText = 0xFF000000;
+    t.labelBorder = 0xFF767676;
+    t.labelCornerRadius = 3.0f;
+    t.clockText = 0xFFFFFFFF;
+    t.clockDateText = 0xFFFFFFFF;
+    t.previewHotBackground = 0x2E5B8DD0;
+    t.previewHotBorder = 0x80FFFFFF;
+    t.glow = static_cast<int>(GlowMode::Off);
+    t.reflection = false;
+    t.perspective = false;
+    return t;
+}
+
 void Log(const std::wstring& text) { OutputDebugStringW((L"WinDock: " + text + L"\n").c_str()); }
 
 }  // namespace
@@ -276,6 +321,7 @@ const Preset* BuiltIns(size_t& count) {
         {L"shelf", L"Glass shelf", MakeShelf()},
         {L"leopard", L"3D shelf", MakeLeopard()},
         {L"contrast", L"High contrast", MakeContrast()},
+        {L"aero", L"Aero glass", MakeAero()},  // round 11 phase 11A
     };
     count = std::size(kPresets);
     return kPresets;
@@ -513,6 +559,110 @@ void DrawShelf(ID2D1DeviceContext* dc, const D2D1_RECT_F& r, const ThemeConfig& 
         const float x = sx + half;
         dc->DrawLine(D2D1::Point2F(x, top + 2.0f * stroke), D2D1::Point2F(x, front - stroke), brush.get(), stroke);
     }
+}
+
+void DrawSheen(ID2D1DeviceContext* dc, const D2D1_RECT_F& r, float radius, const ThemeConfig& t, float stroke) {
+    const float sheen = std::clamp(t.sheen, 0.0f, 1.0f);
+    const float w = r.right - r.left, h = r.bottom - r.top;
+    if (!(sheen > 0.0f) || w <= 2.0f || h <= 2.0f) return;
+    // The highlight: a vertical gradient over the whole panel shape (transparent below 55 %), so
+    // the rounded corners clip it as they clip the fill.
+    const D2D1_GRADIENT_STOP stops[] = {
+        {0.0f, D2D1::ColorF(1.0f, 1.0f, 1.0f, sheen * 0.35f)},
+        {0.55f, D2D1::ColorF(1.0f, 1.0f, 1.0f, 0.0f)},
+    };
+    winrt::com_ptr<ID2D1GradientStopCollection> stopCollection;
+    winrt::com_ptr<ID2D1LinearGradientBrush> gradient;
+    if (FAILED(dc->CreateGradientStopCollection(stops, 2, stopCollection.put())) ||
+        FAILED(dc->CreateLinearGradientBrush(
+            D2D1::LinearGradientBrushProperties(D2D1::Point2F(r.left, r.top), D2D1::Point2F(r.left, r.bottom)),
+            stopCollection.get(), gradient.put()))) {
+        return;
+    }
+    const float rr = std::clamp(radius, 0.0f, std::min(w, h) / 2.0f);
+    dc->FillRoundedRectangle(D2D1::RoundedRect(r, rr, rr), gradient.get());
+    // The bright hairline at the top edge, between the corners (inside the bar's own border).
+    winrt::com_ptr<ID2D1SolidColorBrush> line;
+    if (FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(1.0f, 1.0f, 1.0f, sheen * 0.6f), line.put()))) return;
+    const float y = r.top + stroke + stroke / 2.0f;
+    const float x0 = r.left + std::max(rr, stroke), x1 = r.right - std::max(rr, stroke);
+    if (x1 > x0) dc->DrawLine(D2D1::Point2F(x0, y), D2D1::Point2F(x1, y), line.get(), stroke);
+}
+
+void DrawSlotButton(ID2D1DeviceContext* dc, const D2D1_RECT_F& r, const ThemeConfig& t, float unit, const SlotButton& b) {
+    if (!SlotButtonVisible(b)) return;
+    const float stroke = std::max(1.0f, std::round(unit));
+    const int stacked = std::clamp(b.stacked, 0, 2);
+    const float step = std::max(2.0f, std::round(3.0f * unit));  // the stacked outlines' offset
+    // The frame leaves room for the stacked outlines at its far end (the slot does not change).
+    const D2D1_RECT_F frame = D2D1::RectF(r.left, r.top, r.right - static_cast<float>(stacked) * step, r.bottom);
+    const float w = frame.right - frame.left, h = frame.bottom - frame.top;
+    if (w <= 2.0f * stroke || h <= 2.0f * stroke) return;
+    const float radius = std::clamp(std::round(t.slotCornerRadius * unit), 0.0f, std::min(w, h) / 2.0f);
+    const float half = stroke / 2.0f;
+    auto rounded = [&](const D2D1_RECT_F& rc, float inset) {
+        const float rad = std::max(0.0f, radius - inset);
+        return D2D1::RoundedRect(D2D1::RectF(rc.left + inset, rc.top + inset, rc.right - inset, rc.bottom - inset), rad, rad);
+    };
+    winrt::com_ptr<ID2D1SolidColorBrush> brush;
+    if (FAILED(dc->CreateSolidColorBrush(ToColor(t.slotBorder), brush.put()))) return;
+
+    // Stacked windows: the frame's outline repeated behind it, farthest first, each clipped to
+    // the part beyond the one in front (a translucent fill must not show it through).
+    if (b.state != 0) {
+        for (int k = stacked; k >= 1; --k) {
+            const float dx = static_cast<float>(k) * step;
+            const D2D1_RECT_F o = D2D1::RectF(frame.left + dx, frame.top, frame.right + dx, frame.bottom);
+            const float frontRight = o.right - step;  // the outline (or frame) in front of this one
+            dc->PushAxisAlignedClip(D2D1::RectF(frontRight - radius, r.top, r.right, r.bottom), D2D1_ANTIALIAS_MODE_ALIASED);
+            brush->SetColor(ToColor(t.slotBorder, k == 1 ? 0.8f : 0.55f));
+            dc->DrawRoundedRectangle(rounded(o, half), brush.get(), stroke);
+            dc->PopAxisAlignedClip();
+        }
+    }
+
+    // The state's fill: top to bottom, the colour to 60 % of its alpha.
+    const uint32_t fill = b.state == 3 ? t.slotAttention : b.state == 2 ? t.slotActive : b.state == 1 ? t.slotRunning : 0;
+    if (b.state != 0) {
+        const D2D1_GRADIENT_STOP stops[] = {{0.0f, ToColor(fill)}, {1.0f, ToColor(fill, 0.6f)}};
+        winrt::com_ptr<ID2D1GradientStopCollection> sc;
+        winrt::com_ptr<ID2D1LinearGradientBrush> g;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(stops, 2, sc.put())) &&
+            SUCCEEDED(dc->CreateLinearGradientBrush(
+                D2D1::LinearGradientBrushProperties(D2D1::Point2F(frame.left, frame.top), D2D1::Point2F(frame.left, frame.bottom)),
+                sc.get(), g.put()))) {
+            dc->FillRoundedRectangle(rounded(frame, 0.0f), g.get());
+        }
+    }
+    if (b.hovered) {
+        brush->SetColor(ToColor(t.slotHover));
+        dc->FillRoundedRectangle(rounded(frame, 0.0f), brush.get());
+    }
+    // Hot tracking: the icon's colour, 55 % at the pointer to 0 at 0.9 x the frame's length,
+    // clipped to the frame by its shape.
+    if (b.hot && b.hovered) {
+        const float reach = std::max(1.0f, 0.9f * w);
+        const D2D1_GRADIENT_STOP stops[] = {{0.0f, ToColor(b.hotColor | 0xFF000000u, 0.55f)},
+                                            {1.0f, ToColor(b.hotColor | 0xFF000000u, 0.0f)}};
+        winrt::com_ptr<ID2D1GradientStopCollection> sc;
+        winrt::com_ptr<ID2D1RadialGradientBrush> g;
+        if (SUCCEEDED(dc->CreateGradientStopCollection(stops, 2, sc.put())) &&
+            SUCCEEDED(dc->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(b.hotAt, D2D1::Point2F(), reach, reach),
+                                                    sc.get(), g.put()))) {
+            dc->FillRoundedRectangle(rounded(frame, 0.0f), g.get());
+        }
+    }
+    if (b.pressed) {
+        brush->SetColor(D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.25f));
+        dc->FillRoundedRectangle(rounded(frame, 0.0f), brush.get());
+    }
+    // The hairline, with an inner highlight under it (40 % of its alpha); a hover-only frame (a
+    // pinned app that does not run) at half strength.
+    const float strength = b.state != 0 ? 1.0f : 0.5f;
+    brush->SetColor(ToColor(t.slotBorder, 0.4f * strength));
+    dc->DrawRoundedRectangle(rounded(frame, stroke + half), brush.get(), stroke);
+    brush->SetColor(ToColor(t.slotBorder, strength));
+    dc->DrawRoundedRectangle(rounded(frame, half), brush.get(), stroke);
 }
 
 bool Export(const std::wstring& path, const ThemeConfig& t, const std::wstring& name) {

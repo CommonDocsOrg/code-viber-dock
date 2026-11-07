@@ -946,6 +946,12 @@ void Config::Sanitize() {
     clampf(theme.reflectionHeight, 0.2f, 1.0f, 0.5f);
     clampf(theme.reflectionOpacity, 0.0f, 1.0f, 0.35f);
     clampf(theme.perspectiveAngle, 0.0f, 35.0f, 18.0f);
+    // Round 11 phase 11A.
+    if (theme.slotStyle < 0 || theme.slotStyle > 1) theme.slotStyle = 0;
+    clampf(theme.slotCornerRadius, 0.0f, 16.0f, 3.0f);
+    clampf(theme.sheen, 0.0f, 1.0f, 0.0f);
+    clampf(theme.iconGap, 0.0f, 48.0f, 8.0f);
+    clampf(theme.barPadding, 0.0f, 24.0f, 8.0f);
     // The preset names a file stem inside the themes folder: no paths.
     if (themePreset.size() > 64 ||
         themePreset.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos || themePreset == L"." ||

@@ -307,6 +307,9 @@ inline constexpr int kSectionFieldsBadges = 2421; // round 4 phase 9: "Notificat
 inline constexpr int kDockThemeNote = 2422;
 inline constexpr int kDockThemeLink = 2423;      // SysLink: opens Global settings > Themes
 inline constexpr int kThemeMore = 2424;          // round 8 phase 8D: Themes' "⋯" (a menu of 2403 / 2404 / 2405)
+// Round 11 phase 11A: Themes' "Slot buttons" group (heading expander, closed at first; 2422 was taken
+// by kDockThemeNote): slotStyle and the seven slot* rows (FieldRow 37 - 44), its note kSlotsNote (5500).
+inline constexpr int kSectionFieldsSlots = 2425;
 
 // One row per Theme::Field (Theme::Fields() order): id = FieldRow(field index, part).
 inline constexpr int kFieldRowBase = 3000;
@@ -319,7 +322,7 @@ inline constexpr int kFieldSpin = 4;     // up-down of kFieldValue
 inline constexpr int kFieldReset = 5;    // "↺" button (24 DIPs, tooltip "Reset to the preset's value"; was "Reset"), shown only while the field is overridden
 inline constexpr int kFieldUnit = 6;     // Float: the unit note (FieldInfo::unit: "DIPs", "%", ...)
 constexpr int FieldRow(int field, int part) { return kFieldRowBase + field * kFieldRowStride + part; }
-// 40 rows fit 3000 - 3399.
+// 50 rows fit 3000 - 3499 (round 11 phase 11A: 48 fields, the rows 37 - 47 are 3370 - 3476).
 
 // Animation (2500 - 2599)
 inline constexpr int kSectionSpeed = 2500;
@@ -750,5 +753,9 @@ inline constexpr int kCalReminderDefault = 5403; // Calendar feeds form: check b
 inline constexpr int kCalReminderDefaultCaption = 5404;
 inline constexpr int kCalReminderReset = 5405;   // ... "↺" on the minutes row (tooltip "Reset to app default"; shown only while the form has a reminder of its own)
 inline constexpr int kPlaceUseShared = 5406;     // a script widget's place: "↺" beside the Place line (tooltip "Reset to app default"; shown only while it has a place of its own)
+
+// Round 11 phase 11A - 11D: the Windows 7 look (5500 - 5599). The new theme fields' rows are
+// table-driven (FieldRow, 3370 - 3476); the Slot buttons group heading is kSectionFieldsSlots (2425).
+inline constexpr int kSlotsNote = 5500;          // Themes > Slot buttons: the group's note (one line; its tooltip the whole text)
 
 }  // namespace SettingsIds

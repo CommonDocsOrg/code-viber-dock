@@ -250,7 +250,33 @@ struct ThemeConfig {
     uint32_t badgeFill = 0xFFFF3B30;
     uint32_t badgeText = 0xFFFFFFFF;
     float badgeSize = 0.36f;                // 0.2 - 0.6 of the icon
+    // Round 11 phase 11A, the taskbar-button look. slotStyle (SlotStyle as int: none / buttons):
+    // "buttons" draws a frame behind each app / folder / group / Recycle Bin / pinned tray icon slot
+    // by its state (running, active, attention, hovered, pressed, stacked windows) and no
+    // indicator dots. The colours are the frame fills (a vertical gradient to 60 % of the alpha at
+    // the bottom), the hover fill added on top, and the hairline. Hot tracking: a radial light in
+    // the icon's colour under the pointer while it moves inside the hovered frame.
+    int slotStyle = 0;
+    uint32_t slotRunning = 0x30FFFFFF;
+    uint32_t slotActive = 0x55FFFFFF;
+    uint32_t slotAttention = 0xD0F0A030;
+    uint32_t slotHover = 0x28FFFFFF;
+    uint32_t slotBorder = 0x66FFFFFF;
+    float slotCornerRadius = 3.0f;          // DIPs, 0 - 16
+    bool slotHotTrack = true;
+    // A glossy highlight over the panel's upper 55 % (white at sheen x 35 % fading to 0) and a
+    // 1 px white line at sheen x 60 % along that edge; 0 = none (not on the shelf, not on a ring).
+    float sheen = 0.0f;                     // 0 - 1
+    float iconGap = 8.0f;                   // DIPs, 0 - 48: between icon slots (a slot is iconSize + iconGap)
+    // DIPs, 0 - 24: between the icon row and the bar's long edges (the bar is iconSize + 2 x this;
+    // with the dots the icons sit at 5/8 of it from the far edge, as before: 5 of 8; with buttons
+    // they are centred).
+    float barPadding = 8.0f;
 };
+
+// ThemeConfig::slotStyle (the "slotStyle" key: "none", "buttons"; round 11 phase 11A).
+enum class SlotStyle { None = 0, Buttons = 1 };
+inline SlotStyle SlotStyleOf(const ThemeConfig& t) { return t.slotStyle == 1 ? SlotStyle::Buttons : SlotStyle::None; }
 
 // ThemeConfig::glow (the "glow" key: "off", "hover", "active", "always").
 enum class GlowMode { Off = 0, Hover = 1, Active = 2, Always = 3 };

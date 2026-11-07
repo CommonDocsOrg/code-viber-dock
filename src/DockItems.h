@@ -118,7 +118,8 @@ struct DockItem {
     // size with a static scale down to the rest size (like iconBig), so magnification, bounces and
     // drags never redraw them: `glow` behind the icon (its opacity driven by glowOpacity) and
     // `reflection` under the icon's foot. Both have no surface while their effect is off, and
-    // separators never get them. Z-order in `layer`: glow, reflection, icon, iconBig.
+    // separators never get them. Z-order in `layer`: glow, reflection, icon, iconBig (and `button`,
+    // round 11 phase 11A, behind `layer` in the items group).
     // A widget slot has only `layer`: one plain visual (no placement transform, no children) that
     // shows its element's content and is moved with its own offsets.
     Layer layer;
@@ -132,6 +133,19 @@ struct DockItem {
     // it never scales with magnification, so the text stays crisp and is never redrawn while the
     // dock magnifies. No visual while titles are off.
     Layer caption;
+    // Round 11 phase 11A, slot buttons (theme.slotStyle "buttons"): the button frame behind the
+    // icon container (z-order: button, then `layer`), unscaled, following the icon box along the bar
+    // like the dot (the same tween; buttonShift is its static offset from the box to the frame's
+    // start). Its surface is drawn only when the state below changes (or the pointer moves inside it
+    // with hot tracking); none while there is nothing to show. buttonDrawn: the QueryState 293 code
+    // last drawn (-1: redraw), buttonStacked the outlines drawn, buttonHot the hot-track point drawn
+    // (surface px; x < 0: none), buttonPulse: the attention pulse (a DWM opacity animation) runs.
+    Layer button;
+    int buttonDrawn = -1;
+    int buttonStacked = 0;
+    D2D1_POINT_2F buttonHot{-1.0f, -1.0f};
+    float buttonShift = 0.0f;
+    bool buttonPulse = false;
     // The notification badge (docks[].badges, round 4 phase 9): the unread count of the slot's app
     // (a group: the sum of its members'), drawn as a bubble by two more children of `layer` in front
     // of the icon (the rest size and the magnified size, toggled with icon / iconBig), so the

@@ -28,16 +28,16 @@ constexpr DWORD kExStyle = WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE | WS_EX_TOPMOST |
 constexpr DWORD kStyle = WS_POPUP;
 
 // Layout constants in DIPs (scaled by DPI).
-constexpr float kBarExtraHeight = 16.0f;    // bar height = iconSize + this
+// Round 11 phase 11A: the bar's cross padding, the gap between icons and with them the icon row's
+// place are theme fields now (barPadding 8: bar height = iconSize + 16, icon top 5, the dots' centre
+// 5 from the bar's edge; iconGap 8), see Layout::iconTopPx.
+constexpr float kIconTopShare = 0.625f;     // with the dots: bar top -> icon top = 5/8 of barPadding (5 of 8)
 constexpr float kWindowExtraHeight = 56.0f; // window height = iconSize * magnification + this (label room)
 // Vertical docks: the label sits beside the magnified icon, so the stage's cross size has room for
 // the widest label (kLabelMaxWidth + its padding) instead of one label height.
 constexpr float kVerticalWindowExtra = 56.0f - 37.0f + 6.0f + 320.0f + 20.0f + 8.0f;
 constexpr float kBottomMargin = 8.0f;       // gap between the bar and the screen edge
 constexpr float kPadding = 12.0f;           // inner horizontal padding of the bar
-constexpr float kGap = 8.0f;                // between icons
-constexpr float kIconTop = 5.0f;            // bar top -> icon top
-constexpr float kDotFromBottom = 5.0f;      // bar bottom -> indicator dot centre
 constexpr float kDotRadius = 2.0f;          // 4 px dot at 100 %
 constexpr float kSeparatorWidth = 17.0f;    // spacer between an icon slot and a widget (hairline in it)
 constexpr float kWidgetGap = 10.0f;         // spacer between two widgets (the weather and the clock)
@@ -703,6 +703,14 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // under each icon: the bar grows by its height. The glow reaches glowPad beyond the icon box.
     // Vertical docks have no reflections.
     const ThemeConfig& t = DockTheme();
+    // Round 11 phase 11A: the theme's spacing (iconGap, barPadding) and slot buttons (not on a ring:
+    // a frame cannot follow a sector; a ring keeps its dots). With the defaults (8 / 8 / none) every
+    // number below is what the constants gave before.
+    l.gap = std::round(std::clamp(t.iconGap, 0.0f, 48.0f) * s);
+    const float barPadDip = std::clamp(t.barPadding, 0.0f, 24.0f);
+    l.buttons = SlotStyleOf(t) == SlotStyle::Buttons && !polar;
+    l.iconTopPx = std::round((l.buttons ? barPadDip : barPadDip * kIconTopShare) * s);
+    const float dotFromEdge = std::round(barPadDip * kIconTopShare * s);  // bar edge -> the dots' centre (5 DIPs at 8)
     const bool reflect = t.reflection && !l.vertical && !polar;  // a ring has no reflections
     const UINT reflSurface = reflect ? IconEffects::ReflectionHeight(l.bitmapPx, t.reflectionHeight) : 0;
     l.reflH = reflSurface && l.bitmapPx ? std::ceil(static_cast<float>(reflSurface) * l.iconPx /
@@ -734,14 +742,14 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         } else {
             captionGap = std::round(kCaptionGap * s);
             l.captionCross = textH;
-            l.captionMain = l.iconPx + std::round(kGap * s);  // the icon's slot
-            l.captionShift = -std::floor(std::round(kGap * s) / 2.0f);
+            l.captionMain = l.iconPx + l.gap;  // the icon's slot
+            l.captionShift = -std::floor(l.gap / 2.0f);
         }
         l.captionBand = captionGap + l.captionCross;
     }
 
     // The bar without reflections (the icon row and the titles).
-    const float iconBarH = std::round(l.iconPx + kBarExtraHeight * s) + l.captionBand;
+    const float iconBarH = std::round(l.iconPx + 2.0f * barPadDip * s) + l.captionBand;
     const float barH = iconBarH + l.reflH;
     const float margin = l.fullWidth || l.floating ? 0.0f : std::round(kBottomMargin * s);
     float winH = std::round(l.iconPx * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
@@ -779,7 +787,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     if (l.glowPad > 0.0f) {
         // Room above a fully magnified icon for its halo.
         const float magTopRel =
-            winH - margin - barH + std::round(kIconTop * s) + l.iconPx - l.iconPx * l.magnification;
+            winH - margin - barH + l.iconTopPx + l.iconPx - l.iconPx * l.magnification;
         winH += std::max(0.0f, std::ceil(l.glowPad * l.magnification) - magTopRel);
     }
 
@@ -788,8 +796,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // scaled) separate icons from widgets (with a hairline when the widgets are at an end of the
     // dock) and widgets from each other; the bar adds padding at both ends (half a gap less beside
     // an icon slot, whose slot already holds half a gap on each side).
-    l.gap = std::round(kGap * s);
-    const float half = std::floor(l.gap / 2.0f);
+    const float half = std::floor(l.gap / 2.0f);  // (l.gap: theme.iconGap, set above)
     const float stride = l.iconPx + l.gap;
     const float sepW = std::round(kSeparatorWidth * s);
     const float widgetGap = std::round(kWidgetGap * s);
@@ -985,7 +992,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     }
 
     l.bar = D2D1::RectF(barLeft, winH - margin - barH, barLeft + barW, winH - margin);
-    l.itemTop = l.bar.top + std::round(kIconTop * s);
+    l.itemTop = l.bar.top + l.iconTopPx;
     l.captionTop = l.itemTop + l.iconPx + l.reflH + captionGap;  // under the icon and its reflection
     l.growRoomStart = l.bar.left;
     l.growRoomEnd = l.stageMain - l.bar.right;
@@ -1002,7 +1009,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         polarRun = run;
         const float room = std::max(0.0f, winH - margin - barH);  // beyond the ring
         const float band = barH;
-        const float iconMid = std::round(kIconTop * s) + l.iconPx / 2.0f;  // bar top -> the icons' centre line
+        const float iconMid = l.iconTopPx + l.iconPx / 2.0f;  // bar top -> the icons' centre line
         const float outFromMid = iconMid;                                 // the centre line -> the outer edge
         const float inFromMid = band - iconMid;                           // ... -> the inner edge
         const float minR = std::max(inFromMid + std::round(kMinPolarHoleDip * s), 1.5f * l.iconPx);
@@ -1014,7 +1021,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         maxR = std::max(maxR, minR);
         // Auto: the run just fits (a circle: with a gap of a slot and a quarter where its ends meet at
         // the top, which a magnified run's push uses up instead of overlapping there).
-        const float gapRun = circle ? std::ceil(1.25f * (l.iconPx + std::round(kGap * s))) : 0.0f;
+        const float gapRun = circle ? std::ceil(1.25f * (l.iconPx + l.gap)) : 0.0f;
         float R = d.radius > 0 ? std::round(static_cast<float>(d.radius) * s) : std::ceil((run + gapRun) / span + 0.5f);
         R = std::clamp(R, std::ceil(minR), std::max(std::ceil(minR), std::floor(maxR)));
         const float arcLen = span * R;
@@ -1067,7 +1074,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         l.slack = static_cast<float>(ringRoomPx);
         // The canonical frame: the arc [0, arcLen] as the bar, the band as before.
         l.bar = D2D1::RectF(0.0f, winH - margin - barH, arcLen, winH - margin);
-        l.itemTop = l.bar.top + std::round(kIconTop * s);
+        l.itemTop = l.bar.top + l.iconTopPx;
         l.captionTop = l.itemTop + l.iconPx;
         l.stageMain = arcLen;
         l.stageCross = winH;
@@ -1230,15 +1237,21 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.dotRadius = std::max(1.5f, kDotRadius * s);
     l.dotHeight = static_cast<UINT>(std::ceil(2.0f * l.dotRadius + 2.0f));
     // With reflections the dot sits at the icon's foot, on the reflection.
-    const float dotCenter = l.reflH > 0.0f ? l.itemTop + l.iconPx + std::round(kDotFromBottom * s)
-                                           : l.bar.bottom - std::round(kDotFromBottom * s);
+    const float dotCenter = l.reflH > 0.0f ? l.itemTop + l.iconPx + dotFromEdge : l.bar.bottom - dotFromEdge;
     l.dotTop = std::round(dotCenter - static_cast<float>(l.dotHeight) / 2.0f);
     l.dotCenterY = dotCenter - l.dotTop;
     // A glow that shows at rest (always / the active app) reaches above the bar: the resting HWND
     // grows by that much so it is not cut off (only that band; the bar stays the active zone).
     l.restTopExtra = (glow == GlowMode::Always || glow == GlowMode::Active)
-                         ? std::max(0.0f, l.glowPad - std::round(kIconTop * s))
+                         ? std::max(0.0f, l.glowPad - l.iconTopPx)
                          : 0.0f;
+    // Round 11 phase 11A: the slot buttons' band across the bar.
+    if (l.buttons) {
+        l.buttonInsetMain = std::max(1.0f, std::round(s));
+        const float crossInset = std::round(std::max(1.0f, barPadDip / 2.0f) * s);
+        l.buttonTop = l.bar.top + crossInset;
+        l.buttonH = std::max(0.0f, (l.bar.bottom - l.bar.top) - 2.0f * crossInset);
+    }
     // The title is part of the resting window too (it takes no part in hit testing), centred on the
     // run of items along the bar.
     if (titleCross > 0.0f) {
@@ -1643,6 +1656,9 @@ void DockWindow::ResetLayers() {
         item.icon.Reset();
         item.iconBig.Reset();
         item.dot.Reset();
+        item.button.Reset();  // round 11 phase 11A (CreateItemVisuals makes it again)
+        item.buttonDrawn = -1;
+        item.buttonPulse = false;
         item.caption.Reset();
         item.captionDirty = true;
         item.dotShift = D2D1_POINT_2F{};
@@ -1718,8 +1734,17 @@ HRESULT DockWindow::CreateItemVisuals(DockItem& item) {
         item.tx.valid = item.ts.valid = item.fade.valid = item.glowOpacity.valid = false;
         return hr;
     }
+    // Round 11 phase 11A: the slot button first, behind the icon container (no surface until
+    // RenderButtons gives it one; separators never do).
+    renderer_.DestroyLayer(item.button);
+    item.buttonDrawn = -1;
+    item.buttonStacked = 0;
+    item.buttonHot = D2D1::Point2F(-1.0f, -1.0f);
+    item.buttonShift = 0.0f;
+    item.buttonPulse = false;
+    HRESULT hr = renderer_.CreateLayer(item.button, &itemsGroup_);
     // The dot goes in front of its icon container: with reflections it sits on the reflection.
-    HRESULT hr = renderer_.CreateLayer(item.layer, &itemsGroup_);
+    if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.layer, &itemsGroup_);
     if (SUCCEEDED(hr)) hr = renderer_.EnsurePlacement(item.layer, FootOf(item).x, FootOf(item).y);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.glow, &item.layer);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(item.reflection, &item.layer);
@@ -1812,6 +1837,8 @@ HRESULT DockWindow::RenderBackground() {
         if (FAILED(dc->CreateSolidColorBrush(fill, brush.put()))) return;
         const D2D1_ROUNDED_RECT rr{D2D1::RectF(0, 0, static_cast<float>(w), static_cast<float>(h)), radius, radius};
         dc->FillRoundedRectangle(rr, brush.get());
+        // Round 11 phase 11A: the glossy sheen over the fill (and the acrylic tint), under the border.
+        Theme::DrawSheen(dc, rr.rect, radius, theme, stroke);
         // Hairline highlight so the bar reads against dark wallpapers.
         const float inset = stroke / 2.0f;
         const D2D1_ROUNDED_RECT edge{
@@ -2331,13 +2358,114 @@ HRESULT DockWindow::RenderDot(DockItem& item) {
     // A window slot's minimized window has no dot (it stays on the dock: minimize to dock).
     // A group: while one of its members runs.
     const bool running = item.kind == DockItem::Kind::Group ? item.groupRunning : !item.windows.empty();
-    const Layer& source = !running || (item.window && item.minimized) ? none
+    // Round 11 phase 11A: with slot buttons the frame is the indicator (the dot layers stay: cheap,
+    // and the style can change at runtime).
+    const Layer& source = layout_.buttons || !running || (item.window && item.minimized) ? none
                           : item.wantsAttention ? dotSources_[2]
                           : item.active         ? dotSources_[1]
                                                 : dotSources_[0];
     const HRESULT hr = renderer_.ShareContent(item.dot, source);
     if (SUCCEEDED(hr)) item.dotDirty = false;
     return hr;
+}
+
+// --- slot buttons (theme.slotStyle "buttons", round 11 phase 11A) ------------------------------
+
+int DockWindow::ButtonStateOf(size_t i, int* stacked) const {
+    if (stacked) *stacked = 0;
+    if (!layout_.buttons || i >= items_.size()) return 0;
+    const DockItem& item = items_[i];
+    if (!item.Magnifies()) return 0;  // separators and widgets get no button
+    // Running as the dot counts it, except that a minimized-only window slot still shows its frame.
+    const bool running = item.kind == DockItem::Kind::Group ? item.groupRunning : !item.windows.empty();
+    int state = !running ? 0 : item.wantsAttention ? 3 : item.active ? 2 : 1;
+    const int k = static_cast<int>(i);
+    if (hovered_ == k) state |= 16;
+    if (pressed_ == k && dragPhase_ == DragPhase::None) state |= 32;  // until the release or a drag start
+    // Stacked windows: an app slot with two or more (a window slot never stacks; a group has none).
+    if (running && !item.window && item.kind != DockItem::Kind::Group && item.windows.size() >= 2) {
+        state |= 64;
+        if (stacked) *stacked = static_cast<int>(std::min<size_t>(2, item.windows.size() - 1));
+    }
+    return state;
+}
+
+HRESULT DockWindow::RenderButtons() {
+    const Layout& l = layout_;
+    const ThemeConfig& t = DockTheme();
+    constexpr float kNoHot = -100000.0f;
+    HRESULT hr = S_OK;
+    for (size_t i = 0; i < items_.size() && SUCCEEDED(hr); ++i) {
+        DockItem& item = items_[i];
+        if (item.IsWidget() || !item.button.visual) continue;
+        int stacked = 0;
+        const int state = ButtonStateOf(i, &stacked);
+        const float w = std::max(0.0f, std::round(item.slotW - 2.0f * l.buttonInsetMain));
+        const float h = std::round(l.buttonH);
+        const bool shown = state != 0 && w >= 2.0f && h >= 2.0f;
+        // Hot tracking: the pointer in the surface's canonical px (whole px: a move within a pixel
+        // draws nothing), only while hovered. The frame is where the box's target puts it.
+        const bool hot = shown && (state & 16) && t.slotHotTrack;
+        const D2D1_POINT_2F hotAt = hot ? D2D1::Point2F(std::round(cursorX_ - (item.targetX + item.buttonShift)),
+                                                        std::round(cursorV_ - l.buttonTop))
+                                        : D2D1::Point2F(kNoHot, kNoHot);
+        const D2D1_SIZE_F phys = l.PhysSize(w, h);
+        const bool sized = !shown || (item.button.width == static_cast<UINT>(phys.width) &&
+                                      item.button.height == static_cast<UINT>(phys.height));
+        if (state == item.buttonDrawn && stacked == item.buttonStacked && hotAt.x == item.buttonHot.x &&
+            hotAt.y == item.buttonHot.y && sized) {
+            continue;  // nothing changed: nothing is drawn
+        }
+        if (!shown) {
+            hr = renderer_.DrawLayer(item.button, 0, 0, {});  // no surface
+        } else {
+            Theme::SlotButton b;
+            b.state = state & 15;
+            b.hovered = (state & 16) != 0;
+            b.pressed = (state & 32) != 0;
+            b.stacked = stacked;
+            b.hot = hot;
+            b.hotAt = hotAt;
+            if (hot) {
+                // The icon's dominant colour (IconEffects, as the glow uses it); a group tile or a
+                // placeholder: the accent.
+                const bool ownIcon = !(item.kind == DockItem::Kind::Group && !item.customIcon) && !(item.missing && item.windows.empty());
+                const uint32_t dominant = ownIcon ? icons_.DominantColor(item.key) : 0;
+                b.hotColor = dominant ? dominant : t.accent;
+            }
+            hr = DrawCanonical(item.button, w, h, [&](ID2D1DeviceContext* dc) {
+                Theme::DrawSlotButton(dc, D2D1::RectF(0.0f, 0.0f, w, h), t, l.scale, b);
+            });
+        }
+        if (FAILED(hr)) break;
+        // Attention pulses: opacity 100 % <-> 55 % every 0.8 s, run by DWM (no timer); none with
+        // reduced motion.
+        const bool pulse = shown && (state & 15) == 3 && !motion_.reduce;
+        if (pulse != item.buttonPulse) {
+            winrt::com_ptr<IDCompositionAnimation> anim = pulse ? renderer_.CreateAnimation() : nullptr;
+            if (anim) {
+                constexpr float kHalf = 0.4f, kLow = 0.55f, a = 1.0f - kLow;
+                anim->AddCubic(0.0, 1.0f, 0.0f, -3.0f * a / (kHalf * kHalf), 2.0f * a / (kHalf * kHalf * kHalf));
+                anim->AddCubic(kHalf, kLow, 0.0f, 3.0f * a / (kHalf * kHalf), -2.0f * a / (kHalf * kHalf * kHalf));
+                anim->AddRepeat(2.0 * kHalf, 2.0 * kHalf);
+                renderer_.AnimateOpacity(item.button, anim.get());
+                item.buttonPulse = true;
+            } else {
+                renderer_.StopOpacityAnimation(item.button, 1.0f);
+                item.buttonPulse = false;
+                item.edgeOpacity = -1.0f;  // a scrolling dock's edge fade is set on it again
+            }
+        }
+        item.buttonDrawn = state;
+        item.buttonStacked = stacked;
+        item.buttonHot = hotAt;
+    }
+    return hr;
+}
+
+void DockWindow::RefreshButtons() {
+    if (!hwnd_ || !layout_.buttons) return;
+    RenderWithRecovery([this] { return RenderButtons(); });
 }
 
 // --- notification badges (docks[].badges, round 4 phase 9) -----------------------------------
@@ -2841,6 +2969,7 @@ bool DockWindow::ScrollCommand(UINT cmd, int arg) {
         if (hideState_ != HideState::Shown || dragPhase_ != DragPhase::None) return false;
         magnifying_ = true;
         cursorX_ = static_cast<float>(arg);
+        cursorV_ = layout_.itemTop + layout_.iconPx / 2.0f;  // round 11 phase 11A: on the icon row (hot tracking)
         ComputeTargets();  // the hit test below reads them
         int slot = HitAlong(cursorX_);
         // As a real pointer: a "steady" bar grows over something that zooms (9A follow-up 2).
@@ -3205,8 +3334,9 @@ void DockWindow::PlaceOnRing(DockItem& item, double now, bool fresh) {
 }
 
 void DockWindow::SetEdgeOpacity(DockItem& item, float value, IDCompositionAnimation* anim) {
-    for (Layer* layer : {&item.layer, &item.dot, &item.caption}) {
-        if (!layer->visual) continue;
+    // Round 11 phase 11A: the slot button too, unless its attention pulse owns its opacity.
+    for (Layer* layer : {&item.layer, &item.dot, &item.caption, &item.button}) {
+        if (!layer->visual || (layer == &item.button && item.buttonPulse)) continue;
         if (anim) {
             renderer_.AnimateOpacity(*layer, anim);
         } else {
@@ -3309,6 +3439,9 @@ HRESULT DockWindow::DrawFrame(bool all) {
         }
         // Titles under the icons (none while off: the caption visual only exists while shown).
         if (SUCCEEDED(hr) && !item.IsWidget() && (all || item.captionDirty)) hr = RenderCaption(item);
+        // Round 11 phase 11A: a new layout or theme draws every slot button again (RenderButtons,
+        // from ApplyTargets below).
+        if (all || snap) item.buttonDrawn = -1;
     }
     if (SUCCEEDED(hr) && labelShown_ && (all || labelDirty_)) hr = RenderLabel();
     const UINT titleW = static_cast<UINT>(layout_.title.right - layout_.title.left);
@@ -3883,17 +4016,28 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
             if (item.caption.visual) {
                 SetCrossOffset(item.caption.visual.get(), l.CrossOrigin(l.captionTop, l.captionCross));
             }
+            if (item.button.visual && l.buttons) {
+                // Round 11 phase 11A: across the bar inset; along it from the rest slot (inset) on,
+                // a static offset from the icon box (the same tween drives both).
+                SetCrossOffset(item.button.visual.get(), l.CrossOrigin(l.buttonTop, l.buttonH));
+                item.buttonShift = l.buttonInsetMain - BoxInset(item);
+                renderer_.SetStaticTransform(item.button, l.vertical ? D2D1::Matrix3x2F::Translation(0.0f, item.buttonShift)
+                                                                     : D2D1::Matrix3x2F::Translation(item.buttonShift, 0.0f));
+            }
         }
         IDCompositionTranslateTransform* translate = item.layer.translate.get();
         IDCompositionScaleTransform* scale = item.layer.scale.get();
         IDCompositionVisual2* dot = item.dot.visual.get();
         IDCompositionVisual2* caption = item.caption.visual.get();
+        IDCompositionVisual2* button = l.buttons ? item.button.visual.get() : nullptr;
         // The dot and the title follow the icon box along the bar: one animation object drives all.
-        // (The title does not scale: magnification grows the icon away from it.)
+        // (The title does not scale: magnification grows the icon away from it.) So does a slot
+        // button (round 11 phase 11A; it never scales either).
         auto setMain = [&](auto v) {
             HRESULT hr = SetMainOffset(translate, v);
             if (SUCCEEDED(hr) && dot) hr = SetMainOffset(dot, v);
             if (SUCCEEDED(hr) && caption) hr = SetMainOffset(caption, v);
+            if (SUCCEEDED(hr) && button) hr = SetMainOffset(button, v);
             return hr;
         };
         auto setScale = [&](auto v) {
@@ -3950,6 +4094,9 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
             labelY_, labelYTarget_, duration, now, [&](auto v) { return label_.visual->SetOffsetY(v); }, 0.01f,
             easing);
     }
+    // Round 11 phase 11A: the slot buttons follow the hover / press / state (and the pointer with
+    // hot tracking) in the same commit.
+    if (const HRESULT hr = RenderButtons(); FAILED(hr)) Log(L"slot buttons", hr);
 }
 
 void DockWindow::ResetPlacementTweens() {
@@ -6231,6 +6378,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     for (size_t i = 0; i < items_.size(); ++i) {
         if (builder.Taken(i)) continue;
         renderer_.DestroyLayer(items_[i].dot);
+        renderer_.DestroyLayer(items_[i].button);  // round 11 phase 11A
         renderer_.DestroyLayer(items_[i].caption);
         renderer_.DestroyLayer(items_[i].layer);
         items_[i].glow.Reset();
@@ -8465,6 +8613,12 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         }
         case 288:  // 9A follow-up: the slot at stage main coordinate LOWORD(lp) by the live hit test (clicks, menus, hover; -1 none)
             return HitAlong(static_cast<float>(LOWORD(lp)));
+        // --- round 11 phase 11A: slot buttons, theme spacing ---
+        case 293:  // the button state drawn for slot LOWORD(lp): 0 none / 1 running / 2 active / 3 attention, +16 hovered, +32 pressed, +64 stacked edge; -1 no such slot
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return std::max(0, items_[static_cast<size_t>(lp)].buttonDrawn);
+        case 294:  // the dock's effective theme iconGap in DIPs (rounded)
+            return static_cast<LRESULT>(std::lround(DockTheme().iconGap));
         // --- overflow / scrolling (round 4 phase 11a) ---
         case 128:  // docks[].overflow (0 scroll, 1 shrink, 2 clip)
             return static_cast<LRESULT>(DockCfg().overflow);
@@ -8728,6 +8882,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (hideState_ == HideState::Hiding) StartShow();  // came back mid-slide: reverse
             magnifying_ = true;
             cursorX_ = layout_.Canon(pt).x;
+            cursorV_ = layout_.Canon(pt).y;  // round 11 phase 11A: the hot tracking's cross coordinate
             // The targets for this pointer position first: the hit test reads them (what is drawn
             // under the pointer once they are applied; ScheduleMagnify applies them).
             ComputeTargets();
@@ -8831,6 +8986,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // the clock, the weather) the release then does not open it again (the click toggles).
             pressClosedPopup_ = pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).OnPress(pressed_);
             if (ClickPopupOnScreen()) DismissClickPopups(true, false);
+            RefreshButtons();  // round 11 phase 11A: the pressed frame (no-op without slot buttons)
             return 0;
 
         case WM_LBUTTONUP: {
@@ -8859,6 +9015,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             const bool pressClosed = pressClosedPopup_;
             pressClosedPopup_ = false;
             if (clicked) ElementOf(static_cast<size_t>(index)).OnClick(index, pressClosed);
+            RefreshButtons();  // round 11 phase 11A: the frame is no longer pressed
             return 0;
         }
 

@@ -181,7 +181,9 @@ The Themes page sets the look of every dock: colours, corners, the name label, t
 
 #### Choosing a theme
 
-- **Theme**: pick one of the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast) or one of your own theme files.
+- **Theme**: pick one of the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast, Aero glass) or one of your own theme files.
+
+**Aero glass** is the look of the Windows 7 taskbar: a blue-grey glass tint over the blur, square corners, a glossy sheen, taskbar buttons instead of the dots, wide gaps between the icons, a thin bar and light name labels. It looks best on a full-width bar with 32 DIP icons and magnification 1.00×.
 
 The hint under the label counts how many values you changed. Choosing another theme clears your changes.
 
@@ -195,13 +197,27 @@ A single dock can use a different theme: see [Dock theme](#dock-theme). Your cha
 
 #### Theme values
 
-Under the Theme card are cards for each part of the theme: Bar, Name label, Indicator dots, Notification badges, Clock, Placeholder icon, Window previews and Icon effects. They are closed when the window opens. Click a card's heading to open or close it. The heading counts its changed values, for example "Bar · 2 changed".
+Under the Theme card are cards for each part of the theme: Bar, Name label, Indicator dots, Slot buttons, Notification badges, Clock, Placeholder icon, Window previews and Icon effects. They are closed when the window opens. Click a card's heading to open or close it. The heading counts its changed values, for example "Bar · 2 changed".
 
 - A colour has a swatch (click it to pick a colour), its value as `#AARRGGBB` and its opacity from 0 (clear) to 255 (solid).
 - On and off values are check boxes; sizes and amounts are number boxes.
 - A changed value shows a small **↺** at the end of its row. Click it to go back to the theme's value.
 
+**Bar** also holds the **Sheen** (a glossy highlight over the upper half of the bar), the **Gap between icons** and the **Bar padding** (the space between the icons and the bar's long edges: the bar is the icon size plus twice this).
+
 **Icon effects** holds the glow behind icons (when it shows, its colour, size and strength), the reflection under the icons and the 3D tilt of the bar. Left and right docks have no reflections.
+
+#### Slot buttons
+
+The **Slot buttons** card turns the dots under running apps into taskbar buttons, like the Windows 7 taskbar.
+
+- **Slot style**: **None (indicator dots)** keeps the dots. **Buttons (taskbar style)** draws a frame behind every app, folder, group and Recycle Bin instead. The other rows of the card show only while buttons are on.
+- **Running app**, **Active app** and **Attention**: the frame of a running app, of the app you are using, and of an app that wants your attention (that one pulses).
+- **Hover**: added while the pointer is over a slot. A pinned app that is not running shows only this.
+- **Button border** and **Button corner radius**: the frame's outline and its corners.
+- **Light under the pointer (hot tracking)**: a soft light in the icon's colour follows the pointer inside the frame.
+
+An app with two or more windows shows one or two outlines behind its frame, so you can see it is stacked. Wide gaps between the icons leave room for them. The frames do not grow when the icons magnify: use them with magnification 1.00×. A dock shaped as a ring keeps its dots.
 
 ### Animation
 
