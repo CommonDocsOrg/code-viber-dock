@@ -212,9 +212,14 @@ protected:
         Button(kDocksOpen, L"Open settings", kMargin, kButtonW);
         Button(kDockDuplicate, L"Duplicate", kMargin + kButtonStep, kButtonW);
         Button(kDockRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW);
+        // Round 11 phase 11D: off for a while without losing it (the text follows the selected row).
+        Button(kDockToggleEnabled, L"Disable", kMargin + 3 * kButtonStep, kButtonW);
         // Round 9 phase 9A: why Remove may be greyed.
         Tip(kDockRemove, L"Removes the selected dock, folder window or standalone widget. Greyed for the last dock: "
                          L"there is always at least one.");
+        Tip(kDockToggleEnabled, L"Turns the selected dock, folder window or standalone widget off without removing it: "
+                                L"its window closes and its settings are kept, so you can turn it back on later. Greyed "
+                                L"for the last dock that is on: one dock is always shown.");
         NextRow(kRowH + 4);
         static constexpr wchar_t kDocksTip[] =
             L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
@@ -354,6 +359,14 @@ protected:
             case kDocksOpen:
                 OpenCfg(sel);
                 break;
+            case kDockToggleEnabled:  // round 11 phase 11D: the selection stays on the row
+                if (!Host().editDocks || !Host().editDocks(SettingsDockEdit::ToggleEnabled, sel)) {
+                    MessageBeep(MB_ICONWARNING);
+                    return;
+                }
+                Window().Refresh();
+                Window().ConfigApplied();
+                break;
             case kLockAllDocks:
             case kUnlockAllDocks: {
                 // Round 8 phase 8D: the check box (its state says which) or a command (lParam 0:
@@ -486,9 +499,10 @@ private:
                                                          : std::wstring(SettingsEdgeName(d.edge)) + (d.fullWidth ? L", full" : L"");
             const std::wstring display = SettingsDisplayName(d.monitor);
             const int windows = Host().dockWindows ? Host().dockWindows(static_cast<size_t>(i)) : 1;
-            std::wstring state = windows == 0 ? L"Parked (display not connected)"
-                                 : d.Each()   ? std::to_wstring(windows) + L" (one per display)"
-                                              : L"Shown";
+            std::wstring state = !d.enabled   ? L"Disabled"  // round 11 phase 11D
+                                 : windows == 0 ? L"Parked (display not connected)"
+                                 : d.Each()     ? std::to_wstring(windows) + L" (one per display)"
+                                                : L"Shown";
             if (d.locked && !d.IsFolderWindow()) state += L", locked";
             if (d.IsFolderWindow()) state += L": " + d.folder.path;
             if (const DockItemEntry* w = d.WidgetItem()) {
@@ -523,6 +537,15 @@ private:
         const bool folderSel = n > 0 && !c.docks[static_cast<size_t>(sel)].IsDock();  // a folder window or a standalone widget
         const auto plainDocks = std::count_if(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return d.IsDock(); });
         Enable(kDockRemove, n > 1 && (folderSel || plainDocks > 1));
+        // Round 11 phase 11D: Disable / Enable by the row's state; the last enabled dock stays on.
+        if (n > 0) {
+            const DockConfig& selected = c.docks[static_cast<size_t>(sel)];
+            const auto onDocks = std::count_if(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return d.IsDock() && d.enabled; });
+            SetText(kDockToggleEnabled, selected.enabled ? L"Disable" : L"Enable");
+            Enable(kDockToggleEnabled, !selected.enabled || folderSel || onDocks > 1);
+        } else {
+            Enable(kDockToggleEnabled, false);
+        }
         // Round 8 phase 8D: one check box for Lock all / Unlock all (mixed: unchecked). A folder
         // window has no lock of its own (its `locked` is never saved): it does not count.
         const bool lockable = std::any_of(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });

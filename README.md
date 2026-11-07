@@ -1767,7 +1767,7 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   edge in the dock's colour and every folder window, a one-line hint under it (the whole
   explanation is the drawing's tooltip), a toolbar and under it the list of docks and folder
   windows (a dot in the dock's colour, id and title, edge, display, state: shown / parked /
-  locked). Click a dock in the drawing to select it and its row, double-click it (or its row) to
+  disabled / locked). Click a dock in the drawing to select it and its row, double-click it (or its row) to
   open its own window; drag it along its edge (it snaps to the centre and the ends), onto another
   edge or onto another display: it moves when you let go. Round 8 phase 8D: the toolbar has
   **Add ▾** (a menu: **Dock**, **Floating dock** (round 6 phase 6A), **Dock from a preset…**
@@ -1776,7 +1776,11 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   (while dragging: where it would drop) and at the right **Lock all docks**, a check box that is
   checked while every dock and standalone widget is locked (folder windows have no lock; a mix
   shows it unchecked): checking it locks them all, clearing it unlocks them all. Under the list,
-  for the selected row: **Open settings**, **Duplicate**, **Remove**. A floating dock is drawn as
+  for the selected row: **Open settings**, **Duplicate**, **Remove** and (round 11 phase 11D)
+  **Disable** / **Enable**: a disabled entry (`docks[].enabled` false, any kind) keeps its settings
+  but has no window (listed as "Disabled", not drawn; its weather stops fetching, a disabled dock's
+  tray gives the notify icons back to Explorer, a disabled folder window's rules stop), until it is
+  enabled again; the last enabled dock cannot be disabled (greyed). A floating dock is drawn as
   its bar where it is (labelled with its layer); dragging it sets its `x` / `y`. A standalone
   widget is a small rounded box where its window is (its name inside, or under it when
   selected), listed as "Standalone widget" with its widget and size; dragging it moves it (its
@@ -2258,6 +2262,11 @@ items that exist. A file whose items have settings already is left alone.
     (default `""`): see Position.
   - `locked` (default `false`): no dragging, no pinning by dropping files, no Add separator / Add
     widget from the dock menu (see Dock items).
+  - `enabled` (default `true`; also on folder window and widget entries; written only when
+    `false`): `false` turns the entry off without removing it: no window, no weather fetch, no tray
+    takeover or desktop rules for it; its settings windows still edit it. A file whose docks are
+    all disabled gets its first dock enabled again on load (App settings > Docks and displays >
+    Disable / Enable, round 11 phase 11D).
   - `windows` (default `"stacked"`; `"unstacked"`: one slot per window), `titles` (default
     `"off"`; `"one"`, `"two"`), `titlesVertical` (default `"beside"`; `"off"`): see
     [Running apps: windows and titles](#running-apps-windows-and-titles). Unknown text keeps the
@@ -2892,7 +2901,12 @@ always there, also when every dock is parked) handle these registered messages:
   above Quit: `ShellExecuteW("open", "taskmgr.exe")`, which elevates by itself; a failure is only
   logged with `OutputDebugString`; any dock index). Round 10 phase 10A: **155** = the dock menu's
   Add > **Apps, folders and more widgets…** (the Dock window of dock `HIWORD(lParam)` on its
-  Contents tab; nothing for a folder window or a standalone widget). 111 and 113 left the dock
+  Contents tab; nothing for a folder window or a standalone widget). Round 11 phase 11D: **156**
+  disables (`LOWORD(lParam)` 0), enables (1) or toggles (2) `docks[]` entry `HIWORD(lParam)` (any
+  kind, by its automation index; a disabled entry keeps one parked instance at that index): 1 done
+  (also when it already was in that state), 0 refused (no such entry, or the last enabled dock);
+  saved, and the Docks and displays page refreshes (= its Disable / Enable button 2815; QueryState
+  295 reads the state). 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3124,9 +3138,10 @@ always there, also when every dock is parked) handle these registered messages:
   virtual keys in hex, e.g. `win+d` TAB `5B 44`), and then **nothing is pressed** (a dry run), so a
   test can click the Start or Show desktop widget without opening Start or minimizing the session's
   windows.
-  Round 11 phase 11C, the Windows 7 preset: no new numbers (the planned 295, the theme preset a
-  dock resolves, was not needed: 294 = 28 is only the `aero` preset among the built-ins, and
-  `docks[].themePreset` is in the saved file). DockCommand 153 index 4 applies it; QueryState 61 /
+  Round 11 phase 11C, the Windows 7 preset: no new numbers (the theme preset a dock resolves was
+  not needed: 294 = 28 is only the `aero` preset among the built-ins, and `docks[].themePreset` is
+  in the saved file). Round 11 phase 11D: **295** = `docks[]` entry `HIWORD(lParam)` (any kind) is
+  enabled (1) or disabled (0); -2 no such entry (DockCommand 156 sets it). DockCommand 153 index 4 applies it; QueryState 61 /
   62 give the Show desktop strip's box (on a full-width dock its cross is the bar's thickness) and
   `QueryItemPoint` its centre (flush: its box ends at the screen's end).
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
@@ -3474,7 +3489,9 @@ always there, also when every dock is parked) handle these registered messages:
   drag would drop it (beside Add ▾), 2806 / 2813 the Lock all docks check box, 2800 the list
   (Dock with the colour dot, Edge, Display, Windows; the selected row is what Open settings,
   Duplicate and Remove act on, nothing else; a double click opens its window), 2810 Open
-  settings, 2802 Duplicate, 2803 Remove; menu commands 2801 Dock, 2811 Floating dock, 2808 Folder
+  settings, 2802 Duplicate, 2803 Remove, 2815 Disable / Enable (round 11 phase 11D: its text
+  follows the selected row's state; greyed for the last enabled dock; the Windows column says
+  "Disabled"); menu commands 2801 Dock, 2811 Floating dock, 2808 Folder
   window…, 2812 Standalone widget, 2806 lock all, 2807 unlock all (2805 and 2809 are retired);
   Tray icons and Notifications: see
   Tray and Notifications above (4122 / 4223, the "which dock" lines, are retired); Widget library = the Widgets page (3510 the preview panel

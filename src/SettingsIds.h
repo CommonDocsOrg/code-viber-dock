@@ -441,6 +441,7 @@ inline constexpr int kDockAddFloating = 2811; // round 6 phase 6A: "Add ▾" > "
 inline constexpr int kDockAddWidget = 2812;   // round 6 phase 6B: "Add ▾" > "Standalone widget ▸" (as a command: the catalog's widgets in a menu)
 inline constexpr int kLockAllDocksCaption = 2813;  // round 8 phase 8D
 inline constexpr int kDockAddMenu = 2814;     // round 8 phase 8D: "Add ▾" (a menu: Dock, Floating dock, Folder window…, Standalone widget ▸)
+inline constexpr int kDockToggleEnabled = 2815;  // round 11 phase 11D: "Disable" / "Enable" (the selected row's docks[].enabled; greyed for the last enabled dock; = DockCommand 156)
 
 // The canvas (round 4 phase 3b)
 inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation); a click selects the row, a double click opens the dock's window

@@ -102,7 +102,7 @@ bool DockManager::SyncTray() {
     bool wanted = config_ && config_->tray.enabled;
     if (wanted) {
         wanted = std::any_of(config_->docks.begin(), config_->docks.end(), [](const DockConfig& d) {
-            return d.Has(ItemKind::Tray) || d.Has(ItemKind::TrayApp);
+            return d.enabled && (d.Has(ItemKind::Tray) || d.Has(ItemKind::TrayApp));  // 11D: a disabled dock's tray gives the icons back
         });
     }
     if (wanted && !tray_.Running() && !trayStartPosted_) {
@@ -346,7 +346,7 @@ std::wstring DockManager::DesktopFolder() {
 
 void DockManager::SyncDesktopRules() {
     const bool want = config_ && std::any_of(config_->docks.begin(), config_->docks.end(), [](const DockConfig& d) {
-                          return d.IsFolderWindow() && d.folder.autoSort && d.folder.RuleCount() > 0;
+                          return d.enabled && d.IsFolderWindow() && d.folder.autoSort && d.folder.RuleCount() > 0;
                       });
     if (want && !desktopNotify_) {
         desktopDir_ = DesktopFolder();
@@ -386,7 +386,7 @@ size_t DockManager::SortDesktop(bool onlyAuto) {
     FindClose(find);
     size_t queued = 0;
     for (const DockConfig& d : config_->docks) {
-        if (!d.IsFolderWindow() || d.folder.RuleCount() == 0 || names.empty() || (onlyAuto && !d.folder.autoSort)) continue;
+        if (!d.enabled || !d.IsFolderWindow() || d.folder.RuleCount() == 0 || names.empty() || (onlyAuto && !d.folder.autoSort)) continue;
         wchar_t buf[MAX_PATH * 2];
         const DWORD n = ExpandEnvironmentStringsW(d.folder.path.c_str(), buf, static_cast<DWORD>(std::size(buf)));
         const std::wstring dest = ShellFiles::Normalize(n > 0 && n <= std::size(buf) ? std::wstring(buf) : d.folder.path);
@@ -453,7 +453,7 @@ bool DockManager::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
         // Still wanted (the config may have changed meanwhile)?
         const bool wanted = config_ && config_->tray.enabled &&
                             std::any_of(config_->docks.begin(), config_->docks.end(), [](const DockConfig& d) {
-                                return d.Has(ItemKind::Tray) || d.Has(ItemKind::TrayApp);
+                                return d.enabled && (d.Has(ItemKind::Tray) || d.Has(ItemKind::TrayApp));
                             });
         if (wanted && !tray_.Running()) {
             if (!tray_.Start(instance_)) OutputDebugStringW(L"WinDock: the tray host could not start\n");
@@ -545,7 +545,7 @@ std::vector<WeatherConfig> DockManager::WantedWeather() const {
         }
     };
     for (const DockConfig& d : config_->docks) {
-        if (!d.IsDock() || !(d.Each() || MonitorIndexFor(d) >= 0)) continue;  // parked: nothing fetches
+        if (!d.enabled || !d.IsDock() || !(d.Each() || MonitorIndexFor(d) >= 0)) continue;  // parked / disabled: nothing fetches
         for (const DockItemEntry& e : d.items) {
             if (e.Kind() != ItemKind::Weather) continue;
             const WeatherConfig w = WeatherOf(*config_, e);
@@ -625,6 +625,18 @@ HRESULT DockManager::Sync() {
     std::vector<Instance> next;
     for (size_t k = 0; k < config_->docks.size(); ++k) {
         const DockConfig& d = config_->docks[k];
+        if (!d.enabled) {
+            // Round 11 phase 11D: a disabled entry is one parked instance (no monitor, so no window;
+            // automation and the Docks and displays page still address it by index), whatever its
+            // kind and even for "each".
+            Instance inst;
+            inst.id = d.id;
+            inst.cfg = k;
+            inst.isFolder = d.IsFolderWindow();
+            inst.isWidget = d.IsWidgetWindow();
+            next.push_back(std::move(inst));
+            continue;
+        }
         if (d.IsFolderWindow() || d.IsWidgetWindow()) {
             Instance inst;
             inst.id = d.id;

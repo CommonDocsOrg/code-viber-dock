@@ -293,6 +293,11 @@ struct DockConfig {
     // Docks and displays page. 0 = not set: Config::DockColor picks one from a palette by the
     // dock's index. Written only when set.
     uint32_t color = 0;
+    // Round 11 phase 11D (docks[].enabled, any kind): false turns the entry off without losing it:
+    // no window (it is parked like a dock whose display is gone), no weather fetch, no tray
+    // takeover or desktop rules for it; the settings windows still edit it. Written only when
+    // false. At least one enabled dock (kind "dock") stays (App::EditDocks refuses the last).
+    bool enabled = true;
     // "dock" or "folderWindow" (round 4 phase 12). A folder window uses id, title (empty: the
     // folder's name), x / y (DIPs from its monitor's work area's top-left; kCentred: centred),
     // monitor and `folder`; it has no items and ignores the other dock keys.

@@ -897,7 +897,8 @@ notes.
 | 11A Theme: slot buttons, sheen, spacing | Eleven theme fields (`slotStyle` + seven `slot*`, `sheen`, `iconGap`, `barPadding`), taskbar-button frames behind icon slots by state (running / active / attention pulse / hover with hot tracking / pressed / stacked), the sheen, the spacing in the layout, the `aero` preset, the Themes page's Slot buttons card, the preview strip, QueryState 293 / 294 | Done (the commit "Theme slot buttons, sheen and spacing; the aero preset"; STATUS.md "Round 11") |
 | 11B Widgets | The Start orb (`icon` `orb`, Start 1.1.0), the new built-in Show desktop widget (strip / glyph, Win+D / Win+M), the digital clock's `dateFormat` and `timeStyle` `taskbar` (1.1.0), three `sendKeys` entries, the `WINDOCK_SENDKEYS_LOG` dry run, ItemCommand 834 hovering widgets | Done (the commit "Start orb, Show desktop widget, taskbar clock layout"; STATUS.md "Round 11") |
 | 11C The "Windows 7" preset | `res/presets/win7.json` (after `windows`), presets with a tray turn the takeover on, `measure()`'s `flush` (the Show desktop strip flush with the screen's end and as thick as a full-width bar), guide-docks "Make it look like Windows 7", README; no QueryState 295 | Done (the commit "Windows 7 preset, flush Show desktop strip, the guide"; STATUS.md "Round 11") |
-| 11D Regression and release | Suites, pictures, the release build | Planned |
+| 11D Disable / enable a dock | `docks[].enabled` (any kind; written only when false), Sync parks a disabled entry (no window, weather, tray takeover or desktop rules for it), Docks and displays' Disable / Enable button (2815), DockCommand 156, QueryState 295; the last enabled dock stays on (also on load). From the user's request of 2026-11-07 ("hide/disable docks ... temporarily ... rather than deleting") | Done (STATUS.md "Round 11") |
+| 11E Regression and release | Suites, pictures, the release build | Planned |
 
 Design notes for 11A:
 

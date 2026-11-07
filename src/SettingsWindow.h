@@ -36,7 +36,7 @@ enum class SettingsScope {
 // item moves into it), the takeover turned on.
 // AddFloating (round 6 phase 6A): a floating bar dock (layer "desktop", centred on the primary
 // display's work area, the default items).
-enum class SettingsDockEdit { Add, Duplicate, Remove, TrayDock, AddFloating };
+enum class SettingsDockEdit { Add, Duplicate, Remove, TrayDock, AddFloating, ToggleEnabled /* round 11 phase 11D */ };
 
 // One dock window for the Layout page (SettingsHost::dockRects).
 struct SettingsDockRect {

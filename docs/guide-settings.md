@@ -160,13 +160,14 @@ The toolbar under the drawing has:
 - A line that describes the selected dock (while you drag: where it will go).
 - **Lock all docks**: checked while every dock and standalone widget is locked. Check it to lock them all, clear it to unlock them all.
 
-The list shows every dock, folder window and standalone widget with its edge, its display and whether it is shown or parked. A dock is "Parked" when its display is not connected; it comes back when the display does.
+The list shows every dock, folder window and standalone widget with its edge, its display and whether it is shown, parked or disabled. A dock is "Parked" when its display is not connected; it comes back when the display does. "Disabled" means you turned it off for now (see **Disable** below).
 
 Under the list, for the selected row:
 
 - **Open settings**: opens its own settings window (a double-click on the row does the same).
 - **Duplicate**: makes a copy of the dock.
 - **Remove**: removes it. You cannot remove the last dock.
+- **Disable** / **Enable**: turns it off for a while without removing it, or back on. A disabled dock, folder window or standalone widget has no window, but keeps all its settings and items, so you can bring it back later exactly as it was. One dock always stays on: the button is greyed for the last one.
 
 To add a dock from a preset:
 

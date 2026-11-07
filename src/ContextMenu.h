@@ -91,6 +91,10 @@ enum Command : UINT {
     // Round 10 phase 10A: the dock menu's Add > "Apps, folders and more widgets…": the dock's
     // Dock settings window on its Contents tab (the add drawer is always shown there).
     kAddFromDrawer = 155,
+    // Round 11 phase 11D (automation only, App::OnSharedMessage): docks[] entry HIWORD(lParam)
+    // (any kind, by its instance index) disabled (LOWORD 0), enabled (1) or toggled (2); 1 done,
+    // 0 refused (the last enabled dock cannot be disabled). = Docks and displays' Disable / Enable.
+    kSetDockEnabled = 156,
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,

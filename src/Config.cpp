@@ -818,6 +818,11 @@ void Config::Sanitize() {
     if (std::none_of(docks.begin(), docks.end(), [](const DockConfig& d) { return d.IsDock(); })) {
         docks.emplace(docks.begin());
     }
+    // Round 11 phase 11D: and at least one of them enabled (a hand-edited file with every dock
+    // "enabled": false would hide the taskbar and show nothing): the first dock comes back.
+    if (std::none_of(docks.begin(), docks.end(), [](const DockConfig& d) { return d.IsDock() && d.enabled; })) {
+        std::find_if(docks.begin(), docks.end(), [](const DockConfig& d) { return d.IsDock(); })->enabled = true;
+    }
     for (DockConfig& d : docks) {
         if (d.id.empty()) d.id = d.IsFolderWindow() ? L"folder" : d.IsWidgetWindow() ? L"widget" : L"main";
         if (d.IsWidgetWindow()) {
@@ -1041,6 +1046,7 @@ Config::LoadResult Config::LoadFile() {
                     const json::JsonObject obj = dv.GetObject();
                     DockConfig d;
                     ReadString(obj, L"id", d.id);
+                    ReadBool(obj, L"enabled", d.enabled);  // round 11 phase 11D: every kind
                     std::wstring kind;
                     ReadString(obj, L"kind", kind);
                     if (!kind.empty() && CompareStringOrdinal(kind.c_str(), -1, L"dock", -1, TRUE) != CSTR_EQUAL) {
@@ -1212,6 +1218,7 @@ bool Config::Save() const {
                 if (d.monitor != 0) o += L", \"monitor\": " + MonitorJson(d.monitor);
                 if (d.layer != DockLayer::Behind) o += L", \"layer\": " + Quote(ToString(d.layer));
                 if (d.locked) o += L", \"locked\": true";
+                if (!d.enabled) o += L", \"enabled\": false";
                 if (w.background != WidgetBackground::None) o += L", \"background\": " + Quote(ToString(w.background));
                 if (d.color) o += L", \"color\": " + Quote(FormatArgbColor(d.color));
                 o += L"\n    }";
@@ -1240,6 +1247,7 @@ bool Config::Save() const {
                 if (f.labelLines != 2) more += L", \"labelLines\": " + Num(f.labelLines);
                 if (f.transparentBackground) more += L", \"transparentBackground\": true";
                 if (f.rollUpOnHover) more += L", \"rollUpOnHover\": true";
+                if (!d.enabled) more += L", \"enabled\": false";
                 if (!more.empty()) o += L"      " + more.substr(2) + L",\n";
                 o += L"      \"items\": [], \"layer\": \"desktop\", \"autoHide\": \"always\", \"reserveSpace\": false\n    }";
                 continue;
@@ -1293,7 +1301,8 @@ bool Config::Save() const {
             }
             o += d.items.empty() ? L"],\n" : L"\n      ],\n";
             o += L"      \"edge\": " + Quote(ToString(d.edge)) + L", \"align\": " + Quote(ToString(d.align)) +
-                 L", \"offset\": " + Num(d.offset) + L", \"locked\": " + Bool(d.locked) + L",\n";
+                 L", \"offset\": " + Num(d.offset) + L", \"locked\": " + Bool(d.locked) +
+                 (d.enabled ? L"" : L", \"enabled\": false") + L",\n";
             o += L"      \"fullWidth\": " + Bool(d.fullWidth) + L", \"reserveSpace\": " + Bool(d.reserveSpace) +
                  L", \"peekPx\": " + Num(d.peekPx) + L", \"peekOpacity\": " + Num(d.peekOpacity) +
                  L", \"title\": " + Quote(d.title) + L",\n";

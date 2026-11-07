@@ -2064,6 +2064,18 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             list.erase(list.begin() + static_cast<ptrdiff_t>(index));
             break;
         }
+        case SettingsDockEdit::ToggleEnabled: {
+            // Round 11 phase 11D: off without losing the entry (Sync parks it), or back on. The
+            // last enabled dock stays (the taskbar is hidden: something must be on screen).
+            if (index >= list.size()) return false;
+            DockConfig& d = list[index];
+            if (d.enabled && d.IsDock() &&
+                std::count_if(list.begin(), list.end(), [](const DockConfig& o) { return o.IsDock() && o.enabled; }) <= 1) {
+                return false;
+            }
+            d.enabled = !d.enabled;
+            break;
+        }
     }
     SyncDocks();
     RequestSave();
@@ -2644,6 +2656,9 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return help_ && help_->Hwnd() && IsWindowVisible(help_->Hwnd()) ? 1 : 0;
         case 287:  // ... its guide (0 quick start ... 5 the index; -1 none)
             return help_ && help_->Hwnd() ? help_->Guide() : -1;
+        case 295:  // round 11 phase 11D: docks[] entry HIWORD (any kind) is enabled (1) / disabled (0); -2 no such entry
+            if (!inst || inst->cfg >= config_.docks.size()) return -2;
+            return config_.docks[inst->cfg].enabled ? 1 : 0;
         case 280:  // round 9 phase 9A: dock HIWORD (a dock or a standalone widget) is hidden by the full-screen guard (1 / 0; -2 no such dock)
             if (!inst) return -2;
             if (inst->window) return inst->window->FullscreenHidden() ? 1 : 0;
@@ -2772,6 +2787,18 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         DockManager::Instance* inst = docks_.At(DockOfParam(lp));
         result = inst && inst->isFolder && EditDocks(SettingsDockEdit::Remove, inst->cfg) ? 1 : 0;
         if (result) RefreshSettings();
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp == ContextMenu::kSetDockEnabled) {
+        // Round 11 phase 11D: entry HIWORD(lParam) disabled (LOWORD 0), enabled (1) or toggled (2).
+        // 1 done (also when it already was), 0 refused (no such entry, the last enabled dock).
+        DockManager::Instance* inst = docks_.At(DockOfParam(lp));
+        const LPARAM mode = lp & 0xFFFF;
+        result = 0;
+        if (inst && inst->cfg < config_.docks.size() && mode <= 2) {
+            const bool on = config_.docks[inst->cfg].enabled;
+            result = (mode == 2 || (mode == 1) != on) ? (EditDocks(SettingsDockEdit::ToggleEnabled, inst->cfg) ? 1 : 0) : 1;
+        }
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kInstallWidgetFolder) {
