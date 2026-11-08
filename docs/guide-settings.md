@@ -18,7 +18,7 @@ To open the App settings:
 
 - Right-click the WinDock icon in the notification area and choose **App settings…**.
 - Or right-click the dock, open **App** and choose **App settings…**.
-- Or, in a Dock settings window, click **⋯** at the top right and choose **App settings…**.
+- Or, in a Dock settings window, click **App settings…** at the top right.
 - Or run `WinDock.exe --settings`.
 
 To open a dock's own settings:
@@ -369,7 +369,8 @@ At the right:
 
 - **Flash**: shows the dock and makes its border pulse for a moment, so you can see which dock this window is for.
 - **Lock** / **Unlock**: a locked dock cannot be changed by dragging: no reordering, no unpinning by dragging, no moving the dock. The settings window still changes everything.
-- **⋯**: a menu with **App settings…**, **Find a setting…** (Ctrl+F) and **Apply a preset…**.
+- **App settings…**: opens the settings that apply to every dock and to WinDock as a whole.
+- **⋯**: a menu with **Find a setting…** (Ctrl+F) and **Apply a preset…**.
 
 To turn a dock into a preset:
 

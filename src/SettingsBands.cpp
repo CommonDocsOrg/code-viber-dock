@@ -69,6 +69,7 @@ void Fill(HDC dc, const RECT& r, COLORREF c) {
 constexpr int kHeaderButtonH = 28;
 constexpr int kHeaderFlashW = 64;
 constexpr int kHeaderLockW = 72;
+constexpr int kHeaderGlobalW = 112;
 constexpr int kHeaderMoreW = 36;
 
 }  // namespace
@@ -129,12 +130,12 @@ void SettingsWindow::CreateBands(bool footer) {
     header_ = band(kHeader);
     if (!header_) return;
     if (kind_ == SettingsKind::Dock) {
-        // Round 8 phase 8B: the compact header's actions: small Flash / Lock buttons (a dock, a
-        // standalone widget) and "⋯" (a menu: App settings…; the link is gone).
+        // Keep app-wide settings directly accessible from every dock settings window.
         if (!IsFolderWindow()) {
             child(header_, kHeaderFlash, WC_BUTTONW, L"Flash");
             child(header_, kHeaderLock, WC_BUTTONW, L"Lock");
         }
+        child(header_, kHeaderGlobal, WC_BUTTONW, L"App settings…");
         child(header_, kHeaderMore, WC_BUTTONW, L"\x22EF");
     } else if (kind_ == SettingsKind::Item) {
         child(header_, kHeaderDockLink, WC_LINK, L"on <a>dock</a>");
@@ -185,10 +186,10 @@ void SettingsWindow::LayoutBands() {
         RECT rc{};
         GetClientRect(header_, &rc);
         if (kind_ == SettingsKind::Dock) {
-            // Round 8 phase 8B: one row at the right, vertically centred: Flash, Lock, ⋯.
+            // One row at the right, vertically centred: Flash, Lock, App settings, ⋯.
             const int h = Px(kHeaderButtonH), y = (rc.bottom - h) / 2;
             int x = rc.right - Px(20);
-            for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}}) {
+            for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}}) {
                 if (!GetDlgItem(header_, b.first)) continue;
                 x -= Px(b.second);
                 place(header_, b.first, x, y, Px(b.second), h);
@@ -221,7 +222,7 @@ int SettingsWindow::HeaderTextRight() const {
     RECT rc{};
     if (header_) GetClientRect(header_, &rc);
     int x = rc.right - Px(20);
-    for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}}) {
+    for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}}) {
         if (header_ && GetDlgItem(header_, b.first)) x -= Px(b.second) + Px(8);
     }
     return x - Px(8);
@@ -232,7 +233,6 @@ void SettingsWindow::ShowHeaderMenu() {
     if (!button) return;
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
-    AppendMenuW(menu, MF_STRING, kHeaderGlobal, L"App settings…");  // round 10 phase 10A: was "Global settings…"
     AppendMenuW(menu, MF_STRING, kHeaderFind, L"Find a setting…\tCtrl+F");  // round 9 phase 9B
     // Round 9 phase 9C: a predefined setup for this dock (not for folder windows / standalone widgets).
     if (DockIndex() != SIZE_MAX && Dock().IsDock()) AppendMenuW(menu, MF_STRING, kHeaderPreset, L"Apply a preset…");
@@ -774,7 +774,7 @@ void SettingsWindow::OnBandCommand(int id) {
             Refresh();  // the Contents tab's check box, the chip, the button
             break;
         }
-        case kHeaderGlobal:  // the "⋯" menu's Global settings… (round 8 phase 8B; was a link)
+        case kHeaderGlobal:
             if (host_.openGlobal) host_.openGlobal(-1);
             break;
         case kHeaderMore:

@@ -852,7 +852,7 @@ private:
     void LayoutBands();
     void PaintBand(HWND hwnd, HDC hdc);
     void OnBandCommand(int id);
-    // Round 8 phase 8B: the header's "⋯" menu (Global settings…) under its button.
+    // The header's "⋯" menu (Find a setting, Apply a preset) under its button.
     void ShowHeaderMenu();
     // The header's id and chips end here (client px): left of its action buttons.
     int HeaderTextRight() const;
