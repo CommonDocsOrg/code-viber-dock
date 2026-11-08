@@ -89,7 +89,7 @@ A few settings of a dock or an item can either follow an app-wide value or have 
 
 - **This dock's theme** (Dock settings > Appearance): **Use app default (Dark)** follows the theme of App settings > Themes, whose name is in brackets. Picking a theme gives the dock its own.
 - **Use the default reminder** (App settings > Calendar feeds, a feed's form): the feed's events get the Default reminder of the Display card, whose value is in brackets. Clear it to give the feed a reminder of its own.
-- **Place** of a script weather widget (its settings window): without a place of its own it shows its dock's Weather item's place, else the default place; the hint under **Place** says which.
+- **Place** of a script weather widget (its settings window): without a place of its own it shows the default place; the hint under **Place** says which.
 
 While such a setting has a value of its own, a small **↺** at the end of its row (its tooltip says "Reset to app default") makes it follow the app-wide value again.
 
@@ -418,7 +418,7 @@ Use **Position on the dock** to split a dock into parts, for example a Start but
 
 - A search box to find a widget by name.
 - **Apps and folders**: **App or shortcut…** and **Folder…** open a file dialog and pin what you choose.
-- **Built in**: Running apps, Clock, Weather, System tray, Notification centre, Recycle Bin and Separator.
+- **Built in**: Running apps, Clock, System tray, Notification centre, Recycle Bin and Separator. Weather is available as **Weather (script)** in the script widgets group.
 - **Script widgets**: every installed widget, each with a small live preview.
 
 To add an item, drag its row onto the strip where you want it, or click its **Add** button. A script widget's **Desktop** button puts it on the desktop in its own window instead. Items a dock can have only once say "Already on the dock" while it has one.

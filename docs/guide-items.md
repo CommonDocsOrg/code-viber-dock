@@ -211,7 +211,7 @@ For a round clock with hands, use the **Analog clock** widget.
 
 ## Weather
 
-The weather item shows the current conditions as a small picture and the temperature. A click opens a forecast: the next 24 hours and the next 7 days. The data comes from Open-Meteo, a free weather service.
+The **Weather (script)** widget shows the current conditions as a small picture and the temperature. A click opens a forecast: the next 24 hours and the next 7 days. The data comes from Open-Meteo, a free weather service. Older native Weather items are automatically replaced with this widget, keeping their place and settings.
 
 To set the place:
 
@@ -219,14 +219,14 @@ To set the place:
 2. In **Find a place**, type the name of your town.
 3. Pick it from the list.
 
-The weather settings window has one page (its settings are all content, so it has no tabs) with two cards:
+The weather settings window has Content and Appearance tabs. Its place and updates controls include:
 
 - **Place**: **Find a place**, the chosen **Place**, **Edit coordinates** (to type a latitude and longitude), the **Name on the dock** under the temperature, and the **Status** with **Refresh now**.
 - **Updates**: **Units** (metric or imperial) and **Refresh every** (minutes).
 
-Each weather item has its own place, so a dock can show two cities. Right-click a weather item and choose **Refresh weather** to update every place now.
+Each weather widget can have its own place, so a dock can show two cities. Use **Refresh now** in its settings or the refresh button in its forecast popup to update its place.
 
-There is also a **Weather (script)** widget that shows the same data, with more choices such as a forecast of several days on the dock.
+The Appearance tab includes more choices, such as a forecast of several days on the dock.
 
 ## Calendar and reminders
 
@@ -330,7 +330,7 @@ A widget whose settings are all of one kind (Hello, Start, Search) has one page 
 
 The footer, under both tabs, has **Reset to factory defaults…** (back to the widget's own defaults, after asking) and **Console…** (the widget's log and errors).
 
-A widget with a place, such as Weather (script), has the same **Find a place** box as the weather item. Without a place of its own it shows its dock's Weather item's place, else the default place; the hint under **Place** says which. Once you choose a place for it, a **↺** beside the place and **Reset to app default** in the footer make it show the shared place again.
+A widget with a place, such as Weather (script), has a **Find a place** box. Without a place of its own it shows the default place; the hint under **Place** says which. Once you choose a place for it, a **↺** beside the place and **Reset to app default** in the footer make it show the shared place again.
 
 ### Widgets on the desktop
 

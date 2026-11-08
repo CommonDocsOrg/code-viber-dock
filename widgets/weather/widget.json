@@ -2,7 +2,7 @@
   "name": "Weather (script)",
   "version": "1.1.0",
   "author": "WinDock",
-  "description": "The weather widget and its forecast popup written on the widget runtime: the dock's forecast service (Open-Meteo) through the weather provider, the condition glyph and the temperature in the slot. Without a place of its own it shows the place of its dock's first Weather item.",
+  "description": "Current conditions and a forecast popup from Open-Meteo, with optional daily forecasts on the dock. Choose a place for each widget or use the app's default place.",
   "api": 1,
   "size": {
     "horizontal": { "main": 56, "cross": 26 },
@@ -12,7 +12,7 @@
   "preview": { "settings": { "dockForecast": "days", "dockDays": 3 } },
   "permissions": ["weather", "shell"],
   "settings": [
-    { "key": "place", "common": true, "section": "content", "type": "place", "label": "Place", "description": "The town or city whose weather is shown. Empty: the place of this dock's first Weather item.", "group": "Place" },
+    { "key": "place", "common": true, "section": "content", "type": "place", "label": "Place", "description": "The town or city whose weather is shown. Empty: the app's default place.", "group": "Place" },
     { "key": "label", "section": "content", "type": "string", "label": "Name on the dock", "default": "", "group": "Place",
       "description": "Shown under the temperature (empty: none)." },
     { "key": "units", "common": true, "section": "content", "type": "choice", "label": "Units", "description": "Metric shows °C and km/h, imperial °F and mph. Default: metric.", "default": "metric", "group": "Place",

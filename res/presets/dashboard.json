@@ -10,7 +10,7 @@
   },
   "items": [
     { "kind": "widget", "id": "analog-clock" },
-    { "kind": "weather" },
+    { "kind": "widget", "id": "weather" },
     { "kind": "widget", "id": "agenda" },
     { "kind": "widget", "id": "notes" }
   ]

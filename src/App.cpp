@@ -1274,7 +1274,9 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         case ContextMenu::kWeatherSettings: {
             // The dock's first weather item's settings window (none: the dock's Contents tab).
-            const auto it = std::find_if(d.items.begin(), d.items.end(), [](const DockItemEntry& e) { return e.Kind() == ItemKind::Weather; });
+            const auto it = std::find_if(d.items.begin(), d.items.end(), [](const DockItemEntry& e) {
+                return e.Kind() == ItemKind::Weather || (e.Kind() == ItemKind::Widget && e.id == L"weather");
+            });
             if (it != d.items.end()) {
                 OpenItemSettings(cfg, static_cast<size_t>(it - d.items.begin()));
             } else {

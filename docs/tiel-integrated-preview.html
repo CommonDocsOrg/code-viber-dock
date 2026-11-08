@@ -1,0 +1,433 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WinDock — Integrated settings preview</title>
+<style>
+  :root{
+    --accent:#6aa0ff; --text:#ececf1; --muted:#9a9aa8; --line:#3a3a46;
+    --panel:#23232b; --card:#2c2c35; --dockIdentity:#6aa0ff;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family:"Segoe UI Variable","Segoe UI",system-ui,sans-serif;
+       background:radial-gradient(1200px 600px at 70% -10%,#233,#0c0c11) fixed; color:var(--text);
+       -webkit-font-smoothing:antialiased; overflow:hidden}
+  .hint{position:fixed;top:14px;left:50%;transform:translateX(-50%);font-size:12.5px;color:var(--muted);
+        background:rgba(20,20,26,.85);border:1px solid var(--line);padding:6px 14px;border-radius:20px;z-index:50}
+
+  /* ---------- desktop + dock ---------- */
+  #desktop{position:absolute;inset:0}
+  .dock-wrap{position:absolute;bottom:22px;left:50%;transform:translateX(-50%);display:flex;gap:8px;
+            padding:8px 10px;border-radius:16px;z-index:5}
+  .dock-edit-hint{position:absolute;bottom:96px;left:50%;transform:translateX(-50%);font-size:12px;
+        color:var(--muted);opacity:0;transition:.2s;white-space:nowrap}
+  .dock-edit-hint.show{opacity:1}
+  .tile{width:52px;height:52px;border-radius:13px;background:#3a3a46;cursor:grab;position:relative;
+        box-shadow:0 4px 12px rgba(0,0,0,.4);transition:transform .18s cubic-bezier(.2,.9,.2,1.2);
+        display:flex;align-items:center;justify-content:center;font-size:24px;user-select:none}
+  .tile:hover{transform:translateY(-10px) scale(1.15)}
+  .tile.dragging{opacity:.4}
+  .tile.drop-target{outline:2px dashed var(--accent);outline-offset:3px}
+  .tile .rm{position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:#c25;
+        color:#fff;font-size:11px;display:none;align-items:center;justify-content:center;cursor:pointer;
+        box-shadow:0 2px 6px rgba(0,0,0,.5)}
+  .edit-mode .tile .rm{display:flex}
+  #dockBar{background:rgba(40,40,50,.55);backdrop-filter:blur(20px);border:1px solid rgba(255,255,255,.08);
+        border-radius:16px;display:flex;align-items:center;gap:8px;padding:8px 10px;transition:all .2s}
+
+  /* ---------- drawer near the dock ---------- */
+  .drawer{position:absolute;bottom:120px;left:50%;transform:translateX(-50%) translateY(12px);
+        background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px;
+        box-shadow:0 20px 50px rgba(0,0,0,.5);opacity:0;pointer-events:none;transition:.22s;z-index:20;width:360px}
+  .drawer.show{opacity:1;pointer-events:auto;transform:translateX(-50%) translateY(0)}
+  .drawer h4{margin:0 0 10px;font-size:13px}
+  .grid{display:grid;grid-template-columns:repeat(5,1fr);gap:10px}
+  .gtile{width:60px;height:60px;border-radius:14px;background:#33333d;border:1px solid var(--line);cursor:grab;
+        display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:22px;gap:2px;transition:.15s}
+  .gtile small{font-size:9px;color:var(--muted)}
+  .gtile:hover{border-color:var(--accent);transform:translateY(-2px)}
+  .gtile.dragging{opacity:.4}
+
+  /* ---------- settings window (flies out from the dock) ---------- */
+  .win{position:absolute;bottom:118px;left:50%;transform:translateX(-50%) translateY(30px);width:1080px;height:560px;
+        background:var(--panel);border:1px solid var(--dockIdentity);border-radius:12px;overflow:hidden;
+        box-shadow:0 26px 70px rgba(0,0,0,.55);opacity:0;pointer-events:none;transition:.24s cubic-bezier(.2,.9,.2,1);
+        z-index:15;display:flex;flex-direction:column}
+  .win.open{opacity:1;transform:translateX(-50%) translateY(0);pointer-events:auto}
+  .titlebar{display:flex;align-items:center;gap:10px;padding:10px 14px;background:#1d1d25;border-bottom:1px solid var(--line)}
+  .titlebar .dot{width:12px;height:12px;border-radius:50%;background:var(--dockIdentity)}
+  .titlebar .name{font-size:13px;font-weight:600}
+  .titlebar .cap{font-size:11.5px;color:var(--muted);margin-left:auto}
+  .titlebar .tabs{display:flex;gap:4px;margin-left:8px}
+  .titlebar .tab{padding:5px 12px;border-radius:6px;font-size:12.5px;color:var(--muted);cursor:pointer}
+  .titlebar .tab.on{background:var(--card);color:var(--text)}
+  .titlebar .more{margin-left:auto;background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer}
+
+  /* undo bar */
+  .ubar{background:#2a3a55;border-bottom:1px solid var(--line);display:flex;align-items:center;gap:14px;
+        padding:7px 14px;font-size:12.5px;transform:translateY(-100%);transition:.25s;pointer-events:none}
+  .ubar.show{transform:translateY(0);pointer-events:auto}
+  .ubar .keep,.ubar .rev{background:var(--accent);color:#0b1220;border:none;border-radius:6px;padding:5px 12px;font-weight:600;cursor:pointer}
+  .ubar .rev{background:#3a3a46;color:var(--text)}
+  .ubar .timer{margin-left:auto;color:var(--muted)}
+  .ubar .undo{background:none;border:none;color:var(--accent2,#bcd);cursor:pointer;text-decoration:underline}
+
+  .main{display:flex;flex:1;min-height:0}
+  .content{flex:1;padding:20px 22px;overflow:auto}
+  .content h3{margin:0 0 2px;font-size:18px}
+  .pagehint{color:var(--muted);font-size:12.5px;margin:0 0 16px;max-width:640px}
+
+  /* quick look card */
+  .card{background:var(--card);border:1px solid var(--line);border-radius:10px;margin-bottom:14px;overflow:hidden}
+  .card .hd{display:flex;justify-content:space-between;align-items:center;padding:11px 14px;cursor:pointer}
+  .card .hd:hover{background:#30303b}
+  .card .hd b{font-size:13.5px}
+  .changed{color:#7ecbff;font-size:12px;margin-left:8px}
+  .rows{padding:4px 14px 14px}
+  .qrow{display:flex;align-items:center;gap:14px;padding:10px 0;border-bottom:1px solid #26262f}
+  .qrow:last-child{border-bottom:none}
+  .qrow .lbl{width:120px;font-size:13px}
+  .seg{display:inline-flex;border:1px solid var(--line);border-radius:7px;overflow:hidden}
+  .seg span{padding:5px 12px;font-size:12.5px;color:var(--muted);cursor:pointer}
+  .seg span.on{background:var(--accent);color:#0b1220}
+  .track{width:180px;height:5px;background:#3a3a46;border-radius:3px;position:relative}
+  .track i{position:absolute;top:-3px;width:13px;height:13px;border-radius:50%;background:#dcdce6}
+
+  /* theme gallery */
+  .gallery{display:flex;gap:12px;overflow-x:auto;padding:4px 0 10px}
+  .th{min-width:96px;text-align:center;cursor:pointer}
+  .th .sw{width:96px;height:56px;border-radius:10px;border:2px solid transparent;display:flex;align-items:center;
+        justify-content:center;gap:6px;box-shadow:0 3px 10px rgba(0,0,0,.4)}
+  .th .sw span{font-size:18px}
+  .th small{display:block;font-size:10.5px;color:var(--muted);margin-top:5px}
+  .th.sel .sw{border-color:var(--accent)}
+
+  /* ---------- preview pane (right hand) ---------- */
+  .pane{width:340px;border-left:1px solid var(--line);background:#1f1f28;display:flex;flex-direction:column;flex-shrink:0}
+  .panecap{padding:12px 14px;border-bottom:1px solid var(--line);font-size:12px;color:var(--muted)}
+  .panecap b{color:var(--text);font-weight:600}
+  .livestrip{height:120px;display:flex;align-items:center;justify-content:center;gap:16px;position:relative;
+        background:linear-gradient(180deg,var(--tintbg,#2a2a34),var(--tintbg2,#202029));transition:.25s}
+  .livestrip .fake{width:44px;height:44px;border-radius:var(--cr,11px);background:#4a4a58;box-shadow:0 4px 12px rgba(0,0,0,.4);transition:.2s}
+  .livestrip .fake:nth-child(2){background:#4a5a7a}
+  .livestrip .fake:nth-child(3){background:#5a4a7a}
+  .livestrip .fake:nth-child(4){background:#4a7a5e}
+  .sil{margin:auto;padding:12px;display:flex;flex-direction:column;align-items:center;gap:8px}
+  .mon{width:200px;height:120px;border:2px solid #4a4a56;border-radius:8px;position:relative;background:#14141b;overflow:hidden}
+  .mon .edgebar{position:absolute;background:var(--dockIdentity);opacity:.85;transition:.3s}
+  .mon .bar-bottom{bottom:0;left:12%;width:76%;height:14px;border-radius:5px 5px 0 0}
+  .silsmall{font-size:10.5px;color:var(--muted)}
+
+  .closebtn{background:none;border:none;color:var(--muted);font-size:16px;cursor:pointer;margin-left:6px}
+</style>
+</head>
+<body>
+<div class="hint">Interactive preview — fly-out settings, always-on live pane, inline drag-drop editing. Not app code.</div>
+
+<div id="desktop">
+  <!-- dock -->
+  <div id="dockWrap" class="dock-wrap">
+    <div id="dockBar"></div>
+  </div>
+  <div id="editHint" class="dock-edit-hint">Edit mode: drag tiles from the drawer onto the dock, or drag dock icons to reorder. × removes.</div>
+
+  <!-- drawer -->
+  <div class="drawer" id="drawer">
+    <h4>Add to dock — drag onto the dock</h4>
+    <div class="grid" id="grid"></div>
+  </div>
+
+  <!-- settings window -->
+  <div class="win" id="win">
+    <div class="ubar" id="ubar">
+      <span id="ubarText">Dock moved to the left edge.</span>
+      <button class="undo" id="ubarUndo">Undo</button>
+      <button class="keep" id="ubarKeep">Keep</button>
+      <button class="rev" id="ubarRev">Revert</button>
+      <span class="timer" id="ubarTimer">12s</span>
+    </div>
+    <div class="titlebar">
+      <span class="dot"></span>
+      <span class="name" id="winName">Dock · main</span>
+      <div class="tabs">
+        <span class="tab" data-tab="contents">Contents</span>
+        <span class="tab" data-tab="position">Position</span>
+        <span class="tab on" data-tab="appearance">Appearance</span>
+        <span class="tab" data-tab="behaviour">Behaviour</span>
+        <span class="tab" data-tab="running">Running apps</span>
+      </div>
+      <button class="more" id="undoMenu" title="Undo / Redo">↶ ⋯</button>
+      <button class="closebtn" id="closeWin">×</button>
+    </div>
+    <div class="main">
+      <div class="content" id="content"></div>
+      <div class="pane">
+        <div class="panecap"><b id="capName">main</b> · <span id="capLoc">bottom · primary display</span></div>
+        <div class="livestrip" id="liveStrip"></div>
+        <div class="sil">
+          <div class="mon" id="mon">
+            <div class="edgebar bar-bottom" id="silBar"></div>
+          </div>
+          <div class="silsmall" id="silCaption">auto-hide · when a window overlaps</div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+(function(){
+  // ---------- state ----------
+  var S = {
+    open:false, editMode:false, tab:'appearance',
+    edge:'bottom', title:'', showTitleHover:false,
+    theme:'glass', tint:'#2a3550', transparency:60, corner:1, glow:'glow', dots:true,
+    items:[
+      {id:'finder',c:'#4a5a7a',g:'📁'},{id:'mail',c:'#4a7a5e',g:'✉️'},
+      {id:'web',c:'#3a6ea5',g:'🌐'},{id:'music',c:'#7a4a6a',g:'🎵'},
+      {id:'clock',c:'#5a5a68',g:'🕔'},{id:'weather',c:'#4a6a7a',g:'⛅'}
+    ]
+  };
+  var DRAWER = [
+    {id:'calc',c:'#6a5a3a',g:'🧮',n:'Calculator'},
+    {id:'notes',c:'#6a6a3a',g:'📝',n:'Notes'},
+    {id:'photos',c:'#3a6a6a',g:'🖼️',n:'Photos'},
+    {id:'map',c:'#3a5a6a',g:'🗺️',n:'Maps'},
+    {id:'store',c:'#4a4a7a',g:'🛍️',n:'Store'},
+    {id:'folder',c:'#5a5a3a',g:'📁',n:'Folder'},
+    {id:'trash',c:'#6a4a4a',g:'🗑️',n:'Recycle Bin'},
+    {id:'sep',c:'transparent',g:'—',n:'Separator'},
+    {id:'tray',c:'#4a5a6a',g:'🔉',n:'Tray'},
+    {id:'notif',c:'#5a4a6a',g:'🔔',n:'Notifications'}
+  ];
+
+  // ---------- helpers ----------
+  var $ = function(s){return document.querySelector(s)};
+  var dockBar = $('#dockBar'), dockWrap = $('#dockWrap');
+
+  function renderDock(){
+    dockBar.innerHTML='';
+    S.items.forEach(function(it){
+      var t=document.createElement('div');
+      t.className='tile'; t.draggable=true; t.style.background=it.c==='transparent'?'transparent':it.c;
+      t.textContent=it.g; t.dataset.id=it.id;
+      if(it.id==='sep'){t.style.background='none';t.style.boxShadow='none';t.style.width='1px';}
+      var rm=document.createElement('div'); rm.className='rm'; rm.textContent='×';
+      rm.addEventListener('click',function(e){e.stopPropagation(); removeItem(it.id);});
+      t.appendChild(rm);
+      // reorder drag
+      t.addEventListener('dragstart',function(e){
+        if(S.editMode===false) return;
+        t.classList.add('dragging'); e.dataTransfer.setData('text/plain',it.id); e.dataTransfer.effectAllowed='move';
+        window._dragFromDock=true;
+      });
+      t.addEventListener('dragend',function(){t.classList.remove('dragging');window._dragFromDock=false;});
+      t.addEventListener('dragover',function(e){if(S.editMode===false)return;e.preventDefault();t.classList.add('drop-target');});
+      t.addEventListener('dragleave',function(){t.classList.remove('drop-target');});
+      t.addEventListener('drop',function(e){
+        e.preventDefault(); t.classList.remove('drop-target');
+        var src=e.dataTransfer.getData('text/plain');
+        if(!src) return;
+        reorder(src, it.id);
+      });
+      dockBar.appendChild(t);
+    });
+  }
+
+  function removeItem(id){ S.items=S.items.filter(function(x){return x.id!==id}); renderDock(); }
+  function reorder(src,dst){
+    if(S.editMode===false) return;
+    var a=S.items.findIndex(function(x){return x.id===src}), b=S.items.findIndex(function(x){return x.id===dst});
+    if(a<0||b<0) return; var m=S.items.splice(a,1)[0]; S.items.splice(b,0,m); renderDock();
+  }
+
+  // drawer grid + drag onto dock
+  function renderDrawer(){
+    var grid=$('#grid'); grid.innerHTML='';
+    DRAWER.forEach(function(it){
+      var d=document.createElement('div'); d.className='gtile'; d.draggable=true;
+      d.innerHTML='<span>'+it.g+'</span><small>'+it.n+'</small>';
+      d.addEventListener('dragstart',function(e){
+        d.classList.add('dragging'); e.dataTransfer.setData('text/plain','__add__'+it.id);
+        e.dataTransfer.setDragImage(new Image(),0,0); window._addIt=it;
+      });
+      d.addEventListener('dragend',function(){d.classList.remove('dragging');});
+      grid.appendChild(d);
+    });
+    dockBar.addEventListener('dragover',function(e){if(S.editMode===false)return;e.preventDefault();dockBar.classList.add('drop-target');});
+    dockBar.addEventListener('dragleave',function(){dockBar.classList.remove('drop-target');});
+    dockBar.addEventListener('drop',function(e){
+      e.preventDefault(); dockBar.classList.remove('drop-target');
+      var data=e.dataTransfer.getData('text/plain');
+      if(data.indexOf('__add__')===0){
+        var it=DRAWER.find(function(x){return x.id===data.slice(7)});
+        if(it && it.id!=='sep') S.items.push({id:it.id,c:it.c,g:it.g});
+        else if(it && it.id==='sep') S.items.push({id:'sep',c:'transparent',g:'—'});
+        renderDock();
+      }
+    });
+  }
+
+  // ---------- preview pane ----------
+  function cornerPx(){return [0,8,16][S.corner];}
+  function renderLive(){
+    var strip=$('#liveStrip');
+    strip.style.setProperty('--tintbg', shade(S.tint,.12));
+    strip.style.setProperty('--tintbg2', shade(S.tint,-.05));
+    strip.style.opacity = (0.35 + S.transparency/100*0.65);
+    var fakes=strip.querySelectorAll('.fake');
+    fakes.forEach(function(f){f.style.setProperty('--cr', cornerPx()+'px');});
+    // silhouette bar position per edge
+    var b=$('#silBar'), mon=$('#mon');
+    b.className='edgebar';
+    if(S.edge==='bottom'){b.classList.add('bar-bottom');b.style.cssText='bottom:0;left:12%;width:76%;height:14px;border-radius:5px 5px 0 0';}
+    else if(S.edge==='top'){b.style.cssText='top:0;left:12%;width:76%;height:14px;border-radius:0 0 5px 5px';}
+    else if(S.edge==='left'){b.style.cssText='left:0;top:12%;width:14px;height:76%;border-radius:5px 0 0 5px';}
+    else {b.style.cssText='right:0;top:12%;width:14px;height:76%;border-radius:0 5px 5px 0';}
+    $('#capLoc').textContent = S.edge+' · primary display'+(S.title?' · "'+S.title+'"':'');
+    $('#silCaption').textContent = (S.showTitleHover?'title on hover · ':'')+(S.edge==='bottom'||S.edge==='top'?'auto-hide · when a window overlaps':'shown');
+  }
+  function shade(hex,amt){
+    var c=hex.replace('#',''),r=parseInt(c.substr(0,2),16),g=parseInt(c.substr(2,2),16),b=parseInt(c.substr(4,2),16);
+    r=Math.max(0,Math.min(255,Math.round(r+amt*255)));g=Math.max(0,Math.min(255,Math.round(g+amt*255)));b=Math.max(0,Math.min(255,Math.round(b+amt*255)));
+    return '#'+((1<<24)+(r<<16)+(g<<8)+b).toString(16).slice(1);
+  }
+
+  // ---------- content per tab ----------
+  function renderContent(){
+    var c=$('#content');
+    if(S.tab==='appearance'){
+      c.innerHTML =
+        '<h3>Appearance</h3><p class="pagehint">How this dock looks: theme, sizes and icon effects. The pane on the right shows every change live.</p>'+
+        '<div class="card"><div class="hd"><b>Quick look</b><span class="changed">adjust the common look</span></div>'+
+        '<div class="rows">'+
+          '<div class="qrow"><div class="lbl">Tint</div><input type="color" id="qTint" value="'+S.tint+'" style="width:46px;height:26px;background:none;border:none;cursor:pointer">'+
+            '<small style="color:var(--muted)">Bar hue, tinted across buttons and labels.</small></div>'+
+          '<div class="qrow"><div class="lbl">Transparency</div><div class="track"><i id="trSp" style="left:'+(S.transparency)+'%"></i></div>'+
+            '<span style="color:var(--muted);width:42px">'+S.transparency+'%</span></div>'+
+          '<div class="qrow"><div class="lbl">Corners</div><div class="seg" id="qCorner"><span data-c="0'+(S.corner===0?' on':'')+'">Square</span><span data-c="1'+(S.corner===1?' on':'')+'">Soft</span><span data-c="2'+(S.corner===2?' on':'')+'">Round</span></div></div>'+
+          '<div class="qrow"><div class="lbl">Icon effects</div><div class="seg" id="qGlow"><span data-g="off'+(S.glow==='off'?' on':'')+'">Off</span><span data-g="glow'+(S.glow==='glow'?' on':'')+'">Glow</span><span data-g="refl'+(S.glow==='refl'?' on':'')+'">Reflection</span><span data-g="both'+(S.glow==='both'?' on':'')+'">Both</span></div></div>'+
+          '<div class="qrow"><div class="lbl">Indicator dots</div><div class="seg" id="qDots"><span data-d="on'+(S.dots?' on':'')+'">On</span><span data-d="off'+(S.dots?'':' on')+'">Off</span></div></div>'+
+        '</div></div>'+
+        '<h3 style="margin:6px 0 8px">Theme gallery</h3><p class="pagehint" style="margin-bottom:10px">Pick a look. Each tile shows how the bar and icons appear.</p>'+
+        '<div class="gallery" id="gal"></div>';
+      // wire quick look
+      $('#qTint').addEventListener('input',function(e){S.tint=e.target.value; renderLive(); flashUndo('Theme tint changed');});
+      var tr=document.getElementById('trSp').parentElement;
+      tr.addEventListener('click',function(e){
+        var r=tr.getBoundingClientRect(); var p=Math.max(0,Math.min(100,Math.round((e.clientX-r.left)/r.width*100)));
+        S.transparency=p; document.getElementById('trSp').style.left=p+'%'; tr.nextElementSibling.textContent=p+'%'; renderLive();
+      });
+      c.querySelectorAll('#qCorner span').forEach(function(s){s.onclick=function(){S.corner=+s.dataset.c;renderContent();renderLive();}});
+      c.querySelectorAll('#qGlow span').forEach(function(s){s.onclick=function(){S.glow=s.dataset.g;renderContent();renderLive();}});
+      c.querySelectorAll('#qDots span').forEach(function(s){s.onclick=function(){S.dots=s.dataset.d==='on';renderContent();renderLive();}});
+      renderGallery(c.getElementById('gal'));
+    }
+    else if(S.tab==='position'){
+      c.innerHTML=
+        '<h3>Position</h3><p class="pagehint">Where the dock sits and which display it is on — edge, alignment and offset from centre.</p>'+
+        '<div class="card"><div class="hd"><b>Placement</b></div><div class="rows">'+
+          '<div class="qrow"><div class="lbl">Edge</div><div class="seg" id="pEdge">'+
+            ['bottom','top','left','right'].map(function(e){return '<span data-e="'+e+'" '+((S.edge===e)?'class="on"':'')+'>'+e+'</span>'}).join('')+
+          '</div></div>'+
+          '<div class="qrow"><div class="lbl">Alignment</div><div class="seg"><span class="on">Centre</span><span>Start</span><span>End</span></div></div>'+
+          '<div class="qrow"><div class="lbl">Offset from centre</div><div class="track"><i style="left:50%"></i></div><span style="color:var(--muted);width:46px">0 px</span></div>'+
+        '</div></div>';
+      c.querySelectorAll('#pEdge span').forEach(function(s){s.onclick=function(){
+        S.edge=s.dataset.e; renderLive();
+        // placement change triggers the "keep?" bar
+        $('#ubarText').textContent='Dock moved to the '+S.edge+' edge.'; showUndoBar(true);
+      }});
+    }
+    else if(S.tab==='behaviour'){
+      c.innerHTML=
+        '<h3>Behaviour</h3><p class="pagehint">How the dock hides and reacts to the mouse.</p>'+
+        '<div class="card"><div class="hd"><b>Auto-hide</b></div><div class="rows">'+
+          '<div class="qrow"><div class="lbl">Off</div><div class="seg"><span class="on">Off</span><span>Always</span><span>Intelligent</span></div></div>'+
+          '<div class="qrow"><div class="lbl">Hide delay</div><div class="track"><i style="left:35%"></i></div><span style="color:var(--muted);width:46px">250 px</span></div>'+
+        '</div></div>'+
+        '<div class="card"><div class="hd"><b>Window previews</b></div><div class="rows">'+
+          '<div class="qrow"><div class="lbl">Show previews</div><div class="seg"><span class="on">On</span><span>Off</span></div></div>'+
+        '</div></div>';
+    }
+    else if(S.tab==='contents'){
+      c.innerHTML=
+        '<h3>Contents</h3><p class="pagehint">Everything on the dock, in order. Drag tiles below onto the dock, or edit inline with Edit mode.</p>'+
+        '<div class="card"><div class="hd"><b>Items on the dock</b><span class="changed">'+S.items.length+' items</span></div>'+
+        '<div class="rows">'+S.items.map(function(it){return '<div class="qrow"><div class="lbl">'+it.g+' '+it.id+'</div><div class="seg"><span>Move left</span><span>Move right</span></div></div>'}).join('')+'</div></div>';
+    }
+    else if(S.tab==='running'){
+      c.innerHTML=
+        '<h3>Running apps</h3><p class="pagehint">Unpinned running windows, stacked per app or one slot per window.</p>'+
+        '<div class="card"><div class="hd"><b>Windows</b></div><div class="rows">'+
+          '<div class="qrow"><div class="lbl">Layout</div><div class="seg"><span class="on">Stacked</span><span>One per window</span></div></div>'+
+          '<div class="qrow"><div class="lbl">Titles under icons</div><div class="seg"><span>Off</span><span class="on">One line</span><span>Two lines</span></div></div>'+
+        '</div></div>';
+    }
+  }
+
+  function renderGallery(g){
+    var themes=[['Dark','#2a2a34'],['Light','#d8d8dc'],['Glass',S.tint],['Solid','#202025'],
+                ['Glass shelf','#33405a'],['3D shelf','#3a2f2a'],['High contrast','#101014'],['Aero','#2b4a6a']];
+    g.innerHTML='';
+    themes.forEach(function(t,i){
+      var th=document.createElement('div'); th.className='th'+(S.theme===t[0]?' sel':'');
+      th.innerHTML='<div class="sw" style="background:'+t[1]+'"><span>🚀</span><span>🌐</span></div><small>'+t[0]+(i<3?' · 2 changed':'')+'</small>';
+      th.onclick=function(){S.theme=t[0]; renderGallery(g); renderLive(); flashUndo('Theme: '+t[0]);};
+      g.appendChild(th);
+    });
+  }
+
+  // ---------- undo bar ----------
+  var undoTimer=null;
+  function showUndoBar(){
+    var u=$('#ubar'), sec=12; $('#ubarTimer').textContent=sec+'s';
+    u.classList.add('show');
+    clearInterval(undoTimer);
+    undoTimer=setInterval(function(){
+      sec--; if(sec<=0){clearInterval(undoTimer);u.classList.remove('show');return;}
+      $('#ubarTimer').textContent=sec+'s';
+    },1000);
+  }
+  function flashUndo(label){ /* transient single-change undo entry in the real app */ }
+  $('#ubarKeep').onclick=function(){$('#ubar').classList.remove('show');clearInterval(undoTimer);};
+  $('#ubarRev').onclick=function(){$('#ubar').classList.remove('show');S.edge='bottom';$('#ubarTimer').textContent='';renderLive();};
+  $('#ubarUndo').onclick=function(){$('#ubar').classList.remove('show');clearInterval(undoTimer);};
+
+  // ---------- window open/close + tabs ----------
+  function toggle(open){ S.open=open; $('#win').classList.toggle('open',open); }
+  function setTab(t){ S.tab=t; document.querySelectorAll('.titlebar .tab').forEach(function(x){x.classList.toggle('on',x.dataset.tab===t)}); renderContent(); }
+  document.querySelectorAll('.titlebar .tab').forEach(function(t){t.onclick=function(){setTab(t.dataset.tab);}});
+
+  // open settings by clicking the dock's empty area (fly-out from the dock)
+  dockWrap.addEventListener('click',function(e){
+    if(e.target.closest('.tile')) return;
+    toggle(!S.open); if(S.open){renderContent();renderLive();}
+  });
+  $('#closeWin').onclick=function(){toggle(false)};
+
+  // edit mode toggle (Contents tab) — reveals inline editing + drawer
+  function setEdit(on){
+    S.editMode=on; dockWrap.classList.toggle('edit-mode',on);
+    $('#drawer').classList.toggle('show',on); $('#editHint').classList.toggle('show',on);
+  }
+
+  // double-click a dock icon opens its item settings (inline editing entry)
+  dockBar.addEventListener('dblclick',function(e){
+    var t=e.target.closest('.tile'); if(!t||t.style.width==='1px') return;
+    setEdit(true);
+  });
+
+  // expose edit toggle from Contents tab for demo
+  var _origRenderContent=renderContent;
+
+  // ---------- boot ----------
+  renderDock(); renderDrawer(); renderLive(); renderContent();
+
+  // auto-open the window after a beat so the preview is visible on load
+  setTimeout(function(){toggle(true);},500);
+})();
+</script>
+</body>
+</html>

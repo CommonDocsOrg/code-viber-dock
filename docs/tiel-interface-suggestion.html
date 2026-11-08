@@ -1,0 +1,346 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>WinDock — Interface suggestions (preview)</title>
+<style>
+  :root{
+    --bg:#1b1b22; --panel:#24242c; --card:#2c2c35; --card2:#30303a;
+    --line:#3a3a46; --text:#ececf1; --muted:#9a9aa8; --accent:#6aa0ff; --accent2:#7ecbff;
+    --good:#5fd08a; --radius:10px;
+    --navW:200px;   /* current fixed nav width */
+    --previewH:96px;/* current preview strip height */
+    --labelW:196px;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; font-family:"Segoe UI",system-ui,sans-serif; background:#101014; color:var(--text);
+    -webkit-font-smoothing:antialiased;
+  }
+  header.doc{
+    padding:28px 32px 18px; border-bottom:1px solid #1f1f26;
+  }
+  header.doc h1{margin:0 0 6px; font-size:22px}
+  header.doc p{margin:2px 0; color:var(--muted); font-size:14px; max-width:820px}
+  .wrap{padding:24px 32px 64px}
+  section{margin-bottom:44px}
+  h2{font-size:17px; margin:0 0 4px}
+  .sub{color:var(--muted); font-size:13px; margin:0 0 16px; max-width:820px}
+  code{background:#19191f;padding:1px 6px;border-radius:5px;font-size:12px;color:#cfcfe0}
+
+  /* ---------- controls to switch views ---------- */
+  .toolbar{display:flex; gap:10px; align-items:center; flex-wrap:wrap; margin-bottom:18px}
+  .btn{background:var(--card); border:1px solid var(--line); color:var(--text);
+       padding:8px 14px; border-radius:8px; cursor:pointer; font-size:13px}
+  .btn:hover{border-color:var(--accent)}
+  .btn.on{background:var(--accent); border-color:var(--accent); color:#0b1220; font-weight:600}
+  .legend{font-size:12px; color:var(--muted)}
+
+  /* ===================== WELCOME / GUIDED START ===================== */
+  .stage{background:linear-gradient(160deg,#171a23,#121218); border:1px solid var(--line);
+         border-radius:14px; padding:26px; position:relative; overflow:hidden}
+  .welcome{max-width:760px; margin:0 auto}
+  .welcome h3{margin:0 0 4px; font-size:20px}
+  .welcome p.lead{color:var(--muted); margin:0 0 20px}
+  .goals{display:grid; grid-template-columns:repeat(3,1fr); gap:14px}
+  .goal{background:var(--card); border:2px solid var(--line); border-radius:var(--radius);
+        padding:16px; cursor:pointer; transition:.15s}
+  .goal:hover{border-color:var(--accent); transform:translateY(-2px)}
+  .goal.sel{border-color:var(--accent); box-shadow:0 0 0 2px rgba(106,160,255,.3)}
+  .goal .ico{font-size:26px; margin-bottom:8px}
+  .goal h4{margin:0 0 6px; font-size:15px}
+  .goal p{margin:0; font-size:12.5px; color:var(--muted); line-height:1.4}
+  .welcome-foot{display:flex; justify-content:space-between; align-items:center; margin-top:22px}
+  .primary{background:var(--accent); color:#0b1220; border:none; padding:10px 20px;
+           border-radius:8px; font-weight:600; cursor:pointer}
+  .primary:disabled{opacity:.4; cursor:not-allowed}
+  .ghost{background:transparent; border:none; color:var(--muted); cursor:pointer; font-size:13px; text-decoration:underline}
+
+  /* ===================== SETTINGS WINDOW ===================== */
+  .win{background:var(--panel); border:1px solid var(--line); border-radius:12px; overflow:hidden;
+       box-shadow:0 18px 50px rgba(0,0,0,.45); margin:0 auto;
+       --w:860px; width:var(--w)}
+  .titlebar{display:flex; align-items:center; gap:10px; padding:10px 14px; background:#202029;
+            border-bottom:1px solid var(--line); color:#dcdce6; font-size:13px}
+  .titlebar .dot{width:12px;height:12px;border-radius:50%;background:var(--accent)}
+  .titlebar .tabs{display:flex; gap:4px; margin-left:14px}
+  .titlebar .tab{padding:5px 12px; border-radius:6px; font-size:12.5px; color:var(--muted); cursor:pointer}
+  .titlebar .tab.on{background:var(--card2); color:var(--text)}
+  .body{display:flex; min-height:480px}
+
+  /* nav */
+  .nav{width:var(--navW); background:#1f1f28; border-right:1px solid var(--line); padding:14px 10px; flex-shrink:0}
+  .find{width:calc(var(--navW) - 20px); padding:7px 10px; background:#16161c; border:1px solid var(--line);
+        border-radius:7px; color:var(--muted); font-size:12.5px; margin-bottom:14px}
+  .navgrp{font-size:10.5px; letter-spacing:.08em; color:#6f6f7e; margin:14px 8px 6px}
+  .navitem{display:flex; align-items:center; gap:8px; padding:7px 10px; border-radius:7px;
+           font-size:13px; color:#c9c9d4; cursor:pointer}
+  .navitem:hover{background:#2a2a34}
+  .navitem.on{background:var(--accent); color:#0b1220}
+  .navitem .g{font-size:13px}
+
+  /* content */
+  .content{flex:1; padding:20px; overflow:hidden}
+  .content h3.page{margin:0 0 4px; font-size:18px}
+  .content .pagehint{color:var(--muted); font-size:12.5px; margin:0 0 18px}
+
+  /* preview strip */
+  .previewstrip{height:var(--previewH); background:linear-gradient(180deg,#2a2a34,#202029);
+        border:1px solid var(--line); border-radius:var(--radius); margin-bottom:18px;
+        display:flex; align-items:center; justify-content:center; gap:18px; position:relative; overflow:hidden}
+  .previewstrip .fake{width:46px;height:46px;border-radius:11px;background:#3a3a46;
+        box-shadow:0 4px 12px rgba(0,0,0,.4); transition:.2s}
+  .previewstrip .fake.big{transform:scale(1.5) translateY(-6px)}
+  .previewstrip .fake:nth-child(2){background:#4a5a7a}
+  .previewstrip .fake:nth-child(3){background:#5a4a7a}
+  .previewstrip .fake:nth-child(4){background:#4a7a5e}
+  .previewstrip .scalelabel{position:absolute; bottom:6px; right:10px; font-size:11px; color:var(--muted)}
+
+  /* cards */
+  .cards{display:grid; gap:14px}
+  .cols-2{grid-template-columns:1fr 1fr}
+  .card{background:var(--card); border:1px solid var(--line); border-radius:var(--radius); overflow:hidden}
+  .card.head{display:flex; justify-content:space-between; align-items:center; padding:11px 14px; cursor:pointer}
+  .card.head:hover{background:#30303b}
+  .card head-title{font-size:13.5px; font-weight:600}
+  .changed{color:var(--accent2); font-weight:600; font-size:12px; margin-left:8px}
+  .chev{color:var(--muted); font-size:12px}
+  .card.rows{padding:6px 14px 14px}
+  .row{display:flex; align-items:center; gap:12px; padding:9px 0; border-bottom:1px solid #26262f}
+  .row:last-child{border-bottom:none}
+  .row .lbl{flex:1; font-size:13px}
+  .row .lbl small{display:block; color:var(--muted); font-size:11.5px; margin-top:2px}
+  .swatch{width:22px;height:22px;border-radius:6px;border:1px solid var(--line); cursor:pointer}
+  .seg{display:inline-flex; border:1px solid var(--line); border-radius:7px; overflow:hidden}
+  .seg span{padding:5px 12px; font-size:12.5px; color:var(--muted); cursor:pointer}
+  .seg span.on{background:var(--accent); color:#0b1220}
+  .track{width:150px; height:5px; background:#3a3a46; border-radius:3px; position:relative}
+  .track i{position:absolute; left:45%; top:-3px; width:11px;height:11px;border-radius:50%;
+           background:#dcdce6; box-shadow:0 0 0 2px var(--panel)}
+
+  /* wide-layout tweaks */
+  body.wide{ --navW:248px; --previewH:132px; --labelW:240px }
+  body.wide .content{max-width:calc(var(--w) - var(--navW))}
+  /* narrow keeps single column even if wide window */
+  body.narrow-cols .cols-2{grid-template-columns:1fr}
+
+  .tag{display:inline-block; font-size:11px; color:var(--accent2); border:1px solid rgba(126,203,255,.4);
+       border-radius:20px; padding:2px 9px; margin-bottom:10px}
+
+  .footnote{color:var(--muted); font-size:12px; line-height:1.5; max-width:820px}
+  .footnote b{color:var(--text)}
+</style>
+</head>
+<body>
+<header class="doc">
+  <h1>WinDock — Interface suggestions</h1>
+  <p>Static preview of two proposed changes. Not code, not connected to the app. See
+     <code>docs/tiel-interface-suggestion.html</code> in the repo.</p>
+</header>
+
+<div class="wrap">
+
+  <!-- ============ A: GUIDED START ============ -->
+  <section>
+    <span class="tag">Part A · guide the user better</span>
+    <h2>1. Guided start (welcome dialog)</h2>
+    <p class="sub">Instead of only picking a preset, pick a goal. The choice auto-selects a matching
+      preset and opens the page that matters for it — so a new user is led straight to customization
+      instead of facing all 8 settings pages at once.</p>
+
+    <div class="stage">
+      <div class="welcome">
+        <h3>How will you use WinDock?</h3>
+        <p class="lead">We'll set up a dock that fits and show you where to change things.</p>
+        <div class="goals" id="goals">
+          <div class="goal" data-page="appearance"><div class="ico">🚀</div><h4>Just a dock</h4>
+            <p>Pinned apps at the bottom with magnification. Minimal.</p></div>
+          <div class="goal" data-page="widgets"><div class="ico">🧩</div><h4>Dock + info</h4>
+            <p>Your apps plus a clock, weather and widgets.</p></div>
+          <div class="goal" data-page="layout"><div class="ico">🖥️</div><h4>Many displays</h4>
+            <p>A dock on every screen, each its own look.</p></div>
+        </div>
+        <div class="welcome-foot">
+          <button class="ghost" id="skipStart">Set up later</button>
+          <button class="primary" id="goStart" disabled>Continue →</button>
+        </div>
+      </div>
+    </div>
+    <p class="footnote" style="margin-top:12px">Replaces the current single-step preset picker. Reuses the existing
+      Help/preset system — no new UI framework.</p>
+  </section>
+
+  <!-- ============ B: SPREAD OUT ============ -->
+  <section>
+    <span class="tag">Part B · spread out on large displays</span>
+    <h2>2. Settings window, narrow vs. wide</h2>
+    <p class="sub">Same window. On a large/ultrawide display the settings opens wider (display-aware default
+      size), the nav column and live preview grow, and cards wrap into two columns instead of one long
+      scroll. Your saved size always wins over the default.</p>
+
+    <div class="toolbar">
+      <button class="btn on" data-view="narrow">Current (760–860 DIP)</button>
+      <button class="btn" data-view="wide">Proposed — large display</button>
+      <span class="legend">Toggle the Themes tab live preview to see magnification in each layout.</span>
+    </div>
+
+    <!-- NARROW -->
+    <div class="win" id="winNarrow" style="--w:860px">
+      <div class="titlebar">
+        <span class="dot"></span><span>Dock · main</span>
+        <div class="tabs">
+          <span class="tab">Contents</span><span class="tab">Position</span>
+          <span class="tab on">Appearance</span><span class="tab">Behaviour</span><span class="tab">Running apps</span>
+        </div>
+      </div>
+      <div class="body">
+        <div class="nav">
+          <div class="find">Find a setting…</div>
+          <div class="navgrp">GENERAL</div>
+          <div class="navitem"><span class="g">⚙</span>General</div>
+          <div class="navitem"><span class="g">🖥</span>Docks &amp; displays</div>
+          <div class="navgrp">LOOK</div>
+          <div class="navitem on"><span class="g">🎨</span>Themes</div>
+          <div class="navitem"><span class="g">✨</span>Animation</div>
+        </div>
+        <div class="content">
+          <h3 class="page">Themes</h3>
+          <p class="pagehint">The look of every dock: colours, corners and icon effects.</p>
+          <div class="previewstrip" data-preview>
+            <span class="scalelabel">icon size · magnification</span>
+            <div class="fake"></div><div class="fake big"></div><div class="fake"></div><div class="fake"></div>
+          </div>
+          <div class="cards">
+            <div class="card"><div class="head"><head-title>Bar</head-title><span><span class="changed">2 changed</span><span class="chev">▾</span></span></div>
+              <div class="rows">
+                <div class="row"><div class="lbl">Background colour<small>acrylic behind the icons</small></div><div class="swatch" style="background:#3a4a6a"></div></div>
+                <div class="row"><div class="lbl">Gap between icons</div><div class="track"><i style="left:40%"></i></div></div>
+              </div>
+            </div>
+            <div class="card"><div class="head"><head-title>Icon effects</head-title><span class="chev">▾</span></div>
+              <div class="rows">
+                <div class="row"><div class="lbl">Glow<small>behind icons on hover</small></div><div class="seg"><span class="on">Hover</span><span>Active</span><span>Off</span></div></div>
+                <div class="row"><div class="lbl">Reflection</div><div class="seg"><span>On</span><span class="on">Off</span></div></div>
+              </div>
+            </div>
+            <div class="card"><div class="head"><head-title>Slot buttons</head-title><span class="chev">▾</span></div>
+              <div class="rows">
+                <div class="row"><div class="lbl">Slot style<small>dots or taskbar buttons</small></div><div class="seg"><span class="on">Dots</span><span>Buttons</span></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WIDE -->
+    <div class="win" id="winWide" style="--w:1180px; display:none">
+      <div class="titlebar">
+        <span class="dot"></span><span>Dock · main</span>
+        <div class="tabs">
+          <span class="tab">Contents</span><span class="tab">Position</span>
+          <span class="tab on">Appearance</span><span class="tab">Behaviour</span><span class="tab">Running apps</span>
+        </div>
+      </div>
+      <div class="body">
+        <div class="nav">
+          <div class="find">Search settings, values, hints…</div>
+          <div class="navgrp">GENERAL</div>
+          <div class="navitem"><span class="g">⚙</span>General</div>
+          <div class="navitem"><span class="g">🖥</span>Docks &amp; displays</div>
+          <div class="navgrp">LOOK</div>
+          <div class="navitem on"><span class="g">🎨</span>Themes</div>
+          <div class="navitem"><span class="g">✨</span>Animation</div>
+          <div class="navgrp" style="margin-top:26px">DATA</div>
+          <div class="navitem"><span class="g">📅</span>Calendar feeds</div>
+          <div class="navitem"><span class="g">🔔</span>Notifications</div>
+        </div>
+        <div class="content">
+          <h3 class="page">Themes</h3>
+          <p class="pagehint">The look of every dock: colours, corners and icon effects. <b style="color:var(--text)">Live preview is larger here.</b></p>
+          <div class="previewstrip" data-preview>
+            <span class="scalelabel">icon size · magnification</span>
+            <div class="fake"></div><div class="fake big"></div><div class="fake"></div><div class="fake"></div>
+          </div>
+          <div class="cards cols-2">
+            <div class="card"><div class="head"><head-title>Bar</head-title><span><span class="changed">2 changed</span><span class="chev">▾</span></span></div>
+              <div class="rows">
+                <div class="row"><div class="lbl">Background colour<small>acrylic behind the icons</small></div><div class="swatch" style="background:#3a4a6a"></div></div>
+                <div class="row"><div class="lbl">Gap between icons</div><div class="track"><i style="left:40%"></i></div></div>
+                <div class="row"><div class="lbl">Corner radius</div><div class="track"><i style="left:55%"></i></div></div>
+              </div>
+            </div>
+            <div class="card"><div class="head"><head-title>Icon effects</head-title><span class="chev">▾</span></div>
+              <div class="rows">
+                <div class="row"><div class="lbl">Glow<small>behind icons on hover</small></div><div class="seg"><span class="on">Hover</span><span>Active</span><span>Off</span></div></div>
+                <div class="row"><div class="lbl">Glow radius</div><div class="track"><i style="left:30%"></i></div></div>
+                <div class="row"><div class="lbl">Reflection</div><div class="seg"><span>On</span><span class="on">Off</span></div></div>
+                <div class="row"><div class="lbl">3D tilt</div><div class="seg"><span class="on">On</span><span>Off</span></div></div>
+              </div>
+            </div>
+            <div class="card"><div class="head"><head-title>Slot buttons</head-title><span class="chev">▾</span></div>
+              <div class="rows">
+                <div class="row"><div class="lbl">Slot style<small>dots or taskbar buttons</small></div><div class="seg"><span class="on">Dots</span><span>Buttons</span></div></div>
+                <div class="row"><div class="lbl">Hot tracking<small>light under the pointer</small></div><div class="seg"><span class="on">On</span><span>Off</span></div></div>
+              </div>
+            </div>
+            <div class="card"><div class="head"><head-title>Name label</head-title><span class="chev">▾</span></div>
+              <div class="rows">
+                <div class="row"><div class="lbl">Show name on hover</div><div class="seg"><span class="on">On</span><span>Off</span></div></div>
+                <div class="row"><div class="lbl">Fade time</div><div class="track"><i style="left:50%"></i></div></div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <p class="footnote" style="margin-top:12px">B5 display-aware default size · B7 wider nav + taller preview ·
+       B6 two-column card flow. The wide mock also shows more cards at once (bigger effects group) — the spread,
+       not more settings.</p>
+  </section>
+
+</div>
+
+<script>
+  // Guided start: enable Continue on goal pick.
+  const goals = document.querySelectorAll('#goals .goal');
+  const goBtn = document.getElementById('goStart');
+  goals.forEach(g => g.addEventListener('click', () => {
+    goals.forEach(x => x.classList.remove('sel'));
+    g.classList.add('sel');
+    goBtn.disabled = false;
+  }));
+  document.getElementById('skipStart').addEventListener('click', () => alert('Skipped — you can open the guided start again from About → "Show the welcome dialog".'));
+
+  // Layout switch: narrow vs wide.
+  const buttons = document.querySelectorAll('.toolbar .btn');
+  const winNarrow = document.getElementById('winNarrow');
+  const winWide = document.getElementById('winWide');
+  buttons.forEach(b => b.addEventListener('click', () => {
+    buttons.forEach(x => x.classList.remove('on'));
+    b.classList.add('on');
+    const wide = b.dataset.view === 'wide';
+    winNarrow.style.display = wide ? 'none' : 'block';
+    winWide.style.display = wide ? 'block' : 'none';
+  }));
+
+  // Live preview magnification demo (both strips).
+  document.querySelectorAll('[data-preview]').forEach(strip => {
+    strip.addEventListener('mousemove', (e) => {
+      const fakes = strip.querySelectorAll('.fake');
+      const rect = strip.getBoundingClientRect();
+      fakes.forEach(f => {
+        const cx = f.offsetLeft + f.offsetWidth/2;
+        const d = Math.abs(e.clientX - (rect.left + cx));
+        const s = Math.max(1, 1.5 - d/160);
+        f.style.transform = 'scale(' + s.toFixed(2) + ')';
+      });
+    });
+    strip.addEventListener('mouseleave', () => {
+      strip.querySelectorAll('.fake').forEach(f => f.style.transform = '');
+    });
+  });
+</script>
+</body>
+</html>

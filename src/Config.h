@@ -729,6 +729,7 @@ struct Config {
     std::wstring UniqueDockId(const std::wstring& base) const;
     // Dock `index`'s identity colour: its `color`, else the palette by index (DockPaletteColor).
     uint32_t DockColor(size_t index) const;
+    // Legacy native weather items become weather script widgets, preserving their settings.
     // Every clock / weather item without settings gets them from the defaults (`clock` /
     // `weather`). Returns true if an item changed. Load runs it (a file written before round 5:
     // `migrated`, the caller saves); the app runs it after items are added.

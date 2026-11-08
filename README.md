@@ -968,11 +968,11 @@ shows any more is stopped and dropped at once.
   settings / refresh buttons; its own settings add a place of its own (the same Place field, units,
   interval and label as the native item: round 5), today's high / low or the place under the
   temperature, a glyph-only compact mode, what a click opens, and the popup's days and hours.
-  Without a place of its own it shows the place of its dock's first `weather` item (else the
-  defaults). The native `weather` item stays as it is (the fallback). **Migration**: to use the
-  script version, open Dock settings > Contents, select the Weather tile and **Remove**,
-  then drag **Weather (script)** from the drawer (Add to the dock) onto the strip (or replace `{ "kind": "weather" }` with
-  `{ "kind": "widget", "id": "weather" }` in config.json, moving its settings along).
+  Without a place of its own it uses the app's default place. This is the only weather widget
+  offered by the add menu, widget drawer and bundled dock presets. Legacy `{ "kind": "weather" }`
+  items automatically become `{ "kind": "widget", "id": "weather" }` when loaded, keeping their
+  position, place, units, interval and label. Existing weather script widgets that inherited a
+  native weather item's place keep that place during migration.
 
 **Clocks per item** (round 5): every clock item has its own format, seconds, date, face, click
 action and two new settings: a **time zone** (`timeZone`: "" = the local time, else a Windows time
@@ -2115,7 +2115,7 @@ with the defaults and leaves the file untouched.
         { "kind": "app", "aumid": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App" },
         { "kind": "app", "path": "C:\\Users\\me\\Desktop\\Paint.lnk" },
         { "kind": "running" },
-        { "kind": "weather", "settings": { "latitude": 47.6062, "longitude": -122.3321, "location": "Seattle",
+        { "kind": "widget", "id": "weather", "settings": { "latitude": 47.6062, "longitude": -122.3321, "location": "Seattle",
                                            "units": "metric", "refreshMinutes": 30, "label": "" } },
         { "kind": "clock", "settings": { "format": "%H:%M", "showSeconds": false, "showDate": false,
                                          "click": "calendar", "clickTarget": "", "face": "digital",
@@ -2203,7 +2203,9 @@ items that exist. A file whose items have settings already is left alone.
       (`format`, `showSeconds`, `showDate`, `click`, `clickTarget`, `face`, `timeZone`, `label` /
       `latitude`, `longitude`, `location`, `units`, `refreshMinutes`, `label`); a key it does not
       have, or one with a bad value, falls back to the top-level default. Add widget puts the clock
-      at the end and the weather before a clock that ends the list.
+      at the end and the weather before a clock that ends the list. `"weather"` is a legacy kind:
+      on load it becomes `"widget"` with `"id": "weather"`, preserving these settings. New docks
+      should use the widget form directly.
     - `"widget"`: a script widget, `{ "kind": "widget", "id": "<widget id>", "settings": { ... } }`
       (see **Widgets** above and docs/widgets.md). An item without an `id` is dropped on load;
       `settings` is optional and written back as it is.

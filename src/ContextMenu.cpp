@@ -41,7 +41,7 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
         // a folder window (neither touches this dock's items: never greyed).
         const bool unlocked = !state.locked;
         Append(sub, kAddClock, L"Clock", unlocked);
-        Append(sub, kAddWeather, L"Weather", unlocked);
+        Append(sub, kAddWeather, L"Weather (script)", unlocked);
         Append(sub, kAddRunning, L"Running apps", unlocked && !state.hasRunning);
         Append(sub, kAddTray, L"Tray (notify icons)", unlocked && !state.hasTray);
         Append(sub, kAddNotifications, L"Notification centre", unlocked && !state.hasNotifications);

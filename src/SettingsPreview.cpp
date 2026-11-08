@@ -263,7 +263,10 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     };
 
     // --- geometry (pixels) ---
-    const bool clockShown = dk.Has(ItemKind::Clock), weatherShown = dk.Has(ItemKind::Weather);
+    const bool clockShown = dk.Has(ItemKind::Clock);
+    const bool weatherShown = std::any_of(dk.items.begin(), dk.items.end(), [](const DockItemEntry& e) {
+        return e.Kind() == ItemKind::Weather || (e.Kind() == ItemKind::Widget && e.id == L"weather");
+    });
     const float mag = static_cast<float>(std::clamp(dk.magnification, 1.0, 2.5));
     const float wallH = (wall.bottom - wall.top) / s;
     const float reflFrac = t.reflection ? t.reflectionHeight : 0.0f;  // the bar grows by the reflections

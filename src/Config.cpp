@@ -506,6 +506,8 @@ bool DockConfig::Show(ItemKind kind, bool on) {
 }
 
 size_t DockConfig::AddWidget(ItemKind kind) {
+    // Retain the legacy Add Weather command, but only create the script widget.
+    if (kind == ItemKind::Weather) return AddScriptWidget(L"weather");
     if (kind != ItemKind::Clock && kind != ItemKind::Weather && kind != ItemKind::Running && kind != ItemKind::Tray &&
         kind != ItemKind::Notifications) {
         return SIZE_MAX;
@@ -758,14 +760,36 @@ std::wstring WeatherSettingsJson(const WeatherConfig& w) {
 
 bool Config::EnsureItemSettings() {
     bool changed = false;
+    auto snapshotWeather = [](DockItemEntry& item, const WeatherConfig& effective) {
+        json::JsonObject settings = SettingsObject(item.settings);
+        if (!settings) settings = json::JsonObject();
+        const json::JsonObject place = SettingsObject(WeatherSettingsJson(effective));
+        for (const auto& field : place) settings.SetNamedValue(field.Key(), field.Value());
+        item.settings = std::wstring(settings.Stringify());
+    };
     for (DockConfig& d : docks) {
+        // Existing script widgets may inherit a native item's place. Snapshot that inheritance
+        // before retiring the native item, keeping their own appearance and popup settings.
+        if (d.Has(ItemKind::Weather)) {
+            for (DockItemEntry& e : d.items) {
+                if (e.Kind() == ItemKind::Widget && e.id == L"weather" && !SettingsHavePlace(e.settings)) {
+                    snapshotWeather(e, ScriptWeatherOf(*this, d, e));
+                    changed = true;
+                }
+            }
+        }
         for (DockItemEntry& e : d.items) {
+            if (e.Kind() == ItemKind::Weather) {
+                // Snapshot the effective defaults before changing kind. Keep the item's other
+                // fields and all supplied settings, including fields unknown to this version.
+                snapshotWeather(e, WeatherOf(*this, e));
+                e.kind = L"widget";
+                e.id = L"weather";
+                changed = true;
+            }
             if (!e.settings.empty()) continue;
             if (e.Kind() == ItemKind::Clock) {
                 e.settings = ClockSettingsJson(clock);
-                changed = true;
-            } else if (e.Kind() == ItemKind::Weather) {
-                e.settings = WeatherSettingsJson(weather);
                 changed = true;
             }
         }

@@ -2043,6 +2043,7 @@ private:
 
     // The entry behind drawer ref `ref` (null: none).
     const DrawerEntry* EntryOf(int ref) const {
+        if (ref == kEntryWeather) return nullptr;  // retired native weather entry
         if (ref == kEntryApp || ref == kEntryFolder) {
             const size_t k = static_cast<size_t>(ref - kEntryApp);
             return k < addEntries_.size() ? &addEntries_[k] : nullptr;  // none before the first Load
@@ -2078,7 +2079,7 @@ private:
             // kEntry* order
             builtIn(ItemKind::Running, L"Running apps", L"Open apps that are not pinned", true);
             builtIn(ItemKind::Clock, L"Clock", L"Any number, each with its own format and zone", false);
-            builtIn(ItemKind::Weather, L"Weather", L"Any number, each with its own place", false);
+            entries_.emplace_back();  // retired native weather entry: preserve automation indexes
             builtIn(ItemKind::Tray, L"System tray", L"The notification area icons as a grid", true);
             builtIn(ItemKind::Notifications, L"Notification centre", L"A bell with the unread count; a click lists the notifications", true);
             builtIn(ItemKind::RecycleBin, L"Recycle Bin", L"Drop files on it to recycle them", true);
@@ -2182,7 +2183,10 @@ private:
             groupRows_[index] = rows;
         };
         std::vector<int> builtIn, scripts;
-        for (size_t i = 0; i < entries_.size(); ++i) (i < static_cast<size_t>(kBuiltInEntries) ? builtIn : scripts).push_back(static_cast<int>(i));
+        for (size_t i = 0; i < entries_.size(); ++i) {
+            if (i == kEntryWeather) continue;  // the weather script is listed with the other scripts
+            (i < static_cast<size_t>(kBuiltInEntries) ? builtIn : scripts).push_back(static_cast<int>(i));
+        }
         // Round 8 phase 8B: apps and folders first (the add buttons of earlier versions).
         group(0, L"APPS AND FOLDERS", {kEntryApp, kEntryFolder});
         group(1, L"BUILT IN", builtIn);
@@ -2545,6 +2549,7 @@ private:
 
     // A new item of drawer entry `entry` (nothing for a single-instance kind the dock has).
     std::optional<DockItemEntry> NewEntry(int entry) {
+        if (entry == kEntryWeather) return std::nullopt;
         if (entry < 0 || entry >= static_cast<int>(entries_.size())) return std::nullopt;  // App or shortcut… / Folder…: a dialog
         const DrawerEntry& de = entries_[static_cast<size_t>(entry)];
         if (de.once && Dock().Has(de.kind)) {
