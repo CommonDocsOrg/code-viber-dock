@@ -107,6 +107,11 @@ constexpr UINT kReapMessage = WM_APP + 5;  // posted: free closed dock windows (
 
 App::~App() { Shutdown(); }
 
+// --- round 12 phase 12G: the Run key for Quick setup (AppQuickSetup.cpp) ---
+bool App::AutostartOn() { return AutostartEnabled(); }
+bool App::SetAutostartOn(bool enable) { return SetAutostart(enable); }
+// --- end round 12 phase 12G ---
+
 LRESULT CALLBACK App::AppWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
     App* self = nullptr;
     if (msg == WM_NCCREATE) {
@@ -139,7 +144,8 @@ bool App::Initialize(HINSTANCE instance) {
 
     if (config_.Load()) {
         // First run: no config file yet. Seed the default pins and write the file; the welcome
-        // dialog opens once the first dock is up (round 9 phase 9C).
+        // dialog opens once the first dock is up (round 9 phase 9C; round 12 phase 12G: Quick setup's
+        // first-run variant).
         firstRun_ = true;
         SeedDefaultPins();
         config_.EnsureItemSettings();  // the default clock item's settings (from the defaults)
@@ -316,6 +322,7 @@ void App::SetUpDock(DockWindow& dock) {
         const size_t cfg = d->ConfigIndex();
         DockConfig& c = config_.docks[cfg];
         NoteLabel(L"Moved " + c.id);  // round 12 phase 12A
+        NoteTipGesture(2);            // round 12 phase 12G: the third tip's gesture (a dock dragged)
         c.x = x;
         c.y = y;
         docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyConfig(); });
@@ -330,6 +337,7 @@ void App::SetUpDock(DockWindow& dock) {
             return;
         }
         NoteLabel(c.edge != edge ? L"Moved " + c.DisplayName() + L" to the " + EdgeWord(edge) + L" edge" : L"Moved " + c.DisplayName());  // round 12 phase 12A
+        NoteTipGesture(2);  // round 12 phase 12G: the third tip's gesture (a dock dragged)
         c.edge = edge;
         c.align = align;
         c.offset = offset;
@@ -573,6 +581,7 @@ bool App::ApplySnapshot(const std::wstring& state) {
     Config fresh;
     if (state.empty() || fresh.LoadJson(state) != Config::LoadResult::Ok) return false;
     for (int k = 0; k < SettingsUiConfig::kKinds; ++k) fresh.settings.windows[k] = config_.settings.windows[k];
+    fresh.settings.tipsShown = config_.settings.tipsShown;  // round 12 phase 12G: UI state, not in the snapshot
     // As Reload config, but the taskbar and the Run key only when the snapshot changes them (a
     // "Show Windows taskbar temporarily" of this session stays).
     const bool taskbar = fresh.hideTaskbar != config_.hideTaskbar;
@@ -813,7 +822,8 @@ void App::UpdateTimelineUi() {
     setText(redoLabel_, redo_.empty() ? std::wstring() : redo_.back().label);
     // A Keep bar while no settings window shows it: the banner near the dock.
     const int bar = BarKind();
-    if ((bar == 1 || bar == 2) && !anyShown) {
+    // Round 12 phase 12G: not while Quick setup is open (its Finish / Cancel are the preview's Keep / Cancel).
+    if ((bar == 1 || bar == 2) && !anyShown && !QuickSetupOpen()) {
         const SettingsStatus s = StatusFor(nullptr);
         DockWindow* d = barDock_ < config_.docks.size() ? docks_.FirstOf(barDock_) : nullptr;
         if (!d) d = docks_.First();
@@ -839,6 +849,7 @@ void App::UpdateTimelineUi() {
         banner_.Close();
     }
     if (editDock_) UpdateEditUi();  // round 12 phase 12D: the edit bar's save state and Undo
+    PlaceTip();                     // round 12 phase 12G: a tip follows its dock (moved, resized)
 }
 
 std::wstring App::EntryName(size_t cfg, size_t item) const {
@@ -1497,6 +1508,9 @@ void App::Shutdown() {
     // First: closing them may commit a pending edit (focus loss), which must still be saved.
     {
         presets_.reset();  // round 9 phase 9C: before its owner (its window re-enables it)
+        quickSetup_.reset();  // round 12 phase 12G: its preview is cancelled by not saving it (below)
+        tips_.Close();
+        tipShown_ = -1;
         help_.reset();     // round 9 phase 9D
         std::vector<std::unique_ptr<SettingsSearch>> searches = std::move(searches_);  // round 9 phase 9B: before their owners
         searches_.clear();
@@ -1607,6 +1621,7 @@ void App::EndModal() {
 void App::ShowMenu(DockWindow* dock, POINT pt) {
     // Round 10 phase 10A: only the dock's background (a widget slot has its own item menu).
     if (!dock) return;
+    NoteTipGesture(0);  // round 12 phase 12G: the first tip's gesture
     const size_t cfg = dock->ConfigIndex();
     const HWND owner = dock->Hwnd();
     ContextMenu::TrayMenuState state = MenuState(cfg);
@@ -1815,6 +1830,14 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kOpenSettings:
             OpenSettings();  // the Global window
             break;
+        // --- round 12 phase 12G: the dock menu's App > Quick setup…, About's Show the tips again ---
+        case ContextMenu::kQuickSetup:
+            OpenQuickSetup(false);
+            break;
+        case ContextMenu::kShowTips:
+            StartTips(true);
+            break;
+        // --- end round 12 phase 12G ---
         case ContextMenu::kDockSettings:
             OpenDockSettings(cfg);
             break;
@@ -2027,6 +2050,7 @@ void App::SyncDocks() {
     docks_.Sync();
     UpdateReservedMonitors();
     if (hwnd_) PostMessageW(hwnd_, kReapMessage, 0, 0);  // closed windows are freed outside their messages
+    PlaceTip();  // round 12 phase 12G: the first dock may be on another display now
 }
 
 void App::ReloadConfig() {
@@ -2089,6 +2113,7 @@ void App::RefreshSettings(SettingsWindow* except) {
         if (w == except || !w->Hwnd()) continue;
         w->Refresh();
     }
+    if (QuickSetupOpen()) quickSetup_->Refresh();  // round 12 phase 12G (posted)
 }
 
 void App::InvalidatePreviews() {
@@ -2103,6 +2128,10 @@ bool App::PreTranslateMessage(MSG& msg) {
     // A window may open another one from inside its own message: the index loop and raw pointer
     // stay valid (the objects themselves never move).
     if (presets_ && presets_->Hwnd() && presets_->PreTranslateMessage(msg)) return true;  // round 9 phase 9C
+    // Round 12 phase 12G: Quick setup's keys; Esc in any of our windows while a tip shows skips the
+    // tips (the bubble never has the focus) and then does what it does there.
+    if (QuickSetupOpen() && quickSetup_->PreTranslateMessage(msg)) return true;
+    if (tipShown_ >= 0 && msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE) OnTipCommand(SettingsIds::kTipSkip);
     // Round 12 phase 12D: the drawer popup's keyboard (Tab between its controls, Escape closes it).
     if (const HWND drawer = drawerPopup_.Hwnd(); drawer && (msg.hwnd == drawer || IsChild(drawer, msg.hwnd)) && IsDialogMessageW(drawer, &msg)) {
         return true;
@@ -2368,6 +2397,10 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     host.openSearch = [this, w](const std::wstring& text) { OpenSearch(w, text); };  // round 9 phase 9B
     host.openPresets = [this, w](int mode, size_t dock) {  // round 9 phase 9C
         // Round 12 phase 12C: 3 a new dock from Mine (Dock from a layout…).
+        if (mode == 1) {  // round 12 phase 12G: About's Run quick setup again
+            OpenQuickSetup(false);
+            return;
+        }
         OpenPresets(mode == 1 ? PresetMode::Welcome : mode == 2 || mode == 3 ? PresetMode::NewDock : PresetMode::Apply, dock, w->Hwnd(),
                     mode == 3 ? PresetKind::Mine : PresetKind::Layouts);
     };
@@ -3643,6 +3676,11 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             if (!inst || inst->cfg >= config_.docks.size() || !config_.docks[inst->cfg].IsDock()) return -2;
             return wp == 305 ? static_cast<LRESULT>(config_.docks[inst->cfg].titleShow) : static_cast<LRESULT>(config_.docks[inst->cfg].titlePlace);
         // --- end round 12 phase 12C ---
+        case 317:  // round 12 phase 12G: Quick setup's step, 318 the tip shown, 319 tipsShown, 320 the held choices
+        case 318:
+        case 319:
+        case 320:
+            return QuickSetupState(wp, lp);
         case 280:  // round 9 phase 9A: dock HIWORD (a dock or a standalone widget) is hidden by the full-screen guard (1 / 0; -2 no such dock)
             if (!inst) return -2;
             if (inst->window) return inst->window->FullscreenHidden() ? 1 : 0;
@@ -3821,8 +3859,13 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         OpenSettings();
         return true;
     }
-    if (msg == msgWelcome_) {  // round 9 phase 9C: `WinDock.exe --welcome`
-        OpenPresets(PresetMode::Welcome, 0, nullptr);
+    if (msg == msgWelcome_) {  // round 9 phase 9C: `WinDock.exe --welcome` (round 12 phase 12G: Quick setup)
+        OpenQuickSetup(false);
+        return true;
+    }
+    // --- round 12 phase 12G: DockCommand 180 - 183 (Quick setup, the tips) ---
+    if (msg == msgDockCommand_ && wp >= ContextMenu::kQuickSetup && wp <= ContextMenu::kSetupFinish) {
+        result = QuickSetupCommand(static_cast<UINT>(wp), lp) ? 1 : 0;
         return true;
     }
     if (msg == msgQueryState_) {
@@ -3920,6 +3963,11 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         // Round 12 phase 12C: LOWORD 3 the new dock variant on Mine, 4 apply on Looks, 5 apply on
         // Mine, 6 the app look (Looks only, owned by App settings when it is shown).
         const LPARAM variant = lp & 0xFFFF;
+        if (variant == 1) {  // round 12 phase 12G: the welcome variant is Quick setup now
+            OpenQuickSetup(false);
+            result = QuickSetupOpen() ? 1 : 0;
+            return true;
+        }
         const PresetMode mode = variant == 1                   ? PresetMode::Welcome
                                 : variant == 2 || variant == 3 ? PresetMode::NewDock
                                 : variant == 6                 ? PresetMode::AppLook
@@ -4346,7 +4394,13 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     if (msg == kShowWelcome) {
-        OpenPresets(PresetMode::Welcome, 0, nullptr);
+        OpenQuickSetup(firstRun_);  // round 12 phase 12G: the first run's variant once
+        return 0;
+    }
+    if (msg == kQuickSetupClosed) {  // round 12 phase 12G
+        if (quickSetup_ && !quickSetup_->Hwnd()) quickSetup_.reset();
+        if (previewing_ && previewHost_ && !IsWindow(previewHost_)) CancelBar();  // closed without Finish / Cancel
+        UpdateTimelineUi();
         return 0;
     }
     if (msg == kSettingsClosed) {
@@ -4542,6 +4596,7 @@ bool App::EnterEdit(DockWindow* dock) {
     FlushTimeline();  // what came before (the unlock) is an entry of its own
     editDock_ = dock;
     dock->SetEditing(true);
+    NoteTipGesture(1);  // round 12 phase 12G: the second tip's gesture
     HookEditForeground(true);
     // The dock takes the keyboard (Escape leaves): allowed, the user just pressed on it or chose a
     // menu entry (from automation it may be refused: Done and a click beside the bar still work).

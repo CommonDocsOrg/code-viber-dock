@@ -115,6 +115,9 @@ add_executable(WinDock WIN32
   src/SettingsPagesFolderWindow.cpp
   src/SettingsPagesWidgetWindow.cpp
   src/ReminderBanner.cpp
+  src/QuickSetup.cpp
+  src/AppQuickSetup.cpp
+  src/CoachMarks.cpp
   res/app.rc
   res/app.manifest
 )

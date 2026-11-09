@@ -70,12 +70,13 @@ build\x64-release\WinDock.exe                     :: start the dock (only one in
 build\x64-release\WinDock.exe --quit              :: ask the running dock to exit
 build\x64-release\WinDock.exe --restore-taskbar   :: bring the Explorer taskbar back
 build\x64-release\WinDock.exe --settings          :: open the App settings window (starts the dock if needed)
-build\x64-release\WinDock.exe --welcome           :: open the welcome dialog: pick a preset for the first dock (starts the dock if needed)
+build\x64-release\WinDock.exe --welcome           :: open Quick setup: your docks, their looks, how they behave (starts the dock if needed)
 build\x64-release\WinDock.exe --validate-widget examples\minimal   :: check a widget folder's manifest, print, exit
 ```
 
-The very first start (no `config.json` yet) opens the **welcome dialog** once the dock is up (see
-[Presets](#settings) under Settings); `--welcome` opens it again later.
+The very first start (no `config.json` yet) opens **Quick setup** once the dock is up (round 12
+phase 12G; it replaced the welcome dialog; see Quick setup under [Settings](#settings));
+`--welcome` opens it again later.
 
 `--validate-widget <folder>` starts no dock: it prints the folder's manifest problems with their
 fields and fixes and exits with 0 (no errors), 1 (errors) or 2 (not a widget folder); see
@@ -1714,8 +1715,8 @@ Ctrl+Z), Esc cancels an open preset preview instead of closing the window.
   screen, a Ctrl+drag to another edge) the same bar is a small topmost banner beside the dock
   (`WinDock.KeepBanner`; never activated). App settings > General > **Changes** > **Ask to keep a
   dock that moved or hid** (`settings.confirmPlacement`) turns it off.
-- **Keep / Cancel**: applying a preset from the chooser (Apply, Add dock; not the welcome variant,
-  which applies at once) or DockCommand 153 is a preview: the dock changes at once, the chooser
+- **Keep / Cancel**: applying a preset from the chooser (Apply, Add dock; Quick setup is one
+  preview from its opening to Finish / Cancel) or DockCommand 153 is a preview: the dock changes at once, the chooser
   closes, a bar says "Previewing Modern on main." with **Keep** and **Cancel**. While it is open
   nothing is written (the save is held) and changes make no entries; Keep records one entry
   ("Applied preset Modern") and saves, Cancel, Esc in the window or closing the settings window
@@ -1763,20 +1764,38 @@ About has **Quick start guide** (all three: the quick start). Every setting has 
 what it does and its default (a widget field without a description of its own: its name and
 default).
 
+**Quick setup** (round 12 phase 12G; it replaced the welcome dialog): the very first start (no
+config file yet) opens it once the dock is up; About > **Run quick setup again**, the dock menu's
+App > **Quick setup…** and `WinDock.exe --welcome` open it on the current config. One window
+(960 × 640 DIPs on a display wider than 1400 DIPs, else 760 × 540) with four steps, each one
+skippable: **Your docks** (up to three rows: name, a built-in layout, display, edge, Remove; **Add
+a dock** adds a Basic dock on the next free edge of the primary display), **Their looks** (**Every
+dock uses the same look** with two or more docks, the gallery of looks, Quick look's Transparency
+and Corners), **How it behaves** (Start WinDock when Windows starts, Hide the Windows taskbar, the
+first dock's auto-hide, Animation: Full = `animation.speed` 1 with `reduceMotion` "system",
+Reduced = `reduceMotion` "on", Off = speed 0) and **Done** ("Your dock is ready.", **Finish** and
+**Show me around**). It is one Keep / Cancel preview from its opening: the docks change as you
+choose, nothing is saved until **Finish** (one undo entry "Quick setup"); Cancel, Esc and closing
+it put everything back (on the first start: the Basic layout with the seeded pins, as the welcome
+dialog's Skip gave). Start with Windows and Hide the taskbar are only written at Finish. **Show me
+around** finishes and then shows **three tips** on the dock, one at a time, in a small bubble beside
+the first dock ("Right-click an empty part of the dock for its menu and settings.", "Choose
+Customize this dock …", "While customizing, drag an empty part of the dock …"; **Skip tips**, **Next**
+/ **Done**; Esc skips them too). A tip whose gesture you already made (the dock menu opened,
+customize mode entered, the dock dragged) is skipped; `settings.tipsShown` keeps what was seen.
+About > **Show the tips again** shows all three again.
+
 **Presets** (round 9): predefined dock setups to start from. **App settings > Docks and
 displays > Add ▾ > Dock from a preset…** adds a new dock from one (its id is the preset's, made
 unique: `modern`, `modern2` …; on the primary display), **⋯ > Apply a layout or look…** in a Dock window's
-header turns that dock into one, and the **welcome dialog** offers them on the very first start
-(no config file yet; About > **Show the welcome dialog** and `WinDock.exe --welcome` open it again;
-it works on the first dock). The chooser (720 × 480 DIPs, dark like the settings windows, modal to
+header turns that dock into one, and Quick setup's first step offers them for each of its docks
+(round 12 phase 12G; before it the welcome dialog did, on the first dock). The chooser (720 × 480 DIPs, dark like the settings windows, modal to
 the window it was opened from) lists the presets at the left with a one-line tagline; at the right
 the chosen one's name and description, a preview (a small monitor with the dock where it sits, a
 line on where and how it hides, and its items in order) and a strip that draws the bar in the
 preset's theme with its icon size and magnification (sample icons: it shows the look, not your
 apps), then **Keep my pinned apps and folders** (a new dock: **Copy my pinned apps from the first
-dock**; on by default). Up / Down choose, Enter (or a double click) applies, Esc cancels; the
-welcome dialog's buttons are **Use this dock** and **Skip (basic dock)** (Skip, Esc and closing it
-apply the basic preset). Applying replaces every setting of the dock with the preset's (a setting
+dock**; on by default). Up / Down choose, Enter (or a double click) applies, Esc cancels. Applying replaces every setting of the dock with the preset's (a setting
 the preset does not name goes back to its default) except its id, colour and display; its items
 become the preset's, with your apps, folders, groups, separators and the Recycle Bin at the
 preset's "your pins" place when the box is checked (their item positions / offsets are cleared so
@@ -1897,8 +1916,8 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   replaces is selected), **Reload widgets**, **Open widgets folder** and **Console…**; see
   **Widgets** above), and the last action's result line.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
-  file**, **Reload config**, the renderer in use and (round 9) **Show the welcome dialog** (the
-  first start's preset chooser for the first dock, see Presets above).
+  file**, **Reload config**, the renderer in use, **Run quick setup again** (round 12 phase 12G;
+  was round 9's Show the welcome dialog: Quick setup, see above) and **Show the tips again**.
 
 The Themes and Animation pages have the **preview strip** under them (the global theme).
 
@@ -2522,7 +2541,11 @@ items that exist. A file whose items have settings already is left alone.
   object is written when either part is not the default (`{ "fullscreen": "ignore" }` alone is
   fine). Round 12 phase 12A: `"confirmPlacement": false` (written only when false; default true)
   turns off the Keep / Revert bar after a change that moves or hides a dock (App settings >
-  General > Changes; see Settings, "Undo, Saved, Keep / Revert, Keep / Cancel").
+  General > Changes; see Settings, "Undo, Saved, Keep / Revert, Keep / Cancel"). Round 12 phase
+  12G: `"tipsShown": n` (an integer bitmask, written only when not 0; other bits are dropped): bit
+  0 / 1 / 2 = the first / second / third tip on the dock was seen or skipped, or its gesture was
+  made (the dock menu opened, customize mode entered, a dock dragged); such a tip is not shown by
+  Show me around. Like the windows' sizes it is not part of an undo step.
 
 Saved layouts (round 12 phase 12C) live in `%LocalAppData%\WinDock\layouts\<id>.json` (the folder
 is made by the first Save dock as layout…; the file name without `.json` is the id): the preset
@@ -3026,7 +3049,15 @@ always there, also when every dock is parked) handle these registered messages:
   (Looks only, for the app look). Round 12 phase 12D, customize mode (dock `HIWORD(lParam)`; 1 done, 0 refused): **170**
   customize mode on (`LOWORD(lParam)` 1), off (0) or toggled (2) (= the dock menu's first entry Customize this
   dock / Done customizing, a toggle there; a locked dock asks to be unlocked first: posted when sent), **171**
-  its drawer popup shown (1), hidden (0) or toggled (2) (0: that dock is not being customized). 111 and 113 left the dock
+  its drawer popup shown (1), hidden (0) or toggled (2) (0: that dock is not being customized).
+  Round 12 phase 12G (any dock index; 1 done, 0 refused): **180** opens Quick setup or brings it
+  forward (= the dock menu's App > Quick setup…; `LOWORD(lParam)` 1: the first-run variant, which
+  first applies the Basic layout to the first dock as the first start does; not modal for the
+  sender), **181** the tips: `LOWORD(lParam)` 0 - 2 shows that tip, 0xFFFF hides them, 0xFFFE Show me
+  around (the tips not seen yet), 0xFFFD Show the tips again (every bit cleared, from the first),
+  **182** Quick setup's Next (0 on its last step or when it is closed), **183** its Finish
+  (`LOWORD(lParam)` 1: Show me around). 152's `LOWORD(lParam)` 1 (the welcome variant) opens Quick
+  setup since 12G. 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3056,7 +3087,7 @@ always there, also when every dock is parked) handle these registered messages:
   (`0x100`) keeps the dock's pins at the preset's marker; 1 applied (saved, the windows refreshed,
   the dock flashed), 0 refused (no such preset or dock, not a dock, a dock menu or dialog open).
   `WinDock.Welcome` (a registered message, posted by `WinDock.exe --welcome`) opens the welcome
-  variant.
+  variant (round 12 phase 12G: Quick setup).
   Runs it as if it was chosen from the menu: 112 and 117 - 119 do nothing while the dock is locked
   (greyed in the menu), 119 beeps when the dock already has a running apps item. Returns 1 for a
   known command. A popup opened this way usually cannot take the foreground (see the folder popup
@@ -3283,7 +3314,10 @@ always there, also when every dock is parked) handle these registered messages:
   `HIWORD(lParam)`; -1 no such dock window): **307** = the dock is in customize mode (1 / 0), **308** = its hovered
   item's remove badge is shown, **309** = its "+" slots laid out (0 - 2; none on a ring, an anchored bar or a run
   that would scroll), **310** = the edit bar is shown, **311** = the drawer popup is shown, **312** = the drawer
-  popup's tiles after its search and chip (-1 not shown). The labels of the change Undo / Redo would
+  popup's tiles after its search and chip (-1 not shown). Round 12 phase 12G (any dock index): **317** = Quick
+  setup's step (0 Your docks ... 3 Done; `LOWORD(lParam)` 1: its dock rows, 2: 1 for the first-run variant; -2
+  not open), **318** = the tip shown (0 - 2, -1 none), **319** = `settings.tipsShown`, **320** = Quick setup's
+  held choices (bit 0 Start with Windows, bit 1 Hide the taskbar; -2 not open). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -3293,10 +3327,11 @@ always there, also when every dock is parked) handle these registered messages:
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the App settings window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.
   Round 9 phase 9C: 284 = 1 while a preset chooser (any variant) is open, -2 none; `LOWORD(lParam)`
-  2: its variant (0 apply, 1 welcome, 2 new dock), 3: the selected preset's index (-1 none).
+  2: its variant (0 apply, 1 welcome, 2 new dock), 3: the selected preset's index (-1 none). Since round 12
+  phase 12G the welcome variant is Quick setup (QueryState 317), so 284 answers only for the chooser.
 - `WinDock.OpenSettings` (posted, no parameters): opens or activates the App settings window;
   this is what `WinDock.exe --settings` sends to a running dock. `WinDock.Welcome` (round 9,
-  posted, no parameters): the welcome dialog (`--welcome`).
+  posted, no parameters): the welcome dialog (`--welcome`; round 12 phase 12G: Quick setup).
 - **Settings windows** (round 5 phase B): every kind is a top-level window of class
   `WinDock.Settings`; find them with `EnumWindows` by class (several may be open). Titles: the App
   settings window "App settings" (round 10 phase 10A; was "WinDock settings"); a dock's "<id> · Dock settings · <Edge> · <display>" (e.g. "main · Dock
@@ -3411,6 +3446,25 @@ always there, also when every dock is parked) handle these registered messages:
   and folders (push-like radio buttons; `BM_CLICK`, or `WM_COMMAND(id, BN_CLICKED)` to their parent) in the
   drawer popup and on the Contents tab, whose drawer list 2623 is a grid of tiles since 12D (a click on a
   tile adds it at the end; QueryState 230 / 252 / 264 / 267 take the same entry numbers).
+  Round 12 phase 12G, **Quick setup** (5760 - 5794) is a top-level `WinDock.QuickSetup` window owned by the app
+  window (title "Welcome to WinDock" on the first run, else "Quick setup"); `WM_COMMAND(id, BN_CLICKED)` (or
+  `lParam` 0) to it presses a button, `CB_SETCURSEL` + `WM_COMMAND(MAKEWPARAM(id, CBN_SELCHANGE), combo)`
+  chooses: 5760 the step indicator (`WinDock.QuickSetupSteps`, window text "Step n of 4: `<name>`"), 5761 Back,
+  5762 Next (= DockCommand 182), 5763 Finish (= 183), 5764 Cancel (= Esc, = `WM_CLOSE`), 5765 Show me around,
+  5766 / 5767 the heading and its sentence; step 1: 5770 the rows (`WinDock.QuickSetupRows`; its children
+  have the ids 10 × row + part: 1 the name edit (committed when it loses the focus), 2 the layout combo
+  ("As it is now" first for a dock that was there before, then the built-in layouts), 3 the display
+  combo (the displays, then "Every display"), 4 the edge combo, 5 Remove (not on the first row); send
+  their notifications to 5770 with the control as `lParam`), 5771 Add a dock, 5768 / 5769 its note and the
+  chosen layout's description; step 2: 5772 / 5777 Every dock uses the same look, 5776 "Look of" (the row
+  shown), the gallery of row n 5773 + n (`WinDock.SettingsGallery`, as 5660), Transparency 5780 + n
+  (trackbar 0 - 100, `TBM_SETPOS` + `WM_HSCROLL` to the window), Corners 5785 + n, 5783 / 5784 their labels;
+  step 3: 5790 / 5778 Start WinDock when Windows starts, 5791 / 5779 Hide the Windows taskbar (both held:
+  QueryState 320), 5794 their note, 5792 auto-hide of the first dock (Off / Always / When a window
+  overlaps), 5793 Animation (Full / Reduced / Off), 5788 / 5789 their labels. **The tips**: a top-level
+  `WinDock.CoachMark` (topmost, never activated; its window text "Tip n of 3: `<sentence>`"), children 5798
+  the sentence, 5799 "Tip n of 3", 5795 Skip tips, 5796 Next / Done (`WM_COMMAND(id, BN_CLICKED)` to it);
+  5797 About's "Show the tips again" (page 208; = DockCommand 181 `LOWORD` 0xFFFD).
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that
@@ -3434,9 +3488,10 @@ always there, also when every dock is parked) handle these registered messages:
   Round 9 phase 9C, **the presets** (ids 5100 - 5199): 5101 Docks and displays' Add ▾ menu item
   "Dock from a preset…" (also a page command: `WM_COMMAND(5101)` to the page 207), 5102 the Dock
   header ⋯ menu's "Apply a layout or look…" (round 12 phase 12C; was "Apply a preset…") (`WM_COMMAND(5102)` to the band 102; only on a dock's window),
-  5103 About's "Show the welcome dialog" (page 208). The chooser is a top-level `WinDock.Presets`
+  5103 About's "Run quick setup again" (page 208; round 12 phase 12G: it opens Quick setup, it was
+  "Show the welcome dialog"). The chooser is a top-level `WinDock.Presets`
   window owned by the window it was opened from (`GetWindow(GW_OWNER)`; that window is disabled
-  while it is open; the welcome variant from the first run, `--welcome` or 152 is owned by the app
+  while it is open; the welcome variant (unused since 12G) from the first run, `--welcome` or 152 was owned by the app
   window), titled "Apply a layout or look to `<dock name>`", "New dock from a layout", "Apply a
   look to the app look" (round 12 phase 12C; they were "Apply a preset to <dock>" and "New dock
   from a preset") or "Welcome to WinDock";

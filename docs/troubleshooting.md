@@ -124,6 +124,6 @@ To start over completely:
 1. Right-click the dock and choose **Quit**.
 2. Open the folder `%LocalAppData%\WinDock` (paste it into the File Explorer address bar).
 3. Rename `config.json`, for example to `config-old.json`, so you keep a copy.
-4. Start WinDock. It creates a new settings file with the defaults and shows the welcome dialog.
+4. Start WinDock. It creates a new settings file with the defaults and opens Quick setup.
 
 If your settings file has a mistake in it, WinDock starts with the defaults and leaves the file as it is, so you can fix it. After you fix it, choose **Tools** > **Reload config** in the dock menu.

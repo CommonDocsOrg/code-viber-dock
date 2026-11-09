@@ -134,7 +134,7 @@ To turn the bar off, clear App settings > General > Changes > **Ask to keep a do
 
 ### Keep or Cancel for presets
 
-Applying a preset (Dock settings > **⋯** > **Apply a layout or look…**, or adding a dock from a preset) is a preview first. The dock changes at once, the preset chooser closes, and a bar says "Previewing Modern on main." with **Keep** and **Cancel**. Nothing is saved while the preview is open. Keep makes it one change you can undo. Cancel, **Esc**, or closing the settings window puts the dock back as it was. The welcome dialog of the first run applies its choice at once.
+Applying a preset (Dock settings > **⋯** > **Apply a layout or look…**, or adding a dock from a preset) is a preview first. The dock changes at once, the preset chooser closes, and a bar says "Previewing Modern on main." with **Keep** and **Cancel**. Nothing is saved while the preview is open. Keep makes it one change you can undo. Cancel, **Esc**, or closing the settings window puts the dock back as it was. Quick setup works the same way: everything it changes is one preview until you click **Finish**.
 
 ## App settings
 
@@ -392,8 +392,9 @@ About shows the WinDock version.
 - **Open config file**: opens the file in your text editor.
 - **Reload config**: reads the file again after you edited it by hand.
 - **Renderer in use**: whether WinDock draws with the graphics card or in software.
-- **Show the welcome dialog**: opens the dialog of the first start again, to pick a preset for your first dock.
+- **Run quick setup again**: opens Quick setup, the steps of the first start: your docks, their looks and how they behave. See [Quick setup](quick-start.md#quick-setup).
 - **Quick start guide**: opens the Help at the quick start.
+- **Show the tips again**: shows the three tips on the dock again.
 
 ## Dock settings
 

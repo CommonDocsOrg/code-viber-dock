@@ -1086,6 +1086,7 @@ void Config::Sanitize() {
         s.h = std::clamp(s.h, SettingsUiConfig::kMinimum[k].h, SettingsUiConfig::kMaximum);
         if (s == SettingsUiConfig::kDefault[k]) s = SettingsWindowSize{};
     }
+    settings.tipsShown &= (1 << SettingsUiConfig::kTipCount) - 1;  // round 12 phase 12G: the three tips' bits
 }
 
 Config::LoadResult Config::LoadFile() {
@@ -1265,6 +1266,7 @@ Config::LoadResult Config::LoadJson(const std::wstring& text) {
             ReadString(s, L"fullscreen", fs);
             if (CompareStringOrdinal(fs.c_str(), -1, L"ignore", -1, TRUE) == CSTR_EQUAL) settings.fullscreenHide = false;
             ReadBool(s, L"confirmPlacement", settings.confirmPlacement);  // round 12 phase 12A
+            ReadInt(s, L"tipsShown", settings.tipsShown);                  // round 12 phase 12G
         }
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
@@ -1531,6 +1533,8 @@ std::wstring Config::ToJson(bool windowSizes) const {
             if (!w.empty()) parts = L"\"windows\": { " + w + L" }";
             if (!settings.fullscreenHide) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"fullscreen\": \"ignore\"");
             if (!settings.confirmPlacement) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"confirmPlacement\": false");
+            // Round 12 phase 12G: the tips' bits, with the windows' sizes (UI state: not in a snapshot).
+            if (settings.tipsShown != 0 && windowSizes) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"tipsShown\": ") + Num(settings.tipsShown);
             if (!parts.empty()) o += L",\n  \"settings\": { " + parts + L" }";
         }
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;

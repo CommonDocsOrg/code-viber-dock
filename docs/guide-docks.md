@@ -216,7 +216,7 @@ A preset is a ready-made dock setup. It sets everything about a dock at once: wh
 
 There are three ways to use a preset:
 
-- **The welcome dialog**: on the very first start, WinDock asks you to pick a setup for your first dock. Click **Use this dock**, or **Skip (basic dock)** to take the basic dock. To see it again, click **Show the welcome dialog** in App settings > About, or run `WinDock.exe --welcome`.
+- **Quick setup**: on the very first start, WinDock opens Quick setup. Its first step picks a layout for each of your docks; **Cancel** keeps the basic dock. To see it again, click **Run quick setup again** in App settings > About, or run `WinDock.exe --welcome`. See [Quick setup](quick-start.md#quick-setup).
 - **A new dock from a preset**: App settings > Docks and displays > **Add ▾** > **Dock from a preset…**. Check **Copy my pinned apps from the first dock** to bring your pins along, then click **Add dock**.
 - **Turn a dock into a preset**: in the dock's settings window, click **⋯** > **Apply a layout or look…**. Check **Keep my pinned apps and folders** to keep your apps, folders, groups, separators and the Recycle Bin, then click **Apply**.
 

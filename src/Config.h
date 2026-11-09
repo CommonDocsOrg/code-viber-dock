@@ -713,11 +713,19 @@ struct SettingsUiConfig {
     // change that moves or hides a dock (edge, floating, display, auto-hide, layer, turned off)
     // shows Keep / Revert for 12 s (kept when left alone). False: no bar.
     bool confirmPlacement = true;
+    // --- round 12 phase 12G ---
+    // `settings.tipsShown` (an int bitmask, written only when not 0): bit n = tip n on the dock was
+    // seen, skipped, or its gesture was done already (0 the dock menu opened, 1 customize mode
+    // entered, 2 a dock dragged). UI state like the windows' sizes: not part of an undo snapshot
+    // (ToJson(false) leaves it out, App::ApplySnapshot keeps the current bits).
+    static constexpr int kTipCount = 3;
+    int tipsShown = 0;
+    // --- end round 12 phase 12G ---
     bool operator==(const SettingsUiConfig& o) const {
         for (int i = 0; i < kKinds; ++i) {
             if (!(windows[i] == o.windows[i])) return false;
         }
-        return fullscreenHide == o.fullscreenHide && confirmPlacement == o.confirmPlacement;
+        return fullscreenHide == o.fullscreenHide && confirmPlacement == o.confirmPlacement && tipsShown == o.tipsShown;
     }
 };
 

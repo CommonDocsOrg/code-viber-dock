@@ -18,6 +18,8 @@
 #include "HelpWindow.h"
 #include "KeepBanner.h"
 #include "PresetDialog.h"
+#include "CoachMarks.h"   // round 12 phase 12G
+#include "QuickSetup.h"   // round 12 phase 12G
 #include "SettingsSearch.h"
 #include "SettingsWindow.h"
 #include "TaskbarController.h"
@@ -52,7 +54,8 @@ inline constexpr wchar_t kItemCommandMessage[] = L"WinDock.ItemCommand";
 inline constexpr wchar_t kDockCommandMessage[] = L"WinDock.DockCommand";
 // Posted by `WinDock.exe --settings` to the running dock: open (or activate) the settings window.
 inline constexpr wchar_t kOpenSettingsMessage[] = L"WinDock.OpenSettings";
-// Round 9 phase 9C: posted by `WinDock.exe --welcome` to the running dock: the welcome dialog.
+// Round 9 phase 9C: posted by `WinDock.exe --welcome` to the running dock: the welcome dialog
+// (round 12 phase 12G: Quick setup).
 inline constexpr wchar_t kWelcomeMessage[] = L"WinDock.Welcome";
 }  // namespace AppIpc
 
@@ -84,6 +87,7 @@ public:
     void OpenItemSettings(size_t dock, size_t item);
     // Round 9 phase 9C: the welcome dialog (the preset chooser's welcome variant for the first dock;
     // posted: it opens once the message loop runs). The first run, `--welcome`, About.
+    // Round 12 phase 12G: Quick setup (its first-run variant on the first run).
     void OpenWelcome();
     // Called by the message loop for every message: keyboard navigation in the settings windows.
     // Returns true if the message was handled (do not translate / dispatch it).
@@ -519,4 +523,46 @@ private:
     DockWindow* dragDock_ = nullptr;  // the dock showing a drawer drag's marker
     std::optional<POINT> widgetAt_;   // AddWidgetWindow: centre the new widget on this screen point
     // --- end round 12 phase 12D ---
+
+    // --- round 12 phase 12G: Quick setup and the three tips (AppQuickSetup.cpp) ---
+    // Quick setup replaces the welcome dialog: the first run, `--welcome`, About's Run quick setup
+    // again, the dock menu's App > Quick setup…, DockCommand 180 (152 LOWORD 1 too). It is one Keep /
+    // Cancel preview (12A) from open to Finish / Cancel; its edits go through the paths the menus and
+    // settings windows use. The tips: a CoachMark bubble beside the first dock (one at a time).
+    static constexpr UINT kQuickSetupClosed = WM_APP + 66;  // posted (app window): free the closed Quick setup
+    // Opens Quick setup or brings it forward. `firstRun`: the first start's variant (the Basic layout
+    // applied to the first dock first, as the welcome dialog's Skip gave it, then the preview).
+    void OpenQuickSetup(bool firstRun);
+    bool QuickSetupOpen() const { return quickSetup_ && quickSetup_->Hwnd(); }
+    // QuickSetupHost::change / finish / cancel.
+    bool ApplySetupChange(QuickSetupChange& c);
+    bool FinishQuickSetup(bool startWithWindows, bool hideTaskbar, bool showTips);
+    bool CancelQuickSetup();
+    // The preview is (still, or again) open, labelled "Quick setup" (an Undo or a Keep in a settings
+    // window may have ended it: the next edit starts a new one).
+    void EnsureSetupPreview();
+    // Layout "As it is now": docks[cfg] back to its entry in the preview's snapshot.
+    bool RestoreSetupDock(size_t cfg);
+    size_t FirstDockIndex() const;
+    bool QuickSetupCommand(UINT command, LPARAM lp);   // DockCommand 180 - 183
+    LRESULT QuickSetupState(WPARAM wp, LPARAM lp);      // QueryState 317 - 320
+    // The tips: ShowTip(-1) hides; StartTips(all): Show me around (the unseen ones) or Show the
+    // tips again (`all`: every bit cleared, from the first).
+    void ShowTip(int index);
+    void StartTips(bool all);
+    int NextUnseenTip(int from) const;
+    void OnTipCommand(int id);
+    void MarkTips(int bits);
+    // A tip's gesture was done (0 the dock menu opened, 1 customize mode entered, 2 a dock dragged):
+    // its bit is set; a tip on screen that it answers moves on.
+    void NoteTipGesture(int tip);
+    // The bubble beside the first dock's resting bar (again: the dock moved).
+    void PlaceTip();
+    // The Run key for AppQuickSetup.cpp (App.cpp's AutostartEnabled / SetAutostart).
+    static bool AutostartOn();
+    static bool SetAutostartOn(bool enable);
+    std::unique_ptr<QuickSetup> quickSetup_;
+    CoachMark tips_{[this](int id) { OnTipCommand(id); }};
+    int tipShown_ = -1;  // the tip on screen (-1 none)
+    // --- end round 12 phase 12G ---
 };

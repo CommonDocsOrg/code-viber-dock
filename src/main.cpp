@@ -22,7 +22,7 @@ struct Options {
     bool quit = false;
     bool restoreTaskbar = false;
     bool settings = false;  // open the settings window (in the running dock, or after starting)
-    bool welcome = false;   // round 9 phase 9C: the welcome dialog (in the running dock, or after starting)
+    bool welcome = false;   // round 9 phase 9C: the welcome dialog (in the running dock, or after starting); round 12 phase 12G: Quick setup
     bool validate = false;  // --validate-widget <folder>: check a widget's manifest, print, exit
     std::wstring validateFolder;
 };

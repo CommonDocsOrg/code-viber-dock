@@ -98,6 +98,7 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
         Append(sub, kStartWithWindows, L"Start with Windows", true, state.startWithWindows);
         // Session-only: unchecks "Hide taskbar" until it is checked again (or the dock restarts).
         Append(sub, kRestoreTaskbar, L"Show Windows taskbar temporarily", state.hideTaskbar);
+        Append(sub, kQuickSetup, L"Quick setup\x2026", true);  // round 12 phase 12G
         AppendSub(menu, sub, L"App");
     }
     AppendTools(menu, state.hasWidgets);

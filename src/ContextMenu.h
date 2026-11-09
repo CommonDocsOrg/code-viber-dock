@@ -120,6 +120,13 @@ enum Command : UINT {
     kCustomize = 170,        // LOWORD(lParam) 1 enter, 0 leave, 2 toggle; 1 done (also when already so), 0 refused
     kCustomizeDrawer = 171,  // the drawer popup of customize mode: LOWORD 1 show, 0 hide, 2 toggle; 1 done, 0 not customizing
     // --- end round 12 phase 12D ---
+    // --- round 12 phase 12G --- Quick setup and the tips (App::QuickSetupCommand; 180 is also the dock
+    // menu's App > "Quick setup…", 181 About's "Show the tips again" through the page's command):
+    kQuickSetup = 180,       // opens (or brings forward) Quick setup; LOWORD(lParam) 1: the first-run variant ("Welcome to WinDock", the Basic layout first)
+    kShowTips = 181,         // the tips: LOWORD(lParam) 0 - 2 shows that tip, 0xFFFF hides them, 0xFFFE "Show me around" (the unseen ones), 0xFFFD "Show the tips again" (all, from the first)
+    kSetupNext = 182,        // Quick setup's Next (1 done, 0 not open / on the last step)
+    kSetupFinish = 183,      // Quick setup's Finish (LOWORD(lParam) 1: Show me around); 1 done, 0 not open
+    // --- end round 12 phase 12G ---
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,

@@ -8,7 +8,7 @@ To start WinDock:
 
 1. Open the folder that holds `WinDock.exe`.
 2. Double-click `WinDock.exe`.
-3. On the very first start, the welcome dialog opens. Pick a dock setup and click **Use this dock**, or click **Skip (basic dock)**. See [Pick a preset](#pick-a-preset).
+3. On the very first start, **Quick setup** opens. Go through its four steps, or click **Cancel** to keep the basic dock. See [Quick setup](#quick-setup).
 
 Only one copy of WinDock runs at a time. Starting it again does nothing harmful.
 
@@ -17,12 +17,23 @@ You can also start and control WinDock from a command prompt:
 ```
 WinDock.exe                     start the dock
 WinDock.exe --settings          open the App settings window
-WinDock.exe --welcome           open the welcome dialog again
+WinDock.exe --welcome           open Quick setup again
 WinDock.exe --quit              ask the running dock to quit
 WinDock.exe --restore-taskbar   bring the Windows taskbar back
 ```
 
 To start WinDock every time you sign in, right-click the dock and check **Start with Windows**.
+
+## Quick setup
+
+Quick setup sets up your docks in four short steps. Every change shows on your desktop at once, and nothing is kept until you click **Finish**.
+
+1. **Your docks**: pick a layout, the display and the edge for each dock. Click **Add a dock** for a second or third one.
+2. **Their looks**: pick a look and set how see-through the bar is and how round its corners are.
+3. **How it behaves**: start WinDock with Windows, hide the Windows taskbar, auto-hide and animation.
+4. **Done**: click **Finish**, or **Show me around** for three short tips on the dock.
+
+**Cancel** puts everything back as it was. To run it again, open App settings > About and click **Run quick setup again**, or right-click the dock, open **App** and choose **Quick setup…**.
 
 ## What you see
 
@@ -88,7 +99,7 @@ To get help on what you see, press **F1** in a settings window, or click the sma
 
 ## Pick a preset
 
-A preset is a ready-made dock setup, such as a small flat dock or a taskbar-like dock with window titles. You can pick one at any time.
+A preset is a ready-made dock setup, such as a small flat dock or a taskbar-like dock with window titles. You can pick one at any time, in [Quick setup](#quick-setup) or from the dock's settings.
 
 To change your dock to a preset:
 
