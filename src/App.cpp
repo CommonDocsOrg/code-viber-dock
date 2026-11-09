@@ -4580,7 +4580,7 @@ void App::UpdateEditUi() {
     }
     const DockConfig& dc = config_.docks[cfg];
     EditBar::Content c;
-    c.dock = dc.id;
+    c.dock = config_.DockDisplayName(cfg);  // round 12 phase 12C's name, else the id (the 12C / 12D merge)
     c.dockArgb = config_.DockColor(cfg);
     // The 12A save state, worded as the settings windows' band words it.
     const SettingsStatus s = StatusFor(nullptr);
@@ -4660,7 +4660,7 @@ void App::PlaceDrawer() {
     }
     drawerPopup_.SetReturnFocus(d->Hwnd());
     const bool wasShown = drawerPopup_.Shown();
-    drawerPopup_.Show(instance_, dc, dc.id, config_.DockColor(cfg), avail, edge, endAlong, d->Dpi());
+    drawerPopup_.Show(instance_, dc, config_.DockDisplayName(cfg), config_.DockColor(cfg), avail, edge, endAlong, d->Dpi());  // 12C's name (the merge)
     if (!wasShown && drawerPopup_.Shown()) d->SetDrawerHold(true);
 }
 
