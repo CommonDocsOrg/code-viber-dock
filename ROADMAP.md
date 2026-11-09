@@ -1182,6 +1182,30 @@ rebuild.
   The widget kinds' header is "Widget: <name>", followed by their own entries, Widget settings…,
   Reload widget (script widgets), Remove this widget (ids 854 / 809 / 861 unchanged).
 
+### 13C: quick settings in a widget's menu; dark menus (done 2026-11-09)
+
+- **Entry shapes**: a quick `bool` is one checkable entry (checked while true, a click writes the
+  opposite); a quick `choice` is a submenu titled with the field's label and one radio entry per
+  choice. `ContextMenu::QuickEntry` is one leaf entry (a choice contributes one per value, grouped
+  by `group`), so the menu ids (`kQuickBase` + index) and ItemCommand 866's index are the same list
+  and QueryState 325 counts it. The base is 901, not the plan's 900: 900 is Close all windows.
+- **Why only bool and choice**: those are the types a menu can edit without a dialog (a check mark,
+  a radio pick); a number, text, colour, font, place or time zone needs the settings page's
+  control. Other types with the flag are ignored with a warning; 8 fields at most, so a menu stays
+  short.
+- **One writer**: the menu applies through the Item window's own path, `StoreItemSettings` then the
+  host's `SettingsScope::Pins` apply (`OnSettingsChanged`), so the widget sees the value as after a
+  settings-window edit and the open windows refresh; the timeline label is "Changed <field> of
+  <widget>". The clock (no manifest) gets Show seconds / Show date from `BuiltInSchema(Clock)`;
+  "24-hour clock" is not offered: the clock's 12 / 24 hours lives in its `format` string.
+- **Dark menus**: dark popups need both `SetPreferredAppMode(AllowDark)` for the process and an
+  owner allowed with `AllowDarkModeForWindow`. `DarkMode::EnableDarkMenus()` runs once at startup
+  when the app mode is dark (not in high contrast) and makes the mode sticky (the last settings
+  window closing used to set it back to Default); the app, dock, folder and widget windows allow
+  themselves on creation while it is on. `MenusDarkFor` (so `MenuIcons::TextColour`) reads the same
+  state. A Windows theme switch while the dock runs is followed by the menus only on the next start
+  (a light start leaves everything as before).
+
 ## Dependencies at a glance
 
 ```

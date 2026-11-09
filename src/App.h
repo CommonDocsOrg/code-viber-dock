@@ -133,6 +133,13 @@ private:
     void ShowMenu(DockWindow* dock, POINT screenPt);
     void ShowAppMenu(POINT screenPt);
     void ShowItemMenu(DockWindow& dock, int index, POINT screenPt);
+    // Round 13 phase 13C: the quick settings of slot `slot` of `dock` (its menu's entries): a script
+    // widget's fields with "quick": true, the clock's Show seconds / Show date; none for other kinds.
+    std::vector<ContextMenu::QuickEntry> QuickEntries(const DockWindow& dock, int slot) const;
+    // Applies entry `entry` of that list as the Item window does (StoreItemSettings, then
+    // OnSettingsChanged(Pins)), with the timeline label "Changed <field> of <widget>". False: no such
+    // entry. (The menu and ItemCommand 866.)
+    bool ApplyQuick(DockWindow& dock, int slot, size_t entry);
     // Runs a per-item command on the item with `key` of `dock` (looked up again: the item list may
     // have changed while a menu was open). `windows` are the windows the menu listed.
     void RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const std::vector<HWND>& windows);

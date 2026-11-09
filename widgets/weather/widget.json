@@ -15,7 +15,7 @@
     { "key": "place", "common": true, "section": "content", "type": "place", "label": "Place", "description": "The town or city whose weather is shown. Empty: the app's default place.", "group": "Place" },
     { "key": "label", "section": "content", "type": "string", "label": "Name on the dock", "default": "", "group": "Place",
       "description": "Shown under the temperature (empty: none)." },
-    { "key": "units", "common": true, "section": "content", "type": "choice", "label": "Units", "description": "Metric shows °C and km/h, imperial °F and mph. Default: metric.", "default": "metric", "group": "Place",
+    { "key": "units", "common": true, "quick": true, "section": "content", "type": "choice", "label": "Units", "description": "Metric shows °C and km/h, imperial °F and mph. Default: metric.", "default": "metric", "group": "Place",
       "choices": [
         { "value": "metric", "label": "Metric (°C, km/h)" },
         { "value": "imperial", "label": "Imperial (°F, mph)" }

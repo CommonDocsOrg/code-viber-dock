@@ -278,6 +278,17 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
         JsonUtil::ReadString(o, L"group", f.group);
         JsonUtil::ReadString(o, L"unit", f.unit);
         JsonUtil::ReadBool(o, L"common", f.common);  // round 10 phase 10B
+        // Round 13 phase 13C: a quick setting (the widget's menu): bool / choice only, at most 8.
+        JsonUtil::ReadBool(o, L"quick", f.quick);
+        if (f.quick && f.type != SettingField::Type::Bool && f.type != SettingField::Type::Choice) {
+            m.warnings.push_back(L"settings." + f.key + L": quick is for bool and choice fields only (ignored)");
+            f.quick = false;
+        }
+        if (f.quick && std::count_if(m.settings.begin(), m.settings.end(), [](const SettingField& s) { return s.quick; }) >=
+                           kMaxQuickFields) {
+            m.warnings.push_back(L"settings." + f.key + L": more than 8 quick settings (ignored)");
+            f.quick = false;
+        }
         // Round 10 phase 10C: the tab the field is on (an unknown value: the default, with a warning;
         // Validate makes it an error).
         std::wstring section;
@@ -660,7 +671,8 @@ constexpr const wchar_t* kTopKeys[] = {L"name",         L"version",     L"author
 constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"description", L"default", L"min",
                                          L"max",     L"step",       L"choices", L"choiceFrom", L"group", L"unit",
                                          L"visibleIf", L"common",  // common: round 10 phase 10B
-                                         L"section"};              // round 10 phase 10C
+                                         L"section",               // round 10 phase 10C
+                                         L"quick"};                // round 13 phase 13C
 constexpr wchar_t kPermissionFix[] =
     L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\" or { \"http\": [\"host\"] }";
 
@@ -863,6 +875,7 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
     bool listed = false;
     uint32_t i = 0;
     int places = 0;
+    int quicks = 0;  // round 13 phase 13C
     std::vector<std::wstring> seen;
     for (const auto& v : settings.GetArray()) {
         std::wstring field = L"settings[" + std::to_wstring(i++) + L"]";
@@ -900,6 +913,16 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
             c.Type(o, k, json::JsonValueType::String, field + L"." + k, L"a string");
         }
         c.Type(o, L"common", json::JsonValueType::Boolean, field + L".common", L"\"common\": true");  // round 10 phase 10B
+        // Round 13 phase 13C: a quick setting (the widget's menu) is a bool or a choice, 8 at most.
+        if (c.Type(o, L"quick", json::JsonValueType::Boolean, field + L".quick", L"\"quick\": true")) {
+            bool quick = false;
+            JsonUtil::ReadBool(o, L"quick", quick);
+            if (quick && t != SettingField::Type::Bool && t != SettingField::Type::Choice) {
+                c.Warn(field + L".quick", L"only bool and choice fields can be quick settings (ignored)", L"remove \"quick\"");
+            } else if (quick && ++quicks > kMaxQuickFields) {
+                c.Warn(field + L".quick", L"more than 8 quick settings: this one is not in the menu", L"mark 8 at most");
+            }
+        }
         // Round 10 phase 10C: the field's tab; an unknown name is an error like an unknown type.
         if (c.Type(o, L"section", json::JsonValueType::String, field + L".section", L"\"content\" or \"appearance\"")) {
             std::wstring section;

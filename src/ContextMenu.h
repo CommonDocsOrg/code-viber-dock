@@ -226,7 +226,17 @@ enum Command : UINT {
     kAddTileAt = 864,        // ... added before config item HIWORD(wParam) (>= the item count: at the end), as a drop there
     kEditRemove = 865,       // the remove badge of slot LOWORD(lParam) clicked: its config item goes (one undo entry)
     // --- end round 12 phase 12D ---
+    // Round 13 phase 13C: quick settings of slot LOWORD(lParam) of dock HIWORD(lParam): applies entry
+    // HIWORD(wParam) of its quick list (App::QuickEntries; QueryState 325 counts them) exactly as its
+    // menu entry does. 1 done, 0 no such entry.
+    kQuickApply = 866,
     kCloseAllWindows = 900,
+    // Round 13 phase 13C: a widget menu's quick entries, kQuickBase + the entry's index in
+    // ItemMenuState::quick (at most kQuickMax). Menu-local: never sent as ItemCommands (866 is). The
+    // plan reserved 900 - 999, but 900 is Close all windows (an ItemCommand since round 4), so the
+    // entries start at 901.
+    kQuickBase = 901,
+    kQuickMax = 99,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
 
@@ -278,6 +288,19 @@ struct AppMenuState {
 };
 UINT ShowAppMenu(HWND owner, POINT screenPt, const AppMenuState& state);
 
+// Round 13 phase 13C: one entry of a widget's quick settings (its menu, before Widget settings…).
+// A bool field is one checkable entry (checked: its value is true; valueJson: the toggled value);
+// a choice field is one entry per choice, consecutive, under a submenu named `group` (the field's
+// label), the current value's entry checked as a radio entry.
+struct QuickEntry {
+    std::wstring key;        // the item's `settings` key it writes
+    std::wstring valueJson;  // the value it writes, as JSON text
+    std::wstring label;      // the entry's text (a choice: the choice's label)
+    std::wstring group;      // a choice: its submenu's text; "" for a bool
+    std::wstring field;      // the field's label (the timeline: "Changed <field> of <widget>")
+    bool checked = false;
+};
+
 struct ItemMenuState {
     DockItem::Kind kind = DockItem::Kind::App;
     bool pinned = false;
@@ -299,6 +322,7 @@ struct ItemMenuState {
     std::wstring headerText;
     HICON headerIcon = nullptr;
     wchar_t headerGlyph = 0;
+    std::vector<QuickEntry> quick;  // round 13 phase 13C: the widget kinds' quick settings (kQuickBase + index)
 };
 
 // Round 13 phase 13B: the glyph (ContextMenu.cpp's table) a kind's header shows when there is no
@@ -319,7 +343,8 @@ wchar_t KindGlyph(DockItem::Kind kind);
 //   settings… · ─ · Ungroup (shortcuts stay pinned) · Unpin group and its N shortcuts
 // - Recycle Bin: the name · Open · Empty Recycle Bin · Customize icon ▸ · ─ · Unpin from dock
 // - Separator: Remove separator (no header)
-// - The widget kinds: "Widget: <name>" · the kind's entries · [quick settings: 13C] · Widget
+// - The widget kinds: "Widget: <name>" · the kind's entries · ─ · the quick settings (round 13
+//   phase 13C: checkable bools, a radio submenu per choice; ─ after them) · Widget
 //   settings… · Reload widget (script widgets only) · ─ · Remove this widget. The kind's entries:
 //   weather Refresh weather · Show forecast; clock Show calendar; notification centre Show
 //   notification centre; script widget and tray none.

@@ -59,7 +59,13 @@ struct SettingField {
     // standalone widget's window) the field is on. Without the key: DefaultSection.
     enum class Section { Content, Appearance };
     Section section = Section::Content;
+    // Round 13 phase 13C: `"quick": true`: the field is in the widget's right-click menu (a bool as
+    // a checkable entry, a choice as a submenu of radio entries; App::QuickEntries). Only Bool and
+    // Choice fields, at most kMaxQuickFields per widget: ReadSettingsSchema clears the flag of the
+    // others (a warning), Validate reports them.
+    bool quick = false;
 };
+constexpr int kMaxQuickFields = 8;  // round 13 phase 13C
 
 // Round 10 phase 10C: the section of a field whose schema entry has no `section`: Appearance for a
 // colour-typed field and for a field in a group named Colours / Colors / Look / Face / Size / Slot /

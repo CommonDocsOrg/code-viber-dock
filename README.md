@@ -173,6 +173,13 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
     **Show forecast** (this item's popup).
   - Clock: **Show calendar** (this clock's month calendar).
   - A script widget: none (**Reload widget** reloads its package and script).
+  - Round 13 phase 13C, between the kind's entries and **Widget settings…** (separators around
+    them): the widget's quick settings. A script widget's fields marked `"quick": true` (bools as
+    check entries, choices as a submenu named after the field with a radio entry per choice; at
+    most 8 fields; docs/widgets.md "Settings schema"; the built-in Weather (script) widget marks
+    **Units**), the clock's **Show seconds** and **Show date** (`showSeconds` / `showDate`; 12 / 24
+    hours is the `format` string, not a quick entry). A click writes the item's `settings` as its
+    settings window does (saved, applied at once, one Undo step such as "Changed Show seconds of Clock").
   - The tray (a right click beside its icons): none (a right click on an icon is its app's menu;
     Ctrl + right click the tray's own icon menu, see The tray).
   - The notification centre: **Show notification centre** (its **Widget settings…** opens App
@@ -747,7 +754,9 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
   icon for the pin's file or the app's package, else its window's icon), and the entries show small
   icons. Folders, groups, separators, the Recycle Bin and the widget kinds have their own menus
   (below and under Menus above; a widget's starts with "Widget: <name>", then its entries, **Widget
-  settings…**, **Remove this widget**). The dock menu has **Lock dock** (checked while the dock is
+  settings…**, **Remove this widget**; round 13 phase 13C: before Widget settings… its quick settings,
+  the manifest's fields marked `"quick": true` as check entries / radio submenus, the clock's Show
+  seconds and Show date, applied and saved at once as one Undo step). The dock menu has **Lock dock** (checked while the dock is
   locked, see below) and **Add >** **Clock** (added at the end), **Weather** (before a clock that
   ends the list, else at the end), **Running apps** (after the last pin; greyed while the dock has
   a running apps item) and **Separator** (appended to the pinned items). Several clocks or weather
@@ -3557,7 +3566,10 @@ always there, also when every dock is parked) handle these registered messages:
   right, 2 across both; -1 no such control, -2 that window is gone); **323** = the length of the active page's
   sentence (control 5800's window text; 0 none; addressed as 321). Round 13 phase 13A: **324** = 1 while a popup
   menu owned by dock `HIWORD(lParam)` is open (the dock / item / widget menu, a tray icon's dock menu; the dock is
-  not raised above it then), else 0 (`tools\smoke\menu-zorder.ps1` uses it). The labels of the change Undo / Redo would
+  not raised above it then), else 0 (`tools\smoke\menu-zorder.ps1` uses it). Round 13 phase 13C: **325** = the
+  number of quick entries of slot `LOWORD(lParam)` of dock `HIWORD(lParam)` (its menu's quick settings: one per
+  bool, one per value of a choice; ItemCommand 866 applies one; 0 for a slot without any or no such slot, -1 no
+  such dock window). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -4071,7 +4083,11 @@ always there, also when every dock is parked) handle these registered messages:
   `LOWORD(lParam)` (0 after the pinned run, 1 at the end: the drawer popup opens), 863 drawer entry `LOWORD`
   (QueryState 230's numbering; 1000 / 1001 open their dialogs, posted when sent) added at the end, 864 the
   same added before config item `HIWORD(wParam)`, 865 a click on the remove badge of slot `LOWORD` (its config
-  item goes: a pin or a widget kind, not a running app's slot). On a
+  item goes: a pin or a widget kind, not a running app's slot). Round 13 phase 13C: **866** applies quick entry
+  `HIWORD(wParam)` of slot `LOWORD(lParam)` of dock `HIWORD(lParam)` exactly as its menu entry does (a bool's
+  entry toggles it, a choice's entry chooses that value; the entries are numbered as the menu lists them, a
+  choice's values one entry each; QueryState 325 counts them): 1 done (also when the value was already
+  that), 0 no such slot or entry. The menu's own ids for them (901 - 999) are never sent as ItemCommands. On a
   [standalone widget](#standalone-widgets) entry (round 6 phase 6B; the entry's index in the high
   word of `lParam`): 809 reloads its widget, 854 opens its widget's settings (round 8 phase 8C:
   its own window's Widget tab; before, an Item window), 855 locks / unlocks

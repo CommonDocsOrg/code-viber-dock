@@ -58,6 +58,15 @@ bool TryEnableDarkPopups(bool enable);
 void AllowDarkForWindow(HWND hwnd, bool allow);
 // The undocumented popup support was found (for diagnostics).
 bool DarkPopupsAvailable();
+// Round 13 phase 13C: called once at startup (App::Init). When the app mode is dark (and high
+// contrast is off), turns dark popups on for the rest of the process (SetPreferredAppMode +
+// FlushMenuThemes; the last settings window closing no longer turns them off), so the dock's menus
+// follow dark mode once their owners are allowed (AllowDarkForWindow on the app, dock, folder and
+// widget windows). Light at startup: nothing changes. A theme switch while running is followed on
+// the next start. Returns whether it is on.
+bool EnableDarkMenus();
+// EnableDarkMenus turned dark popups on (the windows that own menus then AllowDarkForWindow).
+bool DarkMenusOn();
 // Round 13 phase 13B: a popup menu owned by `owner` is drawn dark right now (dark popups on, the
 // app mode dark, not high contrast, the owner allowed; ordinal 137 IsDarkModeAllowedForWindow).
 // MenuIcons picks the glyph colour with it.

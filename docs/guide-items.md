@@ -88,10 +88,12 @@ Right-click an item and its menu starts with the item's name and icon, then what
 - A folder: **Open in Explorer**, **Show contents**, **Contents layout**, **Customize icon**, **Folder settings…**, then **Unpin from dock**.
 - A group: **Show contents**, **Rename…**, **Contents layout**, **Customize icon**, **Group settings…**, then **Ungroup (shortcuts stay pinned)** and **Unpin group and its shortcuts**.
 - The weather: **Widget: Weather** at the top, **Refresh weather**, **Show forecast**, **Widget settings…**, then **Remove this widget**.
-- The clock: **Widget: Clock** at the top, **Show calendar**, **Widget settings…**, then **Remove this widget**.
+- The clock: **Widget: Clock** at the top, **Show calendar**, **Show seconds** and **Show date**, **Widget settings…**, then **Remove this widget**.
 - A widget: **Widget:** and its name at the top (such as **Widget: System monitor**), **Widget settings…**, **Reload widget**, then **Remove this widget**.
 - The tray and the notification centre: **Widget: Tray** or **Widget: Notification centre** at the top, **Show notification centre** (the notification centre), **Widget settings…**, then **Remove this widget**.
 - A separator: **Remove separator**.
+
+Some widgets put their everyday settings straight into this menu, above **Widget settings…**: an on / off setting is an entry with a check mark (click it to switch), a setting with a few values is a submenu with the current value marked (such as **Units** on the weather widget). The clock has **Show seconds** and **Show date**. A change made there applies at once, is saved, and can be undone like any other (**Undo** in the dock menu names it, such as "Changed Show seconds of Clock").
 
 The dock menu is grouped by task. First, while there is something to undo, **Undo** with the name of the last change. Then for this dock: **Customize this dock**, **Dock settings…**, **Add**, **Position on screen**, **Auto-hide**, **Lock dock**, **Rename dock…**, **Duplicate dock** and **Save dock as layout…**. Then **All docks** (the dashboard, lock all), **App** (App settings, the taskbar, Start with Windows, Quick setup), **Tools** (the config file, widgets, Task Manager), **Help…** and **Quit**.
 

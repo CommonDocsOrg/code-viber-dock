@@ -13,6 +13,7 @@
 #include <cmath>
 #include <cwchar>
 
+#include "DarkMode.h"
 #include "DesktopLayer.h"
 #include "Theme.h"
 
@@ -100,6 +101,7 @@ HRESULT FolderWindow::Create(HINSTANCE instance, Config* config, size_t cfg, HMO
                             rect_.left, rect_.top, rect_.right - rect_.left, rect_.bottom - rect_.top, nullptr, nullptr,
                             instance_, this);
     if (!hwnd_) return HRESULT_FROM_WIN32(GetLastError());
+    if (DarkMode::DarkMenusOn()) DarkMode::AllowDarkForWindow(hwnd_, true);  // round 13 phase 13C: its menus
     if (const UINT d = GetDpiForWindow(hwnd_); d && d != dpi_) {
         dpi_ = d;
         scale_ = static_cast<float>(dpi_) / 96.0f;

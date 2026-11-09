@@ -2,6 +2,8 @@
 
 #include "MenuIcons.h"
 
+#include <algorithm>
+
 namespace ContextMenu {
 
 namespace {
@@ -261,8 +263,47 @@ void AppendHeader(HMENU menu, const ItemMenuState& item) {
 
 // Round 13 phase 13B: the widget kinds' shared tail: Widget settings… (was "<name> settings…"),
 // Reload widget (script widgets), ─, Remove this widget (was "Remove from dock").
+// Round 13 phase 13C: the last entry appended is a separator (or there is none).
+bool EndsWithSeparator(HMENU menu) {
+    const int count = GetMenuItemCount(menu);
+    if (count <= 0) return true;
+    MENUITEMINFOW mii{sizeof(mii)};
+    mii.fMask = MIIM_FTYPE;
+    return GetMenuItemInfoW(menu, static_cast<UINT>(count - 1), TRUE, &mii) && (mii.fType & MFT_SEPARATOR);
+}
+
+// Round 13 phase 13C: the widget's quick settings between separators: a bool is a checkable entry
+// (the gutter's check mark, no glyph), a choice a submenu titled with its label holding a radio
+// entry per choice. The entries' ids are kQuickBase + their index in item.quick.
+void AppendQuick(HMENU menu, const ItemMenuState& item) {
+    const std::vector<QuickEntry>& q = item.quick;
+    const size_t n = std::min<size_t>(q.size(), kQuickMax);
+    if (n == 0) return;
+    if (!EndsWithSeparator(menu)) Separator(menu);
+    for (size_t i = 0; i < n;) {
+        if (q[i].group.empty()) {
+            Append(menu, kQuickBase + static_cast<UINT>(i), MenuText(q[i].label).c_str(), true, q[i].checked);
+            ++i;
+            continue;
+        }
+        size_t j = i;
+        HMENU sub = CreatePopupMenu();  // destroyed with its parent
+        UINT checked = 0;
+        for (; j < n && !q[j].group.empty() && q[j].key == q[i].key; ++j) {
+            if (sub) Append(sub, kQuickBase + static_cast<UINT>(j), MenuText(q[j].label).c_str(), true);
+            if (q[j].checked) checked = kQuickBase + static_cast<UINT>(j);
+        }
+        if (sub) {
+            if (checked) CheckMenuRadioItem(sub, kQuickBase + static_cast<UINT>(i), kQuickBase + static_cast<UINT>(j - 1), checked, MF_BYCOMMAND);
+            AppendSub(menu, sub, MenuText(q[i].group).c_str());
+        }
+        i = j;
+    }
+    Separator(menu);
+}
+
 void AppendWidgetTail(HMENU menu, const ItemMenuState& item) {
-    // [quick settings: 13C] (the widget's quick settings go here, before Widget settings…)
+    AppendQuick(menu, item);  // round 13 phase 13C (13B left the place for them)
     if (item.hasSettings) Append(menu, kOpenItemSettings, L"Widget settings…", true, false, G::kSettings);
     if (item.kind == DockItem::Kind::Widget) Append(menu, kReloadWidget, L"Reload widget", true, false, G::kReload);
     Separator(menu);

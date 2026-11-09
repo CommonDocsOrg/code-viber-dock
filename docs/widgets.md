@@ -83,7 +83,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 ### Settings schema
 
 Each entry: `key` (required), `type`, `label`, `description`, `default`, the page's layout keys
-`section`, `group`, `unit`, `visibleIf` and `common` (below), and per type:
+`section`, `group`, `unit`, `visibleIf`, `common` and `quick` (below), and per type:
 
 | `type` | Value | Extra keys |
 |---|---|---|
@@ -137,7 +137,7 @@ The values live in the dock item's `settings` object in config.json. The script 
 defaults overridden by the item's values (a value of the wrong type or out of range falls back to
 the default; ints are rounded, numbers clamped); keys the schema does not name are passed through
 unchanged. Each widget item has its own settings window (an Item window, round 5), generated from
-the schema: **<name> settings…** in the widget's own right-click menu, or Dock settings >
+the schema: **Widget settings…** in the widget's own right-click menu, or Dock settings >
 Contents > **More settings…** in the inspector of the widget's tile (a double click or Enter on it
 does the same; round 10 phase 10B: the inspector itself edits the fields marked `common`, below). It has a check box per `bool`, an up-down (stepper, `step` per click, `min` -
 `max`) per `int`, a drop-down per `choice` and `timezone`, the place block for a `place`, an edit
@@ -167,6 +167,7 @@ The page's layout keys (round 4 phase 14):
 | `unit` | `"unit": "DIPs"` | A unit after an `int`'s stepper or a `number`'s edit box ("%", "minutes"). |
 | `visibleIf` | `"visibleIf": { "seconds": true }` | The field (and a group header that would be left empty) is shown only while every named field has that value; the page is generated again when one of them changes. A key that names no other field is an error. |
 | `common` | `"common": true` | Round 10 phase 10B: one of the widget's few everyday settings. Dock settings > Contents shows the fields marked `common` in the inspector of the selected widget, editable in place (in schema order, at most six, each only while its `visibleIf` holds), above **More settings…**, which opens the whole page. Without any `common` field the inspector shows the first three fields of a simple type (`bool`, `int`, `number`, `string`, a `choice` not from `"perf"`). The inspector edits `bool`, `int`, `number`, `string`, `colour`, `font`, `choice` and `timezone` fields; a `place` shows as a read-only line, a `"choiceFrom": "perf"` choice is left to the page. Not a boolean: an error. Mark two to four fields. |
+| `quick` | `"quick": true` | Round 13 phase 13C: the field is a quick setting in the widget's right-click menu, between its own entries and **Widget settings…**. A `bool` is one checkable entry (its `label`, checked while the value is true; a click toggles it); a `choice` is a submenu titled with its `label`, holding one radio entry per choice (the current value checked; a click chooses it). Fields are listed in schema order. Only `bool` and `choice` fields can be quick: on another type the key is ignored and the manifest check warns. At most 8 quick fields per widget: the ones after the eighth are left out of the menu, with a warning. Not a boolean: an error. A change from the menu is written and applied as the settings window does (saved, `onSettingsChanged`, one Undo step named after the field and the widget, "Changed Units of Weather (script)"). A `"choiceFrom": "perf"` choice lists only its fixed `choices` there. |
 
 ```json
 { "key": "seconds", "type": "bool", "label": "Second hand", "default": false, "group": "Second hand", "section": "appearance" },

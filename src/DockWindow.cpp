@@ -17,6 +17,7 @@
 #include "Activation.h"
 #include "AppIdentity.h"
 #include "ContextMenu.h"
+#include "DarkMode.h"
 #include "DesktopLayer.h"
 #include "IconEffects.h"
 #include "Launcher.h"
@@ -371,6 +372,8 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                             nullptr, nullptr, instance, this);
     if (!hwnd_) return HRESULT_FROM_WIN32(GetLastError());
     dpi_ = GetDpiForWindow(hwnd_);
+    // Round 13 phase 13C: its menus (dock, item, tray icon) follow dark mode (on when it was dark at startup).
+    if (DarkMode::DarkMenusOn()) DarkMode::AllowDarkForWindow(hwnd_, true);
 
     // Live window thumbnails need a multithreaded D3D device (Windows.Graphics.Capture).
     HRESULT hr = renderer_.Initialize(hwnd_, config_->renderer == L"software", DockCfg().thumbnails == ThumbnailMode::Live);

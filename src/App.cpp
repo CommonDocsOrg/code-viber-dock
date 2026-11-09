@@ -17,12 +17,14 @@
 
 #include "AppIdentity.h"
 #include "ContextMenu.h"
+#include "DarkMode.h"
 #include "DesktopLayer.h"
 #include "Hotkey.h"
 #include "IconUtil.h"
 #include "JsonUtil.h"
 #include "MenuIcons.h"
 #include "Presets.h"
+#include "SettingsForm.h"  // round 13 phase 13C: ItemSettingsValues / StoreItemSettings (the Item window's write)
 #include "SettingsIds.h"
 #include "Theme.h"
 #include "WidgetPackage.h"
@@ -167,10 +169,16 @@ bool App::Initialize(HINSTANCE instance) {
     wc.hInstance = instance;
     wc.lpszClassName = AppIpc::kAppWindowClass;
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
+    // Round 13 phase 13C: in dark mode the dock's menus are dark (13B found them light: dark popups
+    // were on only while a settings window was open, and no menu owner was allowed). Once, before
+    // the windows that own menus are made; each of them then allows itself (DarkMode::DarkMenusOn).
+    DarkMode::EnableDarkMenus();
     if (!CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, AppIpc::kAppWindowClass, L"WinDock", WS_POPUP, 0, 0, 0, 0,
                          nullptr, nullptr, instance, this)) {
         return false;
     }
+    // The app window owns the tray-icon menu when no dock is shown (App::ShowAppMenu).
+    if (DarkMode::DarkMenusOn()) DarkMode::AllowDarkForWindow(hwnd_, true);
 
     DockManager::Callbacks callbacks;
     callbacks.hook = [this](HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LRESULT& r) {
@@ -1730,6 +1738,7 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
         itemState.hasSettings = !widgetName.empty();
         if (!widgetName.empty()) itemState.headerText = L"Widget: " + widgetName;
         itemState.headerGlyph = ContextMenu::KindGlyph(item.kind);
+        itemState.quick = QuickEntries(dock, index);  // round 13 phase 13C
     } else if (item.kind != DockItem::Kind::Separator) {
         // Apps, folders, groups, the Recycle Bin: the name with the item's own icon (the cheapest
         // HICON there is, MenuIcons::ItemIcon), else the kind's glyph.
@@ -1762,8 +1771,102 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
         RunMenu(&dock, [&] { return ContextMenu::ShowItemMenu(owner, pt, name, titles, itemState, state); });
     if (itemState.headerIcon && ownsIcon) DestroyIcon(itemState.headerIcon);
     DockWindow* again = shutDown_ ? nullptr : docks_.ByHwnd(owner);
-    if (again) RunItemCommand(*again, cmd, key, windows);
+    if (!again) return;
+    // Round 13 phase 13C: a quick entry (only a widget kind's menu has them, and none of those has
+    // Close all windows, 900): the slot found again, its list built again (the same one unless the
+    // item changed meanwhile), the entry applied as ItemCommand 866 does.
+    if (!itemState.quick.empty() && cmd >= ContextMenu::kQuickBase && cmd - ContextMenu::kQuickBase < itemState.quick.size()) {
+        const int now = IndexOfKey(*again, key);
+        if (now < 0 || !ApplyQuick(*again, now, cmd - ContextMenu::kQuickBase)) MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    RunItemCommand(*again, cmd, key, windows);
 }
+
+// --- round 13 phase 13C: quick settings in a widget's menu ---
+std::vector<ContextMenu::QuickEntry> App::QuickEntries(const DockWindow& dock, int slot) const {
+    namespace json = JsonUtil::json;
+    std::vector<ContextMenu::QuickEntry> out;
+    const size_t cfg = dock.ConfigIndex();
+    if (slot < 0 || static_cast<size_t>(slot) >= dock.Items().size() || cfg >= config_.docks.size()) return out;
+    const DockItem& item = dock.Items()[static_cast<size_t>(slot)];
+    if (!item.IsWidget() || item.element >= config_.docks[cfg].items.size()) return out;
+    const DockItemEntry& e = config_.docks[cfg].items[item.element];
+    // The fields: a script widget's marked "quick" (WidgetPackage keeps 8 at most, bools and
+    // choices only); the clock (no manifest) two hand-picked plain bools of ClockConfig, with menu
+    // labels of their own. "24-hour clock" is left out: the clock's 12 / 24 hours is its `format`
+    // string, not a bool (a toggle would have to rewrite a format the user may have typed).
+    std::vector<Widgets::SettingField> fields;
+    std::shared_ptr<const Widgets::Package> pkg;
+    if (e.Kind() == ItemKind::Clock) {
+        for (Widgets::SettingField& f : Widgets::BuiltInSchema(ItemKind::Clock)) {
+            if (f.key == L"showSeconds") {
+                f.label = L"Show seconds";
+            } else if (f.key == L"showDate") {
+                f.label = L"Show date";
+            } else {
+                continue;
+            }
+            fields.push_back(std::move(f));
+        }
+    } else if (e.Kind() == ItemKind::Widget) {
+        std::wstring error;
+        pkg = Widgets::Load(e.id, error);
+        if (!pkg) return out;
+        for (const Widgets::SettingField& f : pkg->manifest.settings) {
+            if (f.quick) fields.push_back(f);
+        }
+    }
+    if (fields.empty()) return out;
+    // The values the Item window shows (its own over the defaults).
+    json::JsonObject values{nullptr};
+    try {
+        const std::wstring text = ItemSettingsValues(config_, e, pkg ? &pkg->manifest : nullptr);
+        if (!json::JsonObject::TryParse(text, values)) values = nullptr;
+    } catch (...) {
+        values = nullptr;
+    }
+    for (const Widgets::SettingField& f : fields) {
+        json::IJsonValue v = values ? JsonUtil::Find(values, f.key.c_str()) : nullptr;
+        if (!v) {
+            try {
+                v = json::JsonValue::Parse(f.defaultJson);
+            } catch (...) {
+                v = nullptr;
+            }
+        }
+        if (f.type == Widgets::SettingField::Type::Bool) {
+            const bool on = v && v.ValueType() == json::JsonValueType::Boolean && v.GetBoolean();
+            out.push_back({f.key, on ? L"false" : L"true", f.label, L"", f.label, on});
+        } else if (f.type == Widgets::SettingField::Type::Choice) {
+            const std::wstring current = v && v.ValueType() == json::JsonValueType::String ? std::wstring(v.GetString()) : L"";
+            for (const auto& [value, label] : f.choices) {
+                out.push_back({f.key, JsonUtil::Quote(value), label, f.label, f.label, value == current});
+            }
+        }
+        if (out.size() >= ContextMenu::kQuickMax) {
+            out.resize(ContextMenu::kQuickMax);
+            break;
+        }
+    }
+    return out;
+}
+
+bool App::ApplyQuick(DockWindow& dock, int slot, size_t entry) {
+    const std::vector<ContextMenu::QuickEntry> entries = QuickEntries(dock, slot);
+    if (entry >= entries.size()) return false;
+    const ContextMenu::QuickEntry& q = entries[entry];
+    const size_t cfg = dock.ConfigIndex();
+    const size_t element = dock.Items()[static_cast<size_t>(slot)].element;
+    // The Item window's write (StoreItemSettings, shared with the Contents inspector) and its host
+    // apply (SettingsScope::Pins: the dock re-reads the item, a script widget gets onSettingsChanged,
+    // the clock redraws; saved; the open settings windows follow). A choice already chosen: nothing.
+    if (!StoreItemSettings(config_, config_.docks[cfg].items[element], {{q.key, q.valueJson}})) return true;
+    NoteLabel(L"Changed " + q.field + L" of " + EntryName(cfg, element));
+    OnSettingsChanged(SettingsScope::Pins, cfg, nullptr);
+    return true;
+}
+// --- end round 13 phase 13C ---
 
 void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
     if (cfg >= config_.docks.size()) cfg = 0;
@@ -3887,6 +3990,8 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         case 316:  // 1 while a drag of the whole dock is in progress (Ctrl+drag, customize mode's drag; -1 no such dock window)
             return inst && inst->window ? (inst->window->DockDragging() ? 1 : 0) : -1;
         // --- end round 12 phase 12E ---
+        case 325:  // round 13 phase 13C: the quick entries of slot LOWORD(lParam) of dock HIWORD (-1 no such dock window)
+            return inst && inst->window ? static_cast<LRESULT>(QuickEntries(*inst->window, static_cast<int>(arg)).size()) : -1;
         default:
             break;
     }
@@ -4206,6 +4311,13 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
             case ContextMenu::kEditRemove: result = dock->EditRemoveSlot(arg) ? 1 : 0; break;
             default: break;
         }
+        return true;
+    }
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) == ContextMenu::kQuickApply) {
+        // Round 13 phase 13C: quick entry HIWORD(wParam) of slot LOWORD(lParam) of dock HIWORD(lParam),
+        // applied as its menu entry is. 1 done, 0 no such slot / entry.
+        DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+        result = dock && ApplyQuick(*dock, static_cast<int>(ArgOfParam(lp)), static_cast<size_t>((wp >> 16) & 0xFFFF)) ? 1 : 0;
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kOpenHelp) {

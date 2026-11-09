@@ -34,6 +34,9 @@ struct Undocumented {
     AllowDarkModeForWindowFn allowDarkModeForWindow = nullptr;
     IsDarkModeAllowedForWindowFn isDarkModeAllowedForWindow = nullptr;  // round 13 phase 13B (ordinal 137, optional)
     bool enabled = false;  // SetPreferredAppMode(AllowDark) is in effect
+    // Round 13 phase 13C: EnableDarkMenus turned it on at startup (the app mode was dark): it stays
+    // on for the process (TryEnableDarkPopups(false) from the last settings window keeps it).
+    bool sticky = false;
 };
 Undocumented g_ux;
 
@@ -184,6 +187,7 @@ bool TryEnableDarkPopups(bool enable) {
     ResolveUndocumented();
     if (!g_ux.setPreferredAppMode) return false;
     if (!enable && !g_ux.enabled) return true;
+    if (!enable && g_ux.sticky) return true;  // round 13 phase 13C: the dock's menus keep following dark mode
     g_ux.setPreferredAppMode(enable ? PreferredAppMode::AllowDark : PreferredAppMode::Default);
     if (g_ux.flushMenuThemes) g_ux.flushMenuThemes();
     g_ux.enabled = enable;
@@ -200,13 +204,25 @@ bool DarkPopupsAvailable() {
     return g_ux.setPreferredAppMode != nullptr;
 }
 
+bool EnableDarkMenus() {
+    if (HighContrastOn() || !AppsUseDarkTheme()) return false;  // light (or high contrast): as before
+    if (!TryEnableDarkPopups(true)) return false;               // flushes the menu themes
+    g_ux.sticky = true;
+    return true;
+}
+
+bool DarkMenusOn() { return g_ux.sticky; }
+
 bool MenusDarkFor(HWND owner) {
-    // A popup menu is dark when the process allows dark popups (SetPreferredAppMode(AllowDark),
-    // on while a settings window is open), the app mode is dark, and its owner window was allowed
-    // (AllowDarkModeForWindow). Without ordinal 137 the owner's flag is unknown: light is assumed
-    // (the dock windows and the app window never call AllowDarkForWindow).
-    if (!g_ux.enabled || !g_ux.isDarkModeAllowedForWindow || !owner) return false;
+    // A popup menu is dark when the process allows dark popups (SetPreferredAppMode(AllowDark):
+    // since round 13 phase 13C for good when the app mode was dark at startup, else while a settings
+    // window is open), the app mode is dark, and its owner window was allowed
+    // (AllowDarkModeForWindow; the dock, folder, widget and app windows since 13C, when dark at
+    // startup). Without ordinal 137 the owner's flag is unknown: the windows 13C allows are assumed
+    // allowed while the startup switch is on, any other owner light.
+    if (!g_ux.enabled || !owner) return false;
     if (HighContrastOn() || !AppsUseDarkTheme()) return false;
+    if (!g_ux.isDarkModeAllowedForWindow) return g_ux.sticky;
     return g_ux.isDarkModeAllowedForWindow(owner);
 }
 
