@@ -914,5 +914,18 @@ inline constexpr int kCentreIt = 5737;           // ... a floating bar / circle:
 inline constexpr int kDistanceNote = 5738;       // ... the note under the distances ("You can also drag the dock while customizing. …")
 inline constexpr int kEdgeGapNote = 5739;        // ... the hint under its label ("A full-width bar sits on its edge." when it does not apply)
 // --- end round 12 phase 12E ---
+// --- round 12 phase 12F (5800 - 5829) ---
+// The page's one sentence under its title (every page and tab of every window: the same id on each
+// page, which are separate HWNDs; QueryState 323 reads the active page's), and the reasons beside
+// controls that do not apply now (shown only while the condition holds; collapsed otherwise).
+inline constexpr int kPageLead = 5800;           // every page: its one sentence (a note in the secondary colour, spans both columns)
+inline constexpr int kKindReason = 5801;         // Position: why a floating bar / half circle / circle has no edge rows ("… Choose Bar on an edge …")
+inline constexpr int kReserveReason = 5802;      // Position: "Reserving space needs auto-hide off …" / "… the Normal layer …" (Reserve screen space greyed)
+inline constexpr int kPeekReason = 5803;         // Position > Exact offsets: the peek applies while auto-hide is on
+inline constexpr int kThumbReason = 5804;        // Running apps: which thumbnail rows the chosen mode leaves out
+inline constexpr int kHideDelayReason = 5805;    // Behaviour > Delays: hide / reveal delays need auto-hide on
+inline constexpr int kPreviewDelayReason = 5806; // Behaviour > Delays: the preview delay (and single-window previews) need previews on
+inline constexpr int kTitlesReason = 5807;       // Running apps: titles on vertical docks need titles under icons
+// --- end round 12 phase 12F ---
 
 }  // namespace SettingsIds

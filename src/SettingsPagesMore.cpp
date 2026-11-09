@@ -56,6 +56,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Animation");
+        Lead(L"How fast things move, and how the dock hides and launches.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#animation");
         Section(kSectionSpeed, L"Speed", L"guide-settings.md#speed");
         // Round 8 phase 8A: the note is the label's hint (kSpeedNote) and its tooltip.

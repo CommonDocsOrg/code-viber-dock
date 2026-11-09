@@ -1633,11 +1633,17 @@ round 12 phase 12E: a dock's is the panel right beside its bar);
 an Item window opens 40 DIPs right of and below its dock's window when that is open (12E: still kept off the bar). Round 8 phase
 8A: every window is **resizable** (a resize border and a maximize button) and remembers its last
 size per kind (`settings.windows` in config.json, see Configuration; a maximized window remembers
-the size it is restored to). Default sizes (client area, DIPs): Global 760 × 560, Dock 860 × 620,
-Item 600 × 600; minimums Global 700 × 500, Dock 780 × 540, Item 520 × 480. Everything follows
-the size (the header, the tab strip, the Global page list with its 200 DIP column, the preview
-strip, the Item window's footer, the pages: controls at a page's right margin stretch or move,
-notes wrap again); pages scroll.
+the size it is restored to). Default sizes (client area, DIPs; round 12 phase 12F: from the display
+it opens on when no size is saved): App 60 % × 70 % of the work area within 760 × 560 and
+1280 × 860, Item the same share within 600 × 600 and 800 × 760, a dock's panel 470 × 640 (it widens
+up to the room beside its dock), a folder window's or standalone widget's window 860 × 620; minimums
+Global 700 × 500, Dock 780 × 540 (the panel 400 × 360), Item 520 × 480. Everything follows the size
+(the header, the tab strip, the Global page list with its 200 DIP column (260 DIPs with a
+description under each page's name from 1100 DIPs of width), the preview strip, the Item window's
+footer, the pages: controls at a page's right margin stretch or move, notes wrap again); pages
+scroll. Round 12 phase 12F: edits, drop-downs and sliders stop at 360 DIPs and text wraps at about
+72 characters; a page at least 1000 DIPs wide puts its cards in two columns (a list, the gallery or
+the canvas keeps the whole width); every page opens with one sentence under its title.
 
 **How a page reads** (round 8 phase 8A): each section is a **card** (a rounded panel, its title
 at the top, hairlines between its rows; a page without sections is one card); in the Global
@@ -2558,8 +2564,9 @@ items that exist. A file whose items have settings already is left alone.
 - `settings` (round 8 phase 8A): `{ "windows": { "global": [w, h], "dock": [w, h], "item": [w, h] } }`,
   the last client size in DIPs of each kind of settings window (Global, Dock (a folder window's
   and a standalone widget's window included), Item; see Settings). A kind is written only when
-  its size is not the default (760 × 560, 860 × 620, 600 × 600), the whole object only when one
-  is; a size is clamped to the kind's minimum (700 × 500, 780 × 540, 520 × 480) and 4000. Saved
+  its size is not the default (round 12 phase 12F: the size it would open at, from its display),
+  the whole object only when one is; a size is clamped to 700 × 500, 400 × 360 (the dock slot holds
+  the panel's size too), 520 × 480 and 4000. Saved
   when a resize ends (and after a program resizes a window), not during a drag.
   Round 9: `"fullscreen": "hide"` (the default; not written) or `"ignore"` (any other text reads
   as `"hide"`): the full-screen guard, App settings > General > Full-screen apps (see
@@ -3350,7 +3357,12 @@ always there, also when every dock is parked) handle these registered messages:
   Dock settings window: 0 none open, 1 a panel beside the dock, 2 a captioned window (a folder window / standalone
   widget entry), **314** = the panel's side: 0 above the dock, 1 below it, 2 right of it, 3 left of it (-1 no panel),
   **315** = its `edgeGap` (DIPs; -2 not a dock), **316** = 1 while a drag of the whole dock is in progress (Ctrl+drag
-  or customize mode's drag; -1 no such dock window); 228 is also 1 while the dock's panel is open. The labels of the change Undo / Redo would
+  or customize mode's drag; -1 no such dock window); 228 is also 1 while the dock's panel is open. Round 12 phase
+  12F: **321** = the active page's layout, 1 or 2 columns (`LOWORD(lParam)` 0xFFFE: the App settings window, 0xFFFF:
+  the Dock settings of dock `HIWORD`, else the Item window of item `LOWORD` of dock `HIWORD`; -2 not open); it also
+  picks the window **322** asks: the column of control `LOWORD(lParam)` on its active page (0 left or the only one, 1
+  right, 2 across both; -1 no such control, -2 that window is gone); **323** = the length of the active page's
+  sentence (control 5800's window text; 0 none; addressed as 321). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -3506,6 +3518,12 @@ always there, also when every dock is parked) handle these registered messages:
   edit, spin, label, "px"; disabled with hint 5739 for a full-width bar), 5738 the note under them, 5737 Centre it
   (a floating bar / circle: clears x 2180 / y 2182, now in this card); sliders: `TBM_SETPOS` + `TB_ENDTRACK`.
   The window is still a top-level `WinDock.Settings` (a `WS_POPUP` tool window; its title text as before).
+  Round 12 phase 12F (5800 - 5829): 5800 every page's one sentence under its title (a note; the same id on each
+  page window), 5801 Position: why a floating bar / half circle / circle has no edge rows, 5802 why Reserve screen
+  space (2151) is greyed (auto-hide on, a desktop layer), 5803 Exact offsets: the peek needs auto-hide, 5804 Running
+  apps: which thumbnail rows the mode leaves out, 5805 / 5806 Behaviour > Delays: hide / reveal need auto-hide,
+  the preview delay needs previews, 5807 Running apps: titles on vertical docks need titles; each reason is
+  collapsed while its condition does not hold. DockCommand 184 / 185 are reserved (unused).
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that

@@ -184,6 +184,35 @@ void SettingsPage::Title(const wchar_t* text) {
     y_ = reflow_ ? 72 : 64;
 }
 
+void SettingsPage::Lead(const std::wstring& text, const std::wstring& tip) {
+    // Round 12 phase 12F: outside any card (it spans both columns), the cards' state kept for the
+    // rows after it. Under the title (Global), else at the top of the page (the tab or the header
+    // names the page there; Title only moved the cursor).
+    if (!reflow_ || text.empty()) return;
+    const int keepCard = card_;
+    const bool keepAuto = autoCard_;
+    card_ = -1;
+    autoCard_ = false;
+    if (std::any_of(table_.begin(), table_.end(), [&](const Ctl& c) { return c.row == row_; })) ++row_;
+    y_ = window_.Kind() == SettingsKind::Global ? 56 : std::max(16, y_ - 8);
+    // A measured note (its height follows its text and the page's width: the rows under it move).
+    Text(SettingsIds::kPageLead, CtlKind::Note, text, kMargin, Width() - 2 * kMargin, 20);
+    if (!tip.empty()) Tip(SettingsIds::kPageLead, tip);
+    ++row_;
+    y_ += 20 + (window_.Kind() == SettingsKind::Global ? 14 : 16);
+    card_ = keepCard;
+    autoCard_ = keepAuto;
+}
+
+void SettingsPage::WideCard() {
+    if (!reflow_) return;
+    if (card_ < 0) {  // no card open: the one the next control would open (as HelpButton does)
+        cards_.push_back(Card{});
+        card_ = static_cast<int>(cards_.size()) - 1;
+    }
+    cards_[static_cast<size_t>(card_)].wide = true;
+}
+
 void SettingsPage::Section(int id, const wchar_t* text, const wchar_t* topic) {
     int gap = 0;
     if (reflow_) {
@@ -463,6 +492,8 @@ void SettingsPage::SetText(int id, const std::wstring& text) {
     if (c->measured && hwnd_ && !c->collapsed) {
         const int h = window_.MeasureTextDip(text, c->dip.right - c->dip.left, c->maxLines);
         if (h != c->dip.bottom - c->dip.top) Relayout();
+    } else if (reflow_ && SettingsWindow::WrapsNote(*c) && hwnd_ && !c->collapsed && (c->wrapped || window_.NoteNeedsWrap(nullptr, *c, text))) {
+        Relayout();  // round 12 phase 12F: a one-line note that wraps (or did): its row's height
     }
 }
 
@@ -761,10 +792,40 @@ SIZE SettingsWindow::ClientDip() const {
     // Round 12 phase 12E: a panel's default is its own (470 x 640); a size saved by the captioned
     // Dock window of earlier versions (or by a folder window's / standalone widget's, which share
     // the slot) is reused, clamped to the panel's minimum and later to the room beside the dock.
-    if (s.w <= 0 || s.h <= 0) s = panel_ ? SettingsWindowSize{kPanelWidthDip, kPanelHeightDip} : SettingsUiConfig::kDefault[k];
+    // Round 12 phase 12F: without one, a share of the display it opens on (DefaultClientDip).
+    if (s.w <= 0 || s.h <= 0) {
+        const SIZE d = DefaultClientDip();
+        s = SettingsWindowSize{static_cast<int>(d.cx), static_cast<int>(d.cy)};
+    }
     const SIZE m = MinClientDip();
     return SIZE{std::clamp(s.w, static_cast<int>(m.cx), SettingsUiConfig::kMaximum),
                 std::clamp(s.h, static_cast<int>(m.cy), SettingsUiConfig::kMaximum)};
+}
+
+RECT SettingsWindow::InitialWork() const {
+    const RECT mon = host_.dockMonitor ? host_.dockMonitor() : RECT{};
+    HMONITOR hmon = IsRectEmpty(&mon) ? MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY)
+                                      : MonitorFromRect(&mon, MONITOR_DEFAULTTOPRIMARY);
+    const RECT anchor = kind_ == SettingsKind::Item && host_.anchor ? host_.anchor() : RECT{};
+    if (!IsRectEmpty(&anchor)) hmon = MonitorFromRect(&anchor, MONITOR_DEFAULTTONEAREST);
+    MONITORINFO mi{sizeof(mi)};
+    if (!GetMonitorInfoW(hmon, &mi)) return RECT{};
+    return mi.rcWork;
+}
+
+SIZE SettingsWindow::DefaultClientDip() const {
+    // Round 12 phase 12F: App and Item windows from their display's work area (a large display gets
+    // a larger window, within the kind's floor and ceiling); the others as before.
+    if (panel_) return SIZE{kPanelWidthDip, kPanelHeightDip};
+    const int k = KindIndex();
+    const SettingsWindowSize lo = SettingsUiConfig::kDefault[k], hi = SettingsUiConfig::kLargest[k];
+    if (kind_ == SettingsKind::Dock) return SIZE{lo.w, lo.h};
+    const RECT work = InitialWork();
+    const int dpi = static_cast<int>(std::max<UINT>(dpi_, 1));
+    const int ww = MulDiv(work.right - work.left, USER_DEFAULT_SCREEN_DPI, dpi);
+    const int wh = MulDiv(work.bottom - work.top, USER_DEFAULT_SCREEN_DPI, dpi);
+    if (ww <= 0 || wh <= 0) return SIZE{lo.w, lo.h};
+    return SIZE{std::clamp(ww * 60 / 100, lo.w, hi.w), std::clamp(wh * 70 / 100, lo.h, hi.h)};
 }
 
 SIZE SettingsWindow::MinClientDip() const {
@@ -796,7 +857,9 @@ void SettingsWindow::SaveClientSize() {
                                     SettingsUiConfig::kMaximum),
                          std::clamp(MulDiv(px.cy, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dpi_)), static_cast<int>(m.cy),
                                     SettingsUiConfig::kMaximum)};
-    if (s == (panel_ ? SettingsWindowSize{kPanelWidthDip, kPanelHeightDip} : SettingsUiConfig::kDefault[k])) s = SettingsWindowSize{};
+    // The size it would open at anyway is not saved (round 12 phase 12F: the display-derived one).
+    const SIZE d = DefaultClientDip();
+    if (s == SettingsWindowSize{static_cast<int>(d.cx), static_cast<int>(d.cy)}) s = SettingsWindowSize{};
     SettingsWindowSize& saved = host_.config->settings.windows[k];
     if (s == saved) return;
     saved = s;
@@ -811,6 +874,58 @@ bool SettingsWindow::PreviewOn(int index) const {
         case SettingsKind::Item:
         default: return false;
     }
+}
+
+bool SettingsWindow::PreviewAtTop(int index) const { return kind_ == SettingsKind::Global && index == SettingsIds::kPageThemes; }
+
+void SettingsWindow::PlacePreview() {
+    // Round 12 phase 12F: over the Themes page (above its cards, across both columns), under the
+    // other pages that show it.
+    if (!preview_ || !preview_->Hwnd()) return;
+    const RECT& a = pagesArea_;
+    const int strip = std::min(Px(kFooterDip), std::max(0, static_cast<int>(a.bottom - a.top)));
+    const bool top = PreviewAtTop(active_);
+    preview_->SetDividerBottom(top);
+    SetWindowPos(preview_->Hwnd(), nullptr, a.left, top ? a.top : a.bottom - strip, std::max(0, static_cast<int>(a.right - a.left)), strip,
+                 SWP_NOZORDER | SWP_NOACTIVATE);
+}
+
+int SettingsWindow::PageColumns() const {
+    const SettingsPage* p = ActivePage();
+    return p ? p->columns_ : 0;
+}
+
+int SettingsWindow::ControlColumn(int id) const {
+    const SettingsPage* p = ActivePage();
+    const Ctl* c = p ? p->Find(id) : nullptr;
+    return c ? c->column : -1;
+}
+
+std::wstring SettingsWindow::LeadText() const {
+    const SettingsPage* p = ActivePage();
+    HWND h = p ? p->Item(SettingsIds::kPageLead) : nullptr;
+    return h ? WindowText(h) : std::wstring();
+}
+
+bool SettingsWindow::WrapsNote(const Ctl& c) {
+    return c.kind == CtlKind::Note && !c.hint && !c.measured && c.row >= 0 && (c.style & SS_CENTERIMAGE) != 0 &&
+           c.base.bottom - c.base.top == SettingsPage::kRowH;
+}
+
+bool SettingsWindow::NoteNeedsWrap(HDC dc, const Ctl& c, const std::wstring& text) const {
+    const int w = Px(c.dip.right - c.dip.left);
+    if (text.empty() || w <= Px(40)) return false;  // a sliver (a narrow window): "…" as before
+    HDC screen = dc ? nullptr : GetDC(nullptr);
+    HDC use = dc ? dc : screen;
+    if (!use) return false;
+    HGDIOBJ old = screen ? SelectObject(screen, font_ ? font_ : GetStockObject(DEFAULT_GUI_FONT)) : nullptr;
+    SIZE ext{};
+    GetTextExtentPoint32W(use, text.c_str(), static_cast<int>(text.size()), &ext);
+    if (screen) {
+        SelectObject(screen, old);
+        ReleaseDC(nullptr, screen);
+    }
+    return ext.cx > w;
 }
 
 HWND SettingsWindow::DefaultFocus() const {
@@ -1391,8 +1506,27 @@ void SettingsWindow::CreateFonts() {
         lf.lfCharSet = DEFAULT_CHARSET;
         wcscpy_s(lf.lfFaceName, L"Segoe UI");
     }
-    HFONT oldFont = font_, oldSemibold = fontSemibold_, oldTitle = fontTitle_, oldIcons = fontIcons_, oldCaption = fontCaption_;
+    HFONT oldFont = font_, oldSemibold = fontSemibold_, oldTitle = fontTitle_, oldIcons = fontIcons_, oldCaption = fontCaption_,
+          oldSmall = fontSmall_;
     font_ = CreateFontIndirectW(&lf);
+    // Round 12 phase 12F: the wide nav's descriptions, a little smaller than the message font.
+    LOGFONTW smallFont = lf;
+    smallFont.lfHeight = lf.lfHeight < 0 ? std::min(-1L, lf.lfHeight * 5 / 6) : -Px(10);
+    fontSmall_ = CreateFontIndirectW(&smallFont);
+    // ... and the readable width: 72 characters of running text in the body font (measured once per
+    // font: a sentence's average character), within 480 - 640 DIPs.
+    if (HDC dc = GetDC(nullptr)) {
+        static constexpr wchar_t kSample[] = L"The dock hides when the pointer leaves it and comes back at the screen edge.";
+        HGDIOBJ old = SelectObject(dc, font_);
+        SIZE ext{};
+        if (GetTextExtentPoint32W(dc, kSample, static_cast<int>(std::size(kSample) - 1), &ext) && ext.cx > 0) {
+            const double perChar = static_cast<double>(ext.cx) / static_cast<double>(std::size(kSample) - 1);
+            const int dip = static_cast<int>(std::lround(perChar * 72.0 * USER_DEFAULT_SCREEN_DPI / static_cast<double>(dpi_)));
+            textMaxDip_ = std::clamp(dip, 480, 640);
+        }
+        SelectObject(dc, old);
+        ReleaseDC(nullptr, dc);
+    }
     LOGFONTW semibold = lf;
     semibold.lfWeight = FW_SEMIBOLD;
     fontSemibold_ = CreateFontIndirectW(&semibold);
@@ -1437,13 +1571,13 @@ void SettingsWindow::CreateFonts() {
         SendMessageW(headerTip_, WM_SETFONT, reinterpret_cast<WPARAM>(font_), FALSE);
         SendMessageW(headerTip_, TTM_SETMAXTIPWIDTH, 0, Px(360));
     }
-    for (HFONT f : {oldFont, oldSemibold, oldTitle, oldIcons, oldCaption}) {
+    for (HFONT f : {oldFont, oldSemibold, oldTitle, oldIcons, oldCaption, oldSmall}) {
         if (f) DeleteObject(f);
     }
 }
 
 void SettingsWindow::DestroyFonts() {
-    for (HFONT* f : {&font_, &fontSemibold_, &fontTitle_, &fontIcons_, &fontCaption_}) {
+    for (HFONT* f : {&font_, &fontSemibold_, &fontTitle_, &fontIcons_, &fontCaption_, &fontSmall_}) {
         if (*f) DeleteObject(*f);
         *f = nullptr;
     }
@@ -1662,7 +1796,8 @@ void SettingsWindow::ApplyBackdrop() {
                       Backdrop::SystemAllowsTransparency();
     bool mica = want && DarkMode::SetMicaBackdrop(hwnd_, true);
     if (!mica) DarkMode::SetMicaBackdrop(hwnd_, false);
-    MARGINS margins{mica ? Px(kNavWidthDip) : 0, 0, 0, 0};
+    MARGINS margins{mica ? Px(NavWidthDip()) : 0, 0, 0, 0};  // round 12 phase 12F: 200 or 260 DIPs
+    navWideApplied_ = NavWide();
     if (FAILED(DwmExtendFrameIntoClientArea(hwnd_, &margins)) && mica) {
         mica = false;
         DarkMode::SetMicaBackdrop(hwnd_, false);
@@ -1699,7 +1834,9 @@ void SettingsWindow::Layout() {
     const int width = rc.right - rc.left;
     // Global: the nav column on the left, the subtitle band over the pages. Dock: the header and
     // the tab strip over the pages. Item: the header over, the footer under the page.
-    const int navW = nav_ ? Px(kNavWidthDip) : 0;
+    // Round 12 phase 12F: 260 DIPs with the descriptions on a wide window (the Mica margins follow).
+    if (nav_ && NavWide() != navWideApplied_) ApplyBackdrop();
+    const int navW = nav_ ? Px(NavWidthDip()) : 0;
     // Round 9 phase 9B: the Find a setting… box over the page list.
     const int findH = find_ ? std::min(Px(kNavFindDip), static_cast<int>(rc.bottom)) : 0;
     if (find_) SetWindowPos(find_, nullptr, Px(12), Px(12), std::max(0, navW - Px(24)), Px(30), SWP_NOZORDER | SWP_NOACTIVATE);
@@ -1728,15 +1865,15 @@ void SettingsWindow::Layout() {
         bottom -= h;
     }
     const int strip = std::min(Px(kFooterDip), std::max(0, bottom - top));
-    if (preview_) {
-        SetWindowPos(preview_->Hwnd(), nullptr, x0 + navW, bottom - strip, std::max(0, width - navW), strip,
-                     SWP_NOZORDER | SWP_NOACTIVATE);
-    }
+    pagesArea_ = RECT{x0 + navW, top, x0 + navW + std::max(0, width - navW), bottom};
+    PlacePreview();  // round 12 phase 12F: above the Themes page, under the others
     for (size_t i = 0; i < pages_.size(); ++i) {
         SettingsPage& page = *pages_[i];
         if (!page.hwnd_) continue;
-        const int h = std::max(0, bottom - top - (preview_ && PreviewOn(static_cast<int>(i)) ? strip : 0));
-        SetWindowPos(page.hwnd_, nullptr, x0 + navW, top, std::max(0, width - navW), h, SWP_NOZORDER | SWP_NOACTIVATE);
+        const bool withStrip = preview_ && PreviewOn(static_cast<int>(i));
+        const int h = std::max(0, bottom - top - (withStrip ? strip : 0));
+        const int pageTop = withStrip && PreviewAtTop(static_cast<int>(i)) ? top + strip : top;
+        SetWindowPos(page.hwnd_, nullptr, x0 + navW, pageTop, std::max(0, width - navW), h, SWP_NOZORDER | SWP_NOACTIVATE);
         LayoutPage(page);
         // Round 8 phase 8A: a resized window: list columns, the Contents tab's own layout.
         if (page.layoutW_ != page.Width()) {
@@ -1779,7 +1916,12 @@ int SettingsWindow::MeasureTextDip(const std::wstring& text, int widthDip, int m
 void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
     std::vector<Ctl>& t = page.table_;
     page.hairlines_.clear();
-    for (SettingsPage::Card& card : page.cards_) card.dip = RECT{};
+    for (SettingsPage::Card& card : page.cards_) {
+        card.dip = RECT{};
+        card.column = 0;
+    }
+    for (Ctl& c : t) c.column = 0;
+    page.columns_ = 1;
     if (!page.reflow_) {
         for (Ctl& c : t) c.dip = c.base;
         return;
@@ -1787,7 +1929,6 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
     constexpr int kM = SettingsPage::kMargin;
     const int W = page.Width();
     const int bw = page.buildW_ > 0 ? page.buildW_ : W;
-    const int dx = W - bw;
     const int buildRight = bw - kM;
     auto effBottom = [](const Ctl& c, const RECT& r) -> int { return static_cast<int>(c.kind == CtlKind::Combo ? r.top + SettingsPage::kRowH - 4 : r.bottom); };
     auto gone = [&](const Ctl& c) { return c.collapsed || (c.expander != 0 && !page.ExpanderOpen(c.expander)); };
@@ -1795,21 +1936,111 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
     int rows = 0;
     for (const Ctl& c : t) rows = std::max(rows, c.row + 1);
     std::vector<std::vector<size_t>> byRow(static_cast<size_t>(rows));
+    std::vector<size_t> fixedCtls;
     for (size_t i = 0; i < t.size(); ++i) {
         if (t[i].row >= 0) {
             byRow[static_cast<size_t>(t[i].row)].push_back(i);
         } else {
-            // A fixed control (round 8 phase 8B: the Position tab's silhouette): it never moves
-            // vertically; at the right margin it follows the page's width.
-            t[i].dip = t[i].base;
-            if (t[i].base.right == buildRight) OffsetRect(&t[i].dip, dx, 0);
+            fixedCtls.push_back(i);
         }
+    }
+
+    // --- round 12 phase 12F: one column or two ---
+    // The page in parts, in table order: each card with its rows, and the runs of rows outside any
+    // card (the title, the page's sentence, free rows). From kTwoColumnsDip of width the cards that
+    // are not wide flow into two equal columns (whole cards, the shortest column first, the page's
+    // first card leading the left one); a wide card, a hidden one or rows outside a card span both
+    // columns and end the pair (the cards after them start a new pair). A pair of one card spans.
+    // The rows are laid out at their card's width first (a column's: Wc) and stacked as in one
+    // column; the flow then moves whole cards into place. The tab order stays the table's order
+    // (left column, then right, card by card), not the visual one.
+    const int nCards = static_cast<int>(page.cards_.size());
+    auto validCard = [&](int k) { return k >= 0 && k < nCards; };
+    std::vector<char> cardShown(static_cast<size_t>(std::max(0, nCards)), 0);
+    for (const Ctl& c : t) {
+        if (validCard(c.card) && !gone(c) && c.shown) cardShown[static_cast<size_t>(c.card)] = 1;
+    }
+    std::vector<int> rowCard(static_cast<size_t>(rows), INT_MIN);  // the card of a row's first control (INT_MIN: all gone)
+    for (int r = 0; r < rows; ++r) {
+        for (size_t i : byRow[static_cast<size_t>(r)]) {
+            if (gone(t[i])) continue;
+            rowCard[static_cast<size_t>(r)] = validCard(t[i].card) ? t[i].card : -1;
+            break;
+        }
+    }
+    struct Part {
+        int card = -1;
+        std::vector<int> rows;
+        bool span = true;
+        int column = 2;
+        int dx = 0, dy = 0;
+    };
+    std::vector<Part> parts;
+    std::vector<int> partOf(static_cast<size_t>(std::max(0, nCards)), -1);
+    for (int r = 0; r < rows; ++r) {
+        const int key = rowCard[static_cast<size_t>(r)];
+        if (key == INT_MIN) continue;
+        if (key >= 0 && partOf[static_cast<size_t>(key)] >= 0) {
+            parts[static_cast<size_t>(partOf[static_cast<size_t>(key)])].rows.push_back(r);
+            continue;
+        }
+        if (key < 0 && !parts.empty() && parts.back().card < 0) {
+            parts.back().rows.push_back(r);
+            continue;
+        }
+        Part p;
+        p.card = key;
+        p.rows.push_back(r);
+        p.span = key < 0 || !cardShown[static_cast<size_t>(key)] || page.cards_[static_cast<size_t>(key)].wide;
+        parts.push_back(std::move(p));
+        if (key >= 0) partOf[static_cast<size_t>(key)] = static_cast<int>(parts.size()) - 1;
+    }
+    bool twoCols = false;
+    if (W >= SettingsPage::kTwoColumnsDip) {
+        for (size_t a = 0; a < parts.size();) {
+            if (parts[a].span) {
+                ++a;
+                continue;
+            }
+            size_t b = a;
+            while (b < parts.size() && !parts[b].span) ++b;
+            if (b - a == 1) {
+                parts[a].span = true;  // a card alone between wide ones: across the page
+            } else {
+                twoCols = true;
+            }
+            a = b;
+        }
+    }
+    if (!twoCols) {
+        for (Part& p : parts) p.span = true;
+    }
+    std::vector<char> inColumn(static_cast<size_t>(std::max(0, nCards)), 0);
+    for (const Part& p : parts) {
+        if (!p.span && p.card >= 0) inColumn[static_cast<size_t>(p.card)] = 1;
+    }
+    // A column card's outer width, and the page width that gives a card that width (the margin
+    // less kCardPadX on each side); the right column starts kColumnGapDip after the left one.
+    const int colCardW = (W - 2 * kM + 2 * SettingsPage::kCardPadX - SettingsPage::kColumnGapDip) / 2;
+    const int colW = colCardW + 2 * (kM - SettingsPage::kCardPadX);
+    const int rightDx = colCardW + SettingsPage::kColumnGapDip;
+    auto widthOf = [&](int card) { return validCard(card) && inColumn[static_cast<size_t>(card)] ? colW : W; };
+
+    // A fixed control (round 8 phase 8B: the Position tab's silhouette): it never moves
+    // vertically; at the right margin it follows its card's width.
+    for (size_t i : fixedCtls) {
+        t[i].dip = t[i].base;
+        if (t[i].base.right == buildRight) OffsetRect(&t[i].dip, widthOf(t[i].card) - bw, 0);
     }
 
     // Horizontal: controls at the right margin follow the page's width. A narrow one in the
     // right half moves (never over its row's other controls); a wide one stretches, and so does
-    // a control that ends just before a moving one.
+    // a control that ends just before a moving one. Round 12 phase 12F: the width is the row's
+    // card's (a column's in two columns).
     for (const std::vector<size_t>& row : byRow) {
+        if (row.empty()) continue;
+        const int Wr = widthOf(t[row[0]].card);
+        const int dx = Wr - bw;
         std::vector<char> move(row.size(), 0), stretch(row.size(), 0), follow(row.size(), 0);
         for (size_t k = 0; k < row.size(); ++k) {
             const Ctl& c = t[row[k]];
@@ -1876,16 +2107,39 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
                 OffsetRect(&c.dip, shiftX, 0);
             }
         }
+        // Round 12 phase 12F: an edit, a drop-down or a slider is never wider than kControlMaxDip
+        // (a maximized window had 1300-DIP drop-downs); what follows it in its row (its up-down, the
+        // slider's value, a button beside it) moves left with its end. Lists, the strips, grids,
+        // the gallery and other controls of a page's own keep stretching: they gain from the width.
+        for (size_t k = 0; k < row.size(); ++k) {
+            Ctl& c = t[row[k]];
+            if (c.kind != CtlKind::Edit && c.kind != CtlKind::Combo && c.kind != CtlKind::Trackbar) continue;
+            const int cut = static_cast<int>(c.dip.right - c.dip.left) - SettingsPage::kControlMaxDip;
+            if (cut <= 0) continue;
+            const LONG end = c.dip.right;
+            c.dip.right -= cut;
+            for (size_t m = 0; m < row.size(); ++m) {
+                Ctl& o = t[row[m]];
+                if (m == k || o.kind == CtlKind::Help || o.dip.left < end - 1) continue;  // the "?" stays at the card's edge
+                OffsetRect(&o.dip, -cut, 0);
+            }
+        }
+        // ... and text (labels, notes, values, captions) wraps or ends at the readable width.
+        for (size_t k : row) {
+            Ctl& c = t[k];
+            const bool text = c.kind == CtlKind::Label || c.kind == CtlKind::Note || c.kind == CtlKind::Value || c.kind == CtlKind::Caption;
+            if (text && c.dip.right - c.dip.left > textMaxDip_) c.dip.right = c.dip.left + textMaxDip_;
+        }
         // Round 9 phase 9E: a slider's value ("1.00×") past the right margin (the Global window's
         // Animation speed at its minimum size showed "1..") pulls in: the slider before it gets
         // shorter (down to 80 DIPs) and the value moves left by as much.
         for (size_t k : row) {
             Ctl& v = t[k];
-            if (v.kind != CtlKind::Value || v.dip.right <= W - kM) continue;
+            if (v.kind != CtlKind::Value || v.dip.right <= Wr - kM) continue;
             for (size_t m : row) {
                 Ctl& tb = t[m];
                 if (tb.kind != CtlKind::Trackbar || tb.dip.right > v.dip.left) continue;
-                const int take = std::min(static_cast<int>(v.dip.right) - (W - kM), std::max(0, static_cast<int>(tb.dip.right - tb.dip.left) - 80));
+                const int take = std::min(static_cast<int>(v.dip.right) - (Wr - kM), std::max(0, static_cast<int>(tb.dip.right - tb.dip.left) - 80));
                 tb.dip.right -= take;
                 OffsetRect(&v.dip, -take, 0);
                 break;
@@ -1896,7 +2150,7 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
             Ctl& c = t[k];
             const bool text = c.kind == CtlKind::Label || c.kind == CtlKind::Note || c.kind == CtlKind::Value ||
                               c.kind == CtlKind::Caption || c.kind == CtlKind::Section;
-            if (text && c.dip.right > W - kM) c.dip.right = std::max(static_cast<int>(c.dip.left) + 8, W - kM);
+            if (text && c.dip.right > Wr - kM) c.dip.right = std::max(static_cast<int>(c.dip.left) + 8, Wr - kM);
         }
         // Round 9 phase 9D: a card's "?" button (at the right margin) keeps its row's other controls
         // out of its place: a header / stretching control ends 6 DIPs before it, one at the right
@@ -1983,6 +2237,24 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
             } else if (c.measured) {
                 const std::wstring text = c.hwnd ? WindowText(c.hwnd) : c.text;
                 c.dip.bottom = c.dip.top + MeasureDip(dc, text, c.dip.right - c.dip.left, 0);
+            } else if (c.hwnd && WrapsNote(c)) {
+                // Round 12 phase 12F: a one-line note that does not fit its width wraps (a static
+                // with SS_CENTERIMAGE draws one line only: its style switches) and its row grows;
+                // its first line stays where the centred line was.
+                const std::wstring text = WindowText(c.hwnd);
+                const bool wrap = NoteNeedsWrap(dc, c, text);
+                if (wrap != c.wrapped) {
+                    c.wrapped = wrap;
+                    constexpr DWORD kOneLine = SS_CENTERIMAGE | SS_ELLIPSISMASK;
+                    DWORD st = static_cast<DWORD>(GetWindowLongW(c.hwnd, GWL_STYLE));
+                    st = wrap ? ((st & ~kOneLine) | SS_EDITCONTROL) : ((st & ~static_cast<DWORD>(SS_EDITCONTROL)) | (c.style & kOneLine));
+                    SetWindowLongW(c.hwnd, GWL_STYLE, static_cast<LONG>(st));
+                    InvalidateRect(c.hwnd, nullptr, TRUE);
+                }
+                if (wrap) {
+                    c.dip.top += 6;
+                    c.dip.bottom = c.dip.top + MeasureDip(dc, text, c.dip.right - c.dip.left, 0);
+                }
             }
             newBottom = std::max(newBottom, effBottom(c, c.dip));
             newTop = std::min(newTop, static_cast<int>(c.dip.top));
@@ -1993,9 +2265,10 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
     }
 
     // The cards: around their visible controls (the header 8 DIPs in, else 10), the margin less
-    // kCardPadX on each side.
-    const int cardL = kM - SettingsPage::kCardPadX, cardR = W - kM + SettingsPage::kCardPadX;
+    // kCardPadX on each side (round 12 phase 12F: of its width, a column's in two columns).
+    const int cardL = kM - SettingsPage::kCardPadX;
     for (size_t k = 0; k < page.cards_.size(); ++k) {
+        const int cardR = widthOf(static_cast<int>(k)) - kM + SettingsPage::kCardPadX;
         int top = INT_MAX, bottom = INT_MIN;
         bool header = false;
         for (const Ctl& c : t) {
@@ -2007,6 +2280,91 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
         }
         if (top == INT_MAX) continue;
         page.cards_[k].dip = RECT{cardL, top - (header ? 8 : 10), cardR, bottom + 10};
+    }
+
+    // --- round 12 phase 12F: the flow into two columns ---
+    // Each part keeps its stacked gap to the part before it; a pair of columns starts where the
+    // part before it ends, a spanning part under the longer column.
+    std::vector<int> rowDx(static_cast<size_t>(rows), 0);
+    if (twoCols) {
+        int y = INT_MIN, prevStacked = INT_MIN;
+        bool band = false;
+        int bandTop = 0;
+        int colBottom[2] = {0, 0};
+        bool colUsed[2] = {false, false};
+        for (Part& p : parts) {
+            int top = INT_MAX, bottom = INT_MIN;
+            if (p.card >= 0 && !IsRectEmpty(&page.cards_[static_cast<size_t>(p.card)].dip)) {
+                top = page.cards_[static_cast<size_t>(p.card)].dip.top;
+                bottom = page.cards_[static_cast<size_t>(p.card)].dip.bottom;
+            } else {
+                for (int r : p.rows) {
+                    if (rowTop[static_cast<size_t>(r)] == INT_MIN) continue;
+                    top = std::min(top, rowTop[static_cast<size_t>(r)]);
+                    bottom = std::max(bottom, rowBottom[static_cast<size_t>(r)]);
+                }
+            }
+            if (top == INT_MAX) continue;
+            const int gap = prevStacked == INT_MIN ? 0 : std::max(0, top - prevStacked);
+            prevStacked = bottom;
+            int newTop = top;
+            if (p.span) {
+                int base = y;
+                if (band) {
+                    base = INT_MIN;
+                    for (int c = 0; c < 2; ++c) {
+                        if (colUsed[c]) base = std::max(base, colBottom[c]);
+                    }
+                    band = false;
+                }
+                if (base != INT_MIN) newTop = base + gap;
+                p.column = 2;
+                p.dx = 0;
+                y = newTop + (bottom - top);
+            } else {
+                if (!band) {
+                    band = true;
+                    bandTop = y == INT_MIN ? top : y + gap;
+                    colUsed[0] = colUsed[1] = false;
+                }
+                const int next0 = colUsed[0] ? colBottom[0] + gap : bandTop;
+                const int next1 = colUsed[1] ? colBottom[1] + gap : bandTop;
+                const int c = next1 < next0 ? 1 : 0;  // the shorter column; a tie: the left (the page's first card)
+                newTop = c ? next1 : next0;
+                p.column = c;
+                p.dx = c ? rightDx : 0;
+                colUsed[c] = true;
+                colBottom[c] = newTop + (bottom - top);
+            }
+            p.dy = newTop - top;
+        }
+        for (const Part& p : parts) {
+            for (int r : p.rows) {
+                rowDx[static_cast<size_t>(r)] = p.dx;
+                if (rowTop[static_cast<size_t>(r)] == INT_MIN) continue;
+                rowTop[static_cast<size_t>(r)] += p.dy;
+                rowBottom[static_cast<size_t>(r)] += p.dy;
+            }
+            if (p.card >= 0) {
+                SettingsPage::Card& card = page.cards_[static_cast<size_t>(p.card)];
+                card.column = p.column;
+                if (!IsRectEmpty(&card.dip)) OffsetRect(&card.dip, p.dx, p.dy);
+                for (Ctl& c : t) {
+                    if (c.card != p.card) continue;
+                    OffsetRect(&c.dip, p.dx, p.dy);
+                    c.column = p.column;
+                }
+            } else {
+                for (int r : p.rows) {
+                    for (size_t i : byRow[static_cast<size_t>(r)]) {
+                        if (t[i].card >= 0) continue;
+                        OffsetRect(&t[i].dip, 0, p.dy);
+                        t[i].column = 2;
+                    }
+                }
+            }
+        }
+        page.columns_ = 2;
     }
 
     // Hairlines between a card's rows: above a row that starts with a label, a check box, the
@@ -2048,7 +2406,8 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
         }
         const int top = rowTop[static_cast<size_t>(r)];
         if (line && card >= 0 && card == prevCard && !prevHeader && prevBottom != INT_MIN && prevBottom <= top) {
-            page.hairlines_.push_back(SettingsPage::Hairline{(prevBottom + top) / 2, kM, W - kM});
+            const int ox = rowDx[static_cast<size_t>(r)];  // round 12 phase 12F: its card's column
+            page.hairlines_.push_back(SettingsPage::Hairline{(prevBottom + top) / 2, kM + ox, widthOf(card) - kM + ox});
         }
         if (card != prevCard || !(first->kind == CtlKind::Note || first->kind == CtlKind::Value) || prevBottom == INT_MIN) {
             prevBottom = rowBottom[static_cast<size_t>(r)];
@@ -2090,6 +2449,23 @@ void SettingsWindow::LayoutPage(SettingsPage& page) {
     std::vector<RECT> oldCards;
     for (const SettingsPage::Card& card : page.cards_) oldCards.push_back(card.dip);
     std::vector<SettingsPage::Hairline> oldLines = page.hairlines_;
+    // Round 12 phase 12F: a new width can reflow the page a lot (two columns, wrapped text): the
+    // control at the top of the view stays there (its offset from the view's top is kept).
+    size_t anchor = SIZE_MAX;
+    int anchorOff = 0;
+    if (page.reflow_ && page.scrollPx_ > 0 && page.flowW_ != 0 && page.flowW_ != page.Width()) {
+        int best = INT_MAX;
+        for (size_t i = 0; i < page.table_.size(); ++i) {
+            const Ctl& c = page.table_[i];
+            if (gone(c) || !c.hwnd || c.row < 0) continue;
+            const int top = Px(c.dip.top);
+            if (top >= page.scrollPx_ && top < best) {
+                best = top;
+                anchor = i;
+            }
+        }
+        if (anchor != SIZE_MAX) anchorOff = best - page.scrollPx_;
+    }
     if (dc) Reflow(page, dc);
     page.contentPx_ = content();
     // A page that scrolls is narrower by its scroll bar (Width()): lay it out again for that (a
@@ -2104,6 +2480,8 @@ void SettingsWindow::LayoutPage(SettingsPage& page) {
             fixedResized = page.layoutW_ != 0;
         }
     }
+    if (anchor != SIZE_MAX && dc) page.scrollPx_ = Px(page.table_[anchor].dip.top) - anchorOff;
+    if (dc) page.flowW_ = page.Width();
     page.scrollPx_ = std::clamp(page.scrollPx_, 0, std::max(0, page.contentPx_ - view));
     SCROLLINFO si{sizeof(si), SIF_RANGE | SIF_PAGE | SIF_POS, 0, std::max(0, page.contentPx_ - 1),
                   static_cast<UINT>(std::max(0, view)), page.scrollPx_, 0};
@@ -2225,7 +2603,10 @@ void SettingsWindow::SelectPage(int index) {
     SettingsPage* page = ActivePage();
     ShowWindow(page->hwnd_, SW_SHOWNA);
     if (old) ShowWindow(old->hwnd_, SW_HIDE);
-    if (preview_) ShowWindow(preview_->Hwnd(), PreviewOn(index) ? SW_SHOWNA : SW_HIDE);
+    if (preview_) {
+        PlacePreview();  // round 12 phase 12F: its place follows the page (Themes: above it)
+        ShowWindow(preview_->Hwnd(), PreviewOn(index) ? SW_SHOWNA : SW_HIDE);
+    }
     if (focusInOld) SetFocus(DefaultFocus());
     // Accessibility: the nav's / tab strip's name is the selection.
     for (HWND selector : {nav_, tabs_}) {
@@ -2630,6 +3011,24 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             RECT r{0, 0, Px(m.cx), Px(m.cy)};
             AdjustWindowRectExForDpi(&r, Style(), FALSE, ExStyle(), dpi_);
             mmi->ptMinTrackSize = POINT{r.right - r.left, r.bottom - r.top};
+            if (panel_) {
+                // Round 12 phase 12F: a panel widened by its border stops at the room beside the dock
+                // (the work area less the dock and the gap on the dock's side); its client is its window.
+                const RECT work = PanelWork();
+                const RECT bar = host_.dockBar ? host_.dockBar() : RECT{};
+                const int gap = Px(kPanelGapDip);
+                LONG maxW = work.right - work.left, maxH = work.bottom - work.top;
+                if (!IsRectEmpty(&bar)) {
+                    switch (panelSide_) {
+                        case 1: maxH = work.bottom - (bar.bottom + gap); break;
+                        case 2: maxW = work.right - (bar.right + gap); break;
+                        case 3: maxW = (bar.left - gap) - work.left; break;
+                        case 0:
+                        default: maxH = (bar.top - gap) - work.top; break;
+                    }
+                }
+                mmi->ptMaxTrackSize = POINT{std::max(mmi->ptMinTrackSize.x, maxW), std::max(mmi->ptMinTrackSize.y, maxH)};
+            }
             return 0;
         }
 
@@ -2717,7 +3116,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             HDC dc = BeginPaint(hwnd_, &ps);
             RECT rc{};
             GetClientRect(hwnd_, &rc);
-            RECT nav{0, 0, nav_ ? Px(kNavWidthDip) : 0, rc.bottom};
+            RECT nav{0, 0, nav_ ? Px(NavWidthDip()) : 0, rc.bottom};
             if (nav_) FillRect(dc, &nav, mica_ ? static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)) : baseBrush_);
             RECT content{nav.right, 0, rc.right, rc.bottom};
             FillRect(dc, &content, layerBrush_);

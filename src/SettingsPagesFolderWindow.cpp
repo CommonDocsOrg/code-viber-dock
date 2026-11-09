@@ -48,6 +48,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Folder window");
+        Lead(L"The folder this window shows on the desktop, and how it looks.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#folder-window-settings");
         UntitledCard(L"guide-settings.md#folder-window-settings");
         Text(kFwInfo, CtlKind::Note, L"", kMargin, right - kMargin, 20);

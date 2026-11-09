@@ -165,8 +165,10 @@ void Describe(const Config& c, const DockItemEntry& e, const AppIdentity::Resolv
 
 // Round 8 phase 8B: the drawer ("Add to the dock") is always shown (no Hide / Show toggle).
 constexpr int kDrawerW = 340;  // DIPs (round 6 phase 6E: 300 -> 340 for the rows' previews)
-constexpr int kStripTop = 44, kStripBottom = 162;  // the item strip (118 DIPs tall, as before)
-constexpr int kInspectorTop = 176;  // round 8 phase 8B: right under the strip (the add buttons are gone)
+// Round 12 phase 12F: everything 24 DIPs lower than before, under the page's sentence (kPageLead).
+constexpr int kLeadDy = 24;
+constexpr int kStripTop = 44 + kLeadDy, kStripBottom = 162 + kLeadDy;  // the item strip (118 DIPs tall, as before)
+constexpr int kInspectorTop = 176 + kLeadDy;  // round 8 phase 8B: right under the strip (the add buttons are gone)
 
 
 // Round 12 phase 12D: the strip control's host is the settings window (its DPI, palette, dock
@@ -209,12 +211,15 @@ protected:
         HelpTopic(L"guide-settings.md#contents-tab");  // round 9 phase 9D: F1 (no cards: no "?" buttons)
         SettingsStrip::Register();
         const int W = Width(), L = kMargin, R = Right(), dx = W - kDrawerW;
+        // Round 12 phase 12F: the page's sentence over both columns (the tab lays itself out: no Lead).
+        Add(kPageLead, CtlKind::Note, WC_STATICW, L"What is on the dock, in order. Add, move, change and remove items here.",
+            SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS, RECT{L, 8, W - 16, 32});
         // Round 8 phase 8B: the heading and its hint on one line, the strip right under them, the
         // inspector right under the strip (no add buttons: the drawer adds everything).
         Add(kPageTitle, CtlKind::Section, WC_STATICW, L"Items on the dock", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
-            RECT{L, 12, L + kTitleW, 36});
+            RECT{L, 12 + kLeadDy, L + kTitleW, 36 + kLeadDy});
         Add(kContentsNote, CtlKind::Note, WC_STATICW, L"drag to reorder, drop from the drawer",
-            SS_LEFT | SS_NOPREFIX | SS_NOTIFY | SS_CENTERIMAGE | SS_ENDELLIPSIS, RECT{L + kTitleW + 8, 12, R, 36});
+            SS_LEFT | SS_NOPREFIX | SS_NOTIFY | SS_CENTERIMAGE | SS_ENDELLIPSIS, RECT{L + kTitleW + 8, 12 + kLeadDy, R, 36 + kLeadDy});
         Tip(kContentsNote, L"Drag to reorder. Drop a widget from the drawer anywhere on the strip. Each copy keeps its own "
                            L"settings. Ctrl+Left / Ctrl+Right move the selected item, Delete removes it.");
         Add(kContentsStrip, CtlKind::Custom, SettingsStrip::kClass, L"Items on the dock", WS_TABSTOP,
@@ -283,22 +288,22 @@ protected:
         EndExpander();
         // The drawer: everything that can be added (round 8 phase 8B: apps and folders too).
         Add(kDrawerTitle, CtlKind::Section, WC_STATICW, L"Add to the dock", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
-            RECT{dx + 16, 12, dx + 16 + kDrawerTitleW, 36});
+            RECT{dx + 16, 12 + kLeadDy, dx + 16 + kDrawerTitleW, 36 + kLeadDy});
         Add(kDrawerHint, CtlKind::Note, WC_STATICW, L"drag onto the strip", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
-            RECT{dx + 16 + kDrawerTitleW, 12, W - 16, 36});
-        y_ = 38;
+            RECT{dx + 16 + kDrawerTitleW, 12 + kLeadDy, W - 16, 36 + kLeadDy});
+        y_ = 38 + kLeadDy;
         EditBox(kDrawerSearch, dx + 16, kDrawerW - 32, 80);
         Tip(kDrawerSearch, L"Type to filter the tiles below by name or description.");
         // Round 12 phase 12D: the filter chips (push-like radio buttons) and the grid of tiles.
         LayoutChips(true);
         Add(kDrawerList, CtlKind::Custom, SettingsStrip::kClass, L"Add to the dock", WS_TABSTOP,
-            RECT{dx + 16, kDrawerGridTop, W - 16, 378});
+            RECT{dx + 16, kDrawerGridTop, W - 16, 378 + kLeadDy});
         Tip(kDrawerList, L"Everything you can put on the dock: apps and folders, the built-in items and the widgets, with live "
                          L"previews. Drag a tile onto the strip or the dock, or click it to add it at the end. Drag a widget "
                          L"onto the desktop (or press its small monitor button) to place it there.");
         // Two lines: the text does not fit the drawer's width on one.
         Add(kDrawerLibraryLink, CtlKind::Link, WC_LINK, L"<a>Manage installed widgets in App settings > Widget library</a>", WS_TABSTOP,
-            RECT{dx + 16, 386, W - 16, 422});
+            RECT{dx + 16, 386 + kLeadDy, W - 16, 422 + kLeadDy});
     }
 
     void Created() override {
@@ -351,6 +356,15 @@ protected:
         catalog_.Build();
         FillStrip(sel_);
         FillDrawer();
+        // Round 12 phase 12F: a locked dock takes no drags on itself (the strip here still reorders):
+        // the heading's hint says so and the way to unlock (the header's Lock, which refreshes the page).
+        static constexpr wchar_t kDragTip[] = L"Drag to reorder. Drop a widget from the drawer anywhere on the strip. Each copy keeps "
+                                              L"its own settings. Ctrl+Left / Ctrl+Right move the selected item, Delete removes it.";
+        const bool locked = Dock().locked;
+        SetText(kContentsNote, locked ? L"locked: unlock it (the header) to drag items on the dock" : L"drag to reorder, drop from the drawer");
+        SetTip(kContentsNote, locked ? std::wstring(L"This dock is locked. Unlock it (the header's Unlock) to drag items on the dock "
+                                                    L"itself; the strip here still reorders them. ") + kDragTip
+                                     : std::wstring(kDragTip));
     }
 
     void OnStyleChanged() override {
@@ -936,7 +950,7 @@ private:
     // drawer popup of customize mode); refs as before (DrawerRefs).
     static constexpr int kEntryWeather = DrawerRefs::kWeather, kEntryApp = DrawerRefs::kApp, kEntryFolder = DrawerRefs::kFolder;
     // The grid's top (DIPs): under the search box and the filter chips.
-    static constexpr int kDrawerGridTop = 108;
+    static constexpr int kDrawerGridTop = 108 + kLeadDy;
 
     // The filter chips' row under the search box (`create`: made, else moved), push-like radio
     // buttons All / Built in / Widgets / Apps and folders (ids kDrawerChipAll ...).
@@ -950,7 +964,7 @@ private:
                       {kDrawerChipApps, L"Apps and folders", 112}};
         int x = dx + 16;
         for (const auto& c : kChips) {
-            const RECT r{x, 76, x + c.w, 102};
+            const RECT r{x, 76 + kLeadDy, x + c.w, 102 + kLeadDy};
             if (create) {
                 Add(c.id, CtlKind::Button, WC_BUTTONW, c.text,
                     WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE | (c.id == kDrawerChipAll ? WS_GROUP : 0), r);
@@ -1005,20 +1019,21 @@ private:
     // Round 8 phase 8A: the window was resized: the drawer on the right, the left column again.
     void OnResized() override {
         const int W = Width(), dx = W - kDrawerW;
-        MoveCtl(kDrawerTitle, RECT{dx + 16, 12, dx + 16 + kDrawerTitleW, 36});
-        MoveCtl(kDrawerHint, RECT{dx + 16 + kDrawerTitleW, 12, W - 16, 36});
-        MoveCtl(kDrawerSearch, RECT{dx + 16, 38 + 4, W - 16, 38 + kRowH - 4});
+        MoveCtl(kPageLead, RECT{kMargin, 8, W - 16, 32});  // round 12 phase 12F
+        MoveCtl(kDrawerTitle, RECT{dx + 16, 12 + kLeadDy, dx + 16 + kDrawerTitleW, 36 + kLeadDy});
+        MoveCtl(kDrawerHint, RECT{dx + 16 + kDrawerTitleW, 12 + kLeadDy, W - 16, 36 + kLeadDy});
+        MoveCtl(kDrawerSearch, RECT{dx + 16, 38 + kLeadDy + 4, W - 16, 38 + kLeadDy + kRowH - 4});
         LayoutChips(false);
-        MoveCtl(kDrawerList, RECT{dx + 16, kDrawerGridTop, W - 16, 378});
-        MoveCtl(kDrawerLibraryLink, RECT{dx + 16, 386, W - 16, 422});
+        MoveCtl(kDrawerList, RECT{dx + 16, kDrawerGridTop, W - 16, 378 + kLeadDy});
+        MoveCtl(kDrawerLibraryLink, RECT{dx + 16, 386 + kLeadDy, W - 16, 422 + kLeadDy});
         LayoutColumns();  // relayouts
     }
 
     // The left column (the heading, the strip; the inspector: FlowInspector) beside the drawer.
     void LayoutColumns() {
         const int L = kMargin, R = Right();
-        MoveCtl(kPageTitle, RECT{L, 12, L + kTitleW, 36});
-        MoveCtl(kContentsNote, RECT{L + kTitleW + 8, 12, R, 36});
+        MoveCtl(kPageTitle, RECT{L, 12 + kLeadDy, L + kTitleW, 36 + kLeadDy});
+        MoveCtl(kContentsNote, RECT{L + kTitleW + 8, 12 + kLeadDy, R, 36 + kLeadDy});
         MoveCtl(kContentsStrip, RECT{L, kStripTop, R, kStripBottom});
         flowKey_.clear();
         FlowInspector(true);

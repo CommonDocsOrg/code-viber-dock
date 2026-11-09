@@ -74,16 +74,22 @@ std::vector<SettingsWindow::NavSlot> SettingsWindow::NavOrder() const {
     auto listed = [&](int i) { return i >= 0 && i < n && pages_[static_cast<size_t>(i)]->InNav(); };
     if (kind_ == SettingsKind::Global) {
         // Round 8 phase 8D: grouped by purpose; the page indexes (kPage*) do not change.
+        // Round 12 phase 12F: each with the one-line description a wide nav shows under its name.
         static constexpr struct {
             int page;
             const wchar_t* caption;
             bool gap;
+            const wchar_t* description;
         } kGlobal[] = {
-            {SettingsIds::kPageGeneral, L"GENERAL", false},   {SettingsIds::kPageDocks, nullptr, false},
-            {SettingsIds::kPageThemes, L"LOOK", false},       {SettingsIds::kPageAnimation, nullptr, false},
-            {SettingsIds::kPageCalendar, L"DATA", false},     {SettingsIds::kPageNotifications, nullptr, false},
-            {SettingsIds::kPageTray, nullptr, false},         {SettingsIds::kPageWidgets, L"WIDGETS", false},
-            {SettingsIds::kPageAbout, nullptr, true},
+            {SettingsIds::kPageGeneral, L"GENERAL", false, L"Startup, taskbar, full-screen apps"},
+            {SettingsIds::kPageDocks, nullptr, false, L"Add, arrange, name and turn off docks"},
+            {SettingsIds::kPageThemes, L"LOOK", false, L"Colours and effects of every dock"},
+            {SettingsIds::kPageAnimation, nullptr, false, L"Speed, hiding and launch motion"},
+            {SettingsIds::kPageCalendar, L"DATA", false, L"ICS calendars and reminders"},
+            {SettingsIds::kPageNotifications, nullptr, false, L"Badges, balloons and the centre"},
+            {SettingsIds::kPageTray, nullptr, false, L"The notification area"},
+            {SettingsIds::kPageWidgets, L"WIDGETS", false, L"Installed widgets and the console"},
+            {SettingsIds::kPageAbout, nullptr, true, L"Version, config file, quick setup, help"},
         };
         const wchar_t* pendingCaption = nullptr;  // a caption whose page is not listed goes to the next
         bool pendingGap = false;
@@ -91,7 +97,7 @@ std::vector<SettingsWindow::NavSlot> SettingsWindow::NavOrder() const {
             if (s.caption) pendingCaption = s.caption;
             pendingGap = pendingGap || s.gap;
             if (!listed(s.page)) continue;
-            order.push_back(NavSlot{s.page, pendingCaption, pendingGap});
+            order.push_back(NavSlot{s.page, pendingCaption, pendingGap, s.description});
             pendingCaption = nullptr;
             pendingGap = false;
         }
@@ -135,7 +141,13 @@ int SettingsWindow::NavItemDip(const std::vector<NavSlot>& order) const {
     }
     const int room = static_cast<int>(ClientDip().cy) - (find_ ? kNavFindDip : 0) - kNavTopDip - 4 - captions * kNavCaptionDip -
                      gaps * kNavGapDip;
-    return std::clamp(room / std::max(1, static_cast<int>(order.size())), 24, kNavItemDip);
+    // Round 12 phase 12F: 48 DIPs on a wide window (the name and its description).
+    return std::clamp(room / std::max(1, static_cast<int>(order.size())), 24, NavWide() ? kNavWideItemDip : kNavItemDip);
+}
+
+bool SettingsWindow::NavDescriptions() const {
+    // Round 12 phase 12F: only while the rows have room for the second line.
+    return NavWide() && NavItemDip(NavOrder()) >= 40;
 }
 
 RECT SettingsWindow::NavCaptionRect(size_t k) const {
@@ -146,7 +158,7 @@ RECT SettingsWindow::NavCaptionRect(size_t k) const {
     for (size_t i = 0; i < order.size(); ++i) {
         if (order[i].gap) y += Px(kNavGapDip);
         if (order[i].caption) {
-            if (i == k) return RECT{Px(18), y, Px(kNavWidthDip) - Px(8), y + Px(kNavCaptionDip)};
+            if (i == k) return RECT{Px(18), y, Px(NavWidthDip()) - Px(8), y + Px(kNavCaptionDip)};
             y += Px(kNavCaptionDip);
         }
         y += Px(itemDip);
@@ -163,7 +175,7 @@ RECT SettingsWindow::NavItemRect(int index) const {
     for (const NavSlot& s : order) {
         if (s.gap) y += Px(kNavGapDip);
         if (s.caption) y += Px(kNavCaptionDip);
-        if (s.page == index) return RECT{Px(6), y + Px(2), Px(kNavWidthDip) - Px(6), y + Px(itemDip) - Px(2)};
+        if (s.page == index) return RECT{Px(6), y + Px(2), Px(NavWidthDip()) - Px(6), y + Px(itemDip) - Px(2)};
         y += Px(itemDip);
     }
     return RECT{};
@@ -314,6 +326,7 @@ void SettingsWindow::PaintNav(HWND hwnd, HDC hdc) {
         SelectObject(dc, old);
     };
     const std::vector<NavSlot> order = NavOrder();
+    const bool described = NavDescriptions();  // round 12 phase 12F
     // Round 8 phase 8D: the group captions, small and muted.
     for (size_t k = 0; k < order.size(); ++k) {
         if (!order[k].caption) continue;
@@ -345,6 +358,21 @@ void SettingsWindow::PaintNav(HWND hwnd, HDC hdc) {
         const wchar_t* glyph = helpRow ? &kHelpGlyph : &pages_[static_cast<size_t>(i)]->glyph_;
         const std::wstring& name = helpRow ? kHelpName : pages_[static_cast<size_t>(i)]->name_;
         const int textLeft = fontIcons_ ? Px(44) : Px(18);
+        if (described && slot.description) {
+            // Round 12 phase 12F: the name over its description (secondary colour, a smaller font),
+            // the glyph centred beside both.
+            const int cy = (r.top + r.bottom) / 2;
+            if (*glyph && fontIcons_) {
+                drawText(fontIcons_, glyph, 1, RECT{r.left + Px(12), r.top, r.left + Px(40), r.bottom}, palette_.text,
+                         DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+            }
+            drawText(font_, name.c_str(), static_cast<int>(name.size()), RECT{textLeft, r.top, r.right - Px(8), cy + Px(1)},
+                     palette_.text, DT_LEFT | DT_BOTTOM | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            drawText(fontSmall_ ? fontSmall_ : font_, slot.description, static_cast<int>(wcslen(slot.description)),
+                     RECT{textLeft, cy + Px(2), r.right - Px(8), r.bottom}, palette_.textSecondary,
+                     DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            continue;
+        }
         const struct {
             HFONT font;
             const wchar_t* text;

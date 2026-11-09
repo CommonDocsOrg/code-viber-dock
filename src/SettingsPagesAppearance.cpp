@@ -187,12 +187,14 @@ protected:
         const int right = Width() - kMargin;
         if (dockOnly_) {
             Title(L"Look");
+            Lead(L"The look of this dock and how big its icons are.");  // round 12 phase 12F
             HelpTopic(L"guide-settings.md#look-tab");
             // Round 10 phase 10D: one first card with the common controls (the look, icon size,
             // magnification; the Size card of 8B joined it), the magnification's tuning in a closed
             // heading expander under it. Round 12 phase 12B: the look is chosen in the gallery (the
             // combo stays, hidden, for automation), its ⋯ menu beside the ↺.
             Section(kSectionTheme, L"Look and size", L"guide-settings.md#this-docks-look");
+            WideCard();  // round 12 phase 12F: the gallery gains from the width
             Label(kDockThemeLabel, L"This dock's look", L"The app look", kDockThemeNote);
             Tip(kDockThemeLabel, L"A dock either uses the app look (App settings > Themes: every dock that has no look of "
                                  L"its own) or has its own: a theme from the gallery below plus your changes on this tab, "
@@ -259,6 +261,7 @@ protected:
             return;
         }
         Title(L"Themes");
+        Lead(L"The app look: the colours and effects every dock uses unless it has a look of its own.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#themes");
         // Round 8 phase 8A: a narrower label column, so a field row (swatch, #AARRGGBB, alpha,
         // Reset) fits the window's minimum width beside the scroll bar.
@@ -266,6 +269,7 @@ protected:
         // Round 12 phase 12B: Quick look first (open), then the Theme card with the gallery.
         QuickCard();
         Section(kSectionTheme, L"Theme", L"guide-settings.md#choosing-a-theme");
+        WideCard();  // round 12 phase 12F: the gallery gains from the width
         // Round 8 phase 8D: the hint counts the changes; the "⋯" menu has the theme files.
         Label(kThemeLabel, L"Theme", L"The preset's values", kThemeNote);
         Tip(kThemeLabel, L"A change on this page overrides the theme (saved in config.json); \x21BA brings back the theme's value, "

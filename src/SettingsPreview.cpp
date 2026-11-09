@@ -207,7 +207,7 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
     dc->Clear(FromColorRef(layer_));
     winrt::com_ptr<ID2D1SolidColorBrush> brush;
     if (FAILED(dc->CreateSolidColorBrush(FromColorRef(divider_), brush.put()))) return;
-    dc->FillRectangle(D2D1::RectF(0, 0, W, stroke), brush.get());
+    dc->FillRectangle(dividerBottom_ ? D2D1::RectF(0, H - stroke, W, H) : D2D1::RectF(0, 0, W, stroke), brush.get());
 
     // --- wallpaper ---
     const D2D1_RECT_F wall = D2D1::RectF(px(kWallInsetX), px(kWallInsetY), W - px(kWallInsetX), H - px(kWallInsetY));

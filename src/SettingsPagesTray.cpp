@@ -32,6 +32,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Tray icons");
+        Lead(L"Whether WinDock takes over the notification area.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#tray-icons");
         // Round 8 phase 8A: one-line notes, the explanations as their tooltips; round 8 phase 8D:
         // one card, the note the check box's hint.
@@ -125,6 +126,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"System tray");  // a no-op in an Item window (the header names it)
+        Lead(L"The tray icons this item shows on the dock, and their grid.");  // round 12 phase 12F
         HelpTopic(L"guide-items.md#the-tray");
         // Round 8 phase 8C: three cards, hints under the labels, the explanations as tooltips.
         Section(kTrayGridSection, L"The grid", L"guide-items.md#the-grid");
@@ -144,6 +146,7 @@ protected:
         Combo(kTrayIconSizeCombo, kColX, 120, false);
         NextRow();
         Section(kTrayIconsLabel, L"Icons in the grid", L"guide-items.md#icons-in-the-grid");
+        WideCard();  // round 12 phase 12F: the icon list gains from the width
         Text(kTrayIconsNote, CtlKind::Note, L"In order; unchecked icons are only in the drawer", kMargin, right - kMargin, 20);
         Tip(kTrayIconsNote,
             L"Unchecked icons are only in the drawer. Icons of apps that are not running are listed while they are "
@@ -216,6 +219,12 @@ protected:
             SetComboSel(kTrayIconSizeCombo, sel);
         }
         Enable(kTrayReset, Cfg().tray.enabled);
+        // Round 12 phase 12F: while the takeover is off the list is empty and Reset to Explorer greyed:
+        // the existing hint slots say why and the way on.
+        const bool on = Cfg().tray.enabled;
+        SetText(kTrayIconsNote, on ? L"In order; unchecked icons are only in the drawer"
+                                   : L"The takeover is off, so Explorer has the icons. Turn it on in App settings > Tray icons.");
+        SetText(kTrayResetNote, on ? L"Back to the taskbar, every dock" : L"Off: Explorer has them");
         FillList(-1);
     }
 

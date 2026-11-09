@@ -405,6 +405,7 @@ private:
     // DockCommand 165 - 169 (automation).
     bool KeepCommand(UINT command, LPARAM lp);
     HWND nameText_ = nullptr;  // the app window's hidden static SettingsIds::kAppNameText (QueryState 303)
+    HWND layoutQueried_ = nullptr;  // round 12 phase 12F: the settings window QueryState 321 last answered for (322 asks it)
     // --- end round 12 phase 12C ---
     // --- desktop folder windows (round 4 phase 12) ---
     // "New folder window…": a folder picker owned by `owner`, then AddFolderWindow at the pointer.

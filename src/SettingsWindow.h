@@ -290,6 +290,12 @@ struct Ctl {
     // with neither a tooltip nor a hint).
     std::wstring topic;
     bool hint = false;
+    // Round 12 phase 12F: a one-line note (SS_CENTERIMAGE, a row tall, not a label's hint) whose
+    // text does not fit its width: the reflow draws it wrapped (its style switches to multi-line)
+    // and its row grows. `column`: where the reflow put it (0 the left column or the only one, 1 the
+    // right column, 2 across both: a wide card, the title, the page's sentence; QueryState 322).
+    bool wrapped = false;
+    int column = 0;
 };
 
 // A page: a child window (WinDock.SettingsPage, WS_EX_CONTROLPARENT) holding the controls of its
@@ -377,11 +383,26 @@ protected:
     static constexpr int kHintRowH = 46;   // a row whose label has a hint (Label(id, text, hint))
     static constexpr int kCardPadX = 12;   // a card's edge from the controls' margin
     static constexpr int kHelpDip = 20;    // round 9 phase 9D: a card's round "?" button
+    // Round 12 phase 12F (the round's design rules: rows of 196 + 360 DIPs, text under 80
+    // characters): edits, drop-downs and sliders never grow wider than kControlMaxDip; a page at
+    // least kTwoColumnsDip wide flows its cards into two columns kColumnGapDip apart (SettingsWindow::
+    // Reflow). Text wraps at SettingsWindow::TextMaxDip (about 72 characters of the body font).
+    static constexpr int kControlMaxDip = 360;
+    static constexpr int kTwoColumnsDip = 1000;
+    static constexpr int kColumnGapDip = 16;
     int Width() const;  // content width in DIPs
     Ctl& Add(int id, CtlKind kind, const wchar_t* cls, std::wstring text, DWORD style, RECT dip);
     // The page's title (Global window only; round 8 phase 8A: a no-op in Dock and Item windows,
     // where the tab or the header names the page: the content then starts at y = 16).
     void Title(const wchar_t* text);
+    // Round 12 phase 12F: the page's one plain sentence (control kPageLead), right after Title: a
+    // note in the secondary colour across the page (both columns), outside any card; it wraps.
+    // `tip`: its tooltip (empty: none). A page that lays itself out (NoReflow) places its own.
+    void Lead(const std::wstring& text, const std::wstring& tip = {});
+    // Round 12 phase 12F: the open card (or, before any control, the card the next one opens) spans
+    // both columns of a wide page, and the cards after it start a new pair of columns: a card whose
+    // content gains from the width (a list, a grid, the gallery, a canvas).
+    void WideCard();
     // A section header; it opens a card (a rounded panel) that the next Section, EndCard() or the
     // end of the table closes. Rows before the first Section get an untitled card of their own.
     // Round 9 phase 9D: `topic` (a guide and heading, "guide-settings.md#auto-hide"): a round "?"
@@ -511,6 +532,8 @@ private:
     struct Card {
         int section = 0;  // the header's control id (0: untitled)
         RECT dip{};
+        bool wide = false;  // round 12 phase 12F: WideCard (spans both columns)
+        int column = 0;     // ... where the reflow put it (Ctl::column)
     };
     // A hairline between two rows of a card (page DIPs, computed by the reflow).
     struct Hairline {
@@ -556,6 +579,10 @@ private:
     int layoutW_ = 0;       // Width() of the last layout (OnResized when it changes)
     bool reflow_ = true;
     bool scrollBar_ = false;  // the page scrolls: Width() leaves its scroll bar out (round 8 phase 8A)
+    // Round 12 phase 12F: the last reflow's layout (1 or 2 columns; QueryState 321) and the width it
+    // was made for (a new width keeps the control at the top of the view in place: LayoutPage).
+    int columns_ = 1;
+    int flowW_ = 0;
 };
 
 // A settings window (WinDock.Settings; round 5 phase B: one of three kinds, SettingsKind): a
@@ -749,9 +776,22 @@ public:
     void PeersChanged(const SettingsPage* source);
     // The pages' width in DIPs (the client width less the nav column; round 12 phase 12E: less a
     // panel's border and band).
+    // Round 12 phase 12F: the nav column's width follows the window's (NavWidthDip).
     int ContentWidthDip() const {
-        return ClientDip().cx - (kind_ == SettingsKind::Global ? kNavWidthDip : 0) - (panel_ ? PanelInsetDip().left + PanelInsetDip().right : 0);
+        return ClientDip().cx - NavWidthDip() - (panel_ ? PanelInsetDip().left + PanelInsetDip().right : 0);
     }
+    // --- round 12 phase 12F: the window on a large display ---
+    // The width text wraps at (DIPs): about 72 characters of the body font, measured with the fonts
+    // (kTextMaxDefaultDip until then).
+    int TextMaxDip() const { return textMaxDip_; }
+    // The active page's layout: 1 or 2 columns (0: no page; QueryState 321).
+    int PageColumns() const;
+    // The column of control `id` on the active page (0 left / only, 1 right, 2 across both; -1 no
+    // such control; QueryState 322).
+    int ControlColumn(int id) const;
+    // The active page's sentence (control kPageLead; empty: none; QueryState 323).
+    std::wstring LeadText() const;
+    // --- end round 12 phase 12F ---
     // Round 8 phase 8A: the live client size in DIPs (QueryState 275; the restored size while
     // minimized).
     SIZE ClientSizeDip() const { return ClientDip(); }
@@ -803,10 +843,16 @@ private:
     friend class SettingsPage;
 
     // Client sizes in DIPs (round 8 phase 8A: resizable): the live size once the window exists,
-    // before that the saved one (config settings.windows) or the default (Global 760 x 560, Dock
-    // 860 x 620, Item 600 x 600); at least the minimum (Global 700 x 500, Dock 780 x 540, Item
-    // 520 x 480).
+    // before that the saved one (config settings.windows) or the default (DefaultClientDip); at
+    // least the minimum (Global 700 x 500, Dock 780 x 540, Item 520 x 480; the panel 400 x 360).
     SIZE ClientDip() const;
+    // Round 12 phase 12F: the size a window opens at without a saved one, from the work area of the
+    // display it opens on: App 60 % x 70 % within SettingsUiConfig::kDefault (the floor, 760 x 560)
+    // and kLargest (1280 x 860), Item the same share within 600 x 600 and 800 x 760; the panel
+    // 470 x 640 (12E), a folder window's / standalone widget's window 860 x 620.
+    SIZE DefaultClientDip() const;
+    // ... that work area (px): the dock's display, an Item window's anchor's (as InitialRect).
+    RECT InitialWork() const;
     int KindIndex() const { return kind_ == SettingsKind::Global ? 0 : kind_ == SettingsKind::Dock ? 1 : 2; }
     SIZE MinClientDip() const;
     // Saves the restored client size in config settings.windows (SaveOnly) when it changed.
@@ -829,6 +875,28 @@ private:
     static constexpr int kNavWidthDip = 200;
     static constexpr int kNavTopDip = 12;
     static constexpr int kNavItemDip = 36;
+    // Round 12 phase 12F: from kWideNavDip of window width the nav column is kNavWideDip wide and
+    // each page row (kNavWideItemDip tall) shows a one-line description under its name.
+    static constexpr int kWideNavDip = 1100;
+    static constexpr int kNavWideDip = 260;
+    static constexpr int kNavWideItemDip = 48;
+    static constexpr int kTextMaxDefaultDip = 560;
+    bool NavWide() const { return kind_ == SettingsKind::Global && ClientDip().cx >= kWideNavDip; }
+    int NavWidthDip() const { return kind_ != SettingsKind::Global ? 0 : NavWide() ? kNavWideDip : kNavWidthDip; }
+    bool NavDescriptions() const;  // wide, and the rows are tall enough for the second line
+    bool navWideApplied_ = false;  // the nav width the backdrop (Mica margins) was set for
+    int textMaxDip_ = kTextMaxDefaultDip;
+    // Round 12 phase 12F: App settings > Themes shows the preview strip above its cards (the one App
+    // page where a change is visual); Animation and the dock's Look tab keep it under the page.
+    bool PreviewAtTop(int index) const;
+    // The strip's place for the active page in the page area Layout computed (client px).
+    void PlacePreview();
+    RECT pagesArea_{};  // Layout: the pages' area (client px) with the strip's room in it
+    // A one-line note the reflow may wrap (Ctl::wrapped): SS_CENTERIMAGE, a row tall, not a label's
+    // hint, not measured, in a reflow row.
+    static bool WrapsNote(const Ctl& c);
+    // ... it needs two lines or more for `text` at its width (`dc` null: a screen DC with the font).
+    bool NoteNeedsWrap(HDC dc, const Ctl& c, const std::wstring& text) const;
     static constexpr int kNavCaptionDip = 22;  // round 8 phase 8D: a group caption ("GENERAL", "LOOK" ...)
     static constexpr int kNavGapDip = 12;      // the gap before About
     // Round 9 phase 9B: the "Find a setting…" box at the top of the nav column (its band's height;
@@ -950,6 +1018,7 @@ private:
         int page = 0;
         const wchar_t* caption = nullptr;
         bool gap = false;
+        const wchar_t* description = nullptr;  // round 12 phase 12F: the second line of a wide nav (null: none)
     };
     std::vector<NavSlot> NavOrder() const;
     int NavItemDip(const std::vector<NavSlot>& order) const;  // a row's height in DIPs
@@ -1046,6 +1115,7 @@ private:
     HFONT fontTitle_ = nullptr;    // page titles, the header's id / name
     HFONT fontIcons_ = nullptr;    // nav glyphs (Segoe Fluent Icons / MDL2 Assets); null if absent
     HFONT fontCaption_ = nullptr;  // round 8 phase 8D: the nav's group captions (small semibold)
+    HFONT fontSmall_ = nullptr;    // round 12 phase 12F: the wide nav's descriptions (small, regular)
     HBRUSH layerBrush_ = nullptr;
     HBRUSH baseBrush_ = nullptr;
     HBRUSH controlBrush_ = nullptr;

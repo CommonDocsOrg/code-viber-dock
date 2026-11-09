@@ -30,8 +30,10 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Calendar feeds");
+        Lead(L"ICS calendars for the clock's calendar and the Agenda widget.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#calendar-feeds");
         Section(kCalSection, L"Feeds", L"guide-settings.md#feeds");
+        WideCard();  // round 12 phase 12F: the list of feeds gains from the width
         // Round 8 phase 8A: one line, the whole explanation as its tooltip (8D: in the Feeds card).
         Ctl& note = Text(kCalNote, CtlKind::Note, L"Web addresses or .ics files, for the clock's month calendar and widgets such as Agenda.",
                          kMargin, right - kMargin, 20);

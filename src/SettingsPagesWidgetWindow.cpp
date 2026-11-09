@@ -35,6 +35,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Standalone widget");  // a no-op in a Dock window
+        Lead(L"Where this widget's window sits on the desktop, its size and background.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#placement-tab");
         Section(kWwPlaceSection, L"Place", L"guide-settings.md#place-layer-and-lock");
         Label(kWwDisplayLabel, L"Display");

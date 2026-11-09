@@ -186,6 +186,8 @@ protected:
         }
         const int right = Width() - kMargin;
         Title(L"Docks and displays");
+        Lead(L"Every dock, folder window and desktop widget, and the display each one is on.");  // round 12 phase 12F
+        WideCard();  // ... the canvas and the list gain from the width
         HelpTopic(L"guide-settings.md#docks-and-displays");
         Add(kLayoutCanvas, CtlKind::Custom, kCanvasClass, L"Docks and displays", WS_TABSTOP, RECT{kMargin, y_, right, y_ + kCanvasH});
         NextRow(kCanvasH + 4);

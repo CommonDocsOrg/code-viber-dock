@@ -30,6 +30,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Notifications");
+        Lead(L"Which apps may show badges, and the notification centre.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#notifications");
         // Round 8 phase 8A: one-line notes and hints, the explanations as their tooltips; round 8
         // phase 8D: in cards (Centre, Access, Badges per app).
@@ -74,6 +75,7 @@ protected:
                            L"quick settings have one).");
         NextRow(22);
         Section(kNotifAppsSection, L"Badges per app", L"guide-settings.md#badges-per-app");
+        WideCard();  // round 12 phase 12F: the app list gains from the width
         Add(kNotifAppList, CtlKind::List, WC_LISTVIEWW, L"Apps with badges",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});

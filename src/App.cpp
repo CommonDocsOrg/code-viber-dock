@@ -3708,6 +3708,28 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         case 319:
         case 320:
             return QuickSetupState(wp, lp);
+        // --- round 12 phase 12F: the settings window on a large display ---
+        case 321:    // the active page's layout: 1 / 2 columns (LOWORD 0xFFFE the App window, 0xFFFF the Dock settings of dock HIWORD, else the Item window of item LOWORD of dock HIWORD); -2 not open
+        case 323: {  // ... the active page's sentence (control 5800, its window text): its length (0 none); -2 not open
+            SettingsWindow* w = nullptr;
+            if (arg == 0xFFFE) {
+                w = FindSettings(SettingsKind::Global);
+            } else if (inst && inst->cfg < config_.docks.size()) {
+                const std::wstring& id = config_.docks[inst->cfg].id;
+                w = arg == 0xFFFF ? FindSettings(SettingsKind::Dock, id) : arg >= 0 ? FindSettings(SettingsKind::Item, id, static_cast<size_t>(arg)) : nullptr;
+            }
+            if (!w || !w->Hwnd()) return -2;
+            if (wp == 323) return static_cast<LRESULT>(w->LeadText().size());
+            layoutQueried_ = w->Hwnd();
+            return w->PageColumns();
+        }
+        case 322: {  // the column of control LOWORD on the active page of the window 321 last answered for: 0 left (or one column), 1 right, 2 across both; -1 no such control, -2 that window is gone
+            for (const auto& s : settings_) {
+                if (s->Hwnd() && s->Hwnd() == layoutQueried_) return s->ControlColumn(static_cast<int>(arg));
+            }
+            return -2;
+        }
+        // --- end round 12 phase 12F ---
         case 280:  // round 9 phase 9A: dock HIWORD (a dock or a standalone widget) is hidden by the full-screen guard (1 / 0; -2 no such dock)
             if (!inst) return -2;
             if (inst->window) return inst->window->FullscreenHidden() ? 1 : 0;

@@ -709,8 +709,17 @@ struct SettingsWindowSize {
 struct SettingsUiConfig {
     // Index: 0 Global, 1 Dock, 2 Item (SettingsKind order).
     static constexpr int kKinds = 3;
+    // Round 12 phase 12F: kDefault is the floor of the size a window without a saved one opens at:
+    // App and Item windows take 60 % x 70 % of their display's work area, at least kDefault and at
+    // most kLargest (SettingsWindow::DefaultClientDip). The Dock slot: a folder window's / standalone
+    // widget's captioned window opens at kDefault; a dock's panel at 470 x 640 (12E). A saved size
+    // always wins.
     static constexpr SettingsWindowSize kDefault[kKinds] = {{760, 560}, {860, 620}, {600, 600}};
+    static constexpr SettingsWindowSize kLargest[kKinds] = {{1280, 860}, {860, 620}, {800, 760}};
     static constexpr SettingsWindowSize kMinimum[kKinds] = {{700, 500}, {780, 540}, {520, 480}};
+    // Round 12 phase 12F: what Sanitize clamps a saved size to: the Dock slot also holds the panel's
+    // size since 12E, whose minimum is 400 x 360 (kMinimum's 780 x 540 widened a narrow panel on load).
+    static constexpr SettingsWindowSize kSavedMinimum[kKinds] = {{700, 500}, {400, 360}, {520, 480}};
     static constexpr int kMaximum = 4000;
     static constexpr const wchar_t* kNames[kKinds] = {L"global", L"dock", L"item"};
     SettingsWindowSize windows[kKinds];

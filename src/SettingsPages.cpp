@@ -165,6 +165,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"General");
+        Lead(L"How WinDock starts and what it does with the Windows taskbar.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#general");
         // Round 8 phase 8D: where the per-dock settings are, as a line under the title (it was the
         // System card's last row); the cards below are the app's own settings.
@@ -418,6 +419,7 @@ protected:
         // it at the window's minimum width).
         const int ctlW = std::clamp(silL - 16 - kColX, 160, 300);
         Title(L"Position");
+        Lead(L"Where this dock sits and which display it is on.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#position-tab");
         // Round 12 phase 12E: "Where on the screen" (was "Placement"; same id, same "?" topic): the
         // distances from the centre and from the screen edge are here now, with sliders, and a
@@ -437,6 +439,11 @@ protected:
             L"docks) unless it is locked. Half circle: a ring on an edge. Circle: a ring anywhere (Ctrl+drag it).");
         Combo(kPlacementKindCombo, kColX, ctlW, false);
         NextRow();
+        // Round 12 phase 12F: why the edge's rows are not here for this kind, and the way to them
+        // (EnableDependents: collapsed for a bar on an edge).
+        Ctl& kindReason = Text(kKindReason, CtlKind::Note, L"", kColX, ctlW, 20);
+        kindReason.maxLines = 3;
+        NextRow(22);
         Label(kMonitorLabel, L"Display");
         Tip(kMonitorLabel, L"The display this dock is on: the primary one, another display, or every display (a copy of the dock on each). Default: the primary display.");
         Combo(kMonitorCombo, kColX, ctlW, false);
@@ -499,6 +506,10 @@ protected:
         Tip(kReserveSpaceCaption, L"Keeps maximized windows off the dock: reserves a strip along the whole edge (auto-hide "
                                   L"off only). On by default.");
         NextRow();
+        // Round 12 phase 12F: why Reserve screen space is greyed (auto-hide on, a desktop layer).
+        Ctl& reserveReason = Text(kReserveReason, CtlKind::Note, L"", kMargin + kCaptionDx, right - kMargin - kCaptionDx, 20);
+        reserveReason.maxLines = 2;
+        NextRow(22);
         Label(kRadiusLabel, L"Radius (pixels)", L"0: automatic");
         IntSpin(kRadiusEdit, kRadiusSpin, kColX, 88, 0, 2000, 10, [](Config&, DockConfig& d) -> int& { return d.radius; },
                 SettingsScope::Appearance);
@@ -571,6 +582,12 @@ protected:
         Tip(kPeekOpacityLabel, L"How solid the peek strip of a hidden dock is drawn (5 - 100 %). Default: 50 %.");
         Spin(kPeekOpacityEdit, kPeekOpacitySpin, kColX, 72, 5, 100, 5);
         NextRow();
+        // Round 12 phase 12F: the peek shows only on a dock that hides.
+        Ctl& peekReason = Text(kPeekReason, CtlKind::Note,
+                               L"The peek shows while the dock is hidden. Turn auto-hide on (Behaviour tab) to use it.", kMargin,
+                               right - kMargin, 20);
+        peekReason.maxLines = 2;
+        NextRow(22);
         // Round 7 phase 7A: docks[].maxLength (a bar that is not full width).
         Label(kMaxLengthLabel, L"Maximum length (pixels)", L"0: no limit", kMaxLengthNote);
         Tip(kMaxLengthLabel, L"0: no limit. A longer run of icons scrolls (see When the icons do not fit). Not for a "
@@ -583,6 +600,7 @@ protected:
     void BuildBehaviour() {
         const int right = Width() - kMargin;
         Title(L"Behaviour");
+        Lead(L"When the dock hides and what the mouse does on it.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#behaviour-tab");
         // Round 8 phase 8B: the Size card (icon size, magnification, range) is on the Appearance tab.
         Section(kSectionAutoHide, L"Auto-hide", L"guide-settings.md#auto-hide");
@@ -652,6 +670,17 @@ protected:
         // collapsed while auto-hide is off (round 9 phase 9A).
         UntitledCard();
         HeadingExpander(kAutoHideMore, L"Delays and popup gap", false, L"guide-settings.md#delays-and-popup-gap");
+        // Round 12 phase 12F: why rows are missing here (EnableDependents shows them while it holds).
+        Ctl& hideReason = Text(kHideDelayReason, CtlKind::Note,
+                               L"Hide and reveal delays apply to a dock that auto-hides. Turn auto-hide on above to set them.",
+                               kMargin, right - kMargin, 20);
+        hideReason.maxLines = 2;
+        NextRow(22);
+        Ctl& previewReason = Text(kPreviewDelayReason, CtlKind::Note,
+                                  L"The preview delay applies while window previews are on. Turn them on above to set it.",
+                                  kMargin, right - kMargin, 20);
+        previewReason.maxLines = 2;
+        NextRow(22);
         Label(kHideDelayLabel, L"Hide delay", L"After the mouse leaves");
         Tip(kHideDelayLabel, L"How long an auto-hiding dock waits after the pointer leaves it before it hides. Default: 400 ms.");
         IntSpin(kHideDelayEdit, kHideDelaySpin, kColX, 90, 0, 10000, 50,
@@ -684,6 +713,7 @@ protected:
     void BuildRunning() {
         const int right = Width() - kMargin;
         Title(L"Running apps");
+        Lead(L"How running apps and their windows appear on this dock.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#running-apps-tab");
         Section(kSectionTaskList, L"Running apps", L"guide-settings.md#running-apps-tab");
         // Round 8 phase 8A: the notes are the hints kTaskListNote / kThumbnailsNote and tooltips.
@@ -698,6 +728,11 @@ protected:
         Tip(kTitlesLabel, L"Titles show the window title, or the app's name.");
         Combo(kTitlesCombo, kColX, right - kColX, false);
         NextRow();
+        // Round 12 phase 12F: shown while titles are off (the vertical row is then collapsed).
+        Ctl& titlesReason = Text(kTitlesReason, CtlKind::Note,
+                                 L"Titles on vertical docks appear when Titles under icons is not Off.", kMargin, right - kMargin, 20);
+        titlesReason.maxLines = 2;
+        NextRow(22);
         Label(kTitlesVerticalLabel, L"Titles on vertical docks");
         Tip(kTitlesVerticalLabel, L"On a left or right dock, titles go beside the icons (the default) or are left out.");
         Combo(kTitlesVerticalCombo, kColX, right - kColX, false);
@@ -709,6 +744,10 @@ protected:
             L"gets a tile (stacked: each app its active window).");
         Combo(kThumbnailsCombo, kColX, right - kColX, false);
         NextRow();
+        // Round 12 phase 12F: which of the rows below the chosen mode leaves out, and how to get them.
+        Ctl& thumbReason = Text(kThumbReason, CtlKind::Note, L"", kMargin, right - kMargin, 20);
+        thumbReason.maxLines = 2;
+        NextRow(22);
         Label(kThumbIntervalLabel, L"Snapshot every");
         Tip(kThumbIntervalLabel, L"With snapshot thumbnails: how often each window's picture is taken again. Default: 5 seconds.");
         IntSpin(kThumbIntervalEdit, kThumbIntervalSpin, kColX, 90, 1, 3600, 1,
@@ -1196,6 +1235,25 @@ private:
             // for a bar that is not full width (a floating bar too); the title for bars.
             Collapse({kReserveSpace, kPeekLabel, kPeekEdit, kPeekOpacityLabel, kPeekOpacityEdit}, !edgeBar);
             Collapse({kMaxLengthLabel, kMaxLengthEdit}, !maxLength);
+            // --- round 12 phase 12F: the reasons beside what does not apply, and the way to it ---
+            SetText(kKindReason, kind == 1   ? L"A floating bar sits anywhere on the screen, so it has no edge: no alignment, full "
+                                               L"width, reserved space or peek. Choose Bar on an edge for them."
+                                 : kind == 2 ? L"A half circle has no alignment, distances or full width. Choose Bar on an edge "
+                                               L"for them."
+                                 : kind == 3 ? L"A circle sits anywhere, so it has no edge, alignment or full width. Choose Bar "
+                                               L"on an edge for them."
+                                             : L"");
+            Collapse(kKindReason, kind == 0);
+            // Reserve screen space: only a dock that does not auto-hide, on the Normal layer (DockWindow's
+            // app bar); greyed with the reason otherwise.
+            const bool hides = d.AutoHideOn(), layerOk = d.layer == DockLayer::Normal;
+            Enable(kReserveSpace, !hides && layerOk);
+            SetText(kReserveReason, hides      ? L"Reserving space needs auto-hide off (Behaviour tab)."
+                                    : !layerOk ? L"Reserving space needs the Normal layer (Layer and title below)."
+                                               : L"");
+            Collapse(kReserveReason, !edgeBar || (!hides && layerOk));
+            Collapse(kPeekReason, !edgeBar || hides);
+            // --- end round 12 phase 12F ---
             // Round 12 phase 12C: the Title text while it is not the name; Where only for a title
             // that shows, never greyed without a reason (a vertical bar or a ring draws it outside).
             Collapse({kTitleLabel, kTitleEdit}, ring || d.titleUseName);
@@ -1224,6 +1282,13 @@ private:
         // The preview options while previews are on, the vertical titles while titles are on
         // (collapsed, not greyed).
         Collapse({kPreviewSingle, kPreviewDelayLabel, kPreviewDelayEdit, kPreviewDelayUnit}, !d.previews);
+        // Round 12 phase 12F: the reasons for the rows that are gone (a floating bar has its own note above).
+        Collapse(kHideDelayReason, d.AutoHideOn() || floating);
+        Collapse(kPreviewDelayReason, d.previews);
+        Collapse(kTitlesReason, d.titles != TitlesMode::Off);
+        SetText(kThumbReason, d.thumbnails == ThumbnailMode::Off       ? L"Off: no tiles. Choose Live or Snapshots to set their size and rate."
+                              : d.thumbnails == ThumbnailMode::Snapshots ? L"Frames per second applies to live thumbnails. Choose Live to set it."
+                                                                         : L"Snapshot every applies to snapshots. Choose Snapshots to set it.");
         if (part_ == Part::Behaviour) {
             // Round 10 phase 10D: "Delays and popup gap · n changed" (the rows that apply).
             const DockConfig fresh;
@@ -1299,6 +1364,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"About");
+        Lead(L"This build, your config file, quick setup and help.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#about");
         UntitledCard(L"guide-settings.md#about");
         Text(kAboutName, CtlKind::Section, L"WinDock", kMargin, right - kMargin, 24);

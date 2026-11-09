@@ -34,7 +34,7 @@ To open an item's settings:
 
 Each window's title names what it edits: an item's window reads like "Weather · main" (the item, then the dock). When a dock holds two items with the same name, the second is "Weather 2", unless their places or labels already tell them apart.
 
-The settings windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. They follow the Windows light or dark app mode. A dock's own settings are different: they open in a panel right beside the dock, which stays shown while the panel is open, so you can watch your changes.
+The settings windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size (the first time, App settings opens at a size that suits your display). On a wide window the cards of a page sit in two columns, and each page starts with one sentence that says what it is for. They follow the Windows light or dark app mode. A dock's own settings are different: they open in a panel right beside the dock, which stays shown while the panel is open, so you can watch your changes.
 
 Keyboard: **Ctrl+Tab** and **Ctrl+Shift+Tab** go to the next or previous page or tab. **Ctrl+Z** undoes the last change and **Ctrl+Y** redoes it. **Esc** closes the window (while a preset preview is open, Esc cancels the preview instead).
 

@@ -1084,8 +1084,9 @@ void Config::Sanitize() {
     for (int k = 0; k < SettingsUiConfig::kKinds; ++k) {
         SettingsWindowSize& s = settings.windows[k];
         if (s.w == 0 && s.h == 0) continue;
-        s.w = std::clamp(s.w, SettingsUiConfig::kMinimum[k].w, SettingsUiConfig::kMaximum);
-        s.h = std::clamp(s.h, SettingsUiConfig::kMinimum[k].h, SettingsUiConfig::kMaximum);
+        // Round 12 phase 12F: kSavedMinimum (the Dock slot holds a panel's size too).
+        s.w = std::clamp(s.w, SettingsUiConfig::kSavedMinimum[k].w, SettingsUiConfig::kMaximum);
+        s.h = std::clamp(s.h, SettingsUiConfig::kSavedMinimum[k].h, SettingsUiConfig::kMaximum);
         if (s == SettingsUiConfig::kDefault[k]) s = SettingsWindowSize{};
     }
     settings.tipsShown &= (1 << SettingsUiConfig::kTipCount) - 1;  // round 12 phase 12G: the three tips' bits

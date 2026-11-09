@@ -100,6 +100,9 @@ protected:
         const DockItemEntry* e = Entry();
         const bool group = e && e->Kind() == ItemKind::Group;
         HelpTopic(group ? L"guide-items.md#groups" : L"guide-items.md#folders");
+        // Round 12 phase 12F: the page's sentence.
+        Lead(group ? L"Shortcuts gathered in one place on the dock, and how its popup shows them."
+                   : L"A folder on the dock, and how its popup shows what is in it.");
         Section(kItemPopupSection, group ? L"Group" : L"Folder", group ? L"guide-items.md#groups" : L"guide-items.md#folders");
         Label(kGroupNameLabel, L"Name");
         Tip(kGroupNameLabel, L"The group's name: its label on the dock and the title of its popup. Default: Group.");

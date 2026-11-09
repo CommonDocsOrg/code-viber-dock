@@ -44,6 +44,13 @@ public:
     }
     // Background colours of the strip (the settings window's content layer and a divider).
     void SetColors(COLORREF layer, COLORREF divider);
+    // Round 12 phase 12F: the divider on the strip's bottom edge (it sits above the page: App
+    // settings > Themes) instead of its top.
+    void SetDividerBottom(bool bottom) {
+        if (bottom == dividerBottom_) return;
+        dividerBottom_ = bottom;
+        Invalidate();
+    }
     // The window moved to a monitor with another DPI: re-create the target at that DPI.
     void SetDpi(UINT dpi);
     // The config changed: repaint.
@@ -65,6 +72,7 @@ private:
     std::function<const DockConfig*()> dock_;
     bool globalTheme_ = false;
     bool showPopup_ = true;
+    bool dividerBottom_ = false;
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
     COLORREF layer_ = RGB(0x2B, 0x2B, 0x2B);
     COLORREF divider_ = RGB(0x3A, 0x3A, 0x3A);

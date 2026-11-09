@@ -212,6 +212,8 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Widget library");
+        Lead(L"The widgets you can add, built in and your own.");  // round 12 phase 12F
+        WideCard();  // ... the list and the preview gain from the width
         HelpTopic(L"guide-settings.md#widget-library");
         Add(kWidgetsList, CtlKind::List, WC_LISTVIEWW, L"Installed widgets",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
@@ -611,6 +613,18 @@ protected:
         }
         const Widgets::Manifest* m = Schema();
         Title(L"Widget settings");  // a no-op in Dock and Item windows (round 8 phase 8A)
+        // Round 12 phase 12F: the page's sentence: the first sentence of the widget's description (the
+        // whole one its tooltip); the Appearance tab says what it holds.
+        if (part_ == WidgetPart::Appearance) {
+            Lead(L"How this widget looks.");
+        } else {
+            const std::wstring desc = m ? m->description : std::wstring();
+            const size_t dot = desc.find(L". ");
+            std::wstring first = dot == std::wstring::npos ? desc : desc.substr(0, dot + 1);
+            while (!first.empty() && first.back() == L' ') first.pop_back();
+            if (!first.empty() && first.back() != L'.' && first.back() != L'!' && first.back() != L'?') first += L'.';
+            Lead(first.empty() ? std::wstring(L"Settings of this widget.") : first, desc != first ? desc : std::wstring());
+        }
         // Round 9 phase 9D: the cards' "?" open the item's guide section; F1 there too (a standalone
         // widget's Widget tab: the window's guide section).
         cardTopic_ = kind == ItemKind::Clock     ? L"guide-items.md#the-clock"
@@ -629,10 +643,8 @@ protected:
             note = L"Not installed: " + error;
         } else if (m->settings.empty()) {
             note = m->name + L" has no settings.";
-        } else if (standalone_) {
-            note = m->description;
-            lines = 1;
         }
+        // Round 12 phase 12F: a standalone widget's description line is the page's sentence now (Lead).
         if (part_ == WidgetPart::Appearance) note.clear();  // round 10 phase 10C: the Content tab says it
         if (!note.empty()) {
             UntitledCard(cardTopic_);
@@ -741,7 +753,13 @@ protected:
                 // The whole description: the label's (and so its hint's), the control's tooltip.
                 // Round 9 phase 9D: a field without one (another author's widget) still gets a
                 // tooltip: its name and its default.
-                const std::wstring tip = !f.description.empty() ? f.description : f.label + L". Default: " + DefaultText(f) + L".";
+                std::wstring tip = !f.description.empty() ? f.description : f.label + L". Default: " + DefaultText(f) + L".";
+                // Round 12 phase 12F: a field that other fields show for (visibleIf) says so while some are hidden.
+                const bool hides = std::any_of(fields.begin(), fields.end(), [&](const Widgets::SettingField& o) {
+                    return OnPage(o) && !Visible(o, values) &&
+                           std::any_of(o.visibleIf.begin(), o.visibleIf.end(), [&](const auto& c) { return c.first == f.key; });
+                });
+                if (hides) tip += L" More options appear for other values of this setting.";
                 Tip(f.type == T::Bool ? base + 2 : base, tip);
                 Tip(base + 1, tip);
                 if (f.type == T::Bool && !hint.empty()) Tip(base + 3, tip);
