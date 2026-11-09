@@ -190,7 +190,7 @@ Each dock lives on one display. Choose it with **Display** on the dock's Positio
 - **Display 2**, **Display 3** and so on: the other displays.
 - **Every display**: a copy of the dock on each display. A change on one copy, such as a new pin, changes them all.
 
-**Show only the windows on this dock's display** on the Running apps tab makes each dock show only the windows on its own display. Use it together with a dock on each display.
+**Show only the windows on this dock's display** in the Running apps widget's settings (right-click a running app > **Running apps settings…**) makes each dock show only the windows on its own display. Use it together with a dock on each display.
 
 When a display is unplugged, its docks are parked: they keep their settings but have no window. App settings > Docks and displays lists them as "Parked (display not connected)". They come back when the display is connected again.
 

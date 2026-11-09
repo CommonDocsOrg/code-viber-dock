@@ -205,6 +205,7 @@ std::vector<std::unique_ptr<SettingsPage>> MakeWidgetSettingsPages(SettingsWindo
 std::wstring BuiltInItemDescription(ItemKind kind);
 std::unique_ptr<SettingsPage> MakeTrayPage(SettingsWindow& window);            // SettingsPagesTray.cpp (Global > Tray icons)
 std::unique_ptr<SettingsPage> MakeTrayItemPage(SettingsWindow& window);        // SettingsPagesTray.cpp (a tray item's Item window)
+std::unique_ptr<SettingsPage> MakeRunningItemPage(SettingsWindow& window);     // SettingsPagesRunning.cpp (the running item's Item window; round 13 phase 13D)
 std::unique_ptr<SettingsPage> MakeNotificationsPage(SettingsWindow& window);   // SettingsPagesNotifications.cpp
 std::unique_ptr<SettingsPage> MakeItemSettingsPage(SettingsWindow& window);    // SettingsPagesItems.cpp ("Folders and groups")
 std::unique_ptr<SettingsPage> MakeCalendarPage(SettingsWindow& window);        // SettingsPagesCalendar.cpp

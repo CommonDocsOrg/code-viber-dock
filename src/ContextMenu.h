@@ -323,6 +323,9 @@ struct ItemMenuState {
     HICON headerIcon = nullptr;
     wchar_t headerGlyph = 0;
     std::vector<QuickEntry> quick;  // round 13 phase 13C: the widget kinds' quick settings (kQuickBase + index)
+    // Round 13 phase 13D: an unpinned running app's slot (the running element's): "Running apps
+    // settings…" after the header (kOpenItemSettings: the running item's Item window).
+    bool runningSettings = false;
 };
 
 // Round 13 phase 13B: the glyph (ContextMenu.cpp's table) a kind's header shows when there is no
@@ -334,7 +337,8 @@ wchar_t KindGlyph(DockItem::Kind kind);
 // Round 13 phase 13B: every entry list starts with the disabled header (headerText with its icon,
 // then a separator), and the main entries and submenus show a glyph (MenuIcons; one codepoint table
 // in ContextMenu.cpp, the same in every menu; the dock menu's App ▸ shows the exe's icon).
-// - App: the name · Open / New window · Open file location · ─ · Close "<title>" per window
+// - App: the name · (an unpinned running app, round 13 phase 13D: Running apps settings… · ─) ·
+//   Open / New window · Open file location · ─ · Close "<title>" per window
 //   (kCloseWindowBase + index) · Close all windows (several) · Customize icon ▸ (pinned) · ─ · Pin to
 //   dock / Unpin from dock
 // - Folder: the name · Open in Explorer · Show contents · Contents layout ▸ · Customize icon ▸ ·

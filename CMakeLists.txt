@@ -89,6 +89,7 @@ add_executable(WinDock WIN32
   src/SettingsPagesContents.cpp
   src/SettingsPagesLayout.cpp
   src/SettingsPagesTray.cpp
+  src/SettingsPagesRunning.cpp
   src/SettingsPagesNotifications.cpp
   src/SettingsPreview.cpp
   src/QuickJsEngine.cpp

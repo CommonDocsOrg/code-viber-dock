@@ -375,9 +375,10 @@ icon cache and popups). Per dock:
   has no window until the monitor is back. Display changes (`WM_DISPLAYCHANGE`,
   `WM_DEVICECHANGE`, a dock's `WM_DPICHANGED`) re-enumerate the monitors and park / unpark docks
   and add / remove the copies of an `"each"` dock (deferred while a dock menu or dialog is open).
-- `runningFilter`: `"all"` (default) or `"monitor"`: the dock shows only the windows whose centre is
-  on its monitor (a minimized window counts where it was restored); this applies to the running
-  apps and to the dots and window lists of pinned apps. (A virtual-desktop filter is not planned.)
+- The running item's `filter` (round 13 phase 13D; was `docks[].runningFilter`): `"all"` (default) or
+  `"monitor"`: the dock shows only the windows whose centre is on its monitor (a minimized window
+  counts where it was restored); this applies to the running apps and to the dots and window lists
+  of pinned apps. (A virtual-desktop filter is not planned.)
 - `themePreset`: a theme preset (built-in id or theme file) for this dock only; empty (default) =
   the app look (the top-level `theme`: its preset and inline fields). Round 12 phase 12B: a dock
   with a `themePreset` has its own look, that preset plus its own inline fields `docks[].theme`
@@ -746,7 +747,8 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
   between its windows: each notch towards you brings the next window to the front (in the order
   the windows appeared, wrapping around), away from you the previous one; with one window it is
   brought to the front.
-- Right click (round 10 phase 10A): the app's name, **New window** (shows as **Open** when the app
+- Right click (round 10 phase 10A): the app's name, (round 13 phase 13D, an app that runs but is not
+  pinned: **Running apps settings…** with the running apps glyph, then a separator), **New window** (shows as **Open** when the app
   is not running), **Open file location** (for path-based items), **Close "<title>"** for each
   window and **Close all windows** (several), **Customize icon** (a pinned app; see **Custom
   icons** below), then **Pin to dock** / **Unpin from dock**, then the **Dock** submenu (the dock
@@ -897,6 +899,30 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
   (12 DIPs). It has no name label and no dot, is never magnified (its neighbours are) and does not
   react to clicks. It can be dragged to another place or off the dock like any pin; right click
   shows **Remove separator**, then the **Dock** submenu.
+- **Running apps** (`{ "kind": "running", "settings": { ... } }`, one per dock: **Add** > **Running apps**;
+  round 13 phase 13D): the apps that run but are not pinned, one slot each (or one per window). Its
+  `settings` object holds every running-apps setting of the dock (before 13D they were `docks[]`
+  keys); each key is optional, a missing or invalid one takes its default:
+  - `filter`: `"all"` (default) or `"monitor"` (only the windows whose centre is on the dock's display).
+  - `windows`: `"stacked"` (default) or `"unstacked"`; `titles`: `"off"` (default), `"one"`, `"two"`;
+    `titlesVertical`: `"beside"` (default) or `"off"` (see **Running apps: windows and titles**).
+  - `thumbnails`: `"off"` (default), `"live"`, `"snapshots"`; `thumbnailIntervalS` (default 5, 1 -
+    3600), `thumbnailSize` (DIPs, default 0 = twice `iconSize`, else 16 - 512), `thumbnailFps`
+    (default 10, 1 - 60).
+  - `badges`: `false` (default) or `true` (notification badges on the app icons).
+  - `gap`: DIPs between the running slots, `-1` (default) = the theme's `iconGap`, else 0 - 48. Each
+    icon slot holds half its own gap on each side, so between a pinned app (the theme's gap) and a
+    running app the space is the mean of the two gaps.
+  - `padding`: DIPs before the first and after the last running slot (0 - 64, default 0; never
+    magnified).
+  - `order`: `"firstSeen"` (default: the order the apps started in, changed by dragging them for the
+    session) or `"name"` (alphabetical by display name; apps of the same name keep their first-seen
+    order).
+
+  The window slots, titles, thumbnails and badges also apply to pinned apps' windows; a dock without
+  a running item uses the defaults for them. A new running item gets every key written with its
+  default. Its settings window: Dock settings > Contents > the item's **Running apps settings…**, or
+  right-click a running app > **Running apps settings…** (the first entry after the header).
 - **Custom icons**: any pin (app, folder, Recycle Bin; not separators) can have its own icon,
   stored as the entry's `"icon"` (see Configuration). The right-click menu of a pinned item has a
   **Customize icon** submenu (round 10 phase 10A; they were three top-level entries) with:
@@ -932,6 +958,14 @@ original taskbar state. If the dock is killed or crashes, the next start (or
 menu still opens with the Win key while the taskbar is hidden.
 
 ### Running apps: windows and titles
+
+These are the keys of the running item's `settings` object (see **Running apps** under **Dock
+items**; its own settings window since round 13 phase 13D). **Migration**: before 13D `runningFilter`,
+`windows`, `titles`, `titlesVertical`, `thumbnails`, `thumbnailIntervalS`, `thumbnailSize`,
+`thumbnailFps` and `badges` were keys of the `docks[]` entry. Loading such a file moves them into the
+dock's first running item (`runningFilter` becomes `filter`; a key the item already has keeps the
+item's value) and saves; a dock that has the old keys but no running item drops them. They are never
+written at the dock level again.
 
 - **One slot per window** (`windows`: `"stacked"` (default, one slot per app) or `"unstacked"`):
   every window gets a slot of its own with its app's icon, grouped by app in the app order the
@@ -1446,8 +1480,8 @@ Notifications ("Let apps access your notifications") is on; the access is checke
   second meanwhile). Older builds skip the item. There is no Do not disturb switch: Windows has no
   public API to read or set it (the quick settings have one). The Notifications widget is the
   scriptable alternative (`notifications.openCentre()` opens this same list over the widget).
-- **Badges** (per dock `badges`, default off; Dock settings > Behaviour > **Notification badges on
-  app icons**; DockCommand 132 toggles it): a bubble with the
+- **Badges** (the running item's `badges`, default off; round 13 phase 13D: was `docks[].badges`; the Running
+  apps settings window > **Notification badges on app icons**; DockCommand 132 toggles it; a dock without a running item has none): a bubble with the
   number of unread notifications of each app on its slot, at the icon's outer corner (top right
   on bottom and left docks, bottom right on top docks, top left on right docks). It is part of the
   icon: it magnifies and bounces with it. "99+" above 99. A shortcut group shows the sum of its
@@ -1468,7 +1502,7 @@ Notifications ("Let apps access your notifications") is on; the access is checke
   `notifications.pollS` seconds (default 2), every max(pollS, 5) s once nothing changed for a
   minute, every second while the notification centre popup is open, and goes back to pollS on any
   change. Only the ids are compared; a new toast's details are read once. The worker exists only
-  while something needs it: a dock with `badges`, a widget that uses the `notifications` provider,
+  while something needs it: a dock whose running item has `badges`, a widget that uses the `notifications` provider,
   or the open centre; otherwise nothing polls. Cost measured here with 46 notifications in the
   centre: about 25 ms of CPU per poll, almost all of it inside Windows' `GetNotificationsAsync`
   (1.3 % of one core at the 2 s cadence, 0.5 % at 5 s; it grows with the number of notifications).
@@ -2078,7 +2112,7 @@ buttons in the captioned window). The captioned Dock window of rounds 5 - 11 had
 row with Flash, Lock / Unlock and ⋯ and a title bar in the dock's colour ("main · Dock settings ·
 Bottom · Primary"); the monitor silhouette is on the Position tab. Tabs (round 8 phase 8B:
 Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: Appearance became
-**Look**), each with one sentence under it (12F):
+**Look**; round 13 phase 13D: the Running apps tab became the running item's own settings window), each with one sentence under it (12F):
 
 - **Contents** ("Items on the dock"; round 5 phase C, it replaces the Dock contents list of
   earlier versions):
@@ -2097,9 +2131,9 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
     format; the weather's place; a second running apps item reads "Not shown: only the first
     running apps item is used"; a kind this version does not know is listed as written),
     **◀ Move left** / **Move right ▶**, **More settings…** (a clock, weather, script widget, tray,
-    folder (or a shortcut to one) or group: its Item window; round 10: named for its target,
+    running apps (round 13 phase 13D), folder (or a shortcut to one) or group: its Item window; round 10: named for its target,
     "Tray settings…", when the inspector shows no settings of the item above it; Enter or a double click on a pinned
-    tray icon opens its dock's tray item's window, on the running apps the Running apps tab, on
+    tray icon opens its dock's tray item's window, on the running apps their Running apps window (13D: was the tab), on
     the notification centre App settings > Notifications), **Customize icon ▾** (round 10 phase 10B; was
     More ▾) for apps, folders, groups and the
     Recycle Bin (a menu: **Choose icon…**, **Choose image…**, **Reset icon** (greyed without a
@@ -2226,8 +2260,10 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
   and its popups, 0 - 64: `popupGap`; round 10 phase 10D: the hide / reveal delays, the preview
   delay and the popup gap are in the last card, the closed **Delays and popup gap** expander),
   what a middle click on an app does and what the mouse
-  wheel over an app does, and (round 5 phase D) **Notification badges on app icons** (`badges`;
-  see Notifications and badges). Round 9: the Auto-hide card is never greyed: for a floating bar
+  wheel over an app does, and (round 5 phase D) **Notification badges on app icons** (round 13
+  phase 13D: moved to the Running apps window; in its place a note: "Window slots, titles,
+  thumbnails and badges are set on the Running apps widget (Add > Running apps).", control 5846).
+  Round 9: the Auto-hide card is never greyed: for a floating bar
   its radios, their note and the delays are collapsed and one line says "A floating bar has no
   auto-hide: it is shown by its layer and by the dashboard hotkey. To auto-hide it, choose Bar on
   an edge on the Position tab." with a **Position tab** link (it selects that tab). A change on
@@ -2242,14 +2278,21 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
   12F: Delays and popup gap shows a line when the hide / reveal delays or the preview delay do not
   apply ("Hide and reveal delays apply to a dock that auto-hides. Turn auto-hide on above to set
   them.").
-- **Running apps**: **Windows** (Stacked / One slot per window), **Show only the windows on this
+- **Running apps** (until round 13 phase 13D a tab here; now the running item's own Item window,
+  `RunningItemPage`: Dock settings > Contents > the running apps' **Running apps settings…**, or a
+  running app's menu > **Running apps settings…**; the footer has **Reset to factory defaults…**):
+  **Windows** (Stacked / One slot per window), **Show only the windows on this
   dock's display**, **Titles under icons** (Off / One line / Two lines), **Titles on vertical
   docks** (Off / Beside the icon), **Window thumbnails** (Off / Live (GPU capture) / Snapshots
   (every N seconds)) and, round 8 phase 8B only for the mode that uses them, the snapshot
   interval (Snapshots), the live frames per second (Live) and the tile length (either); round 12
   phase 12F: a line says which rows the chosen mode leaves out and why, and one that Titles on
   vertical docks appears when Titles under icons is not Off; see
-  [Running apps: windows and titles](#running-apps-windows-and-titles).
+  [Running apps: windows and titles](#running-apps-windows-and-titles). New in 13D: the
+  **Spacing** card (**Use the theme's gap**, checked by default; cleared: **Gap**, 0 - 48 DIPs
+  between the running apps; **Padding**, 0 - 64 DIPs before and after them), **Order** (As they
+  appear / By name) and the **Notifications** card (**Notification badges on app icons**, moved
+  from Behaviour). Its values are the item's `settings` (see **Running apps** under Dock items).
 
 The preview strip (round 8 phase 8B: only under the Appearance tab, which sets what it shows; Look
 since 12B) drew this dock (its look, sizes and items) until round 12 phase 12I, which removed it
@@ -2420,7 +2463,9 @@ with the defaults and leaves the file untouched.
         { "kind": "app", "path": "C:\\Windows\\explorer.exe" },
         { "kind": "app", "aumid": "Microsoft.WindowsTerminal_8wekyb3d8bbwe!App" },
         { "kind": "app", "path": "C:\\Users\\me\\Desktop\\Paint.lnk" },
-        { "kind": "running" },
+        { "kind": "running", "settings": { "filter": "all", "windows": "stacked", "titles": "off", "titlesVertical": "beside",
+                                           "thumbnails": "off", "thumbnailIntervalS": 5, "thumbnailSize": 0, "thumbnailFps": 10,
+                                           "badges": false, "gap": -1, "padding": 0, "order": "firstSeen" } },
         { "kind": "widget", "id": "weather", "settings": { "latitude": 47.6062, "longitude": -122.3321, "location": "Seattle",
                                            "units": "metric", "refreshMinutes": 30, "label": "" } },
         { "kind": "clock", "settings": { "format": "%H:%M", "showSeconds": false, "showDate": false,
@@ -2433,9 +2478,7 @@ with the defaults and leaves the file untouched.
       "autoHide": "always", "hideDelayMs": 400, "revealDelayMs": 150,
       "previews": true, "previewsSingleWindow": false, "previewDelayMs": 600,
       "middleClick": "newInstance", "wheel": "none",
-      "monitor": 0, "runningFilter": "all", "themePreset": "", "layer": "normal",
-      "windows": "stacked", "titles": "off", "titlesVertical": "beside",
-      "thumbnails": "off", "thumbnailIntervalS": 5, "thumbnailSize": 0, "thumbnailFps": 10
+      "monitor": 0, "themePreset": "", "layer": "normal"
     }
   ],
   "hideTaskbar": true,
@@ -2483,9 +2526,9 @@ items that exist. A file whose items have settings already is left alone.
     colour for the settings windows. Without it a dock gets one from a palette by its index in
     `docks` (blue `#FF4CC2FF`, orange `#FFFFB356`, green `#FF8FD3A8`, purple `#FFC4A3FF`, pink
     `#FFF0A0C0`, teal `#FF7FD8D0`, repeating).
-  - `monitor` (default `0` = primary; an index, `"primary"` or `"each"`), `runningFilter`
-    (`"all"` / `"monitor"`), `themePreset` (default `""`), `layer` (`"normal"` / `"desktop"` /
-    `"behind"`; unknown text reads as `"normal"`): see Multiple docks and monitors.
+  - `monitor` (default `0` = primary; an index, `"primary"` or `"each"`), `themePreset` (default
+    `""`), `layer` (`"normal"` / `"desktop"` / `"behind"`; unknown text reads as `"normal"`): see
+    Multiple docks and monitors.
   - `theme` (round 12 phase 12B; an object, only with a `themePreset`; ignored without one): the
     dock's own inline theme fields over its preset, the keys of the top-level `theme` (see
     [Themes](#themes)) without `preset`, clamped like them; written only for the fields that differ
@@ -2596,13 +2639,12 @@ items that exist. A file whose items have settings already is left alone.
     takeover or desktop rules for it; its settings windows still edit it. A file whose docks are
     all disabled gets its first dock enabled again on load (App settings > Docks and displays >
     Disable / Enable, round 11 phase 11D).
-  - `windows` (default `"stacked"`; `"unstacked"`: one slot per window), `titles` (default
-    `"off"`; `"one"`, `"two"`), `titlesVertical` (default `"beside"`; `"off"`): see
-    [Running apps: windows and titles](#running-apps-windows-and-titles). Unknown text keeps the
-    default.
-  - `thumbnails` (default `"off"`; `"live"`, `"snapshots"`), `thumbnailIntervalS` (default 5,
-    1 - 3600), `thumbnailSize` (DIPs along the dock, default 0 = twice `iconSize`, else 16 - 512),
-    `thumbnailFps` (default 10, 1 - 60): window thumbnails as dock items, same section.
+  - Round 13 phase 13D: `runningFilter`, `windows`, `titles`, `titlesVertical`, `thumbnails`,
+    `thumbnailIntervalS`, `thumbnailSize`, `thumbnailFps` and `badges` are no longer dock keys: they
+    are the running item's `settings` (`filter`, `windows`, ... with the new `gap`, `padding` and
+    `order`; see **Running apps** under [Dock items](#dock-items) and
+    [Running apps: windows and titles](#running-apps-windows-and-titles)). A file that has them on a
+    dock is migrated on load (moved into the dock's first running item, dropped when it has none).
   - `overflow` (default `"scroll"`; `"shrink"`, `"clip"`; written only when not `"scroll"`): a run
     of items longer than the edge, see [Position](#position-edge-alignment-offset).
   - `maxLength` (round 7; DIPs along the edge, default 0 = no limit, else 96 - 8000; written only
@@ -2741,8 +2783,8 @@ items that exist. A file whose items have settings already is left alone.
   polls (1 - 60), `clearOnActivate` activating an app from the dock marks its notifications read,
   `balloons` tray balloons go to the dock's notification list instead of Windows toasts,
   `excluded` app keys (lower-case exe paths or AppUserModelIDs) that never show a badge. See
-  Notifications and badges. Per dock: `badges` (default `false`; written only when on; the dock
-  window's Behaviour tab).
+  Notifications and badges. Per dock: the running item's `badges` (round 13 phase 13D; default `false`; the Running apps
+  settings window).
 - `calendars`: `{ "feeds": [], "showDots": true, "defaultReminderMin": 0 }` (the defaults; the
   object is written only when something differs). Each feed: `{ "name", "url" (https / http /
   webcal URL, a file path or file:/// URL), "color": "#AARRGGBB" (without it: the next colour of a
@@ -3038,7 +3080,7 @@ always there, also when every dock is parked) handle these registered messages:
   centre is open, 124 = its rows (-1 closed), 125 = what it shows (0 rows, 1 "No notifications", 2
   access denied; -1 closed), 126 = its selected row (-1 none), 127 = the notification id of its row
   `lParam` (0 none); 24 reports 10 for a notifications slot. `DockCommand` 131 = poll now, 132 =
-  toggle this dock's `badges` (saved), 133 = show / hide the centre over the dock's first
+  toggle this dock's `badges` (saved; round 13 phase 13D: its running item's, nothing without one), 133 = show / hide the centre over the dock's first
   notifications item, 134 = Add > Notification centre. `ItemCommand` on the dock's open centre
   (the dock in the high word of `lParam`, the row in `HIWORD(wParam)`): 828 dismisses row n (its
   cross), 829 Clear all, 830 opens row n as a click does; each returns 1 when the centre is open and
@@ -3805,7 +3847,8 @@ always there, also when every dock is parked) handle these registered messages:
   Right / Home / End. The pages are `WinDock.SettingsPage` children with ids 200 + page index:
   the App settings window 0 General, 1 Themes, 2 Animation, 3 Calendar feeds, 4 Tray icons, 5
   Notifications, 6 Widget library, 7 Docks and displays, 8 About (`SettingsIds::kPage*`); a Dock
-  window 0 Contents, 1 Position, 2 Appearance, 3 Behaviour, 4 Running apps (`kTab*`; round 8
+  window 0 Contents, 1 Position, 2 Appearance, 3 Behaviour (round 13 phase 13D: 4 Running apps is
+  retired, `kTabRunning` has no page: its rows are the running item's Item window) (`kTab*`; round 8
   phase 8B: until then 2 Behaviour, 3 Running apps, 4 Theme; the page windows' ids follow: 202
   Appearance, 203 Behaviour, 204 Running apps; `SettingsWindow::ShowPage` and the Contents tab's
   "open the Running apps tab" take the new indexes, DockCommand 143 takes no tab; a folder window's
@@ -3993,15 +4036,21 @@ always there, also when every dock is parked) handle these registered messages:
   collapsed while previews are off; 2236 / 2235 Titles on vertical docks collapsed while titles
   are off),
   previews and mouse controls (2201 - 2229, 2223 single-window previews, 2227 middle click, 2229
-  mouse wheel), 2254 badges, 2256 the notification centre (round 5 phase D), round 7: 2259 the
+  mouse wheel), 2254 badges (round 13 phase 13D: on the Running apps window now; Behaviour has the
+  note 5846 instead), 2256 the notification centre (round 5 phase D), round 7: 2259 the
   Popups section, 2261 / 2262 Popup gap box and up-down (`popupGap`, 0 - 64; 2260 its label, 2263
-  its unit line); Running apps = 2162 "Show only the windows on this dock's display"
-  (`runningFilter`), 2232 Windows (0 stacked, 1 one slot per window), 2234 Titles under icons (0
+  its unit line); Running apps (round 13 phase 13D: the running item's Item window, page 0, the same
+  ids; the running item's `settings`) = 2162 "Show only the windows on this dock's display"
+  (`filter`), 2232 Windows (0 stacked, 1 one slot per window), 2234 Titles under icons (0
   off, 1 one line, 2 two lines), 2236 Titles on vertical docks (0 off, 1 beside the icon; round 9:
   collapsed while titles are off), 2239 Window thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the
   trade-off), 2242 / 2243 snapshot interval (s), 2246 / 2247 live frames per second, 2250 / 2251
   tile length (DIPs, 0 = twice the icon; round 8 phase 8B: the three rows are collapsed unless the
   thumbnail mode uses them: the interval for Snapshots, the frames for Live, the length for either);
+  round 13 phase 13D, the same window: 5832 / 5833 "Use the theme's gap" (checked: `gap` -1; the gap
+  row 5834 - 5837 is collapsed while checked), 5835 / 5836 Gap (0 - 48 DIPs), 5839 / 5840 Padding
+  (0 - 64 DIPs), 5844 Order (0 As they appear, 1 By name), 2254 / 2255 Notification badges on app
+  icons, the footer's Reset to factory defaults… (114: every key back to its default);
   Appearance's theme card (the Theme tab until 8B) = 2420 "This dock's theme" (0 = same as all docks,
   then the theme list), 2422 its note, 2423 the link to App settings > Themes; Global General = 2119 /
   2121 Start with Windows / Hide the Windows taskbar, 2124 renderer (2184 Open config file and 2185

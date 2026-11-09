@@ -129,7 +129,8 @@ void SettingsWindow::CreateBands(bool footer) {
         if (footer_) status(footer_);
         const DockItemEntry* e = TargetItem();
         const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
-        if (footer_ && (k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Tray)) {
+        if (footer_ && (k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Tray ||
+                        k == ItemKind::Running)) {  // round 13 phase 13D: the running item too
             // Round 10 phase 10D: was "Reset to defaults"; it asks first (ConfirmFactoryReset).
             child(footer_, kFooterReset, WC_BUTTONW, L"Reset to factory defaults\x2026");
         }
@@ -476,6 +477,7 @@ std::wstring SettingsWindow::ItemNameOf(size_t index) {
         case ItemKind::Widget: return Widgets::DisplayName(e->id);
         case ItemKind::Group: return e->name.empty() ? std::wstring(L"Group") : e->name;
         case ItemKind::Tray: return L"System tray";
+        case ItemKind::Running: return L"Running apps";  // round 13 phase 13D
         default: {
             // A folder (or a shortcut to one): its resolved name, else the path's.
             if (host_.pins) {
@@ -498,6 +500,8 @@ std::wstring SettingsWindow::ItemDescription() {
         case ItemKind::Clock:
         case ItemKind::Weather: return BuiltInItemDescription(e->Kind());
         case ItemKind::Tray: return L"The notification area's icons in a grid on the dock; its own grid and order.";
+        case ItemKind::Running:  // round 13 phase 13D
+            return L"The apps that run but are not pinned, and how this dock shows windows, titles, thumbnails and badges.";
         case ItemKind::Group:
             return L"A group of " + std::to_wstring(e->members.size()) + (e->members.size() == 1 ? L" shortcut" : L" shortcuts") +
                    L" in one popup on the dock.";
@@ -1106,6 +1110,10 @@ bool SettingsWindow::ConfirmFactoryReset(const std::wstring& name, ItemKind kind
         case ItemKind::Tray:
             text = L"Resets " + name + dock + L" (rows, columns, icon size, hidden icons and their order) to the values "
                    L"WinDock ships with. The tray takeover and other app defaults are not changed.";
+            break;
+        case ItemKind::Running:  // round 13 phase 13D
+            text = L"Resets " + name + dock + L" (windows, titles, thumbnails, badges, spacing and order) to the values "
+                   L"WinDock ships with. Previews, the middle click and the wheel stay as they are.";
             break;
         default:
             text = L"Resets all of " + name + L"'s settings" + dock + L" to the values WinDock ships with (the widget's "

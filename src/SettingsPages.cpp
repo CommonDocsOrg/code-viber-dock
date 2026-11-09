@@ -1,6 +1,6 @@
 // The settings pages: control tables (DIP layout) and handlers. This file: Global > General and
-// About, a Dock window's Position / Behaviour / Running apps tabs, and the page lists of the three
-// window kinds; Themes and Dock > Appearance: SettingsPagesAppearance.cpp; Animation and Dock > Contents:
+// About, a Dock window's Position / Behaviour tabs (13D: the Running apps tab is the running item's window,
+// SettingsPagesRunning.cpp), and the page lists of the three window kinds; Themes and Dock > Appearance: SettingsPagesAppearance.cpp; Animation and Dock > Contents:
 // SettingsPagesMore.cpp; a widget / clock / weather item: the generated page
 // (SettingsPagesWidgets.cpp). The frame, fonts, colours, theming, layout and scrolling live in
 // SettingsWindow.cpp, the header / footer bands in SettingsBands.cpp.
@@ -386,15 +386,15 @@ int PlacementKind(const DockConfig& d) {
     return d.Floating() ? 1 : 0;
 }
 
-// --- a dock's Position, Behaviour and Running apps tabs ------------------------------------------
-// One class, three tables: the handlers below serve every control id of the three (a control the
+// --- a dock's Position and Behaviour tabs (round 13 phase 13D: Running apps moved) ----------------
+// One class, two tables: the handlers below serve every control id of the two (a control the
 // part does not build is simply never there). Everything edits the window's dock (Dock()).
 
 class DockFieldsPage : public FormPage {
 public:
-    enum class Part { Position, Behaviour, Running };
+    enum class Part { Position, Behaviour };
     DockFieldsPage(SettingsWindow& w, Part part)
-        : FormPage(w, part == Part::Position ? L"Position" : part == Part::Behaviour ? L"Behaviour" : L"Running apps", 0),
+        : FormPage(w, part == Part::Position ? L"Position" : L"Behaviour", 0),
           part_(part) {}
 
 protected:
@@ -405,7 +405,6 @@ protected:
                 BuildPosition();
                 break;
             case Part::Behaviour: BuildBehaviour(); break;
-            case Part::Running: BuildRunning(); break;
         }
     }
 
@@ -672,17 +671,22 @@ protected:
         // Round 5 phase D: this dock's part of the notifications (moved from Global > Notifications).
         // The notification centre itself is a widget: drag it from the Contents tab's drawer (no
         // check box here since round 5 phase E).
+        // Round 13 phase 13D: the badges check moved to the Running apps window (RunningItemPage)
+        // with the window slots, titles and thumbnails; one line here says where they are.
         Section(kSectionDockNotifications, L"Notifications", L"guide-settings.md#notification-badges");
-        Check(kBadges, kBadgesCaption, L"Notification badges on app icons");
-        NextRow(kRowH);
         Text(kDockNotificationsNote, CtlKind::Note,
              L"The notification centre is a widget: drag it onto the dock from the Contents tab.", kMargin, right - kMargin, 20);
-        static constexpr wchar_t kBadgesTip[] =
-            L"Badges: the unread count of each app's notifications on its icon. The notification centre (a bell with the "
-            L"list) is a widget: drag it onto the dock from the Contents tab. Which apps may badge, tray balloons and the "
-            L"poll interval apply to every dock: App settings > Notifications.";
-        Tip(kBadgesCaption, kBadgesTip);
-        Tip(kDockNotificationsNote, kBadgesTip);
+        Tip(kDockNotificationsNote,
+            L"The notification centre (a bell with the list) is a widget: drag it onto the dock from the Contents tab. Which "
+            L"apps may badge, tray balloons and the poll interval apply to every dock: App settings > Notifications.");
+        NextRow(22);
+        Ctl& movedNote = Text(kRunningMovedNote, CtlKind::Note,
+                              L"Window slots, titles, thumbnails and badges are set on the Running apps widget (Add > Running apps).",
+                              kMargin, right - kMargin, 20);
+        movedNote.maxLines = 2;
+        Tip(kRunningMovedNote,
+            L"Right-click a running app and choose Running apps settings…, or select the Running apps item on the Contents "
+            L"tab. A dock without the Running apps widget uses their defaults for its pinned apps.");
         NextRow(22);
 
         // Round 10 phase 10D: the timings and the popup gap in one heading expander, closed at
@@ -731,64 +735,6 @@ protected:
         EndExpander();
     }
 
-    void BuildRunning() {
-        const int right = Width() - kMargin;
-        Title(L"Running apps");
-        Lead(L"How running apps and their windows appear on this dock.");  // round 12 phase 12F
-        HelpTopic(L"guide-settings.md#running-apps-tab");
-        Section(kSectionTaskList, L"Running apps", L"guide-settings.md#running-apps-tab");
-        // Round 8 phase 8A: the notes are the hints kTaskListNote / kThumbnailsNote and tooltips.
-        Label(kWindowsLabel, L"Windows", L"A slot per app or per window", kTaskListNote);
-        Tip(kWindowsLabel, L"One slot per window: a pinned app's icon is its first window and its other windows follow it.");
-        Combo(kWindowsCombo, kColX, right - kColX, false);
-        NextRow();
-        Check(kRunningMonitorOnly, kRunningMonitorOnlyCaption, L"Show only the windows on this dock's display");
-        Tip(kRunningMonitorOnlyCaption, L"With several displays, this dock shows only the running apps whose windows are on its own display. Off by default: every window.");
-        NextRow();
-        Label(kTitlesLabel, L"Titles under icons");
-        Tip(kTitlesLabel, L"Titles show the window title, or the app's name.");
-        Combo(kTitlesCombo, kColX, right - kColX, false);
-        NextRow();
-        // Round 12 phase 12F: shown while titles are off (the vertical row is then collapsed).
-        Ctl& titlesReason = Text(kTitlesReason, CtlKind::Note,
-                                 L"Titles on vertical docks appear when Titles under icons is not Off.", kMargin, right - kMargin, 20);
-        titlesReason.maxLines = 2;
-        NextRow(22);
-        Label(kTitlesVerticalLabel, L"Titles on vertical docks");
-        Tip(kTitlesVerticalLabel, L"On a left or right dock, titles go beside the icons (the default) or are left out.");
-        Combo(kTitlesVerticalCombo, kColX, right - kColX, false);
-        NextRow();
-        Label(kThumbnailsLabel, L"Window thumbnails", L"Live: GPU · snapshots: cheap", kThumbnailsNote);
-        Tip(kThumbnailsLabel,
-            L"Live uses the GPU to show windows as they change (only while the dock is visible, at most the frames per "
-            L"second below). Snapshots takes a picture every N seconds and costs almost nothing in between. Each window "
-            L"gets a tile (stacked: each app its active window).");
-        Combo(kThumbnailsCombo, kColX, right - kColX, false);
-        NextRow();
-        // Round 12 phase 12F: which of the rows below the chosen mode leaves out, and how to get them.
-        Ctl& thumbReason = Text(kThumbReason, CtlKind::Note, L"", kMargin, right - kMargin, 20);
-        thumbReason.maxLines = 2;
-        NextRow(22);
-        Label(kThumbIntervalLabel, L"Snapshot every");
-        Tip(kThumbIntervalLabel, L"With snapshot thumbnails: how often each window's picture is taken again. Default: 5 seconds.");
-        RunIntSpin(kThumbIntervalEdit, kThumbIntervalSpin, kColX, 90, 1, 3600, 1,
-                [](RunningConfig& r) -> int& { return r.thumbnailIntervalS; }, SettingsScope::Appearance);
-        Text(kThumbIntervalUnit, CtlKind::Note, L"s", kColX + 98, 40);
-        NextRow();
-        Label(kThumbFpsLabel, L"Live frames per second");
-        Tip(kThumbFpsLabel, L"With live thumbnails: at most this many pictures a second per window (more is smoother but uses more GPU). Default: 10.");
-        RunIntSpin(kThumbFpsEdit, kThumbFpsSpin, kColX, 90, 1, 60, 1, [](RunningConfig& r) -> int& { return r.thumbnailFps; },
-                SettingsScope::Appearance);
-        Text(kThumbFpsUnit, CtlKind::Note, L"at most", kColX + 98, 80);
-        NextRow();
-        Label(kThumbSizeLabel, L"Tile length");
-        Tip(kThumbSizeLabel, L"A thumbnail tile's length along the dock in DIPs (0: twice the icon size, the default).");
-        RunIntSpin(kThumbSizeEdit, kThumbSizeSpin, kColX, 90, 0, 512, 8, [](RunningConfig& r) -> int& { return r.thumbnailSize; },
-                SettingsScope::Appearance);
-        Text(kThumbSizeUnit, CtlKind::Note, L"DIP (0: twice the icon)", kColX + 98, 200);
-        NextRow();
-    }
-
     void Created() override {
         for (const wchar_t* e : {L"Bottom", L"Top", L"Left", L"Right"}) ComboAdd(kEdgeCombo, e);  // DockEdge order
         ComboAdd(kLayerCombo, L"Normal (above windows)");  // DockLayer order
@@ -807,16 +753,6 @@ protected:
         ComboAdd(kMiddleClickCombo, L"Nothing");
         ComboAdd(kWheelCombo, L"Nothing");  // WheelAction order
         ComboAdd(kWheelCombo, L"Switch between its windows");
-        ComboAdd(kWindowsCombo, L"Stacked (one slot per app)");  // WindowsMode order
-        ComboAdd(kWindowsCombo, L"One slot per window");
-        ComboAdd(kTitlesCombo, L"Off");  // TitlesMode order
-        ComboAdd(kTitlesCombo, L"One line");
-        ComboAdd(kTitlesCombo, L"Two lines");
-        ComboAdd(kTitlesVerticalCombo, L"Off");  // TitlesVertical order
-        ComboAdd(kTitlesVerticalCombo, L"Beside the icon");
-        ComboAdd(kThumbnailsCombo, L"Off");  // ThumbnailMode order
-        ComboAdd(kThumbnailsCombo, L"Live (GPU capture)");
-        ComboAdd(kThumbnailsCombo, L"Snapshots (every N seconds)");
         // Round 12 phase 12C: TitleShow / TitlePlace order.
         for (const wchar_t* t : {L"Never", L"On hover", L"Always"}) ComboAdd(kTitleShowCombo, t);
         for (const wchar_t* t : {L"Outside the bar", L"Inside the bar"}) ComboAdd(kTitlePlaceCombo, t);
@@ -837,14 +773,6 @@ protected:
         SetCheck(kPreviewSingle, d.previewSingle);
         SetComboSel(kMiddleClickCombo, static_cast<int>(d.middleClick));
         SetComboSel(kWheelCombo, static_cast<int>(d.wheel));
-        // Running apps (round 13 phase 13D: the running item's settings)
-        const RunningConfig run = RunningValues();
-        SetCheck(kBadges, run.badges);
-        SetCheck(kRunningMonitorOnly, run.filter == RunningFilter::Monitor);
-        SetComboSel(kWindowsCombo, static_cast<int>(run.windows));
-        SetComboSel(kTitlesCombo, static_cast<int>(run.titles));
-        SetComboSel(kTitlesVerticalCombo, static_cast<int>(run.titlesVertical));
-        SetComboSel(kThumbnailsCombo, static_cast<int>(run.thumbnails));
         // Position
         if (part_ == Part::Position) FillMonitors();
         SetComboSel(kLayerCombo, static_cast<int>(d.layer));
@@ -1005,30 +933,6 @@ protected:
                         Changed(SettingsScope::SaveOnly);
                     }
                     break;
-                case kWindowsCombo:
-                    if (RunningConfig r = RunningValues(); sel >= 0 && sel <= 1) {
-                        r.windows = static_cast<WindowsMode>(sel);
-                        StoreRunning(r, SettingsScope::Appearance);  // the dock rebuilds its slots
-                    }
-                    break;
-                case kTitlesCombo:
-                    if (RunningConfig r = RunningValues(); sel >= 0 && sel <= 2) {
-                        r.titles = static_cast<TitlesMode>(sel);
-                        if (StoreRunning(r, SettingsScope::Appearance)) EnableDependents();  // relayout: the bar grows by the titles
-                    }
-                    break;
-                case kTitlesVerticalCombo:
-                    if (RunningConfig r = RunningValues(); sel >= 0 && sel <= 1) {
-                        r.titlesVertical = static_cast<TitlesVertical>(sel);
-                        StoreRunning(r, SettingsScope::Appearance);
-                    }
-                    break;
-                case kThumbnailsCombo:
-                    if (RunningConfig r = RunningValues(); sel >= 0 && sel <= 2) {
-                        r.thumbnails = static_cast<ThumbnailMode>(sel);
-                        if (StoreRunning(r, SettingsScope::Appearance)) EnableDependents();  // slots become tiles; capture starts / stops
-                    }
-                    break;
                 // --- round 12 phase 12C: the title options (a relayout: the bar may gain / lose its band) ---
                 case kTitleShowCombo:
                     if (sel <= 2 && static_cast<TitleShow>(sel) != d.titleShow) {
@@ -1052,12 +956,6 @@ protected:
         }
         if (code != BN_CLICKED) return;
         switch (id) {
-            case kRunningMonitorOnly: {
-                RunningConfig r = RunningValues();
-                r.filter = GetCheck(id) ? RunningFilter::Monitor : RunningFilter::All;
-                StoreRunning(r, SettingsScope::Pins);  // the dock rebuilds its items from the window list
-                break;
-            }
             case kFullWidth:
                 d.fullWidth = GetCheck(id);
                 EnableDependents();  // Maximum length is collapsed for a full-width bar
@@ -1105,12 +1003,6 @@ protected:
                 d.previewSingle = GetCheck(id);  // read when the mouse rests on an app
                 Changed(SettingsScope::SaveOnly);
                 break;
-            case kBadges: {
-                RunningConfig r = RunningValues();
-                r.badges = GetCheck(id);
-                StoreRunning(r, SettingsScope::Notifications);  // the service starts / stops with the demand
-                break;
-            }
             case kTitleUseName:  // round 12 phase 12C: the title's text from the dock's name
                 d.titleUseName = GetCheck(id);
                 EnableDependents();  // the Title row goes / comes back
@@ -1309,10 +1201,6 @@ private:
         // Round 12 phase 12F: the reasons for the rows that are gone (a floating bar has its own note above).
         Collapse(kHideDelayReason, d.AutoHideOn() || floating);
         Collapse(kPreviewDelayReason, d.previews);
-        const RunningConfig run = RunningValues();  // round 13 phase 13D
-        SetText(kThumbReason, run.thumbnails == ThumbnailMode::Off       ? L"Off: no tiles. Choose Live or Snapshots to set their size and rate."
-                              : run.thumbnails == ThumbnailMode::Snapshots ? L"Frames per second applies to live thumbnails. Choose Live to set it."
-                                                                         : L"Snapshot every applies to snapshots. Choose Snapshots to set it.");
         if (part_ == Part::Behaviour) {
             // Round 10 phase 10D: "Delays and popup gap · n changed" (the rows that apply).
             const DockConfig fresh;
@@ -1321,11 +1209,7 @@ private:
             if (d.previews) n += d.previewDelayMs != fresh.previewDelayMs ? 1 : 0;
             SetExpanderText(kAutoHideMore, ChangedTitle(L"Delays and popup gap", n));
         }
-        Collapse({kTitlesVerticalLabel, kTitlesVerticalCombo}, run.titles == TitlesMode::Off);
-        // Round 8 phase 8B: the thumbnail rows only for the mode that uses them (collapsed, not greyed).
-        Collapse({kThumbIntervalLabel, kThumbIntervalEdit, kThumbIntervalUnit}, run.thumbnails != ThumbnailMode::Snapshots);
-        Collapse({kThumbFpsLabel, kThumbFpsEdit, kThumbFpsUnit}, run.thumbnails != ThumbnailMode::Live);
-        Collapse({kThumbSizeLabel, kThumbSizeEdit, kThumbSizeUnit}, run.thumbnails == ThumbnailMode::Off);
+        // Round 13 phase 13D: the titles / thumbnail rows are RunningItemPage's (SettingsPagesRunning.cpp).
     }
 
     void FillMonitors() {
@@ -1496,7 +1380,8 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Position));   // kTabPosition
             pages.push_back(MakeDockThemePage(window));                                                  // kTabAppearance
             pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Behaviour));  // kTabBehaviour
-            pages.push_back(std::make_unique<DockFieldsPage>(window, DockFieldsPage::Part::Running));    // kTabRunning
+            // Round 13 phase 13D: no Running apps tab (kTabRunning, retired): the running item's
+            // Item window (RunningItemPage) has its rows.
             break;
         case SettingsKind::Item: {
             // A widget, clock or weather item: its generated schema page; a tray: its grid (round 5
@@ -1508,6 +1393,8 @@ std::vector<std::unique_ptr<SettingsPage>> CreateSettingsPages(SettingsWindow& w
                 pages = MakeWidgetSettingsPages(window);
             } else if (k == ItemKind::Tray) {
                 pages.push_back(MakeTrayItemPage(window));
+            } else if (k == ItemKind::Running) {
+                pages.push_back(MakeRunningItemPage(window));  // round 13 phase 13D
             } else {
                 pages.push_back(MakeItemSettingsPage(window));
             }

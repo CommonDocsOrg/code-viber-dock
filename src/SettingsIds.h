@@ -47,8 +47,11 @@ inline constexpr int kTabContents = 0;   // was the Dock contents page
 inline constexpr int kTabPosition = 1;
 inline constexpr int kTabAppearance = 2;  // round 8 phase 8B (the preview strip shows only here)
 inline constexpr int kTabBehaviour = 3;
+// Round 13 phase 13D: retired. The Running apps tab's rows are the running item's Item window
+// (RunningItemPage); a Dock window has no page 4 any more (kTabCount 4). Kept so the number is not
+// reused.
 inline constexpr int kTabRunning = 4;
-inline constexpr int kTabCount = 5;
+inline constexpr int kTabCount = 4;
 inline constexpr int kTabFolderWindow = 0;
 // Round 8 phase 8C: a standalone widget entry's window has two tabs: Widget (its widget's generated
 // settings, item 0 of the entry) and Window (place, size, layer, look; until 8C its one page, 0).
@@ -121,7 +124,7 @@ inline constexpr int kTitleLabel = 2159;
 inline constexpr int kTitleEdit = 2160;        // docks[].title; applied on Enter / focus loss
 inline constexpr int kPositionNote2 = 2161;
 // Round 4 phase 3.
-inline constexpr int kRunningMonitorOnly = 2162;        // check box: docks[].runningFilter "monitor" (+ caption 2163)
+inline constexpr int kRunningMonitorOnly = 2162;        // check box: the running item's `filter` "monitor" (+ caption 2163; 13D: was docks[].runningFilter)
 inline constexpr int kRunningMonitorOnlyCaption = 2163;
 // Round 4 phase 3b: docks[].layer.
 inline constexpr int kLayerLabel = 2164;
@@ -198,14 +201,14 @@ inline constexpr int kWheelCombo = 2229;           // wheel: 0 none, 1 cycle
 // Round 4 phase 6: task list options.
 inline constexpr int kSectionTaskList = 2230;
 inline constexpr int kWindowsLabel = 2231;
-inline constexpr int kWindowsCombo = 2232;         // docks[].windows: 0 stacked, 1 unstacked
+inline constexpr int kWindowsCombo = 2232;         // running item `windows` (13D: was docks[].windows): 0 stacked, 1 unstacked
 inline constexpr int kTitlesLabel = 2233;
-inline constexpr int kTitlesCombo = 2234;          // docks[].titles: 0 off, 1 one line, 2 two lines
+inline constexpr int kTitlesCombo = 2234;          // running item `titles` (13D: was docks[]): 0 off, 1 one line, 2 two lines
 inline constexpr int kTitlesVerticalLabel = 2235;
-inline constexpr int kTitlesVerticalCombo = 2236;  // docks[].titlesVertical: 0 off, 1 beside
+inline constexpr int kTitlesVerticalCombo = 2236;  // running item `titlesVertical` (13D: was docks[]): 0 off, 1 beside
 inline constexpr int kTaskListNote = 2237;
 inline constexpr int kThumbnailsLabel = 2238;
-inline constexpr int kThumbnailsCombo = 2239;      // docks[].thumbnails: 0 off, 1 live, 2 snapshots
+inline constexpr int kThumbnailsCombo = 2239;      // running item `thumbnails` (13D: was docks[]): 0 off, 1 live, 2 snapshots
 inline constexpr int kThumbnailsNote = 2240;       // the trade-off between live and snapshots
 inline constexpr int kThumbIntervalLabel = 2241;
 inline constexpr int kThumbIntervalEdit = 2242;    // thumbnailIntervalS, 1 - 3600
@@ -222,7 +225,7 @@ inline constexpr int kThumbSizeUnit = 2252;
 // Round 5 phase D: the Dock window's Behaviour tab, "Notifications" (moved from Global >
 // Notifications: they are this dock's).
 inline constexpr int kSectionDockNotifications = 2253;
-inline constexpr int kBadges = 2254;               // check box: docks[].badges (+ caption 2255; was 4200)
+inline constexpr int kBadges = 2254;               // check box: the running item's `badges` (+ caption 2255; was 4200; 13D: was docks[].badges on the Behaviour tab, now on the Running apps window)
 inline constexpr int kBadgesCaption = 2255;
 // 2256 / 2257 ("Show the notification centre on this dock", was 4202) are retired since round 5
 // phase E: the centre is a widget of the Contents tab's drawer, nothing else adds it.
@@ -927,5 +930,30 @@ inline constexpr int kHideDelayReason = 5805;    // Behaviour > Delays: hide / r
 inline constexpr int kPreviewDelayReason = 5806; // Behaviour > Delays: the preview delay (and single-window previews) need previews on
 inline constexpr int kTitlesReason = 5807;       // Running apps: titles on vertical docks need titles under icons
 // --- end round 12 phase 12F ---
+// --- round 13 phase 13D (5830 - 5859) ---
+// The running item's own Item window (RunningItemPage, SettingsPagesRunning.cpp; it replaces the
+// Dock window's Running apps tab, kTabRunning, retired). The rows moved from the tab keep their ids
+// (kSectionTaskList 2230, kWindowsLabel / Combo 2231 / 2232, kRunningMonitorOnly 2162, kTitles* 2233
+// - 2236, kThumbnails* 2238 - 2251, kTaskListNote 2237, kThumbnailsNote 2240, kThumbReason 5804,
+// kTitlesReason 5807) and so do the badges (kBadges 2254 / 2255, from the Behaviour tab); these are
+// the new ones. All values are the item's `settings` (RunningConfig).
+inline constexpr int kRunSpacingSection = 5830;  // card "Spacing"
+inline constexpr int kRunSpacingLead = 5831;     // ... its sentence
+inline constexpr int kRunGapTheme = 5832;        // ... check box "Use the theme's gap" (gap -1; + caption 5833); checked: the gap row is collapsed
+inline constexpr int kRunGapThemeCaption = 5833;
+inline constexpr int kRunGapLabel = 5834;        // ... "Gap" (DIPs between the running apps, 0 - 48)
+inline constexpr int kRunGapEdit = 5835;
+inline constexpr int kRunGapSpin = 5836;
+inline constexpr int kRunGapUnit = 5837;
+inline constexpr int kRunPaddingLabel = 5838;    // ... "Padding" (DIPs before the first and after the last running app, 0 - 64)
+inline constexpr int kRunPaddingEdit = 5839;
+inline constexpr int kRunPaddingSpin = 5840;
+inline constexpr int kRunPaddingUnit = 5841;     // ... "DIP before and after the running apps"
+inline constexpr int kRunOrderSection = 5842;    // card "Order"
+inline constexpr int kRunOrderLabel = 5843;
+inline constexpr int kRunOrderCombo = 5844;      // 0 "As they appear" (firstSeen), 1 "By name" (RunningOrder order)
+inline constexpr int kRunBadgesSection = 5845;   // card "Notifications" (the badges check 2254)
+inline constexpr int kRunningMovedNote = 5846;   // Dock window > Behaviour: "Window slots, titles, thumbnails and badges are set on the Running apps widget …"
+// --- end round 13 phase 13D ---
 
 }  // namespace SettingsIds

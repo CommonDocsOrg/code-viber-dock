@@ -1745,6 +1745,11 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
         itemState.headerText = name;
         itemState.headerGlyph = ContextMenu::KindGlyph(item.kind);
     }
+    // Round 13 phase 13D: an unpinned running app is a slot of the running element: its menu opens
+    // the running item's settings too (kOpenItemSettings: the slot's element is that item).
+    itemState.runningSettings = !item.pinned && item.kind == DockItem::Kind::App &&
+                                item.element < config_.docks[cfg].items.size() &&
+                                config_.docks[cfg].items[item.element].Kind() == ItemKind::Running;
     itemState.canPin = !key.IsClassFallback();
     itemState.canLaunch = item.kind != DockItem::Kind::Separator &&
                           (!key.IsClassFallback() || item.launchPath.has_value());
@@ -2387,6 +2392,7 @@ bool App::HasItemWindow(size_t cfg, size_t item) {
         case ItemKind::Folder:
         case ItemKind::Group:
         case ItemKind::Tray:  // round 5 phase D: its grid and icons
+        case ItemKind::Running:  // round 13 phase 13D: RunningItemPage (was the dock's Running apps tab)
             return true;
         case ItemKind::App: {
             // A shortcut to a folder is a folder item too (its popup's layout).

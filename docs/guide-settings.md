@@ -450,7 +450,7 @@ About shows the WinDock version.
 
 Each dock has its own settings. They open in a panel beside the dock (above a bottom dock, under a top one, beside a side dock) and edit that dock only. See [The settings windows](#the-settings-windows) for how the panel opens, closes and follows the dock.
 
-The panel has a header and five tabs: Contents, Position, Look, Behaviour and Running apps. Use Left and Right in the tab strip, or Ctrl+Tab, to move between them.
+The panel has a header and four tabs: Contents, Position, Look and Behaviour. The running apps have their own settings window (see [Running apps widget](#running-apps-widget)). Use Left and Right in the tab strip, or Ctrl+Tab, to move between them.
 
 ### The header
 
@@ -507,7 +507,7 @@ Under the buttons are the selected item's everyday settings, which you change ri
 - A clock: **Time format**, **Time zone**, **Show the date under the time** and **Label**.
 - Weather: the **Place** it shows (choose another one in **More settings…**), **Name on the dock** and **Units**.
 - A widget: the few settings its author marked as the common ones (for example the Analog clock's face, second hand, time zone and label). Some appear only while another setting has a certain value, as in the widget's own window.
-- Apps, separators, the Recycle Bin, Running apps, the tray and the notification centre have none here.
+- Apps, separators, the Recycle Bin, Running apps, the tray and the notification centre have none here (Running apps and the tray have their own settings window: **Running apps settings…**, **Tray settings…**).
 
 Below them, for every item, is **Anchor and offset**, closed at first (most items follow the dock's alignment). Click it to open it. Its heading counts what is set for the selected item, for example "Anchor and offset · 1 changed".
 
@@ -655,7 +655,7 @@ A floating bar has no auto-hide. For a floating bar this card shows one line ins
 
 #### Notification badges
 
-- **Notification badges on app icons**: shows the number of unread notifications on each app's icon.
+**Notification badges on app icons**, which shows the number of unread notifications on each app's icon, is on the [Running apps widget](#running-apps-widget) now, with the window slots, titles and thumbnails. The Behaviour tab has a line that says so.
 
 The notification centre itself is a widget: add it from the drawer on the Contents tab. Which apps may show badges is set in App settings > Notifications.
 
@@ -667,9 +667,9 @@ The timings, closed when the panel opens. Click the heading to open it. It count
 - **Preview delay**: how long the mouse must rest on an app before its previews open, in milliseconds. It applies only while window previews are on.
 - **Popup gap**: the space between the dock and the popups it opens (previews, folders, the calendar, the weather), in pixels.
 
-### Running apps tab
+### Running apps widget
 
-The Running apps tab sets how running apps and their windows appear on this dock.
+The running apps are a widget of the dock (Add > Running apps), and their settings are in its own settings window. To open it, right-click a running app that is not pinned and choose **Running apps settings…**, or select the running apps on the Contents tab and click **Running apps settings…**. It sets how running apps and their windows appear on this dock. Window slots, titles, thumbnails and badges also apply to your pinned apps' windows; a dock without the Running apps widget uses their defaults.
 
 - **Windows**: **Stacked (one slot per app)**, or **One slot per window**, like the Windows taskbar.
 - **Show only the windows on this dock's display**: useful with a dock on each display.
@@ -681,6 +681,19 @@ The Running apps tab sets how running apps and their windows appear on this dock
 - **Tile length**: the length of each picture tile. 0 makes it twice the icon size.
 
 Only the rows the chosen thumbnail mode uses are shown; a line says which are left out and why. Live thumbnails use the graphics card; snapshots cost almost nothing. See [Running apps](guide-items.md#running-apps).
+
+#### Spacing
+
+- **Use the theme's gap**: on by default, the running apps are as far apart as the theme's icon gap. Turn it off to set their own **Gap** (0 to 48 pixels). Next to a pinned app or a widget, the space is halfway between the two gaps.
+- **Padding**: extra space before the first and after the last running app (0 to 64 pixels).
+
+#### Order
+
+- **Order**: **As they appear** (the order the apps started in; you can drag them into another order for the session) or **By name** (alphabetical).
+
+The **Notifications** card has **Notification badges on app icons**: the number of unread notifications on each app's icon, pinned apps too. **Reset to factory defaults…** in the footer puts every setting of the widget back to its default.
+
+Older settings files kept these settings on the dock itself. WinDock moves them into the dock's Running apps widget when it loads such a file. A dock that had them but no Running apps widget loses them.
 
 ## Standalone widget settings
 
@@ -758,7 +771,7 @@ A move never overwrites a file, and you can undo it with Ctrl+Z in File Explorer
 
 An item's settings window edits one item on a dock. Each clock, weather item and widget has its own settings, so two clocks can show two time zones.
 
-The header shows the item's icon, its name, the dock it is on (click it to open that dock's panel), its place on the dock and a one-line description. The footer says "Changes apply at once" and whether they are saved (**✓ Saved**, see [Saved](#saved)), and has **Reset to factory defaults…** (for a widget, clock, weather or tray item) and **Console…** (for a widget). A widget that shows a shared value has **Reset to app default** beside them while it has a value of its own (see [App defaults and local values](#app-defaults-and-local-values)).
+The header shows the item's icon, its name, the dock it is on (click it to open that dock's panel), its place on the dock and a one-line description. The footer says "Changes apply at once" and whether they are saved (**✓ Saved**, see [Saved](#saved)), and has **Reset to factory defaults…** (for a widget, clock, weather, tray or running apps item) and **Console…** (for a widget). A widget that shows a shared value has **Reset to app default** beside them while it has a value of its own (see [App defaults and local values](#app-defaults-and-local-values)).
 
 Every widget, clock and weather item has the same structure: what it shows and does is on the **Content** tab (places, feeds, metrics, time zones, labels, what a click does), how it looks on the **Appearance** tab (faces, styles, colours, sizes, motion). An item whose settings are all of one kind has one page and no tabs. **Reset to factory defaults…** and **Console…** stay in the footer under both tabs.
 
@@ -768,6 +781,7 @@ What the page holds depends on the item:
 - **Weather**: one page (it is all content): the Place card (find a place, the name on the dock, the status and **Refresh now**) and the Updates card (units, how often it refreshes). See [Weather](guide-items.md#weather).
 - **A script widget**: its own settings, in cards, on Content and Appearance as the widget sorts them. See [Widget settings](guide-items.md#widget-settings).
 - **System tray**: the cards The grid, Icons in the grid and Takeover. See [The tray](guide-items.md#the-tray).
+- **Running apps**: the cards Running apps, Spacing, Order and Notifications. See [Running apps widget](#running-apps-widget).
 - **A folder or a group**: how it shows its contents, its icon, and for a group its shortcuts. See [Folders](guide-items.md#folders) and [Groups](guide-items.md#groups).
 
 **Reset to factory defaults…** puts the item back to the settings WinDock ships with, after asking (see [Resetting](#resetting)). A clock or weather item takes the settings a new clock or weather item starts with; a widget takes its own defaults.

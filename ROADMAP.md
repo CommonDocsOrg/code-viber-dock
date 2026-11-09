@@ -1206,6 +1206,32 @@ rebuild.
   state. A Windows theme switch while the dock runs is followed by the menus only on the next start
   (a light start leaves everything as before).
 
+### 13D: running apps is a widget with its own settings (done 2026-11-09)
+
+- **The RunningOf pattern**: the running item's `settings` object is a `RunningConfig` read over
+  its defaults by `RunningOf`, exactly as `ClockOf` reads a clock item (a new running item gets
+  every key written by `EnsureItemSettings`). The dock-level fields are gone; every reader asks
+  `DockConfig::Running()` (the first running item's, else the defaults), cached by the item's
+  settings text so the layout and the rebuilds do not parse JSON each time. The settings pages
+  write through `SetRunningSettings` (keys this version does not know are kept).
+- **The gap-mean rule**: an icon slot is its box plus its own element's gap
+  (`DockElement::SlotGap`: the theme's `iconGap`, or the running item's `gap`), half on each side,
+  so two neighbouring slots of different elements are the mean of their gaps apart. The running
+  element's `padding` (`RunPadding`) is a spacer in the leads, never magnified: before its first
+  slot and after its last (after the run's last slot it is part of `itemsW`). The theme's stride
+  stays for what is not a slot (the file-drop gap, the magnification range, the "+" boxes). The
+  anchored groups, the drag order, `HitAlong` and the magnified widths read the per-slot values.
+- **The retired tab**: the Running apps tab became the running item's Item window
+  (`RunningItemPage`); `kTabRunning` (4) stays defined with no page, as `kTabTheme` before it, and a
+  Dock window has four tabs. Moved rows keep their control ids; the badges check moved there too
+  (badges are an app-slot setting the running item now carries). An unpinned running app's menu
+  opens it ("Running apps settings…").
+- **The migration and its one loss**: on load a docks[] object's old keys move into its first
+  running item (where the item lacks them; `runningFilter` -> `filter`) and the file is saved; a
+  dock with the old keys but **no running item drops them** (they describe running windows, and
+  such a dock shows none of its own; its pinned apps' windows then use the defaults). Previews,
+  `previewsSingleWindow`, `previewDelayMs`, `middleClick` and `wheel` stay on the dock (decision 1).
+
 ## Dependencies at a glance
 
 ```

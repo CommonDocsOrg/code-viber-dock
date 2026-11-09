@@ -116,7 +116,7 @@ The App settings window and the item settings windows are normal windows with a 
 
 WinDock costs almost nothing while you do not use it: it does no work while nothing changes. Some features do cost a little:
 
-- **Live thumbnails** use the graphics card while the dock is visible. **Snapshots** cost much less. Change it on the dock's Running apps tab.
+- **Live thumbnails** use the graphics card while the dock is visible. **Snapshots** cost much less. Change it in the Running apps widget's settings (right-click a running app > **Running apps settings…**).
 - **Notifications** (badges, the notification centre, the Notification bell) check Windows' list every few seconds, a few hundredths of a second of processor time each. Raise **Check for notifications every** in App settings > Notifications, or turn badges off.
 - **The System monitor and System overview** widgets take a measurement at the fastest **Update every** any of them asks for. A slower update costs less.
 - **Icon effects** (glow, reflection, 3D) use a few more megabytes of memory.

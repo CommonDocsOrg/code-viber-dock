@@ -101,13 +101,14 @@ Each dock has its own settings. They open in a panel right beside the dock, so y
 
 To open them, right-click an empty part of the dock and choose **Dock settings…**. While customizing, click **Settings** on the small bar.
 
-The panel has five tabs:
+The panel has four tabs:
 
 - **Contents**: what is on the dock, in order, and the drawer to add more.
 - **Position**: the edge, the display, the alignment and the distances from the centre and from the screen edge.
 - **Look**: the dock's look, the icon size and the magnification.
 - **Behaviour**: auto-hide, window previews and what the mouse does.
-- **Running apps**: how running apps and their windows show.
+
+How running apps and their windows show is set on the Running apps widget: right-click a running app and choose **Running apps settings…**.
 
 The panel has no title bar. Drag its outer edges to make it bigger. Press Esc or click **✕** to close it; it also closes when you switch to another app.
 

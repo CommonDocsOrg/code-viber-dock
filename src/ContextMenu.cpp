@@ -452,6 +452,11 @@ UINT ShowItemMenu(HWND owner, POINT pt, const std::wstring& appName, const std::
         case DockItem::Kind::App:
         default: {
             AppendHeader(menu, item);
+            // Round 13 phase 13D: a running app's slot is the running item's: its settings first.
+            if (item.runningSettings) {
+                Append(menu, kOpenItemSettings, L"Running apps settings…", true, false, G::kRunning);
+                Separator(menu);
+            }
             Append(menu, kNewWindow, item.running ? L"New window" : L"Open", item.canLaunch, false,
                    item.running ? G::kNewWindow : G::kOpen);
             if (item.canOpenLocation) Append(menu, kOpenFileLocation, L"Open file location", true, false, G::kFileLocation);

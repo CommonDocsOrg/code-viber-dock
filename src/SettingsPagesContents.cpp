@@ -1239,7 +1239,8 @@ private:
             case ItemKind::Weather:
             case ItemKind::Folder:
             case ItemKind::Group:
-            case ItemKind::Tray: return true;
+            case ItemKind::Tray:
+            case ItemKind::Running: return true;  // round 13 phase 13D: its own Item window
             case ItemKind::App: {
                 const AppIdentity::ResolvedPin* pin = PinFor(item);
                 return pin && pin->kind == AppIdentity::PinKind::Folder;  // a shortcut to a folder
@@ -1302,6 +1303,7 @@ private:
                                         : k == ItemKind::Weather ? std::wstring(L"Weather settings")
                                         : k == ItemKind::Tray    ? std::wstring(L"Tray settings")
                                         : k == ItemKind::Group   ? std::wstring(L"Group settings")
+                                        : k == ItemKind::Running ? std::wstring(L"Running apps settings")  // round 13 phase 13D
                                         : k == ItemKind::Widget  ? Widgets::DisplayName(e->id) + L" settings"
                                                                  : std::wstring(L"Folder settings");  // a folder (or a shortcut to one)
             SetText(kPinSettings, rows_.empty() ? target + L"…" : std::wstring(L"More settings…"));
@@ -1461,14 +1463,14 @@ private:
 
     // Enter / a double click on a tile, "Settings…": an item with settings
     // -> its own Item window (round 5 phase B; the tray too since phase D); a pinned tray icon ->
-    // the dock's tray item's window (none: Global > Tray icons); the running apps -> the Running
-    // apps tab; the notification centre -> Global > Notifications (balloons, polling, access, the
-    // apps that may badge: the centre has nothing of its own per dock).
+    // the dock's tray item's window (none: Global > Tray icons); the running apps -> their own Item
+    // window (round 13 phase 13D: was the Running apps tab); the notification centre -> Global >
+    // Notifications (balloons, polling, access, the apps that may badge: the centre has nothing of
+    // its own per dock).
     void OpenItemSettings(int item) {
         const DockConfig& d = Dock();
         if (item < 0 || item >= static_cast<int>(d.items.size())) return;
         switch (d.items[static_cast<size_t>(item)].Kind()) {
-            case ItemKind::Running: Window().ShowPage(kTabRunning); return;
             case ItemKind::TrayApp: {
                 const auto it = std::find_if(d.items.begin(), d.items.end(), [](const DockItemEntry& e) { return e.Kind() == ItemKind::Tray; });
                 if (it != d.items.end() && Host().openItem && DockIndex() != SIZE_MAX) {
