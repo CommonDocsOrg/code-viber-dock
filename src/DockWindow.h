@@ -1374,6 +1374,10 @@ private:
     ScriptPopup widgetPopup_;                   // the script popup (one at a time)
     std::wstring popupWidget_;                  // the instance key it belongs to ("" none)
     std::wstring editorWidget_;                 // round 6 phase 6C: the widget whose text editor is open ("" none)
+    // Round 13 phase 13A: a popup menu owned by the dock is open (WM_ENTERMENULOOP .. WM_EXITMENULOOP;
+    // ContextMenu::Track sends them itself because TPM_NONOTIFY suppresses them). While it is, the
+    // dock is moved / sized but never raised: re-asserting HWND_TOPMOST would put it above the menu.
+    bool menuOpen_ = false;
     // The passive script popup (popup.open(w, h, { passive: true }), one at a time): hover mode,
     // mouse-transparent, no popup hold; not a click popup (ClickPopupOnScreen, WidgetPopupShown).
     ScriptPopup widgetPassive_{PopupWindow::Mode::Hover, ScriptPopup::kPassiveClassName};

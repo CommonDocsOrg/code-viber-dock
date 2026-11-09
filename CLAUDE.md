@@ -49,7 +49,7 @@ The dock exposes registered window messages for tests: `WinDock.QueryState` (rea
 
 - A new feature gets new QueryState / DockCommand / ItemCommand numbers (appended, never renumbered) and a README entry; settings controls get stable ids in `src/SettingsIds.h` ("never renumber; add at the end of a page's range").
 - Settings windows (class `WinDock.Settings`) are driven by control id with `WM_COMMAND` etc.; pages are created eagerly so hidden controls can be driven.
-- Test scripts are PowerShell P/Invoke scripts kept in the session scratchpad, not in the repo.
+- Test scripts live in `tools\smoke\`: `WinDock.psm1` is the reusable P/Invoke module (find the windows, the four registered messages, config backup / restore, start / quit with the taskbar check; its header has the usage and safety rules), plus one short `<feature>.ps1` per feature (e.g. `menu-zorder.ps1`). Add to the module instead of writing new P/Invoke.
 
 Safety rules when running the dock (it runs on the user's live desktop; details in STATUS.md "Testing cautions learned"):
 

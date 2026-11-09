@@ -3544,7 +3544,9 @@ always there, also when every dock is parked) handle these registered messages:
   the Dock settings of dock `HIWORD`, else the Item window of item `LOWORD` of dock `HIWORD`; -2 not open); it also
   picks the window **322** asks: the column of control `LOWORD(lParam)` on its active page (0 left or the only one, 1
   right, 2 across both; -1 no such control, -2 that window is gone); **323** = the length of the active page's
-  sentence (control 5800's window text; 0 none; addressed as 321). The labels of the change Undo / Redo would
+  sentence (control 5800's window text; 0 none; addressed as 321). Round 13 phase 13A: **324** = 1 while a popup
+  menu owned by dock `HIWORD(lParam)` is open (the dock / item / widget menu, a tray icon's dock menu; the dock is
+  not raised above it then), else 0 (`tools\smoke\menu-zorder.ps1` uses it). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its

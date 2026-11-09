@@ -140,7 +140,11 @@ void DockWindow::ShowTrayMenu(int slot, const std::wstring& key, bool pinnedSlot
     GetCursorPos(&pt);
     SetHold(true);
     SetForegroundWindow(hwnd_);  // the menu closes when it loses the foreground
+    // Round 13 phase 13A: TPM_NONOTIFY suppresses WM_ENTERMENULOOP / WM_EXITMENULOOP, so the flag
+    // is set here: the dock must not raise itself above its open menu (see menuOpen_).
+    menuOpen_ = true;
     const UINT cmd = static_cast<UINT>(TrackPopupMenuEx(menu, TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON, pt.x, pt.y, hwnd_, nullptr));
+    menuOpen_ = false;
     DestroyMenu(menu);
     PostMessageW(hwnd_, WM_NULL, 0, 0);
     SetHold(false);

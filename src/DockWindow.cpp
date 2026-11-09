@@ -1601,8 +1601,16 @@ void DockWindow::ApplyWindowPos() {
     // The same while a widget's text editor (owned by the dock, round 6 phase 6C) is open. While a
     // fullscreen app runs (an app bar's ABN_FULLSCREENAPP) the dock stays where it was put, below it;
     // while the full-screen guard hides it (round 9 phase 9A) it is only moved / sized.
+    // Round 13 phase 13A: nor while a popup menu the dock owns is open. The menu window (#32768) is
+    // itself topmost and sits above the dock; the pointer travelling from the menu across the dock
+    // changes the hover / magnification, the dock lays out, and HWND_TOPMOST here raised it above
+    // the open menu (seen when a submenu opened over the dock: the parent menu went under it). The
+    // acrylic Backdrop needs nothing of its own: it is placed directly after the dock (insert-after
+    // the dock HWND), so an unraised dock keeps it under the menu too.
     const UINT keepOrder =
-        IsWindowEnabled(hwnd_) && !fullscreenApp_ && !fullscreenHidden_ && editorWidget_.empty() ? 0 : SWP_NOZORDER;
+        IsWindowEnabled(hwnd_) && !fullscreenApp_ && !fullscreenHidden_ && editorWidget_.empty() && !menuOpen_
+            ? 0
+            : SWP_NOZORDER;
     if (DesktopLayered() || BehindLayered()) {
         // The desktop layer: directly above the desktop window, never topmost (a "behind" dock is
         // registered with the layer, which keeps it there; a "desktop" dock is only shown while the
@@ -5854,7 +5862,8 @@ void DockWindow::AssertTopmost() {
     // Re-asserting the z-order is cheap and only happens on hide transitions. Not while a modal
     // dialog owned by the dock is open, nor while a widget's text editor is (see ApplyWindowPos),
     // nor (round 9 phase 9A) while the full-screen guard hides the dock: no z-order call at all.
-    if (!hwnd_ || !IsWindowEnabled(hwnd_) || fullscreenApp_ || fullscreenHidden_ || !editorWidget_.empty()) return;
+    // Round 13 phase 13A: nor while a menu the dock owns is open (it would go above the menu).
+    if (!hwnd_ || !IsWindowEnabled(hwnd_) || fullscreenApp_ || fullscreenHidden_ || !editorWidget_.empty() || menuOpen_) return;
     if (BehindLayered() && layerRegistered_) {
         DesktopLayer::Place(hwnd_);  // no-op while it is in place
         return;
@@ -9042,6 +9051,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const DockItem& it = items_[static_cast<size_t>(lp)];
             return std::lround(layout_.view.Opacity(it.targetX + BoxW(it) / 2.0f) * 100.0f);
         }
+        case 324:  // round 13 phase 13A: 1 while a popup menu owned by this dock is open (menuOpen_), else 0
+            return menuOpen_ ? 1 : 0;
         default:
             return -1;
     }
@@ -9448,6 +9459,13 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (dragPhase_ == DragPhase::Dragging && reinterpret_cast<HWND>(lp) != hwnd_) EndDrag(false);
             if (dockDrag_ && reinterpret_cast<HWND>(lp) != hwnd_) EndDockDrag(false);
             if ((scrollDrag_ || scrollPress_) && reinterpret_cast<HWND>(lp) != hwnd_) EndScrollDrag(false);
+            return 0;
+
+        case WM_ENTERMENULOOP:  // round 13 phase 13A: see menuOpen_ (ApplyWindowPos, AssertTopmost)
+            menuOpen_ = true;
+            return 0;
+        case WM_EXITMENULOOP:
+            menuOpen_ = false;
             return 0;
 
         case WM_ERASEBKGND:

@@ -1127,6 +1127,35 @@ Design notes for 12A:
   welcome dialog applies at once (12G reworks the first run); Revert this window counts the
   entries newer than the window's mark (an undone-then-redone older change is not counted).
 
+## Round 13 (in progress, 2026-11-09): menus you can read, running apps as a widget
+
+Plan: `C:\Users\olson\.claude\plans\windock-round13.md`. From the user's list: context menus with
+icons and a header that names the widget (13B), quick widget settings in the widget's menu (13C),
+running apps as a real widget with all of its settings (spacing, padding) in its own settings
+(13D), the submenu-under-the-dock bug (13A), and a cheaper way of working: one ordinary agent per
+phase, light testing (a warning-free `build\dev`, the doc checks), a five-line manual check list
+per phase for the user, and reusable test scripts in the repo (`tools\smoke\`) instead of
+scratchpad scripts rewritten every round. 13E is the regression and the only `build\x64-release`
+rebuild.
+
+### 13A: a menu never goes under the dock (done 2026-11-09)
+
+- **Cause, confirmed**: the dock (`WS_EX_TOPMOST`) re-asserted `HWND_TOPMOST` with
+  `SWP_NOOWNERZORDER` in `ApplyWindowPos` after every layout and in `AssertTopmost` on hide
+  transitions, also while its own popup menu was open; the menu window (`#32768`, topmost) then
+  ended under the dock. Measured with `tools\smoke\menu-zorder.ps1` on the round 12 exe: after the
+  pointer crossed the dock, the dock was at z 10 and both menu windows at 12 / 13, and the main
+  menu's part over the dock window was hidden (`WindowFromPoint` answered the dock).
+- **Fix**: `DockWindow::menuOpen_` from `WM_ENTERMENULOOP` / `WM_EXITMENULOOP`. `TPM_NONOTIFY`
+  (used by every dock menu) suppresses both messages, so `ContextMenu::Track` sends them to the
+  owner itself and the tray icon's dock menu sets the flag directly; no `TPM_` or owner change
+  (KB135788 needs the shown, activatable dock as owner). While set, `ApplyWindowPos` moves / sizes
+  with `SWP_NOZORDER` and `AssertTopmost` returns early. The acrylic Backdrop needs nothing: it is
+  inserted right after the dock, so it never rises above a menu the dock is below. QueryState 324.
+- **Not covered**: menus of other apps' tray icons are owned by those apps (the dock cannot see
+  their menu loop).
+- **Tools**: `tools\smoke\WinDock.psm1` (the module later phases add to) and `menu-zorder.ps1`.
+
 ## Dependencies at a glance
 
 ```

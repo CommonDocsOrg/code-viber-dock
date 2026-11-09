@@ -111,7 +111,12 @@ UINT Track(HWND owner, HMENU menu, POINT pt) {
     SetForegroundWindow(owner);
     UINT flags = TPM_RETURNCMD | TPM_NONOTIFY | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN;
     flags |= GetSystemMetrics(SM_MENUDROPALIGNMENT) ? TPM_RIGHTALIGN : TPM_LEFTALIGN;
+    // Round 13 phase 13A: TPM_NONOTIFY also suppresses WM_ENTERMENULOOP / WM_EXITMENULOOP to the
+    // owner, so they are sent here: a dock owner then knows the menu is open and does not raise
+    // itself above it (DockWindow::menuOpen_). Other owners pass them to DefWindowProc (no effect).
+    SendMessageW(owner, WM_ENTERMENULOOP, TRUE, 0);
     UINT cmd = static_cast<UINT>(TrackPopupMenuEx(menu, flags, pt.x, pt.y, owner, nullptr));
+    if (IsWindow(owner)) SendMessageW(owner, WM_EXITMENULOOP, TRUE, 0);
     PostMessageW(owner, WM_NULL, 0, 0);
     return cmd;
 }
