@@ -4682,6 +4682,14 @@ bool App::EnterEdit(DockWindow* dock) {
         }
     }
     FlushTimeline();  // what came before (the unlock) is an entry of its own
+    // Round 12 phase 12H: the window that was in front, to give the foreground back when the mode
+    // ends (not one of ours: our own windows keep it as they are).
+    {
+        const HWND fg = GetForegroundWindow();
+        DWORD pid = 0;
+        if (fg) GetWindowThreadProcessId(fg, &pid);
+        editPrevForeground_ = fg && pid != GetCurrentProcessId() ? fg : nullptr;
+    }
     editDock_ = dock;
     dock->SetEditing(true);
     NoteTipGesture(1);  // round 12 phase 12G: the second tip's gesture
@@ -4708,6 +4716,19 @@ void App::LeaveEdit() {
     if (d && docks_.IndexOf(d) != SIZE_MAX) {
         d->SetDrawerHold(false);
         d->SetEditing(false);
+    }
+    // Round 12 phase 12H: EnterEdit gave the dock the foreground (its Escape); left by Done or Esc it
+    // kept it for good, and the dock is not a window to stay in front. Measured on this machine: an
+    // accessibility client polls the foreground window with WM_GETOBJECT, about 320 a second for the
+    // dock, 30 - 45 ms of the UI thread's time every second until another window was activated. The
+    // window that was in front before gets it back (a click on another app already did that).
+    const HWND prev = editPrevForeground_;
+    editPrevForeground_ = nullptr;
+    if (prev && !shutDown_ && IsWindow(prev) && IsWindowVisible(prev) && !IsIconic(prev)) {
+        const HWND fg = GetForegroundWindow();
+        DWORD pid = 0;
+        if (fg) GetWindowThreadProcessId(fg, &pid);
+        if (!fg || pid == GetCurrentProcessId()) SetForegroundWindow(prev);
     }
 }
 

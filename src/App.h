@@ -517,6 +517,7 @@ private:
     static void CALLBACK OnEditForeground(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD thread,
                                           DWORD time);
     DockWindow* editDock_ = nullptr;  // the dock window in customize mode (null: none)
+    HWND editPrevForeground_ = nullptr;  // round 12 phase 12H: another app's window in front when the mode began
     EditBar editBar_{[this](int id) { OnEditBarCommand(id); }};
     DrawerPopup drawerPopup_;
     bool drawerReady_ = false;        // its callbacks are set
