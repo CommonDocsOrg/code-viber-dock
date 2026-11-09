@@ -104,7 +104,7 @@ To make the dock look as you want:
 
 ## The dock settings have no title bar
 
-A dock's settings open in a panel beside the dock, not in a normal window. It has no title bar on purpose: it belongs to the dock and follows it.
+A dock's settings open in a panel beside the dock, not in a normal window. It has no title bar on purpose: it belongs to the dock and follows it. The settings of a folder window or a standalone widget are the same kind of panel, beside that window.
 
 - To make it bigger or smaller, drag its outer edges.
 - To close it, press **Esc** or click **✕** at its top right. It also closes when you click another app or the desktop.

@@ -220,7 +220,7 @@ The window follows the folder: new, changed and deleted files show up by themsel
 
 **Desktop rules** move files from your desktop into the folder window's folder, for example every picture into a Pictures window. Set them in the folder window's settings. See [Desktop rules](guide-settings.md#desktop-rules).
 
-Its right-click menu has the most used options. All of them are in its settings window: open App settings > Docks and displays, select the folder window and click **Open settings**. See [Folder window settings](guide-settings.md#folder-window-settings).
+Its right-click menu has the most used options. All of them are in its settings, a panel that opens beside the folder window: open App settings > Docks and displays, select the folder window and click **Open settings**. See [Folder window settings](guide-settings.md#folder-window-settings).
 
 ## Standalone widgets
 
@@ -232,7 +232,7 @@ To put a widget on the desktop:
 - Or in App settings > Widget library, select a widget and click **Add to the desktop**.
 - Or in App settings > Docks and displays, click **Add ▾** > **Standalone widget** and choose the widget.
 
-The widget appears on the desktop, under your windows, and its settings window opens.
+The widget appears on the desktop, under your windows, and its settings panel opens beside it.
 
 Working with a standalone widget:
 
@@ -240,7 +240,7 @@ Working with a standalone widget:
 - A click without moving goes to the widget, as on a dock.
 - Right-click it for its menu: its settings, **Window settings…**, **Lock** / **Unlock**, **Reload widget**, **App settings…** and, last, **Remove from desktop**.
 
-Its settings window has a Content and an Appearance tab (the widget's own settings) and a Placement tab (display, layer, lock, background, and the exact position and size). See [Standalone widget settings](guide-settings.md#standalone-widget-settings).
+Its settings panel, beside the widget, has a Content and an Appearance tab (the widget's own settings) and a Placement tab (display, layer, lock, background, and the exact position and size). See [Standalone widget settings](guide-settings.md#standalone-widget-settings).
 
 ## Layouts and looks
 

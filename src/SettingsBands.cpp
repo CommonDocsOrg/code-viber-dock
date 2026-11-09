@@ -67,8 +67,7 @@ void Fill(HDC dc, const RECT& r, COLORREF c) {
 
 // Round 8 phase 8B: the compact Dock header's buttons (DIPs).
 constexpr int kHeaderButtonH = 28;
-constexpr int kHeaderFlashW = 64;
-constexpr int kHeaderLockW = 72;
+// (Flash 64 and Lock 72 were header buttons of the captioned window; round 12 phase 12I: in ⋯ only.)
 constexpr int kHeaderGlobalW = 112;
 constexpr int kHeaderMoreW = 36;
 constexpr int kHeaderCustomizeW = 88;  // round 12 phase 12D
@@ -162,17 +161,16 @@ void SettingsWindow::CreateBands(bool footer) {
         if (!IsFolderWindow()) {
             HWND flash = child(header_, kHeaderFlash, WC_BUTTONW, L"Flash");
             HWND lock = child(header_, kHeaderLock, WC_BUTTONW, L"Lock");
-            // Round 12 phase 12E: in ⋯ on the panel (hidden here, still answering WM_COMMAND).
-            if (panel_) {
-                if (flash) ShowWindow(flash, SW_HIDE);
-                if (lock) ShowWindow(lock, SW_HIDE);
-            }
+            // Round 12 phase 12E: in ⋯ on the panel (hidden here, still answering WM_COMMAND; round
+            // 12 phase 12I: every Dock window is the panel, a standalone widget's too).
+            if (flash) ShowWindow(flash, SW_HIDE);
+            if (lock) ShowWindow(lock, SW_HIDE);
             // Round 12 phase 12D: customize mode on the dock itself (the 12E panel keeps it).
             if (DockIndex() != SIZE_MAX && Dock().IsDock()) child(header_, kHeaderCustomize, WC_BUTTONW, L"Customize");
         }
         child(header_, kHeaderGlobal, WC_BUTTONW, L"App settings…");
         child(header_, kHeaderMore, WC_BUTTONW, L"\x22EF");
-        if (panel_) child(header_, kHeaderClose, WC_BUTTONW, L"\x2715");  // round 12 phase 12E: Close (Esc)
+        child(header_, kHeaderClose, WC_BUTTONW, L"\x2715");  // round 12 phase 12E: Close (Esc)
         // Round 12 phase 12C: the name edited in place (hidden until a click on the name, F2 or
         // Rename dock…; not a tab stop: the name is not a control until then).
         if (DockIndex() != SIZE_MAX && Dock().IsDock()) {
@@ -231,10 +229,11 @@ void SettingsWindow::LayoutBands() {
     if (header_) {
         RECT rc{};
         GetClientRect(header_, &rc);
-        if (kind_ == SettingsKind::Dock && panel_) {
+        if (kind_ == SettingsKind::Dock) {
             // Round 12 phase 12E: the panel's two rows. Row 1: Close at the right end (the name and
             // the chips are painted left of it); row 2: Customize, App settings…, ⋯ at the right and
-            // the save state left of them.
+            // the save state left of them. (Round 12 phase 12I: the captioned window's one row of
+            // Flash, Lock, App settings and ⋯ is gone with it.)
             const int h = Px(kHeaderButtonH);
             place(header_, kHeaderClose, rc.right - Px(kPanelHeaderPadR) - Px(kHeaderCloseW), Px(kPanelRow1Top), Px(kHeaderCloseW), h);
             int x = rc.right - Px(kPanelHeaderPadR);
@@ -246,23 +245,6 @@ void SettingsWindow::LayoutBands() {
             }
             place(header_, kBandSaveStatus, std::max(static_cast<int>(Px(16)), x - Px(kStatusDip)), Px(kPanelRow2Top),
                   std::min(Px(kStatusDip), x - Px(16)), h);
-            if (renaming_ && nameEdit_) {
-                const RECT r = NameRect();
-                SetWindowPos(nameEdit_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
-            }
-        } else if (kind_ == SettingsKind::Dock) {
-            // One row at the right, vertically centred: Flash, Lock, App settings, ⋯.
-            const int h = Px(kHeaderButtonH), y = (rc.bottom - h) / 2;
-            int x = rc.right - Px(20);
-            for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}, std::pair{kHeaderCustomize, kHeaderCustomizeW}}) {
-                if (!GetDlgItem(header_, b.first)) continue;
-                x -= Px(b.second);
-                place(header_, b.first, x, y, Px(b.second), h);
-                x -= Px(8);
-            }
-            // Round 12 phase 12A: the save state left of the buttons (the chips end before it).
-            place(header_, kBandSaveStatus, x - Px(kStatusDip), y, Px(kStatusDip), h);
-            // Round 12 phase 12C: the name being edited follows the header's width.
             if (renaming_ && nameEdit_) {
                 const RECT r = NameRect();
                 SetWindowPos(nameEdit_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
@@ -398,14 +380,9 @@ void SettingsWindow::RevertWindow() {
 int SettingsWindow::HeaderTextRight() const {
     RECT rc{};
     if (header_) GetClientRect(header_, &rc);
-    // Round 12 phase 12E: the panel's first row ends at its Close button.
-    if (panel_) return rc.right - Px(kPanelHeaderPadR) - Px(kHeaderCloseW) - Px(16);
-    int x = rc.right - Px(20);
-    for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}, std::pair{kHeaderCustomize, kHeaderCustomizeW}}) {
-        if (header_ && GetDlgItem(header_, b.first)) x -= Px(b.second) + Px(8);
-    }
-    if (header_ && GetDlgItem(header_, kBandSaveStatus)) x -= Px(kStatusDip);  // round 12 phase 12A
-    return x - Px(8);
+    // Round 12 phase 12E: the panel's first row ends at its Close button (round 12 phase 12I: every
+    // Dock window is the panel; the captioned window's row of buttons is gone).
+    return rc.right - Px(kPanelHeaderPadR) - Px(kHeaderCloseW) - Px(16);
 }
 
 void SettingsWindow::ShowHeaderMenu() {
@@ -441,11 +418,15 @@ void SettingsWindow::ShowHeaderMenu() {
         AppendMenuW(menu, MF_STRING, kHeaderRename, L"Rename dock\tF2");
         AppendMenuW(menu, MF_STRING, kHeaderDuplicate, L"Duplicate dock");
         // Round 12 phase 12E: the panel's header has no room for these two buttons.
-        if (panel_) {
-            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(menu, MF_STRING, kHeaderFlash, L"Flash this dock");
-            AppendMenuW(menu, MF_STRING, kHeaderLock, Dock().locked ? L"Unlock this dock" : L"Lock this dock");
-        }
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, kHeaderFlash, L"Flash this dock");
+        AppendMenuW(menu, MF_STRING, kHeaderLock, Dock().locked ? L"Unlock this dock" : L"Lock this dock");
+    } else if (DockIndex() != SIZE_MAX && Dock().IsWidgetWindow()) {
+        // Round 12 phase 12I: a standalone widget's settings are the panel now: its header's Flash
+        // and Lock buttons (the captioned window's) move into ⋯ as a dock's did in 12E.
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, kHeaderFlash, L"Flash this widget");
+        AppendMenuW(menu, MF_STRING, kHeaderLock, Dock().locked ? L"Unlock this widget" : L"Lock this widget");
     }
     RECT r{};
     GetWindowRect(button, &r);

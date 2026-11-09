@@ -236,7 +236,7 @@ protected:
         // --- end round 12 phase 12C ---
         static constexpr wchar_t kDocksTip[] =
             L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
-            L"it (or its row) to open its own settings window; drag it along its edge (it snaps to the centre and the "
+            L"it (or its row) to open its settings panel beside it; drag it along its edge (it snaps to the centre and the "
             L"ends), onto another edge or onto another display: it moves when you let go. A new dock starts at the "
             L"bottom of the primary display with the running apps and the clock. A dock whose display is not "
             L"connected is parked until it is; \"Every display\" shows one copy on each. A folder window shows a "
@@ -247,7 +247,7 @@ protected:
         Tip(kDocksNote, kDocksTip);
         static constexpr wchar_t kLockTip[] =
             L"Checked while every dock and standalone widget is locked (folder windows have no lock). Check it to lock "
-            L"them all, clear it to unlock them all; each one's own Lock is in its window's header.";
+            L"them all, clear it to unlock them all; each one's own Lock is in the \x22EF menu of its settings panel.";
         Tip(kLockAllDocks, kLockTip);
         Tip(kLockAllDocksCaption, kLockTip);
     }

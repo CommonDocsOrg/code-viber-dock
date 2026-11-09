@@ -27,7 +27,7 @@ std::wstring PickFolder(HWND owner) {
     if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) return {};
     FILEOPENDIALOGOPTIONS options = 0;
     dialog->GetOptions(&options);
-    dialog->SetTitle(L"The folder this window shows");
+    dialog->SetTitle(L"The folder the folder window shows");
     dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
     winrt::com_ptr<IShellItem> item;
     PWSTR name = nullptr;
@@ -48,14 +48,15 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Folder window");
-        Lead(L"The folder this window shows on the desktop, and how it looks.");  // round 12 phase 12F
+        // Round 12 phase 12I: "the folder window", not "this window": these settings are a panel beside it.
+        Lead(L"The folder the folder window shows on the desktop, and how it looks.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#folder-window-settings");
         UntitledCard(L"guide-settings.md#folder-window-settings");
         Text(kFwInfo, CtlKind::Note, L"", kMargin, right - kMargin, 20);
         NextRow(22);
         Section(kFwFolderSection, L"Folder", L"guide-settings.md#which-folder");
         Label(kFwPathLabel, L"Folder");
-        Tip(kFwPathLabel, L"The folder this window shows (type a path, or use the button beside it). Its files open as in Explorer.");
+        Tip(kFwPathLabel, L"The folder the folder window shows (type a path, or use the button beside it). Its files open as in Explorer.");
         EditBox(kFwPathEdit, kColX, right - kColX - 110, 4096);
         Button(kFwBrowse, L"Browse…", right - 100, 100);
         NextRow();
@@ -117,7 +118,7 @@ protected:
         Label(kFwRulesLabel, L"Desktop files matching", L"e.g. *.png;*.jpg;*.gif", kFwRulesNote);
         Tip(kFwRulesLabel,
             L"Patterns separated by semicolons, for example *.png;*.jpg;*.gif. Matching files on your Desktop are moved "
-            L"into this window's folder (the first folder window whose rules match wins), never over a file of the same "
+            L"into the folder window's folder (the first folder window whose rules match wins), never over a file of the same "
             L"name (it becomes \"name (2)\"), and can be undone with Ctrl+Z in Explorer. Off: only Sort desktop now moves "
             L"them.");
         EditBox(kFwRulesEdit, kColX, right - kColX, 1024);

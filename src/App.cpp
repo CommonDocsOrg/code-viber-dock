@@ -207,6 +207,16 @@ bool App::Initialize(HINSTANCE instance) {
     };
     callbacks.widgetMenu = [this](size_t cfg, POINT pt) { ShowWidgetMenu(cfg, pt); };
     callbacks.widgetSettings = [this](size_t cfg) { OpenItemSettings(cfg, 0); };
+    // Round 12 phase 12I: a folder window / standalone widget moved, was resized or hidden: the
+    // settings panel beside it follows. Posted and coalesced (it can come from inside Sync's
+    // SetMonitor, and a collapse plus its config change arrive together); only when a panel is open.
+    callbacks.desktopMoved = [this] {
+        if (panelAnchorPending_ || !hwnd_) return;
+        const bool anyPanel = std::any_of(settings_.begin(), settings_.end(), [](const std::unique_ptr<SettingsWindow>& w) {
+            return w->Hwnd() && w->IsPanel() && (w->IsFolderWindow() || w->IsWidgetWindow());
+        });
+        if (anyPanel) panelAnchorPending_ = PostMessageW(hwnd_, kPanelAnchorMoved, 0, 0) != FALSE;
+    };
     docks_.Initialize(instance, &config_, hwnd_, std::move(callbacks));
     // Round 6 phase 6E: reloaded widget packages render their previews again.
     docks_.Widgets().SetPackagesChanged([this] { InvalidatePreviews(); });
@@ -2370,11 +2380,15 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     };
     host.dockDpi = [this, dockOf, w] {
         DockWindow* d = dockOf() != SIZE_MAX ? PanelDockOf(w) : nullptr;  // round 12 phase 12E: the panel's instance
+        // Round 12 phase 12I: a folder window's / standalone widget's panel opens at its window's DPI.
+        if (HWND h = nullptr; !d && dockOf() != SIZE_MAX && DesktopAnchor(dockOf(), nullptr, &h) && h) return GetDpiForWindow(h);
         if (!d) d = docks_.First();
         return d ? d->Dpi() : GetDpiForSystem();
     };
     host.activated = [this, w](bool active) { OnSettingsActivated(w, active); };
     host.dockBar = [this, dockOf, w] {
+        // Round 12 phase 12I: a folder window's / standalone widget's panel sits beside that window.
+        if (RECT r{}; dockOf() != SIZE_MAX && DesktopAnchor(dockOf(), &r, nullptr)) return r;
         if (WidgetWindow* wi = dockOf() != SIZE_MAX ? docks_.WidgetOf(dockOf()) : nullptr) return wi->ScreenRect();
         DockWindow* d = dockOf() != SIZE_MAX ? PanelDockOf(w) : nullptr;  // round 12 phase 12E: the panel's instance
         return d ? d->RestFootprintRect() : RECT{};  // round 12 phase 12H: with a title outside the bar
@@ -3838,8 +3852,11 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         case 312:  // its tiles after the search and the chip (-1: not shown)
             return drawerPopup_.Shown() ? drawerPopup_.TileCount() : -1;
         // --- round 12 phase 12E ---
-        case 313:    // the Dock settings window of dock HIWORD: 0 none open, 1 a panel beside the dock, 2 a captioned window (folder window / standalone widget entries)
-        case 314: {  // ... the panel's side: 0 above the dock, 1 below it, 2 right of it, 3 left of it (-1: no panel)
+        // 313: the Dock settings window of dock HIWORD: 0 none open, 1 a panel beside the dock (2 a
+        // captioned window: folder window / standalone widget entries until round 12 phase 12I;
+        // never now, every Dock window is the panel, beside the folder window / widget).
+        case 313:
+        case 314: {  // ... the panel's side: 0 above the dock (window), 1 below it, 2 right of it, 3 left of it (-1: no panel)
             SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
             const bool open = w && w->Hwnd() && !IsSearchHidden(w) && IsWindowVisible(w->Hwnd());
             if (wp == 313) return !open ? 0 : w->IsPanel() ? 1 : 2;
@@ -4484,6 +4501,11 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         OpenQuickSetup(firstRun_);  // round 12 phase 12G: the first run's variant once
         return 0;
     }
+    if (msg == kPanelAnchorMoved) {  // round 12 phase 12I: a folder window / standalone widget moved (coalesced)
+        panelAnchorPending_ = false;
+        ReanchorPanels(nullptr, true, true);
+        return 0;
+    }
     if (msg == kQuickSetupClosed) {  // round 12 phase 12G
         if (quickSetup_ && !quickSetup_->Hwnd()) quickSetup_.reset();
         if (previewing_ && previewHost_ && !IsWindow(previewHost_)) CancelBar();  // closed without Finish / Cancel
@@ -5036,12 +5058,40 @@ DockWindow* App::PanelDockOf(const SettingsWindow* w) {
     return docks_.FirstOf(cfg);
 }
 
-void App::ReanchorPanels(DockWindow* moved, bool animate) {
+bool App::DesktopAnchor(size_t cfg, RECT* rect, HWND* hwnd) {
+    if (cfg >= config_.docks.size()) return false;
+    // A folder window has no hidden state of its own (collapsed is still shown); a standalone
+    // widget is hidden by the "desktop" layer's rule and the full-screen guard (Shown()).
+    if (FolderWindow* f = docks_.FolderOf(cfg); f && f->Hwnd()) {
+        if (rect) *rect = f->ScreenRect();
+        if (hwnd) *hwnd = f->Hwnd();
+        return IsWindowVisible(f->Hwnd()) != FALSE;
+    }
+    if (WidgetWindow* wi = docks_.WidgetOf(cfg); wi && wi->Hwnd()) {
+        if (rect) *rect = wi->ScreenRect();
+        if (hwnd) *hwnd = wi->Hwnd();
+        return wi->Shown();
+    }
+    return false;  // parked: its display is gone
+}
+
+void App::ReanchorPanels(DockWindow* moved, bool animate, bool desktopOnly) {
     if (shutDown_) return;
     // Index loop: closing only posts (the objects are freed by kSettingsClosed).
     for (size_t i = 0; i < settings_.size(); ++i) {
         SettingsWindow* w = settings_[i].get();
         if (!w->Hwnd() || !w->IsPanel() || IsSearchHidden(w)) continue;
+        if (w->IsFolderWindow() || w->IsWidgetWindow()) {
+            // Round 12 phase 12I: beside its window on the desktop; gone (parked) or hidden: closes,
+            // as a parked dock's panel does. A dock that moved concerns none of these.
+            if (!DesktopAnchor(w->DockIndex(), nullptr, nullptr)) {
+                PostMessageW(w->Hwnd(), WM_CLOSE, 0, 0);
+                continue;
+            }
+            if (!moved) w->Reanchor(animate);
+            continue;
+        }
+        if (desktopOnly) continue;
         DockWindow* d = PanelDockOf(w);
         if (!d) {
             // Its dock has no window (parked: its display is gone; disabled): a panel beside nothing

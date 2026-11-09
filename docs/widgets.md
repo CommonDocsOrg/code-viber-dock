@@ -1065,8 +1065,8 @@ settings and state) and on several docks. Like every item it can take `"anchor"`
 **On the desktop**: the drawer's **Desktop** button on a script widget's row (and **Add to the
 desktop** in App settings > Widget library, **Add standalone widget…** in Docks and displays)
 makes it a [standalone widget](#standalone-widgets): a window of the manifest's default size,
-centred on the dock's display, under the other windows; its own settings window opens. In
-config.json:
+centred on the dock's display, under the other windows; its settings open in a panel beside it
+(round 12 phase 12I; a captioned window before). In config.json:
 
 ```json
 { "id": "clock1", "kind": "widget", "widget": "analog-clock", "x": 100, "y": 100, "w": 200, "h": 200 }

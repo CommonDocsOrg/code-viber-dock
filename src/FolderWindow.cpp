@@ -257,12 +257,15 @@ void FolderWindow::StoreRect() {
 
 void FolderWindow::Place(const RECT& r, bool relayout) {
     const bool resized = r.right - r.left != rect_.right - rect_.left || r.bottom - r.top != rect_.bottom - rect_.top;
+    const bool moved = !EqualRect(&r, &rect_);
     rect_ = r;
     if (!hwnd_) return;
     SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
                  SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     if (acrylic_) backdrop_.Place(hwnd_, rect_);
     if (resized || relayout) Relayout();
+    // Round 12 phase 12I: a placement by the program; a drag's steps wait for its end (WM_LBUTTONUP).
+    if (moved && grab_ == Grab::None && host_.moved) host_.moved();
 }
 
 void FolderWindow::SetMonitor(HMONITOR monitor) {
@@ -1512,6 +1515,7 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 if (grabMoved_) {
                     StoreRect();
                     if (host_.changed) host_.changed();
+                    if (host_.moved) host_.moved();  // round 12 phase 12I: the drag ended
                 } else if (g == Grab::Move && PtInRect(&chevronRect_, pt)) {
                     SetCollapsed(!collapsed);
                 }
@@ -1560,6 +1564,7 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 if (grabMoved_) {
                     StoreRect();
                     if (host_.changed) host_.changed();
+                    if (host_.moved) host_.moved();  // round 12 phase 12I
                 }
                 grabMoved_ = false;
             }

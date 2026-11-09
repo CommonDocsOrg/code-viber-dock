@@ -73,6 +73,10 @@ public:
         std::function<void(size_t cfg, POINT screen)> menu;
         // weather.openSettings(): the entry's widget settings (App::OpenItemSettings(cfg, 0)).
         std::function<void(size_t cfg)> openSettings;
+        // Round 12 phase 12I: the window's screen rect changed (a drag or resize ended, a placement
+        // by the program: the config, a display / DPI change) or it was hidden / shown: its settings
+        // panel goes beside it again (or closes while it is hidden). Not on each step of a drag.
+        std::function<void()> moved;
     };
 
     WidgetWindow() = default;

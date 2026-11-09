@@ -741,18 +741,21 @@ public:
     // --- end round 12 phase 12C ---
 
     // --- round 12 phase 12E: a dock's settings as a panel beside the dock ---
-    // A Dock window of a dock (not of a folder window or a standalone widget entry) is a borderless
-    // panel (WS_POPUP, a tool window: not in the taskbar / Alt+Tab) beside the dock's resting bar
-    // (host.dockBar): above a bottom bar, under a top one, beside a vertical one, centred on the bar
-    // and clamped to the work area; a floating bar or a circle gets it on the side facing the
-    // screen's middle. It never covers its dock. A 3 DIP band in the dock's colour runs along the
-    // side facing the dock; the other three sides are a 6 DIP resize border (its own hit test: no
-    // WS_THICKFRAME, so no system frame or caption appears). Same class, pages, ids and automation as
-    // the captioned window it replaces. It closes on Esc, its Close button, or when the app loses
-    // the activation (another app's window or the desktop came to the front), unless one of its
-    // dialogs is open, the Keep / Revert bar shows or it is being resized.
+    // A Dock window is a borderless panel (WS_POPUP, a tool window: not in the taskbar / Alt+Tab)
+    // beside the dock's resting bar (host.dockBar): above a bottom bar, under a top one, beside a
+    // vertical one, centred on the bar and clamped to the work area; a floating bar or a circle gets
+    // it on the side facing the screen's middle. It never covers its dock. A 3 DIP band in the
+    // dock's colour runs along the side facing the dock; the other three sides are a 6 DIP resize
+    // border (its own hit test: no WS_THICKFRAME, so no system frame or caption appears). Same class,
+    // pages, ids and automation as the captioned window it replaced. It closes on Esc, its Close
+    // button, or when the app loses the activation (another app's window or the desktop came to the
+    // front), unless one of its dialogs is open, the Keep / Revert bar shows or it is being resized.
+    // Round 12 phase 12I: every Dock window is the panel (the captioned one is gone, the user's
+    // decision 2026-11-09): a folder window's and a standalone widget's sit beside their window on
+    // the desktop (host.dockBar answers its rect), on the side with the most room on its display.
     bool IsPanel() const { return panel_; }
-    // 0 above the dock, 1 below it, 2 right of it, 3 left of it (QueryState 314); -1 not a panel.
+    // 0 above the dock, 1 below it, 2 right of it, 3 left of it (QueryState 314; a folder window's /
+    // standalone widget's: of that window); -1 not a panel.
     int PanelSide() const { return panel_ ? panelSide_ : -1; }
     // The dock window (an "each" dock's instance) it was opened from; App answers host.dockBar /
     // dockMonitor / dockDpi with it while it exists (else the dock's first window).
@@ -844,12 +847,14 @@ private:
 
     // Client sizes in DIPs (round 8 phase 8A: resizable): the live size once the window exists,
     // before that the saved one (config settings.windows) or the default (DefaultClientDip); at
-    // least the minimum (Global 700 x 500, Dock 780 x 540, Item 520 x 480; the panel 400 x 360).
+    // least the minimum (Global 700 x 500, Item 520 x 480; the panel, every Dock window since round
+    // 12 phase 12I, 400 x 360).
     SIZE ClientDip() const;
     // Round 12 phase 12F: the size a window opens at without a saved one, from the work area of the
     // display it opens on: App 60 % x 70 % within SettingsUiConfig::kDefault (the floor, 760 x 560)
     // and kLargest (1280 x 860), Item the same share within 600 x 600 and 800 x 760; the panel
-    // 470 x 640 (12E), a folder window's / standalone widget's window 860 x 620.
+    // 470 x 640 (12E; since 12I also a folder window's / standalone widget's, whose captioned window
+    // opened at 860 x 620).
     SIZE DefaultClientDip() const;
     // ... that work area (px): the dock's display, an Item window's anchor's (as InitialRect).
     RECT InitialWork() const;
@@ -887,7 +892,8 @@ private:
     bool navWideApplied_ = false;  // the nav width the backdrop (Mica margins) was set for
     int textMaxDip_ = kTextMaxDefaultDip;
     // Round 12 phase 12F: App settings > Themes shows the preview strip above its cards (the one App
-    // page where a change is visual); Animation and the dock's Look tab keep it under the page.
+    // page where a change is visual); Animation keeps it under the page (round 12 phase 12I: the
+    // dock panel's Look tab has none: the real dock beside it is the preview).
     bool PreviewAtTop(int index) const;
     // The strip's place for the active page in the page area Layout computed (client px).
     void PlacePreview();
@@ -904,9 +910,9 @@ private:
     static constexpr int kNavFindDip = 48;
     static constexpr int kAboveBarDip = 24;    // gap between the window and the dock's bar
     static constexpr int kItemOffsetDip = 40;  // an Item window from its dock's window
-    // The dock preview strip (SettingsPreview) under the Global Themes / Animation pages and a Dock
-    // window's Appearance tab (round 8 phase 8B: only there; the Position tab has the silhouette,
-    // Contents its item strip), content-pane wide.
+    // The dock preview strip (SettingsPreview) of the Global Themes / Animation pages, content-pane
+    // wide (round 8 phase 8B to 12H also under a Dock window's Appearance / Look tab; round 12 phase
+    // 12I: a Dock window never makes one).
     static constexpr int kFooterDip = 96;
     static constexpr int kSubtitleDip = 34;     // Global: the subtitle band over the pages
     static constexpr int kDockHeaderDip = 72;   // Dock: the identity header (round 8 phase 8B: was 128)
@@ -946,8 +952,11 @@ private:
     // dock, the resize border on the others (zero for other windows).
     RECT PanelInsetDip() const;
     // The side for the dock's bar now (0 - 3 as PanelSide), and the panel's screen rect beside it
-    // (its saved / default size clamped to the room; `side` the side used).
-    int ComputePanelSide(const RECT& bar, const RECT& work) const;
+    // (its saved / default size clamped to the room; `side` the side used). Round 12 phase 12I: for
+    // a folder window / standalone widget `bar` is that window's rect and the side is the one with
+    // the most room for the panel's wanted size `want` (px).
+    int ComputePanelSide(const RECT& bar, const RECT& work, SIZE want) const;
+    bool DesktopPanel() const { return IsFolderWindow() || IsWidgetWindow(); }  // round 12 phase 12I
     RECT PanelRect(int* side) const;
     // The work area of the display the dock's bar is on.
     RECT PanelWork() const;

@@ -69,6 +69,10 @@ public:
         std::function<void()> widgetChanged;
         std::function<void(size_t cfg, POINT screen)> widgetMenu;
         std::function<void(size_t cfg)> widgetSettings;
+        // Round 12 phase 12I: a folder window or standalone widget moved, was resized or hidden /
+        // shown (FolderWindow / WidgetWindow Host::moved): the settings panel beside it follows. May
+        // come from inside Sync (SetMonitor): the receiver must not walk the instances synchronously.
+        std::function<void()> desktopMoved;
     };
 
     DockManager() = default;

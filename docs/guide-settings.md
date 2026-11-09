@@ -5,7 +5,7 @@ This guide walks through every settings window of WinDock, page by page and card
 WinDock has three kinds of settings:
 
 - **App settings**: what applies to every dock and to WinDock as a whole. They open in a window.
-- **Dock settings**: one dock. They open in a panel right beside that dock, so you see every change on the real dock. Standalone widgets and folder windows have their own settings too, in a window.
+- **Dock settings**: one dock. They open in a panel right beside that dock, so you see every change on the real dock. Standalone widgets and folder windows have their own settings too, in the same kind of panel beside them.
 - **Item settings**: one item on a dock, such as a clock, a weather item, a widget, the tray, a folder or a group. They open in a window.
 
 You can have as many of these open as you like. Opening one that is already open brings it to the front.
@@ -47,6 +47,9 @@ A dock's settings are a panel, not a normal window:
 - Its border and the band on the side facing the dock take the dock's colour, so you can tell the panels of different docks apart.
 - It keeps the dock shown while it is open, and follows the dock when the dock moves.
 - It closes when you press **Esc**, click its **✕**, click **Done** while customizing, or click another app or the desktop.
+- It has no preview of the dock: the real dock beside it shows every change at once.
+
+The settings of a folder window or a standalone widget are the same kind of panel. It sits beside that window on the desktop, on the side with the most room, and follows the window when you move or resize it. It closes when the window goes away, for example when its display is disconnected.
 
 On a wide window the cards of a page sit in two columns. Every page and tab starts with one sentence that says what it is for. A setting that does not apply right now says why, and how to make it apply, for example "Reserving space needs auto-hide off (Behaviour tab)."
 
@@ -624,7 +627,7 @@ The choices for **Bar while magnified** are:
 - **Follows the pointer**: the bar's ends move with the pointer as you go along the icons, as on a Mac.
 - **Always wide (never grows or shrinks)**: the bar always has room for the magnified icons, so it never changes length.
 
-The preview strip under this tab shows the dock with its look and sizes.
+There is no preview on this tab: every change shows at once on the dock beside the panel.
 
 ### Behaviour tab
 
@@ -681,7 +684,7 @@ Only the rows the chosen thumbnail mode uses are shown; a line says which are le
 
 ## Standalone widget settings
 
-A standalone widget is a widget on the desktop in a window of its own. Its settings open in a normal window, not a panel. Its header is like a dock's (its display, layer, size and lock, with **Flash**, **Lock** and **⋯**), and it has the tabs **Content**, **Appearance** and **Placement**. Each tab starts with a sentence that says what it is for.
+A standalone widget is a widget on the desktop in a window of its own. Its settings open in a panel beside the widget, like a dock's, on the side with the most room. When you drag or resize the widget, the panel moves beside it again. Its header is like a dock's (its display, layer, size and lock, with **App settings…**, **⋯** and **✕**; **⋯** has **Flash this widget** and **Lock this widget**), and it has the tabs **Content**, **Appearance** and **Placement**. Each tab starts with a sentence that says what it is for.
 
 To open it, right-click the widget and choose its settings entry (it opens on Content) or **Window settings…** (it opens on Placement), or double-click it on App settings > Docks and displays.
 
@@ -710,7 +713,7 @@ Closed at first: dragging the widget and its edges is the usual way to place and
 
 ## Folder window settings
 
-A folder window shows a folder on your desktop. Its settings open in a normal window with one page, which starts with a sentence that says what it is for. Its header has only the **⋯** menu. See [Folder windows](guide-docks.md#folder-windows).
+A folder window shows a folder on your desktop. Its settings open in a panel beside the folder window, on the side with the most room, with one page, which starts with a sentence that says what it is for. When you move, resize or collapse the folder window, the panel moves beside it again. Its header has **App settings…**, the **⋯** menu and **✕**. See [Folder windows](guide-docks.md#folder-windows).
 
 ### Which folder
 
@@ -743,7 +746,7 @@ The **Appearance** card:
 
 ### Desktop rules
 
-Desktop rules tidy your desktop: files that match go into this window's folder.
+Desktop rules tidy your desktop: files that match go into the folder window's folder.
 
 - **Desktop files matching**: file patterns separated by semicolons, for example `*.png;*.jpg;*.gif`.
 - **Move them here automatically when they land on the Desktop**: moves matching files as soon as they appear.

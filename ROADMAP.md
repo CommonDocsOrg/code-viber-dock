@@ -1047,6 +1047,7 @@ The goals, in the user's words (the plan's list):
 | 12F Settings on a large display | Sizes from the display, two columns from 1000 DIPs, controls capped at 360 DIPs, the nav's descriptions, one sentence per page, the reasons beside unavailable controls | Done, built, not run |
 | 12G Quick setup | Quick setup (docks, looks, behaviour, done) replaced the welcome dialog; three tips on the dock (`settings.tipsShown`) | Done, built, not run |
 | 12H Docs pass, regression and release | Part 1: the user guides, README and this note rewritten for 12A - 12G (the guides are compiled into the exe, so they come before the release build). Part 2: the regression on everything at once and the release build | Done (2026-11-09): the first run of 12B - 12G, 6 fixes (the narrow panel's Contents and Position tabs, the edit bar title, the panel beside an outside title, Ctrl+Z / Ctrl+Y in customize mode, the foreground after customize mode, an up-down stretched in two columns), release 5,909,504 bytes; STATUS.md "Round 12 final regression" |
+| 12I Dock settings: panel only | The user's decision 2026-11-09: no preview strip on the dock panel (the real dock is the preview; App settings > Themes / Animation keep theirs) and no captioned Dock window at all: a folder window's and a standalone widget's settings are the panel beside that window (the side with the most room; follows its moves through `Host::moved` → `WM_APP + 71`; closes when it is parked or hidden) | Done, built, not run |
 
 Decisions taken (the plan's "Decisions to confirm", as built):
 
@@ -1060,7 +1061,9 @@ Decisions taken (the plan's "Decisions to confirm", as built):
    try, a move is an edit.
 4. The panel beside the dock replaces the Dock settings window (the user's decision, 2026-11-08):
    the same class, pages, ids and automation, no "Open in a window". App, Item, folder-window and
-   standalone-widget settings stay windows.
+   standalone-widget settings stay windows. 12I superseded the last part (the user's decision
+   2026-11-09): folder-window and standalone-widget settings are the panel too, beside their window;
+   only App and Item settings are windows.
 5. Undo lasts for the session only.
 6. The long press that enters customize mode (600 ms, as hold-to-group) works only on an empty part
    of the bar, so it never conflicts with grouping.

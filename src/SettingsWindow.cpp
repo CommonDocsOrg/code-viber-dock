@@ -816,10 +816,9 @@ RECT SettingsWindow::InitialWork() const {
 SIZE SettingsWindow::DefaultClientDip() const {
     // Round 12 phase 12F: App and Item windows from their display's work area (a large display gets
     // a larger window, within the kind's floor and ceiling); the others as before.
-    if (panel_) return SIZE{kPanelWidthDip, kPanelHeightDip};
+    if (panel_) return SIZE{kPanelWidthDip, kPanelHeightDip};  // every Dock window (round 12 phase 12I)
     const int k = KindIndex();
     const SettingsWindowSize lo = SettingsUiConfig::kDefault[k], hi = SettingsUiConfig::kLargest[k];
-    if (kind_ == SettingsKind::Dock) return SIZE{lo.w, lo.h};
     const RECT work = InitialWork();
     const int dpi = static_cast<int>(std::max<UINT>(dpi_, 1));
     const int ww = MulDiv(work.right - work.left, USER_DEFAULT_SCREEN_DPI, dpi);
@@ -870,7 +869,9 @@ bool SettingsWindow::PreviewOn(int index) const {
     switch (kind_) {
         case SettingsKind::Global: return index == SettingsIds::kPageThemes || index == SettingsIds::kPageAnimation;
         // Round 8 phase 8B: only the Appearance tab (what the strip draws); Position has the silhouette.
-        case SettingsKind::Dock: return !IsFolderWindow() && !IsWidgetWindow() && index == SettingsIds::kTabAppearance;
+        // Round 12 phase 12I: none on the dock's panel: the real dock beside it is the preview (the
+        // user's decision 2026-11-09), so a Dock window never creates the strip.
+        case SettingsKind::Dock:
         case SettingsKind::Item:
         default: return false;
     }
@@ -1081,7 +1082,29 @@ RECT SettingsWindow::PanelWork() const {
     return mi.rcWork;  // the full monitor while the dock hides the taskbar, less a reserved dock band
 }
 
-int SettingsWindow::ComputePanelSide(const RECT& bar, const RECT& work) const {
+int SettingsWindow::ComputePanelSide(const RECT& bar, const RECT& work, SIZE want) const {
+    if (DesktopPanel()) {
+        // Round 12 phase 12I: a folder window or a standalone widget is anywhere on the desktop: the
+        // side with the most room for the panel. Each side scores the share of the wanted size that
+        // fits there (1 when it all fits); the room itself breaks a tie. Beside the window (right,
+        // then left) is tried first: the panel is taller than wide, as such windows often are too.
+        const int gap = Px(kPanelGapDip);
+        const LONG room[4] = {(bar.top - gap) - work.top, work.bottom - (bar.bottom + gap), work.right - (bar.right + gap),
+                              (bar.left - gap) - work.left};
+        int best = 2;
+        double bestScore = -1.0;
+        LONG bestRoom = 0;
+        for (const int s : {2, 3, 0, 1}) {
+            const LONG need = std::max<LONG>(1, s <= 1 ? want.cy : want.cx);
+            const double score = std::clamp(static_cast<double>(room[s]) / static_cast<double>(need), 0.0, 1.0);
+            if (score > bestScore || (score == bestScore && room[s] > bestRoom)) {
+                best = s;
+                bestScore = score;
+                bestRoom = room[s];
+            }
+        }
+        return best;
+    }
     const size_t i = DockIndex();
     const DockConfig* d = i != SIZE_MAX && host_.config ? &host_.config->docks[i] : nullptr;
     if (d && !d->Floating() && d->shape != DockShape::Circle) {
@@ -1122,7 +1145,7 @@ RECT SettingsWindow::PanelRect(int* sideOut) const {
         const int x = work.left + (ww - w) / 2, y = work.top + (wh - h) / 2;
         return RECT{x, y, x + w, y + h};
     }
-    const int side = ComputePanelSide(bar, work);
+    const int side = ComputePanelSide(bar, work, SIZE{w, h});
     const int gap = Px(kPanelGapDip), least = Px(120);
     int x = 0, y = 0;
     switch (side) {
@@ -1149,7 +1172,12 @@ RECT SettingsWindow::PanelRect(int* sideOut) const {
             break;
     }
     // Clamped to the work area along the dock's run only (across it would cover the dock).
-    if (side <= 1) {
+    if (DesktopPanel()) {
+        // Round 12 phase 12I: a desktop window with no room on any side (a large folder window) gets
+        // the panel over its edge rather than off the display: both axes stay on the work area.
+        x = std::clamp(x, static_cast<int>(work.left), std::max(static_cast<int>(work.left), static_cast<int>(work.right) - w));
+        y = std::clamp(y, static_cast<int>(work.top), std::max(static_cast<int>(work.top), static_cast<int>(work.bottom) - h));
+    } else if (side <= 1) {
         x = std::clamp(x, static_cast<int>(work.left), std::max(static_cast<int>(work.left), static_cast<int>(work.right) - w));
     } else {
         y = std::clamp(y, static_cast<int>(work.top), std::max(static_cast<int>(work.top), static_cast<int>(work.bottom) - h));
@@ -1233,9 +1261,11 @@ bool SettingsWindow::Create(HINSTANCE instance, bool show) {
     if (darkPopups_) ++g_darkPopupWindows;
 
     dpi_ = host_.dockDpi ? std::max<UINT>(host_.dockDpi(), USER_DEFAULT_SCREEN_DPI / 2) : USER_DEFAULT_SCREEN_DPI;
-    // Round 12 phase 12E: a dock's window is the panel beside it (a folder window's or a standalone
-    // widget's keeps its caption: their "dock" is a window on the desktop).
-    panel_ = kind_ == SettingsKind::Dock && DockIndex() != SIZE_MAX && Dock().IsDock();
+    // Round 12 phase 12E: a dock's window is the panel beside it. Round 12 phase 12I: so is a folder
+    // window's and a standalone widget's, beside their window on the desktop (until 12H they kept
+    // the captioned window; the user's decision 2026-11-09: panels only). Global and Item windows
+    // stay captioned windows.
+    panel_ = kind_ == SettingsKind::Dock;
     auto place = [this] {
         if (!panel_) return InitialRect();
         int side = panelSide_;
@@ -1292,22 +1322,21 @@ bool SettingsWindow::Create(HINSTANCE instance, bool show) {
             return false;
         }
     }
-    if (kind_ == SettingsKind::Global || (kind_ == SettingsKind::Dock && !IsFolderWindow() && !IsWidgetWindow())) {
+    // Round 12 phase 12I: only the App settings window has the strip (a Dock window's panel sits
+    // beside the real dock, which shows every change at once; id 101 stays reserved).
+    if (kind_ == SettingsKind::Global) {
         preview_ = std::make_unique<SettingsPreview>();
         if (preview_->Create(instance, hwnd_, SettingsIds::kPreview, host_.config, dpi_)) {
-            // Global: the global theme on the first dock's items (round 5 phase D: not the Docks
-            // and displays page's selection); a Dock window: its dock.
+            // The global theme on the first dock's items (round 5 phase D: not the Docks and
+            // displays page's selection).
             preview_->SetDock(
                 [this]() -> const DockConfig* {
-                    if (kind_ == SettingsKind::Global) {
-                        for (const DockConfig& d : host_.config->docks) {
-                            if (d.IsDock()) return &d;
-                        }
-                        return nullptr;
+                    for (const DockConfig& d : host_.config->docks) {
+                        if (d.IsDock()) return &d;
                     }
-                    return DockIndex() != SIZE_MAX ? &Dock() : nullptr;
+                    return nullptr;
                 },
-                kind_ == SettingsKind::Global);
+                true);
         } else {
             preview_.reset();  // the window works without it
         }

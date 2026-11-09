@@ -1534,7 +1534,7 @@ folder, the window opens at the pointer) or on App settings > Docks and displays
   `labelLines` (1 or 2 lines of name in the grid), `transparentBackground` (no panel, no acrylic:
   the entries over the wallpaper, their names and the title with a dark shadow), `rollUpOnHover`
   (a collapsed window expands while the pointer is over it and collapses again 400 ms after it
-  left; not saved). The folder window's own settings window edits all of its keys (App settings > Docks and
+  left; not saved). The folder window's own settings (round 12 phase 12I: a panel beside it) edit all of its keys (App settings > Docks and
   displays: **Open settings**, or WinDock.DockCommand 143); changes apply at once.
 - **Where it lives**: the window is a top-level window directly above the desktop window
   (Progman). Its z-order is locked: activation, a click and `SetWindowPos(HWND_TOP)` leave it where
@@ -1553,7 +1553,8 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
   desktop**, or App settings > Docks and displays > **Add ▾** > **Standalone widget ▸** (a
   submenu of the installed widgets). It gets the manifest's default size (`standalone.defaultWidth` /
   `defaultHeight`; else 200 x 200, or twice the dock size hint of a wide widget), the layer
-  "behind" and the centre of the display; its own settings window opens.
+  "behind" and the centre of the display; its settings open (round 12 phase 12I: the panel beside
+  it, see Settings).
 - **The window is the widget's box**: the script sees `dock.standalone === true`, `dock.width` /
   `dock.height` = the window's size in DIPs and `dock.iconSize` = the shorter side / 1.5, so
   widgets that draw from their canvas or the icon size fill it (docs/widgets.md "Standalone
@@ -1569,9 +1570,9 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
   standalone widgets (floating docks snap to standalone widgets too); `x` / `y` / `w` / `h` are
   saved on release. **Locked** (`locked`): neither moved nor resized (clicks still reach the
   widget).
-- **Right click**: "<widget> settings…" (its own widget settings: its window's **Content** tab;
-  the **Widget** tab until round 10 phase 10C), **Window settings…** (its window's **Placement**
-  tab, the **Window** tab until 10C), **Lock** / **Unlock**, **Reload widget**,
+- **Right click**: "<widget> settings…" (its own widget settings: its settings panel's **Content**
+  tab, beside the widget since round 12 phase 12I; the **Widget** tab until round 10 phase 10C),
+  **Window settings…** (the panel's **Placement** tab, the **Window** tab until 10C), **Lock** / **Unlock**, **Reload widget**,
   **App settings…** (was "Global settings…"), **Remove from desktop** (last since round 10).
 - **Layers** (`layer`): `"behind"` (default: always shown, on the desktop under every window, like
   folder windows; with background "panel" and acrylic its blur window stays beneath it),
@@ -1634,8 +1635,19 @@ but the configuration, and opening one that is already open brings it to the fro
   `settings.windows`), and closes on Esc, its Close button (✕), Done in customize mode, or when
   another app's window or the desktop comes to the front (not while one of its dialogs or the Keep
   / Revert bar is up). Its header has two rows: the name and chips with Close; the save state,
-  Customize, App settings… and ⋯ (Flash and Lock are in ⋯ there). Folder window and standalone
-  widget entries keep their captioned windows.
+  Customize, App settings… and ⋯ (Flash and Lock are in ⋯ there). Round 12 phase 12I: there is no
+  captioned Dock settings window any more (the user's decision: the real dock is the preview).
+  A folder window's and a standalone widget's settings are the same panel, beside that window on
+  the desktop: on the side of it with the most room on its display's work area for the panel's
+  size (right, left, above, below; each side scores the share of the panel that fits, the room
+  breaks a tie), centred on the window and kept on the work area (over the window's edge when no
+  side has room). It goes beside the window again (200 ms) when a drag or resize of the window
+  ends, when the window is placed by the program (its Placement tab, a collapse, a display or DPI
+  change), and closes when the window is gone (its display disconnected) or a standalone widget is
+  hidden (the "desktop" layer's rule, the full-screen guard). Its header keeps its wording ("Folder
+  window settings", the widget's name) and ✕; a standalone widget's ⋯ has **Flash this widget** and
+  **Lock this widget** / **Unlock this widget** (its header's Flash and Lock buttons until 12H). The
+  tabs are unchanged; the Look tab has no preview strip (the dock is the preview).
 - **Item settings** (one per item; any number open): one widget, clock, weather, tray, folder or
   group item. Its entry in the item's own menu, named for the target (round 10: **Folder
   settings…**, **Group settings…**, **Clock settings…**, **Weather settings…**, **Tray
@@ -1928,7 +1940,8 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   explanation is the drawing's tooltip), a toolbar and under it the list of docks and folder
   windows (a dot in the dock's colour, id and title, edge, display, state: shown / parked /
   disabled / locked). Click a dock in the drawing to select it and its row, double-click it (or its row) to
-  open its own window; drag it along its edge (it snaps to the centre and the ends), onto another
+  open its settings (the panel beside it; round 12 phase 12I also for a folder window or a standalone
+  widget); drag it along its edge (it snaps to the centre and the ends), onto another
   edge or onto another display: it moves when you let go. Round 8 phase 8D: the toolbar has
   **Add ▾** (a menu: **Dock**, **Floating dock** (round 6 phase 6A), **Dock from a preset…**
   (round 9: the chooser, see Layouts and looks above), **Dock from a layout…** (round 12 phase 12C:
@@ -2027,8 +2040,8 @@ The Themes and Animation pages have the **preview strip** (the app look): above 
 (round 12 phase 12F), under the page on Animation.
 
 **A dock's settings** (the Dock window until round 12 phase 12E; now the panel beside the dock,
-see the list at the top of Settings; a folder window's and a standalone widget's keep the captioned
-window described after this list) edit exactly one dock. The **header** never scrolls. Round 12
+see the list at the top of Settings; round 12 phase 12I: a folder window's and a standalone
+widget's are the same panel, beside their window) edit exactly one dock. The **header** never scrolls. Round 12
 phase 12E: two rows. The first: the dock's name in its identity colour (`docks[].color`, else a
 palette by the dock's place in `docks`; round 12 phase 12C: `docks[].name`, else the id; a click on
 it, F2 or ⋯ > Rename dock edits it in place: Enter or leaving the box keeps it, Esc cancels), the
@@ -2219,7 +2232,10 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
   [Running apps: windows and titles](#running-apps-windows-and-titles).
 
 The preview strip (round 8 phase 8B: only under the Appearance tab, which sets what it shows; Look
-since 12B) draws this dock (its look, sizes and items).
+since 12B) drew this dock (its look, sizes and items) until round 12 phase 12I, which removed it
+from the dock's panel: the real dock beside the panel shows every change at once. The strip stays
+on App settings > Themes and Animation; the Look tab's look gallery and the Position tab's display
+silhouette stay (they are pickers, not previews).
 
 **Customize mode** (round 12 phase 12D; guide-items "Customize a dock"): one dock at a time is
 edited on the dock itself. Enter: the dock menu's first entry **Customize this dock** (DockCommand
@@ -2254,15 +2270,17 @@ typing), besides the edit bar's Undo and the dock menu's Undo entry. Entering th
 dock the keyboard (Esc); leaving it by Done or Esc gives the window that was in front before back
 the foreground. Nothing ticks at rest.
 
-**A folder window's window** has the same compact header (its colour, id, display, Shown /
-Parked; no Flash / Lock, only **⋯**) and its one page, **Folder window** (round 4 phase 12b): its
-folder (Browse…), title, view, icon size, sort, show hidden items, single click, collapsed;
+**A folder window's settings** (round 12 phase 12I: the panel beside the folder window; a
+captioned window until 12H) have the same header (its colour, id, display, Shown / Parked; no
+Flash / Lock, App settings…, **⋯** and ✕) and its one page, **Folder window** (round 4 phase 12b):
+its folder (Browse…), title, view, icon size, sort, show hidden items, single click, collapsed;
 opacity, title colour, lines of name, hide the title, transparent background, roll up on hover;
 the Desktop rules (patterns, move automatically, **Sort desktop now**). See
-[Desktop folder windows](#desktop-folder-windows). A standalone widget's window has the compact
-header too (its display, layer, size, Locked chips; Flash, Lock, ⋯) and two tabs, **Widget** and
-**Window** (round 8 phase 8C; see [Standalone widgets](#standalone-widgets)). Neither has the
-Position tab's silhouette (their pages have their place and size).
+[Desktop folder windows](#desktop-folder-windows). A standalone widget's settings are the panel
+beside the widget, with the same header (its display, layer, size, Locked chips; App settings…,
+⋯ with Flash this widget and Lock / Unlock this widget, ✕) and the tabs **Content**, (Appearance,)
+**Placement** (round 8 phase 8C, renamed in 10C; see [Standalone widgets](#standalone-widgets)).
+Neither has the Position tab's silhouette (their pages have their place and size).
 
 **An Item window** has no page list: a header (round 8 phase 8C: 92 DIPs, three lines beside the
 item's icon (a letter tile for a widget, clock, weather or tray item): its name; "on <dock>" (a
@@ -3517,8 +3535,9 @@ always there, also when every dock is parked) handle these registered messages:
   setup's step (0 Your docks ... 3 Done; `LOWORD(lParam)` 1: its dock rows, 2: 1 for the first-run variant; -2
   not open), **318** = the tip shown (0 - 2, -1 none), **319** = `settings.tipsShown`, **320** = Quick setup's
   held choices (bit 0 Start with Windows, bit 1 Hide the taskbar; -2 not open). Round 12 phase 12E (dock `HIWORD(lParam)`): **313** = its
-  Dock settings window: 0 none open, 1 a panel beside the dock, 2 a captioned window (a folder window / standalone
-  widget entry), **314** = the panel's side: 0 above the dock, 1 below it, 2 right of it, 3 left of it (-1 no panel),
+  Dock settings window: 0 none open, 1 a panel beside the dock (2 was a captioned window, a folder window /
+  standalone widget entry's; since round 12 phase 12I never: those are the panel too, beside their window), **314** =
+  the panel's side: 0 above the dock (the folder window / widget), 1 below it, 2 right of it, 3 left of it (-1 no panel),
   **315** = its `edgeGap` (DIPs; -2 not a dock), **316** = 1 while a drag of the whole dock is in progress (Ctrl+drag
   or customize mode's drag; -1 no such dock window); 228 is also 1 while the dock's panel is open. Round 12 phase
   12F: **321** = the active page's layout, 1 or 2 columns (`LOWORD(lParam)` 0xFFFE: the App settings window, 0xFFFF:
@@ -3582,9 +3601,11 @@ always there, also when every dock is parked) handle these registered messages:
   items · Shown[ · Locked]", an item "Clock · Two · on main · item 3 of 4"), 103 a Dock window's
   tab strip (`WinDock.SettingsTabs`; window text = the selected tab; round 10 phase 10C: also an
   Item window's with Content / Appearance pages, QueryState 291 / 292), 104 an Item window's footer
-  (a band), 101 the preview strip (`WinDock.SettingsPreview`; the Global Themes / Animation pages,
-  a Dock window's Appearance tab: round 8 phase 8B, before that every tab but Contents). Header /
-  footer children: 110 Flash, 111 Lock / Unlock (round 8 phase 8B: the short captions; buttons:
+  (a band), 101 the preview strip (`WinDock.SettingsPreview`; the Global Themes / Animation pages
+  only since round 12 phase 12I; from round 8 phase 8B to 12H also a Dock window's Appearance / Look
+  tab, before that every tab but Contents; a Dock window has no child 101 now, the id stays
+  reserved). Header / footer children: 110 Flash, 111 Lock / Unlock (hidden on the panel since 12E, every
+  Dock window since 12I: ⋯ has them, still answering `WM_COMMAND`; round 8 phase 8B: the short captions; buttons:
   `WM_COMMAND(id, BN_CLICKED)` to the band), 116 the "⋯" button (8B: press it with a posted
   `BM_CLICK`: it runs a popup menu, a `#32768` window of the dock's process with one item,
   App settings… = 112), 112 that command (`WM_COMMAND(112, BN_CLICKED)` to the band opens the

@@ -570,7 +570,7 @@ protected:
         Combo(kTitleShowCombo, kColX, 200, false);
         NextRow();
         Check(kTitleUseName, kTitleUseNameCaption, L"Use the dock's name");
-        Tip(kTitleUseNameCaption, L"The title shows the dock's name (click the name in the header at the top of this window to "
+        Tip(kTitleUseNameCaption, L"The title shows the dock's name (click the name in the header at the top of this panel to "
                                   L"rename the dock) instead of a text of its own. Off by default.");
         NextRow();
         // --- end round 12 phase 12C ---
@@ -633,7 +633,7 @@ protected:
         Tip(kAutoHideOffCaption, L"Off: the dock is always shown (other windows stop at it when Reserve screen space is on).");
         Tip(kAutoHideAlwaysCaption, L"Always: the dock slides away when the pointer leaves it and comes back when the pointer touches the screen edge. The default for a new dock.");
         Tip(kAutoHideIntelligentCaption, L"Hides only while a window covers the dock's place, like the macOS dock's smart hiding; touch the edge to show it.");
-        Text(kAutoHideNote, CtlKind::Note, L"The dock stays shown while this window (or one of its item windows) is active.",
+        Text(kAutoHideNote, CtlKind::Note, L"The dock stays shown while this panel is open (or one of its item windows is active).",
              kMargin, right - kMargin, 20);
         NextRow(22);
         // Round 9 phase 9A: a floating bar shows this line and the link instead of the radios and

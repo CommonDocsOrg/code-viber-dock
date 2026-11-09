@@ -375,11 +375,14 @@ void WidgetWindow::StoreRect() {
 
 void WidgetWindow::Place(const RECT& r) {
     const bool resized = r.right - r.left != rect_.right - rect_.left || r.bottom - r.top != rect_.bottom - rect_.top;
+    const bool moved = !EqualRect(&r, &rect_);
     rect_ = r;
     if (!hwnd_) return;
     SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
     if (acrylic_ && !hidden_) backdrop_.Place(hwnd_, rect_);
     if (resized) Redraw(true);  // the widget's box is the window: measured and drawn again
+    // Round 12 phase 12I: a placement by the program; a drag's steps wait for its end (WM_LBUTTONUP).
+    if (moved && grab_ == Grab::None && host_.moved) host_.moved();
 }
 
 void WidgetWindow::SetMonitor(HMONITOR monitor) {
@@ -594,6 +597,9 @@ void WidgetWindow::UpdateShown() {
         AssertZOrder();
     }
     if (widget_) widget_->SetVisible(!hidden_);
+    // Round 12 phase 12I: hidden (the "desktop" rule, the full-screen guard): its settings panel
+    // closes, as a parked dock's does (App checks Shown()).
+    if (host_.moved) host_.moved();
 }
 
 void WidgetWindow::OnWatchEvent() {
@@ -642,8 +648,11 @@ void WidgetWindow::ApplyConfig() {
     }
     if (rectChanged) {
         const RECT r = RectFromConfig();
+        const bool moved = !EqualRect(&r, &rect_);
         rect_ = r;
         SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
+        // Round 12 phase 12I: its Placement tab's X / Y / size moved it: the panel follows.
+        if (moved && host_.moved) host_.moved();
     }
     UpdateBackdrop();  // the theme or the background may have changed
     if (layerChanged) {
@@ -1152,6 +1161,7 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (moved) {
                 StoreRect();
                 if (host_.changed) host_.changed();
+                if (host_.moved) host_.moved();  // round 12 phase 12I: the drag ended
             } else if (g == Grab::Press && widget_) {
                 float x = 0, y = 0;
                 PointDips(pt, x, y);
@@ -1168,6 +1178,7 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 if (moved) {
                     StoreRect();
                     if (host_.changed) host_.changed();
+                    if (host_.moved) host_.moved();  // round 12 phase 12I
                 }
             }
             return 0;

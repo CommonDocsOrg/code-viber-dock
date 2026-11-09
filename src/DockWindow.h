@@ -123,7 +123,9 @@ public:
     // the customize mode's foreground hook).
     // Round 12 phase 12E: 0x12E1 = SettingsWindow::kPanelAnimTimerId (the dock settings panel's 200 ms
     // move beside its dock, on the panel window), WM_APP + 70 = SettingsWindow::kPanelCloseCheck
-    // (posted to a panel when the app lost the activation).
+    // (posted to a panel when the app lost the activation). Round 12 phase 12I: WM_APP + 71 =
+    // App::kPanelAnchorMoved (posted to the app window, coalesced: a folder window / standalone
+    // widget moved, so the settings panel beside it follows).
     static constexpr int kFlashSteps = 6;                // lit, dark, lit, dark, lit, dark
     static constexpr UINT kFlashStepMs = 250;
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);

@@ -105,6 +105,7 @@ private:
     static constexpr UINT kShowWelcome = WM_APP + 12;     // posted: open the welcome dialog
     static constexpr UINT kHelpClosed = WM_APP + 13;      // round 9 phase 9D: posted: delete the closed Help window
     static constexpr UINT kTimelineCommit = WM_APP + 14;  // round 12 phase 12A: posted (coalesced): record the gesture's change
+    // (WM_APP + 71 = kPanelAnchorMoved, round 12 phase 12I, declared with ReanchorPanels.)
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
     // Round 12 phase 12A: the Keep / Revert bar's countdown (1 s steps, only while the bar shows;
@@ -573,8 +574,15 @@ private:
     DockWindow* PanelDockOf(const SettingsWindow* w);
     // Every open panel of the dock that `moved` belongs to (null: every panel; a display change)
     // goes beside its dock again (animated); a panel whose dock has no window any more (parked,
-    // disabled) closes.
-    void ReanchorPanels(DockWindow* moved, bool animate);
+    // disabled) closes. Round 12 phase 12I: a folder window's / standalone widget's panel goes
+    // beside that window (closes while it is gone or hidden); `desktopOnly`: only those (one of
+    // them moved: kPanelAnchorMoved).
+    void ReanchorPanels(DockWindow* moved, bool animate, bool desktopOnly = false);
+    // Round 12 phase 12I: the window a folder window's / standalone widget's panel sits beside, its
+    // rect (screen px) and whether it is there to sit beside (live and shown).
+    bool DesktopAnchor(size_t cfg, RECT* rect, HWND* hwnd);
+    static constexpr UINT kPanelAnchorMoved = WM_APP + 71;  // posted (coalesced): DockManager's desktopMoved
+    bool panelAnchorPending_ = false;
     // The open panel of config dock `cfg` closes (DockCommand 176, Done in customize mode); false:
     // none open.
     bool ClosePanel(size_t cfg);

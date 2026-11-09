@@ -41,7 +41,7 @@ protected:
         Tip(kNotifCentreNote,
             L"The notification centre is a widget (a bell with the unread count; a click opens the list: click a "
             L"notification to open its app, the cross or Delete dismisses it, Clear all dismisses every one): drag it "
-            L"onto a dock from the Contents tab of that dock's own window, where the Behaviour tab has its badges. The "
+            L"onto a dock from the Contents tab of that dock's settings panel, where the Behaviour tab has its badges. The "
             L"scriptable Notification bell widget opens the same list (its \"A click opens\" setting).");
         NextRow(24);
         Check(kNotifBalloons, kNotifBalloonsCaption, L"Tray balloons in the centre instead of Windows toasts",

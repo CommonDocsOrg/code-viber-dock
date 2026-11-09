@@ -57,6 +57,10 @@ public:
         // The background menu's "Remove this folder window" / "New folder window…" (posted by the owner).
         std::function<void(size_t cfg)> remove;
         std::function<void()> newWindow;
+        // Round 12 phase 12I: the window's screen rect changed (a drag or resize ended, a placement
+        // by the program: the config, a display / DPI change, collapse): its settings panel goes
+        // beside it again. Not on each step of a drag (the panel follows when it ends).
+        std::function<void()> moved;
     };
 
     FolderWindow() = default;

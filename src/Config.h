@@ -711,9 +711,10 @@ struct SettingsUiConfig {
     static constexpr int kKinds = 3;
     // Round 12 phase 12F: kDefault is the floor of the size a window without a saved one opens at:
     // App and Item windows take 60 % x 70 % of their display's work area, at least kDefault and at
-    // most kLargest (SettingsWindow::DefaultClientDip). The Dock slot: a folder window's / standalone
-    // widget's captioned window opens at kDefault; a dock's panel at 470 x 640 (12E). A saved size
-    // always wins.
+    // most kLargest (SettingsWindow::DefaultClientDip). The Dock slot: a dock's panel opens at
+    // 470 x 640 (12E); round 12 phase 12I: so does a folder window's / standalone widget's (their
+    // captioned window, which opened at this slot's kDefault / kMinimum, is gone; the values stay
+    // for the table's shape). A saved size always wins (clamped to the panel's room).
     static constexpr SettingsWindowSize kDefault[kKinds] = {{760, 560}, {860, 620}, {600, 600}};
     static constexpr SettingsWindowSize kLargest[kKinds] = {{1280, 860}, {860, 620}, {800, 760}};
     static constexpr SettingsWindowSize kMinimum[kKinds] = {{700, 500}, {780, 540}, {520, 480}};

@@ -231,6 +231,9 @@ HRESULT DockManager::CreateWidgetFor(Instance& inst) {
     host.openSettings = [this](size_t cfg) {
         if (callbacks_.widgetSettings) callbacks_.widgetSettings(cfg);
     };
+    host.moved = [this] {  // round 12 phase 12I
+        if (callbacks_.desktopMoved) callbacks_.desktopMoved();
+    };
     const HRESULT hr = widget->Create(instance_, config_, inst.cfg, inst.monitor, std::move(host));
     if (FAILED(hr)) {
         widget->Destroy();
@@ -300,6 +303,9 @@ HRESULT DockManager::CreateFolderFor(Instance& inst) {
     };
     host.newWindow = [this] {
         if (callbacks_.folderNew) callbacks_.folderNew();
+    };
+    host.moved = [this] {  // round 12 phase 12I
+        if (callbacks_.desktopMoved) callbacks_.desktopMoved();
     };
     const HRESULT hr = folder->Create(instance_, config_, inst.cfg, inst.monitor, std::move(host));
     if (FAILED(hr)) {
