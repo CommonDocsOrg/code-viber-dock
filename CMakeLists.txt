@@ -65,6 +65,7 @@ add_executable(WinDock WIN32
   src/ClockFaces.cpp
   src/TaskbarController.cpp
   src/ContextMenu.cpp
+  src/MenuIcons.cpp
   src/AppIdentity.cpp
   src/WindowTracker.cpp
   src/ForegroundWatch.cpp

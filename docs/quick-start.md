@@ -111,7 +111,7 @@ The panel has five tabs:
 
 The panel has no title bar. Drag its outer edges to make it bigger. Press Esc or click **✕** to close it; it also closes when you switch to another app.
 
-What applies to every dock is in **App settings** (right-click the dock, open **App**, choose **App settings…**). An item such as a clock or the weather has its own settings in its right-click menu, for example **Weather settings…**.
+What applies to every dock is in **App settings** (right-click the dock, open **App**, choose **App settings…**). An item such as a clock or the weather has its own settings in its right-click menu: **Widget settings…**.
 
 To find a setting quickly, press **Ctrl+F** in any settings window and type what you are looking for. To get help on what you see, press **F1**, or click the small round **?** at the right of a card's heading. See [Getting help](guide-settings.md#getting-help).
 
@@ -155,7 +155,7 @@ To add a widget:
 
 The same drawer is on the Contents tab of the dock's settings. To put a widget on the desktop instead, drag its tile onto the wallpaper, or click the small monitor on its tile.
 
-To change a widget's settings, right-click it on the dock and choose its settings entry, such as **Weather settings…**. See [Widgets](guide-items.md#widgets).
+To change a widget's settings, right-click it on the dock and choose **Widget settings…**. See [Widgets](guide-items.md#widgets).
 
 ## Where your settings live
 

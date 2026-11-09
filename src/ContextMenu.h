@@ -200,6 +200,7 @@ enum Command : UINT {
     // Round 5 phase B: the settings of a widget / clock / weather / folder / group slot (its Item
     // window). Round 10 phase 10A: its menu entry names the target ("Folder settings…", "Weather
     // settings…", "<widget name> settings…"; the notification centre: App settings > Notifications).
+    // Round 13 phase 13B: the widget kinds' entry reads "Widget settings…" (folders / groups unchanged).
     kOpenItemSettings = 854,
     // Round 6 phase 6B: a standalone widget entry (lParam: its dock index in the high word; also its
     // right-click menu's ids, with 854 <name> settings…, 809 Reload widget, 143 Window settings… and
@@ -217,7 +218,7 @@ enum Command : UINT {
     kSetItemOffset = 860,       // offset (int16) HIWORD(wParam) DIPs, clamped to -4000 - 4000
     // Round 10 phase 10A: "Remove from dock" of a clock / weather / script widget / tray /
     // notification centre slot (its config item goes, as the Contents tab's Remove; refused while
-    // the dock is locked, and for any other kind of slot).
+    // the dock is locked, and for any other kind of slot). Round 13 phase 13B: "Remove this widget".
     kRemoveFromDock = 861,
     // --- round 12 phase 12D --- customize mode (dock HIWORD(lParam); 1 done, 0 refused / not customizing):
     kClickPlus = 862,        // a click on "+" slot LOWORD(lParam) (0 the pinned run's, 1 the end's): the drawer popup opens
@@ -255,8 +256,11 @@ struct TrayMenuState {
 
 // Round 10 phase 10A: the dock menu, grouped by task (README "Menus"). Round 12 phase 12A: while
 // there is something to undo, Undo "<label>" (kUndo) and a separator come first:
-//   Dock settings… · Add ▸ · Position on screen ▸ · Auto-hide ▸ · Lock dock · ─ · All docks ▸ ·
-//   App ▸ · Tools ▸ · Help… · Quit
+//   Customize this dock · Dock settings… · Add ▸ · Position on screen ▸ · Auto-hide ▸ · Lock dock ·
+//   Rename dock… · Duplicate dock · Save dock as layout… · ─ · All docks ▸ · App ▸ · Tools ▸ ·
+//   Help… · Quit
+// Round 13 phase 13B: each with a glyph (Lock dock: a lock while locked, else an open lock), App ▸
+// with the exe's own icon; the radio submenus' entries have none (their check mark shows).
 // Shown at a screen point; returns the chosen Command (kNone if dismissed).
 UINT ShowDockMenu(HWND owner, POINT screenPt, const TrayMenuState& state);
 
@@ -286,27 +290,39 @@ struct ItemMenuState {
     ItemView view = ItemView::Auto;  // folders / groups: the popup's layout (Contents layout submenu)
     size_t members = 0;              // groups: how many members (Unpin group's text)
     // Round 10 phase 10A, the widget kinds (clock, weather, script widget, tray, notification centre):
-    std::wstring settingsText;       // "<name> settings…" (kOpenItemSettings); empty: no entry
+    bool hasSettings = false;        // round 13 phase 13B: "Widget settings…" (kOpenItemSettings; was "<name> settings…")
     bool weatherConfigured = false;  // a weather item with a place (Refresh weather enabled)
-    bool locked = false;             // the dock is locked (Remove from dock greyed)
+    bool locked = false;             // the dock is locked (Remove this widget greyed)
+    // Round 13 phase 13B: the disabled header entry (empty: none): the item's name, or
+    // "Widget: <name>" for the widget kinds. Its picture: headerIcon (the item's own icon, drawn
+    // at 16 DIPs; the caller keeps owning it until the menu returns), else headerGlyph (KindGlyph).
+    std::wstring headerText;
+    HICON headerIcon = nullptr;
+    wchar_t headerGlyph = 0;
 };
+
+// Round 13 phase 13B: the glyph (ContextMenu.cpp's table) a kind's header shows when there is no
+// icon of its own (the widget kinds always; groups; apps whose icon could not be had cheaply).
+wchar_t KindGlyph(DockItem::Kind kind);
 
 // Round 10 phase 10A: the item's own entries (what it does, how it looks, its settings, removal
 // last), then a separator and a "Dock" submenu holding the dock menu (ShowDockMenu's entries).
-// - App: the name (disabled header) · Open / New window · Open file location · ─ · Close "<title>"
-//   per window (kCloseWindowBase + index) · Close all windows (several) · Customize icon ▸ (pinned) ·
-//   ─ · Pin to dock / Unpin from dock
+// Round 13 phase 13B: every entry list starts with the disabled header (headerText with its icon,
+// then a separator), and the main entries and submenus show a glyph (MenuIcons; one codepoint table
+// in ContextMenu.cpp, the same in every menu; the dock menu's App ▸ shows the exe's icon).
+// - App: the name · Open / New window · Open file location · ─ · Close "<title>" per window
+//   (kCloseWindowBase + index) · Close all windows (several) · Customize icon ▸ (pinned) · ─ · Pin to
+//   dock / Unpin from dock
 // - Folder: the name · Open in Explorer · Show contents · Contents layout ▸ · Customize icon ▸ ·
 //   Folder settings… · ─ · Unpin from dock
 // - Group: the name · Show contents · Rename… · Contents layout ▸ · Customize icon ▸ · Group
 //   settings… · ─ · Ungroup (shortcuts stay pinned) · Unpin group and its N shortcuts
-// - Recycle Bin: Open · Empty Recycle Bin · Customize icon ▸ · ─ · Unpin from dock
-// - Separator: Remove separator
-// - Weather: Refresh weather · Show forecast · Weather settings… · ─ · Remove from dock
-// - Clock: Show calendar · Clock settings… · ─ · Remove from dock
-// - Script widget: <name> settings… · Reload widget · ─ · Remove from dock
-// - Tray: Tray settings… · ─ · Remove from dock; notification centre: Show notification centre ·
-//   Notification settings… · ─ · Remove from dock
+// - Recycle Bin: the name · Open · Empty Recycle Bin · Customize icon ▸ · ─ · Unpin from dock
+// - Separator: Remove separator (no header)
+// - The widget kinds: "Widget: <name>" · the kind's entries · [quick settings: 13C] · Widget
+//   settings… · Reload widget (script widgets only) · ─ · Remove this widget. The kind's entries:
+//   weather Refresh weather · Show forecast; clock Show calendar; notification centre Show
+//   notification centre; script widget and tray none.
 // Customize icon ▸ = Choose icon… / Choose image… / Reset icon; Contents layout ▸ = Automatic /
 // Grid / List.
 UINT ShowItemMenu(HWND owner, POINT screenPt, const std::wstring& appName, const std::vector<std::wstring>& windowTitles,

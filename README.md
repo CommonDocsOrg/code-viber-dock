@@ -160,18 +160,26 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
 - **An item's menu**: right-click an item on the dock. Its own entries first (what it does, how it
   looks, its settings, removal last), then a separator and a **Dock** submenu holding the whole
   dock menu above (Quit included). The entries per kind are listed with each kind below (apps,
-  folders, groups, the Recycle Bin, separators); the widget kinds:
+  folders, groups, the Recycle Bin, separators). Round 13 phase 13B: every item menu (separators
+  excepted) starts with a greyed header naming the item with its icon (an app's, a folder's or the
+  Recycle Bin's own icon; a group's custom icon, else a group glyph), and the menus show small icons
+  beside their main entries and submenus (the same icon for a command in every menu; the dock
+  menu's **App** submenu shows WinDock's own icon). The widget kinds' header reads **Widget:
+  <name>** ("Widget: Clock", "Widget: Weather", "Widget: Tray", "Widget: Notification centre", a
+  script widget's display name) with the kind's icon, then the kind's own entries, **Widget
+  settings…**, **Reload widget** (script widgets only), **Remove this widget** and the **Dock**
+  submenu:
   - Weather: **Refresh weather** (every place's forecast now; greyed until this item has a place),
-    **Show forecast** (this item's popup), **Weather settings…**, **Remove from dock**.
-  - Clock: **Show calendar** (this clock's month calendar), **Clock settings…**, **Remove from
-    dock**.
-  - A script widget: **<widget name> settings…**, **Reload widget**, **Remove from dock**.
-  - The tray (a right click beside its icons): **Tray settings…**, **Remove from dock** (a right
-    click on an icon is its app's menu; Ctrl + right click the tray's own icon menu, see The tray).
-  - The notification centre: **Show notification centre**, **Notification settings…** (App
-    settings > Notifications), **Remove from dock**.
-  **Remove from dock** (ItemCommand 861) removes the item as Dock settings > Contents > Remove
-  does; it is greyed while the dock is locked. The weather commands left the dock menu: DockCommand
+    **Show forecast** (this item's popup).
+  - Clock: **Show calendar** (this clock's month calendar).
+  - A script widget: none (**Reload widget** reloads its package and script).
+  - The tray (a right click beside its icons): none (a right click on an icon is its app's menu;
+    Ctrl + right click the tray's own icon menu, see The tray).
+  - The notification centre: **Show notification centre** (its **Widget settings…** opens App
+    settings > Notifications).
+  **Widget settings…** (ItemCommand 854; was "<name> settings…") opens the widget's own settings.
+  **Remove this widget** (ItemCommand 861; was "Remove from dock") removes the item as Dock
+  settings > Contents > Remove does; it is greyed while the dock is locked. The weather commands left the dock menu: DockCommand
   111 (refresh every place) and 113 (the dock's first weather item's settings) still work.
 
 ### Magnification, name label, auto-hide
@@ -735,8 +743,11 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
   is not running), **Open file location** (for path-based items), **Close "<title>"** for each
   window and **Close all windows** (several), **Customize icon** (a pinned app; see **Custom
   icons** below), then **Pin to dock** / **Unpin from dock**, then the **Dock** submenu (the dock
-  menu). Folders, groups, separators, the Recycle Bin and the widget kinds have their own menus
-  (below and under Menus above). The dock menu has **Lock dock** (checked while the dock is
+  menu). The app's name is a greyed header with the app's icon (round 13 phase 13B: the shell's
+  icon for the pin's file or the app's package, else its window's icon), and the entries show small
+  icons. Folders, groups, separators, the Recycle Bin and the widget kinds have their own menus
+  (below and under Menus above; a widget's starts with "Widget: <name>", then its entries, **Widget
+  settings…**, **Remove this widget**). The dock menu has **Lock dock** (checked while the dock is
   locked, see below) and **Add >** **Clock** (added at the end), **Weather** (before a clock that
   ends the list, else at the end), **Running apps** (after the last pin; greyed while the dock has
   a running apps item) and **Separator** (appended to the pinned items). Several clocks or weather
@@ -745,7 +756,7 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
   while locked nothing can be dragged (no reordering, no unpinning by dragging an icon away),
   files dropped between icons are not pinned (the pointer shows "no drop"; dropping a file on an
   app to open it, or on the Recycle Bin, still works), the dock menu's Add entries for the dock's
-  own items and the widget kinds' Remove from dock are greyed. The settings window still changes
+  own items and the widget kinds' Remove this widget are greyed. The settings window still changes
   everything.
 - Drag an icon to reorder: press on it and move past the system drag threshold. The icon follows
   the pointer (slightly enlarged and translucent), magnification and the name label pause, the

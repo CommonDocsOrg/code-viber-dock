@@ -58,5 +58,9 @@ bool TryEnableDarkPopups(bool enable);
 void AllowDarkForWindow(HWND hwnd, bool allow);
 // The undocumented popup support was found (for diagnostics).
 bool DarkPopupsAvailable();
+// Round 13 phase 13B: a popup menu owned by `owner` is drawn dark right now (dark popups on, the
+// app mode dark, not high contrast, the owner allowed; ordinal 137 IsDarkModeAllowedForWindow).
+// MenuIcons picks the glyph colour with it.
+bool MenusDarkFor(HWND owner);
 
 }  // namespace DarkMode

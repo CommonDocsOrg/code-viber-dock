@@ -21,6 +21,7 @@
 #include "Hotkey.h"
 #include "IconUtil.h"
 #include "JsonUtil.h"
+#include "MenuIcons.h"
 #include "Presets.h"
 #include "SettingsIds.h"
 #include "Theme.h"
@@ -1555,6 +1556,7 @@ void App::Shutdown() {
         DestroyIcon(trayIcon_);
         trayIcon_ = nullptr;
     }
+    MenuIcons::Shutdown();  // round 13 phase 13B: the menus' cached bitmaps
     // Destroying the app window posts WM_QUIT, which ends the message loop in wWinMain.
     if (hwnd_) DestroyWindow(hwnd_);
 }
@@ -1709,19 +1711,30 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
     }
     // Round 10 phase 10A: a widget kind's own entries (its settings named, Refresh weather, Remove).
     itemState.locked = config_.docks[cfg].locked;
+    // Round 13 phase 13B: the header names the widget ("Widget: <name>", the kind's glyph); the
+    // settings entry reads "Widget settings…" for every widget kind.
     if (item.IsWidget() && item.element < config_.docks[cfg].items.size()) {
         const DockItemEntry& e = config_.docks[cfg].items[item.element];
+        std::wstring widgetName;
         switch (e.Kind()) {
-            case ItemKind::Clock: itemState.settingsText = L"Clock settings…"; break;
+            case ItemKind::Clock: widgetName = L"Clock"; break;
             case ItemKind::Weather:
-                itemState.settingsText = L"Weather settings…";
+                widgetName = L"Weather";
                 itemState.weatherConfigured = WeatherOf(config_, e).Configured();
                 break;
-            case ItemKind::Tray: itemState.settingsText = L"Tray settings…"; break;
-            case ItemKind::Notifications: itemState.settingsText = L"Notification settings…"; break;  // App settings > Notifications
-            case ItemKind::Widget: itemState.settingsText = Widgets::DisplayName(e.id) + L" settings…"; break;
+            case ItemKind::Tray: widgetName = L"Tray"; break;
+            case ItemKind::Notifications: widgetName = L"Notification centre"; break;  // settings: App settings > Notifications
+            case ItemKind::Widget: widgetName = Widgets::DisplayName(e.id); break;
             default: break;
         }
+        itemState.hasSettings = !widgetName.empty();
+        if (!widgetName.empty()) itemState.headerText = L"Widget: " + widgetName;
+        itemState.headerGlyph = ContextMenu::KindGlyph(item.kind);
+    } else if (item.kind != DockItem::Kind::Separator) {
+        // Apps, folders, groups, the Recycle Bin: the name with the item's own icon (the cheapest
+        // HICON there is, MenuIcons::ItemIcon), else the kind's glyph.
+        itemState.headerText = name;
+        itemState.headerGlyph = ContextMenu::KindGlyph(item.kind);
     }
     itemState.canPin = !key.IsClassFallback();
     itemState.canLaunch = item.kind != DockItem::Kind::Separator &&
@@ -1740,8 +1753,14 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
     }
     const ContextMenu::TrayMenuState state = MenuState(cfg);
     const HWND owner = dock.Hwnd();
+    bool ownsIcon = false;
+    if (!item.IsWidget() && item.kind != DockItem::Kind::Separator) {
+        itemState.headerIcon = MenuIcons::ItemIcon(item, MenuIcons::SizeFor(GetDpiForWindow(owner)), itemState.binEmpty,
+                                                   ownsIcon);
+    }
     const UINT cmd =
         RunMenu(&dock, [&] { return ContextMenu::ShowItemMenu(owner, pt, name, titles, itemState, state); });
+    if (itemState.headerIcon && ownsIcon) DestroyIcon(itemState.headerIcon);
     DockWindow* again = shutDown_ ? nullptr : docks_.ByHwnd(owner);
     if (again) RunItemCommand(*again, cmd, key, windows);
 }

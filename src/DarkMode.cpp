@@ -25,12 +25,14 @@ enum class PreferredAppMode { Default = 0, AllowDark = 1 };
 using SetPreferredAppModeFn = PreferredAppMode(WINAPI*)(PreferredAppMode);
 using FlushMenuThemesFn = void(WINAPI*)();
 using AllowDarkModeForWindowFn = bool(WINAPI*)(HWND, bool);
+using IsDarkModeAllowedForWindowFn = bool(WINAPI*)(HWND);
 
 struct Undocumented {
     bool resolved = false;
     SetPreferredAppModeFn setPreferredAppMode = nullptr;
     FlushMenuThemesFn flushMenuThemes = nullptr;
     AllowDarkModeForWindowFn allowDarkModeForWindow = nullptr;
+    IsDarkModeAllowedForWindowFn isDarkModeAllowedForWindow = nullptr;  // round 13 phase 13B (ordinal 137, optional)
     bool enabled = false;  // SetPreferredAppMode(AllowDark) is in effect
 };
 Undocumented g_ux;
@@ -56,10 +58,13 @@ void ResolveUndocumented() {
     g_ux.flushMenuThemes = reinterpret_cast<FlushMenuThemesFn>(GetProcAddress(ux, MAKEINTRESOURCEA(136)));
     g_ux.allowDarkModeForWindow =
         reinterpret_cast<AllowDarkModeForWindowFn>(GetProcAddress(ux, MAKEINTRESOURCEA(133)));
+    g_ux.isDarkModeAllowedForWindow =
+        reinterpret_cast<IsDarkModeAllowedForWindowFn>(GetProcAddress(ux, MAKEINTRESOURCEA(137)));
     if (!g_ux.setPreferredAppMode || !g_ux.allowDarkModeForWindow) {
         g_ux.setPreferredAppMode = nullptr;
         g_ux.allowDarkModeForWindow = nullptr;
         g_ux.flushMenuThemes = nullptr;
+        g_ux.isDarkModeAllowedForWindow = nullptr;
     }
 }
 
@@ -193,6 +198,16 @@ void AllowDarkForWindow(HWND hwnd, bool allow) {
 bool DarkPopupsAvailable() {
     ResolveUndocumented();
     return g_ux.setPreferredAppMode != nullptr;
+}
+
+bool MenusDarkFor(HWND owner) {
+    // A popup menu is dark when the process allows dark popups (SetPreferredAppMode(AllowDark),
+    // on while a settings window is open), the app mode is dark, and its owner window was allowed
+    // (AllowDarkModeForWindow). Without ordinal 137 the owner's flag is unknown: light is assumed
+    // (the dock windows and the app window never call AllowDarkForWindow).
+    if (!g_ux.enabled || !g_ux.isDarkModeAllowedForWindow || !owner) return false;
+    if (HighContrastOn() || !AppsUseDarkTheme()) return false;
+    return g_ux.isDarkModeAllowedForWindow(owner);
 }
 
 }  // namespace DarkMode

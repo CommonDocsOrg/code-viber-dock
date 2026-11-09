@@ -48,7 +48,7 @@ There are quicker ways for some items:
 - Drag a shortcut, a program or a folder from File Explorer onto the dock.
 - Right-click the dock and open **Add**: **Clock**, **Weather (script)**, **Running apps**, **Tray (notify icons)**, **Notification centre** or **Separator**. **Apps, folders and more widgets…** opens the Contents tab, and **Folder window on the desktop…** makes a folder window.
 
-To remove an item, customize the dock and click the item's **×**, or select it on the Contents tab and click **Remove** (or press Delete). A clock, a weather item, a widget, the tray and the notification centre also have **Remove from dock** at the end of their right-click menu. You can also drag a pinned app that is not running up and off the dock.
+To remove an item, customize the dock and click the item's **×**, or select it on the Contents tab and click **Remove** (or press Delete). A clock, a weather item, a widget, the tray and the notification centre also have **Remove this widget** at the end of their right-click menu. You can also drag a pinned app that is not running up and off the dock.
 
 ## Customize a dock
 
@@ -82,14 +82,15 @@ To stop customizing, click **Done**, press **Esc**, choose **Done customizing** 
 
 ## Right-click menus
 
-Right-click an item and its menu starts with what the item does, then how it looks, then its settings, and ends with removal. The last entry, **Dock**, holds the dock menu: the same menu you get by right-clicking an empty part of the dock.
+Right-click an item and its menu starts with the item's name and icon, then what the item does, then how it looks, then its settings, and ends with removal. The last entry, **Dock**, holds the dock menu: the same menu you get by right-clicking an empty part of the dock. The menus show a small icon beside their main entries, the same icon for the same command in every menu.
 
 - An app: **Open** or **New window**, **Open file location**, **Close** for each window, **Customize icon**, then **Pin to dock** or **Unpin from dock**.
 - A folder: **Open in Explorer**, **Show contents**, **Contents layout**, **Customize icon**, **Folder settings…**, then **Unpin from dock**.
 - A group: **Show contents**, **Rename…**, **Contents layout**, **Customize icon**, **Group settings…**, then **Ungroup (shortcuts stay pinned)** and **Unpin group and its shortcuts**.
-- The weather: **Refresh weather**, **Show forecast**, **Weather settings…**, then **Remove from dock**.
-- The clock: **Show calendar**, **Clock settings…**, then **Remove from dock**.
-- A widget: its settings (such as **System monitor settings…**), **Reload widget**, then **Remove from dock**.
+- The weather: **Widget: Weather** at the top, **Refresh weather**, **Show forecast**, **Widget settings…**, then **Remove this widget**.
+- The clock: **Widget: Clock** at the top, **Show calendar**, **Widget settings…**, then **Remove this widget**.
+- A widget: **Widget:** and its name at the top (such as **Widget: System monitor**), **Widget settings…**, **Reload widget**, then **Remove this widget**.
+- The tray and the notification centre: **Widget: Tray** or **Widget: Notification centre** at the top, **Show notification centre** (the notification centre), **Widget settings…**, then **Remove this widget**.
 - A separator: **Remove separator**.
 
 The dock menu is grouped by task. First, while there is something to undo, **Undo** with the name of the last change. Then for this dock: **Customize this dock**, **Dock settings…**, **Add**, **Position on screen**, **Auto-hide**, **Lock dock**, **Rename dock…**, **Duplicate dock** and **Save dock as layout…**. Then **All docks** (the dashboard, lock all), **App** (App settings, the taskbar, Start with Windows, Quick setup), **Tools** (the config file, widgets, Task Manager), **Help…** and **Quit**.
@@ -104,7 +105,7 @@ A clock, a weather item, a widget, the tray, a folder and a group each have thei
 
 To open an item's settings:
 
-- Right-click the item on the dock and choose its settings entry, named for the item: **Clock settings…**, **Weather settings…**, **Folder settings…**, **Group settings…**, **Tray settings…** or the widget's name.
+- Right-click the item on the dock and choose its settings entry: **Widget settings…** for a clock, a weather item, a widget and the tray, **Folder settings…** or **Group settings…** for a folder or a group.
 - Or select its tile on the dock's Contents tab and click the button of the same name, or double-click the tile.
 
 The settings are described in [Item settings](guide-settings.md#item-settings).
@@ -356,7 +357,7 @@ The System monitor can also show any sensor of HWiNFO (temperatures, fans, power
 
 ### Widget settings
 
-Every widget on a dock has its own settings window. To open it, right-click the widget and choose the entry with its name, such as **System monitor settings…**, or select it on the Contents tab and click the button of the same name.
+Every widget on a dock has its own settings window. To open it, right-click the widget and choose **Widget settings…**, or select it on the Contents tab and click its settings button.
 
 Every widget's window has the same structure, in two tabs:
 

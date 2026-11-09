@@ -1156,6 +1156,32 @@ rebuild.
   their menu loop).
 - **Tools**: `tools\smoke\WinDock.psm1` (the module later phases add to) and `menu-zorder.ps1`.
 
+### 13B: menus with icons, and a header that names the widget (done 2026-11-09)
+
+- **Bitmaps, not owner draw**: a 32-bit premultiplied ARGB DIB section in `MENUITEMINFO::hbmpItem`
+  (`MIIM_BITMAP`) is drawn with its alpha by themed menus, light and dark, and dimmed by the system
+  for a greyed entry. Owner draw would mean drawing the text, the check marks, the hot-tracking,
+  the keyboard cues and the dark theme ourselves for every menu; a bitmap is one small DIB per
+  glyph per DPI and colour (`MenuIcons`, cached until `App::Shutdown`).
+- **Glyphs**: Segoe Fluent Icons (Segoe MDL2 Assets where it is missing: the selected face's name
+  is compared, CreateFont substitutes silently), drawn white on black with grey-scale GDI
+  anti-aliasing, the coverage becoming alpha, premultiplied with the menu's text colour. One
+  codepoint table in `ContextMenu.cpp`, so a command has one picture in the dock menu, the Dock
+  submenu and the tray-icon menu. Radio entries have none (their check mark shows).
+- **The text colour**: the dock's menus are light even in dark mode: dark popups need
+  `SetPreferredAppMode(AllowDark)` (only while a settings window is open) *and* an owner allowed
+  with `AllowDarkModeForWindow`, which the dock and app windows never call.
+  `DarkMode::MenusDarkFor(owner)` (ordinal 137, `IsDarkModeAllowedForWindow`) tells which, and the
+  glyphs are white for a dark menu, else `COLOR_MENUTEXT` (also right in high contrast).
+- **Header icon per kind** (`MenuIcons::ItemIcon`, nothing extracted that the shell does not
+  cache): a non-image `iconFile` (custom icon / a link's icon location) via `SHDefExtractIconW`;
+  the Recycle Bin's stock icon (empty / full); a pin's path or a running app's exe via
+  `SHGetFileInfoW` (the system image list); an AUMID via `shell:AppsFolder\<aumid>`; last the
+  window's `WM_GETICON` (50 ms timeout) / class icon. Groups (a composed icon) without a custom
+  icon, image-file custom icons without another source, and the widget kinds show the kind's glyph.
+  The widget kinds' header is "Widget: <name>", followed by their own entries, Widget settings…,
+  Reload widget (script widgets), Remove this widget (ids 854 / 809 / 861 unchanged).
+
 ## Dependencies at a glance
 
 ```

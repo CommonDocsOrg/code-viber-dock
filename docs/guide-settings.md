@@ -31,7 +31,7 @@ To open a dock's settings panel:
 
 To open an item's settings:
 
-- Right-click the item on the dock and choose its settings entry. It names the item: **Clock settings…**, **Weather settings…**, **Folder settings…**, **Group settings…**, **Tray settings…** or the widget's name, such as **System monitor settings…**.
+- Right-click the item on the dock and choose its settings entry: **Widget settings…** for a clock, a weather item, a widget and the tray, **Folder settings…** or **Group settings…** for a folder or a group.
 - Or select the item on the dock's Contents tab and click its settings button (it has the same name), or double-click its tile.
 
 Each window's title names what it edits: an item's window reads like "Weather · main" (the item, then the dock). When a dock holds two items with the same name, the second is "Weather 2", unless their places or labels already tell them apart.
