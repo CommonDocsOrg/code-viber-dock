@@ -515,6 +515,20 @@ before). The bar is still aligned on its edge by `align` / `offset`. Ignored for
 `"arc"` / `"circle"`) and a full-width bar (Settings greys the control then); a floating bar is
 capped too. Dock settings > Position > Maximum length.
 
+**A bar of a fixed size** (`length`, `thickness`, DIPs, each default 0 = automatic; round 14 phase
+14A): `length` (96 - 8000) keeps the bar exactly that long along its edge (no longer than the
+monitor's edge minus its margins), whatever it holds: the run of items sits inside it at its
+start, centre or end per `align` (the `offset` moves the bar, not the run), a longer run overflows
+inside it per `overflow` as at `maxLength` (which is ignored while `length` is set), and the bar
+never grows when its icons magnify (the magnified run grows inside it, as on a full-width bar;
+`magnifyBar` "steady" / "always" do not apply). For a bar on an edge that is not full width and a
+floating bar (anchors on a floating bar then apply too); a ring and a full-width bar ignore it.
+`thickness` (24 - 1000) makes the bar that thick across its edge, for every bar (a ring ignores
+it); the automatic thickness (the icons, their titles and reflections, an inside title) is the
+floor, so a smaller value has no effect. The extra is split across the bar: the icon row (with its
+widgets, dots and titles) stays centred in it, and the room above it for magnified icons is
+unchanged. Dock settings > Position > **Size of the bar**.
+
 **Item anchors: custom positioning** (`items[].anchor`, `items[].offset`; round 7): any item (apps,
 folders, separators, the running apps, widgets, the clock, the tray, groups, ...) can have a place
 of its own along the bar. `anchor` puts it in the **start** group (`"start"`: the left end of a
@@ -554,7 +568,7 @@ the clock with `"anchor": "start"` sits at the top, the weather with `"anchor": 
 - Magnification works as on any bar: the magnified run grows away from the pointer, so magnified
   icons may close a gap between groups a little. Rings (`shape` `"arc"` / `"circle"`) ignore
   anchors (their items stay in group order). A floating bar has no room of its own: anchors apply to
-  it only with `maxLength` set (the bar is then that long).
+  it only with `maxLength` or `length` set (the bar is then that long).
 - Settings: the Dock window's Contents tab, the selected item's **Position on the dock** and
   **Offset (DIPs)**.
 
@@ -2229,6 +2243,14 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
   Round 12 phase 12H: in a panel too narrow for the silhouette beside the drop-downs (the default
   470 DIPs) the silhouette has a row of its own at the top of the card, and the distance sliders
   get shorter (down to 80 DIPs) so the boxes and "px" stay in view.
+  Round 14 phase 14A: after Where on the screen, the card **Size of the bar** (bars only; collapsed
+  for a ring): its sentence "Automatic: the bar fits its icons. Fix a size to keep it.", **Fixed
+  length** (`length`; checking it takes the bar's current length, else `maxLength`, else 600;
+  unchecking writes 0; a box 96 - 8000 in steps of 50 with "px" under it while checked; collapsed
+  for a full-width bar) and **Fixed thickness** (`thickness`, hint "At least the icons' own
+  height"; checking takes the bar's current thickness, else 72; a box 24 - 1000 in steps of 4).
+  While a fixed length is set, Exact offsets' Maximum length row is collapsed (and not counted in
+  its "n changed"); the Full width tooltip adds "A full-width bar has no fixed length."
   Round 12 phase 12C: the **Layer and title** card has Layer, **Show the title** (Never / On hover /
   Always: `titleShow`), **Use the dock's name** (`titleUseName`; the Title box is collapsed while
   it is on), **Title** and **Where** (Outside the bar / Inside the bar: `titlePlace`; disabled on a
@@ -2654,6 +2676,12 @@ items that exist. A file whose items have settings already is left alone.
   - `maxLength` (round 7; DIPs along the edge, default 0 = no limit, else 96 - 8000; written only
     when set): the bar's maximum length; a longer run overflows there (`overflow`). Ignored for a
     ring and a full-width bar. See [Position](#position-edge-alignment-offset).
+  - `length` (round 14 phase 14A; DIPs along the edge, default 0 = automatic, else 96 - 8000;
+    written only when set): the bar is exactly this long (a bar on an edge that is not full width,
+    a floating bar; a ring and a full-width bar ignore it); `maxLength` is ignored while it is set.
+    `thickness` (round 14 phase 14A; DIPs across the edge, default 0 = automatic, else 24 - 1000;
+    written only when set): the bar is at least this thick (every bar; a ring ignores it). See
+    [Position](#position-edge-alignment-offset).
   - `popupGap` (round 7; DIPs, default 6, 0 - 64; written only when not 6): how far the dock's
     popups (previews, calendar, folders, widget popups ...) open beyond a fully magnified icon,
     see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
@@ -3340,7 +3368,10 @@ always there, also when every dock is parked) handle these registered messages:
   setup since 12G. Round 12 phase 12E
   (dock `HIWORD(lParam)`; 1 done, 0 refused): **176** closes its Dock settings panel (0: none open), **177** sets its
   `edgeGap` to `LOWORD(lParam)` (clamped 0 - 200 DIPs), **178** its `offset` to the signed 16-bit `LOWORD(lParam)`
-  (a dock only; each one undo entry, no Keep / Revert). 143 opens the panel beside the dock instance in `HIWORD`. 111 and 113 left the dock
+  (a dock only; each one undo entry, no Keep / Revert). Round 14 phase 14A: **184** sets dock `HIWORD(lParam)`'s
+  `length` to `LOWORD(lParam)` (0 automatic, else clamped 96 - 8000 DIPs), **185** its `thickness` (0 automatic,
+  else clamped 24 - 1000); a dock only, 1 done, 0 refused; each one undo entry ("Changed the bar's length of
+  *dock*" / "... thickness of ..."), through the same path as 177 / 178. 143 opens the panel beside the dock instance in `HIWORD`. 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3509,7 +3540,8 @@ always there, also when every dock is parked) handle these registered messages:
   variable `WINDOCK_PREVIEW_LOG` names a file that gets a line per render (`ok <id> <w>x<h> <ms>` /
   `fail <id> <error>`).
   Round 7 phase 7A (dock `HIWORD(lParam)`): 270 = the dock's popup gap in px (`popupGap` x the
-  scale); 271 = its `maxLength` in px as applied (0: none, or ignored: a ring, a full-width bar).
+  scale); 271 = its `maxLength` in px as applied (0: none, or ignored: a ring, a full-width bar;
+  round 14 phase 14A: or a fixed `length` set).
   With the hover label shown and a window preview open, 153 / 154 (the label's place and size) and
   the `WinDockPreview` window's rect show the preview `popupGap` beyond the label.
   Round 7 phase 7B, item anchors (dock `HIWORD(lParam)`): 272 = slot `LOWORD(lParam)`'s group (0
@@ -3620,7 +3652,9 @@ always there, also when every dock is parked) handle these registered messages:
   item) and its `padding` in DIPs in the high word (`tools\smoke\running-widget.ps1` uses it). Round 13 phase 13G:
   **327** = px each icon slot of dock `HIWORD(lParam)` is longer by for its title row (`titlesVertical`
   `"under"` on a left / right dock with titles on: 2 DIP + the lines, scaled; 0 on any other dock, or with
-  titles off). The labels of the change Undo / Redo would
+  titles off). Round 14 phase 14A: **328** = dock `HIWORD(lParam)`'s resting bar as laid out, px:
+  `MAKELONG(length along the edge, thickness across it)` (a ring: its arc's length and band); -2 not a
+  dock (a folder window, a standalone widget, no such instance). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -3783,7 +3817,13 @@ always there, also when every dock is parked) handle these registered messages:
   space (2151) is greyed (auto-hide on, a desktop layer), 5803 Exact offsets: the peek needs auto-hide, 5804 Running
   apps: which thumbnail rows the mode leaves out, 5805 / 5806 Behaviour > Delays: hide / reveal need auto-hide,
   the preview delay needs previews, 5807 Running apps: titles on vertical docks need titles; each reason is
-  collapsed while its condition does not hold. DockCommand 184 / 185 are reserved (unused).
+  collapsed while its condition does not hold. DockCommand 184 / 185 were reserved (unused) until round 14 phase
+  14A gave them the bar's fixed length / thickness.
+  Round 14 phase 14A, **Size of the bar** (5860 - 5879; the Position tab, after Where on the screen): 5860 the card,
+  5861 its sentence, 5862 Fixed length (check, caption 5863; `BN_CLICKED` takes the bar's current length), 5864 /
+  5865 / 5866 its edit / spin / "px" (96 - 8000, step 50; collapsed while unchecked), 5867 Fixed thickness (check,
+  caption 5868, hint 5872 "At least the icons' own height"), 5869 / 5870 / 5871 its edit / spin / "px" (24 - 1000,
+  step 4). The card is collapsed for a ring, Fixed length for a full-width bar.
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that

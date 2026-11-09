@@ -706,7 +706,9 @@ void DockWindow::ComputeLayout() {
         float room = static_cast<float>(DockGeometry::MainEnd(l.edge, l.monitor) - DockGeometry::MainStart(l.edge, l.monitor)) -
                      (l.fullWidth ? 0.0f : 2.0f * std::round(kBottomMargin * l.scale));
         room = std::min(room, l.roomPx);  // docks[].maxLength (round 7 phase 7A)
-        const float barW = l.fullWidth ? (l.itemsW + 2.0f * l.padding) : (l.bar.right - l.bar.left);
+        // (Round 14 phase 14A: a fixed-length bar is always the room's length: its run, as full width's.)
+        const bool runOnly = l.fullWidth || (l.fixedLength && !l.anchored);
+        const float barW = runOnly ? (l.itemsW + 2.0f * l.padding) : (l.bar.right - l.bar.left);
         if (barW <= room + 0.5f || l.iconDip <= kMinShrinkDip) return;
         float iconsW = 0.0f;  // the part that scales with the icon size
         for (const DockItem& item : items_) {
@@ -737,6 +739,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.floating = d.Floating();
     // Full width: the bar spans the monitor's edge, flush with the screen edge, square corners.
     l.fullWidth = d.fullWidth && !polar && !l.floating;
+    // Round 14 phase 14A: docks[].length (a ring and a full-width bar ignore it, as maxLength).
+    l.fixedLength = d.length > 0 && !polar && !l.fullWidth;
     l.iconDip = iconDip;
 
     l.iconPx = std::round(static_cast<float>(iconDip) * s);
@@ -861,7 +865,16 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
 
     // The bar without reflections (the icon row and the titles).
     const float iconBarH = std::round(l.iconPx + 2.0f * barPadDip * s) + l.captionBand + l.titleBand;
-    const float barH = iconBarH + l.reflH;
+    float barH = iconBarH + l.reflH;
+    // Round 14 phase 14A: docks[].thickness (not a ring). The automatic thickness is the floor: the
+    // bar only gets thicker. The icon row (and the widgets, titles, dots on it) is centred across the
+    // extra: floor(extra / 2) more from the bar's far side, the rest toward the screen edge; winH
+    // grows by the near part below, so the room for magnified icons beyond the row stays as it was.
+    l.thickExtra = 0.0f;
+    if (d.thickness > 0 && !polar) l.thickExtra = std::max(0.0f, std::round(static_cast<float>(d.thickness) * s) - barH);
+    const float thickFar = std::floor(l.thickExtra / 2.0f);
+    barH += l.thickExtra;
+    l.iconTopPx += thickFar;
     const float margin = l.fullWidth || l.floating ? 0.0f : std::round(kBottomMargin * s);
     // --- round 12 phase 12E --- docks[].edgeGap: the resting bar this much further from its screen
     // edge (a bar on an edge that is not full width). The window still stands on the screen edge and
@@ -874,6 +887,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     const float crossMargin = margin + gapPx;
     float winH = std::round(l.iconPx * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
                  l.reflH + l.captionBand + gapPx;
+    winH += l.thickExtra - thickFar;  // round 14 phase 14A: the row is that much further from the screen edge
     winH = std::max(winH, barH + crossMargin);
     if (titleCross > 0.0f && !l.titleInside) winH = std::max(winH, barH + crossMargin + titleGap + titleCross);
     // Round 12 phase 12D: customize mode's anchor targets (10 DIPs beyond the bar, 20 DIPs across)
@@ -902,7 +916,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     const float sepW = std::round(kSeparatorWidth * s);
     const float widgetGap = std::round(kWidgetGap * s);
     // Round 11 phase 11C: a full-width bar tells flush widgets its thickness (l.barCross).
-    l.barCross = l.fullWidth ? iconBarH - l.titleBand : 0.0f;  // round 12 phase 12C: the icon row's, not the title band's
+    // Round 14 phase 14A: with docks[].thickness's extra (the widget is centred across the thicker bar).
+    l.barCross = l.fullWidth ? iconBarH - l.titleBand + l.thickExtra : 0.0f;  // round 12 phase 12C: the icon row's, not the title band's
     const LayoutContext ctx{l.vertical ? DockAxis::Vertical : DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite(), l.barCross};
     Run first = Run::None, prev = Run::None;
     const DockItem* firstItem = nullptr;  // round 13 phase 13D: the first / last real slot
@@ -1005,7 +1020,11 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // docks[].maxLength (round 7 phase 7A): a cap on that room, so the bar hugs a shorter run and
     // the overflow mode takes over at the cap as it does at the monitor's ends (not for a ring or a
     // full-width bar).
-    if (d.maxLength > 0 && !polar && !l.fullWidth) {
+    // Round 14 phase 14A: docks[].length instead (maxLength is ignored then): the room is the fixed
+    // length (still no longer than the monitor's room) and the bar is that long (below).
+    if (l.fixedLength) {
+        roomPx = std::min(roomPx, std::round(static_cast<float>(d.length) * s));
+    } else if (d.maxLength > 0 && !polar && !l.fullWidth) {
         roomPx = std::min(roomPx, std::round(static_cast<float>(d.maxLength) * s));
     }
     l.roomPx = roomPx;
@@ -1016,7 +1035,9 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.always = false;
     l.padStartSlot = l.padEndSlot = -1;
     float alwaysStart = 0.0f, alwaysEnd = 0.0f;
-    if (d.magnifyBar == MagnifyBar::Always && !polar && !l.fullWidth && !d.Anchored() && magGrow > 0.0f && l.firstMag >= 0 &&
+    // Round 14 phase 14A: nor for a fixed-length bar (its run grows inside it).
+    if (d.magnifyBar == MagnifyBar::Always && !polar && !l.fullWidth && !l.fixedLength && !d.Anchored() && magGrow > 0.0f &&
+        l.firstMag >= 0 &&
         lead + itemsW + trail + magGrow <= roomPx + 0.5f) {
         l.always = true;
         alwaysStart = std::floor(magGrow / 2.0f);
@@ -1076,9 +1097,10 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // the room is as long as the room (full width: the edge) and its items are laid out as groups
     // (AnchoredLeads: the gaps between the groups become leads, so everything else still sees one
     // run). A run that does not fit overflows as usual (the anchors wait until it fits again). A
-    // floating bar has no room of its own: anchors need its maxLength.
+    // floating bar has no room of its own: anchors need its maxLength (round 14 phase 14A: or its
+    // fixed length).
     std::vector<float> anchorLeads, baseLeads;
-    if (d.Anchored() && !polar && itemsW > 0.0f && (!l.floating || d.maxLength > 0)) {
+    if (d.Anchored() && !polar && itemsW > 0.0f && (!l.floating || d.maxLength > 0 || l.fixedLength)) {
         const float len = l.fullWidth ? static_cast<float>(mEnd - mStart) : std::floor(roomPx);
         std::vector<size_t> order(items_.size());
         for (size_t i = 0; i < order.size(); ++i) order[i] = i;
@@ -1094,6 +1116,17 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.view.on = !l.anchored && d.overflow == OverflowMode::Scroll && itemsW > 0.0f && lead + itemsW + trail > roomPx + 0.5f;
     if (l.view.on) {
         if (!l.fullWidth) barW = std::floor(roomPx);
+        l.growMax = 0.0f;
+        slack = std::round(kMinSideSlack * s);
+        winW = barW + 2.0f * slack;
+    }
+    if (l.fixedLength && !l.anchored) {
+        // Round 14 phase 14A: docks[].length: the bar is the room's length whether the run fits or
+        // overflows (scroll above, clip / shrink as at maxLength), and it never grows: a magnified run
+        // (or a drop gap) grows inside it, as on a full-width bar, so the stage keeps the minimum side
+        // slack only (beyond it the window cuts what the bar's room does not hold). An anchored bar
+        // is already the room's length and keeps its own path (as with maxLength).
+        barW = std::floor(roomPx);
         l.growMax = 0.0f;
         slack = std::round(kMinSideSlack * s);
         winW = barW + 2.0f * slack;
@@ -1155,7 +1188,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.bar = D2D1::RectF(barLeft, winH - crossMargin - barH, barLeft + barW, winH - crossMargin);  // 12E: off its edge by the gap
     l.itemTop = l.bar.top + l.iconTopPx;
     // Under the icon and its reflection; 13G "under" on a vertical bar: the row spans the icon row.
-    l.captionTop = l.captionUnder ? l.bar.top + l.titleBand : l.itemTop + l.iconPx + l.reflH + captionGap;
+    // Round 14 phase 14A: "under" moves with the icon row across a thicker bar (thickFar).
+    l.captionTop = l.captionUnder ? l.bar.top + l.titleBand + thickFar : l.itemTop + l.iconPx + l.reflH + captionGap;
     l.growRoomStart = l.bar.left;
     l.growRoomEnd = l.stageMain - l.bar.right;
     float polarRun = 0.0f;  // a ring: the run's length along it (0: not a ring)
@@ -1291,15 +1325,17 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         // A full-width bar: a magnified run grows on both sides of the pointer (the window cuts it at
         // the monitor's ends).
         if (l.fullWidth) l.growRoomStart = l.growRoomEnd = 1e6f;
-    } else if (l.fullWidth) {
+    } else if (l.fullWidth || l.fixedLength) {
         // The run of items inside the full bar: at its start, centred or at its end, plus the
         // offset, kept inside the bar's padding. Magnification grows the run inside the bar (the
         // bar's own ends move past the monitor's, where the window cuts them off).
+        // Round 14 phase 14A: a fixed-length bar's run alike, without the offset (it placed the bar
+        // itself); its background stays put while the run grows (MoveItems).
         const float lo = l.bar.left + lead, hi = std::max(lo, l.bar.right - trail - itemsW);
         float at = lo;
         if (d.align == DockAlign::End) at = hi;
         if (d.align == DockAlign::Center) at = l.bar.left + std::round((barW - (lead + itemsW + trail)) / 2.0f) + lead;
-        l.itemsLeft = std::clamp(std::round(at + static_cast<float>(offsetPx)), lo, hi);
+        l.itemsLeft = std::clamp(std::round(at + (l.fullWidth ? static_cast<float>(offsetPx) : 0.0f)), lo, hi);
         l.growRoomStart = l.itemsLeft - lo;
         l.growRoomEnd = hi - l.itemsLeft;
     }
@@ -1337,8 +1373,9 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // 9A follow-up: the bar keeps that length from the first time something zooms under the pointer
     // (follow-up 2) until it leaves (grown_), not only while magnifying; "always" has the same room
     // at rest (above).
-    l.steady = d.magnifyBar == MagnifyBar::Steady && !polar && !l.view.on && !l.fullWidth && !l.anchored && magGrow > 0.0f &&
-               l.firstMag >= 0;
+    // Round 14 phase 14A: nor for a fixed-length bar.
+    l.steady = d.magnifyBar == MagnifyBar::Steady && !polar && !l.view.on && !l.fullWidth && !l.fixedLength && !l.anchored &&
+               magGrow > 0.0f && l.firstMag >= 0;
     l.steadyStart = l.steadyEnd = 0.0f;
     if (l.always) {
         l.steady = true;
@@ -1373,7 +1410,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         // box thicker than the bar (round 7 phase 7C: the analog clock grown on hover) stands on the
         // bar's near edge and sticks out on the far side only, as a magnified icon does.
         // Round 12 phase 12C: centred on the icon row, under an "inside" title's band.
-        const float rowTop = l.bar.top + l.titleBand, rowH = iconBarH - l.titleBand;
+        // Round 14 phase 14A: the row with docks[].thickness's extra (centred like the icons).
+        const float rowTop = l.bar.top + l.titleBand, rowH = iconBarH - l.titleBand + l.thickExtra;
         item.y = item.IsWidget() ? std::round(std::min(rowTop + (rowH - item.boxCross) / 2.0f, rowTop + rowH - item.boxCross))
                                  : l.itemTop;
         const int k = static_cast<int>(i);
@@ -1406,7 +1444,10 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.dotRadius = std::max(1.5f, kDotRadius * s);
     l.dotHeight = static_cast<UINT>(std::ceil(2.0f * l.dotRadius + 2.0f));
     // With reflections the dot sits at the icon's foot, on the reflection.
-    const float dotCenter = l.reflH > 0.0f ? l.itemTop + l.iconPx + dotFromEdge : l.bar.bottom - dotFromEdge;
+    // Round 14 phase 14A: without reflections the dot stays under the icon row on a thicker bar
+    // (the near part of docks[].thickness's extra lies between the row and the bar's edge).
+    const float dotCenter =
+        l.reflH > 0.0f ? l.itemTop + l.iconPx + dotFromEdge : l.bar.bottom - (l.thickExtra - thickFar) - dotFromEdge;
     l.dotTop = std::round(dotCenter - static_cast<float>(l.dotHeight) / 2.0f);
     l.dotCenterY = dotCenter - l.dotTop;
     // A glow that shows at rest (always / the active app) reaches above the bar: the resting HWND
@@ -1414,7 +1455,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.restTopExtra = (glow == GlowMode::Always || glow == GlowMode::Active)
                          ? std::max(0.0f, l.glowPad - l.iconTopPx)
                          : 0.0f;
-    // Round 11 phase 11A: the slot buttons' band across the bar.
+    // Round 11 phase 11A: the slot buttons' band across the bar. Round 14 phase 14A: across a bar
+    // thickened by docks[].thickness too (a taller Windows 7 taskbar's buttons are as tall as it).
     if (l.buttons) {
         l.buttonInsetMain = std::max(1.0f, std::round(s));
         const float crossInset = std::round(std::max(1.0f, barPadDip / 2.0f) * s);
@@ -1627,6 +1669,7 @@ int DockWindow::PopupGapPx() const {
 int DockWindow::MaxLengthPx() const {
     const DockConfig& d = DockCfg();
     if (d.maxLength <= 0 || d.Polar() || layout_.fullWidth) return 0;  // ignored for rings / full width
+    if (layout_.fixedLength) return 0;  // round 14 phase 14A: ignored while docks[].length is set
     return static_cast<int>(std::lround(static_cast<float>(d.maxLength) * layout_.scale));
 }
 
@@ -2145,9 +2188,10 @@ HRESULT DockWindow::RenderSeparator(DockItem& item) {
     const UINT w = static_cast<UINT>(std::max(1.0f, item.slotW));
     const UINT h = static_cast<UINT>(l.iconPx);
     const float stroke = std::max(1.0f, std::round(l.scale));
-    const float barH = l.bar.bottom - l.bar.top - l.reflH;  // the icon row
+    // Round 14 phase 14A: without docks[].thickness's extra (the hairline keeps the row's length).
+    const float barH = l.bar.bottom - l.bar.top - l.reflH - l.thickExtra;  // the icon row
     const float vInset = std::round(barH * 0.22f);
-    const float boxTop = l.itemTop - l.bar.top;  // the icon box inside the bar
+    const float boxTop = l.itemTop - l.bar.top - std::floor(l.thickExtra / 2.0f);  // the icon box inside the bar
     const float top = std::clamp(vInset - boxTop, 0.0f, static_cast<float>(h));
     const float bottom = std::clamp(barH - vInset - boxTop, top, static_cast<float>(h));
     const D2D1_COLOR_F color = Theme::ToColor(DockTheme().separator);
@@ -3979,8 +4023,10 @@ void DockWindow::ComputeTargets() {
                 if (i < n) place(i, lead);
             }
         }
-        float barStart = l.view.on ? 0.0f : shiftLeft;
-        float barEnd = l.view.on ? 0.0f : shiftRight;
+        // Round 14 phase 14A: a fixed-length bar does not grow either (the gap opens inside it).
+        const bool fixedBar = l.view.on || (l.fixedLength && !l.anchored);
+        float barStart = fixedBar ? 0.0f : shiftLeft;
+        float barEnd = fixedBar ? 0.0f : shiftRight;
         if (GrownBar()) {
             // 9A follow-up: a drag (or a drop gap) on the grown bar ("steady" while grown_, or
             // "always"): the slots before the first / after the last magnifying slot of the order
@@ -4116,8 +4162,10 @@ void DockWindow::ComputeTargets() {
         items_[static_cast<size_t>(groupTarget_)].targetScale = kGroupScale;
     }
 
-    bgLeftTarget_ = l.bar.left - (l.view.on ? 0.0f : barStart);
-    bgRightTarget_ = l.bar.right + (l.view.on ? 0.0f : barEnd) - l.bgSurfaceW;
+    // Round 14 phase 14A: nor does a fixed-length bar's (its run grows inside it, as full width's).
+    const bool fixedBar = l.view.on || (l.fixedLength && !l.anchored);
+    bgLeftTarget_ = l.bar.left - (fixedBar ? 0.0f : barStart);
+    bgRightTarget_ = l.bar.right + (fixedBar ? 0.0f : barEnd) - l.bgSurfaceW;
     viewEnds(growLeft > 0.5f, growRight > 0.5f);
 
     if (labelShown_ && hovered_ >= 0 && hovered_ < static_cast<int>(n) && label_.width) {
@@ -9162,6 +9210,12 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         }
         case 327:  // round 13 phase 13G: px each icon slot is longer by for its title row (titlesVertical "under" on a vertical dock; 0 otherwise)
             return static_cast<LRESULT>(std::lround(layout_.captionSlot));
+        case 328: {  // round 14 phase 14A: the resting bar (layout_.bar) along | across the edge, px: length | thickness << 16
+            const Layout& l = layout_;
+            const float w = l.bar.right - l.bar.left, h = l.bar.bottom - l.bar.top;  // canonical: main x cross
+            const LONG len = std::lround(std::max(0.0f, w)), thick = std::lround(std::max(0.0f, h));
+            return static_cast<LRESULT>(static_cast<unsigned>(len & 0xFFFF) | (static_cast<unsigned>(thick & 0xFFFF) << 16));
+        }
         default:
             return -1;
     }

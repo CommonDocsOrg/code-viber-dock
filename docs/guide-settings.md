@@ -564,6 +564,15 @@ For a half circle: **Edge**, **Radius** (0: automatic) and **Turn the icons with
 
 The small monitor at the right shows where the dock sits. It follows every change.
 
+#### Size of the bar
+
+The **Size of the bar** card fixes the bar's size. Normally the bar fits its icons: it gets longer when you add an icon and thicker with bigger icons. A half circle and a circle do not have this card.
+
+- **Fixed length**: the bar keeps the length in the box, in pixels at 100 % scaling (96 - 8000), however many icons it holds. When you check it, the box starts at the bar's length now. The icons sit in the bar where **Alignment** puts them, more icons than fit scroll (or shrink, see **When the icons do not fit**), and magnified icons grow inside the bar instead of making it longer. While it is on, **Maximum length** (Exact offsets) does not apply and is hidden. A full-width bar is always as long as its edge, so it has no fixed length.
+- **Fixed thickness**: the bar is as thick as the box says (24 - 1000 pixels), with the icons centred in it. It is never thinner than the icons, their titles and reflections need, so a smaller number has no effect.
+
+Uncheck a box to go back to the automatic size.
+
 #### Layer
 
 The **Layer and title** card sets where the dock lives among your windows and its title.
@@ -585,7 +594,7 @@ The **Exact offsets** card is closed when the panel opens. Click its heading to 
 
 - **Peek when hidden** (a bar on an edge): keeps a thin strip of the hidden dock on screen, in pixels. 0 is off.
 - **Peek opacity**: how visible that strip is, in percent.
-- **Maximum length** (bars that are not full width): the longest the bar may get, in pixels. 0 means no limit. A longer dock scrolls or shrinks its icons.
+- **Maximum length** (bars that are not full width and have no fixed length): the longest the bar may get, in pixels. 0 means no limit. A longer dock scrolls or shrinks its icons. To keep the bar at one length, use [Size of the bar](#size-of-the-bar).
 
 The peek shows only while the dock is hidden; with auto-hide off, a line says to turn it on (Behaviour tab). A half circle and a circle have none of these, so the card is not shown for them.
 

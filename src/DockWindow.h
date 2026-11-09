@@ -599,6 +599,14 @@ private:
         float popupY = 0.0f;     // popups open beyond this cross coordinate (with docks[].popupGap)
         float roomPx = 0.0f;      // room along the edge for the bar (margins and docks[].maxLength applied)
         bool fullWidth = false;   // the bar spans the monitor's edge (docks[].fullWidth)
+        // Round 14 phase 14A: docks[].length is in effect (a bar that is neither a ring nor full
+        // width): the bar is floor(roomPx) long, its run placed inside it per `align` (as a full-width
+        // bar's, without the offset), and it never grows (the magnified run grows inside it).
+        bool fixedLength = false;
+        // Round 14 phase 14A: what docks[].thickness adds to the bar's cross size (0: automatic, or
+        // the automatic thickness is already thicker); the icon row sits floor(thickExtra / 2) further
+        // from the bar's far side, so it stays centred across the bar.
+        float thickExtra = 0.0f;
         float barCross = 0.0f;    // round 11 phase 11C: LayoutContext::barCross (full width: the bar's thickness w/o reflections)
         // Round 7 phase 7B: the items are laid out as anchored groups (DockConfig::Anchored() on a
         // bar whose run fits the room): the bar is the room's length, the gaps between the groups are

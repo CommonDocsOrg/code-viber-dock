@@ -956,4 +956,21 @@ inline constexpr int kRunBadgesSection = 5845;   // card "Notifications" (the ba
 inline constexpr int kRunningMovedNote = 5846;   // Dock window > Behaviour: "Window slots, titles, thumbnails and badges are set on the Running apps widget …"
 // --- end round 13 phase 13D ---
 
+// --- round 14 phase 14A (5860 - 5879): the Position tab's card "Size of the bar" (docks[].length,
+// docks[].thickness), right after Where on the screen; collapsed for a ring ---
+inline constexpr int kSectionBarSize = 5860;       // card "Size of the bar"
+inline constexpr int kBarSizeLead = 5861;          // ... its sentence ("Automatic: the bar fits its icons. Fix a size to keep it.")
+inline constexpr int kFixedLength = 5862;          // ... check box "Fixed length" (+ caption 5863): length > 0; collapsed for a full-width edge bar
+inline constexpr int kFixedLengthCaption = 5863;
+inline constexpr int kFixedLengthEdit = 5864;      // ... DIPs 96 - 8000 (step 50); collapsed while unchecked
+inline constexpr int kFixedLengthSpin = 5865;
+inline constexpr int kFixedLengthUnit = 5866;      // ... "px"
+inline constexpr int kFixedThickness = 5867;       // ... check box "Fixed thickness" (+ caption 5868, hint 5872): thickness > 0
+inline constexpr int kFixedThicknessCaption = 5868;
+inline constexpr int kFixedThicknessEdit = 5869;   // ... DIPs 24 - 1000 (step 4); collapsed while unchecked
+inline constexpr int kFixedThicknessSpin = 5870;
+inline constexpr int kFixedThicknessUnit = 5871;   // ... "px"
+inline constexpr int kFixedThicknessHint = 5872;   // ... "At least the icons' own height"
+// --- end round 14 phase 14A ---
+
 }  // namespace SettingsIds

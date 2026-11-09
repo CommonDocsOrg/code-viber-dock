@@ -4004,6 +4004,9 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         // --- end round 12 phase 12E ---
         case 325:  // round 13 phase 13C: the quick entries of slot LOWORD(lParam) of dock HIWORD (-1 no such dock window)
             return inst && inst->window ? static_cast<LRESULT>(QuickEntries(*inst->window, static_cast<int>(arg)).size()) : -1;
+        case 328:  // round 14 phase 14A: the resting bar's length | thickness << 16 (px; DockWindow), -2 not a dock
+            if (!inst || !inst->window) return -2;
+            return inst->window->QueryState(wp, arg);
         default:
             break;
     }
@@ -4296,7 +4299,9 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         return true;
     }
     // --- round 12 phase 12E: DockCommand 176 close the panel, 177 / 178 the edge gap / offset ---
-    if (msg == msgDockCommand_ && wp >= ContextMenu::kClosePanel && wp <= ContextMenu::kSetDockOffset) {
+    // Round 14 phase 14A: 184 / 185 the bar's fixed length / thickness, the same way.
+    if (msg == msgDockCommand_ && ((wp >= ContextMenu::kClosePanel && wp <= ContextMenu::kSetDockOffset) ||
+                                   wp == ContextMenu::kSetDockLength || wp == ContextMenu::kSetDockThickness)) {
         result = PanelCommand(static_cast<UINT>(wp), lp) ? 1 : 0;
         return true;
     }
@@ -5299,6 +5304,16 @@ bool App::PanelCommand(UINT command, LPARAM lp) {
         if (d.offset != v) {
             NoteLabel(L"Distance along the edge " + std::to_wstring(d.offset) + L" \x2192 " + std::to_wstring(v));
             d.offset = v;
+        }
+    } else if (command == ContextMenu::kSetDockLength || command == ContextMenu::kSetDockThickness) {
+        // Round 14 phase 14A: docks[].length / thickness (0 automatic; else Config::Sanitize's range).
+        const bool length = command == ContextMenu::kSetDockLength;
+        const int raw = static_cast<int>(lp & 0xFFFF);
+        const int v = raw <= 0 ? 0 : length ? std::clamp(raw, 96, 8000) : std::clamp(raw, 24, 1000);
+        int& field = length ? d.length : d.thickness;
+        if (field != v) {
+            NoteLabel(std::wstring(length ? L"Changed the bar's length of " : L"Changed the bar's thickness of ") + d.DisplayName());
+            field = v;
         }
     } else {
         return false;

@@ -8,6 +8,7 @@
 #include <windows.h>
 #include <commctrl.h>
 #include <shellapi.h>
+#include <shellscalingapi.h>  // round 14 phase 14A: GetDpiForMonitor (Size of the bar's current size)
 #include <shobjidl.h>
 
 #include <winrt/base.h>
@@ -519,7 +520,8 @@ protected:
         NextRow();
         // --- end round 12 phase 12E ---
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
-        Tip(kFullWidthCaption, L"The bar spans the whole edge like a taskbar; the icons sit where Alignment puts them. Off by default.");
+        Tip(kFullWidthCaption, L"The bar spans the whole edge like a taskbar; the icons sit where Alignment puts them. Off by "
+                               L"default. A full-width bar has no fixed length.");  // round 14 phase 14A
         NextRow();
         // Round 10 phase 10D: from the "More" expander (a bar on an edge with auto-hide off).
         Check(kReserveSpace, kReserveSpaceCaption, L"Reserve screen space (maximized windows stop at the dock)");
@@ -550,6 +552,33 @@ protected:
         Check(kFloating, kFloatingCaption, L"Floating");
         Tip(kFloatingCaption, L"A bar that floats anywhere on the display instead of sitting on an edge. Off by default. Kind above chooses it.");
         NextRow();
+
+        // --- round 14 phase 14A: docks[].length / thickness (bars only; EnableDependents) ---
+        Section(kSectionBarSize, L"Size of the bar", L"guide-settings.md#size-of-the-bar");
+        Ctl& sizeLead = Text(kBarSizeLead, CtlKind::Note, L"Automatic: the bar fits its icons. Fix a size to keep it.", kMargin,
+                             right - kMargin, 20);
+        sizeLead.maxLines = 2;
+        NextRow(22);
+        Check(kFixedLength, kFixedLengthCaption, L"Fixed length");
+        Tip(kFixedLengthCaption, L"The bar keeps this length along its edge, in pixels at 100 % scaling (96 - 8000), however "
+                                 L"many icons it holds: its icons sit in it where Alignment puts them, a longer run scrolls "
+                                 L"(see When the icons do not fit) and magnified icons grow inside it. The Maximum length is "
+                                 L"ignored then. Not for a ring or a full-width bar. Off by default (the bar fits its icons).");
+        NextRow();
+        IntSpin(kFixedLengthEdit, kFixedLengthSpin, kMargin + kCaptionDx, 88, 96, 8000, 50,
+                [](Config&, DockConfig& d) -> int& { return d.length; }, SettingsScope::Appearance);
+        Text(kFixedLengthUnit, CtlKind::Note, L"px", kMargin + kCaptionDx + 92, 22);
+        NextRow();
+        Check(kFixedThickness, kFixedThicknessCaption, L"Fixed thickness", L"At least the icons' own height", kFixedThicknessHint);
+        Tip(kFixedThicknessCaption, L"The bar is this thick across its edge, in pixels at 100 % scaling (24 - 1000); the icons "
+                                    L"stay centred in it. Never thinner than the icons, their titles and reflections need, so a "
+                                    L"smaller number has no effect. Not for a ring. Off by default (the bar fits its icons).");
+        NextRow();
+        IntSpin(kFixedThicknessEdit, kFixedThicknessSpin, kMargin + kCaptionDx, 88, 24, 1000, 4,
+                [](Config&, DockConfig& d) -> int& { return d.thickness; }, SettingsScope::Appearance);
+        Text(kFixedThicknessUnit, CtlKind::Note, L"px", kMargin + kCaptionDx + 92, 22);
+        NextRow();
+        // --- end round 14 phase 14A ---
 
         Section(kSectionLayer, L"Layer and title", L"guide-settings.md#layer");
         Label(kLayerLabel, L"Layer", L"", kLayerNote);
@@ -787,6 +816,9 @@ protected:
         SetText(kCircleYEdit, d.y == DockConfig::kCentred ? std::wstring() : std::to_wstring(d.y));
         SetCheck(kFullWidth, d.fullWidth);
         SetSpin(kMaxLengthSpin, d.maxLength);
+        // Round 14 phase 14A (LoadInts set the numbers).
+        SetCheck(kFixedLength, d.length > 0);
+        SetCheck(kFixedThickness, d.thickness > 0);
         SetCheck(kReserveSpace, d.reserveSpace);
         SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(d.peekOpacity * 100.0)));
         SetText(kTitleEdit, d.title);
@@ -974,6 +1006,26 @@ protected:
                 d.reserveSpace = GetCheck(id);
                 Changed(SettingsScope::Appearance);
                 break;
+            // --- round 14 phase 14A: checked, the bar's current size (DIPs) becomes the fixed one ---
+            case kFixedLength:
+            case kFixedThickness: {
+                const bool length = id == kFixedLength;
+                int& field = length ? d.length : d.thickness;
+                const bool on = GetCheck(id);
+                if (on == (field > 0)) break;
+                int v = 0;
+                if (on) {
+                    const int now = CurrentBarDip(length);
+                    v = length ? std::clamp(now > 0 ? now : d.maxLength > 0 ? d.maxLength : 600, 96, 8000)
+                               : std::clamp(now > 0 ? now : 72, 24, 1000);
+                }
+                field = v;
+                SetSpin(length ? kFixedLengthSpin : kFixedThicknessSpin, v);
+                EnableDependents();  // the number row; Maximum length goes while a length is fixed
+                Changed(SettingsScope::Appearance);
+                break;
+            }
+            // --- end round 14 phase 14A ---
             case kRotateIcons:
                 d.rotateIcons = GetCheck(id);
                 Changed(SettingsScope::Appearance);
@@ -1081,6 +1133,26 @@ private:
     // The dock this page edits (the window's, looked up by id each time).
     DockConfig& Bound() { return Dock(); }
 
+    // Round 14 phase 14A: the dock's resting bar along (`along`) or across its edge in DIPs, from
+    // its first window (SettingsHost::dockRects, the monitor's DPI); 0 when it has none (parked).
+    int CurrentBarDip(bool along) {
+        if (!Host().dockRects) return 0;
+        const size_t cfg = DockIndex();
+        const bool vertical = !Bound().Polar() && IsVertical(Bound().edge);
+        for (const SettingsDockRect& r : Host().dockRects()) {
+            if (r.cfg != cfg || r.folderWindow || r.widgetWindow || r.monitor < 0) continue;
+            const LONG w = r.bar.right - r.bar.left, h = r.bar.bottom - r.bar.top;
+            if (w <= 0 || h <= 0) continue;
+            UINT dx = USER_DEFAULT_SCREEN_DPI, dy = USER_DEFAULT_SCREEN_DPI;
+            if (FAILED(GetDpiForMonitor(MonitorFromRect(&r.bar, MONITOR_DEFAULTTONEAREST), MDT_EFFECTIVE_DPI, &dx, &dy)) || dx == 0) {
+                dx = USER_DEFAULT_SCREEN_DPI;
+            }
+            const LONG px = (along != vertical) ? w : h;
+            return MulDiv(px, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dx));
+        }
+        return 0;
+    }
+
     // The Layer label's hint (round 6 phase 6A; round 8 phase 8A: one line, the tooltip explains).
     static const wchar_t* LayerNote(DockLayer layer) {
         switch (layer) {
@@ -1150,7 +1222,16 @@ private:
             // Reserve space and peek for a bar on an edge; the maximum length (round 7 phase 7A)
             // for a bar that is not full width (a floating bar too); the title for bars.
             Collapse({kReserveSpace, kPeekLabel, kPeekEdit, kPeekOpacityLabel, kPeekOpacityEdit}, !edgeBar);
-            Collapse({kMaxLengthLabel, kMaxLengthEdit}, !maxLength);
+            // Round 14 phase 14A: Size of the bar (bars only), Fixed length not for a full-width edge
+            // bar; the Maximum length row goes while a fixed length is in effect.
+            const bool fixedLengthOk = !ring && !(edgeBar && d.fullWidth);
+            Collapse(kSectionBarSize, ring);
+            Collapse({kBarSizeLead, kFixedLength, kFixedThickness, kFixedThicknessHint}, ring);
+            Collapse(kFixedLength, !fixedLengthOk);
+            Collapse({kFixedLengthEdit, kFixedLengthUnit}, !fixedLengthOk || d.length <= 0);
+            Collapse({kFixedThicknessEdit, kFixedThicknessUnit}, ring || d.thickness <= 0);
+            const bool maxLengthShown = maxLength && !(fixedLengthOk && d.length > 0);
+            Collapse({kMaxLengthLabel, kMaxLengthEdit}, !maxLengthShown);
             // --- round 12 phase 12F: the reasons beside what does not apply, and the way to it ---
             SetText(kKindReason, kind == 1   ? L"A floating bar sits anywhere on the screen, so it has no edge: no alignment, full "
                                                L"width, reserved space or peek. Choose Bar on an edge for them."
@@ -1184,7 +1265,7 @@ private:
             const DockConfig fresh;
             int n = 0;
             if (edgeBar) n += (d.peekPx != fresh.peekPx ? 1 : 0) + (std::fabs(d.peekOpacity - fresh.peekOpacity) > 1e-9 ? 1 : 0);
-            if (maxLength) n += d.maxLength != fresh.maxLength ? 1 : 0;
+            if (maxLengthShown) n += d.maxLength != fresh.maxLength ? 1 : 0;  // 14A: not while a fixed length hides it
             SetExpanderText(kPositionMore, ChangedTitle(L"Exact offsets", n));
             return;
         }

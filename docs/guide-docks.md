@@ -54,6 +54,8 @@ The **Exact offsets** card, closed until you click its heading (it says "· 1 ch
 - **Peek when hidden** keeps a thin strip of a hidden dock visible, so you can see where it is.
 - **Maximum length** stops the bar from growing past a length. A longer dock scrolls or shrinks its icons.
 
+To keep the bar at one size instead, use the **Size of the bar** card (after Where on the screen). **Fixed length** keeps the bar exactly as long as you say, whatever it holds: the icons sit in it by the alignment, and magnified icons grow inside it instead of making it longer. **Fixed thickness** makes the bar thicker than its icons need, with the icons centred in it. Both are off by default, and a half circle or circle has neither. See [Size of the bar](guide-settings.md#size-of-the-bar).
+
 ## Moving a dock
 
 You can move a dock by dragging it, as well as with the numbers on the Position tab.

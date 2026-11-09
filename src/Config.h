@@ -389,6 +389,14 @@ struct DockConfig {
     // scroll / shrink; "clip" is not capped). Ignored for a ring and a full-width bar. Saved only
     // when set.
     int maxLength = 0;
+    // Round 14 phase 14A: a fixed size for the bar, DIPs, each 0 = automatic (the default; saved
+    // only when set). `length` (96 - 8000) is the bar's length along the edge for an edge bar
+    // that is not full width and for a floating bar (ignored by a ring and a full-width bar; when
+    // set, maxLength is ignored); a longer run overflows inside it as at maxLength. `thickness`
+    // (24 - 1000) is the bar's thickness across the edge for every bar (ignored by a ring); the
+    // automatic thickness is its floor (the icons and titles need their room).
+    int length = 0;
+    int thickness = 0;
     // With autoHide "off" (any edge, full width or not): the dock registers as an app bar so
     // maximized windows stop at its resting bar. The band spans the whole edge of the monitor (an
     // app bar cannot reserve part of an edge). Auto-hide docks reserve nothing (like an auto-hide

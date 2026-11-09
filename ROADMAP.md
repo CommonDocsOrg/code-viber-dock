@@ -1283,6 +1283,54 @@ stacks each column on its own: a card's column and its neighbours never depend o
 cards before it are. The columns can end uneven; that was the trade the user asked for ("always
 stayed in place").
 
+## Round 14 (in progress): a bar of a fixed size; snapping to the screen's corners and centre
+
+Plan: `C:\Users\olson\.claude\plans\windock-round14.md`. From the user's request of 2026-11-09:
+a way to set and lock a dock's dimensions besides the automatic layout (14A), and an app setting,
+on by default, that snaps docks to the screen's corners and centre while they are moved (14B).
+14C is the regression and the only `build\x64-release` rebuild. Round 13's way of working: one
+ordinary agent per phase, light testing, a manual check list per phase, smoke scripts in
+`tools\smoke\`.
+
+### 14A: a bar of a fixed length and thickness (done 2026-11-09)
+
+- **Config**: `docks[].length` (along the edge) and `docks[].thickness` (across it), DIPs, each
+  0 = automatic and written only when set: two independent numbers, so the length can be locked
+  without the thickness (the plan's decision 1; no "lock the current size" flag that would rot as
+  the icons change).
+- **Length**: `Layout::fixedLength` (not a ring, not full width). The room along the edge becomes
+  the length (still no longer than the monitor's room; `maxLength` is ignored, also by QueryState
+  271) and the bar is that long whether the run fits or overflows (scroll / shrink / clip as at
+  `maxLength`). The run is placed inside the bar like a full-width bar's (the same block, without
+  `offset`, which already placed the bar). The bar never grows (decision 3): `growMax` 0, the
+  minimum side slack, `magnifyBar` steady / always off, and in `MoveItems` the background stays at
+  the bar while the magnified run (or a drop gap) grows inside it, the trailing widgets moving with
+  the run as on a full-width bar. Decisions beyond the plan: an anchored fixed-length bar keeps the
+  anchored path unchanged (it is already the room's length, and today it grows into its slack when
+  magnified); a floating bar's anchors also apply with `length` (not only `maxLength`); the
+  "shrink" loop measures a fixed bar by its run (else it would never shrink). Outside "scroll"
+  nothing clips the magnified run at the bar's ends: what outgrows the bar's room crosses its ends
+  into the side slack and the window cuts the rest.
+- **Thickness**: `Layout::thickExtra` = max(0, thickness - the automatic bar), so the automatic
+  thickness is the floor (decision 2). The bar grows by it; the icon row moves `floor(extra / 2)`
+  from the bar's far side, the window `ceil(extra / 2)`, so the room for magnified icons above the
+  row is unchanged and the row is centred across the bar. Following the row: the widgets' row
+  (centred across the whole thickened row), 13G's "under" titles, the dots of a bar without
+  reflections (they stay under the icons instead of moving to the bar's edge), the separators'
+  hairline length; `barCross` (flush widgets on a full-width bar) includes the extra. The slot
+  buttons (round 11) span the thicker bar, as a taller Windows 7 taskbar's buttons do; the sheen,
+  the inside title band (at the far side), the app bar band and `RestBarRect` follow `l.bar` and
+  needed nothing.
+- **Settings**: Position tab card **Size of the bar** (5860 - 5872). Checking a box takes the bar's
+  current size (from `SettingsHost::dockRects` and the monitor's DPI; else `maxLength` / 600 and
+  72); the number rows are collapsed while unchecked, the card for a ring, Fixed length for a
+  full-width bar, and Maximum length while a length is set. The thickness hint got its own id
+  (5872), so the range used is 5860 - 5872 of the 5860 - 5879 block.
+- **Automation**: QueryState 328 (the resting bar's length | thickness << 16 px; App answers -2
+  for what is not a dock), DockCommand 184 / 185 through `App::PanelCommand` (one undo entry,
+  "Changed the bar's length / thickness of *dock*"). Script: `tools\smoke\fixed-size.ps1`; the
+  module gained `Get-DockScale`.
+
 ## Dependencies at a glance
 
 ```

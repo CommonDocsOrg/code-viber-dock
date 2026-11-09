@@ -107,6 +107,8 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadInt(o, L"peekPx", d.peekPx);
     ReadNumber(o, L"peekOpacity", d.peekOpacity);
     ReadInt(o, L"maxLength", d.maxLength);  // round 7 phase 7A
+    ReadInt(o, L"length", d.length);        // round 14 phase 14A
+    ReadInt(o, L"thickness", d.thickness);  // round 14 phase 14A
     ReadInt(o, L"popupGap", d.popupGap);
     s.clear();
     ReadString(o, L"magnifyBar", s);  // round 9 phase 9A
@@ -1113,6 +1115,8 @@ void Config::Sanitize() {
         d.edgeGap = std::clamp(d.edgeGap, 0, DockConfig::kMaxEdgeGap);  // round 12 phase 12E
         d.peekPx = std::clamp(d.peekPx, 0, 64);
         d.maxLength = d.maxLength <= 0 ? 0 : std::clamp(d.maxLength, 96, 8000);  // round 7 phase 7A
+        d.length = d.length <= 0 ? 0 : std::clamp(d.length, 96, 8000);           // round 14 phase 14A
+        d.thickness = d.thickness <= 0 ? 0 : std::clamp(d.thickness, 24, 1000);  // round 14 phase 14A
         d.popupGap = std::clamp(d.popupGap, 0, 64);
         if (!(d.peekOpacity >= 0.05)) d.peekOpacity = d.peekOpacity >= 0.0 ? 0.05 : 0.5;  // also NaN
         d.peekOpacity = std::min(d.peekOpacity, 1.0);
@@ -1581,6 +1585,9 @@ std::wstring Config::ToJson(bool windowSizes) const {
                  (d.y != DockConfig::kCentred ? L", \"y\": " + Num(d.y) : L"") +
                  // Round 7 phase 7A: only when not the defaults.
                  (d.maxLength > 0 ? L",\n      \"maxLength\": " + Num(d.maxLength) : L"") +
+                 // Round 14 phase 14A: only when set (0 = automatic).
+                 (d.length > 0 ? L",\n      \"length\": " + Num(d.length) : L"") +
+                 (d.thickness > 0 ? L", \"thickness\": " + Num(d.thickness) : L"") +
                  (d.popupGap != DockConfig::kDefaultPopupGap ? L",\n      \"popupGap\": " + Num(d.popupGap) : L"") +
                  // Round 9 phase 9A: only when not the default.
                  (d.magnifyBar != MagnifyBar::Steady ? L",\n      \"magnifyBar\": " + Quote(ToString(d.magnifyBar)) : L"") +

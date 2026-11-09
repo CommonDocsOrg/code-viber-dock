@@ -64,6 +64,7 @@ public static class Native {
     [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetMenuStringW(IntPtr m, uint id, StringBuilder sb, int n, uint flags);
     [DllImport("user32.dll")] public static extern IntPtr GetSubMenu(IntPtr m, int pos);
     [DllImport("user32.dll")] public static extern bool GetMenuItemRect(IntPtr h, IntPtr m, uint pos, out RECT r);
+    [DllImport("user32.dll")] public static extern uint GetDpiForWindow(IntPtr h);  // round 14 phase 14A (Get-DockScale)
 
     public static string ClassOf(IntPtr h) { var sb = new StringBuilder(256); GetClassNameW(h, sb, 256); return sb.ToString(); }
     public static string TextOf(IntPtr h) { var sb = new StringBuilder(512); GetWindowTextW(h, sb, 512); return sb.ToString(); }
@@ -179,6 +180,14 @@ function Get-DockWindow {
     <# The HWND of dock i's window (QueryState 51). #>
     param([int]$Dock = 0)
     [IntPtr](Send-WinDockMessage -Name QueryState -WParam 51 -LParam (ConvertTo-LParam $Dock 0))
+}
+
+function Get-DockScale {
+    <# Round 14 phase 14A: dock i's scale (its window's DPI / 96; 1.0 at 100 %), for DIP <-> px checks. #>
+    param([int]$Dock = 0)
+    $dpi = $script:N::GetDpiForWindow((Get-DockWindow -Dock $Dock))
+    if ($dpi -le 0) { return 1.0 }
+    [double]$dpi / 96.0
 }
 
 function Get-DockBarRect {
