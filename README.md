@@ -29,19 +29,41 @@ What it does (rounds 1 to 4 are complete; ROADMAP.md has the history, STATUS.md 
   the clock, an agenda widget, reminder banners.
 - **Desktop folder windows** (Fences-like): titled panels on the desktop showing a folder, with the
   shell's menu, drops, rename, rules that sort the Desktop's files into them.
-- **Settings**: a window with a page for every part (see Settings); everything is also in
-  `config.json`.
+- **Settings**: App settings and Item settings windows and a panel per dock, with a page for every
+  part (see Settings); everything is also in `config.json`.
+
+Round 12 (customize the dock on the dock) added:
+
+- **Undo and Saved**: every change, made anywhere, is one step of a 50-step undo / redo (Ctrl+Z /
+  Ctrl+Y, the dock menu's first entry); a visible save state with actionable save errors; Keep /
+  Revert after a change that moves or hides a dock, Keep / Cancel previews for layouts and looks.
+- **Dock settings beside the dock**: a dock's settings are a panel attached to it (no caption,
+  resized by its edges, closed by Esc or a click elsewhere), so the real dock is the preview.
+- **Customize mode** on the dock: an outline, remove badges, plain drag to reorder, anchor targets,
+  "+" slots, an edit bar (Saved, Undo, Add items, Settings, Done), and the **drawer grid** beside the
+  dock (search, chips, live previews; click to add, drag to place, drag a widget onto the desktop).
+  A plain drag on the bar moves the dock (`offset`, `edgeGap`).
+- **Looks per dock**: a dock uses the app look or has its own (`docks[].theme`); **Quick look**
+  (tint, transparency, corners, icon effects, dots), a gallery of looks, theme files you can save,
+  import, export and apply to other docks.
+- **Layouts and looks**: the chooser's Layouts (the built-in presets), Looks and Mine (saved docks in
+  `layouts\`), "Keep my pinned apps and folders", "Keep my current look".
+- **Names and titles**: a dock's `name` apart from its id (rename in place, Duplicate dock), titles
+  shown always, on hover or never, inside or outside the bar, from the name.
+- **Quick setup** on the first run (docks, looks, behaviour, done) and three tips on the dock.
+- **Settings on a large display**: sizes from the display, two columns from 1000 DIPs, controls
+  capped at 360 DIPs, one sentence per page, the reason beside a control that does not apply.
 
 ## Documentation
 
 Guides for people using WinDock (the same pages open inside the app: F1 in any settings window,
 the "?" beside each card, the Help row of App settings, the dock menu's Help…):
 
-- [Quick start](docs/quick-start.md): five minutes from the first start to your own dock.
-- [Settings guide](docs/guide-settings.md): every settings window, page, tab and card.
-- [Docks and displays](docs/guide-docks.md): placement kinds, layers, floating docks, the dashboard, several displays, folder windows, standalone widgets, presets.
-- [Items and widgets](docs/guide-items.md): apps, running apps, folders and groups, the clock, weather, the tray, notifications, widgets.
-- [Troubleshooting](docs/troubleshooting.md): the taskbar is missing, crashes, full-screen games, a missing dock, performance, widget errors, resetting.
+- [Quick start](docs/quick-start.md): five minutes from the first start (Quick setup) to your own dock, customized on the dock.
+- [Settings guide](docs/guide-settings.md): every settings window and the dock's panel, page, tab and card; undo and Saved.
+- [Docks and displays](docs/guide-docks.md): placement kinds, moving a dock, names and titles, layers, floating docks, the dashboard, several displays, folder windows, standalone widgets, layouts and looks.
+- [Items and widgets](docs/guide-items.md): adding items from the drawer, customizing a dock, apps, running apps, folders and groups, the clock, weather, the tray, notifications, widgets.
+- [Troubleshooting](docs/troubleshooting.md): the taskbar is missing, crashes, full-screen games, a missing dock, lost changes, save errors, performance, widget errors, resetting.
 - [All guides](docs/README.md).
 
 For developers: the [widget developer reference](docs/widgets.md) (writing your own widgets); this
@@ -89,7 +111,10 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
     change's label; DockCommand 157) and a separator come first (see Settings, "Undo, Saved, Keep /
     Revert, Keep / Cancel"). The tray-icon menu starts with it too; an item menu's Dock submenu
     does not.
-  - **Dock settings…**: this dock's own settings window (see Settings), or brings it to the front.
+  - Round 12 phase 12D: **Customize this dock** (**Done customizing** while it is on): customize
+    mode on this dock (see Settings, "Customize mode").
+  - **Dock settings…**: this dock's own settings panel beside it (see Settings), or brings it to the
+    front.
   - **Add** submenu: **Clock**, **Weather**, **Running apps** (greyed while the dock has one),
     **Tray (notify icons)**, **Notification centre** (one each per dock), **Separator** (after the
     last pin); these are greyed while the dock is locked. Then **Apps, folders and more widgets…**
@@ -105,6 +130,9 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
   - **Auto-hide** submenu (radio items): **Off**, **Always**, **When a window overlaps**. Sets
     `autoHide` (`"off"`, `"always"`, `"intelligent"`) immediately and saves it.
   - **Lock dock** (checkmark; see Lock dock below).
+  - Round 12 phase 12C: **Rename dock…** (its panel with the name edited in place), **Duplicate
+    dock** (a copy named "<name> copy" on the next free edge of the same display) and **Save dock as
+    layout…** (a name dialog; the layout goes to `layouts\`, see Layouts and looks).
   - **All docks** submenu: **Show dashboard** (checkmark; see Dashboard), and with more than one
     dock **Lock all docks** / **Unlock all docks**.
   - **App** submenu: **App settings…** (the App settings window, the one for every dock; it was
@@ -115,7 +143,8 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
     it) and **Show Windows taskbar temporarily** (was "Show taskbar until re-enabled"; greyed while
     the taskbar is shown): brings the taskbar back for this session only. "Hide taskbar" shows
     unchecked until you check it again; the config is not changed, so the next start hides the
-    taskbar again. `WinDock.exe --restore-taskbar` does the same for a running dock.
+    taskbar again. `WinDock.exe --restore-taskbar` does the same for a running dock. Round 12
+    phase 12G: last, **Quick setup…** (see Quick setup under Settings).
   - **Tools** submenu: **Open config file**, **Reload config** (see Configuration), **Reload
     widgets**, **Widget console…** (both greyed while no dock shows a script widget), **Task
     Manager** (round 7: Windows' Task Manager, `taskmgr.exe`, which asks for elevation by itself as
@@ -1587,8 +1616,8 @@ but the configuration, and opening one that is already open brings it to the fro
 - **App settings** (at most one; called "Global settings" until round 10, `SettingsKind::Global`
   in the code): what applies to every dock. **App settings…** in the tray-icon menu and the dock
   menu's App submenu, `WinDock.exe --settings` (asks the running dock to open it, or starts the
-  dock and opens it), `WinDock.DockCommand` 107 and **⋯** > **App settings…** in a dock's window
-  header open it. Its title bar reads "App settings" (was "WinDock settings"), a line over the
+  dock and opens it), `WinDock.DockCommand` 107 and **App settings…** in a dock's panel header
+  open it. Its title bar reads "App settings" (was "WinDock settings"), a line over the
   pages "App settings · apply to every dock".
 - **Dock settings** (one per dock; any number open): one dock only. **Dock settings…** in that
   dock's menu, the tray-icon menu's **Docks** > "<id> settings…", **Open settings** (or a double
@@ -1662,9 +1691,9 @@ changed", like a card title with a chevron): it keeps its text when open and its
 the heading when closed (the Themes field groups, Calendar feeds' Add or edit a feed).
 
 **Common first, app defaults and the two resets** (round 10 phase 10D). Every Dock window tab
-starts with its common controls: Appearance's first card **Theme and size** holds This dock's
-theme, Icon size and Magnification; Position leads with Kind, Display and Edge; Behaviour with
-Auto-hide. Fine tuning sits in heading expanders named for what they hold, closed whenever a
+starts with its common controls: Look's first card (**Look and size** since round 12 phase 12B; was
+Appearance's **Theme and size**) holds This dock's look, the gallery, Icon size and Magnification;
+Position leads with Kind, Display and Edge; Behaviour with Auto-hide. Fine tuning sits in heading expanders named for what they hold, closed whenever a
 window opens: Position **Exact offsets** (Peek when hidden, Peek opacity, Maximum length: only the
 rows the placement kind uses; the card is gone for a half circle and a circle; round 12 phase 12E:
 Position x / y and the offset moved to the first card, **Where on the screen**, with the new
@@ -1681,8 +1710,11 @@ Popups card and the Size card are gone (their rows are in the expanders above). 
 settings pages are shorter than two screens and were left as they were. The settings search
 finds every control in a closed expander and opens it on Go to (as since 9B).
 
-Where a dock or item value falls back to an app-wide one, the control says so: a dock's theme
-(**Use app default (Dark)**, the first entry of This dock's theme: `themePreset` empty), a
+Where a dock or item value falls back to an app-wide one, the control says so: a dock's look
+(round 12 phase 12B: the hint of **This dock's look** reads "The app look (Dark)" while
+`themePreset` is empty, "Its own: Glass · 3 values changed" while the dock has its own look; the ↺
+beside it is **Use the app look again**; until 12B the row was a drop-down whose first entry read
+"Use app default (Dark)"), a
 calendar feed's reminder (**Use the default reminder (15 min)** in the feed form: `reminderMin` 0,
 the value of Display > Default reminder in brackets; cleared, the minutes row (1 - 1440) appears)
 and a script widget's place (the Place hint "Its own place" / "This dock's Weather item's" / "The
@@ -1704,7 +1736,8 @@ the focus (in the order it lists them), a Dock window's tab strip with Left / Ri
 window. Tab moves into the page, Esc
 closes the window, Enter applies the text in an edit box. Round 12 phase 12A: **Ctrl+Z** /
 **Ctrl+Y** (or Ctrl+Shift+Z) undo / redo (below; an edit box that can undo its own typing keeps
-Ctrl+Z), Esc cancels an open preset preview instead of closing the window.
+Ctrl+Z), Esc cancels an open preset preview instead of closing the window. On the dock in customize
+mode there is no Ctrl+Z: the edit bar's **Undo** and the dock menu's first entry undo there.
 
 **Undo, Saved, Keep / Revert, Keep / Cancel** (round 12 phase 12A; guide-settings "Undo and Saved"):
 
@@ -1743,8 +1776,10 @@ Ctrl+Z), Esc cancels an open preset preview instead of closing the window.
   screen, a Ctrl+drag to another edge) the same bar is a small topmost banner beside the dock
   (`WinDock.KeepBanner`; never activated). App settings > General > **Changes** > **Ask to keep a
   dock that moved or hid** (`settings.confirmPlacement`) turns it off.
-- **Keep / Cancel**: applying a preset from the chooser (Apply, Add dock; Quick setup is one
-  preview from its opening to Finish / Cancel) or DockCommand 153 is a preview: the dock changes at once, the chooser
+- **Keep / Cancel**: applying a layout or a look from the chooser (Apply, Add dock; any of its kinds
+  Layouts / Looks / Mine since round 12 phase 12C), a tile picked in a theme gallery (12B; Themes
+  or a dock's Look tab), Quick setup (one preview from its opening to Finish / Cancel, 12G) or
+  DockCommand 153 is a preview: the dock changes at once, the chooser
   closes, a bar says "Previewing Modern on main." with **Keep** and **Cancel**. While it is open
   nothing is written (the save is held) and changes make no entries; Keep records one entry
   ("Applied preset Modern") and saves, Cancel, Esc in the window or closing the settings window
@@ -1813,24 +1848,38 @@ Customize this dock …", "While customizing, drag an empty part of the dock …
 customize mode entered, the dock dragged) is skipped; `settings.tipsShown` keeps what was seen.
 About > **Show the tips again** shows all three again.
 
-**Presets** (round 9): predefined dock setups to start from. **App settings > Docks and
-displays > Add ▾ > Dock from a preset…** adds a new dock from one (its id is the preset's, made
-unique: `modern`, `modern2` …; on the primary display), **⋯ > Apply a layout or look…** in a Dock window's
-header turns that dock into one, and Quick setup's first step offers them for each of its docks
-(round 12 phase 12G; before it the welcome dialog did, on the first dock). The chooser (720 × 480 DIPs, dark like the settings windows, modal to
-the window it was opened from) lists the presets at the left with a one-line tagline; at the right
-the chosen one's name and description, a preview (a small monitor with the dock where it sits, a
-line on where and how it hides, and its items in order) and a strip that draws the bar in the
-preset's theme with its icon size and magnification (sample icons: it shows the look, not your
-apps), then **Keep my pinned apps and folders** (a new dock: **Copy my pinned apps from the first
-dock**; on by default). Up / Down choose, Enter (or a double click) applies, Esc cancels. Applying replaces every setting of the dock with the preset's (a setting
-the preset does not name goes back to its default) except its id, colour and display; its items
-become the preset's, with your apps, folders, groups, separators and the Recycle Bin at the
-preset's "your pins" place when the box is checked (their item positions / offsets are cleared so
-they stay there), or gone when not; a preset without that place (performance, dashboard) says so
-instead of the box. It is saved, every window refreshes and the dock flashes. Clock and weather
-items start from your defaults (the top-level `clock` / `weather`), with the preset's own keys
-over them.
+**Layouts and looks** (round 9 as "Presets"; round 12 phase 12C: three kinds; guide-docks "Layouts
+and looks"): predefined and saved dock setups to start from, and looks to apply. **App settings >
+Docks and displays > Add ▾ > Dock from a preset…** adds a new dock from a built-in layout and
+**Dock from a layout…** from a saved one (the chooser opens on Mine; the new dock's id is the
+layout's, made unique: `modern`, `modern2` …; on the primary display), **⋯ > Apply a layout or
+look…** in a dock's panel header (was "Apply a preset…") changes that dock, and Quick setup's first
+step offers the built-in layouts for each of its docks (round 12 phase 12G; before it the round 9
+welcome dialog did, on the first dock). The chooser (720 × 480 DIPs, dark like the settings
+windows, modal to the window it was opened from) has a kind row at its top: **Layouts** (the
+built-in presets below), **Looks** (every built-in theme and theme file, each with a tagline from
+its Quick look values, "Glass · 40 % transparent · round corners · glow"; applying one changes only
+the dock's look: "What it changes" / "What stays" at the right) and **Mine** (the saved layouts in
+`layouts\`, see Configuration; **Rename…**, **Delete** (asks first; docks made from it keep their
+settings), **Export…** (a save dialog: a copy of the file); "Nothing saved yet. Use Save dock as
+layout… in the dock menu." while empty; a line names the files it skipped and why). A new dock
+offers Layouts and Mine only. The list shows the chosen kind's entries with a one-line tagline; at
+the right the chosen one's name and description, a preview (a small monitor with the dock where it
+sits, a line on where and how it hides, and its items in order) and a strip that draws the bar in
+its look with its icon size and magnification (sample icons: it shows the look, not your apps),
+then **Keep my pinned apps and folders** (a new dock: **Copy my pinned apps from the first dock**;
+on by default) and **Keep my current look** (12C; off by default). Up / Down choose, Enter (or a
+double click) applies, Esc cancels. Applying a layout replaces every setting of the dock with the
+layout's (a setting it does not name goes back to its default) except its id, name, colour and
+display; its items become the layout's, with your apps, folders, groups, separators and the Recycle
+Bin at the layout's "your pins" place when the box is checked (their item positions / offsets are
+cleared so they stay there), or gone when not; a layout without that place (performance, dashboard)
+says so instead of the box. Round 12 phase 12A: it is a Keep / Cancel preview (see above): the dock
+changes at once, the chooser closes and nothing is saved until Keep. Clock and weather items start
+from your defaults (the top-level `clock` / `weather`), with the layout's own keys over them.
+**Save dock as layout…** (the dock menu, the panel's ⋯, Docks and displays' **Save as layout…**)
+asks for a name and writes the dock's place, behaviour, items and look to `layouts\<name>.json`
+(asking before it replaces one); it is listed under Mine at once.
 
 | Preset | For | Dock | Items |
 | --- | --- | --- | --- |
@@ -1843,9 +1892,11 @@ over them.
 | **Floating performance** (`performance`) | system load at a glance | floating at the top right (`x` 16000 = against the right end, `y` 8), facing the top edge (popups open downward), on the desktop under your windows, 40 px, no magnification, locked | System monitor, System overview, Battery, clock (no pins) |
 | **Desktop dashboard** (`dashboard`) | a desktop panel | floating in the middle, on the desktop under your windows, 56 px, no magnification | Analog clock, weather, Agenda, Notes (no pins) |
 
-A theme preset's fields (the glow, the reflection) are global (App settings > Themes), so a preset can
-only pick a dock theme preset (`themePreset`): Modern uses Glass, Minimal Solid, Windows 7 Aero
-glass. The System tray item is not in the Sidebar (it shows only a dim dot while the notification
+A layout picks a theme preset for the dock (`themePreset`): Modern uses Glass, Minimal Solid,
+Windows 7 Aero glass. Since round 12 phase 12B that gives the dock its own look (the preset's values;
+the app look's inline fields no longer apply to it), unless Keep my current look is checked; before
+12B the app's inline fields applied on top of it. A saved layout carries the dock's own look (its
+preset and fields) or "app". The System tray item is not in the Sidebar (it shows only a dim dot while the notification
 area takeover is off): Volume is there instead. Windows 7 has it: applying a preset with a tray
 item (or adding a dock from one) turns the takeover (`tray.enabled`) on, as adding the tray item
 from the dock menu or the drawer does (round 11 phase 11C); App settings > Tray icons turns it off.
@@ -1878,7 +1929,8 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   open its own window; drag it along its edge (it snaps to the centre and the ends), onto another
   edge or onto another display: it moves when you let go. Round 8 phase 8D: the toolbar has
   **Add ▾** (a menu: **Dock**, **Floating dock** (round 6 phase 6A), **Dock from a preset…**
-  (round 9: the preset chooser, see Presets above), **Folder window…**,
+  (round 9: the chooser, see Layouts and looks above), **Dock from a layout…** (round 12 phase 12C:
+  the chooser on Mine), **Folder window…**,
   **Standalone widget ▸** (6B: a submenu of the installed widgets)), the selected dock's line
   (while dragging: where it would drop) and at the right **Lock all docks**, a check box that is
   checked while every dock and standalone widget is locked (folder windows have no lock; a mix
@@ -1887,16 +1939,30 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   **Disable** / **Enable**: a disabled entry (`docks[].enabled` false, any kind) keeps its settings
   but has no window (listed as "Disabled", not drawn; its weather stops fetching, a disabled dock's
   tray gives the notify icons back to Explorer, a disabled folder window's rules stop), until it is
-  enabled again; the last enabled dock cannot be disabled (greyed). A floating dock is drawn as
+  enabled again; the last enabled dock cannot be disabled (greyed). Round 12 phase 12C: a second
+  row with **Rename** (the selected dock's name edited in place in the list, as F2; Enter keeps it,
+  Esc cancels; docks only) and **Save as layout…** (see Layouts and looks); the list and the drawing
+  show each dock's name (`docks[].name`, else its id), and Duplicate names the copy "<name> copy",
+  gives it the next palette colour and puts it on the next free edge of the same display (appended
+  to `docks`). A floating dock is drawn as
   its bar where it is (labelled with its layer); dragging it sets its `x` / `y`. A standalone
   widget is a small rounded box where its window is (its name inside, or under it when
   selected), listed as "Standalone widget" with its widget and size; dragging it moves it (its
   display too).
-- **Themes**: a **Theme** card with the global theme (the built-in presets, then your theme files
-  from the themes folder by name; a `preset` that is not found is listed as "<id> (missing)"; its
-  hint counts your changes: "3 values changed") and a **⋯** button (round 8 phase 8D: a menu with
-  **Export current theme…**, **Open themes folder** and **Reset all to preset**, greyed while
-  nothing is changed), then one card per group of theme fields (see [Themes](#themes)): Bar (round
+- **Themes** (round 12 phase 12B / 12F: "The app look: the colours and effects every dock uses
+  unless it has a look of its own"; the preview strip sits above the cards): first **Quick look**
+  (open; see Quick look below), then a **Theme** card with the app look's theme as a **gallery**
+  (`WinDock.SettingsGallery`: a tile per built-in preset, then your theme files from the themes
+  folder by name, each a small dock drawn in that theme; arrow keys move, Enter or a click picks one
+  as a Keep / Cancel preview; the tile in use is framed, "Current · 3 changed"; a `preset` that is
+  not found is listed as "<id> (missing)"; the drop-down of earlier versions, 2402, stays hidden for
+  automation; the hint counts your changes: "3 values changed") and a **⋯** button (round 8 phase
+  8D; round 12 phase 12B: a menu with **Save as theme…** (a name dialog: `themes\<name>.json` with
+  the look's values, asking before it replaces one; the look then uses it as its theme), **Import
+  theme…** (an open dialog: a theme file is copied into the themes folder), **Export theme…** (was
+  Export current theme…), **Apply to docks…** (a check list of docks: each checked one gets this
+  look as its own), **Open themes folder** and **Reset all to preset**, greyed while nothing is
+  changed), then one card per group of theme fields (see [Themes](#themes)): Bar (round
   11 phase 11A: with Sheen, Gap between icons and Bar padding), Name label, Indicator dots, **Slot
   buttons** (round 11 phase 11A: Slot style, then the frames' colours, corner radius and the light
   under the pointer, those rows hidden while Slot style is None; a one-line note; its "?" opens the
@@ -1912,7 +1978,15 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   glow (mode, colour, radius, strength), the reflection (on / off, **Clip the reflection to the
   bar** right under it, height, opacity) and the 3D perspective (on / off, angle); see
   [Icon effects](#icon-effects). A changed field shows a small **↺** at the end of its row (its
-  tooltip: "Reset to the preset's value"). A dock's own preset is on its window's Appearance tab.
+  tooltip: "Reset to the preset's value"). A dock with its own look is edited on its panel's Look
+  tab with the same cards (round 12 phase 12B; see Dock settings below). **Quick look** (both
+  editors' first card): **Tint** (a swatch and `#RRGGBB`: the bar's fill and acrylic tint take the
+  hue at their own alpha, the label background and slot buttons in proportion), **Transparency**
+  (0 % solid - 100 % clear: the bar background's and the tint's alpha together), **Corners**
+  (Square / Soft / Round: `cornerRadius` 0 / 8 / 16 and `slotCornerRadius` 0 / 3 / 6; "Mixed"
+  when the radius was set to something else), **Icon effects** (Off / Glow / Reflection / Glow and
+  reflection) and **Indicator dots** (off: the three dot colours clear); each writes its fields
+  (`Theme::Derived`) and has a ↺ back to the preset's values.
 - **Animation**: speed (Off, then 0.25× to 4× on a logarithmic slider), hide style (slide and
   fade, slide, fade, none), launch feedback (bounce until the app opens, hop once, pulse, none),
   magnification falloff (smooth / linear), easing (ease out, linear, spring), the name label fade
@@ -1947,21 +2021,29 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   file**, **Reload config**, the renderer in use, **Run quick setup again** (round 12 phase 12G;
   was round 9's Show the welcome dialog: Quick setup, see above) and **Show the tips again**.
 
-The Themes and Animation pages have the **preview strip** under them (the global theme).
+The Themes and Animation pages have the **preview strip** (the app look): above the cards on Themes
+(round 12 phase 12F), under the page on Animation.
 
-**A Dock window** edits exactly one dock. Its **header** never scrolls (round 8 phase 8B: one
-72 DIP row): a strip and the id in the dock's identity colour (`docks[].color`, else a palette by
-the dock's place in `docks`), the chips on one line right of the id (its edge, its display, how
-many items, Shown / Parked, Locked; chips that do not fit are left out from the right) and at
-the right **Flash** (the dock shows itself and its border pulses in its colour for about 1.5 s),
-**Lock** / **Unlock** and **⋯** (a menu: round 12 phase 12A **Undo “`label`”**, **Redo
-“`label`”**, **Revert this window…**, then **Find a setting…** and, round 9 for a dock, **Apply a
-preset…**: see Presets above), left of the buttons the save state (**✓ Saved**; see Undo, Saved
-above); the title bar ("main · Dock
-settings · Bottom · Primary") and the window border take the dock's colour (Windows 11). The
-subtitle line and the monitor silhouette of earlier versions are gone from the header (the
-silhouette is on the Position tab). Tabs (round 8 phase 8B: Contents, Position, Appearance,
-Behaviour, Running apps; the Theme tab became Appearance):
+**A dock's settings** (the Dock window until round 12 phase 12E; now the panel beside the dock,
+see the list at the top of Settings; a folder window's and a standalone widget's keep the captioned
+window described after this list) edit exactly one dock. The **header** never scrolls. Round 12
+phase 12E: two rows. The first: the dock's name in its identity colour (`docks[].color`, else a
+palette by the dock's place in `docks`; round 12 phase 12C: `docks[].name`, else the id; a click on
+it, F2 or ⋯ > Rename dock edits it in place: Enter or leaving the box keeps it, Esc cancels), the
+chips on one line right of it (its edge, its display, how many items, Shown / Parked, Locked; chips
+that do not fit are left out from the right) and **✕** (Close, as Esc) at the right end. The
+second: the save state (**✓ Saved**; see Undo, Saved above), **Customize** (round 12 phase 12D:
+customize mode on the dock, see Customize mode below), **App settings…** and **⋯** (a menu: round
+12 phase 12A **Undo “`label`”**, **Redo “`label`”**, **Revert this window…** (back to the state
+the panel opened with, asking first), then **Find a setting…**, **Apply a layout or look…** (was
+round 9's Apply a preset…; see Layouts and looks above), **Save dock as layout…**, **Rename dock**
+(F2), **Duplicate dock**, and **Flash this dock** (the dock shows itself and its border pulses in
+its colour for about 1.5 s) and **Lock this dock** / **Unlock this dock**, which were header
+buttons in the captioned window). The captioned Dock window of rounds 5 - 11 had one 72 DIP header
+row with Flash, Lock / Unlock and ⋯ and a title bar in the dock's colour ("main · Dock settings ·
+Bottom · Primary"); the monitor silhouette is on the Position tab. Tabs (round 8 phase 8B:
+Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: Appearance became
+**Look**), each with one sentence under it (12F):
 
 - **Contents** ("Items on the dock"; round 5 phase C, it replaces the Dock contents list of
   earlier versions):
@@ -2006,16 +2088,19 @@ Behaviour, Running apps; the Theme tab became Appearance):
     "Shifts this item and the ones after it in its group"; Enter, focus loss or the up-down
     apply it). On a dock with anchors, an item moved on the strip (drag, Ctrl+arrows, Move left /
     right) or dropped / added between two items of another group joins that group.
-  - **Add to the dock** (the drawer, on the right, 340 DIPs wide; round 8 phase 8B: always
-    shown, and the only place that adds: the Add app… / Add folder… / Add separator / Add Recycle
-    Bin buttons under the strip and the Hide / Show widget drawer button are gone): a search box
-    (name, note or id), **Apps and folders** (**App or shortcut…**: pick one or more `.lnk` /
-    `.exe` files; a shortcut is pinned as the shortcut, apps that are already pinned are skipped;
-    **Folder…**: a folder picker; both open their dialog and pin after the last pin), **Built
-    in** (Running apps, Clock, Weather, System tray, Notifications, Recycle Bin, Separator: their
-    glyphs) and **Script widgets** (every installed widget with its version and, where the row
-    has room, the first line of its description). Round 6 phase 6E: each script widget's row
-    shows the widget **live** in a 72 x 44 DIP area at its left: its own `draw()` once, on a
+  - **Add to the dock** (the drawer, on the right; round 8 phase 8B: always shown, and the only
+    place that adds: the Add app… / Add folder… / Add separator / Add Recycle Bin buttons under the
+    strip and the Hide / Show widget drawer button are gone). Round 12 phase 12D: a **grid of
+    tiles** (the same control as customize mode's drawer popup, `WinDock.SettingsStrip` in drawer
+    mode with `DrawerCatalog`; until 12D a list of rows with Add and Desktop buttons): a search box
+    (name, note or id), the filter chips **All** / **Built in** / **Widgets** / **Apps and
+    folders**, then the tiles: **App or shortcut…** (pick one or more `.lnk` / `.exe` files; a
+    shortcut is pinned as the shortcut, apps that are already pinned are skipped) and **Folder…** (a
+    folder picker; both open their dialog and pin after the last pin; a click only, no drag), the
+    built-ins (Running apps, Clock, System tray, Notification centre, Recycle Bin, Separator; the
+    weather is the Weather (script) widget since the native item was retired) and every installed
+    widget with its version and its description's first line. Round 6 phase 6E: each widget's tile
+    shows the widget **live**: its own `draw()` once, on a
     virtual 48 DIP bottom dock in the global theme's colours, with the providers answering
     sample data (62 % volume, "Sample Song", 3 notifications, two events today, a sunny 21 °C,
     CPU 37 %: docs/widgets.md "Preview mode"), over a small panel in the theme's background
@@ -2024,16 +2109,17 @@ Behaviour, Running apps; the Theme tab became Appearance):
     widget), once per settings window; a theme change, Reload widgets, a watched widget's files
     or `DockCommand` 148 render them again. The inspector shows a selected widget item's preview
     larger (fitted into 200 x 100 DIPs) above its name, its buttons beside it.
-    Drag a row (not the two Apps and folders rows: they open a dialog) onto the strip to put a
-    new item there (a clock or weather item starts from the defaults, see Configuration; a
-    separator too), or press its **Add** (or Enter on the focused row) to add it where the dock
-    menu's Add widget puts it (a separator / the Recycle Bin after the last pin). A script
-    widget's row also has **Desktop** (round 6 phase 6B): it becomes a
-    [standalone widget](#standalone-widgets) on this dock's display and its window opens.
-    The running apps, the tray, the notification centre and the Recycle Bin are greyed ("Already
-    on the dock") while the dock has one. **Manage installed widgets in App settings > Widget library**
-    opens that page. Round 8 phase 8A: the **Lock the dock** check box is gone (the header's
-    **Lock** does it).
+    Drag a tile (not App or shortcut… / Folder…: they open a dialog) onto the strip, or onto the
+    dock itself (its drop marker shows where), to put a new item there (a clock starts from the
+    defaults, see Configuration; a separator too), or click it (or Enter on the focused tile) to
+    add it at the end, where the dock menu's Add puts it (a separator / the Recycle Bin after the
+    last pin). A widget's tile also has a small monitor button (round 6 phase 6B's **Desktop**), and
+    a widget tile dragged onto the desktop does the same: it becomes a
+    [standalone widget](#standalone-widgets) on this dock's display and its window opens. The
+    running apps, the tray, the notification centre and the Recycle Bin are greyed and say "On the
+    dock" (was "Already on the dock") while the dock has one. **Manage installed widgets in App
+    settings > Widget library** opens that page. Round 8 phase 8A: the **Lock the dock** check box
+    is gone (the header's **Lock** does it; since 12E ⋯ > Lock this dock).
 - **Position** (round 8 phase 8B: the placement kind first, then only the rows that apply; the
   others are hidden, not greyed). A **Placement** card: **Kind** (**Bar on an edge** / **Floating
   bar** / **Half circle** / **Circle**: it sets `shape` and `floating`; a floating bar never
@@ -2058,19 +2144,42 @@ Behaviour, Running apps; the Theme tab became Appearance):
   (after Full width), Title in the **Layer and title** card, and Position x / y, Offset, Peek when
   hidden, Peek opacity and Maximum length in the closed heading expander **Exact offsets**. Round 9: a floating dock's Behaviour tab shows, instead of the
   auto-hide choices, a line saying why it has none and a **Position tab** link (no greyed
-  controls).
-- **Appearance** (round 8 phase 8B: the Theme tab's contents and Behaviour's Size card; round 10
-  phase 10D: one first card **Theme and size**, with range and Bar while magnified in the closed
-  **Magnification details** expander): **This dock's theme** ("Use app default (<the app's
-  theme>)", was "Same as all docks"; the presets and theme files; a ↺ while the dock has its own)
-  and a link to Global >
-  Themes, where the theme's fields are (they apply to every dock, on top of a dock's own preset);
-  **Size**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
+  controls). Round 12 phase 12E: the first card is **Where on the screen** (same id and "?" topic
+  as Placement): Kind, Display, Edge, Alignment, then **Distance from the centre** (read "from the
+  left / top / right / bottom" by alignment; a slider -400 - 400 and a box -16000 - 16000: `offset`)
+  and **Distance from the screen edge** (a slider and a box, 0 - 200: `edgeGap`; greyed with "A
+  full-width bar sits on its edge." for a full-width bar), a note "You can also drag the dock while
+  customizing. It snaps to the centre.", for a floating bar or a circle **Position x** / **Position
+  y** with **Centre it** (empties both), then Full width, Reserve screen space, the ring rows and
+  When the icons do not fit. Exact offsets keeps Peek when hidden, Peek opacity and Maximum length.
+  Round 12 phase 12C: the **Layer and title** card has Layer, **Show the title** (Never / On hover /
+  Always: `titleShow`), **Use the dock's name** (`titleUseName`; the Title box is collapsed while
+  it is on), **Title** and **Where** (Outside the bar / Inside the bar: `titlePlace`; disabled on a
+  vertical dock or a ring with "Vertical docks draw it outside" / "A ring draws it outside"). Round
+  12 phase 12F: a line says why rows are missing for a floating bar, a half circle or a circle
+  ("… Choose Bar on an edge for them."), why Reserve screen space is greyed ("Reserving space needs
+  auto-hide off (Behaviour tab)." / "… the Normal layer …") and that the peek needs auto-hide.
+- **Look** (round 12 phase 12B; it was **Appearance** from round 8 phase 8B, the Theme tab's
+  contents and Behaviour's Size card; round 10 phase 10D: one first card, then called **Theme and
+  size**, with range and Bar while magnified in the closed **Magnification details** expander). The
+  first card is **Look and size**: **This dock's look** (its hint "The app look (Dark)" or "Its
+  own: Glass · 3 values changed"; until 12B a drop-down "This dock's theme" whose first entry read
+  "Use app default (<the app's theme>)", kept hidden for automation as 2420), its **⋯** (Save as
+  theme…, Import theme…, Export theme…, **Apply to other docks…**, Open themes folder, Reset all
+  to preset) and **↺** (Use the app look again: `themePreset` "" and no `theme`), the gallery
+  (tile 0 "App look (<name>)", then the built-in themes and theme files: a pick gives the dock its
+  own look, as a Keep / Cancel preview), then **Size**: icon size (slider 16-128, the box goes on to 256), magnification (1.00-2.50),
   magnification range (1-4 icons) and (round 9) **Bar while magnified**: **Grows once and stays**
   (`magnifyBar` `"steady"`, the default) / **Follows the pointer** (`"follow"`) / **Always wide
   (never grows or shrinks)** (`"always"`; see
-  [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). The preview strip
-  is under this tab.
+  [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). While the dock
+  uses the app look a line says "This dock uses the app look. Changes to it are in App settings >
+  Themes." with **Give this dock its own look** (copies the app's current preset and fields to the
+  dock) and a **Change for every dock** link (App settings > Themes); the Quick look card and the
+  theme field cards below then show the app's values read-only. With its own look they edit the
+  dock's (`docks[].theme`), the same editor as the Themes page (ids 5640 - 5659, 6000 +). Before
+  12B the theme's fields applied to every dock on top of a dock's preset. The preview strip is
+  under this tab.
 - **Behaviour**: auto-hide Off / Always / When a window overlaps the dock, hide and reveal
   delays (behind an expander; round 9: collapsed while auto-hide is off), window previews on /
   off, **Show window previews for apps with a single window** and the preview delay (round 9:
@@ -2090,16 +2199,50 @@ Behaviour, Running apps; the Theme tab became Appearance):
   up / down / Remove without a selection, Reset icon without a custom icon, Reset to Explorer
   while the tray takeover is off, Remove for the last dock, the Widget library's Add buttons
   without a selection, the Contents tab's inspector without a selection, Save changes without a
-  feed) says why in its tooltip, which (round 9) also shows over a greyed control.
+  feed) says why in its tooltip, which (round 9) also shows over a greyed control. Round 12 phase
+  12F: Delays and popup gap shows a line when the hide / reveal delays or the preview delay do not
+  apply ("Hide and reveal delays apply to a dock that auto-hides. Turn auto-hide on above to set
+  them.").
 - **Running apps**: **Windows** (Stacked / One slot per window), **Show only the windows on this
   dock's display**, **Titles under icons** (Off / One line / Two lines), **Titles on vertical
   docks** (Off / Beside the icon), **Window thumbnails** (Off / Live (GPU capture) / Snapshots
   (every N seconds)) and, round 8 phase 8B only for the mode that uses them, the snapshot
-  interval (Snapshots), the live frames per second (Live) and the tile length (either); see
+  interval (Snapshots), the live frames per second (Live) and the tile length (either); round 12
+  phase 12F: a line says which rows the chosen mode leaves out and why, and one that Titles on
+  vertical docks appears when Titles under icons is not Off; see
   [Running apps: windows and titles](#running-apps-windows-and-titles).
 
-The preview strip (round 8 phase 8B: only under the Appearance tab, which sets what it shows)
-draws this dock (its theme, sizes and items).
+The preview strip (round 8 phase 8B: only under the Appearance tab, which sets what it shows; Look
+since 12B) draws this dock (its look, sizes and items).
+
+**Customize mode** (round 12 phase 12D; guide-items "Customize a dock"): one dock at a time is
+edited on the dock itself. Enter: the dock menu's first entry **Customize this dock** (DockCommand
+170), the panel header's **Customize** (5700), or a press held still for 600 ms on an empty part of
+the bar (the same time as hold-to-group, which needs an item); a locked dock asks "Unlock this dock
+to customize it?" (**Unlock** / Cancel; the unlock is an undo entry of its own). Leave: **Done** on
+the edit bar, Esc (on the dock or in the drawer), the dock menu's **Done customizing**, or another
+app's window coming to the front (a click on the desktop or beside the bar). While it is on the dock
+stays shown (auto-hide held), nothing magnifies and its popups close; a dashed outline in the dock's
+colour goes round the bar; the item under the pointer shows a remove badge (×) at its corner (a
+pin or a widget item: a click removes it, undoable, no question; running app slots have none);
+items reorder by a plain drag (no hold-to-group), with a gap where they will land; while an item is
+dragged three anchor targets show outside the bar at its start, middle and end (a drop on one sets
+the item's `anchor`); a **+** slot after the pinned run and one at the run's end open the drawer
+(none on a ring, an anchored bar or a run that would scroll: the edit bar's Add items is there). A
+plain drag on the bar's background (a bar on an edge that is not full width; a floating bar's
+background drag and Ctrl+drag work as always) moves the dock: along the edge sets `offset` (the
+alignment kept; a centred dock rests at 0 within 14 DIPs), toward the middle sets `edgeGap`, a
+tooltip readout beside the pointer says "+40 px from the centre · 12 px from the edge" or "Release
+to move it to the left edge" over another edge's zone (a release there switches the edge as
+Ctrl+drag does, with Keep / Revert); one undo entry per drag. The **edit bar** (`WinDock.EditBar`,
+topmost, never activated; beside the dock on the screen's side at its end: above a bottom dock's
+right end) shows "Customizing <name>", the save state and **Undo**, **Add items** / **Hide items**,
+**Settings** (the dock's panel) and **Done**. The **drawer popup** (`WinDock.DrawerPopup`, "Add to
+<name>"; beyond the edit bar: above a bottom dock, beside a vertical one, never over the dock)
+holds the same grid as the Contents tab with its search box and chips; a click on a tile adds it at
+the end, a drag drops it onto any dock where its marker shows, a widget tile dragged onto the
+desktop (or its monitor button) makes a standalone widget. There is no Ctrl+Z on the dock: the
+edit bar's Undo and the dock menu's Undo entry undo there. Nothing ticks at rest.
 
 **A folder window's window** has the same compact header (its colour, id, display, Shown /
 Parked; no Flash / Lock, only **⋯**) and its one page, **Folder window** (round 4 phase 12b): its
@@ -2167,9 +2310,10 @@ closes its window and its items' windows.
 Every change applies to the dock at once (sliders when you release them, number boxes on each
 arrow step, on Enter or when the box loses the focus) and is saved within 300 ms, exactly like the
 menu toggles; the other open settings windows show it at once. The tray menu and **Reload config**
-update every open settings window. While a dock's own window (or one of its items' windows) is the
-active window that dock stays shown, so you can watch your changes; auto-hide resumes as soon as
-another window is activated. The App settings window keeps no dock shown.
+update every open settings window. While a dock's own panel is open (round 12 phase 12E: it holds
+the dock shown; before, its captioned window did while it was active) or one of its items' windows
+is the active window, that dock stays shown, so you can watch your changes; auto-hide resumes when
+the panel closes or another window is activated. The App settings window keeps no dock shown.
 
 The **preview strip** draws a small dock from the current settings: the bar with its border,
 acrylic tint (over a stand-in wallpaper) or background, corner radius, six placeholder apps with
@@ -2184,7 +2328,12 @@ moves over it (no timers).
 you change on the Themes page becomes an override: it is saved inline in config.json next to
 `"preset"` (only overridden fields are saved) and its **↺** button appears (round 8 phase 8D; a
 **Reset** button until then); ↺ copies the preset's value back and removes the field from
-config.json. **⋯** > **Reset all to preset** does that for every field. **Export current theme…** saves all 33 resolved values plus a `name` (the file name)
+config.json. **⋯** > **Reset all to preset** does that for every field. Round 12 phase 12B: a dock
+with its own look has the same overrides of its own (`docks[].theme` over its `themePreset`), edited
+on its Look tab; the app's overrides do not reach it. **Save as theme…** writes the look's resolved
+values as `themes\<name>.json` and makes that file the look's preset (no overrides left), **Import
+theme…** copies a file that reads as a theme into the themes folder. **Export theme…** (was Export
+current theme…) saves all the resolved values plus a `name` (the file name)
 as a theme file, by default into the themes folder (created on demand); a file saved there becomes
 the preset at once, with no overrides left. A theme file named after a built-in id (`dark.json`,
 ...) is ignored, so for a built-in preset the suggested name is `my-<id>`.
@@ -2273,7 +2422,7 @@ defaults** in an item's settings window restores, and they are still read and wr
 items that exist. A file whose items have settings already is left alone.
 
 - `docks`: the docks, every one shown (see Multiple docks and monitors); a file without any gets
-  one with the defaults. A **preset** (round 9, Settings > Presets) is just a saved `docks[]` entry:
+  one with the defaults. A **preset** (round 9; a built-in layout since round 12, Settings > Layouts and looks) is just a saved `docks[]` entry:
   the exe holds them as `res/presets/<id>.json` = `{ "id", "name", "tagline", "description",
   "dock": { any of the dock keys below }, "items": [ items as below ] }`, read with the same
   reader and clamps as this file (a preset that does not validate is left out of the list, with a
@@ -2612,7 +2761,11 @@ glow, reflection or tilt; the dots as `dark`; the dock preset **Windows 7** (`wi
 builds the whole taskbar on it). Ids are case-insensitive.
 
 User themes live in `%LocalAppData%\WinDock\themes\<id>.json`; the file name without `.json` is
-the id used in `preset` (case-insensitive). A file named like a built-in id is ignored.
+the id used in `preset` (case-insensitive). A file named like a built-in id is ignored. Round 12
+phase 12B: the folder is written by **Save as theme…** (the look's values, under the name you give)
+and **Import theme…** (a copy of the chosen file, after it reads as a theme), both in the ⋯ menu of
+App settings > Themes and of a dock's Look tab; the galleries and the chooser's Looks list every
+readable file in it. A dock's `themePreset` may name one, like `theme.preset`.
 
 ```json
 { "name": "Nord", "base": "dark", "background": "#CC2E3440", "acrylic": false, "dotRunning": "#FF88C0D0" }

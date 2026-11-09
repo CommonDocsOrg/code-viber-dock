@@ -1,26 +1,26 @@
 # Docks and displays
 
-This guide is about the docks themselves: how many you have, where they sit, how they hide, and the other things WinDock can put on your desktop: folder windows and standalone widgets. It ends with the presets, ready-made dock setups to start from.
+This guide is about the docks themselves: how many you have, where they sit, how you move them, how they hide, and the other things WinDock can put on your desktop: folder windows and standalone widgets. It ends with layouts and looks, ready-made docks and colours to start from.
 
 ## One dock or several
 
-You can have as many docks as you like. Each dock has its own items, its own place on the screen, its own auto-hide and its own settings window. For example, you can have your apps at the bottom, a small dock with widgets at the top, and a dock on a second display.
+You can have as many docks as you like. Each dock has its own items, its own place on the screen, its own auto-hide and its own settings panel. For example, you can have your apps at the bottom, a small dock with widgets at the top, and a dock on a second display.
 
-What a dock shares with the others is its theme: a new dock's **This dock's theme** (its Appearance tab) reads **Use app default (Dark)**, the theme of App settings > Themes. Pick another theme there to give one dock a look of its own; the **↺** beside it goes back to the app default. See [App defaults and local values](guide-settings.md#app-defaults-and-local-values).
+Each dock either uses the app look (the colours and effects of App settings > Themes, shared by every dock that uses it) or has a look of its own. A new dock uses the app look. To give one dock a look of its own, open its Look tab and pick a tile in the gallery, or click **Give this dock its own look**; the **↺** beside **This dock's look** makes it follow the app look again. See [App defaults and local values](guide-settings.md#app-defaults-and-local-values).
 
-Each dock has a name and a colour. The colour shows in its settings window's title bar and header and in the drawing on App settings > Docks and displays, so you can tell the docks apart.
+Each dock has a name and a colour. The colour shows on the edge of its settings panel, in its header and in the drawing on App settings > Docks and displays, so you can tell the docks apart. See [Names and titles](#names-and-titles).
 
 To add a dock:
 
 1. Open App settings > Docks and displays.
 2. Click **Add ▾**.
-3. Choose **Dock** for a new dock with the running apps and a clock, **Floating dock** for a bar you can place anywhere, or **Dock from a preset…** to start from a ready-made setup.
+3. Choose **Dock** for a new dock with the running apps and a clock, **Floating dock** for a bar you can place anywhere, **Dock from a preset…** to start from a built-in layout, or **Dock from a layout…** to start from one you saved.
 
-To make a copy of a dock, select it and click **Duplicate**. To remove one, select it and click **Remove**.
+To make a copy of a dock, right-click it and choose **Duplicate dock** (or select it on Docks and displays and click **Duplicate**). The copy is named after it, for example "main copy", and goes on the next free edge of the same display, with its own colour. To remove a dock, select it on Docks and displays and click **Remove**.
 
 To open a dock's own settings, right-click that dock and choose **Dock settings…**, or double-click it on Docks and displays.
 
-To find out which window belongs to which dock, click **Flash** in a dock's settings window: the dock shows itself and its border pulses in its colour.
+To find out which panel belongs to which dock, click **⋯** > **Flash this dock** in a dock's settings: the dock shows itself and its border pulses in its colour.
 
 ## Placement kinds
 
@@ -37,33 +37,65 @@ Rings have no reflections, no 3D tilt and no titles under the icons. Their **Rad
 
 A bar sits on one edge of its display. Left and right docks stand upright; their icons stack from top to bottom.
 
-To move a dock to another edge, right-click it, open **Position on screen** and choose **Bottom**, **Top**, **Left** or **Right**.
+To move a dock to another edge, right-click it, open **Position on screen** and choose **Bottom**, **Top**, **Left** or **Right**. You can also drag it there: see [Moving a dock](#moving-a-dock).
 
-To move a dock by dragging:
-
-1. Hold down **Ctrl**.
-2. Drag the dock along its edge. It snaps to the centre and to the ends.
-3. To put it on another edge, drag it toward that edge and let go there.
-
-A locked dock does not move. Press Esc while dragging to cancel.
-
-On the Position tab's first card you can also set:
+The Position tab's first card, **Where on the screen**, has the rest:
 
 - **Alignment**: Centre, Start (the left or top end) or End (the right or bottom end).
+- **Distance from the centre** (or from the start or end, by alignment): moves the dock along its edge.
+- **Distance from the screen edge**: moves the bar away from its edge, toward the middle of the screen. Auto-hide still works from the screen edge.
 - **Full width**: the bar spans the whole edge, flush with the screen edge, like a taskbar.
 - **Reserve screen space** keeps maximized windows from covering a dock with auto-hide off.
 - **When the icons do not fit**: a dock with more items than fit can **Scroll** (use the mouse wheel or drag the bar), **Shrink the icons**, or **Clip at the screen's end**.
-
-You can also drag a dock to another place, edge or display on App settings > Docks and displays.
-
-The **Layer and title** card has **Title**, a short text drawn beside the bar.
-
-The first card, **Where on the screen**, also has the distances: **Distance from the centre** moves the dock along its edge, **Distance from the screen edge** moves it away from the edge, and **Position x** and **Position y** place a floating bar or a circle. While customizing, you can drag an empty part of the bar to change them.
+- **Position x** and **Position y** place a floating bar or a circle; **Centre it** centres it.
 
 The **Exact offsets** card, closed until you click its heading (it says "· 1 changed" when one of them is set), has the rest:
 
 - **Peek when hidden** keeps a thin strip of a hidden dock visible, so you can see where it is.
 - **Maximum length** stops the bar from growing past a length. A longer dock scrolls or shrinks its icons.
+
+## Moving a dock
+
+You can move a dock by dragging it, as well as with the numbers on the Position tab.
+
+While customizing (right-click the dock and choose **Customize this dock**):
+
+1. Press on an empty part of the bar, between or beside the icons.
+2. Drag along the edge to move the dock along it. A centred dock stops at the centre for a moment, so it is easy to put back.
+3. Drag toward the middle of the screen to move the bar away from its edge (up to 200 pixels).
+4. A small readout beside the pointer says where the dock is, for example "+40 px from the centre · 12 px from the edge".
+5. Let go. The move is one change you can undo.
+
+To put the dock on another edge, drag it toward that edge. The dock dims and the readout says "Release to move it to the left edge". When you let go there, the dock moves to that edge, and a bar offers **Keep** and **Revert (12 s)** (see [Keep or Revert](guide-settings.md#keep-or-revert)). Left alone, the move is kept.
+
+A full-width bar and a ring do not move this way while customizing; use Ctrl+drag for them.
+
+Without customizing, hold down **Ctrl** and drag the dock:
+
+1. Hold down **Ctrl**.
+2. Drag the dock along its edge. It snaps to the centre and to the ends.
+3. To put it on another edge, drag it toward that edge and let go there.
+
+Press Esc while Ctrl+dragging to cancel. A locked dock does not move either way.
+
+You can also drag a dock to another place, edge or display on App settings > Docks and displays.
+
+## Names and titles
+
+Every dock has a name, which is what you see in menus, in its panel's header, on Docks and displays and in the undo entries. A new dock's name is its id, such as "main" or "dock2". The id is what WinDock uses inside (and in `config.json`), so renaming a dock never breaks anything.
+
+To rename a dock:
+
+- Right-click it and choose **Rename dock…**.
+- Or, in its settings panel, click its name in the header (or press F2), type the new name and press Enter.
+- Or, on App settings > Docks and displays, select it and click **Rename**.
+
+A dock can also show a title: a short text drawn by the bar, for example to tell two docks apart. The **Layer and title** card on the Position tab sets it:
+
+- **Show the title**: **Never**, **On hover** (it fades in while the pointer is over the dock) or **Always**.
+- **Use the dock's name**: the title is the dock's name, so a rename changes it too.
+- **Title**: a text of its own, when the title does not use the name.
+- **Where**: **Outside the bar** (beside the bar, toward the middle of the screen) or **Inside the bar** (a band in the bar above the icons). Left and right docks and rings draw it outside.
 
 ## Auto-hide
 
@@ -73,7 +105,7 @@ Auto-hide slides a dock off the screen when you do not need it. Set it from the 
 - **Always**: the dock hides when the mouse leaves it. To bring it back, push the mouse against the screen edge and hold it there a moment.
 - **When a window overlaps**: the dock hides only while the active window covers it, and comes back by itself as soon as it does not. Clicking the desktop or opening Start shows it.
 
-The dock does not hide while one of its menus, popups or previews is open, or while you drag something.
+The dock does not hide while one of its menus, popups or previews is open, while its settings panel is open, while you customize it, or while you drag something.
 
 In the **Delays and popup gap** card at the end of the Behaviour tab (closed until you click its heading) you can set how long the dock waits before hiding and before showing again. App settings > Animation sets how it hides: slide and fade, slide, fade or at once.
 
@@ -83,11 +115,11 @@ A floating bar never auto-hides. Its layer and the dashboard hotkey decide when 
 
 Icons grow when the mouse moves over them, like the macOS dock. The app's name appears above the icon you point at.
 
-The settings are on the dock's Appearance tab, in the Size card:
+The settings are on the dock's Look tab, in the **Look and size** card:
 
 - **Magnification**: how big the icon under the pointer gets. 1.00 turns magnification off.
-- **Magnification range (icons)**: how many icons beside the pointer grow too.
-- **Bar while magnified**: what the bar does while icons grow.
+- **Magnification range (icons)**: how many icons beside the pointer grow too (in **Magnification details**).
+- **Bar while magnified**: what the bar does while icons grow (in **Magnification details**).
 
 The choices for **Bar while magnified** are:
 
@@ -99,7 +131,7 @@ App settings > Animation sets the magnification falloff (smooth or linear) and t
 
 ## Layers
 
-The layer decides where a dock sits among your windows. Set it on the dock's Position tab:
+The layer decides where a dock sits among your windows. Set it on the dock's Position tab, in the **Layer and title** card:
 
 - **Normal (above windows)**: the dock is above every window. This is the usual choice for a dock you use all the time.
 - **On the desktop, only while the desktop is showing**: the dock shows only while the desktop is in front, after Win+D or a click on the wallpaper. It hides as soon as you switch to a window. Use it for a dock of desktop things: folders, files, widgets.
@@ -120,7 +152,7 @@ To add a floating dock:
 
 A new floating dock sits in the middle of the primary display, on the desktop layer. You can also turn any dock into one: choose **Floating bar** under **Kind** on its Position tab.
 
-To move a floating dock, drag the background of its bar (the ends, the space between the items), not an item. It snaps to the screen edges and to other floating docks. Ctrl+drag works anywhere on the bar. A locked dock does not move.
+To move a floating dock, drag the background of its bar (the ends, the space between the items), not an item. It snaps to the screen edges and to other floating docks. Ctrl+drag works anywhere on the bar. A locked dock does not move. **Centre it** on the Position tab puts it back in the middle.
 
 **Faces** on the Position tab says which edge the floating dock faces: where its icons grow and where its popups open. A floating dock at the top of the screen facing **Top** opens its popups downward.
 
@@ -138,7 +170,7 @@ To use the dashboard:
 
 Clicking the wallpaper keeps the dashboard up.
 
-You can also choose **Show dashboard** in the dock menu. To change the hotkey, go to App settings > General > Dashboard, click the hotkey box and press the new combination.
+You can also choose **All docks** > **Show dashboard** in the dock menu. To change the hotkey, go to App settings > General > Dashboard, click the hotkey box and press the new combination.
 
 ## Full-screen apps and games
 
@@ -196,11 +228,11 @@ A standalone widget is a widget on the desktop in a window of its own, not on a 
 
 To put a widget on the desktop:
 
-- In a dock's Contents tab, click **Desktop** on a script widget's row in **Add to the dock**.
+- In the drawer (a dock's Contents tab, or **Add items** while customizing), drag the widget's tile onto the desktop, or press the small monitor button on its tile.
 - Or in App settings > Widget library, select a widget and click **Add to the desktop**.
 - Or in App settings > Docks and displays, click **Add ▾** > **Standalone widget** and choose the widget.
 
-The widget appears in the middle of the display, on the desktop under your windows, and its settings window opens.
+The widget appears on the desktop, under your windows, and its settings window opens.
 
 Working with a standalone widget:
 
@@ -210,21 +242,36 @@ Working with a standalone widget:
 
 Its settings window has a Content and an Appearance tab (the widget's own settings) and a Placement tab (display, layer, lock, background, and the exact position and size). See [Standalone widget settings](guide-settings.md#standalone-widget-settings).
 
-## Presets
+## Layouts and looks
 
-A preset is a ready-made dock setup. It sets everything about a dock at once: where it sits, how it hides, its size, its theme and its items. You can change anything afterwards.
+A layout is a ready-made dock. It sets everything about a dock at once: where it sits, how it hides, its size, its look and its items. A look is only the colours: the theme, the transparency, the corners and the icon effects. You can change anything afterwards.
 
-There are three ways to use a preset:
+The chooser lists three kinds, chosen at its top:
+
+- **Layouts**: the built-in layouts (see [Presets](#presets) below).
+- **Looks**: every built-in theme and your theme files. Each says in one line what it gives, for example "Glass · 40 % transparent · round corners · glow". Applying a look changes only the dock's look; where it sits and what is on it stay.
+- **Mine**: the layouts you saved yourself (see [Your own layouts](#your-own-layouts)).
+
+At the right the chooser shows the chosen one's description, a small picture of where the dock sits, how it hides, its items in order, and a strip that draws the bar in its look. Use Up and Down to choose and Enter to apply.
+
+There are three ways to use a layout:
 
 - **Quick setup**: on the very first start, WinDock opens Quick setup. Its first step picks a layout for each of your docks; **Cancel** keeps the basic dock. To see it again, click **Run quick setup again** in App settings > About, or run `WinDock.exe --welcome`. See [Quick setup](quick-start.md#quick-setup).
-- **A new dock from a preset**: App settings > Docks and displays > **Add ▾** > **Dock from a preset…**. Check **Copy my pinned apps from the first dock** to bring your pins along, then click **Add dock**.
-- **Turn a dock into a preset**: in the dock's settings window, click **⋯** > **Apply a layout or look…**. Check **Keep my pinned apps and folders** to keep your apps, folders, groups, separators and the Recycle Bin, then click **Apply**.
+- **A new dock from a layout**: App settings > Docks and displays > **Add ▾** > **Dock from a preset…** (or **Dock from a layout…** for your own). Check **Copy my pinned apps from the first dock** to bring your pins along, then click **Add dock**.
+- **Change a dock**: in the dock's settings panel, click **⋯** > **Apply a layout or look…**, pick one and click **Apply**.
 
-The chooser lists the presets at the left. At the right it shows the chosen one's description, a small picture of where the dock sits, how it hides, its items in order, and a strip that draws the bar in the preset's look. Use Up and Down to choose and Enter to apply.
+When you apply a layout to a dock, two check boxes decide what stays:
 
-Applying a preset replaces every setting and item of the dock. The dock keeps its name, its colour and its display.
+- **Keep my pinned apps and folders**: your apps, folders, groups, separators and the Recycle Bin go where the layout puts your pins. Clear it for a clean dock.
+- **Keep my current look**: the dock keeps its look instead of taking the layout's.
 
-The presets:
+Applying a layout replaces every other setting and item of the dock. The dock keeps its name, its colour and its display.
+
+Every choice is a preview first: the dock changes at once and a bar says "Previewing Modern on main." with **Keep** and **Cancel**. Nothing is saved until you click **Keep**; **Cancel**, Esc or closing the settings puts the dock back. See [Keep or Cancel for layouts and looks](guide-settings.md#keep-or-cancel-for-layouts-and-looks).
+
+### Presets
+
+The built-in layouts:
 
 - **Basic dock**: your apps, the running ones and a clock. The classic dock at the bottom of the screen. Icons grow a little under the pointer, and the dock slides away while a window covers it.
 - **Minimal**: small, flat and out of the way. Icons do not grow and there are no window previews. It hides as soon as the pointer leaves it and comes back when you touch the bottom edge.
@@ -237,13 +284,34 @@ The presets:
 
 Floating performance and Desktop dashboard have no place for your pinned apps; the chooser says so.
 
+A layout that names a theme, such as Modern (Glass), Minimal (Solid) or Windows 7 (Aero glass), gives the dock that theme as its own look, unless you check **Keep my current look**.
+
+### Your own layouts
+
+You can save any dock as a layout and apply it later, to the same dock or another one, or start a new dock from it.
+
+To save a dock as a layout:
+
+1. Right-click the dock and choose **Save dock as layout…** (or use the panel's **⋯** menu, or **Save as layout…** on App settings > Docks and displays).
+2. Type a name and click OK.
+
+The layout holds the dock's place, behaviour, items and look; your pinned apps are kept as a place where pins go. It shows under **Mine** in the chooser. Select one there to:
+
+- **Rename…** it.
+- **Delete** it (after asking). Docks made from it keep their settings.
+- **Export…** it: save a copy of the file, for example to use on another PC.
+
+Saved layouts are files in `%LocalAppData%\WinDock\layouts`. To bring an exported layout in, copy its file into that folder; the chooser reads the folder each time it opens. A file it cannot read is left out, and a line under the list says why.
+
 ## Make it look like Windows 7
 
-The **Windows 7** preset turns a dock into the Windows 7 taskbar in one step.
+The **Windows 7** layout turns a dock into the Windows 7 taskbar in one step.
 
-1. Apply it: in App settings > Docks and displays click **Add ▾** > **Dock from a preset…** for a new dock, or in a dock's settings window click **⋯** > **Apply a layout or look…** to change that dock. Choose **Windows 7** in the list, keep **Keep my pinned apps and folders** checked and click **Apply** (or **Add dock**).
-2. In App settings > Animation, under **Launching an app**, choose **None**: Windows 7 icons do not bounce. This setting is for every dock, so the preset cannot set it.
+1. Apply it: in App settings > Docks and displays click **Add ▾** > **Dock from a preset…** for a new dock, or in a dock's settings panel click **⋯** > **Apply a layout or look…** to change that dock. Choose **Windows 7** under **Layouts**, keep **Keep my pinned apps and folders** checked, leave **Keep my current look** clear, and click **Apply** (or **Add dock**). Then click **Keep**.
+2. In App settings > Animation, under **Launching an app**, choose **None**: Windows 7 icons do not bounce. This setting is for every dock, so the layout cannot set it.
 3. If you use several docks, turn off or remove the ones you do not need, so only the taskbar is at the bottom.
+
+The layout gives the dock its own **Aero glass** look, so your other docks keep theirs.
 
 What you get:
 
@@ -251,15 +319,15 @@ What you get:
 - The bar keeps its room: maximized windows stop above it, and it never hides.
 - At the left the **Start** orb, then your pinned apps and the running ones as 32 DIP icons. Icons do not grow under the pointer. Hovering an app shows its window previews, even for a single window. A middle click opens a new window of the app.
 - At the right the tray icons in one row, the clock (the time over the date, for example 2:05 PM over 11/6/2026) and the **Show desktop** strip, flush with the screen's right end. Click it to show the desktop; click again to bring the windows back.
-- Applying the preset turns on the tray takeover: the notification area icons move from the Windows taskbar to the dock. To turn that off, go to App settings > Tray icons.
+- Applying the layout turns on the tray takeover: the notification area icons move from the Windows taskbar to the dock. To turn that off, go to App settings > Tray icons.
 
 Tuning it:
 
-- **The glass colour**: App settings > Themes, open the **Bar** card and change **Acrylic tint** (the colour over the blur; its opacity sets how strong the colour is). **Background** is the colour used when transparency effects are off. **Sheen** sets how glossy the bar is. Changes on the Themes page apply to every dock that uses the app look; a dock with a look of its own is changed on its Look tab (see [This dock's look](guide-settings.md#this-docks-look)).
+- **The glass colour**: on the dock's Look tab, use **Tint** in Quick look, or open the **Bar** card and change **Acrylic tint** (the colour over the blur; its opacity sets how strong the colour is). **Background** is the colour used when transparency effects are off. **Sheen** sets how glossy the bar is. These change only this dock, because it has its own look (see [This dock's look](guide-settings.md#this-docks-look)).
 - **The orb**: open the Start item's settings (right-click it, then **Start settings…**). **Icon** switches between the orb, the Windows logo and your own image; **Icon size** 0 lets the orb fill the slot.
 - **The clock**: open the clock's settings. **Time format** `%#I:%M %p` writes 2:05 PM, `%H:%M` writes 14:05; **Date format** `%#m/%#d/%Y` writes 11/6/2026, `%#d.%#m.%Y` writes 6.11.2026. **Layout** "Taskbar" writes both lines in the same size.
 - **Show desktop**: its settings choose what a click does (show the desktop, or minimize every window) and how wide the strip is.
-- **Smaller icons**: the dock's Appearance tab sets the icon size; the tray keeps its own icon size in its settings.
+- **Smaller icons**: the dock's Look tab sets the icon size; the tray keeps its own icon size in its settings.
 
 What it does not reproduce:
 
@@ -268,4 +336,4 @@ What it does not reproduce:
 - The orb sticking out above the bar's top edge.
 - Jump lists on a right-click and the progress bars in taskbar buttons.
 - A colour picker with the Windows 7 colour names (Sky, Twilight, …): the colour is the theme's **Acrylic tint**.
-- Windows 7 has no line between the Start orb and the apps. The dock draws a faint one between its widgets and its icons; to hide it, set the opacity of **Separator** in the theme's **Bar** card to 0 (this also hides the separators you add).
+- Windows 7 has no line between the Start orb and the apps. The dock draws a faint one between its widgets and its icons; to hide it, set the opacity of **Separator** in the dock's **Bar** card to 0 (this also hides the separators you add).

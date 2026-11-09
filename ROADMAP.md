@@ -1015,22 +1015,68 @@ Notes for 11E (round 11 closed 2026-11-07):
   consolidated in STATUS.md "Round 11 final regression" (real pointer input and a real Win+D above
   all).
 
-## Round 12 (in progress, 2026-11-08): customize the dock on the dock
+## Round 12 (built 2026-11-08; the regression and release pending): customize the dock on the dock
 
 Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round12.md` (revision 2, from the
 ideas the user kept from the first proposal plus their additions; working mockup linked there). One
 commit per phase on master, not pushed; STATUS.md "Round 12" has each phase's notes.
 
+The goals, in the user's words (the plan's list):
+
+1. Customize a dock where it is: an edit mode on the dock, the drawer beside it as a grid with
+   previews, drag widgets from the drawer onto the dock, a clear Done.
+2. Dock settings that belong to the dock: they fly out from it, and the dock is always in view
+   while it changes.
+3. Looks without hex: a middle level (Quick look), a gallery, a full look per dock as well as the
+   app's, and themes that can be saved, applied, imported and exported.
+4. Nothing is a one-way door: undo, a visible Saved state, Keep / Cancel for templates, Keep /
+   Revert after moving or hiding the dock.
+5. Docks as things you keep: name, rename, duplicate, save as a layout and reapply later; titles
+   that can be hidden, shown on hover or drawn inside the bar.
+6. Offsets are easy to find: one "Where on the screen" card plus dragging the dock in edit mode.
+7. A first run that sets up the docks, their looks, start with Windows and animation, and then
+   shows the three gestures.
+
 | Phase | Scope | Status |
 |---|---|---|
-| 12A One timeline | Undo / redo of every config change (50 entries, per process), the Saved state and actionable save errors, Keep / Revert after changes that move or hide a dock (`settings.confirmPlacement`), Keep / Cancel previews for presets, the banner near the dock, DockCommand 157 - 161, QueryState 296 - 300, ids 5600 - 5615 | Done (the commit "Undo timeline, Saved state, Keep / Revert and Keep / Cancel"; STATUS.md "Round 12") |
-| 12B Looks | Per-dock themes, Quick look, the gallery, theme files | Planned |
-| 12C Docks you keep | Names, rename, duplicate, layouts, titles | Planned |
-| 12D Edit mode on the dock | The drawer grid beside it | Planned |
-| 12E Settings that fly out from the dock | "Where on the screen" | Planned |
-| 12F The settings window on a large display | Reflow, preview pane, words | Planned |
-| 12G Quick setup on the first run | The three tips | Planned |
-| 12H Regression and release | | Planned |
+| 12A One timeline | Undo / redo of every config change (50 entries, per process), the Saved state and actionable save errors, Keep / Revert after changes that move or hide a dock (`settings.confirmPlacement`), Keep / Cancel previews for presets, the banner near the dock, DockCommand 157 - 161, QueryState 296 - 300, ids 5600 - 5615 | Done, run (the commit "Undo timeline, Saved state, Keep / Revert and Keep / Cancel"; STATUS.md "Round 12") |
+| 12B Looks | A full look per dock (`docks[].theme` over its `themePreset`; the app's values no longer reach it), Quick look (tint, transparency, corners, icon effects, dots), the gallery of looks, Save as theme / Import / Apply to docks; the Appearance tab became Look | Done, built, not run |
+| 12C Docks you keep | `docks[].name` (rename in place, Rename dock…), Duplicate dock, the chooser's Layouts / Looks / Mine with saved layouts in `layouts\` and Keep my current look, `titleShow` / `titlePlace` / `titleUseName` | Done, built, not run |
+| 12D Customize mode on the dock | The outline, remove badges, plain-drag reorder, anchor targets, "+" slots, the edit bar, the drawer popup beside the dock as a grid shared with the Contents tab | Done, built, not run |
+| 12E The Dock settings panel | The Dock settings window became a borderless panel beside its dock (same class, pages, ids and automation); Position's "Where on the screen" with `edgeGap`; customize mode's dock drag | Done, built, not run |
+| 12F Settings on a large display | Sizes from the display, two columns from 1000 DIPs, controls capped at 360 DIPs, the nav's descriptions, one sentence per page, the reasons beside unavailable controls | Done, built, not run |
+| 12G Quick setup | Quick setup (docks, looks, behaviour, done) replaced the welcome dialog; three tips on the dock (`settings.tipsShown`) | Done, built, not run |
+| 12H Docs pass, regression and release | Part 1: the user guides, README and this note rewritten for 12A - 12G (the guides are compiled into the exe, so they come before the release build). Part 2: the regression on everything at once and the release build | Part 1 done; part 2 next |
+
+Decisions taken (the plan's "Decisions to confirm", as built):
+
+1. A dock's name is separate from its id (`docks[].name`), so a rename never breaks a reference.
+2. A dock with its own look ignores the app's values completely: no layering. A dock that had a
+   `themePreset` before 12B therefore loads with its own look (that preset, no fields of its own),
+   and the app's inline fields stop reaching it (troubleshooting "My dock's colours changed after
+   the update").
+3. Templates (layouts, looks, gallery picks, Quick setup) are Keep / Cancel previews that cancel
+   when left alone; placement changes are Keep / Revert and keep when left alone. A template is a
+   try, a move is an edit.
+4. The panel beside the dock replaces the Dock settings window (the user's decision, 2026-11-08):
+   the same class, pages, ids and automation, no "Open in a window". App, Item, folder-window and
+   standalone-widget settings stay windows.
+5. Undo lasts for the session only.
+6. The long press that enters customize mode (600 ms, as hold-to-group) works only on an empty part
+   of the bar, so it never conflicts with grouping.
+7. `edgeGap` is a new setting; `offset` keeps its meaning and got the clearer label "Distance from
+   the centre".
+
+Left out on purpose (the plan's "Not in this round"): a simple / advanced switch, a fourth kind of
+settings window, a web view or any new dependency; editing widget settings inside customize mode;
+sharing layouts online. Also not built: Ctrl+Z on the dock itself in customize mode (the edit bar's
+Undo and the dock menu's entry do it), an "Open layouts folder" command (the guide names the
+folder), and a preview pane beside the Dock panel (12F: the real dock is the preview).
+
+How it was built: the user cut the per-phase cost after 12A (2026-11-08): only 12A had a runtime
+test; 12B - 12G were each verified by a warning-free `build\dev` build, WinDockTests and the two docs
+checkers, and were not run on a dock until 12H. 12C / 12D and 12G / 12E were written in parallel
+worktrees and merged by hand. A 12B - 12G bug may therefore surface only in the 12H regression.
 
 Design notes for 12A:
 

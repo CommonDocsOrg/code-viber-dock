@@ -1,6 +1,6 @@
 # Quick start
 
-This page gets you going in about five minutes. It shows you how to start WinDock, what is on the screen, how to pin an app, where the settings are and how to quit and get the Windows taskbar back.
+This page gets you going in about five minutes. It shows you how to start WinDock, what is on the screen, how to pin an app, how to change the dock right where it is, and how to quit and get the Windows taskbar back.
 
 ## Start WinDock
 
@@ -22,18 +22,20 @@ WinDock.exe --quit              ask the running dock to quit
 WinDock.exe --restore-taskbar   bring the Windows taskbar back
 ```
 
-To start WinDock every time you sign in, right-click the dock and check **Start with Windows**.
-
 ## Quick setup
 
-Quick setup sets up your docks in four short steps. Every change shows on your desktop at once, and nothing is kept until you click **Finish**.
+Quick setup sets up your docks in four short steps. Every choice shows on your desktop at once, and nothing is kept until you click **Finish**. Click **Next** to go on, **Back** to go back; you can skip any step.
 
-1. **Your docks**: pick a layout, the display and the edge for each dock. Click **Add a dock** for a second or third one.
-2. **Their looks**: pick a look and set how see-through the bar is and how round its corners are.
-3. **How it behaves**: start WinDock with Windows, hide the Windows taskbar, auto-hide and animation.
+1. **Your docks**: for each dock, pick a layout, the display and the edge. Click **Add a dock** for a second or third one.
+2. **Their looks**: pick a look in the gallery, then set the **Transparency** and the **Corners**. With two or more docks, **Every dock uses the same look** gives them one look.
+3. **How it behaves**: **Start WinDock when Windows starts**, **Hide the Windows taskbar**, the first dock's **Auto-hide**, and **Animation** (Full, Reduced or Off).
 4. **Done**: click **Finish**, or **Show me around** for three short tips on the dock.
 
-**Cancel** puts everything back as it was. To run it again, open App settings > About and click **Run quick setup again**, or right-click the dock, open **App** and choose **Quick setup…**.
+**Cancel** (or Esc) puts everything back as it was. On the very first start, that leaves you the basic dock.
+
+Finish is one change: if you do not like the result, right-click the dock and choose the first entry, **Undo “Quick setup”**.
+
+To run Quick setup again, right-click the dock, open **App** and choose **Quick setup…**, or click **Run quick setup again** in App settings > About.
 
 ## What you see
 
@@ -76,70 +78,82 @@ To pin an app or a folder from File Explorer:
 
 To move a pinned app, drag its icon to a new place. To unpin it, right-click it and choose **Unpin from dock**.
 
-## Open the settings
+## Customize the dock
 
-WinDock has three kinds of settings window:
+You change a dock right on the dock: add, move and remove items, and move the dock itself.
 
-- **App settings**: what applies to every dock, such as themes and animation.
-- **Dock settings**: one dock: its items, where it sits, how it hides.
-- **Item settings**: one item, such as a clock, the weather or a widget.
+To customize a dock:
 
-To open them:
+1. Right-click an empty part of the dock and choose **Customize this dock**. You can also press and hold an empty part of the bar for a moment.
+2. A dashed outline goes around the dock, and a small bar with **Done** appears beside it.
+3. Change what you like:
+   - Point at an item and click its **×** to remove it.
+   - Drag an item to move it.
+   - Click a **+** on the dock, or **Add items** on the small bar, to open the drawer beside the dock. See [Add a widget](#add-a-widget).
+   - Drag an empty part of the bar to move the whole dock along its edge or away from it. It snaps to the centre.
+4. Click **Done**, or press Esc, when you are finished.
 
-1. Right-click an empty part of the dock.
-2. Choose **Dock settings…**, or open **App** and choose **App settings…**.
+Clicking another app or the desktop also ends customizing. Every change applies at once and can be undone.
 
-You can also right-click the WinDock icon in the notification area: it has **App settings…** and, under **Docks**, the settings of each dock. An item's own settings are in its right-click menu, such as **Weather settings…** or **Folder settings…**.
+## Dock settings beside the dock
 
-Every change applies at once and is saved by itself. There is no OK or Apply button.
+Each dock has its own settings. They open in a panel right beside the dock, so you see every change on the real dock.
 
-To find a setting quickly, press **Ctrl+F** in any settings window and type what you are looking for.
+To open them, right-click an empty part of the dock and choose **Dock settings…**. While customizing, click **Settings** on the small bar.
 
-To get help on what you see, press **F1** in a settings window, or click the small round **?** button at the right of a card's heading. See [Getting help](guide-settings.md#getting-help).
+The panel has five tabs:
 
-## Pick a preset
+- **Contents**: what is on the dock, in order, and the drawer to add more.
+- **Position**: the edge, the display, the alignment and the distances from the centre and from the screen edge.
+- **Look**: the dock's look, the icon size and the magnification.
+- **Behaviour**: auto-hide, window previews and what the mouse does.
+- **Running apps**: how running apps and their windows show.
 
-A preset is a ready-made dock setup, such as a small flat dock or a taskbar-like dock with window titles. You can pick one at any time, in [Quick setup](#quick-setup) or from the dock's settings.
+The panel has no title bar. Drag its outer edges to make it bigger. Press Esc or click **✕** to close it; it also closes when you switch to another app.
 
-To change your dock to a preset:
+What applies to every dock is in **App settings** (right-click the dock, open **App**, choose **App settings…**). An item such as a clock or the weather has its own settings in its right-click menu, for example **Weather settings…**.
 
-1. Right-click the dock and choose **Dock settings…**.
-2. Click **⋯** at the top right of the window.
-3. Choose **Apply a layout or look…**.
-4. Pick a preset at the left. The right side shows what it looks like.
-5. Leave **Keep my pinned apps and folders** checked to keep your pins.
+To find a setting quickly, press **Ctrl+F** in any settings window and type what you are looking for. To get help on what you see, press **F1**, or click the small round **?** at the right of a card's heading. See [Getting help](guide-settings.md#getting-help).
+
+## Pick a layout or a look
+
+A layout is a ready-made dock: where it sits, how it hides, its items and its look. A look changes only the colours, the transparency, the corners and the icon effects.
+
+To change a dock to a layout or a look:
+
+1. Open the dock's settings (right-click the dock and choose **Dock settings…**).
+2. Click **⋯** at the top right of the panel and choose **Apply a layout or look…**.
+3. At the top, choose **Layouts**, **Looks** or **Mine** (the layouts you saved yourself).
+4. Pick one at the left. The right side shows what it looks like and what it changes.
+5. For a layout, leave **Keep my pinned apps and folders** checked to keep your pins, and check **Keep my current look** to keep your colours.
 6. Click **Apply**.
+7. The dock shows it at once. Click **Keep** in the bar that appears to keep it, or **Cancel** to go back.
 
-The presets are described in [Presets](guide-docks.md#presets).
+If you do neither, closing the settings cancels the preview. The layouts are described in [Layouts and looks](guide-docks.md#layouts-and-looks).
 
-## Turn on auto-hide
+## Undo
 
-Auto-hide slides the dock off the screen when you do not need it.
+Every change can be undone, wherever you made it: in a settings window, on the dock, or from a menu.
 
-To change auto-hide:
+- In any settings window, press **Ctrl+Z** to undo and **Ctrl+Y** to redo.
+- On the dock, right-click it: while there is something to undo, the first entry says what, for example **Undo “Icon size 48 → 64”**.
+- While customizing, click **Undo** on the small bar.
 
-1. Right-click the dock.
-2. Open **Auto-hide**.
-3. Choose one of these:
-
-- **Off**: the dock is always shown.
-- **Always**: the dock hides when the mouse leaves it. Push the mouse against the screen edge to bring it back.
-- **When a window overlaps**: the dock hides only while a window covers it, and comes back by itself.
-
-More auto-hide options are on the Behaviour tab of the Dock settings. See [Auto-hide](guide-docks.md#auto-hide).
+The top of every settings window, and the small bar while customizing, says **✓ Saved** once your changes are on disk. WinDock remembers your last 50 changes until it quits. See [Undo and Saved](guide-settings.md#undo-and-saved).
 
 ## Add a widget
 
-Widgets are small items such as a weather forecast, a volume control or a system monitor.
+Widgets are small items such as a weather forecast, a volume control or a system monitor. You add them from the drawer: a grid of tiles with a live preview of each widget.
 
 To add a widget:
 
-1. Right-click the dock and choose **Dock settings…**.
-2. Stay on the **Contents** tab.
-3. Find the widget in **Add to the dock** at the right.
-4. Drag it onto the strip of items at the top, or click its **Add** button.
+1. Right-click the dock and choose **Customize this dock**.
+2. Click **Add items** on the small bar (or a **+** on the dock). The drawer opens beside the dock.
+3. Find the widget: type in the search box, or click **Widgets** to show only the widgets.
+4. Click the tile to add it at the end of the dock, or drag it onto the dock to the place you want.
+5. Click **Done**.
 
-You can also right-click the dock and open **Add**: it adds a clock, the weather and the other built-in items at once, and **Apps, folders and more widgets…** opens the Contents tab.
+The same drawer is on the Contents tab of the dock's settings. To put a widget on the desktop instead, drag its tile onto the wallpaper, or click the small monitor on its tile.
 
 To change a widget's settings, right-click it on the dock and choose its settings entry, such as **Weather settings…**. See [Widgets](guide-items.md#widgets).
 
@@ -155,7 +169,7 @@ You do not need to edit it: every setting is in the settings windows. If you do 
 
 App settings > About shows the file's full path. Click the path to show the file in File Explorer.
 
-The same folder holds your own themes, widgets and clock faces. To back up WinDock, copy this folder.
+The same folder holds your own themes (`themes`), your saved layouts (`layouts`), widgets and clock faces. To back up WinDock, copy this folder.
 
 ## Quit and get the taskbar back
 
@@ -172,6 +186,6 @@ WinDock.exe --restore-taskbar
 ## Next steps
 
 - [Settings guide](guide-settings.md): every settings window, page and card.
-- [Docks and displays](guide-docks.md): several docks, placement, layers, floating docks and presets.
-- [Items and widgets](guide-items.md): apps, folders, groups, the clock, weather, the tray and widgets.
+- [Docks and displays](guide-docks.md): several docks, moving them, placement, layers, floating docks, layouts and looks.
+- [Items and widgets](guide-items.md): customizing a dock, apps, folders, groups, the clock, weather, the tray and widgets.
 - [Troubleshooting](troubleshooting.md): what to do when something goes wrong.

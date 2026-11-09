@@ -2,13 +2,13 @@
 
 This guide walks through every settings window of WinDock, page by page and card by card. It says what each setting does and when you would want it.
 
-WinDock has three kinds of settings window:
+WinDock has three kinds of settings:
 
-- **App settings**: what applies to every dock and to WinDock as a whole.
-- **Dock settings**: one dock. Every dock has its own window. Standalone widgets and folder windows have one too.
-- **Item settings**: one item on a dock, such as a clock, a weather item, a widget, the tray, a folder or a group.
+- **App settings**: what applies to every dock and to WinDock as a whole. They open in a window.
+- **Dock settings**: one dock. They open in a panel right beside that dock, so you see every change on the real dock. Standalone widgets and folder windows have their own settings too, in a window.
+- **Item settings**: one item on a dock, such as a clock, a weather item, a widget, the tray, a folder or a group. They open in a window.
 
-You can have as many of these windows open as you like. Opening one that is already open brings it to the front.
+You can have as many of these open as you like. Opening one that is already open brings it to the front.
 
 Every change applies at once and is saved within a moment. There is no OK or Apply button. Sliders apply when you let go, number boxes on each arrow click, and text boxes when you press Enter or leave the box. Every change can be undone: see [Undo and Saved](#undo-and-saved).
 
@@ -18,25 +18,39 @@ To open the App settings:
 
 - Right-click the WinDock icon in the notification area and choose **App settings…**.
 - Or right-click the dock, open **App** and choose **App settings…**.
-- Or, in a Dock settings window, click **App settings…** at the top right.
+- Or, in a dock's settings panel, click **App settings…** in its header.
 - Or run `WinDock.exe --settings`.
 
-To open a dock's own settings:
+To open a dock's settings panel:
 
 - Right-click an empty part of that dock and choose **Dock settings…**.
+- Or, while customizing the dock, click **Settings** on the small bar beside it.
 - Or right-click the WinDock icon in the notification area, open **Docks** and choose the dock.
-- Or, in App settings > Docks and displays, double-click the dock.
+- Or, in App settings > Docks and displays, double-click the dock (or select it and click **Open settings**).
+- Or, in an item's settings window, click the dock's name in the header.
 
 To open an item's settings:
 
 - Right-click the item on the dock and choose its settings entry. It names the item: **Clock settings…**, **Weather settings…**, **Folder settings…**, **Group settings…**, **Tray settings…** or the widget's name, such as **System monitor settings…**.
-- Or select the item on the dock's Contents tab and click its settings button (it has the same name).
+- Or select the item on the dock's Contents tab and click its settings button (it has the same name), or double-click its tile.
 
 Each window's title names what it edits: an item's window reads like "Weather · main" (the item, then the dock). When a dock holds two items with the same name, the second is "Weather 2", unless their places or labels already tell them apart.
 
-The settings windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size (the first time, App settings opens at a size that suits your display). On a wide window the cards of a page sit in two columns, and each page starts with one sentence that says what it is for. They follow the Windows light or dark app mode. A dock's own settings are different: they open in a panel right beside the dock, which stays shown while the panel is open, so you can watch your changes.
+## The settings windows
 
-Keyboard: **Ctrl+Tab** and **Ctrl+Shift+Tab** go to the next or previous page or tab. **Ctrl+Z** undoes the last change and **Ctrl+Y** redoes it. **Esc** closes the window (while a preset preview is open, Esc cancels the preview instead).
+The App settings window and the item windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. The first time, they open at a size that suits your display. They follow the Windows light or dark app mode.
+
+A dock's settings are a panel, not a normal window:
+
+- It sits right beside its dock: above a bottom dock, under a top one, beside a side one. It never covers the dock.
+- It has no title bar. Drag its outer edges to make it bigger or smaller; it remembers the size.
+- Its border and the band on the side facing the dock take the dock's colour, so you can tell the panels of different docks apart.
+- It keeps the dock shown while it is open, and follows the dock when the dock moves.
+- It closes when you press **Esc**, click its **✕**, click **Done** while customizing, or click another app or the desktop.
+
+On a wide window the cards of a page sit in two columns. Every page and tab starts with one sentence that says what it is for. A setting that does not apply right now says why, and how to make it apply, for example "Reserving space needs auto-hide off (Behaviour tab)."
+
+Keyboard: **Ctrl+Tab** and **Ctrl+Shift+Tab** go to the next or previous page or tab. **Ctrl+Z** undoes the last change and **Ctrl+Y** redoes it. **Esc** closes the window or the panel (while a preview of a layout or look is open, Esc cancels the preview instead).
 
 ## Finding a setting
 
@@ -44,7 +58,7 @@ You do not need to know where a setting lives. The search finds every setting of
 
 To find a setting:
 
-1. Press **Ctrl+F** in any settings window. You can also start typing in the **Find a setting…** box at the top of the App settings window's page list, or choose **⋯** > **Find a setting…** in a Dock window.
+1. Press **Ctrl+F** in any settings window. You can also start typing in the **Find a setting…** box at the top of the App settings window's page list, or choose **⋯** > **Find a setting…** in a dock's panel.
 2. Type a few words, for example `hide delay` or `magnification`.
 3. Pick a result and press **Enter**, double-click it, or click **Go to**.
 
@@ -77,7 +91,7 @@ The Help window lists the guides at the left and shows the chosen guide at the r
 
 ## Common settings first
 
-Each page and tab starts with the settings you change most often. On a dock's window that is the theme, the icon size and the magnification (the Appearance tab's first card), the display and the screen edge (Position) and auto-hide (Behaviour).
+Each page and tab starts with the settings you change most often. In a dock's panel that is the look, the icon size and the magnification (the Look tab's first card), where the dock sits (Position) and auto-hide (Behaviour).
 
 Fine tuning is folded away in cards whose heading opens them, named for what they hold: **Exact offsets**, **Delays and popup gap**, **Magnification details**, **Motion and timings**, **Anchor and offset**, and the theme value groups. They are closed when a window opens. Click a heading (or press Space or Enter on it) to open or close the card. A heading that ends in "· 2 changed" holds two values that differ from the defaults, so you can see at a glance where something was changed.
 
@@ -85,13 +99,21 @@ The search still finds every setting in a closed card: **Go to** opens the card 
 
 ## App defaults and local values
 
-A few settings of a dock or an item can either follow an app-wide value or have a value of their own:
+A few things of a dock or an item can either follow an app-wide value or have a value of their own.
 
-- **This dock's theme** (Dock settings > Appearance): **Use app default (Dark)** follows the theme of App settings > Themes, whose name is in brackets. Picking a theme gives the dock its own.
+A dock's look is the main one. A dock is in one of two states:
+
+- **It uses the app look** (a new dock does): it shows the look of App settings > Themes. A change there changes this dock too, and so does every other dock that uses the app look.
+- **It has its own look**: a theme of its own plus the changes you made on its Look tab. The app look no longer reaches it.
+
+To give a dock its own look, open its Look tab and click **Give this dock its own look** (it starts from the app look as it is now), or pick a tile other than the first in the gallery. To make it follow the app look again, click the **↺** beside **This dock's look** (its tooltip says "Use the app look again"). See [This dock's look](#this-docks-look).
+
+Two more settings work the same way:
+
 - **Use the default reminder** (App settings > Calendar feeds, a feed's form): the feed's events get the Default reminder of the Display card, whose value is in brackets. Clear it to give the feed a reminder of its own.
 - **Place** of a script weather widget (its settings window): without a place of its own it shows the default place; the hint under **Place** says which.
 
-While such a setting has a value of its own, a small **↺** at the end of its row (its tooltip says "Reset to app default") makes it follow the app-wide value again.
+While such a setting has a value of its own, a small **↺** at the end of its row makes it follow the app-wide value again.
 
 Everything else is simply the dock's or the item's own setting: there is no app default behind it.
 
@@ -99,60 +121,69 @@ Everything else is simply the dock's or the item's own setting: there is no app 
 
 There are two kinds of reset, and they never touch each other's values:
 
-- **Reset to app default** (the **↺** buttons above, and the button of that name in a widget's footer): drops the dock's or item's own value, so it follows the app-wide one again.
+- **Reset to app default** (the **↺** buttons above, and the button of that name in a widget's footer): drops the dock's or item's own value, so it follows the app-wide one again. For a dock's look the ↺ is called **Use the app look again**.
 - **Reset to factory defaults…** (an item's settings window, the last card of a standalone widget's Content tab): puts every setting of that one item back to the values WinDock ships with. It asks first, and says what it resets. App defaults (App settings) are not changed.
 
-On App settings > Themes, the **↺** of a theme value goes back to the theme preset's value instead (its tooltip says "Reset to the preset's value"), and **⋯** > **Reset all to preset** does that for every value.
+On App settings > Themes and on a dock's Look tab, the **↺** of a theme value goes back to the theme's own value instead (its tooltip says "Reset to the preset's value"), and **⋯** > **Reset all to preset** does that for every value.
 
 Both kinds of reset can be undone, like any other change.
 
 ## Undo and Saved
 
-Nothing you change is a one-way door. WinDock remembers your last 50 changes, made anywhere: in any settings window, on the dock (pinning, unpinning, dragging an icon to another place, moving the dock) or from the dock menu. A whole gesture is one change: letting go of a slider, one drag on the dock, one preset.
+Nothing you change is a one-way door. WinDock remembers your last 50 changes, made anywhere: in any settings window, on the dock (pinning, unpinning, dragging an icon to another place, customizing, moving the dock) or from the dock menu. A whole gesture is one change: letting go of a slider, one drag on the dock, one layout, all of Quick setup.
 
 To undo or redo a change:
 
 - Press **Ctrl+Z** in any settings window to undo the last change, and **Ctrl+Y** to redo it. While you type in a text box, Ctrl+Z first undoes your typing there.
 - Right-click the dock (or the WinDock icon in the notification area): while there is something to undo, the first entry says what, for example **Undo “Icon size 48 → 64”**.
-- In a Dock settings window, **⋯** has **Undo**, **Redo** and **Revert this window…**. Revert this window undoes every change made since you opened that window, after asking first. It is one change itself, so Undo brings everything back.
+- While customizing a dock, click **Undo** on the small bar beside it.
+- In a dock's panel, **⋯** has **Undo**, **Redo** and **Revert this window…**. Revert this window undoes every change made since you opened the panel, after asking first. It is one change itself, so Undo brings everything back.
 
 The changes are remembered until WinDock quits. They are not saved to disk.
 
 ### Saved
 
-The top of every settings window (the bottom of an item's window) says whether your changes are on disk:
+The top of the App settings window and of a dock's panel, the bottom of an item's window and the small bar while customizing say whether your changes are on disk:
 
 - **✓ Saved**: everything is in config.json.
 - **Saving…**: a change is about to be written (a moment after you make it).
-- **Not saved**: the last save failed. A bar over the page says why, for example "Couldn't save: config.json is read-only or locked", with **Retry** (save now) and **Open folder** (show config.json in File Explorer). Your changes stay in WinDock, and the next change tries again.
+- **Not saved yet**: a preview of a layout or look is open. Nothing is written until you keep it.
+- **⚠ Not saved**: the last save failed. A bar over the page says why, for example "Couldn't save: config.json is read-only or locked.", with **Retry** (save now) and **Open folder** (show config.json in File Explorer). Your changes stay in WinDock, and the next change tries again. See [Couldn't save](troubleshooting.md#couldnt-save-configjson-is-read-only-or-locked).
 
 ### Keep or Revert
 
-A change that moves the dock or hides it can leave you without a dock you can reach: the dock on another edge or display, auto-hide turned on, the dock on the desktop layer, a dock turned off. After such a change a bar says what happened, for example "Dock moved to the left edge.", with **Keep** and **Revert (12 s)**. Revert puts it back. If you do nothing, the change is kept after 12 seconds. When no settings window is open (you used the dock menu or dragged the dock), the same bar appears as a small banner beside the dock.
+A change that moves the dock or hides it can leave you without a dock you can reach: the dock on another edge or display, auto-hide turned on, the dock on the desktop layer, a dock turned off. After such a change a bar says what happened, for example "Dock moved to the left edge.", with **Keep** and **Revert (12 s)**. Revert puts it back. If you do nothing, the change is kept after 12 seconds. When no settings window is open (you used the dock menu or dragged the dock to another edge), the same bar appears as a small banner beside the dock.
 
 To turn the bar off, clear App settings > General > Changes > **Ask to keep a dock that moved or hid**. Undo still works.
 
-### Keep or Cancel for presets
+### Keep or Cancel for layouts and looks
 
-Applying a preset (Dock settings > **⋯** > **Apply a layout or look…**, or adding a dock from a preset) is a preview first. The dock changes at once, the preset chooser closes, and a bar says "Previewing Modern on main." with **Keep** and **Cancel**. Nothing is saved while the preview is open. Keep makes it one change you can undo. Cancel, **Esc**, or closing the settings window puts the dock back as it was. Quick setup works the same way: everything it changes is one preview until you click **Finish**.
+Trying a layout or a look is a preview first. This is so for the chooser (**⋯** > **Apply a layout or look…**, or adding a dock from a preset or a layout), for a tile in a theme gallery, and for all of Quick setup.
+
+The dock changes at once, and a bar says what you are trying, for example "Previewing Modern on main.", with **Keep** and **Cancel**. Nothing is saved while the preview is open.
+
+- **Keep** makes it one change you can undo.
+- **Cancel**, **Esc**, or closing the settings window it came from puts everything back as it was.
+
+A preview is a try, a move is an edit: left alone, a preview is not kept, while a moved dock is (see [Keep or Revert](#keep-or-revert)). Quick setup keeps its choices only when you click **Finish**.
 
 ## App settings
 
 The App settings window holds what applies to every dock. Its pages are listed at the left in small groups:
 
-- **General**: General, Docks and displays.
-- **Look**: Themes, Animation.
-- **Data**: Calendar feeds, Notifications, Tray icons.
-- **Widgets**: Widget library.
+- **General**: General (startup, taskbar, full-screen apps) and Docks and displays (add, arrange, name and turn off docks).
+- **Look**: Themes (colours and effects of every dock) and Animation (speed, hiding and launch motion).
+- **Data**: Calendar feeds, Notifications and Tray icons.
+- **Widgets**: Widget library (installed widgets and the console).
 - Then About and Help.
 
-Use the Up and Down keys in the page list to move between pages.
+On a wide window the page list shows the short description under each name. Use the Up and Down keys in the page list to move between pages.
 
-Nothing on these pages changes one dock only. A single dock's settings are in that dock's own window.
+Nothing on these pages changes one dock only. A single dock's settings are in that dock's own panel.
 
 ### General
 
-The General page has the settings for WinDock itself. The line under the title reminds you where each dock's own settings are.
+The General page has the settings for WinDock itself. The line under the title reminds you that each dock's own settings open beside the dock.
 
 #### System
 
@@ -178,63 +209,79 @@ The dashboard hotkey brings every dock and standalone widget that lives on the d
 
 #### Changes
 
-- **Ask to keep a dock that moved or hid**: on by default. After a change that moves or hides a dock, a bar offers Keep and Revert for 12 seconds. See [Keep or Revert](#keep-or-revert).
+- **Ask to keep a dock that moved or hid**: on by default. After a change that moves or hides a dock, a bar offers **Keep** and **Revert** for 12 seconds; left alone, the change is kept. Clear it to make such changes without the bar. See [Keep or Revert](#keep-or-revert).
 
 ### Docks and displays
 
-This page shows all your docks on all your displays, and adds, copies and removes them.
+This page shows all your docks on all your displays, and adds, names, copies and removes them.
 
 The drawing shows every display to scale, with its usable area shaded. Each dock is drawn on its edge in its own colour, with its name. Floating docks, folder windows and standalone widgets are drawn where they are.
 
 - Click a dock to select it.
-- Double-click a dock to open its settings window.
+- Double-click a dock to open its settings panel.
 - Drag a dock along its edge, onto another edge or onto another display. It moves when you let go. Press Esc to cancel.
 
 The toolbar under the drawing has:
 
-- **Add ▾**: a menu to add a **Dock**, a **Floating dock**, a **Dock from a preset…**, a **Folder window…** or a **Standalone widget** (a submenu of your widgets).
+- **Add ▾**: a menu to add a **Dock**, a **Floating dock**, a **Dock from a preset…** (one of the built-in layouts), a **Dock from a layout…** (the chooser opens on the layouts you saved), a **Folder window…** or a **Standalone widget** (a submenu of your widgets).
 - A line that describes the selected dock (while you drag: where it will go).
 - **Lock all docks**: checked while every dock and standalone widget is locked. Check it to lock them all, clear it to unlock them all.
 
-The list shows every dock, folder window and standalone widget with its edge, its display and whether it is shown, parked or disabled. A dock is "Parked" when its display is not connected; it comes back when the display does. "Disabled" means you turned it off for now (see **Disable** below).
+The list shows every dock, folder window and standalone widget with its name, its edge, its display and whether it is shown, parked or disabled. A dock is "Parked" when its display is not connected; it comes back when the display does. "Disabled" means you turned it off for now (see **Disable** below).
 
 Under the list, for the selected row:
 
-- **Open settings**: opens its own settings window (a double-click on the row does the same).
-- **Duplicate**: makes a copy of the dock.
+- **Open settings**: opens its settings (a double-click on the row does the same).
+- **Duplicate**: makes a copy of the dock, named after it ("main copy"), on the next free edge of the same display.
 - **Remove**: removes it. You cannot remove the last dock.
 - **Disable** / **Enable**: turns it off for a while without removing it, or back on. A disabled dock, folder window or standalone widget has no window, but keeps all its settings and items, so you can bring it back later exactly as it was. One dock always stays on: the button is greyed for the last one.
+- **Rename**: edits the dock's name right in the list (F2 does the same). Press Enter to keep the new name, Esc to cancel. The name is what menus, headers and titles show. Docks only.
+- **Save as layout…**: saves the selected dock (its place, behaviour, items and look) as a layout of your own, after asking for a name. You find it under **Mine** in the chooser. Docks only.
 
-To add a dock from a preset:
+To add a dock from a layout:
 
-1. Click **Add ▾** and choose **Dock from a preset…**.
-2. Pick a preset at the left.
+1. Click **Add ▾** and choose **Dock from a preset…** (or **Dock from a layout…** for one you saved).
+2. Pick a layout at the left.
 3. Leave **Copy my pinned apps from the first dock** checked to bring your pins along.
 4. Click **Add dock**.
+5. The new dock shows at once. Click **Keep** in the bar to keep it, or **Cancel** to remove it again.
 
 ### Themes
 
-The Themes page sets the look of every dock: colours, corners, the name label, the dots, the clock and the icon effects. A preview strip under the page shows the result. Move the mouse over it to try the magnification.
+The Themes page sets the app look: the colours, corners, effects, the name label, the dots and the clock of every dock that has no look of its own. A preview strip above the cards shows the result. Move the mouse over it to try the magnification.
+
+A dock with its own look is changed on its own Look tab instead: see [This dock's look](#this-docks-look). The same cards are there.
 
 #### Quick look
 
-The first card sets the look without colour codes: **Tint** (the bar's colour), **Transparency**, **Corners**, **Icon effects** and **Indicator dots**. Each writes the values behind it in the cards below, and its **↺** goes back to the theme's value.
+The first card sets the look without colour codes. Each control writes the values behind it in the cards below:
+
+- **Tint**: the colour of the bar; its opacity stays. The name label and the slot buttons take its hue at their own brightness. Click the swatch to pick a colour, or type `#RRGGBB`.
+- **Transparency**: how much the wallpaper shows through the bar, from 0 % (solid) to 100 % (clear). It sets the bar's background and the tint over the blur together.
+- **Corners**: **Square**, **Soft** or **Round**: the bar's corners (0, 8 or 16) and the slot buttons' corners to match. It says **Mixed** when you set the corner radius to another value in the Bar card.
+- **Icon effects**: **Off**, **Glow**, **Reflection** or **Glow and reflection**. The Icon effects card has their details.
+- **Indicator dots**: the dots under running apps, on or off.
+
+Each control has a **↺** that goes back to the theme's value.
 
 #### Choosing a theme
 
-- **Theme**: pick one of the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast, Aero glass) or one of your own theme files.
+The **Theme** card shows the themes as a gallery of tiles, each a small dock drawn in that theme: the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast, Aero glass), then your own theme files.
 
-**Aero glass** is the look of the Windows 7 taskbar: a blue-grey glass tint over the blur, square corners, a glossy sheen, taskbar buttons instead of the dots, wide gaps between the icons, a thin bar and light name labels. It looks best on a full-width bar with 32 DIP icons and magnification 1.00×. The **Windows 7** dock preset builds the whole taskbar on it: see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7).
+- Click a tile, or move with the arrow keys and press Enter, to try that theme. It is a preview: click **Keep** or **Cancel** in the bar above the page.
+- The tile of the theme in use is framed. When you changed some of its values it says so, for example "Current · 3 changed".
+- The hint under **Theme** counts your changes too. Choosing another theme clears them.
 
-The hint under the label counts how many values you changed. Choosing another theme clears your changes.
+**Aero glass** is the look of the Windows 7 taskbar: a blue-grey glass tint over the blur, square corners, a glossy sheen, taskbar buttons instead of the dots, wide gaps between the icons, a thin bar and light name labels. It looks best on a full-width bar with 32 DIP icons and magnification 1.00×. The **Windows 7** layout builds the whole taskbar on it: see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7).
 
 The **⋯** button next to it has:
 
-- **Export current theme…**: saves the theme with your changes as a theme file you can pick later.
-- **Open themes folder**: opens the folder where your theme files live.
-- **Reset all to preset**: undoes every change you made on this page.
-
-A single dock can use a different theme: see [This dock's look](#this-docks-look). Your changes on this page still apply on top of it.
+- **Save as theme…**: saves the look as it is now, with your changes, as a theme file. Give it a name; it then shows in the gallery of every dock.
+- **Import theme…**: copies a theme file you have into your themes folder, so it shows in the gallery.
+- **Export theme…**: saves the look as a theme file wherever you choose, for example to share it.
+- **Apply to docks…**: a list of your docks. Each one you check gets this look as its own look.
+- **Open themes folder**: opens the folder where your theme files live (`%LocalAppData%\WinDock\themes`).
+- **Reset all to preset**: undoes every change you made to the theme's values.
 
 #### Theme values
 
@@ -341,7 +388,7 @@ This page sets how WinDock reads the Windows notifications, for the notification
 
 The **Centre** card:
 
-- The notification centre is a widget: drag it onto a dock from that dock's Contents tab.
+- The notification centre is a widget: add it to a dock from the drawer (the dock's Contents tab, or **Add items** while customizing).
 - **Tray balloons in the centre instead of Windows toasts**: with the tray takeover on (see [Tray icons](#tray-icons)), the pop-up messages of tray icons go to WinDock's list instead of Windows.
 - **Clear an app's badge when it is opened from the dock**: clicking an app on the dock marks its notifications as read.
 - **Check for notifications every**: seconds between checks. WinDock checks only while badges, the centre or a widget need it.
@@ -392,43 +439,50 @@ About shows the WinDock version.
 - **Open config file**: opens the file in your text editor.
 - **Reload config**: reads the file again after you edited it by hand.
 - **Renderer in use**: whether WinDock draws with the graphics card or in software.
-- **Run quick setup again**: opens Quick setup, the steps of the first start: your docks, their looks and how they behave. See [Quick setup](quick-start.md#quick-setup).
+- **Run quick setup again**: opens Quick setup, the steps of the first start: your docks, their looks and how they behave. It starts from your docks as they are now. See [Quick setup](quick-start.md#quick-setup).
 - **Quick start guide**: opens the Help at the quick start.
-- **Show the tips again**: shows the three tips on the dock again.
+- **Show the tips again**: shows the three tips on the dock again, one at a time.
 
 ## Dock settings
 
-Each dock has its own settings. They open in a panel beside the dock (above a bottom dock, beside a side dock) and edit that dock only. The panel's border and the band on the side facing the dock take the dock's colour, so you can tell the panels of different docks apart. Drag the panel's outer edges to make it bigger or smaller. It closes when you press Esc, click its **✕**, click **Done** while customizing, or switch to another app.
+Each dock has its own settings. They open in a panel beside the dock (above a bottom dock, under a top one, beside a side dock) and edit that dock only. See [The settings windows](#the-settings-windows) for how the panel opens, closes and follows the dock.
 
 The panel has a header and five tabs: Contents, Position, Look, Behaviour and Running apps. Use Left and Right in the tab strip, or Ctrl+Tab, to move between them.
 
 ### The header
 
-The header shows the dock's name in its colour and small chips with its edge, its display, how many items it has, whether it is shown or parked, and whether it is locked.
+The first row shows the dock's name in its colour and small chips with its edge, its display, how many items it has, whether it is shown or parked, and whether it is locked. **✕** at the right end closes the panel (Esc does the same).
 
-**✕** at the right end of the first row closes the panel. On the second row:
+To rename the dock, click its name, or press **F2**. Type the new name and press Enter; Esc keeps the old one. The name is what menus, headers and the drawing on Docks and displays show. The dock's id, which WinDock uses inside, stays the same.
 
-- **Customize**: customize the dock right on the dock.
+The second row has:
+
+- The save state: **✓ Saved**, **Saving…**, **Not saved yet** or **⚠ Not saved** (see [Undo and Saved](#undo-and-saved)).
+- **Customize**: customize the dock right on the dock (see [Customize a dock](guide-items.md#customize-a-dock)).
 - **App settings…**: opens the settings that apply to every dock and to WinDock as a whole.
-- **⋯**: a menu with **Undo**, **Redo**, **Revert this window…**, **Find a setting…** (Ctrl+F), **Apply a layout or look…**, and:
+- **⋯**: a menu with:
+  - **Undo** and **Redo** (each names the change), and **Revert this window…**, which undoes every change made since the panel opened.
+  - **Find a setting…** (Ctrl+F).
+  - **Apply a layout or look…**: the chooser of layouts and looks (see below).
+  - **Save dock as layout…**: saves this dock (its place, behaviour, items and look) as a layout of your own.
+  - **Rename dock** (F2) and **Duplicate dock** (a copy on the next free edge).
   - **Flash this dock**: shows the dock and makes its border pulse for a moment.
-  - **Lock this dock** / **Unlock this dock**: a locked dock cannot be changed by dragging: no reordering, no unpinning by dragging, no moving the dock. The settings still change everything.
+  - **Lock this dock** / **Unlock this dock**: a locked dock cannot be changed by dragging: no reordering, no unpinning by dragging, no moving the dock. **Customize** asks to unlock it first. The settings still change everything.
 
-Left of the buttons the header says **✓ Saved**, **Saving…** or **Not saved** (see [Undo and Saved](#undo-and-saved)).
-
-To turn a dock into a preset:
+To apply a layout or a look:
 
 1. Click **⋯** and choose **Apply a layout or look…**.
-2. Pick a preset at the left.
-3. Leave **Keep my pinned apps and folders** checked to keep your apps, folders, groups, separators and the Recycle Bin.
-4. Click **Apply**.
-5. The dock shows the preset at once. Click **Keep** in the bar over the page to keep it, or **Cancel** to go back.
+2. Choose **Layouts**, **Looks** or **Mine** at the top.
+3. Pick one at the left. The right side says what it changes and what stays.
+4. For a layout, leave **Keep my pinned apps and folders** checked to keep your apps, folders, groups, separators and the Recycle Bin. Check **Keep my current look** to keep the dock's look.
+5. Click **Apply**.
+6. The dock shows it at once. Click **Keep** in the bar over the page to keep it, or **Cancel** to go back.
 
-Applying a preset replaces all of the dock's settings and items. Its name, colour and display stay. See [Presets](guide-docks.md#presets).
+Applying a layout replaces the dock's settings and items. Its name, colour and display stay. A look changes only the colours, the transparency, the corners and the icon effects. See [Layouts and looks](guide-docks.md#layouts-and-looks).
 
 ### Contents tab
 
-The Contents tab shows, arranges and edits everything on the dock: add an item from the drawer, move it, change its everyday settings and remove it, all in one place.
+The Contents tab shows, arranges and edits everything on the dock: what is on it, in order, and the drawer to add more.
 
 **Items on the dock** is a strip with a tile for every item, in the dock's order:
 
@@ -459,22 +513,29 @@ Below them, for every item, is **Anchor and offset**, closed at first (most item
 
 Use **Position on the dock** to split a dock into parts, for example a Start button at the left end, your apps in the middle and the clock at the right end.
 
-**Add to the dock** at the right is where you add things:
+**Add to the dock** is the drawer: a grid of tiles of everything you can put on the dock. It is the same drawer that opens beside the dock while you customize it.
 
-- A search box to find a widget by name.
-- **Apps and folders**: **App or shortcut…** and **Folder…** open a file dialog and pin what you choose.
-- **Built in**: Running apps, Clock, System tray, Notification centre, Recycle Bin and Separator. Weather is available as **Weather (script)** in the script widgets group.
-- **Script widgets**: every installed widget, each with a small live preview.
+- The search box finds a tile by its name or description.
+- The chips filter the grid: **All**, **Built in**, **Widgets** or **Apps and folders**.
+- **App or shortcut…** and **Folder…** open a file dialog and pin what you choose.
+- The built-in items are Running apps, Clock, System tray, Notification centre, Recycle Bin and Separator. The weather is a widget: **Weather (script)**.
+- Every installed widget has a tile with a small live preview.
 
-To add an item, drag its row onto the strip where you want it, or click its **Add** button. A script widget's **Desktop** button puts it on the desktop in its own window instead. Items a dock can have only once say "Already on the dock" while it has one.
+To add an item:
+
+- Click its tile to add it at the end of the dock.
+- Or drag the tile onto the strip, or onto the dock itself, to the place you want.
+- To put a widget on the desktop instead, drag its tile onto the desktop, or press the small monitor button on its tile. It becomes a [standalone widget](guide-docks.md#standalone-widgets).
+
+A tile of an item a dock can have only once (Running apps, the tray, the notification centre, the Recycle Bin) says "On the dock" while the dock has one. The link under the grid opens App settings > Widget library.
 
 ### Position tab
 
-The Position tab sets where the dock sits. It shows only the settings that apply to the kind of placement you chose.
+The Position tab sets where the dock sits and which display it is on. It shows only the settings that apply to the kind of placement you chose; where one is missing, a line says why and what to choose instead.
 
 #### Placement
 
-The first card, **Where on the screen**, says where the dock sits and on which display.
+The first card, **Where on the screen**, sets the place of the dock.
 
 - **Kind**: **Bar on an edge** (the classic dock), **Floating bar** (a bar anywhere on the screen), **Half circle** (a ring on an edge) or **Circle** (a ring anywhere). See [Placement kinds](guide-docks.md#placement-kinds).
 - **Display**: Primary, another display, or **Every display** (a copy of the dock on each one).
@@ -483,17 +544,17 @@ For a bar on an edge:
 
 - **Edge**: Bottom, Top, Left or Right.
 - **Alignment**: Centre, Start (left / top) or End (right / bottom).
-- **Distance from the centre** (or from the left, top, right or bottom, by alignment): moves the dock along its edge, in pixels at 100 % scaling. Use the slider or type a number.
-- **Distance from the screen edge**: moves the bar away from its edge, 0 - 200 pixels. Not for a full-width bar.
-- You can also drag the dock while customizing: along its edge, away from it, or onto another edge.
+- **Distance from the centre**: moves the dock along its edge, in pixels at 100 % scaling. With Start or End alignment it reads **Distance from the left** (or the top, right or bottom). Drag the slider, or type a number in the box for a larger one.
+- **Distance from the screen edge**: moves the bar away from its edge toward the middle of the screen, 0 - 200 pixels. Auto-hide still slides it out of sight. It is greyed for a full-width bar, which sits on its edge.
+- Under the distances a line reminds you of the fast way: drag the dock while customizing. It snaps to the centre.
 - **Full width**: the bar spans the whole edge.
-- **Reserve screen space**: maximized windows stop at the dock instead of going under it. Only for a dock with auto-hide off.
+- **Reserve screen space**: maximized windows stop at the dock instead of going under it. It needs auto-hide off and the Normal layer; while it is greyed, the line under it says which.
 - **When the icons do not fit**: **Scroll** (use the wheel or drag the bar), **Shrink the icons**, or **Clip at the screen's end**.
 
 For a floating bar:
 
 - **Faces**: the edge it faces: where its icons grow and its popups open.
-- **Position x** and **Position y**: its top-left corner from the top-left of the screen. Leave them empty, or click **Centre it**, to centre it.
+- **Position x** and **Position y**: its top-left corner from the top-left of the screen. Click **Centre it** to centre it on its display (it empties both boxes).
 - **When the icons do not fit**, as above.
 
 For a half circle: **Edge**, **Radius** (0: automatic) and **Turn the icons with the ring**. For a circle: **Position x** and **Position y** (its centre, with **Centre it**), **Radius** and **Turn the icons with the ring**.
@@ -502,12 +563,16 @@ The small monitor at the right shows where the dock sits. It follows every chang
 
 #### Layer
 
-The **Layer and title** card:
+The **Layer and title** card sets where the dock lives among your windows and its title.
 
-- **Normal (above windows)**: the dock sits above every window. Auto-hide keeps it out of the way.
-- **On the desktop, only while the desktop is showing**: the dock shows only while the desktop is in front (after Win+D or a click on the wallpaper).
-- **On the desktop, under every window**: the dock is always on the desktop, under your windows, like a folder window.
-- **Title** (bars): a text drawn beside the bar, for example to tell two docks apart.
+- **Layer**:
+  - **Normal (above windows)**: the dock sits above every window. Auto-hide keeps it out of the way.
+  - **On the desktop, only while the desktop is showing**: the dock shows only while the desktop is in front (after Win+D or a click on the wallpaper).
+  - **On the desktop, under every window**: the dock is always on the desktop, under your windows, like a folder window.
+- **Show the title**: **Never**, **On hover** (it fades in while the pointer is over the dock) or **Always**. Never keeps the text, so you can name a dock without showing a title.
+- **Use the dock's name**: the title shows the dock's name, and the **Title** box is hidden.
+- **Title**: a text of its own, for example to tell two docks apart.
+- **Where**: **Outside the bar** (beside the bar, toward the middle of the screen) or **Inside the bar** (a band in the bar above the icons, which makes the bar taller). Left and right docks and rings always draw it outside; the line beside it says so.
 
 The dashboard hotkey brings the desktop layers to the front. See [Layers](guide-docks.md#layers).
 
@@ -519,19 +584,29 @@ The **Exact offsets** card is closed when the panel opens. Click its heading to 
 - **Peek opacity**: how visible that strip is, in percent.
 - **Maximum length** (bars that are not full width): the longest the bar may get, in pixels. 0 means no limit. A longer dock scrolls or shrinks its icons.
 
-A half circle and a circle have none of these, so the card is not shown for them.
+The peek shows only while the dock is hidden; with auto-hide off, a line says to turn it on (Behaviour tab). A half circle and a circle have none of these, so the card is not shown for them.
+
+To move the dock by hand instead of typing numbers, drag it while customizing: see [Moving a dock](guide-docks.md#moving-a-dock).
 
 ### Look tab
 
+The Look tab sets the look of this dock and how big its icons are.
+
 #### This dock's look
 
-A dock either uses the app look (App settings > Themes) or has its own: pick a tile in the gallery, or click **Give this dock its own look**, and the Quick look and value cards on this tab then change this dock only. The **↺** beside This dock's look goes back to the app look.
+The first card, **Look and size**, holds what you change most often.
 
-The first card, **Theme and size**, holds what you change most often.
+- **This dock's look**: its hint says which look the dock shows: "The app look (Dark)", or "Its own: Glass" with the number of values you changed.
+- The gallery: the first tile is the app look; the others are the built-in themes and your theme files. Picking one of those gives this dock a look of its own. A pick is a preview: click **Keep** or **Cancel** in the bar above the page.
+- **↺** (Use the app look again): this dock drops its own look and follows App settings > Themes again.
+- **⋯**: **Save as theme…**, **Import theme…**, **Export theme…**, **Apply to other docks…** (each dock you check gets this look as its own), **Open themes folder** and **Reset all to preset**, as on the Themes page.
 
-- **This dock's theme**: **Use app default** uses the app's theme from App settings > Themes; its name is in brackets, for example "Use app default (Dark)". Pick another theme to give only this dock a different look. While it has one, a **↺** (Reset to app default) at the end of the row goes back to the app's theme.
+While the dock uses the app look, a line says "This dock uses the app look. Changes to it are in App settings > Themes." The Quick look and the value cards under it show the app's values but do not change them. Then you can:
 
-The theme's colours and effects are on App settings > Themes (the link opens it). They apply to every dock, on top of this dock's theme.
+- Click **Give this dock its own look**: the dock starts from the app look as it is now, and from then on the cards on this tab change this dock only.
+- Or click **Change for every dock**: it opens App settings > Themes.
+
+While the dock has its own look, the **Quick look** card and the value cards work as on the Themes page (see [Quick look](#quick-look) and [Theme values](#theme-values)), for this dock only.
 
 #### Size
 
@@ -549,9 +624,11 @@ The choices for **Bar while magnified** are:
 - **Follows the pointer**: the bar's ends move with the pointer as you go along the icons, as on a Mac.
 - **Always wide (never grows or shrinks)**: the bar always has room for the magnified icons, so it never changes length.
 
-The preview strip under this tab shows the dock with its theme and sizes.
+The preview strip under this tab shows the dock with its look and sizes.
 
 ### Behaviour tab
+
+The Behaviour tab sets when the dock hides and what the mouse does on it.
 
 #### Auto-hide
 
@@ -559,7 +636,7 @@ The preview strip under this tab shows the dock with its theme and sizes.
 - **Always**: the dock hides when the mouse leaves it. Push the mouse against the screen edge to bring it back.
 - **When a window overlaps the dock**: the dock hides only while the active window covers it, and comes back by itself when it does not.
 
-The delays are in the **Delays and popup gap** card at the end of the tab.
+The dock stays shown while its settings panel is open. The delays are in the **Delays and popup gap** card at the end of the tab.
 
 A floating bar has no auto-hide. For a floating bar this card shows one line instead of the options: it is shown by its layer and by the dashboard hotkey. To auto-hide it, choose **Bar on an edge** on the Position tab (click the **Position tab** link).
 
@@ -577,32 +654,34 @@ A floating bar has no auto-hide. For a floating bar this card shows one line ins
 
 - **Notification badges on app icons**: shows the number of unread notifications on each app's icon.
 
-The notification centre itself is a widget: add it on the Contents tab. Which apps may show badges is set in App settings > Notifications.
+The notification centre itself is a widget: add it from the drawer on the Contents tab. Which apps may show badges is set in App settings > Notifications.
 
 #### Delays and popup gap
 
-The timings, closed when the window opens. Click the heading to open it. It counts the values that differ from a new dock's, for example "Delays and popup gap · 1 changed".
+The timings, closed when the panel opens. Click the heading to open it. It counts the values that differ from a new dock's, for example "Delays and popup gap · 1 changed".
 
-- **Hide delay** and **Reveal delay** (only while auto-hide is on): how long the dock waits before it hides after the mouse leaves, and before it shows again when you touch the edge, in milliseconds.
-- **Preview delay** (only while window previews are on): how long the mouse must rest on an app before its previews open, in milliseconds.
+- **Hide delay** and **Reveal delay**: how long the dock waits before it hides after the mouse leaves, and before it shows again when you touch the edge, in milliseconds. They apply only while auto-hide is on; otherwise a line says so.
+- **Preview delay**: how long the mouse must rest on an app before its previews open, in milliseconds. It applies only while window previews are on.
 - **Popup gap**: the space between the dock and the popups it opens (previews, folders, the calendar, the weather), in pixels.
 
 ### Running apps tab
 
+The Running apps tab sets how running apps and their windows appear on this dock.
+
 - **Windows**: **Stacked (one slot per app)**, or **One slot per window**, like the Windows taskbar.
 - **Show only the windows on this dock's display**: useful with a dock on each display.
 - **Titles under icons**: **Off**, **One line** or **Two lines** of the window title (or the app's name) under each icon.
-- **Titles on vertical docks**: **Off** or **Beside the icon**, for left and right docks.
+- **Titles on vertical docks**: **Off** or **Beside the icon**, for left and right docks. It shows while Titles under icons is not Off.
 - **Window thumbnails**: **Off**, **Live (GPU capture)** or **Snapshots (every N seconds)**. Each window's icon becomes a small picture of the window.
 - **Snapshot every**: seconds between pictures (for snapshots).
 - **Live frames per second**: the most pictures per second (for live).
 - **Tile length**: the length of each picture tile. 0 makes it twice the icon size.
 
-Live thumbnails use the graphics card; snapshots cost almost nothing. See [Running apps](guide-items.md#running-apps).
+Only the rows the chosen thumbnail mode uses are shown; a line says which are left out and why. Live thumbnails use the graphics card; snapshots cost almost nothing. See [Running apps](guide-items.md#running-apps).
 
 ## Standalone widget settings
 
-A standalone widget is a widget on the desktop in a window of its own. Its settings window has the same kind of header as a dock's (its display, layer, size and lock, with **Flash**, **Lock** and **⋯**) and the tabs **Content**, **Appearance** and **Placement**.
+A standalone widget is a widget on the desktop in a window of its own. Its settings open in a normal window, not a panel. Its header is like a dock's (its display, layer, size and lock, with **Flash**, **Lock** and **⋯**), and it has the tabs **Content**, **Appearance** and **Placement**. Each tab starts with a sentence that says what it is for.
 
 To open it, right-click the widget and choose its settings entry (it opens on Content) or **Window settings…** (it opens on Placement), or double-click it on App settings > Docks and displays.
 
@@ -631,7 +710,7 @@ Closed at first: dragging the widget and its edges is the usual way to place and
 
 ## Folder window settings
 
-A folder window shows a folder on your desktop. Its settings window has one page. Its header has only the **⋯** menu. See [Folder windows](guide-docks.md#folder-windows).
+A folder window shows a folder on your desktop. Its settings open in a normal window with one page, which starts with a sentence that says what it is for. Its header has only the **⋯** menu. See [Folder windows](guide-docks.md#folder-windows).
 
 ### Which folder
 
@@ -676,7 +755,7 @@ A move never overwrites a file, and you can undo it with Ctrl+Z in File Explorer
 
 An item's settings window edits one item on a dock. Each clock, weather item and widget has its own settings, so two clocks can show two time zones.
 
-The header shows the item's icon, its name, the dock it is on (click it to open that dock's window), its place on the dock and a one-line description. The footer says "Changes apply at once" and has **Reset to factory defaults…** (for a widget, clock, weather or tray item) and **Console…** (for a widget). A widget that shows a shared value has **Reset to app default** beside them while it has a value of its own (see [App defaults and local values](#app-defaults-and-local-values)).
+The header shows the item's icon, its name, the dock it is on (click it to open that dock's panel), its place on the dock and a one-line description. The footer says "Changes apply at once" and whether they are saved (**✓ Saved**, see [Saved](#saved)), and has **Reset to factory defaults…** (for a widget, clock, weather or tray item) and **Console…** (for a widget). A widget that shows a shared value has **Reset to app default** beside them while it has a value of its own (see [App defaults and local values](#app-defaults-and-local-values)).
 
 Every widget, clock and weather item has the same structure: what it shows and does is on the **Content** tab (places, feeds, metrics, time zones, labels, what a click does), how it looks on the **Appearance** tab (faces, styles, colours, sizes, motion). An item whose settings are all of one kind has one page and no tabs. **Reset to factory defaults…** and **Console…** stay in the footer under both tabs.
 

@@ -65,7 +65,52 @@ A dock can be out of sight for several reasons. Open App settings > Docks and di
 - **A full-screen app**: the docks hide while a full-screen app is in front, and come back when you leave it.
 - **Two docks on the same edge**: they overlap. Drag one to another place in the drawing.
 
-To find a dock, open its settings window (double-click it in the list) and click **Flash**. The dock shows itself and its border pulses in its colour.
+To find a dock, open its settings (double-click it in the list) and choose **⋯** > **Flash this dock**. The dock shows itself and its border pulses in its colour.
+
+If the dock went missing right after you moved it or changed its auto-hide or layer, undo that change: right-click the WinDock icon in the notification area and choose the first entry, **Undo**.
+
+## A change I made disappeared
+
+WinDock never throws away a change you kept. Look at what happened to it:
+
+- **You tried a layout or a look** and did not click **Keep**. A preview is only a try: **Cancel**, Esc, or closing the settings puts everything back as it was. Apply it again and click **Keep**.
+- **You moved or hid a dock** and a bar offered **Keep** and **Revert**. Left alone, such a change is kept; only **Revert** undoes it.
+- **You undid it.** Press **Ctrl+Y** in a settings window to redo it.
+- **WinDock could not save it.** The settings say **⚠ Not saved**. See the next section.
+
+Undo and Redo last until WinDock quits. See [Undo and Saved](guide-settings.md#undo-and-saved).
+
+## Couldn't save: config.json is read-only or locked
+
+When WinDock cannot write its settings file, a bar over the settings says "Couldn't save: config.json is read-only or locked." and the save state reads **⚠ Not saved**. Your changes stay in WinDock while it runs, and every new change tries again.
+
+To fix it:
+
+1. Click **Open folder** in the bar. File Explorer shows `config.json`.
+2. Right-click `config.json`, choose **Properties** and clear **Read-only**.
+3. Close any program that has the file open, such as a text editor or a sync tool that locks it.
+4. Click **Retry** in the bar. It says **✓ Saved** when the file is written.
+
+If the bar says the disk is full, free some space on the drive and click **Retry**.
+
+## My dock's colours changed after the update
+
+Since this version, a dock either uses the app look or has a look of its own, and a dock with its own look no longer takes your changes from App settings > Themes. A dock that had its own theme before the update now has its own look: it shows its theme as it is, without the colour changes you made on the Themes page.
+
+To make the dock look as you want:
+
+- To have it follow App settings > Themes again, open the dock's Look tab and click the **↺** beside **This dock's look** (Use the app look again).
+- Or keep its own look and make your changes on its Look tab: Quick look and the value cards there change this dock only.
+
+## The dock settings have no title bar
+
+A dock's settings open in a panel beside the dock, not in a normal window. It has no title bar on purpose: it belongs to the dock and follows it.
+
+- To make it bigger or smaller, drag its outer edges.
+- To close it, press **Esc** or click **✕** at its top right. It also closes when you click another app or the desktop.
+- To keep it open while you work in another window of WinDock, such as App settings, just switch there: it stays open while WinDock is in front.
+
+The App settings window and the item settings windows are normal windows with a title bar.
 
 ## Performance and memory
 
@@ -113,11 +158,13 @@ To reset one item (a clock, a weather item, a widget or the tray):
 2. Click **Reset to factory defaults…** at the bottom.
 3. Click **Yes** in the question that follows. It says what is reset; your App settings are not changed.
 
-A dock or item setting that can follow an app-wide value (a dock's theme, a feed's reminder, a script widget's place) has a **↺** while it has a value of its own: it goes back to the app default. See [Resetting](guide-settings.md#resetting).
+A dock or item setting that can follow an app-wide value (a dock's look, a feed's reminder, a script widget's place) has a **↺** while it has a value of its own: it goes back to the app default. See [Resetting](guide-settings.md#resetting).
 
-To reset the theme, open App settings > Themes, click **⋯** and choose **Reset all to preset**. Each changed value also has its own **↺** button.
+To reset the app look, open App settings > Themes, click **⋯** and choose **Reset all to preset**. A dock with its own look has the same **⋯** on its Look tab. Each changed value also has its own **↺** button.
 
-To reset one dock, apply the **Basic dock** preset to it: in its settings window click **⋯** > **Apply a layout or look…**. Clear **Keep my pinned apps and folders** for a clean dock.
+To reset one dock, apply the **Basic dock** layout to it: in its settings panel click **⋯** > **Apply a layout or look…**, choose **Basic dock** under **Layouts**, click **Apply** and then **Keep**. Clear **Keep my pinned apps and folders** for a clean dock.
+
+To go back a few steps instead, use Undo: **Ctrl+Z** in a settings window, or the first entry of the dock menu.
 
 To start over completely:
 
@@ -125,5 +172,7 @@ To start over completely:
 2. Open the folder `%LocalAppData%\WinDock` (paste it into the File Explorer address bar).
 3. Rename `config.json`, for example to `config-old.json`, so you keep a copy.
 4. Start WinDock. It creates a new settings file with the defaults and opens Quick setup.
+
+Your own themes (`themes`) and saved layouts (`layouts`) stay in the folder and are offered again.
 
 If your settings file has a mistake in it, WinDock starts with the defaults and leaves the file as it is, so you can fix it. After you fix it, choose **Tools** > **Reload config** in the dock menu.

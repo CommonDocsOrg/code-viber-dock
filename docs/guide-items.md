@@ -1,6 +1,6 @@
 # Items and widgets
 
-This guide is about what sits on a dock: apps, folders, groups, the running apps, the clock, the weather, the tray, notifications and widgets. It says how to add each one, what it does and where its settings are.
+This guide is about what sits on a dock: apps, folders, groups, the running apps, the clock, the weather, the tray, notifications and widgets. It says how to add each one, how to change a dock right on the dock, what each item does and where its settings are.
 
 ## What a dock holds
 
@@ -22,30 +22,63 @@ You can have as many clocks, weather items and widgets as you like, each with it
 
 ## Adding items
 
-Everything is added in one place: the **Add to the dock** drawer on the dock's Contents tab.
+Everything is added from the drawer: a grid of tiles of everything you can put on a dock, with a live preview of each widget. The drawer is in two places, and it is the same in both:
+
+- Beside the dock while you customize it: click **Add items** on the small bar, or a **+** on the dock. See [Customize a dock](#customize-a-dock).
+- On the **Contents** tab of the dock's settings, under **Add to the dock**.
 
 To add an item:
 
-1. Right-click the dock and choose **Dock settings…**.
-2. On the **Contents** tab, find the item in **Add to the dock** at the right. Use the search box to find a widget by name.
-3. Drag its row onto the strip of items at the top, where you want it. Or click its **Add** button.
+1. Open the drawer.
+2. Find the item. Type in the search box, or click a chip to show only part of the grid: **All**, **Built in**, **Widgets** or **Apps and folders**.
+3. Click its tile to add it at the end of the dock. Or drag the tile onto the dock (or onto the Contents tab's strip) to the place you want: a marker shows where it will go.
 
-The drawer has three parts:
+The drawer holds:
 
-- **Apps and folders**: **App or shortcut…** and **Folder…** open a file dialog. Pick one or more apps or shortcuts, or a folder.
-- **Built in**: Running apps, Clock, Weather, System tray, Notification centre, Recycle Bin and Separator.
-- **Script widgets**: every installed widget, each with a small live preview.
+- **App or shortcut…** and **Folder…**: they open a file dialog. Pick one or more apps or shortcuts, or a folder. These two are clicked, not dragged.
+- The built-in items: Running apps, Clock, System tray, Notification centre, Recycle Bin and Separator.
+- Every installed widget, such as **Weather (script)**, **Analog clock** or **System monitor**, each with a small live preview.
+
+A dock can have only one Running apps item, one tray, one notification centre and one Recycle Bin. While it has one, that tile says "On the dock".
+
+To put a widget on the desktop instead of on the dock, drag its tile onto the desktop, or press the small monitor button on its tile. See [Widgets on the desktop](#widgets-on-the-desktop).
 
 There are quicker ways for some items:
 
 - Drag a shortcut, a program or a folder from File Explorer onto the dock.
-- Right-click the dock and open **Add**: **Clock**, **Weather**, **Running apps**, **Tray (notify icons)**, **Notification centre** or **Separator**. **Apps, folders and more widgets…** opens the Contents tab, and **Folder window on the desktop…** makes a folder window.
+- Right-click the dock and open **Add**: **Clock**, **Weather (script)**, **Running apps**, **Tray (notify icons)**, **Notification centre** or **Separator**. **Apps, folders and more widgets…** opens the Contents tab, and **Folder window on the desktop…** makes a folder window.
 
-To remove an item, select it on the Contents tab and click **Remove** (or press Delete). A clock, a weather item, a widget, the tray and the notification centre also have **Remove from dock** at the end of their right-click menu. You can also drag a pinned app that is not running up and off the dock.
+To remove an item, customize the dock and click the item's **×**, or select it on the Contents tab and click **Remove** (or press Delete). A clock, a weather item, a widget, the tray and the notification centre also have **Remove from dock** at the end of their right-click menu. You can also drag a pinned app that is not running up and off the dock.
 
 ## Customize a dock
 
-Right-click the dock and choose **Customize this dock** (or press and hold an empty part of the bar) to add items from the drawer beside it, drag items to move them, and click an item's **×** to remove it; click **Done** when you are finished.
+Customizing lets you change a dock right where it is: add, move and remove its items, and move the dock itself. Every change applies at once and is one step you can undo.
+
+To start customizing, do one of these:
+
+- Right-click an empty part of the dock and choose **Customize this dock** (the first entry).
+- In the dock's settings panel, click **Customize** in the header.
+- Press and hold an empty part of the bar for a moment, without moving the mouse.
+
+A locked dock asks first: "Unlock this dock to customize it?" Click **Unlock** to go on, or **Cancel**. Undo locks it again.
+
+While you customize:
+
+- A dashed outline in the dock's colour goes around the dock. The dock stays shown, and its icons do not grow.
+- Point at an item: a small **×** appears at its corner. Click it to remove the item. There is no question; Undo brings it back.
+- Drag an item to move it. A gap opens where it will land.
+- While you drag an item, three small targets show by the bar: at its start, in the middle and at its end. Drop the item on one to give it that place of its own (start, centre or end), as **Position on the dock** does on the Contents tab.
+- A **+** after your pinned apps and at the end of the dock opens the drawer. A dock with anchored items, a ring or a dock that scrolls has no **+**; use **Add items** there.
+- Drag an empty part of the bar to move the dock itself. See [Moving a dock](guide-docks.md#moving-a-dock).
+
+A small bar beside the dock (above a bottom dock, at its end) shows "Customizing" and the dock's name, the save state (**✓ Saved**) and these buttons:
+
+- **Undo**: undoes the last change.
+- **Add items** (or **Hide items** while it is open): shows or hides the drawer beside the dock.
+- **Settings**: opens the dock's settings panel.
+- **Done**: ends customizing.
+
+To stop customizing, click **Done**, press **Esc**, choose **Done customizing** in the dock menu, or click another app or the desktop.
 
 ## Right-click menus
 
@@ -59,11 +92,11 @@ Right-click an item and its menu starts with what the item does, then how it loo
 - A widget: its settings (such as **System monitor settings…**), **Reload widget**, then **Remove from dock**.
 - A separator: **Remove separator**.
 
-The dock menu is grouped by task: **Dock settings…**, **Add**, **Position on screen**, **Auto-hide** and **Lock dock** for this dock; then **All docks** (the dashboard, lock all), **App** (App settings, the taskbar, Start with Windows), **Tools** (the config file, widgets, Task Manager), **Help…** and **Quit**.
+The dock menu is grouped by task. First, while there is something to undo, **Undo** with the name of the last change. Then for this dock: **Customize this dock**, **Dock settings…**, **Add**, **Position on screen**, **Auto-hide**, **Lock dock**, **Rename dock…**, **Duplicate dock** and **Save dock as layout…**. Then **All docks** (the dashboard, lock all), **App** (App settings, the taskbar, Start with Windows, Quick setup), **Tools** (the config file, widgets, Task Manager), **Help…** and **Quit**.
 
 The WinDock icon in the notification area has the app-wide commands: **App settings…**, **Docks** (each dock's settings), **Show dashboard**, **Show Windows taskbar temporarily**, **Hide taskbar**, **Start with Windows**, **Tools**, **Help…** and **Quit**.
 
-To move an item, drag it on the dock, or drag its tile on the Contents tab. To give an item a fixed place, such as the right end, use **Position on the dock** in the Contents tab's inspector.
+To move an item, drag it on the dock, or drag its tile on the Contents tab. To give an item a fixed place, such as the right end, drop it on a target while customizing, or use **Position on the dock** in the Contents tab's inspector.
 
 ## Item settings windows
 
@@ -255,7 +288,7 @@ To show the tray icons on a dock:
 
 1. Right-click the dock and choose **Add** > **Tray (notify icons)**. This also turns on the takeover.
 2. Or add **System tray** from the Contents tab's drawer. This also turns on the takeover (the check box **Show the notification area icons in the dock** on App settings > Tray icons).
-3. Or apply the **Windows 7** preset, which has the tray at the right end and turns on the takeover too (see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7)).
+3. Or apply the **Windows 7** layout, which has the tray at the right end and turns on the takeover too (see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7)).
 
 Clicks on the icons go to their apps as they would on the taskbar: a right-click opens the app's own menu. **Ctrl+right-click** an icon opens WinDock's tray menu: hide it from the grid, pin it to the dock, or open the tray settings.
 
@@ -285,7 +318,7 @@ This card lists every icon in the grid's order. Clear an icon's check box to kee
 
 WinDock can read the notifications in the Windows notification centre. Windows must allow it: Settings > Privacy & security > Notifications > "Let apps access your notifications".
 
-The **notification centre** is a bell on the dock with the number of unread notifications. To add it, drag **Notification centre** from the Contents tab's drawer onto the dock.
+The **notification centre** is a bell on the dock with the number of unread notifications. To add it, click or drag **Notification centre** in the drawer (see [Adding items](#adding-items)).
 
 - Click the bell to see your notifications, newest first.
 - Click a notification to open its app.
@@ -338,7 +371,7 @@ A widget with a place, such as Weather (script), has a **Find a place** box. Wit
 
 ### Widgets on the desktop
 
-A widget can also live on the desktop in a window of its own, moved and sized freely. Click **Desktop** on its row in the Contents tab's drawer, or **Add to the desktop** in App settings > Widget library. See [Standalone widgets](guide-docks.md#standalone-widgets).
+A widget can also live on the desktop in a window of its own, moved and sized freely. Drag its tile from the drawer onto the desktop, press the small monitor button on its tile, or click **Add to the desktop** in App settings > Widget library. See [Standalone widgets](guide-docks.md#standalone-widgets).
 
 ### Your own widgets
 
