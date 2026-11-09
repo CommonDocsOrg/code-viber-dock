@@ -565,4 +565,22 @@ private:
     CoachMark tips_{[this](int id) { OnTipCommand(id); }};
     int tipShown_ = -1;  // the tip on screen (-1 none)
     // --- end round 12 phase 12G ---
+    // --- round 12 phase 12E: the Dock settings panel beside its dock, Where on the screen ---
+    // The dock window a Dock settings panel sits beside: the instance it was opened from while that
+    // exists (an "each" dock has one per display), else the dock's first window (null: parked).
+    DockWindow* PanelDockOf(const SettingsWindow* w);
+    // Every open panel of the dock that `moved` belongs to (null: every panel; a display change)
+    // goes beside its dock again (animated); a panel whose dock has no window any more (parked,
+    // disabled) closes.
+    void ReanchorPanels(DockWindow* moved, bool animate);
+    // The open panel of config dock `cfg` closes (DockCommand 176, Done in customize mode); false:
+    // none open.
+    bool ClosePanel(size_t cfg);
+    // Customize mode's drag of dock `dock` along / off its edge (DockWindow::PinRequests::moveInEdge):
+    // one timeline entry "Moved main (+120 px, 24 px from the edge)".
+    void MoveInEdge(DockWindow& dock, int offset, int edgeGap);
+    // DockCommand 176 - 178.
+    bool PanelCommand(UINT command, LPARAM lp);
+    HWND panelFrom_ = nullptr;  // the dock window a Dock settings… command came from (OpenDockSettings takes it)
+    // --- end round 12 phase 12E ---
 };

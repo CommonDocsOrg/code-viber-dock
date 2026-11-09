@@ -758,13 +758,17 @@ SIZE SettingsWindow::ClientDip() const {
     if (clientDip_.cx > 0 && clientDip_.cy > 0) return clientDip_;
     const int k = KindIndex();
     SettingsWindowSize s = host_.config ? host_.config->settings.windows[k] : SettingsWindowSize{};
-    if (s.w <= 0 || s.h <= 0) s = SettingsUiConfig::kDefault[k];
+    // Round 12 phase 12E: a panel's default is its own (470 x 640); a size saved by the captioned
+    // Dock window of earlier versions (or by a folder window's / standalone widget's, which share
+    // the slot) is reused, clamped to the panel's minimum and later to the room beside the dock.
+    if (s.w <= 0 || s.h <= 0) s = panel_ ? SettingsWindowSize{kPanelWidthDip, kPanelHeightDip} : SettingsUiConfig::kDefault[k];
     const SIZE m = MinClientDip();
     return SIZE{std::clamp(s.w, static_cast<int>(m.cx), SettingsUiConfig::kMaximum),
                 std::clamp(s.h, static_cast<int>(m.cy), SettingsUiConfig::kMaximum)};
 }
 
 SIZE SettingsWindow::MinClientDip() const {
+    if (panel_) return SIZE{kPanelMinWDip, kPanelMinHDip};  // round 12 phase 12E
     const SettingsWindowSize m = SettingsUiConfig::kMinimum[KindIndex()];
     return SIZE{m.w, m.h};
 }
@@ -777,7 +781,7 @@ void SettingsWindow::SaveClientSize() {
         WINDOWPLACEMENT wpl{sizeof(wpl)};
         if (!GetWindowPlacement(hwnd_, &wpl)) return;
         RECT frame{0, 0, 0, 0};
-        AdjustWindowRectExForDpi(&frame, kStyle, FALSE, 0, dpi_);
+        AdjustWindowRectExForDpi(&frame, Style(), FALSE, ExStyle(), dpi_);
         px.cx = (wpl.rcNormalPosition.right - wpl.rcNormalPosition.left) - (frame.right - frame.left);
         px.cy = (wpl.rcNormalPosition.bottom - wpl.rcNormalPosition.top) - (frame.bottom - frame.top);
     } else {
@@ -792,7 +796,7 @@ void SettingsWindow::SaveClientSize() {
                                     SettingsUiConfig::kMaximum),
                          std::clamp(MulDiv(px.cy, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dpi_)), static_cast<int>(m.cy),
                                     SettingsUiConfig::kMaximum)};
-    if (s == SettingsUiConfig::kDefault[k]) s = SettingsWindowSize{};
+    if (s == (panel_ ? SettingsWindowSize{kPanelWidthDip, kPanelHeightDip} : SettingsUiConfig::kDefault[k])) s = SettingsWindowSize{};
     SettingsWindowSize& saved = host_.config->settings.windows[k];
     if (s == saved) return;
     saved = s;
@@ -879,7 +883,7 @@ SIZE SettingsWindow::WindowSizeFor(UINT dpi) const {
     const SIZE c = ClientDip();
     RECT r{0, 0, MulDiv(c.cx, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI),
            MulDiv(c.cy, static_cast<int>(dpi), USER_DEFAULT_SCREEN_DPI)};
-    AdjustWindowRectExForDpi(&r, kStyle, FALSE, 0, dpi);
+    AdjustWindowRectExForDpi(&r, Style(), FALSE, ExStyle(), dpi);
     return SIZE{r.right - r.left, r.bottom - r.top};
 }
 
@@ -901,7 +905,10 @@ RECT SettingsWindow::InitialRect() const {
         y = anchor.top + Px(kItemOffsetDip);
         x = std::min(x, static_cast<int>(work.right) - static_cast<int>(s.cx));
         y = std::min(y, static_cast<int>(work.bottom) - static_cast<int>(s.cy));
-    } else if (host_.dockBar) {
+    }
+    // Round 12 phase 12E: also an Item window placed from its dock's panel (which sits right beside
+    // the bar) is kept off the bar (was: only a window without an anchor).
+    if (host_.dockBar) {
         // Never over the dock: kAboveBarDip from the bar at rest, on the side toward the middle
         // of the monitor (above a bottom dock, below a top one, beside a left / right one).
         const RECT bar = host_.dockBar();
@@ -927,6 +934,169 @@ RECT SettingsWindow::InitialRect() const {
     return RECT{x, y, x + s.cx, y + s.cy};
 }
 
+// --- round 12 phase 12E: the panel beside the dock ---------------------------------------------------
+// The placement follows the drawer popup's rule (beside the dock, toward the screen's middle, never
+// over the bar) but not its code: the drawer's room is cut by the edit bar at the dock's end, the
+// panel is centred on the dock's run and only clamped to the work area along that run.
+
+RECT SettingsWindow::PanelInsetDip() const {
+    if (!panel_) return RECT{};
+    RECT r{kPanelBorderDip, kPanelBorderDip, kPanelBorderDip, kPanelBorderDip};
+    switch (panelSide_) {
+        case 1: r.top = kPanelBandDip; break;     // below a top dock: the band on its top side
+        case 2: r.left = kPanelBandDip; break;    // right of a left dock
+        case 3: r.right = kPanelBandDip; break;   // left of a right dock
+        case 0:
+        default: r.bottom = kPanelBandDip; break;  // above a bottom dock
+    }
+    return r;
+}
+
+RECT SettingsWindow::PanelWork() const {
+    const RECT bar = host_.dockBar ? host_.dockBar() : RECT{};
+    HMONITOR mon = nullptr;
+    if (!IsRectEmpty(&bar)) {
+        mon = MonitorFromRect(&bar, MONITOR_DEFAULTTONEAREST);
+    } else {
+        const RECT m = host_.dockMonitor ? host_.dockMonitor() : RECT{};
+        mon = IsRectEmpty(&m) ? MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY) : MonitorFromRect(&m, MONITOR_DEFAULTTONEAREST);
+    }
+    MONITORINFO mi{sizeof(mi)};
+    GetMonitorInfoW(mon, &mi);
+    return mi.rcWork;  // the full monitor while the dock hides the taskbar, less a reserved dock band
+}
+
+int SettingsWindow::ComputePanelSide(const RECT& bar, const RECT& work) const {
+    const size_t i = DockIndex();
+    const DockConfig* d = i != SIZE_MAX && host_.config ? &host_.config->docks[i] : nullptr;
+    if (d && !d->Floating() && d->shape != DockShape::Circle) {
+        // A bar or a half circle on an edge: on the side toward the middle of the screen.
+        switch (d->edge) {
+            case DockEdge::Top: return 1;
+            case DockEdge::Left: return 2;
+            case DockEdge::Right: return 3;
+            case DockEdge::Bottom:
+            default: return 0;
+        }
+    }
+    // A floating bar or a circle: the side facing the work area's middle (the larger offset, as a
+    // share of the work area's size across it, decides between horizontal and vertical).
+    const double cx = (bar.left + bar.right) / 2.0, cy = (bar.top + bar.bottom) / 2.0;
+    const double ww = std::max<LONG>(1, work.right - work.left), wh = std::max<LONG>(1, work.bottom - work.top);
+    const double dx = ((work.left + work.right) / 2.0 - cx) / ww, dy = ((work.top + work.bottom) / 2.0 - cy) / wh;
+    if (std::fabs(dx) > std::fabs(dy)) return dx > 0 ? 2 : 3;
+    return dy > 0 ? 1 : 0;
+}
+
+RECT SettingsWindow::PanelRect(int* sideOut) const {
+    // The wanted size: the saved one (or the panel's default), never the live one (a room that was
+    // short for a moment must not shrink the panel for good).
+    const int k = KindIndex();
+    SettingsWindowSize s = host_.config ? host_.config->settings.windows[k] : SettingsWindowSize{};
+    if (s.w <= 0 || s.h <= 0) s = SettingsWindowSize{kPanelWidthDip, kPanelHeightDip};
+    int w = Px(std::clamp(s.w, kPanelMinWDip, SettingsUiConfig::kMaximum));
+    int h = Px(std::clamp(s.h, kPanelMinHDip, SettingsUiConfig::kMaximum));
+    const RECT work = PanelWork();
+    const RECT bar = host_.dockBar ? host_.dockBar() : RECT{};
+    const int ww = work.right - work.left, wh = work.bottom - work.top;
+    w = std::min(w, static_cast<int>(ww));
+    h = std::min(h, static_cast<int>(wh));
+    if (IsRectEmpty(&bar)) {
+        // No dock window (it is going away): centred on the display.
+        if (sideOut) *sideOut = panelSide_;
+        const int x = work.left + (ww - w) / 2, y = work.top + (wh - h) / 2;
+        return RECT{x, y, x + w, y + h};
+    }
+    const int side = ComputePanelSide(bar, work);
+    const int gap = Px(kPanelGapDip), least = Px(120);
+    int x = 0, y = 0;
+    switch (side) {
+        case 1:  // under a top bar
+            h = std::min(h, std::max(least, static_cast<int>(work.bottom - (bar.bottom + gap))));
+            x = (bar.left + bar.right) / 2 - w / 2;
+            y = bar.bottom + gap;
+            break;
+        case 2:  // right of a left bar
+            w = std::min(w, std::max(least, static_cast<int>(work.right - (bar.right + gap))));
+            x = bar.right + gap;
+            y = (bar.top + bar.bottom) / 2 - h / 2;
+            break;
+        case 3:  // left of a right bar
+            w = std::min(w, std::max(least, static_cast<int>((bar.left - gap) - work.left)));
+            x = bar.left - gap - w;
+            y = (bar.top + bar.bottom) / 2 - h / 2;
+            break;
+        case 0:  // above a bottom bar
+        default:
+            h = std::min(h, std::max(least, static_cast<int>((bar.top - gap) - work.top)));
+            x = (bar.left + bar.right) / 2 - w / 2;
+            y = bar.top - gap - h;
+            break;
+    }
+    // Clamped to the work area along the dock's run only (across it would cover the dock).
+    if (side <= 1) {
+        x = std::clamp(x, static_cast<int>(work.left), std::max(static_cast<int>(work.left), static_cast<int>(work.right) - w));
+    } else {
+        y = std::clamp(y, static_cast<int>(work.top), std::max(static_cast<int>(work.top), static_cast<int>(work.bottom) - h));
+    }
+    if (sideOut) *sideOut = side;
+    return RECT{x, y, x + w, y + h};
+}
+
+void SettingsWindow::Reanchor(bool animate) {
+    if (!panel_ || !hwnd_) return;
+    int side = panelSide_;
+    const RECT to = PanelRect(&side);
+    if (side != panelSide_) {
+        panelSide_ = side;  // the band moves to the side that faces the dock now
+        Layout();
+        InvalidateRect(hwnd_, nullptr, TRUE);
+    }
+    RECT now{};
+    GetWindowRect(hwnd_, &now);
+    if (EqualRect(&now, &to)) return;
+    // Motion only answers an action (the dock just moved): 200 ms, none with Reduce motion (as
+    // animation.reduceMotion decides for the dock: "system" follows Windows' animation effects).
+    bool reduce = false;
+    if (host_.config) {
+        const ReduceMotion rm = host_.config->animation.reduceMotion;
+        BOOL effects = TRUE;
+        if (rm == ReduceMotion::System) SystemParametersInfoW(SPI_GETCLIENTAREAANIMATION, 0, &effects, 0);
+        reduce = rm == ReduceMotion::On || (rm == ReduceMotion::System && !effects);
+    }
+    if (!animate || reduce || !IsWindowVisible(hwnd_) || inSizeMove_) {
+        if (animating_) KillTimer(hwnd_, kPanelAnimTimerId);
+        animating_ = false;
+        SetWindowPos(hwnd_, nullptr, to.left, to.top, to.right - to.left, to.bottom - to.top, SWP_NOZORDER | SWP_NOACTIVATE);
+        return;
+    }
+    animFrom_ = now;
+    animTo_ = to;
+    animStart_ = GetTickCount64();
+    animating_ = SetTimer(hwnd_, kPanelAnimTimerId, 15, nullptr) != 0;  // only for these 200 ms
+    PanelAnimStep();
+}
+
+void SettingsWindow::PanelAnimStep() {
+    if (!hwnd_) return;
+    const double t = static_cast<double>(GetTickCount64() - animStart_) / kPanelAnimMs;
+    const double k = !animating_ || t >= 1.0 ? 1.0 : t;
+    const double e = 1.0 - (1.0 - k) * (1.0 - k) * (1.0 - k);  // ease out
+    auto lerp = [e](LONG a, LONG b) { return a + static_cast<LONG>(std::lround(static_cast<double>(b - a) * e)); };
+    const RECT r{lerp(animFrom_.left, animTo_.left), lerp(animFrom_.top, animTo_.top), lerp(animFrom_.right, animTo_.right),
+                 lerp(animFrom_.bottom, animTo_.bottom)};
+    RECT now{};
+    GetWindowRect(hwnd_, &now);
+    const bool sameSize = now.right - now.left == r.right - r.left && now.bottom - now.top == r.bottom - r.top;
+    SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top,
+                 SWP_NOZORDER | SWP_NOACTIVATE | (sameSize ? SWP_NOSIZE : 0));
+    if (k >= 1.0) {
+        if (animating_) KillTimer(hwnd_, kPanelAnimTimerId);
+        animating_ = false;
+    }
+}
+// --- end round 12 phase 12E ---
+
 bool SettingsWindow::Create(HINSTANCE instance, bool show) {
     instance_ = instance;
     static bool commonControls = false;
@@ -948,20 +1118,36 @@ bool SettingsWindow::Create(HINSTANCE instance, bool show) {
     if (darkPopups_) ++g_darkPopupWindows;
 
     dpi_ = host_.dockDpi ? std::max<UINT>(host_.dockDpi(), USER_DEFAULT_SCREEN_DPI / 2) : USER_DEFAULT_SCREEN_DPI;
-    RECT r = InitialRect();
+    // Round 12 phase 12E: a dock's window is the panel beside it (a folder window's or a standalone
+    // widget's keeps its caption: their "dock" is a window on the desktop).
+    panel_ = kind_ == SettingsKind::Dock && DockIndex() != SIZE_MAX && Dock().IsDock();
+    auto place = [this] {
+        if (!panel_) return InitialRect();
+        int side = panelSide_;
+        const RECT p = PanelRect(&side);
+        panelSide_ = side;
+        return p;
+    };
+    RECT r = place();
     // No owner: an owned window of the topmost, non-activating dock would inherit topmost.
-    CreateWindowExW(0, kClassName, L"WinDock settings", kStyle, r.left, r.top, r.right - r.left, r.bottom - r.top,
+    CreateWindowExW(ExStyle(), kClassName, L"WinDock settings", Style(), r.left, r.top, r.right - r.left, r.bottom - r.top,
                     nullptr, nullptr, instance, this);
     if (!hwnd_) {
         if (darkPopups_ && --g_darkPopupWindows == 0) DarkMode::TryEnableDarkPopups(false);
         darkPopups_ = false;
         return false;
     }
+    if (panel_) {
+        // Windows 11's rounded corners (no effect before; ignored), as the drawer popup has; the
+        // border takes the dock's colour (ApplyCaptionColor).
+        const DWM_WINDOW_CORNER_PREFERENCE corner = DWMWCP_ROUND;
+        DwmSetWindowAttribute(hwnd_, DWMWA_WINDOW_CORNER_PREFERENCE, &corner, sizeof(corner));
+    }
     // The monitor the window landed on decides its DPI; normally the dock's.
     if (const UINT actual = GetDpiForWindow(hwnd_); actual != dpi_) {
         clientDip_ = SIZE{};  // measured at the wrong DPI: the saved / default size again
         dpi_ = actual;
-        r = InitialRect();
+        r = place();
         SetWindowPos(hwnd_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
     }
 
@@ -1130,6 +1316,7 @@ void SettingsWindow::CreateControls(SettingsPage& page) {
 void SettingsWindow::Activate() {
     if (!hwnd_) return;
     if (!IsWindowVisible(hwnd_)) {
+        if (panel_) Reanchor(false);  // round 12 phase 12E: the dock may have moved since it was made hidden
         ShowWindow(hwnd_, SW_SHOWNORMAL);  // round 9 phase 9B: created hidden for a search
     } else if (IsIconic(hwnd_)) {
         ShowWindow(hwnd_, SW_RESTORE);
@@ -1500,6 +1687,16 @@ void SettingsWindow::Layout() {
     if (!hwnd_) return;
     RECT rc{};
     GetClientRect(hwnd_, &rc);
+    // Round 12 phase 12E: a panel's band and resize border around everything (rc is the inner rect).
+    if (panel_) {
+        const RECT in = PanelInsetDip();
+        rc.left += Px(in.left);
+        rc.top += Px(in.top);
+        rc.right = std::max(rc.left, rc.right - Px(in.right));
+        rc.bottom = std::max(rc.top, rc.bottom - Px(in.bottom));
+    }
+    const int x0 = rc.left;
+    const int width = rc.right - rc.left;
     // Global: the nav column on the left, the subtitle band over the pages. Dock: the header and
     // the tab strip over the pages. Item: the header over, the footer under the page.
     const int navW = nav_ ? Px(kNavWidthDip) : 0;
@@ -1507,39 +1704,39 @@ void SettingsWindow::Layout() {
     const int findH = find_ ? std::min(Px(kNavFindDip), static_cast<int>(rc.bottom)) : 0;
     if (find_) SetWindowPos(find_, nullptr, Px(12), Px(12), std::max(0, navW - Px(24)), Px(30), SWP_NOZORDER | SWP_NOACTIVATE);
     if (nav_) SetWindowPos(nav_, nullptr, 0, findH, navW, std::max(0, static_cast<int>(rc.bottom) - findH), SWP_NOZORDER | SWP_NOACTIVATE);
-    int top = 0;
+    int top = rc.top;
     int bottom = rc.bottom;
     if (header_) {
         const int h = Px(kind_ == SettingsKind::Global ? kSubtitleDip
                          : kind_ == SettingsKind::Dock ? kDockHeaderDip
                                                        : kItemHeaderDip);
-        SetWindowPos(header_, nullptr, navW, 0, std::max(0, static_cast<int>(rc.right) - navW), h, SWP_NOZORDER | SWP_NOACTIVATE);
-        top = h;
+        SetWindowPos(header_, nullptr, x0 + navW, top, std::max(0, width - navW), h, SWP_NOZORDER | SWP_NOACTIVATE);
+        top += h;
     }
     if (tabs_) {
-        SetWindowPos(tabs_, nullptr, 0, top, rc.right, Px(kTabsDip), SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(tabs_, nullptr, x0, top, width, Px(kTabsDip), SWP_NOZORDER | SWP_NOACTIVATE);
         top += Px(kTabsDip);
     }
     if (bar_ && barShown_) {
         // Round 12 phase 12A: the Keep / Revert, Keep / Cancel or save error bar over the pages.
-        SetWindowPos(bar_, nullptr, navW, top, std::max(0, static_cast<int>(rc.right) - navW), Px(kBarDip), SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(bar_, nullptr, x0 + navW, top, std::max(0, width - navW), Px(kBarDip), SWP_NOZORDER | SWP_NOACTIVATE);
         top += Px(kBarDip);
     }
     if (footer_) {
         const int h = std::min(Px(kItemFooterDip), bottom - top);
-        SetWindowPos(footer_, nullptr, 0, bottom - h, rc.right, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(footer_, nullptr, x0, bottom - h, width, h, SWP_NOZORDER | SWP_NOACTIVATE);
         bottom -= h;
     }
     const int strip = std::min(Px(kFooterDip), std::max(0, bottom - top));
     if (preview_) {
-        SetWindowPos(preview_->Hwnd(), nullptr, navW, bottom - strip, std::max(0, static_cast<int>(rc.right) - navW), strip,
+        SetWindowPos(preview_->Hwnd(), nullptr, x0 + navW, bottom - strip, std::max(0, width - navW), strip,
                      SWP_NOZORDER | SWP_NOACTIVATE);
     }
     for (size_t i = 0; i < pages_.size(); ++i) {
         SettingsPage& page = *pages_[i];
         if (!page.hwnd_) continue;
         const int h = std::max(0, bottom - top - (preview_ && PreviewOn(static_cast<int>(i)) ? strip : 0));
-        SetWindowPos(page.hwnd_, nullptr, navW, top, rc.right - navW, h, SWP_NOZORDER | SWP_NOACTIVATE);
+        SetWindowPos(page.hwnd_, nullptr, x0 + navW, top, std::max(0, width - navW), h, SWP_NOZORDER | SWP_NOACTIVATE);
         LayoutPage(page);
         // Round 8 phase 8A: a resized window: list columns, the Contents tab's own layout.
         if (page.layoutW_ != page.Width()) {
@@ -2320,7 +2517,71 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         RebuildPage(static_cast<int>(wp));
         return 0;
     }
+    if (msg == kPanelCloseCheck) {
+        // Round 12 phase 12E: the app lost the activation (WM_ACTIVATEAPP, posted): another app's
+        // window or the desktop came to the front, so the panel closes, as the drawer and the dock's
+        // other popups do. It stays when WinDock is in front again by now (a window of ours: another
+        // panel, App settings, a dialog), while one of its own dialogs is open (it is disabled), while
+        // the Keep / Revert or Keep / Cancel bar shows, and while it is being resized.
+        if (!panel_ || !IsWindowVisible(hwnd_)) return 0;
+        DWORD pid = 0;
+        if (HWND fg = GetForegroundWindow()) GetWindowThreadProcessId(fg, &pid);
+        if (pid == GetCurrentProcessId() || !IsWindowEnabled(hwnd_) || barShown_ || inSizeMove_) return 0;
+        PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+        return 0;
+    }
     switch (msg) {
+        // --- round 12 phase 12E: the panel ---
+        case WM_ACTIVATEAPP:
+            if (panel_ && !wp && IsWindowVisible(hwnd_)) PostMessageW(hwnd_, kPanelCloseCheck, 0, 0);
+            break;
+        case WM_NCHITTEST:
+            if (panel_) {
+                // The resize border on the three sides away from the dock (the children leave it
+                // free: Layout insets them); the side facing the dock does not size.
+                const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+                RECT wr{};
+                GetWindowRect(hwnd_, &wr);
+                const int b = Px(kPanelBorderDip);
+                bool l = pt.x < wr.left + b, r = pt.x >= wr.right - b, t = pt.y < wr.top + b, bo = pt.y >= wr.bottom - b;
+                switch (panelSide_) {
+                    case 1: t = false; break;
+                    case 2: l = false; break;
+                    case 3: r = false; break;
+                    case 0:
+                    default: bo = false; break;
+                }
+                if (t && l) return HTTOPLEFT;
+                if (t && r) return HTTOPRIGHT;
+                if (bo && l) return HTBOTTOMLEFT;
+                if (bo && r) return HTBOTTOMRIGHT;
+                if (l) return HTLEFT;
+                if (r) return HTRIGHT;
+                if (t) return HTTOP;
+                if (bo) return HTBOTTOM;
+                return HTCLIENT;
+            }
+            break;
+        case WM_SIZING:
+            if (panel_) {
+                // Kept on its display's work area while the user sizes it (WM_EXITSIZEMOVE then puts
+                // it beside the dock again, centred on the dock's run).
+                auto* r = reinterpret_cast<RECT*>(lp);
+                const RECT work = PanelWork();
+                r->left = std::max(r->left, work.left);
+                r->top = std::max(r->top, work.top);
+                r->right = std::min(r->right, work.right);
+                r->bottom = std::min(r->bottom, work.bottom);
+                return TRUE;
+            }
+            break;
+        case WM_TIMER:
+            if (wp == kPanelAnimTimerId) {
+                PanelAnimStep();
+                return 0;
+            }
+            break;
+        // --- end round 12 phase 12E ---
         case WM_ACTIVATE:
             if (LOWORD(wp) == WA_INACTIVE) {
                 if (HWND f = GetFocus(); f && IsChild(hwnd_, f)) lastFocus_ = f;
@@ -2367,7 +2628,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             auto* mmi = reinterpret_cast<MINMAXINFO*>(lp);
             const SIZE m = MinClientDip();
             RECT r{0, 0, Px(m.cx), Px(m.cy)};
-            AdjustWindowRectExForDpi(&r, kStyle, FALSE, 0, dpi_);
+            AdjustWindowRectExForDpi(&r, Style(), FALSE, ExStyle(), dpi_);
             mmi->ptMinTrackSize = POINT{r.right - r.left, r.bottom - r.top};
             return 0;
         }
@@ -2378,7 +2639,9 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 clientDip_ = SIZE{MulDiv(LOWORD(lp), USER_DEFAULT_SCREEN_DPI, dpi), MulDiv(HIWORD(lp), USER_DEFAULT_SCREEN_DPI, dpi)};
                 if (!pages_.empty()) Layout();
                 // A resize by a program (SetWindowPos) or Aero snap ends here; a drag at WM_EXITSIZEMOVE.
-                if (!inSizeMove_ && wp == SIZE_RESTORED && IsWindowVisible(hwnd_)) SaveClientSize();
+                // Round 12 phase 12E: a panel's own moves (the room beside the dock clamps it) are not
+                // the user's size: it saves only a resize by its border.
+                if (!panel_ && !inSizeMove_ && wp == SIZE_RESTORED && IsWindowVisible(hwnd_)) SaveClientSize();
             }
             return 0;
 
@@ -2389,6 +2652,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_EXITSIZEMOVE:
             inSizeMove_ = false;
             SaveClientSize();
+            if (panel_) Reanchor(false);  // round 12 phase 12E: centred on the dock's run again
             return 0;
 
         case WM_DPICHANGED: {
@@ -2406,6 +2670,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             Layout();
             StyleChanged();  // image lists at the new DPI
             RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
+            if (panel_) Reanchor(false);  // round 12 phase 12E: its size in pixels changed, beside the dock again
             return 0;
         }
 
@@ -2456,6 +2721,22 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (nav_) FillRect(dc, &nav, mica_ ? static_cast<HBRUSH>(GetStockObject(BLACK_BRUSH)) : baseBrush_);
             RECT content{nav.right, 0, rc.right, rc.bottom};
             FillRect(dc, &content, layerBrush_);
+            if (panel_) {
+                // Round 12 phase 12E: the band in the dock's colour on the side facing the dock (the
+                // resize border on the other sides is the content layer's colour).
+                const int band = Px(kPanelBandDip);
+                RECT b = rc;
+                switch (panelSide_) {
+                    case 1: b.bottom = band; break;
+                    case 2: b.right = band; break;
+                    case 3: b.left = rc.right - band; break;
+                    case 0:
+                    default: b.top = rc.bottom - band; break;
+                }
+                HBRUSH brush = CreateSolidBrush(palette_.highContrast ? palette_.text : DockColor());
+                FillRect(dc, &b, brush);
+                DeleteObject(brush);
+            }
             EndPaint(hwnd_, &ps);
             return 0;
         }
@@ -2474,6 +2755,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             footer_ = nullptr;
             bar_ = nullptr;  // round 12 phase 12A
             barShown_ = false;
+            animating_ = false;  // round 12 phase 12E (its timer went with the window)
             headerTip_ = nullptr;  // owned by the window: already destroyed
             lastFocus_ = nullptr;
             if (itemIcon_) DestroyIcon(itemIcon_);

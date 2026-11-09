@@ -127,6 +127,11 @@ enum Command : UINT {
     kSetupNext = 182,        // Quick setup's Next (1 done, 0 not open / on the last step)
     kSetupFinish = 183,      // Quick setup's Finish (LOWORD(lParam) 1: Show me around); 1 done, 0 not open
     // --- end round 12 phase 12G ---
+    // --- round 12 phase 12E --- (automation only, App::OnSharedMessage; dock HIWORD(lParam); 1 done, 0 refused)
+    kClosePanel = 176,       // closes the Dock settings panel of that dock (0: none open)
+    kSetEdgeGap = 177,       // docks[].edgeGap = LOWORD(lParam) (clamped 0 - 200 DIPs; a dock only)
+    kSetDockOffset = 178,    // docks[].offset = (int16) LOWORD(lParam) (DIPs; a dock only)
+    // --- end round 12 phase 12E ---
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,

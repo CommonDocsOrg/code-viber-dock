@@ -121,7 +121,10 @@ public:
     // Round 12 phase 12D: 29 = kEditPressTimerId (the long press into customize mode, on the dock
     // window; 27 / 28 left free), WM_APP + 57 = App::kEditLeaveMessage (posted to the app window by
     // the customize mode's foreground hook).
-    static constexpr int kFlashSteps = 6;                 // lit, dark, lit, dark, lit, dark
+    // Round 12 phase 12E: 0x12E1 = SettingsWindow::kPanelAnimTimerId (the dock settings panel's 200 ms
+    // move beside its dock, on the panel window), WM_APP + 70 = SettingsWindow::kPanelCloseCheck
+    // (posted to a panel when the app lost the activation).
+    static constexpr int kFlashSteps = 6;                // lit, dark, lit, dark, lit, dark
     static constexpr UINT kFlashStepMs = 250;
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);
     // a dropped file's open-with / recycle action (run after the OLE Drop call has returned).
@@ -216,6 +219,11 @@ public:
         // A circle was dragged: its centre goes to x / y DIPs from the work area's top-left. A
         // floating dock was dragged (round 6 phase 6A): its resting bar's top-left goes there.
         std::function<void(int x, int y)> moveCircle;
+        // --- round 12 phase 12E --- customize mode's plain drag of the bar's background, released on
+        // its own edge: the new `offset` (DIPs along the edge, the alignment kept) and `edgeGap` (DIPs
+        // off the edge). One gesture, one undo entry. (Released over another edge's zone it takes
+        // moveDock, the Ctrl+drag path: Keep / Revert.)
+        std::function<void(int offset, int edgeGap)> moveInEdge;
         // Shortcut groups. `source` (a pin or a running app) held over `target`: a group of the two
         // at the target's place, or `source` added to `target` when that is a group.
         std::function<void(const AppKey& source, const AppKey& target)> group;
@@ -490,6 +498,16 @@ public:
     bool EditRemoveSlot(int slot);
     // The bar with its outline at rest (screen px; the edit bar and the drawer go beside it).
     RECT EditFrameRect() const;
+
+    // --- round 12 phase 12E ---
+    // The bar's resting rect (RestBarRect) changed after a layout pass (a placement or display
+    // change, the bar's length): the dock's settings panel re-anchors beside it. Called from the
+    // end of the layout pass, only when the rect differs from the one told last.
+    void SetRestMovedCallback(std::function<void()> cb) { restMoved_ = std::move(cb); }
+    // QueryState 316: a drag of the whole dock is in progress (Ctrl+drag, a floating bar's
+    // background, customize mode's plain drag).
+    bool DockDragging() const { return dockDrag_; }
+    // --- end round 12 phase 12E ---
 
 private:
     class DropTarget;
@@ -1660,4 +1678,21 @@ private:
     Layer editBadge_;
     Layer editPlus_[2];
     Layer editAnchors_[3];
+
+    // --- round 12 phase 12E ---
+    std::function<void()> restMoved_;  // SetRestMovedCallback
+    RECT restShown_{};                 // RestBarRect when restMoved_ was called last
+    // Customize mode's plain drag of the bar's background (editMove_ during a dock drag): along the
+    // edge it sets `offset` (the alignment kept; centre: 0 within kEditSnapDip), toward the middle of
+    // the screen `edgeGap`; the window moves with the pointer (dockShift_ along, gapShift_ across, px)
+    // and a small readout (a tracking tooltip, readout_) says where it is.
+    bool editMove_ = false;
+    LONG gapShift_ = 0;    // px the window moved off its edge during the drag (+: toward the middle)
+    int moveOffset_ = 0;   // the offset / edgeGap a release now would keep (DIPs)
+    int moveGap_ = 0;
+    HWND readout_ = nullptr;
+    std::wstring readoutText_;
+    void ShowReadout(POINT screen);
+    void HideReadout();
+    // --- end round 12 phase 12E ---
 };

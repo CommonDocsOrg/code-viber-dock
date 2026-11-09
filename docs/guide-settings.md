@@ -34,7 +34,7 @@ To open an item's settings:
 
 Each window's title names what it edits: an item's window reads like "Weather · main" (the item, then the dock). When a dock holds two items with the same name, the second is "Weather 2", unless their places or labels already tell them apart.
 
-The settings windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. They follow the Windows light or dark app mode. A dock stays shown while its settings window is the active window, so you can watch your changes.
+The settings windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. They follow the Windows light or dark app mode. A dock's own settings are different: they open in a panel right beside the dock, which stays shown while the panel is open, so you can watch your changes.
 
 Keyboard: **Ctrl+Tab** and **Ctrl+Shift+Tab** go to the next or previous page or tab. **Ctrl+Z** undoes the last change and **Ctrl+Y** redoes it. **Esc** closes the window (while a preset preview is open, Esc cancels the preview instead).
 
@@ -398,20 +398,21 @@ About shows the WinDock version.
 
 ## Dock settings
 
-Each dock has its own settings window. It edits that dock only. The title bar and the window border take the dock's colour, so you can tell the windows of different docks apart.
+Each dock has its own settings. They open in a panel beside the dock (above a bottom dock, beside a side dock) and edit that dock only. The panel's border and the band on the side facing the dock take the dock's colour, so you can tell the panels of different docks apart. Drag the panel's outer edges to make it bigger or smaller. It closes when you press Esc, click its **✕**, click **Done** while customizing, or switch to another app.
 
-The window has a header and five tabs: Contents, Position, Look, Behaviour and Running apps. Use Left and Right in the tab strip, or Ctrl+Tab, to move between them.
+The panel has a header and five tabs: Contents, Position, Look, Behaviour and Running apps. Use Left and Right in the tab strip, or Ctrl+Tab, to move between them.
 
 ### The header
 
 The header shows the dock's name in its colour and small chips with its edge, its display, how many items it has, whether it is shown or parked, and whether it is locked.
 
-At the right:
+**✕** at the right end of the first row closes the panel. On the second row:
 
-- **Flash**: shows the dock and makes its border pulse for a moment, so you can see which dock this window is for.
-- **Lock** / **Unlock**: a locked dock cannot be changed by dragging: no reordering, no unpinning by dragging, no moving the dock. The settings window still changes everything.
+- **Customize**: customize the dock right on the dock.
 - **App settings…**: opens the settings that apply to every dock and to WinDock as a whole.
-- **⋯**: a menu with **Undo**, **Redo**, **Revert this window…**, **Find a setting…** (Ctrl+F) and **Apply a layout or look…**.
+- **⋯**: a menu with **Undo**, **Redo**, **Revert this window…**, **Find a setting…** (Ctrl+F), **Apply a layout or look…**, and:
+  - **Flash this dock**: shows the dock and makes its border pulse for a moment.
+  - **Lock this dock** / **Unlock this dock**: a locked dock cannot be changed by dragging: no reordering, no unpinning by dragging, no moving the dock. The settings still change everything.
 
 Left of the buttons the header says **✓ Saved**, **Saving…** or **Not saved** (see [Undo and Saved](#undo-and-saved)).
 
@@ -473,6 +474,8 @@ The Position tab sets where the dock sits. It shows only the settings that apply
 
 #### Placement
 
+The first card, **Where on the screen**, says where the dock sits and on which display.
+
 - **Kind**: **Bar on an edge** (the classic dock), **Floating bar** (a bar anywhere on the screen), **Half circle** (a ring on an edge) or **Circle** (a ring anywhere). See [Placement kinds](guide-docks.md#placement-kinds).
 - **Display**: Primary, another display, or **Every display** (a copy of the dock on each one).
 
@@ -480,6 +483,9 @@ For a bar on an edge:
 
 - **Edge**: Bottom, Top, Left or Right.
 - **Alignment**: Centre, Start (left / top) or End (right / bottom).
+- **Distance from the centre** (or from the left, top, right or bottom, by alignment): moves the dock along its edge, in pixels at 100 % scaling. Use the slider or type a number.
+- **Distance from the screen edge**: moves the bar away from its edge, 0 - 200 pixels. Not for a full-width bar.
+- You can also drag the dock while customizing: along its edge, away from it, or onto another edge.
 - **Full width**: the bar spans the whole edge.
 - **Reserve screen space**: maximized windows stop at the dock instead of going under it. Only for a dock with auto-hide off.
 - **When the icons do not fit**: **Scroll** (use the wheel or drag the bar), **Shrink the icons**, or **Clip at the screen's end**.
@@ -487,9 +493,10 @@ For a bar on an edge:
 For a floating bar:
 
 - **Faces**: the edge it faces: where its icons grow and its popups open.
+- **Position x** and **Position y**: its top-left corner from the top-left of the screen. Leave them empty, or click **Centre it**, to centre it.
 - **When the icons do not fit**, as above.
 
-For a half circle: **Edge**, **Radius** (0: automatic) and **Turn the icons with the ring**. For a circle: **Radius** and **Turn the icons with the ring**.
+For a half circle: **Edge**, **Radius** (0: automatic) and **Turn the icons with the ring**. For a circle: **Position x** and **Position y** (its centre, with **Centre it**), **Radius** and **Turn the icons with the ring**.
 
 The small monitor at the right shows where the dock sits. It follows every change.
 
@@ -506,15 +513,13 @@ The dashboard hotkey brings the desktop layers to the front. See [Layers](guide-
 
 #### Exact offsets
 
-The exact numbers are in the **Exact offsets** card, closed when the window opens: dragging the dock (Ctrl+drag on an edge) is the usual way to move it. Click its heading to open it. The heading counts the values that differ from a new dock's, for example "Exact offsets · 2 changed". It shows only the rows that apply to the kind of placement:
+The **Exact offsets** card is closed when the panel opens. Click its heading to open it. The heading counts the values that differ from a new dock's, for example "Exact offsets · 2 changed". It shows only the rows that apply to the kind of placement:
 
-- **Position x** and **Position y** (a floating bar: its top-left corner; a circle: its centre): from the top-left of the screen. Leave them empty to centre it.
-- **Offset** (a bar on an edge): moves the dock along its edge from its aligned place, in pixels at 100 % scaling.
 - **Peek when hidden** (a bar on an edge): keeps a thin strip of the hidden dock on screen, in pixels. 0 is off.
 - **Peek opacity**: how visible that strip is, in percent.
 - **Maximum length** (bars that are not full width): the longest the bar may get, in pixels. 0 means no limit. A longer dock scrolls or shrinks its icons.
 
-A half circle has none of these, so the card is not shown for it.
+A half circle and a circle have none of these, so the card is not shown for them.
 
 ### Look tab
 

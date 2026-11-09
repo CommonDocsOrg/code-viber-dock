@@ -405,7 +405,13 @@ monitor's end), and `offset` (DIPs, i.e. pixels at 100 % scaling, default 0, -16
 it from there along the edge, toward the right / bottom when positive. The dock never leaves its
 monitor: an offset that would push it off is cut at the monitor's end. The dock menu's
 **Position on screen**, Dock settings > Position and `WinDock.DockCommand` 120 - 123 set the
-edge; missing keys mean the defaults, and every save writes all three.
+edge; missing keys mean the defaults, and every save writes all three. Round 12 phase 12E:
+`edgeGap` (DIPs, 0 - 200, default 0) moves the bar off its edge toward the middle of the screen
+(not for a full-width bar, a ring or a floating bar); the dock's window grows by it, so auto-hide,
+the reveal strip and the peek strip still work from the screen edge and a reserved band includes
+the gap. In customize mode a plain drag on an empty part of the bar sets `offset` (along the edge,
+the alignment kept, a centred dock snaps to 0 within 14 DIPs) and `edgeGap` (toward the middle),
+with a readout beside the pointer; dragged onto another edge's zone it moves there as Ctrl+drag does.
 
 The layout is computed once for every edge in "main" (along the dock) and "cross" (across it,
 toward the screen edge) coordinates and then mapped onto the screen, so an edge changes where
@@ -1574,7 +1580,8 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
 ## Settings
 
 Settings live in three kinds of window (round 5), each a normal top-level window (Alt+Tab,
-minimize; the dock stays the topmost window). Any number can be open at once, they share nothing
+minimize; the dock stays the topmost window; round 12 phase 12E: except a dock's own settings,
+which are a panel beside the dock, see Dock settings below). Any number can be open at once, they share nothing
 but the configuration, and opening one that is already open brings it to the front:
 
 - **App settings** (at most one; called "Global settings" until round 10, `SettingsKind::Global`
@@ -1586,7 +1593,19 @@ but the configuration, and opening one that is already open brings it to the fro
 - **Dock settings** (one per dock; any number open): one dock only. **Dock settings…** in that
   dock's menu, the tray-icon menu's **Docks** > "<id> settings…", **Open settings** (or a double
   click) on App settings > Docks and displays, and `WinDock.DockCommand` 143 open it. A desktop
-  folder window has the same kind of window with only its Folder window page.
+  folder window has the same kind of window with only its Folder window page. Round 12 phase 12E:
+  for a dock it is a **panel beside the dock** (no caption, not in the taskbar or Alt+Tab, Windows
+  11's rounded corners, a 3 DIP band in the dock's colour on the side facing it): above a bottom
+  bar, under a top one, beside a vertical one, centred on the bar and kept on the work area; a
+  floating bar or a circle gets it on the side facing the screen's middle. It holds the dock shown,
+  follows the bar when it moves (200 ms, none with Reduce motion; an "each" dock: beside the
+  instance it was opened from), is sized by its three outer edges (a 6 DIP border; default 470 × 640,
+  minimum 400 × 360, the room beside the dock at most; the size is remembered as the Dock size of
+  `settings.windows`), and closes on Esc, its Close button (✕), Done in customize mode, or when
+  another app's window or the desktop comes to the front (not while one of its dialogs or the Keep
+  / Revert bar is up). Its header has two rows: the name and chips with Close; the save state,
+  Customize, App settings… and ⋯ (Flash and Lock are in ⋯ there). Folder window and standalone
+  widget entries keep their captioned windows.
 - **Item settings** (one per item; any number open): one widget, clock, weather, tray, folder or
   group item. Its entry in the item's own menu, named for the target (round 10: **Folder
   settings…**, **Group settings…**, **Clock settings…**, **Weather settings…**, **Tray
@@ -1609,8 +1628,9 @@ and what applies to one item in that item's window: no Global page acts on "the 
 (round 5 phase D moved the last ones, the badges, the notification centre check box and the tray
 item's grid, into the dock's Behaviour tab and the tray item's window).
 
-A Dock or Item window opens centred on its dock's display, beside the dock (never over its bar);
-an Item window opens 40 DIPs right of and below its dock's window when that is open. Round 8 phase
+A Dock or Item window opens centred on its dock's display, beside the dock (never over its bar;
+round 12 phase 12E: a dock's is the panel right beside its bar);
+an Item window opens 40 DIPs right of and below its dock's window when that is open (12E: still kept off the bar). Round 8 phase
 8A: every window is **resizable** (a resize border and a maximize button) and remembers its last
 size per kind (`settings.windows` in config.json, see Configuration; a maximized window remembers
 the size it is restored to). Default sizes (client area, DIPs): Global 760 × 560, Dock 860 × 620,
@@ -1639,8 +1659,10 @@ the heading when closed (the Themes field groups, Calendar feeds' Add or edit a 
 starts with its common controls: Appearance's first card **Theme and size** holds This dock's
 theme, Icon size and Magnification; Position leads with Kind, Display and Edge; Behaviour with
 Auto-hide. Fine tuning sits in heading expanders named for what they hold, closed whenever a
-window opens: Position **Exact offsets** (Position x / y, Offset, Peek when hidden, Peek opacity,
-Maximum length: only the rows the placement kind uses; the card is gone for a half circle),
+window opens: Position **Exact offsets** (Peek when hidden, Peek opacity, Maximum length: only the
+rows the placement kind uses; the card is gone for a half circle and a circle; round 12 phase 12E:
+Position x / y and the offset moved to the first card, **Where on the screen**, with the new
+Distance from the screen edge),
 Behaviour **Delays and popup gap** (Hide delay and Reveal delay while auto-hide is on, Preview
 delay while previews are on, Popup gap), Appearance **Magnification details** (range, Bar while
 magnified), the Contents inspector's **Anchor and offset** (Position on the dock, Offset), App
@@ -2344,6 +2366,10 @@ items that exist. A file whose items have settings already is left alone.
   - `edge` (default `"bottom"`; `"top"`, `"left"`, `"right"`), `align` (default `"center"`;
     `"start"`, `"end"`) and `offset` (DIPs, default 0): where the dock sits, see
     [Position](#position-edge-alignment-offset). Unknown text reads as the default.
+  - `edgeGap` (round 12 phase 12E; DIPs, 0 - 200, default 0, written only when not 0): the resting
+    bar's distance from its screen edge beyond its 8 DIP margin (Position > Where on the screen >
+    Distance from the screen edge; customize mode's drag). Only for a bar on an edge that is not
+    full width; ignored for rings and floating bars.
   - `fullWidth` (default `false`), `reserveSpace` (default `true`, used with `autoHide`
     `"off"` only, on any edge), `peekPx` (default 0), `peekOpacity` (default 0.5), `title`
     (default `""`): see Position.
@@ -3057,7 +3083,10 @@ always there, also when every dock is parked) handle these registered messages:
   around (the tips not seen yet), 0xFFFD Show the tips again (every bit cleared, from the first),
   **182** Quick setup's Next (0 on its last step or when it is closed), **183** its Finish
   (`LOWORD(lParam)` 1: Show me around). 152's `LOWORD(lParam)` 1 (the welcome variant) opens Quick
-  setup since 12G. 111 and 113 left the dock
+  setup since 12G. Round 12 phase 12E
+  (dock `HIWORD(lParam)`; 1 done, 0 refused): **176** closes its Dock settings panel (0: none open), **177** sets its
+  `edgeGap` to `LOWORD(lParam)` (clamped 0 - 200 DIPs), **178** its `offset` to the signed 16-bit `LOWORD(lParam)`
+  (a dock only; each one undo entry, no Keep / Revert). 143 opens the panel beside the dock instance in `HIWORD`. 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3317,7 +3346,11 @@ always there, also when every dock is parked) handle these registered messages:
   popup's tiles after its search and chip (-1 not shown). Round 12 phase 12G (any dock index): **317** = Quick
   setup's step (0 Your docks ... 3 Done; `LOWORD(lParam)` 1: its dock rows, 2: 1 for the first-run variant; -2
   not open), **318** = the tip shown (0 - 2, -1 none), **319** = `settings.tipsShown`, **320** = Quick setup's
-  held choices (bit 0 Start with Windows, bit 1 Hide the taskbar; -2 not open). The labels of the change Undo / Redo would
+  held choices (bit 0 Start with Windows, bit 1 Hide the taskbar; -2 not open). Round 12 phase 12E (dock `HIWORD(lParam)`): **313** = its
+  Dock settings window: 0 none open, 1 a panel beside the dock, 2 a captioned window (a folder window / standalone
+  widget entry), **314** = the panel's side: 0 above the dock, 1 below it, 2 right of it, 3 left of it (-1 no panel),
+  **315** = its `edgeGap` (DIPs; -2 not a dock), **316** = 1 while a drag of the whole dock is in progress (Ctrl+drag
+  or customize mode's drag; -1 no such dock window); 228 is also 1 while the dock's panel is open. The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -3465,6 +3498,14 @@ always there, also when every dock is parked) handle these registered messages:
   `WinDock.CoachMark` (topmost, never activated; its window text "Tip n of 3: `<sentence>`"), children 5798
   the sentence, 5799 "Tip n of 3", 5795 Skip tips, 5796 Next / Done (`WM_COMMAND(id, BN_CLICKED)` to it);
   5797 About's "Show the tips again" (page 208; = DockCommand 181 `LOWORD` 0xFFFD).
+  Round 12 phase 12E, **the panel and Where on the screen** (5730 - 5759): 5730 the panel header's Close ✕
+  (`WM_COMMAND(5730, BN_CLICKED)` to the band 102; Flash 110 and Lock 111 are hidden there and in ⋯, and still answer
+  `WM_COMMAND`); the Position tab's first card **Where on the screen** (was Placement, same id 2140): 5731 the
+  offset's slider (-400 - 400, beside the edit 2146 / spin 2147; label 2145 "Distance from the centre / left / top /
+  right / bottom" by alignment), 5732 / 5733 / 5734 / 5735 / 5736 Distance from the screen edge (slider 0 - 200,
+  edit, spin, label, "px"; disabled with hint 5739 for a full-width bar), 5738 the note under them, 5737 Centre it
+  (a floating bar / circle: clears x 2180 / y 2182, now in this card); sliders: `TBM_SETPOS` + `TB_ENDTRACK`.
+  The window is still a top-level `WinDock.Settings` (a `WS_POPUP` tool window; its title text as before).
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that

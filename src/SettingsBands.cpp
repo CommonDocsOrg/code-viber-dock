@@ -72,6 +72,13 @@ constexpr int kHeaderLockW = 72;
 constexpr int kHeaderGlobalW = 112;
 constexpr int kHeaderMoreW = 36;
 constexpr int kHeaderCustomizeW = 88;  // round 12 phase 12D
+// Round 12 phase 12E: the panel's header has two rows in its 72 DIPs: the name and the chips with
+// Close at the right end, then the save state and the buttons (Customize, App settings…, ⋯). Flash
+// and Lock moved into ⋯ there: at 470 DIPs one row held the buttons and the save state with no room
+// for the name. Their buttons stay (hidden), so WM_COMMAND(110 / 111) to the band still works.
+constexpr int kHeaderCloseW = 32;
+constexpr int kPanelRow1Top = 6, kPanelRow2Top = 38;  // the rows' tops (28 DIPs each)
+constexpr int kPanelHeaderPadR = 10;                  // the buttons' right margin
 
 }  // namespace
 
@@ -153,13 +160,19 @@ void SettingsWindow::CreateBands(bool footer) {
     if (kind_ == SettingsKind::Dock) {
         // Keep app-wide settings directly accessible from every dock settings window.
         if (!IsFolderWindow()) {
-            child(header_, kHeaderFlash, WC_BUTTONW, L"Flash");
-            child(header_, kHeaderLock, WC_BUTTONW, L"Lock");
+            HWND flash = child(header_, kHeaderFlash, WC_BUTTONW, L"Flash");
+            HWND lock = child(header_, kHeaderLock, WC_BUTTONW, L"Lock");
+            // Round 12 phase 12E: in ⋯ on the panel (hidden here, still answering WM_COMMAND).
+            if (panel_) {
+                if (flash) ShowWindow(flash, SW_HIDE);
+                if (lock) ShowWindow(lock, SW_HIDE);
+            }
             // Round 12 phase 12D: customize mode on the dock itself (the 12E panel keeps it).
             if (DockIndex() != SIZE_MAX && Dock().IsDock()) child(header_, kHeaderCustomize, WC_BUTTONW, L"Customize");
         }
         child(header_, kHeaderGlobal, WC_BUTTONW, L"App settings…");
         child(header_, kHeaderMore, WC_BUTTONW, L"\x22EF");
+        if (panel_) child(header_, kHeaderClose, WC_BUTTONW, L"\x2715");  // round 12 phase 12E: Close (Esc)
         // Round 12 phase 12C: the name edited in place (hidden until a click on the name, F2 or
         // Rename dock…; not a tab stop: the name is not a control until then).
         if (DockIndex() != SIZE_MAX && Dock().IsDock()) {
@@ -218,7 +231,26 @@ void SettingsWindow::LayoutBands() {
     if (header_) {
         RECT rc{};
         GetClientRect(header_, &rc);
-        if (kind_ == SettingsKind::Dock) {
+        if (kind_ == SettingsKind::Dock && panel_) {
+            // Round 12 phase 12E: the panel's two rows. Row 1: Close at the right end (the name and
+            // the chips are painted left of it); row 2: Customize, App settings…, ⋯ at the right and
+            // the save state left of them.
+            const int h = Px(kHeaderButtonH);
+            place(header_, kHeaderClose, rc.right - Px(kPanelHeaderPadR) - Px(kHeaderCloseW), Px(kPanelRow1Top), Px(kHeaderCloseW), h);
+            int x = rc.right - Px(kPanelHeaderPadR);
+            for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderCustomize, kHeaderCustomizeW}}) {
+                if (!GetDlgItem(header_, b.first)) continue;
+                x -= Px(b.second);
+                place(header_, b.first, x, Px(kPanelRow2Top), Px(b.second), h);
+                x -= Px(8);
+            }
+            place(header_, kBandSaveStatus, std::max(static_cast<int>(Px(16)), x - Px(kStatusDip)), Px(kPanelRow2Top),
+                  std::min(Px(kStatusDip), x - Px(16)), h);
+            if (renaming_ && nameEdit_) {
+                const RECT r = NameRect();
+                SetWindowPos(nameEdit_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+        } else if (kind_ == SettingsKind::Dock) {
             // One row at the right, vertically centred: Flash, Lock, App settings, ⋯.
             const int h = Px(kHeaderButtonH), y = (rc.bottom - h) / 2;
             int x = rc.right - Px(20);
@@ -366,6 +398,8 @@ void SettingsWindow::RevertWindow() {
 int SettingsWindow::HeaderTextRight() const {
     RECT rc{};
     if (header_) GetClientRect(header_, &rc);
+    // Round 12 phase 12E: the panel's first row ends at its Close button.
+    if (panel_) return rc.right - Px(kPanelHeaderPadR) - Px(kHeaderCloseW) - Px(16);
     int x = rc.right - Px(20);
     for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}, std::pair{kHeaderCustomize, kHeaderCustomizeW}}) {
         if (header_ && GetDlgItem(header_, b.first)) x -= Px(b.second) + Px(8);
@@ -406,6 +440,12 @@ void SettingsWindow::ShowHeaderMenu() {
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, kHeaderRename, L"Rename dock\tF2");
         AppendMenuW(menu, MF_STRING, kHeaderDuplicate, L"Duplicate dock");
+        // Round 12 phase 12E: the panel's header has no room for these two buttons.
+        if (panel_) {
+            AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+            AppendMenuW(menu, MF_STRING, kHeaderFlash, L"Flash this dock");
+            AppendMenuW(menu, MF_STRING, kHeaderLock, Dock().locked ? L"Unlock this dock" : L"Lock this dock");
+        }
     }
     RECT r{};
     GetWindowRect(button, &r);
@@ -654,6 +694,7 @@ void SettingsWindow::UpdateIdentity() {
         RedrawWindow(header_, nullptr, nullptr, RDW_INVALIDATE | RDW_ALLCHILDREN);
     }
     if (footer_) InvalidateRect(footer_, nullptr, TRUE);
+    if (panel_) InvalidateRect(hwnd_, nullptr, FALSE);  // round 12 phase 12E: the band in the dock's colour
 }
 
 // --- painting --------------------------------------------------------------------------------
@@ -708,6 +749,9 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
         // silhouette is on the Position tab: PaintSilhouette).
         Fill(dc, RECT{0, 0, Px(6), rc.bottom}, dock);
         const int textRight = HeaderTextRight();
+        // Round 12 phase 12E: on the panel the name and the chips are its first row.
+        const int rowTop = panel_ ? Px(kPanelRow1Top) : 0;
+        const int rowBottom = panel_ ? Px(kPanelRow1Top + kHeaderButtonH) : static_cast<int>(rc.bottom);
         // Round 12 phase 12C: the dock's name (else its id); while it is renamed the edit covers it.
         const std::wstring shownName = DockName();
         SelectObject(dc, fontTitle_);
@@ -715,9 +759,9 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
         GetTextExtentPoint32W(dc, shownName.c_str(), static_cast<int>(shownName.size()), &idExt);
         const int idRight = std::max(std::min(textRight, Px(24) + static_cast<int>(idExt.cx)),
                                      renaming_ ? static_cast<int>(NameRect().right) - Px(16) : 0);
-        if (!renaming_) text(shownName, RECT{Px(24), 0, idRight, rc.bottom}, fontTitle_, idText, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+        if (!renaming_) text(shownName, RECT{Px(24), rowTop, idRight, rowBottom}, fontTitle_, idText, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         int x = idRight + Px(16);
-        const int ch = Px(26), cy = (rc.bottom - ch) / 2;
+        const int ch = Px(26), cy = (rowTop + rowBottom - ch) / 2;
         SelectObject(dc, font_);
         for (const std::wstring& c : HeaderChips()) {
             SIZE ext{};
@@ -997,6 +1041,9 @@ void SettingsWindow::OnBandCommand(int id) {
         case kHeaderMore:
             ShowHeaderMenu();
             break;
+        case kHeaderClose:  // round 12 phase 12E: the panel's Close (as Esc)
+            if (hwnd_) PostMessageW(hwnd_, WM_CLOSE, 0, 0);
+            break;
         case kHeaderFind:  // round 9 phase 9B: the "⋯" menu's Find a setting… (Ctrl+F)
             OpenSearch(L"");
             break;
@@ -1125,7 +1172,8 @@ RECT SettingsWindow::NameRect() const {
         ReleaseDC(header_, dc);
     }
     const int h = Px(34);
-    const int top = (rc.bottom - h) / 2;
+    // Round 12 phase 12E: on the panel's first row (its 28 DIPs, centred on them).
+    const int top = panel_ ? Px(kPanelRow1Top) + (Px(kHeaderButtonH) - h) / 2 : (rc.bottom - h) / 2;
     const int right = std::min(HeaderTextRight(), Px(24) + std::max(width + Px(24), Px(200)));
     return RECT{Px(18), top, std::max(static_cast<int>(Px(18)) + Px(60), right), top + h};
 }

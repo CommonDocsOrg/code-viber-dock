@@ -70,6 +70,7 @@ constexpr float kDropEdge = 0.15f;           // slot fraction per side that stil
 constexpr UINT kRecycleBinCoalesceMs = 200;  // bursts of bin change notifications -> one redraw
 constexpr float kDockSnapDip = 24.0f;        // a dragged dock snaps to the centre / an end this close
 constexpr float kFloatSnapDip = 8.0f;        // a dragged floating dock snaps to the work area / other floating docks
+constexpr float kEditSnapDip = 14.0f;        // round 12 phase 12E: customize mode's drag: a centred dock's offset snaps to 0 this close
 // Titles under the icons (docks[].titles): the label's font at this size, this far under the icon
 // (horizontal docks: in the icon's slot width; vertical docks: beside the icon, this wide).
 constexpr float kCaptionFontSize = 10.0f;
@@ -808,17 +809,26 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     const float iconBarH = std::round(l.iconPx + 2.0f * barPadDip * s) + l.captionBand + l.titleBand;
     const float barH = iconBarH + l.reflH;
     const float margin = l.fullWidth || l.floating ? 0.0f : std::round(kBottomMargin * s);
+    // --- round 12 phase 12E --- docks[].edgeGap: the resting bar this much further from its screen
+    // edge (a bar on an edge that is not full width). The window still stands on the screen edge and
+    // grows by the gap (the gap is part of the dock's zone, as the margin is): the stage's far side,
+    // the slide, the reveal strip and the peek strip are measured from the screen edge as before, the
+    // acrylic follower keeps the window's rect, and the app bar band (bar top -> screen edge) includes
+    // the gap. `margin` stays the along-the-edge margin; `crossMargin` is the bar -> screen edge.
+    const float gapPx =
+        l.fullWidth || l.floating || polar ? 0.0f : std::round(static_cast<float>(std::clamp(d.edgeGap, 0, DockConfig::kMaxEdgeGap)) * s);
+    const float crossMargin = margin + gapPx;
     float winH = std::round(l.iconPx * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
-                 l.reflH + l.captionBand;
-    winH = std::max(winH, barH + margin);
-    if (titleCross > 0.0f && !l.titleInside) winH = std::max(winH, barH + margin + titleGap + titleCross);
+                 l.reflH + l.captionBand + gapPx;
+    winH = std::max(winH, barH + crossMargin);
+    if (titleCross > 0.0f && !l.titleInside) winH = std::max(winH, barH + crossMargin + titleGap + titleCross);
     // Round 12 phase 12D: customize mode's anchor targets (10 DIPs beyond the bar, 20 DIPs across)
     // and its outline need this much stage beyond the bar's far side.
-    if (editing_) winH = std::max(winH, barH + margin + std::round(36.0f * s));
+    if (editing_) winH = std::max(winH, barH + crossMargin + std::round(36.0f * s));
     if (l.glowPad > 0.0f) {
         // Room above a fully magnified icon for its halo.
         const float magTopRel =
-            winH - margin - barH + l.iconTopPx + l.iconPx - l.iconPx * l.magnification;
+            winH - crossMargin - barH + l.iconTopPx + l.iconPx - l.iconPx * l.magnification;
         winH += std::max(0.0f, std::ceil(l.glowPad * l.magnification) - magTopRel);
     }
 
@@ -1067,7 +1077,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         default: l.window = RECT{stageStart, edgeLine - crossPx, stageEnd, edgeLine}; break;
     }
 
-    l.bar = D2D1::RectF(barLeft, winH - margin - barH, barLeft + barW, winH - margin);
+    l.bar = D2D1::RectF(barLeft, winH - crossMargin - barH, barLeft + barW, winH - crossMargin);  // 12E: off its edge by the gap
     l.itemTop = l.bar.top + l.iconTopPx;
     l.captionTop = l.itemTop + l.iconPx + l.reflH + captionGap;  // under the icon and its reflection
     l.growRoomStart = l.bar.left;
@@ -1723,6 +1733,14 @@ void DockWindow::LayoutPass() {
         if (!EqualRect(&frame, &editFrameShown_)) {
             editFrameShown_ = frame;
             if (editRequests_.moved) editRequests_.moved();
+        }
+    }
+    // Round 12 phase 12E: the settings panel beside the dock follows its resting bar.
+    if (restMoved_) {
+        const RECT rest = RestBarRect();
+        if (!EqualRect(&rest, &restShown_)) {
+            restShown_ = rest;
+            restMoved_();
         }
     }
 }
@@ -8023,6 +8041,11 @@ void DockWindow::BeginDockDrag() {
     dockShiftY_ = 0;
     dockZone_ = layout_.edge;
     dockStartBar_ = RestBarRect();
+    // Round 12 phase 12E: customize mode's drag starts from the dock's own offset and gap.
+    gapShift_ = 0;
+    moveOffset_ = DockCfg().offset;
+    moveGap_ = DockCfg().edgeGap;
+    readoutText_.clear();
     pressed_ = -1;
     GetAsyncKeyState(VK_ESCAPE);  // clears the "pressed since the last call" bit
     SetCapture(hwnd_);
@@ -8125,18 +8148,48 @@ void DockWindow::UpdateDockDrag() {
     const float hi = l.polar.on ? (vertical ? l.ring.bottom : l.ring.right) : l.bar.right;
     const LONG barStart = origin + static_cast<LONG>(lo), barEnd = origin + static_cast<LONG>(hi);
     const LONG delta = vertical ? pt.y - dockPressScreen_.y : pt.x - dockPressScreen_.x;
-    const LONG shift = std::clamp(delta, std::min(0L, mStart - barStart), std::max(0L, mEnd - barEnd));
-    if (shift != dockShift_) {
+    const LONG shiftLo = std::min(0L, mStart - barStart), shiftHi = std::max(0L, mEnd - barEnd);
+    LONG shift = std::clamp(delta, shiftLo, shiftHi);
+    const DockEdge zone = DockZoneAt(pt);
+    LONG gap = 0;
+    if (editMove_) {
+        // Round 12 phase 12E: customize mode's drag. Along the edge: the offset from the aligned
+        // place (the alignment is kept); a centred dock stays at 0 while the pointer is within
+        // kEditSnapDip of it (the detent: a short pause in the centre). Toward the middle of the
+        // screen: the edge gap (0 - 200 DIPs), only while the pointer is over the dock's own edge.
+        const DockConfig& dc = DockCfg();
+        const float s = l.scale;
+        int offset = dc.offset + static_cast<int>(std::lround(static_cast<double>(shift) / s));
+        if (dc.align == DockAlign::Center && std::abs(offset) <= static_cast<int>(kEditSnapDip)) {
+            shift = std::clamp(static_cast<LONG>(-std::lround(static_cast<double>(dc.offset) * s)), shiftLo, shiftHi);
+            offset = 0;
+        }
+        moveOffset_ = std::clamp(offset, -16000, 16000);
+        const LONG across = l.edge == DockEdge::Top    ? pt.y - dockPressScreen_.y
+                            : l.edge == DockEdge::Left  ? pt.x - dockPressScreen_.x
+                            : l.edge == DockEdge::Right ? dockPressScreen_.x - pt.x
+                                                        : dockPressScreen_.y - pt.y;  // toward the middle
+        moveGap_ = zone == l.edge ? std::clamp(dc.edgeGap + static_cast<int>(std::lround(static_cast<double>(across) / s)), 0,
+                                               DockConfig::kMaxEdgeGap)
+                                  : dc.edgeGap;
+        gap = static_cast<LONG>(std::lround(static_cast<double>(moveGap_ - dc.edgeGap) * s));
+    }
+    if (shift != dockShift_ || gap != gapShift_) {
         const LONG d = shift - dockShift_;
-        OffsetRect(&l.window, vertical ? 0 : d, vertical ? d : 0);
-        OffsetRect(&winRect_, vertical ? 0 : d, vertical ? d : 0);
+        // (12E) The gap moves the window off its edge: up from a bottom edge, right from a left one ...
+        const LONG g = gap - gapShift_;
+        const LONG gx = l.edge == DockEdge::Left ? g : l.edge == DockEdge::Right ? -g : 0;
+        const LONG gy = l.edge == DockEdge::Top ? g : l.edge == DockEdge::Bottom ? -g : 0;
+        OffsetRect(&l.window, (vertical ? 0 : d) + gx, (vertical ? d : 0) + gy);
+        OffsetRect(&winRect_, (vertical ? 0 : d) + gx, (vertical ? d : 0) + gy);
         dockShift_ = shift;
+        gapShift_ = gap;
         SetWindowPos(hwnd_, nullptr, winRect_.left, winRect_.top, 0, 0,
                      SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_NOOWNERZORDER);
         SyncBackdrop();
     }
+    if (editMove_) ShowReadout(pt);  // round 12 phase 12E
     // Over another edge's zone the dock dims: a release moves it there.
-    const DockEdge zone = DockZoneAt(pt);
     if (zone != dockZone_) {
         dockZone_ = zone;
         RenderWithRecovery([&] {
@@ -8169,6 +8222,23 @@ void DockWindow::EndDockDrag(bool commit) {
     });
     const DockConfig& d = DockCfg();
     POINT pt{};
+    // --- round 12 phase 12E: customize mode's drag released on its own edge: offset and gap (one
+    // undo entry); over another edge's zone it falls through to the Ctrl+drag path below (the edge
+    // switch, with Keep / Revert). ---
+    const bool editMove = editMove_;
+    editMove_ = false;
+    gapShift_ = 0;
+    HideReadout();
+    if (editMove && commit && GetCursorPos(&pt) && DockZoneAt(pt) == layout_.edge) {
+        SetHold(false);
+        if (!pinRequests_.moveInEdge || (moveOffset_ == d.offset && moveGap_ == d.edgeGap)) {
+            Relayout();  // back to its own place
+            return;
+        }
+        pinRequests_.moveInEdge(moveOffset_, moveGap_);  // relayouts the dock
+        return;
+    }
+    // --- end round 12 phase 12E ---
     if (layout_.shape == DockShape::Circle && layout_.polar.on) {
         // A circle: its centre, in DIPs from the work area's top-left.
         const Layout& l = layout_;
@@ -9154,8 +9224,21 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                     floatingBackground = pressed_ < 0 || (!items_[static_cast<size_t>(pressed_)].IsWidget() &&
                                                           (v < layout_.itemTop || v >= layout_.itemTop + layout_.iconPx));
                 }
-                dockPress_ = ((wp & MK_CONTROL) || floatingBackground) && !DockCfg().locked && dragPhase_ == DragPhase::None &&
-                             hideState_ == HideState::Shown && InZone(pressPt_) && GetCursorPos(&dockPressScreen_);
+                // Round 12 phase 12E: customize mode: a plain press on the background of a bar on an
+                // edge (not full width, not a ring) moves the dock too: along the edge (offset), off
+                // it (edgeGap), or onto another edge (as Ctrl+drag).
+                bool editBackground = false;
+                if (editing_ && !(wp & MK_CONTROL) && pressTrayKey_.empty() && !DockCfg().Floating() && !DockCfg().Polar() &&
+                    !DockCfg().fullWidth) {
+                    const float v = layout_.Canon(pressPt_).y;
+                    editBackground = pressed_ < 0 || (!items_[static_cast<size_t>(pressed_)].IsWidget() &&
+                                                      (v < layout_.itemTop || v >= layout_.itemTop + layout_.iconPx));
+                }
+                dockPress_ = ((wp & MK_CONTROL) || floatingBackground || editBackground) && !DockCfg().locked &&
+                             dragPhase_ == DragPhase::None && hideState_ == HideState::Shown && InZone(pressPt_) &&
+                             GetCursorPos(&dockPressScreen_);
+                editMove_ = dockPress_ && editBackground;
+                if (editMove_) pressed_ = -1;  // the background's press: no item click / drag on release
             }
             // The capture from the press on: a quick first move may already leave the dock.
             if (dockPress_) SetCapture(hwnd_);
@@ -9556,6 +9639,8 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             dragPhase_ = DragPhase::None;
             dropActive_ = false;
             dockDrag_ = dockPress_ = false;
+            editMove_ = false;  // round 12 phase 12E
+            HideReadout();
             if (GetCapture() == hwnd_) ReleaseCapture();
             for (UINT_PTR id : {kClockTimerId, kIconEvictTimerId, kBounceTimerId, kHideTimerId, kRevealTimerId,
                                 kSlideTimerId, kMagnifyTimerId, kLabelTimerId, kRestTimerId, kBackdropTimerId,

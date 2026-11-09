@@ -5,6 +5,7 @@
 // press arms a one-shot timer.
 
 #include <windows.h>
+#include <commctrl.h>  // round 12 phase 12E: the drag readout (a tracking tooltip)
 
 #include <algorithm>
 #include <cmath>
@@ -469,4 +470,67 @@ size_t DockWindow::ExternalItemDrop(POINT screen) {
     KeepStage(motion_.rest + 0.04);
     SetHold(false);
     return at;
+}
+
+// --- round 12 phase 12E: the readout of customize mode's dock drag --------------------------------
+// A tracking tooltip owned by the dock (topmost, never activated) beside the pointer: where a
+// release would put the dock ("Centred · 0 px from the edge", "+120 px from the centre · 24 px from
+// the edge", "Release to move it to the left edge"). It exists only during the drag; its text is
+// set again only when it changes.
+
+void DockWindow::ShowReadout(POINT screen) {
+    if (!hwnd_) return;
+    const DockConfig& d = DockCfg();
+    const DockEdge zone = DockZoneAt(screen);
+    std::wstring text;
+    if (zone != layout_.edge) {
+        const wchar_t* word = zone == DockEdge::Top ? L"top" : zone == DockEdge::Left ? L"left" : zone == DockEdge::Right ? L"right" : L"bottom";
+        text = std::wstring(L"Release to move it to the ") + word + L" edge";
+    } else {
+        const int o = moveOffset_;
+        const std::wstring px = std::wstring(o > 0 ? L"+" : o < 0 ? L"\x2212" : L"") + std::to_wstring(std::abs(o)) + L" px";
+        switch (d.align) {
+            case DockAlign::Start: text = o == 0 ? std::wstring(L"At the start") : px + L" from the start"; break;
+            case DockAlign::End: text = o == 0 ? std::wstring(L"At the end") : px + L" from the end"; break;
+            case DockAlign::Center:
+            default: text = o == 0 ? std::wstring(L"Centred") : px + L" from the centre"; break;
+        }
+        text += L" \x00B7 " + std::to_wstring(moveGap_) + L" px from the edge";
+    }
+    if (!readout_) {
+        INITCOMMONCONTROLSEX icc{sizeof(icc), ICC_BAR_CLASSES};
+        InitCommonControlsEx(&icc);
+        readout_ = CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, TOOLTIPS_CLASSW, nullptr,
+                                   WS_POPUP | TTS_NOPREFIX | TTS_ALWAYSTIP, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT, CW_USEDEFAULT,
+                                   hwnd_, nullptr, GetModuleHandleW(nullptr), nullptr);
+        if (!readout_) return;
+        TTTOOLINFOW ti{};
+        ti.cbSize = sizeof(ti);
+        ti.uFlags = TTF_TRACK | TTF_ABSOLUTE;
+        ti.hwnd = hwnd_;
+        ti.uId = 1;
+        ti.lpszText = const_cast<wchar_t*>(L" ");
+        SendMessageW(readout_, TTM_ADDTOOLW, 0, reinterpret_cast<LPARAM>(&ti));
+        SendMessageW(readout_, TTM_TRACKACTIVATE, TRUE, reinterpret_cast<LPARAM>(&ti));
+        readoutText_.clear();
+    }
+    if (text != readoutText_) {
+        readoutText_ = text;
+        TTTOOLINFOW ti{};
+        ti.cbSize = sizeof(ti);
+        ti.hwnd = hwnd_;
+        ti.uId = 1;
+        ti.lpszText = readoutText_.data();
+        SendMessageW(readout_, TTM_UPDATETIPTEXTW, 0, reinterpret_cast<LPARAM>(&ti));
+        SetWindowTextW(readout_, readoutText_.c_str());  // automation / accessibility: what it says
+    }
+    // Up and right of the pointer (out of the way of the bar it drags).
+    const int dx = MulDiv(16, static_cast<int>(dpi_), USER_DEFAULT_SCREEN_DPI);
+    SendMessageW(readout_, TTM_TRACKPOSITION, 0, MAKELPARAM(screen.x + dx, screen.y - 3 * dx));
+}
+
+void DockWindow::HideReadout() {
+    if (readout_) DestroyWindow(readout_);
+    readout_ = nullptr;
+    readoutText_.clear();
 }

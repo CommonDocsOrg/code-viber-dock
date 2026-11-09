@@ -713,6 +713,29 @@ public:
     bool BeginRename();
     // --- end round 12 phase 12C ---
 
+    // --- round 12 phase 12E: a dock's settings as a panel beside the dock ---
+    // A Dock window of a dock (not of a folder window or a standalone widget entry) is a borderless
+    // panel (WS_POPUP, a tool window: not in the taskbar / Alt+Tab) beside the dock's resting bar
+    // (host.dockBar): above a bottom bar, under a top one, beside a vertical one, centred on the bar
+    // and clamped to the work area; a floating bar or a circle gets it on the side facing the
+    // screen's middle. It never covers its dock. A 3 DIP band in the dock's colour runs along the
+    // side facing the dock; the other three sides are a 6 DIP resize border (its own hit test: no
+    // WS_THICKFRAME, so no system frame or caption appears). Same class, pages, ids and automation as
+    // the captioned window it replaces. It closes on Esc, its Close button, or when the app loses
+    // the activation (another app's window or the desktop came to the front), unless one of its
+    // dialogs is open, the Keep / Revert bar shows or it is being resized.
+    bool IsPanel() const { return panel_; }
+    // 0 above the dock, 1 below it, 2 right of it, 3 left of it (QueryState 314); -1 not a panel.
+    int PanelSide() const { return panel_ ? panelSide_ : -1; }
+    // The dock window (an "each" dock's instance) it was opened from; App answers host.dockBar /
+    // dockMonitor / dockDpi with it while it exists (else the dock's first window).
+    void SetAnchorDock(HWND dock) { anchorDock_ = dock; }
+    HWND AnchorDock() const { return anchorDock_; }
+    // The dock's resting bar moved (or the display changed): the panel goes beside it again, in
+    // 200 ms (`animate`; at once with Reduce motion or while hidden). No-op for other windows.
+    void Reanchor(bool animate);
+    // --- end round 12 phase 12E ---
+
     // --- for pages ---
     SettingsHost& Host() { return host_; }
     bool Loading() const { return loading_; }
@@ -724,8 +747,11 @@ public:
     // Round 9 phase 9A: page `source` changed the config: every other page re-syncs its dependents
     // (SettingsPage::OnPeerChanged), so the window's tabs never show a stale state.
     void PeersChanged(const SettingsPage* source);
-    // The pages' width in DIPs (the client width less the nav column).
-    int ContentWidthDip() const { return ClientDip().cx - (kind_ == SettingsKind::Global ? kNavWidthDip : 0); }
+    // The pages' width in DIPs (the client width less the nav column; round 12 phase 12E: less a
+    // panel's border and band).
+    int ContentWidthDip() const {
+        return ClientDip().cx - (kind_ == SettingsKind::Global ? kNavWidthDip : 0) - (panel_ ? PanelInsetDip().left + PanelInsetDip().right : 0);
+    }
     // Round 8 phase 8A: the live client size in DIPs (QueryState 275; the restored size while
     // minimized).
     SIZE ClientSizeDip() const { return ClientDip(); }
@@ -828,6 +854,37 @@ private:
     static constexpr bool kNavMica = true;
     static constexpr DWORD kStyle = WS_OVERLAPPED | WS_CAPTION | WS_SYSMENU | WS_MINIMIZEBOX | WS_MAXIMIZEBOX |
                                     WS_THICKFRAME | WS_CLIPCHILDREN;
+    // --- round 12 phase 12E: the panel ---
+    static constexpr DWORD kPanelStyle = WS_POPUP | WS_CLIPCHILDREN;
+    static constexpr DWORD kPanelExStyle = WS_EX_TOOLWINDOW;  // not in the taskbar / Alt+Tab; not topmost (it never overlaps the dock)
+    DWORD Style() const { return panel_ ? kPanelStyle : kStyle; }
+    DWORD ExStyle() const { return panel_ ? kPanelExStyle : 0; }
+    static constexpr int kPanelWidthDip = 470;   // the default client size (no saved size)
+    static constexpr int kPanelHeightDip = 640;  // ... the pages scroll; at most the room beside the dock
+    static constexpr int kPanelMinWDip = 400, kPanelMinHDip = 360;
+    static constexpr int kPanelBorderDip = 6;    // the resize border on the three outer sides
+    static constexpr int kPanelBandDip = 3;      // the band in the dock's colour on the side facing the dock
+    static constexpr int kPanelGapDip = 12;      // between the dock's resting bar and the panel
+    static constexpr UINT_PTR kPanelAnimTimerId = 0x12E1;  // the 200 ms move beside the dock (DockWindow.h's table)
+    static constexpr DWORD kPanelAnimMs = 200;
+    static constexpr UINT kPanelCloseCheck = WM_APP + 70;  // posted when the app lost the activation
+    bool panel_ = false;
+    int panelSide_ = 0;
+    HWND anchorDock_ = nullptr;
+    RECT animFrom_{}, animTo_{};
+    ULONGLONG animStart_ = 0;
+    bool animating_ = false;
+    // The client's insets in DIPs (left / top / right / bottom): the band on the side facing the
+    // dock, the resize border on the others (zero for other windows).
+    RECT PanelInsetDip() const;
+    // The side for the dock's bar now (0 - 3 as PanelSide), and the panel's screen rect beside it
+    // (its saved / default size clamped to the room; `side` the side used).
+    int ComputePanelSide(const RECT& bar, const RECT& work) const;
+    RECT PanelRect(int* side) const;
+    // The work area of the display the dock's bar is on.
+    RECT PanelWork() const;
+    void PanelAnimStep();
+    // --- end round 12 phase 12E ---
 
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
     static LRESULT CALLBACK NavProcThunk(HWND, UINT, WPARAM, LPARAM);

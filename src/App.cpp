@@ -346,7 +346,11 @@ void App::SetUpDock(DockWindow& dock) {
         RequestSave();
         RefreshSettings();
     };
+    // Round 12 phase 12E: customize mode's drag along / off the dock's own edge.
+    requests.moveInEdge = [this, d](int offset, int edgeGap) { MoveInEdge(*d, offset, edgeGap); };
     dock.SetPinRequests(std::move(requests));
+    // Round 12 phase 12E: the settings panel beside this dock follows its resting bar.
+    dock.SetRestMovedCallback([this, d] { ReanchorPanels(d, true); });
     // The docks' app bars (reserve screen space): the taskbar controller must not undo the work
     // areas they leave.
     dock.SetAppBarCallback([this](bool, const RECT&, const RECT&) { UpdateReservedMonitors(); });
@@ -1839,6 +1843,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         // --- end round 12 phase 12G ---
         case ContextMenu::kDockSettings:
+            panelFrom_ = dock ? dock->Hwnd() : nullptr;  // round 12 phase 12E: the panel beside this instance
             OpenDockSettings(cfg);
             break;
         // --- round 12 phase 12C: the dock menu's Rename dock… / Duplicate dock / Save dock as layout… ---
@@ -1853,6 +1858,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         // --- end round 12 phase 12C ---
         case ContextMenu::kAddFromDrawer:  // round 10 phase 10A: Add > Apps, folders and more widgets…
+            panelFrom_ = dock ? dock->Hwnd() : nullptr;  // round 12 phase 12E
             OpenDockSettings(cfg, SettingsIds::kTabContents);  // its add drawer is always shown
             break;
         case ContextMenu::kFlashDock:
@@ -2049,6 +2055,7 @@ void App::SyncDocks() {
     config_.EnsureItemSettings();  // a new dock's clock starts from the defaults
     docks_.Sync();
     UpdateReservedMonitors();
+    ReanchorPanels(nullptr, false);  // round 12 phase 12E: beside the docks as they are now (a parked one's closes)
     if (hwnd_) PostMessageW(hwnd_, kReapMessage, 0, 0);  // closed windows are freed outside their messages
     PlaceTip();  // round 12 phase 12G: the first dock may be on another display now
 }
@@ -2173,8 +2180,15 @@ int App::CountSettings(SettingsKind kind) const {
 
 bool App::KeepShownFor(size_t cfg) const {
     // The active settings window is a Dock / Item window of this dock (the Global one keeps nothing shown).
-    return activeSettings_ && activeSettings_->Hwnd() && activeSettings_->Kind() != SettingsKind::Global &&
-           activeSettings_->DockIndex() == cfg;
+    if (activeSettings_ && activeSettings_->Hwnd() && activeSettings_->Kind() != SettingsKind::Global && activeSettings_->DockIndex() == cfg) {
+        return true;
+    }
+    // Round 12 phase 12E: the dock's settings panel holds it shown for as long as it is open (it
+    // sits beside the bar, active or not; the drawer's hold works the same way).
+    for (const auto& w : settings_) {
+        if (w->Hwnd() && w->IsPanel() && IsWindowVisible(w->Hwnd()) && w->DockIndex() == cfg) return true;
+    }
+    return false;
 }
 
 void App::UpdateKeepShown() {
@@ -2315,9 +2329,9 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         DockWindow* d = docks_.First();
         return d && d->UsingWarp();
     };
-    host.dockMonitor = [this, dockOf] {
+    host.dockMonitor = [this, dockOf, w] {
         const size_t cfg = dockOf();
-        if (DockWindow* d = cfg != SIZE_MAX ? docks_.FirstOf(cfg) : nullptr) return d->MonitorRect();
+        if (DockWindow* d = cfg != SIZE_MAX ? PanelDockOf(w) : nullptr) return d->MonitorRect();  // 12E: the panel's instance
         if (FolderWindow* f = cfg != SIZE_MAX ? docks_.FolderOf(cfg) : nullptr) {
             const RECT r = f->ScreenRect();
             MONITORINFO mi{sizeof(mi)};
@@ -2335,15 +2349,15 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         GetMonitorInfoW(MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY), &mi);
         return mi.rcMonitor;
     };
-    host.dockDpi = [this, dockOf] {
-        DockWindow* d = dockOf() != SIZE_MAX ? docks_.FirstOf(dockOf()) : nullptr;
+    host.dockDpi = [this, dockOf, w] {
+        DockWindow* d = dockOf() != SIZE_MAX ? PanelDockOf(w) : nullptr;  // round 12 phase 12E: the panel's instance
         if (!d) d = docks_.First();
         return d ? d->Dpi() : GetDpiForSystem();
     };
     host.activated = [this, w](bool active) { OnSettingsActivated(w, active); };
-    host.dockBar = [this, dockOf] {
+    host.dockBar = [this, dockOf, w] {
         if (WidgetWindow* wi = dockOf() != SIZE_MAX ? docks_.WidgetOf(dockOf()) : nullptr) return wi->ScreenRect();
-        DockWindow* d = dockOf() != SIZE_MAX ? docks_.FirstOf(dockOf()) : nullptr;
+        DockWindow* d = dockOf() != SIZE_MAX ? PanelDockOf(w) : nullptr;  // round 12 phase 12E: the panel's instance
         return d ? d->RestBarRect() : RECT{};
     };
     host.openDock = [this](size_t dock, int tab) { OpenDockSettings(dock, tab); };
@@ -2526,6 +2540,7 @@ bool App::AddSettingsWindow(std::unique_ptr<SettingsWindow> w, bool show) {
     FlushTimeline();
     marks_.push_back(WindowMark{raw, nextSerial_ - 1, lastState_});
     UpdateTimelineUi();  // the banner gives way to the window's bar
+    if (raw->IsPanel()) UpdateKeepShown();  // round 12 phase 12E: the panel holds its dock shown (also when not activated)
     return true;
 }
 
@@ -2545,16 +2560,28 @@ void App::OpenSettings(int page) {
 }
 
 void App::OpenDockSettings(size_t dock, int tab) {
+    // Round 12 phase 12E: the dock window this came from (an "each" dock's instance; set by the menu
+    // and edit bar paths just before), taken once.
+    const HWND from = panelFrom_;
+    panelFrom_ = nullptr;
     if (shutDown_ || dock >= config_.docks.size()) return;
     const std::wstring id = config_.docks[dock].id;
+    DockWindow* fromDock = from ? docks_.ByHwnd(from) : nullptr;
+    if (fromDock && fromDock->ConfigIndex() != dock) fromDock = nullptr;
     if (SettingsWindow* w = FindSettings(SettingsKind::Dock, id)) {
         ClaimSettings(w);
         if (tab >= 0) w->ShowPage(tab);
+        // Opened from another instance of the dock: the panel moves beside that one.
+        if (w->IsPanel() && fromDock && fromDock->Hwnd() != w->AnchorDock()) {
+            w->SetAnchorDock(fromDock->Hwnd());
+            if (IsWindowVisible(w->Hwnd())) w->Reanchor(true);
+        }
         w->Activate();
         return;
     }
     auto w = std::make_unique<SettingsWindow>(SettingsHost{}, SettingsKind::Dock, id);
     SettingsWindow* raw = w.get();
+    if (fromDock) raw->SetAnchorDock(fromDock->Hwnd());  // (before Create: it places the panel)
     if (AddSettingsWindow(std::move(w)) && tab >= 0) raw->ShowPage(tab);
 }
 
@@ -3769,6 +3796,20 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return drawerPopup_.Shown() ? 1 : 0;
         case 312:  // its tiles after the search and the chip (-1: not shown)
             return drawerPopup_.Shown() ? drawerPopup_.TileCount() : -1;
+        // --- round 12 phase 12E ---
+        case 313:    // the Dock settings window of dock HIWORD: 0 none open, 1 a panel beside the dock, 2 a captioned window (folder window / standalone widget entries)
+        case 314: {  // ... the panel's side: 0 above the dock, 1 below it, 2 right of it, 3 left of it (-1: no panel)
+            SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
+            const bool open = w && w->Hwnd() && !IsSearchHidden(w) && IsWindowVisible(w->Hwnd());
+            if (wp == 313) return !open ? 0 : w->IsPanel() ? 1 : 2;
+            return open && w->IsPanel() ? w->PanelSide() : -1;
+        }
+        case 315:  // dock HIWORD's docks[].edgeGap (DIPs; -2 not a dock)
+            if (!inst || inst->cfg >= config_.docks.size() || !config_.docks[inst->cfg].IsDock()) return -2;
+            return config_.docks[inst->cfg].edgeGap;
+        case 316:  // 1 while a drag of the whole dock is in progress (Ctrl+drag, customize mode's drag; -1 no such dock window)
+            return inst && inst->window ? (inst->window->DockDragging() ? 1 : 0) : -1;
+        // --- end round 12 phase 12E ---
         default:
             break;
     }
@@ -4058,6 +4099,11 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
             if (want != shown) ShowDrawer(want);
             result = 1;
         }
+        return true;
+    }
+    // --- round 12 phase 12E: DockCommand 176 close the panel, 177 / 178 the edge gap / offset ---
+    if (msg == msgDockCommand_ && wp >= ContextMenu::kClosePanel && wp <= ContextMenu::kSetDockOffset) {
+        result = PanelCommand(static_cast<UINT>(wp), lp) ? 1 : 0;
         return true;
     }
     if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kClickPlus && (wp & 0xFFFF) <= ContextMenu::kEditRemove) {
@@ -4418,6 +4464,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         if (previewing_ && previewHost_ && !IsWindow(previewHost_)) CancelBar();
         std::erase_if(settings_, [](const std::unique_ptr<SettingsWindow>& w) { return !w->Hwnd(); });
         if (settings_.empty()) docks_.Previews().Release();  // round 6 phase 6E: its factories go with the last window
+        UpdateKeepShown();   // round 12 phase 12E: a closed panel no longer holds its dock shown
         UpdateTimelineUi();  // the banner, when no window shows the bar any more
         return 0;
     }
@@ -4738,8 +4785,17 @@ void App::OnEditBarCommand(int id) {
             if (!Undo()) MessageBeep(MB_OK);
             break;
         case SettingsIds::kEditBarAdd: ShowDrawer(!drawerPopup_.Shown()); break;
-        case SettingsIds::kEditBarSettings: OpenDockSettings(d->ConfigIndex()); break;  // = DockCommand 143 (12E: the panel)
-        case SettingsIds::kEditBarDone: LeaveEdit(); break;
+        case SettingsIds::kEditBarSettings:  // = DockCommand 143 (12E: the panel, beside this instance)
+            panelFrom_ = d->Hwnd();
+            OpenDockSettings(d->ConfigIndex());
+            break;
+        case SettingsIds::kEditBarDone: {
+            // Round 12 phase 12E: Done also closes the dock's settings panel (customizing is over).
+            const size_t cfg = d->ConfigIndex();
+            LeaveEdit();
+            ClosePanel(cfg);
+            break;
+        }
         default: break;
     }
 }
@@ -4904,3 +4960,97 @@ std::vector<std::wstring> App::PickPins(HWND owner, bool folder) {
     }
     return paths;
 }
+
+// --- round 12 phase 12E: the Dock settings panel beside its dock, Where on the screen ---------------
+
+DockWindow* App::PanelDockOf(const SettingsWindow* w) {
+    const size_t cfg = w ? w->DockIndex() : SIZE_MAX;
+    if (cfg >= config_.docks.size()) return nullptr;
+    // The instance it was opened from while it still shows this dock (an "each" dock's display may
+    // have gone: then the dock's first window).
+    if (const HWND a = w->AnchorDock()) {
+        if (DockWindow* d = docks_.ByHwnd(a); d && d->ConfigIndex() == cfg) return d;
+    }
+    return docks_.FirstOf(cfg);
+}
+
+void App::ReanchorPanels(DockWindow* moved, bool animate) {
+    if (shutDown_) return;
+    // Index loop: closing only posts (the objects are freed by kSettingsClosed).
+    for (size_t i = 0; i < settings_.size(); ++i) {
+        SettingsWindow* w = settings_[i].get();
+        if (!w->Hwnd() || !w->IsPanel() || IsSearchHidden(w)) continue;
+        DockWindow* d = PanelDockOf(w);
+        if (!d) {
+            // Its dock has no window (parked: its display is gone; disabled): a panel beside nothing
+            // closes, as the dock's window did when its dock went away.
+            PostMessageW(w->Hwnd(), WM_CLOSE, 0, 0);
+            continue;
+        }
+        if (moved && d != moved) continue;
+        w->Reanchor(animate);
+    }
+}
+
+bool App::ClosePanel(size_t cfg) {
+    if (cfg >= config_.docks.size()) return false;
+    SettingsWindow* w = FindSettings(SettingsKind::Dock, config_.docks[cfg].id);
+    if (!w || !w->IsPanel() || IsSearchHidden(w) || !IsWindowVisible(w->Hwnd())) return false;
+    DestroyWindow(w->Hwnd());  // freed by kSettingsClosed
+    return true;
+}
+
+void App::MoveInEdge(DockWindow& dock, int offset, int edgeGap) {
+    const size_t cfg = dock.ConfigIndex();
+    if (shutDown_ || cfg >= config_.docks.size()) return;
+    DockConfig& c = config_.docks[cfg];
+    offset = std::clamp(offset, -16000, 16000);
+    edgeGap = std::clamp(edgeGap, 0, DockConfig::kMaxEdgeGap);
+    if (c.offset == offset && c.edgeGap == edgeGap) {
+        dock.Relayout();  // back to its own place
+        return;
+    }
+    // One gesture, one timeline entry: "Moved main (+120 px, 24 px from the edge)". Neither value
+    // hides the dock or puts it on another edge or display: no Keep / Revert (DescribePlacement).
+    const std::wstring along = offset == 0 ? std::wstring(c.align == DockAlign::Start ? L"at the start"
+                                                          : c.align == DockAlign::End ? L"at the end"
+                                                                                      : L"centred")
+                                           : std::wstring(offset > 0 ? L"+" : L"\x2212") + std::to_wstring(std::abs(offset)) + L" px";
+    NoteLabel(L"Moved " + c.DisplayName() + L" (" + along + L", " + std::to_wstring(edgeGap) + L" px from the edge)");
+    NoteTipGesture(2);  // round 12 phase 12G: the third tip's gesture (a dock dragged; the 12E / 12G merge)
+    c.offset = offset;
+    c.edgeGap = edgeGap;
+    docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyConfig(); });
+    RequestSave();
+    RefreshSettings();
+}
+
+bool App::PanelCommand(UINT command, LPARAM lp) {
+    if (shutDown_) return false;
+    DockManager::Instance* inst = docks_.At(DockOfParam(lp));
+    if (!inst || inst->cfg >= config_.docks.size()) return false;
+    const size_t cfg = inst->cfg;
+    if (command == ContextMenu::kClosePanel) return ClosePanel(cfg);
+    DockConfig& d = config_.docks[cfg];
+    if (!d.IsDock()) return false;
+    if (command == ContextMenu::kSetEdgeGap) {
+        const int v = std::clamp(static_cast<int>(lp & 0xFFFF), 0, DockConfig::kMaxEdgeGap);
+        if (d.edgeGap != v) {
+            NoteLabel(L"Distance from the screen edge " + std::to_wstring(d.edgeGap) + L" \x2192 " + std::to_wstring(v));
+            d.edgeGap = v;
+        }
+    } else if (command == ContextMenu::kSetDockOffset) {
+        const int v = static_cast<int16_t>(static_cast<uint16_t>(lp & 0xFFFF));
+        if (d.offset != v) {
+            NoteLabel(L"Distance along the edge " + std::to_wstring(d.offset) + L" \x2192 " + std::to_wstring(v));
+            d.offset = v;
+        }
+    } else {
+        return false;
+    }
+    docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyConfig(); });
+    RequestSave();
+    RefreshSettings();
+    return true;
+}
+// --- end round 12 phase 12E ---

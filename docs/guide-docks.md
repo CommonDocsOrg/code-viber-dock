@@ -58,12 +58,12 @@ You can also drag a dock to another place, edge or display on App settings > Doc
 
 The **Layer and title** card has **Title**, a short text drawn beside the bar.
 
-The numbers are in the **Exact offsets** card, closed until you click its heading (it says "· 1 changed" when one of them is set):
+The first card, **Where on the screen**, also has the distances: **Distance from the centre** moves the dock along its edge, **Distance from the screen edge** moves it away from the edge, and **Position x** and **Position y** place a floating bar or a circle. While customizing, you can drag an empty part of the bar to change them.
 
-- **Offset**: moves the dock from its aligned place along the edge, in pixels at 100 % scaling.
+The **Exact offsets** card, closed until you click its heading (it says "· 1 changed" when one of them is set), has the rest:
+
 - **Peek when hidden** keeps a thin strip of a hidden dock visible, so you can see where it is.
 - **Maximum length** stops the bar from growing past a length. A longer dock scrolls or shrinks its icons.
-- **Position x** and **Position y** place a floating bar or a circle.
 
 ## Auto-hide
 

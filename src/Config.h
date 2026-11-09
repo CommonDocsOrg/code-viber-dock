@@ -337,6 +337,15 @@ struct DockConfig {
     // DIPs (pixels at 100 % scale) added to the aligned position along the edge (positive: right /
     // down). The dock is kept on its monitor.
     int offset = 0;
+    // --- round 12 phase 12E ---
+    // DIPs between the resting bar and its screen edge on top of the bar's own 8 DIP margin (0 -
+    // 200, default 0; saved only when set): the bar moves off its edge toward the screen's middle.
+    // Only for a bar on an edge that is not full width (a full-width bar sits on its edge; rings and
+    // floating bars ignore it). The window grows by it, so auto-hide slides from there, the peek
+    // strip and the reveal strip stay at the screen edge, and a reserved band includes the gap.
+    int edgeGap = 0;
+    static constexpr int kMaxEdgeGap = 200;
+    // --- end round 12 phase 12E ---
     // The bar spans the whole edge of the monitor (flush with the screen edge, square corners);
     // the items sit in it per `align` / `offset`.
     bool fullWidth = false;

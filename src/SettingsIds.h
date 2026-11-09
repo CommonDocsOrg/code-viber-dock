@@ -899,5 +899,20 @@ inline constexpr int kAboutTips = 5797;          // Global > About: "Show the ti
 inline constexpr int kTipText = 5798;            // a tip: its sentence
 inline constexpr int kTipCount = 5799;           // a tip: "Tip n of 3"
 // --- end round 12 phase 12G ---
+// --- round 12 phase 12E ---
+// The Dock settings panel beside its dock (5730 - 5759) and the Position tab's "Where on the screen"
+// card (its other rows keep their ids: Kind 2271, Display 2111, Edge 2142, Alignment 2144, the
+// offset 2145 / 2146 / 2147, Full width 2149, Reserve screen space 2151, overflow 2167, x / y 2180 / 2182).
+inline constexpr int kHeaderClose = 5730;        // Dock panel: the header's Close (✕) at its right end (WM_COMMAND(5730, BN_CLICKED) to the band 102; = DockCommand 176)
+inline constexpr int kOffsetTrack = 5731;        // Position: the offset's slider (-400 - 400 DIPs, the same value as the edit 2146; applied on release)
+inline constexpr int kEdgeGapTrack = 5732;       // ... "Distance from the screen edge": slider 0 - 200 DIPs (docks[].edgeGap; applied on release)
+inline constexpr int kEdgeGapEdit = 5733;        // ... its edit (applied on Enter / focus loss) ...
+inline constexpr int kEdgeGapSpin = 5734;        // ... and up-down (applied on every step)
+inline constexpr int kEdgeGapLabel = 5735;       // ... its label (hint 5739)
+inline constexpr int kEdgeGapUnit = 5736;        // ... "px" after the edit
+inline constexpr int kCentreIt = 5737;           // ... a floating bar / circle: "Centre it" (clears Position x / y)
+inline constexpr int kDistanceNote = 5738;       // ... the note under the distances ("You can also drag the dock while customizing. …")
+inline constexpr int kEdgeGapNote = 5739;        // ... the hint under its label ("A full-width bar sits on its edge." when it does not apply)
+// --- end round 12 phase 12E ---
 
 }  // namespace SettingsIds

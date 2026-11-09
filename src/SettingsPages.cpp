@@ -169,11 +169,12 @@ protected:
         // Round 8 phase 8D: where the per-dock settings are, as a line under the title (it was the
         // System card's last row); the cards below are the app's own settings.
         EndCard();
-        Ctl& where = Text(kPositionNote, CtlKind::Note, L"Each dock's own settings are in its own window: right-click the dock > Dock settings\x2026",
+        // Round 12 phase 12E: they open in a panel beside the dock (was "in its own window").
+        Ctl& where = Text(kPositionNote, CtlKind::Note, L"Each dock's own settings open beside the dock: right-click the dock > Dock settings\x2026",
                           kMargin, right - kMargin, 20);
         where.maxLines = 2;
-        Tip(kPositionNote, L"Each dock's own settings (its items, position, behaviour, running apps and theme) are in its "
-                           L"own window: right-click the dock and choose Dock settings…, or open it from Docks and displays.");
+        Tip(kPositionNote, L"Each dock's own settings (its items, position, behaviour, running apps and look) open in a "
+                           L"panel beside the dock: right-click the dock and choose Dock settings…, or open them from Docks and displays.");
         NextRow(38);
         Section(kSectionStartup, L"System", L"guide-settings.md#system");
         Check(kStartWithWindows, kStartWithWindowsCaption, L"Start with Windows");
@@ -418,7 +419,10 @@ protected:
         const int ctlW = std::clamp(silL - 16 - kColX, 160, 300);
         Title(L"Position");
         HelpTopic(L"guide-settings.md#position-tab");
-        Section(kSectionPosition, L"Placement", L"guide-settings.md#placement");
+        // Round 12 phase 12E: "Where on the screen" (was "Placement"; same id, same "?" topic): the
+        // distances from the centre and from the screen edge are here now, with sliders, and a
+        // floating bar's / circle's x / y with Centre it (they were in Exact offsets).
+        Section(kSectionPosition, L"Where on the screen", L"guide-settings.md#placement");
         // A fixed control (row -1): beside the rows, never moved by them; at the right margin it
         // follows the page's width. Round 9 phase 9D: under the header's "?" button.
         Ctl& sil = Add(kPositionSilhouette, CtlKind::Custom, kSilhouetteClass, L"Where it sits", 0,
@@ -450,6 +454,43 @@ protected:
                          L"position of their own sit.");
         Combo(kAlignCombo, kColX, 160, false);
         NextRow();
+        // --- round 12 phase 12E: the two distances (a bar on an edge), each a slider and a number ---
+        Label(kOffsetLabel, L"Distance from the centre");  // "… from the left / top / right / bottom" by alignment (EnableDependents)
+        Tip(kOffsetLabel, L"Moves the dock along its edge from the place Alignment gives it, in pixels at 100 % scaling "
+                          L"(positive: right / down). The slider goes from -400 to 400; type a larger number in the box. "
+                          L"Default: 0.");
+        Trackbar(kOffsetTrack, kColX - 6, 150, -400, 400, 20);
+        IntSpin(kOffsetEdit, kOffsetSpin, kColX + 152, 80, -16000, 16000, 10, [](Config&, DockConfig& d) -> int& { return d.offset; },
+                SettingsScope::Appearance);
+        NextRow();
+        Label(kEdgeGapLabel, L"Distance from the screen edge", L"", kEdgeGapNote);
+        Tip(kEdgeGapLabel, L"Moves the bar off its screen edge toward the middle of the screen, in pixels at 100 % scaling "
+                           L"(0 - 200). Auto-hide still slides it out of sight and the screen edge still shows it again. "
+                           L"Not for a full-width bar, which sits on its edge. Default: 0.");
+        Trackbar(kEdgeGapTrack, kColX - 6, 150, 0, DockConfig::kMaxEdgeGap, 10);
+        IntSpin(kEdgeGapEdit, kEdgeGapSpin, kColX + 152, 80, 0, DockConfig::kMaxEdgeGap, 4,
+                [](Config&, DockConfig& d) -> int& { return d.edgeGap; }, SettingsScope::Appearance);
+        Text(kEdgeGapUnit, CtlKind::Note, L"px", kColX + 238, 30);
+        NextRow();
+        Ctl& distanceNote = Text(kDistanceNote, CtlKind::Note, L"You can also drag the dock while customizing. It snaps to the centre.",
+                                 kMargin, right - kMargin, 20);
+        distanceNote.maxLines = 2;
+        Tip(kDistanceNote, L"Choose Customize this dock (the dock menu's first entry), then drag an empty part of the bar: "
+                           L"along its edge, away from it, or onto another edge.");
+        NextRow(22);
+        // A floating bar's / circle's place (from the Exact offsets card).
+        Label(kCircleXLabel, L"Position x", L"DIPs; empty: centred", kCircleNote);
+        Tip(kCircleXLabel, L"Position (DIPs from the work area's top-left; empty = centred): a floating bar's top-left "
+                           L"corner, a circle's centre. Drag a floating bar (Ctrl+drag a circle) to move it.");
+        EditBox(kCircleXEdit, kColX, 88, 7);
+        Button(kCentreIt, L"Centre it", kColX + 96, 96);
+        Tip(kCentreIt, L"Centres the dock on its display's work area (empties Position x and y).");
+        NextRow();
+        Label(kCircleYLabel, L"Position y");
+        Tip(kCircleYLabel, L"DIPs from the top of the work area to the bar's or circle's top (empty: centred). Default: empty.");
+        EditBox(kCircleYEdit, kColX, 88, 7);
+        NextRow();
+        // --- end round 12 phase 12E ---
         Check(kFullWidth, kFullWidthCaption, L"Full width (the bar spans the whole edge)");
         Tip(kFullWidthCaption, L"The bar spans the whole edge like a taskbar; the icons sit where Alignment puts them. Off by default.");
         NextRow();
@@ -515,26 +556,12 @@ protected:
         NextRow();
         // --- end round 12 phase 12C ---
 
-        // Round 10 phase 10D: the exact numbers (x / y, offset, maximum length, peek) in a heading
-        // expander, closed at first (was "More: reserve screen space, peek, maximum length, title";
-        // same id). Its rows follow the placement kind; with none (a half circle) it is collapsed.
+        // Round 10 phase 10D: the exact numbers in a heading expander, closed at first (was "More:
+        // reserve screen space, peek, maximum length, title"; same id). Its rows follow the placement
+        // kind; with none (a half circle) it is collapsed. Round 12 phase 12E: x / y and the offset
+        // moved to Where on the screen; the peek and the maximum length stay.
         UntitledCard();
         HeadingExpander(kPositionMore, L"Exact offsets", false, L"guide-settings.md#exact-offsets");
-        Label(kCircleXLabel, L"Position x", L"DIPs; empty: centred", kCircleNote);
-        Tip(kCircleXLabel, L"Position (DIPs from the work area's top-left; empty = centred): a floating bar's top-left "
-                           L"corner, a circle's centre. Drag a floating bar (Ctrl+drag a circle) to move it.");
-        EditBox(kCircleXEdit, kColX, 88, 7);
-        NextRow();
-        Label(kCircleYLabel, L"Position y");
-        Tip(kCircleYLabel, L"DIPs from the top of the work area to the bar's or circle's top (empty: centred). Default: empty.");
-        EditBox(kCircleYEdit, kColX, 88, 7);
-        NextRow();
-        Label(kOffsetLabel, L"Offset (pixels)", L"Along the edge", kPositionNote);
-        Tip(kOffsetLabel, L"Moves the dock along its edge from the aligned place (right / down). Ctrl+drag the dock to "
-                          L"move it along its edge or onto another edge (unless it is locked). Default: 0.");
-        IntSpin(kOffsetEdit, kOffsetSpin, kColX, 88, -16000, 16000, 10, [](Config&, DockConfig& d) -> int& { return d.offset; },
-                SettingsScope::Appearance);
-        NextRow();
         Label(kPeekLabel, L"Peek when hidden (pixels)", L"0: off");
         Tip(kPeekLabel, L"Keeps that much of the hidden dock on screen (0: off).");
         IntSpin(kPeekEdit, kPeekSpin, kColX, 72, 0, 64, 2, [](Config&, DockConfig& d) -> int& { return d.peekPx; },
@@ -778,7 +805,30 @@ protected:
         SetComboSel(kTitleShowCombo, static_cast<int>(d.titleShow));
         SetComboSel(kTitlePlaceCombo, static_cast<int>(d.titlePlace));
         SetCheck(kTitleUseName, d.titleUseName);
+        // Round 12 phase 12E: the sliders beside the offset / edge gap numbers (LoadInts set those).
+        SetTrack(kOffsetTrack, std::clamp(d.offset, -400, 400));
+        SetTrack(kEdgeGapTrack, std::clamp(d.edgeGap, 0, DockConfig::kMaxEdgeGap));
         EnableDependents();
+    }
+
+    // Round 12 phase 12E: the sliders of Where on the screen follow the thumb in their number and
+    // apply on release (one undo entry per release).
+    void Track(int id, int pos, bool released) override {
+        if (part_ != Part::Position) return;
+        DockConfig& d = Bound();
+        if (id == kOffsetTrack) {
+            SetSpin(kOffsetSpin, pos);
+            if (released && d.offset != pos) {
+                d.offset = pos;
+                Changed(SettingsScope::Appearance);
+            }
+        } else if (id == kEdgeGapTrack) {
+            SetSpin(kEdgeGapSpin, pos);
+            if (released && d.edgeGap != pos) {
+                d.edgeGap = std::clamp(pos, 0, DockConfig::kMaxEdgeGap);
+                Changed(SettingsScope::Appearance);
+            }
+        }
     }
 
     void OnDisplayChange() override {
@@ -1003,6 +1053,15 @@ protected:
                 EnableDependents();  // the Title row goes / comes back
                 Changed(SettingsScope::Appearance);
                 break;
+            case kCentreIt:  // round 12 phase 12E: a floating bar / circle centred on its work area
+                if (d.x == DockConfig::kCentred && d.y == DockConfig::kCentred) break;
+                ChangeLabel(L"Centred " + d.DisplayName());
+                d.x = d.y = DockConfig::kCentred;
+                SetText(kCircleXEdit, L"");
+                SetText(kCircleYEdit, L"");
+                Changed(SettingsScope::Appearance);
+                EnableDependents();
+                break;
             default:
                 break;
         }
@@ -1056,8 +1115,12 @@ protected:
     }
 
     // Round 10 phase 10D: a bound number changed (offset, peek, delays, popup gap): the
-    // expanders' "· n changed" follow.
-    void IntChanged(int, int) override { EnableDependents(); }
+    // expanders' "· n changed" follow. Round 12 phase 12E: the offset's / edge gap's slider too.
+    void IntChanged(int spin, int value) override {
+        if (spin == kOffsetSpin) SetTrack(kOffsetTrack, std::clamp(value, -400, 400));
+        if (spin == kEdgeGapSpin) SetTrack(kEdgeGapTrack, std::clamp(value, 0, DockConfig::kMaxEdgeGap));
+        EnableDependents();
+    }
 
 private:
     // The dock this page edits (the window's, looked up by id each time).
@@ -1112,8 +1175,21 @@ private:
             // x / y: a floating bar's top-left or a circle's centre (round 6 phase 6A).
             const bool xy = floating || kind == 3;
             const bool maxLength = !ring && !(edgeBar && d.fullWidth);
-            Collapse({kCircleXLabel, kCircleXEdit, kCircleYLabel, kCircleYEdit}, !xy);
-            Collapse({kAlignLabel, kAlignCombo, kOffsetLabel, kOffsetEdit, kFullWidth}, !edgeBar);
+            Collapse({kCircleXLabel, kCircleXEdit, kCircleYLabel, kCircleYEdit, kCentreIt}, !xy);
+            Collapse({kAlignLabel, kAlignCombo, kOffsetLabel, kOffsetEdit, kOffsetTrack, kFullWidth}, !edgeBar);
+            // --- round 12 phase 12E: Where on the screen ---
+            // The offset's label says what it is measured from (the alignment, the edge's direction).
+            const bool vert = IsVertical(d.edge);
+            SetText(kOffsetLabel, d.align == DockAlign::Start ? (vert ? L"Distance from the top" : L"Distance from the left")
+                                  : d.align == DockAlign::End ? (vert ? L"Distance from the bottom" : L"Distance from the right")
+                                                              : L"Distance from the centre");
+            // The edge gap: a bar on an edge; greyed with the reason for a full-width one.
+            Collapse({kEdgeGapLabel, kEdgeGapTrack, kEdgeGapEdit, kEdgeGapUnit, kDistanceNote}, !edgeBar);
+            const bool gapOk = edgeBar && !d.fullWidth;
+            for (int id : {kEdgeGapTrack, kEdgeGapEdit, kEdgeGapSpin}) Enable(id, gapOk);
+            SetText(kEdgeGapNote, gapOk ? L"" : L"A full-width bar sits on its edge.");
+            Enable(kCentreIt, d.x != DockConfig::kCentred || d.y != DockConfig::kCentred);
+            // --- end round 12 phase 12E ---
             Collapse({kRadiusLabel, kRadiusEdit, kRotateIcons}, !ring);
             Collapse({kOverflowLabel, kOverflowCombo}, ring);
             // Reserve space and peek for a bar on an edge; the maximum length (round 7 phase 7A)
@@ -1129,12 +1205,11 @@ private:
             Collapse({kTitlePlaceLabel, kTitlePlaceCombo}, d.titleShow == TitleShow::Off);
             // Round 10 phase 10D: Exact offsets: gone when none of its rows applies (a half circle);
             // its title counts the applicable values that are not a new dock's.
-            Collapse(kPositionMore, !(xy || edgeBar || maxLength));
+            // Round 12 phase 12E: x / y and the offset moved out of it (Where on the screen).
+            Collapse(kPositionMore, !(edgeBar || maxLength));
             const DockConfig fresh;
             int n = 0;
-            if (xy) n += (d.x != fresh.x ? 1 : 0) + (d.y != fresh.y ? 1 : 0);
-            if (edgeBar) n += (d.offset != fresh.offset ? 1 : 0) + (d.peekPx != fresh.peekPx ? 1 : 0) +
-                              (std::fabs(d.peekOpacity - fresh.peekOpacity) > 1e-9 ? 1 : 0);
+            if (edgeBar) n += (d.peekPx != fresh.peekPx ? 1 : 0) + (std::fabs(d.peekOpacity - fresh.peekOpacity) > 1e-9 ? 1 : 0);
             if (maxLength) n += d.maxLength != fresh.maxLength ? 1 : 0;
             SetExpanderText(kPositionMore, ChangedTitle(L"Exact offsets", n));
             return;
@@ -1244,14 +1319,19 @@ protected:
         Label(kAboutRendererLabel, L"Renderer in use");
         Text(kAboutRenderer, CtlKind::Value, L"", kColX, right - kColX);
         NextRow();
-        // Round 9 phase 9C: the first run's preset chooser again (for the first dock).
-        Button(kAboutWelcome, L"Show the welcome dialog", kMargin, 200);
-        Tip(kAboutWelcome, L"Opens the dialog WinDock shows on its first start: pick a predefined setup for your first dock. "
-                           L"Your pinned apps and folders can stay.");
+        // Round 9 phase 9C: the first run's preset chooser again (for the first dock). Round 12 phase
+        // 12G: Quick setup again (openPresets(1) opens it).
+        Button(kAboutWelcome, L"Run quick setup again", kMargin, 200);
+        Tip(kAboutWelcome, L"Opens Quick setup, the steps WinDock shows on its first start: your docks, their looks and how they "
+                           L"behave. Everything is a preview until Finish; Cancel puts it all back.");
         // Round 9 phase 9D: the Help window at the quick start.
         Button(kAboutQuickStart, L"Quick start guide", kMargin + 212, 170);
         Tip(kAboutQuickStart, L"Opens the Help at the quick start: five minutes from the first start to your own dock. "
                               L"F1 in any settings window opens the Help at the page you are on.");
+        NextRow();
+        // Round 12 phase 12G: the three tips on the dock again (DockCommand 181 through the page's command).
+        Button(kAboutTips, L"Show the tips again", kMargin, 200);
+        Tip(kAboutTips, L"Shows the three tips on the dock again, one at a time: its menu, Customize this dock, and moving the dock.");
         NextRow();
     }
 
@@ -1265,6 +1345,7 @@ protected:
         if (id == kAboutWelcome && Host().openPresets) Host().openPresets(1, 0);
         if (id == kAboutQuickStart && Host().openHelp) Host().openHelp(L"quick-start.md");
         if (!Host().command) return;
+        if (id == kAboutTips) Host().command(ContextMenu::kShowTips);  // round 12 phase 12G
         if (id == kOpenConfig) Host().command(ContextMenu::kOpenConfig);
         if (id == kReloadConfig) Host().command(ContextMenu::kReloadConfig);  // refreshes every page
     }

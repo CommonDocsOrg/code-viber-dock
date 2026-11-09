@@ -100,6 +100,7 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadString(o, L"align", s);
     if (!s.empty()) FromString(s, d.align);  // unknown text: center
     ReadInt(o, L"offset", d.offset);
+    ReadInt(o, L"edgeGap", d.edgeGap);  // round 12 phase 12E
     ReadBool(o, L"fullWidth", d.fullWidth);
     ReadBool(o, L"reserveSpace", d.reserveSpace);
     ReadInt(o, L"peekPx", d.peekPx);
@@ -971,6 +972,7 @@ void Config::Sanitize() {
         if (static_cast<unsigned>(d.edge) > static_cast<unsigned>(DockEdge::Right)) d.edge = DockEdge::Bottom;
         if (static_cast<unsigned>(d.align) > static_cast<unsigned>(DockAlign::End)) d.align = DockAlign::Center;
         d.offset = std::clamp(d.offset, -16000, 16000);
+        d.edgeGap = std::clamp(d.edgeGap, 0, DockConfig::kMaxEdgeGap);  // round 12 phase 12E
         d.peekPx = std::clamp(d.peekPx, 0, 64);
         d.maxLength = d.maxLength <= 0 ? 0 : std::clamp(d.maxLength, 96, 8000);  // round 7 phase 7A
         d.popupGap = std::clamp(d.popupGap, 0, 64);
@@ -1425,8 +1427,8 @@ std::wstring Config::ToJson(bool windowSizes) const {
             }
             o += d.items.empty() ? L"],\n" : L"\n      ],\n";
             o += L"      \"edge\": " + Quote(ToString(d.edge)) + L", \"align\": " + Quote(ToString(d.align)) +
-                 L", \"offset\": " + Num(d.offset) + L", \"locked\": " + Bool(d.locked) +
-                 (d.enabled ? L"" : L", \"enabled\": false") + L",\n";
+                 L", \"offset\": " + Num(d.offset) + (d.edgeGap != 0 ? L", \"edgeGap\": " + Num(d.edgeGap) : L"") +  // round 12 phase 12E
+                 L", \"locked\": " + Bool(d.locked) + (d.enabled ? L"" : L", \"enabled\": false") + L",\n";
             o += L"      \"fullWidth\": " + Bool(d.fullWidth) + L", \"reserveSpace\": " + Bool(d.reserveSpace) +
                  L", \"peekPx\": " + Num(d.peekPx) + L", \"peekOpacity\": " + Num(d.peekOpacity) +
                  L", \"title\": " + Quote(d.title) + L",\n";
