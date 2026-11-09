@@ -1400,6 +1400,7 @@ Config::LoadResult Config::LoadJson(const std::wstring& text) {
             ReadString(s, L"fullscreen", fs);
             if (CompareStringOrdinal(fs.c_str(), -1, L"ignore", -1, TRUE) == CSTR_EQUAL) settings.fullscreenHide = false;
             ReadBool(s, L"confirmPlacement", settings.confirmPlacement);  // round 12 phase 12A
+            ReadBool(s, L"snapToScreen", settings.snapToScreen);          // round 14 phase 14B
             ReadInt(s, L"tipsShown", settings.tipsShown);                  // round 12 phase 12G
         }
     } catch (...) {
@@ -1666,6 +1667,8 @@ std::wstring Config::ToJson(bool windowSizes) const {
             if (!w.empty()) parts = L"\"windows\": { " + w + L" }";
             if (!settings.fullscreenHide) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"fullscreen\": \"ignore\"");
             if (!settings.confirmPlacement) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"confirmPlacement\": false");
+            // Round 14 phase 14B: `snapToScreen`, only when off.
+            if (!settings.snapToScreen) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"snapToScreen\": false");
             // Round 12 phase 12G: the tips' bits, with the windows' sizes (UI state: not in a snapshot).
             if (settings.tipsShown != 0 && windowSizes) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"tipsShown\": ") + Num(settings.tipsShown);
             if (!parts.empty()) o += L",\n  \"settings\": { " + parts + L" }";

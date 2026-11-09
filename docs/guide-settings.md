@@ -202,6 +202,14 @@ While a full-screen app (a game, a video, a presentation) is in front on a displ
 
 Use it to keep games in their real full-screen mode: a window placed above a full-screen game makes the game leave full-screen mode. Docks on the desktop layers and folder windows sit under your windows, so they stay.
 
+#### Moving docks
+
+- **Snap to the screen's corners and centre**: on by default.
+
+While you drag a floating dock, a circle, a standalone widget or a folder window, it snaps to the edges and corners of the screen, to the middle of each edge, to the centre of the screen and to the other floating docks. A dock dragged along its edge snaps to the centre and to the ends.
+
+Clear it to place everything exactly where you let go: nothing snaps, also not while customizing a dock or in Docks and displays. See [Moving a dock](guide-docks.md#moving-a-dock).
+
 #### Dashboard
 
 The dashboard hotkey brings every dock and standalone widget that lives on the desktop to the front, above your windows. See [The dashboard hotkey](guide-docks.md#the-dashboard-hotkey).

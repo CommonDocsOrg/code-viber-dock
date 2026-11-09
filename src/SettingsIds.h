@@ -265,6 +265,11 @@ inline constexpr int kMagnifyBarLabel = 2279;        // Dock > Appearance > Size
 inline constexpr int kMagnifyBarCombo = 2280;        // docks[].magnifyBar: 0 steady ("Grows once and stays"), 1 follow
 inline constexpr int kAutoHideFloatingNote = 2281;   // Behaviour > Auto-hide for a floating bar: why there is none
 inline constexpr int kAutoHideFloatingLink = 2282;   // SysLink "Position tab": switches to the Position tab
+// Round 14 phase 14B: Global > General's "Moving docks" card.
+inline constexpr int kSectionMoving = 2283;          // Global > General: the "Moving docks" card
+inline constexpr int kSnapToScreen = 2284;           // check box: settings.snapToScreen (+ caption 2285, hint 2286)
+inline constexpr int kSnapToScreenCaption = 2285;
+inline constexpr int kSnapToScreenHint = 2286;
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;

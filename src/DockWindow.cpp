@@ -21,6 +21,7 @@
 #include "DesktopLayer.h"
 #include "IconEffects.h"
 #include "Launcher.h"
+#include "SnapLines.h"  // round 14 phase 14B
 #include "Theme.h"
 
 namespace {
@@ -8258,8 +8259,18 @@ void DockWindow::UpdateDockDrag() {
         // A circle floats: it follows the pointer anywhere on its monitor (its ring kept on it).
         const RECT ring = RingScreenRect();
         const LONG x0 = ring.left - dockShift_, x1 = ring.right - dockShift_, y0 = ring.top - dockShiftY_, y1 = ring.bottom - dockShiftY_;
-        const LONG sx = std::clamp(pt.x - dockPressScreen_.x, std::min(0L, l.monitor.left - x0), std::max(0L, l.monitor.right - x1));
-        const LONG sy = std::clamp(pt.y - dockPressScreen_.y, std::min(0L, l.monitor.top - y0), std::max(0L, l.monitor.bottom - y1));
+        LONG wantX = pt.x - dockPressScreen_.x, wantY = pt.y - dockPressScreen_.y;
+        if (Cfg().settings.snapToScreen) {
+            // Round 14 phase 14B: the ring's bounding box snaps to the work area's edges and its
+            // centre to the work area's centre lines, within kFloatSnapDip (before 14B a circle did
+            // not snap at all).
+            const LONG thr = static_cast<LONG>(std::lround(kFloatSnapDip * l.scale));
+            const std::vector<LONG> xs{l.work.left, l.work.right}, ys{l.work.top, l.work.bottom};
+            wantX += SnapLines::Best(x0 + wantX, x1 + wantX, xs, SnapLines::CentreX(l.work), thr);
+            wantY += SnapLines::Best(y0 + wantY, y1 + wantY, ys, SnapLines::CentreY(l.work), thr);
+        }
+        const LONG sx = std::clamp(wantX, std::min(0L, l.monitor.left - x0), std::max(0L, l.monitor.right - x1));
+        const LONG sy = std::clamp(wantY, std::min(0L, l.monitor.top - y0), std::max(0L, l.monitor.bottom - y1));
         if (sx != dockShift_ || sy != dockShiftY_) {
             OffsetRect(&l.window, sx - dockShift_, sy - dockShiftY_);
             OffsetRect(&winRect_, sx - dockShift_, sy - dockShiftY_);
@@ -8274,34 +8285,25 @@ void DockWindow::UpdateDockDrag() {
     if (l.floating) {
         // A floating bar (round 6 phase 6A) follows the pointer anywhere on its monitor (the grab
         // offset kept), snapping within kFloatSnapDip to the work area's edges and to the other
-        // floating docks' bars, and kept on the monitor.
+        // floating docks' bars, and kept on the monitor. Round 14 phase 14B: also the bar's centre
+        // to the work area's centre lines (the middle of each edge, the screen's centre); nothing
+        // snaps with `settings.snapToScreen` off.
         RECT r = dockStartBar_;
         OffsetRect(&r, pt.x - dockPressScreen_.x, pt.y - dockPressScreen_.y);
-        const LONG thr = static_cast<LONG>(std::lround(kFloatSnapDip * l.scale));
-        std::vector<LONG> xs{l.work.left, l.work.right}, ys{l.work.top, l.work.bottom};
-        if (shared_) {
-            for (const RECT& n : shared_->FloatingNeighbours(this)) {
-                xs.push_back(n.left);
-                xs.push_back(n.right);
-                ys.push_back(n.top);
-                ys.push_back(n.bottom);
+        if (Cfg().settings.snapToScreen) {
+            const LONG thr = static_cast<LONG>(std::lround(kFloatSnapDip * l.scale));
+            std::vector<LONG> xs{l.work.left, l.work.right}, ys{l.work.top, l.work.bottom};
+            if (shared_) {
+                for (const RECT& n : shared_->FloatingNeighbours(this)) {
+                    xs.push_back(n.left);
+                    xs.push_back(n.right);
+                    ys.push_back(n.top);
+                    ys.push_back(n.bottom);
+                }
             }
+            OffsetRect(&r, SnapLines::Best(r.left, r.right, xs, SnapLines::CentreX(l.work), thr),
+                       SnapLines::Best(r.top, r.bottom, ys, SnapLines::CentreY(l.work), thr));
         }
-        auto best = [&](LONG a, LONG b, const std::vector<LONG>& cs) {
-            LONG shift = 0, dist = thr + 1;
-            for (LONG c : cs) {
-                if (std::labs(c - a) < dist) {
-                    dist = std::labs(c - a);
-                    shift = c - a;
-                }
-                if (std::labs(c - b) < dist) {
-                    dist = std::labs(c - b);
-                    shift = c - b;
-                }
-            }
-            return dist <= thr ? shift : 0;
-        };
-        OffsetRect(&r, best(r.left, r.right, xs), best(r.top, r.bottom, ys));
         const LONG w = r.right - r.left, h = r.bottom - r.top;
         const LONG left = std::clamp(r.left, l.monitor.left, std::max(l.monitor.left, l.monitor.right - w));
         const LONG top = std::clamp(r.top, l.monitor.top, std::max(l.monitor.top, l.monitor.bottom - h));
@@ -8338,7 +8340,8 @@ void DockWindow::UpdateDockDrag() {
         const DockConfig& dc = DockCfg();
         const float s = l.scale;
         int offset = dc.offset + static_cast<int>(std::lround(static_cast<double>(shift) / s));
-        if (dc.align == DockAlign::Center && std::abs(offset) <= static_cast<int>(kEditSnapDip)) {
+        // Round 14 phase 14B: no detent with `settings.snapToScreen` off.
+        if (dc.align == DockAlign::Center && Cfg().settings.snapToScreen && std::abs(offset) <= static_cast<int>(kEditSnapDip)) {
             shift = std::clamp(static_cast<LONG>(-std::lround(static_cast<double>(dc.offset) * s)), shiftLo, shiftHi);
             offset = 0;
         }
@@ -8484,7 +8487,8 @@ void DockWindow::EndDockDrag(bool commit) {
         }
         align = static_cast<DockAlign>(best);
         const LONG off = start - places[best];
-        offset = std::abs(off) <= static_cast<LONG>(std::round(kDockSnapDip * s))
+        // Round 14 phase 14B: with `settings.snapToScreen` off the offset is the exact distance.
+        offset = Cfg().settings.snapToScreen && std::abs(off) <= static_cast<LONG>(std::round(kDockSnapDip * s))
                      ? 0
                      : static_cast<int>(std::lround(static_cast<double>(off) / s));
     }

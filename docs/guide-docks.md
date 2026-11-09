@@ -80,6 +80,8 @@ Without customizing, hold down **Ctrl** and drag the dock:
 
 Press Esc while Ctrl+dragging to cancel. A locked dock does not move either way.
 
+Floating docks, circles, standalone widgets and folder windows snap too: to the screen's edges and corners, to the middle of each edge and to the centre of the screen. To turn all snapping off, clear **Snap to the screen's corners and centre** in App settings > General > Moving docks (see [Moving docks](guide-settings.md#moving-docks)). The dock then lands exactly where you let go.
+
 You can also drag a dock to another place, edge or display on App settings > Docks and displays.
 
 ## Names and titles
@@ -154,7 +156,7 @@ To add a floating dock:
 
 A new floating dock sits in the middle of the primary display, on the desktop layer. You can also turn any dock into one: choose **Floating bar** under **Kind** on its Position tab.
 
-To move a floating dock, drag the background of its bar (the ends, the space between the items), not an item. It snaps to the screen edges and to other floating docks. Ctrl+drag works anywhere on the bar. A locked dock does not move. **Centre it** on the Position tab puts it back in the middle.
+To move a floating dock, drag the background of its bar (the ends, the space between the items), not an item. It snaps to the screen edges and corners, the middle of each edge, the centre of the screen and other floating docks. Ctrl+drag works anywhere on the bar. A locked dock does not move. **Centre it** on the Position tab puts it back in the middle.
 
 **Faces** on the Position tab says which edge the floating dock faces: where its icons grow and where its popups open. A floating dock at the top of the screen facing **Top** opens its popups downward.
 
@@ -211,7 +213,7 @@ It opens at the pointer. You can also add one on App settings > Docks and displa
 
 Working with a folder window:
 
-- Move it by its title bar. Resize it by its edges and corners. It snaps to the screen edges and to other folder windows.
+- Move it by its title bar. Resize it by its edges and corners. It snaps to the screen edges and centre and to other folder windows.
 - Double-click the title to collapse it to the title bar, and again to open it.
 - Double-click a file to open it. Select with click, Ctrl+click and Shift+click.
 - F2 renames, Delete sends to the Recycle Bin, Ctrl+C, Ctrl+X and Ctrl+V copy, cut and paste, F5 refreshes.
@@ -238,7 +240,7 @@ The widget appears on the desktop, under your windows, and its settings panel op
 
 Working with a standalone widget:
 
-- Drag it to move it. Drag its edges or corners to resize it. It snaps to the screen edges, to floating docks and to other standalone widgets.
+- Drag it to move it. Drag its edges or corners to resize it. It snaps to the screen edges and centre, to floating docks and to other standalone widgets.
 - A click without moving goes to the widget, as on a dock.
 - Right-click it for its menu: its settings, **Window settings…**, **Lock** / **Unlock**, **Reload widget**, **App settings…** and, last, **Remove from desktop**.
 

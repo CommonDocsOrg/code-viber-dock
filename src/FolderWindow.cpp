@@ -15,6 +15,7 @@
 
 #include "DarkMode.h"
 #include "DesktopLayer.h"
+#include "SnapLines.h"  // round 14 phase 14B
 #include "Theme.h"
 
 namespace {
@@ -307,6 +308,7 @@ FolderWindow::Grab FolderWindow::GrabAt(POINT pt) const {
 }
 
 void FolderWindow::SnapMove(RECT& r) const {
+    if (!config_ || !config_->settings.snapToScreen) return;  // round 14 phase 14B: snapping off
     const RECT work = WorkArea();
     const LONG thr = static_cast<LONG>(Px(kSnapDip));
     std::vector<LONG> xs{work.left, work.right}, ys{work.top, work.bottom};
@@ -318,25 +320,14 @@ void FolderWindow::SnapMove(RECT& r) const {
             ys.push_back(n.bottom);
         }
     }
-    auto best = [&](LONG a, LONG b, const std::vector<LONG>& cs) {
-        LONG shift = 0, dist = thr + 1;
-        for (LONG c : cs) {
-            if (std::labs(c - a) < dist) {
-                dist = std::labs(c - a);
-                shift = c - a;
-            }
-            if (std::labs(c - b) < dist) {
-                dist = std::labs(c - b);
-                shift = c - b;
-            }
-        }
-        return dist <= thr ? shift : 0;
-    };
-    const LONG dx = best(r.left, r.right, xs), dy = best(r.top, r.bottom, ys);
+    // Round 14 phase 14B: the window's centre also snaps to the work area's centre lines.
+    const LONG dx = SnapLines::Best(r.left, r.right, xs, SnapLines::CentreX(work), thr);
+    const LONG dy = SnapLines::Best(r.top, r.bottom, ys, SnapLines::CentreY(work), thr);
     OffsetRect(&r, dx, dy);
 }
 
 void FolderWindow::SnapEdges(RECT& r, Grab g) const {
+    if (!config_ || !config_->settings.snapToScreen) return;  // round 14 phase 14B: snapping off
     const RECT work = WorkArea();
     const LONG thr = static_cast<LONG>(Px(kSnapDip));
     std::vector<LONG> xs{work.left, work.right}, ys{work.top, work.bottom};

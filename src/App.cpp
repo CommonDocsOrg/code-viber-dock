@@ -4007,6 +4007,8 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         case 328:  // round 14 phase 14A: the resting bar's length | thickness << 16 (px; DockWindow), -2 not a dock
             if (!inst || !inst->window) return -2;
             return inst->window->QueryState(wp, arg);
+        case 329:  // round 14 phase 14B: settings.snapToScreen (0 / 1; app-wide)
+            return config_.settings.snapToScreen ? 1 : 0;
         default:
             break;
     }
@@ -4303,6 +4305,19 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     if (msg == msgDockCommand_ && ((wp >= ContextMenu::kClosePanel && wp <= ContextMenu::kSetDockOffset) ||
                                    wp == ContextMenu::kSetDockLength || wp == ContextMenu::kSetDockThickness)) {
         result = PanelCommand(static_cast<UINT>(wp), lp) ? 1 : 0;
+        return true;
+    }
+    // Round 14 phase 14B: DockCommand 186 settings.snapToScreen = LOWORD(lParam) != 0, as Global >
+    // General's check box writes it (one undo entry; read at drag time, nothing to re-apply).
+    if (msg == msgDockCommand_ && wp == ContextMenu::kSetSnapToScreen) {
+        const bool on = (lp & 0xFFFF) != 0;
+        if (!shutDown_ && config_.settings.snapToScreen != on) {
+            NoteLabel(on ? L"Snap to the screen's corners and centre: On" : L"Snap to the screen's corners and centre: Off");
+            config_.settings.snapToScreen = on;
+            RequestSave();
+            RefreshSettings();
+        }
+        result = 1;
         return true;
     }
     if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kClickPlus && (wp & 0xFFFF) <= ContextMenu::kEditRemove) {

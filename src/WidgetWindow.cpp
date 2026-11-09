@@ -14,6 +14,7 @@
 #include "JsonUtil.h"
 #include "Launcher.h"
 #include "ShellFiles.h"
+#include "SnapLines.h"  // round 14 phase 14B
 #include "Theme.h"
 #include "WidgetRuntime.h"
 
@@ -419,6 +420,9 @@ WidgetWindow::Grab WidgetWindow::GrabAt(POINT pt) const {
 }
 
 void WidgetWindow::Snap(RECT& r, Grab g) const {
+    // Round 14 phase 14B: `settings.snapToScreen` off: no snapping at all (moves and resizes, as
+    // the switch is one for every snapping surface).
+    if (!config_ || !config_->settings.snapToScreen) return;
     const RECT work = WorkArea();
     const LONG thr = static_cast<LONG>(Px(kSnapDip));
     std::vector<LONG> xs{work.left, work.right}, ys{work.top, work.bottom};
@@ -431,21 +435,10 @@ void WidgetWindow::Snap(RECT& r, Grab g) const {
         }
     }
     if (g == Grab::Move) {
-        auto best = [&](LONG a, LONG b, const std::vector<LONG>& cs) {
-            LONG shift = 0, dist = thr + 1;
-            for (LONG c : cs) {
-                if (std::labs(c - a) < dist) {
-                    dist = std::labs(c - a);
-                    shift = c - a;
-                }
-                if (std::labs(c - b) < dist) {
-                    dist = std::labs(c - b);
-                    shift = c - b;
-                }
-            }
-            return dist <= thr ? shift : 0;
-        };
-        OffsetRect(&r, best(r.left, r.right, xs), best(r.top, r.bottom, ys));
+        // Round 14 phase 14B: a move also snaps the window's centre to the work area's centre lines
+        // (resizes snap their edges only).
+        OffsetRect(&r, SnapLines::Best(r.left, r.right, xs, SnapLines::CentreX(work), thr),
+                   SnapLines::Best(r.top, r.bottom, ys, SnapLines::CentreY(work), thr));
         return;
     }
     auto snap = [&](LONG& v, const std::vector<LONG>& cs) {

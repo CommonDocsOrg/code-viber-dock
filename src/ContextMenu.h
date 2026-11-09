@@ -136,6 +136,8 @@ enum Command : UINT {
     kSetDockLength = 184,    // docks[].length = LOWORD(lParam) (0 automatic, else clamped 96 - 8000 DIPs; a dock only)
     kSetDockThickness = 185, // docks[].thickness = LOWORD(lParam) (0 automatic, else clamped 24 - 1000 DIPs; a dock only)
     // --- end round 14 phase 14A ---
+    // Round 14 phase 14B (automation only, App::OnSharedMessage; app-wide, the dock in lParam is ignored):
+    kSetSnapToScreen = 186,  // settings.snapToScreen = LOWORD(lParam) != 0 (1 done)
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,

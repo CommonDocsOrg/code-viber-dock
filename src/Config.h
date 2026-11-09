@@ -776,6 +776,12 @@ struct SettingsUiConfig {
     // change that moves or hides a dock (edge, floating, display, auto-hide, layer, turned off)
     // shows Keep / Revert for 12 s (kept when left alone). False: no bar.
     bool confirmPlacement = true;
+    // Round 14 phase 14B: `settings.snapToScreen` (default true; written only when false): a moved
+    // floating bar, circle, standalone widget or folder window snaps to the work area's edges, its
+    // centre lines and its neighbours; a dock dragged along its edge snaps to the centre / an end
+    // (release, customize mode's detent, the Layout canvas). False: nothing snaps anywhere. Read at
+    // drag time (SettingsScope::SaveOnly).
+    bool snapToScreen = true;
     // --- round 12 phase 12G ---
     // `settings.tipsShown` (an int bitmask, written only when not 0): bit n = tip n on the dock was
     // seen, skipped, or its gesture was done already (0 the dock menu opened, 1 customize mode
@@ -788,7 +794,8 @@ struct SettingsUiConfig {
         for (int i = 0; i < kKinds; ++i) {
             if (!(windows[i] == o.windows[i])) return false;
         }
-        return fullscreenHide == o.fullscreenHide && confirmPlacement == o.confirmPlacement && tipsShown == o.tipsShown;
+        return fullscreenHide == o.fullscreenHide && confirmPlacement == o.confirmPlacement && snapToScreen == o.snapToScreen &&
+               tipsShown == o.tipsShown;
     }
 };
 

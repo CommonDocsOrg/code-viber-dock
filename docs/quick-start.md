@@ -90,7 +90,7 @@ To customize a dock:
    - Point at an item and click its **×** to remove it.
    - Drag an item to move it.
    - Click a **+** on the dock, or **Add items** on the small bar, to open the drawer beside the dock. See [Add a widget](#add-a-widget).
-   - Drag an empty part of the bar to move the whole dock along its edge or away from it. It snaps to the centre.
+   - Drag an empty part of the bar to move the whole dock along its edge or away from it. It snaps to the centre (App settings > General > Moving docks turns snapping off).
 4. Click **Done**, or press Esc, when you are finished.
 
 Clicking another app or the desktop also ends customizing. Every change applies at once and can be undone.

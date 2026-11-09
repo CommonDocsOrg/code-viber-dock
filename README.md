@@ -455,7 +455,8 @@ edge; missing keys mean the defaults, and every save writes all three. Round 12 
 (not for a full-width bar, a ring or a floating bar); the dock's window grows by it, so auto-hide,
 the reveal strip and the peek strip still work from the screen edge and a reserved band includes
 the gap. In customize mode a plain drag on an empty part of the bar sets `offset` (along the edge,
-the alignment kept, a centred dock snaps to 0 within 14 DIPs) and `edgeGap` (toward the middle),
+the alignment kept, a centred dock snaps to 0 within 14 DIPs, round 14 phase 14B: unless
+`settings.snapToScreen` is off) and `edgeGap` (toward the middle),
 with a readout beside the pointer; dragged onto another edge's zone it moves there as Ctrl+drag does.
 
 The layout is computed once for every edge in "main" (along the dock) and "cross" (across it,
@@ -492,6 +493,9 @@ things go, not how they behave:
 of an unlocked dock. The dock follows the pointer along its edge (it stays on the monitor); on
 release it snaps to the centre or to an end when it is within 24 DIP of it, otherwise it keeps the
 nearest alignment (centre, start or end) plus the distance from it, saved as `align` and `offset`.
+Round 14 phase 14B: with App settings > General > Moving docks > **Snap to the screen's corners and
+centre** off (`settings.snapToScreen` false) it does not snap: `offset` is the exact distance from the
+nearest alignment, and customize mode's centre detent is off too.
 Drag it out of its edge's band (a quarter of the monitor) toward another edge and the dock dims;
 releasing there puts it on that edge, at the pointer. Escape cancels; a Ctrl + click without a
 move is an ordinary click. A locked dock does not move (`locked`, **Lock dock**). A full-width
@@ -704,7 +708,10 @@ is a bar: `"floating"` with another `shape` reads as not floating.
   spacers, the band above / below the icon boxes; not an item and not a widget) while the dock is
   not `locked`; Ctrl + drag works anywhere on the bar as on edge docks. The bar follows the pointer
   (the grab offset is kept), **snaps within 8 DIP** to the work area's edges and to the other
-  floating docks' bars, and stays on its monitor; on release `x` / `y` are saved (the settings
+  floating docks' bars (round 14 phase 14B: and its centre to the work area's horizontal and
+  vertical centre lines, so the corners, the middle of each edge and the screen's centre are all
+  reachable; a circle snaps the same way, its ring's box to the edges and its centre to the centre
+  lines; nothing snaps with `settings.snapToScreen` off), and stays on its monitor; on release `x` / `y` are saved (the settings
   windows follow). Escape or a lost capture cancels; a press without a move is an ordinary click
   (on an icon's band: that icon). App settings > Docks and displays drags it too (its top-left,
   kept on that display's work area).
@@ -1558,7 +1565,8 @@ folder, the window opens at the pointer) or on App settings > Docks and displays
 - **The window**: the folder's name (or `title`) in the title bar, the theme's acrylic (the dock's
   `WinDockBackdrop` window, kept directly beneath it) or its bar fill and hairline. Move it by the
   title bar, resize it by its edges and corners (at least 160 x 80 DIPs); it snaps to the work
-  area's edges and to the other folder windows within 8 DIPs. A double click on the title (or a
+  area's edges and to the other folder windows within 8 DIPs (round 14 phase 14B: a move also snaps
+  its centre to the work area's centre lines; nothing snaps with `settings.snapToScreen` off). A double click on the title (or a
   click on its chevron) collapses it to the title bar and back. The position and size are saved in
   DIPs relative to the work area of its display; a window whose display is not connected is parked
   like a dock.
@@ -1639,7 +1647,9 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
   shows it), redrawn live; the manifest's `standalone.minWidth` / `minHeight` / `aspect` apply
   (`"keep"`: the shape it had when it was made or last sized in Settings; a number: width / height).
   Moves and resizes snap within 8 DIP to the work area's edges, to floating docks and to the other
-  standalone widgets (floating docks snap to standalone widgets too); `x` / `y` / `w` / `h` are
+  standalone widgets (floating docks snap to standalone widgets too); round 14 phase 14B: a move
+  also snaps the window's centre to the work area's centre lines, and with `settings.snapToScreen`
+  off neither moves nor resizes snap; `x` / `y` / `w` / `h` are
   saved on release. **Locked** (`locked`): neither moved nor resized (clicks still reach the
   widget).
 - **Right click**: "<widget> settings…" (its own widget settings: its settings panel's **Content**
@@ -2001,7 +2011,13 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   whether the hotkey is registered, **Show the dashboard now**; see Dashboard). Round 9: between
   them a **Full-screen apps** card with **Hide the docks while a full-screen app is in front**
   (`settings.fullscreen`, on by default; its hint "Games keep their full-screen mode", the whole
-  rule as its tooltip; see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). Round 12
+  rule as its tooltip; see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)).
+  Round 14 phase 14B: after it a **Moving docks** card with **Snap to the screen's corners and
+  centre** (`settings.snapToScreen`, on by default; its hint "Also the edges and other floating
+  docks"): a dragged floating bar, circle, standalone widget or folder window snaps to the display's
+  edges, corners, the middle of each edge and its centre, and to its neighbours; a dock dragged
+  along its edge snaps to the centre and the ends (also customize mode's centre detent and the
+  Docks and displays drawing). Off: nothing snaps (widget and folder window resizes included). Round 12
   phase 12A: last, a **Changes** card with **Ask to keep a dock that moved or hid**
   (`settings.confirmPlacement`, on by default; its hint "Keep or Revert for 12 seconds; left alone,
   it is kept"). Round 8 phase 8A:
@@ -2845,7 +2861,12 @@ items that exist. A file whose items have settings already is left alone.
   object is written when either part is not the default (`{ "fullscreen": "ignore" }` alone is
   fine). Round 12 phase 12A: `"confirmPlacement": false` (written only when false; default true)
   turns off the Keep / Revert bar after a change that moves or hides a dock (App settings >
-  General > Changes; see Settings, "Undo, Saved, Keep / Revert, Keep / Cancel"). Round 12 phase
+  General > Changes; see Settings, "Undo, Saved, Keep / Revert, Keep / Cancel"). Round 14 phase
+  14B: `"snapToScreen": false` (written only when false; default true) turns off every snap of a
+  move: a floating bar's, a circle's, a standalone widget's and a folder window's (the work area's
+  edges and centre lines, the neighbours; their resizes too), and a dock's along-edge snap to the
+  centre / an end (on release, customize mode's detent, the Docks and displays drawing); App
+  settings > General > Moving docks. Round 12 phase
   12G: `"tipsShown": n` (an integer bitmask, written only when not 0; other bits are dropped): bit
   0 / 1 / 2 = the first / second / third tip on the dock was seen or skipped, or its gesture was
   made (the dock menu opened, customize mode entered, a dock dragged); such a tip is not shown by
@@ -3371,7 +3392,9 @@ always there, also when every dock is parked) handle these registered messages:
   (a dock only; each one undo entry, no Keep / Revert). Round 14 phase 14A: **184** sets dock `HIWORD(lParam)`'s
   `length` to `LOWORD(lParam)` (0 automatic, else clamped 96 - 8000 DIPs), **185** its `thickness` (0 automatic,
   else clamped 24 - 1000); a dock only, 1 done, 0 refused; each one undo entry ("Changed the bar's length of
-  *dock*" / "... thickness of ..."), through the same path as 177 / 178. 143 opens the panel beside the dock instance in `HIWORD`. 111 and 113 left the dock
+  *dock*" / "... thickness of ..."), through the same path as 177 / 178. Round 14 phase 14B: **186** sets
+  `settings.snapToScreen` to `LOWORD(lParam) != 0` (app-wide, the dock in `HIWORD` is ignored; 1; one undo entry
+  "Snap to the screen's corners and centre: On / Off" when it changes). 143 opens the panel beside the dock instance in `HIWORD`. 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3654,7 +3677,8 @@ always there, also when every dock is parked) handle these registered messages:
   `"under"` on a left / right dock with titles on: 2 DIP + the lines, scaled; 0 on any other dock, or with
   titles off). Round 14 phase 14A: **328** = dock `HIWORD(lParam)`'s resting bar as laid out, px:
   `MAKELONG(length along the edge, thickness across it)` (a ring: its arc's length and band); -2 not a
-  dock (a folder window, a standalone widget, no such instance). The labels of the change Undo / Redo would
+  dock (a folder window, a standalone widget, no such instance). Round 14 phase 14B: **329** =
+  `settings.snapToScreen` (0 / 1; app-wide, the dock in `HIWORD` is ignored). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -4057,7 +4081,9 @@ always there, also when every dock is parked) handle these registered messages:
   the dashboard now; App settings > General's Full-screen apps card (round 9 phase 9A; the General range
   2100 - 2199 has only retired ids left, so the new ids follow the Behaviour range's): 2275 the
   card, 2276 / 2277 **Hide the docks while a full-screen app is in front** (`settings.fullscreen`;
-  `BM_SETCHECK` + `WM_COMMAND(2276, BN_CLICKED)` to the page), 2278 its hint; Docks and displays 2811 Add floating dock, 2812 Add standalone widget… (6B: a
+  `BM_SETCHECK` + `WM_COMMAND(2276, BN_CLICKED)` to the page), 2278 its hint; its Moving docks card
+  (round 14 phase 14B): 2283 the card, 2284 / 2285 **Snap to the screen's corners and centre**
+  (`settings.snapToScreen`), 2286 its hint; Docks and displays 2811 Add floating dock, 2812 Add standalone widget… (6B: a
   popup menu of the catalog in the Widget library's order; round 8 phase 8D: both are Add ▾ 2814's
   menu commands, see Removed / moved controls (8D)); Widget library 3509 Add to the
   desktop (6B); a standalone widget's window page (6B, `SettingsIds` 4500 - 4531; round 8 phase

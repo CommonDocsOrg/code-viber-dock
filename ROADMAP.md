@@ -1331,6 +1331,29 @@ ordinary agent per phase, light testing, a manual check list per phase, smoke sc
   "Changed the bar's length / thickness of *dock*"). Script: `tools\smoke\fixed-size.ps1`; the
   module gained `Get-DockScale`.
 
+### 14B: snap to the screen's corners and centre (done 2026-11-09)
+
+- **Config**: `settings.snapToScreen` (default true, written only when false). One switch for
+  every snapping surface (the plan's decision 4); read at drag time, so the settings page and
+  DockCommand 186 only save (`SettingsScope::SaveOnly`).
+- **Snapping**: `src\SnapLines.h` holds the one `Best` the floating bar, the standalone widget and
+  the folder window each had as a lambda, plus a test of the span's centre against the work area's
+  centre lines. Each axis snaps on its own, so the corners are two edges, the middle of an edge is
+  an edge plus a centre line, the screen's centre both centre lines. Ties keep the edges (they are
+  tested first), so nothing that snapped before 14B moves elsewhere. A circle snaps now too (its
+  ring's box to the work area's edges, its centre to the centre lines, then the monitor clamp it
+  always had). Same thresholds as each surface's edge snap (8 DIPs).
+- **Off**: the four surfaces do not snap at all (edges, neighbours, centre), and neither do the
+  edge dock's along-edge snap to the centre / an end on release (`offset` is then the exact
+  distance from the nearest alignment), customize mode's centre detent, or the Docks and displays
+  drawing's snap. Decision beyond the plan: a standalone widget's and a folder window's resize
+  edge snap is off too ("no snapping anywhere").
+- **Settings**: Global > General card **Moving docks** (2283 - 2286) between Full-screen apps and
+  Dashboard. The Position tab's Distance note keeps its text (the extra sentence would not fit
+  its one line).
+- **Automation**: QueryState 329 (App), DockCommand 186 (App, app-wide, one undo entry). Script:
+  `tools\smoke\snap-setting.ps1` (3 checks); a real drag is the user's manual check.
+
 ## Dependencies at a glance
 
 ```

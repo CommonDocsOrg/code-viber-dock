@@ -834,7 +834,8 @@ LayoutCanvas::Target LayoutCanvas::TargetFor(POINT canvasPt) const {
             off = offEnd;
             t.align = DockAlign::End;
         }
-        if (std::labs(off) <= std::lround(kSnapDip * s)) off = 0;
+        // Round 14 phase 14B: no snap with `settings.snapToScreen` off (as on the dock).
+        if (page_.Config_().settings.snapToScreen && std::labs(off) <= std::lround(kSnapDip * s)) off = 0;
         t.offsetDip = static_cast<int>(std::lround(static_cast<float>(off) / s));
         const LONG offPx = static_cast<LONG>(std::lround(t.offsetDip * s));
         switch (t.align) {

@@ -202,6 +202,16 @@ protected:
             L"full-screen game ends its full-screen mode; this keeps the docks out of its way. Docks on the desktop "
             L"layers and folder windows stay. On by default.");
         NextRow();
+        // Round 14 phase 14B: settings.snapToScreen (read at drag time).
+        Section(kSectionMoving, L"Moving docks", L"guide-settings.md#moving-docks");
+        Check(kSnapToScreen, kSnapToScreenCaption, L"Snap to the screen's corners and centre",
+              L"Also the edges and other floating docks", kSnapToScreenHint);
+        Tip(kSnapToScreenCaption,
+            L"While you drag a floating bar, a circle, a standalone widget or a folder window, it snaps to the "
+            L"display's edges and corners, to the middle of each edge and to the centre of the screen, and to the "
+            L"other floating docks; a dock dragged along its edge snaps to the centre and the ends. Off: everything "
+            L"lands exactly where you drop it. On by default.");
+        NextRow();
         // Round 6 phase 6A.
         Section(kSectionDashboard, L"Dashboard", L"guide-settings.md#dashboard");
         Label(kDashboardHotkeyLabel, L"Hotkey", L"Click, then press the keys", kDashboardNote);
@@ -248,6 +258,7 @@ protected:
         SetComboSel(kRendererCombo, c.renderer == L"software" ? 1 : 0);
         SetCheck(kFullscreenHide, c.settings.fullscreenHide);
         SetCheck(kConfirmPlacement, c.settings.confirmPlacement);  // round 12 phase 12A
+        SetCheck(kSnapToScreen, c.settings.snapToScreen);          // round 14 phase 14B
         const bool warp = Host().usingWarp && Host().usingWarp();
         SetText(kRendererNote, std::wstring(L"After a restart · now ") + (warp ? L"software" : L"GPU"));
         SetText(kDashboardHotkeyEdit, c.dashboard.hotkey);
@@ -302,6 +313,12 @@ protected:
             case kConfirmPlacement:  // round 12 phase 12A: read when a change moves or hides a dock
                 if (code == BN_CLICKED && GetCheck(id) != c.settings.confirmPlacement) {
                     c.settings.confirmPlacement = GetCheck(id);
+                    Changed(SettingsScope::SaveOnly);
+                }
+                break;
+            case kSnapToScreen:  // round 14 phase 14B: read at drag time
+                if (code == BN_CLICKED && GetCheck(id) != c.settings.snapToScreen) {
+                    c.settings.snapToScreen = GetCheck(id);
                     Changed(SettingsScope::SaveOnly);
                 }
                 break;
