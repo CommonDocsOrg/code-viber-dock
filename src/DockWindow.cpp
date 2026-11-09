@@ -114,12 +114,27 @@ struct AnchorSlot {
     int group = 1;        // 0 start, 1 centre, 2 end
     float offset = 0.0f;  // px: shifts it and the slots after it in its group
     bool flush = false;   // round 11 phase 11C: DockItem::flush (no end padding beside it)
+    // Round 13 phase 13D: half of the slot's own gap (an icon slot holds it on each side), and its
+    // element's RunPadding before it (the element's first slot) / after it (its last).
+    float half = 0.0f;
+    float padBefore = 0.0f;
+    float padAfter = 0.0f;
+    float Outer() const { return padBefore + w + padAfter; }
 };
 
 // The bar's padding beside its first / last slot: half a gap less beside an icon (its slot holds
-// half a gap on each side), none beside a flush widget (round 11 phase 11C).
-float EndPadding(const AnchorSlot& s, float padding, float half) {
-    return s.flush ? 0.0f : s.run == Run::Icon ? padding - half : padding;
+// half a gap on each side; round 13 phase 13D: its own gap's half), none beside a flush widget
+// (round 11 phase 11C).
+float EndPadding(const AnchorSlot& s, float padding) {
+    return s.flush ? 0.0f : s.run == Run::Icon ? padding - s.half : padding;
+}
+
+// Round 13 phase 13D: the padding spacer before slot `cur` after slot `prev` (null: `cur` starts
+// the run): where the element changes, the previous element's RunPadding after its last slot plus
+// cur's element's before its first (both 0 except for a running element with `padding`).
+float PadBetween(const DockItem* prev, const DockItem& cur) {
+    if (prev && prev->element == cur.element) return 0.0f;
+    return (prev ? prev->runPad : 0.0f) + cur.runPad;
 }
 
 // The leads (the spacer before each slot, px) of anchored groups in the bar [barLeft, barRight]:
@@ -129,7 +144,9 @@ float EndPadding(const AnchorSlot& s, float padding, float half) {
 // padding (an item pushed into a neighbour pushes it along, as far as the bar's ends). The first
 // lead is measured from the start padding (the run's itemsLeft). False when the slots are not in
 // group order or the groups do not fit (the caller lays out one run instead).
-bool AnchoredLeads(const std::vector<AnchorSlot>& slots, float barLeft, float barRight, float padding, float half,
+// Round 13 phase 13D: a slot takes its Outer() length (its element's padding beside it); the leads
+// include that padding.
+bool AnchoredLeads(const std::vector<AnchorSlot>& slots, float barLeft, float barRight, float padding,
                    float iconToWidget, float widgetGap, std::vector<float>& leads) {
     leads.assign(slots.size(), 0.0f);
     int firstReal = -1, lastReal = -1, lastGroup = 0;
@@ -141,8 +158,8 @@ bool AnchoredLeads(const std::vector<AnchorSlot>& slots, float barLeft, float ba
         lastReal = static_cast<int>(k);
     }
     if (firstReal < 0) return false;
-    const float startInner = barLeft + EndPadding(slots[static_cast<size_t>(firstReal)], padding, half);
-    const float endInner = barRight - EndPadding(slots[static_cast<size_t>(lastReal)], padding, half);
+    const float startInner = barLeft + EndPadding(slots[static_cast<size_t>(firstReal)], padding);
+    const float endInner = barRight - EndPadding(slots[static_cast<size_t>(lastReal)], padding);
     // Each group packed (its own spacers), and the spacers the groups need between them.
     float width[3] = {0.0f, 0.0f, 0.0f};
     Run firstRun[3] = {Run::None, Run::None, Run::None}, lastRun[3] = {Run::None, Run::None, Run::None};
@@ -153,7 +170,7 @@ bool AnchoredLeads(const std::vector<AnchorSlot>& slots, float barLeft, float ba
         const int g = std::clamp(s.group, 0, 2);
         width[g] += SpacerBetween(lastRun[g], s.run, iconToWidget, widgetGap);
         packed[k] = width[g];
-        width[g] += s.w;
+        width[g] += s.Outer();
         if (firstRun[g] == Run::None) firstRun[g] = s.run;
         lastRun[g] = s.run;
     }
@@ -182,21 +199,23 @@ bool AnchoredLeads(const std::vector<AnchorSlot>& slots, float barLeft, float ba
     for (size_t k = 0; k < slots.size(); ++k) {
         if (slots[k].run == Run::None) continue;
         x[k] = std::max(x[k], end + SpacerBetween(prev, slots[k].run, iconToWidget, widgetGap));
-        end = x[k] + slots[k].w;
+        end = x[k] + slots[k].Outer();
         prev = slots[k].run;
     }
     float limit = endInner;
     Run next = Run::None;
     for (size_t k = slots.size(); k-- > 0;) {
         if (slots[k].run == Run::None) continue;
-        x[k] = std::round(std::min(x[k], limit - SpacerBetween(slots[k].run, next, iconToWidget, widgetGap) - slots[k].w));
+        x[k] = std::round(std::min(x[k], limit - SpacerBetween(slots[k].run, next, iconToWidget, widgetGap) - slots[k].Outer()));
         limit = x[k];
         next = slots[k].run;
     }
+    // x is where a slot's outer box starts; its lead reaches its own box (the padding before it and
+    // the previous slot's after it are in the lead).
     end = startInner;
     for (size_t k = 0; k < slots.size(); ++k) {
         if (slots[k].run == Run::None) continue;
-        leads[k] = std::max(0.0f, x[k] - end);
+        leads[k] = std::max(0.0f, x[k] + slots[k].padBefore - end);
         end += leads[k] + slots[k].w;
     }
     return true;
@@ -221,9 +240,25 @@ std::vector<AnchorSlot> MakeAnchorSlots(const std::vector<DockItem>& items, cons
         if (item.element != lastElement && item.element < d.items.size()) {
             s.offset = std::round(static_cast<float>(d.items[item.element].offset) * scale);
         }
+        s.half = s.run == Run::Icon ? std::floor(item.gapPx / 2.0f) : 0.0f;  // round 13 phase 13D
         lastElement = item.element;
         slots.push_back(s);
     }
+    // Round 13 phase 13D: an element's padding before its first and after its last real slot (in
+    // this order).
+    const DockItem* prevReal = nullptr;
+    size_t lastK = SIZE_MAX;
+    for (size_t k = 0; k < order.size(); ++k) {
+        if (slots[k].run == Run::None) continue;
+        const DockItem& item = items[order[k]];
+        if (!prevReal || prevReal->element != item.element) {
+            slots[k].padBefore = item.runPad;
+            if (lastK != SIZE_MAX) slots[lastK].padAfter = prevReal->runPad;
+        }
+        prevReal = &item;
+        lastK = k;
+    }
+    if (lastK != SIZE_MAX) slots[lastK].padAfter = prevReal->runPad;
     return slots;
 }
 
@@ -376,7 +411,7 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
     if (DarkMode::DarkMenusOn()) DarkMode::AllowDarkForWindow(hwnd_, true);
 
     // Live window thumbnails need a multithreaded D3D device (Windows.Graphics.Capture).
-    HRESULT hr = renderer_.Initialize(hwnd_, config_->renderer == L"software", DockCfg().thumbnails == ThumbnailMode::Live);
+    HRESULT hr = renderer_.Initialize(hwnd_, config_->renderer == L"software", DockCfg().Running().thumbnails == ThumbnailMode::Live);
     if (FAILED(hr)) {
         Log(L"Renderer::Initialize", hr);
         return hr;
@@ -536,7 +571,7 @@ void DockWindow::SetMonitor(HMONITOR monitor) {
     if (!hwnd_) return;
     // A new monitor: its size / work area (and maybe DPI: WM_DPICHANGED follows the move), and a
     // monitor filter shows other windows.
-    if (DockCfg().runningFilter == RunningFilter::Monitor) RebuildFrom(shared_->Tracker().Current());
+    if (DockCfg().Running().filter == RunningFilter::Monitor) RebuildFrom(shared_->Tracker().Current());
     ApplyConfig();
 }
 
@@ -573,7 +608,7 @@ bool DockWindow::ClickSlot(int index) {
 }
 
 void DockWindow::RebuildFrom(const WindowTracker::Snapshot& snap) {
-    if (DockCfg().runningFilter != RunningFilter::Monitor) {
+    if (DockCfg().Running().filter != RunningFilter::Monitor) {
         Rebuild(snap);
         return;
     }
@@ -609,8 +644,8 @@ void DockWindow::ApplyConfig() {
     SyncElements();                // the clock may have been turned on / off; config re-read, timers
     // docks[].windows changed: the slots change (one per app <-> one per window).
     // docks[].thumbnails turned on / off: slots become tiles or icons again.
-    if (tracking_ && (builtUnstacked_ != (DockCfg().windows == WindowsMode::Unstacked) ||
-                      builtThumbnails_ != (DockCfg().thumbnails != ThumbnailMode::Off))) {
+    if (tracking_ && (builtUnstacked_ != (DockCfg().Running().windows == WindowsMode::Unstacked) ||
+                      builtThumbnails_ != (DockCfg().Running().thumbnails != ThumbnailMode::Off))) {
         RebuildFrom(shared_->Tracker().Current());
     }
     // The drop marker is only redrawn when its size changes: force it (the accent may differ).
@@ -738,8 +773,9 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // Titles under the icons: a band between the icon (and its reflection) and the dots, the
     // label's font at kCaptionFontSize; on vertical docks a column beside the icon (toward the
     // screen edge) or none (titlesVertical "off"). The bar's cross size grows by the band.
-    int lines = d.titles == TitlesMode::One ? 1 : d.titles == TitlesMode::Two ? 2 : 0;
-    if (l.vertical && d.titlesVertical == TitlesVertical::Off) lines = 0;
+    const RunningConfig& runCfg = d.Running();  // round 13 phase 13D: the running item's titles
+    int lines = runCfg.titles == TitlesMode::One ? 1 : runCfg.titles == TitlesMode::Two ? 2 : 0;
+    if (l.vertical && runCfg.titlesVertical == TitlesVertical::Off) lines = 0;
     if (polar) lines = 0;  // no titles under the icons of a ring
     if (lines && !EnsureCaptionFormat(s)) lines = 0;
     l.captionLines = lines;
@@ -840,6 +876,12 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // scaled) separate icons from widgets (with a hairline when the widgets are at an end of the
     // dock) and widgets from each other; the bar adds padding at both ends (half a gap less beside
     // an icon slot, whose slot already holds half a gap on each side).
+    // Round 13 phase 13D: each icon slot has its element's gap (DockElement::SlotGap: the theme's
+    // iconGap, or the running item's `gap`) in DockItem::gapPx, half on each side, so between a pin
+    // and a running app the gap is the mean of the two; an element's RunPadding (the running
+    // item's `padding`) is a spacer before its first slot and after its last (in `lead`, padLead;
+    // after the run's last slot: in itemsW). `half` / `stride` stay the theme's (the drop gap, the
+    // magnification range, the "+" boxes).
     const float half = std::floor(l.gap / 2.0f);  // (l.gap: theme.iconGap, set above)
     const float stride = l.iconPx + l.gap;
     const float sepW = std::round(kSeparatorWidth * s);
@@ -848,9 +890,11 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.barCross = l.fullWidth ? iconBarH - l.titleBand : 0.0f;  // round 12 phase 12C: the icon row's, not the title band's
     const LayoutContext ctx{l.vertical ? DockAxis::Vertical : DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite(), l.barCross};
     Run first = Run::None, prev = Run::None;
+    const DockItem* firstItem = nullptr;  // round 13 phase 13D: the first / last real slot
+    const DockItem* prevItem = nullptr;
     bool firstFlush = false, lastFlush = false;  // the first / last real slot is a flush widget
-    const float tilePx = std::round(
-        static_cast<float>(d.thumbnailSize > 0 ? d.thumbnailSize : 2 * iconDip) * s);
+    const int thumbDip = d.Running().thumbnailSize;  // round 13 phase 13D: the running item's
+    const float tilePx = std::round(static_cast<float>(thumbDip > 0 ? thumbDip : 2 * iconDip) * s);
     float maxBox = l.iconPx;  // the longest magnifying box (a thumbnail tile is longer than an icon)
     size_t icons = 0;  // icon and separator slots (they make up the "items" of the bar)
     float itemsW = 0.0f;
@@ -867,6 +911,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
             item.boxCross = box.cross;
             item.hitSlack = element.HitSlack(ctx);
             item.flush = box.flush && l.fullWidth;
+            item.gapPx = 0.0f;
             run = box.main > 0.0f ? Run::Widget : Run::None;  // nothing to show: takes no room
         } else {
             item.flush = false;
@@ -875,7 +920,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
             const float main = item.thumbWindow && item.Magnifies() ? tilePx : box.main;
             item.boxMain = main;
             if (item.Magnifies()) maxBox = std::max(maxBox, main);
-            item.slotW = item.Magnifies() ? main + l.gap : main;
+            item.gapPx = element.SlotGap(ctx, l.gap);  // round 13 phase 13D
+            item.slotW = item.Magnifies() ? main + item.gapPx : main;
             item.boxCross = l.iconPx;
             item.hitSlack = 0.0f;
             ++icons;
@@ -885,20 +931,30 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
             }
         }
         item.lead = 0.0f;
+        item.padLead = 0.0f;
+        item.runPad = element.RunPadding(ctx);  // round 13 phase 13D
         if (run == Run::None) continue;
         item.lead = SpacerBetween(prev, run, sepW, widgetGap);
+        item.padLead = PadBetween(prevItem, item);
+        item.lead += item.padLead;
         if (first == Run::None) {
             first = run;
             firstFlush = item.flush;
+            firstItem = &item;
         }
         prev = run;
+        prevItem = &item;
         lastFlush = item.flush;
         itemsW += item.lead + item.slotW;
     }
+    if (prevItem) itemsW += prevItem->runPad;  // round 13 phase 13D: the last element's padding after it
     l.itemsW = itemsW;
     // A flush widget at an end of a full-width bar has no padding on that side (round 11 phase 11C).
-    const float lead = firstFlush ? 0.0f : first == Run::Icon ? l.padding - half : l.padding;
-    float trail = lastFlush ? 0.0f : prev == Run::Icon ? l.padding - half : l.padding;
+    // Round 13 phase 13D: beside an icon slot, half of that slot's own gap less.
+    const float firstHalf = firstItem ? std::floor(firstItem->gapPx / 2.0f) : half;
+    const float lastHalf = prevItem ? std::floor(prevItem->gapPx / 2.0f) : half;
+    const float lead = firstFlush ? 0.0f : first == Run::Icon ? l.padding - firstHalf : l.padding;
+    float trail = lastFlush ? 0.0f : prev == Run::Icon ? l.padding - lastHalf : l.padding;
     const size_t n = icons;
     float barW = lead + itemsW + trail;
     barW = std::round(std::max(barW, l.iconPx + 2.0f * l.padding));
@@ -1011,7 +1067,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         std::vector<size_t> order(items_.size());
         for (size_t i = 0; i < order.size(); ++i) order[i] = i;
         if (lead + itemsW + trail <= len + 0.5f &&
-            AnchoredLeads(MakeAnchorSlots(items_, order, d, s), 0.0f, len, l.padding, half, sepW, widgetGap, anchorLeads)) {
+            AnchoredLeads(MakeAnchorSlots(items_, order, d, s), 0.0f, len, l.padding, sepW, widgetGap, anchorLeads)) {
             l.anchored = true;
             if (!l.fullWidth) {
                 barW = len;
@@ -1307,8 +1363,11 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         // "always": the room before the first magnifying slot is the icon side of its spacer, the
         // room after the last one the icon side of the next spacer; a hairline stays in the spacer
         // proper, beside the widgets.
-        const float padBefore = (k == l.padEndSlot ? alwaysEnd : 0.0f) + (k == l.plusPinSlot ? l.plusRoom : 0.0f);  // 12D: "+" room too
-        const float spacer = item.lead - padBefore - (k == l.padStartSlot ? alwaysStart : 0.0f);
+        // Round 13 phase 13D: the running element's padding is on the icon sides too (padLead: the
+        // previous element's part first, this element's own last).
+        const float padPrev = std::max(0.0f, item.padLead - item.runPad);
+        const float padBefore = (k == l.padEndSlot ? alwaysEnd : 0.0f) + (k == l.plusPinSlot ? l.plusRoom : 0.0f) + padPrev;  // 12D: "+" room too
+        const float spacer = item.lead - padBefore - (k == l.padStartSlot ? alwaysStart : 0.0f) - (item.padLead - padPrev);
         if (spacer <= 0.0f || firstIcon < 0) continue;
         // Anchored groups: no hairline in a gap between groups (only in a spacer of the usual size).
         const bool gap = l.anchored && item.lead > baseLeads[i] + 0.5f;
@@ -2219,7 +2278,8 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
 float DockWindow::TilePx() const {
     const DockConfig& d = DockCfg();
     const int icon = layout_.iconDip > 0 ? layout_.iconDip : d.iconSize;  // "shrink" lays out smaller icons
-    return std::round(static_cast<float>(d.thumbnailSize > 0 ? d.thumbnailSize : 2 * icon) * layout_.scale);
+    const int tile = d.Running().thumbnailSize;  // round 13 phase 13D
+    return std::round(static_cast<float>(tile > 0 ? tile : 2 * icon) * layout_.scale);
 }
 
 HRESULT DockWindow::RenderTile(DockItem& item, ID2D1Bitmap* icon) {
@@ -2608,7 +2668,7 @@ void DockWindow::RefreshButtons() {
 // --- notification badges (docks[].badges, round 4 phase 9) -----------------------------------
 
 bool DockWindow::UpdateBadges() {
-    const bool on = DockCfg().badges && shared_ && shared_->Notifications().Active();
+    const bool on = DockCfg().Running().badges && shared_ && shared_->Notifications().Active();
     const NotificationService* svc = shared_ ? &shared_->Notifications() : nullptr;
     const std::vector<std::wstring>& excluded = config_->notifications.excluded;
     auto countFor = [&](const AppKey& k) -> int {
@@ -3780,8 +3840,7 @@ void DockWindow::RefreshDirtyWidgets() {
 void DockWindow::ComputeTargets() {
     const Layout& l = layout_;
     const size_t n = items_.size();
-    const float stride = l.iconPx + l.gap;  // an icon's slot
-    const float half = std::floor(l.gap / 2.0f);
+    const float stride = l.iconPx + l.gap;  // an icon's slot (the theme's: the range, a drop gap)
     // 9A follow-up 2: a "steady" bar not grown yet (the pointer only over widgets, separators or
     // the bar's padding so far) magnifies nothing: the icons zoom together with the bar's growth.
     // Round 12 phase 12D: customize mode pauses it (the badges and "+" slots sit on the rest layout).
@@ -3842,9 +3901,9 @@ void DockWindow::ComputeTargets() {
             // in the group it would drop into), from the bar's start padding.
             std::vector<AnchorSlot> slots;
             if (l.anchored) slots = MakeAnchorSlots(items_, dragOrder_, DockCfg(), l.scale, src, dragGroup_);
-            if (l.anchored && AnchoredLeads(slots, l.bar.left, l.bar.right, l.padding, half, sepW, widgetGap, leads)) {
+            if (l.anchored && AnchoredLeads(slots, l.bar.left, l.bar.right, l.padding, sepW, widgetGap, leads)) {
                 const auto first = std::find_if(slots.begin(), slots.end(), [](const AnchorSlot& a) { return a.run != Run::None; });
-                slotLeft = l.bar.left + (first != slots.end() ? EndPadding(*first, l.padding, half) : l.padding);
+                slotLeft = l.bar.left + (first != slots.end() ? EndPadding(*first, l.padding) : l.padding);
             } else {
                 leads.assign(n, 0.0f);
                 float width = 0.0f;
@@ -3860,11 +3919,13 @@ void DockWindow::ComputeTargets() {
                     }
                 }
                 bool endPadded = lastMagK < 0;
+                const DockItem* prevIt = nullptr;  // round 13 phase 13D: the running element's padding moves with it
                 for (size_t k = 0; k < n; ++k) {
                     const DockItem& it = items_[dragOrder_[k]];
                     const Run run = !it.IsWidget() ? Run::Icon : it.slotW > 0.0f ? Run::Widget : Run::None;
                     if (run == Run::None) continue;
-                    leads[k] = SpacerBetween(prev, run, sepW, widgetGap);
+                    leads[k] = SpacerBetween(prev, run, sepW, widgetGap) + PadBetween(prevIt, it);
+                    prevIt = &it;
                     if (static_cast<int>(k) == firstMagK) leads[k] += l.steadyStart;
                     if (!endPadded && static_cast<int>(k) > lastMagK) {
                         leads[k] += l.steadyEnd;
@@ -3873,6 +3934,7 @@ void DockWindow::ComputeTargets() {
                     prev = run;
                     width += leads[k] + it.slotW;
                 }
+                if (prevIt) width += prevIt->runPad;  // as the rest run's itemsW
                 // (The rest run holds the end room in a lead, or in the bar's trail: centre alike.)
                 if (lastMagK >= 0) {
                     if (endPadded) width -= l.steadyEnd;
@@ -3944,7 +4006,7 @@ void DockWindow::ComputeTargets() {
     }
     // Width of an item's slot in the magnified layout (an icon or a thumbnail tile scales).
     auto magnifiedW = [&](const DockItem& item) {
-        return item.Magnifies() ? BoxW(item) * item.targetScale + l.gap : item.slotW;
+        return item.Magnifies() ? BoxW(item) * item.targetScale + item.gapPx : item.slotW;  // 13D: its own gap
     };
 
     float growLeft = 0.0f;
@@ -4009,7 +4071,7 @@ void DockWindow::ComputeTargets() {
             // The icon box keeps its rest size and is scaled about its bottom centre, so its left
             // edge sits half an icon left of the magnified icon's centre.
             const float w = BoxW(item) * item.targetScale;
-            item.targetX = slotLeft + half + w / 2.0f - BoxW(item) / 2.0f;
+            item.targetX = slotLeft + BoxInset(item) + w / 2.0f - BoxW(item) / 2.0f;  // 13D: its own half gap
         } else if (k > l.lastMag) {
             // After the last icon (widgets, a separator before them): moves with the bar's right end
             // (follow: the run's end, the same place; steady: the slack stays before them).
@@ -6003,7 +6065,7 @@ void DockWindow::SyncWidgetVisibility() {
 
 void DockWindow::SyncThumbnails() {
     if (!hwnd_) return;
-    const DockConfig& d = DockCfg();
+    const RunningConfig d = DockCfg().Running();  // round 13 phase 13D: the running item's thumbnails (a copy: a rebuild may re-read)
     if (d.thumbnails == ThumbnailMode::Live && !renderer_.Multithreaded()) {
         // Live capture was turned on: the D3D device must be multithreaded. Rebuild it (and every
         // surface) once, the device-loss path; it syncs the thumbnails again at its end.
@@ -6471,7 +6533,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     std::vector<DockItem> next;
     next.reserve(pins_.size() + snap.groups.size() + elements_.size());
     SlotBuilder builder(snap, pins_, runningOrder_, items_, next);
-    builder.unstacked = DockCfg().windows == WindowsMode::Unstacked;
+    builder.unstacked = DockCfg().Running().windows == WindowsMode::Unstacked;
     builtUnstacked_ = builder.unstacked;
     for (size_t i = 0; i < elements_.size(); ++i) {
         if (!elements_[i]) continue;
@@ -6482,7 +6544,7 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     // 2. Windows: a running app's group goes to the app slot with its key (a pinned app or its
     //    running slot; folders, separators, the Recycle Bin and widgets never take windows).
     bool landed = false;  // a launch feedback ended at once (a hop that was already over)
-    const bool thumbsOn = DockCfg().thumbnails != ThumbnailMode::Off;
+    const bool thumbsOn = DockCfg().Running().thumbnails != ThumbnailMode::Off;
     builtThumbnails_ = thumbsOn;
     bool tilesChanged = false;  // a slot became a thumbnail tile or an icon again (another width)
     for (DockItem& item : next) {
@@ -8396,7 +8458,7 @@ int DockWindow::HitAlong(float x) const {
         if (item.Magnifies()) {
             const float box = BoxW(item), w = box * item.targetScale;
             a = item.targetX + box / 2.0f - w / 2.0f - BoxInset(item);
-            b = a + w + l.gap;
+            b = a + w + item.gapPx;  // round 13 phase 13D: the slot's own gap
         } else {
             a = item.targetX - BoxInset(item);
             b = a + item.slotW;
@@ -8768,7 +8830,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 70:  // docks[].windows: 0 stacked, 1 unstacked (as the slots were last built)
             return builtUnstacked_ ? 1 : 0;
         case 71:  // docks[].titles: 0 off, 1 one line, 2 two lines
-            return static_cast<LRESULT>(DockCfg().titles);
+            return static_cast<LRESULT>(DockCfg().Running().titles);
         case 72:  // lines of title text actually laid out under / beside the icons (0: none)
             return layout_.captionLines;
         case 73:  // the window of window slot lp (0: an app-level slot; -1 no such slot)
@@ -8788,7 +8850,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return item.wantsAttention ? 3 : item.active ? 2 : 1;
         }
         case 79:  // docks[].thumbnails: 0 off, 1 live, 2 snapshots
-            return static_cast<LRESULT>(DockCfg().thumbnails);
+            return static_cast<LRESULT>(DockCfg().Running().thumbnails);
         case 80: {  // slot lp: 0 not a thumbnail tile, 1 a tile without a frame yet, 2 a tile with a frame (-1 no slot)
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             const DockItem& item = items_[static_cast<size_t>(lp)];
@@ -9056,6 +9118,12 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         }
         case 324:  // round 13 phase 13A: 1 while a popup menu owned by this dock is open (menuOpen_), else 0
             return menuOpen_ ? 1 : 0;
+        case 326: {  // round 13 phase 13D: the running item's effective gap (DIPs, low word; 0xFFFF: no running item) | padding << 16
+            if (!DockCfg().Has(ItemKind::Running)) return 0xFFFF;
+            const RunningConfig& r = DockCfg().Running();
+            const int gap = r.gap >= 0 ? r.gap : static_cast<int>(std::lround(std::clamp(DockTheme().iconGap, 0.0f, 48.0f)));
+            return static_cast<LRESULT>(static_cast<unsigned>(gap & 0xFFFF) | (static_cast<unsigned>(r.padding & 0xFFFF) << 16));
+        }
         default:
             return -1;
     }

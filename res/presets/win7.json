@@ -7,14 +7,13 @@
     "edge": "bottom", "align": "start", "fullWidth": true, "reserveSpace": true,
     "iconSize": 32, "magnification": 1.0, "autoHide": "off",
     "previews": true, "previewsSingleWindow": true,
-    "windows": "stacked", "titles": "off", "badges": false,
     "middleClick": "newInstance",
     "themePreset": "aero"
   },
   "items": [
     { "kind": "widget", "id": "start", "settings": { "icon": "orb" } },
     { "kind": "pins" },
-    { "kind": "running" },
+    { "kind": "running", "settings": { "windows": "stacked", "titles": "off", "badges": false } },
     { "kind": "tray", "anchor": "end", "rows": 1, "columns": 8, "iconSize": 16 },
     { "kind": "widget", "id": "digital-clock", "anchor": "end",
       "settings": { "timeStyle": "taskbar", "format": "%#I:%M %p", "showDate": true, "dateFormat": "%#m/%#d/%Y" } },

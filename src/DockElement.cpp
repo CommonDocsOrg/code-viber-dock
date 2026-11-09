@@ -174,10 +174,22 @@ public:
         for (const WindowTracker::Group& g : out.Snapshot().groups) {
             if (!out.IsPinnedApp(g.key)) groups.push_back(&g);
         }
+        // Round 13 phase 13D: order "name": alphabetical by display name (stable, so apps of the
+        // same name keep their first-seen order); the drag order is not used then.
+        if (host_.DockCfg().Running().order == RunningOrder::Name) {
+            std::vector<std::pair<const WindowTracker::Group*, std::wstring>> named;
+            named.reserve(groups.size());
+            for (const WindowTracker::Group* g : groups) named.emplace_back(g, NameOf(g->key));
+            std::stable_sort(named.begin(), named.end(), [](const auto& a, const auto& b) {
+                return CompareStringEx(LOCALE_NAME_USER_DEFAULT, NORM_IGNORECASE | SORT_DIGITSASNUMBERS, a.second.c_str(), -1,
+                                       b.second.c_str(), -1, nullptr, nullptr, 0) == CSTR_LESS_THAN;
+            });
+            for (size_t i = 0; i < named.size(); ++i) groups[i] = named[i].first;
+        }
         // After the user reordered the running apps: that order, apps not in it at the end. The
         // order then keeps only apps that are still running.
         std::vector<AppKey>& order = out.RunningOrder();
-        if (!order.empty() && !groups.empty()) {
+        if (host_.DockCfg().Running().order == RunningOrder::FirstSeen && !order.empty() && !groups.empty()) {
             auto rank = [&](const AppKey& key) {
                 return static_cast<size_t>(std::find(order.begin(), order.end(), key) - order.begin());
             };
@@ -208,6 +220,14 @@ public:
     }
 
     ElementSize Measure(const LayoutContext& ctx) override { return {ctx.iconPx, ctx.iconPx}; }
+    // Round 13 phase 13D: the running item's gap (-1: the theme's) and padding, in px.
+    float SlotGap(const LayoutContext& ctx, float themeGap) const override {
+        const int gap = host_.DockCfg().Running().gap;
+        return gap < 0 ? themeGap : std::round(static_cast<float>(gap) * ctx.scale);
+    }
+    float RunPadding(const LayoutContext& ctx) const override {
+        return std::round(static_cast<float>(host_.DockCfg().Running().padding) * ctx.scale);
+    }
     void OnClick(int slot, bool) override { host_.ActivateOrLaunch(slot); }
     void OnMiddleClick(int slot) override { AppMiddleClick(host_, slot); }
     bool OnWheel(int slot, int delta, bool horizontal) override {
@@ -215,7 +235,17 @@ public:
     }
 
 private:
+    // The display names order "name" sorts by (looked up once per app while the element lives).
+    const std::wstring& NameOf(const AppKey& key) {
+        for (const auto& [k, n] : names_) {
+            if (k == key) return n;
+        }
+        names_.emplace_back(key, AppIdentity::DisplayNameFor(key));
+        return names_.back().second;
+    }
+
     WheelCycler wheel_;
+    std::vector<std::pair<AppKey, std::wstring>> names_;
 };
 
 }  // namespace

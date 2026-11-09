@@ -6,13 +6,12 @@
   "dock": {
     "edge": "bottom", "align": "center", "iconSize": 44,
     "magnification": 1.0, "previews": true,
-    "windows": "unstacked", "titles": "one",
-    "thumbnails": "snapshots", "thumbnailIntervalS": 5,
     "autoHide": "intelligent"
   },
   "items": [
     { "kind": "pins" },
-    { "kind": "running" },
+    { "kind": "running",
+      "settings": { "windows": "unstacked", "titles": "one", "thumbnails": "snapshots", "thumbnailIntervalS": 5 } },
     { "kind": "clock" }
   ]
 }

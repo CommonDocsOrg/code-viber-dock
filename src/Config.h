@@ -297,6 +297,40 @@ enum class TitleShow { Off, Hover, Always };
 enum class TitlePlace { Outside, Inside };
 // --- end round 12 phase 12C ---
 
+// --- round 13 phase 13D ---
+// The order of the running element's slots: "firstSeen" (default: the order the apps started in,
+// changed by dragging, as before 13D) or "name" (alphabetical by display name, stable).
+enum class RunningOrder { FirstSeen, Name };
+// The settings of a "running" item (its `settings` object; RunningOf reads it over these
+// defaults). Before round 13 phase 13D the first nine were docks[] keys (runningFilter, windows,
+// titles, titlesVertical, thumbnails, thumbnailIntervalS, thumbnailSize, thumbnailFps, badges);
+// loading moves them into the dock's first running item (a dock without one drops them). They
+// also act on pinned apps' windows, so a dock reads them from its first running item
+// (DockConfig::Running), else these defaults.
+struct RunningConfig {
+    RunningFilter filter = RunningFilter::All;       // "filter"
+    WindowsMode windows = WindowsMode::Stacked;      // "windows"
+    TitlesMode titles = TitlesMode::Off;             // "titles"
+    TitlesVertical titlesVertical = TitlesVertical::Beside;
+    // Thumbnails: each window slot (unstacked; stacked: an app slot with windows, its active
+    // window) shows the window as a tile with the app icon in a corner.
+    ThumbnailMode thumbnails = ThumbnailMode::Off;
+    int thumbnailIntervalS = 5;  // snapshots: seconds between pictures (1 - 3600)
+    int thumbnailSize = 0;       // the tile's length along the dock in DIPs (0: twice iconSize; 16 - 512)
+    int thumbnailFps = 10;       // live: at most this many frames a second per window (1 - 60)
+    // Round 4 phase 9: a bubble with the unread notification count on the app slots
+    // (NotificationService; the per-app toast count).
+    bool badges = false;
+    // New in 13D: DIPs between the running slots (-1: the theme's iconGap, else 0 - 48), DIPs
+    // before the first and after the last running slot (0 - 64), and the order.
+    static constexpr int kThemeGap = -1;
+    int gap = kThemeGap;
+    int padding = 0;
+    RunningOrder order = RunningOrder::FirstSeen;
+    bool operator==(const RunningConfig&) const = default;
+};
+// --- end round 13 phase 13D ---
+
 // One dock: its contents and the settings that are per dock. Config::docks always holds at least
 // one (docks[0], Config::Main()).
 struct DockConfig {
@@ -395,7 +429,6 @@ struct DockConfig {
     int monitor = 0;
     MiddleClickAction middleClick = MiddleClickAction::NewInstance;
     WheelAction wheel = WheelAction::None;
-    RunningFilter runningFilter = RunningFilter::All;
     // A theme preset for this dock only ("" = the app look: the top-level theme, its preset and its
     // inline fields). Round 12 phase 12B: a dock with a preset has its own look: that preset plus
     // its own inline fields (`theme`, the docks[] entry's "theme" object, with `themeOverrides`);
@@ -404,18 +437,13 @@ struct DockConfig {
     uint64_t themeOverrides = 0;  // round 12 phase 12B: one bit per Theme::Field set in docks[].theme
     bool OwnLook() const { return !themePreset.empty(); }
     DockLayer layer = DockLayer::Normal;
-    WindowsMode windows = WindowsMode::Stacked;
-    TitlesMode titles = TitlesMode::Off;
-    TitlesVertical titlesVertical = TitlesVertical::Beside;
-    // Thumbnails: each window slot (unstacked; stacked: an app slot with windows, its active
-    // window) shows the window as a tile with the app icon in a corner.
-    ThumbnailMode thumbnails = ThumbnailMode::Off;
-    int thumbnailIntervalS = 5;  // snapshots: seconds between pictures (1 - 3600)
-    int thumbnailSize = 0;       // the tile's length along the dock in DIPs (0: twice iconSize; 16 - 512)
-    int thumbnailFps = 10;       // live: at most this many frames a second per window (1 - 60)
-    // Round 4 phase 9: a bubble with the unread notification count on the app slots
-    // (NotificationService; the per-app toast count). Saved only when on.
-    bool badges = false;
+    // Round 13 phase 13D: runningFilter, windows, titles, titlesVertical, thumbnails*, badges moved
+    // into the running item's settings (RunningConfig). Running(): the RunningConfig of the first
+    // running item (sanitized), else the defaults; cached by the item's settings text, so the
+    // per-layout readers do not parse JSON each time. SetRunning writes it back into that item's
+    // settings (keys this version does not know are kept); false when the dock has no running item.
+    const RunningConfig& Running() const;
+    bool SetRunning(const RunningConfig& r);
     // Round 4 phase 11a: a run longer than the edge scrolls / shrinks / is clipped. Saved only when
     // not "scroll".
     OverflowMode overflow = OverflowMode::Scroll;
@@ -444,6 +472,11 @@ struct DockConfig {
     // the others its preset's. ownTheme false: the app's theme applies (`theme` unused).
     bool ownTheme = false;
     ThemeConfig theme;
+    // Running()'s cache (round 13 phase 13D; not saved): the settings text it was read from.
+    mutable std::wstring runningCacheKey_;
+    mutable RunningConfig runningCache_;
+    mutable bool runningCacheValid_ = false;
+    mutable bool runningCacheHas_ = false;
 
     bool AutoHideOn() const { return autoHide != AutoHideMode::Off && !Floating(); }
     bool Each() const { return monitor == kMonitorEach; }
@@ -618,6 +651,8 @@ const wchar_t* ToString(FolderSort v);
 bool FromString(std::wstring_view s, FolderSort& v);
 const wchar_t* ToString(WidgetBackground v);
 bool FromString(std::wstring_view s, WidgetBackground& v);
+const wchar_t* ToString(RunningOrder v);  // round 13 phase 13D
+bool FromString(std::wstring_view s, RunningOrder& v);
 bool FromString(std::wstring_view s, WindowsMode& v);
 bool FromString(std::wstring_view s, TitlesMode& v);
 bool FromString(std::wstring_view s, TitlesVertical& v);
@@ -889,3 +924,11 @@ bool SettingsHavePlace(const std::wstring& settingsJson);
 // what migration and new items get, what the settings page starts from.
 std::wstring ClockSettingsJson(const ClockConfig& c);
 std::wstring WeatherSettingsJson(const WeatherConfig& w);
+// Round 13 phase 13D: a running item's settings over the RunningConfig defaults, sanitized (as
+// ClockOf; another kind: the defaults), and its settings object with every key (what a new
+// running item gets from EnsureItemSettings, what SetRunning writes).
+RunningConfig RunningOf(const Config& config, const DockItemEntry& item);
+RunningConfig RunningOf(const DockItemEntry& item);
+std::wstring RunningSettingsJson(const RunningConfig& r);
+// Writes every RunningConfig key into a running item's settings (other keys are kept).
+void SetRunningSettings(DockItemEntry& item, const RunningConfig& r);

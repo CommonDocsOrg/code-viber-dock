@@ -47,7 +47,7 @@ enum Command : UINT {
     kTrayEnable = 129,          // tray.enabled on: the dock takes the notify icons over (with a tray item)
     kTrayDisable = 130,         // tray.enabled off: the icons go back to Explorer ("Reset to Explorer")
     kPollNotifications = 131,   // the notification service polls now (no-op while it is off)
-    kToggleBadges = 132,        // docks[].badges of the dock the message is for (on / off)
+    kToggleBadges = 132,        // the badges of the dock's running item (on / off; 13D: was docks[].badges; no running item: nothing)
     kToggleCentre = 133,        // shows / hides the notification centre over the first notifications item
     kAddNotifications = 134,    // Add widget > Notification centre (a "notifications" item; one per dock)
     kRefreshCalendars = 135,    // every calendar feed fetches / is read now (no-op while none is enabled)

@@ -206,6 +206,13 @@ public:
     virtual ElementSize Measure(const LayoutContext& ctx) = 0;
     // How far beyond the box (main axis, rest layout) a press still hits the slot.
     virtual float HitSlack(const LayoutContext&) const { return 0.0f; }
+    // Round 13 phase 13D: the gap (px) around each of its icon slots (half on each side, so between
+    // two slots of different elements it is the mean of their gaps): `themeGap` (the theme's
+    // iconGap, scaled) unless the element has its own (the running item's `gap`). RunPadding: px
+    // before its first slot and after its last (the running item's `padding`); a spacer like a
+    // slot's lead, never magnified.
+    virtual float SlotGap(const LayoutContext&, float themeGap) const { return themeGap; }
+    virtual float RunPadding(const LayoutContext&) const { return 0.0f; }
 
     // --- rendering ---
     // Draws a slot's non-icon content (Measure's size) into `content`. Icon and separator slots are

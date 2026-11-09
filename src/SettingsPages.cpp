@@ -771,19 +771,19 @@ protected:
         NextRow(22);
         Label(kThumbIntervalLabel, L"Snapshot every");
         Tip(kThumbIntervalLabel, L"With snapshot thumbnails: how often each window's picture is taken again. Default: 5 seconds.");
-        IntSpin(kThumbIntervalEdit, kThumbIntervalSpin, kColX, 90, 1, 3600, 1,
-                [](Config&, DockConfig& d) -> int& { return d.thumbnailIntervalS; }, SettingsScope::Appearance);
+        RunIntSpin(kThumbIntervalEdit, kThumbIntervalSpin, kColX, 90, 1, 3600, 1,
+                [](RunningConfig& r) -> int& { return r.thumbnailIntervalS; }, SettingsScope::Appearance);
         Text(kThumbIntervalUnit, CtlKind::Note, L"s", kColX + 98, 40);
         NextRow();
         Label(kThumbFpsLabel, L"Live frames per second");
         Tip(kThumbFpsLabel, L"With live thumbnails: at most this many pictures a second per window (more is smoother but uses more GPU). Default: 10.");
-        IntSpin(kThumbFpsEdit, kThumbFpsSpin, kColX, 90, 1, 60, 1, [](Config&, DockConfig& d) -> int& { return d.thumbnailFps; },
+        RunIntSpin(kThumbFpsEdit, kThumbFpsSpin, kColX, 90, 1, 60, 1, [](RunningConfig& r) -> int& { return r.thumbnailFps; },
                 SettingsScope::Appearance);
         Text(kThumbFpsUnit, CtlKind::Note, L"at most", kColX + 98, 80);
         NextRow();
         Label(kThumbSizeLabel, L"Tile length");
         Tip(kThumbSizeLabel, L"A thumbnail tile's length along the dock in DIPs (0: twice the icon size, the default).");
-        IntSpin(kThumbSizeEdit, kThumbSizeSpin, kColX, 90, 0, 512, 8, [](Config&, DockConfig& d) -> int& { return d.thumbnailSize; },
+        RunIntSpin(kThumbSizeEdit, kThumbSizeSpin, kColX, 90, 0, 512, 8, [](RunningConfig& r) -> int& { return r.thumbnailSize; },
                 SettingsScope::Appearance);
         Text(kThumbSizeUnit, CtlKind::Note, L"DIP (0: twice the icon)", kColX + 98, 200);
         NextRow();
@@ -837,13 +837,14 @@ protected:
         SetCheck(kPreviewSingle, d.previewSingle);
         SetComboSel(kMiddleClickCombo, static_cast<int>(d.middleClick));
         SetComboSel(kWheelCombo, static_cast<int>(d.wheel));
-        SetCheck(kBadges, d.badges);
-        // Running apps
-        SetCheck(kRunningMonitorOnly, d.runningFilter == RunningFilter::Monitor);
-        SetComboSel(kWindowsCombo, static_cast<int>(d.windows));
-        SetComboSel(kTitlesCombo, static_cast<int>(d.titles));
-        SetComboSel(kTitlesVerticalCombo, static_cast<int>(d.titlesVertical));
-        SetComboSel(kThumbnailsCombo, static_cast<int>(d.thumbnails));
+        // Running apps (round 13 phase 13D: the running item's settings)
+        const RunningConfig run = RunningValues();
+        SetCheck(kBadges, run.badges);
+        SetCheck(kRunningMonitorOnly, run.filter == RunningFilter::Monitor);
+        SetComboSel(kWindowsCombo, static_cast<int>(run.windows));
+        SetComboSel(kTitlesCombo, static_cast<int>(run.titles));
+        SetComboSel(kTitlesVerticalCombo, static_cast<int>(run.titlesVertical));
+        SetComboSel(kThumbnailsCombo, static_cast<int>(run.thumbnails));
         // Position
         if (part_ == Part::Position) FillMonitors();
         SetComboSel(kLayerCombo, static_cast<int>(d.layer));
@@ -1005,29 +1006,27 @@ protected:
                     }
                     break;
                 case kWindowsCombo:
-                    if (sel <= 1 && static_cast<WindowsMode>(sel) != d.windows) {
-                        d.windows = static_cast<WindowsMode>(sel);
-                        Changed(SettingsScope::Appearance);  // the dock rebuilds its slots
+                    if (RunningConfig r = RunningValues(); sel >= 0 && sel <= 1) {
+                        r.windows = static_cast<WindowsMode>(sel);
+                        StoreRunning(r, SettingsScope::Appearance);  // the dock rebuilds its slots
                     }
                     break;
                 case kTitlesCombo:
-                    if (sel <= 2 && static_cast<TitlesMode>(sel) != d.titles) {
-                        d.titles = static_cast<TitlesMode>(sel);
-                        EnableDependents();
-                        Changed(SettingsScope::Appearance);  // relayout: the bar grows by the titles
+                    if (RunningConfig r = RunningValues(); sel >= 0 && sel <= 2) {
+                        r.titles = static_cast<TitlesMode>(sel);
+                        if (StoreRunning(r, SettingsScope::Appearance)) EnableDependents();  // relayout: the bar grows by the titles
                     }
                     break;
                 case kTitlesVerticalCombo:
-                    if (sel <= 1 && static_cast<TitlesVertical>(sel) != d.titlesVertical) {
-                        d.titlesVertical = static_cast<TitlesVertical>(sel);
-                        Changed(SettingsScope::Appearance);
+                    if (RunningConfig r = RunningValues(); sel >= 0 && sel <= 1) {
+                        r.titlesVertical = static_cast<TitlesVertical>(sel);
+                        StoreRunning(r, SettingsScope::Appearance);
                     }
                     break;
                 case kThumbnailsCombo:
-                    if (sel <= 2 && static_cast<ThumbnailMode>(sel) != d.thumbnails) {
-                        d.thumbnails = static_cast<ThumbnailMode>(sel);
-                        EnableDependents();
-                        Changed(SettingsScope::Appearance);  // slots become tiles; capture starts / stops
+                    if (RunningConfig r = RunningValues(); sel >= 0 && sel <= 2) {
+                        r.thumbnails = static_cast<ThumbnailMode>(sel);
+                        if (StoreRunning(r, SettingsScope::Appearance)) EnableDependents();  // slots become tiles; capture starts / stops
                     }
                     break;
                 // --- round 12 phase 12C: the title options (a relayout: the bar may gain / lose its band) ---
@@ -1053,10 +1052,12 @@ protected:
         }
         if (code != BN_CLICKED) return;
         switch (id) {
-            case kRunningMonitorOnly:
-                d.runningFilter = GetCheck(id) ? RunningFilter::Monitor : RunningFilter::All;
-                Changed(SettingsScope::Pins);  // the dock rebuilds its items from the window list
+            case kRunningMonitorOnly: {
+                RunningConfig r = RunningValues();
+                r.filter = GetCheck(id) ? RunningFilter::Monitor : RunningFilter::All;
+                StoreRunning(r, SettingsScope::Pins);  // the dock rebuilds its items from the window list
                 break;
+            }
             case kFullWidth:
                 d.fullWidth = GetCheck(id);
                 EnableDependents();  // Maximum length is collapsed for a full-width bar
@@ -1104,10 +1105,12 @@ protected:
                 d.previewSingle = GetCheck(id);  // read when the mouse rests on an app
                 Changed(SettingsScope::SaveOnly);
                 break;
-            case kBadges:
-                d.badges = GetCheck(id);
-                Changed(SettingsScope::Notifications);  // the service starts / stops with the demand
+            case kBadges: {
+                RunningConfig r = RunningValues();
+                r.badges = GetCheck(id);
+                StoreRunning(r, SettingsScope::Notifications);  // the service starts / stops with the demand
                 break;
+            }
             case kTitleUseName:  // round 12 phase 12C: the title's text from the dock's name
                 d.titleUseName = GetCheck(id);
                 EnableDependents();  // the Title row goes / comes back
@@ -1306,9 +1309,9 @@ private:
         // Round 12 phase 12F: the reasons for the rows that are gone (a floating bar has its own note above).
         Collapse(kHideDelayReason, d.AutoHideOn() || floating);
         Collapse(kPreviewDelayReason, d.previews);
-        Collapse(kTitlesReason, d.titles != TitlesMode::Off);
-        SetText(kThumbReason, d.thumbnails == ThumbnailMode::Off       ? L"Off: no tiles. Choose Live or Snapshots to set their size and rate."
-                              : d.thumbnails == ThumbnailMode::Snapshots ? L"Frames per second applies to live thumbnails. Choose Live to set it."
+        const RunningConfig run = RunningValues();  // round 13 phase 13D
+        SetText(kThumbReason, run.thumbnails == ThumbnailMode::Off       ? L"Off: no tiles. Choose Live or Snapshots to set their size and rate."
+                              : run.thumbnails == ThumbnailMode::Snapshots ? L"Frames per second applies to live thumbnails. Choose Live to set it."
                                                                          : L"Snapshot every applies to snapshots. Choose Snapshots to set it.");
         if (part_ == Part::Behaviour) {
             // Round 10 phase 10D: "Delays and popup gap · n changed" (the rows that apply).
@@ -1318,11 +1321,11 @@ private:
             if (d.previews) n += d.previewDelayMs != fresh.previewDelayMs ? 1 : 0;
             SetExpanderText(kAutoHideMore, ChangedTitle(L"Delays and popup gap", n));
         }
-        Collapse({kTitlesVerticalLabel, kTitlesVerticalCombo}, d.titles == TitlesMode::Off);
+        Collapse({kTitlesVerticalLabel, kTitlesVerticalCombo}, run.titles == TitlesMode::Off);
         // Round 8 phase 8B: the thumbnail rows only for the mode that uses them (collapsed, not greyed).
-        Collapse({kThumbIntervalLabel, kThumbIntervalEdit, kThumbIntervalUnit}, d.thumbnails != ThumbnailMode::Snapshots);
-        Collapse({kThumbFpsLabel, kThumbFpsEdit, kThumbFpsUnit}, d.thumbnails != ThumbnailMode::Live);
-        Collapse({kThumbSizeLabel, kThumbSizeEdit, kThumbSizeUnit}, d.thumbnails == ThumbnailMode::Off);
+        Collapse({kThumbIntervalLabel, kThumbIntervalEdit, kThumbIntervalUnit}, run.thumbnails != ThumbnailMode::Snapshots);
+        Collapse({kThumbFpsLabel, kThumbFpsEdit, kThumbFpsUnit}, run.thumbnails != ThumbnailMode::Live);
+        Collapse({kThumbSizeLabel, kThumbSizeEdit, kThumbSizeUnit}, run.thumbnails == ThumbnailMode::Off);
     }
 
     void FillMonitors() {

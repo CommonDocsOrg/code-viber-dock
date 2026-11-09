@@ -3569,7 +3569,9 @@ always there, also when every dock is parked) handle these registered messages:
   not raised above it then), else 0 (`tools\smoke\menu-zorder.ps1` uses it). Round 13 phase 13C: **325** = the
   number of quick entries of slot `LOWORD(lParam)` of dock `HIWORD(lParam)` (its menu's quick settings: one per
   bool, one per value of a choice; ItemCommand 866 applies one; 0 for a slot without any or no such slot, -1 no
-  such dock window). The labels of the change Undo / Redo would
+  such dock window). Round 13 phase 13D: **326** = the running item of dock `HIWORD(lParam)`: its effective gap in
+  DIPs in the low word (its `gap`, or the theme's `iconGap` when `gap` is -1; 0xFFFF when the dock has no running
+  item) and its `padding` in DIPs in the high word (`tools\smoke\running-widget.ps1` uses it). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its

@@ -1058,7 +1058,7 @@ bool DockManager::NotificationsWanted() const {
     for (const Instance& i : instances_) {
         if (!i.window || i.cfg >= config_->docks.size()) continue;  // a parked dock shows nothing
         const DockConfig& d = config_->docks[i.cfg];
-        if (d.badges || d.Has(ItemKind::Notifications)) return true;  // badges, the centre's bell
+        if (d.Running().badges || d.Has(ItemKind::Notifications)) return true;  // badges (13D: the running item's), the centre's bell
     }
     return false;
 }

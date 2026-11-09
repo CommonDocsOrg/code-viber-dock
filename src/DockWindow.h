@@ -1189,7 +1189,8 @@ private:
         return DockGeometry::Point(layout_.edge, BoxW(item) / 2.0f, layout_.iconPx, layout_.iconPx);
     }
     // Rest slot left edge -> icon box left edge.
-    float BoxInset(const DockItem& item) const { return item.Magnifies() ? std::floor(layout_.gap / 2.0f) : 0.0f; }
+    // Round 13 phase 13D: the slot's own gap (DockItem::gapPx), not the theme's.
+    float BoxInset(const DockItem& item) const { return item.Magnifies() ? std::floor(item.gapPx / 2.0f) : 0.0f; }
 
     // --- drag to reorder (Goal: macOS-style icon dragging) ---
     // Press on an item and move past the system drag threshold: the icon follows the cursor,

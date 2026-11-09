@@ -165,6 +165,15 @@ struct DockItem {
     // hairline surface) fills it; a widget's slot is its content box (Measure's main length).
     float slotX = 0.0f;
     float slotW = 0.0f;
+    // Round 13 phase 13D: an icon slot's own gap (px; its element's SlotGap: the theme's iconGap, or
+    // the running item's `gap`): the slot is boxMain + gapPx with floor(gapPx / 2) before the box.
+    // Two neighbouring slots are therefore the mean of their gaps apart. Set by the layout.
+    float gapPx = 0.0f;
+    // Round 13 phase 13D: its element's RunPadding (px; the running item's `padding`), and the part
+    // of `lead` that is padding (that element's before its first slot, the previous element's after
+    // its last): the hairline sits in the rest of the lead.
+    float runPad = 0.0f;
+    float padLead = 0.0f;
     // Spacer before the slot at rest (between an icon and a widget, or two widgets; 0 between
     // icons). It never scales: magnification and drags keep it.
     float lead = 0.0f;

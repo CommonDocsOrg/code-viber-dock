@@ -2095,13 +2095,19 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             if (d.locked || d.Has(ItemKind::Notifications)) break;
             AddWidget(cfg, ItemKind::Notifications);  // reloads (the service starts with the element) and saves
             break;
-        case ContextMenu::kToggleBadges:
-            NoteLabel(d.badges ? L"Notification badges: Off" : L"Notification badges: On");
-            d.badges = !d.badges;
+        case ContextMenu::kToggleBadges: {
+            // Round 13 phase 13D: badges are the running item's setting (no running item: nothing to
+            // toggle; the dock shows no running apps of its own).
+            RunningConfig runCfg = d.Running();
+            if (!d.Has(ItemKind::Running)) break;
+            NoteLabel(runCfg.badges ? L"Notification badges: Off" : L"Notification badges: On");
+            runCfg.badges = !runCfg.badges;
+            d.SetRunning(runCfg);
             docks_.SyncNotifications();  // starts / stops the service, redraws the badges
             RequestSave();
             RefreshSettings();
             break;
+        }
         case ContextMenu::kAddClock:
         case ContextMenu::kAddWeather:
         case ContextMenu::kAddRunning:

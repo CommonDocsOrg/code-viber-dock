@@ -53,6 +53,7 @@ const wchar_t* const kWindowsModeNames[] = {L"stacked", L"unstacked"};
 const wchar_t* const kTitlesNames[] = {L"off", L"one", L"two"};
 const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
 const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
+const wchar_t* const kRunningOrderNames[] = {L"firstSeen", L"name"};  // round 13 phase 13D
 const wchar_t* const kOverflowNames[] = {L"scroll", L"shrink", L"clip"};
 const wchar_t* const kMagnifyBarNames[] = {L"steady", L"follow", L"always"};  // round 9 phase 9A
 const wchar_t* const kShapeNames[] = {L"bar", L"arc", L"circle"};
@@ -120,30 +121,12 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
             d.monitor = DockConfig::kMonitorPrimary;
         }
     }
-    s.clear();
-    ReadString(o, L"runningFilter", s);
-    if (!s.empty()) FromString(s, d.runningFilter);  // unknown text: all
+    // Round 13 phase 13D: runningFilter / windows / titles / titlesVertical / thumbnails* / badges
+    // are the running item's now (MoveOldRunningKeys, after the items).
     ReadString(o, L"themePreset", d.themePreset);
     s.clear();
     ReadString(o, L"layer", s);
     if (!s.empty()) FromString(s, d.layer);  // unknown text: normal
-    // Unknown text keeps the default.
-    s.clear();
-    ReadString(o, L"windows", s);
-    if (!s.empty()) FromString(s, d.windows);
-    s.clear();
-    ReadString(o, L"titles", s);
-    if (!s.empty()) FromString(s, d.titles);
-    s.clear();
-    ReadString(o, L"titlesVertical", s);
-    if (!s.empty()) FromString(s, d.titlesVertical);
-    s.clear();
-    ReadString(o, L"thumbnails", s);
-    if (!s.empty()) FromString(s, d.thumbnails);
-    ReadInt(o, L"thumbnailIntervalS", d.thumbnailIntervalS);
-    ReadInt(o, L"thumbnailSize", d.thumbnailSize);
-    ReadInt(o, L"thumbnailFps", d.thumbnailFps);
-    ReadBool(o, L"badges", d.badges);
     s.clear();
     ReadString(o, L"overflow", s);
     if (!s.empty()) FromString(s, d.overflow);  // unknown text: scroll
@@ -299,6 +282,80 @@ json::JsonObject SettingsObject(const std::wstring& text) {
     return nullptr;
 }
 
+// --- round 13 phase 13D: a running item's settings ---
+void ReadRunningFields(const json::JsonObject& o, RunningConfig& r) {
+    ReadEnum(o, L"filter", r.filter);  // unknown text keeps the default
+    ReadEnum(o, L"windows", r.windows);
+    ReadEnum(o, L"titles", r.titles);
+    ReadEnum(o, L"titlesVertical", r.titlesVertical);
+    ReadEnum(o, L"thumbnails", r.thumbnails);
+    ReadInt(o, L"thumbnailIntervalS", r.thumbnailIntervalS);
+    ReadInt(o, L"thumbnailSize", r.thumbnailSize);
+    ReadInt(o, L"thumbnailFps", r.thumbnailFps);
+    ReadBool(o, L"badges", r.badges);
+    ReadInt(o, L"gap", r.gap);
+    ReadInt(o, L"padding", r.padding);
+    ReadEnum(o, L"order", r.order);
+}
+
+void SanitizeRunning(RunningConfig& r) {
+    if (static_cast<unsigned>(r.filter) > static_cast<unsigned>(RunningFilter::Monitor)) r.filter = RunningFilter::All;
+    if (static_cast<unsigned>(r.windows) > static_cast<unsigned>(WindowsMode::Unstacked)) r.windows = WindowsMode::Stacked;
+    if (static_cast<unsigned>(r.titles) > static_cast<unsigned>(TitlesMode::Two)) r.titles = TitlesMode::Off;
+    if (static_cast<unsigned>(r.titlesVertical) > static_cast<unsigned>(TitlesVertical::Beside)) {
+        r.titlesVertical = TitlesVertical::Beside;
+    }
+    if (static_cast<unsigned>(r.thumbnails) > static_cast<unsigned>(ThumbnailMode::Snapshots)) r.thumbnails = ThumbnailMode::Off;
+    r.thumbnailIntervalS = std::clamp(r.thumbnailIntervalS, 1, 3600);
+    r.thumbnailSize = r.thumbnailSize <= 0 ? 0 : std::clamp(r.thumbnailSize, 16, 512);
+    r.thumbnailFps = std::clamp(r.thumbnailFps, 1, 60);
+    r.gap = r.gap < 0 ? RunningConfig::kThemeGap : std::min(r.gap, 48);
+    r.padding = std::clamp(r.padding, 0, 64);
+    if (static_cast<unsigned>(r.order) > static_cast<unsigned>(RunningOrder::Name)) r.order = RunningOrder::FirstSeen;
+}
+
+// Before round 13 phase 13D these were docks[] keys (the dock key -> the running item's key).
+// A dock object that carries any of them: they go into the first running item's settings, each
+// only when that object does not have it already (its own value wins); a dock without a running
+// item drops them (they describe running windows; recorded in STATUS.md). Save never writes them
+// at the dock level again. True when the object had one (the caller saves the moved form).
+bool MoveOldRunningKeys(const json::JsonObject& obj, DockConfig& d) {
+    static constexpr std::pair<const wchar_t*, const wchar_t*> kKeys[] = {
+        {L"runningFilter", L"filter"},
+        {L"windows", L"windows"},
+        {L"titles", L"titles"},
+        {L"titlesVertical", L"titlesVertical"},
+        {L"thumbnails", L"thumbnails"},
+        {L"thumbnailIntervalS", L"thumbnailIntervalS"},
+        {L"thumbnailSize", L"thumbnailSize"},
+        {L"thumbnailFps", L"thumbnailFps"},
+        {L"badges", L"badges"},
+    };
+    DockItemEntry* running = nullptr;
+    for (DockItemEntry& e : d.items) {
+        if (e.Kind() == ItemKind::Running) {
+            running = &e;
+            break;
+        }
+    }
+    bool any = false;
+    json::JsonObject settings{nullptr};
+    for (const auto& [from, to] : kKeys) {
+        const json::IJsonValue v = Find(obj, from);
+        if (!v) continue;
+        any = true;
+        if (!running) continue;
+        if (!settings) {
+            settings = SettingsObject(running->settings);
+            if (!settings) settings = json::JsonObject();
+        }
+        // A copy: a value belongs to one object.
+        if (!settings.HasKey(to)) settings.SetNamedValue(to, json::JsonValue::Parse(v.Stringify()));
+    }
+    if (running && settings) running->settings = std::wstring(settings.Stringify());
+    return any;
+}
+
 // A "folderWindow" docks[] entry (round 4 phase 12): its own keys; the dock keys are not read.
 void ReadFolderWindowFields(const json::JsonObject& o, DockConfig& d) {
     FolderWindowConfig& f = d.folder;
@@ -368,7 +425,15 @@ void ReadWidgetWindowFields(const json::JsonObject& o, DockConfig& d) {
 
 // A docks[] entry of kind "dock" (its keys over `d`; the items when "items" is an array). Also a
 // preset's dock (round 9 phase 9C: ReadDockJson).
-void ReadDockObject(const json::JsonObject& obj, DockConfig& d) {
+// Round 13 phase 13D: `oldKeys` (when given) is set when the object carried a pre-13D running key
+// (MoveOldRunningKeys).
+void ReadDockItems(const json::JsonObject& obj, DockConfig& d);
+void ReadDockObject(const json::JsonObject& obj, DockConfig& d, bool* oldKeys = nullptr) {
+    ReadDockItems(obj, d);
+    if (MoveOldRunningKeys(obj, d) && oldKeys) *oldKeys = true;
+}
+
+void ReadDockItems(const json::JsonObject& obj, DockConfig& d) {
     ReadBool(obj, L"locked", d.locked);
     std::wstring color;
     ReadString(obj, L"color", color);
@@ -490,6 +555,8 @@ bool FromString(std::wstring_view s, ItemAnchor& v) { return EnumFromString(s, v
 const wchar_t* ToString(FolderSort v) { return EnumToString(v, kFolderSortNames); }
 const wchar_t* ToString(WidgetBackground v) { return EnumToString(v, kWidgetBackgroundNames); }
 bool FromString(std::wstring_view s, WidgetBackground& v) { return EnumFromString(s, v, kWidgetBackgroundNames); }
+const wchar_t* ToString(RunningOrder v) { return EnumToString(v, kRunningOrderNames); }
+bool FromString(std::wstring_view s, RunningOrder& v) { return EnumFromString(s, v, kRunningOrderNames); }
 
 size_t FolderWindowConfig::RuleCount() const {
     size_t n = 0;
@@ -805,6 +872,73 @@ std::wstring WeatherSettingsJson(const WeatherConfig& w) {
            Num(w.refreshMinutes) + L",\"label\":" + Quote(w.label) + L"}";
 }
 
+// --- round 13 phase 13D ---
+RunningConfig RunningOf(const DockItemEntry& item) {
+    RunningConfig r;
+    if (item.Kind() != ItemKind::Running) return r;
+    try {
+        if (const json::JsonObject o = SettingsObject(item.settings)) ReadRunningFields(o, r);
+    } catch (...) {
+        r = RunningConfig{};
+    }
+    SanitizeRunning(r);
+    return r;
+}
+
+RunningConfig RunningOf(const Config&, const DockItemEntry& item) { return RunningOf(item); }
+
+std::wstring RunningSettingsJson(const RunningConfig& r) {
+    return L"{\"filter\":" + Quote(ToString(r.filter)) + L",\"windows\":" + Quote(ToString(r.windows)) + L",\"titles\":" +
+           Quote(ToString(r.titles)) + L",\"titlesVertical\":" + Quote(ToString(r.titlesVertical)) + L",\"thumbnails\":" +
+           Quote(ToString(r.thumbnails)) + L",\"thumbnailIntervalS\":" + Num(r.thumbnailIntervalS) +
+           L",\"thumbnailSize\":" + Num(r.thumbnailSize) + L",\"thumbnailFps\":" + Num(r.thumbnailFps) + L",\"badges\":" +
+           Bool(r.badges) + L",\"gap\":" + Num(r.gap) + L",\"padding\":" + Num(r.padding) + L",\"order\":" +
+           Quote(ToString(r.order)) + L"}";
+}
+
+const RunningConfig& DockConfig::Running() const {
+    const DockItemEntry* running = nullptr;
+    for (const DockItemEntry& e : items) {
+        if (e.Kind() == ItemKind::Running) {
+            running = &e;
+            break;
+        }
+    }
+    if (!running) {
+        if (!runningCacheValid_ || runningCacheHas_) {
+            runningCache_ = RunningConfig{};
+            runningCacheKey_.clear();
+            runningCacheHas_ = false;
+            runningCacheValid_ = true;
+        }
+        return runningCache_;
+    }
+    if (!runningCacheValid_ || !runningCacheHas_ || runningCacheKey_ != running->settings) {
+        runningCache_ = RunningOf(*running);
+        runningCacheKey_ = running->settings;
+        runningCacheHas_ = true;
+        runningCacheValid_ = true;
+    }
+    return runningCache_;
+}
+
+void SetRunningSettings(DockItemEntry& item, const RunningConfig& r) {
+    json::JsonObject settings = SettingsObject(item.settings);
+    if (!settings) settings = json::JsonObject();
+    const json::JsonObject values = SettingsObject(RunningSettingsJson(r));
+    for (const auto& field : values) settings.SetNamedValue(field.Key(), field.Value());
+    item.settings = std::wstring(settings.Stringify());
+}
+
+bool DockConfig::SetRunning(const RunningConfig& r) {
+    for (DockItemEntry& e : items) {
+        if (e.Kind() != ItemKind::Running) continue;
+        SetRunningSettings(e, r);
+        return true;
+    }
+    return false;
+}
+
 bool Config::EnsureItemSettings() {
     bool changed = false;
     auto snapshotWeather = [](DockItemEntry& item, const WeatherConfig& effective) {
@@ -837,6 +971,10 @@ bool Config::EnsureItemSettings() {
             if (!e.settings.empty()) continue;
             if (e.Kind() == ItemKind::Clock) {
                 e.settings = ClockSettingsJson(clock);
+                changed = true;
+            }
+            if (e.Kind() == ItemKind::Running) {  // round 13 phase 13D: the RunningConfig defaults
+                e.settings = RunningSettingsJson(RunningConfig{});
                 changed = true;
             }
         }
@@ -987,21 +1125,8 @@ void Config::Sanitize() {
         d.revealDelayMs = std::clamp(d.revealDelayMs, 0, 10000);
         d.previewDelayMs = std::clamp(d.previewDelayMs, 0, 10000);
         if (d.monitor < DockConfig::kMonitorEach) d.monitor = 0;
-        if (static_cast<unsigned>(d.runningFilter) > static_cast<unsigned>(RunningFilter::Monitor)) {
-            d.runningFilter = RunningFilter::All;
-        }
         if (static_cast<unsigned>(d.layer) > static_cast<unsigned>(DockLayer::Behind)) d.layer = DockLayer::Normal;
-        if (static_cast<unsigned>(d.windows) > static_cast<unsigned>(WindowsMode::Unstacked)) d.windows = WindowsMode::Stacked;
-        if (static_cast<unsigned>(d.titles) > static_cast<unsigned>(TitlesMode::Two)) d.titles = TitlesMode::Off;
-        if (static_cast<unsigned>(d.titlesVertical) > static_cast<unsigned>(TitlesVertical::Beside)) {
-            d.titlesVertical = TitlesVertical::Beside;
-        }
-        if (static_cast<unsigned>(d.thumbnails) > static_cast<unsigned>(ThumbnailMode::Snapshots)) {
-            d.thumbnails = ThumbnailMode::Off;
-        }
-        d.thumbnailIntervalS = std::clamp(d.thumbnailIntervalS, 1, 3600);
-        d.thumbnailSize = d.thumbnailSize <= 0 ? 0 : std::clamp(d.thumbnailSize, 16, 512);
-        d.thumbnailFps = std::clamp(d.thumbnailFps, 1, 60);
+        // Round 13 phase 13D: the running keys are sanitized by RunningOf (the item's settings).
         if (static_cast<unsigned>(d.overflow) > static_cast<unsigned>(OverflowMode::Clip)) d.overflow = OverflowMode::Scroll;
         if (static_cast<unsigned>(d.magnifyBar) > static_cast<unsigned>(MagnifyBar::Always)) d.magnifyBar = MagnifyBar::Steady;
         if (static_cast<unsigned>(d.shape) > static_cast<unsigned>(DockShape::Circle)) d.shape = DockShape::Bar;
@@ -1168,7 +1293,9 @@ Config::LoadResult Config::LoadJson(const std::wstring& text) {
                         docks.push_back(std::move(d));
                         continue;
                     }
-                    ReadDockObject(obj, d);
+                    bool oldKeys = false;
+                    ReadDockObject(obj, d, &oldKeys);
+                    if (oldKeys) migrated = true;  // round 13 phase 13D: the moved keys are saved at once
                     docks.push_back(std::move(d));
                 }
             }
@@ -1441,14 +1568,10 @@ std::wstring Config::ToJson(bool windowSizes) const {
                  L", \"previewDelayMs\": " + Num(d.previewDelayMs) + L",\n";
             o += L"      \"middleClick\": " + Quote(ToString(d.middleClick)) + L", \"wheel\": " + Quote(ToString(d.wheel)) +
                  L",\n";
-            o += L"      \"monitor\": " + MonitorJson(d.monitor) + L", \"runningFilter\": " +
-                 Quote(ToString(d.runningFilter)) + L", \"themePreset\": " + Quote(d.themePreset) + L", \"layer\": " +
-                 Quote(ToString(d.layer)) + L",\n";
-            o += L"      \"windows\": " + Quote(ToString(d.windows)) + L", \"titles\": " + Quote(ToString(d.titles)) +
-                 L", \"titlesVertical\": " + Quote(ToString(d.titlesVertical)) + L",\n";
-            o += L"      \"thumbnails\": " + Quote(ToString(d.thumbnails)) + L", \"thumbnailIntervalS\": " +
-                 Num(d.thumbnailIntervalS) + L", \"thumbnailSize\": " + Num(d.thumbnailSize) + L", \"thumbnailFps\": " +
-                 Num(d.thumbnailFps) + (d.badges ? L",\n      \"badges\": true" : L"") +
+            // Round 13 phase 13D: runningFilter, windows, titles, titlesVertical, thumbnails*, badges
+            // are the running item's settings now; never written here.
+            o += L"      \"monitor\": " + MonitorJson(d.monitor) + L", \"themePreset\": " + Quote(d.themePreset) +
+                 L", \"layer\": " + Quote(ToString(d.layer)) +
                  (d.overflow != OverflowMode::Scroll ? L",\n      \"overflow\": " + Quote(ToString(d.overflow)) : L"") +
                  (d.shape != DockShape::Bar ? L",\n      \"shape\": " + Quote(ToString(d.shape)) : L"") +
                  (d.radius > 0 ? L", \"radius\": " + Num(d.radius) : L"") +

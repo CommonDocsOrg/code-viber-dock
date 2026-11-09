@@ -38,6 +38,58 @@ protected:
 
     void LoadInts() {
         for (const IntField& f : ints_) SetSpin(f.spin, f.field(Cfg(), Dock()));
+        const RunningConfig r = RunningValues();
+        for (const RunIntField& f : runInts_) {
+            RunningConfig copy = r;
+            SetSpin(f.spin, f.field(copy));
+        }
+    }
+
+    // --- round 13 phase 13D: ints of a running item's settings (RunningConfig) ---
+    using RunIntRef = int& (*)(RunningConfig&);
+    struct RunIntField {
+        int edit;
+        int spin;
+        int lo;
+        int hi;
+        RunIntRef field;
+        SettingsScope scope;
+    };
+    // Bound like IntSpin, to an int of RunningItem()'s settings.
+    void RunIntSpin(int edit, int spin, int x, int w, int lo, int hi, int step, RunIntRef field, SettingsScope scope) {
+        Spin(edit, spin, x, w, lo, hi, step);
+        runInts_.push_back(RunIntField{edit, spin, lo, hi, field, scope});
+    }
+    // The running item these settings are for: the window's dock's first one (an Item window: its
+    // own item). Null: none (the values are the defaults, nothing is written).
+    virtual DockItemEntry* RunningItem() {
+        for (DockItemEntry& e : Dock().items) {
+            if (e.Kind() == ItemKind::Running) return &e;
+        }
+        return nullptr;
+    }
+    RunningConfig RunningValues() {
+        const DockItemEntry* e = RunningItem();
+        return e ? RunningOf(*e) : RunningConfig{};
+    }
+    // Writes `r` into the running item and tells the host (`scope`) when something changed.
+    bool StoreRunning(const RunningConfig& r, SettingsScope scope) {
+        DockItemEntry* e = RunningItem();
+        if (!e || RunningOf(*e) == r) return false;
+        SetRunningSettings(*e, r);
+        Changed(scope);
+        return true;
+    }
+    void SetRunInt(const RunIntField& f, int value) {
+        value = std::clamp(value, f.lo, f.hi);
+        SetSpin(f.spin, value);
+        RunningConfig r = RunningValues();
+        int& field = f.field(r);
+        if (field != value) {
+            field = value;
+            StoreRunning(r, f.scope);
+        }
+        IntChanged(f.spin, value);
     }
 
     // Applies `value` to the field (if it changed) and tells the host.
@@ -67,6 +119,12 @@ protected:
                 return;
             }
         }
+        for (const RunIntField& f : runInts_) {
+            if (f.spin == id) {
+                if (code == SB_THUMBPOSITION || code == SB_ENDSCROLL) SetRunInt(f, GetSpin(id));
+                return;
+            }
+        }
         if (const Ctl* c = Find(id); c && c->kind == CtlKind::Spin) {
             if (code == SB_THUMBPOSITION || code == SB_ENDSCROLL) Spun(id, GetSpin(id));
             return;
@@ -82,6 +140,18 @@ protected:
                     SetInt(f, value);
                 } else {
                     SetSpin(f.spin, f.field(Cfg(), Dock()));  // not a number: back to the current value
+                }
+                return;
+            }
+        }
+        for (const RunIntField& f : runInts_) {
+            if (f.edit == id) {
+                int value = 0;
+                if (ReadInt(f.edit, f.lo, f.hi, value)) {
+                    SetRunInt(f, value);
+                } else {
+                    RunningConfig r = RunningValues();
+                    SetSpin(f.spin, f.field(r));
                 }
                 return;
             }
@@ -114,6 +184,7 @@ protected:
 
 private:
     std::vector<IntField> ints_;
+    std::vector<RunIntField> runInts_;
 };
 
 // Page factories (one source file each, besides SettingsPages.cpp).

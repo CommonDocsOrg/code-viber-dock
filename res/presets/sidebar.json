@@ -6,14 +6,13 @@
   "dock": {
     "edge": "left", "align": "start", "fullWidth": true, "iconSize": 40,
     "magnification": 1.0, "magnifyBar": "always",
-    "windows": "unstacked", "titles": "one", "titlesVertical": "beside",
     "autoHide": "intelligent"
   },
   "items": [
     { "kind": "widget", "id": "start" },
     { "kind": "pins" },
     { "kind": "separator" },
-    { "kind": "running" },
+    { "kind": "running", "settings": { "windows": "unstacked", "titles": "one", "titlesVertical": "beside" } },
     { "kind": "separator" },
     { "kind": "widget", "id": "volume" },
     { "kind": "clock" }
