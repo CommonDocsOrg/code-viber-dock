@@ -2054,6 +2054,24 @@ void SettingsWindow::OnEnterKey() {
 
 bool SettingsWindow::PreTranslateMessage(MSG& msg) {
     if (!hwnd_ || !msg.hwnd || (msg.hwnd != hwnd_ && !IsChild(hwnd_, msg.hwnd))) return false;
+    // --- round 12 phase 12C ---
+    // The header's name edit and a list's label edit (Docks and displays > Rename) take Enter and Esc
+    // themselves (not the dialog's default button, not the preview's Esc).
+    if (msg.message == WM_KEYDOWN && (msg.wParam == VK_RETURN || msg.wParam == VK_ESCAPE)) {
+        if (renaming_ && msg.hwnd == nameEdit_) return false;
+        wchar_t cls[32]{};
+        if (HWND parent = GetParent(msg.hwnd); parent && GetClassNameW(parent, cls, static_cast<int>(std::size(cls))) &&
+                                               _wcsicmp(cls, WC_LISTVIEWW) == 0) {
+            return false;
+        }
+    }
+    // F2 in a dock's window: its name (as a click on it in the header).
+    if (msg.message == WM_KEYDOWN && msg.wParam == VK_F2 && kind_ == SettingsKind::Dock && GetKeyState(VK_CONTROL) >= 0 &&
+        GetKeyState(VK_SHIFT) >= 0 && GetKeyState(VK_MENU) >= 0 && nameEdit_) {
+        BeginRename();
+        return true;
+    }
+    // --- end round 12 phase 12C ---
     if (msg.message == WM_KEYDOWN && msg.wParam == VK_TAB && GetKeyState(VK_CONTROL) < 0 && pages_.size() > 1) {
         // Ctrl+Tab / Ctrl+Shift+Tab: the next / previous page (tab), wrapping around.
         const int step = GetKeyState(VK_SHIFT) < 0 ? -1 : 1;
@@ -3062,12 +3080,12 @@ void Append(std::wstring& to, const std::wstring& s) {
 std::wstring SettingsWindow::SearchName() {
     switch (kind_) {
         case SettingsKind::Global: return L"App";  // round 10 phase 10A: the App settings window
-        case SettingsKind::Item: return ItemName() + L" on " + dockId_;
+        case SettingsKind::Item: return ItemName() + L" on " + DockName();
         case SettingsKind::Dock:
         default:
-            if (IsFolderWindow()) return L"Folder window " + dockId_;
-            if (IsWidgetWindow()) return L"Widget " + dockId_;
-            return L"Dock " + dockId_;
+            if (IsFolderWindow()) return L"Folder window " + DockName();
+            if (IsWidgetWindow()) return L"Widget " + DockName();
+            return L"Dock " + DockName();
     }
 }
 

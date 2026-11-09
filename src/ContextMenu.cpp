@@ -75,6 +75,11 @@ void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
         AppendSub(menu, sub, L"Auto-hide");
     }
     Append(menu, kLockDock, L"Lock dock", true, state.locked);
+    // --- round 12 phase 12C: docks you keep ---
+    Append(menu, kRenameDock, L"Rename dock\x2026", true);
+    Append(menu, kDuplicateDock, L"Duplicate dock", true);
+    Append(menu, kSaveDockLayout, L"Save dock as layout\x2026", true);
+    // --- end round 12 phase 12C ---
     Separator(menu);
     if (HMENU sub = CreatePopupMenu()) {
         // Round 6 phase 6A: the desktop docks to the front (the dashboard hotkey does the same).

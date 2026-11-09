@@ -94,7 +94,7 @@ To change your dock to a preset:
 
 1. Right-click the dock and choose **Dock settings…**.
 2. Click **⋯** at the top right of the window.
-3. Choose **Apply a preset…**.
+3. Choose **Apply a layout or look…**.
 4. Pick a preset at the left. The right side shows what it looks like.
 5. Leave **Keep my pinned apps and folders** checked to keep your pins.
 6. Click **Apply**.

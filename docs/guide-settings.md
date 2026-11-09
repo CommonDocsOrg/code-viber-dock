@@ -134,7 +134,7 @@ To turn the bar off, clear App settings > General > Changes > **Ask to keep a do
 
 ### Keep or Cancel for presets
 
-Applying a preset (Dock settings > **⋯** > **Apply a preset…**, or adding a dock from a preset) is a preview first. The dock changes at once, the preset chooser closes, and a bar says "Previewing Modern on main." with **Keep** and **Cancel**. Nothing is saved while the preview is open. Keep makes it one change you can undo. Cancel, **Esc**, or closing the settings window puts the dock back as it was. The welcome dialog of the first run applies its choice at once.
+Applying a preset (Dock settings > **⋯** > **Apply a layout or look…**, or adding a dock from a preset) is a preview first. The dock changes at once, the preset chooser closes, and a bar says "Previewing Modern on main." with **Keep** and **Cancel**. Nothing is saved while the preview is open. Keep makes it one change you can undo. Cancel, **Esc**, or closing the settings window puts the dock back as it was. The welcome dialog of the first run applies its choice at once.
 
 ## App settings
 
@@ -410,13 +410,13 @@ At the right:
 - **Flash**: shows the dock and makes its border pulse for a moment, so you can see which dock this window is for.
 - **Lock** / **Unlock**: a locked dock cannot be changed by dragging: no reordering, no unpinning by dragging, no moving the dock. The settings window still changes everything.
 - **App settings…**: opens the settings that apply to every dock and to WinDock as a whole.
-- **⋯**: a menu with **Undo**, **Redo**, **Revert this window…**, **Find a setting…** (Ctrl+F) and **Apply a preset…**.
+- **⋯**: a menu with **Undo**, **Redo**, **Revert this window…**, **Find a setting…** (Ctrl+F) and **Apply a layout or look…**.
 
 Left of the buttons the header says **✓ Saved**, **Saving…** or **Not saved** (see [Undo and Saved](#undo-and-saved)).
 
 To turn a dock into a preset:
 
-1. Click **⋯** and choose **Apply a preset…**.
+1. Click **⋯** and choose **Apply a layout or look…**.
 2. Pick a preset at the left.
 3. Leave **Keep my pinned apps and folders** checked to keep your apps, folders, groups, separators and the Recycle Bin.
 4. Click **Apply**.

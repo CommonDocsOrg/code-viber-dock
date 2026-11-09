@@ -546,6 +546,11 @@ private:
         float hiddenSlide = 0.0f; // slide distance of the hidden pose (`slide`, or to the peek strip)
         bool reflClip = false;    // reflections are clipped at the bar's edge (theme.reflectionClip)
         D2D1_RECT_F title{};      // the title's physical stage rect (empty: none)
+        // Round 12 phase 12C (docks[].titlePlace "inside", a horizontal bar): the title is drawn in a
+        // band inside the bar, on its far side above the icon row; titleBand is what it adds to the
+        // bar's cross size (0: outside / none).
+        bool titleInside = false;
+        float titleBand = 0.0f;
         // Titles under the icons (docks[].titles; 0 lines: none). Each slot's caption box is
         // captionMain x captionCross (canonical), captionTop on the cross axis (under the icon and
         // any reflection, toward the screen edge), along the bar at the icon box + captionShift.
@@ -1262,6 +1267,13 @@ private:
     std::wstring titleText_;
     float titleScale_ = 0.0f;
     bool titleDirty_ = true;
+    // Round 12 phase 12C: docks[].titleShow "hover": the title visual's opacity follows the pointer
+    // over the dock (a 150 ms DComp fade, none with reduced motion; nothing ticks: DWM runs it).
+    Tween titleOpacity_;
+    winrt::com_ptr<IDCompositionVisual3> title3_;  // title_'s opacity (null: shown / hidden instead)
+    bool titleHover_ = false;                      // the pointer is over the dock (as the title sees it)
+    void SetTitleHover(bool hover);
+    void ApplyTitleOpacity(double duration);
     Layout layout_;
     Tween bgLeftX_, bgRightX_, labelX_, labelY_;
     float bgLeftTarget_ = 0.0f, bgRightTarget_ = 0.0f;

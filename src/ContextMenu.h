@@ -107,6 +107,14 @@ enum Command : UINT {
     kSaveLookAsTheme = 162,  // LOWORD a global atom with the name: themes\<name>.json of that look (replaced), then its preset
     kImportThemeFile = 163,  // LOWORD a global atom with a path: the file copied into the themes folder
     kApplyLookToDocks = 164, // LOWORD a bitmask of config docks (bit n = docks[n]): each gets that look as its own
+    // --- round 12 phase 12C: docks you keep (App::KeepCommand; 165, 166 and 169 are also dock menu
+    // entries; HIWORD(lParam) the dock by instance index): 1 done, 0 refused ---
+    kRenameDock = 165,       // "Rename dock…": the Dock window's header name edit (LOWORD a global atom with a name: renamed at once, 0: the edit)
+    kDuplicateDock = 166,    // "Duplicate dock": a copy named "<name> copy" on the next free edge of its display
+    kApplySavedLayout = 167, // saved layout LOWORD (Presets::Mine() order) applied as a Keep / Cancel preview (keeps the pins)
+    kApplyLookPreset = 168,  // look LOWORD (Presets::Looks() order) as a Keep / Cancel preview; HIWORD 0xFFFF: the app look
+    kSaveDockLayout = 169,   // "Save dock as layout…": the name dialog (LOWORD a global atom with the name: saved at once, replacing)
+    // --- end round 12 phase 12C ---
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,

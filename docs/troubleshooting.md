@@ -117,7 +117,7 @@ A dock or item setting that can follow an app-wide value (a dock's theme, a feed
 
 To reset the theme, open App settings > Themes, click **⋯** and choose **Reset all to preset**. Each changed value also has its own **↺** button.
 
-To reset one dock, apply the **Basic dock** preset to it: in its settings window click **⋯** > **Apply a preset…**. Clear **Keep my pinned apps and folders** for a clean dock.
+To reset one dock, apply the **Basic dock** preset to it: in its settings window click **⋯** > **Apply a layout or look…**. Clear **Keep my pinned apps and folders** for a clean dock.
 
 To start over completely:
 

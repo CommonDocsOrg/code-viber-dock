@@ -229,6 +229,9 @@ bool App::Initialize(HINSTANCE instance) {
                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kAppUndoLabel)), instance, nullptr);
     redoLabel_ = CreateWindowExW(0, WC_STATICW, L"", WS_CHILD | SS_NOPREFIX, 0, 0, 0, 0, hwnd_,
                                  reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kAppRedoLabel)), instance, nullptr);
+    // Round 12 phase 12C: QueryState 303's text channel (a dock's display name), as the two above.
+    nameText_ = CreateWindowExW(0, WC_STATICW, L"", WS_CHILD | SS_NOPREFIX, 0, 0, 0, 0, hwnd_,
+                                reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kAppNameText)), instance, nullptr);
     lastState_ = SnapshotText();
     lastPlacement_ = PlacementOf(config_);
     timelineReady_ = true;
@@ -325,7 +328,7 @@ void App::SetUpDock(DockWindow& dock) {
             d->Relayout();  // back to its own place
             return;
         }
-        NoteLabel(c.edge != edge ? L"Moved " + c.id + L" to the " + EdgeWord(edge) + L" edge" : L"Moved " + c.id);  // round 12 phase 12A
+        NoteLabel(c.edge != edge ? L"Moved " + c.DisplayName() + L" to the " + EdgeWord(edge) + L" edge" : L"Moved " + c.DisplayName());  // round 12 phase 12A
         c.edge = edge;
         c.align = align;
         c.offset = offset;
@@ -467,7 +470,7 @@ std::wstring App::DescribePlacement(const std::vector<Placement>& before, const 
         const auto it = std::find_if(before.begin(), before.end(), [&](const Placement& b) { return b.id == a.id; });
         if (it == before.end()) continue;  // a new dock: added, not moved
         const Placement& b = *it;
-        const std::wstring who = after.size() <= 1 ? std::wstring(L"Dock") : L"Dock " + a.id;
+        const std::wstring who = after.size() <= 1 ? std::wstring(L"Dock") : L"Dock " + config_.DockDisplayName(DockIndexOf(a.id));  // round 12 phase 12C: by name
         std::wstring text;
         if (b.enabled && !a.enabled) {
             text = who + L" is turned off.";
@@ -1204,7 +1207,7 @@ void App::ApplyPinOrder(DockWindow& dock, const std::vector<AppKey>& order, cons
     if (const int dragged = IndexOfKey(dock, anchorKey); dragged >= 0 && !dock.Items()[static_cast<size_t>(dragged)].displayName.empty()) {
         NoteLabel(L"Moved " + dock.Items()[static_cast<size_t>(dragged)].displayName);
     } else {
-        NoteLabel(L"Reordered " + config_.docks[cfg].id);
+        NoteLabel(L"Reordered " + config_.docks[cfg].DisplayName());
     }
     const std::vector<DockItemEntry> current = config_.docks[cfg].Pins();
     std::vector<bool> used(current.size(), false);
@@ -1326,7 +1329,7 @@ void App::AddWidget(size_t cfg, ItemKind kind) {
         MessageBeep(MB_ICONWARNING);  // a second running item
         return;
     }
-    NoteLabel(L"Added " + EntryName(cfg, at) + L" to " + config_.docks[cfg].id);  // round 12 phase 12A
+    NoteLabel(L"Added " + EntryName(cfg, at) + L" to " + config_.docks[cfg].DisplayName());  // round 12 phase 12A
     ReloadPins(cfg);  // also starts the weather service for a weather item
     RequestSave();
     RefreshSettings();
@@ -1426,7 +1429,7 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
                 MessageBeep(MB_ICONWARNING);
                 return;
             }
-            NoteLabel(L"Removed " + EntryName(cfg, slot.element) + L" from " + d.id);  // round 12 phase 12A
+            NoteLabel(L"Removed " + EntryName(cfg, slot.element) + L" from " + d.DisplayName());  // round 12 phase 12A
             d.items.erase(d.items.begin() + static_cast<ptrdiff_t>(slot.element));
             ReloadPins(cfg);
             RequestSave();
@@ -1600,7 +1603,7 @@ void App::ShowAppMenu(POINT pt) {
     for (const DockConfig& d : config_.docks) {
         if (d.Has(ItemKind::Widget)) state.hasWidgets = true;
         const std::wstring kind = d.IsFolderWindow() ? L" (folder window)" : d.IsWidgetWindow() ? L" (desktop widget)" : L"";
-        state.docks.push_back(d.id + kind + L" settings…");
+        state.docks.push_back(d.DisplayName() + kind + L" settings…");  // round 12 phase 12C: by name
         ids.push_back(d.id);
     }
     const UINT cmd = RunMenu(dock, [&] { return ContextMenu::ShowAppMenu(owner, pt, state); });
@@ -1773,6 +1776,17 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kDockSettings:
             OpenDockSettings(cfg);
             break;
+        // --- round 12 phase 12C: the dock menu's Rename dock… / Duplicate dock / Save dock as layout… ---
+        case ContextMenu::kRenameDock:
+            if (!d.IsDock() || !BeginRenameDock(cfg)) MessageBeep(MB_ICONWARNING);
+            break;
+        case ContextMenu::kDuplicateDock:
+            if (!d.IsDock() || DuplicateDock(cfg) == SIZE_MAX) MessageBeep(MB_ICONWARNING);
+            break;
+        case ContextMenu::kSaveDockLayout:
+            if (d.IsDock()) AskSaveLayout(cfg, dock ? dock->Hwnd() : nullptr);
+            break;
+        // --- end round 12 phase 12C ---
         case ContextMenu::kAddFromDrawer:  // round 10 phase 10A: Add > Apps, folders and more widgets…
             OpenDockSettings(cfg, SettingsIds::kTabContents);  // its add drawer is always shown
             break;
@@ -1826,7 +1840,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             if (dock) dock->TogglePopup(ItemKind::Weather);
             break;
         case ContextMenu::kLockDock:
-            NoteLabel((d.locked ? L"Unlocked " : L"Locked ") + d.id);
+            NoteLabel((d.locked ? L"Unlocked " : L"Locked ") + d.DisplayName());
             d.locked = !d.locked;  // read by the dock when a drag / drop starts
             docks_.ApplyWidgetWindow(cfg);  // a standalone widget: dock.locked
             RequestSave();
@@ -1895,7 +1909,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         case ContextMenu::kAddSeparator: {
             if (d.locked) break;
-            NoteLabel(L"Added a separator to " + d.id);
+            NoteLabel(L"Added a separator to " + d.DisplayName());
             DockItemEntry separator;
             separator.kind = ToString(ItemKind::Separator);
             d.InsertPin(SIZE_MAX, std::move(separator));  // after the last pin
@@ -1911,7 +1925,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             // The dock moves to that edge of its monitor (alignment and offset are kept).
             const DockEdge edge = static_cast<DockEdge>(cmd - ContextMenu::kEdgeBottom);
             if (d.edge == edge) break;
-            NoteLabel(L"Moved " + d.id + L" to the " + EdgeWord(edge) + L" edge");
+            NoteLabel(L"Moved " + d.DisplayName() + L" to the " + EdgeWord(edge) + L" edge");
             d.edge = edge;
             docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyConfig(); });
             RequestSave();
@@ -2306,7 +2320,22 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     };
     host.openSearch = [this, w](const std::wstring& text) { OpenSearch(w, text); };  // round 9 phase 9B
     host.openPresets = [this, w](int mode, size_t dock) {  // round 9 phase 9C
-        OpenPresets(mode == 1 ? PresetMode::Welcome : mode == 2 ? PresetMode::NewDock : PresetMode::Apply, dock, w->Hwnd());
+        // Round 12 phase 12C: 3 a new dock from Mine (Dock from a layout…).
+        OpenPresets(mode == 1 ? PresetMode::Welcome : mode == 2 || mode == 3 ? PresetMode::NewDock : PresetMode::Apply, dock, w->Hwnd(),
+                    mode == 3 ? PresetKind::Mine : PresetKind::Layouts);
+    };
+    // Round 12 phase 12C: Duplicate dock / Save dock as layout… / Rename dock of config dock `dock`.
+    host.dockAction = [this, w](UINT command, size_t dock) {
+        switch (command) {
+            case ContextMenu::kDuplicateDock: return DuplicateDock(dock) != SIZE_MAX;
+            case ContextMenu::kSaveDockLayout:
+                // The name dialog owned by this window (disabled meanwhile, as its own dialogs are).
+                if (dock >= config_.docks.size() || !config_.docks[dock].IsDock() || !w->Hwnd()) return false;
+                AskSaveLayout(dock, w->Hwnd());
+                return true;
+            case ContextMenu::kRenameDock: return BeginRenameDock(dock);
+            default: return false;
+        }
     };
     host.openHelp = [this, w](const std::wstring& topic) { OpenHelp(topic, w->Hwnd()); };  // round 9 phase 9D
     host.modal = [this](bool open) {  // round 10 phase 10D: Reset to factory defaults…'s confirmation
@@ -2592,10 +2621,12 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
         }
         case SettingsDockEdit::Duplicate: {
             if (index >= list.size()) return false;
+            // Round 12 phase 12C: a dock gets the dock menu's Duplicate dock (named, placed, appended).
+            if (list[index].IsDock()) return DuplicateDock(index) != SIZE_MAX;
             DockConfig d = list[index];
             d.id = config_.UniqueDockId(d.id);
             d.color = 0;  // its own colour (the palette by index), not the copied dock's
-            NoteLabel(L"Duplicated " + list[index].id);
+            NoteLabel(L"Duplicated " + list[index].DisplayName());
             list.insert(list.begin() + static_cast<ptrdiff_t>(index) + 1, std::move(d));
             break;
         }
@@ -2622,7 +2653,7 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             }
             d.items = {std::move(tray)};
             config_.tray.enabled = true;
-            NoteLabel(L"Put the tray of " + list[index].id + L" in its own dock");
+            NoteLabel(L"Put the tray of " + list[index].DisplayName() + L" in its own dock");
             list.push_back(std::move(d));
             SyncDocks();        // the new dock's window
             ReloadPins(index);  // the source dock without its tray (Sync does not reload items)
@@ -2634,7 +2665,7 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             if (index >= list.size() || list.size() <= 1) return false;  // never the last dock
             const auto docks = std::count_if(list.begin(), list.end(), [](const DockConfig& d) { return d.IsDock(); });
             if (list[index].IsDock() && docks <= 1) return false;  // folder windows / standalone widgets need a dock beside them
-            NoteLabel(L"Removed " + list[index].id);
+            NoteLabel(L"Removed " + list[index].DisplayName());
             list.erase(list.begin() + static_cast<ptrdiff_t>(index));
             break;
         }
@@ -2647,7 +2678,7 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
                 std::count_if(list.begin(), list.end(), [](const DockConfig& o) { return o.IsDock() && o.enabled; }) <= 1) {
                 return false;
             }
-            NoteLabel((d.enabled ? L"Turned off " : L"Turned on ") + d.id);
+            NoteLabel((d.enabled ? L"Turned off " : L"Turned on ") + d.DisplayName());
             d.enabled = !d.enabled;
             break;
         }
@@ -2738,13 +2769,13 @@ LRESULT App::CountUnexplained(LPARAM lp) {
 
 // --- dock presets (round 9 phase 9C) ------------------------------------------------------------
 
-void App::OpenPresets(PresetMode mode, size_t cfg, HWND owner) {
+void App::OpenPresets(PresetMode mode, size_t cfg, HWND owner, PresetKind kind) {
     if (shutDown_) return;
     if (presets_ && presets_->Hwnd()) {
         presets_->Activate();  // one chooser at a time
         return;
     }
-    if (Presets::All().empty()) {
+    if (Presets::All().empty() && mode != PresetMode::AppLook) {
         MessageBeep(MB_ICONWARNING);
         return;
     }
@@ -2755,44 +2786,74 @@ void App::OpenPresets(PresetMode mode, size_t cfg, HWND owner) {
             if (config_.docks[i].IsDock()) cfg = i;
         }
     }
-    if (mode != PresetMode::NewDock && (cfg >= config_.docks.size() || !config_.docks[cfg].IsDock())) {
+    if (mode != PresetMode::NewDock && mode != PresetMode::AppLook && (cfg >= config_.docks.size() || !config_.docks[cfg].IsDock())) {
         MessageBeep(MB_ICONWARNING);  // a folder window / standalone widget takes no preset
         return;
     }
-    const std::wstring id = mode == PresetMode::NewDock ? std::wstring() : config_.docks[cfg].id;
+    const bool forDock = mode == PresetMode::Apply || mode == PresetMode::Welcome;
+    const std::wstring id = forDock ? config_.docks[cfg].id : std::wstring();
+    const std::wstring name = forDock ? config_.docks[cfg].DisplayName() : std::wstring();
     PresetDialogHost host;
     host.config = &config_;
     // Round 12 phase 12A: Apply / Add dock start a Keep / Cancel preview (the chooser closes; closing
     // the settings window it was opened from cancels it). The welcome variant applies at once.
+    // Round 12 phase 12C: the kind (a built-in layout, a look, a saved layout) and Keep my current look.
     const HWND hostWindow = owner && owner != hwnd_ ? owner : nullptr;
-    host.apply = [this, mode, id, hostWindow](size_t index, bool keepPins) {
+    host.apply = [this, mode, id, hostWindow](PresetKind kind, size_t index, bool keepPins, bool keepLook) {
+        if (kind == PresetKind::Looks) {
+            if (mode == PresetMode::AppLook) return ApplyLook(index, SIZE_MAX, true, hostWindow);
+            const size_t at = DockIndexOf(id);
+            return at != SIZE_MAX && ApplyLook(index, at, true, hostWindow);
+        }
+        if (kind == PresetKind::Mine) {
+            const Presets::MineList mine = Presets::Mine();  // read again: the same folder the chooser listed
+            if (index >= mine.layouts.size()) return false;
+            const Presets::Preset& p = mine.layouts[index];
+            if (mode == PresetMode::NewDock) {
+                return AddLayoutDock(p, L"from layout " + p.name, keepPins, true, hostWindow) != SIZE_MAX;
+            }
+            const size_t at = DockIndexOf(id);
+            return at != SIZE_MAX && ApplyLayoutTo(p, L"Applied layout " + p.name, at, keepPins, keepLook, true, hostWindow);
+        }
         if (mode == PresetMode::NewDock) return AddPresetDock(index, keepPins, true, hostWindow) != SIZE_MAX;
         const size_t at = DockIndexOf(id);  // by id: the docks may have moved while it was open
-        return at != SIZE_MAX && ApplyPreset(index, at, keepPins, mode == PresetMode::Apply, hostWindow);
+        return at != SIZE_MAX && ApplyPreset(index, at, keepPins, mode == PresetMode::Apply, hostWindow, keepLook);
     };
     host.destroyed = [this] {
         if (hwnd_) PostMessageW(hwnd_, kPresetClosed, 0, 0);
     };
-    presets_ = std::make_unique<PresetDialog>(std::move(host), mode, owner ? owner : hwnd_, id);
+    presets_ = std::make_unique<PresetDialog>(std::move(host), mode, owner ? owner : hwnd_, id, name, kind);
     if (!presets_->Create(instance_)) {
         presets_.reset();
         MessageBeep(MB_ICONWARNING);
     }
 }
 
-bool App::ApplyPreset(size_t index, size_t cfg, bool keepPins, bool preview, HWND host) {
-    if (shutDown_ || modalDepth_ > 0) return false;  // a dock's menu / dialog is open
+bool App::ApplyPreset(size_t index, size_t cfg, bool keepPins, bool preview, HWND host, bool keepLook) {
     const std::vector<Presets::Preset>& all = Presets::All();
-    if (index >= all.size() || cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return false;
+    if (index >= all.size()) return false;
+    return ApplyLayoutTo(all[index], L"Applied preset " + all[index].name, cfg, keepPins, keepLook, preview, host);
+}
+
+// Round 12 phase 12C: ApplyPreset's body, for a built-in preset or a saved layout.
+bool App::ApplyLayoutTo(const Presets::Preset& p, const std::wstring& label, size_t cfg, bool keepPins, bool keepLook, bool preview,
+                        HWND host) {
+    if (shutDown_ || modalDepth_ > 0) return false;  // a dock's menu / dialog is open
+    if (cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return false;
     // Round 12 phase 12A: a preview (Keep / Cancel) or one timeline entry.
-    const std::wstring label = L"Applied preset " + all[index].name;
     if (preview) {
-        StartPreview(label, L"Previewing " + all[index].name + L" on " + config_.docks[cfg].id + L".", host, cfg);
+        StartPreview(label, L"Previewing " + p.name + L" on " + config_.docks[cfg].DisplayName() + L".", host, cfg);
     } else {
         NoteLabel(label);
     }
     DockConfig& d = config_.docks[cfg];
-    d = Presets::Apply(all[index], config_, d, Presets::PinsOf(d), keepPins);
+    const DockConfig before = d;
+    d = Presets::Apply(p, config_, d, Presets::PinsOf(d), keepPins);
+    if (keepLook) {  // round 12 phase 12C: "Keep my current look": the layout's look is not applied
+        d.themePreset = before.themePreset;
+        d.themeOverrides = before.themeOverrides;
+        d.theme = before.theme;
+    }
     // Round 11 phase 11C: a preset with the tray (Windows 7) asks for the notify icons, as adding the
     // tray item does (the dock menu's Add widget > Tray, the drawer): the takeover goes on (SyncDocks
     // starts the host). App settings > Tray icons turns it off again.
@@ -2813,19 +2874,25 @@ bool App::ApplyPreset(size_t index, size_t cfg, bool keepPins, bool preview, HWN
 }
 
 size_t App::AddPresetDock(size_t index, bool copyPins, bool preview, HWND host) {
-    if (shutDown_ || modalDepth_ > 0) return SIZE_MAX;
     const std::vector<Presets::Preset>& all = Presets::All();
     if (index >= all.size()) return SIZE_MAX;
+    return AddLayoutDock(all[index], L"from preset " + all[index].name, copyPins, preview, host);
+}
+
+// Round 12 phase 12C: AddPresetDock's body, for a built-in preset or a saved layout; `from` ends the
+// undo label ("Added dock work from layout Work").
+size_t App::AddLayoutDock(const Presets::Preset& p, const std::wstring& from, bool copyPins, bool preview, HWND host) {
+    if (shutDown_ || modalDepth_ > 0) return SIZE_MAX;
     std::vector<DockItemEntry> pins;
-    if (copyPins && all[index].hasPins) {
+    if (copyPins && p.hasPins) {
         const auto first = std::find_if(config_.docks.begin(), config_.docks.end(), [](const DockConfig& d) { return d.IsDock(); });
         if (first != config_.docks.end()) pins = Presets::PinsOf(*first);
     }
-    DockConfig made = Presets::MakeNew(all[index], config_, pins);
+    DockConfig made = Presets::MakeNew(p, config_, pins);
     // Round 12 phase 12A: a preview (Keep / Cancel) or one timeline entry.
-    const std::wstring label = L"Added dock " + made.id + L" from preset " + all[index].name;
+    const std::wstring label = L"Added dock " + made.DisplayName() + L" " + from;
     if (preview) {
-        StartPreview(label, L"Previewing " + all[index].name + L" as the new dock " + made.id + L".", host, config_.docks.size());
+        StartPreview(label, L"Previewing " + p.name + L" as the new dock " + made.DisplayName() + L".", host, config_.docks.size());
     } else {
         NoteLabel(label);
     }
@@ -2841,6 +2908,228 @@ size_t App::AddPresetDock(size_t index, bool copyPins, bool preview, HWND host) 
     FlashDock(cfg);
     return cfg;
 }
+
+// --- round 12 phase 12C: docks you keep ------------------------------------------------------------
+
+bool App::ApplyLook(size_t look, size_t cfg, bool preview, HWND host) {
+    if (shutDown_ || modalDepth_ > 0) return false;
+    const std::vector<Presets::Look> looks = Presets::Looks();
+    if (look >= looks.size()) return false;
+    const Presets::Look& l = looks[look];
+    const bool app = cfg == SIZE_MAX;
+    if (!app && (cfg >= config_.docks.size() || !config_.docks[cfg].IsDock())) return false;
+    const std::wstring who = app ? std::wstring() : config_.docks[cfg].DisplayName();
+    const std::wstring label = app ? L"Applied the " + l.name + L" look" : L"Applied the " + l.name + L" look to " + who;
+    if (preview) {
+        StartPreview(label, app ? L"Previewing the " + l.name + L" look." : L"Previewing the " + l.name + L" look on " + who + L".", host,
+                     app ? 0 : cfg);
+    } else {
+        NoteLabel(label);
+    }
+    // Only the look: the preset with no fields of its own (a dock: its own look from now on).
+    if (app) {
+        config_.themePreset = l.id;
+        config_.themeOverrides = 0;
+        config_.ResolveTheme();  // the docks that use the app look follow
+    } else {
+        DockConfig& d = config_.docks[cfg];
+        d.themePreset = l.id;
+        d.themeOverrides = 0;
+        config_.ResolveDockThemes();
+    }
+    docks_.ForEach([](DockWindow& w) { w.ApplyConfig(); });
+    RequestSave();
+    RefreshSettings();
+    if (!app) FlashDock(cfg);
+    return true;
+}
+
+bool App::RenameDock(size_t cfg, const std::wstring& name) {
+    if (shutDown_ || cfg >= config_.docks.size()) return false;
+    DockConfig& d = config_.docks[cfg];
+    std::wstring n;
+    for (wchar_t c : name) {
+        if (c >= 0x20 && c != 0x7F) n += c;
+    }
+    const size_t a = n.find_first_not_of(L' ');
+    n = a == std::wstring::npos ? std::wstring() : n.substr(a, n.find_last_not_of(L' ') - a + 1);
+    if (n.size() > 64) n.resize(64);
+    if (n == d.id) n.clear();  // the id is what an empty name shows
+    if (n == d.name) return true;
+    const std::wstring before = d.DisplayName();
+    d.name = n;
+    NoteLabel(L"Renamed " + before + L" to " + d.DisplayName());
+    docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyConfig(); });  // a title that follows the name
+    RequestSave();
+    RefreshSettings();
+    return true;
+}
+
+bool App::BeginRenameDock(size_t cfg) {
+    if (shutDown_ || cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return false;
+    OpenDockSettings(cfg);
+    SettingsWindow* w = FindSettings(SettingsKind::Dock, config_.docks[cfg].id);
+    return w && w->BeginRename();
+}
+
+size_t App::DuplicateDock(size_t cfg) {
+    if (shutDown_ || modalDepth_ > 0) return SIZE_MAX;
+    if (cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return SIZE_MAX;
+    const DockConfig& src = config_.docks[cfg];
+    DockConfig d = src;  // every key and item (deep: value types)
+    d.id = config_.UniqueDockId(src.id);
+    d.name = src.DisplayName() + L" copy";
+    if (d.name.size() > 64) d.name.resize(64);
+    d.enabled = true;
+    // The next palette colour: appended, the copy's index is the next one (no other dock's index
+    // or colour moves; before 12C the copy went right after its source).
+    d.color = 0;
+    // Where: the next free edge of the same display (bottom, top, left, right); every edge taken:
+    // the same edge, moved along it by the bar's length. A floating bar moves by its length; a ring
+    // stays where its source is.
+    auto display = [](int m) { return m == DockConfig::kMonitorPrimary ? 0 : m; };
+    DockWindow* w = docks_.FirstOf(cfg);
+    const RECT bar = w ? w->RestBarRect() : RECT{};
+    const UINT dpi = w ? w->Dpi() : USER_DEFAULT_SCREEN_DPI;
+    const bool vertical = IsVertical(src.edge);
+    const LONG lengthPx = vertical ? bar.bottom - bar.top : bar.right - bar.left;
+    const int lengthDip = lengthPx > 0 ? MulDiv(lengthPx, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dpi))
+                                       : (src.iconSize + 8) * static_cast<int>(std::max<size_t>(1, src.items.size()));
+    if (src.shape == DockShape::Bar && !src.Floating()) {
+        bool used[4] = {};
+        for (const DockConfig& o : config_.docks) {
+            if (!o.IsDock() || !o.enabled || o.Floating() || o.shape == DockShape::Circle) continue;
+            if (display(o.monitor) != display(src.monitor) && !o.Each() && !src.Each()) continue;
+            used[static_cast<int>(o.edge) & 3] = true;
+        }
+        const DockEdge order[] = {DockEdge::Bottom, DockEdge::Top, DockEdge::Left, DockEdge::Right};
+        const auto freeEdge = std::find_if(std::begin(order), std::end(order), [&](DockEdge e) { return !used[static_cast<int>(e)]; });
+        if (freeEdge != std::end(order)) {
+            d.edge = *freeEdge;
+            d.offset = 0;
+        } else {
+            const int step = lengthDip + 8;
+            d.offset = std::clamp(src.offset + (src.align == DockAlign::End ? -step : step), -16000, 16000);
+        }
+    } else if (src.Floating() && w) {
+        MONITORINFO mi{sizeof(mi)};
+        GetMonitorInfoW(MonitorFromRect(&bar, MONITOR_DEFAULTTONEAREST), &mi);
+        const int x = MulDiv(bar.left - mi.rcWork.left, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dpi));
+        const int y = MulDiv(bar.top - mi.rcWork.top, USER_DEFAULT_SCREEN_DPI, static_cast<int>(dpi));
+        d.x = std::clamp(vertical ? x : x + lengthDip + 8, -16000, 16000);
+        d.y = std::clamp(vertical ? y + lengthDip + 8 : y, -16000, 16000);
+    }
+    NoteLabel(L"Duplicated " + src.DisplayName());
+    config_.docks.push_back(std::move(d));
+    const size_t made = config_.docks.size() - 1;
+    config_.ResolveDockThemes();
+    if (SettingsWindow* g = FindSettings(SettingsKind::Global)) g->SelectDock(config_.docks[made].id);
+    SyncDocks();
+    RequestSave();
+    RefreshSettings();
+    FlashDock(made);
+    return made;
+}
+
+unsigned long App::SaveDockLayout(size_t cfg, const std::wstring& name, bool overwrite) {
+    std::wstring id;
+    return Presets::SaveLayout(config_, cfg, name, overwrite, id);
+}
+
+void App::AskSaveLayout(size_t cfg, HWND owner) {
+    if (shutDown_ || modalDepth_ > 0 || cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) {
+        MessageBeep(MB_ICONWARNING);
+        return;
+    }
+    const std::wstring id = config_.docks[cfg].id;
+    std::wstring name = config_.docks[cfg].DisplayName();
+    // The owner: the dock it was chosen from (held shown meanwhile), else its Dock window or App
+    // settings when one is shown, else the app window (the dialog is centred on the primary display).
+    DockWindow* dock = owner ? docks_.ByHwnd(owner) : nullptr;
+    const HWND dockHwnd = dock ? dock->Hwnd() : nullptr;  // looked up again afterwards (it may be gone)
+    if (!owner) {
+        SettingsWindow* w = FindSettings(SettingsKind::Dock, id);
+        if (!w || !IsWindowVisible(w->Hwnd())) w = FindSettings(SettingsKind::Global);
+        owner = w && IsWindowVisible(w->Hwnd()) ? w->Hwnd() : hwnd_;
+    }
+    if (dock) dock->SetHold(true);
+    ++modalDepth_;
+    HHOOK hook = nullptr;
+    if (dock) {  // the dock's windows do not activate: the dialog gets the focus as RenameGroup's does
+        g_activateTarget = hwnd_;
+        g_activateMessage = kDialogActivated;
+        hook = SetWindowsHookExW(WH_CBT, &ActivateHook, nullptr, GetCurrentThreadId());
+    }
+    bool ok = InputDialog::Ask(owner, L"Save dock as layout", L"Name of the layout:", name, 64);
+    if (hook) UnhookWindowsHookEx(hook);
+    g_activateTarget = nullptr;
+    bool overwrite = false;
+    if (ok) {
+        const std::wstring path = Config::LayoutsDirectory() + L"\\" + Presets::LayoutStem(name) + L".json";
+        if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+            const std::wstring text = L"A layout named \x201C" + name + L"\x201D is saved already. Replace it?";
+            overwrite = MessageBoxW(IsWindow(owner) ? owner : nullptr, text.c_str(), L"Save dock as layout", MB_YESNO | MB_ICONQUESTION) == IDYES;
+            ok = overwrite;
+        }
+    }
+    unsigned long error = 0;
+    const size_t at = DockIndexOf(id);  // by id: the docks may have changed meanwhile
+    if (ok) error = at != SIZE_MAX ? SaveDockLayout(at, name, overwrite) : ERROR_NOT_FOUND;
+    if (ok && error != 0) {
+        MessageBoxW(IsWindow(owner) ? owner : nullptr, L"The layout could not be saved (the layouts folder could not be written).",
+                    L"Save dock as layout", MB_OK | MB_ICONWARNING);
+    }
+    if (DockWindow* again = dockHwnd && !shutDown_ ? docks_.ByHwnd(dockHwnd) : nullptr) again->SetHold(false);
+    EndModal();
+}
+
+bool App::KeepCommand(UINT command, LPARAM lp) {
+    if (shutDown_) return false;
+    const size_t instance = DockOfParam(lp);
+    const size_t low = static_cast<size_t>(lp & 0xFFFF);
+    auto shownHost = [this](SettingsWindow* w) { return w && w->Hwnd() && IsWindowVisible(w->Hwnd()) ? w->Hwnd() : nullptr; };
+    if (command == ContextMenu::kApplyLookPreset && instance == 0xFFFF) {
+        return ApplyLook(low, SIZE_MAX, true, shownHost(FindSettings(SettingsKind::Global)));
+    }
+    const DockManager::Instance* inst = docks_.At(instance);
+    if (!inst || inst->cfg >= config_.docks.size() || !config_.docks[inst->cfg].IsDock()) return false;
+    const size_t cfg = inst->cfg;
+    const HWND host = shownHost(FindSettings(SettingsKind::Dock, config_.docks[cfg].id));
+    wchar_t buf[256]{};
+    switch (command) {
+        case ContextMenu::kRenameDock:
+            if (low == 0) return BeginRenameDock(cfg);
+            if (!GlobalGetAtomNameW(static_cast<ATOM>(low), buf, static_cast<int>(std::size(buf)))) return false;
+            return RenameDock(cfg, buf);
+        case ContextMenu::kDuplicateDock:
+            return DuplicateDock(cfg) != SIZE_MAX;
+        case ContextMenu::kApplySavedLayout: {
+            // LOWORD & 0xFF the index, bit 8 keep the pins, bit 9 keep the look (as DockCommand 153).
+            const Presets::MineList mine = Presets::Mine();
+            const size_t index = low & 0xFF;
+            if (index >= mine.layouts.size()) return false;
+            return ApplyLayoutTo(mine.layouts[index], L"Applied layout " + mine.layouts[index].name, cfg, (low & 0x100) != 0,
+                                 (low & 0x200) != 0, true, host);
+        }
+        case ContextMenu::kApplyLookPreset:
+            return ApplyLook(low, cfg, true, host);
+        case ContextMenu::kSaveDockLayout:
+            if (low == 0) {
+                // The name dialog is modal: posted, so a sender is not blocked (it runs once this
+                // returned; LOWORD 0xFFFF marks the posted one).
+                return PostMessageW(hwnd_, msgDockCommand_, ContextMenu::kSaveDockLayout, (lp & ~LPARAM{0xFFFF}) | 0xFFFF) != FALSE;
+            }
+            if (low == 0xFFFF) {
+                AskSaveLayout(cfg, nullptr);
+                return true;
+            }
+            if (!GlobalGetAtomNameW(static_cast<ATOM>(low), buf, static_cast<int>(std::size(buf)))) return false;
+            return SaveDockLayout(cfg, buf, true) == 0;
+        default:
+            return false;
+    }
+}
+// --- end round 12 phase 12C ---
 
 void App::NewFolderWindow(HWND owner) {
     if (shutDown_ || modalDepth_ > 0) {
@@ -3278,6 +3567,20 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             if (!w || !w->Hwnd() || !w->QueryPages(static_cast<int>(wp), arg, out)) out = -2;
             return out;
         }
+        // --- round 12 phase 12C ---
+        case 303: {  // docks[] entry HIWORD's display name: written into the app window's hidden static 5690; its length (-2 no such entry)
+            if (!inst || inst->cfg >= config_.docks.size()) return -2;
+            const std::wstring name = config_.DockDisplayName(inst->cfg);
+            if (nameText_) SetWindowTextW(nameText_, name.c_str());
+            return static_cast<LRESULT>(name.size());
+        }
+        case 304:  // the open chooser's kind: 0 Layouts, 1 Looks, 2 Mine (-2 none open)
+            return presets_ && presets_->Hwnd() ? static_cast<LRESULT>(presets_->Kind()) : -2;
+        case 305:  // dock HIWORD's titleShow: 0 off, 1 on hover, 2 always (-2 no such dock)
+        case 306:  // ... its titlePlace: 0 outside, 1 inside
+            if (!inst || inst->cfg >= config_.docks.size() || !config_.docks[inst->cfg].IsDock()) return -2;
+            return wp == 305 ? static_cast<LRESULT>(config_.docks[inst->cfg].titleShow) : static_cast<LRESULT>(config_.docks[inst->cfg].titlePlace);
+        // --- end round 12 phase 12C ---
         case 280:  // round 9 phase 9A: dock HIWORD (a dock or a standalone widget) is hidden by the full-screen guard (1 / 0; -2 no such dock)
             if (!inst) return -2;
             if (inst->window) return inst->window->FullscreenHidden() ? 1 : 0;
@@ -3414,7 +3717,7 @@ bool App::LookCommand(UINT command, LPARAM lp) {
                 if ((mask & (1u << k)) && config_.docks[k].IsDock() && &config_.docks[k] != source) targets.push_back(k);
             }
             if (targets.empty()) return false;
-            NoteLabel(targets.size() == 1 ? L"Applied the look to " + config_.docks[targets[0]].id
+            NoteLabel(targets.size() == 1 ? L"Applied the look to " + config_.docks[targets[0]].DisplayName()
                                           : L"Applied the look to " + std::to_wstring(targets.size()) + L" docks");
             for (size_t k : targets) config_.CopyLook(source, config_.docks[k]);
             config_.ResolveDockThemes();
@@ -3539,15 +3842,23 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         // Round 9 phase 9C: the preset chooser for dock HIWORD(lParam); LOWORD 1 the welcome variant,
         // 2 the "new dock" one, else apply to that dock. Owned by the dock's (or for a new dock the
         // Global) settings window when it is open. Not modal for the sender: 1 when it is open.
+        // Round 12 phase 12C: LOWORD 3 the new dock variant on Mine, 4 apply on Looks, 5 apply on
+        // Mine, 6 the app look (Looks only, owned by App settings when it is shown).
         const LPARAM variant = lp & 0xFFFF;
-        const PresetMode mode = variant == 1 ? PresetMode::Welcome : variant == 2 ? PresetMode::NewDock : PresetMode::Apply;
+        const PresetMode mode = variant == 1                   ? PresetMode::Welcome
+                                : variant == 2 || variant == 3 ? PresetMode::NewDock
+                                : variant == 6                 ? PresetMode::AppLook
+                                                               : PresetMode::Apply;
+        const PresetKind kind = variant == 3 || variant == 5 ? PresetKind::Mine
+                                : variant == 4 || variant == 6 ? PresetKind::Looks
+                                                               : PresetKind::Layouts;
         DockManager::Instance* inst = docks_.At(DockOfParam(lp));
         const size_t cfg = inst ? inst->cfg : SIZE_MAX;
-        SettingsWindow* w = mode == PresetMode::NewDock ? FindSettings(SettingsKind::Global)
+        SettingsWindow* w = mode == PresetMode::NewDock || mode == PresetMode::AppLook ? FindSettings(SettingsKind::Global)
                             : mode == PresetMode::Apply && cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[cfg].id)
                                                                                      : nullptr;
         const HWND owner = w && w->Hwnd() && IsWindowVisible(w->Hwnd()) ? w->Hwnd() : nullptr;
-        OpenPresets(mode, cfg, owner);
+        OpenPresets(mode, cfg, owner, kind);
         result = presets_ && presets_->Hwnd() ? 1 : 0;
         return true;
     }
@@ -3564,6 +3875,11 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
     }
     if (msg == msgDockCommand_ && wp >= ContextMenu::kSaveLookAsTheme && wp <= ContextMenu::kApplyLookToDocks) {
         result = LookCommand(static_cast<UINT>(wp), lp) ? 1 : 0;
+        return true;
+    }
+    // --- round 12 phase 12C: DockCommand 165 - 169 (rename, duplicate, saved layout, look, save as layout) ---
+    if (msg == msgDockCommand_ && wp >= ContextMenu::kRenameDock && wp <= ContextMenu::kSaveDockLayout) {
+        result = KeepCommand(static_cast<UINT>(wp), lp) ? 1 : 0;
         return true;
     }
     if (msg == msgDockCommand_ && wp >= ContextMenu::kUndo && wp <= ContextMenu::kBarCancel) {

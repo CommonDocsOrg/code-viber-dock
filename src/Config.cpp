@@ -154,6 +154,19 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     ReadInt(o, L"x", d.x);
     ReadInt(o, L"y", d.y);
     ReadBool(o, L"floating", d.floating);
+    // --- round 12 phase 12C: the name and the title options (unknown text keeps the default) ---
+    ReadString(o, L"name", d.name);
+    s.clear();
+    ReadString(o, L"titleShow", s);
+    if (CompareStringOrdinal(s.c_str(), -1, L"off", -1, TRUE) == CSTR_EQUAL) d.titleShow = TitleShow::Off;
+    if (CompareStringOrdinal(s.c_str(), -1, L"hover", -1, TRUE) == CSTR_EQUAL) d.titleShow = TitleShow::Hover;
+    if (CompareStringOrdinal(s.c_str(), -1, L"always", -1, TRUE) == CSTR_EQUAL) d.titleShow = TitleShow::Always;
+    s.clear();
+    ReadString(o, L"titlePlace", s);
+    if (CompareStringOrdinal(s.c_str(), -1, L"inside", -1, TRUE) == CSTR_EQUAL) d.titlePlace = TitlePlace::Inside;
+    if (CompareStringOrdinal(s.c_str(), -1, L"outside", -1, TRUE) == CSTR_EQUAL) d.titlePlace = TitlePlace::Outside;
+    ReadBool(o, L"titleUseName", d.titleUseName);
+    // --- end round 12 phase 12C ---
 }
 
 // docks[].monitor as JSON: the index, or "primary" / "each".
@@ -1015,6 +1028,11 @@ void Config::Sanitize() {
             d.themePreset == L"." || d.themePreset == L"..") {
             d.themePreset.clear();
         }
+        // --- round 12 phase 12C: the name (one line, at most 64) and the title options in range ---
+        SingleLine(d.name, 64);
+        if (static_cast<unsigned>(d.titleShow) > static_cast<unsigned>(TitleShow::Always)) d.titleShow = TitleShow::Always;
+        if (static_cast<unsigned>(d.titlePlace) > static_cast<unsigned>(TitlePlace::Inside)) d.titlePlace = TitlePlace::Outside;
+        // --- end round 12 phase 12C ---
     }
     // Unique ids (the docks are matched by id when the config is re-applied): a repeated id gets a
     // number appended.
@@ -1442,6 +1460,14 @@ std::wstring Config::ToJson(bool windowSizes) const {
                  (d.OwnLook() && d.themeOverrides != 0
                       ? L",\n      \"theme\": {" + Theme::WriteFields(d.theme, d.themeOverrides, L"        ").substr(1) + L" }"
                       : L"") +
+                 // --- round 12 phase 12C: the name and the title options, only when not the defaults ---
+                 (!d.name.empty() ? L",\n      \"name\": " + Quote(d.name) : L"") +
+                 (d.titleShow != TitleShow::Always
+                      ? L",\n      \"titleShow\": " + Quote(d.titleShow == TitleShow::Off ? L"off" : L"hover")
+                      : L"") +
+                 (d.titlePlace != TitlePlace::Outside ? L",\n      \"titlePlace\": \"inside\"" : L"") +
+                 (d.titleUseName ? L",\n      \"titleUseName\": true" : L"") +
+                 // --- end round 12 phase 12C ---
                  L"\n    }";
         }
         for (const std::wstring& extra : extraDocks) o += L",\n    " + extra;
@@ -1510,5 +1536,28 @@ std::wstring Config::ToJson(bool windowSizes) const {
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";
         return o;
+    }
+}
+
+// --- round 12 phase 12C ---------------------------------------------------------------------------
+
+std::wstring Config::LayoutsDirectory() { return Directory() + L"\\layouts"; }
+
+std::wstring Config::DockJson(size_t index) const {
+    if (index >= docks.size() || !docks[index].IsDock()) return {};
+    // The writer is the config file's own (one dock in a copy), so a saved layout holds exactly the
+    // keys Save writes for that dock, in the same format.
+    try {
+        Config one;
+        one.docks = {docks[index]};
+        one.extraDocks.clear();
+        one.extraFields.clear();
+        json::JsonObject root{nullptr};
+        if (!json::JsonObject::TryParse(one.ToJson(false), root) || !root) return {};
+        const json::JsonArray list = ReadArray(root, L"docks");
+        if (!list || list.Size() == 0 || list.GetAt(0).ValueType() != json::JsonValueType::Object) return {};
+        return std::wstring(list.GetAt(0).GetObject().Stringify());
+    } catch (...) {
+        return {};
     }
 }

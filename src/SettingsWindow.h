@@ -205,6 +205,10 @@ struct SettingsHost {
     // gallery pick): `label` its entry on Keep ("Applied the Glass look to main"), `text` the bar's
     // ("Previewing the Glass look on main.").
     std::function<void(const std::wstring& label, const std::wstring& text)> preview;
+    // --- round 12 phase 12C: ContextMenu::kDuplicateDock / kSaveDockLayout (its name dialog owned by
+    // this window) / kRenameDock (the dock's Dock window with its name being edited) for config dock
+    // `dock`. False: refused. ---
+    std::function<bool(UINT command, size_t dock)> dockAction;
 };
 
 class SettingsWindow;
@@ -694,6 +698,13 @@ public:
     // The title bar, the caption / border colour, the header and the tab strip follow the config
     // (the dock's id, edge, display, items, lock; the item's name and place).
     void UpdateIdentity();
+    // --- round 12 phase 12C ---
+    // The window's dock as people see it (its name, else its id; Global: the selected row's).
+    std::wstring DockName() const;
+    // A Dock window of a dock: the header's name becomes an edit (kHeaderNameEdit), focused, its
+    // text selected (the window is brought forward first). False for another kind of window.
+    bool BeginRename();
+    // --- end round 12 phase 12C ---
 
     // --- for pages ---
     SettingsHost& Host() { return host_; }
@@ -1005,6 +1016,14 @@ private:
     int previewRenders_ = 0;
     void ClearPreviews();
     void CheckPreviewStamp();
+    // --- round 12 phase 12C: the Dock header's name edited in place ---
+    HWND nameEdit_ = nullptr;        // kHeaderNameEdit, a child of the header (hidden while not renaming)
+    bool renaming_ = false;
+    RECT NameRect() const;           // the name's place in the header (client px)
+    // Enter / focus loss: `commit` the edit's text as docks[].name; Esc: back to the name as it was.
+    void EndRename(bool commit);
+    static LRESULT CALLBACK NameEditSubclass(HWND, UINT, WPARAM, LPARAM, UINT_PTR, DWORD_PTR);
+    // --- end round 12 phase 12C ---
 };
 
 // The pages of a window (SettingsPages.cpp): Global in nav order (SettingsIds::kPage*), Dock in tab

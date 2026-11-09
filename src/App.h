@@ -267,7 +267,9 @@ private:
     // Opens the chooser (or brings the open one forward): Apply to config dock `cfg`, a new dock, or
     // the welcome variant (for the first dock). `owner`: the settings window it is modal to (null:
     // the app window).
-    void OpenPresets(PresetMode mode, size_t cfg, HWND owner);
+    // Round 12 phase 12C: `kind` the kind it shows first (Layouts / Looks / Mine); AppLook: Looks for
+    // the app look (`cfg` ignored).
+    void OpenPresets(PresetMode mode, size_t cfg, HWND owner, PresetKind kind = PresetKind::Layouts);
     // Round 9 phase 9D: the Help window (one per process) at `topic` ("guide-settings.md#auto-hide";
     // created when closed, near `nearWindow` when that is a shown window).
     void OpenHelp(const std::wstring& topic, HWND nearWindow = nullptr);
@@ -277,7 +279,8 @@ private:
     // when `keepPins`): saved, every window refreshed, the dock flashed. False if refused.
     // Round 12 phase 12A: `preview` makes it a Keep / Cancel preview (nothing saved until Keep;
     // `host`, the settings window it was chosen from, cancels it when it closes).
-    bool ApplyPreset(size_t index, size_t cfg, bool keepPins, bool preview = false, HWND host = nullptr);
+    // Round 12 phase 12C: `keepLook`: the dock keeps its look (the preset's is not applied).
+    bool ApplyPreset(size_t index, size_t cfg, bool keepPins, bool preview = false, HWND host = nullptr, bool keepLook = false);
     // A new dock from preset `index` (the first dock's pins at the marker when `copyPins`); its
     // config index (SIZE_MAX: refused). `preview` / `host` as ApplyPreset.
     size_t AddPresetDock(size_t index, bool copyPins, bool preview = false, HWND host = nullptr);
@@ -370,6 +373,33 @@ private:
     HWND undoLabel_ = nullptr;  // the app window's hidden statics (SettingsIds::kAppUndoLabel / kAppRedoLabel)
     HWND redoLabel_ = nullptr;
     KeepBanner banner_{[this](int id) { OnBannerCommand(id); }};
+
+    // --- round 12 phase 12C: docks you keep (names, duplicate, saved layouts, looks) ---
+    // Layout `p` (a built-in preset or a saved layout) applied to config dock `cfg` / as a new dock;
+    // ApplyPreset / AddPresetDock are these for Presets::All()[index]. `label` is the undo label;
+    // `from` ends AddLayoutDock's ("Added dock work from layout Work").
+    bool ApplyLayoutTo(const Presets::Preset& p, const std::wstring& label, size_t cfg, bool keepPins, bool keepLook, bool preview,
+                       HWND host);
+    size_t AddLayoutDock(const Presets::Preset& p, const std::wstring& from, bool copyPins, bool preview, HWND host);
+    // Look `look` (Presets::Looks()) as config dock `cfg`'s own look (SIZE_MAX: the app look),
+    // nothing else changed. `preview`: Keep / Cancel. False if refused.
+    bool ApplyLook(size_t look, size_t cfg, bool preview, HWND host);
+    // docks[cfg].name = `name` (trimmed; the id or "" clears it), labelled "Renamed main to Work".
+    bool RenameDock(size_t cfg, const std::wstring& name);
+    // Opens the dock's Dock window with its header name being edited (the dock menu's Rename dock…).
+    bool BeginRenameDock(size_t cfg);
+    // A copy of docks[cfg] ("<name> copy", the next palette colour, the next free edge of its
+    // display, enabled), appended; its config index (SIZE_MAX: refused).
+    size_t DuplicateDock(size_t cfg);
+    // Save dock as layout…: the name dialog owned by `owner` (a dock window: held shown; null: the
+    // dock's Dock window or the App settings window when open), then SaveDockLayout (asks before
+    // replacing a layout of that name).
+    void AskSaveLayout(size_t cfg, HWND owner);
+    unsigned long SaveDockLayout(size_t cfg, const std::wstring& name, bool overwrite);
+    // DockCommand 165 - 169 (automation).
+    bool KeepCommand(UINT command, LPARAM lp);
+    HWND nameText_ = nullptr;  // the app window's hidden static SettingsIds::kAppNameText (QueryState 303)
+    // --- end round 12 phase 12C ---
     // --- desktop folder windows (round 4 phase 12) ---
     // "New folder window…": a folder picker owned by `owner`, then AddFolderWindow at the pointer.
     void NewFolderWindow(HWND owner);

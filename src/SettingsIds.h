@@ -817,4 +817,30 @@ inline constexpr int kLookReason = 5666;        // Look tab: "This dock uses the
 inline constexpr int kDockFieldRowBase = 6000;  // Look tab: FieldRow ids at this base (6000 - 6499)
 constexpr int DockFieldRow(int field, int part) { return kDockFieldRowBase + field * kFieldRowStride + part; }
 
+// --- round 12 phase 12C: docks you keep: names, layouts and looks, titles (5670 - 5699) ---
+inline constexpr int kHeaderNameEdit = 5670;     // Dock: the header's name edited in place (a click on the name / F2 / Rename dock…; Enter commits, Esc cancels, focus loss commits)
+inline constexpr int kDockRename = 5671;         // Global > Docks and displays: "Rename" (the selected row's name edited in place in the list; LVN_ENDLABELEDIT)
+inline constexpr int kPresetKind = 5672;         // the chooser's kind row (WinDock.PresetKinds: Layouts / Looks / Mine; WM_COMMAND(MAKEWPARAM(5672, kind), 0) to the chooser selects one)
+inline constexpr int kMineRename = 5673;         // the chooser, Mine: "Rename…" (the selected saved layout's name)
+inline constexpr int kMineDelete = 5674;         // ... "Delete" (asks first; the file is deleted)
+inline constexpr int kMineExport = 5675;         // ... "Export…" (a save dialog: a copy of the file)
+inline constexpr int kPresetKeepLook = 5676;     // the chooser, Layouts / Mine: check box "Keep my current look" (+ caption 5683)
+inline constexpr int kTitleShowCombo = 5677;     // Position > Layer and title: "Show the title": Never / On hover / Always (docks[].titleShow)
+inline constexpr int kTitlePlaceCombo = 5678;    // ... "Where": Outside the bar / Inside the bar (docks[].titlePlace; disabled on a vertical dock, hint 5684)
+inline constexpr int kTitleUseName = 5679;       // ... check box "Use the dock's name" (docks[].titleUseName; + caption 5680); Title (2160) is collapsed while it is on
+inline constexpr int kTitleUseNameCaption = 5680;
+inline constexpr int kTitleShowLabel = 5681;     // ... the labels of 5677 / 5678
+inline constexpr int kTitlePlaceLabel = 5682;
+inline constexpr int kPresetKeepLookCaption = 5683;
+inline constexpr int kTitlePlaceNote = 5684;     // ... the hint beside Where ("Vertical docks draw it outside")
+inline constexpr int kHeaderDuplicate = 5685;    // Dock: the "⋯" menu's "Duplicate dock" (WM_COMMAND to the header band; = DockCommand 166)
+inline constexpr int kHeaderSaveLayout = 5686;   // ... "Save dock as layout…" (a name dialog; = DockCommand 169)
+inline constexpr int kHeaderRename = 5687;       // ... "Rename dock" (the name edit, as F2)
+inline constexpr int kDockSaveLayout = 5688;     // Global > Docks and displays: "Save as layout…" (the selected dock; a name dialog)
+inline constexpr int kDockAddLayout = 5689;      // ... Add ▾ > "Dock from a layout…" (the chooser's new dock variant on Mine)
+inline constexpr int kAppNameText = 5690;        // a hidden static of the WinDock.App window: QueryState 303 writes the dock's display name into it
+inline constexpr int kMineEmpty = 5691;          // the chooser, Mine: "Nothing saved yet. …" (shown instead of an empty list)
+inline constexpr int kPresetStatus = 5692;       // the chooser, Mine: the status line (saved layouts skipped and why)
+// --- end round 12 phase 12C ---
+
 }  // namespace SettingsIds

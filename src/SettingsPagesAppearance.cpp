@@ -612,7 +612,7 @@ private:
     int GalleryId() const { return dockOnly_ ? kGalleryDock : kGalleryApp; }
     int Q(int part) const { return QuickId(part, dockOnly_); }
     int Row(int field, int part) const { return rowBase_ + field * kFieldRowStride + part; }
-    std::wstring DockName() { return Dock().id; }
+    std::wstring DockName() { return Dock().DisplayName(); }  // round 12 phase 12C: the name people see
 
     // A Float field's value as the settings UI shows it (value x scale, rounded).
     static int FloatToUi(const Theme::FieldInfo& info, float v) { return static_cast<int>(std::lround(v * info.scale)); }
@@ -1346,7 +1346,7 @@ private:
         std::vector<std::wstring> rows;
         for (size_t k : others) {
             const DockConfig& d = c.docks[k];
-            rows.push_back(d.id + (d.OwnLook() ? L"" : L" (uses the app look)"));
+            rows.push_back(d.DisplayName() + (d.OwnLook() ? L"" : L" (uses the app look)"));
         }
         std::vector<bool> checked(others.size(), false);
         if (Host().modal) Host().modal(true);
@@ -1359,7 +1359,7 @@ private:
             if (checked[i]) targets.push_back(others[i]);
         }
         if (targets.empty()) return;
-        ChangeLabel(targets.size() == 1 ? L"Applied the look to " + c.docks[targets[0]].id
+        ChangeLabel(targets.size() == 1 ? L"Applied the look to " + c.docks[targets[0]].DisplayName()
                                         : L"Applied the look to " + std::to_wstring(targets.size()) + L" docks");
         const DockConfig* source = dockOnly_ ? &Dock() : nullptr;
         for (size_t k : targets) c.CopyLook(source, c.docks[k]);

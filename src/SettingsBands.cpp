@@ -157,6 +157,16 @@ void SettingsWindow::CreateBands(bool footer) {
         }
         child(header_, kHeaderGlobal, WC_BUTTONW, L"App settings…");
         child(header_, kHeaderMore, WC_BUTTONW, L"\x22EF");
+        // Round 12 phase 12C: the name edited in place (hidden until a click on the name, F2 or
+        // Rename dock…; not a tab stop: the name is not a control until then).
+        if (DockIndex() != SIZE_MAX && Dock().IsDock()) {
+            nameEdit_ = CreateWindowExW(0, WC_EDITW, L"", WS_CHILD | ES_AUTOHSCROLL | WS_BORDER, 0, 0, 0, 0, header_,
+                                        reinterpret_cast<HMENU>(static_cast<INT_PTR>(kHeaderNameEdit)), instance_, nullptr);
+            if (nameEdit_) {
+                SendMessageW(nameEdit_, EM_SETLIMITTEXT, 64, 0);
+                SetWindowSubclass(nameEdit_, &SettingsWindow::NameEditSubclass, 1, reinterpret_cast<DWORD_PTR>(this));
+            }
+        }
     } else if (kind_ == SettingsKind::Item) {
         child(header_, kHeaderDockLink, WC_LINK, L"on <a>dock</a>");
         // Round 8 phase 8C: the third line's whole text as a tooltip over that line (one tool;
@@ -217,6 +227,11 @@ void SettingsWindow::LayoutBands() {
             }
             // Round 12 phase 12A: the save state left of the buttons (the chips end before it).
             place(header_, kBandSaveStatus, x - Px(kStatusDip), y, Px(kStatusDip), h);
+            // Round 12 phase 12C: the name being edited follows the header's width.
+            if (renaming_ && nameEdit_) {
+                const RECT r = NameRect();
+                SetWindowPos(nameEdit_, nullptr, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_NOZORDER | SWP_NOACTIVATE);
+            }
         } else if (kind_ == SettingsKind::Global) {
             // Round 12 phase 12A: the save state at the subtitle's right end.
             place(header_, kBandSaveStatus, rc.right - Px(24) - Px(kStatusDip), 0, Px(kStatusDip), rc.bottom - std::max(1, Px(1)));
@@ -381,7 +396,14 @@ void SettingsWindow::ShowHeaderMenu() {
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kHeaderFind, L"Find a setting…\tCtrl+F");  // round 9 phase 9B
     // Round 9 phase 9C: a predefined setup for this dock (not for folder windows / standalone widgets).
-    if (DockIndex() != SIZE_MAX && Dock().IsDock()) AppendMenuW(menu, MF_STRING, kHeaderPreset, L"Apply a preset…");
+    // Round 12 phase 12C: layouts and looks; the dock's name, a copy, a saved layout.
+    if (DockIndex() != SIZE_MAX && Dock().IsDock()) {
+        AppendMenuW(menu, MF_STRING, kHeaderPreset, L"Apply a layout or look\x2026");
+        AppendMenuW(menu, MF_STRING, kHeaderSaveLayout, L"Save dock as layout\x2026");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(menu, MF_STRING, kHeaderRename, L"Rename dock\tF2");
+        AppendMenuW(menu, MF_STRING, kHeaderDuplicate, L"Duplicate dock");
+    }
     RECT r{};
     GetWindowRect(button, &r);
     const int cmd = static_cast<int>(
@@ -501,14 +523,14 @@ std::wstring SettingsWindow::WindowTitle() {
     // an Item window "<item> · <dock>", e.g. "Weather 2 · main", was "… · Item settings").
     if (kind_ == SettingsKind::Global) return L"App settings";
     const DockConfig& d = Dock();
-    if (kind_ == SettingsKind::Item) return ItemName() + L" · " + dockId_;
-    if (d.IsFolderWindow()) return dockId_ + L" · Folder window settings · " + SettingsDisplayName(d.monitor);
+    if (kind_ == SettingsKind::Item) return ItemName() + L" · " + DockName();
+    if (d.IsFolderWindow()) return DockName() + L" · Folder window settings · " + SettingsDisplayName(d.monitor);
     if (d.IsWidgetWindow()) {
         const DockItemEntry* w = d.WidgetItem();
-        return dockId_ + L" · " + (w ? Widgets::DisplayName(w->id) : std::wstring(L"Widget")) + L" · Standalone widget settings · " +
+        return DockName() + L" · " + (w ? Widgets::DisplayName(w->id) : std::wstring(L"Widget")) + L" · Standalone widget settings · " +
                SettingsDisplayName(d.monitor);
     }
-    return dockId_ + L" · Dock settings · " + SettingsEdgeName(d.edge) + L" · " + SettingsDisplayName(d.monitor);
+    return DockName() + L" · Dock settings · " + SettingsEdgeName(d.edge) + L" · " + SettingsDisplayName(d.monitor);
 }
 
 void SettingsWindow::UpdateItemIcon() {
@@ -567,7 +589,7 @@ void SettingsWindow::UpdateIdentity() {
     if (kind_ == SettingsKind::Global) {
         summary = L"App settings · apply to every dock";
     } else if (kind_ == SettingsKind::Dock) {
-        summary = dockId_;
+        summary = DockName();
         for (const std::wstring& c : HeaderChips()) summary += L" · " + c;
         if (HWND lock = header_ ? GetDlgItem(header_, kHeaderLock) : nullptr) {
             const wchar_t* text = Dock().locked ? L"Unlock" : L"Lock";  // round 8 phase 8B: short
@@ -588,7 +610,7 @@ void SettingsWindow::UpdateIdentity() {
     } else {
         const size_t n = Dock().items.size();
         const std::wstring place = L"item " + std::to_wstring(item_ + 1) + L" of " + std::to_wstring(n);
-        summary = ItemName() + L" · on " + dockId_ + L" · " + place;
+        summary = ItemName() + L" · on " + DockName() + L" · " + place;
         const DockItemEntry* e = TargetItem();
         if (e && e->Kind() == ItemKind::Widget && widgetLineFor_ != e->id) {
             widgetLineFor_ = e->id;
@@ -602,7 +624,7 @@ void SettingsWindow::UpdateIdentity() {
             widgetDescription_ = pkg ? pkg->manifest.description : std::wstring();
         }
         if (HWND link = header_ ? GetDlgItem(header_, kHeaderDockLink) : nullptr) {
-            std::wstring markup = L"on <a>" + dockId_ + L"</a> · " + place;
+            std::wstring markup = L"on <a>" + DockName() + L"</a> · " + place;
             if (e && e->Kind() == ItemKind::Widget && !widgetLine_.empty()) markup += L" · " + widgetLine_;
             wchar_t cur[256]{};
             GetWindowTextW(link, cur, 256);
@@ -683,11 +705,14 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
         // silhouette is on the Position tab: PaintSilhouette).
         Fill(dc, RECT{0, 0, Px(6), rc.bottom}, dock);
         const int textRight = HeaderTextRight();
+        // Round 12 phase 12C: the dock's name (else its id); while it is renamed the edit covers it.
+        const std::wstring shownName = DockName();
         SelectObject(dc, fontTitle_);
         SIZE idExt{};
-        GetTextExtentPoint32W(dc, dockId_.c_str(), static_cast<int>(dockId_.size()), &idExt);
-        const int idRight = std::min(textRight, Px(24) + static_cast<int>(idExt.cx));
-        text(dockId_, RECT{Px(24), 0, idRight, rc.bottom}, fontTitle_, idText, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+        GetTextExtentPoint32W(dc, shownName.c_str(), static_cast<int>(shownName.size()), &idExt);
+        const int idRight = std::max(std::min(textRight, Px(24) + static_cast<int>(idExt.cx)),
+                                     renaming_ ? static_cast<int>(NameRect().right) - Px(16) : 0);
+        if (!renaming_) text(shownName, RECT{Px(24), 0, idRight, rc.bottom}, fontTitle_, idText, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         int x = idRight + Px(16);
         const int ch = Px(26), cy = (rc.bottom - ch) / 2;
         SelectObject(dc, font_);
@@ -714,7 +739,7 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
             text(letter, icon, fontSemibold_, Luma(dock) > 150 ? RGB(0, 0, 0) : RGB(0xFF, 0xFF, 0xFF), DT_CENTER | DT_VCENTER);
         }
         // Round 10 phase 10A: the header names the target as the title bar does ("Weather · main").
-        text(name + L" · " + dockId_, RECT{Px(70), Px(8), rc.right - Px(16), Px(40)}, fontTitle_, palette_.text,
+        text(name + L" · " + DockName(), RECT{Px(70), Px(8), rc.right - Px(16), Px(40)}, fontTitle_, palette_.text,
              DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         // Round 8 phase 8C: the third line, the description (the widget's id and version moved to
         // the link's line); the whole text is the line's tooltip (headerTip_).
@@ -900,7 +925,38 @@ LRESULT SettingsWindow::BandProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             SetBkColor(dc, inBar ? barColor_ : bandColor_);
             return reinterpret_cast<LRESULT>(inBar ? barBrush_ : bandBrush_);
         }
+        // --- round 12 phase 12C: the header's name: a click edits it (an I-beam over it), the edit in
+        // the control colours ---
+        case WM_CTLCOLOREDIT: {
+            HDC dc = reinterpret_cast<HDC>(wp);
+            SetTextColor(dc, palette_.text);
+            SetBkColor(dc, palette_.control);
+            return reinterpret_cast<LRESULT>(controlBrush_);
+        }
+        case WM_LBUTTONDOWN: {
+            const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
+            const RECT r = NameRect();
+            if (hwnd == header_ && nameEdit_ && !renaming_ && PtInRect(&r, pt)) BeginRename();
+            return 0;
+        }
+        case WM_SETCURSOR: {
+            POINT pt{};
+            GetCursorPos(&pt);
+            ScreenToClient(hwnd, &pt);
+            const RECT r = NameRect();
+            if (hwnd == header_ && nameEdit_ && !renaming_ && LOWORD(lp) == HTCLIENT && PtInRect(&r, pt)) {
+                SetCursor(LoadCursorW(nullptr, IDC_IBEAM));
+                return TRUE;
+            }
+            break;
+        }
+        // --- end round 12 phase 12C ---
         case WM_COMMAND:
+            // Round 12 phase 12C: the name edit losing the focus (a click elsewhere, Tab) commits it.
+            if (LOWORD(wp) == kHeaderNameEdit && HIWORD(wp) == EN_KILLFOCUS) {
+                if (renaming_) EndRename(true);
+                return 0;
+            }
             if (HIWORD(wp) == BN_CLICKED) OnBandCommand(LOWORD(wp));
             return 0;
         case WM_NOTIFY: {
@@ -924,7 +980,7 @@ void SettingsWindow::OnBandCommand(int id) {
             if (DockIndex() == SIZE_MAX) return;
             DockConfig& d = Dock();
             d.locked = !d.locked;  // read by the dock when a drag / drop / menu starts
-            if (host_.label) host_.label((d.locked ? L"Locked " : L"Unlocked ") + dockId_);  // round 12 phase 12A
+            if (host_.label) host_.label((d.locked ? L"Locked " : L"Unlocked ") + DockName());  // round 12 phase 12A
             if (host_.changed) host_.changed(SettingsScope::SaveOnly, DockIndex());
             Refresh();  // the Contents tab's check box, the chip, the button
             break;
@@ -944,6 +1000,18 @@ void SettingsWindow::OnBandCommand(int id) {
         case kHeaderDockLink:
             if (host_.openDock && DockIndex() != SIZE_MAX) host_.openDock(DockIndex(), -1);
             break;
+        // --- round 12 phase 12C: the ⋯ menu's Rename dock / Duplicate dock / Save dock as layout… ---
+        case kHeaderRename:
+            if (!BeginRename()) MessageBeep(MB_ICONWARNING);
+            break;
+        case kHeaderDuplicate:
+        case kHeaderSaveLayout:
+            if (DockIndex() == SIZE_MAX || !Dock().IsDock() || !host_.dockAction ||
+                !host_.dockAction(id == kHeaderDuplicate ? ContextMenu::kDuplicateDock : ContextMenu::kSaveDockLayout, DockIndex())) {
+                if (id == kHeaderDuplicate) MessageBeep(MB_ICONWARNING);
+            }
+            break;
+        // --- end round 12 phase 12C ---
         case kFooterReset:
             // Round 10 phase 10D: "Reset to factory defaults…" asks first.
             if (TargetItem() && ConfirmFactoryReset(ItemName(), TargetItem()->Kind())) {
@@ -990,7 +1058,7 @@ void SettingsWindow::OnBandCommand(int id) {
 
 bool SettingsWindow::ConfirmFactoryReset(const std::wstring& name, ItemKind kind) {
     if (!hwnd_) return false;
-    const std::wstring dock = dockId_.empty() ? std::wstring() : L" on " + dockId_;
+    const std::wstring dock = DockName().empty() ? std::wstring() : L" on " + DockName();
     std::wstring text;
     switch (kind) {
         case ItemKind::Clock:
@@ -1025,4 +1093,102 @@ void SettingsWindow::ShowFooterResetApp(bool show) {
     if (!show && GetFocus() == h) SetFocus(hwnd_);
     ShowWindow(h, show ? SW_SHOWNA : SW_HIDE);
     InvalidateRect(footer_, nullptr, TRUE);  // "Changes apply at once" ends before the buttons
+}
+
+// --- round 12 phase 12C: the dock's name, edited in place in the Dock header ---------------------
+
+std::wstring SettingsWindow::DockName() const {
+    const size_t index = DockIndex();
+    const std::wstring name = host_.config && index != SIZE_MAX ? host_.config->DockDisplayName(index) : std::wstring();
+    return name.empty() ? dockId_ : name;
+}
+
+RECT SettingsWindow::NameRect() const {
+    RECT rc{};
+    if (header_) GetClientRect(header_, &rc);
+    // The name as painted (PaintBand: from 24 DIPs, the title font), at least 200 DIPs to type in,
+    // never into the buttons.
+    int width = 0;
+    if (HDC dc = header_ ? GetDC(header_) : nullptr) {
+        HGDIOBJ old = SelectObject(dc, fontTitle_);
+        const std::wstring name = DockName();
+        SIZE ext{};
+        GetTextExtentPoint32W(dc, name.c_str(), static_cast<int>(name.size()), &ext);
+        width = ext.cx;
+        SelectObject(dc, old);
+        ReleaseDC(header_, dc);
+    }
+    const int h = Px(34);
+    const int top = (rc.bottom - h) / 2;
+    const int right = std::min(HeaderTextRight(), Px(24) + std::max(width + Px(24), Px(200)));
+    return RECT{Px(18), top, std::max(static_cast<int>(Px(18)) + Px(60), right), top + h};
+}
+
+bool SettingsWindow::BeginRename() {
+    if (!hwnd_ || !nameEdit_ || kind_ != SettingsKind::Dock || DockIndex() == SIZE_MAX || !Dock().IsDock()) return false;
+    Activate();
+    if (!renaming_) {
+        renaming_ = true;
+        const RECT r = NameRect();
+        SendMessageW(nameEdit_, WM_SETFONT, reinterpret_cast<WPARAM>(fontTitle_), FALSE);
+        SetWindowTextW(nameEdit_, DockName().c_str());
+        SetWindowPos(nameEdit_, HWND_TOP, r.left, r.top, r.right - r.left, r.bottom - r.top, SWP_SHOWWINDOW);
+        InvalidateRect(header_, nullptr, TRUE);
+    }
+    SetFocus(nameEdit_);
+    SendMessageW(nameEdit_, EM_SETSEL, 0, -1);
+    return true;
+}
+
+void SettingsWindow::EndRename(bool commit) {
+    if (!renaming_ || !nameEdit_) return;
+    renaming_ = false;  // first: the focus change below sends the edit WM_KILLFOCUS again
+    wchar_t buf[128]{};
+    GetWindowTextW(nameEdit_, buf, static_cast<int>(std::size(buf)));
+    const bool hadFocus = GetFocus() == nameEdit_;
+    ShowWindow(nameEdit_, SW_HIDE);
+    if (hadFocus) SetFocus(DefaultFocus());
+    if (commit && DockIndex() != SIZE_MAX) {
+        // Trimmed, one line; the id itself (or nothing) means "no name of its own".
+        std::wstring n;
+        for (const wchar_t* p = buf; *p; ++p) {
+            if (*p >= 0x20 && *p != 0x7F) n += *p;
+        }
+        const size_t a = n.find_first_not_of(L' ');
+        n = a == std::wstring::npos ? std::wstring() : n.substr(a, n.find_last_not_of(L' ') - a + 1);
+        DockConfig& d = Dock();
+        if (n == d.id) n.clear();
+        if (n != d.name) {
+            const std::wstring before = d.DisplayName();
+            d.name = n;
+            if (host_.label) host_.label(L"Renamed " + before + L" to " + d.DisplayName());
+            // Appearance: a title that follows the name is laid out again (titleUseName).
+            if (host_.changed) host_.changed(SettingsScope::Appearance, DockIndex());
+        }
+    }
+    UpdateIdentity();
+    InvalidateRect(header_, nullptr, TRUE);
+}
+
+LRESULT CALLBACK SettingsWindow::NameEditSubclass(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, UINT_PTR, DWORD_PTR ref) {
+    auto* self = reinterpret_cast<SettingsWindow*>(ref);
+    switch (msg) {
+        case WM_GETDLGCODE:
+            return DLGC_WANTALLKEYS | DefSubclassProc(hwnd, msg, wp, lp);  // Enter / Esc are the edit's
+        case WM_KEYDOWN:
+            if (wp == VK_RETURN || wp == VK_ESCAPE) {
+                self->EndRename(wp == VK_RETURN);
+                return 0;
+            }
+            break;
+        case WM_CHAR:
+            if (wp == L'\r' || wp == 0x1B) return 0;  // no beep
+            break;
+        case WM_NCDESTROY:
+            RemoveWindowSubclass(hwnd, &SettingsWindow::NameEditSubclass, 1);
+            break;
+        default:
+            break;
+    }
+    return DefSubclassProc(hwnd, msg, wp, lp);
 }

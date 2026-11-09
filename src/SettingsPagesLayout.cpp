@@ -202,8 +202,10 @@ protected:
         Text(kLayoutSelected, CtlKind::Value, L"", kMargin + kAddW + 12, right - kLockW - 8 - (kMargin + kAddW + 12));
         Check(kLockAllDocks, kLockAllDocksCaption, L"Lock all docks", right - kLockW);
         NextRow(kRowH + 4);
+        // Round 12 phase 12C: LVS_EDITLABELS for Rename (only Rename / F2 start an edit: LVN_BEGINLABELEDIT
+        // refuses the others, so a slow second click does not rename).
         Add(kDocksList, CtlKind::List, WC_LISTVIEWW, L"Docks",
-            WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | LVS_SHAREIMAGELISTS,
+            WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER | LVS_SHAREIMAGELISTS | LVS_EDITLABELS,
             RECT{kMargin, y_, right, y_ + kListH});
         Tip(kDocksList, L"Every dock, folder window and standalone widget, with its edge and display. Select one for the "
                         L"buttons below; double-click it to open its settings.");
@@ -221,6 +223,15 @@ protected:
                                 L"its window closes and its settings are kept, so you can turn it back on later. Greyed "
                                 L"for the last dock that is on: one dock is always shown.");
         NextRow(kRowH + 4);
+        // --- round 12 phase 12C: the selected dock's name and a saved layout of it (docks only) ---
+        Button(kDockRename, L"Rename", kMargin, kButtonW);
+        Button(kDockSaveLayout, L"Save as layout\x2026", kMargin + kButtonStep, kButtonW);
+        Tip(kDockRename, L"Renames the selected dock in the list (F2 does the same; Enter keeps the name, Esc cancels). The name "
+                         L"is what menus, headers and titles show; its id stays the same. Docks only.");
+        Tip(kDockSaveLayout, L"Saves the selected dock (its place, behaviour, items and look) as a layout of your own, to apply "
+                             L"to a dock later or to start a new dock from (Add \x25BE > Dock from a layout\x2026). Docks only.");
+        NextRow(kRowH + 4);
+        // --- end round 12 phase 12C ---
         static constexpr wchar_t kDocksTip[] =
             L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
             L"it (or its row) to open its own settings window; drag it along its edge (it snaps to the centre and the "
@@ -297,6 +308,32 @@ protected:
 
     LRESULT OnNotify(const NMHDR& nm) override {
         if (static_cast<int>(nm.idFrom) != kDocksList) return 0;
+        // --- round 12 phase 12C: Rename in the list (Rename / F2 only) ---
+        if (nm.code == LVN_KEYDOWN && reinterpret_cast<const NMLVKEYDOWN&>(nm).wVKey == VK_F2) {
+            StartRename();
+            return 0;
+        }
+        if (nm.code == LVN_BEGINLABELEDITW) {
+            const auto& info = reinterpret_cast<const NMLVDISPINFOW&>(nm);
+            const size_t row = static_cast<size_t>(info.item.iItem);
+            if (!renameAllowed_ || row >= Cfg().docks.size() || !Cfg().docks[row].IsDock()) return TRUE;  // refused
+            renameAllowed_ = false;
+            // The name itself in the edit (the row shows "Work (main)").
+            if (HWND edit = ListView_GetEditControl(Item(kDocksList))) {
+                SetWindowTextW(edit, Cfg().docks[row].DisplayName().c_str());
+                SendMessageW(edit, EM_SETLIMITTEXT, 64, 0);
+                SendMessageW(edit, EM_SETSEL, 0, -1);
+            }
+            return FALSE;
+        }
+        if (nm.code == LVN_ENDLABELEDITW) {
+            const auto& info = reinterpret_cast<const NMLVDISPINFOW&>(nm);
+            const size_t row = static_cast<size_t>(info.item.iItem);
+            if (info.item.pszText && row < Cfg().docks.size() && row == SelectedCfg()) Rename(row, info.item.pszText);
+            FillList();
+            return FALSE;  // the list is filled again from the config
+        }
+        // --- end round 12 phase 12C ---
         if (nm.code == NM_DBLCLK) {
             const auto& item = reinterpret_cast<const NMITEMACTIVATE&>(nm);
             if (item.iItem >= 0) OpenCfg(static_cast<size_t>(item.iItem));
@@ -331,7 +368,8 @@ protected:
                 }
                 // The new dock (appended / right after the copied one), or the removed one's neighbour.
                 const size_t next = edit == SettingsDockEdit::Add || edit == SettingsDockEdit::AddFloating ? c.docks.size() - 1
-                                    : edit == SettingsDockEdit::Duplicate ? sel + 1
+                                    // Round 12 phase 12C: a dock's copy is appended (other entries' right after them).
+                                    : edit == SettingsDockEdit::Duplicate ? (sel < c.docks.size() && c.docks[sel].IsDock() ? c.docks.size() - 1 : sel + 1)
                                                                           : std::min(sel, c.docks.size() - 1);
                 if (next < c.docks.size()) Window().SelectDock(c.docks[next].id);
                 Window().Refresh();
@@ -344,6 +382,19 @@ protected:
             case kDockAddPreset:  // round 9 phase 9C: the chooser's "new dock" variant (it selects the new dock)
                 if (Host().openPresets) Host().openPresets(2, SIZE_MAX);
                 break;
+            // --- round 12 phase 12C ---
+            case kDockAddLayout:  // the chooser's "new dock" variant on Mine (the saved layouts first)
+                if (Host().openPresets) Host().openPresets(3, SIZE_MAX);
+                break;
+            case kDockRename:
+                StartRename();
+                break;
+            case kDockSaveLayout:
+                if (sel >= c.docks.size() || !c.docks[sel].IsDock() || !Host().dockAction || !Host().dockAction(ContextMenu::kSaveDockLayout, sel)) {
+                    MessageBeep(MB_ICONWARNING);
+                }
+                break;
+            // --- end round 12 phase 12C ---
             case kDockAddWidget: {
                 // Round 6 phase 6B: which widget (round 8 phase 8D: as a command, the catalog in a
                 // menu under Add ▾; the Add ▾ menu has it as a submenu).
@@ -419,16 +470,50 @@ private:
         AppendMenuW(menu, MF_STRING, kDockAdd, L"Dock");
         AppendMenuW(menu, MF_STRING, kDockAddFloating, L"Floating dock");
         AppendMenuW(menu, MF_STRING, kDockAddPreset, L"Dock from a preset\x2026");  // round 9 phase 9C
+        AppendMenuW(menu, MF_STRING, kDockAddLayout, L"Dock from a layout\x2026");  // round 12 phase 12C: the saved ones first
         AppendMenuW(menu, MF_STRING, kDockAddFolder, L"Folder window\x2026");
         AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(widgets), L"Standalone widget");  // destroyed with its parent
         const UINT cmd = TrackUnderAdd(menu);
         DestroyMenu(menu);
         if (cmd >= kWidgetCmd && cmd - kWidgetCmd < catalog.size()) {
             AddWidget(catalog[cmd - kWidgetCmd].id);
-        } else if (cmd == kDockAdd || cmd == kDockAddFloating || cmd == kDockAddFolder || cmd == kDockAddPreset) {
+        } else if (cmd == kDockAdd || cmd == kDockAddFloating || cmd == kDockAddFolder || cmd == kDockAddPreset || cmd == kDockAddLayout) {
             OnCommand(static_cast<int>(cmd), BN_CLICKED, nullptr);
         }
     }
+
+    // --- round 12 phase 12C: Rename in the list ---
+    // The selected row's label becomes an edit (a dock only; LVN_BEGINLABELEDIT lets this one through).
+    void StartRename() {
+        HWND list = Item(kDocksList);
+        const size_t sel = SelectedCfg();
+        if (!list || sel >= Cfg().docks.size() || !Cfg().docks[sel].IsDock()) {
+            MessageBeep(MB_ICONWARNING);
+            return;
+        }
+        SetFocus(list);
+        renameAllowed_ = true;
+        if (!ListView_EditLabel(list, static_cast<int>(sel))) renameAllowed_ = false;
+    }
+    // docks[row].name from the edit (trimmed; the id or nothing: no name of its own).
+    void Rename(size_t row, const std::wstring& text) {
+        DockConfig& d = Cfg().docks[row];
+        std::wstring n;
+        for (wchar_t ch : text) {
+            if (ch >= 0x20 && ch != 0x7F) n += ch;
+        }
+        const size_t a = n.find_first_not_of(L' ');
+        n = a == std::wstring::npos ? std::wstring() : n.substr(a, n.find_last_not_of(L' ') - a + 1);
+        if (n.size() > 64) n.resize(64);
+        if (n == d.id) n.clear();
+        if (n == d.name) return;
+        const std::wstring before = d.DisplayName();
+        d.name = n;
+        ChangeLabel(L"Renamed " + before + L" to " + d.DisplayName());
+        Changed(SettingsScope::Appearance);  // the window's dock is the selected row
+    }
+    bool renameAllowed_ = false;
+    // --- end round 12 phase 12C ---
 
     // A standalone widget of widget `wid` on the primary display (its window opens).
     void AddWidget(const std::wstring& wid) {
@@ -492,7 +577,8 @@ private:
         }
         for (int i = 0; i < n; ++i) {
             const DockConfig& d = c.docks[static_cast<size_t>(i)];
-            std::wstring id = d.id + (d.title.empty() ? L"" : L" (" + d.title + L")");
+            // Round 12 phase 12C: the name with the id beside it ("Work (main)"), else the id and the title.
+            std::wstring id = !d.name.empty() ? d.name + L" (" + d.id + L")" : d.id + (d.title.empty() ? L"" : L" (" + d.title + L")");
             const std::wstring edge = d.IsFolderWindow()   ? std::wstring(L"Folder window")
                                   : d.IsWidgetWindow() ? std::wstring(L"Standalone widget")
                                       : d.Floating()     ? L"Floating, faces " + std::wstring(SettingsEdgeName(d.edge))
@@ -546,6 +632,10 @@ private:
         } else {
             Enable(kDockToggleEnabled, false);
         }
+        // Round 12 phase 12C: a name and a saved layout are for docks.
+        const bool dockSel = n > 0 && c.docks[static_cast<size_t>(sel)].IsDock();
+        Enable(kDockRename, dockSel);
+        Enable(kDockSaveLayout, dockSel);
         // Round 8 phase 8D: one check box for Lock all / Unlock all (mixed: unchecked). A folder
         // window has no lock of its own (its `locked` is never saved): it does not count.
         const bool lockable = std::any_of(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return !d.IsFolderWindow(); });
@@ -837,10 +927,10 @@ void LayoutCanvas::Publish() {
     } else if (const size_t fl = page_.SelectedCfg(); fl < c.docks.size() && c.docks[fl].Floating()) {
         const DockConfig& d = c.docks[fl];
         auto coord = [](int v) { return v == DockConfig::kCentred ? std::wstring(L"centred") : std::to_wstring(v); };
-        line = L"Selected: " + d.id + L" (floating at " + coord(d.x) + L", " + coord(d.y) + L", faces " + EdgeWord(d.edge) + L")";
+        line = L"Selected: " + d.DisplayName() + L" (floating at " + coord(d.x) + L", " + coord(d.y) + L", faces " + EdgeWord(d.edge) + L")";
     } else if (page_.SelectedCfg() < c.docks.size()) {
         const DockConfig& d = c.docks[page_.SelectedCfg()];
-        line = L"Selected: " + d.id + L" (" + EdgeWord(d.edge) + L", " + AlignWord(d.align) +
+        line = L"Selected: " + d.DisplayName() + L" (" + EdgeWord(d.edge) + L", " + AlignWord(d.align) +
                (d.offset ? (d.offset > 0 ? L" +" : L" ") + std::to_wstring(d.offset) : L"") + L")";
     }
     page_.SetSelectedText(line);
@@ -967,7 +1057,7 @@ void LayoutCanvas::Paint(HDC hdc) {
         DeleteObject(f);
         // The label beside the bar, toward the middle of its monitor.
         const DockConfig& dc = c.docks[d.cfg];
-        std::wstring label = dc.id + (dc.title.empty() ? L"" : L" · " + dc.title) +
+        std::wstring label = dc.DisplayName() + (dc.title.empty() || dc.titleUseName ? L"" : L" · " + dc.title) +
                              (dc.layer == DockLayer::Desktop  ? L" (desktop)"
                               : dc.layer == DockLayer::Behind ? L" (behind windows)"
                                                               : L"") +

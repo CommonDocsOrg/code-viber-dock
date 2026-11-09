@@ -1765,7 +1765,7 @@ default).
 
 **Presets** (round 9): predefined dock setups to start from. **App settings > Docks and
 displays > Add ▾ > Dock from a preset…** adds a new dock from one (its id is the preset's, made
-unique: `modern`, `modern2` …; on the primary display), **⋯ > Apply a preset…** in a Dock window's
+unique: `modern`, `modern2` …; on the primary display), **⋯ > Apply a layout or look…** in a Dock window's
 header turns that dock into one, and the **welcome dialog** offers them on the very first start
 (no config file yet; About > **Show the welcome dialog** and `WinDock.exe --welcome` open it again;
 it works on the first dock). The chooser (720 × 480 DIPs, dark like the settings windows, modal to
@@ -2328,6 +2328,19 @@ items that exist. A file whose items have settings already is left alone.
   - `fullWidth` (default `false`), `reserveSpace` (default `true`, used with `autoHide`
     `"off"` only, on any edge), `peekPx` (default 0), `peekOpacity` (default 0.5), `title`
     (default `""`): see Position.
+  - `name` (round 12 phase 12C; default `""` = the id; one line, up to 64 characters; written only
+    when set): what the dock is called where people see it (the Dock header, menus, Docks and
+    displays, window titles, undo labels). The id stays the key automation and config references
+    use, so a rename never breaks them.
+  - `titleShow` (round 12 phase 12C; `"always"` default, `"hover"`, `"off"`; written only when not
+    `"always"`): whether the title is drawn: always, fading in while the pointer is over the dock, or
+    not at all (the text is kept).
+  - `titlePlace` (round 12 phase 12C; `"outside"` default, `"inside"`; written only when
+    `"inside"`): outside the bar toward the middle of the screen, or in a band inside the bar above
+    the icons (the label font's height + 4 DIPs added to the bar; top and bottom bars only: a
+    vertical dock or a ring draws it outside).
+  - `titleUseName` (round 12 phase 12C; default `false`, written only when `true`): the title's text
+    is the dock's name (its `name`, else its id) instead of `title`.
   - `locked` (default `false`): no dragging, no pinning by dropping files, no Add separator / Add
     widget from the dock menu (see Dock items).
   - `enabled` (default `true`; also on folder window and widget entries; written only when
@@ -2510,6 +2523,14 @@ items that exist. A file whose items have settings already is left alone.
   fine). Round 12 phase 12A: `"confirmPlacement": false` (written only when false; default true)
   turns off the Keep / Revert bar after a change that moves or hides a dock (App settings >
   General > Changes; see Settings, "Undo, Saved, Keep / Revert, Keep / Cancel").
+
+Saved layouts (round 12 phase 12C) live in `%LocalAppData%\WinDock\layouts\<id>.json` (the folder
+is made by the first Save dock as layout…; the file name without `.json` is the id): the preset
+schema (`id`, `name`, `tagline`, `description`, `dock` with every dock key but `id`, `color`,
+`enabled` and the look, `items` with the pinned run replaced by `{ "kind": "pins" }`) plus `look`:
+`"app"` or `{ "preset": "<theme id>", "theme": { fields } }`. A file that does not read as a
+preset (the built-in presets' checks; a theme file is a valid look) is skipped and the chooser's
+Mine kind says why.
 
 ### Themes
 
@@ -2990,7 +3011,19 @@ always there, also when every dock is parked) handle these registered messages:
   preset (a dock using the app look: the file only), **163** Import theme: the atom holds a path,
   the file is copied into the themes folder after it reads as a theme, **164** Apply to docks:
   `LOWORD(lParam)` a bitmask of config docks (bit n = `docks[n]`), each gets the look as its own
-  (one undo entry). 111 and 113 left the dock
+  (one undo entry). Round 12 phase 12C, docks you keep (`HIWORD(lParam)` the dock; 1 done, 0
+  refused): **165** Rename dock: `LOWORD(lParam)` a global atom with the new name renames it at once
+  (the id or "" clears the name), 0 opens its Dock window with the header's name edit 5670 focused;
+  **166** Duplicate dock (named "`<name> copy`", appended, the next palette colour, the next free edge of
+  its display bottom / top / left / right, else the same edge moved by the bar's length); **167**
+  saved layout `LOWORD(lParam) & 0xFF` (Presets::Mine() order: by name) as a Keep / Cancel
+  preview, bit 8 keeps the pins, bit 9 keeps the dock's look; **168** look `LOWORD(lParam)` (the
+  built-in theme presets in their order, then the readable theme files) as a Keep / Cancel preview
+  of the dock's own look (`HIWORD` 0xFFFF: the app look); **169** Save dock as layout:
+  `LOWORD(lParam)` a global atom with the name writes `layouts\<name>.json` at once (replacing
+  one), 0 opens the name dialog (posted: the call returns first). 152's `LOWORD(lParam)` also takes
+  3 (the new dock variant showing Mine), 4 (apply, showing Looks), 5 (apply, showing Mine) and 6
+  (Looks only, for the app look). 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3237,7 +3270,13 @@ always there, also when every dock is parked) handle these registered messages:
   1 while the banner near the dock is shown instead). Round 12 phase 12B: **301** = the theme
   gallery's selected tile (`LOWORD(lParam)` 1: App settings > Themes, else the Look tab of the Dock
   window of dock `HIWORD`; -2 not open), **302** = its tile count (Themes: the built-ins then the
-  theme files, as the hidden combo 2402; Look: tile 0 the app look, then the rows of 2420 from 1). The labels of the change Undo / Redo would
+  theme files, as the hidden combo 2402; Look: tile 0 the app look, then the rows of 2420 from 1).
+  Round 12 phase 12C: **303** = the length of dock `HIWORD`'s display name (its `name`, else its
+  id; -2 no such entry), the name itself written into the app window's hidden static 5690 first
+  (`GetDlgItem(app, 5690)` + `WM_GETTEXT` after the query), **304** = the open chooser's kind (0
+  Layouts, 1 Looks, 2 Mine; -2 none), **305** = dock `HIWORD`'s `titleShow` (0 off, 1 on hover, 2
+  always), **306** = its `titlePlace` (0 outside, 1 inside); -2 for both: not a dock. QueryState 45
+  is unchanged (1 while a title is drawn; a hover title counts while faded out). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -3341,6 +3380,21 @@ always there, also when every dock is parked) handle these registered messages:
   every dock" link, 5400 ↺ Use the app look again; the Look tab's theme value rows are FieldRow
   ids at 6000 (6000 + field x 10 + part; Themes keeps 3000 + ...). The preset combos 2402 / 2420
   are hidden and keep working (a direct change, not a preview).
+  Round 12 phase 12C, **docks you keep** (5670 - 5699): 5670 the Dock header's name edit (a child of
+  the band 102, shown by a click on the name, F2, the ⋯ menu's 5687 Rename dock or DockCommand 165;
+  `WM_SETTEXT` + `WM_KEYDOWN VK_RETURN` to it commits, `VK_ESCAPE` cancels, losing the focus
+  commits); the ⋯ menu's 5685 Duplicate dock, 5686 Save dock as layout… (`WM_COMMAND(id)` to the
+  band; post 5686, its dialog is modal) and 5102 now "Apply a layout or look…"; Docks and
+  displays' 5671 Rename (the selected row's label edit; `LVN_ENDLABELEDIT` commits) and 5688 Save
+  as layout… (post it), its Add ▾ item 5689 "Dock from a layout…" (a page command, the chooser on
+  Mine); the Position tab's Layer and title card: 5681 / 5677 Show the title (Never, On hover,
+  Always), 5679 / 5680 Use the dock's name (Title 2159 / 2160 collapsed while it is on), 5682 /
+  5678 Where (Outside the bar, Inside the bar; disabled with hint 5684 on a vertical dock or a
+  ring); the chooser's 5672 kind row (`WinDock.PresetKinds`, its window text the kind shown;
+  `WM_COMMAND(MAKEWPARAM(5672, kind), 0)` to the chooser shows that kind), 5676 / 5683 Keep my
+  current look, Mine's 5673 Rename…, 5674 Delete, 5675 Export… (modal: post them), 5691 its empty
+  line, 5692 its status line (layout files skipped and why); 5690 the app window's name static
+  (QueryState 303).
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that
@@ -3363,11 +3417,13 @@ always there, also when every dock is parked) handle these registered messages:
   them, and they are destroyed when the last search dialog closes unless Go to showed one.
   Round 9 phase 9C, **the presets** (ids 5100 - 5199): 5101 Docks and displays' Add ▾ menu item
   "Dock from a preset…" (also a page command: `WM_COMMAND(5101)` to the page 207), 5102 the Dock
-  header ⋯ menu's "Apply a preset…" (`WM_COMMAND(5102)` to the band 102; only on a dock's window),
+  header ⋯ menu's "Apply a layout or look…" (round 12 phase 12C; was "Apply a preset…") (`WM_COMMAND(5102)` to the band 102; only on a dock's window),
   5103 About's "Show the welcome dialog" (page 208). The chooser is a top-level `WinDock.Presets`
   window owned by the window it was opened from (`GetWindow(GW_OWNER)`; that window is disabled
   while it is open; the welcome variant from the first run, `--welcome` or 152 is owned by the app
-  window), titled "Apply a preset to <dock>", "New dock from a preset" or "Welcome to WinDock";
+  window), titled "Apply a layout or look to `<dock name>`", "New dock from a layout", "Apply a
+  look to the app look" (round 12 phase 12C; they were "Apply a preset to <dock>" and "New dock
+  from a preset") or "Welcome to WinDock";
   children 5110 the list (an owner-drawn `LISTBOX`: `LB_SETCURSEL` + `WM_COMMAND(5110,
   LBN_SELCHANGE)` to the dialog chooses; posted Up / Down / Enter / Esc work as keys), 5111 the
   description, 5112 the preview (`WinDock.PresetPreview`; its window text is the "where" line and

@@ -218,7 +218,7 @@ There are three ways to use a preset:
 
 - **The welcome dialog**: on the very first start, WinDock asks you to pick a setup for your first dock. Click **Use this dock**, or **Skip (basic dock)** to take the basic dock. To see it again, click **Show the welcome dialog** in App settings > About, or run `WinDock.exe --welcome`.
 - **A new dock from a preset**: App settings > Docks and displays > **Add ▾** > **Dock from a preset…**. Check **Copy my pinned apps from the first dock** to bring your pins along, then click **Add dock**.
-- **Turn a dock into a preset**: in the dock's settings window, click **⋯** > **Apply a preset…**. Check **Keep my pinned apps and folders** to keep your apps, folders, groups, separators and the Recycle Bin, then click **Apply**.
+- **Turn a dock into a preset**: in the dock's settings window, click **⋯** > **Apply a layout or look…**. Check **Keep my pinned apps and folders** to keep your apps, folders, groups, separators and the Recycle Bin, then click **Apply**.
 
 The chooser lists the presets at the left. At the right it shows the chosen one's description, a small picture of where the dock sits, how it hides, its items in order, and a strip that draws the bar in the preset's look. Use Up and Down to choose and Enter to apply.
 
@@ -241,7 +241,7 @@ Floating performance and Desktop dashboard have no place for your pinned apps; t
 
 The **Windows 7** preset turns a dock into the Windows 7 taskbar in one step.
 
-1. Apply it: in App settings > Docks and displays click **Add ▾** > **Dock from a preset…** for a new dock, or in a dock's settings window click **⋯** > **Apply a preset…** to change that dock. Choose **Windows 7** in the list, keep **Keep my pinned apps and folders** checked and click **Apply** (or **Add dock**).
+1. Apply it: in App settings > Docks and displays click **Add ▾** > **Dock from a preset…** for a new dock, or in a dock's settings window click **⋯** > **Apply a layout or look…** to change that dock. Choose **Windows 7** in the list, keep **Keep my pinned apps and folders** checked and click **Apply** (or **Add dock**).
 2. In App settings > Animation, under **Launching an app**, choose **None**: Windows 7 icons do not bounce. This setting is for every dock, so the preset cannot set it.
 3. If you use several docks, turn off or remove the ones you do not need, so only the taskbar is at the bottom.
 

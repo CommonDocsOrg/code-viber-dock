@@ -488,11 +488,32 @@ protected:
             L"The dashboard hotkey brings the desktop layers to the front.");
         Combo(kLayerCombo, kColX, right - kColX, false);
         NextRow();
+        // --- round 12 phase 12C: whether the title shows (and when), its text from the dock's name,
+        // and where (inside the bar: top / bottom bars only) ---
+        Label(kTitleShowLabel, L"Show the title");
+        Tip(kTitleShowLabel, L"Always (the default): the title is drawn whenever it has text. On hover: it fades in while the "
+                             L"pointer is over the dock. Never: nothing is drawn, the text is kept (a dock can have a name "
+                             L"without showing a title).");
+        Combo(kTitleShowCombo, kColX, 200, false);
+        NextRow();
+        Check(kTitleUseName, kTitleUseNameCaption, L"Use the dock's name");
+        Tip(kTitleUseNameCaption, L"The title shows the dock's name (click the name in the header at the top of this window to "
+                                  L"rename the dock) instead of a text of its own. Off by default.");
+        NextRow();
+        // --- end round 12 phase 12C ---
         // Round 10 phase 10D: from the "More" expander (bars only).
         Label(kTitleLabel, L"Title", L"Drawn beside the bar", kPositionNote2);
         Tip(kTitleLabel, L"The title is drawn beside the bar, toward the middle of the screen (empty: none).");
         EditBox(kTitleEdit, kColX, right - kColX, 128);
         NextRow();
+        // --- round 12 phase 12C ---
+        Label(kTitlePlaceLabel, L"Where", L"", kTitlePlaceNote);
+        Tip(kTitlePlaceLabel, L"Outside the bar (the default): beside the bar, toward the middle of the screen. Inside the bar: a "
+                              L"band in the bar above the icons, which makes the bar taller; for bars on the top or bottom edge "
+                              L"(a left or right dock draws its title outside).");
+        Combo(kTitlePlaceCombo, kColX, 200, false);
+        NextRow();
+        // --- end round 12 phase 12C ---
 
         // Round 10 phase 10D: the exact numbers (x / y, offset, maximum length, peek) in a heading
         // expander, closed at first (was "More: reserve screen space, peek, maximum length, title";
@@ -709,6 +730,9 @@ protected:
         ComboAdd(kThumbnailsCombo, L"Off");  // ThumbnailMode order
         ComboAdd(kThumbnailsCombo, L"Live (GPU capture)");
         ComboAdd(kThumbnailsCombo, L"Snapshots (every N seconds)");
+        // Round 12 phase 12C: TitleShow / TitlePlace order.
+        for (const wchar_t* t : {L"Never", L"On hover", L"Always"}) ComboAdd(kTitleShowCombo, t);
+        for (const wchar_t* t : {L"Outside the bar", L"Inside the bar"}) ComboAdd(kTitlePlaceCombo, t);
         // Round 8 phase 8B: PlacementKind order.
         for (const wchar_t* k : {L"Bar on an edge", L"Floating bar", L"Half circle", L"Circle"}) ComboAdd(kPlacementKindCombo, k);
         if (HWND s = Item(kPositionSilhouette)) SetWindowLongPtrW(s, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(&Window()));
@@ -750,6 +774,10 @@ protected:
         SetCheck(kReserveSpace, d.reserveSpace);
         SetSpin(kPeekOpacitySpin, static_cast<int>(std::lround(d.peekOpacity * 100.0)));
         SetText(kTitleEdit, d.title);
+        // Round 12 phase 12C
+        SetComboSel(kTitleShowCombo, static_cast<int>(d.titleShow));
+        SetComboSel(kTitlePlaceCombo, static_cast<int>(d.titlePlace));
+        SetCheck(kTitleUseName, d.titleUseName);
         EnableDependents();
     }
 
@@ -892,6 +920,22 @@ protected:
                         Changed(SettingsScope::Appearance);  // slots become tiles; capture starts / stops
                     }
                     break;
+                // --- round 12 phase 12C: the title options (a relayout: the bar may gain / lose its band) ---
+                case kTitleShowCombo:
+                    if (sel <= 2 && static_cast<TitleShow>(sel) != d.titleShow) {
+                        d.titleShow = static_cast<TitleShow>(sel);
+                        EnableDependents();
+                        Changed(SettingsScope::Appearance);
+                    }
+                    break;
+                case kTitlePlaceCombo:
+                    if (sel <= 1 && static_cast<TitlePlace>(sel) != d.titlePlace) {
+                        d.titlePlace = static_cast<TitlePlace>(sel);
+                        EnableDependents();
+                        Changed(SettingsScope::Appearance);
+                    }
+                    break;
+                // --- end round 12 phase 12C ---
                 default:
                     break;
             }
@@ -953,6 +997,11 @@ protected:
             case kBadges:
                 d.badges = GetCheck(id);
                 Changed(SettingsScope::Notifications);  // the service starts / stops with the demand
+                break;
+            case kTitleUseName:  // round 12 phase 12C: the title's text from the dock's name
+                d.titleUseName = GetCheck(id);
+                EnableDependents();  // the Title row goes / comes back
+                Changed(SettingsScope::Appearance);
                 break;
             default:
                 break;
@@ -1071,7 +1120,13 @@ private:
             // for a bar that is not full width (a floating bar too); the title for bars.
             Collapse({kReserveSpace, kPeekLabel, kPeekEdit, kPeekOpacityLabel, kPeekOpacityEdit}, !edgeBar);
             Collapse({kMaxLengthLabel, kMaxLengthEdit}, !maxLength);
-            Collapse({kTitleLabel, kTitleEdit}, ring);
+            // Round 12 phase 12C: the Title text while it is not the name; Where only for a title
+            // that shows, never greyed without a reason (a vertical bar or a ring draws it outside).
+            Collapse({kTitleLabel, kTitleEdit}, ring || d.titleUseName);
+            const bool insideOk = !ring && !IsVertical(d.edge);
+            Enable(kTitlePlaceCombo, insideOk);
+            SetText(kTitlePlaceNote, insideOk ? L"" : ring ? L"A ring draws it outside" : L"Vertical docks draw it outside");
+            Collapse({kTitlePlaceLabel, kTitlePlaceCombo}, d.titleShow == TitleShow::Off);
             // Round 10 phase 10D: Exact offsets: gone when none of its rows applies (a half circle);
             // its title counts the applicable values that are not a new dock's.
             Collapse(kPositionMore, !(xy || edgeBar || maxLength));

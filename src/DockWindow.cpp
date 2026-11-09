@@ -756,42 +756,62 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         l.captionBand = captionGap + l.captionCross;
     }
 
-    // The bar without reflections (the icon row and the titles).
-    const float iconBarH = std::round(l.iconPx + 2.0f * barPadDip * s) + l.captionBand;
-    const float barH = iconBarH + l.reflH;
-    const float margin = l.fullWidth || l.floating ? 0.0f : std::round(kBottomMargin * s);
-    float winH = std::round(l.iconPx * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
-                 l.reflH + l.captionBand;
-    winH = std::max(winH, barH + margin);
     // The title (docks[].title): upright, in the label's font, kLabelGap beyond the bar's far side.
+    // Round 12 phase 12C: laid out before the bar's size (an "inside" title adds its band to the
+    // bar); its text is TitleText() (the dock's name with titleUseName; none while titleShow is off).
+    const std::wstring titleText = d.TitleText();
     float titleMain = 0.0f, titleCross = 0.0f;
     const float titleGap = std::round(kLabelGap * s);
-    if (!d.title.empty() && EnsureLabelFormat(s)) {
-        if (!titleLayout_ || titleText_ != d.title || titleScale_ != s) {
+    l.titleInside = false;
+    l.titleBand = 0.0f;
+    if (!titleText.empty() && EnsureLabelFormat(s)) {
+        if (!titleLayout_ || titleText_ != titleText || titleScale_ != s) {
             titleLayout_ = nullptr;
-            if (FAILED(renderer_.DWrite()->CreateTextLayout(d.title.c_str(), static_cast<UINT32>(d.title.size()),
+            if (FAILED(renderer_.DWrite()->CreateTextLayout(titleText.c_str(), static_cast<UINT32>(titleText.size()),
                                                             labelFormat_.get(), std::round(kLabelMaxWidth * s), 1000.0f,
                                                             titleLayout_.put()))) {
                 titleLayout_ = nullptr;
             }
-            titleText_ = d.title;
+            titleText_ = titleText;
             titleScale_ = s;
             titleDirty_ = true;
         }
         DWRITE_TEXT_METRICS tm{};
         if (titleLayout_ && SUCCEEDED(titleLayout_->GetMetrics(&tm))) {
-            const float w = std::ceil(std::min(tm.widthIncludingTrailingWhitespace, std::round(kLabelMaxWidth * s))) +
-                            2.0f * std::round(10.0f * s);
+            const float textW = std::ceil(std::min(tm.widthIncludingTrailingWhitespace, std::round(kLabelMaxWidth * s)));
+            const float w = textW + 2.0f * std::round(10.0f * s);
             const float h = std::ceil(tm.height) + 2.0f * std::round(4.0f * s);
             titleMain = l.vertical ? h : w;
             titleCross = l.vertical ? w : h;
+            // Round 12 phase 12C: "inside" (a top / bottom bar only; a vertical bar or a ring draws it
+            // outside): a band of the label font's height + 4 DIPs inside the bar, the text without
+            // its pill.
+            if (d.titlePlace == TitlePlace::Inside && !l.vertical && !polar) {
+                l.titleInside = true;
+                l.titleBand = std::ceil(tm.height) + std::round(4.0f * s);
+                titleMain = textW + 2.0f * std::round(4.0f * s);
+                titleCross = l.titleBand;
+            }
         }
     } else if (titleLayout_) {
         titleLayout_ = nullptr;
         titleText_.clear();
         titleDirty_ = true;
     }
-    if (titleCross > 0.0f) winH = std::max(winH, barH + margin + titleGap + titleCross);
+    // The band sits on the bar's far side: the icon row (and everything measured from the bar's top)
+    // moves down by it, the bar grows away from the screen edge. Magnified icons grow from the icon
+    // row, which stays as far from the window's edge side as before.
+    l.iconTopPx += l.titleBand;
+    if (l.titleInside != layout_.titleInside) titleDirty_ = true;  // drawn with / without its pill
+
+    // The bar without reflections (the icon row and the titles).
+    const float iconBarH = std::round(l.iconPx + 2.0f * barPadDip * s) + l.captionBand + l.titleBand;
+    const float barH = iconBarH + l.reflH;
+    const float margin = l.fullWidth || l.floating ? 0.0f : std::round(kBottomMargin * s);
+    float winH = std::round(l.iconPx * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
+                 l.reflH + l.captionBand;
+    winH = std::max(winH, barH + margin);
+    if (titleCross > 0.0f && !l.titleInside) winH = std::max(winH, barH + margin + titleGap + titleCross);
     if (l.glowPad > 0.0f) {
         // Room above a fully magnified icon for its halo.
         const float magTopRel =
@@ -809,7 +829,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     const float sepW = std::round(kSeparatorWidth * s);
     const float widgetGap = std::round(kWidgetGap * s);
     // Round 11 phase 11C: a full-width bar tells flush widgets its thickness (l.barCross).
-    l.barCross = l.fullWidth ? iconBarH : 0.0f;
+    l.barCross = l.fullWidth ? iconBarH - l.titleBand : 0.0f;  // round 12 phase 12C: the icon row's, not the title band's
     const LayoutContext ctx{l.vertical ? DockAxis::Vertical : DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite(), l.barCross};
     Run first = Run::None, prev = Run::None;
     bool firstFlush = false, lastFlush = false;  // the first / last real slot is a flush widget
@@ -1227,7 +1247,9 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         // Icons stand on the icon row; widgets are centred on it (above any reflections). A widget
         // box thicker than the bar (round 7 phase 7C: the analog clock grown on hover) stands on the
         // bar's near edge and sticks out on the far side only, as a magnified icon does.
-        item.y = item.IsWidget() ? std::round(std::min(l.bar.top + (iconBarH - item.boxCross) / 2.0f, l.bar.top + iconBarH - item.boxCross))
+        // Round 12 phase 12C: centred on the icon row, under an "inside" title's band.
+        const float rowTop = l.bar.top + l.titleBand, rowH = iconBarH - l.titleBand;
+        item.y = item.IsWidget() ? std::round(std::min(rowTop + (rowH - item.boxCross) / 2.0f, rowTop + rowH - item.boxCross))
                                  : l.itemTop;
         const int k = static_cast<int>(i);
         // "always": the room before the first magnifying slot is the icon side of its spacer, the
@@ -1267,12 +1289,18 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     if (l.buttons) {
         l.buttonInsetMain = std::max(1.0f, std::round(s));
         const float crossInset = std::round(std::max(1.0f, barPadDip / 2.0f) * s);
-        l.buttonTop = l.bar.top + crossInset;
-        l.buttonH = std::max(0.0f, (l.bar.bottom - l.bar.top) - 2.0f * crossInset);
+        l.buttonTop = l.bar.top + l.titleBand + crossInset;  // round 12 phase 12C: under an "inside" title
+        l.buttonH = std::max(0.0f, (l.bar.bottom - l.bar.top - l.titleBand) - 2.0f * crossInset);
     }
     // The title is part of the resting window too (it takes no part in hit testing), centred on the
     // run of items along the bar.
-    if (titleCross > 0.0f) {
+    if (titleCross > 0.0f && l.titleInside) {
+        // Round 12 phase 12C: in its band at the bar's far side, centred on the run like outside; the
+        // bar (its hit testing and zone) already holds it, so the resting window needs nothing more.
+        const float runMiddle = l.view.on ? (l.view.start + l.view.end) / 2.0f : l.itemsLeft + itemsW / 2.0f;
+        const float u0 = std::clamp(std::round(runMiddle - titleMain / 2.0f), 0.0f, std::max(0.0f, l.stageMain - titleMain));
+        l.title = l.PhysRect(u0, l.bar.top, u0 + titleMain, l.bar.top + titleCross);
+    } else if (titleCross > 0.0f) {
         const float runMiddle = l.view.on ? (l.view.start + l.view.end) / 2.0f : l.itemsLeft + itemsW / 2.0f;
         const float u0 = std::round(runMiddle - titleMain / 2.0f);
         const float v0 = l.bar.top - titleGap - titleCross;
@@ -1662,6 +1690,8 @@ void DockWindow::ResetLayers() {
     label3_ = nullptr;
     labelOpacity_.valid = false;
     label_.Reset();
+    title3_ = nullptr;  // round 12 phase 12C
+    titleOpacity_.valid = false;
     title_.Reset();
     scrollThumb_.Reset();
     thumbMain_.valid = thumbOpacity_.valid = false;
@@ -1695,6 +1725,9 @@ HRESULT DockWindow::CreateLayers() {
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRightClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(bgRight_, &bgRightClip_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(title_);
+    // Round 12 phase 12C: titleShow "hover" fades the title (no fade without IDCompositionVisual3:
+    // it is shown / hidden instead).
+    if (SUCCEEDED(hr) && FAILED(title_.visual->QueryInterface(IID_PPV_ARGS(title3_.put())))) title3_ = nullptr;
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(widgetsGroup_);
     if (SUCCEEDED(hr)) hr = renderer_.CreateLayer(itemsGroup_);
     for (Layer& d : dotSources_) {
@@ -2858,11 +2891,27 @@ HRESULT DockWindow::RenderTitle() {
     titleDirty_ = false;
     if (!titleLayout_ || !w || !h) return renderer_.DrawLayer(title_, 0, 0, {});
     const float s = l.scale;
+    if (l.titleInside) {
+        // Round 12 phase 12C: in the bar's band: the text alone, centred in the label's text colour
+        // (the bar's fill is its background).
+        const ThemeConfig& t = DockTheme();
+        DWRITE_TEXT_METRICS tm{};
+        titleLayout_->GetMetrics(&tm);
+        const float padX = std::round(4.0f * s);
+        const float padY = std::max(0.0f, std::round((static_cast<float>(h) - std::ceil(tm.height)) / 2.0f));
+        HRESULT hr = renderer_.DrawLayer(title_, w, h, [&](ID2D1DeviceContext* dc) {
+            winrt::com_ptr<ID2D1SolidColorBrush> brush;
+            if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(t.labelText), brush.put()))) return;
+            dc->DrawTextLayout(D2D1::Point2F(padX, padY), titleLayout_.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        });
+        ApplyTitleOpacity(0.0);
+        return hr;
+    }
     const float padX = std::round(10.0f * s), padY = std::round(4.0f * s);
     const float radius = std::min(std::round(DockTheme().labelCornerRadius * s), static_cast<float>(h) / 2.0f);
     const float stroke = std::max(1.0f, std::round(s));
     const ThemeConfig& t = DockTheme();
-    return renderer_.DrawLayer(title_, w, h, [&](ID2D1DeviceContext* dc) {
+    const HRESULT hr = renderer_.DrawLayer(title_, w, h, [&](ID2D1DeviceContext* dc) {
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
         if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(t.labelBackground), brush.put()))) return;
         const float fw = static_cast<float>(w), fh = static_cast<float>(h);
@@ -2874,6 +2923,36 @@ HRESULT DockWindow::RenderTitle() {
                                  brush.get(), stroke);
         brush->SetColor(Theme::ToColor(t.labelText));
         dc->DrawTextLayout(D2D1::Point2F(padX, padY), titleLayout_.get(), brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+    });
+    ApplyTitleOpacity(0.0);  // round 12 phase 12C: a hover title starts as the pointer finds it
+    return hr;
+}
+
+// --- round 12 phase 12C: docks[].titleShow "hover" ---------------------------------------------------
+
+void DockWindow::ApplyTitleOpacity(double duration) {
+    // Shown: always, or on hover while the pointer is over the dock. One DComp animation per change
+    // (DWM runs it; nothing ticks here), a static set with reduced motion or duration 0.
+    const bool hover = DockCfg().titleShow == TitleShow::Hover;
+    const float target = !hover || titleHover_ ? 1.0f : 0.0f;
+    if (!title3_) {
+        renderer_.SetVisible(title_, target > 0.5f);
+        return;
+    }
+    IDCompositionVisual3* v3 = title3_.get();
+    renderer_.Drive(
+        titleOpacity_, target, motion_.reduce ? 0.0 : duration, Renderer::Now(), [&](auto v) { return v3->SetOpacity(v); }, 0.001f,
+        renderer_.FadeEasing());
+}
+
+void DockWindow::SetTitleHover(bool hover) {
+    if (hover == titleHover_) return;
+    titleHover_ = hover;
+    // Only a hover title changes (and only when there is one): no commit otherwise.
+    if (DockCfg().titleShow != TitleShow::Hover || !titleLayout_ || !title_.visual) return;
+    RenderWithRecovery([this] {
+        ApplyTitleOpacity(0.15);
+        return S_OK;
     });
 }
 
@@ -4195,6 +4274,7 @@ void DockWindow::LeaveZone() {
         UpdateWidgetHover(-1);
         return;
     }
+    SetTitleHover(false);  // round 12 phase 12C: a hover title fades out
     const bool keepGrown = grown_ && popupHolds_ != 0;
     const bool wasActive = magnifying_ || hovered_ >= 0 || (grown_ && !keepGrown);
     magnifying_ = false;
@@ -8894,6 +8974,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             CancelHide();
+            SetTitleHover(true);  // round 12 phase 12C: a hover title fades in (once per entry)
             if (!expanded_) {
                 // Entering the bar: give magnified icons and the label their room first. The
                 // cursor is on the bar, so the larger transparent area is harmless meanwhile.

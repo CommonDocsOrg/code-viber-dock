@@ -285,6 +285,18 @@ inline GlowMode GlowOf(const ThemeConfig& t) {
 }
 
 
+// --- round 12 phase 12C ---
+// docks[].titleShow: whether the title (docks[].title, or the dock's name with titleUseName) is
+// drawn: "off" (the text is kept, nothing is drawn), "hover" (it fades in while the pointer is over
+// the dock), "always" (the default; written only when not the default). The order is QueryState
+// 305's and the Position tab's "Show the title" combo's.
+enum class TitleShow { Off, Hover, Always };
+// docks[].titlePlace: "outside" (beyond the bar toward the middle of the screen, the default) or
+// "inside" (a band inside the bar above the icon row; horizontal bars only: a vertical dock or a
+// ring draws it outside). QueryState 306.
+enum class TitlePlace { Outside, Inside };
+// --- end round 12 phase 12C ---
+
 // One dock: its contents and the settings that are per dock. Config::docks always holds at least
 // one (docks[0], Config::Main()).
 struct DockConfig {
@@ -482,6 +494,24 @@ struct DockConfig {
     // Replaces the pins with `pins`: pin slots are refilled in order, missing ones are removed,
     // extra pins go after the last pin (as InsertPin does). The other items keep their places.
     void SetPins(std::vector<DockItemEntry> pins);
+
+    // --- round 12 phase 12C: names and titles ---
+    // docks[].name: what people see (the Dock header, menus, Docks and displays, window titles,
+    // undo labels); empty = the id. The id stays the stable key (automation, widget data, config
+    // references), so a rename never breaks anything. Written only when set; at most 64 characters.
+    std::wstring name;
+    TitleShow titleShow = TitleShow::Always;
+    TitlePlace titlePlace = TitlePlace::Outside;
+    // docks[].titleUseName: the title's text is the dock's display name instead of `title`.
+    bool titleUseName = false;
+    const std::wstring& DisplayName() const { return name.empty() ? id : name; }
+    // The text the dock draws as its title: the display name (titleUseName) or `title`; "" when
+    // titleShow is off or there is none.
+    std::wstring TitleText() const {
+        if (titleShow == TitleShow::Off) return {};
+        return titleUseName ? DisplayName() : title;
+    }
+    // --- end round 12 phase 12C ---
 };
 
 // What a click on the clock does: "calendar" (the month calendar popup), "launch" (open
@@ -788,6 +818,18 @@ struct Config {
 
     // Clamp values to sane ranges.
     void Sanitize();
+
+    // --- round 12 phase 12C ---
+    // docks[index]'s name as people see it (its `name`, else its id; "" for no such entry).
+    std::wstring DockDisplayName(size_t index) const {
+        return index < docks.size() ? docks[index].DisplayName() : std::wstring();
+    }
+    // %LocalAppData%\WinDock\layouts (saved layouts: Presets::Mine, Presets::SaveLayout).
+    static std::wstring LayoutsDirectory();
+    // One docks[] entry of kind "dock" as the JSON object the config file holds for it (exactly the
+    // keys Save writes for it, its "items" included). "" when it cannot be written.
+    std::wstring DockJson(size_t index) const;
+    // --- end round 12 phase 12C ---
 };
 
 // Round 9 phase 9C: a dock object as JSON text (the keys of a docks[] entry of kind "dock" and its
