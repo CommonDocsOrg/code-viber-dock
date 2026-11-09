@@ -210,7 +210,7 @@ protected:
         NoReflow();
         HelpTopic(L"guide-settings.md#contents-tab");  // round 9 phase 9D: F1 (no cards: no "?" buttons)
         SettingsStrip::Register();
-        const int W = Width(), L = kMargin, R = Right(), dx = W - kDrawerW;
+        const int W = Width(), L = kMargin, R = Right(), dx = DrawerDx(), dy = DrawerDy();
         // Round 12 phase 12F: the page's sentence over both columns (the tab lays itself out: no Lead).
         Add(kPageLead, CtlKind::Note, WC_STATICW, L"What is on the dock, in order. Add, move, change and remove items here.",
             SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS, RECT{L, 8, W - 16, 32});
@@ -288,22 +288,22 @@ protected:
         EndExpander();
         // The drawer: everything that can be added (round 8 phase 8B: apps and folders too).
         Add(kDrawerTitle, CtlKind::Section, WC_STATICW, L"Add to the dock", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
-            RECT{dx + 16, 12 + kLeadDy, dx + 16 + kDrawerTitleW, 36 + kLeadDy});
+            RECT{dx + 16, 12 + kLeadDy + dy, dx + 16 + kDrawerTitleW, 36 + kLeadDy + dy});
         Add(kDrawerHint, CtlKind::Note, WC_STATICW, L"drag onto the strip", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
-            RECT{dx + 16 + kDrawerTitleW, 12 + kLeadDy, W - 16, 36 + kLeadDy});
-        y_ = 38 + kLeadDy;
-        EditBox(kDrawerSearch, dx + 16, kDrawerW - 32, 80);
+            RECT{dx + 16 + kDrawerTitleW, 12 + kLeadDy + dy, W - 16, 36 + kLeadDy + dy});
+        y_ = 38 + kLeadDy + dy;
+        EditBox(kDrawerSearch, dx + 16, W - 32 - dx, 80);
         Tip(kDrawerSearch, L"Type to filter the tiles below by name or description.");
         // Round 12 phase 12D: the filter chips (push-like radio buttons) and the grid of tiles.
         LayoutChips(true);
         Add(kDrawerList, CtlKind::Custom, SettingsStrip::kClass, L"Add to the dock", WS_TABSTOP,
-            RECT{dx + 16, kDrawerGridTop, W - 16, 378 + kLeadDy});
+            RECT{dx + 16, kDrawerGridTop + dy, W - 16, 378 + kLeadDy + dy});
         Tip(kDrawerList, L"Everything you can put on the dock: apps and folders, the built-in items and the widgets, with live "
                          L"previews. Drag a tile onto the strip or the dock, or click it to add it at the end. Drag a widget "
                          L"onto the desktop (or press its small monitor button) to place it there.");
         // Two lines: the text does not fit the drawer's width on one.
         Add(kDrawerLibraryLink, CtlKind::Link, WC_LINK, L"<a>Manage installed widgets in App settings > Widget library</a>", WS_TABSTOP,
-            RECT{dx + 16, 386 + kLeadDy, W - 16, 422 + kLeadDy});
+            RECT{dx + 16, 386 + kLeadDy + dy, W - 16, 422 + kLeadDy + dy});
     }
 
     void Created() override {
@@ -397,7 +397,8 @@ protected:
         // The inspector's frame.
         const RECT f{Window().Px(kMargin), Window().Px(kInspectorTop) - s, Window().Px(Right()), Window().Px(inspectorBottom_) - s};
         Frame(dc, f, hair, Window().Px(8) * 2);
-        // The drawer's edge.
+        // The drawer's edge (round 12 phase 12H: none while the drawer is under the inspector).
+        if (Stacked()) return;
         RECT rc{};
         GetClientRect(Hwnd(), &rc);
         const int x = Window().Px(Width() - kDrawerW);
@@ -955,7 +956,7 @@ private:
     // The filter chips' row under the search box (`create`: made, else moved), push-like radio
     // buttons All / Built in / Widgets / Apps and folders (ids kDrawerChipAll ...).
     void LayoutChips(bool create) {
-        const int dx = Width() - kDrawerW;
+        const int dx = DrawerDx(), dy = DrawerDy();
         static constexpr struct {
             int id;
             const wchar_t* text;
@@ -964,7 +965,7 @@ private:
                       {kDrawerChipApps, L"Apps and folders", 112}};
         int x = dx + 16;
         for (const auto& c : kChips) {
-            const RECT r{x, 76 + kLeadDy, x + c.w, 102 + kLeadDy};
+            const RECT r{x, 76 + kLeadDy + dy, x + c.w, 102 + kLeadDy + dy};
             if (create) {
                 Add(c.id, CtlKind::Button, WC_BUTTONW, c.text,
                     WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE | (c.id == kDrawerChipAll ? WS_GROUP : 0), r);
@@ -984,8 +985,30 @@ private:
         return catalog_.NewEntry(ref, Dock());
     }
 
+    // Round 12 phase 12H: the Dock settings panel (12E) is 470 DIPs wide by default, so the left
+    // column beside the 340-DIP drawer was about 60 DIPs wide (measured on the panel: the two
+    // headings overlapped and the inspector's Move right / Customize icon / Remove buttons went
+    // past the page's left edge). Narrower than kStackBelow, the drawer goes under the inspector
+    // (full width; the page scrolls to it); wider, it stays on the right as before.
+    static constexpr int kStackBelow = 720;
+    bool Stacked() const { return Width() < kStackBelow; }
+    // The drawer's left (its controls start 16 DIPs further in) and how far down it moves.
+    int DrawerDx() const { return Stacked() ? kMargin - 16 : Width() - kDrawerW; }
+    int DrawerDy() const { return Stacked() ? inspectorBottom_ + 16 - (12 + kLeadDy) : 0; }
+
     // The left column's right edge (DIPs): beside the drawer (always shown since round 8 phase 8B).
-    int Right() const { return Width() - kDrawerW - 20; }
+    int Right() const { return Stacked() ? Width() - 16 : Width() - kDrawerW - 20; }
+
+    // The drawer's controls where DrawerDx / DrawerDy put them.
+    void LayoutDrawer() {
+        const int W = Width(), dx = DrawerDx(), dy = DrawerDy();
+        MoveCtl(kDrawerTitle, RECT{dx + 16, 12 + kLeadDy + dy, dx + 16 + kDrawerTitleW, 36 + kLeadDy + dy});
+        MoveCtl(kDrawerHint, RECT{dx + 16 + kDrawerTitleW, 12 + kLeadDy + dy, W - 16, 36 + kLeadDy + dy});
+        MoveCtl(kDrawerSearch, RECT{dx + 16, 38 + kLeadDy + 4 + dy, W - 16, 38 + kLeadDy + kRowH - 4 + dy});
+        LayoutChips(false);
+        MoveCtl(kDrawerList, RECT{dx + 16, kDrawerGridTop + dy, W - 16, 378 + kLeadDy + dy});
+        MoveCtl(kDrawerLibraryLink, RECT{dx + 16, 386 + kLeadDy + dy, W - 16, 422 + kLeadDy + dy});
+    }
 
     // --- the drawer ---
 
@@ -1018,14 +1041,9 @@ private:
 
     // Round 8 phase 8A: the window was resized: the drawer on the right, the left column again.
     void OnResized() override {
-        const int W = Width(), dx = W - kDrawerW;
+        const int W = Width();
         MoveCtl(kPageLead, RECT{kMargin, 8, W - 16, 32});  // round 12 phase 12F
-        MoveCtl(kDrawerTitle, RECT{dx + 16, 12 + kLeadDy, dx + 16 + kDrawerTitleW, 36 + kLeadDy});
-        MoveCtl(kDrawerHint, RECT{dx + 16 + kDrawerTitleW, 12 + kLeadDy, W - 16, 36 + kLeadDy});
-        MoveCtl(kDrawerSearch, RECT{dx + 16, 38 + kLeadDy + 4, W - 16, 38 + kLeadDy + kRowH - 4});
-        LayoutChips(false);
-        MoveCtl(kDrawerList, RECT{dx + 16, kDrawerGridTop, W - 16, 378 + kLeadDy});
-        MoveCtl(kDrawerLibraryLink, RECT{dx + 16, 386 + kLeadDy, W - 16, 422 + kLeadDy});
+        LayoutDrawer();
         LayoutColumns();  // relayouts
     }
 
@@ -1115,6 +1133,7 @@ private:
             }
             MoveCtl(kPinRemove, RECT{right - 206, yc, right, yc + 28});
             inspectorBottom_ = placeRows(std::max(kInspectorTop + 46 + extra, yc + 28) + 8);
+            if (Stacked()) LayoutDrawer();  // round 12 phase 12H: under the inspector's new bottom
             Relayout();
             return;
         }
@@ -1127,6 +1146,7 @@ private:
         if (x > left && x + kRemoveW > right) y += 34;  // no room beside them
         MoveCtl(kPinRemove, RECT{right - kRemoveW, y, right, y + 28});
         inspectorBottom_ = placeRows(y + 28 + 8);
+        if (Stacked()) LayoutDrawer();  // round 12 phase 12H: under the inspector's new bottom
         Relayout();
     }
 
