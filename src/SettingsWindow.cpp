@@ -2070,6 +2070,11 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
                 const Ctl& c = t[row[k]];
                 for (size_t m = 0; m < row.size(); ++m) {
                     if ((move[m] || follow[m]) && c.base.right <= t[row[m]].base.left && c.base.right >= t[row[m]].base.left - 16) {
+                        // Round 12 phase 12H: an up-down neither stretches nor moves: it is its edit
+                        // box's (measured: Behaviour > Popup gap in a 1200-px panel, two columns,
+                        // drew a 157-px-wide up-down after its box, the note "DIP between the dock
+                        // and its popups" being what moved).
+                        if (c.kind == CtlKind::Spin) break;
                         if (c.kind == CtlKind::Button) {
                             move[k] = 1;
                             more = true;
