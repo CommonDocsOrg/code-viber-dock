@@ -102,6 +102,11 @@ enum Command : UINT {
     kRevertWindow = 159,  // "Revert this window" of the Dock window of dock HIWORD(lParam) (LOWORD 1: the App settings window)
     kBarKeep = 160,       // the open bar's Keep (Keep / Revert, Keep / Cancel)
     kBarCancel = 161,     // ... its Revert / Cancel
+    // Round 12 phase 12B, looks (automation only, App::OnSharedMessage; HIWORD(lParam) the dock by
+    // instance index, 0xFFFF the app look): 1 done, 0 refused.
+    kSaveLookAsTheme = 162,  // LOWORD a global atom with the name: themes\<name>.json of that look (replaced), then its preset
+    kImportThemeFile = 163,  // LOWORD a global atom with a path: the file copied into the themes folder
+    kApplyLookToDocks = 164, // LOWORD a bitmask of config docks (bit n = docks[n]): each gets that look as its own
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,

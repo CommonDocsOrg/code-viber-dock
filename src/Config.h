@@ -375,9 +375,13 @@ struct DockConfig {
     MiddleClickAction middleClick = MiddleClickAction::NewInstance;
     WheelAction wheel = WheelAction::None;
     RunningFilter runningFilter = RunningFilter::All;
-    // A theme preset for this dock only ("" = the global theme.preset). The global inline theme
-    // fields still apply on top of it.
+    // A theme preset for this dock only ("" = the app look: the top-level theme, its preset and its
+    // inline fields). Round 12 phase 12B: a dock with a preset has its own look: that preset plus
+    // its own inline fields (`theme`, the docks[] entry's "theme" object, with `themeOverrides`);
+    // the app's inline fields no longer apply to it (round 12 decision 2: no layering).
     std::wstring themePreset;
+    uint64_t themeOverrides = 0;  // round 12 phase 12B: one bit per Theme::Field set in docks[].theme
+    bool OwnLook() const { return !themePreset.empty(); }
     DockLayer layer = DockLayer::Normal;
     WindowsMode windows = WindowsMode::Stacked;
     TitlesMode titles = TitlesMode::Off;
@@ -414,8 +418,9 @@ struct DockConfig {
     bool floating = false;
     bool Floating() const { return floating && shape == DockShape::Bar && dockKind == DockKind::Dock; }
 
-    // Not saved: `themePreset` resolved (Config::ResolveDockThemes); ownTheme false = use the
-    // global theme.
+    // Config::ResolveDockThemes: ownTheme = the dock has its own look (not saved), `theme` its values:
+    // the fields in themeOverrides are the dock's own (saved as docks[].theme, round 12 phase 12B),
+    // the others its preset's. ownTheme false: the app's theme applies (`theme` unused).
     bool ownTheme = false;
     ThemeConfig theme;
 
@@ -743,9 +748,21 @@ struct Config {
     // false (and uses dark for those fields, keeping `themePreset` so the user can fix it) when
     // the preset is unknown or its theme file is unreadable / malformed. Also ResolveDockThemes.
     bool ResolveTheme();
-    // Every dock with its own themePreset: that preset with the global inline fields
-    // (themeOverrides) on top. An unknown preset falls back to the global theme (ownTheme false).
+    // Every dock with its own look (themePreset set): its preset with its own inline fields
+    // (DockConfig::themeOverrides) on top; round 12 phase 12B: the app's inline fields do not apply
+    // to it. A preset that does not resolve (unknown, a broken file) is based on the app's resolved
+    // theme instead (what such a dock showed before 12B).
     void ResolveDockThemes();
+    // Round 12 phase 12B: the preset values a look is based on (the app's: Theme::Resolve of
+    // themePreset; a dock's own look: its preset, else the app's resolved theme as above).
+    ThemeConfig PresetOf(const DockConfig* dock) const;
+    // "Give this dock its own look": the app's current look (preset and inline fields) becomes the
+    // dock's own (the app's "" preset, the dark defaults, as "dark").
+    void GiveOwnLook(DockConfig& d) const;
+    // "Use the app look again": no preset, no fields of its own.
+    static void UseAppLook(DockConfig& d);
+    // `target` gets the look `source` shows (null: the app's) as its own (Apply to other docks).
+    void CopyLook(const DockConfig* source, DockConfig& target) const;
 
     // %LocalAppData%\WinDock
     static std::wstring Directory();

@@ -760,7 +760,7 @@ inline constexpr int kPlaceUseShared = 5406;     // a script widget's place: "�
 inline constexpr int kSlotsNote = 5500;          // Themes > Slot buttons: the group's note (one line; its tooltip the whole text)
 
 // Round 12 phase 12A: one timeline (undo / redo), the Saved state, Keep / Revert and Keep / Cancel
-// (5600 - 5629). The bar band and the banner (WinDock.KeepBanner, shown near the dock while no
+// (5600 - 5619). The bar band and the banner (WinDock.KeepBanner, shown near the dock while no
 // settings window is visible) share the ids of their children.
 inline constexpr int kBandSaveStatus = 5600;     // static: "✓ Saved" / "Saving…" / "Not saved" (Global: the subtitle band 102; Dock: the header 102; Item: the footer 104)
 inline constexpr int kBarRetry = 5601;           // the bar's "Retry" (a failed save: save now; WM_COMMAND to the bar 5603)
@@ -778,5 +778,43 @@ inline constexpr int kSectionChanges = 5612;     // Global > General: the "Chang
 inline constexpr int kConfirmPlacement = 5613;   // check box: settings.confirmPlacement (+ caption 5614, hint 5615)
 inline constexpr int kConfirmPlacementCaption = 5614;
 inline constexpr int kConfirmPlacementHint = 5615;
+
+// Round 12 phase 12B: looks (5620 - 5679). The Quick look card exists twice: on App settings > Themes
+// at kQuickBase (5620 - 5639) and on a dock's Look tab at kQuickBase + kQuickDockOffset (5640 - 5659);
+// QuickId(part, dock) gives either. The theme value rows of the Look tab are FieldRow ids moved to
+// kDockFieldRowBase (6000 + field x 10 + part; the App editor keeps 3000 + ...).
+inline constexpr int kQuickBase = 5620;
+inline constexpr int kQuickDockOffset = 20;
+inline constexpr int kQuickSection = 0;         // + base: the "Quick look" card's header (open)
+inline constexpr int kQuickTintLabel = 1;       // "Tint" (label)
+inline constexpr int kQuickTintSwatch = 2;      // its colour button (ChooseColor; the RGB replaced, alphas kept)
+inline constexpr int kQuickTintHex = 3;         // its "#RRGGBB" edit (applied on Enter / focus loss)
+inline constexpr int kQuickTintReset = 4;       // "↺" (tooltip "Reset to the preset's value"; shown while it differs from the preset's)
+inline constexpr int kQuickAlphaLabel = 5;      // "Transparency"
+inline constexpr int kQuickAlphaTrack = 6;      // trackbar 0 - 100 % (applied on release)
+inline constexpr int kQuickAlphaValue = 7;      // "40 %"
+inline constexpr int kQuickAlphaReset = 8;
+inline constexpr int kQuickCornersLabel = 9;    // "Corners"
+inline constexpr int kQuickCornersCombo = 10;   // Square / Soft / Round (+ "Mixed" as a fourth row while no choice matches)
+inline constexpr int kQuickCornersReset = 11;
+inline constexpr int kQuickEffectsLabel = 12;   // "Icon effects"
+inline constexpr int kQuickEffectsCombo = 13;   // Off / Glow / Reflection / Glow and reflection
+inline constexpr int kQuickEffectsReset = 14;
+inline constexpr int kQuickDotsCheck = 15;      // "Indicator dots" check box (+ caption 16)
+inline constexpr int kQuickDotsCaption = 16;
+inline constexpr int kQuickDotsReset = 17;
+inline constexpr int kQuickNote = 18;           // the card's one-line note
+constexpr int QuickId(int part, bool dock) { return kQuickBase + (dock ? kQuickDockOffset : 0) + part; }
+inline constexpr int kGalleryApp = 5660;        // WinDock.SettingsGallery on App settings > Themes (tiles: the kThemeCombo rows)
+inline constexpr int kGalleryDock = 5661;       // ... on a dock's Look tab (tile 0 "App look (<name>)", then the kDockThemeCombo rows 1 ...)
+// The editors' ⋯ menu (kThemeMore 2424 on both: Themes' Theme card, the Look tab's first row). Its
+// commands run as WM_COMMAND(id, 0) to the page too (Export 2403, Open themes folder 2404, Reset all 2405).
+inline constexpr int kSaveAsTheme = 5662;       // "Save as theme…" (asks for a name: themes\<name>.json, then the look's preset)
+inline constexpr int kImportTheme = 5663;       // "Import theme…" (an open dialog: the file is copied into the themes folder)
+inline constexpr int kApplyToDocks = 5664;      // "Apply to other docks…" (App: "Apply to docks…"; a check list: each checked dock gets this look as its own)
+inline constexpr int kOwnLook = 5665;           // Look tab: "Give this dock its own look" (shown while the dock uses the app look)
+inline constexpr int kLookReason = 5666;        // Look tab: "This dock uses the app look. …" (with kDockThemeLink "Change for every dock")
+inline constexpr int kDockFieldRowBase = 6000;  // Look tab: FieldRow ids at this base (6000 - 6499)
+constexpr int DockFieldRow(int field, int part) { return kDockFieldRowBase + field * kFieldRowStride + part; }
 
 }  // namespace SettingsIds

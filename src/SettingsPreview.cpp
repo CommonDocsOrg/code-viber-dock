@@ -634,3 +634,423 @@ LRESULT SettingsPreview::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
     }
     return DefWindowProcW(hwnd_, msg, wp, lp);
 }
+
+// --- round 12 phase 12B: the theme gallery ---
+
+void DrawMiniDock(ID2D1DeviceContext* dc, const D2D1_RECT_F& box, const ThemeConfig& t, float s) {
+    if (box.right - box.left < 20.0f || box.bottom - box.top < 12.0f) return;
+    winrt::com_ptr<ID2D1Factory> factory;
+    dc->GetFactory(factory.put());
+    winrt::com_ptr<ID2D1SolidColorBrush> brush;
+    if (!factory || FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 1), brush.put()))) return;
+    const float stroke = std::max(1.0f, std::round(s));
+    // The wallpaper of the preview strip, clipped to a rounded box.
+    winrt::com_ptr<ID2D1RoundedRectangleGeometry> clip;
+    if (FAILED(factory->CreateRoundedRectangleGeometry(Rounded(box, std::round(4.0f * s)), clip.put()))) return;
+    dc->PushLayer(D2D1::LayerParameters1(D2D1::InfiniteRect(), clip.get()), nullptr);
+    const D2D1_GRADIENT_STOP stops[] = {
+        {0.0f, D2D1::ColorF(0x3B6E8F)}, {0.55f, D2D1::ColorF(0x7A5C99)}, {1.0f, D2D1::ColorF(0xC9798A)}};
+    winrt::com_ptr<ID2D1GradientStopCollection> stopCollection;
+    winrt::com_ptr<ID2D1LinearGradientBrush> gradient;
+    if (SUCCEEDED(dc->CreateGradientStopCollection(stops, static_cast<UINT32>(std::size(stops)), stopCollection.put())) &&
+        SUCCEEDED(dc->CreateLinearGradientBrush(
+            D2D1::LinearGradientBrushProperties(D2D1::Point2F(box.left, box.top), D2D1::Point2F(box.right, box.bottom)),
+            stopCollection.get(), gradient.put()))) {
+        dc->FillRectangle(box, gradient.get());
+    }
+
+    // The dock at a third of its size: four icons of 48 DIPs with the theme's gap and padding.
+    constexpr int kIcons = 4;
+    constexpr uint32_t kIconColors[kIcons] = {0xFF3A86FF, 0xFF34C759, 0xFFFF9F0A, 0xFFAF52DE};
+    constexpr int kStates[kIcons] = {2, 1, 0, 3};  // active, running, pinned only, attention
+    const float u = 0.34f * s;
+    const float icon = std::max(6.0f, std::round(48.0f * u));
+    const float gap = std::max(1.0f, std::round(t.iconGap * u));
+    const float padDip = std::clamp(t.barPadding, 0.0f, 24.0f);
+    const float pad = std::round(padDip * u);
+    const float lead = std::max(std::round(8.0f * u), std::round(gap / 2.0f));
+    const bool buttons = SlotStyleOf(t) == SlotStyle::Buttons;
+    const float rowH = icon + 2.0f * pad;
+    const float reflH = t.reflection && !t.reflectionClip ? std::ceil(icon * t.reflectionHeight) : 0.0f;
+    const float barH = rowH + reflH;
+    const float barW = std::min(box.right - box.left - 2.0f * stroke, kIcons * icon + (kIcons - 1) * gap + 2.0f * lead);
+    const float barLeft = std::round((box.left + box.right - barW) / 2.0f);
+    const float barBottom = box.bottom - std::round(4.0f * s);
+    const D2D1_RECT_F bar = D2D1::RectF(barLeft, barBottom - barH, barLeft + barW, barBottom);
+    const bool shelf = t.shelf || t.perspective;
+    const bool acrylic = t.acrylic && !shelf && Backdrop::SystemAllowsTransparency();
+    if (shelf) {
+        Theme::DrawShelf(dc, bar, t, u, stroke, -1.0f, reflH);
+    } else {
+        const float radius = std::round((acrylic ? SnapAcrylicRadius(t.cornerRadius) : t.cornerRadius) * u);
+        const D2D1_ROUNDED_RECT shape = Rounded(bar, radius);
+        if (acrylic) {
+            brush->SetColor(D2D1::ColorF(0x6E6A8E, 0.85f));  // the blurred wallpaper, as the strip draws it
+            dc->FillRoundedRectangle(shape, brush.get());
+            brush->SetColor(Theme::ToColor(t.acrylicBackground));
+        } else {
+            brush->SetColor(Theme::ToColor(t.background));
+        }
+        dc->FillRoundedRectangle(shape, brush.get());
+        Theme::DrawSheen(dc, shape.rect, shape.radiusX, t, stroke);
+        brush->SetColor(Theme::ToColor(t.barBorder));
+        D2D1_ROUNDED_RECT edge = shape;
+        edge.rect = Inset(shape.rect, stroke / 2.0f);
+        edge.radiusX = edge.radiusY = std::max(0.0f, shape.radiusX - stroke / 2.0f);
+        dc->DrawRoundedRectangle(edge, brush.get(), stroke);
+    }
+    const float itemTop = bar.top + (buttons ? pad : std::round(padDip * 0.625f * u));
+    const float dotR = std::max(1.0f, 2.0f * u);
+    const float dotY = reflH > 0.0f ? itemTop + icon + std::round(pad * 0.625f)
+                                    : barBottom - std::max(dotR + 1.0f, std::round(pad * 0.625f));
+    const D2D1_COLOR_F dots[3] = {Theme::ToColor(t.dotRunning), Theme::ToColor(t.dotActive), Theme::ToColor(t.dotAttention)};
+    const GlowMode glow = GlowOf(t);
+    for (int i = 0; i < kIcons; ++i) {
+        const float left = barLeft + lead + static_cast<float>(i) * (icon + gap);
+        if (buttons && kStates[i] != 0) {
+            Theme::SlotButton sb;
+            sb.state = kStates[i];
+            const float inset = std::max(1.0f, std::round(u));
+            const float cross = std::round(std::max(1.0f, padDip / 2.0f) * u);
+            const D2D1_RECT_F br = D2D1::RectF(std::round(left - gap / 2.0f + inset), bar.top + cross,
+                                               std::round(left + icon + gap / 2.0f - inset), bar.bottom - cross);
+            dc->SetTransform(D2D1::Matrix3x2F::Translation(br.left, br.top));
+            Theme::DrawSlotButton(dc, D2D1::RectF(0.0f, 0.0f, br.right - br.left, br.bottom - br.top), t, u, sb);
+            dc->SetTransform(D2D1::Matrix3x2F::Identity());
+        }
+        const uint32_t color = kIconColors[i];
+        const D2D1_RECT_F ir = D2D1::RectF(left, itemTop, left + icon, itemTop + icon);
+        // The glow: a soft disc behind the icon (the second icon stands for the hovered app, the first the active one).
+        const bool glowShown = glow == GlowMode::Always || (glow == GlowMode::Hover && i == 1) || (glow == GlowMode::Active && i == 0);
+        if (glowShown && t.glowStrength > 0.0f) {
+            const uint32_t gc = ((t.glowColor >> 24) ? t.glowColor : color) | 0xFF000000u;
+            const D2D1_GRADIENT_STOP gs[] = {{0.0f, Theme::ToColor(gc, t.glowStrength)}, {1.0f, Theme::ToColor(gc, 0.0f)}};
+            winrt::com_ptr<ID2D1GradientStopCollection> gsc;
+            winrt::com_ptr<ID2D1RadialGradientBrush> rb;
+            const D2D1_POINT_2F c = D2D1::Point2F((ir.left + ir.right) / 2.0f, (ir.top + ir.bottom) / 2.0f);
+            const float r = icon * 0.5f + t.glowRadius * u;
+            if (SUCCEEDED(dc->CreateGradientStopCollection(gs, 2, gsc.put())) &&
+                SUCCEEDED(dc->CreateRadialGradientBrush(D2D1::RadialGradientBrushProperties(c, {}, r, r), gsc.get(), rb.put()))) {
+                dc->FillEllipse(D2D1::Ellipse(c, r, r), rb.get());
+            }
+        }
+        brush->SetColor(Theme::ToColor(color));
+        dc->FillRoundedRectangle(D2D1::RoundedRect(ir, icon * 0.22f, icon * 0.22f), brush.get());
+        if (t.reflection) {
+            // The mirrored icon fading out under it (a gradient stands in for the mirrored pixels).
+            const float h = reflH > 0.0f ? reflH : std::max(0.0f, bar.bottom - ir.bottom - stroke);
+            const D2D1_GRADIENT_STOP rs[] = {{0.0f, Theme::ToColor(color, t.reflectionOpacity)}, {1.0f, Theme::ToColor(color, 0.0f)}};
+            winrt::com_ptr<ID2D1GradientStopCollection> rsc;
+            winrt::com_ptr<ID2D1LinearGradientBrush> lb;
+            if (h > 0.0f && SUCCEEDED(dc->CreateGradientStopCollection(rs, 2, rsc.put())) &&
+                SUCCEEDED(dc->CreateLinearGradientBrush(
+                    D2D1::LinearGradientBrushProperties(D2D1::Point2F(0, ir.bottom + 1.0f), D2D1::Point2F(0, ir.bottom + 1.0f + h)),
+                    rsc.get(), lb.put()))) {
+                dc->FillRectangle(D2D1::RectF(ir.left, ir.bottom + 1.0f, ir.right, ir.bottom + 1.0f + h), lb.get());
+            }
+        }
+        if (!buttons && kStates[i] != 0) {
+            brush->SetColor(dots[kStates[i] == 2 ? 1 : kStates[i] == 3 ? 2 : 0]);
+            dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F((ir.left + ir.right) / 2.0f, dotY), dotR, dotR), brush.get());
+        }
+    }
+    dc->PopLayer();
+}
+
+SettingsGallery::~SettingsGallery() {
+    if (hwnd_ && IsWindow(hwnd_)) SetWindowLongPtrW(hwnd_, GWLP_USERDATA, 0);
+}
+
+bool SettingsGallery::Register(HINSTANCE instance) {
+    static bool registered = false;
+    if (registered) return true;
+    WNDCLASSEXW wc{sizeof(wc)};
+    wc.lpfnWndProc = &SettingsGallery::Proc;
+    wc.hInstance = instance;
+    wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
+    wc.lpszClassName = kClassName;
+    registered = RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
+    return registered;
+}
+
+void SettingsGallery::Attach(HWND hwnd) {
+    if (hwnd == hwnd_) return;
+    hwnd_ = hwnd;
+    if (hwnd) SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
+}
+
+void SettingsGallery::SetTiles(std::vector<Tile> tiles, int selected) {
+    tiles_ = std::move(tiles);
+    selected_ = tiles_.empty() ? 0 : std::clamp(selected, 0, static_cast<int>(tiles_.size()) - 1);
+    hot_ = -1;
+    if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void SettingsGallery::SetColors(COLORREF back, COLORREF text, COLORREF muted, COLORREF accent) {
+    back_ = back;
+    text_ = text;
+    muted_ = muted;
+    accent_ = accent;
+    if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+int SettingsGallery::HeightDip(int count, int widthDip) {
+    const int cols = std::max(1, (widthDip + kGapX) / (kTileW + kGapX));
+    const int rows = std::max(1, (count + cols - 1) / cols);
+    return rows * kTileH + (rows - 1) * kGapY;
+}
+
+float SettingsGallery::Scale() const {
+    return static_cast<float>(hwnd_ ? GetDpiForWindow(hwnd_) : USER_DEFAULT_SCREEN_DPI) / USER_DEFAULT_SCREEN_DPI;
+}
+
+int SettingsGallery::Columns() const {
+    RECT rc{};
+    if (hwnd_) GetClientRect(hwnd_, &rc);
+    const int widthDip = static_cast<int>(std::lround(static_cast<float>(rc.right) / Scale()));
+    return std::max(1, (widthDip + kGapX) / (kTileW + kGapX));
+}
+
+D2D1_RECT_F SettingsGallery::TileRect(int index) const {
+    const float s = Scale();
+    const int cols = Columns();
+    const float x = std::round(static_cast<float>((index % cols) * (kTileW + kGapX)) * s);
+    const float y = std::round(static_cast<float>((index / cols) * (kTileH + kGapY)) * s);
+    return D2D1::RectF(x, y, x + std::round(kTileW * s), y + std::round(kTileH * s));
+}
+
+int SettingsGallery::HitTest(POINT pt) const {
+    for (int i = 0; i < Count(); ++i) {
+        const D2D1_RECT_F r = TileRect(i);
+        const float x = static_cast<float>(pt.x), y = static_cast<float>(pt.y);
+        if (x >= r.left && x < r.right && y >= r.top && y < r.bottom) return i;
+    }
+    return -1;
+}
+
+void SettingsGallery::Select(int index) {
+    if (tiles_.empty()) return;
+    index = std::clamp(index, 0, Count() - 1);
+    if (index == selected_) return;
+    selected_ = index;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
+void SettingsGallery::Choose(int index) {
+    if (index < 0 || index >= Count()) return;
+    selected_ = index;
+    InvalidateRect(hwnd_, nullptr, FALSE);
+    const int id = GetDlgCtrlID(hwnd_);
+    SendMessageW(GetParent(hwnd_), WM_COMMAND, MAKEWPARAM(id, kChosen), reinterpret_cast<LPARAM>(hwnd_));
+}
+
+IDWriteTextFormat* SettingsGallery::Format(winrt::com_ptr<IDWriteTextFormat>& slot, float& size, float want,
+                                           DWRITE_FONT_WEIGHT weight) {
+    if (slot && size == want) return slot.get();
+    slot = nullptr;
+    size = 0.0f;
+    if (!dwrite_ || FAILED(dwrite_->CreateTextFormat(L"Segoe UI", nullptr, weight, DWRITE_FONT_STYLE_NORMAL,
+                                                     DWRITE_FONT_STRETCH_NORMAL, want, L"", slot.put()))) {
+        slot = nullptr;
+        return nullptr;
+    }
+    slot->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+    slot->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    const DWRITE_TRIMMING trim{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+    winrt::com_ptr<IDWriteInlineObject> ellipsis;
+    if (SUCCEEDED(dwrite_->CreateEllipsisTrimmingSign(slot.get(), ellipsis.put()))) slot->SetTrimming(&trim, ellipsis.get());
+    size = want;
+    return slot.get();
+}
+
+void SettingsGallery::Paint() {
+    PAINTSTRUCT ps;
+    HDC hdc = BeginPaint(hwnd_, &ps);
+    RECT rc{};
+    GetClientRect(hwnd_, &rc);
+    bool drawn = false;
+    if (hdc && rc.right > 0 && rc.bottom > 0) {
+        if (!factory_) {
+            D2D1_FACTORY_OPTIONS options{};
+            if (FAILED(D2D1CreateFactory(D2D1_FACTORY_TYPE_SINGLE_THREADED, __uuidof(ID2D1Factory1), &options, factory_.put_void()))) {
+                factory_ = nullptr;
+            }
+        }
+        if (!dwrite_ && FAILED(DWriteCreateFactory(DWRITE_FACTORY_TYPE_SHARED, __uuidof(IDWriteFactory),
+                                                   reinterpret_cast<IUnknown**>(dwrite_.put())))) {
+            dwrite_ = nullptr;
+        }
+        if (factory_ && !target_) {
+            // Software, bound to the paint DC, as the preview strip: no second D3D device, and
+            // PrintWindow / WM_PRINTCLIENT see the tiles.
+            const D2D1_RENDER_TARGET_PROPERTIES props = D2D1::RenderTargetProperties(
+                D2D1_RENDER_TARGET_TYPE_SOFTWARE, D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED),
+                96.0f, 96.0f);
+            if (FAILED(factory_->CreateDCRenderTarget(&props, target_.put()))) target_ = nullptr;
+        }
+        winrt::com_ptr<ID2D1DeviceContext> dc = target_ ? target_.try_as<ID2D1DeviceContext>() : nullptr;
+        if (dc && SUCCEEDED(target_->BindDC(hdc, &rc))) {
+            const float s = Scale();
+            target_->BeginDraw();
+            dc->SetTransform(D2D1::Matrix3x2F::Identity());
+            dc->Clear(FromColorRef(back_));
+            winrt::com_ptr<ID2D1SolidColorBrush> brush;
+            if (FAILED(dc->CreateSolidColorBrush(FromColorRef(text_), brush.put()))) brush = nullptr;
+            IDWriteTextFormat* name = Format(nameFormat_, nameSize_, std::round(12.0f * s), DWRITE_FONT_WEIGHT_NORMAL);
+            IDWriteTextFormat* detail = Format(detailFormat_, detailSize_, std::round(11.0f * s), DWRITE_FONT_WEIGHT_NORMAL);
+            const bool focused = GetFocus() == hwnd_;
+            const float stroke = std::max(1.0f, std::round(s));
+            for (int i = 0; i < Count() && brush; ++i) {
+                const Tile& tile = tiles_[static_cast<size_t>(i)];
+                const D2D1_RECT_F r = TileRect(i);
+                if (r.top > static_cast<float>(ps.rcPaint.bottom) || r.bottom < static_cast<float>(ps.rcPaint.top)) continue;
+                const D2D1_ROUNDED_RECT shape = D2D1::RoundedRect(Inset(r, stroke), 6.0f * s, 6.0f * s);
+                if (i == hot_ || tile.current) {
+                    brush->SetColor(FromColorRef(tile.current ? accent_ : text_, tile.current ? 0.14f : 0.07f));
+                    dc->FillRoundedRectangle(shape, brush.get());
+                }
+                if (tile.current) {
+                    brush->SetColor(FromColorRef(accent_));
+                    dc->DrawRoundedRectangle(shape, brush.get(), 2.0f * stroke);
+                }
+                if (focused && i == selected_) {
+                    // The keyboard focus: a dotted ring inside the tile.
+                    winrt::com_ptr<ID2D1StrokeStyle> dash;
+                    const D2D1_STROKE_STYLE_PROPERTIES sp = D2D1::StrokeStyleProperties(
+                        D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_LINE_JOIN_MITER, 10.0f,
+                        D2D1_DASH_STYLE_DOT);
+                    if (FAILED(factory_->CreateStrokeStyle(sp, nullptr, 0, dash.put()))) dash = nullptr;
+                    brush->SetColor(FromColorRef(text_));
+                    dc->DrawRoundedRectangle(D2D1::RoundedRect(Inset(r, 3.0f * stroke), 4.0f * s, 4.0f * s), brush.get(),
+                                             stroke, dash.get());
+                }
+                const D2D1_RECT_F pic = D2D1::RectF(r.left + std::round(6.0f * s), r.top + std::round(6.0f * s),
+                                                    r.right - std::round(6.0f * s), r.top + std::round(50.0f * s));
+                DrawMiniDock(dc.get(), pic, tile.theme, s);
+                dc->SetTransform(D2D1::Matrix3x2F::Identity());
+                if (name) {
+                    brush->SetColor(FromColorRef(text_));
+                    dc->DrawText(tile.name.c_str(), static_cast<UINT32>(tile.name.size()), name,
+                                 D2D1::RectF(r.left + 4.0f * s, pic.bottom + 4.0f * s, r.right - 4.0f * s, pic.bottom + 21.0f * s),
+                                 brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                }
+                if (detail && !tile.detail.empty()) {
+                    brush->SetColor(FromColorRef(muted_));
+                    dc->DrawText(tile.detail.c_str(), static_cast<UINT32>(tile.detail.size()), detail,
+                                 D2D1::RectF(r.left + 4.0f * s, pic.bottom + 21.0f * s, r.right - 4.0f * s, r.bottom - 2.0f * s),
+                                 brush.get(), D2D1_DRAW_TEXT_OPTIONS_CLIP);
+                }
+            }
+            const HRESULT hr = target_->EndDraw();
+            drawn = SUCCEEDED(hr);
+            if (hr == D2DERR_RECREATE_TARGET) {
+                target_ = nullptr;  // a new target on the next paint (one retry per loss)
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
+        }
+    }
+    if (!drawn && hdc) {
+        HBRUSH b = CreateSolidBrush(back_);
+        FillRect(hdc, &ps.rcPaint, b);
+        DeleteObject(b);
+    }
+    EndPaint(hwnd_, &ps);
+}
+
+LRESULT CALLBACK SettingsGallery::Proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    if (auto* self = reinterpret_cast<SettingsGallery*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA))) {
+        return self->OnMessage(msg, wp, lp);
+    }
+    return DefWindowProcW(hwnd, msg, wp, lp);
+}
+
+LRESULT SettingsGallery::OnMessage(UINT msg, WPARAM wp, LPARAM lp) {
+    switch (msg) {
+        case WM_PAINT:
+            Paint();
+            return 0;
+        case WM_ERASEBKGND:
+            return 1;
+        case WM_SIZE:
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        case WM_GETDLGCODE: {
+            LRESULT code = DLGC_WANTARROWS | DLGC_WANTCHARS;
+            if (const MSG* m = reinterpret_cast<const MSG*>(lp); m && m->message == WM_KEYDOWN && m->wParam == VK_RETURN) {
+                code |= DLGC_WANTMESSAGE;  // Enter chooses the selected tile
+            }
+            return code;
+        }
+        case WM_SETFOCUS:
+        case WM_KILLFOCUS:
+            InvalidateRect(hwnd_, nullptr, FALSE);
+            return 0;
+        case WM_KEYDOWN: {
+            const int cols = Columns();
+            switch (wp) {
+                case VK_LEFT: Select(selected_ - 1); return 0;
+                case VK_RIGHT: Select(selected_ + 1); return 0;
+                case VK_UP:
+                    if (selected_ - cols >= 0) Select(selected_ - cols);
+                    return 0;
+                case VK_DOWN:
+                    if (selected_ + cols < Count()) Select(selected_ + cols);
+                    return 0;
+                case VK_HOME: Select(0); return 0;
+                case VK_END: Select(Count() - 1); return 0;
+                case VK_RETURN: Choose(selected_); return 0;
+                default: break;
+            }
+            break;
+        }
+        case WM_CHAR:
+            if (wp == L' ') Choose(selected_);
+            return 0;
+        case WM_LBUTTONDOWN: {
+            SetFocus(hwnd_);
+            const int hit = HitTest(POINT{static_cast<short>(LOWORD(lp)), static_cast<short>(HIWORD(lp))});
+            if (hit >= 0) Choose(hit);
+            return 0;
+        }
+        case WM_MOUSEMOVE: {
+            if (!tracking_) {
+                TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd_, 0};
+                tracking_ = TrackMouseEvent(&tme) != FALSE;
+            }
+            const int hit = HitTest(POINT{static_cast<short>(LOWORD(lp)), static_cast<short>(HIWORD(lp))});
+            if (hit != hot_) {
+                hot_ = hit;
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
+            return 0;
+        }
+        case WM_MOUSELEAVE:
+            tracking_ = false;
+            if (hot_ >= 0) {
+                hot_ = -1;
+                InvalidateRect(hwnd_, nullptr, FALSE);
+            }
+            return 0;
+        case kMsgSelect:
+            Select(static_cast<int>(wp));
+            return selected_;
+        case kMsgChoose:
+            if (static_cast<int>(wp) < 0 || static_cast<int>(wp) >= Count()) return 0;
+            Choose(static_cast<int>(wp));
+            return 1;
+        case WM_DESTROY: {
+            target_ = nullptr;
+            nameFormat_ = detailFormat_ = nullptr;
+            nameSize_ = detailSize_ = 0.0f;
+            dwrite_ = nullptr;
+            factory_ = nullptr;
+            HWND self = hwnd_;
+            SetWindowLongPtrW(self, GWLP_USERDATA, 0);
+            hwnd_ = nullptr;
+            return DefWindowProcW(self, msg, wp, lp);
+        }
+        default:
+            break;
+    }
+    return DefWindowProcW(hwnd_, msg, wp, lp);
+}

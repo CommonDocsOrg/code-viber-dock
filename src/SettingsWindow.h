@@ -201,6 +201,10 @@ struct SettingsHost {
     std::function<SettingsStatus()> status;
     std::function<bool(SettingsAction)> timeline;
     std::function<void(const std::wstring& label)> label;
+    // Round 12 phase 12B: the change the window is about to make is a Keep / Cancel preview (a
+    // gallery pick): `label` its entry on Keep ("Applied the Glass look to main"), `text` the bar's
+    // ("Previewing the Glass look on main.").
+    std::function<void(const std::wstring& label, const std::wstring& text)> preview;
 };
 
 class SettingsWindow;
@@ -348,6 +352,9 @@ protected:
     // it; under the loading guard): controls that show what that change touches follow (a full
     // Load would overwrite half-typed values and rebuild lists, so pages only re-sync dependents).
     virtual void OnPeerChanged() {}
+    // Round 12 phase 12B: the height in DIPs of control `id` (a CtlKind::Custom whose Ctl::measured
+    // the page set) at `widthDip`, measured by the reflow (<= 0: as built).
+    virtual int MeasureCustomDip(int /*id*/, int /*widthDip*/) const { return -1; }
 
     // --- layout table builders (DIPs; the cursor y_ moves down row by row) ---
     static constexpr int kMargin = 24;

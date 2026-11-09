@@ -1632,11 +1632,25 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
                 if (move[m] && t[row[m]].id == c.buddy) follow[k] = 1;
             }
         }
-        for (size_t k = 0; k < row.size(); ++k) {
-            if (move[k] || stretch[k] || follow[k]) continue;
-            const Ctl& c = t[row[k]];
-            for (size_t m = 0; m < row.size(); ++m) {
-                if ((move[m] || follow[m]) && c.base.right <= t[row[m]].base.left && c.base.right >= t[row[m]].base.left - 16) stretch[k] = 1;
+        // Round 12 phase 12B: a button that ends just before a moving control moves with it instead of
+        // stretching (the Look tab's ⋯ beside its ↺), so a control before that button can stretch in
+        // turn: repeated until nothing changes.
+        for (bool more = true; more;) {
+            more = false;
+            for (size_t k = 0; k < row.size(); ++k) {
+                if (move[k] || stretch[k] || follow[k]) continue;
+                const Ctl& c = t[row[k]];
+                for (size_t m = 0; m < row.size(); ++m) {
+                    if ((move[m] || follow[m]) && c.base.right <= t[row[m]].base.left && c.base.right >= t[row[m]].base.left - 16) {
+                        if (c.kind == CtlKind::Button) {
+                            move[k] = 1;
+                            more = true;
+                        } else {
+                            stretch[k] = 1;
+                        }
+                        break;
+                    }
+                }
             }
         }
         int fixedRight = INT_MIN;
@@ -1740,7 +1754,12 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
         for (size_t i : row) {
             Ctl& c = t[i];
             if (gone(c)) continue;
-            if (c.measured && c.maxLines > 0) {
+            if (c.measured && c.kind == CtlKind::Custom) {
+                // Round 12 phase 12B: a control of the page's own whose height follows the page's
+                // width (the theme gallery's tiles wrap): the page measures it.
+                const int h = page.MeasureCustomDip(c.id, c.dip.right - c.dip.left);
+                if (h > 0) c.dip.bottom = c.dip.top + h;
+            } else if (c.measured && c.maxLines > 0) {
                 // At most maxLines lines: the text (Ctl::text, the full one) shortened with "…"
                 // at a word when it needs more (its Tip has all of it).
                 const int w = c.dip.right - c.dip.left;

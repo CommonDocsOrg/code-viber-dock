@@ -225,6 +225,32 @@ void SingleLine(std::wstring& s, size_t max) {
     if (s.size() > max) s.resize(max);
 }
 
+// The theme's values in range (Theme::ReadFields clamps what it reads; this also covers values set in
+// code). Round 12 phase 12B: split out of Sanitize for the docks' own looks.
+void SanitizeTheme(ThemeConfig& theme) {
+    if (!(theme.cornerRadius >= 0.0f)) theme.cornerRadius = 0.0f;
+    theme.cornerRadius = std::min(theme.cornerRadius, 64.0f);
+    if (!(theme.labelCornerRadius >= 0.0f)) theme.labelCornerRadius = 0.0f;
+    theme.labelCornerRadius = std::min(theme.labelCornerRadius, 32.0f);
+    if (!(theme.shelfSlant >= 0.0f)) theme.shelfSlant = 0.0f;
+    theme.shelfSlant = std::min(theme.shelfSlant, 64.0f);
+    auto clampf = [](float& v, float lo, float hi, float fallback) {
+        v = std::isfinite(v) ? std::clamp(v, lo, hi) : fallback;
+    };
+    if (theme.glow < 0 || theme.glow > 3) theme.glow = 0;
+    clampf(theme.glowRadius, 4.0f, 32.0f, 14.0f);
+    clampf(theme.glowStrength, 0.0f, 1.0f, 0.6f);
+    clampf(theme.reflectionHeight, 0.2f, 1.0f, 0.5f);
+    clampf(theme.reflectionOpacity, 0.0f, 1.0f, 0.35f);
+    clampf(theme.perspectiveAngle, 0.0f, 35.0f, 18.0f);
+    // Round 11 phase 11A.
+    if (theme.slotStyle < 0 || theme.slotStyle > 1) theme.slotStyle = 0;
+    clampf(theme.slotCornerRadius, 0.0f, 16.0f, 3.0f);
+    clampf(theme.sheen, 0.0f, 1.0f, 0.0f);
+    clampf(theme.iconGap, 0.0f, 48.0f, 8.0f);
+    clampf(theme.barPadding, 0.0f, 24.0f, 8.0f);
+}
+
 void SanitizeClock(ClockConfig& c) {
     if (c.format.size() > 128) c.format.resize(128);
     if (c.format.empty()) c.format = L"%H:%M";  // an empty format would hide the clock
@@ -335,6 +361,13 @@ void ReadDockObject(const json::JsonObject& obj, DockConfig& d) {
     if (!color.empty() && !ParseArgbColor(color, d.color)) d.color = 0;
     ReadDockFields(obj, d);
     ReadDockOnlyFields(obj, d);
+    // Round 12 phase 12B: the dock's own inline theme fields (only with a themePreset; Sanitize drops
+    // them otherwise). Not in ReadDockFields: that also reads a legacy file's root, whose "theme"
+    // is the app's.
+    if (auto t = ReadObject(obj, L"theme")) {
+        d.themeOverrides = 0;
+        Theme::ReadFields(t, d.theme, &d.themeOverrides);
+    }
     auto items = ReadArray(obj, L"items");
     if (!items) return;
     d.items.clear();
@@ -810,19 +843,50 @@ bool Config::ResolveTheme() {
 }
 
 void Config::ResolveDockThemes() {
+    // Round 12 phase 12B: a dock's own look is its preset plus its own fields; before 12B it was its
+    // preset plus the app's fields, and a preset equal to the app's meant "the app's theme".
     for (DockConfig& d : docks) {
         d.ownTheme = false;
-        if (d.themePreset.empty() || d.themePreset == themePreset) continue;
-        bool ok = true;
-        ThemeConfig t = Theme::Resolve(d.themePreset, ok);
-        if (!ok) continue;  // unknown preset / broken file: the global theme
+        if (!d.OwnLook()) continue;
+        const ThemeConfig base = PresetOf(&d);
         for (size_t i = 0; i < Theme::FieldCount(); ++i) {
             const Theme::FieldInfo& f = Theme::Fields()[i];
-            if (themeOverrides & Theme::Bit(f.field)) Theme::CopyField(f, theme, t);
+            if (!(d.themeOverrides & Theme::Bit(f.field))) Theme::CopyField(f, base, d.theme);
         }
-        d.theme = t;
         d.ownTheme = true;
     }
+}
+
+ThemeConfig Config::PresetOf(const DockConfig* dock) const {
+    bool ok = true;
+    if (!dock || !dock->OwnLook()) return Theme::Resolve(themePreset, ok);
+    ThemeConfig t = Theme::Resolve(dock->themePreset, ok);
+    return ok ? t : theme;  // unknown preset / broken file: the app's look underneath
+}
+
+void Config::GiveOwnLook(DockConfig& d) const {
+    d.themePreset = themePreset.empty() ? std::wstring(L"dark") : themePreset;
+    d.themeOverrides = themeOverrides;
+    d.theme = theme;
+    d.ownTheme = true;
+}
+
+void Config::UseAppLook(DockConfig& d) {
+    d.themePreset.clear();
+    d.themeOverrides = 0;
+    d.ownTheme = false;
+}
+
+void Config::CopyLook(const DockConfig* source, DockConfig& target) const {
+    if (!source || !source->OwnLook()) {
+        GiveOwnLook(target);
+        return;
+    }
+    if (source == &target) return;
+    target.themePreset = source->themePreset;
+    target.themeOverrides = source->themeOverrides;
+    target.theme = source->theme;
+    target.ownTheme = true;
 }
 
 std::wstring Config::UniqueDockId(const std::wstring& base) const {
@@ -959,28 +1023,16 @@ void Config::Sanitize() {
                                           [&](const DockConfig& d) { return d.id == docks[i].id; });
         if (repeated) docks[i].id = UniqueDockId(docks[i].id);
     }
-    if (!(theme.cornerRadius >= 0.0f)) theme.cornerRadius = 0.0f;
-    theme.cornerRadius = std::min(theme.cornerRadius, 64.0f);
-    if (!(theme.labelCornerRadius >= 0.0f)) theme.labelCornerRadius = 0.0f;
-    theme.labelCornerRadius = std::min(theme.labelCornerRadius, 32.0f);
-    if (!(theme.shelfSlant >= 0.0f)) theme.shelfSlant = 0.0f;
-    theme.shelfSlant = std::min(theme.shelfSlant, 64.0f);
-    // The icon effects (Theme::ReadFields clamps what it reads; this also covers values set in code).
-    auto clampf = [](float& v, float lo, float hi, float fallback) {
-        v = std::isfinite(v) ? std::clamp(v, lo, hi) : fallback;
-    };
-    if (theme.glow < 0 || theme.glow > 3) theme.glow = 0;
-    clampf(theme.glowRadius, 4.0f, 32.0f, 14.0f);
-    clampf(theme.glowStrength, 0.0f, 1.0f, 0.6f);
-    clampf(theme.reflectionHeight, 0.2f, 1.0f, 0.5f);
-    clampf(theme.reflectionOpacity, 0.0f, 1.0f, 0.35f);
-    clampf(theme.perspectiveAngle, 0.0f, 35.0f, 18.0f);
-    // Round 11 phase 11A.
-    if (theme.slotStyle < 0 || theme.slotStyle > 1) theme.slotStyle = 0;
-    clampf(theme.slotCornerRadius, 0.0f, 16.0f, 3.0f);
-    clampf(theme.sheen, 0.0f, 1.0f, 0.0f);
-    clampf(theme.iconGap, 0.0f, 48.0f, 8.0f);
-    clampf(theme.barPadding, 0.0f, 24.0f, 8.0f);
+    // Round 12 phase 12B: the same clamps for the app's theme and every dock's own look; a dock
+    // without a preset has no fields of its own (a "theme" object without "themePreset" is ignored).
+    SanitizeTheme(theme);
+    for (DockConfig& d : docks) {
+        if (d.OwnLook()) {
+            SanitizeTheme(d.theme);
+        } else {
+            d.themeOverrides = 0;
+        }
+    }
     // The preset names a file stem inside the themes folder: no paths.
     if (themePreset.size() > 64 ||
         themePreset.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos || themePreset == L"." ||
@@ -1219,6 +1271,20 @@ Config::LoadResult Config::LoadJson(const std::wstring& text) {
         if (!(themeOverrides & bit)) Theme::CopyField(f, base, theme);
     }
     themeResolveFailed = !ok;
+    // Round 12 phase 12B: the same for every dock's own fields (over its own preset). A file from
+    // before 12B has no docks[].theme: a dock with a themePreset loads as its own look = that
+    // preset with no fields of its own (the app's inline fields no longer apply to it).
+    for (DockConfig& d : docks) {
+        if (!d.OwnLook() || d.themeOverrides == 0) continue;
+        bool dockOk = true;
+        const ThemeConfig dockBase = Theme::Resolve(d.themePreset, dockOk);
+        if (!dockOk) continue;
+        for (size_t i = 0; i < Theme::FieldCount(); ++i) {
+            const Theme::FieldInfo& f = Theme::Fields()[i];
+            const uint64_t bit = Theme::Bit(f.field);
+            if ((d.themeOverrides & bit) && Theme::FieldEquals(f, d.theme, dockBase)) d.themeOverrides &= ~bit;
+        }
+    }
     ResolveDockThemes();
     return LoadResult::Ok;
 }
@@ -1372,6 +1438,10 @@ std::wstring Config::ToJson(bool windowSizes) const {
                  (d.popupGap != DockConfig::kDefaultPopupGap ? L",\n      \"popupGap\": " + Num(d.popupGap) : L"") +
                  // Round 9 phase 9A: only when not the default.
                  (d.magnifyBar != MagnifyBar::Steady ? L",\n      \"magnifyBar\": " + Quote(ToString(d.magnifyBar)) : L"") +
+                 // Round 12 phase 12B: the dock's own inline theme fields (its own look with changes).
+                 (d.OwnLook() && d.themeOverrides != 0
+                      ? L",\n      \"theme\": {" + Theme::WriteFields(d.theme, d.themeOverrides, L"        ").substr(1) + L" }"
+                      : L"") +
                  L"\n    }";
         }
         for (const std::wstring& extra : extraDocks) o += L",\n    " + extra;

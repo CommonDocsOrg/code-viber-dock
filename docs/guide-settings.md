@@ -216,6 +216,10 @@ To add a dock from a preset:
 
 The Themes page sets the look of every dock: colours, corners, the name label, the dots, the clock and the icon effects. A preview strip under the page shows the result. Move the mouse over it to try the magnification.
 
+#### Quick look
+
+The first card sets the look without colour codes: **Tint** (the bar's colour), **Transparency**, **Corners**, **Icon effects** and **Indicator dots**. Each writes the values behind it in the cards below, and its **↺** goes back to the theme's value.
+
 #### Choosing a theme
 
 - **Theme**: pick one of the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast, Aero glass) or one of your own theme files.
@@ -230,7 +234,7 @@ The **⋯** button next to it has:
 - **Open themes folder**: opens the folder where your theme files live.
 - **Reset all to preset**: undoes every change you made on this page.
 
-A single dock can use a different theme: see [Dock theme](#dock-theme). Your changes on this page still apply on top of it.
+A single dock can use a different theme: see [This dock's look](#this-docks-look). Your changes on this page still apply on top of it.
 
 #### Theme values
 
@@ -395,7 +399,7 @@ About shows the WinDock version.
 
 Each dock has its own settings window. It edits that dock only. The title bar and the window border take the dock's colour, so you can tell the windows of different docks apart.
 
-The window has a header and five tabs: Contents, Position, Appearance, Behaviour and Running apps. Use Left and Right in the tab strip, or Ctrl+Tab, to move between them.
+The window has a header and five tabs: Contents, Position, Look, Behaviour and Running apps. Use Left and Right in the tab strip, or Ctrl+Tab, to move between them.
 
 ### The header
 
@@ -511,9 +515,11 @@ The exact numbers are in the **Exact offsets** card, closed when the window open
 
 A half circle has none of these, so the card is not shown for it.
 
-### Appearance tab
+### Look tab
 
-#### Dock theme
+#### This dock's look
+
+A dock either uses the app look (App settings > Themes) or has its own: pick a tile in the gallery, or click **Give this dock its own look**, and the Quick look and value cards on this tab then change this dock only. The **↺** beside This dock's look goes back to the app look.
 
 The first card, **Theme and size**, holds what you change most often.
 

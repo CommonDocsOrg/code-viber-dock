@@ -326,6 +326,8 @@ private:
     bool RevertWindow(SettingsWindow* w);
     // Starts (or extends) a Keep / Cancel preview: the save is held, changes make no entries.
     void StartPreview(const std::wstring& label, const std::wstring& text, HWND host, size_t cfg);
+    // Round 12 phase 12B: DockCommand 162 Save as theme, 163 Import theme, 164 Apply to docks.
+    bool LookCommand(UINT command, LPARAM lp);
     bool KeepBar();     // the bar's Keep (DockCommand 160)
     bool CancelBar();   // its Revert / Cancel (DockCommand 161; Esc; the preview's window closed)
     void CloseKeepRevert();

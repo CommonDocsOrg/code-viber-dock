@@ -3,6 +3,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
+#include <cwctype>
 #include <iterator>
 
 #include "JsonUtil.h"
@@ -672,6 +673,217 @@ bool Export(const std::wstring& path, const ThemeConfig& t, const std::wstring& 
     } catch (...) {
         return false;
     }
+}
+
+// --- Round 12 phase 12B: Quick look ---
+
+namespace {
+
+constexpr uint32_t kRgb = 0x00FFFFFFu;
+uint32_t Alpha(uint32_t argb) { return argb >> 24; }
+uint32_t WithAlpha(uint32_t argb, uint32_t a) { return (std::min<uint32_t>(a, 255u) << 24) | (argb & kRgb); }
+uint32_t WithRgb(uint32_t argb, uint32_t rgb) { return (argb & ~kRgb) | (rgb & kRgb); }
+uint32_t Brightness(uint32_t rgb) { return std::max({(rgb >> 16) & 0xFFu, (rgb >> 8) & 0xFFu, rgb & 0xFFu}); }
+
+// The tint's hue at `brightness` (its largest channel scaled to it; a black tint: grey).
+uint32_t HueAt(uint32_t tint, uint32_t brightness) {
+    const uint32_t top = Brightness(tint);
+    if (top == 0) return (brightness << 16) | (brightness << 8) | brightness;
+    auto ch = [&](uint32_t c) { return std::min<uint32_t>(255u, (c * brightness + top / 2) / top); };
+    return (ch((tint >> 16) & 0xFFu) << 16) | (ch((tint >> 8) & 0xFFu) << 8) | ch(tint & 0xFFu);
+}
+
+int GetTint(const ThemeConfig& t) { return static_cast<int>(t.background & kRgb); }
+void SetTint(ThemeConfig& t, const ThemeConfig& preset, int value) {
+    const uint32_t rgb = static_cast<uint32_t>(value) & kRgb;
+    t.background = WithRgb(t.background, rgb);
+    t.acrylicBackground = WithRgb(t.acrylicBackground, rgb);
+    t.labelBackground = WithRgb(t.labelBackground, HueAt(rgb, Brightness(preset.labelBackground)));
+    t.slotRunning = WithRgb(t.slotRunning, HueAt(rgb, Brightness(preset.slotRunning)));
+    t.slotActive = WithRgb(t.slotActive, HueAt(rgb, Brightness(preset.slotActive)));
+    t.slotHover = WithRgb(t.slotHover, HueAt(rgb, Brightness(preset.slotHover)));
+}
+
+int GetTransparency(const ThemeConfig& t) {
+    return 100 - static_cast<int>(std::lround(static_cast<double>(Alpha(t.background)) * 100.0 / 255.0));
+}
+void SetTransparency(ThemeConfig& t, const ThemeConfig& preset, int value) {
+    const int pct = std::clamp(value, 0, 100);
+    const uint32_t a = static_cast<uint32_t>(std::lround((100 - pct) * 255.0 / 100.0));
+    // The blur's tint keeps the preset's proportion to the fill (dark: 0x66 to 0xCC, a half).
+    const uint32_t pa = Alpha(preset.background);
+    const double ratio = pa > 0 ? static_cast<double>(Alpha(preset.acrylicBackground)) / pa : 0.5;
+    t.background = WithAlpha(t.background, a);
+    t.acrylicBackground = WithAlpha(t.acrylicBackground, static_cast<uint32_t>(std::lround(std::min(255.0, a * ratio))));
+}
+
+constexpr float kCornerRadii[] = {0.0f, 8.0f, 16.0f};
+constexpr float kSlotRadii[] = {0.0f, 3.0f, 6.0f};
+int GetCorners(const ThemeConfig& t) {
+    for (int i = 0; i < 3; ++i) {
+        if (std::fabs(t.cornerRadius - kCornerRadii[i]) < 0.01f) return i;
+    }
+    return -1;  // Mixed
+}
+void SetCorners(ThemeConfig& t, const ThemeConfig&, int value) {
+    if (value < 0 || value > 2) return;
+    t.cornerRadius = kCornerRadii[value];
+    t.slotCornerRadius = kSlotRadii[value];
+}
+
+int GetEffects(const ThemeConfig& t) { return (GlowOf(t) != GlowMode::Off ? 1 : 0) | (t.reflection ? 2 : 0); }
+void SetEffects(ThemeConfig& t, const ThemeConfig& preset, int value) {
+    if (value & 1) {
+        if (GlowOf(t) == GlowMode::Off) {
+            t.glow = GlowOf(preset) != GlowMode::Off ? preset.glow : static_cast<int>(GlowMode::Hover);
+        }
+    } else {
+        t.glow = static_cast<int>(GlowMode::Off);
+    }
+    t.reflection = (value & 2) != 0;
+}
+
+int GetDots(const ThemeConfig& t) {
+    return Alpha(t.dotRunning) > 0 || Alpha(t.dotActive) > 0 || Alpha(t.dotAttention) > 0 ? 1 : 0;
+}
+void SetDots(ThemeConfig& t, const ThemeConfig& preset, int value) {
+    auto one = [&](uint32_t& c, uint32_t presetColor) {
+        if (!value) {
+            c = WithAlpha(c, 0);
+        } else if (Alpha(c) == 0) {
+            c = WithAlpha(c, Alpha(presetColor) > 0 ? Alpha(presetColor) : 255u);
+        }
+    };
+    one(t.dotRunning, preset.dotRunning);
+    one(t.dotActive, preset.dotActive);
+    one(t.dotAttention, preset.dotAttention);
+}
+
+const DerivedField kDerived[] = {
+    {Quick::Tint, L"Tint",
+     Bit(Field::Background) | Bit(Field::AcrylicBackground) | Bit(Field::LabelBackground) | Bit(Field::SlotRunning) |
+         Bit(Field::SlotActive) | Bit(Field::SlotHover),
+     GetTint, SetTint},
+    {Quick::Transparency, L"Transparency", Bit(Field::Background) | Bit(Field::AcrylicBackground), GetTransparency,
+     SetTransparency},
+    {Quick::Corners, L"Corners", Bit(Field::CornerRadius) | Bit(Field::SlotCornerRadius), GetCorners, SetCorners},
+    {Quick::Effects, L"Icon effects", Bit(Field::Glow) | Bit(Field::Reflection), GetEffects, SetEffects},
+    {Quick::Dots, L"Indicator dots", Bit(Field::DotRunning) | Bit(Field::DotActive) | Bit(Field::DotAttention), GetDots,
+     SetDots},
+};
+static_assert(std::size(kDerived) == static_cast<size_t>(Quick::Count), "one row per Quick control, in Quick order");
+
+// After a write through `d`: its fields are overrides exactly where they differ from the preset.
+void SyncMask(const DerivedField& d, const ThemeConfig& t, uint64_t& mask, const ThemeConfig& preset) {
+    for (const FieldInfo& f : kFields) {
+        const uint64_t bit = Bit(f.field);
+        if (!(d.fields & bit)) continue;
+        if (FieldEquals(f, t, preset)) {
+            mask &= ~bit;
+        } else {
+            mask |= bit;
+        }
+    }
+}
+
+bool SameFields(uint64_t fields, const ThemeConfig& a, const ThemeConfig& b) {
+    for (const FieldInfo& f : kFields) {
+        if ((fields & Bit(f.field)) && !FieldEquals(f, a, b)) return false;
+    }
+    return true;
+}
+
+}  // namespace
+
+const DerivedField& Derived(Quick q) { return kDerived[static_cast<size_t>(q)]; }
+
+bool SetDerived(Quick q, ThemeConfig& t, uint64_t& mask, const ThemeConfig& preset, int value) {
+    const DerivedField& d = Derived(q);
+    const ThemeConfig before = t;
+    d.set(t, preset, value);
+    SyncMask(d, t, mask, preset);
+    return !SameFields(d.fields, before, t);
+}
+
+bool DerivedDiffers(Quick q, const ThemeConfig& t, const ThemeConfig& preset) {
+    const DerivedField& d = Derived(q);
+    return d.get(t) != d.get(preset);
+}
+
+bool ResetDerived(Quick q, ThemeConfig& t, uint64_t& mask, const ThemeConfig& preset) {
+    const DerivedField& d = Derived(q);
+    const int value = d.get(preset);
+    if (value >= 0) return SetDerived(q, t, mask, preset, value);
+    const ThemeConfig before = t;  // a Mixed preset (Corners of Solid, 12): its fields as they are
+    for (const FieldInfo& f : kFields) {
+        if (d.fields & Bit(f.field)) CopyField(f, preset, t);
+    }
+    SyncMask(d, t, mask, preset);
+    return !SameFields(d.fields, before, t);
+}
+
+// --- Round 12 phase 12B: theme files ---
+
+std::wstring StemFor(const std::wstring& name) {
+    std::wstring s;
+    for (wchar_t c : name) s += (c < 32 || std::wcschr(L"\\/:*?\"<>|", c)) ? L'-' : c;
+    while (!s.empty() && (std::iswspace(s.back()) || s.back() == L'.')) s.pop_back();  // "a." is not a valid file name
+    size_t i = 0;
+    while (i < s.size() && std::iswspace(s[i])) ++i;
+    s.erase(0, i);
+    if (s.size() > 64) s.resize(64);
+    while (!s.empty() && (std::iswspace(s.back()) || s.back() == L'.')) s.pop_back();
+    if (!s.empty() && FindBuiltIn(s)) s = L"my-" + s;
+    return ValidId(s) ? s : std::wstring();
+}
+
+DWORD SaveAs(const std::wstring& name, const ThemeConfig& t, bool overwrite, std::wstring& stem) {
+    stem = StemFor(name);
+    if (stem.empty()) return ERROR_INVALID_NAME;
+    CreateDirectoryW(Config::Directory().c_str(), nullptr);
+    CreateDirectoryW(Directory().c_str(), nullptr);
+    const std::wstring path = Directory() + L"\\" + stem + L".json";
+    if (!overwrite && GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) return ERROR_FILE_EXISTS;
+    try {
+        const std::wstring o = L"{\n  \"name\": " + Quote(name) + WriteFields(t, kAllFields, L"  ") + L"\n}\n";
+        DWORD error = 0;
+        if (WriteFileAtomic(path, WideToUtf8(o), &error)) return 0;
+        return error ? error : ERROR_WRITE_FAULT;
+    } catch (...) {
+        return ERROR_WRITE_FAULT;
+    }
+}
+
+DWORD Import(const std::wstring& path, std::wstring& stem) {
+    stem.clear();
+    ThemeConfig probe;
+    if (!LoadUserTheme(path, probe, nullptr)) return ERROR_INVALID_DATA;
+    const size_t slash = path.find_last_of(L"\\/");
+    std::wstring file = slash == std::wstring::npos ? path : path.substr(slash + 1);
+    const std::wstring folder = slash == std::wstring::npos ? std::wstring() : path.substr(0, slash);
+    const size_t dot = file.rfind(L'.');
+    if (dot != std::wstring::npos && dot > 0) file.resize(dot);
+    // Already in the themes folder (the list shows it): nothing to copy.
+    if (EqualsNoCase(folder, Directory()) && ValidId(file) && !FindBuiltIn(file)) {
+        stem = file;
+        return 0;
+    }
+    const std::wstring base = StemFor(file);
+    if (base.empty()) return ERROR_INVALID_NAME;
+    CreateDirectoryW(Config::Directory().c_str(), nullptr);
+    CreateDirectoryW(Directory().c_str(), nullptr);
+    for (int n = 1; n < 100; ++n) {
+        std::wstring candidate = n == 1 ? base : base + L" " + std::to_wstring(n);
+        if (candidate.size() > 64) candidate = base.substr(0, 60) + L" " + std::to_wstring(n);
+        const std::wstring dest = Directory() + L"\\" + candidate + L".json";
+        if (CopyFileW(path.c_str(), dest.c_str(), TRUE)) {
+            stem = candidate;
+            return 0;
+        }
+        const DWORD error = GetLastError();
+        if (error != ERROR_FILE_EXISTS && error != ERROR_ALREADY_EXISTS) return error;
+    }
+    return ERROR_FILE_EXISTS;
 }
 
 }  // namespace Theme

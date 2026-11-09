@@ -334,10 +334,14 @@ icon cache and popups). Per dock:
   on its monitor (a minimized window counts where it was restored); this applies to the running
   apps and to the dots and window lists of pinned apps. (A virtual-desktop filter is not planned.)
 - `themePreset`: a theme preset (built-in id or theme file) for this dock only; empty (default) =
-  the global `theme.preset`. The global inline theme fields still apply on top of it. Round 10
-  phase 10D: the empty value is what Dock settings > Appearance shows as **Use app default
-  (<the app's theme>)**; its ↺ (Reset to app default) writes it back (`"themePreset": ""`, as every
-  save writes it).
+  the app look (the top-level `theme`: its preset and inline fields). Round 12 phase 12B: a dock
+  with a `themePreset` has its own look, that preset plus its own inline fields `docks[].theme`
+  (the same keys as the top-level `theme` object without `preset`; written only when it has one);
+  the app's inline fields no longer apply to it. Migration: a file from before 12B with a
+  `themePreset` and no `theme` loads as that preset with no fields of its own, so the app's inline
+  fields no longer reach that dock (before 12B they applied on top of its preset, and a preset
+  equal to the app's meant the app look). Dock settings > Look's ↺ (Use the app look again)
+  writes `"themePreset": ""` and drops `theme`.
 
 - `layer` (Dock settings > Position > **Layer**): where the dock lives in the z-order.
   - `"normal"` (default; "Normal (above windows)"): topmost, above every window.
@@ -2238,6 +2242,10 @@ items that exist. A file whose items have settings already is left alone.
   - `monitor` (default `0` = primary; an index, `"primary"` or `"each"`), `runningFilter`
     (`"all"` / `"monitor"`), `themePreset` (default `""`), `layer` (`"normal"` / `"desktop"` /
     `"behind"`; unknown text reads as `"normal"`): see Multiple docks and monitors.
+  - `theme` (round 12 phase 12B; an object, only with a `themePreset`; ignored without one): the
+    dock's own inline theme fields over its preset, the keys of the top-level `theme` (see
+    [Themes](#themes)) without `preset`, clamped like them; written only for the fields that differ
+    from the preset (a value equal to it is dropped on load).
   - `floating` (round 6 phase 6A; default `false`, written only when `true`; bar docks only): the
     bar is placed at `x` / `y` (its top-left in DIPs from the work area's top-left; missing:
     centred) facing `edge`; auto-hide is forced off. See
@@ -2976,7 +2984,13 @@ always there, also when every dock is parked) handle these registered messages:
   nothing changed since it opened), **160** Keep the open bar (Keep / Revert: closes it; Keep /
   Cancel: records the preview as one entry and saves now), **161** its Revert (an entry of its own)
   / Cancel (the preview's config restored). 153 starts a Keep / Cancel preview since 12A (the
-  file is not written until 160). 111 and 113 left the dock
+  file is not written until 160). Round 12 phase 12B, looks (`HIWORD(lParam)` the dock whose look
+  is used, 0xFFFF the app look; 1 done, 0 refused): **162** Save as theme: `LOWORD(lParam)` a
+  global atom with the name, writes `themes\<name>.json` (replacing one) and makes it that look's
+  preset (a dock using the app look: the file only), **163** Import theme: the atom holds a path,
+  the file is copied into the themes folder after it reads as a theme, **164** Apply to docks:
+  `LOWORD(lParam)` a bitmask of config docks (bit n = `docks[n]`), each gets the look as its own
+  (one undo entry). 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3220,7 +3234,10 @@ always there, also when every dock is parked) handle these registered messages:
   50), **297** = redo depth, **298** = the save: 0 saved, 1 pending (the 300 ms debounce, or held
   by an open preview), 2 the last save failed, **299** = 1 while a Keep / Cancel preview is open,
   **300** = the bar: 0 none, 1 Keep / Revert, 2 Keep / Cancel, 3 a failed save (`LOWORD(lParam)` 1:
-  1 while the banner near the dock is shown instead). The labels of the change Undo / Redo would
+  1 while the banner near the dock is shown instead). Round 12 phase 12B: **301** = the theme
+  gallery's selected tile (`LOWORD(lParam)` 1: App settings > Themes, else the Look tab of the Dock
+  window of dock `HIWORD`; -2 not open), **302** = its tile count (Themes: the built-ins then the
+  theme files, as the hidden combo 2402; Look: tile 0 the app look, then the rows of 2420 from 1). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -3309,6 +3326,21 @@ always there, also when every dock is parked) handle these registered messages:
   5613 / 5614 **Ask to keep a dock that moved or hid** (`settings.confirmPlacement`;
   `BM_SETCHECK` + `WM_COMMAND(5613, BN_CLICKED)` to the page 200), 5615 its hint; 5610 / 5611 the
   app window's label statics (see QueryState 296 - 300).
+  Round 12 phase 12B, **looks** (5620 - 5679): the Quick look card at 5620 + part on App settings >
+  Themes and 5640 + part on a Dock window's Look tab (kTabAppearance 2, renamed): +0 the card, +1 / +2
+  / +3 / +4 Tint label, swatch (ChooseColor; post it), `#RRGGBB` edit (`WM_SETTEXT` + `EN_KILLFOCUS`),
+  ↺; +5 / +6 / +7 / +8 Transparency label, trackbar 0 - 100 (`TBM_SETPOS` + `TB_ENDTRACK`), value,
+  ↺; +9 / +10 / +11 Corners label, combo (Square, Soft, Round; "Mixed" a fourth row while none
+  matches), ↺; +12 / +13 / +14 Icon effects label, combo (Off, Glow, Reflection, Glow and
+  reflection), ↺; +15 / +16 / +17 Indicator dots check box, caption, ↺; +18 its hint. 5660 / 5661
+  the gallery (`WinDock.SettingsGallery`; post `WM_USER + 2` with the tile index in `wParam` to
+  choose it as a click does: a Keep / Cancel preview; `WM_USER + 1` only selects; QueryState
+  301 / 302); the ⋯ menu (2424 on both) adds 5662 Save as theme…, 5663 Import theme…, 5664 Apply to
+  (other) docks… (`WM_COMMAND(id, 0)` to the page runs it; their dialogs are modal: post it); the
+  Look tab's 5665 Give this dock its own look, 5666 the read-only reason, 2423 its "Change for
+  every dock" link, 5400 ↺ Use the app look again; the Look tab's theme value rows are FieldRow
+  ids at 6000 (6000 + field x 10 + part; Themes keeps 3000 + ...). The preset combos 2402 / 2420
+  are hidden and keep working (a direct change, not a preview).
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that

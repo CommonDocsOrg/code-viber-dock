@@ -255,7 +255,7 @@ What you get:
 
 Tuning it:
 
-- **The glass colour**: App settings > Themes, open the **Bar** card and change **Acrylic tint** (the colour over the blur; its opacity sets how strong the colour is). **Background** is the colour used when transparency effects are off. **Sheen** sets how glossy the bar is. Changes on the Themes page apply to every dock, on top of each dock's own theme (see [Dock theme](guide-settings.md#dock-theme)).
+- **The glass colour**: App settings > Themes, open the **Bar** card and change **Acrylic tint** (the colour over the blur; its opacity sets how strong the colour is). **Background** is the colour used when transparency effects are off. **Sheen** sets how glossy the bar is. Changes on the Themes page apply to every dock that uses the app look; a dock with a look of its own is changed on its Look tab (see [This dock's look](guide-settings.md#this-docks-look)).
 - **The orb**: open the Start item's settings (right-click it, then **Start settings…**). **Icon** switches between the orb, the Windows logo and your own image; **Icon size** 0 lets the orb fill the slot.
 - **The clock**: open the clock's settings. **Time format** `%#I:%M %p` writes 2:05 PM, `%H:%M` writes 14:05; **Date format** `%#m/%#d/%Y` writes 11/6/2026, `%#d.%#m.%Y` writes 6.11.2026. **Layout** "Taskbar" writes both lines in the same size.
 - **Show desktop**: its settings choose what a click does (show the desktop, or minimize every window) and how wide the strip is.

@@ -1,6 +1,11 @@
-// The Appearance page: theme preset, export, and one row per Theme::Fields() entry. A field
-// edited here is an override (Config::themeOverrides): saved inline in config.json on top of the
-// preset, until its Reset button (or "Reset all to preset", or another preset) clears it.
+// The look editor (round 12 phase 12B: one editor, two targets). App settings > Themes edits the
+// app look: its preset and one row per Theme::Fields() entry; a field edited there is an override
+// (Config::themeOverrides), saved inline in config.json on top of the preset until its Reset button
+// (or "Reset all to preset", or another preset) clears it. A dock's Look tab (the Appearance tab
+// until 12B) edits the dock's own look the same way (docks[].themePreset + docks[].theme with
+// DockConfig::themeOverrides), or shows the app's values read-only while the dock uses the app look.
+// Both start with the Quick look card (Theme::Derived) and choose presets in the gallery
+// (SettingsGallery, a Keep / Cancel preview); their ⋯ menu saves, imports, exports and applies looks.
 
 #include <windows.h>
 #include <commctrl.h>
@@ -11,20 +16,24 @@
 #include <winrt/base.h>
 
 #include <algorithm>
+#include <bit>
 #include <cmath>
 #include <cwctype>
 #include <iterator>
 #include <string>
 #include <vector>
 
+#include "InputDialog.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
+#include "SettingsPreview.h"
 #include "Theme.h"
 
 namespace {
 
 using namespace SettingsIds;
 using Theme::Field;
+using Theme::Quick;
 
 struct FieldGroup {
     int sectionId;
@@ -125,6 +134,33 @@ void EnsureThemesFolder() {
     CreateDirectoryW(Theme::Directory().c_str(), nullptr);
 }
 
+std::wstring ChangedCount(int n) {
+    return n == 1 ? std::wstring(L"1 value changed") : std::to_wstring(n) + L" values changed";
+}
+
+std::wstring HexRgb(uint32_t rgb) {
+    wchar_t buf[16];
+    swprintf_s(buf, L"#%06X", static_cast<unsigned>(rgb & 0xFFFFFFu));
+    return buf;
+}
+
+// "#RRGGBB" / "RRGGBB" (an #AARRGGBB value gives its RGB).
+bool ParseRgb(std::wstring text, uint32_t& rgb) {
+    text = Trim(std::move(text));
+    if (!text.empty() && text[0] == L'#') text.erase(0, 1);
+    if (text.size() != 6 && text.size() != 8) return false;
+    uint32_t v = 0;
+    for (wchar_t c : text) {
+        v <<= 4;
+        if (c >= L'0' && c <= L'9') v |= static_cast<uint32_t>(c - L'0');
+        else if (c >= L'a' && c <= L'f') v |= static_cast<uint32_t>(c - L'a' + 10);
+        else if (c >= L'A' && c <= L'F') v |= static_cast<uint32_t>(c - L'A' + 10);
+        else return false;
+    }
+    rgb = v & 0xFFFFFFu;
+    return true;
+}
+
 constexpr int kMaxTrackIconSize = 128;  // the spinner goes on to 256 (Config::Sanitize)
 std::wstring FormatMagnification(int pos) {
     wchar_t buf[32];
@@ -132,39 +168,44 @@ std::wstring FormatMagnification(int pos) {
     return buf;
 }
 
-// Global > Themes (the global theme and its per-field overrides), or with `dockOnly` a Dock
-// window's Appearance tab (round 8 phase 8B; the Theme tab until then): that dock's preset
-// (docks[].themePreset), a pointer to Themes and the dock's Size (icon size, magnification and its
-// range: the Behaviour tab's Size card until 8B).
+const wchar_t* const kCornerNames[] = {L"Square", L"Soft", L"Round", L"Mixed"};
+const wchar_t* const kEffectNames[] = {L"Off", L"Glow", L"Reflection", L"Glow and reflection"};
+
+// Global > Themes (the app look and its per-field overrides), or with `dockOnly` a Dock window's Look
+// tab (round 8 phase 8B: Appearance, the Theme tab until then; round 12 phase 12B: Look): that
+// dock's look (its own, or the app's read-only), the gallery and the dock's Size (icon size,
+// magnification and its range: the Behaviour tab's Size card until 8B).
 class AppearancePage : public FormPage {
 public:
     AppearancePage(SettingsWindow& w, bool dockOnly)
-        : FormPage(w, dockOnly ? L"Appearance" : L"Themes", L'\xE790'), dockOnly_(dockOnly) {}
+        : FormPage(w, dockOnly ? L"Look" : L"Themes", L'\xE790'), dockOnly_(dockOnly),
+          rowBase_(dockOnly ? kDockFieldRowBase : kFieldRowBase), colX_(dockOnly ? kColX : kThemeColX) {}
 
 protected:
     void Build() override {
+        SettingsGallery::Register(GetModuleHandleW(nullptr));
         const int right = Width() - kMargin;
         if (dockOnly_) {
-            Title(L"Appearance");
-            HelpTopic(L"guide-settings.md#appearance-tab");
-            // Round 10 phase 10D: one first card with the common controls (theme, icon size,
+            Title(L"Look");
+            HelpTopic(L"guide-settings.md#look-tab");
+            // Round 10 phase 10D: one first card with the common controls (the look, icon size,
             // magnification; the Size card of 8B joined it), the magnification's tuning in a closed
-            // heading expander under it.
-            Section(kSectionTheme, L"Theme and size", L"guide-settings.md#dock-theme");
-            // Round 8 phase 8A: the note is the label's hint (kDockThemeNote) and its tooltip.
-            // Round 10 phase 10A: "App settings" (was "Global settings").
-            Label(kDockThemeLabel, L"This dock's theme", L"Its fields: App settings > Themes", kDockThemeNote);
-            Tip(kDockThemeLabel, L"\"Use app default\" uses the app's theme (App settings > Themes; its name in brackets). "
-                                 L"Choose a preset to give this dock one of its own; \x21BA goes back to the app default. "
-                                 L"The theme's fields (colours, sizes, effects) are in App settings > Themes: they apply "
-                                 L"to every dock, on top of this dock's preset.");
-            Combo(kDockThemeCombo, kColX, right - kRevertW - 8 - kColX, false);
-            // Round 10 phase 10D: back to the inherited theme (shown only while the dock has its own).
+            // heading expander under it. Round 12 phase 12B: the look is chosen in the gallery (the
+            // combo stays, hidden, for automation), its ⋯ menu beside the ↺.
+            Section(kSectionTheme, L"Look and size", L"guide-settings.md#this-docks-look");
+            Label(kDockThemeLabel, L"This dock's look", L"The app look", kDockThemeNote);
+            Tip(kDockThemeLabel, L"A dock either uses the app look (App settings > Themes: every dock that has no look of "
+                                 L"its own) or has its own: a theme from the gallery below plus your changes on this tab, "
+                                 L"which then apply to this dock only. \x21BA (Use the app look again) drops its own look.");
+            Combo(kDockThemeCombo, colX_, right - kRevertW - 8 - kMoreW - 8 - colX_, false);
+            Button(kThemeMore, L"\x22EF", right - kRevertW - 8 - kMoreW, kMoreW);
+            Tip(kThemeMore, L"Save as theme\x2026, Import theme\x2026, Export theme\x2026, Apply to other docks\x2026, "
+                            L"Open themes folder, Reset all to preset");
             Button(kDockThemeReset, L"\x21BA", right - kRevertW, kRevertW);
-            Tip(kDockThemeReset, L"Reset to app default: this dock uses the app's theme again.");
+            Tip(kDockThemeReset, L"Use the app look again: this dock drops its own look and follows App settings > Themes.");
             NextRow();
-            Link(kDockThemeLink, L"<a>Open App settings > Themes</a>", kMargin, right - kMargin);
-            NextRow();
+            GalleryRow(kGalleryDock, L"Choose a look for this dock. The first tile is the app look; the others give this "
+                                     L"dock a look of its own. A choice is a preview: Keep or Cancel it in the bar above.");
             Label(kIconSizeLabel, L"Icon size");
             Tip(kIconSizeLabel, L"The size of the icons at rest, in DIPs (16 - 256; the slider goes to 128). Default: 48.");
             Trackbar(kIconSizeTrack, kColX - 6, 212, 16, kMaxTrackIconSize, 8);
@@ -198,6 +239,23 @@ protected:
             Combo(kMagnifyBarCombo, kColX, 252, false);  // the longest entry: "Always wide (...)"
             NextRow();
             EndExpander();
+            // Round 12 phase 12B: why the values below are greyed while the dock uses the app look,
+            // and the two ways on (collapsed while the dock has its own look).
+            UntitledCard(L"guide-settings.md#this-docks-look");
+            Ctl& reason = Text(kLookReason, CtlKind::Note, L"This dock uses the app look. Changes to it are in App settings > Themes.",
+                               kMargin, right - kMargin, 20);
+            reason.maxLines = 2;
+            Tip(kLookReason, L"The values below are the app's (read-only here). Give this dock its own look to change them for "
+                             L"this dock only, or change them for every dock that uses the app look in App settings > Themes.");
+            NextRow(24);
+            Button(kOwnLook, L"Give this dock its own look", kMargin, 220);
+            Tip(kOwnLook, L"Copies the app look (its theme and your changes) to this dock as its own starting point. From then "
+                          L"on the changes on this tab apply to this dock only. \x21BA beside This dock's look goes back.");
+            Link(kDockThemeLink, L"<a>Change for every dock</a>", kMargin + 236, right - kMargin - 236);
+            Tip(kDockThemeLink, L"Opens App settings > Themes: the look of every dock that uses the app look.");
+            NextRow();
+            QuickCard();
+            FieldCards();
             return;
         }
         Title(L"Themes");
@@ -205,38 +263,32 @@ protected:
         // Round 8 phase 8A: a narrower label column, so a field row (swatch, #AARRGGBB, alpha,
         // Reset) fits the window's minimum width beside the scroll bar.
         labelW_ = kThemeLabelW;
-        constexpr int cx = kThemeColX;
+        // Round 12 phase 12B: Quick look first (open), then the Theme card with the gallery.
+        QuickCard();
         Section(kSectionTheme, L"Theme", L"guide-settings.md#choosing-a-theme");
-        // Round 8 phase 8D: the hint counts the changes; Export / Open folder / Reset all are the
-        // "⋯" menu's.
+        // Round 8 phase 8D: the hint counts the changes; the "⋯" menu has the theme files.
         Label(kThemeLabel, L"Theme", L"The preset's values", kThemeNote);
-        Tip(kThemeLabel, L"A change below overrides the theme (saved in config.json); \x21BA brings back the theme's value, "
+        Tip(kThemeLabel, L"A change on this page overrides the theme (saved in config.json); \x21BA brings back the theme's value, "
                          L"\x22EF > Reset all to preset every one. Colours are #AARRGGBB, the number next to them is the "
-                         L"alpha (0 clear, 255 opaque). A dock with a theme of its own (its Dock settings > Appearance) "
-                         L"uses it under these changes, which apply to every dock.");
-        Combo(kThemeCombo, cx, right - kMoreW - 8 - cx, false);
+                         L"alpha (0 clear, 255 opaque). This is the app look: every dock that has no look of its own (its "
+                         L"Dock settings > Look) shows it.");
+        Combo(kThemeCombo, colX_, right - kMoreW - 8 - colX_, false);  // hidden: the gallery replaces it (automation keeps it)
         Button(kThemeMore, L"\x22EF", right - kMoreW, kMoreW);
-        Tip(kThemeMore, L"Export current theme\x2026, Open themes folder, Reset all to preset");
+        Tip(kThemeMore, L"Save as theme\x2026, Import theme\x2026, Export theme\x2026, Apply to docks\x2026, Open themes folder, "
+                        L"Reset all to preset");
         NextRow();
-
-        // One card per group, its heading an expander ("Bar · 2 changed"). Round 10 phase 10D: every
-        // group closed at first (Bar was open): the individual values are detail.
-        for (const FieldGroup& g : FieldGroups()) {
-            UntitledCard();
-            HeadingExpander(g.sectionId, g.title, false, g.topic ? g.topic : L"guide-settings.md#theme-values");
-            for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
-            if (g.note) {
-                // One line (two at most); the whole note as its tooltip.
-                Ctl& n = Text(g.noteId, CtlKind::Note, g.hint ? g.hint : g.note, kMargin, right - kMargin, 20);
-                n.maxLines = 2;
-                Tip(g.noteId, g.note);
-                NextRow(22);
-            }
-            EndExpander();
-        }
+        GalleryRow(kGalleryApp, L"Choose the app look: the built-in themes, then your theme files. A choice is a preview: Keep "
+                                L"or Cancel it in the bar above. The tile of the look in use is framed and says how many of its "
+                                L"values you changed.");
+        FieldCards();
     }
 
     void Created() override {
+        if (HWND g = Item(GalleryId())) gallery_.Attach(g);
+        Show(dockOnly_ ? kDockThemeCombo : kThemeCombo, false);  // round 12 phase 12B: the gallery shows the choice
+        for (const wchar_t* n : kCornerNames) ComboAdd(Q(kQuickCornersCombo), n);
+        for (const wchar_t* n : kEffectNames) ComboAdd(Q(kQuickEffectsCombo), n);
+        SendMessageW(Item(Q(kQuickCornersCombo)), CB_DELETESTRING, 3, 0);  // "Mixed" comes back only while it applies
         if (!dockOnly_) return;
         ComboAdd(kMagnifyBarCombo, L"Grows once and stays");  // MagnifyBar order
         ComboAdd(kMagnifyBarCombo, L"Follows the pointer");
@@ -244,6 +296,8 @@ protected:
     }
 
     void Load() override {
+        if (HWND g = Item(GalleryId())) gallery_.Attach(g);
+        GalleryColors();
         FillThemes();
         if (dockOnly_) {
             // The Size card (round 8 phase 8B: from the Behaviour tab).
@@ -255,17 +309,54 @@ protected:
             SetText(kMagnifyValue, FormatMagnification(mag));
             SetComboSel(kMagnifyBarCombo, static_cast<int>(d.magnifyBar));
             UpdateDockCounts();
-            return;
+            const bool own = d.OwnLook();
+            Collapse({kLookReason, kOwnLook, kDockThemeLink}, own);
+            Show(kDockThemeReset, own);
         }
-        for (size_t i = 0; i < Theme::FieldCount(); ++i) UpdateRow(static_cast<int>(i));
-        UpdateCounts();
+        LoadValues();
     }
 
+    void OnStyleChanged() override { GalleryColors(); }
+
+    int MeasureCustomDip(int id, int widthDip) const override {
+        if (id != GalleryId()) return -1;
+        return SettingsGallery::HeightDip(std::max(1, gallery_.Count()), widthDip);
+    }
+
+    bool Query(int code, LPARAM, LRESULT& out) override {
+        if (code == 301) {  // round 12 phase 12B: the gallery's selected tile
+            out = gallery_.Selected();
+            return true;
+        }
+        if (code == 302) {  // ... its tile count
+            out = gallery_.Count();
+            return true;
+        }
+        return false;
+    }
 
     void OnCommand(int id, int code, HWND) override {
+        if (id == GalleryId()) {
+            if (code == SettingsGallery::kChosen) PickTile(gallery_.Selected());
+            return;
+        }
         if (int field = 0, part = 0; code == CBN_SELCHANGE && SplitId(id, field, part) && part == kFieldValue &&
                                      Theme::Fields()[field].kind == Theme::Kind::Enum) {
             SetChoice(field, ComboSel(id));
+            return;
+        }
+        if (id == Q(kQuickCornersCombo) || id == Q(kQuickEffectsCombo)) {
+            if (code != CBN_SELCHANGE) return;
+            const int sel = ComboSel(id);
+            if (id == Q(kQuickCornersCombo)) {
+                if (sel < 0 || sel > 2) {
+                    UpdateQuick();  // "Mixed" is not a choice
+                    return;
+                }
+                SetQuick(Quick::Corners, sel, std::wstring(L"Corners: ") + kCornerNames[sel]);
+            } else if (sel >= 0 && sel <= 3) {
+                SetQuick(Quick::Effects, sel, std::wstring(L"Icon effects: ") + kEffectNames[sel]);
+            }
             return;
         }
         if (id == kMagnifyBarCombo) {  // round 9 phase 9A
@@ -298,17 +389,20 @@ protected:
             return;
         }
         if (code != BN_CLICKED) return;
-        if (id == kDockThemeReset) {  // round 10 phase 10D: back to the app's theme
-            SelectDockPreset(std::wstring());
-            FillThemes();
-            if (HWND combo = Item(kDockThemeCombo); combo && GetFocus() == nullptr) SetFocus(combo);
+        if (id == kDockThemeReset) {  // round 10 phase 10D: back to the app's look (round 12 phase 12B: "Use the app look again")
+            UseAppLook();
+            if (HWND g = Item(kGalleryDock); g && GetFocus() == nullptr) SetFocus(g);
+            return;
+        }
+        if (id == kOwnLook) {
+            GiveOwnLook();
             return;
         }
         if (id == kThemeMore) {
             ShowThemeMenu();
             return;
         }
-        // Round 8 phase 8D: the ⋯ menu's commands (the old buttons' / link's ids).
+        // Round 8 phase 8D: the ⋯ menu's commands (the old buttons' / link's ids); round 12 phase 12B: theme files.
         if (id == kExportTheme) {
             Export();
             return;
@@ -317,15 +411,42 @@ protected:
             OpenThemesFolder();
             return;
         }
-        if (id == kResetAllTheme) {
-            Config& c = Cfg();
-            if (c.themeOverrides == 0) return;
-            ChangeLabel(L"Reset all to preset");  // round 12 phase 12A: one undo entry, named
-            c.themeOverrides = 0;
-            c.ResolveTheme();
-            Changed(SettingsScope::Appearance);
-            Load();  // hides every ↺
+        if (id == kSaveAsTheme) {
+            SaveAsTheme();
             return;
+        }
+        if (id == kImportTheme) {
+            ImportTheme();
+            return;
+        }
+        if (id == kApplyToDocks) {
+            ApplyToDocks();
+            return;
+        }
+        if (id == kResetAllTheme) {
+            if (ReadOnly() || Mask() == 0) return;
+            ChangeLabel(L"Reset all to preset");  // round 12 phase 12A: one undo entry, named
+            Mask() = 0;
+            Resolve();
+            Changed(SettingsScope::Appearance);
+            LoadValues();  // hides every ↺
+            return;
+        }
+        if (id == Q(kQuickTintSwatch)) {
+            uint32_t rgb = static_cast<uint32_t>(Theme::Derived(Quick::Tint).get(Look()));
+            if (PickRgb(rgb)) SetQuick(Quick::Tint, static_cast<int>(rgb), L"Tint changed");
+            return;
+        }
+        if (id == Q(kQuickDotsCheck)) {
+            const bool on = GetCheck(id);
+            SetQuick(Quick::Dots, on ? 1 : 0, on ? L"Indicator dots on" : L"Indicator dots off");
+            return;
+        }
+        for (int q = 0; q < static_cast<int>(Quick::Count); ++q) {
+            if (id == Q(QuickReset(static_cast<Quick>(q)))) {
+                ResetQuick(static_cast<Quick>(q));
+                return;
+            }
         }
         int field = 0, part = 0;
         if (!SplitId(id, field, part)) return;
@@ -335,7 +456,8 @@ protected:
         } else if (part == kFieldSwatch && info.kind == Theme::Kind::Color) {
             PickColor(field);
         } else if (part == kFieldSwatch && info.kind == Theme::Kind::Bool) {
-            Theme::SetBool(Cfg().theme, info, GetCheck(id));
+            if (ReadOnly()) return;
+            Theme::SetBool(Look(), info, GetCheck(id));
             Override(field);
         }
     }
@@ -354,6 +476,16 @@ protected:
     }
 
     void Track(int id, int pos, bool released) override {
+        if (id == Q(kQuickAlphaTrack)) {  // round 12 phase 12B: Transparency, applied on release
+            SetText(Q(kQuickAlphaValue), std::to_wstring(pos) + L" %");
+            if (!released) return;
+            const int before = Theme::Derived(Quick::Transparency).get(Look());
+            if (pos != before) {
+                SetQuick(Quick::Transparency, pos,
+                         L"Transparency " + std::to_wstring(before) + L" \x2192 " + std::to_wstring(pos) + L" %");
+            }
+            return;
+        }
         if (!dockOnly_) return;
         DockConfig& d = Dock();
         if (id == kIconSizeTrack) {
@@ -379,6 +511,17 @@ protected:
     }
 
     void Commit(int id) override {
+        if (id == Q(kQuickTintHex)) {
+            uint32_t rgb = 0;
+            if (ReadOnly()) return;
+            if (!ParseRgb(GetText(id), rgb)) {
+                MessageBeep(MB_OK);
+                UpdateQuick();
+                return;
+            }
+            SetQuick(Quick::Tint, static_cast<int>(rgb), L"Tint changed");
+            return;
+        }
         int field = 0, part = 0;
         if (!SplitId(id, field, part)) return;
         const Theme::FieldInfo& info = Theme::Fields()[field];
@@ -407,9 +550,14 @@ protected:
     }
 
     bool OnDrawItem(const DRAWITEMSTRUCT& di) override {
-        int field = 0, part = 0;
-        if (!SplitId(static_cast<int>(di.CtlID), field, part) || part != kFieldSwatch) return false;
-        const uint32_t argb = Theme::GetColor(Cfg().theme, Theme::Fields()[field]);
+        uint32_t argb = 0;
+        if (static_cast<int>(di.CtlID) == Q(kQuickTintSwatch)) {
+            argb = 0xFF000000u | static_cast<uint32_t>(Theme::Derived(Quick::Tint).get(Look()));  // the tint, opaque
+        } else {
+            int field = 0, part = 0;
+            if (!SplitId(static_cast<int>(di.CtlID), field, part) || part != kFieldSwatch) return false;
+            argb = Theme::GetColor(Look(), Theme::Fields()[field]);
+        }
         const DarkMode::Palette& pal = Window().Colors();
         RECT r = di.rcItem;
         HBRUSH back = CreateSolidBrush(Window().SurfaceColor(di.hwndItem));  // a card's fill (round 8 phase 8A)
@@ -417,7 +565,8 @@ protected:
         DeleteObject(back);
         // Frame, then a checkerboard under the colour so the alpha is visible.
         const bool focus = (di.itemState & ODS_FOCUS) != 0;
-        HBRUSH frame = CreateSolidBrush(focus ? pal.accent : pal.textSecondary);
+        const bool disabled = (di.itemState & ODS_DISABLED) != 0;
+        HBRUSH frame = CreateSolidBrush(focus ? pal.accent : disabled ? pal.textDisabled : pal.textSecondary);
         FrameRect(di.hDC, &r, frame);
         if (focus) {
             RECT r2 = r;
@@ -426,7 +575,7 @@ protected:
         }
         DeleteObject(frame);
         InflateRect(&r, focus ? -3 : -2, focus ? -3 : -2);
-        const unsigned alpha = argb >> 24;
+        const unsigned alpha = disabled ? (argb >> 24) / 2 : argb >> 24;  // read-only: faded (round 12 phase 12B)
         const COLORREF c = RgbOf(argb);
         HBRUSH light = CreateSolidBrush(Blend(c, RGB(0xFF, 0xFF, 0xFF), alpha));
         HBRUSH dark = CreateSolidBrush(Blend(c, RGB(0xC4, 0xC4, 0xC4), alpha));
@@ -443,11 +592,33 @@ protected:
     }
 
 private:
+    // --- the target (round 12 phase 12B) ---
+    // The dock uses the app look: its values are shown read-only.
+    bool ReadOnly() { return dockOnly_ && !Dock().OwnLook(); }
+    // The look shown and edited: the dock's own, else the app's.
+    ThemeConfig& Look() { return dockOnly_ && Dock().OwnLook() ? Dock().theme : Cfg().theme; }
+    uint64_t& Mask() { return dockOnly_ && Dock().OwnLook() ? Dock().themeOverrides : Cfg().themeOverrides; }
+    // The preset values under it (what ↺ goes back to).
+    ThemeConfig PresetValues() { return Cfg().PresetOf(dockOnly_ ? &Dock() : nullptr); }
+    // The preset the target names (the dock's own, else the app's).
+    std::wstring& PresetId() { return dockOnly_ && Dock().OwnLook() ? Dock().themePreset : Cfg().themePreset; }
+    void Resolve() {
+        if (dockOnly_) {
+            Cfg().ResolveDockThemes();
+        } else {
+            Cfg().ResolveTheme();  // also the docks: one with its own look whose preset failed is based on the app's
+        }
+    }
+    int GalleryId() const { return dockOnly_ ? kGalleryDock : kGalleryApp; }
+    int Q(int part) const { return QuickId(part, dockOnly_); }
+    int Row(int field, int part) const { return rowBase_ + field * kFieldRowStride + part; }
+    std::wstring DockName() { return Dock().id; }
+
     // A Float field's value as the settings UI shows it (value x scale, rounded).
     static int FloatToUi(const Theme::FieldInfo& info, float v) { return static_cast<int>(std::lround(v * info.scale)); }
 
-    static bool SplitId(int id, int& field, int& part) {
-        const int rel = id - kFieldRowBase;
+    bool SplitId(int id, int& field, int& part) const {
+        const int rel = id - rowBase_;
         if (rel < 0 || rel >= static_cast<int>(Theme::FieldCount()) * kFieldRowStride) return false;
         field = rel / kFieldRowStride;
         part = rel % kFieldRowStride;
@@ -456,47 +627,142 @@ private:
 
     static constexpr int kThemeLabelW = 156, kThemeColX = kMargin + kThemeLabelW + 8;  // round 8 phase 8A
     static constexpr int kMoreW = 32;  // round 8 phase 8D: the "⋯" button beside the theme combo
-    static constexpr int kRevertW = 32;  // round 10 phase 10D: the "↺" beside This dock's theme
+    static constexpr int kRevertW = 32;  // round 10 phase 10D: the "↺" beside This dock's look
+
+    // Round 12 phase 12B: the gallery in the current row (its height follows the page's width).
+    void GalleryRow(int id, const wchar_t* tip) {
+        const int right = Width() - kMargin;
+        Ctl& g = Add(id, CtlKind::Custom, SettingsGallery::kClassName, L"Themes", WS_TABSTOP,
+                     RECT{kMargin, y_ + 2, right, y_ + 2 + SettingsGallery::kTileH});
+        g.measured = true;
+        Tip(id, tip);
+        NextRow(SettingsGallery::kTileH + 10);
+    }
+
+    void GalleryColors() {
+        HWND g = Item(GalleryId());
+        if (!g) return;
+        const DarkMode::Palette& pal = Window().Colors();
+        gallery_.SetColors(Window().SurfaceColor(g), pal.text, pal.textSecondary, pal.accent);
+    }
+
+    // Round 12 phase 12B: the Quick look card (open), ids QuickId(part, dockOnly_).
+    void QuickCard() {
+        const int right = Width() - kMargin;
+        constexpr int kResetW = 24;
+        auto reset = [&](int part) {
+            Add(Q(part), CtlKind::Button, WC_BUTTONW, L"\x21BA", WS_TABSTOP | BS_PUSHBUTTON,
+                RECT{right - kResetW, y_ + 4, right, y_ + 4 + kResetW});
+            Tip(Q(part), L"Reset to the preset's value");
+        };
+        Section(Q(kQuickSection), L"Quick look", L"guide-settings.md#quick-look");
+        Label(Q(kQuickTintLabel), L"Tint");
+        Tip(Q(kQuickTintLabel), L"The colour of the bar (its opacity stays). The name label and the slot buttons take its hue "
+                                L"at their own brightness. Click the swatch to pick a colour or type #RRGGBB.");
+        Add(Q(kQuickTintSwatch), CtlKind::Swatch, WC_BUTTONW, L"Tint", WS_TABSTOP | BS_OWNERDRAW,
+            RECT{colX_, y_ + 5, colX_ + 36, y_ + kRowH - 5});
+        Ctl& hex = Add(Q(kQuickTintHex), CtlKind::Edit, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL,
+                       RECT{colX_ + 44, y_ + 4, colX_ + 44 + 92, y_ + kRowH - 4});
+        hex.exStyle = WS_EX_CLIENTEDGE;
+        hex.hi = 9;
+        reset(kQuickTintReset);
+        NextRow();
+        Label(Q(kQuickAlphaLabel), L"Transparency");
+        Tip(Q(kQuickAlphaLabel), L"How much the wallpaper shows through the bar, 0 % (solid) to 100 % (clear): the bar's "
+                                 L"background and the tint over the blur together.");
+        Trackbar(Q(kQuickAlphaTrack), colX_ - 6, 212, 0, 100, 10);
+        Text(Q(kQuickAlphaValue), CtlKind::Value, L"", colX_ + 216, 56);
+        reset(kQuickAlphaReset);
+        NextRow();
+        Label(Q(kQuickCornersLabel), L"Corners");
+        Tip(Q(kQuickCornersLabel), L"Square, Soft or Round: the bar's corner radius 0, 8 or 16 DIPs and the slot buttons' "
+                                   L"0, 3 or 6. Mixed: the radius was set to another value in the Bar card.");
+        Combo(Q(kQuickCornersCombo), colX_, 168, false);
+        reset(kQuickCornersReset);
+        NextRow();
+        Label(Q(kQuickEffectsLabel), L"Icon effects");
+        Tip(Q(kQuickEffectsLabel), L"A glow behind the icons (the theme's glow mode, else while hovered) and a reflection under "
+                                   L"them. The Icon effects card has their details.");
+        Combo(Q(kQuickEffectsCombo), colX_, 168, false);
+        reset(kQuickEffectsReset);
+        NextRow();
+        Check(Q(kQuickDotsCheck), Q(kQuickDotsCaption), L"Indicator dots", L"Under running apps (slot buttons draw none)",
+              Q(kQuickNote));
+        Tip(Q(kQuickDotsCheck), L"Off makes the running, active and attention dots clear; on brings back the theme's.");
+        reset(kQuickDotsReset);
+        NextRow();
+    }
+
+    static int QuickReset(Quick q) {
+        switch (q) {
+            case Quick::Tint: return kQuickTintReset;
+            case Quick::Transparency: return kQuickAlphaReset;
+            case Quick::Corners: return kQuickCornersReset;
+            case Quick::Effects: return kQuickEffectsReset;
+            case Quick::Dots:
+            default: return kQuickDotsReset;
+        }
+    }
+
+    // One card per group, its heading an expander ("Bar · 2 changed"). Round 10 phase 10D: every
+    // group closed at first (Bar was open): the individual values are detail.
+    void FieldCards() {
+        const int right = Width() - kMargin;
+        for (const FieldGroup& g : FieldGroups()) {
+            UntitledCard();
+            HeadingExpander(g.sectionId, g.title, false, g.topic ? g.topic : L"guide-settings.md#theme-values");
+            for (Field f : g.fields) FieldRowCtl(static_cast<int>(f));
+            if (g.note) {
+                // One line (two at most); the whole note as its tooltip.
+                Ctl& n = Text(g.noteId, CtlKind::Note, g.hint ? g.hint : g.note, kMargin, right - kMargin, 20);
+                n.maxLines = 2;
+                Tip(g.noteId, g.note);
+                NextRow(22);
+            }
+            EndExpander();
+        }
+    }
 
     void FieldRowCtl(int field) {
         const Theme::FieldInfo& info = Theme::Fields()[field];
         const int right = Width() - kMargin;
-        constexpr int kResetW = 24, colX = kThemeColX;  // the page's own (narrower) columns
+        constexpr int kResetW = 24;
+        const int colX = colX_;  // the page's own columns (Themes: narrower)
         switch (info.kind) {
             case Theme::Kind::Color: {
-                Label(FieldRow(field, kFieldLabel), info.label);
+                Label(Row(field, kFieldLabel), info.label);
                 // The swatch's window text is its accessible name (never drawn).
-                Add(FieldRow(field, kFieldSwatch), CtlKind::Swatch, WC_BUTTONW, info.label, WS_TABSTOP | BS_OWNERDRAW,
+                Add(Row(field, kFieldSwatch), CtlKind::Swatch, WC_BUTTONW, info.label, WS_TABSTOP | BS_OWNERDRAW,
                     RECT{colX, y_ + 5, colX + 36, y_ + kRowH - 5});
-                Ctl& hex = Add(FieldRow(field, kFieldHex), CtlKind::Edit, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL,
+                Ctl& hex = Add(Row(field, kFieldHex), CtlKind::Edit, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL,
                                RECT{colX + 44, y_ + 4, colX + 44 + 92, y_ + kRowH - 4});
                 hex.exStyle = WS_EX_CLIENTEDGE;
                 hex.hi = 9;
-                Spin(FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), colX + 144, 60, 0, 255, 5);
+                Spin(Row(field, kFieldValue), Row(field, kFieldSpin), colX + 144, 60, 0, 255, 5);
                 break;
             }
             case Theme::Kind::Float:
-                Label(FieldRow(field, kFieldLabel), info.label);
-                Spin(FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), colX, 72, FloatToUi(info, info.min),
+                Label(Row(field, kFieldLabel), info.label);
+                Spin(Row(field, kFieldValue), Row(field, kFieldSpin), colX, 72, FloatToUi(info, info.min),
                      FloatToUi(info, info.max), info.scale > 1.0f ? 5 : 1);
-                Text(FieldRow(field, kFieldUnit), CtlKind::Note, info.unit, colX + 80, 96);
+                Text(Row(field, kFieldUnit), CtlKind::Note, info.unit, colX + 80, 96);
                 break;
             case Theme::Kind::Bool:
-                Check(FieldRow(field, kFieldSwatch), FieldRow(field, kFieldHex), info.label);
+                Check(Row(field, kFieldSwatch), Row(field, kFieldHex), info.label);
                 break;
             case Theme::Kind::Enum:
-                Label(FieldRow(field, kFieldLabel), info.label);
-                Combo(FieldRow(field, kFieldValue), colX, 168, false);
+                Label(Row(field, kFieldLabel), info.label);
+                Combo(Row(field, kFieldValue), colX, 168, false);
                 break;
         }
         // Round 11 phase 11A: the new fields explain themselves (on the label, or a check box).
         if (const wchar_t* tip = FieldTip(info.field)) {
-            Tip(FieldRow(field, info.kind == Theme::Kind::Bool ? kFieldSwatch : kFieldLabel), tip);
+            Tip(Row(field, info.kind == Theme::Kind::Bool ? kFieldSwatch : kFieldLabel), tip);
         }
         // Round 8 phase 8D: a 24 DIP "↺" (was a "Reset" button), shown only while overridden.
-        Add(FieldRow(field, kFieldReset), CtlKind::Button, WC_BUTTONW, L"\x21BA", WS_TABSTOP | BS_PUSHBUTTON,
+        Add(Row(field, kFieldReset), CtlKind::Button, WC_BUTTONW, L"\x21BA", WS_TABSTOP | BS_PUSHBUTTON,
             RECT{right - kResetW, y_ + 4, right, y_ + 4 + kResetW});
-        Tip(FieldRow(field, kFieldReset), L"Reset to the preset's value");
+        Tip(Row(field, kFieldReset), L"Reset to the preset's value");
         NextRow();
     }
 
@@ -532,22 +798,29 @@ private:
 
     // Round 11 phase 11A: the Slot buttons rows under Slot style collapse while it is None.
     void UpdateSlotRows() {
-        const bool none = SlotStyleOf(Cfg().theme) == SlotStyle::None;
+        const bool none = SlotStyleOf(Look()) == SlotStyle::None;
         for (Field f : {Field::SlotRunning, Field::SlotActive, Field::SlotAttention, Field::SlotHover, Field::SlotBorder,
                         Field::SlotCornerRadius, Field::SlotHotTrack}) {
             const int field = static_cast<int>(f);
-            Collapse({FieldRow(field, kFieldLabel), FieldRow(field, kFieldSwatch), FieldRow(field, kFieldHex),
-                      FieldRow(field, kFieldValue), FieldRow(field, kFieldSpin), FieldRow(field, kFieldReset),
-                      FieldRow(field, kFieldUnit)},
+            Collapse({Row(field, kFieldLabel), Row(field, kFieldSwatch), Row(field, kFieldHex), Row(field, kFieldValue),
+                      Row(field, kFieldSpin), Row(field, kFieldReset), Row(field, kFieldUnit)},
                      none);
         }
     }
 
+    // Every value row, the Quick look and the counts from the target.
+    void LoadValues() {
+        for (size_t i = 0; i < Theme::FieldCount(); ++i) UpdateRow(static_cast<int>(i));
+        UpdateQuick();
+        UpdateCounts();
+    }
+
     // Round 8 phase 8D: each group's heading counts its overridden fields ("Bar · 2 changed") and
-    // the Theme label's hint all of them.
+    // the Theme label's hint all of them. Round 12 phase 12B: of the look shown (the dock's own or
+    // the app's); the Look tab's hint says which look the dock has.
     void UpdateCounts() {
         UpdateSlotRows();
-        const uint64_t over = Cfg().themeOverrides;
+        const uint64_t over = Mask();
         int total = 0;
         for (const FieldGroup& g : FieldGroups()) {
             int n = 0;
@@ -555,12 +828,18 @@ private:
             total += n;
             SetExpanderText(g.sectionId, n > 0 ? std::wstring(g.title) + L" \x00B7 " + std::to_wstring(n) + L" changed" : std::wstring(g.title));
         }
-        SetText(kThemeNote, total == 0   ? std::wstring(L"The preset's values")
-                            : total == 1 ? std::wstring(L"1 value changed")
-                                         : std::to_wstring(total) + L" values changed");
+        if (!dockOnly_) {
+            SetText(kThemeNote, total == 0 ? std::wstring(L"The preset's values") : ChangedCount(total));
+            return;
+        }
+        if (!Dock().OwnLook()) {
+            SetText(kDockThemeNote, L"The app look (" + appName_ + L")");
+        } else {
+            SetText(kDockThemeNote, L"Its own: " + ownName_ + (total > 0 ? L" \x00B7 " + ChangedCount(total) : std::wstring()));
+        }
     }
 
-    // The ⋯ menu under its button: Export current theme…, Open themes folder, Reset all to preset.
+    // The ⋯ menu under its button (round 12 phase 12B: the theme files and Apply to other docks).
     void ShowThemeMenu() {
         HWND button = Item(kThemeMore);
         HMENU menu = CreatePopupMenu();
@@ -568,10 +847,15 @@ private:
             if (menu) DestroyMenu(menu);
             return;
         }
-        AppendMenuW(menu, MF_STRING, kExportTheme, L"Export current theme\x2026");
+        AppendMenuW(menu, MF_STRING, kSaveAsTheme, L"Save as theme\x2026");
+        AppendMenuW(menu, MF_STRING, kImportTheme, L"Import theme\x2026");
+        AppendMenuW(menu, MF_STRING, kExportTheme, L"Export theme\x2026");
+        AppendMenuW(menu, MF_STRING | (OtherDocks().empty() ? MF_GRAYED : 0), kApplyToDocks,
+                    dockOnly_ ? L"Apply to other docks\x2026" : L"Apply to docks\x2026");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, kThemesFolderLink, L"Open themes folder");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
-        AppendMenuW(menu, MF_STRING | (Cfg().themeOverrides == 0 ? MF_GRAYED : 0), kResetAllTheme, L"Reset all to preset");
+        AppendMenuW(menu, MF_STRING | (ReadOnly() || Mask() == 0 ? MF_GRAYED : 0), kResetAllTheme, L"Reset all to preset");
         RECT r{};
         GetWindowRect(button, &r);
         const int cmd = static_cast<int>(
@@ -586,68 +870,149 @@ private:
         ShellExecuteW(nullptr, L"explore", Theme::Directory().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
     }
 
-    // Config -> one row (and its Reset button).
+    // Config -> one row (and its Reset button). Round 12 phase 12B: greyed while read-only.
     void UpdateRow(int field) {
-        const Config& c = Cfg();
+        const ThemeConfig& t = Look();
+        const bool editable = !ReadOnly();
         const Theme::FieldInfo& info = Theme::Fields()[field];
         switch (info.kind) {
             case Theme::Kind::Color: {
-                const uint32_t argb = Theme::GetColor(c.theme, info);
-                SetText(FieldRow(field, kFieldHex), FormatArgbColor(argb));
-                SetSpin(FieldRow(field, kFieldSpin), static_cast<int>(argb >> 24));
-                if (HWND swatch = Item(FieldRow(field, kFieldSwatch))) InvalidateRect(swatch, nullptr, FALSE);
+                const uint32_t argb = Theme::GetColor(t, info);
+                SetText(Row(field, kFieldHex), FormatArgbColor(argb));
+                SetSpin(Row(field, kFieldSpin), static_cast<int>(argb >> 24));
+                if (HWND swatch = Item(Row(field, kFieldSwatch))) InvalidateRect(swatch, nullptr, FALSE);
                 break;
             }
             case Theme::Kind::Float:
-                SetSpin(FieldRow(field, kFieldSpin), FloatToUi(info, Theme::GetFloat(c.theme, info)));
+                SetSpin(Row(field, kFieldSpin), FloatToUi(info, Theme::GetFloat(t, info)));
                 break;
             case Theme::Kind::Bool:
-                SetCheck(FieldRow(field, kFieldSwatch), Theme::GetBool(c.theme, info));
+                SetCheck(Row(field, kFieldSwatch), Theme::GetBool(t, info));
                 break;
             case Theme::Kind::Enum: {
-                const int id = FieldRow(field, kFieldValue);
+                const int id = Row(field, kFieldValue);
                 if (HWND combo = Item(id); combo && SendMessageW(combo, CB_GETCOUNT, 0, 0) == 0) {
                     for (size_t i = 0; i < info.count; ++i) ComboAdd(id, info.choices[i]);
                 }
-                SetComboSel(id, Theme::GetInt(c.theme, info));
+                SetComboSel(id, Theme::GetInt(t, info));
                 break;
             }
         }
-        Show(FieldRow(field, kFieldReset), (c.themeOverrides & Theme::Bit(info.field)) != 0);
+        for (int part : {kFieldSwatch, kFieldHex, kFieldValue, kFieldSpin}) {
+            if (Item(Row(field, part))) Enable(Row(field, part), editable);
+        }
+        Show(Row(field, kFieldReset), editable && (Mask() & Theme::Bit(info.field)) != 0);
     }
 
-    // The field was edited in Cfg().theme: mark it overridden and apply.
+    // Round 12 phase 12B: the Quick look's controls from the look's effective values (after every
+    // change, so a raw edit shows here too), their ↺ while each differs from the preset's.
+    void UpdateQuick() {
+        const ThemeConfig& t = Look();
+        const ThemeConfig preset = PresetValues();
+        const bool editable = !ReadOnly();
+        const int tint = Theme::Derived(Quick::Tint).get(t);
+        SetText(Q(kQuickTintHex), HexRgb(static_cast<uint32_t>(tint)));
+        if (HWND sw = Item(Q(kQuickTintSwatch))) InvalidateRect(sw, nullptr, FALSE);
+        const int alpha = Theme::Derived(Quick::Transparency).get(t);
+        SetTrack(Q(kQuickAlphaTrack), alpha);
+        SetText(Q(kQuickAlphaValue), std::to_wstring(alpha) + L" %");
+        // Corners: "Mixed" is a fourth row only while no choice matches.
+        const int corners = Theme::Derived(Quick::Corners).get(t);
+        if (HWND combo = Item(Q(kQuickCornersCombo))) {
+            const LRESULT count = SendMessageW(combo, CB_GETCOUNT, 0, 0);
+            if (corners < 0 && count == 3) ComboAdd(Q(kQuickCornersCombo), kCornerNames[3]);
+            if (corners >= 0 && count == 4) SendMessageW(combo, CB_DELETESTRING, 3, 0);
+            SetComboSel(Q(kQuickCornersCombo), corners < 0 ? 3 : corners);
+        }
+        SetComboSel(Q(kQuickEffectsCombo), Theme::Derived(Quick::Effects).get(t));
+        SetCheck(Q(kQuickDotsCheck), Theme::Derived(Quick::Dots).get(t) != 0);
+        for (int part : {kQuickTintSwatch, kQuickTintHex, kQuickAlphaTrack, kQuickCornersCombo, kQuickEffectsCombo,
+                         kQuickDotsCheck}) {
+            Enable(Q(part), editable);
+        }
+        for (int q = 0; q < static_cast<int>(Quick::Count); ++q) {
+            const Quick qq = static_cast<Quick>(q);
+            Show(Q(QuickReset(qq)), editable && Theme::DerivedDiffers(qq, t, preset));
+        }
+    }
+
+    // A Quick look control's new value: written through the derived table (one undo entry, `label`).
+    void SetQuick(Quick q, int value, const std::wstring& label) {
+        if (ReadOnly()) {
+            UpdateQuick();
+            return;
+        }
+        ThemeConfig t = Look();
+        uint64_t mask = Mask();
+        if (!Theme::SetDerived(q, t, mask, PresetValues(), value)) {
+            UpdateQuick();
+            return;
+        }
+        ChangeLabel(label);  // only for a change (a label without one would name the next change)
+        Look() = t;
+        Mask() = mask;
+        Changed(SettingsScope::Appearance);
+        LoadValues();
+    }
+
+    void ResetQuick(Quick q) {
+        if (ReadOnly()) return;
+        ThemeConfig t = Look();
+        uint64_t mask = Mask();
+        if (!Theme::ResetDerived(q, t, mask, PresetValues())) {
+            UpdateQuick();
+            return;
+        }
+        ChangeLabel(std::wstring(Theme::Derived(q).label) + L": the preset's value");
+        Look() = t;
+        Mask() = mask;
+        Changed(SettingsScope::Appearance);
+        const bool hadFocus = GetFocus() == Item(Q(QuickReset(q)));
+        LoadValues();
+        if (hadFocus) {
+            const int first = q == Quick::Tint ? kQuickTintSwatch : q == Quick::Transparency ? kQuickAlphaTrack
+                              : q == Quick::Corners ? kQuickCornersCombo : q == Quick::Effects ? kQuickEffectsCombo
+                                                                                               : kQuickDotsCheck;
+            if (HWND h = Item(Q(first))) SetFocus(h);
+        }
+    }
+
+    // The field was edited in Look(): mark it overridden and apply.
     void Override(int field) {
-        Config& c = Cfg();
-        c.themeOverrides |= Theme::Bit(Theme::Fields()[field].field);
+        Mask() |= Theme::Bit(Theme::Fields()[field].field);
         Changed(SettingsScope::Appearance);
         UpdateRow(field);
+        UpdateQuick();
         UpdateCounts();
     }
 
     void SetColor(int field, uint32_t argb) {
         const Theme::FieldInfo& info = Theme::Fields()[field];
-        if (Theme::GetColor(Cfg().theme, info) == argb) {
+        if (ReadOnly() || Theme::GetColor(Look(), info) == argb) {
             UpdateRow(field);  // normalises the text
             return;
         }
-        Theme::SetColor(Cfg().theme, info, argb);
+        Theme::SetColor(Look(), info, argb);
         Override(field);
     }
 
     // The number of a row: a colour's alpha or a float field's value.
     void SetValue(int field, int value) {
         const Theme::FieldInfo& info = Theme::Fields()[field];
+        if (ReadOnly()) {
+            UpdateRow(field);
+            return;
+        }
         if (info.kind == Theme::Kind::Color) {
-            const uint32_t argb = Theme::GetColor(Cfg().theme, info);
+            const uint32_t argb = Theme::GetColor(Look(), info);
             SetColor(field, (static_cast<uint32_t>(std::clamp(value, 0, 255)) << 24) | (argb & 0x00FFFFFFu));
         } else if (info.kind == Theme::Kind::Float) {
             const float v = std::clamp(static_cast<float>(value) / info.scale, info.min, info.max);
-            if (Theme::GetFloat(Cfg().theme, info) == v) {
+            if (Theme::GetFloat(Look(), info) == v) {
                 UpdateRow(field);
                 return;
             }
-            Theme::SetFloat(Cfg().theme, info, v);
+            Theme::SetFloat(Look(), info, v);
             Override(field);
         }
     }
@@ -655,51 +1020,58 @@ private:
     // An Enum row's combo selection.
     void SetChoice(int field, int index) {
         const Theme::FieldInfo& info = Theme::Fields()[field];
-        if (index < 0 || static_cast<size_t>(index) >= info.count || Theme::GetInt(Cfg().theme, info) == index) {
+        if (ReadOnly() || index < 0 || static_cast<size_t>(index) >= info.count || Theme::GetInt(Look(), info) == index) {
             UpdateRow(field);
             return;
         }
-        Theme::SetInt(Cfg().theme, info, index);
+        Theme::SetInt(Look(), info, index);
         Override(field);
     }
 
     void ResetField(int field) {
-        Config& c = Cfg();
         const uint64_t bit = Theme::Bit(Theme::Fields()[field].field);
-        if (!(c.themeOverrides & bit)) return;
-        c.themeOverrides &= ~bit;
-        c.ResolveTheme();  // copies the preset's value back (and only into fields without overrides)
+        if (ReadOnly() || !(Mask() & bit)) return;
+        Mask() &= ~bit;
+        Resolve();  // copies the preset's value back (and only into fields without overrides)
         Changed(SettingsScope::Appearance);
-        const bool hadFocus = GetFocus() == Item(FieldRow(field, kFieldReset));
+        const bool hadFocus = GetFocus() == Item(Row(field, kFieldReset));
         UpdateRow(field);  // hides the ↺ button
+        UpdateQuick();
         UpdateCounts();
         if (hadFocus) {
             // The keyboard focus stays on the row: its swatch / check box, or a float's number box.
             const Theme::Kind kind = Theme::Fields()[field].kind;
             const int first = kind == Theme::Kind::Float || kind == Theme::Kind::Enum ? kFieldValue : kFieldSwatch;
-            if (HWND h = Item(FieldRow(field, first))) SetFocus(h);
+            if (HWND h = Item(Row(field, first))) SetFocus(h);
         }
     }
 
-    void PickColor(int field) {
-        static COLORREF custom[16] = {  // the dialog's custom colours, kept for the session
+    // The Windows colour dialog for an RGB (the session's custom colours kept).
+    bool PickRgb(uint32_t& rgb) {
+        static COLORREF custom[16] = {
             RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255),
             RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255),
             RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255),
             RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255)};
-        const Theme::FieldInfo& info = Theme::Fields()[field];
-        const uint32_t argb = Theme::GetColor(Cfg().theme, info);
         CHOOSECOLORW cc{};
         cc.lStructSize = sizeof(cc);
         cc.hwndOwner = Owner();
-        cc.rgbResult = RgbOf(argb);
+        cc.rgbResult = RgbOf(rgb);
         cc.lpCustColors = custom;
         cc.Flags = CC_FULLOPEN | CC_RGBINIT | CC_ANYCOLOR;
-        if (!ChooseColorW(&cc)) return;
-        // RGB replaced, alpha kept.
-        const uint32_t rgb = (static_cast<uint32_t>(GetRValue(cc.rgbResult)) << 16) |
-                             (static_cast<uint32_t>(GetGValue(cc.rgbResult)) << 8) | GetBValue(cc.rgbResult);
-        SetColor(field, (argb & 0xFF000000u) | rgb);
+        if (!ChooseColorW(&cc)) return false;
+        rgb = (static_cast<uint32_t>(GetRValue(cc.rgbResult)) << 16) | (static_cast<uint32_t>(GetGValue(cc.rgbResult)) << 8) |
+              GetBValue(cc.rgbResult);
+        return true;
+    }
+
+    void PickColor(int field) {
+        if (ReadOnly()) return;
+        const Theme::FieldInfo& info = Theme::Fields()[field];
+        const uint32_t argb = Theme::GetColor(Look(), info);
+        uint32_t rgb = argb & 0x00FFFFFFu;
+        if (!PickRgb(rgb)) return;
+        SetColor(field, (argb & 0xFF000000u) | rgb);  // RGB replaced, alpha kept
     }
 
     void SelectPreset(const std::wstring& id) {
@@ -712,68 +1084,157 @@ private:
         Load();
     }
 
+    // The window's dock's own preset (docks[].themePreset; "" = the app look). Round 12 phase 12B:
+    // a new preset starts clean, as the app's does.
+    void SelectDockPreset(const std::wstring& id) {
+        if (id.empty()) {
+            UseAppLook();
+            return;
+        }
+        DockConfig& d = Dock();
+        if (id == d.themePreset && d.themeOverrides == 0) return;
+        d.themePreset = id;
+        d.themeOverrides = 0;
+        Cfg().ResolveDockThemes();
+        Changed(SettingsScope::Appearance);
+        Load();
+    }
+
+    // Round 12 phase 12B: "Give this dock its own look" (the app's current look as the start).
+    void GiveOwnLook() {
+        if (!dockOnly_ || Dock().OwnLook()) return;
+        ChangeLabel(L"Gave " + DockName() + L" its own look");
+        Cfg().GiveOwnLook(Dock());
+        Cfg().ResolveDockThemes();
+        Changed(SettingsScope::Appearance);
+        Load();
+    }
+
+    // ... "Use the app look again" (↺ beside This dock's look).
+    void UseAppLook() {
+        if (!dockOnly_ || !Dock().OwnLook()) return;
+        ChangeLabel(DockName() + L" uses the app look again");
+        Config::UseAppLook(Dock());
+        Cfg().ResolveDockThemes();
+        Changed(SettingsScope::Appearance);
+        Load();
+    }
+
+    // Round 12 phase 12B: a gallery tile chosen: a Keep / Cancel preview of that look.
+    void PickTile(int index) {
+        if (index < 0 || static_cast<size_t>(index) >= tileIds_.size()) return;
+        const std::wstring id = tileIds_[static_cast<size_t>(index)];
+        const std::wstring name = tileNames_[static_cast<size_t>(index)];
+        if (dockOnly_) {
+            DockConfig& d = Dock();
+            if (id.empty() ? !d.OwnLook() : (EqualsNoCase(id, d.themePreset) && d.themeOverrides == 0)) return;
+            const std::wstring what = id.empty() ? std::wstring(L"the app look") : L"the " + name + L" look";
+            if (Host().preview) Host().preview(L"Applied " + what + L" to " + DockName(), L"Previewing " + what + L" on " + DockName() + L".");
+            if (id.empty()) {
+                Config::UseAppLook(d);
+                Cfg().ResolveDockThemes();
+                Changed(SettingsScope::Appearance);
+                Load();
+            } else {
+                SelectDockPreset(id);
+            }
+            return;
+        }
+        Config& c = Cfg();
+        if (EqualsNoCase(id, c.themePreset) && c.themeOverrides == 0) return;
+        if (Host().preview) Host().preview(L"Applied the " + name + L" look", L"Previewing the " + name + L" look.");
+        SelectPreset(id);
+    }
+
     // Built-ins by name, then the theme files by name; a preset that is not there is listed as
-    // "<id> (missing)" so the user sees what config.json names.
+    // "<id> (missing)" so the user sees what config.json names. Round 12 phase 12B: the gallery
+    // gets the same rows (the dock's: "App look (<name>)" first).
     void FillThemes() {
-        HWND combo = Item(kThemeCombo);
-        HWND dock = Item(kDockThemeCombo);  // Dock > Appearance (only it)
-        if (!combo && !dock) return;
-        const std::wstring& current = Cfg().themePreset;
-        std::vector<std::wstring> names;
-        themeIds_.clear();
+        const Config& c = Cfg();
+        std::vector<std::wstring> ids, names;
+        std::vector<ThemeConfig> values;
         size_t count = 0;
         const Theme::Preset* presets = Theme::BuiltIns(count);
         for (size_t i = 0; i < count; ++i) {
-            themeIds_.push_back(presets[i].id);
+            ids.push_back(presets[i].id);
             names.push_back(presets[i].name);
+            values.push_back(presets[i].values);
         }
         for (const Theme::UserTheme& t : Theme::ListUserThemes()) {
-            themeIds_.push_back(t.id);
-            names.push_back(t.valid ? t.name : t.name + L" (unreadable)");
+            ThemeConfig v;
+            const bool ok = t.valid && Theme::LoadUserTheme(t.path, v, nullptr);
+            ids.push_back(t.id);
+            names.push_back(ok ? t.name : t.name + L" (unreadable)");
+            values.push_back(ok ? v : ThemeConfig{});
         }
-        int sel = -1;
-        for (size_t i = 0; i < themeIds_.size(); ++i) {
-            if (EqualsNoCase(themeIds_[i], current)) {
-                sel = static_cast<int>(i);
-                break;
+        auto indexOf = [&](const std::wstring& id) -> int {
+            for (size_t i = 0; i < ids.size(); ++i) {
+                if (EqualsNoCase(ids[i], id)) return static_cast<int>(i);
             }
+            return -1;
+        };
+        auto addMissing = [&](const std::wstring& id) {
+            ids.push_back(id);
+            names.push_back(id.empty() ? std::wstring(L"None (dark defaults)") : id + L" (missing)");
+            values.push_back(ThemeConfig{});
+            return static_cast<int>(ids.size()) - 1;
+        };
+        int appSel = indexOf(c.themePreset);
+        if (appSel < 0) appSel = addMissing(c.themePreset);
+        appName_ = names[static_cast<size_t>(appSel)];
+        int ownSel = -1;
+        if (dockOnly_ && Dock().OwnLook()) {
+            ownSel = indexOf(Dock().themePreset);
+            if (ownSel < 0) ownSel = addMissing(Dock().themePreset);
+            ownName_ = names[static_cast<size_t>(ownSel)];
         }
-        if (sel < 0) {
-            themeIds_.push_back(current);
-            names.push_back(current.empty() ? std::wstring(L"None (dark defaults)") : current + L" (missing)");
-            sel = static_cast<int>(themeIds_.size()) - 1;
+        themeIds_ = ids;
+        const int changed = std::popcount(Mask());
+        const std::wstring current = changed > 0 ? L"Current \x00B7 " + std::to_wstring(changed) + L" changed" : L"Current";
+        std::vector<SettingsGallery::Tile> tiles;
+        tileIds_.clear();
+        tileNames_.clear();
+        if (dockOnly_) {
+            SettingsGallery::Tile app;
+            app.name = L"App look (" + appName_ + L")";
+            app.theme = c.theme;
+            app.current = !Dock().OwnLook();
+            if (app.current) app.detail = L"Current";
+            tiles.push_back(std::move(app));
+            tileIds_.push_back(std::wstring());
+            tileNames_.push_back(L"App look");
         }
-        if (combo) {
+        const int sel = dockOnly_ ? ownSel : appSel;
+        for (size_t i = 0; i < ids.size(); ++i) {
+            SettingsGallery::Tile tile;
+            tile.name = names[i];
+            tile.theme = values[i];
+            tile.current = static_cast<int>(i) == sel;
+            if (tile.current) tile.detail = current;
+            tiles.push_back(std::move(tile));
+            tileIds_.push_back(ids[i]);
+            tileNames_.push_back(names[i]);
+        }
+        const int galleryCurrent = dockOnly_ ? (ownSel < 0 ? 0 : ownSel + 1) : appSel;
+        const int before = gallery_.Count();
+        gallery_.SetTiles(std::move(tiles), galleryCurrent);
+        if (gallery_.Count() != before) Relayout();  // the gallery's height (its rows) may change
+
+        if (HWND combo = Item(kThemeCombo)) {
             SendMessageW(combo, WM_SETREDRAW, FALSE, 0);
             SendMessageW(combo, CB_RESETCONTENT, 0, 0);
             for (const std::wstring& n : names) ComboAdd(kThemeCombo, n.c_str());
-            SetComboSel(kThemeCombo, sel);
+            SetComboSel(kThemeCombo, appSel);
             SendMessageW(combo, WM_SETREDRAW, TRUE, 0);
-            InvalidateRect(combo, nullptr, TRUE);
         }
-
-        // This dock's theme: "Use app default (<the app's theme>)" (round 10 phase 10D: was "Same as
+        // This dock's look: "Use app default (<the app's theme>)" (round 10 phase 10D: was "Same as
         // all docks"), then the same list (an unknown id: "(missing)").
-        if (!dock) return;
-        const std::wstring appName = names[static_cast<size_t>(sel)];
-        const std::wstring& own = Dock().themePreset;
-        int dockSel = 0;
-        for (size_t i = 0; i < themeIds_.size() && !own.empty(); ++i) {
-            if (EqualsNoCase(themeIds_[i], own)) {
-                dockSel = static_cast<int>(i) + 1;
-                break;
-            }
+        if (HWND dock = Item(kDockThemeCombo)) {
+            SendMessageW(dock, CB_RESETCONTENT, 0, 0);
+            ComboAdd(kDockThemeCombo, (L"Use app default (" + appName_ + L")").c_str());
+            for (const std::wstring& n : names) ComboAdd(kDockThemeCombo, n.c_str());
+            SetComboSel(kDockThemeCombo, ownSel < 0 ? 0 : ownSel + 1);
         }
-        if (!own.empty() && dockSel == 0) {
-            themeIds_.push_back(own);
-            names.push_back(own + L" (missing)");
-            dockSel = static_cast<int>(themeIds_.size());
-        }
-        SendMessageW(dock, CB_RESETCONTENT, 0, 0);
-        ComboAdd(kDockThemeCombo, (L"Use app default (" + appName + L")").c_str());
-        for (const std::wstring& n : names) ComboAdd(kDockThemeCombo, n.c_str());
-        SetComboSel(kDockThemeCombo, dockSel);
-        Show(kDockThemeReset, !own.empty());  // the ↺ only while the dock's theme is its own
     }
 
     // Round 10 phase 10D: "Magnification details · n changed" (range and bar mode against the
@@ -785,24 +1246,134 @@ private:
         SetExpanderText(kMagnifyMore, ChangedTitle(L"Magnification details", n));
     }
 
-    // The window's dock's own preset (docks[].themePreset; "" = the global theme).
-    void SelectDockPreset(const std::wstring& id) {
+    // The docks Apply to (other) docks lists: config indices of the docks (not folder windows or
+    // standalone widgets), this window's own left out on the Look tab.
+    std::vector<size_t> OtherDocks() {
+        std::vector<size_t> out;
+        const Config& c = Cfg();
+        for (size_t i = 0; i < c.docks.size(); ++i) {
+            if (!c.docks[i].IsDock()) continue;
+            if (dockOnly_ && i == DockIndex()) continue;
+            out.push_back(i);
+        }
+        return out;
+    }
+
+    // Round 12 phase 12B: "Save as theme…": themes\<name>.json with this look; then the look's
+    // preset (nothing changed: the same values), unless the dock uses the app look (the file only).
+    void SaveAsTheme() {
+        std::wstring name = PresetId().empty() || Theme::FindBuiltIn(PresetId()) ? std::wstring(L"My look") : ownOrAppName();
+        if (Host().modal) Host().modal(true);
+        const bool ok = InputDialog::Ask(Owner(), L"Save as theme", L"Name of the theme:", name, 64);
+        if (Host().modal) Host().modal(false);
+        if (!ok || Trim(name).empty()) return;
+        name = Trim(name);
+        std::wstring stem;
+        DWORD error = Theme::SaveAs(name, Look(), false, stem);
+        if (error == ERROR_FILE_EXISTS) {
+            if (Host().modal) Host().modal(true);
+            const int answer = MessageBoxW(Owner(), (L"A theme named \x201C" + name + L"\x201D exists. Replace it?").c_str(),
+                                           L"Save as theme", MB_YESNO | MB_ICONQUESTION);
+            if (Host().modal) Host().modal(false);
+            if (answer != IDYES) return;
+            error = Theme::SaveAs(name, Look(), true, stem);
+        }
+        if (error != 0) {
+            MessageBeep(MB_ICONERROR);
+            MessageBoxW(Owner(), (L"Could not save the theme \x201C" + name + L"\x201D.").c_str(), L"WinDock", MB_OK | MB_ICONERROR);
+            return;
+        }
+        if (!ReadOnly()) {
+            ChangeLabel(L"Saved the look as theme \x201C" + name + L"\x201D");
+            PresetId() = stem;
+            Mask() = 0;
+            Resolve();
+            Changed(SettingsScope::Appearance);
+        }
+        Load();  // the gallery lists the new file
+    }
+
+    std::wstring ownOrAppName() { return dockOnly_ && Dock().OwnLook() ? ownName_ : appName_; }
+
+    // Round 12 phase 12B: "Import theme…": a theme file copied into the themes folder (the gallery
+    // shows it; nothing is applied).
+    void ImportTheme() {
+        winrt::com_ptr<IFileOpenDialog> dialog;
+        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
+            MessageBeep(MB_ICONERROR);
+            return;
+        }
+        const COMDLG_FILTERSPEC filters[] = {{L"Theme files (*.json)", L"*.json"}};
+        dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+        dialog->SetTitle(L"Import theme");
+        FILEOPENDIALOGOPTIONS options = 0;
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_NOCHANGEDIR);
+        if (Host().modal) Host().modal(true);
+        const HRESULT shown = dialog->Show(Owner());
+        if (Host().modal) Host().modal(false);
+        if (FAILED(shown)) return;  // cancelled
+        winrt::com_ptr<IShellItem> result;
+        PWSTR raw = nullptr;
+        if (FAILED(dialog->GetResult(result.put())) || FAILED(result->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw) {
+            MessageBeep(MB_ICONERROR);
+            return;
+        }
+        const std::wstring path = raw;
+        CoTaskMemFree(raw);
+        std::wstring stem;
+        const DWORD error = Theme::Import(path, stem);
+        if (error != 0) {
+            MessageBeep(MB_ICONERROR);
+            MessageBoxW(Owner(),
+                        error == ERROR_INVALID_DATA ? (StemOf(path) + L" is not a theme file (a JSON object of theme values).").c_str()
+                                                    : (L"Could not copy " + path + L" into the themes folder.").c_str(),
+                        L"Import theme", MB_OK | MB_ICONERROR);
+            return;
+        }
+        FillThemes();
+        for (size_t i = 0; i < tileIds_.size(); ++i) {  // the new tile gets the selection (choose it to try it)
+            if (EqualsNoCase(tileIds_[i], stem) && gallery_.Hwnd()) SendMessageW(gallery_.Hwnd(), SettingsGallery::kMsgSelect, i, 0);
+        }
+    }
+
+    // Round 12 phase 12B: "Apply to other docks…": each checked dock gets this look as its own (one
+    // undo entry).
+    void ApplyToDocks() {
+        const std::vector<size_t> others = OtherDocks();
+        if (others.empty()) return;
         Config& c = Cfg();
-        if (id == Dock().themePreset) return;
-        Dock().themePreset = id;
+        std::vector<std::wstring> rows;
+        for (size_t k : others) {
+            const DockConfig& d = c.docks[k];
+            rows.push_back(d.id + (d.OwnLook() ? L"" : L" (uses the app look)"));
+        }
+        std::vector<bool> checked(others.size(), false);
+        if (Host().modal) Host().modal(true);
+        const bool ok = InputDialog::Choose(Owner(), dockOnly_ ? L"Apply to other docks" : L"Apply to docks",
+                                            L"Give these docks this look as their own:", rows, checked);
+        if (Host().modal) Host().modal(false);
+        if (!ok) return;
+        std::vector<size_t> targets;
+        for (size_t i = 0; i < others.size(); ++i) {
+            if (checked[i]) targets.push_back(others[i]);
+        }
+        if (targets.empty()) return;
+        ChangeLabel(targets.size() == 1 ? L"Applied the look to " + c.docks[targets[0]].id
+                                        : L"Applied the look to " + std::to_wstring(targets.size()) + L" docks");
+        const DockConfig* source = dockOnly_ ? &Dock() : nullptr;
+        for (size_t k : targets) c.CopyLook(source, c.docks[k]);
         c.ResolveDockThemes();
         Changed(SettingsScope::Appearance);
-        Show(kDockThemeReset, !id.empty());
+        Load();
     }
 
     void Export() {
-        Config& c = Cfg();
         EnsureThemesFolder();
         const std::wstring dir = Theme::Directory();
+        const std::wstring& preset = PresetId();
         // A file named after a built-in id would be ignored: suggest another name for those.
-        std::wstring suggested = c.themePreset.empty() ? L"my-theme"
-                                 : Theme::FindBuiltIn(c.themePreset) ? L"my-" + c.themePreset
-                                                                      : c.themePreset;
+        std::wstring suggested = preset.empty() ? L"my-theme" : Theme::FindBuiltIn(preset) ? L"my-" + preset : preset;
         winrt::com_ptr<IFileSaveDialog> dialog;
         if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
             MessageBeep(MB_ICONERROR);
@@ -820,7 +1391,10 @@ private:
         if (SUCCEEDED(SHCreateItemFromParsingName(dir.c_str(), nullptr, IID_PPV_ARGS(folder.put())))) {
             dialog->SetFolder(folder.get());
         }
-        if (FAILED(dialog->Show(Owner()))) return;  // cancelled
+        if (Host().modal) Host().modal(true);
+        const HRESULT shown = dialog->Show(Owner());
+        if (Host().modal) Host().modal(false);
+        if (FAILED(shown)) return;  // cancelled
         winrt::com_ptr<IShellItem> result;
         PWSTR raw = nullptr;
         if (FAILED(dialog->GetResult(result.put())) || FAILED(result->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw) {
@@ -830,24 +1404,31 @@ private:
         const std::wstring path = raw;
         CoTaskMemFree(raw);
         const std::wstring stem = StemOf(path);
-        if (!Theme::Export(path, c.theme, stem)) {
+        if (!Theme::Export(path, Look(), stem)) {
             MessageBeep(MB_ICONERROR);
             MessageBoxW(Owner(), (L"Could not write " + path).c_str(), L"WinDock", MB_OK | MB_ICONERROR);
             return;
         }
-        // Saved as a theme file: it becomes the preset, with nothing overridden.
+        // Saved as a theme file: it becomes the preset, with nothing overridden (a dock that uses
+        // the app look keeps it: the file only).
         // (Theme ids are at most 64 characters and never a built-in id.)
-        if (EqualsNoCase(FolderOf(path), dir) && !stem.empty() && stem.size() <= 64 && !Theme::FindBuiltIn(stem)) {
-            c.themePreset = stem;
-            c.themeOverrides = 0;
-            c.ResolveTheme();
+        if (!ReadOnly() && EqualsNoCase(FolderOf(path), dir) && !stem.empty() && stem.size() <= 64 && !Theme::FindBuiltIn(stem)) {
+            PresetId() = stem;
+            Mask() = 0;
+            Resolve();
             Changed(SettingsScope::Appearance);
         }
         Load();
     }
 
-    std::vector<std::wstring> themeIds_;  // parallel to the combo items
+    std::vector<std::wstring> themeIds_;   // parallel to kThemeCombo's rows (kDockThemeCombo's from row 1)
+    std::vector<std::wstring> tileIds_;    // parallel to the gallery's tiles ("" the dock's App look)
+    std::vector<std::wstring> tileNames_;
+    std::wstring appName_, ownName_;       // the app's preset's name, the dock's own preset's
+    SettingsGallery gallery_;
     bool dockOnly_ = false;
+    int rowBase_ = kFieldRowBase;          // FieldRow ids: 3000 (Themes) or 6000 (the Look tab)
+    int colX_ = 0;
 };
 
 }  // namespace

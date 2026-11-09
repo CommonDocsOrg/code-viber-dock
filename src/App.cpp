@@ -22,6 +22,7 @@
 #include "JsonUtil.h"
 #include "Presets.h"
 #include "SettingsIds.h"
+#include "Theme.h"
 #include "WidgetPackage.h"
 #include "resource.h"
 
@@ -2319,6 +2320,9 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     host.status = [this, w] { return StatusFor(w); };
     host.timeline = [this, w](SettingsAction action) { return TimelineAction(w, action); };
     host.label = [this](const std::wstring& label) { NoteLabel(label); };
+    host.preview = [this, w](const std::wstring& label, const std::wstring& text) {  // round 12 phase 12B
+        StartPreview(label, text, w->Hwnd(), w->DockIndex() != SIZE_MAX ? w->DockIndex() : 0);
+    };
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
     host.dockWindows = [this](size_t index) {
         int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;
@@ -2607,6 +2611,8 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             d.autoHide = AutoHideMode::Off;
             d.reserveSpace = false;
             d.themePreset = list[index].themePreset;
+            d.themeOverrides = list[index].themeOverrides;  // round 12 phase 12B: its own look too
+            d.theme = list[index].theme;
             DockItemEntry tray{ToString(ItemKind::Tray)};
             auto& from = list[index].items;
             if (auto it = std::find_if(from.begin(), from.end(), [](const DockItemEntry& e) { return e.Kind() == ItemKind::Tray; });
@@ -3263,6 +3269,15 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             FlushTimeline();
             if (arg == 1) return banner_.Hwnd() && IsWindowVisible(banner_.Hwnd()) ? 1 : 0;
             return BarKind();
+        case 301:    // round 12 phase 12B: the theme gallery's selected tile (LOWORD 1: App settings > Themes, else the Look tab of the Dock window of dock HIWORD)
+        case 302: {  // ... its tile count; -2 for each: no such window
+            SettingsWindow* w = arg == 1 ? FindSettings(SettingsKind::Global)
+                                : inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id)
+                                                                           : nullptr;
+            LRESULT out = -2;
+            if (!w || !w->Hwnd() || !w->QueryPages(static_cast<int>(wp), arg, out)) out = -2;
+            return out;
+        }
         case 280:  // round 9 phase 9A: dock HIWORD (a dock or a standalone widget) is hidden by the full-screen guard (1 / 0; -2 no such dock)
             if (!inst) return -2;
             if (inst->window) return inst->window->FullscreenHidden() ? 1 : 0;
@@ -3346,6 +3361,71 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
     if (inst && inst->isWidget) return -1;  // parked
     if (!inst || !inst->window) return -1;
     return inst->window->QueryState(wp, arg);
+}
+
+// Round 12 phase 12B: DockCommand 162 - 164, the look commands of the editors' ⋯ menu without their
+// dialogs (ContextMenu.h). The source look: HIWORD(lParam) the dock by instance index, 0xFFFF the app's.
+bool App::LookCommand(UINT command, LPARAM lp) {
+    if (shutDown_ || modalDepth_ > 0) return false;
+    const size_t instance = DockOfParam(lp);
+    DockConfig* source = nullptr;
+    if (instance != 0xFFFF) {
+        const DockManager::Instance* inst = docks_.At(instance);
+        if (!inst || inst->cfg >= config_.docks.size() || !config_.docks[inst->cfg].IsDock()) return false;
+        source = &config_.docks[inst->cfg];
+    }
+    wchar_t buf[256]{};
+    switch (command) {
+        case ContextMenu::kSaveLookAsTheme: {
+            if (!GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf)))) return false;
+            const std::wstring name = buf;
+            std::wstring stem;
+            if (Theme::SaveAs(name, source ? config_.ThemeOf(*source) : config_.theme, true, stem) != 0) return false;
+            // As the menu's: the look's preset becomes the file (the values are the same); a dock
+            // that uses the app look keeps it (the file only).
+            if (!source || source->OwnLook()) {
+                NoteLabel(L"Saved the look as theme \x201C" + name + L"\x201D");
+                if (source) {
+                    source->themePreset = stem;
+                    source->themeOverrides = 0;
+                } else {
+                    config_.themePreset = stem;
+                    config_.themeOverrides = 0;
+                }
+                config_.ResolveTheme();
+                docks_.ForEach([](DockWindow& w) { w.ApplyConfig(); });
+                RequestSave();
+            }
+            RefreshSettings();
+            return true;
+        }
+        case ContextMenu::kImportThemeFile: {
+            if (!GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf)))) return false;
+            std::wstring stem;
+            const DWORD error = Theme::Import(buf, stem);
+            if (error != 0) return false;
+            RefreshSettings();
+            return true;
+        }
+        case ContextMenu::kApplyLookToDocks: {
+            const unsigned mask = static_cast<unsigned>(lp & 0xFFFF);
+            std::vector<size_t> targets;
+            for (size_t k = 0; k < config_.docks.size() && k < 16; ++k) {
+                if ((mask & (1u << k)) && config_.docks[k].IsDock() && &config_.docks[k] != source) targets.push_back(k);
+            }
+            if (targets.empty()) return false;
+            NoteLabel(targets.size() == 1 ? L"Applied the look to " + config_.docks[targets[0]].id
+                                          : L"Applied the look to " + std::to_wstring(targets.size()) + L" docks");
+            for (size_t k : targets) config_.CopyLook(source, config_.docks[k]);
+            config_.ResolveDockThemes();
+            docks_.ForEach([](DockWindow& w) { w.ApplyConfig(); });
+            RequestSave();
+            RefreshSettings();
+            return true;
+        }
+        default:
+            return false;
+    }
 }
 
 bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
@@ -3480,6 +3560,10 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
         const HWND host = w && IsWindowVisible(w->Hwnd()) ? w->Hwnd() : nullptr;
         result = inst && ApplyPreset(static_cast<size_t>(lp & 0xFF), inst->cfg, (lp & 0x100) != 0, true, host) ? 1 : 0;
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp >= ContextMenu::kSaveLookAsTheme && wp <= ContextMenu::kApplyLookToDocks) {
+        result = LookCommand(static_cast<UINT>(wp), lp) ? 1 : 0;
         return true;
     }
     if (msg == msgDockCommand_ && wp >= ContextMenu::kUndo && wp <= ContextMenu::kBarCancel) {

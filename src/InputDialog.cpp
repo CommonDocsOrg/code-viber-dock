@@ -1,5 +1,6 @@
 #include "InputDialog.h"
 
+#include <algorithm>
 #include <cwctype>
 #include <vector>
 
@@ -96,7 +97,99 @@ INT_PTR CALLBACK DialogProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
     }
 }
 
+// Round 12 phase 12B: the check list.
+struct ChoiceState {
+    std::wstring prompt;
+    std::vector<bool>* checked = nullptr;
+};
+
+INT_PTR CALLBACK ChoiceProc(HWND dlg, UINT msg, WPARAM wp, LPARAM lp) {
+    ChoiceState* state = reinterpret_cast<ChoiceState*>(GetWindowLongPtrW(dlg, DWLP_USER));
+    auto anyChecked = [&] {
+        for (size_t i = 0; state && i < state->checked->size(); ++i) {
+            if (IsDlgButtonChecked(dlg, kCheckBase + static_cast<int>(i)) == BST_CHECKED) return true;
+        }
+        return false;
+    };
+    switch (msg) {
+        case WM_INITDIALOG: {
+            state = reinterpret_cast<ChoiceState*>(lp);
+            SetWindowLongPtrW(dlg, DWLP_USER, reinterpret_cast<LONG_PTR>(state));
+            SetDlgItemTextW(dlg, kPromptId, state->prompt.c_str());
+            for (size_t i = 0; i < state->checked->size(); ++i) {
+                CheckDlgButton(dlg, kCheckBase + static_cast<int>(i), (*state->checked)[i] ? BST_CHECKED : BST_UNCHECKED);
+            }
+            EnableWindow(GetDlgItem(dlg, IDOK), anyChecked());
+            RECT r{};
+            GetWindowRect(dlg, &r);
+            MONITORINFO mi{sizeof(mi)};
+            HWND owner = GetWindow(dlg, GW_OWNER);
+            if (GetMonitorInfoW(MonitorFromWindow(owner ? owner : dlg, MONITOR_DEFAULTTOPRIMARY), &mi)) {
+                const LONG w = r.right - r.left, h = r.bottom - r.top;
+                SetWindowPos(dlg, HWND_TOPMOST, (mi.rcWork.left + mi.rcWork.right - w) / 2,
+                             (mi.rcWork.top + mi.rcWork.bottom - h) / 2, 0, 0, SWP_NOSIZE);
+            }
+            return TRUE;
+        }
+        case WM_COMMAND:
+            if (LOWORD(wp) >= kCheckBase && LOWORD(wp) < kCheckBase + 16 && HIWORD(wp) == BN_CLICKED) {
+                EnableWindow(GetDlgItem(dlg, IDOK), anyChecked());
+                return TRUE;
+            }
+            if (LOWORD(wp) == IDOK && state) {
+                for (size_t i = 0; i < state->checked->size(); ++i) {
+                    (*state->checked)[i] = IsDlgButtonChecked(dlg, kCheckBase + static_cast<int>(i)) == BST_CHECKED;
+                }
+                EndDialog(dlg, IDOK);
+                return TRUE;
+            }
+            if (LOWORD(wp) == IDCANCEL) {
+                EndDialog(dlg, IDCANCEL);
+                return TRUE;
+            }
+            return FALSE;
+        default:
+            return FALSE;
+    }
+}
+
 }  // namespace
+
+bool Choose(HWND owner, const std::wstring& title, const std::wstring& prompt, const std::vector<std::wstring>& items,
+            std::vector<bool>& checked) {
+    const size_t n = std::min<size_t>(items.size(), 16);
+    if (n == 0) return false;
+    checked.resize(items.size(), false);
+    TemplateWriter t;
+    const short listTop = 22, rowH = 13;
+    const short buttonsY = static_cast<short>(listTop + n * rowH + 8);
+    t.DWord(DS_MODALFRAME | DS_SETFONT | DS_SHELLFONT | WS_POPUP | WS_CAPTION | WS_SYSMENU);
+    t.DWord(WS_EX_TOPMOST);
+    t.Word(static_cast<WORD>(3 + n));
+    t.Word(0);
+    t.Word(0);
+    t.Word(220);
+    t.Word(static_cast<WORD>(buttonsY + 22));
+    t.Word(0);
+    t.Word(0);
+    t.String(title.c_str());
+    t.Word(9);
+    t.String(L"Segoe UI");
+    t.Item(SS_LEFT, 8, 8, 204, 10, kPromptId, 0x0082, L"");
+    for (size_t i = 0; i < n; ++i) {
+        t.Item(WS_TABSTOP | BS_AUTOCHECKBOX, 12, static_cast<short>(listTop + i * rowH), 200, 11,
+               static_cast<WORD>(kCheckBase + i), 0x0080, items[i].c_str());
+    }
+    t.Item(WS_TABSTOP | BS_DEFPUSHBUTTON, 104, buttonsY, 52, 14, IDOK, 0x0080, L"OK");
+    t.Item(WS_TABSTOP | BS_PUSHBUTTON, 160, buttonsY, 52, 14, IDCANCEL, 0x0080, L"Cancel");
+    std::vector<bool> edited(checked.begin(), checked.begin() + static_cast<ptrdiff_t>(n));
+    ChoiceState state{prompt, &edited};
+    const INT_PTR r = DialogBoxIndirectParamW(GetModuleHandleW(nullptr), t.Get(), owner, &ChoiceProc,
+                                              reinterpret_cast<LPARAM>(&state));
+    if (r != IDOK) return false;
+    for (size_t i = 0; i < n; ++i) checked[i] = edited[i];
+    return true;
+}
 
 bool Ask(HWND owner, const std::wstring& title, const std::wstring& prompt, std::wstring& text, size_t maxLength) {
     TemplateWriter t;

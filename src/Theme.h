@@ -113,6 +113,60 @@ std::wstring WriteFields(const ThemeConfig& t, uint64_t mask, const wchar_t* ind
 // Writes { "name", every field } atomically (a portable theme file).
 bool Export(const std::wstring& path, const ThemeConfig& t, const std::wstring& name);
 
+// --- Round 12 phase 12B: Quick look, the "derived fields" table ---
+// Five controls of App settings > Themes and of a dock's Look tab that write through to the raw
+// fields. This table is the one place that knows the mapping (guide-settings "Quick look" tells it
+// in words):
+//  Tint (0xRRGGBB): `background`'s RGB (its alpha kept) and `acrylicBackground`'s (the bar's
+//      colour while the blur is on, else Tint would do nothing there); `labelBackground`,
+//      `slotRunning`, `slotActive` and `slotHover` get the tint's hue at the brightness the
+//      preset gives each (their alphas kept; the attention colours stay signal colours).
+//      Reads: background's RGB.
+//  Transparency (0 - 100 %): `background`'s alpha = (100 - T) % of 255, and `acrylicBackground`'s
+//      alpha in the preset's proportion to it (the blur's tint fades with the fill). Reads: 100 -
+//      background's alpha in percent. There is no separate blur opacity field: Acrylic blur is on
+//      or off (`acrylic`), and its tint's alpha is how much of the blur shows.
+//  Corners (0 square, 1 soft, 2 round; -1 Mixed): `cornerRadius` 0 / 8 / 16 and `slotCornerRadius`
+//      0 / 3 / 6. Reads: cornerRadius alone (any other radius is Mixed; slot corners may differ).
+//  Icon effects (bit 0 glow, bit 1 reflection: 0 off, 1 glow, 2 reflection, 3 both): `glow` (on:
+//      the preset's mode, else While hovered) and `reflection`.
+//  Indicator dots (1 on / 0 off): the three dot colours' alpha 0, or back to the preset's alpha
+//      (255 where the preset's is 0). Slot buttons draw no dots either way.
+enum class Quick { Tint, Transparency, Corners, Effects, Dots, Count };
+struct DerivedField {
+    Quick quick;
+    const wchar_t* label;
+    uint64_t fields;  // the raw fields it writes (Bit(Field) ...)
+    int (*get)(const ThemeConfig& t);
+    // Writes `value` into `t`; `preset` is the look's preset (what proportions and "on again" use).
+    void (*set)(ThemeConfig& t, const ThemeConfig& preset, int value);
+};
+const DerivedField& Derived(Quick q);
+// Applies `value` through `q` to a look `t` (override mask `mask`, preset values `preset`): every
+// field it writes becomes an override where it now differs from the preset and stops being one
+// where it equals it. True if `t` changed.
+bool SetDerived(Quick q, ThemeConfig& t, uint64_t& mask, const ThemeConfig& preset, int value);
+// The fields `q` writes that differ from the preset (its ↺ shows while this is not 0: the control's
+// own value differs, whatever the other fields it shares a raw field with did).
+bool DerivedDiffers(Quick q, const ThemeConfig& t, const ThemeConfig& preset);
+// "Back to the preset's value" for `q`: the preset's value through the same setter (a Mixed
+// preset's fields are copied as they are). True if `t` changed.
+bool ResetDerived(Quick q, ThemeConfig& t, uint64_t& mask, const ThemeConfig& preset);
+
+// --- Round 12 phase 12B: theme files ---
+// The file stem for a theme called `name`: characters a file name cannot hold become '-', trimmed,
+// at most 64 characters ("" for an empty name); a built-in id gets "my-" in front (a file named
+// like a built-in is ignored by the list).
+std::wstring StemFor(const std::wstring& name);
+// Writes themes\<StemFor(name)>.json (as Export: the name and every field). `overwrite` false:
+// ERROR_FILE_EXISTS when there is one. `stem` gets the stem. 0 on success, else a Win32 error.
+DWORD SaveAs(const std::wstring& name, const ThemeConfig& t, bool overwrite, std::wstring& stem);
+// Copies the theme file `path` into the themes folder once it reads as a theme (a JSON object:
+// LoadUserTheme): under its own stem (StemFor), else "<stem> 2", "<stem> 3" ... when that is
+// taken. A file that is in the folder already stays as it is. `stem` gets its stem. 0 on success,
+// ERROR_INVALID_DATA when it is not a theme file, else a Win32 error.
+DWORD Import(const std::wstring& path, std::wstring& stem);
+
 // Draws the glass shelf (t.shelf) in `bar`: the surface trapezoid, the front lip and highlights,
 // and the separator at `separatorX` (same coordinates as `bar`; < 0 = none). `unit` maps DIPs
 // to pixels. `reflectionPx`: the height of the icon reflections at the bottom of the bar (the
