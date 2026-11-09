@@ -1015,7 +1015,7 @@ Notes for 11E (round 11 closed 2026-11-07):
   consolidated in STATUS.md "Round 11 final regression" (real pointer input and a real Win+D above
   all).
 
-## Round 12 (built 2026-11-08; the regression and release pending): customize the dock on the dock
+## Round 12 (complete 2026-11-09): customize the dock on the dock
 
 Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round12.md` (revision 2, from the
 ideas the user kept from the first proposal plus their additions; working mockup linked there). One
@@ -1046,7 +1046,7 @@ The goals, in the user's words (the plan's list):
 | 12E The Dock settings panel | The Dock settings window became a borderless panel beside its dock (same class, pages, ids and automation); Position's "Where on the screen" with `edgeGap`; customize mode's dock drag | Done, built, not run |
 | 12F Settings on a large display | Sizes from the display, two columns from 1000 DIPs, controls capped at 360 DIPs, the nav's descriptions, one sentence per page, the reasons beside unavailable controls | Done, built, not run |
 | 12G Quick setup | Quick setup (docks, looks, behaviour, done) replaced the welcome dialog; three tips on the dock (`settings.tipsShown`) | Done, built, not run |
-| 12H Docs pass, regression and release | Part 1: the user guides, README and this note rewritten for 12A - 12G (the guides are compiled into the exe, so they come before the release build). Part 2: the regression on everything at once and the release build | Part 1 done; part 2 next |
+| 12H Docs pass, regression and release | Part 1: the user guides, README and this note rewritten for 12A - 12G (the guides are compiled into the exe, so they come before the release build). Part 2: the regression on everything at once and the release build | Done (2026-11-09): the first run of 12B - 12G, 6 fixes (the narrow panel's Contents and Position tabs, the edit bar title, the panel beside an outside title, Ctrl+Z / Ctrl+Y in customize mode, the foreground after customize mode, an up-down stretched in two columns), release 5,909,504 bytes; STATUS.md "Round 12 final regression" |
 
 Decisions taken (the plan's "Decisions to confirm", as built):
 
