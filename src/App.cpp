@@ -2139,6 +2139,25 @@ bool App::PreTranslateMessage(MSG& msg) {
     // tips (the bubble never has the focus) and then does what it does there.
     if (QuickSetupOpen() && quickSetup_->PreTranslateMessage(msg)) return true;
     if (tipShown_ >= 0 && msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE) OnTipCommand(SettingsIds::kTipSkip);
+    // Round 12 phase 12H: Ctrl+Z / Ctrl+Y (and Ctrl+Shift+Z) in customize mode, as in the settings
+    // windows (12A had them only there): on the dock being customized (it takes the keyboard when
+    // the mode starts; with no focus window its keys come as WM_SYSKEYDOWN), its edit bar and its
+    // drawer popup. One step per press (an auto-repeat does nothing); the drawer's search box keeps
+    // its own Ctrl+Z while it can undo its typing, as an edit box in a settings window does.
+    if (editDock_ && (msg.message == WM_KEYDOWN || msg.message == WM_SYSKEYDOWN) && (msg.wParam == 'Z' || msg.wParam == 'Y') &&
+        GetKeyState(VK_CONTROL) < 0 && GetKeyState(VK_MENU) >= 0 && msg.hwnd) {
+        const HWND root = GetAncestor(msg.hwnd, GA_ROOT);
+        if (root && (root == editDock_->Hwnd() || root == editBar_.Hwnd() || root == drawerPopup_.Hwnd())) {
+            const bool redo = msg.wParam == 'Y' || GetKeyState(VK_SHIFT) < 0;
+            wchar_t cls[16]{};
+            const bool editUndo = !redo && GetClassNameW(msg.hwnd, cls, static_cast<int>(std::size(cls))) && _wcsicmp(cls, L"Edit") == 0 &&
+                                  SendMessageW(msg.hwnd, EM_CANUNDO, 0, 0);
+            if (!editUndo) {
+                if (!(msg.lParam & (1 << 30)) && !(redo ? Redo() : Undo())) MessageBeep(MB_OK);
+                return true;
+            }
+        }
+    }
     // Round 12 phase 12D: the drawer popup's keyboard (Tab between its controls, Escape closes it).
     if (const HWND drawer = drawerPopup_.Hwnd(); drawer && (msg.hwnd == drawer || IsChild(drawer, msg.hwnd)) && IsDialogMessageW(drawer, &msg)) {
         return true;
@@ -2358,7 +2377,7 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     host.dockBar = [this, dockOf, w] {
         if (WidgetWindow* wi = dockOf() != SIZE_MAX ? docks_.WidgetOf(dockOf()) : nullptr) return wi->ScreenRect();
         DockWindow* d = dockOf() != SIZE_MAX ? PanelDockOf(w) : nullptr;  // round 12 phase 12E: the panel's instance
-        return d ? d->RestBarRect() : RECT{};
+        return d ? d->RestFootprintRect() : RECT{};  // round 12 phase 12H: with a title outside the bar
     };
     host.openDock = [this](size_t dock, int tab) { OpenDockSettings(dock, tab); };
     host.openItem = [this](size_t dock, size_t item) { OpenItemSettings(dock, item); };
