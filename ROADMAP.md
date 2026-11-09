@@ -1283,7 +1283,7 @@ stacks each column on its own: a card's column and its neighbours never depend o
 cards before it are. The columns can end uneven; that was the trade the user asked for ("always
 stayed in place").
 
-## Round 14 (in progress): a bar of a fixed size; snapping to the screen's corners and centre
+## Round 14 (complete 2026-11-09, pending the user's manual pass): a bar of a fixed size; snapping to the screen's corners and centre
 
 Plan: `C:\Users\olson\.claude\plans\windock-round14.md`. From the user's request of 2026-11-09:
 a way to set and lock a dock's dimensions besides the automatic layout (14A), and an app setting,
@@ -1353,6 +1353,14 @@ ordinary agent per phase, light testing, a manual check list per phase, smoke sc
   its one line).
 - **Automation**: QueryState 329 (App), DockCommand 186 (App, app-wide, one undo entry). Script:
   `tools\smoke\snap-setting.ps1` (3 checks); a real drag is the user's manual check.
+
+### 14C: regression and release (done 2026-11-09)
+
+Static checks (dev build warning-free, both doc checks, WinDockTests, `--validate-widget`) and
+all six smoke scripts in `tools\smoke\` once on `build\dev` (57 checks, all pass, no fix needed),
+then `run.bat`: `build\x64-release\WinDock.exe` 5,803,520 bytes, 2026-11-09 14:57:50, the user's
+dock started on it with their config (no migration this round). What was not seen is listed in
+STATUS.md "Round 14 final regression" (everything visual and every real drag).
 
 ## Dependencies at a glance
 
