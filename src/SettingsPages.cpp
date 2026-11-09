@@ -415,9 +415,21 @@ protected:
     void BuildPosition() {
         const int right = Width() - kMargin;
         const int silL = right - kSilhouetteW;
+        // Round 12 phase 12H: the Dock settings panel (12E) is 470 DIPs wide by default: beside the
+        // silhouette the drop-downs had 160 DIPs of room minus 64 they did not have, so the
+        // silhouette was painted under the Kind / Display / Edge drop-downs (measured in the
+        // panel). Without room for 160 DIPs beside it, the silhouette gets a row of its own at the
+        // top of the card and the drop-downs the whole control column.
+        const bool silBeside = silL - 16 - kColX >= 160;
         // The Placement card's controls end before the silhouette's column (300 DIPs fit beside
         // it at the window's minimum width).
-        const int ctlW = std::clamp(silL - 16 - kColX, 160, 300);
+        // (Not up to the right margin: a control that ends there is moved / stretched by Reflow.)
+        const int ctlW = silBeside ? std::clamp(silL - 16 - kColX, 160, 300) : std::clamp(right - 16 - kColX, 160, 300);
+        // Round 12 phase 12H: the two distance rows (slider, number, "px") were 494 DIPs wide and
+        // ran past the panel's right edge (the number's up-down out of sight): the slider gives way
+        // first, down to 80 DIPs; the number and "px" follow it.
+        const int trackW = std::clamp(right - (kColX - 6) - 88 - 26, 80, 150);
+        const int numX = kColX - 6 + trackW + 8;
         Title(L"Position");
         Lead(L"Where this dock sits and which display it is on.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#position-tab");
@@ -427,9 +439,16 @@ protected:
         Section(kSectionPosition, L"Where on the screen", L"guide-settings.md#placement");
         // A fixed control (row -1): beside the rows, never moved by them; at the right margin it
         // follows the page's width. Round 9 phase 9D: under the header's "?" button.
-        Ctl& sil = Add(kPositionSilhouette, CtlKind::Custom, kSilhouetteClass, L"Where it sits", 0,
-                       RECT{silL, y_ + 2, right, y_ + 2 + kSilhouetteH});
-        sil.row = -1;
+        if (silBeside) {
+            Ctl& sil = Add(kPositionSilhouette, CtlKind::Custom, kSilhouetteClass, L"Where it sits", 0,
+                           RECT{silL, y_ + 2, right, y_ + 2 + kSilhouetteH});
+            sil.row = -1;
+        } else {
+            // Round 12 phase 12H: a row of its own above Kind (a narrow panel).
+            Add(kPositionSilhouette, CtlKind::Custom, kSilhouetteClass, L"Where it sits", 0,
+                RECT{kColX, y_ + 2, kColX + kSilhouetteW, y_ + 2 + kSilhouetteH});
+            NextRow(kSilhouetteH + 8);
+        }
         Tip(kPositionSilhouette, L"A small picture of the display with this dock where it sits now; it follows the choices beside it.");
         Label(kPlacementKindLabel, L"Kind");
         Tip(kPlacementKindLabel,
@@ -442,7 +461,9 @@ protected:
         // Round 12 phase 12F: why the edge's rows are not here for this kind, and the way to them
         // (EnableDependents: collapsed for a bar on an edge).
         Ctl& kindReason = Text(kKindReason, CtlKind::Note, L"", kColX, ctlW, 20);
-        kindReason.maxLines = 3;
+        // Round 12 phase 12H: 5 lines, not 3: in the 470-DIP panel the floating bar's reason needs 4
+        // and its last words ("Choose Bar on an edge for them.") were cut to "reserved…" (measured).
+        kindReason.maxLines = 5;
         NextRow(22);
         Label(kMonitorLabel, L"Display");
         Tip(kMonitorLabel, L"The display this dock is on: the primary one, another display, or every display (a copy of the dock on each). Default: the primary display.");
@@ -466,18 +487,18 @@ protected:
         Tip(kOffsetLabel, L"Moves the dock along its edge from the place Alignment gives it, in pixels at 100 % scaling "
                           L"(positive: right / down). The slider goes from -400 to 400; type a larger number in the box. "
                           L"Default: 0.");
-        Trackbar(kOffsetTrack, kColX - 6, 150, -400, 400, 20);
-        IntSpin(kOffsetEdit, kOffsetSpin, kColX + 152, 80, -16000, 16000, 10, [](Config&, DockConfig& d) -> int& { return d.offset; },
+        Trackbar(kOffsetTrack, kColX - 6, trackW, -400, 400, 20);
+        IntSpin(kOffsetEdit, kOffsetSpin, numX, 80, -16000, 16000, 10, [](Config&, DockConfig& d) -> int& { return d.offset; },
                 SettingsScope::Appearance);
         NextRow();
         Label(kEdgeGapLabel, L"Distance from the screen edge", L"", kEdgeGapNote);
         Tip(kEdgeGapLabel, L"Moves the bar off its screen edge toward the middle of the screen, in pixels at 100 % scaling "
                            L"(0 - 200). Auto-hide still slides it out of sight and the screen edge still shows it again. "
                            L"Not for a full-width bar, which sits on its edge. Default: 0.");
-        Trackbar(kEdgeGapTrack, kColX - 6, 150, 0, DockConfig::kMaxEdgeGap, 10);
-        IntSpin(kEdgeGapEdit, kEdgeGapSpin, kColX + 152, 80, 0, DockConfig::kMaxEdgeGap, 4,
+        Trackbar(kEdgeGapTrack, kColX - 6, trackW, 0, DockConfig::kMaxEdgeGap, 10);
+        IntSpin(kEdgeGapEdit, kEdgeGapSpin, numX, 80, 0, DockConfig::kMaxEdgeGap, 4,
                 [](Config&, DockConfig& d) -> int& { return d.edgeGap; }, SettingsScope::Appearance);
-        Text(kEdgeGapUnit, CtlKind::Note, L"px", kColX + 238, 30);
+        Text(kEdgeGapUnit, CtlKind::Note, L"px", numX + 84, 22);
         NextRow();
         Ctl& distanceNote = Text(kDistanceNote, CtlKind::Note, L"You can also drag the dock while customizing. It snaps to the centre.",
                                  kMargin, right - kMargin, 20);
