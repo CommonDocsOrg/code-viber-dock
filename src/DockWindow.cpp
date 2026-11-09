@@ -6178,6 +6178,26 @@ RECT DockWindow::RestBarRect() const {
     return StageToScreen(l.bar.left, l.bar.top, l.bar.right, l.bar.bottom, true);
 }
 
+RECT DockWindow::RestFootprintRect() const {
+    // Round 12 phase 12H: the bar grown across its run by a title drawn outside it (measured: the
+    // Dock settings panel of a left dock titled "Tools" covered the title, 44 px of it). Along the
+    // run it stays the bar's, so what is centred on the bar stays centred on it.
+    RECT r = RestBarRect();
+    const Layout& l = layout_;
+    const D2D1_RECT_F& t = l.title;
+    if (t.right <= t.left || t.bottom <= t.top) return r;
+    const RECT tr{l.window.left + static_cast<LONG>(std::floor(t.left)), l.window.top + static_cast<LONG>(std::floor(t.top)),
+                  l.window.left + static_cast<LONG>(std::ceil(t.right)), l.window.top + static_cast<LONG>(std::ceil(t.bottom))};
+    if (l.vertical) {
+        r.left = std::min(r.left, tr.left);
+        r.right = std::max(r.right, tr.right);
+    } else {
+        r.top = std::min(r.top, tr.top);
+        r.bottom = std::max(r.bottom, tr.bottom);
+    }
+    return r;
+}
+
 void DockWindow::SetHold(bool hold) {
     if (hold == hold_ || !hwnd_) return;
     hold_ = hold;

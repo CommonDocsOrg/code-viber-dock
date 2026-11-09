@@ -344,6 +344,9 @@ public:
     RECT MonitorRect() const { return layout_.monitor; }
     UINT Dpi() const { return dpi_; }
     RECT RestBarRect() const;
+    // Round 12 phase 12H: RestBarRect grown across the bar by a title drawn outside it (what the
+    // Dock settings panel keeps clear of).
+    RECT RestFootprintRect() const;
     // The renderer runs on WARP (software) rather than a hardware device.
     bool UsingWarp() const { return renderer_.UsingWarp(); }
 
