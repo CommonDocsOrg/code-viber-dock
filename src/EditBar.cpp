@@ -127,7 +127,10 @@ bool EditBar::Show(HINSTANCE instance, const RECT& bar, const RECT& work, DockEd
     int buttonsW = 0;
     for (const ButtonSpec& b : kButtons) buttonsW += Px(b.w) + Px(8);
     const int workW = std::max<int>(Px(240), work.right - work.left - Px(16));
-    const int w = std::min(std::max(Px(16) + std::min(titleW_, Px(220)) + Px(12) + Px(kStatusW) + buttonsW + Px(4), Px(420)), workW);
+    // Round 12 phase 12H: Layout keeps Px(8) at the right end, not Px(4): the title had 4 px less
+    // than its text and read "Customizing m…" for a dock named "main" (measured, 100 %); 4 px more
+    // for the static's own rounding.
+    const int w = std::min(std::max(Px(16) + std::min(titleW_, Px(220)) + Px(12) + Px(kStatusW) + buttonsW + Px(8) + Px(4), Px(420)), workW);
     const int h = Px(kBarH), gap = Px(kDockGap);
     // Beside the dock, on the screen's side of it, at its end (a floating bar: above it, below it
     // near the top of the screen).
