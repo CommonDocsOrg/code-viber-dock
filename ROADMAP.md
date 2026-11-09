@@ -1127,7 +1127,7 @@ Design notes for 12A:
   welcome dialog applies at once (12G reworks the first run); Revert this window counts the
   entries newer than the window's mark (an undone-then-redone older change is not counted).
 
-## Round 13 (in progress, 2026-11-09): menus you can read, running apps as a widget
+## Round 13 (complete 2026-11-09, pending the user's manual pass): menus you can read, running apps as a widget
 
 Plan: `C:\Users\olson\.claude\plans\windock-round13.md`. From the user's list: context menus with
 icons and a header that names the widget (13B), quick widget settings in the widget's menu (13C),
@@ -1231,6 +1231,19 @@ rebuild.
   dock with the old keys but **no running item drops them** (they describe running windows, and
   such a dock shows none of its own; its pinned apps' windows then use the defaults). Previews,
   `previewsSingleWindow`, `previewDelayMs`, `middleClick` and `wheel` stay on the dock (decision 1).
+
+### 13E: regression and release (done 2026-11-09)
+
+The round closes as it was planned to be run: light, scripted checks only, and the visual and
+real-input pass left to the user's own dock. The doc checks, the ICS tests and `--validate-widget`
+on all 20 widget / example folders were clean; the three smoke scripts (`menu-zorder.ps1`,
+`running-widget.ps1` and the new `quick-settings.ps1`, the clock's two quick entries applied by
+ItemCommand 866 and undone by DockCommand 157) passed on their first run, so 13E needed no fix. The
+release exe was rebuilt and the user's dock runs on it; their config migrated on that first start
+(the running keys moved into the running item), with the pre-migration file kept as
+`config.json.pre-round13.bak` beside it. What a script cannot see (icons, headers, dark menus, the
+gap / padding on screen, the Running apps window by real input) is the user's manual check list in
+STATUS.md "Round 13".
 
 ## Dependencies at a glance
 
