@@ -84,6 +84,10 @@ fields and fixes and exits with 0 (no errors), 1 (errors) or 2 (not a widget fol
 There are three menus (round 10 phase 10A; "…" marks the entries that open a window or a dialog):
 
 - **The dock menu**: right-click an empty part of the dock. Grouped by task:
+  - Round 12 phase 12A: while there is something to undo, **Undo “Icon size 48 → 64”** (the last
+    change's label; DockCommand 157) and a separator come first (see Settings, "Undo, Saved, Keep /
+    Revert, Keep / Cancel"). The tray-icon menu starts with it too; an item menu's Dock submenu
+    does not.
   - **Dock settings…**: this dock's own settings window (see Settings), or brings it to the front.
   - **Add** submenu: **Clock**, **Weather**, **Running apps** (greyed while the dock has one),
     **Tray (notify icons)**, **Notification centre** (one each per dock), **Separator** (after the
@@ -94,7 +98,9 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
   - **Position on screen** submenu (radio items): **Bottom**, **Top**, **Left**, **Right**. Moves the
     dock to that edge of its monitor (`edge`; alignment and offset are kept) and saves it. The
     submenu ends with a reminder that **Ctrl+drag** moves the dock (see Position). See
-    [Position](#position-edge-alignment-offset).
+    [Position](#position-edge-alignment-offset). Round 12 phase 12A: a move (and an auto-hide
+    change below) shows Keep / Revert (12 s), as a banner beside the dock when no settings window
+    is open.
   - **Auto-hide** submenu (radio items): **Off**, **Always**, **When a window overlaps**. Sets
     `autoHide` (`"off"`, `"always"`, `"intelligent"`) immediately and saves it.
   - **Lock dock** (checkmark; see Lock dock below).
@@ -1663,7 +1669,54 @@ Keyboard: the App settings window's page list switches pages with Up / Down / Ho
 the focus (in the order it lists them), a Dock window's tab strip with Left / Right / Home / End;
 **Ctrl+Tab** / **Ctrl+Shift+Tab** go to the next / previous page or tab from anywhere in the
 window. Tab moves into the page, Esc
-closes the window, Enter applies the text in an edit box.
+closes the window, Enter applies the text in an edit box. Round 12 phase 12A: **Ctrl+Z** /
+**Ctrl+Y** (or Ctrl+Shift+Z) undo / redo (below; an edit box that can undo its own typing keeps
+Ctrl+Z), Esc cancels an open preset preview instead of closing the window.
+
+**Undo, Saved, Keep / Revert, Keep / Cancel** (round 12 phase 12A; guide-settings "Undo and Saved"):
+
+- **One timeline** for the whole app (per process, not saved, at most 50 entries): every change of
+  the config, made in any settings window, on the dock (pin, unpin, drag to reorder, drop files,
+  moving the dock, a widget dragged) or from a menu, is one entry with a one-line label. A gesture
+  is one entry: everything changed while one message is handled (a slider's release, a drag, a
+  preset, Reset to factory defaults…, Reset all to preset). Labels: a page's own ("Moved Clock",
+  "Added Weather to main", "Removed Clock from main", "Applied preset Modern", "Reset Clock to
+  factory defaults", "Reset all to preset"), the dock's ("Pinned Paint", "Unpinned Paint", "Moved
+  Paint", "Moved main to the left edge", "Auto-hide: Always", "Locked main", "Added dock dock2",
+  "Turned off main", "Reloaded config.json"), else made by the window from the control that fired:
+  `row label` `before` → `after` for a slider or a number ("Icon size 48 → 64"), `setting`:
+  `value` otherwise ("Theme: Glass", "Auto-hide: Always", "Show previews: On"), "Change" when
+  nothing names it. **Undo** (Ctrl+Z in any settings window; the dock menu's and the tray-icon
+  menu's first entry **Undo “`label`”** while there is something to undo; a Dock window's **⋯** >
+  **Undo**) restores the config before the change through the Reload config path (every dock and
+  settings window follows) and saves it; **Redo** (Ctrl+Y, ⋯ > Redo) the other way; a new change
+  clears Redo. **⋯ > Revert this window…** (a Dock window; asks first: "Undo the 6 changes made
+  since this window opened?") brings back the config as it was when that window opened, as one
+  entry (Undo brings the changes back). The settings windows' sizes are not changes. A snapshot is
+  the config file's text (`Config::ToJson`, a few KB), so undo restores exactly what a save writes.
+- **Saved**: the App settings window's subtitle line (at its right), a Dock window's header (left
+  of its buttons) and an Item window's footer show **✓ Saved**, **Saving…** (the 300 ms debounced
+  save is pending), **Not saved yet** (a preview holds the save) or **⚠ Not saved** (the last save
+  failed). A failed save puts a bar over the page: "Couldn't save: config.json is read-only or
+  locked." (`ERROR_ACCESS_DENIED`, sharing / lock violations, a write-protected disk), "Couldn't
+  save: the disk is full.", else the system's message, with **Retry** (save now) and **Open
+  folder** (Explorer with config.json selected). The config stays in memory; the next change saves
+  again.
+- **Keep / Revert**: a change that moves or hides a dock (its edge, floating or not, its display,
+  auto-hide, its layer, turning it off) shows a bar over the page, "Dock moved to the left edge."
+  ("Dock main …" with several docks), **Keep** and **Revert (12 s)** counting down; left alone the
+  change is kept, another change keeps it too, Revert restores the config before it as an entry of
+  its own ("Reverted “Edge: Left”"). With no settings window shown (the dock menu's Position on
+  screen, a Ctrl+drag to another edge) the same bar is a small topmost banner beside the dock
+  (`WinDock.KeepBanner`; never activated). App settings > General > **Changes** > **Ask to keep a
+  dock that moved or hid** (`settings.confirmPlacement`) turns it off.
+- **Keep / Cancel**: applying a preset from the chooser (Apply, Add dock; not the welcome variant,
+  which applies at once) or DockCommand 153 is a preview: the dock changes at once, the chooser
+  closes, a bar says "Previewing Modern on main." with **Keep** and **Cancel**. While it is open
+  nothing is written (the save is held) and changes make no entries; Keep records one entry
+  ("Applied preset Modern") and saves, Cancel, Esc in the window or closing the settings window
+  it was chosen from restore the config from before it (Ctrl+Z also cancels it; Reload config and
+  quitting end it unsaved).
 
 **Find a setting** (round 9): **Ctrl+F** in any settings window, the **Find a setting…** box at
 the top of the App settings window's page list (a click, or just start typing in it) and **⋯** > **Find
@@ -1760,7 +1813,10 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   whether the hotkey is registered, **Show the dashboard now**; see Dashboard). Round 9: between
   them a **Full-screen apps** card with **Hide the docks while a full-screen app is in front**
   (`settings.fullscreen`, on by default; its hint "Games keep their full-screen mode", the whole
-  rule as its tooltip; see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). Round 8 phase 8A:
+  rule as its tooltip; see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). Round 12
+  phase 12A: last, a **Changes** card with **Ask to keep a dock that moved or hid**
+  (`settings.confirmPlacement`, on by default; its hint "Keep or Revert for 12 seconds; left alone,
+  it is kept"). Round 8 phase 8A:
   **Open config file** / **Reload config** are on About only (General's Configuration file
   section is gone).
 - **Docks and displays**: a drawing of every display (its work area shaded) with every dock on its
@@ -1847,8 +1903,10 @@ The Themes and Animation pages have the **preview strip** under them (the global
 the dock's place in `docks`), the chips on one line right of the id (its edge, its display, how
 many items, Shown / Parked, Locked; chips that do not fit are left out from the right) and at
 the right **Flash** (the dock shows itself and its border pulses in its colour for about 1.5 s),
-**Lock** / **Unlock** and **⋯** (a menu: **App settings…**, **Find a setting…** and, round 9
-for a dock, **Apply a preset…**: see Presets above); the title bar ("main · Dock
+**Lock** / **Unlock** and **⋯** (a menu: round 12 phase 12A **Undo “`label`”**, **Redo
+“`label`”**, **Revert this window…**, then **Find a setting…** and, round 9 for a dock, **Apply a
+preset…**: see Presets above), left of the buttons the save state (**✓ Saved**; see Undo, Saved
+above); the title bar ("main · Dock
 settings · Bottom · Primary") and the window border take the dock's colour (Windows 11). The
 subtitle line and the monitor silhouette of earlier versions are gone from the header (the
 silhouette is on the Position tab). Tabs (round 8 phase 8B: Contents, Position, Appearance,
@@ -2441,7 +2499,9 @@ items that exist. A file whose items have settings already is left alone.
   as `"hide"`): the full-screen guard, App settings > General > Full-screen apps (see
   [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). The `settings`
   object is written when either part is not the default (`{ "fullscreen": "ignore" }` alone is
-  fine).
+  fine). Round 12 phase 12A: `"confirmPlacement": false` (written only when false; default true)
+  turns off the Keep / Revert bar after a change that moves or hides a dock (App settings >
+  General > Changes; see Settings, "Undo, Saved, Keep / Revert, Keep / Cancel").
 
 ### Themes
 
@@ -2908,7 +2968,15 @@ always there, also when every dock is parked) handle these registered messages:
   kind, by its automation index; a disabled entry keeps one parked instance at that index): 1 done
   (also when it already was in that state), 0 refused (no such entry, or the last enabled dock);
   saved, and the Docks and displays page refreshes (= its Disable / Enable button 2815; QueryState
-  295 reads the state). 111 and 113 left the dock
+  295 reads the state). Round 12 phase 12A, the timeline (see Settings, "Undo, Saved, Keep /
+  Revert, Keep / Cancel"; each returns 1 done, 0 nothing to do or refused, any dock index unless
+  said): **157** Undo (= Ctrl+Z, the menus' Undo “`label`”; during a preview it cancels the
+  preview), **158** Redo, **159** Revert this window without its question: the Dock window of dock
+  `HIWORD(lParam)` (`LOWORD(lParam)` 1: the App settings window; 0 when that window is not open or
+  nothing changed since it opened), **160** Keep the open bar (Keep / Revert: closes it; Keep /
+  Cancel: records the preview as one entry and saves now), **161** its Revert (an entry of its own)
+  / Cancel (the preview's config restored). 153 starts a Keep / Cancel preview since 12A (the
+  file is not written until 160). 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3147,6 +3215,17 @@ always there, also when every dock is parked) handle these registered messages:
   its centre (flush: its box ends at the screen's end).
   Round 11 phase 11D, disable / enable a dock: **295** = `docks[]` entry `HIWORD(lParam)` (any
   kind) is enabled (1) or disabled (0); -2 no such entry (DockCommand 156 sets it).
+  Round 12 phase 12A, the timeline (each records the change just made first, so a query sent
+  right after a settings control's message sees it; any dock index): **296** = undo depth (0 -
+  50), **297** = redo depth, **298** = the save: 0 saved, 1 pending (the 300 ms debounce, or held
+  by an open preview), 2 the last save failed, **299** = 1 while a Keep / Cancel preview is open,
+  **300** = the bar: 0 none, 1 Keep / Revert, 2 Keep / Cancel, 3 a failed save (`LOWORD(lParam)` 1:
+  1 while the banner near the dock is shown instead). The labels of the change Undo / Redo would
+  undo / redo are the window text of two hidden statics of the `WinDock.App` window,
+  `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
+  `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
+  buttons, "Dock moved to the top edge. Keep · Revert (12 s)"), children 5604 the text, 5605 Keep,
+  5606 Revert / Cancel (`WM_COMMAND(id, BN_CLICKED)` to the banner).
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the App settings window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.
@@ -3217,6 +3296,19 @@ always there, also when every dock is parked) handle these registered messages:
   collapsed and Add feed / Save changes write `reminderMin` 0), 5405 the ↺ on the minutes row (checks
   5403), 5406 the ↺ beside a script widget's Place line (removes its own place). The Dock
   window's first combo entry of 2420 reads "Use app default (<name>)".
+  Round 12 phase 12A, **undo and the save state** (ids 5600 - 5629): 5600 the save state static
+  ("✓ Saved", "Saving…", "Not saved yet", "⚠ Not saved"; in the band 102 of the App settings and
+  Dock windows, in the footer 104 of an Item window), 5603 the bar over the pages (a
+  `WinDock.SettingsBand` child of the settings window, hidden while there is nothing to say; its
+  window text is what it says with its buttons: "Dock moved to the left edge. Keep · Revert (12
+  s)", "Previewing Minimal on main. Keep · Cancel", "Couldn't save: config.json is read-only or
+  locked. Retry · Open folder"), its children 5604 the text, 5605 Keep, 5606 Revert (12 s) /
+  Cancel, 5601 Retry, 5602 Open folder (`WM_COMMAND(id, BN_CLICKED)` to the bar 5603), the Dock
+  header ⋯ menu's 5607 Undo, 5608 Redo, 5609 Revert this window… (`WM_COMMAND(id)` to the band
+  102; post 5609, its Yes / No question is modal), App settings > General's 5612 Changes card,
+  5613 / 5614 **Ask to keep a dock that moved or hid** (`settings.confirmPlacement`;
+  `BM_SETCHECK` + `WM_COMMAND(5613, BN_CLICKED)` to the page 200), 5615 its hint; 5610 / 5611 the
+  app window's label statics (see QueryState 296 - 300).
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that

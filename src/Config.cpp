@@ -1019,20 +1019,24 @@ void Config::Sanitize() {
 }
 
 Config::LoadResult Config::LoadFile() {
-    *this = Config{};
-    weather.units = LocaleUnits();  // the default when the file (or its "units" key) is absent
     const std::wstring path = FilePath();
-
     std::string bytes;
     if (!ReadFileUtf8(path, bytes)) {
+        *this = Config{};
+        weather.units = LocaleUnits();  // the default when the file (or its "units" key) is absent
         // Missing (first run), or present but unreadable (treated like a malformed file).
         return GetFileAttributesW(path.c_str()) == INVALID_FILE_ATTRIBUTES ? LoadResult::Missing
                                                                            : LoadResult::Malformed;
     }
+    return LoadJson(Utf8ToWide(bytes));
+}
 
+Config::LoadResult Config::LoadJson(const std::wstring& text) {
+    *this = Config{};
+    weather.units = LocaleUnits();  // the default when the file (or its "units" key) is absent
     try {
         json::JsonObject root{nullptr};
-        if (!json::JsonObject::TryParse(Utf8ToWide(bytes), root) || !root) {
+        if (!json::JsonObject::TryParse(text, root) || !root) {
             OutputDebugStringW(L"WinDock: config.json is malformed; using defaults\n");
             return LoadResult::Malformed;
         }
@@ -1190,6 +1194,7 @@ Config::LoadResult Config::LoadFile() {
             std::wstring fs;
             ReadString(s, L"fullscreen", fs);
             if (CompareStringOrdinal(fs.c_str(), -1, L"ignore", -1, TRUE) == CSTR_EQUAL) settings.fullscreenHide = false;
+            ReadBool(s, L"confirmPlacement", settings.confirmPlacement);  // round 12 phase 12A
         }
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
@@ -1218,11 +1223,20 @@ Config::LoadResult Config::LoadFile() {
     return LoadResult::Ok;
 }
 
-bool Config::Save() const {
+bool Config::Save(DWORD* error) const {
+    if (error) *error = 0;
     try {
         std::wstring dir = Directory();
         CreateDirectoryW(dir.c_str(), nullptr);
+        return WriteFileAtomic(FilePath(), WideToUtf8(ToJson()), error);
+    } catch (...) {
+        if (error) *error = ERROR_GEN_FAILURE;
+        return false;
+    }
+}
 
+std::wstring Config::ToJson(bool windowSizes) const {
+    {
         std::wstring o;
         o += L"{\n  \"docks\": [";
         for (size_t di = 0; di < docks.size(); ++di) {
@@ -1410,21 +1424,21 @@ bool Config::Save() const {
         if (dashboard != DashboardConfig{}) o += L",\n  \"dashboard\": { \"hotkey\": " + Quote(dashboard.hotkey) + L" }";
         if (settings != SettingsUiConfig{}) {
             std::wstring w;
-            for (int k = 0; k < SettingsUiConfig::kKinds; ++k) {
+            for (int k = 0; k < SettingsUiConfig::kKinds && windowSizes; ++k) {
                 const SettingsWindowSize& s = settings.windows[k];
                 if (s == SettingsWindowSize{}) continue;
                 w += (w.empty() ? L"" : L", ") + Quote(SettingsUiConfig::kNames[k]) + L": [" + Num(s.w) + L", " + Num(s.h) + L"]";
             }
-            // Each part only when not the default (round 9 phase 9A: `fullscreen`).
+            // Each part only when not the default (round 9 phase 9A: `fullscreen`; round 12 phase
+            // 12A: `confirmPlacement`); the object only when a part is written.
             std::wstring parts;
             if (!w.empty()) parts = L"\"windows\": { " + w + L" }";
             if (!settings.fullscreenHide) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"fullscreen\": \"ignore\"");
-            o += L",\n  \"settings\": { " + parts + L" }";
+            if (!settings.confirmPlacement) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"confirmPlacement\": false");
+            if (!parts.empty()) o += L",\n  \"settings\": { " + parts + L" }";
         }
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";
-        return WriteFileAtomic(FilePath(), WideToUtf8(o));
-    } catch (...) {
-        return false;
+        return o;
     }
 }

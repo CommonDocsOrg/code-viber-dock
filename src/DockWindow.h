@@ -116,6 +116,8 @@ public:
     static constexpr UINT_PTR kScrollHintTimerId = 24;    // a scrolling dock: fade the scroll thumb out
     static constexpr UINT_PTR kAutoScrollTimerId = 25;    // a drag held near a viewport end scrolls the run
     static constexpr UINT_PTR kFlashTimerId = 26;         // Flash: the next border pulse step (one-shot)
+    // 44 = App::kKeepTimerId (round 12 phase 12A: the Keep / Revert countdown on the app window;
+    // 40 - 42 CalendarService, 43 DockManager::kDesktopTimer there). WM_APP + 14 = App::kTimelineCommit.
     static constexpr int kFlashSteps = 6;                 // lit, dark, lit, dark, lit, dark
     static constexpr UINT kFlashStepMs = 250;
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);

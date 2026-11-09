@@ -213,6 +213,17 @@ protected:
         NextRow(24);
         Button(kDashboardShow, L"Show the dashboard now", kColX, 200);
         NextRow();
+        // Round 12 phase 12A: settings.confirmPlacement (Keep / Revert after a change that moves or
+        // hides a dock). Undo and the Saved state have no settings.
+        Section(kSectionChanges, L"Changes", L"guide-settings.md#undo-and-saved");
+        Check(kConfirmPlacement, kConfirmPlacementCaption, L"Ask to keep a dock that moved or hid",
+              L"Keep or Revert for 12 seconds; left alone, it is kept", kConfirmPlacementHint);
+        Tip(kConfirmPlacementCaption,
+            L"After a change that moves or hides a dock (its edge, floating or not, its display, auto-hide, its layer, "
+            L"turning it off) a bar says what happened, with Keep and Revert. Revert puts the dock back; doing "
+            L"nothing keeps the change after 12 seconds. Every change can also be undone with Ctrl+Z in a settings "
+            L"window or Undo at the top of the dock menu. On by default.");
+        NextRow();
         // Round 8 phase 8A: the Configuration file section is gone (About has Open config file /
         // Reload config).
     }
@@ -233,6 +244,7 @@ protected:
         SetCheck(kHideTaskbar, Host().taskbarHidden ? Host().taskbarHidden() : c.hideTaskbar);
         SetComboSel(kRendererCombo, c.renderer == L"software" ? 1 : 0);
         SetCheck(kFullscreenHide, c.settings.fullscreenHide);
+        SetCheck(kConfirmPlacement, c.settings.confirmPlacement);  // round 12 phase 12A
         const bool warp = Host().usingWarp && Host().usingWarp();
         SetText(kRendererNote, std::wstring(L"After a restart · now ") + (warp ? L"software" : L"GPU"));
         SetText(kDashboardHotkeyEdit, c.dashboard.hotkey);
@@ -282,6 +294,12 @@ protected:
                 if (code == BN_CLICKED && GetCheck(id) != c.settings.fullscreenHide) {
                     c.settings.fullscreenHide = GetCheck(id);
                     Changed(SettingsScope::Fullscreen);
+                }
+                break;
+            case kConfirmPlacement:  // round 12 phase 12A: read when a change moves or hides a dock
+                if (code == BN_CLICKED && GetCheck(id) != c.settings.confirmPlacement) {
+                    c.settings.confirmPlacement = GetCheck(id);
+                    Changed(SettingsScope::SaveOnly);
                 }
                 break;
             case kRendererCombo:

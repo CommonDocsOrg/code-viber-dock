@@ -14,6 +14,7 @@
 #include "DockManager.h"
 #include "DockWindow.h"
 #include "HelpWindow.h"
+#include "KeepBanner.h"
 #include "PresetDialog.h"
 #include "SettingsSearch.h"
 #include "SettingsWindow.h"
@@ -97,8 +98,14 @@ private:
     static constexpr UINT kPresetClosed = WM_APP + 9;     // round 9 phase 9C: posted: delete the closed preset chooser
     static constexpr UINT kShowWelcome = WM_APP + 12;     // posted: open the welcome dialog
     static constexpr UINT kHelpClosed = WM_APP + 13;      // round 9 phase 9D: posted: delete the closed Help window
+    static constexpr UINT kTimelineCommit = WM_APP + 14;  // round 12 phase 12A: posted (coalesced): record the gesture's change
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
+    // Round 12 phase 12A: the Keep / Revert bar's countdown (1 s steps, only while the bar shows;
+    // 40 - 43 are CalendarService's / DockManager's on the same window).
+    static constexpr UINT_PTR kKeepTimerId = 44;
+    static constexpr int kKeepSeconds = 12;
+    static constexpr size_t kTimelineMax = 50;
 
     static LRESULT CALLBACK AppWndProc(HWND, UINT, WPARAM, LPARAM);
     // The app window's messages.
@@ -268,10 +275,99 @@ private:
     LRESULT CountUnexplained(LPARAM lp);
     // Preset `index` (Presets::All()) applied to config dock `cfg` (keeping its pins at the marker
     // when `keepPins`): saved, every window refreshed, the dock flashed. False if refused.
-    bool ApplyPreset(size_t index, size_t cfg, bool keepPins);
+    // Round 12 phase 12A: `preview` makes it a Keep / Cancel preview (nothing saved until Keep;
+    // `host`, the settings window it was chosen from, cancels it when it closes).
+    bool ApplyPreset(size_t index, size_t cfg, bool keepPins, bool preview = false, HWND host = nullptr);
     // A new dock from preset `index` (the first dock's pins at the marker when `copyPins`); its
-    // config index (SIZE_MAX: refused).
-    size_t AddPresetDock(size_t index, bool copyPins);
+    // config index (SIZE_MAX: refused). `preview` / `host` as ApplyPreset.
+    size_t AddPresetDock(size_t index, bool copyPins, bool preview = false, HWND host = nullptr);
+
+    // --- round 12 phase 12A: one timeline (undo / redo), the save state, Keep / Revert, Keep / Cancel ---
+    // Every change of the config is recorded: RequestSave posts kTimelineCommit, which compares the
+    // config's text (Config::ToJson without the settings windows' sizes: the snapshot) with the one
+    // recorded last and pushes {label, the state before} when it differs. Everything changed in one
+    // message (one gesture: a slider's release, a drag, a preset) is one entry. Undo / Redo apply a
+    // snapshot through the Reload config path (ApplySnapshot). Per process, at most 50 entries.
+    struct TimelineEntry {
+        std::wstring label;
+        std::wstring state;    // the config's text before (undo) / after (redo) the change
+        uint64_t serial = 0;   // when it was recorded (Revert this window counts the newer ones)
+    };
+    // What decides whether a change moved or hid a dock (Keep / Revert), per dock id.
+    struct Placement {
+        std::wstring id;
+        DockEdge edge = DockEdge::Bottom;
+        bool floating = false;
+        int monitor = 0;
+        AutoHideMode autoHide = AutoHideMode::Off;
+        DockLayer layer = DockLayer::Normal;
+        bool enabled = true;
+    };
+    std::wstring SnapshotText() const;
+    static std::vector<Placement> PlacementOf(const Config& c);
+    // "Dock moved to the left edge." for the first dock whose placement differs ("" none; `cfg` its index).
+    std::wstring DescribePlacement(const std::vector<Placement>& before, const std::vector<Placement>& after, size_t& cfg) const;
+    // The label of the change being made (the first one of a gesture wins).
+    void NoteLabel(const std::wstring& label);
+    void ScheduleCommit();
+    // Records the change made since the last entry (posted; also run before anything reads the
+    // timeline). `allowBar` false: no Keep / Revert for it (Revert, Keep of a preview, Reload).
+    void CommitTimeline(bool allowBar = true);
+    void FlushTimeline() {
+        if (commitPosted_) CommitTimeline();
+    }
+    // A snapshot becomes the config (the Reload config path: Sync, ApplyConfig, ReloadPins, the
+    // taskbar / Run key only when they differ, every settings window refreshed) and is saved. It is
+    // the timeline's current state afterwards (not an entry). False: refused (a menu / dialog open).
+    bool ApplySnapshot(const std::wstring& state);
+    bool Undo();
+    bool Redo();
+    // Settings window `w`'s Revert this window: the state when it opened, as one entry.
+    bool RevertWindow(SettingsWindow* w);
+    // Starts (or extends) a Keep / Cancel preview: the save is held, changes make no entries.
+    void StartPreview(const std::wstring& label, const std::wstring& text, HWND host, size_t cfg);
+    bool KeepBar();     // the bar's Keep (DockCommand 160)
+    bool CancelBar();   // its Revert / Cancel (DockCommand 161; Esc; the preview's window closed)
+    void CloseKeepRevert();
+    bool RetrySave();
+    void SaveNow();     // the save itself (the timer, FlushSave, Retry): its result is the save state
+    int SaveStatus() const;  // QueryState 298: 0 saved, 1 pending, 2 failed
+    int BarKind() const;     // QueryState 300: 0 none, 1 Keep / Revert, 2 Keep / Cancel, 3 a failed save
+    std::wstring SaveErrorText() const;
+    SettingsStatus StatusFor(const SettingsWindow* w) const;
+    bool TimelineAction(SettingsWindow* w, SettingsAction action);
+    // The settings windows' bands and bars, the app window's label statics, the banner.
+    void UpdateTimelineUi();
+    void OpenConfigFolder();
+    void OnBannerCommand(int id);
+    // Names for labels: an item of config dock `cfg` ("Clock", "Paint", "a separator").
+    std::wstring EntryName(size_t cfg, size_t item) const;
+
+    std::vector<TimelineEntry> undo_, redo_;
+    std::wstring lastState_;                // the config's text as of the last entry
+    std::vector<Placement> lastPlacement_;  // ... its docks' placements
+    std::wstring pendingLabel_;
+    bool commitPosted_ = false;
+    bool timelineReady_ = false;            // Initialize recorded the starting state
+    uint64_t nextSerial_ = 1;
+    DWORD saveError_ = 0;                   // the last save's Win32 error (0: it worked)
+    bool keepRevert_ = false;               // the Keep / Revert bar is up
+    std::wstring keepText_, keepLabel_, keepState_;
+    int keepSeconds_ = 0;
+    size_t barDock_ = SIZE_MAX;             // the dock the bar is about (the banner's place)
+    bool previewing_ = false;               // a Keep / Cancel preview is open
+    bool saveHeld_ = false;                 // ... and a change waits for its Keep
+    std::wstring previewBefore_, previewLabel_, previewText_;
+    HWND previewHost_ = nullptr;            // the settings window it was chosen from (closing it cancels)
+    struct WindowMark {
+        SettingsWindow* window = nullptr;
+        uint64_t serial = 0;  // the newest entry when it opened
+        std::wstring state;   // the config then
+    };
+    std::vector<WindowMark> marks_;
+    HWND undoLabel_ = nullptr;  // the app window's hidden statics (SettingsIds::kAppUndoLabel / kAppRedoLabel)
+    HWND redoLabel_ = nullptr;
+    KeepBanner banner_{[this](int id) { OnBannerCommand(id); }};
     // --- desktop folder windows (round 4 phase 12) ---
     // "New folder window…": a folder picker owned by `owner`, then AddFolderWindow at the pointer.
     void NewFolderWindow(HWND owner);

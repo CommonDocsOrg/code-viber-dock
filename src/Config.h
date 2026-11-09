@@ -674,11 +674,15 @@ struct SettingsUiConfig {
     // standalone widget on a display while a full-screen app is in front there (DockManager's
     // full-screen guard), "ignore" (false) keeps them as they are. Saved only when "ignore".
     bool fullscreenHide = true;
+    // Round 12 phase 12A: `settings.confirmPlacement` (default true; written only when false): a
+    // change that moves or hides a dock (edge, floating, display, auto-hide, layer, turned off)
+    // shows Keep / Revert for 12 s (kept when left alone). False: no bar.
+    bool confirmPlacement = true;
     bool operator==(const SettingsUiConfig& o) const {
         for (int i = 0; i < kKinds; ++i) {
             if (!(windows[i] == o.windows[i])) return false;
         }
-        return fullscreenHide == o.fullscreenHide;
+        return fullscreenHide == o.fullscreenHide && confirmPlacement == o.confirmPlacement;
     }
 };
 
@@ -752,10 +756,18 @@ struct Config {
     // Loads the config file into *this (defaults for anything missing). Missing file: defaults.
     // Malformed file: defaults (the file is left untouched so the user can fix it). Never throws.
     LoadResult LoadFile();
+    // Round 12 phase 12A: the same from the file's text (an undo snapshot; ToJson's output): Ok,
+    // or Malformed (defaults). Never throws. LoadFile reads the file and calls it.
+    LoadResult LoadJson(const std::wstring& text);
     // LoadFile() == Missing, i.e. first run: the caller seeds defaults and saves.
     bool Load() { return LoadFile() == LoadResult::Missing; }
-    // Writes the config file atomically (temp file + rename). Never throws.
-    bool Save() const;
+    // Round 12 phase 12A: the file's text, exactly what Save writes; `windowSizes` false leaves the
+    // settings windows' sizes out (`settings.windows`: an undo snapshot must not record a resize).
+    // May throw (winrt string quoting); Save catches.
+    std::wstring ToJson(bool windowSizes = true) const;
+    // Writes the config file atomically (temp file + rename). Never throws. Round 12 phase 12A:
+    // `error` (optional) gets the Win32 error when it fails (JsonUtil::WriteFileAtomic).
+    bool Save(unsigned long* error = nullptr) const;  // unsigned long: DWORD (this header has no windows.h)
 
     // Clamp values to sane ranges.
     void Sanitize();

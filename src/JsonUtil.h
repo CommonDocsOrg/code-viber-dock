@@ -59,16 +59,32 @@ inline bool ReadFileUtf8(const std::wstring& path, std::string& out) {
 }
 
 // Writes `data` to `path` via a temp file + MoveFileEx, so readers never see a partial file.
-inline bool WriteFileAtomic(const std::wstring& path, const std::string& data) {
+// Round 12 phase 12A: `error` (optional) gets the Win32 error of the step that failed (0 on
+// success), so the app can say why a save failed (a read-only or locked config.json makes the
+// MoveFileEx fail with ERROR_ACCESS_DENIED; a full disk the WriteFile with ERROR_DISK_FULL).
+inline bool WriteFileAtomic(const std::wstring& path, const std::string& data, DWORD* error = nullptr) {
+    if (error) *error = 0;
     std::wstring tmp = path + L".tmp";
     HANDLE h = CreateFileW(tmp.c_str(), GENERIC_WRITE, 0, nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (h == INVALID_HANDLE_VALUE) return false;
+    if (h == INVALID_HANDLE_VALUE) {
+        if (error) *error = GetLastError();
+        return false;
+    }
     DWORD written = 0;
+    DWORD failed = 0;
     bool ok = WriteFile(h, data.data(), static_cast<DWORD>(data.size()), &written, nullptr) && written == data.size();
-    ok = FlushFileBuffers(h) && ok;
+    if (!ok) failed = GetLastError() ? GetLastError() : ERROR_WRITE_FAULT;
+    if (!FlushFileBuffers(h) && ok) {
+        failed = GetLastError();
+        ok = false;
+    }
     CloseHandle(h);
-    if (ok) ok = MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) != FALSE;
+    if (ok && !MoveFileExW(tmp.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH)) {
+        failed = GetLastError();
+        ok = false;
+    }
     if (!ok) DeleteFileW(tmp.c_str());
+    if (error && !ok) *error = failed ? failed : ERROR_GEN_FAILURE;
     return ok;
 }
 

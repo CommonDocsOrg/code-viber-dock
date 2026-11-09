@@ -320,6 +320,7 @@ protected:
         if (id == kResetAllTheme) {
             Config& c = Cfg();
             if (c.themeOverrides == 0) return;
+            ChangeLabel(L"Reset all to preset");  // round 12 phase 12A: one undo entry, named
             c.themeOverrides = 0;
             c.ResolveTheme();
             Changed(SettingsScope::Appearance);

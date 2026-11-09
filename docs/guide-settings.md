@@ -10,7 +10,7 @@ WinDock has three kinds of settings window:
 
 You can have as many of these windows open as you like. Opening one that is already open brings it to the front.
 
-Every change applies at once and is saved within a moment. There is no OK or Apply button. Sliders apply when you let go, number boxes on each arrow click, and text boxes when you press Enter or leave the box.
+Every change applies at once and is saved within a moment. There is no OK or Apply button. Sliders apply when you let go, number boxes on each arrow click, and text boxes when you press Enter or leave the box. Every change can be undone: see [Undo and Saved](#undo-and-saved).
 
 ## Opening the settings
 
@@ -36,7 +36,7 @@ Each window's title names what it edits: an item's window reads like "Weather ·
 
 The settings windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. They follow the Windows light or dark app mode. A dock stays shown while its settings window is the active window, so you can watch your changes.
 
-Keyboard: **Ctrl+Tab** and **Ctrl+Shift+Tab** go to the next or previous page or tab. **Esc** closes the window.
+Keyboard: **Ctrl+Tab** and **Ctrl+Shift+Tab** go to the next or previous page or tab. **Ctrl+Z** undoes the last change and **Ctrl+Y** redoes it. **Esc** closes the window (while a preset preview is open, Esc cancels the preview instead).
 
 ## Finding a setting
 
@@ -104,6 +104,38 @@ There are two kinds of reset, and they never touch each other's values:
 
 On App settings > Themes, the **↺** of a theme value goes back to the theme preset's value instead (its tooltip says "Reset to the preset's value"), and **⋯** > **Reset all to preset** does that for every value.
 
+Both kinds of reset can be undone, like any other change.
+
+## Undo and Saved
+
+Nothing you change is a one-way door. WinDock remembers your last 50 changes, made anywhere: in any settings window, on the dock (pinning, unpinning, dragging an icon to another place, moving the dock) or from the dock menu. A whole gesture is one change: letting go of a slider, one drag on the dock, one preset.
+
+To undo or redo a change:
+
+- Press **Ctrl+Z** in any settings window to undo the last change, and **Ctrl+Y** to redo it. While you type in a text box, Ctrl+Z first undoes your typing there.
+- Right-click the dock (or the WinDock icon in the notification area): while there is something to undo, the first entry says what, for example **Undo “Icon size 48 → 64”**.
+- In a Dock settings window, **⋯** has **Undo**, **Redo** and **Revert this window…**. Revert this window undoes every change made since you opened that window, after asking first. It is one change itself, so Undo brings everything back.
+
+The changes are remembered until WinDock quits. They are not saved to disk.
+
+### Saved
+
+The top of every settings window (the bottom of an item's window) says whether your changes are on disk:
+
+- **✓ Saved**: everything is in config.json.
+- **Saving…**: a change is about to be written (a moment after you make it).
+- **Not saved**: the last save failed. A bar over the page says why, for example "Couldn't save: config.json is read-only or locked", with **Retry** (save now) and **Open folder** (show config.json in File Explorer). Your changes stay in WinDock, and the next change tries again.
+
+### Keep or Revert
+
+A change that moves the dock or hides it can leave you without a dock you can reach: the dock on another edge or display, auto-hide turned on, the dock on the desktop layer, a dock turned off. After such a change a bar says what happened, for example "Dock moved to the left edge.", with **Keep** and **Revert (12 s)**. Revert puts it back. If you do nothing, the change is kept after 12 seconds. When no settings window is open (you used the dock menu or dragged the dock), the same bar appears as a small banner beside the dock.
+
+To turn the bar off, clear App settings > General > Changes > **Ask to keep a dock that moved or hid**. Undo still works.
+
+### Keep or Cancel for presets
+
+Applying a preset (Dock settings > **⋯** > **Apply a preset…**, or adding a dock from a preset) is a preview first. The dock changes at once, the preset chooser closes, and a bar says "Previewing Modern on main." with **Keep** and **Cancel**. Nothing is saved while the preview is open. Keep makes it one change you can undo. Cancel, **Esc**, or closing the settings window puts the dock back as it was. The welcome dialog of the first run applies its choice at once.
+
 ## App settings
 
 The App settings window holds what applies to every dock. Its pages are listed at the left in small groups:
@@ -143,6 +175,10 @@ The dashboard hotkey brings every dock and standalone widget that lives on the d
 - **Hotkey**: click the box and press the combination you want (Win, Ctrl, Alt, Shift and a key). Backspace or Delete clears it. The default is Win+Shift+D.
 - The line under the box says whether the hotkey works. If another app already uses that combination, choose another one.
 - **Show the dashboard now**: shows the dashboard at once, so you can try it.
+
+#### Changes
+
+- **Ask to keep a dock that moved or hid**: on by default. After a change that moves or hides a dock, a bar offers Keep and Revert for 12 seconds. See [Keep or Revert](#keep-or-revert).
 
 ### Docks and displays
 
@@ -370,7 +406,9 @@ At the right:
 - **Flash**: shows the dock and makes its border pulse for a moment, so you can see which dock this window is for.
 - **Lock** / **Unlock**: a locked dock cannot be changed by dragging: no reordering, no unpinning by dragging, no moving the dock. The settings window still changes everything.
 - **App settings…**: opens the settings that apply to every dock and to WinDock as a whole.
-- **⋯**: a menu with **Find a setting…** (Ctrl+F) and **Apply a preset…**.
+- **⋯**: a menu with **Undo**, **Redo**, **Revert this window…**, **Find a setting…** (Ctrl+F) and **Apply a preset…**.
+
+Left of the buttons the header says **✓ Saved**, **Saving…** or **Not saved** (see [Undo and Saved](#undo-and-saved)).
 
 To turn a dock into a preset:
 
@@ -378,6 +416,7 @@ To turn a dock into a preset:
 2. Pick a preset at the left.
 3. Leave **Keep my pinned apps and folders** checked to keep your apps, folders, groups, separators and the Recycle Bin.
 4. Click **Apply**.
+5. The dock shows the preset at once. Click **Keep** in the bar over the page to keep it, or **Cancel** to go back.
 
 Applying a preset replaces all of the dock's settings and items. Its name, colour and display stay. See [Presets](guide-docks.md#presets).
 

@@ -408,9 +408,26 @@ void SettingsPage::Changed(SettingsScope scope) { ChangedFor(scope, window_.Dock
 
 void SettingsPage::ChangedFor(SettingsScope scope, size_t dock) {
     if (window_.Loading()) return;
+    if (scope != SettingsScope::WindowSize) window_.changedFlag_ = true;  // round 12 phase 12A: PageProc labels it
     if (window_.Host().changed) window_.Host().changed(scope, dock);
     window_.ConfigApplied();
     window_.PeersChanged(this);  // round 9 phase 9A: the window's other pages follow
+}
+
+void SettingsPage::ChangeLabel(const std::wstring& label) {
+    if (!window_.Loading() && window_.Host().label) window_.Host().label(label);
+}
+
+std::wstring SettingsPage::EntryLabel(size_t item) {
+    const std::vector<DockItemEntry>& items = Dock().items;
+    if (item >= items.size()) return L"an item";
+    switch (items[item].Kind()) {
+        case ItemKind::Separator: return L"a separator";
+        case ItemKind::Running: return L"Running apps";
+        case ItemKind::Notifications: return L"Notification centre";
+        case ItemKind::RecycleBin: return L"Recycle Bin";
+        default: return window_.ItemNameOf(item);
+    }
 }
 
 void SettingsPage::SetText(int id, const std::wstring& text) {
@@ -1000,6 +1017,7 @@ bool SettingsWindow::Create(HINSTANCE instance, bool show) {
     ApplyTheme();
     Layout();
     Refresh();
+    StatusChanged();  // round 12 phase 12A: Saved, and a bar that is up already (a preview, Keep / Revert)
     active_ = -1;
     SelectPage(0);
     if (!show) return true;  // round 9 phase 9B: hidden for the search's index (Activate shows it)
@@ -1223,7 +1241,7 @@ void SettingsWindow::CreateFonts() {
         }
     }
     // The header / footer bands' buttons and links.
-    for (HWND band : {header_, footer_}) {
+    for (HWND band : {header_, footer_, bar_}) {
         for (HWND c = band ? GetWindow(band, GW_CHILD) : nullptr; c; c = GetWindow(c, GW_HWNDNEXT)) {
             SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font_), FALSE);
         }
@@ -1257,6 +1275,12 @@ void SettingsWindow::CreateBrushes() {
     auto ch = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pa + y * (100 - pa)) / 100); };
     cardColor_ = RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
     cardBrush_ = CreateSolidBrush(cardColor_);
+    // Round 12 phase 12A: the bar over the pages, the accent at 18 % (dark) / 12 % (light) over the layer.
+    const COLORREF ac = palette_.accent;
+    const int pb = palette_.highContrast ? 0 : palette_.dark ? 18 : 12;
+    auto mb = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pb + y * (100 - pb)) / 100); };
+    barColor_ = RGB(mb(GetRValue(ac), GetRValue(b)), mb(GetGValue(ac), GetGValue(b)), mb(GetBValue(ac), GetBValue(b)));
+    barBrush_ = CreateSolidBrush(barColor_);
 }
 
 COLORREF SettingsWindow::BandColorFor() const {
@@ -1269,7 +1293,7 @@ COLORREF SettingsWindow::BandColorFor() const {
 }
 
 void SettingsWindow::DestroyBrushes() {
-    for (HBRUSH* b : {&layerBrush_, &baseBrush_, &controlBrush_, &bandBrush_, &cardBrush_, &flashBrush_}) {
+    for (HBRUSH* b : {&layerBrush_, &baseBrush_, &controlBrush_, &bandBrush_, &cardBrush_, &flashBrush_, &barBrush_}) {
         if (*b) DeleteObject(*b);
         *b = nullptr;
     }
@@ -1305,7 +1329,7 @@ void SettingsWindow::ApplyTheme() {
     DarkMode::SetDarkCaption(hwnd_, dark);
     ApplyCaptionColor();
     ApplyBackdrop();
-    for (HWND band : {header_, footer_}) {
+    for (HWND band : {header_, footer_, bar_}) {
         for (HWND c = band ? GetWindow(band, GW_CHILD) : nullptr; c; c = GetWindow(c, GW_HWNDNEXT)) {
             DarkMode::ThemeControl(c, dark);  // buttons and links
         }
@@ -1495,6 +1519,11 @@ void SettingsWindow::Layout() {
     if (tabs_) {
         SetWindowPos(tabs_, nullptr, 0, top, rc.right, Px(kTabsDip), SWP_NOZORDER | SWP_NOACTIVATE);
         top += Px(kTabsDip);
+    }
+    if (bar_ && barShown_) {
+        // Round 12 phase 12A: the Keep / Revert, Keep / Cancel or save error bar over the pages.
+        SetWindowPos(bar_, nullptr, navW, top, std::max(0, static_cast<int>(rc.right) - navW), Px(kBarDip), SWP_NOZORDER | SWP_NOACTIVATE);
+        top += Px(kBarDip);
     }
     if (footer_) {
         const int h = std::min(Px(kItemFooterDip), bottom - top);
@@ -1996,7 +2025,12 @@ void SettingsWindow::OnEnterKey() {
     if (!page || loading_) return;
     const Ctl* c = page->Find(focus);
     if (!c) c = page->Find(GetParent(focus));  // the edit inside an editable combo box
-    if (c && (c->kind == CtlKind::Edit || c->kind == CtlKind::Combo)) page->OnCommit(c->id);
+    if (c && (c->kind == CtlKind::Edit || c->kind == CtlKind::Combo)) {
+        HWND ctl = c->hwnd;
+        changedFlag_ = false;
+        page->OnCommit(c->id);
+        NoteChange(*page, page->Find(ctl), L"");  // round 12 phase 12A: its undo label
+    }
 }
 
 bool SettingsWindow::PreTranslateMessage(MSG& msg) {
@@ -2016,6 +2050,26 @@ bool SettingsWindow::PreTranslateMessage(MSG& msg) {
     }
     if (msg.message == WM_KEYDOWN && msg.wParam == VK_F1 && GetKeyState(VK_CONTROL) >= 0 && GetKeyState(VK_SHIFT) >= 0) {
         OpenHelp(CurrentHelpTopic());  // round 9 phase 9D: the Help at this page's / tab's topic
+        return true;
+    }
+    // Round 12 phase 12A: Ctrl+Z undoes and Ctrl+Y (or Ctrl+Shift+Z) redoes the last change of the
+    // app's timeline. An edit box that can undo its own typing keeps Ctrl+Z (EM_CANUNDO); it has no
+    // redo, so Ctrl+Y is always the timeline's.
+    if (msg.message == WM_KEYDOWN && (msg.wParam == 'Z' || msg.wParam == 'Y') && GetKeyState(VK_CONTROL) < 0 &&
+        GetKeyState(VK_MENU) >= 0 && host_.timeline) {
+        const bool shift = GetKeyState(VK_SHIFT) < 0;
+        const bool redo = msg.wParam == 'Y' || shift;
+        if (!redo) {
+            wchar_t cls[16]{};
+            GetClassNameW(msg.hwnd, cls, static_cast<int>(std::size(cls)));
+            if (_wcsicmp(cls, WC_EDITW) == 0 && SendMessageW(msg.hwnd, EM_CANUNDO, 0, 0)) return false;
+        }
+        if (!host_.timeline(redo ? SettingsAction::Redo : SettingsAction::Undo)) MessageBeep(MB_OK);
+        return true;
+    }
+    // Esc while a preview is open (the bar's Keep / Cancel) cancels it instead of closing the window.
+    if (msg.message == WM_KEYDOWN && msg.wParam == VK_ESCAPE && host_.status && host_.timeline && host_.status().bar == 2) {
+        host_.timeline(SettingsAction::Cancel);
         return true;
     }
     if (msg.message == WM_KEYDOWN && msg.wParam == VK_RETURN) {
@@ -2381,6 +2435,8 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             tabs_ = nullptr;
             header_ = nullptr;
             footer_ = nullptr;
+            bar_ = nullptr;  // round 12 phase 12A
+            barShown_ = false;
             headerTip_ = nullptr;  // owned by the window: already destroyed
             lastFocus_ = nullptr;
             if (itemIcon_) DestroyIcon(itemIcon_);
@@ -2830,16 +2886,22 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
                 return 0;
             }
             if (loading_) return 0;
+            // Round 12 phase 12A: a change made here gets an undo label from this control (NoteChange;
+            // looked up again by its window: the handler may have rebuilt the table).
+            changedFlag_ = false;
             if (c->kind == CtlKind::Edit && code == EN_KILLFOCUS) {
                 page.OnCommit(c->id);
+                NoteChange(page, page.Find(ctl), L"");
                 return 0;
             }
             if (c->kind == CtlKind::Combo && code == CBN_KILLFOCUS &&
                 (GetWindowLongW(ctl, GWL_STYLE) & 0x3) == CBS_DROPDOWN) {
                 page.OnCommit(c->id);
+                NoteChange(page, page.Find(ctl), L"");
                 return 0;
             }
             page.OnCommand(c->id, code, ctl);
+            NoteChange(page, page.Find(ctl), L"");
             return 0;
         }
         case WM_NOTIFY: {
@@ -2855,7 +2917,21 @@ LRESULT SettingsWindow::PageProc(SettingsPage& page, UINT msg, WPARAM wp, LPARAM
         case WM_HSCROLL:
         case WM_VSCROLL:
             if (lp) {
-                if (const Ctl* c = page.Find(reinterpret_cast<HWND>(lp)); c && !loading_) page.OnScroll(c->id, LOWORD(wp));
+                HWND ctl = reinterpret_cast<HWND>(lp);
+                if (const Ctl* c = page.Find(ctl); c && !loading_) {
+                    // Round 12 phase 12A: the row's value when a slider / up-down starts moving ("Icon
+                    // size 48 → 64": the edit beside a slider follows the thumb only in the handler).
+                    if (trackCtl_ != ctl) {
+                        trackCtl_ = ctl;
+                        trackBefore_ = RowValueText(page, *c);
+                    }
+                    const int code = LOWORD(wp);
+                    changedFlag_ = false;
+                    page.OnScroll(c->id, code);
+                    const bool changed = changedFlag_;
+                    NoteChange(page, page.Find(ctl), trackBefore_);
+                    if (changed || code == TB_ENDTRACK || (msg == WM_VSCROLL && code == SB_ENDSCROLL)) trackCtl_ = nullptr;
+                }
                 return 0;
             }
             if (msg == WM_VSCROLL) {
@@ -3257,4 +3333,122 @@ HBRUSH SettingsWindow::FlashBrush(const SettingsPage& page, const Ctl* c) {
 
 void SettingsWindow::OpenSearch(const std::wstring& text) {
     if (hwnd_ && host_.openSearch) host_.openSearch(text);
+}
+
+// --- undo labels (round 12 phase 12A) ----------------------------------------------------------
+
+namespace {
+
+// A value in a label: one line, at most 40 characters.
+std::wstring ShortValue(std::wstring s) {
+    for (wchar_t& ch : s) {
+        if (ch == L'\r' || ch == L'\n' || ch == L'\t') ch = L' ';
+    }
+    if (s.size() > 40) s = s.substr(0, 39) + L"\x2026";
+    return s;
+}
+
+// A caption without its trailing "…" / ":" ("Choose icon…" -> "Choose icon").
+std::wstring Plain(std::wstring s) {
+    while (!s.empty() && (s.back() == L'\x2026' || s.back() == L':' || s.back() == L' ' || s.back() == L'.')) s.pop_back();
+    return s;
+}
+
+}  // namespace
+
+std::wstring SettingsWindow::RowValueText(const SettingsPage& page, const Ctl& c) {
+    const std::vector<Ctl>& t = page.table_;
+    auto inRow = [&](const Ctl& o) { return c.row < 0 ? &o == &c : o.row == c.row; };
+    auto off = [](const Ctl& o) { return !o.hwnd || o.collapsed || !o.shown; };
+    // A row's value static ("1.50x") says it best; else its edits / drop-downs; a slider alone: its position.
+    for (const Ctl& o : t) {
+        if (inRow(o) && !off(o) && o.kind == CtlKind::Value && GetWindowTextLengthW(o.hwnd) > 0) return WindowText(o.hwnd);
+    }
+    std::wstring value, track;
+    for (const Ctl& o : t) {
+        if (!inRow(o) || off(o)) continue;
+        std::wstring v;
+        if (o.kind == CtlKind::Edit) {
+            v = WindowText(o.hwnd);
+        } else if (o.kind == CtlKind::Combo) {
+            v = ComboText(o.hwnd);
+        } else if (o.kind == CtlKind::Trackbar) {
+            track = std::to_wstring(SendMessageW(o.hwnd, TBM_GETPOS, 0, 0));
+        }
+        if (v.empty()) continue;
+        if (!value.empty()) value += L" \x00B7 ";
+        value += v;
+    }
+    return value.empty() ? track : value;
+}
+
+std::wstring SettingsWindow::ChangeLabelFor(const SettingsPage& page, const Ctl& c, const std::wstring& before) {
+    const std::vector<Ctl>& t = page.table_;
+    auto cardTitle = [&](int card) -> std::wstring {
+        if (card < 0 || static_cast<size_t>(card) >= page.cards_.size()) return {};
+        if (const int s = page.cards_[static_cast<size_t>(card)].section) {
+            if (const Ctl* h = page.Find(s)) return h->text;
+        }
+        for (const Ctl& h : t) {
+            if (h.card == card && h.kind == CtlKind::Expander && h.heading) {
+                const size_t dot = h.text.find(L" \x00B7 ");  // "Bar · 2 changed"
+                return dot == std::wstring::npos ? h.text : h.text.substr(0, dot);
+            }
+        }
+        return {};
+    };
+    auto rowLabel = [&](int row) -> std::wstring {
+        if (row < 0) return {};
+        for (const Ctl& o : t) {
+            if (o.row == row && o.kind == CtlKind::Label && !o.text.empty()) return o.text;
+        }
+        return {};
+    };
+    std::wstring setting, value;
+    switch (c.kind) {
+        case CtlKind::Check:
+            setting = c.text;
+            value = SendMessageW(c.hwnd, BM_GETCHECK, 0, 0) == BST_CHECKED ? L"On" : L"Off";
+            break;
+        case CtlKind::Radio: {
+            // The group's name: the label of its first row, else its card's title.
+            if (t.empty() || &c < t.data() || &c >= t.data() + t.size()) return {};
+            size_t i = static_cast<size_t>(&c - t.data());
+            while (i > 0 && t[i].kind == CtlKind::Radio && !(t[i].style & WS_GROUP)) --i;
+            setting = rowLabel(t[i].row);
+            if (setting.empty()) setting = cardTitle(c.card);
+            value = c.text;
+            break;
+        }
+        case CtlKind::Button: {
+            const std::wstring text = Plain(c.text);
+            if (text == L"\x21BA") return rowLabel(c.row).empty() ? std::wstring() : L"Reset " + rowLabel(c.row);  // a "↺"
+            if (text.size() <= 2) return rowLabel(c.row);  // a glyph ("⋯"): the row's name, if any
+            return text;
+        }
+        case CtlKind::Combo:
+        case CtlKind::Edit:
+        case CtlKind::Trackbar:
+        case CtlKind::Spin:
+        case CtlKind::Swatch:
+            setting = rowLabel(c.row);
+            if (setting.empty()) setting = cardTitle(c.card);
+            value = RowValueText(page, c);
+            break;
+        default:
+            return {};
+    }
+    setting = Plain(setting);
+    if (setting.empty()) return {};
+    if (value.empty()) return setting;
+    if (!before.empty() && before != value) return setting + L" " + ShortValue(before) + L" \x2192 " + ShortValue(value);
+    return setting + L": " + ShortValue(value);
+}
+
+void SettingsWindow::NoteChange(const SettingsPage& page, const Ctl* c, const std::wstring& before) {
+    const bool changed = changedFlag_;
+    changedFlag_ = false;
+    if (!changed || !hwnd_ || !c || !host_.label) return;
+    const std::wstring label = ChangeLabelFor(page, *c, before);
+    if (!label.empty()) host_.label(label);  // a page's own ChangeLabel came first and wins
 }

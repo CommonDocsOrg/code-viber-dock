@@ -1015,6 +1015,69 @@ Notes for 11E (round 11 closed 2026-11-07):
   consolidated in STATUS.md "Round 11 final regression" (real pointer input and a real Win+D above
   all).
 
+## Round 12 (in progress, 2026-11-08): customize the dock on the dock
+
+Plan with the decisions: `C:\Users\olson\.claude\plans\windock-round12.md` (revision 2, from the
+ideas the user kept from the first proposal plus their additions; working mockup linked there). One
+commit per phase on master, not pushed; STATUS.md "Round 12" has each phase's notes.
+
+| Phase | Scope | Status |
+|---|---|---|
+| 12A One timeline | Undo / redo of every config change (50 entries, per process), the Saved state and actionable save errors, Keep / Revert after changes that move or hide a dock (`settings.confirmPlacement`), Keep / Cancel previews for presets, the banner near the dock, DockCommand 157 - 161, QueryState 296 - 300, ids 5600 - 5615 | Done (the commit "Undo timeline, Saved state, Keep / Revert and Keep / Cancel"; STATUS.md "Round 12") |
+| 12B Looks | Per-dock themes, Quick look, the gallery, theme files | Planned |
+| 12C Docks you keep | Names, rename, duplicate, layouts, titles | Planned |
+| 12D Edit mode on the dock | The drawer grid beside it | Planned |
+| 12E Settings that fly out from the dock | "Where on the screen" | Planned |
+| 12F The settings window on a large display | Reflow, preview pane, words | Planned |
+| 12G Quick setup on the first run | The three tips | Planned |
+| 12H Regression and release | | Planned |
+
+Design notes for 12A:
+
+- **One mechanism catches every change.** Every path that changes the config already ends in
+  `App::RequestSave`, so that is where the timeline hooks in: it posts `kTimelineCommit` (once per
+  burst), and the commit compares the config's text (`Config::ToJson(false)`, exactly what a save
+  writes minus the settings windows' sizes) with the text recorded last; when they differ it pushes
+  `{label, the text before}`. Posting is what makes one gesture one entry: everything a single
+  message handler changes (a slider's release, a drag, a preset, a reset with its follow-up
+  re-sorts) lands before the posted commit runs. Automation that sends a control message and then
+  queries at once would race the post, so QueryState 296 - 300, the menus, Undo / Redo and a new
+  settings window flush a pending commit first. Snapshots are a few KB of text; 50 of them are
+  nothing next to the icon surfaces.
+- **Restore is Reload config.** `ApplySnapshot` parses the snapshot with the same reader as the
+  file (`Config::LoadJson`, split out of `LoadFile`) and runs Reload config's path (Sync,
+  ApplyConfig + ReloadPins, every settings window refreshed), then saves. Two differences: the
+  settings windows' sizes stay as they are (a resize is not a change), and the taskbar and the Run
+  key are touched only when the snapshot changes `hideTaskbar` / `startWithWindows` (a "Show
+  Windows taskbar temporarily" of this session must survive an unrelated undo). The restored text
+  becomes the recorded state, so the posted commit after it finds nothing new.
+- **Labels: first one wins.** A gesture's label is the first one noted: call sites that know what
+  they do note theirs before changing anything ("Pinned Paint", "Applied preset Modern", "Reset
+  Clock to factory defaults"), and the settings window adds a generic one after the page's handler
+  returned, from the control that fired: its row's label (or the check box's caption, a radio
+  group's first row or card) and its value now; a slider / up-down row also keeps the row's value
+  text from its first scroll message, because the edit beside a slider follows the thumb only in
+  the page's handler ("Icon size 48 → 64"). A change of a dock's placement with no label is named
+  by the Keep / Revert text; anything else is "Change".
+- **Keep / Revert is detected, not declared.** The commit compares each dock's edge, floating,
+  display, auto-hide, layer and enabled (by id) before and after; any difference starts the bar,
+  whatever made it (a settings control, the dock menu, a Ctrl+drag to another edge). Another change
+  while it shows keeps the move (its Revert would undo the later change too). Revert is an entry
+  of its own, so it can be undone.
+- **A preview holds the save, not the timeline's state.** Starting one flushes pending entries and
+  the pending save, so the file has everything before it; while it is open RequestSave only marks
+  `saveHeld_`, and commits record nothing (the recorded state stays the one before it). Keep is
+  then one ordinary commit with the preview's label; Cancel is `ApplySnapshot(before)`. Quitting
+  with a preview open needs no special path: nothing ever wrote it.
+- **The banner is plain Win32**, not a `PopupWindow` (those are D2D and hover / click models built
+  around a dock's slot): one line, two real buttons (automation presses them as in the settings
+  windows), `WS_EX_NOACTIVATE` and `MA_NOACTIVATE`, so it never takes the foreground. It shows only
+  while no settings window is visible, beside the dock the bar is about.
+- **Measured / decided**: `MoveFileEx` onto a read-only config.json fails with
+  `ERROR_ACCESS_DENIED` (the test's "Couldn't save: config.json is read-only or locked."); the
+  welcome dialog applies at once (12G reworks the first run); Revert this window counts the
+  entries newer than the window's mark (an undone-then-redone older change is not counted).
+
 ## Dependencies at a glance
 
 ```

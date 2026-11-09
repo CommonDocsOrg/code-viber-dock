@@ -110,9 +110,16 @@ void SettingsWindow::CreateBands(bool footer) {
         }
         return h;
     };
+    // Round 12 phase 12A: the save state ("✓ Saved" / "Saving…" / "Not saved"), a static the band
+    // colours in its WM_CTLCOLORSTATIC (StatusChanged sets its text).
+    auto status = [&](HWND parent) {
+        CreateWindowExW(0, WC_STATICW, L"", WS_CHILD | WS_VISIBLE | SS_RIGHT | SS_CENTERIMAGE | SS_NOPREFIX | SS_ENDELLIPSIS, 0, 0, 0, 0,
+                        parent, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kBandSaveStatus)), instance_, nullptr);
+    };
     if (footer) {
         if (kind_ != SettingsKind::Item) return;
         footer_ = band(kFooter);
+        if (footer_) status(footer_);
         const DockItemEntry* e = TargetItem();
         const ItemKind k = e ? e->Kind() : ItemKind::Unknown;
         if (footer_ && (k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather || k == ItemKind::Tray)) {
@@ -129,6 +136,19 @@ void SettingsWindow::CreateBands(bool footer) {
     }
     header_ = band(kHeader);
     if (!header_) return;
+    // Round 12 phase 12A: the bar over the pages (hidden until there is something to say), a band of
+    // its own: its text, Keep, Revert / Cancel, and for a failed save Retry and Open folder.
+    bar_ = CreateWindowExW(WS_EX_CONTROLPARENT, kBandClassName, L"", WS_CHILD | WS_CLIPCHILDREN, 0, 0, 0, 0, hwnd_,
+                           reinterpret_cast<HMENU>(static_cast<INT_PTR>(kKeepBar)), instance_, this);
+    if (bar_) {
+        CreateWindowExW(0, WC_STATICW, L"", WS_CHILD | WS_VISIBLE | SS_LEFT | SS_CENTERIMAGE | SS_NOPREFIX | SS_ENDELLIPSIS, 0, 0, 0, 0,
+                        bar_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(kKeepBarText)), instance_, nullptr);
+        child(bar_, kKeepBarKeep, WC_BUTTONW, L"Keep");
+        child(bar_, kKeepBarRevert, WC_BUTTONW, L"Revert");
+        child(bar_, kBarRetry, WC_BUTTONW, L"Retry");
+        child(bar_, kBarOpenFolder, WC_BUTTONW, L"Open folder");
+    }
+    if (kind_ != SettingsKind::Item) status(header_);
     if (kind_ == SettingsKind::Dock) {
         // Keep app-wide settings directly accessible from every dock settings window.
         if (!IsFolderWindow()) {
@@ -195,6 +215,11 @@ void SettingsWindow::LayoutBands() {
                 place(header_, b.first, x, y, Px(b.second), h);
                 x -= Px(8);
             }
+            // Round 12 phase 12A: the save state left of the buttons (the chips end before it).
+            place(header_, kBandSaveStatus, x - Px(kStatusDip), y, Px(kStatusDip), h);
+        } else if (kind_ == SettingsKind::Global) {
+            // Round 12 phase 12A: the save state at the subtitle's right end.
+            place(header_, kBandSaveStatus, rc.right - Px(24) - Px(kStatusDip), 0, Px(kStatusDip), rc.bottom - std::max(1, Px(1)));
         } else if (kind_ == SettingsKind::Item) {
             // Round 8 phase 8C: the name (8 - 40), this link (42 - 62), the description (64 - 84).
             place(header_, kHeaderDockLink, Px(70), Px(42), rc.right - Px(70) - Px(16), Px(20));
@@ -214,8 +239,110 @@ void SettingsWindow::LayoutBands() {
         place(footer_, kFooterReset, right - Px(180), top, Px(180), Px(30));  // round 10 phase 10D: 150 -> 180
         right -= Px(180) + Px(8);
         place(footer_, kFooterResetApp, right - Px(150), top, Px(150), Px(30));
+        // Round 12 phase 12A: the save state left of the leftmost shown button.
+        int left = rc.right - Px(16) + Px(8);
+        for (HWND c = GetWindow(footer_, GW_CHILD); c; c = GetWindow(c, GW_HWNDNEXT)) {
+            if (GetDlgCtrlID(c) == kBandSaveStatus || !(GetWindowLongW(c, GWL_STYLE) & WS_VISIBLE)) continue;
+            RECT cr{};
+            GetWindowRect(c, &cr);
+            MapWindowPoints(nullptr, footer_, reinterpret_cast<POINT*>(&cr), 2);
+            left = std::min(left, static_cast<int>(cr.left));
+        }
+        place(footer_, kBandSaveStatus, left - Px(12) - Px(kStatusDip), top, Px(kStatusDip), Px(30));
         InvalidateRect(footer_, nullptr, TRUE);
     }
+    LayoutBar();
+}
+
+// Round 12 phase 12A: the bar: its text from the left, the buttons at the right (only the shown ones).
+void SettingsWindow::LayoutBar() {
+    if (!bar_) return;
+    RECT rc{};
+    GetClientRect(bar_, &rc);
+    const int h = Px(28), y = (rc.bottom - h) / 2;
+    int x = rc.right - Px(16);
+    for (const auto& b : {std::pair{kBarOpenFolder, 104}, std::pair{kBarRetry, 72}, std::pair{kKeepBarRevert, 112}, std::pair{kKeepBarKeep, 72}}) {
+        HWND c = GetDlgItem(bar_, b.first);
+        if (!c || !(GetWindowLongW(c, GWL_STYLE) & WS_VISIBLE)) continue;
+        x -= Px(b.second);
+        SetWindowPos(c, nullptr, x, y, Px(b.second), h, SWP_NOZORDER | SWP_NOACTIVATE);
+        x -= Px(8);
+    }
+    if (HWND t = GetDlgItem(bar_, kKeepBarText)) {
+        SetWindowPos(t, nullptr, Px(24), 0, std::max(0, x - Px(8) - Px(24)), rc.bottom, SWP_NOZORDER | SWP_NOACTIVATE);
+    }
+    InvalidateRect(bar_, nullptr, TRUE);
+}
+
+void SettingsWindow::StatusChanged() {
+    if (!hwnd_ || !host_.status) return;
+    const SettingsStatus s = host_.status();
+    // The band's status line.
+    if (HWND st = GetDlgItem(kind_ == SettingsKind::Item ? footer_ : header_, kBandSaveStatus)) {
+        // A preview holds the save (Keep writes it): "Not saved yet", not "Saving…".
+        const wchar_t* text = s.save == 2   ? L"\x26A0 Not saved"
+                              : s.bar == 2  ? L"Not saved yet"
+                              : s.save == 1 ? L"Saving\x2026"
+                                            : L"\x2713 Saved";
+        wchar_t cur[64]{};
+        GetWindowTextW(st, cur, 64);
+        if (wcscmp(cur, text) != 0) {
+            SetWindowTextW(st, text);
+            InvalidateRect(st, nullptr, TRUE);
+        }
+    }
+    if (!bar_) return;
+    // The bar: shown while there is something to say; its buttons by kind.
+    const bool show = s.bar != 0;
+    std::wstring whole;
+    if (show) {
+        whole = s.barText;
+        if (s.bar == 3) {
+            whole += L" Retry \x00B7 Open folder";
+        } else {
+            whole += L" Keep \x00B7 " + s.cancelText;
+        }
+    }
+    if (show && whole != barTextShown_) {
+        SetWindowTextW(bar_, whole.c_str());  // accessibility / automation: what it says, with its buttons
+        if (HWND t = GetDlgItem(bar_, kKeepBarText)) SetWindowTextW(t, s.barText.c_str());
+        if (HWND b = GetDlgItem(bar_, kKeepBarRevert)) SetWindowTextW(b, s.cancelText.c_str());
+        for (const auto& [id, on] : {std::pair{kKeepBarKeep, s.bar == 1 || s.bar == 2}, std::pair{kKeepBarRevert, s.bar == 1 || s.bar == 2},
+                                     std::pair{kBarRetry, s.bar == 3}, std::pair{kBarOpenFolder, s.bar == 3}}) {
+            HWND c = GetDlgItem(bar_, id);
+            if (!c) continue;
+            if (!on && GetFocus() == c) SetFocus(hwnd_);
+            ShowWindow(c, on ? SW_SHOWNA : SW_HIDE);
+        }
+        barTextShown_ = whole;
+        LayoutBar();
+    }
+    if (show != barShown_) {
+        if (!show && GetFocus() && IsChild(bar_, GetFocus())) SetFocus(DefaultFocus());
+        barShown_ = show;
+        if (!show) {
+            barTextShown_.clear();
+            SetWindowTextW(bar_, L"");
+        }
+        ShowWindow(bar_, show ? SW_SHOWNA : SW_HIDE);
+        Layout();  // the pages move down under it / back up
+    }
+}
+
+void SettingsWindow::RevertWindow() {
+    if (!hwnd_ || !host_.status || !host_.timeline) return;
+    const int n = host_.status().sinceOpen;
+    if (n <= 0) {
+        MessageBeep(MB_OK);
+        return;
+    }
+    const std::wstring text = L"Undo the " + (n == 1 ? std::wstring(L"change") : std::to_wstring(n) + L" changes") +
+                              L" made since this window opened?\n\nThe settings go back to how they were when you opened it. "
+                              L"Undo (Ctrl+Z) brings the changes back.";
+    if (host_.modal) host_.modal(true);
+    const int answer = MessageBoxW(hwnd_, text.c_str(), L"Revert this window", MB_YESNO | MB_ICONQUESTION | MB_DEFBUTTON2);
+    if (host_.modal) host_.modal(false);
+    if (answer == IDYES && hwnd_ && IsWindow(hwnd_)) host_.timeline(SettingsAction::RevertWindow);
 }
 
 int SettingsWindow::HeaderTextRight() const {
@@ -225,6 +352,7 @@ int SettingsWindow::HeaderTextRight() const {
     for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}}) {
         if (header_ && GetDlgItem(header_, b.first)) x -= Px(b.second) + Px(8);
     }
+    if (header_ && GetDlgItem(header_, kBandSaveStatus)) x -= Px(kStatusDip);  // round 12 phase 12A
     return x - Px(8);
 }
 
@@ -233,6 +361,24 @@ void SettingsWindow::ShowHeaderMenu() {
     if (!button) return;
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
+    // Round 12 phase 12A: the app's timeline first (greyed with nothing to undo / redo / revert).
+    const SettingsStatus s = host_.status ? host_.status() : SettingsStatus{};
+    auto quoted = [](const wchar_t* verb, const std::wstring& label, const wchar_t* key) {
+        std::wstring t = verb;
+        if (!label.empty()) {
+            std::wstring l;
+            for (wchar_t ch : label.size() > 60 ? label.substr(0, 59) + L"\x2026" : label) {
+                if (ch == L'&') l += L'&';
+                l += ch;
+            }
+            t += L" \x201C" + l + L"\x201D";
+        }
+        return t + L"\t" + key;
+    };
+    AppendMenuW(menu, MF_STRING | (s.undoLabel.empty() ? MF_GRAYED : 0), kHeaderUndo, quoted(L"Undo", s.undoLabel, L"Ctrl+Z").c_str());
+    AppendMenuW(menu, MF_STRING | (s.redoLabel.empty() ? MF_GRAYED : 0), kHeaderRedo, quoted(L"Redo", s.redoLabel, L"Ctrl+Y").c_str());
+    AppendMenuW(menu, MF_STRING | (s.sinceOpen <= 0 ? MF_GRAYED : 0), kHeaderRevertWindow, L"Revert this window\x2026");
+    AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(menu, MF_STRING, kHeaderFind, L"Find a setting…\tCtrl+F");  // round 9 phase 9B
     // Round 9 phase 9C: a predefined setup for this dock (not for folder windows / standalone widgets).
     if (DockIndex() != SIZE_MAX && Dock().IsDock()) AppendMenuW(menu, MF_STRING, kHeaderPreset, L"Apply a preset…");
@@ -493,7 +639,7 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
     HDC dc = CreateCompatibleDC(hdc);
     HBITMAP bmp = CreateCompatibleBitmap(hdc, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
     HGDIOBJ oldBmp = SelectObject(dc, bmp);
-    FillRect(dc, &rc, bandBrush_);
+    FillRect(dc, &rc, hwnd == bar_ && barBrush_ ? barBrush_ : bandBrush_);
     SetBkMode(dc, TRANSPARENT);
     HGDIOBJ oldFont = SelectObject(dc, font_);
     const COLORREF hair = Mix(palette_.text, bandColor_, 14);
@@ -506,7 +652,12 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
         SetTextColor(dc, color);
         DrawTextW(dc, s.c_str(), static_cast<int>(s.size()), &r, flags | DT_NOPREFIX | DT_SINGLELINE);
     };
-    if (isFooter) {
+    if (hwnd == bar_) {
+        // Round 12 phase 12A: the bar: an accent edge at the left, a hairline under it (its text and
+        // buttons are children).
+        Fill(dc, RECT{0, 0, Px(4), rc.bottom}, palette_.highContrast ? palette_.text : palette_.accent);
+        Fill(dc, RECT{0, rc.bottom - std::max(1, Px(1)), rc.right, rc.bottom}, hair);
+    } else if (isFooter) {
         Fill(dc, RECT{0, 0, rc.right, std::max(1, Px(1))}, hair);
         // Round 10 phase 10D: up to the leftmost shown button (with Reset to app default beside
         // the two others there is less than half the footer left; "…" when it does not fit).
@@ -521,8 +672,9 @@ void SettingsWindow::PaintBand(HWND hwnd, HDC hdc) {
         text(L"Changes apply at once", RECT{Px(20), 0, std::max(static_cast<int>(Px(20)), end), rc.bottom}, font_, palette_.textSecondary,
              DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
     } else if (kind_ == SettingsKind::Global) {
-        text(L"App settings · apply to every dock", RECT{Px(24), 0, rc.right - Px(16), rc.bottom}, font_, palette_.textSecondary,
-             DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
+        // Round 12 phase 12A: up to the save state at the right end.
+        text(L"App settings · apply to every dock", RECT{Px(24), 0, rc.right - Px(32) - Px(kStatusDip), rc.bottom}, font_,
+             palette_.textSecondary, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
         Fill(dc, RECT{Px(24), rc.bottom - std::max(1, Px(1)), rc.right - Px(24), rc.bottom}, hair);
     } else if (kind_ == SettingsKind::Dock) {
         // Round 8 phase 8B: the compact header (72 DIPs): the strip, the id in the title font and
@@ -742,9 +894,11 @@ LRESULT SettingsWindow::BandProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
         case WM_CTLCOLORBTN: {
             HDC dc = reinterpret_cast<HDC>(wp);
             const int id = GetDlgCtrlID(reinterpret_cast<HWND>(lp));
-            SetTextColor(dc, id == kHeaderDockLink ? palette_.link : palette_.text);
-            SetBkColor(dc, bandColor_);
-            return reinterpret_cast<LRESULT>(bandBrush_);
+            // Round 12 phase 12A: the save state in the muted text colour; the bar's children on its fill.
+            SetTextColor(dc, id == kHeaderDockLink ? palette_.link : id == kBandSaveStatus ? palette_.textSecondary : palette_.text);
+            const bool inBar = hwnd == bar_ && barBrush_;
+            SetBkColor(dc, inBar ? barColor_ : bandColor_);
+            return reinterpret_cast<LRESULT>(inBar ? barBrush_ : bandBrush_);
         }
         case WM_COMMAND:
             if (HIWORD(wp) == BN_CLICKED) OnBandCommand(LOWORD(wp));
@@ -770,6 +924,7 @@ void SettingsWindow::OnBandCommand(int id) {
             if (DockIndex() == SIZE_MAX) return;
             DockConfig& d = Dock();
             d.locked = !d.locked;  // read by the dock when a drag / drop / menu starts
+            if (host_.label) host_.label((d.locked ? L"Locked " : L"Unlocked ") + dockId_);  // round 12 phase 12A
             if (host_.changed) host_.changed(SettingsScope::SaveOnly, DockIndex());
             Refresh();  // the Contents tab's check box, the chip, the button
             break;
@@ -792,8 +947,30 @@ void SettingsWindow::OnBandCommand(int id) {
         case kFooterReset:
             // Round 10 phase 10D: "Reset to factory defaults…" asks first.
             if (TargetItem() && ConfirmFactoryReset(ItemName(), TargetItem()->Kind())) {
+                // Round 12 phase 12A: one timeline entry, named (before the page's change: the first label wins).
+                if (host_.label && TargetItem()) host_.label(L"Reset " + ItemName() + L" to factory defaults");
                 if (SettingsPage* page = ActivePage()) page->OnCommand(kWidgetReset, BN_CLICKED, nullptr);
             }
+            break;
+        // Round 12 phase 12A: the ⋯ menu's Undo / Redo / Revert this window…, the bar's buttons.
+        case kHeaderUndo:
+        case kHeaderRedo:
+            if (!host_.timeline || !host_.timeline(id == kHeaderUndo ? SettingsAction::Undo : SettingsAction::Redo)) MessageBeep(MB_OK);
+            break;
+        case kHeaderRevertWindow:
+            RevertWindow();
+            break;
+        case kKeepBarKeep:
+            if (host_.timeline) host_.timeline(SettingsAction::Keep);
+            break;
+        case kKeepBarRevert:
+            if (host_.timeline) host_.timeline(SettingsAction::Cancel);
+            break;
+        case kBarRetry:
+            if (host_.timeline) host_.timeline(SettingsAction::Retry);
+            break;
+        case kBarOpenFolder:
+            if (host_.timeline) host_.timeline(SettingsAction::OpenFolder);
             break;
         case kFooterResetApp:  // round 10 phase 10D: the page that shows the place drops it
             for (const auto& page : pages_) {

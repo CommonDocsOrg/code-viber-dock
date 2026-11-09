@@ -10,6 +10,7 @@
 #include <windowsx.h>
 
 #include <algorithm>
+#include <cwctype>
 #include <string>
 #include <vector>
 
@@ -55,6 +56,23 @@ bool SetAutostart(bool enable) {
     const std::wstring value = L"\"" + path + L"\"";
     return RegSetKeyValueW(HKEY_CURRENT_USER, kRunKey, kRunValue, REG_SZ, value.c_str(),
                            static_cast<DWORD>((value.size() + 1) * sizeof(wchar_t))) == ERROR_SUCCESS;
+}
+
+// Round 12 phase 12A: words for the undo labels and the Keep / Revert bar.
+const wchar_t* EdgeWord(DockEdge e) {
+    switch (e) {
+        case DockEdge::Top: return L"top";
+        case DockEdge::Left: return L"left";
+        case DockEdge::Right: return L"right";
+        case DockEdge::Bottom:
+        default: return L"bottom";
+    }
+}
+
+std::wstring DisplayWords(int monitor) {
+    if (monitor == DockConfig::kMonitorEach) return L"every display";
+    if (monitor == DockConfig::kMonitorPrimary || monitor == 0) return L"the primary display";
+    return L"display " + std::to_wstring(monitor + 1);
 }
 
 // Empties the Recycle Bin with the shell's confirmation and progress UI, on a thread of its own
@@ -163,6 +181,7 @@ bool App::Initialize(HINSTANCE instance) {
     // Folder windows (phase 12): moved / resized / collapsed / a menu setting -> saved; their own
     // menu's Remove (posted: the window is in one of its own messages) and New folder window….
     callbacks.folderChanged = [this] {
+        NoteLabel(L"Changed a folder window");  // round 12 phase 12A
         RequestSave();
         RefreshSettings();
     };
@@ -174,6 +193,7 @@ bool App::Initialize(HINSTANCE instance) {
     };
     // Standalone widgets (round 6 phase 6B): moved / resized -> saved; their menu; weather.openSettings().
     callbacks.widgetChanged = [this] {
+        NoteLabel(L"Moved a desktop widget");  // round 12 phase 12A
         RequestSave();
         RefreshSettings();
     };
@@ -202,6 +222,15 @@ bool App::Initialize(HINSTANCE instance) {
     docks_.AllowAppBar(true);
     UpdateReservedMonitors();
     ApplyHotkey();  // the dashboard hotkey (round 6 phase 6A)
+    // Round 12 phase 12A: the timeline starts from the config as it is now; the top labels as the
+    // window text of two hidden statics of the app window (automation).
+    undoLabel_ = CreateWindowExW(0, WC_STATICW, L"", WS_CHILD | SS_NOPREFIX, 0, 0, 0, 0, hwnd_,
+                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kAppUndoLabel)), instance, nullptr);
+    redoLabel_ = CreateWindowExW(0, WC_STATICW, L"", WS_CHILD | SS_NOPREFIX, 0, 0, 0, 0, hwnd_,
+                                 reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kAppRedoLabel)), instance, nullptr);
+    lastState_ = SnapshotText();
+    lastPlacement_ = PlacementOf(config_);
+    timelineReady_ = true;
     if (firstRun_) OpenWelcome();  // round 9 phase 9C: posted, after the docks are shown
     return true;
 }
@@ -281,6 +310,7 @@ void App::SetUpDock(DockWindow& dock) {
     requests.moveCircle = [this, d](int x, int y) {
         const size_t cfg = d->ConfigIndex();
         DockConfig& c = config_.docks[cfg];
+        NoteLabel(L"Moved " + c.id);  // round 12 phase 12A
         c.x = x;
         c.y = y;
         docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyConfig(); });
@@ -294,6 +324,7 @@ void App::SetUpDock(DockWindow& dock) {
             d->Relayout();  // back to its own place
             return;
         }
+        NoteLabel(c.edge != edge ? L"Moved " + c.id + L" to the " + EdgeWord(edge) + L" edge" : L"Moved " + c.id);  // round 12 phase 12A
         c.edge = edge;
         c.align = align;
         c.offset = offset;
@@ -337,15 +368,470 @@ void App::RequestSave() {
         config_.Save();
         return;
     }
+    ScheduleCommit();  // round 12 phase 12A: the gesture becomes one timeline entry
+    if (previewing_) {
+        // A Keep / Cancel preview: nothing is written until Keep (Cancel restores the file's state).
+        saveHeld_ = true;
+        UpdateTimelineUi();
+        return;
+    }
     SetTimer(hwnd_, kSaveTimerId, kSaveDelayMs, nullptr);  // restarts the debounce window
     savePending_ = true;
+    UpdateTimelineUi();  // "Saving…"
 }
 
 void App::FlushSave() {
     if (!savePending_) return;
     if (hwnd_) KillTimer(hwnd_, kSaveTimerId);
     savePending_ = false;
-    config_.Save();
+    SaveNow();
+}
+
+// --- the timeline (round 12 phase 12A) ---------------------------------------------------------------
+
+void App::SaveNow() {
+    DWORD error = 0;
+    // A failed save keeps the config in memory; the next change saves again (and Retry does now).
+    saveError_ = config_.Save(&error) ? 0 : (error ? error : static_cast<DWORD>(ERROR_GEN_FAILURE));
+    if (saveError_) {
+        wchar_t buf[96];
+        swprintf_s(buf, L"WinDock: saving config.json failed (error %lu)\n", saveError_);
+        OutputDebugStringW(buf);
+    }
+    UpdateTimelineUi();
+}
+
+bool App::RetrySave() {
+    if (previewing_) return false;  // nothing is written during a preview
+    if (hwnd_) KillTimer(hwnd_, kSaveTimerId);
+    savePending_ = false;
+    SaveNow();
+    return saveError_ == 0;
+}
+
+int App::SaveStatus() const {
+    if (savePending_ || previewing_) return 1;  // a preview holds the save until Keep
+    return saveError_ ? 2 : 0;
+}
+
+int App::BarKind() const {
+    if (previewing_) return 2;
+    if (keepRevert_) return 1;
+    return saveError_ && !savePending_ ? 3 : 0;
+}
+
+std::wstring App::SaveErrorText() const {
+    switch (saveError_) {
+        case ERROR_ACCESS_DENIED:
+        case ERROR_SHARING_VIOLATION:
+        case ERROR_LOCK_VIOLATION:
+        case ERROR_WRITE_PROTECT:
+            return L"config.json is read-only or locked";
+        case ERROR_DISK_FULL:
+        case ERROR_HANDLE_DISK_FULL:
+            return L"the disk is full";
+        default: {
+            wchar_t* text = nullptr;
+            FormatMessageW(FORMAT_MESSAGE_ALLOCATE_BUFFER | FORMAT_MESSAGE_FROM_SYSTEM | FORMAT_MESSAGE_IGNORE_INSERTS, nullptr,
+                           saveError_, 0, reinterpret_cast<wchar_t*>(&text), 0, nullptr);
+            std::wstring s = text ? text : L"";
+            if (text) LocalFree(text);
+            while (!s.empty() && (iswspace(s.back()) || s.back() == L'.')) s.pop_back();
+            if (s.empty()) s = L"error " + std::to_wstring(saveError_);
+            return s;
+        }
+    }
+}
+
+std::wstring App::SnapshotText() const {
+    try {
+        return config_.ToJson(false);  // the settings windows' sizes are not a change
+    } catch (...) {
+        return {};
+    }
+}
+
+std::vector<App::Placement> App::PlacementOf(const Config& c) {
+    std::vector<Placement> out;
+    for (const DockConfig& d : c.docks) {
+        if (!d.IsDock()) continue;
+        out.push_back(Placement{d.id, d.edge, d.Floating(), d.monitor, d.autoHide, d.layer, d.enabled});
+    }
+    return out;
+}
+
+std::wstring App::DescribePlacement(const std::vector<Placement>& before, const std::vector<Placement>& after, size_t& cfg) const {
+    cfg = SIZE_MAX;
+    for (const Placement& a : after) {
+        const auto it = std::find_if(before.begin(), before.end(), [&](const Placement& b) { return b.id == a.id; });
+        if (it == before.end()) continue;  // a new dock: added, not moved
+        const Placement& b = *it;
+        const std::wstring who = after.size() <= 1 ? std::wstring(L"Dock") : L"Dock " + a.id;
+        std::wstring text;
+        if (b.enabled && !a.enabled) {
+            text = who + L" is turned off.";
+        } else if (b.floating != a.floating) {
+            text = a.floating ? who + L" now floats on the desktop." : who + L" is back on the " + EdgeWord(a.edge) + L" edge.";
+        } else if (b.edge != a.edge) {
+            text = a.floating ? who + L" now faces " + EdgeWord(a.edge) + L"." : who + L" moved to the " + EdgeWord(a.edge) + L" edge.";
+        } else if (b.monitor != a.monitor) {
+            text = who + L" moved to " + DisplayWords(a.monitor) + L".";
+        } else if (b.autoHide != a.autoHide) {
+            text = a.autoHide == AutoHideMode::Off      ? who + L" no longer hides."
+                   : a.autoHide == AutoHideMode::Always ? who + L" now hides until you point at its edge."
+                                                        : who + L" now hides when a window overlaps it.";
+        } else if (b.layer != a.layer) {
+            text = a.layer == DockLayer::Normal    ? who + L" is now above windows."
+                   : a.layer == DockLayer::Desktop ? who + L" now shows only on the desktop."
+                                                   : who + L" is now behind windows.";
+        }
+        if (!text.empty()) {
+            cfg = DockIndexOf(a.id);
+            return text;
+        }
+    }
+    return {};
+}
+
+void App::NoteLabel(const std::wstring& label) {
+    if (label.empty() || !pendingLabel_.empty()) return;  // the first label of a gesture wins
+    pendingLabel_ = label;
+    ScheduleCommit();  // a label without a change is dropped by the commit
+}
+
+void App::ScheduleCommit() {
+    if (commitPosted_ || !hwnd_ || shutDown_) return;
+    commitPosted_ = PostMessageW(hwnd_, kTimelineCommit, 0, 0) != FALSE;
+}
+
+void App::CommitTimeline(bool allowBar) {
+    commitPosted_ = false;
+    std::wstring label = std::move(pendingLabel_);
+    pendingLabel_.clear();
+    if (!timelineReady_ || shutDown_ || previewing_) return;  // a preview: its Keep records one entry
+    std::wstring now = SnapshotText();
+    if (now.empty() || now == lastState_) return;
+    std::vector<Placement> placement = PlacementOf(config_);
+    size_t barCfg = SIZE_MAX;
+    const std::wstring moved = DescribePlacement(lastPlacement_, placement, barCfg);
+    if (label.empty() && !moved.empty()) label = moved.substr(0, moved.size() - 1);  // without the full stop
+    if (label.empty()) label = L"Change";
+    undo_.push_back(TimelineEntry{label, std::move(lastState_), nextSerial_++});
+    if (undo_.size() > kTimelineMax) undo_.erase(undo_.begin());
+    redo_.clear();
+    lastState_ = std::move(now);
+    lastPlacement_ = std::move(placement);
+    if (!moved.empty() && allowBar && config_.settings.confirmPlacement) {
+        // The change moved or hid a dock: Keep / Revert for 12 s (kept when left alone).
+        keepRevert_ = true;
+        keepText_ = moved;
+        keepLabel_ = label;
+        keepState_ = undo_.back().state;
+        keepSeconds_ = kKeepSeconds;
+        barDock_ = barCfg;
+        SetTimer(hwnd_, kKeepTimerId, 1000, nullptr);
+    } else if (keepRevert_) {
+        CloseKeepRevert();  // another change: the move is kept (its Revert would undo this one too)
+    }
+    UpdateTimelineUi();
+}
+
+bool App::ApplySnapshot(const std::wstring& state) {
+    if (shutDown_ || modalDepth_ > 0) {
+        MessageBeep(MB_ICONWARNING);  // a menu or dialog of a dock is open: its dock must stay
+        return false;
+    }
+    Config fresh;
+    if (state.empty() || fresh.LoadJson(state) != Config::LoadResult::Ok) return false;
+    for (int k = 0; k < SettingsUiConfig::kKinds; ++k) fresh.settings.windows[k] = config_.settings.windows[k];
+    // As Reload config, but the taskbar and the Run key only when the snapshot changes them (a
+    // "Show Windows taskbar temporarily" of this session stays).
+    const bool taskbar = fresh.hideTaskbar != config_.hideTaskbar;
+    const bool autostart = fresh.startWithWindows != config_.startWithWindows;
+    config_ = std::move(fresh);
+    if (config_.Main().AutoHideOn()) lastOnMode_ = config_.Main().autoHide;
+    SyncDocks();
+    docks_.ForEach([](DockWindow& w) {
+        w.ApplyConfig();
+        w.ReloadPins();
+    });
+    if (taskbar) SetTaskbarEnabled(config_.hideTaskbar);
+    if (autostart && AutostartEnabled() != config_.startWithWindows) SetAutostart(config_.startWithWindows);
+    ApplyHotkey();
+    RefreshSettings();
+    // The restored state is where the timeline is now (not a change of its own); saved as any change.
+    lastState_ = SnapshotText();
+    lastPlacement_ = PlacementOf(config_);
+    pendingLabel_.clear();
+    RequestSave();
+    return true;
+}
+
+bool App::Undo() {
+    if (shutDown_) return false;
+    FlushTimeline();
+    if (previewing_) return CancelBar();  // Ctrl+Z during a preview ends it
+    if (undo_.empty() || modalDepth_ > 0) return false;
+    TimelineEntry e = std::move(undo_.back());
+    undo_.pop_back();
+    std::wstring current = lastState_;
+    if (!ApplySnapshot(e.state)) {
+        undo_.push_back(std::move(e));
+        return false;
+    }
+    redo_.push_back(TimelineEntry{std::move(e.label), std::move(current), e.serial});
+    CloseKeepRevert();  // what it would revert is history now
+    UpdateTimelineUi();
+    return true;
+}
+
+bool App::Redo() {
+    if (shutDown_) return false;
+    FlushTimeline();
+    if (previewing_ || redo_.empty() || modalDepth_ > 0) return false;
+    TimelineEntry e = std::move(redo_.back());
+    redo_.pop_back();
+    std::wstring current = lastState_;
+    if (!ApplySnapshot(e.state)) {
+        redo_.push_back(std::move(e));
+        return false;
+    }
+    undo_.push_back(TimelineEntry{std::move(e.label), std::move(current), e.serial});
+    CloseKeepRevert();
+    UpdateTimelineUi();
+    return true;
+}
+
+bool App::RevertWindow(SettingsWindow* w) {
+    if (!w || shutDown_) return false;
+    FlushTimeline();
+    if (previewing_ && !CancelBar()) return false;
+    const auto mark = std::find_if(marks_.begin(), marks_.end(), [&](const WindowMark& m) { return m.window == w; });
+    if (mark == marks_.end()) return false;
+    const uint64_t since = mark->serial;
+    const long long n = std::count_if(undo_.begin(), undo_.end(), [&](const TimelineEntry& e) { return e.serial > since; });
+    if (n <= 0) return false;
+    const std::wstring target = mark->state;
+    std::wstring before = lastState_;
+    const std::wstring name = w->SearchName();
+    if (!ApplySnapshot(target)) return false;
+    // One entry (Undo brings the changes back), and the window counts from here.
+    undo_.push_back(TimelineEntry{L"Reverted " + std::to_wstring(n) + (n == 1 ? L" change" : L" changes") + L" in " + name,
+                                  std::move(before), nextSerial_++});
+    if (undo_.size() > kTimelineMax) undo_.erase(undo_.begin());
+    redo_.clear();
+    for (WindowMark& m : marks_) {
+        if (m.window == w) m.serial = undo_.back().serial;
+    }
+    CloseKeepRevert();
+    UpdateTimelineUi();
+    return true;
+}
+
+void App::StartPreview(const std::wstring& label, const std::wstring& text, HWND host, size_t cfg) {
+    FlushTimeline();  // what came before is an entry of its own
+    if (!previewing_) {
+        CloseKeepRevert();
+        FlushSave();  // the file has everything before the preview: Cancel only has to restore memory
+        previewBefore_ = lastState_;
+        saveHeld_ = false;
+        previewing_ = true;
+    }
+    previewLabel_ = label;  // a second template in the same preview: one entry, named for the last
+    previewText_ = text;
+    previewHost_ = host;
+    barDock_ = cfg;
+}
+
+bool App::KeepBar() {
+    FlushTimeline();
+    if (previewing_) {
+        // One entry for everything the preview changed, then saved now.
+        previewing_ = false;
+        previewHost_ = nullptr;
+        pendingLabel_ = previewLabel_;
+        CommitTimeline(false);
+        saveHeld_ = false;
+        RequestSave();
+        FlushSave();
+        UpdateTimelineUi();
+        return true;
+    }
+    if (!keepRevert_) return false;
+    CloseKeepRevert();
+    UpdateTimelineUi();
+    return true;
+}
+
+bool App::CancelBar() {
+    FlushTimeline();
+    if (previewing_) {
+        previewing_ = false;
+        const HWND host = previewHost_;
+        previewHost_ = nullptr;
+        const std::wstring before = previewBefore_;
+        if (!ApplySnapshot(before)) {
+            previewing_ = true;  // refused (a dock menu is open): the preview stays
+            previewHost_ = host;
+            return false;
+        }
+        saveHeld_ = false;
+        UpdateTimelineUi();
+        return true;
+    }
+    if (!keepRevert_ || modalDepth_ > 0) return false;  // a dock menu / dialog is open: ApplySnapshot refuses
+    const std::wstring state = keepState_, label = keepLabel_;
+    std::wstring before = lastState_;
+    CloseKeepRevert();
+    if (!ApplySnapshot(state)) return false;
+    // Revert is a change of its own: Undo moves the dock again.
+    undo_.push_back(TimelineEntry{L"Reverted \x201C" + label + L"\x201D", std::move(before), nextSerial_++});
+    if (undo_.size() > kTimelineMax) undo_.erase(undo_.begin());
+    redo_.clear();
+    UpdateTimelineUi();
+    return true;
+}
+
+void App::CloseKeepRevert() {
+    if (!keepRevert_) return;
+    keepRevert_ = false;
+    if (hwnd_) KillTimer(hwnd_, kKeepTimerId);
+    keepState_.clear();
+    keepText_.clear();
+    keepLabel_.clear();
+    keepSeconds_ = 0;
+}
+
+SettingsStatus App::StatusFor(const SettingsWindow* w) const {
+    SettingsStatus s;
+    s.save = SaveStatus();
+    s.bar = BarKind();
+    switch (s.bar) {
+        case 1:
+            s.barText = keepText_;
+            s.cancelText = L"Revert (" + std::to_wstring(keepSeconds_) + L" s)";
+            break;
+        case 2:
+            s.barText = previewText_;
+            s.cancelText = L"Cancel";
+            break;
+        case 3:
+            s.barText = L"Couldn't save: " + SaveErrorText() + L".";
+            break;
+        default:
+            break;
+    }
+    if (!undo_.empty()) s.undoLabel = undo_.back().label;
+    if (!redo_.empty()) s.redoLabel = redo_.back().label;
+    for (const WindowMark& m : marks_) {
+        if (m.window != w) continue;
+        s.sinceOpen = static_cast<int>(
+            std::count_if(undo_.begin(), undo_.end(), [&](const TimelineEntry& e) { return e.serial > m.serial; }));
+    }
+    return s;
+}
+
+bool App::TimelineAction(SettingsWindow* w, SettingsAction action) {
+    switch (action) {
+        case SettingsAction::Undo: return Undo();
+        case SettingsAction::Redo: return Redo();
+        case SettingsAction::Keep: return KeepBar();
+        case SettingsAction::Cancel: return CancelBar();
+        case SettingsAction::Retry: return RetrySave();
+        case SettingsAction::OpenFolder: OpenConfigFolder(); return true;
+        case SettingsAction::RevertWindow: return RevertWindow(w);
+    }
+    return false;
+}
+
+void App::OpenConfigFolder() {
+    // Explorer with config.json selected (the folder alone when the file is gone).
+    const std::wstring path = Config::FilePath();
+    AllowSetForegroundWindow(ASFW_ANY);
+    if (GetFileAttributesW(path.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        const std::wstring args = L"/select,\"" + path + L"\"";
+        ShellExecuteW(nullptr, nullptr, L"explorer.exe", args.c_str(), nullptr, SW_SHOWNORMAL);
+    } else {
+        ShellExecuteW(nullptr, L"open", Config::Directory().c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+    }
+}
+
+void App::OnBannerCommand(int id) {
+    if (id == SettingsIds::kKeepBarKeep) {
+        KeepBar();
+    } else if (id == SettingsIds::kKeepBarRevert) {
+        CancelBar();
+    }
+}
+
+void App::UpdateTimelineUi() {
+    if (shutDown_ || !hwnd_) return;
+    bool anyShown = false;
+    for (size_t i = 0; i < settings_.size(); ++i) {
+        SettingsWindow* w = settings_[i].get();
+        if (!w->Hwnd()) continue;
+        w->StatusChanged();
+        if (IsWindowVisible(w->Hwnd()) && !IsIconic(w->Hwnd()) && !IsSearchHidden(w)) anyShown = true;
+    }
+    // The label statics (automation reads the top labels there).
+    auto setText = [](HWND h, const std::wstring& text) {
+        if (!h) return;
+        wchar_t cur[512]{};
+        GetWindowTextW(h, cur, static_cast<int>(std::size(cur)));
+        if (text != cur) SetWindowTextW(h, text.c_str());
+    };
+    setText(undoLabel_, undo_.empty() ? std::wstring() : undo_.back().label);
+    setText(redoLabel_, redo_.empty() ? std::wstring() : redo_.back().label);
+    // A Keep bar while no settings window shows it: the banner near the dock.
+    const int bar = BarKind();
+    if ((bar == 1 || bar == 2) && !anyShown) {
+        const SettingsStatus s = StatusFor(nullptr);
+        DockWindow* d = barDock_ < config_.docks.size() ? docks_.FirstOf(barDock_) : nullptr;
+        if (!d) d = docks_.First();
+        RECT barRect{}, work{};
+        DockEdge edge = DockEdge::Bottom;
+        bool floating = false;
+        UINT dpi = GetDpiForSystem();
+        if (d) {
+            barRect = d->RestBarRect();
+            const size_t cfg = d->ConfigIndex();
+            if (cfg < config_.docks.size()) {
+                edge = config_.docks[cfg].edge;
+                floating = config_.docks[cfg].Floating();
+            }
+            dpi = d->Dpi();
+        }
+        MONITORINFO mi{sizeof(mi)};
+        HMONITOR mon = d ? MonitorFromRect(&barRect, MONITOR_DEFAULTTOPRIMARY) : MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
+        GetMonitorInfoW(mon, &mi);
+        work = mi.rcWork;
+        banner_.Show(instance_, barRect, work, edge, floating, dpi, s.barText, s.cancelText);
+    } else {
+        banner_.Close();
+    }
+}
+
+std::wstring App::EntryName(size_t cfg, size_t item) const {
+    if (cfg >= config_.docks.size() || item >= config_.docks[cfg].items.size()) return L"an item";
+    const DockItemEntry& e = config_.docks[cfg].items[item];
+    switch (e.Kind()) {
+        case ItemKind::Clock: return L"Clock";
+        case ItemKind::Weather: return L"Weather";
+        case ItemKind::Widget: return Widgets::DisplayName(e.id);
+        case ItemKind::Tray: return L"System tray";
+        case ItemKind::Running: return L"Running apps";
+        case ItemKind::Notifications: return L"Notification centre";
+        case ItemKind::Separator: return L"a separator";
+        case ItemKind::RecycleBin: return L"Recycle Bin";
+        case ItemKind::Group: return e.name.empty() ? std::wstring(L"a group") : e.name;
+        default: {
+            const std::wstring& s = e.path.empty() ? e.aumid : e.path;
+            const size_t slash = s.find_last_of(L"\\/");
+            std::wstring name = slash == std::wstring::npos ? s : s.substr(slash + 1);
+            if (const size_t dot = name.rfind(L'.'); dot != std::wstring::npos && dot > 0) name.resize(dot);
+            return name.empty() ? std::wstring(L"an item") : name;
+        }
+    }
 }
 
 int App::IndexOfKey(const DockWindow& dock, const AppKey& key) {
@@ -371,6 +857,11 @@ void App::TogglePin(DockWindow& dock, const AppKey& key) {
     const DockItem& item = dock.Items()[static_cast<size_t>(index)];
     const size_t cfg = dock.ConfigIndex();
     DockConfig& dc = config_.docks[cfg];
+    // Round 12 phase 12A: the undo label ("Pinned Paint", "Unpinned Paint").
+    const std::wstring name = item.kind == DockItem::Kind::Separator ? std::wstring(L"a separator")
+                              : item.displayName.empty()             ? std::wstring(L"an app")
+                                                                     : item.displayName;
+    NoteLabel((item.pinned ? (item.kind == DockItem::Kind::Separator ? L"Removed " : L"Unpinned ") : L"Pinned ") + name);
 
     if (item.pinned) {
         // Unpin: drop every config entry that resolves to this app. The item stays while the
@@ -708,6 +1199,12 @@ void App::ApplyPinOrder(DockWindow& dock, const std::vector<AppKey>& order, cons
                         std::optional<ItemAnchor> anchor) {
     const auto& pins = dock.Pins();  // parallel to the pin items of the dock's config
     const size_t cfg = dock.ConfigIndex();
+    // Round 12 phase 12A: one drag, one entry ("Moved Paint").
+    if (const int dragged = IndexOfKey(dock, anchorKey); dragged >= 0 && !dock.Items()[static_cast<size_t>(dragged)].displayName.empty()) {
+        NoteLabel(L"Moved " + dock.Items()[static_cast<size_t>(dragged)].displayName);
+    } else {
+        NoteLabel(L"Reordered " + config_.docks[cfg].id);
+    }
     const std::vector<DockItemEntry> current = config_.docks[cfg].Pins();
     std::vector<bool> used(current.size(), false);
     std::vector<DockItemEntry> next;
@@ -771,6 +1268,15 @@ void App::PinFiles(size_t cfg, const std::vector<AppIdentity::ResolvedPin>& pins
         changed = true;
     }
     if (!changed) return;
+    // Round 12 phase 12A: "Pinned Paint" (one file) / "Pinned 3 items".
+    if (paths.size() == 1) {
+        const size_t slash = paths[0].find_last_of(L"\\/");
+        std::wstring name = slash == std::wstring::npos ? paths[0] : paths[0].substr(slash + 1);
+        if (const size_t dot = name.rfind(L'.'); dot != std::wstring::npos && dot > 0) name.resize(dot);
+        NoteLabel(L"Pinned " + name);
+    } else {
+        NoteLabel(L"Pinned " + std::to_wstring(paths.size()) + L" items");
+    }
     ReloadPins(cfg);
     RequestSave();
     RefreshSettings();
@@ -778,6 +1284,7 @@ void App::PinFiles(size_t cfg, const std::vector<AppIdentity::ResolvedPin>& pins
 
 void App::MoveItem(size_t cfg, size_t from, size_t to, std::optional<ItemAnchor> anchor) {
     if (cfg >= config_.docks.size() || from >= config_.docks[cfg].items.size()) return;
+    NoteLabel(L"Moved " + EntryName(cfg, from));  // round 12 phase 12A
     DockConfig& d = config_.docks[cfg];
     bool changed = false;
     if (anchor && d.items[from].anchor != *anchor) {  // round 7 phase 7B: dropped into another group
@@ -813,10 +1320,12 @@ void App::SetItemOffset(size_t cfg, size_t item, int offset) {
 }
 
 void App::AddWidget(size_t cfg, ItemKind kind) {
-    if (config_.docks[cfg].AddWidget(kind) == SIZE_MAX) {
+    const size_t at = config_.docks[cfg].AddWidget(kind);
+    if (at == SIZE_MAX) {
         MessageBeep(MB_ICONWARNING);  // a second running item
         return;
     }
+    NoteLabel(L"Added " + EntryName(cfg, at) + L" to " + config_.docks[cfg].id);  // round 12 phase 12A
     ReloadPins(cfg);  // also starts the weather service for a weather item
     RequestSave();
     RefreshSettings();
@@ -916,6 +1425,7 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
                 MessageBeep(MB_ICONWARNING);
                 return;
             }
+            NoteLabel(L"Removed " + EntryName(cfg, slot.element) + L" from " + d.id);  // round 12 phase 12A
             d.items.erase(d.items.begin() + static_cast<ptrdiff_t>(slot.element));
             ReloadPins(cfg);
             RequestSave();
@@ -964,6 +1474,7 @@ void App::Shutdown() {
         std::vector<std::unique_ptr<SettingsWindow>> windows = std::move(settings_);
         settings_.clear();
         windows.clear();
+        marks_.clear();  // round 12 phase 12A: their windows are gone
     }
     activeSettings_ = nullptr;
     console_.reset();  // before the docks: it listens to the widget runtime
@@ -971,6 +1482,10 @@ void App::Shutdown() {
     geocodeOwner_ = nullptr;
     RemoveHotkey();
     shutDown_ = true;
+    // Round 12 phase 12A: a preview still open is cancelled by not saving it (RequestSave held it;
+    // the file has the state before it); an open Keep / Revert keeps its change.
+    banner_.Close();
+    if (hwnd_) KillTimer(hwnd_, kKeepTimerId);
     FlushSave();
     docks_.AllowAppBar(false);  // first: the restored work area must not keep our bands
     taskbar_.SetReservedMonitors(nullptr, 0);
@@ -1060,7 +1575,9 @@ void App::ShowMenu(DockWindow* dock, POINT pt) {
     if (!dock) return;
     const size_t cfg = dock->ConfigIndex();
     const HWND owner = dock->Hwnd();
-    const ContextMenu::TrayMenuState state = MenuState(cfg);
+    ContextMenu::TrayMenuState state = MenuState(cfg);
+    FlushTimeline();  // round 12 phase 12A: Undo "<label>" at the top
+    if (!previewing_ && !undo_.empty()) state.undoLabel = undo_.back().label;
     const UINT cmd = RunMenu(dock, [&] { return ContextMenu::ShowDockMenu(owner, pt, state); });
     if (cmd == ContextMenu::kNone || shutDown_) return;
     OnCommand(cmd, cfg, docks_.ByHwnd(owner));
@@ -1076,6 +1593,8 @@ void App::ShowAppMenu(POINT pt) {
     state.hideTaskbar = taskbar_.Enabled();
     state.startWithWindows = AutostartEnabled();
     state.dashboard = docks_.Dashboard();
+    FlushTimeline();  // round 12 phase 12A: Undo "<label>" at the top
+    if (!previewing_ && !undo_.empty()) state.undoLabel = undo_.back().label;
     std::vector<std::wstring> ids;  // the entries by docks[] index, to find them again afterwards
     for (const DockConfig& d : config_.docks) {
         if (d.Has(ItemKind::Widget)) state.hasWidgets = true;
@@ -1196,25 +1715,39 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
                 break;
         }
     }
+    // Round 12 phase 12A: the undo labels of the menu's changes ("Auto-hide: Always").
+    auto autoHideLabel = [](AutoHideMode m) {
+        return std::wstring(L"Auto-hide: ") + (m == AutoHideMode::Off      ? L"Off"
+                                               : m == AutoHideMode::Always ? L"Always"
+                                                                           : L"When a window overlaps");
+    };
     switch (cmd) {
+        case ContextMenu::kUndo:  // round 12 phase 12A: the dock / tray-icon menu's Undo "<label>"
+            if (!Undo()) MessageBeep(MB_OK);
+            break;
         case ContextMenu::kAutoHide:
+            NoteLabel(autoHideLabel(d.AutoHideOn() ? AutoHideMode::Off : lastOnMode_));
             SetAutoHide(cfg, d.AutoHideOn() ? AutoHideMode::Off : lastOnMode_);
             RefreshSettings();
             break;
         case ContextMenu::kAutoHideOff:
+            NoteLabel(autoHideLabel(AutoHideMode::Off));
             SetAutoHide(cfg, AutoHideMode::Off);
             RefreshSettings();
             break;
         case ContextMenu::kAutoHideAlways:
+            NoteLabel(autoHideLabel(AutoHideMode::Always));
             SetAutoHide(cfg, AutoHideMode::Always);
             RefreshSettings();
             break;
         case ContextMenu::kAutoHideIntelligent:
+            NoteLabel(autoHideLabel(AutoHideMode::Intelligent));
             SetAutoHide(cfg, AutoHideMode::Intelligent);
             RefreshSettings();
             break;
         case ContextMenu::kHideTaskbar: {
             const bool hide = !taskbar_.Enabled();
+            NoteLabel(hide ? L"Hide the Windows taskbar: On" : L"Hide the Windows taskbar: Off");
             config_.hideTaskbar = hide;
             SetTaskbarEnabled(hide);
             RequestSave();
@@ -1224,6 +1757,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kStartWithWindows: {
             const bool enable = !AutostartEnabled();
             if (SetAutostart(enable)) {
+                NoteLabel(enable ? L"Start with Windows: On" : L"Start with Windows: Off");
                 config_.startWithWindows = enable;
                 RequestSave();
             } else {
@@ -1291,6 +1825,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             if (dock) dock->TogglePopup(ItemKind::Weather);
             break;
         case ContextMenu::kLockDock:
+            NoteLabel((d.locked ? L"Unlocked " : L"Locked ") + d.id);
             d.locked = !d.locked;  // read by the dock when a drag / drop starts
             docks_.ApplyWidgetWindow(cfg);  // a standalone widget: dock.locked
             RequestSave();
@@ -1298,6 +1833,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         case ContextMenu::kLockAllDocks:
         case ContextMenu::kUnlockAllDocks:
+            NoteLabel(cmd == ContextMenu::kLockAllDocks ? L"Locked all docks" : L"Unlocked all docks");
             for (DockConfig& o : config_.docks) o.locked = cmd == ContextMenu::kLockAllDocks;
             RequestSave();
             RefreshSettings();
@@ -1310,6 +1846,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         case ContextMenu::kTrayEnable:
         case ContextMenu::kTrayDisable:
+            NoteLabel(cmd == ContextMenu::kTrayEnable ? L"Tray icons on the dock: On" : L"Tray icons on the dock: Off");
             config_.tray.enabled = cmd == ContextMenu::kTrayEnable;
             docks_.SyncTray();
             RequestSave();
@@ -1341,6 +1878,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             AddWidget(cfg, ItemKind::Notifications);  // reloads (the service starts with the element) and saves
             break;
         case ContextMenu::kToggleBadges:
+            NoteLabel(d.badges ? L"Notification badges: Off" : L"Notification badges: On");
             d.badges = !d.badges;
             docks_.SyncNotifications();  // starts / stops the service, redraws the badges
             RequestSave();
@@ -1356,6 +1894,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             break;
         case ContextMenu::kAddSeparator: {
             if (d.locked) break;
+            NoteLabel(L"Added a separator to " + d.id);
             DockItemEntry separator;
             separator.kind = ToString(ItemKind::Separator);
             d.InsertPin(SIZE_MAX, std::move(separator));  // after the last pin
@@ -1371,6 +1910,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             // The dock moves to that edge of its monitor (alignment and offset are kept).
             const DockEdge edge = static_cast<DockEdge>(cmd - ContextMenu::kEdgeBottom);
             if (d.edge == edge) break;
+            NoteLabel(L"Moved " + d.id + L" to the " + EdgeWord(edge) + L" edge");
             d.edge = edge;
             docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyConfig(); });
             RequestSave();
@@ -1445,9 +1985,18 @@ void App::ReloadConfig() {
         return;
     }
     if (result == Config::LoadResult::Missing) {
-        config_.Save();  // the file was deleted: write the current settings back
+        SaveNow();  // the file was deleted: write the current settings back
         return;
     }
+    // Round 12 phase 12A: what came before is an entry of its own; a preview open now ends (the
+    // file never had it: the reload is its Cancel).
+    FlushTimeline();
+    if (previewing_) {
+        previewing_ = false;
+        saveHeld_ = false;
+        previewHost_ = nullptr;
+    }
+    CloseKeepRevert();
     // A pending debounced save would overwrite the file we just read.
     if (savePending_) {
         KillTimer(hwnd_, kSaveTimerId);
@@ -1469,6 +2018,10 @@ void App::ReloadConfig() {
     if (AutostartEnabled() != config_.startWithWindows) SetAutostart(config_.startWithWindows);
     ApplyHotkey();  // a new dashboard hotkey (or a retry of one another app held)
     RefreshSettings();
+    // Round 12 phase 12A: the file's state is one entry (Undo goes back to what was in memory).
+    pendingLabel_ = L"Reloaded config.json";
+    CommitTimeline(false);
+    UpdateTimelineUi();
 }
 
 void App::RefreshSettings(SettingsWindow* except) {
@@ -1762,6 +2315,10 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
             EndModal();
         }
     };
+    // Round 12 phase 12A: the timeline and the save state.
+    host.status = [this, w] { return StatusFor(w); };
+    host.timeline = [this, w](SettingsAction action) { return TimelineAction(w, action); };
+    host.label = [this](const std::wstring& label) { NoteLabel(label); };
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
     host.dockWindows = [this](size_t index) {
         int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;
@@ -1850,6 +2407,10 @@ bool App::AddSettingsWindow(std::unique_ptr<SettingsWindow> w, bool show) {
         return false;
     }
     settings_.push_back(std::move(w));
+    // Round 12 phase 12A: Revert this window goes back to the config as it is now.
+    FlushTimeline();
+    marks_.push_back(WindowMark{raw, nextSerial_ - 1, lastState_});
+    UpdateTimelineUi();  // the banner gives way to the window's bar
     return true;
 }
 
@@ -2007,6 +2568,7 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             DockConfig d;
             d.id = config_.UniqueDockId(L"dock");
             d.monitor = DockConfig::kMonitorPrimary;
+            NoteLabel(L"Added dock " + d.id);  // round 12 phase 12A: the undo labels of these edits
             list.push_back(std::move(d));
             break;
         }
@@ -2020,6 +2582,7 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             d.layer = DockLayer::Desktop;
             d.autoHide = AutoHideMode::Off;
             d.reserveSpace = false;
+            NoteLabel(L"Added floating dock " + d.id);
             list.push_back(std::move(d));
             break;
         }
@@ -2028,6 +2591,7 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             DockConfig d = list[index];
             d.id = config_.UniqueDockId(d.id);
             d.color = 0;  // its own colour (the palette by index), not the copied dock's
+            NoteLabel(L"Duplicated " + list[index].id);
             list.insert(list.begin() + static_cast<ptrdiff_t>(index) + 1, std::move(d));
             break;
         }
@@ -2052,6 +2616,7 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             }
             d.items = {std::move(tray)};
             config_.tray.enabled = true;
+            NoteLabel(L"Put the tray of " + list[index].id + L" in its own dock");
             list.push_back(std::move(d));
             SyncDocks();        // the new dock's window
             ReloadPins(index);  // the source dock without its tray (Sync does not reload items)
@@ -2063,6 +2628,7 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
             if (index >= list.size() || list.size() <= 1) return false;  // never the last dock
             const auto docks = std::count_if(list.begin(), list.end(), [](const DockConfig& d) { return d.IsDock(); });
             if (list[index].IsDock() && docks <= 1) return false;  // folder windows / standalone widgets need a dock beside them
+            NoteLabel(L"Removed " + list[index].id);
             list.erase(list.begin() + static_cast<ptrdiff_t>(index));
             break;
         }
@@ -2075,6 +2641,7 @@ bool App::EditDocks(SettingsDockEdit edit, size_t index) {
                 std::count_if(list.begin(), list.end(), [](const DockConfig& o) { return o.IsDock() && o.enabled; }) <= 1) {
                 return false;
             }
+            NoteLabel((d.enabled ? L"Turned off " : L"Turned on ") + d.id);
             d.enabled = !d.enabled;
             break;
         }
@@ -2189,10 +2756,13 @@ void App::OpenPresets(PresetMode mode, size_t cfg, HWND owner) {
     const std::wstring id = mode == PresetMode::NewDock ? std::wstring() : config_.docks[cfg].id;
     PresetDialogHost host;
     host.config = &config_;
-    host.apply = [this, mode, id](size_t index, bool keepPins) {
-        if (mode == PresetMode::NewDock) return AddPresetDock(index, keepPins) != SIZE_MAX;
+    // Round 12 phase 12A: Apply / Add dock start a Keep / Cancel preview (the chooser closes; closing
+    // the settings window it was opened from cancels it). The welcome variant applies at once.
+    const HWND hostWindow = owner && owner != hwnd_ ? owner : nullptr;
+    host.apply = [this, mode, id, hostWindow](size_t index, bool keepPins) {
+        if (mode == PresetMode::NewDock) return AddPresetDock(index, keepPins, true, hostWindow) != SIZE_MAX;
         const size_t at = DockIndexOf(id);  // by id: the docks may have moved while it was open
-        return at != SIZE_MAX && ApplyPreset(index, at, keepPins);
+        return at != SIZE_MAX && ApplyPreset(index, at, keepPins, mode == PresetMode::Apply, hostWindow);
     };
     host.destroyed = [this] {
         if (hwnd_) PostMessageW(hwnd_, kPresetClosed, 0, 0);
@@ -2204,10 +2774,17 @@ void App::OpenPresets(PresetMode mode, size_t cfg, HWND owner) {
     }
 }
 
-bool App::ApplyPreset(size_t index, size_t cfg, bool keepPins) {
+bool App::ApplyPreset(size_t index, size_t cfg, bool keepPins, bool preview, HWND host) {
     if (shutDown_ || modalDepth_ > 0) return false;  // a dock's menu / dialog is open
     const std::vector<Presets::Preset>& all = Presets::All();
     if (index >= all.size() || cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return false;
+    // Round 12 phase 12A: a preview (Keep / Cancel) or one timeline entry.
+    const std::wstring label = L"Applied preset " + all[index].name;
+    if (preview) {
+        StartPreview(label, L"Previewing " + all[index].name + L" on " + config_.docks[cfg].id + L".", host, cfg);
+    } else {
+        NoteLabel(label);
+    }
     DockConfig& d = config_.docks[cfg];
     d = Presets::Apply(all[index], config_, d, Presets::PinsOf(d), keepPins);
     // Round 11 phase 11C: a preset with the tray (Windows 7) asks for the notify icons, as adding the
@@ -2229,7 +2806,7 @@ bool App::ApplyPreset(size_t index, size_t cfg, bool keepPins) {
     return true;
 }
 
-size_t App::AddPresetDock(size_t index, bool copyPins) {
+size_t App::AddPresetDock(size_t index, bool copyPins, bool preview, HWND host) {
     if (shutDown_ || modalDepth_ > 0) return SIZE_MAX;
     const std::vector<Presets::Preset>& all = Presets::All();
     if (index >= all.size()) return SIZE_MAX;
@@ -2238,7 +2815,15 @@ size_t App::AddPresetDock(size_t index, bool copyPins) {
         const auto first = std::find_if(config_.docks.begin(), config_.docks.end(), [](const DockConfig& d) { return d.IsDock(); });
         if (first != config_.docks.end()) pins = Presets::PinsOf(*first);
     }
-    config_.docks.push_back(Presets::MakeNew(all[index], config_, pins));
+    DockConfig made = Presets::MakeNew(all[index], config_, pins);
+    // Round 12 phase 12A: a preview (Keep / Cancel) or one timeline entry.
+    const std::wstring label = L"Added dock " + made.id + L" from preset " + all[index].name;
+    if (preview) {
+        StartPreview(label, L"Previewing " + all[index].name + L" as the new dock " + made.id + L".", host, config_.docks.size());
+    } else {
+        NoteLabel(label);
+    }
+    config_.docks.push_back(std::move(made));
     const size_t cfg = config_.docks.size() - 1;
     if (config_.docks[cfg].Has(ItemKind::Tray)) config_.tray.enabled = true;  // as ApplyPreset (round 11 phase 11C)
     config_.ResolveDockThemes();
@@ -2661,6 +3246,23 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         case 295:  // round 11 phase 11D: docks[] entry HIWORD (any kind) is enabled (1) / disabled (0); -2 no such entry
             if (!inst || inst->cfg >= config_.docks.size()) return -2;
             return config_.docks[inst->cfg].enabled ? 1 : 0;
+        // Round 12 phase 12A: the timeline (the change just made is recorded first).
+        case 296:  // undo depth (entries Undo can undo)
+            FlushTimeline();
+            return static_cast<LRESULT>(undo_.size());
+        case 297:  // redo depth
+            FlushTimeline();
+            return static_cast<LRESULT>(redo_.size());
+        case 298:  // the save: 0 saved, 1 pending (or held by a preview), 2 the last save failed
+            FlushTimeline();
+            return SaveStatus();
+        case 299:  // a Keep / Cancel preview is open (1 / 0)
+            FlushTimeline();
+            return previewing_ ? 1 : 0;
+        case 300:  // the bar: 0 none, 1 Keep / Revert, 2 Keep / Cancel, 3 a failed save (LOWORD 1: the banner is shown, 1 / 0)
+            FlushTimeline();
+            if (arg == 1) return banner_.Hwnd() && IsWindowVisible(banner_.Hwnd()) ? 1 : 0;
+            return BarKind();
         case 280:  // round 9 phase 9A: dock HIWORD (a dock or a standalone widget) is hidden by the full-screen guard (1 / 0; -2 no such dock)
             if (!inst) return -2;
             if (inst->window) return inst->window->FullscreenHidden() ? 1 : 0;
@@ -2873,7 +3475,36 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         // Preset LOWORD(lParam) & 0xFF (its index in the list) applied to dock HIWORD(lParam); bit 8:
         // keep the dock's pins at the preset's marker. 1 applied, 0 refused.
         DockManager::Instance* inst = docks_.At(DockOfParam(lp));
-        result = inst && ApplyPreset(static_cast<size_t>(lp & 0xFF), inst->cfg, (lp & 0x100) != 0) ? 1 : 0;
+        // Round 12 phase 12A: a Keep / Cancel preview, as from the chooser (DockCommand 160 / 161 end
+        // it); hosted by the dock's Dock window when it is shown, else the banner near the dock.
+        SettingsWindow* w = inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id) : nullptr;
+        const HWND host = w && IsWindowVisible(w->Hwnd()) ? w->Hwnd() : nullptr;
+        result = inst && ApplyPreset(static_cast<size_t>(lp & 0xFF), inst->cfg, (lp & 0x100) != 0, true, host) ? 1 : 0;
+        return true;
+    }
+    if (msg == msgDockCommand_ && wp >= ContextMenu::kUndo && wp <= ContextMenu::kBarCancel) {
+        // Round 12 phase 12A: the timeline. 157 Undo, 158 Redo, 159 Revert this window (the Dock window
+        // of dock HIWORD(lParam); LOWORD 1: the App settings window), 160 Keep, 161 Revert / Cancel the
+        // open bar. 1 done, 0 nothing to do (or refused).
+        bool done = false;
+        switch (wp) {
+            case ContextMenu::kUndo: done = Undo(); break;
+            case ContextMenu::kRedo: done = Redo(); break;
+            case ContextMenu::kRevertWindow: {
+                SettingsWindow* w = nullptr;
+                if ((lp & 0xFFFF) == 1) {
+                    w = FindSettings(SettingsKind::Global);
+                } else if (DockManager::Instance* inst = docks_.At(DockOfParam(lp)); inst && inst->cfg < config_.docks.size()) {
+                    w = FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id);
+                }
+                done = w && RevertWindow(w);
+                break;
+            }
+            case ContextMenu::kBarKeep: done = KeepBar(); break;
+            case ContextMenu::kBarCancel: done = CancelBar(); break;
+            default: break;
+        }
+        result = done ? 1 : 0;
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kOpenHelp) {
@@ -3176,6 +3807,10 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         if (presets_ && !presets_->Hwnd()) presets_.reset();
         return 0;
     }
+    if (msg == kTimelineCommit) {  // round 12 phase 12A: the gesture that just ran is one entry
+        CommitTimeline();
+        return 0;
+    }
     if (msg == kShowWelcome) {
         OpenPresets(PresetMode::Welcome, 0, nullptr);
         return 0;
@@ -3189,8 +3824,13 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         }
         if (activeSettings_ && !activeSettings_->Hwnd()) activeSettings_ = nullptr;
         std::erase_if(searchHidden_, [](const SettingsWindow* w) { return !w->Hwnd(); });  // round 9 phase 9B
+        // Round 12 phase 12A: a closed window's mark goes; closing the window a preview was chosen
+        // from cancels it.
+        std::erase_if(marks_, [](const WindowMark& m) { return !m.window->Hwnd(); });
+        if (previewing_ && previewHost_ && !IsWindow(previewHost_)) CancelBar();
         std::erase_if(settings_, [](const std::unique_ptr<SettingsWindow>& w) { return !w->Hwnd(); });
         if (settings_.empty()) docks_.Previews().Release();  // round 6 phase 6E: its factories go with the last window
+        UpdateTimelineUi();  // the banner, when no window shows the bar any more
         return 0;
     }
     if (msg == kDisplaySync) {
@@ -3248,10 +3888,16 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
             docks_.SetDashboard(!docks_.Dashboard());
             return 0;
         case WM_TIMER:
+            if (wp == kKeepTimerId) {
+                // Round 12 phase 12A: the Keep / Revert bar counts down; left alone, the change is kept.
+                if (--keepSeconds_ <= 0) CloseKeepRevert();
+                UpdateTimelineUi();
+                return 0;
+            }
             if (wp != kSaveTimerId) break;
             KillTimer(hwnd_, kSaveTimerId);  // one-shot
             savePending_ = false;
-            config_.Save();
+            SaveNow();  // round 12 phase 12A: its result is the save state (Saved / Couldn't save)
             return 0;
         case WM_QUERYENDSESSION:
             FlushSave();

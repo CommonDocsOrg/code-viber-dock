@@ -77,6 +77,7 @@ add_executable(WinDock WIN32
   src/Presets.cpp
   src/PresetDialog.cpp
   src/HelpWindow.cpp
+  src/KeepBanner.cpp
   src/SettingsBands.cpp
   src/SettingsPages.cpp
   src/SettingsPagesAppearance.cpp

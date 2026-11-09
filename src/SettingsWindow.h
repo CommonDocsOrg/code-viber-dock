@@ -90,6 +90,21 @@ struct SettingsWidgetPreview {
     double ms = 0.0;           // what the render took
 };
 
+// Round 12 phase 12A: the app's timeline and save state as every settings window shows them
+// (SettingsHost::status): the band's status line, the bar at the top of the page area, the ⋯
+// menu's Undo / Redo / Revert this window.
+struct SettingsStatus {
+    int save = 0;             // 0 saved, 1 pending (the debounced save, or held by a preview), 2 the last save failed
+    int bar = 0;              // the bar: 0 none, 1 Keep / Revert, 2 Keep / Cancel (a preview), 3 a failed save
+    std::wstring barText;     // "Dock moved to the left edge.", "Previewing Modern on main.", "Couldn't save: …"
+    std::wstring cancelText;  // the second button: "Revert (12 s)" / "Cancel"
+    std::wstring undoLabel;   // what Undo / Redo would undo / redo ("": nothing)
+    std::wstring redoLabel;
+    int sinceOpen = 0;        // the window's changes since it opened (Revert this window)
+};
+// What a window asks of the timeline (SettingsHost::timeline).
+enum class SettingsAction { Undo, Redo, Keep, Cancel, Retry, OpenFolder, RevertWindow };
+
 // Everything a settings window may use of the app, so it never sees App internals. App binds one
 // host per window (round 5 phase B): "the dock" below is the window's own dock (SettingsWindow::
 // DockIndex(), looked up by id each time; the Global window: the row selected on its Docks and
@@ -179,6 +194,13 @@ struct SettingsHost {
     // what a dock's dialog holds (App::modalDepth_: no Reload config, no dock removal, display
     // changes wait), so the window and its item are still there when the dialog returns.
     std::function<void(bool open)> modal;
+    // Round 12 phase 12A: the timeline and the save state. `status`: what the bands show now;
+    // `timeline`: Undo, Redo, the bar's buttons, Revert this window (bound to the window); `label`:
+    // the one-line label of the change being made (the first label of a gesture wins: a page's own
+    // ChangeLabel comes before the window's generic "<row label>: <value>").
+    std::function<SettingsStatus()> status;
+    std::function<bool(SettingsAction)> timeline;
+    std::function<void(const std::wstring& label)> label;
 };
 
 class SettingsWindow;
@@ -420,6 +442,12 @@ protected:
     void Changed(SettingsScope scope);
     // ... about config dock `dock` (a page of the Global window editing another dock).
     void ChangedFor(SettingsScope scope, size_t dock);
+    // Round 12 phase 12A: the undo label of the change the page is about to make ("Removed Clock
+    // from main"); call it before Changed. Without one the window derives "<row label>: <value>"
+    // from the control that fired.
+    void ChangeLabel(const std::wstring& label);
+    // A dock item's name for such a label ("Clock", "Paint", "a separator").
+    std::wstring EntryLabel(size_t item);
     void SetText(int id, const std::wstring& text);
     std::wstring GetText(int id) const;
     void SetCheck(int id, bool checked);
@@ -550,6 +578,11 @@ public:
     bool PreTranslateMessage(MSG& msg);
     // Reloads every control from *host.config (after tray toggles, Reload config) and the header.
     void Refresh();
+    // Round 12 phase 12A: the timeline or the save state changed (host.status): the band's status
+    // line and the bar at the top of the page area follow (the pages move down while it shows).
+    void StatusChanged();
+    // ... the bar is shown in this window (App's BarKind says what it is).
+    bool BarShown() const { return barShown_; }
     // Round 10 phase 10D: "Reset to factory defaults…" asks first: a Yes / No MessageBox owned by
     // this window (under host.modal's hold) saying what resets (all of `name`'s settings on this
     // window's dock, `kind` words it) and that app defaults are untouched. True: Yes.
@@ -763,6 +796,8 @@ private:
     static constexpr int kItemHeaderDip = 92;
     static constexpr int kTabsDip = 42;         // Dock: the tab strip
     static constexpr int kItemFooterDip = 52;   // Item: the footer
+    static constexpr int kBarDip = 44;          // round 12 phase 12A: the bar over the pages (while shown)
+    static constexpr int kStatusDip = 132;      // ... the band's status line's width
     // Set to false to drop the Mica nav column (frame extension) if a driver misbehaves: the
     // nav column is then painted solid, as when transparency effects are off.
     static constexpr bool kNavMica = true;
@@ -860,7 +895,26 @@ private:
     std::vector<std::wstring> HeaderChips();
     std::wstring WindowTitle();
     std::wstring ItemName();  // round 10 phase 10A: with an ordinal among same-named items
-    std::wstring ItemNameOf(size_t index);  // item `index` of the dock, without the ordinal
+public:
+    std::wstring ItemNameOf(size_t index);  // item `index` of the dock, without the ordinal (round 12 phase 12A: public, undo labels)
+private:
+    // Round 12 phase 12A: the generic undo label of a change made with control `c` of `page`
+    // ("Icon size 48 → 64", "Theme: Glass", "Auto-hide: Always"; "" none), `before` the row's value
+    // text before the control's notification ran (a slider's, from its first scroll).
+    std::wstring ChangeLabelFor(const SettingsPage& page, const Ctl& c, const std::wstring& before);
+    std::wstring RowValueText(const SettingsPage& page, const Ctl& c);
+    // After a page handled a control's notification: when it changed the config, the label goes
+    // to the host.
+    void NoteChange(const SettingsPage& page, const Ctl* c, const std::wstring& before);
+    bool changedFlag_ = false;      // SettingsPage::ChangedFor ran since it was cleared
+    HWND trackCtl_ = nullptr;       // the slider being dragged / stepped ...
+    std::wstring trackBefore_;      // ... and its row's value text when it started
+    HWND bar_ = nullptr;            // the Keep / Revert, Keep / Cancel, save error bar (kKeepBar)
+    bool barShown_ = false;
+    std::wstring barTextShown_;     // what it shows (unchanged: nothing redrawn)
+    void LayoutBar();
+    // The ⋯ menu's Revert this window… (asks first).
+    void RevertWindow();
     // The item's icon for the header (the same source as the Contents tab's strip; null: a letter tile).
     void UpdateItemIcon();
     // Page colours
@@ -916,6 +970,8 @@ private:
     HBRUSH bandBrush_ = nullptr;
     HBRUSH cardBrush_ = nullptr;   // round 8 phase 8A: a card's fill
     COLORREF cardColor_ = 0;
+    HBRUSH barBrush_ = nullptr;    // round 12 phase 12A: the bar's fill (the accent over the layer)
+    COLORREF barColor_ = 0;
     SIZE clientDip_{};             // the last non-minimized client size (DIPs; 0: not shown yet)
     bool inSizeMove_ = false;      // between WM_ENTERSIZEMOVE and WM_EXITSIZEMOVE
     HICON iconSmall_ = nullptr;

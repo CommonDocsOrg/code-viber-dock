@@ -2480,10 +2480,12 @@ private:
 
     void MoveItem(int from, int slot) {
         DockConfig& d = Dock();
+        const std::wstring name = from >= 0 ? EntryLabel(static_cast<size_t>(from)) : std::wstring();
         if (from < 0 || slot < 0 || !d.MoveItem(static_cast<size_t>(from), static_cast<size_t>(slot))) {
             FillStrip(from);  // nothing moved: the selection stays
             return;
         }
+        ChangeLabel(L"Moved " + name);  // round 12 phase 12A: the undo label
         const size_t at = Regroup(static_cast<size_t>(slot > from ? slot - 1 : slot));
         Changed(SettingsScope::Pins);
         FillStrip(static_cast<int>(at));
@@ -2541,6 +2543,7 @@ private:
         DockConfig& d = Dock();
         const int n = static_cast<int>(d.items.size());
         if (item < 0 || item >= n) return;
+        ChangeLabel(L"Removed " + EntryLabel(static_cast<size_t>(item)) + L" from " + d.id);  // round 12 phase 12A
         d.items.erase(d.items.begin() + item);
         Changed(SettingsScope::Pins);
         FillStrip(std::min(item, n - 2));
@@ -2590,6 +2593,7 @@ private:
             return;
         }
         d.SortByGroup(&at);  // round 7 phase 7B: it joins its group (the dock's align)
+        ChangeLabel(L"Added " + EntryLabel(at) + L" to " + d.id);  // round 12 phase 12A
         Changed(SettingsScope::Pins);  // also starts the weather service for a weather item
         FillStrip(static_cast<int>(at));
         FillDrawer();
@@ -2611,6 +2615,7 @@ private:
         size_t at = std::min(static_cast<size_t>(std::max(0, slot)), d.items.size());
         d.items.insert(d.items.begin() + static_cast<ptrdiff_t>(at), std::move(*e));
         at = Regroup(at);
+        ChangeLabel(L"Added " + EntryLabel(at) + L" to " + d.id);  // round 12 phase 12A
         Changed(SettingsScope::Pins);
         FillStrip(static_cast<int>(at));
         FillDrawer();

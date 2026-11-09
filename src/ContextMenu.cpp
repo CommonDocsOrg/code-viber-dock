@@ -164,9 +164,20 @@ void AppendRemove(HMENU menu, const ItemMenuState& item) {
 
 }  // namespace
 
+namespace {
+// Round 12 phase 12A: Undo “<label>” and a separator at the top while there is something to undo.
+void AppendUndo(HMENU menu, const std::wstring& label) {
+    if (label.empty()) return;
+    const std::wstring text = L"Undo “" + MenuText(label) + L"”";
+    Append(menu, kUndo, text.c_str(), true);
+    Separator(menu);
+}
+}  // namespace
+
 UINT ShowDockMenu(HWND owner, POINT pt, const TrayMenuState& state) {
     HMENU menu = CreatePopupMenu();
     if (!menu) return kNone;
+    AppendUndo(menu, state.undoLabel);
     AppendDockEntries(menu, state);
     const UINT cmd = Track(owner, menu, pt);
     DestroyMenu(menu);
@@ -176,6 +187,7 @@ UINT ShowDockMenu(HWND owner, POINT pt, const TrayMenuState& state) {
 UINT ShowAppMenu(HWND owner, POINT pt, const AppMenuState& state) {
     HMENU menu = CreatePopupMenu();
     if (!menu) return kNone;
+    AppendUndo(menu, state.undoLabel);
     Append(menu, kOpenSettings, L"App settings…", true);
     if (HMENU sub = CreatePopupMenu()) {
         for (size_t i = 0; i < state.docks.size() && i < 200; ++i) {

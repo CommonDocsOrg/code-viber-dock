@@ -759,4 +759,24 @@ inline constexpr int kPlaceUseShared = 5406;     // a script widget's place: "�
 // table-driven (FieldRow, 3370 - 3476); the Slot buttons group heading is kSectionFieldsSlots (2425).
 inline constexpr int kSlotsNote = 5500;          // Themes > Slot buttons: the group's note (one line; its tooltip the whole text)
 
+// Round 12 phase 12A: one timeline (undo / redo), the Saved state, Keep / Revert and Keep / Cancel
+// (5600 - 5629). The bar band and the banner (WinDock.KeepBanner, shown near the dock while no
+// settings window is visible) share the ids of their children.
+inline constexpr int kBandSaveStatus = 5600;     // static: "✓ Saved" / "Saving…" / "Not saved" (Global: the subtitle band 102; Dock: the header 102; Item: the footer 104)
+inline constexpr int kBarRetry = 5601;           // the bar's "Retry" (a failed save: save now; WM_COMMAND to the bar 5603)
+inline constexpr int kBarOpenFolder = 5602;      // the bar's "Open folder" (a failed save: config.json's folder in Explorer)
+inline constexpr int kKeepBar = 5603;            // WinDock.SettingsBand at the top of the page area (hidden while there is nothing to say; window text = what it says)
+inline constexpr int kKeepBarText = 5604;        // the bar's text ("Dock moved to the left edge.", "Previewing Modern on main.", "Couldn't save: …")
+inline constexpr int kKeepBarKeep = 5605;        // "Keep" (Keep / Revert, Keep / Cancel)
+inline constexpr int kKeepBarRevert = 5606;      // "Revert (12 s)" or "Cancel" (a preview)
+inline constexpr int kHeaderUndo = 5607;         // Dock: the "⋯" menu's Undo "<label>"  Ctrl+Z (WM_COMMAND to the header band)
+inline constexpr int kHeaderRedo = 5608;         // ... Redo "<label>"  Ctrl+Y
+inline constexpr int kHeaderRevertWindow = 5609; // ... "Revert this window…" (asks first: post it, the MessageBox is modal)
+inline constexpr int kAppUndoLabel = 5610;       // a hidden static of the WinDock.App window: the label of the change Undo would undo ("" none)
+inline constexpr int kAppRedoLabel = 5611;       // ... of the change Redo would redo
+inline constexpr int kSectionChanges = 5612;     // Global > General: the "Changes" card
+inline constexpr int kConfirmPlacement = 5613;   // check box: settings.confirmPlacement (+ caption 5614, hint 5615)
+inline constexpr int kConfirmPlacementCaption = 5614;
+inline constexpr int kConfirmPlacementHint = 5615;
+
 }  // namespace SettingsIds

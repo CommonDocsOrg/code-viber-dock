@@ -95,6 +95,13 @@ enum Command : UINT {
     // (any kind, by its instance index) disabled (LOWORD 0), enabled (1) or toggled (2); 1 done,
     // 0 refused (the last enabled dock cannot be disabled). = Docks and displays' Disable / Enable.
     kSetDockEnabled = 156,
+    // Round 12 phase 12A, the timeline (App::OnSharedMessage; 157 is also the dock menu's and the
+    // tray-icon menu's Undo "<label>"): 1 done, 0 nothing to do.
+    kUndo = 157,
+    kRedo = 158,
+    kRevertWindow = 159,  // "Revert this window" of the Dock window of dock HIWORD(lParam) (LOWORD 1: the App settings window)
+    kBarKeep = 160,       // the open bar's Keep (Keep / Revert, Keep / Cancel)
+    kBarCancel = 161,     // ... its Revert / Cancel
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,
@@ -201,9 +208,13 @@ struct TrayMenuState {
     bool hasTray = false;           // the dock has a tray item (Add > Tray greyed)
     bool hasNotifications = false;  // the dock has a notifications item (Add > Notification centre greyed)
     bool dashboard = false;         // dashboard mode is on ("Show dashboard" checked)
+    // Round 12 phase 12A: the label of the change Undo would undo ("": nothing; no entry). Only the
+    // dock's background menu shows it (an item menu's Dock submenu does not).
+    std::wstring undoLabel;
 };
 
-// Round 10 phase 10A: the dock menu, grouped by task (README "Menus"):
+// Round 10 phase 10A: the dock menu, grouped by task (README "Menus"). Round 12 phase 12A: while
+// there is something to undo, Undo "<label>" (kUndo) and a separator come first:
 //   Dock settings… · Add ▸ · Position on screen ▸ · Auto-hide ▸ · Lock dock · ─ · All docks ▸ ·
 //   App ▸ · Tools ▸ · Help… · Quit
 // Shown at a screen point; returns the chosen Command (kNone if dismissed).
@@ -219,6 +230,7 @@ struct AppMenuState {
     bool dashboard = false;
     bool hasWidgets = false;
     std::vector<std::wstring> docks;  // the Docks submenu's labels, by docks[] index
+    std::wstring undoLabel;           // round 12 phase 12A: as TrayMenuState::undoLabel
 };
 UINT ShowAppMenu(HWND owner, POINT screenPt, const AppMenuState& state);
 
