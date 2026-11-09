@@ -209,6 +209,13 @@ struct SettingsHost {
     // this window) / kRenameDock (the dock's Dock window with its name being edited) for config dock
     // `dock`. False: refused. ---
     std::function<bool(UINT command, size_t dock)> dockAction;
+    // --- round 12 phase 12D ---
+    // A Contents drawer tile dragged out of the window (screen px; `entry` the item it adds): phase 0
+    // over (App shows the marker of the dock under the point; returns 0 nowhere, 1 a dock, 2 the
+    // desktop for a script widget), 1 left / cancelled (the marker goes), 2 dropped (returns 1 when
+    // something was added: on that dock where the marker was, or a standalone widget at the point).
+    std::function<int(int phase, POINT screen, const DockItemEntry* entry)> drawerDrag;
+    // --- end round 12 phase 12D ---
 };
 
 class SettingsWindow;

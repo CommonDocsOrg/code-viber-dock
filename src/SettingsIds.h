@@ -842,5 +842,24 @@ inline constexpr int kAppNameText = 5690;        // a hidden static of the WinDo
 inline constexpr int kMineEmpty = 5691;          // the chooser, Mine: "Nothing saved yet. …" (shown instead of an empty list)
 inline constexpr int kPresetStatus = 5692;       // the chooser, Mine: the status line (saved layouts skipped and why)
 // --- end round 12 phase 12C ---
+// --- round 12 phase 12D ---
+// Customize mode on the dock (5700 - 5729): the Dock window header's button, the edit bar beside the
+// dock (WinDock.EditBar: WM_COMMAND(id, BN_CLICKED) to the bar), the drawer's filter chips (the
+// Contents tab's and the drawer popup's: push-like radio buttons, BN_CLICKED to their parent) and
+// the drawer popup's own search box and grid (WinDock.DrawerPopup; the Contents tab keeps 2622 / 2623).
+inline constexpr int kHeaderCustomize = 5700;    // Dock: the header's "Customize" (DockCommand 170: customize mode on its dock)
+inline constexpr int kEditBarTitle = 5701;       // edit bar: "Customizing <dock>" (static, in the dock colour)
+inline constexpr int kEditBarStatus = 5702;      // edit bar: the save state ("✓ Saved" / "Saving…" / "Not saved yet" / "⚠ Not saved")
+inline constexpr int kEditBarUndo = 5703;        // edit bar: "Undo" (= DockCommand 157)
+inline constexpr int kEditBarAdd = 5704;         // edit bar: "Add items" (shows / hides the drawer popup)
+inline constexpr int kEditBarSettings = 5705;    // edit bar: "Settings" (= DockCommand 143)
+inline constexpr int kEditBarDone = 5706;        // edit bar: "Done" (leaves customize mode)
+inline constexpr int kDrawerPopupSearch = 5707;  // drawer popup: the search box (WM_SETTEXT + WM_COMMAND(5707, EN_CHANGE) to the popup)
+inline constexpr int kDrawerChipAll = 5708;      // drawer chips: All
+inline constexpr int kDrawerChipBuiltIn = 5709;  // ... Built in
+inline constexpr int kDrawerChipWidgets = 5710;  // ... Widgets (the script widgets)
+inline constexpr int kDrawerChipApps = 5711;     // ... Apps and folders
+inline constexpr int kDrawerPopupGrid = 5712;    // drawer popup: the grid (WinDock.SettingsStrip in drawer mode)
+// --- end round 12 phase 12D ---
 
 }  // namespace SettingsIds

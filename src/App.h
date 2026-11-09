@@ -13,6 +13,8 @@
 #include "ContextMenu.h"
 #include "DockManager.h"
 #include "DockWindow.h"
+#include "DrawerPopup.h"  // round 12 phase 12D
+#include "EditBar.h"      // round 12 phase 12D
 #include "HelpWindow.h"
 #include "KeepBanner.h"
 #include "PresetDialog.h"
@@ -476,4 +478,45 @@ private:
     WPARAM geocodeTag_ = 0;
     SettingsWindow* geocodeOwner_ = nullptr;
     std::function<void(const std::vector<WeatherService::Place>&, const std::wstring&)> geocodeDone_;
+
+    // --- round 12 phase 12D: customize mode on the dock ---
+    // One dock at a time (another one's mode ends first). Entered by the dock menu's first entry,
+    // the Dock window header's Customize, a long press on the bar's background and DockCommand 170;
+    // left by Done, Escape on the dock, a click beside the bar or on the desktop / another app's
+    // window (the foreground hook below), the dock going away or getting locked again.
+    static constexpr UINT kEditLeaveMessage = WM_APP + 57;  // posted by the foreground hook: another app came to the front
+    // Enters customize mode on `dock`; a locked dock asks "Unlock this dock to customize it?" first
+    // (Unlock clears `locked` as an undoable change). False: refused or cancelled.
+    bool EnterEdit(DockWindow* dock);
+    void LeaveEdit();
+    // The edit bar follows the dock, the save state and the timeline; the drawer its items.
+    void UpdateEditUi();
+    void ShowDrawer(bool show);
+    void PlaceDrawer();
+    void OnEditBarCommand(int id);
+    // Customize mode's edits (each one timeline entry, labelled "Removed Weather from main", ...).
+    void EditRemoveItem(size_t item);
+    void EditAnchorItem(size_t item, ItemAnchor anchor);
+    // Drawer entry `ref` added to the dock being customized before config item `at` (SIZE_MAX: at
+    // the end); the "Apps and folders" entries open their dialogs (pinned after the last pin).
+    bool AddDrawerEntry(int ref, size_t at);
+    // `e` inserted into config dock `cfg` before item `at` (refused: a kind the dock has once already).
+    bool InsertDockEntry(size_t cfg, DockItemEntry e, size_t at);
+    // A drawer tile dragged in-process (the Contents tab's or the drawer popup's): SettingsHost::drawerDrag.
+    int DrawerDrag(int phase, POINT screen, const DockItemEntry* entry);
+    // The open dialogs of the "Apps and folders" entries (owned by `owner`): the paths chosen.
+    std::vector<std::wstring> PickPins(HWND owner, bool folder);
+    // A standalone widget of `id` centred on screen point `screen` (a drawer tile dropped on the desktop).
+    size_t AddWidgetWindowAt(const std::wstring& id, POINT screen);
+    void HookEditForeground(bool on);
+    static void CALLBACK OnEditForeground(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD thread,
+                                          DWORD time);
+    DockWindow* editDock_ = nullptr;  // the dock window in customize mode (null: none)
+    EditBar editBar_{[this](int id) { OnEditBarCommand(id); }};
+    DrawerPopup drawerPopup_;
+    bool drawerReady_ = false;        // its callbacks are set
+    HWINEVENTHOOK editHook_ = nullptr;
+    DockWindow* dragDock_ = nullptr;  // the dock showing a drawer drag's marker
+    std::optional<POINT> widgetAt_;   // AddWidgetWindow: centre the new widget on this screen point
+    // --- end round 12 phase 12D ---
 };

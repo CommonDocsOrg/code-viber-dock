@@ -115,6 +115,11 @@ enum Command : UINT {
     kApplyLookPreset = 168,  // look LOWORD (Presets::Looks() order) as a Keep / Cancel preview; HIWORD 0xFFFF: the app look
     kSaveDockLayout = 169,   // "Save dock as layout…": the name dialog (LOWORD a global atom with the name: saved at once, replacing)
     // --- end round 12 phase 12C ---
+    // --- round 12 phase 12D --- customize mode on the dock (App::OnSharedMessage; dock HIWORD(lParam)):
+    // 170 is also the dock menu's first entry "Customize this dock" / "Done customizing" (a toggle there).
+    kCustomize = 170,        // LOWORD(lParam) 1 enter, 0 leave, 2 toggle; 1 done (also when already so), 0 refused
+    kCustomizeDrawer = 171,  // the drawer popup of customize mode: LOWORD 1 show, 0 hide, 2 toggle; 1 done, 0 not customizing
+    // --- end round 12 phase 12D ---
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,
@@ -202,6 +207,12 @@ enum Command : UINT {
     // notification centre slot (its config item goes, as the Contents tab's Remove; refused while
     // the dock is locked, and for any other kind of slot).
     kRemoveFromDock = 861,
+    // --- round 12 phase 12D --- customize mode (dock HIWORD(lParam); 1 done, 0 refused / not customizing):
+    kClickPlus = 862,        // a click on "+" slot LOWORD(lParam) (0 the pinned run's, 1 the end's): the drawer popup opens
+    kAddTile = 863,          // drawer entry LOWORD(lParam) (QueryState 230's numbering) added at the end, as a click on its tile
+    kAddTileAt = 864,        // ... added before config item HIWORD(wParam) (>= the item count: at the end), as a drop there
+    kEditRemove = 865,       // the remove badge of slot LOWORD(lParam) clicked: its config item goes (one undo entry)
+    // --- end round 12 phase 12D ---
     kCloseAllWindows = 900,
     kCloseWindowBase = 1000,  // + window index (per-item menu)
 };
@@ -224,6 +235,10 @@ struct TrayMenuState {
     // Round 12 phase 12A: the label of the change Undo would undo ("": nothing; no entry). Only the
     // dock's background menu shows it (an item menu's Dock submenu does not).
     std::wstring undoLabel;
+    // --- round 12 phase 12D ---
+    bool editing = false;  // the dock is in customize mode: the first entry reads "Done customizing"
+    bool canEdit = true;   // the entry is offered (a dock with a window on screen)
+    // --- end round 12 phase 12D ---
 };
 
 // Round 10 phase 10A: the dock menu, grouped by task (README "Menus"). Round 12 phase 12A: while

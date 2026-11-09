@@ -71,6 +71,7 @@ constexpr int kHeaderFlashW = 64;
 constexpr int kHeaderLockW = 72;
 constexpr int kHeaderGlobalW = 112;
 constexpr int kHeaderMoreW = 36;
+constexpr int kHeaderCustomizeW = 88;  // round 12 phase 12D
 
 }  // namespace
 
@@ -154,6 +155,8 @@ void SettingsWindow::CreateBands(bool footer) {
         if (!IsFolderWindow()) {
             child(header_, kHeaderFlash, WC_BUTTONW, L"Flash");
             child(header_, kHeaderLock, WC_BUTTONW, L"Lock");
+            // Round 12 phase 12D: customize mode on the dock itself (the 12E panel keeps it).
+            if (DockIndex() != SIZE_MAX && Dock().IsDock()) child(header_, kHeaderCustomize, WC_BUTTONW, L"Customize");
         }
         child(header_, kHeaderGlobal, WC_BUTTONW, L"App settings…");
         child(header_, kHeaderMore, WC_BUTTONW, L"\x22EF");
@@ -219,7 +222,7 @@ void SettingsWindow::LayoutBands() {
             // One row at the right, vertically centred: Flash, Lock, App settings, ⋯.
             const int h = Px(kHeaderButtonH), y = (rc.bottom - h) / 2;
             int x = rc.right - Px(20);
-            for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}}) {
+            for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}, std::pair{kHeaderCustomize, kHeaderCustomizeW}}) {
                 if (!GetDlgItem(header_, b.first)) continue;
                 x -= Px(b.second);
                 place(header_, b.first, x, y, Px(b.second), h);
@@ -364,7 +367,7 @@ int SettingsWindow::HeaderTextRight() const {
     RECT rc{};
     if (header_) GetClientRect(header_, &rc);
     int x = rc.right - Px(20);
-    for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}}) {
+    for (const auto& b : {std::pair{kHeaderMore, kHeaderMoreW}, std::pair{kHeaderGlobal, kHeaderGlobalW}, std::pair{kHeaderLock, kHeaderLockW}, std::pair{kHeaderFlash, kHeaderFlashW}, std::pair{kHeaderCustomize, kHeaderCustomizeW}}) {
         if (header_ && GetDlgItem(header_, b.first)) x -= Px(b.second) + Px(8);
     }
     if (header_ && GetDlgItem(header_, kBandSaveStatus)) x -= Px(kStatusDip);  // round 12 phase 12A
@@ -987,6 +990,9 @@ void SettingsWindow::OnBandCommand(int id) {
         }
         case kHeaderGlobal:
             if (host_.openGlobal) host_.openGlobal(-1);
+            break;
+        case kHeaderCustomize:  // round 12 phase 12D: customize mode on this window's dock (DockCommand 170)
+            if (DockIndex() != SIZE_MAX && host_.command) host_.command(ContextMenu::kCustomize);
             break;
         case kHeaderMore:
             ShowHeaderMenu();

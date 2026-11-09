@@ -3023,7 +3023,10 @@ always there, also when every dock is parked) handle these registered messages:
   `LOWORD(lParam)` a global atom with the name writes `layouts\<name>.json` at once (replacing
   one), 0 opens the name dialog (posted: the call returns first). 152's `LOWORD(lParam)` also takes
   3 (the new dock variant showing Mine), 4 (apply, showing Looks), 5 (apply, showing Mine) and 6
-  (Looks only, for the app look). 111 and 113 left the dock
+  (Looks only, for the app look). Round 12 phase 12D, customize mode (dock `HIWORD(lParam)`; 1 done, 0 refused): **170**
+  customize mode on (`LOWORD(lParam)` 1), off (0) or toggled (2) (= the dock menu's first entry Customize this
+  dock / Done customizing, a toggle there; a locked dock asks to be unlocked first: posted when sent), **171**
+  its drawer popup shown (1), hidden (0) or toggled (2) (0: that dock is not being customized). 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3276,7 +3279,11 @@ always there, also when every dock is parked) handle these registered messages:
   (`GetDlgItem(app, 5690)` + `WM_GETTEXT` after the query), **304** = the open chooser's kind (0
   Layouts, 1 Looks, 2 Mine; -2 none), **305** = dock `HIWORD`'s `titleShow` (0 off, 1 on hover, 2
   always), **306** = its `titlePlace` (0 outside, 1 inside); -2 for both: not a dock. QueryState 45
-  is unchanged (1 while a title is drawn; a hover title counts while faded out). The labels of the change Undo / Redo would
+  is unchanged (1 while a title is drawn; a hover title counts while faded out). Round 12 phase 12D, customize mode (dock
+  `HIWORD(lParam)`; -1 no such dock window): **307** = the dock is in customize mode (1 / 0), **308** = its hovered
+  item's remove badge is shown, **309** = its "+" slots laid out (0 - 2; none on a ring, an anchored bar or a run
+  that would scroll), **310** = the edit bar is shown, **311** = the drawer popup is shown, **312** = the drawer
+  popup's tiles after its search and chip (-1 not shown). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -3395,6 +3402,15 @@ always there, also when every dock is parked) handle these registered messages:
   current look, Mine's 5673 Rename…, 5674 Delete, 5675 Export… (modal: post them), 5691 its empty
   line, 5692 its status line (layout files skipped and why); 5690 the app window's name static
   (QueryState 303).
+  Round 12 phase 12D, **customize mode** (5700 - 5729): 5700 the Dock header's Customize (= DockCommand 170);
+  the edit bar (top-level `WinDock.EditBar` beside the dock, never activated; its window text "Customizing
+  <dock> · <save state>"; `WM_COMMAND(id, BN_CLICKED)` to it): 5701 its title, 5702 the save state, 5703 Undo,
+  5704 Add items / Hide items (the drawer popup), 5705 Settings (= DockCommand 143), 5706 Done; the drawer
+  popup (top-level `WinDock.DrawerPopup`): 5707 its search box (`WM_SETTEXT` + `WM_COMMAND(5707, EN_CHANGE)` to
+  it), 5712 its grid (`WinDock.SettingsStrip`); 5708 - 5711 the filter chips All / Built in / Widgets / Apps
+  and folders (push-like radio buttons; `BM_CLICK`, or `WM_COMMAND(id, BN_CLICKED)` to their parent) in the
+  drawer popup and on the Contents tab, whose drawer list 2623 is a grid of tiles since 12D (a click on a
+  tile adds it at the end; QueryState 230 / 252 / 264 / 267 take the same entry numbers).
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that
@@ -3739,7 +3755,12 @@ always there, also when every dock is parked) handle these registered messages:
   settings > Contents > Remove does (refused with a beep while the dock is locked or for any other
   kind of slot; 1 when the slot exists), 854 on a notification centre slot opens App settings >
   Notifications, 114 / 115 / 133 on a clock / weather / notifications slot toggle THAT slot's
-  popup (on another slot: as the DockCommand), 900 close all windows). On a
+  popup (on another slot: as the DockCommand), 900 close all windows). Round 12 phase 12D, customize mode
+  of dock `HIWORD(lParam)` (1 done, 0 refused or not customizing that dock): 862 a click on "+" slot
+  `LOWORD(lParam)` (0 after the pinned run, 1 at the end: the drawer popup opens), 863 drawer entry `LOWORD`
+  (QueryState 230's numbering; 1000 / 1001 open their dialogs, posted when sent) added at the end, 864 the
+  same added before config item `HIWORD(wParam)`, 865 a click on the remove badge of slot `LOWORD` (its config
+  item goes: a pin or a widget kind, not a running app's slot). On a
   [standalone widget](#standalone-widgets) entry (round 6 phase 6B; the entry's index in the high
   word of `lParam`): 809 reloads its widget, 854 opens its widget's settings (round 8 phase 8C:
   its own window's Widget tab; before, an Item window), 855 locks / unlocks

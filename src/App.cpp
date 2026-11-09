@@ -5,6 +5,7 @@
 
 #include <dbt.h>
 #include <shellapi.h>
+#include <shlobj.h>
 #include <shobjidl.h>
 #include <shellscalingapi.h>
 #include <windowsx.h>
@@ -344,6 +345,30 @@ void App::SetUpDock(DockWindow& dock) {
     DockWindow::WeatherCallbacks weather;
     weather.openSettings = [this, d](size_t item) { OpenItemSettings(d->ConfigIndex(), item); };
     dock.SetWeatherCallbacks(std::move(weather));
+    // Round 12 phase 12D: customize mode (App owns it; the dock asks).
+    DockWindow::EditRequests edit;
+    edit.enter = [this, d] { EnterEdit(d); };
+    edit.leave = [this, d] {
+        if (editDock_ == d) LeaveEdit();
+    };
+    edit.remove = [this, d](size_t item) {
+        if (editDock_ == d) EditRemoveItem(item);
+    };
+    edit.anchor = [this, d](size_t item, ItemAnchor anchor) {
+        if (editDock_ == d) EditAnchorItem(item, anchor);
+    };
+    edit.plus = [this, d](int) {
+        if (editDock_ == d) ShowDrawer(true);
+    };
+    edit.moved = [this, d] {
+        if (editDock_ == d) UpdateEditUi();
+    };
+    edit.ended = [this, d] {
+        if (editDock_ != d) return;
+        editDock_ = nullptr;  // the window is going away: LeaveEdit must not touch it
+        LeaveEdit();
+    };
+    dock.SetEditRequests(std::move(edit));
     if (KeepShownFor(dock.ConfigIndex())) dock.SetKeepShown(true);  // its dock / item window is active
 }
 
@@ -813,6 +838,7 @@ void App::UpdateTimelineUi() {
     } else {
         banner_.Close();
     }
+    if (editDock_) UpdateEditUi();  // round 12 phase 12D: the edit bar's save state and Undo
 }
 
 std::wstring App::EntryName(size_t cfg, size_t item) const {
@@ -1467,6 +1493,7 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
 
 void App::Shutdown() {
     if (shutDown_) return;
+    LeaveEdit();  // round 12 phase 12D: the edit bar, the drawer popup, the foreground hook
     // First: closing them may commit a pending edit (focus loss), which must still be saved.
     {
         presets_.reset();  // round 9 phase 9C: before its owner (its window re-enables it)
@@ -1551,6 +1578,9 @@ ContextMenu::TrayMenuState App::MenuState(size_t cfg) const {
     state.edge = d.edge;
     state.dockCount = static_cast<int>(config_.docks.size());
     state.dashboard = docks_.Dashboard();
+    // Round 12 phase 12D: "Customize this dock" / "Done customizing".
+    state.canEdit = d.IsDock();
+    state.editing = editDock_ && editDock_->ConfigIndex() == cfg;
     for (const DockConfig& o : config_.docks) {
         (o.locked ? state.anyLocked : state.anyUnlocked) = true;
         if (o.Has(ItemKind::Widget)) state.hasWidgets = true;
@@ -1714,6 +1744,7 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
             case ContextMenu::kToggleCentre:
             case ContextMenu::kAddNotifications:
             case ContextMenu::kAddFromDrawer:
+            case ContextMenu::kCustomize:  // round 12 phase 12D
                 return;
             default:
                 break;
@@ -1729,6 +1760,17 @@ void App::OnCommand(UINT cmd, size_t cfg, DockWindow* dock) {
         case ContextMenu::kUndo:  // round 12 phase 12A: the dock / tray-icon menu's Undo "<label>"
             if (!Undo()) MessageBeep(MB_OK);
             break;
+        case ContextMenu::kCustomize: {  // round 12 phase 12D: the dock menu's first entry, the header's Customize
+            DockWindow* w = dock ? dock : docks_.FirstOf(cfg);
+            if (editDock_ && editDock_ == w) {
+                LeaveEdit();
+            } else if (!w) {
+                MessageBeep(MB_ICONWARNING);  // parked (its display is not connected)
+            } else {
+                EnterEdit(w);  // a locked dock asks first (cancelled: nothing changes)
+            }
+            break;
+        }
         case ContextMenu::kAutoHide:
             NoteLabel(autoHideLabel(d.AutoHideOn() ? AutoHideMode::Off : lastOnMode_));
             SetAutoHide(cfg, d.AutoHideOn() ? AutoHideMode::Off : lastOnMode_);
@@ -2051,6 +2093,7 @@ void App::RefreshSettings(SettingsWindow* except) {
 
 void App::InvalidatePreviews() {
     ++previewGeneration_;
+    drawerPopup_.InvalidatePreviews();  // round 12 phase 12D
     for (size_t i = 0; i < settings_.size(); ++i) {
         if (SettingsWindow* w = settings_[i].get(); w->Hwnd()) w->InvalidatePreviews();
     }
@@ -2060,6 +2103,10 @@ bool App::PreTranslateMessage(MSG& msg) {
     // A window may open another one from inside its own message: the index loop and raw pointer
     // stay valid (the objects themselves never move).
     if (presets_ && presets_->Hwnd() && presets_->PreTranslateMessage(msg)) return true;  // round 9 phase 9C
+    // Round 12 phase 12D: the drawer popup's keyboard (Tab between its controls, Escape closes it).
+    if (const HWND drawer = drawerPopup_.Hwnd(); drawer && (msg.hwnd == drawer || IsChild(drawer, msg.hwnd)) && IsDialogMessageW(drawer, &msg)) {
+        return true;
+    }
     if (help_ && help_->Hwnd() && help_->PreTranslateMessage(msg)) return true;           // round 9 phase 9D
     for (size_t i = 0; i < settings_.size(); ++i) {
         if (SettingsWindow* w = settings_[i].get(); w->Hwnd() && w->PreTranslateMessage(msg)) return true;
@@ -2352,6 +2399,8 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     host.preview = [this, w](const std::wstring& label, const std::wstring& text) {  // round 12 phase 12B
         StartPreview(label, text, w->Hwnd(), w->DockIndex() != SIZE_MAX ? w->DockIndex() : 0);
     };
+    // Round 12 phase 12D: a Contents drawer tile dragged onto a dock or the desktop.
+    host.drawerDrag = [this](int phase, POINT screen, const DockItemEntry* entry) { return DrawerDrag(phase, screen, entry); };
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
     host.dockWindows = [this](size_t index) {
         int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;
@@ -3221,6 +3270,13 @@ size_t App::AddWidgetWindow(const std::wstring& id, size_t nearDock, bool open) 
         const int m = docks_.MonitorIndexFor(config_.docks[nearDock]);
         d.monitor = m >= 0 ? m : 0;
     }
+    if (widgetAt_) {  // round 12 phase 12D: dropped on the desktop: the display under that point
+        const HMONITOR under = MonitorFromPoint(*widgetAt_, MONITOR_DEFAULTTONEAREST);
+        const std::vector<HMONITOR>& all = docks_.Monitors();
+        for (size_t m = 0; m < all.size(); ++m) {
+            if (all[m] == under) d.monitor = static_cast<int>(m);
+        }
+    }
     d.x = d.y = DockConfig::kCentred;
     config_.docks.push_back(std::move(d));
     const size_t cfg = config_.docks.size() - 1;
@@ -3237,6 +3293,12 @@ size_t App::AddWidgetWindow(const std::wstring& id, size_t nearDock, bool open) 
         DockConfig& n = config_.docks[cfg];
         n.x = std::max(0, (workW - n.widgetWindow.w) / 2);
         n.y = std::max(0, (workH - n.widgetWindow.h) / 2);
+        if (widgetAt_) {  // round 12 phase 12D: centred on the drop point (DIPs from the work area's top-left)
+            n.x = std::clamp(static_cast<int>(std::lround((widgetAt_->x - mi.rcWork.left) / s)) - n.widgetWindow.w / 2, 0,
+                             std::max(0, workW - n.widgetWindow.w));
+            n.y = std::clamp(static_cast<int>(std::lround((widgetAt_->y - mi.rcWork.top) / s)) - n.widgetWindow.h / 2, 0,
+                             std::max(0, workH - n.widgetWindow.h));
+        }
     }
     if (SettingsWindow* g = FindSettings(SettingsKind::Global)) g->SelectDock(config_.docks[cfg].id);
     SyncDocks();
@@ -3656,6 +3718,19 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return arg == 1 ? reinterpret_cast<LRESULT>(console_->Hwnd()) : 1;
         case 64:  // log lines the Console shows now
             return console_ && console_->Hwnd() ? console_->ShownLines() : -1;
+        // --- round 12 phase 12D: customize mode (dock HIWORD(lParam); -1 no such dock window) ---
+        case 307:  // the dock is in customize mode (1 / 0)
+            return inst && inst->window ? (inst->window->Editing() ? 1 : 0) : -1;
+        case 308:  // its hovered item's remove badge is shown (1 / 0)
+            return inst && inst->window ? (inst->window->EditBadgeSlot() >= 0 ? 1 : 0) : -1;
+        case 309:  // its "+" slots laid out (0 - 2)
+            return inst && inst->window ? inst->window->PlusCount() : -1;
+        case 310:  // the edit bar is shown (any dock)
+            return editBar_.Shown() ? 1 : 0;
+        case 311:  // the drawer popup is shown (any dock)
+            return drawerPopup_.Shown() ? 1 : 0;
+        case 312:  // its tiles after the search and the chip (-1: not shown)
+            return drawerPopup_.Shown() ? drawerPopup_.TileCount() : -1;
         default:
             break;
     }
@@ -3905,6 +3980,61 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
             default: break;
         }
         result = done ? 1 : 0;
+        return true;
+    }
+    if (msg == msgDockCommand_ && (wp == ContextMenu::kCustomize || wp == ContextMenu::kCustomizeDrawer)) {
+        // Round 12 phase 12D: customize mode on dock HIWORD(lParam) (170: LOWORD 1 enter, 0 leave, 2
+        // toggle; a locked dock's question is modal: posted when sent), its drawer popup (171: 1 show,
+        // 0 hide, 2 toggle; only while that dock is customized). 1 done (also when already so), 0 refused.
+        DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+        const LPARAM mode = lp & 0xFFFF;
+        result = 0;
+        if (!dock || mode > 2) return true;
+        if (wp == ContextMenu::kCustomize) {
+            const bool on = editDock_ == dock;
+            const bool want = mode == 2 ? !on : mode == 1;
+            if (want == on) {
+                result = 1;
+            } else if (!want) {
+                LeaveEdit();
+                result = 1;
+            } else if (dock->ConfigIndex() < config_.docks.size() && config_.docks[dock->ConfigIndex()].locked && InSendMessage()) {
+                PostMessageW(hwnd_, msg, wp, (lp & ~static_cast<LPARAM>(0xFFFF)) | 1);  // the question after the call
+                result = 1;
+            } else {
+                result = EnterEdit(dock) ? 1 : 0;
+            }
+        } else if (editDock_ == dock) {
+            const bool shown = drawerPopup_.Shown();
+            const bool want = mode == 2 ? !shown : mode == 1;
+            if (want != shown) ShowDrawer(want);
+            result = 1;
+        }
+        return true;
+    }
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kClickPlus && (wp & 0xFFFF) <= ContextMenu::kEditRemove) {
+        // Round 12 phase 12D, customize mode of dock HIWORD(lParam): 862 "+" slot LOWORD(lParam), 863
+        // drawer entry LOWORD added at the end, 864 ... before config item HIWORD(wParam), 865 the
+        // remove badge of slot LOWORD. 1 done, 0 refused (not customizing that dock, no such target).
+        DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+        const UINT cmd = static_cast<UINT>(wp & 0xFFFF);
+        const int arg = static_cast<int>(ArgOfParam(lp));
+        const size_t at = static_cast<size_t>((wp >> 16) & 0xFFFF);
+        result = 0;
+        if (!dock || dock != editDock_) return true;
+        if ((cmd == ContextMenu::kAddTile || cmd == ContextMenu::kAddTileAt) &&
+            (arg == StripUi::DrawerRefs::kApp || arg == StripUi::DrawerRefs::kFolder) && InSendMessage()) {
+            PostMessageW(hwnd_, msg, wp, lp);  // their dialogs are modal: after the call
+            result = 1;
+            return true;
+        }
+        switch (cmd) {
+            case ContextMenu::kClickPlus: result = dock->ClickPlus(arg) ? 1 : 0; break;
+            case ContextMenu::kAddTile: result = AddDrawerEntry(arg, SIZE_MAX) ? 1 : 0; break;
+            case ContextMenu::kAddTileAt: result = AddDrawerEntry(arg, at) ? 1 : 0; break;
+            case ContextMenu::kEditRemove: result = dock->EditRemoveSlot(arg) ? 1 : 0; break;
+            default: break;
+        }
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kOpenHelp) {
@@ -4211,6 +4341,10 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         CommitTimeline();
         return 0;
     }
+    if (msg == kEditLeaveMessage) {  // round 12 phase 12D: another app's window came to the front
+        if (editDock_ && modalDepth_ == 0) LeaveEdit();
+        return 0;
+    }
     if (msg == kShowWelcome) {
         OpenPresets(PresetMode::Welcome, 0, nullptr);
         return 0;
@@ -4331,4 +4465,387 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
             break;
     }
     return DefWindowProcW(hwnd_, msg, wp, lp);
+}
+
+// --- round 12 phase 12D: customize mode on the dock ------------------------------------------------
+
+namespace {
+HWND g_editHookTarget = nullptr;  // the app window the customize mode's foreground hook posts to
+}  // namespace
+
+void CALLBACK App::OnEditForeground(HWINEVENTHOOK, DWORD, HWND hwnd, LONG idObject, LONG, DWORD, DWORD) {
+    // WINEVENT_SKIPOWNPROCESS: every event here is another process's window coming to the front (a
+    // click on the desktop, the taskbar, another app): customize mode ends, as the click popups close.
+    if (idObject != OBJID_WINDOW || !hwnd || !g_editHookTarget) return;
+    PostMessageW(g_editHookTarget, kEditLeaveMessage, 0, 0);
+}
+
+void App::HookEditForeground(bool on) {
+    if (on == (editHook_ != nullptr)) return;
+    if (on) {
+        g_editHookTarget = hwnd_;
+        // Out of context and only while customizing (PopupWindow's click model does the same).
+        editHook_ = SetWinEventHook(EVENT_SYSTEM_FOREGROUND, EVENT_SYSTEM_FOREGROUND, nullptr, &App::OnEditForeground, 0, 0,
+                                    WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+        if (!editHook_) g_editHookTarget = nullptr;
+    } else {
+        UnhookWinEvent(editHook_);
+        editHook_ = nullptr;
+        g_editHookTarget = nullptr;
+    }
+}
+
+bool App::EnterEdit(DockWindow* dock) {
+    if (!dock || shutDown_ || docks_.IndexOf(dock) == SIZE_MAX) return false;
+    size_t cfg = dock->ConfigIndex();
+    if (cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return false;
+    if (editDock_ == dock) return true;
+    if (editDock_) LeaveEdit();
+    if (config_.docks[cfg].locked) {
+        // A locked dock keeps its items where they are: ask first (Unlock is a change of its own,
+        // undoable; Cancel leaves everything as it was).
+        const HWND owner = dock->Hwnd();
+        int button = IDCANCEL;
+        RunMenu(dock, [&] {
+            TASKDIALOG_BUTTON buttons[] = {{IDOK, L"Unlock"}};
+            TASKDIALOGCONFIG tdc{};
+            tdc.cbSize = sizeof(tdc);
+            tdc.hwndParent = owner;
+            tdc.hInstance = instance_;
+            tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION;
+            tdc.dwCommonButtons = TDCBF_CANCEL_BUTTON;
+            tdc.pszWindowTitle = L"Customize this dock";
+            tdc.pszMainInstruction = L"Unlock this dock to customize it?";
+            tdc.pszContent = L"A locked dock keeps its items where they are. Unlock it to add, move and remove them on the dock; "
+                             L"Undo locks it again.";
+            tdc.pButtons = buttons;
+            tdc.cButtons = static_cast<UINT>(std::size(buttons));
+            tdc.nDefaultButton = IDOK;
+            if (FAILED(TaskDialogIndirect(&tdc, &button, nullptr, nullptr))) {
+                button = MessageBoxW(owner, L"Unlock this dock to customize it?", L"Customize this dock", MB_OKCANCEL | MB_ICONQUESTION);
+            }
+            return 0u;
+        });
+        // The dock (or its entry) may be gone while the question was open.
+        if (button != IDOK || shutDown_ || docks_.IndexOf(dock) == SIZE_MAX) return false;
+        cfg = dock->ConfigIndex();
+        if (cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return false;
+        DockConfig& d = config_.docks[cfg];
+        if (d.locked) {
+            NoteLabel(L"Unlocked " + d.id);
+            d.locked = false;
+            docks_.ApplyWidgetWindow(cfg);
+            RequestSave();
+            RefreshSettings();
+        }
+    }
+    FlushTimeline();  // what came before (the unlock) is an entry of its own
+    editDock_ = dock;
+    dock->SetEditing(true);
+    HookEditForeground(true);
+    // The dock takes the keyboard (Escape leaves): allowed, the user just pressed on it or chose a
+    // menu entry (from automation it may be refused: Done and a click beside the bar still work).
+    SetForegroundWindow(dock->Hwnd());
+    UpdateEditUi();
+    return true;
+}
+
+void App::LeaveEdit() {
+    DockWindow* d = editDock_;
+    editDock_ = nullptr;
+    HookEditForeground(false);
+    if (dragDock_) {
+        if (docks_.IndexOf(dragDock_) != SIZE_MAX) dragDock_->ExternalItemLeave();
+        dragDock_ = nullptr;
+    }
+    // The dock gets the foreground back from the drawer (not a dock window that is going away).
+    drawerPopup_.SetReturnFocus(d && docks_.IndexOf(d) != SIZE_MAX ? d->Hwnd() : nullptr);
+    drawerPopup_.Hide();
+    editBar_.Close();
+    if (d && docks_.IndexOf(d) != SIZE_MAX) {
+        d->SetDrawerHold(false);
+        d->SetEditing(false);
+    }
+}
+
+void App::UpdateEditUi() {
+    DockWindow* d = editDock_;
+    if (!d || shutDown_) return;
+    const size_t cfg = d->ConfigIndex();
+    if (cfg >= config_.docks.size() || !config_.docks[cfg].IsDock() || config_.docks[cfg].locked) {
+        // Gone, or locked again (an Undo of "Unlocked main", the Lock button): customizing would do
+        // nothing. Posted: this may run inside the dock's own layout pass.
+        PostMessageW(hwnd_, kEditLeaveMessage, 0, 0);
+        return;
+    }
+    const DockConfig& dc = config_.docks[cfg];
+    EditBar::Content c;
+    c.dock = dc.id;
+    c.dockArgb = config_.DockColor(cfg);
+    // The 12A save state, worded as the settings windows' band words it.
+    const SettingsStatus s = StatusFor(nullptr);
+    c.status = s.save == 2   ? L"\x26A0 Not saved"
+               : s.bar == 2  ? L"Not saved yet"
+               : s.save == 1 ? L"Saving\x2026"
+                             : L"\x2713 Saved";
+    c.canUndo = previewing_ || !undo_.empty();
+    c.drawerShown = drawerPopup_.Shown();
+    const RECT frame = d->EditFrameRect();
+    MONITORINFO mi{sizeof(mi)};
+    if (!GetMonitorInfoW(MonitorFromRect(&frame, MONITOR_DEFAULTTONEAREST), &mi)) return;
+    editBar_.Show(instance_, frame, mi.rcWork, dc.edge, dc.Floating(), d->Dpi(), c);
+    if (drawerPopup_.Shown()) PlaceDrawer();
+}
+
+void App::PlaceDrawer() {
+    DockWindow* d = editDock_;
+    if (!d) return;
+    const size_t cfg = d->ConfigIndex();
+    if (cfg >= config_.docks.size()) return;
+    const DockConfig& dc = config_.docks[cfg];
+    const RECT frame = d->EditFrameRect();
+    const RECT bar = editBar_.Shown() ? editBar_.Rect() : frame;
+    MONITORINFO mi{sizeof(mi)};
+    if (!GetMonitorInfoW(MonitorFromRect(&frame, MONITOR_DEFAULTTONEAREST), &mi)) return;
+    // The room for it: beyond the edit bar (above a bottom dock's, under a top dock's) or, beside a
+    // vertical dock, above the edit bar in its column; never over the dock.
+    RECT avail = mi.rcWork;
+    const int gap = MulDiv(8, static_cast<int>(d->Dpi()), USER_DEFAULT_SCREEN_DPI);
+    DockEdge edge = dc.edge;
+    if (dc.Floating() || !IsVertical(edge)) edge = bar.bottom <= frame.top ? DockEdge::Bottom : DockEdge::Top;
+    int endAlong = bar.right;
+    switch (edge) {
+        case DockEdge::Top: avail.top = std::max(bar.bottom, frame.bottom) + gap; break;
+        case DockEdge::Left:
+            avail.left = std::max(bar.left, frame.right);
+            avail.bottom = bar.top - gap;
+            endAlong = bar.bottom;
+            break;
+        case DockEdge::Right:
+            avail.right = std::min(bar.right, frame.left);
+            avail.bottom = bar.top - gap;
+            endAlong = bar.bottom;
+            break;
+        case DockEdge::Bottom:
+        default: avail.bottom = std::min(bar.top, frame.top) - gap; break;
+    }
+    if (!drawerReady_) {
+        drawerReady_ = true;
+        DrawerPopup::Callbacks cb;
+        cb.add = [this](int ref) { AddDrawerEntry(ref, SIZE_MAX); };
+        cb.desktop = [this](int ref) {
+            const StripUi::DrawerEntry* e = drawerPopup_.Entry(ref);
+            if (!e || e->kind != ItemKind::Widget || !editDock_) return;
+            NoteLabel(L"Added " + e->name + L" to the desktop");
+            if (AddWidgetWindow(e->id, editDock_->ConfigIndex(), false) == SIZE_MAX) MessageBeep(MB_ICONWARNING);
+        };
+        cb.drag = [this](int phase, POINT screen, int ref) {
+            if (phase == 1 || !editDock_ || editDock_->ConfigIndex() >= config_.docks.size()) return DrawerDrag(1, screen, nullptr);
+            const std::optional<DockItemEntry> e = drawerPopup_.EntryFor(ref, config_.docks[editDock_->ConfigIndex()]);
+            return DrawerDrag(phase, screen, e ? &*e : nullptr);
+        };
+        cb.closed = [this] {
+            if (editDock_) editDock_->SetDrawerHold(false);
+            UpdateEditUi();
+        };
+        cb.escape = [this] { LeaveEdit(); };  // Escape in a popup of customize mode leaves the mode
+        cb.renderPreview = [this](const std::wstring& id, float scale, SIZE fit, float maxZoom) {
+            const WidgetPreview::Result r = docks_.RenderPreview(id, scale, static_cast<UINT>(std::max<LONG>(1, fit.cx)),
+                                                                 static_cast<UINT>(std::max<LONG>(1, fit.cy)), maxZoom);
+            return SettingsWidgetPreview{r.bitmap, r.px, r.error, r.ms};
+        };
+        cb.previewStamp = [this] { return WidgetPreview::ThemeStamp(config_) ^ (previewGeneration_ * 0x9E3779B97F4A7C15ull); };
+        cb.previewPanel = [this] { return config_.theme.background; };
+        drawerPopup_.SetCallbacks(std::move(cb));
+    }
+    drawerPopup_.SetReturnFocus(d->Hwnd());
+    const bool wasShown = drawerPopup_.Shown();
+    drawerPopup_.Show(instance_, dc, dc.id, config_.DockColor(cfg), avail, edge, endAlong, d->Dpi());
+    if (!wasShown && drawerPopup_.Shown()) d->SetDrawerHold(true);
+}
+
+void App::ShowDrawer(bool show) {
+    DockWindow* d = editDock_;
+    if (show && d) {
+        PlaceDrawer();
+    } else if (drawerPopup_.Shown()) {
+        drawerPopup_.Hide();
+        if (d) d->SetDrawerHold(false);
+    }
+    UpdateEditUi();  // "Add items" / "Hide items"
+}
+
+void App::OnEditBarCommand(int id) {
+    DockWindow* d = editDock_;
+    if (!d) return;
+    switch (id) {
+        case SettingsIds::kEditBarUndo:
+            if (!Undo()) MessageBeep(MB_OK);
+            break;
+        case SettingsIds::kEditBarAdd: ShowDrawer(!drawerPopup_.Shown()); break;
+        case SettingsIds::kEditBarSettings: OpenDockSettings(d->ConfigIndex()); break;  // = DockCommand 143 (12E: the panel)
+        case SettingsIds::kEditBarDone: LeaveEdit(); break;
+        default: break;
+    }
+}
+
+void App::EditRemoveItem(size_t item) {
+    DockWindow* d = editDock_;
+    if (!d) return;
+    const size_t cfg = d->ConfigIndex();
+    if (cfg >= config_.docks.size() || item >= config_.docks[cfg].items.size()) return;
+    DockConfig& dc = config_.docks[cfg];
+    NoteLabel(L"Removed " + EntryName(cfg, item) + L" from " + dc.id);
+    dc.items.erase(dc.items.begin() + static_cast<ptrdiff_t>(item));
+    ItemsChanged(cfg);
+    if (drawerPopup_.Shown() && cfg < config_.docks.size()) drawerPopup_.Refresh(config_.docks[cfg]);  // a once-only kind is free again
+}
+
+void App::EditAnchorItem(size_t item, ItemAnchor anchor) {
+    DockWindow* d = editDock_;
+    if (!d) return;
+    const size_t cfg = d->ConfigIndex();
+    if (cfg >= config_.docks.size() || item >= config_.docks[cfg].items.size()) return;
+    if (config_.docks[cfg].items[item].anchor == anchor) return;
+    NoteLabel(L"Anchored " + EntryName(cfg, item) +
+              (anchor == ItemAnchor::Start ? L" at the start" : anchor == ItemAnchor::Center ? L" in the centre" : L" at the end"));
+    SetItemAnchor(cfg, item, anchor);  // ItemCommand 859's path: sorted into group order, reloaded, saved
+}
+
+bool App::InsertDockEntry(size_t cfg, DockItemEntry e, size_t at) {
+    if (shutDown_ || cfg >= config_.docks.size() || !config_.docks[cfg].IsDock()) return false;
+    DockConfig& d = config_.docks[cfg];
+    const ItemKind k = e.Kind();
+    const bool once = k == ItemKind::Running || k == ItemKind::Tray || k == ItemKind::Notifications || k == ItemKind::RecycleBin;
+    if (d.locked || (once && d.Has(k))) {
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    if (k == ItemKind::Tray) config_.tray.enabled = true;  // as the dock menu's Add > Tray
+    at = std::min(at, d.items.size());
+    d.items.insert(d.items.begin() + static_cast<ptrdiff_t>(at), std::move(e));
+    // Round 7 phase 7B: it joins the group of its new neighbours, then the items are in group order.
+    d.JoinNeighbourGroup(at);
+    d.SortByGroup(&at);
+    NoteLabel(L"Added " + EntryName(cfg, at) + L" to " + d.id);
+    ItemsChanged(cfg);  // a clock / weather item gets its defaults (ReloadPins: EnsureItemSettings)
+    if (editDock_ && drawerPopup_.Shown() && editDock_->ConfigIndex() < config_.docks.size()) {
+        drawerPopup_.Refresh(config_.docks[editDock_->ConfigIndex()]);
+    }
+    return true;
+}
+
+bool App::AddDrawerEntry(int ref, size_t at) {
+    DockWindow* d = editDock_;
+    if (!d || shutDown_) return false;
+    const size_t cfg = d->ConfigIndex();
+    if (cfg >= config_.docks.size()) return false;
+    if (ref == StripUi::DrawerRefs::kApp || ref == StripUi::DrawerRefs::kFolder) {
+        // Their dialogs (owned by the drawer when it is open; it stays open meanwhile).
+        const HWND owner = drawerPopup_.Shown() ? drawerPopup_.Hwnd() : d->Hwnd();
+        std::vector<std::wstring> paths;
+        drawerPopup_.SetModal(true);
+        RunMenu(d, [&] {
+            paths = PickPins(owner, ref == StripUi::DrawerRefs::kFolder);
+            return 0u;
+        });
+        drawerPopup_.SetModal(false);
+        if (paths.empty() || editDock_ != d || docks_.IndexOf(d) == SIZE_MAX) return false;
+        const size_t c = d->ConfigIndex();
+        if (c >= config_.docks.size()) return false;
+        // After the last pin, or (ItemCommand 864) before config item `at`: the pins before it.
+        size_t pinAt = config_.docks[c].PinCount();
+        if (at != SIZE_MAX) {
+            pinAt = 0;
+            for (size_t i = 0; i < at && i < config_.docks[c].items.size(); ++i) {
+                if (config_.docks[c].items[i].IsPin()) ++pinAt;
+            }
+        }
+        PinFiles(c, d->Pins(), paths, pinAt);
+        return true;
+    }
+    std::optional<DockItemEntry> e = drawerPopup_.EntryFor(ref, config_.docks[cfg]);
+    if (!e) return false;
+    // A click adds it at the end of the dock (ItemCommand 864: where a drop before item `at` would).
+    return InsertDockEntry(cfg, std::move(*e), at == SIZE_MAX ? config_.docks[cfg].items.size() : at);
+}
+
+int App::DrawerDrag(int phase, POINT screen, const DockItemEntry* entry) {
+    DockWindow* under = nullptr;
+    HWND root = nullptr;
+    if (phase != 1) {
+        if (HWND h = WindowFromPoint(screen)) root = GetAncestor(h, GA_ROOT);
+        under = root ? docks_.ByHwnd(root) : nullptr;
+    }
+    if (dragDock_ && dragDock_ != under) {
+        if (docks_.IndexOf(dragDock_) != SIZE_MAX) dragDock_->ExternalItemLeave();
+        dragDock_ = nullptr;
+    }
+    if (phase == 1 || !entry) return 0;
+    if (under) {
+        // A dock (any dock of this process): its marker shows where the tile lands.
+        if (phase == 0) {
+            if (!under->ExternalItemOver(screen)) return 0;
+            dragDock_ = under;
+            return 1;
+        }
+        const size_t at = under->ExternalItemDrop(screen);
+        dragDock_ = nullptr;
+        return at != SIZE_MAX && InsertDockEntry(under->ConfigIndex(), *entry, at) ? 1 : 0;
+    }
+    // Outside every dock and every window of WinDock (the desktop, as the old "Desktop" button): a
+    // script widget becomes a standalone widget centred on the point.
+    DWORD pid = 0;
+    if (root) GetWindowThreadProcessId(root, &pid);
+    const bool desktop = entry->Kind() == ItemKind::Widget && root && pid != GetCurrentProcessId();
+    if (phase == 0 || !desktop) return desktop ? 2 : 0;
+    return AddWidgetWindowAt(entry->id, screen) != SIZE_MAX ? 1 : 0;
+}
+
+size_t App::AddWidgetWindowAt(const std::wstring& id, POINT screen) {
+    NoteLabel(L"Added " + Widgets::DisplayName(id) + L" to the desktop");
+    widgetAt_ = screen;
+    const size_t cfg = AddWidgetWindow(id, SIZE_MAX, false);
+    widgetAt_.reset();
+    return cfg;
+}
+
+std::vector<std::wstring> App::PickPins(HWND owner, bool folder) {
+    // As the Contents tab's Add app… / Add folder… (SettingsPagesContents.cpp).
+    std::vector<std::wstring> paths;
+    winrt::com_ptr<IFileOpenDialog> dialog;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
+        MessageBeep(MB_ICONERROR);
+        return paths;
+    }
+    FILEOPENDIALOGOPTIONS options = 0;
+    dialog->GetOptions(&options);
+    if (folder) {
+        dialog->SetTitle(L"Pin a folder to the dock");
+        dialog->SetOptions(options | FOS_PICKFOLDERS | FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR);
+    } else {
+        const COMDLG_FILTERSPEC filters[] = {{L"Apps and shortcuts (*.lnk;*.exe)", L"*.lnk;*.exe"}, {L"All files", L"*.*"}};
+        dialog->SetFileTypes(static_cast<UINT>(std::size(filters)), filters);
+        dialog->SetTitle(L"Pin apps to the dock");
+        // NODEREFERENCELINKS: a chosen shortcut is pinned as the shortcut (keeps its arguments).
+        dialog->SetOptions(options | FOS_ALLOWMULTISELECT | FOS_FILEMUSTEXIST | FOS_FORCEFILESYSTEM | FOS_NODEREFERENCELINKS |
+                           FOS_NOCHANGEDIR);
+        winrt::com_ptr<IShellItem> programs;
+        if (SUCCEEDED(SHGetKnownFolderItem(FOLDERID_Programs, KF_FLAG_DEFAULT, nullptr, IID_PPV_ARGS(programs.put())))) {
+            dialog->SetDefaultFolder(programs.get());
+        }
+    }
+    if (FAILED(dialog->Show(owner))) return paths;  // cancelled
+    winrt::com_ptr<IShellItemArray> items;
+    DWORD count = 0;
+    if (FAILED(dialog->GetResults(items.put())) || FAILED(items->GetCount(&count))) return paths;
+    for (DWORD i = 0; i < count; ++i) {
+        winrt::com_ptr<IShellItem> item;
+        PWSTR raw = nullptr;
+        if (SUCCEEDED(items->GetItemAt(i, item.put())) && SUCCEEDED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) && raw) {
+            paths.emplace_back(raw);
+            CoTaskMemFree(raw);
+        }
+    }
+    return paths;
 }

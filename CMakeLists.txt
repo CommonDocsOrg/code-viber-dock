@@ -37,6 +37,9 @@ add_executable(WinDock WIN32
   src/Theme.cpp
   src/DockWindow.cpp
   src/DockWindowTray.cpp
+  src/DockWindowEdit.cpp
+  src/DrawerPopup.cpp
+  src/EditBar.cpp
   src/TrayHost.cpp
   src/TrayElements.cpp
   src/DockManager.cpp

@@ -812,6 +812,9 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
                  l.reflH + l.captionBand;
     winH = std::max(winH, barH + margin);
     if (titleCross > 0.0f && !l.titleInside) winH = std::max(winH, barH + margin + titleGap + titleCross);
+    // Round 12 phase 12D: customize mode's anchor targets (10 DIPs beyond the bar, 20 DIPs across)
+    // and its outline need this much stage beyond the bar's far side.
+    if (editing_) winH = std::max(winH, barH + margin + std::round(36.0f * s));
     if (l.glowPad > 0.0f) {
         // Room above a fully magnified icon for its halo.
         const float magTopRel =
@@ -949,6 +952,41 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         barW = std::round(std::max(lead + itemsW + trail, l.iconPx + 2.0f * l.padding));
         winW = barW + 2.0f * slack;
     }
+    // --- round 12 phase 12D --- customize mode: a slot's room for each "+" (right after the pinned
+    // run, before the next element's slot, and at the run's end), on a bar whose run still fits the
+    // room with them. Not on a ring, an anchored bar (its gaps are the groups') or a run that would
+    // scroll: there the edit bar's Add items opens the drawer. Like "always"'s room it is on the
+    // icon side of a spacer, so a hairline stays beside the widgets.
+    l.plusPinSlot = -1;
+    l.plusEnd = false;
+    l.plusRoom = 0.0f;
+    if (editing_ && !polar && !d.Anchored()) {
+        int lastPin = -1;
+        for (size_t i = 0; i < items_.size(); ++i) {
+            if (items_[i].pinned) lastPin = static_cast<int>(i);
+        }
+        int pinSlot = -1;
+        for (size_t i = lastPin >= 0 ? static_cast<size_t>(lastPin) + 1 : items_.size(); i < items_.size() && pinSlot < 0; ++i) {
+            if (items_[i].element == items_[static_cast<size_t>(lastPin)].element) continue;  // the pin's own window slots
+            if (items_[i].IsWidget() && items_[i].slotW <= 0.0f) continue;                    // takes no room
+            pinSlot = static_cast<int>(i);
+        }
+        const float extra = stride * (pinSlot >= 0 ? 2.0f : 1.0f);
+        if (lead + itemsW + trail + extra <= roomPx + 0.5f) {
+            l.plusRoom = stride;
+            l.plusEnd = true;
+            trail += stride;
+            if (pinSlot >= 0) {
+                l.plusPinSlot = pinSlot;
+                items_[static_cast<size_t>(pinSlot)].lead += stride;
+                itemsW += stride;
+            }
+            l.itemsW = itemsW;
+            barW = std::round(std::max(lead + itemsW + trail, l.iconPx + 2.0f * l.padding));
+            winW = barW + 2.0f * slack;
+        }
+    }
+    // --- end round 12 phase 12D ---
     // Item anchors (round 7 phase 7B): with an anchor or an offset on some item, a bar whose run fits
     // the room is as long as the room (full width: the edge) and its items are laid out as groups
     // (AnchoredLeads: the gaps between the groups become leads, so everything else still sees one
@@ -1240,6 +1278,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     for (size_t i = 0; i < items_.size(); ++i) {
         DockItem& item = items_[i];
         const float spacerLeft = slotX - l.bar.left;  // bar-local
+        if (static_cast<int>(i) == l.plusPinSlot) l.plusPinMain = slotX + half;  // round 12 phase 12D: the "+" box in its room
         slotX += item.lead;
         item.slotX = slotX;
         slotX += item.slotW;
@@ -1255,7 +1294,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         // "always": the room before the first magnifying slot is the icon side of its spacer, the
         // room after the last one the icon side of the next spacer; a hairline stays in the spacer
         // proper, beside the widgets.
-        const float padBefore = k == l.padEndSlot ? alwaysEnd : 0.0f;
+        const float padBefore = (k == l.padEndSlot ? alwaysEnd : 0.0f) + (k == l.plusPinSlot ? l.plusRoom : 0.0f);  // 12D: "+" room too
         const float spacer = item.lead - padBefore - (k == l.padStartSlot ? alwaysStart : 0.0f);
         if (spacer <= 0.0f || firstIcon < 0) continue;
         // Anchored groups: no hairline in a gap between groups (only in a spacer of the usual size).
@@ -1266,6 +1305,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         }
         if (k == firstIcon && !gap) l.leftSeparatorX = std::round(spacerLeft + spacer / 2.0f);
     }
+    if (l.plusEnd) l.plusEndMain = slotX + half;  // round 12 phase 12D: the end "+" right after the run
     // Scrolling: the spacers move with the run, so the background (fixed) draws no hairlines (nor
     // does a ring: its edges are its hairlines).
     if (l.view.on || polar) l.separatorX = l.leftSeparatorX = -1.0f;
@@ -1604,6 +1644,8 @@ bool DockWindow::NeedsStage() const {
         return true;
     }
     if (dragPhase_ != DragPhase::None || dropActive_) return true;
+    // Round 12 phase 12D: customize mode draws beside the bar (the outline, the anchor targets).
+    if (editing_) return true;
     // A bounce / hop leaves the bar; a pulse stays inside it.
     return std::any_of(items_.begin(), items_.end(), [](const DockItem& item) {
         return item.bounce != DockItem::Bounce::None && item.bounceStyle != LaunchStyle::Pulse;
@@ -1674,6 +1716,15 @@ void DockWindow::LayoutPass() {
     }
 
     inLayout_ = false;
+    // Round 12 phase 12D: customize mode: the outline is drawn for the new bar, the edit bar follows.
+    if (editing_) {
+        editDirty_ = true;
+        const RECT frame = EditFrameRect();
+        if (!EqualRect(&frame, &editFrameShown_)) {
+            editFrameShown_ = frame;
+            if (editRequests_.moved) editRequests_.moved();
+        }
+    }
 }
 
 void DockWindow::ResetLayers() {
@@ -1697,6 +1748,12 @@ void DockWindow::ResetLayers() {
     thumbMain_.valid = thumbOpacity_.valid = false;
     thumbLen_ = 0.0f;
     hintShown_ = false;
+    // Round 12 phase 12D: customize mode's visuals (made again by the next PlaceEditVisuals).
+    editOutline_.Reset();
+    editBadge_.Reset();
+    for (Layer& p : editPlus_) p.Reset();
+    for (Layer& a : editAnchors_) a.Reset();
+    editDirty_ = true;
     for (DockItem& item : items_) {
         item.layer.Reset();
         item.glow.Reset();
@@ -3698,7 +3755,8 @@ void DockWindow::ComputeTargets() {
     const float half = std::floor(l.gap / 2.0f);
     // 9A follow-up 2: a "steady" bar not grown yet (the pointer only over widgets, separators or
     // the bar's padding so far) magnifies nothing: the icons zoom together with the bar's growth.
-    const bool magnify = magnifying_ && l.magnification > 1.001f && n > 0 && (!l.steady || GrownBar());
+    // Round 12 phase 12D: customize mode pauses it (the badges and "+" slots sit on the rest layout).
+    const bool magnify = magnifying_ && !editing_ && l.magnification > 1.001f && n > 0 && (!l.steady || GrownBar());
     const float range = static_cast<float>(DockCfg().magnifyRange) * stride;
 
     // Dragging an icon: no magnification; the others make room at the insertion slot and the
@@ -4197,6 +4255,8 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
     // Round 11 phase 11A: the slot buttons follow the hover / press / state (and the pointer with
     // hot tracking) in the same commit.
     if (const HRESULT hr = RenderButtons(); FAILED(hr)) Log(L"slot buttons", hr);
+    // Round 12 phase 12D: customize mode's outline, badge, "+" slots and anchor targets.
+    if (editing_ || editOutline_.visual) PlaceEditVisuals();
 }
 
 void DockWindow::ResetPlacementTweens() {
@@ -4259,6 +4319,13 @@ void DockWindow::SetBigIcons(bool big) {
 
 void DockWindow::LeaveZone() {
     if (!CursorInZone()) previewSuppressed_ = false;  // really left (not a menu taking the mouse)
+    if (editing_ && editHover_ >= 0) {  // round 12 phase 12D: the remove badge goes with the pointer
+        editHover_ = -1;
+        RenderWithRecovery([this] {
+            PlaceEditVisuals();
+            return S_OK;
+        });
+    }
     pressed_ = -1;
     pressedMiddle_ = -1;
     if (magnifyPending_) {
@@ -4445,7 +4512,7 @@ bool DockWindow::PreviewEligible(int index) const {
     // Showing counts: the hover usually starts while the dock slides in (OnPreviewTimer requires
     // Shown).
     return (hideState_ == HideState::Shown || hideState_ == HideState::Showing) && !hold_ &&
-           dragPhase_ == DragPhase::None && !dropActive_ && !ClickPopupOnScreen();
+           dragPhase_ == DragPhase::None && !dropActive_ && !ClickPopupOnScreen() && !editing_;  // round 12 phase 12D: none while customizing
 }
 
 void DockWindow::UpdatePreviewHover() {
@@ -7149,7 +7216,10 @@ void DockWindow::UpdateDrag(POINT pt) {
     cursorX_ = layout_.Canon(pt).x;
     // Over the middle of a pin: held there it makes a group (a group takes it at once). Meanwhile
     // the others stay where they are (no gap), so the target stays under the pointer.
-    const int candidate = GroupCandidateAt(pt);
+    // Round 12 phase 12D: customize mode has no hold-to-group (plain dragging reorders); over one of
+    // its anchor targets the others stay put too (a drop there sets the item's anchor).
+    const int candidate = editing_ ? -1 : GroupCandidateAt(pt);
+    if (editing_) SetAnchorHot(AnchorAt(pt));
     if (candidate != groupCandidate_) {
         ResetGroupTarget();
         groupCandidate_ = candidate;
@@ -7160,7 +7230,7 @@ void DockWindow::UpdateDrag(POINT pt) {
             groupHoldPending_ = SetTimer(hwnd_, kGroupHoldTimerId, kGroupHoldMs, nullptr) != 0;
         }
     }
-    if (groupCandidate_ >= 0) {
+    if (groupCandidate_ >= 0 || anchorHot_ >= 0) {
         dragInsert_ = dragSource_;
         ResetDragOrder();
     } else {
@@ -7234,7 +7304,12 @@ void DockWindow::EndDrag(bool commit) {
     if (commit && (GetAsyncKeyState(VK_ESCAPE) & 0x8001)) commit = false;
     const int s = dragSource_;
     const bool valid = s >= 0 && s < static_cast<int>(items_.size()) && items_[static_cast<size_t>(s)].key == dragKey_;
-    const bool remove = valid && commit && dragRemove_ && DragRemovable();
+    // Round 12 phase 12D: dropped on one of customize mode's anchor targets: the item's anchor
+    // changes (start / centre / end), its order does not.
+    const int anchorDrop = editing_ && valid && commit ? anchorHot_ : -1;
+    const size_t anchorItem = anchorDrop >= 0 ? items_[static_cast<size_t>(s)].element : SIZE_MAX;
+    SetAnchorHot(-1);
+    const bool remove = valid && commit && anchorDrop < 0 && dragRemove_ && DragRemovable();
     // Released over a pin it was held on (or a group): the two make a group.
     AppKey groupWith;
     if (valid && commit && !remove && groupTarget_ >= 0 && groupTarget_ < static_cast<int>(items_.size())) {
@@ -7268,7 +7343,7 @@ void DockWindow::EndDrag(bool commit) {
     // Round 7 phase 7B: dropped into another group (the order may stay): that group's anchor.
     if (valid && dragGroup_ >= 0 && dragGroup_ != DragOwnGroup()) moved = true;
     std::optional<ItemAnchor> anchor;
-    if (valid && commit && dragInsert_ >= 0 && moved && dragOrder_.size() == items_.size()) {
+    if (valid && commit && anchorDrop < 0 && dragInsert_ >= 0 && moved && dragOrder_.size() == items_.size()) {
         if (dragWidget_) {
             moveFrom = items_[static_cast<size_t>(s)].element;
             anchor = DragAnchor(false);
@@ -7312,6 +7387,9 @@ void DockWindow::EndDrag(bool commit) {
     // A widget's new place usually changes the dock's width (the spacers move with it): the
     // rebuilt layout then snaps instead of finishing the landing.
     if (moveFrom != SIZE_MAX && pinRequests_.moveItem) pinRequests_.moveItem(moveFrom, moveTo, anchor);
+    if (anchorItem != SIZE_MAX && editRequests_.anchor) {
+        editRequests_.anchor(anchorItem, anchorDrop == 0 ? ItemAnchor::Start : anchorDrop == 1 ? ItemAnchor::Center : ItemAnchor::End);
+    }
     if (!running.empty()) {
         runningOrder_ = std::move(running);
         RebuildFrom(shared_->Tracker().Current());
@@ -8183,6 +8261,7 @@ bool DockWindow::GrowForZoom(int slot) {
     // folders, the Recycle Bin, groups, thumbnails); widgets, separators and the bar's padding do
     // not (a widget growing on hover counts too: RefreshDirtyWidgets).
     if (!layout_.steady || layout_.always || grown_ || layout_.magnification <= 1.001f) return false;
+    if (editing_) return false;  // round 12 phase 12D: customize mode pauses magnification (the icons stay at rest size)
     if (slot < 0 || slot >= static_cast<int>(items_.size()) || !items_[static_cast<size_t>(slot)].Magnifies()) return false;
     grown_ = true;
     ComputeTargets();  // the grown bar, the run magnified about the pointer
@@ -8942,6 +9021,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 return 0;
             }
             if (dragPhase_ == DragPhase::Removing) return 0;
+            // Round 12 phase 12D: the long press into customize mode wants a still pointer (4 DIPs).
+            if (editPressPending_ && (std::abs(pt.x - editPressPt_.x) > MulDiv(4, static_cast<int>(dpi_), 96) ||
+                                      std::abs(pt.y - editPressPt_.y) > MulDiv(4, static_cast<int>(dpi_), 96))) {
+                CancelEditPress();
+            }
             if (!pressTrayKey_.empty() && (wp & MK_LBUTTON) && hideState_ != HideState::Hidden && !DockCfg().locked &&
                 (std::abs(pt.x - pressPt_.x) > GetSystemMetricsForDpi(SM_CXDRAG, dpi_) ||
                  std::abs(pt.y - pressPt_.y) > GetSystemMetricsForDpi(SM_CYDRAG, dpi_))) {
@@ -8969,6 +9053,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 }
                 return 0;
             }
+            if (editing_) UpdateEditHover(pt);  // round 12 phase 12D: the remove badge follows the pointer
             if (!InZone(pt)) {
                 LeaveZone();
                 return 0;
@@ -9044,6 +9129,13 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_LBUTTONDOWN:
             SuppressPreview();  // the click cycles / starts a drag: no popup over it
+            CancelEditPress();
+            // Round 12 phase 12D: customize mode's own targets first (a badge, a "+", beside the bar).
+            if (editing_ && dragPhase_ == DragPhase::None && !(wp & MK_CONTROL) &&
+                EditPress(ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)}))) {
+                pressed_ = -1;
+                return 0;
+            }
             pressPt_ = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
             pressed_ = dragPhase_ == DragPhase::None ? HitTest(pressPt_) : -1;
             pressTrayKey_.clear();
@@ -9086,12 +9178,23 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             // A press on the dock closes the click popup; on the slot whose popup it is (a folder,
             // the clock, the weather) the release then does not open it again (the click toggles).
-            pressClosedPopup_ = pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).OnPress(pressed_);
+            // Round 12 phase 12D: customize mode: an item's press and click do nothing of their own.
+            pressClosedPopup_ = !editing_ && pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).OnPress(pressed_);
             if (ClickPopupOnScreen()) DismissClickPopups(true, false);
             RefreshButtons();  // round 11 phase 11A: the pressed frame (no-op without slot buttons)
+            // Round 12 phase 12D: a press on the bar's background (or beside an icon's box across the
+            // bar) held still for 600 ms enters customize mode (an item's press is hold-to-group's).
+            if (!editing_ && !(wp & MK_CONTROL) && dragPhase_ == DragPhase::None && hideState_ == HideState::Shown &&
+                InZone(pressPt_) && pressTrayKey_.empty()) {
+                const float v = layout_.Canon(pressPt_).y;
+                const bool offBox = pressed_ >= 0 && !items_[static_cast<size_t>(pressed_)].IsWidget() &&
+                                    (v < layout_.itemTop || v >= layout_.itemTop + layout_.iconPx);
+                if (pressed_ < 0 || offBox) ArmEditPress(pressPt_);
+            }
             return 0;
 
         case WM_LBUTTONUP: {
+            CancelEditPress();  // round 12 phase 12D: released before the long press: an ordinary click
             if (dockPress_) {
                 dockPress_ = false;  // a Ctrl + click without a move: an ordinary click
                 if (GetCapture() == hwnd_) ReleaseCapture();
@@ -9111,8 +9214,12 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             pressTrayKey_.clear();
             const POINT upPt = ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)});
+            if (editing_ && EditRelease(upPt)) {  // round 12 phase 12D: a badge's / a "+" slot's click
+                pressed_ = -1;
+                return 0;
+            }
             const int index = HitTest(upPt);
-            const bool clicked = index >= 0 && index == pressed_;
+            const bool clicked = index >= 0 && index == pressed_ && !editing_;  // 12D: no launch while customizing
             pressed_ = -1;
             const bool pressClosed = pressClosedPopup_;
             pressClosedPopup_ = false;
@@ -9129,7 +9236,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_MBUTTONUP: {
             const int index = HitTest(ToStage(POINT{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)}));
-            const bool clicked = index >= 0 && index == pressedMiddle_;
+            const bool clicked = index >= 0 && index == pressedMiddle_ && !editing_;  // round 12 phase 12D
             pressedMiddle_ = -1;
             if (clicked) ElementOf(static_cast<size_t>(index)).OnMiddleClick(index);  // apps: a new instance
             return 0;
@@ -9330,6 +9437,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 case kFlashTimerId:
                     OnFlashTimer();
                     return 0;
+                case kEditPressTimerId:  // round 12 phase 12D
+                    OnEditPressTimer();
+                    return 0;
                 case kRestTimerId:
                     KillTimer(hwnd_, kRestTimerId);
                     restPending_ = false;
@@ -9402,6 +9512,12 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 shared_->EndDashboard();
                 return 0;
             }
+            // Round 12 phase 12D: customize mode gave the dock the keyboard (App, on entering): Escape
+            // leaves it (a drag's Escape is the drag's: the poll timer cancels it).
+            if (wp == VK_ESCAPE && editing_ && dragPhase_ == DragPhase::None && editRequests_.leave) {
+                editRequests_.leave();
+                return 0;
+            }
             break;
 
         case WM_WINDOWPOSCHANGED:
@@ -9416,6 +9532,13 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             break;
 
         case WM_DESTROY:
+            // Round 12 phase 12D: customize mode ends with its window (a disabled dock, a display
+            // gone): App forgets it and closes the edit bar and the drawer.
+            if (editing_) {
+                editing_ = false;
+                if (editRequests_.ended) editRequests_.ended();
+            }
+            editPressPending_ = false;
             RemoveAppBar();  // never leave a registration behind
             appBarAllowed_ = false;
             if (layerRegistered_) {

@@ -43,6 +43,10 @@ There are quicker ways for some items:
 
 To remove an item, select it on the Contents tab and click **Remove** (or press Delete). A clock, a weather item, a widget, the tray and the notification centre also have **Remove from dock** at the end of their right-click menu. You can also drag a pinned app that is not running up and off the dock.
 
+## Customize a dock
+
+Right-click the dock and choose **Customize this dock** (or press and hold an empty part of the bar) to add items from the drawer beside it, drag items to move them, and click an item's **×** to remove it; click **Done** when you are finished.
+
 ## Right-click menus
 
 Right-click an item and its menu starts with what the item does, then how it looks, then its settings, and ends with removal. The last entry, **Dock**, holds the dock menu: the same menu you get by right-clicking an empty part of the dock.

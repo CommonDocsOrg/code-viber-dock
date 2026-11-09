@@ -35,6 +35,8 @@ void AppendTools(HMENU menu, bool hasWidgets) {
 // Round 10 phase 10A: the dock menu grouped by task (was one long list; every command kept). The
 // first group is this dock's, after the separator what goes beyond it.
 void AppendDockEntries(HMENU menu, const TrayMenuState& state) {
+    // Round 12 phase 12D: customize mode first (under Undo "<label>" when there is one).
+    if (state.canEdit) Append(menu, kCustomize, state.editing ? L"Done customizing" : L"Customize this dock", true);
     Append(menu, kDockSettings, L"Dock settings…", true);  // round 5 phase B: this dock's window
     if (HMENU sub = CreatePopupMenu()) {
         // The dock's own items (greyed while it is locked, as Add widget was), then the drawer and

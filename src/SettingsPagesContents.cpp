@@ -9,6 +9,11 @@
 // colours (dark / light, high contrast), DPI aware through the window's Px, no timers. A drag from
 // the drawer to the strip uses plain mouse capture: the drawer keeps the capture and asks the strip
 // under the pointer (WindowFromPoint) to show its insertion marker; no OLE drag and drop.
+//
+// Round 12 phase 12D: the control and the drawer's entries moved to SettingsStrip.h (shared with
+// the drawer popup of customize mode); the drawer is a grid of tiles with filter chips over it (a
+// click on a tile adds it), and a tile dragged out of the window lands on a dock (its marker shows
+// where) or, a script widget, on the desktop (SettingsHost::drawerDrag).
 
 #include <windows.h>
 #include <commctrl.h>
@@ -35,74 +40,15 @@
 #include "JsonUtil.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
+#include "SettingsStrip.h"
 #include "WidgetPackage.h"
 
 namespace {
 
 using namespace SettingsIds;
+using namespace StripUi;  // round 12 phase 12D: the control and the drawer's catalog (SettingsStrip.h)
 namespace json = winrt::Windows::Data::Json;
 
-// --- GDI helpers -----------------------------------------------------------------------------
-
-COLORREF Mix(COLORREF a, COLORREF b, int pa) {
-    auto ch = [&](BYTE x, BYTE y) { return static_cast<BYTE>((x * pa + y * (100 - pa)) / 100); };
-    return RGB(ch(GetRValue(a), GetRValue(b)), ch(GetGValue(a), GetGValue(b)), ch(GetBValue(a), GetBValue(b)));
-}
-
-int Luma(COLORREF c) { return (GetRValue(c) * 299 + GetGValue(c) * 587 + GetBValue(c) * 114) / 1000; }
-
-COLORREF Rgb(uint32_t rgb) { return RGB((rgb >> 16) & 0xFF, (rgb >> 8) & 0xFF, rgb & 0xFF); }
-
-void Fill(HDC dc, const RECT& r, COLORREF c) {
-    HBRUSH b = CreateSolidBrush(c);
-    FillRect(dc, &r, b);
-    DeleteObject(b);
-}
-
-// A rounded rectangle filled with `fill`, outlined with `border` (1 px).
-void Round(HDC dc, const RECT& r, COLORREF fill, COLORREF border, int radius) {
-    HBRUSH b = CreateSolidBrush(fill);
-    HPEN p = CreatePen(PS_SOLID, 1, border);
-    HGDIOBJ ob = SelectObject(dc, b);
-    HGDIOBJ op = SelectObject(dc, p);
-    RoundRect(dc, r.left, r.top, r.right, r.bottom, radius, radius);
-    SelectObject(dc, ob);
-    SelectObject(dc, op);
-    DeleteObject(p);
-    DeleteObject(b);
-}
-
-void Frame(HDC dc, const RECT& r, COLORREF border, int radius, int style = PS_SOLID) {
-    HPEN p = CreatePen(style, 1, border);
-    HGDIOBJ op = SelectObject(dc, p);
-    HGDIOBJ ob = SelectObject(dc, GetStockObject(NULL_BRUSH));
-    RoundRect(dc, r.left, r.top, r.right, r.bottom, radius, radius);
-    SelectObject(dc, ob);
-    SelectObject(dc, op);
-    DeleteObject(p);
-}
-
-void Text(HDC dc, const std::wstring& s, RECT r, HFONT font, COLORREF color, UINT format) {
-    HGDIOBJ old = SelectObject(dc, font);
-    SetTextColor(dc, color);
-    DrawTextW(dc, s.c_str(), static_cast<int>(s.size()), &r, format | DT_NOPREFIX | DT_SINGLELINE);
-    SelectObject(dc, old);
-}
-
-int TextWidth(HDC dc, const std::wstring& s, HFONT font) {
-    HGDIOBJ old = SelectObject(dc, font);
-    SIZE sz{};
-    GetTextExtentPoint32W(dc, s.c_str(), static_cast<int>(s.size()), &sz);
-    SelectObject(dc, old);
-    return sz.cx;
-}
-
-bool ContainsNoCase(const std::wstring& hay, const std::wstring& needle) {
-    if (needle.empty()) return true;
-    auto it = std::search(hay.begin(), hay.end(), needle.begin(), needle.end(),
-                          [](wchar_t a, wchar_t b) { return std::towlower(a) == std::towlower(b); });
-    return it != hay.end();
-}
 
 // --- what an item is called ------------------------------------------------------------------
 
@@ -213,1070 +159,7 @@ void Describe(const Config& c, const DockItemEntry& e, const AppIdentity::Resolv
     }
 }
 
-// The letter tile colours (the design's tints); a script widget's by its id.
-COLORREF TintOf(ItemKind k, const std::wstring& id) {
-    switch (k) {
-        case ItemKind::Clock: return Rgb(0xCFE3FF);
-        case ItemKind::Weather: return Rgb(0xB3E0FF);
-        case ItemKind::Tray:
-        case ItemKind::TrayApp:
-        case ItemKind::Notifications: return Rgb(0xFFD49A);
-        case ItemKind::Group: return Rgb(0xF3C86B);
-        case ItemKind::Widget: {
-            static const uint32_t kTints[] = {0xD8C8FF, 0xFFB3B3, 0xA8F0D8, 0xF3C86B, 0xC8F0A0, 0x9AD0FF, 0xF0A0C0};
-            uint32_t h = 2166136261u;
-            for (wchar_t ch : id) h = (h ^ static_cast<uint32_t>(std::towlower(ch))) * 16777619u;
-            return Rgb(kTints[h % std::size(kTints)]);
-        }
-        case ItemKind::Running: return Rgb(0x9A9A9A);
-        default: return Rgb(0xC0C0C0);
-    }
-}
 
-wchar_t LetterOf(ItemKind k, const std::wstring& name) {
-    switch (k) {
-        case ItemKind::Clock: return L'C';
-        case ItemKind::Weather: return L'W';
-        case ItemKind::Tray:
-        case ItemKind::TrayApp: return L'T';
-        case ItemKind::Notifications: return L'B';  // the bell
-        default: return name.empty() ? L'?' : static_cast<wchar_t>(std::towupper(name[0]));
-    }
-}
-
-// --- the control -----------------------------------------------------------------------------
-
-struct StripTile {
-    enum class Shape { Icon, Letter, Separator, Running };
-    Shape shape = Shape::Letter;
-    std::wstring name;     // strip: the label under the tile; drawer: the row's name; info: the item's name
-    std::wstring note;     // strip: the kind (accessible name); drawer: the one-line note; info: "kind · details"
-    std::wstring version;  // drawer: a script widget's version
-    HICON icon = nullptr;  // not owned (the page's caches)
-    COLORREF tint = RGB(0xC0, 0xC0, 0xC0);
-    wchar_t letter = L'?';
-    bool disabled = false;  // drawer: a single-instance kind already on the dock
-    bool header = false;    // drawer: a group header ("Built in")
-    bool desktop = false;   // drawer: a script widget's row also offers "Desktop" (round 6 phase 6B: Add to the desktop)
-    bool noDrag = false;    // drawer: not a drag source, Add only (round 8 phase 8B: App or shortcut…, Folder…: a dialog)
-    // Round 6 phase 6E: a script widget's id: the drawer row / the inspector shows its live preview
-    // (SettingsWindow::Preview) instead of the letter tile ("" none, or a widget that failed).
-    std::wstring previewId;
-    int ref = -1;           // strip: the item index; drawer: the entry index
-};
-
-class SettingsStrip {
-public:
-    enum class Mode { Strip, Drawer, Info };
-    static constexpr wchar_t kClass[] = L"WinDock.SettingsStrip";
-
-    static void Register() {
-        static bool registered = false;
-        if (registered) return;
-        WNDCLASSEXW wc{sizeof(wc)};
-        wc.lpfnWndProc = &SettingsStrip::Proc;
-        wc.hInstance = GetModuleHandleW(nullptr);
-        wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);
-        wc.lpszClassName = kClass;
-        wc.style = CS_DBLCLKS;
-        registered = RegisterClassExW(&wc) != 0 || GetLastError() == ERROR_CLASS_ALREADY_EXISTS;
-    }
-
-    SettingsStrip(SettingsWindow& window, Mode mode, std::wstring name) : window_(window), mode_(mode), baseName_(std::move(name)) {}
-    ~SettingsStrip() { DestroyFonts(); }
-    SettingsStrip(const SettingsStrip&) = delete;
-    SettingsStrip& operator=(const SettingsStrip&) = delete;
-
-    void Attach(HWND hwnd) {
-        hwnd_ = hwnd;
-        if (hwnd) SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-    }
-    HWND Hwnd() const { return hwnd_; }
-    void SetPeer(SettingsStrip* strip) { peer_ = strip; }
-
-    // New tiles (a drag in progress is cancelled); selects tile `select` (clamped; -1 none) without
-    // telling onSelect, keeps the scroll position where it can.
-    void SetTiles(std::vector<StripTile> tiles, int select) {
-        CancelDrag();
-        tiles_ = std::move(tiles);
-        hot_ = -1;
-        hotAdd_ = false;
-        hotDesk_ = false;
-        Layout();
-        sel_ = -1;
-        Select(select, false, true);
-        UpdateName();
-        Repaint();
-    }
-    const std::vector<StripTile>& Tiles() const { return tiles_; }
-    int Selected() const { return sel_; }
-    // The selected tile's ref (-1 none).
-    int SelectedRef() const { return sel_ >= 0 && sel_ < static_cast<int>(tiles_.size()) ? tiles_[static_cast<size_t>(sel_)].ref : -1; }
-
-    // Selects tile `index` (strip: any; drawer: the nearest entry row), scrolls it into view.
-    void Select(int index, bool notify, bool force = false) {
-        const int n = static_cast<int>(tiles_.size());
-        if (n == 0 || index < 0) {
-            sel_ = -1;
-            return;
-        }
-        index = std::clamp(index, 0, n - 1);
-        if (mode_ == Mode::Drawer && tiles_[static_cast<size_t>(index)].header) {
-            int next = index;
-            while (next < n && tiles_[static_cast<size_t>(next)].header) ++next;
-            if (next >= n) {
-                next = index;
-                while (next >= 0 && tiles_[static_cast<size_t>(next)].header) --next;
-            }
-            if (next < 0) return;
-            index = next;
-        }
-        if (index == sel_ && !force) return;
-        sel_ = index;
-        EnsureVisible(index);
-        UpdateName();
-        if (hwnd_ && GetFocus() == hwnd_) NotifyWinEvent(EVENT_OBJECT_FOCUS, hwnd_, OBJID_CLIENT, CHILDID_SELF);
-        Repaint();
-        if (notify && onSelect) onSelect(tiles_[static_cast<size_t>(index)].ref);
-    }
-
-    // The palette or the DPI changed.
-    void StyleChanged() {
-        if (!hwnd_) return;
-        DarkMode::ThemeScrollBars(hwnd_, window_.Colors().dark);
-        Layout();
-        Repaint();
-    }
-
-    // Automation: the centre of the tile / row with this ref (screen px); false when there is
-    // none or the control is not shown. The point may lie outside the control while it is scrolled.
-    bool CentreOf(int ref, POINT& screen) const {
-        if (!hwnd_ || !IsWindowVisible(hwnd_)) return false;
-        for (size_t i = 0; i < tiles_.size(); ++i) {
-            if (tiles_[i].header || tiles_[i].ref != ref) continue;
-            const RECT r = TileRect(i);
-            screen = POINT{(r.left + r.right) / 2, (r.top + r.bottom) / 2};
-            ClientToScreen(hwnd_, &screen);
-            return true;
-        }
-        return false;
-    }
-    // The centre of the drawer row's "Desktop" button for entry `ref` (screen px; round 6 phase 6B).
-    bool DesktopCentreOf(int ref, POINT& screen) const {
-        if (!hwnd_ || !IsWindowVisible(hwnd_) || mode_ != Mode::Drawer) return false;
-        for (size_t i = 0; i < tiles_.size(); ++i) {
-            if (tiles_[i].header || tiles_[i].ref != ref || !tiles_[i].desktop) continue;
-            const RECT r = DesktopRect(TileRect(i));
-            screen = POINT{(r.left + r.right) / 2, (r.top + r.bottom) / 2};
-            ClientToScreen(hwnd_, &screen);
-            return true;
-        }
-        return false;
-    }
-    // The insertion slot the marker shows (-1: no drag over the strip).
-    int Marker() const { return (dragging_ || external_) ? slot_ : -1; }
-
-    // Round 6 phase 6E: the boxes previews are fitted into (px at the window's DPI): a drawer row's
-    // preview area (72 x 44 DIPs less the panel's inset) and the inspector's (200 x 100 DIPs).
-    static SIZE DrawerPreviewFit(const SettingsWindow& w) {
-        return SIZE{w.Px(kPreviewW) - 2 * std::max(1, w.Px(3)), w.Px(kPreviewH) - 2 * std::max(1, w.Px(3))};
-    }
-    static SIZE InfoPreviewFit(const SettingsWindow& w) {
-        return SIZE{w.Px(kInfoPreviewW) - 2 * std::max(1, w.Px(3)), w.Px(kInfoPreviewH) - 2 * std::max(1, w.Px(3))};
-    }
-    static constexpr int kInfoPreviewW = 200, kInfoPreviewH = 100;  // DIPs
-    static constexpr float kInfoZoom = 2.0f;  // a small widget is drawn up to twice its dock size there
-
-    // A drawer row dragged over the strip (screen point; `ghost` follows the pointer).
-    void ExternalOver(POINT screen, const StripTile& ghost) {
-        POINT pt = screen;
-        ScreenToClient(hwnd_, &pt);
-        external_ = true;
-        ghost_ = ghost;
-        ghost_.header = false;
-        grab_ = POINT{TileW(ghost_) / 2, Px(kTileH) / 2};
-        AutoScroll(pt.x);
-        dragPt_ = pt;
-        slot_ = SlotAt(pt.x);
-        Repaint();
-    }
-    void ExternalLeave() {
-        if (!external_) return;
-        external_ = false;
-        slot_ = -1;
-        Repaint();
-    }
-    // The slot a drop lands in (-1: not over the strip); the marker goes away.
-    int ExternalDrop() {
-        const int s = external_ ? slot_ : -1;
-        ExternalLeave();
-        return s;
-    }
-
-    std::function<void(int ref)> onSelect;            // a tile / row became the selected one (mouse, keyboard)
-    std::function<void(int ref)> onActivate;          // Enter, a double click; the drawer: Add
-    std::function<void(int from, int slot)> onMove;   // strip: move item `from` before slot `slot`
-    std::function<void(int ref)> onDelete;            // strip: Delete
-    std::function<void(int ref, int slot)> onDropEntry;  // drawer: entry `ref` dropped on the strip at `slot`
-    std::function<void(int ref)> onDesktop;            // drawer: a row's "Desktop" (Add to the desktop, round 6 phase 6B)
-
-private:
-    // DIPs
-    static constexpr int kTileW = 84, kSepW = 28, kRunningW = 150, kTileH = 84, kIcon = 44, kGap = 2, kPad = 10;
-    static constexpr int kRowH = 56, kHeaderH = 26, kRowGap = 6, kAddW = 48, kDeskW = 62;
-    // Round 6 phase 6E: a drawer row's preview area (left of its text).
-    static constexpr int kPreviewW = 72, kPreviewH = 44;
-    // Previews rendered during one paint: past this many ms the rest wait for the next paint (the
-    // control invalidates itself after the paint), so a page full of new previews stays responsive.
-    static constexpr double kPaintBudgetMs = 40.0;
-
-    int Px(int dip) const { return window_.Px(dip); }
-    void Repaint() const {
-        if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
-    }
-
-    int TileW(const StripTile& t) const {
-        return Px(t.shape == StripTile::Shape::Separator ? kSepW : t.shape == StripTile::Shape::Running ? kRunningW : kTileW);
-    }
-    int RowH(const StripTile& t) const { return Px(t.header ? kHeaderH : kRowH); }
-    SIZE Client() const {
-        RECT rc{};
-        if (hwnd_) GetClientRect(hwnd_, &rc);
-        return SIZE{rc.right, rc.bottom};
-    }
-    bool Horizontal() const { return mode_ == Mode::Strip; }
-
-    // Tile / row i in client px (scrolled).
-    RECT TileRect(size_t i) const {
-        const SIZE c = Client();
-        if (i >= pos_.size()) return RECT{};
-        const StripTile& t = tiles_[i];
-        if (Horizontal()) {
-            const int top = std::max(0, static_cast<int>(c.cy - Px(kTileH)) / 2);
-            const int x = pos_[i] - scroll_;
-            return RECT{x, top, x + TileW(t), top + Px(kTileH)};
-        }
-        const int y = pos_[i] - scroll_;
-        return RECT{0, y, c.cx, y + RowH(t)};
-    }
-
-    // Positions, the content length and the scroll bar.
-    void Layout() {
-        if (!hwnd_ || mode_ == Mode::Info || inLayout_) return;
-        inLayout_ = true;
-        pos_.assign(tiles_.size(), 0);
-        int at = Horizontal() ? Px(kPad) : 0;
-        for (size_t i = 0; i < tiles_.size(); ++i) {
-            pos_[i] = at;
-            at += Horizontal() ? TileW(tiles_[i]) + Px(kGap) : RowH(tiles_[i]) + (tiles_[i].header ? 0 : Px(kRowGap));
-        }
-        content_ = Horizontal() ? at - Px(kGap) + Px(kPad) : at;
-        for (int pass = 0; pass < 2; ++pass) {
-            // Twice: showing / hiding the bar changes the view.
-            const SIZE c = Client();
-            const int view = Horizontal() ? c.cx : c.cy;
-            scroll_ = std::clamp(scroll_, 0, std::max(0, content_ - view));
-            SCROLLINFO si{sizeof(si), SIF_RANGE | SIF_PAGE | SIF_POS, 0, std::max(0, content_ - 1), static_cast<UINT>(std::max(0, view)),
-                          scroll_, 0};
-            SetScrollInfo(hwnd_, Horizontal() ? SB_HORZ : SB_VERT, &si, TRUE);
-        }
-        inLayout_ = false;
-    }
-
-    int ViewLength() const {
-        const SIZE c = Client();
-        return Horizontal() ? c.cx : c.cy;
-    }
-
-    void ScrollTo(int pos) {
-        pos = std::clamp(pos, 0, std::max(0, content_ - ViewLength()));
-        if (pos == scroll_) return;
-        scroll_ = pos;
-        SetScrollPos(hwnd_, Horizontal() ? SB_HORZ : SB_VERT, scroll_, TRUE);
-        Repaint();
-    }
-
-    void EnsureVisible(int index) {
-        if (!hwnd_ || index < 0 || index >= static_cast<int>(pos_.size())) return;
-        const StripTile& t = tiles_[static_cast<size_t>(index)];
-        const int start = pos_[static_cast<size_t>(index)] - (Horizontal() ? Px(kPad) : 0);
-        const int end = pos_[static_cast<size_t>(index)] + (Horizontal() ? TileW(t) + Px(kPad) : RowH(t));
-        // A drawer row: its group header too when it is the first one.
-        int top = start;
-        if (!Horizontal() && index > 0 && tiles_[static_cast<size_t>(index) - 1].header) top = pos_[static_cast<size_t>(index) - 1];
-        const int view = ViewLength();
-        if (top < scroll_) {
-            ScrollTo(top);
-        } else if (end > scroll_ + view) {
-            ScrollTo(end - view);
-        }
-    }
-
-    int HitTile(POINT pt) const {
-        for (size_t i = 0; i < tiles_.size(); ++i) {
-            const RECT r = TileRect(i);
-            if (PtInRect(&r, pt)) return static_cast<int>(i);
-        }
-        return -1;
-    }
-
-    // The insertion slot nearest to client x: before the first tile whose centre is right of x.
-    int SlotAt(int x) const {
-        for (size_t i = 0; i < tiles_.size(); ++i) {
-            const RECT r = TileRect(i);
-            if (x < (r.left + r.right) / 2) return static_cast<int>(i);
-        }
-        return static_cast<int>(tiles_.size());
-    }
-
-    RECT MarkerRect(int slot) const {
-        const SIZE c = Client();
-        int x = Px(kPad) - scroll_;
-        if (!tiles_.empty()) {
-            x = slot < static_cast<int>(tiles_.size()) ? TileRect(static_cast<size_t>(slot)).left - Px(kGap) / 2
-                                                       : TileRect(tiles_.size() - 1).right + Px(kGap) / 2;
-        }
-        const int w = std::max(2, Px(3)), h = Px(72);
-        const int top = std::max(0, static_cast<int>(c.cy - h) / 2);
-        return RECT{x - w / 2, top, x - w / 2 + w, top + h};
-    }
-
-    // The row's Add button: on its second line, at its right end (round 6 phase 6E: the name has the
-    // whole first line beside the preview).
-    RECT AddRect(const RECT& row) const {
-        return RECT{row.right - Px(10) - Px(kAddW), row.bottom - Px(6) - Px(23), row.right - Px(10), row.bottom - Px(6)};
-    }
-    // The preview area at the row's left.
-    RECT PreviewRect(const RECT& row) const {
-        const int cy = (row.top + row.bottom) / 2;
-        return RECT{row.left + Px(8), cy - Px(kPreviewH) / 2, row.left + Px(8) + Px(kPreviewW), cy - Px(kPreviewH) / 2 + Px(kPreviewH)};
-    }
-    // The "Desktop" button left of Add (a script widget's row).
-    RECT DesktopRect(const RECT& row) const {
-        const RECT add = AddRect(row);
-        return RECT{add.left - Px(6) - Px(kDeskW), add.top, add.left - Px(6), add.bottom};
-    }
-
-    // While dragging near an end of the strip, it scrolls (one step per mouse move).
-    void AutoScroll(int x) {
-        if (!Horizontal()) return;
-        const int edge = Px(28), step = Px(16);
-        if (x < edge) ScrollTo(scroll_ - step);
-        if (x > ViewLength() - edge) ScrollTo(scroll_ + step);
-    }
-
-    void CancelDrag() {
-        const bool was = dragging_ || pressed_ >= 0 || external_;
-        if (mode_ == Mode::Drawer && dragging_ && peer_) peer_->ExternalLeave();
-        dragging_ = false;
-        pressed_ = -1;
-        pressAdd_ = false;
-        pressDesk_ = false;
-        external_ = false;
-        slot_ = -1;
-        if (hwnd_ && GetCapture() == hwnd_) {
-            releasing_ = true;
-            ReleaseCapture();
-            releasing_ = false;
-        }
-        if (was) Repaint();
-    }
-
-    void UpdateName() {
-        if (!hwnd_) return;
-        std::wstring name = baseName_;
-        if (mode_ == Mode::Info) {
-            if (!tiles_.empty()) name = tiles_[0].name + L", " + tiles_[0].note;
-        } else if (sel_ >= 0 && sel_ < static_cast<int>(tiles_.size())) {
-            const StripTile& t = tiles_[static_cast<size_t>(sel_)];
-            name += L": " + t.name;
-            if (!t.note.empty()) name += L", " + t.note;
-            if (mode_ == Mode::Strip) name += L", item " + std::to_wstring(sel_ + 1) + L" of " + std::to_wstring(tiles_.size());
-        }
-        wchar_t cur[512]{};
-        GetWindowTextW(hwnd_, cur, static_cast<int>(std::size(cur)));
-        if (name == cur) return;
-        SetWindowTextW(hwnd_, name.c_str());
-        NotifyWinEvent(EVENT_OBJECT_NAMECHANGE, hwnd_, OBJID_CLIENT, CHILDID_SELF);
-    }
-
-    // --- fonts ---
-    void SetFont(HFONT font) {
-        DestroyFonts();
-        font_ = font;
-        LOGFONTW lf{};
-        if (!font || !GetObjectW(font, sizeof(lf), &lf)) return;
-        LOGFONTW b = lf;
-        b.lfWeight = FW_SEMIBOLD;
-        bold_ = CreateFontIndirectW(&b);
-        LOGFONTW s = lf;
-        s.lfHeight = lf.lfHeight * 11 / 12;
-        small_ = CreateFontIndirectW(&s);
-        s.lfWeight = FW_SEMIBOLD;
-        smallBold_ = CreateFontIndirectW(&s);
-        LOGFONTW l = b;
-        l.lfWeight = FW_BOLD;
-        l.lfHeight = lf.lfHeight * 4 / 3;
-        letter_ = CreateFontIndirectW(&l);
-    }
-    void DestroyFonts() {
-        for (HFONT* f : {&bold_, &small_, &smallBold_, &letter_}) {
-            if (*f) DeleteObject(*f);
-            *f = nullptr;
-        }
-    }
-    HFONT Base() const { return font_ ? font_ : static_cast<HFONT>(GetStockObject(DEFAULT_GUI_FONT)); }
-    HFONT Bold() const { return bold_ ? bold_ : Base(); }
-    HFONT Small() const { return small_ ? small_ : Base(); }
-    HFONT SmallBold() const { return smallBold_ ? smallBold_ : Bold(); }
-    HFONT LetterFont() const { return letter_ ? letter_ : Bold(); }
-
-    // --- painting ---
-    struct Colors {
-        COLORREF layer, back, text, secondary, disabled, dock, hair;
-        bool hc;
-    };
-    Colors Palette() const {
-        const DarkMode::Palette& p = window_.Colors();
-        Colors c{};
-        c.layer = p.layer;
-        c.back = mode_ == Mode::Strip ? (p.highContrast ? p.control : p.dark ? Mix(RGB(0, 0, 0), p.layer, 30) : p.control) : p.layer;
-        c.text = p.text;
-        c.secondary = p.textSecondary;
-        c.disabled = p.textDisabled;
-        c.dock = p.highContrast ? p.accent : window_.DockColor();
-        c.hair = Mix(p.text, p.layer, 18);
-        c.hc = p.highContrast;
-        return c;
-    }
-
-    // The icon / letter / bar / placeholder boxes of a tile in `box`.
-    void PaintGlyph(HDC dc, const StripTile& t, const RECT& box, const Colors& c, COLORREF back) const {
-        const int w = box.right - box.left, h = box.bottom - box.top;
-        switch (t.shape) {
-            case StripTile::Shape::Separator: {
-                const int bw = std::max(1, Px(2));
-                const int cx = (box.left + box.right) / 2;
-                Fill(dc, RECT{cx - bw / 2, box.top, cx - bw / 2 + bw, box.bottom}, Mix(c.text, back, 35));
-                return;
-            }
-            case StripTile::Shape::Running: {
-                const int n = w >= Px(90) ? 3 : 2;
-                const int gap = std::max(1, Px(4) * h / Px(kIcon));
-                const int bw = (w - (n - 1) * gap) / n;
-                SetBkMode(dc, TRANSPARENT);
-                for (int i = 0; i < n; ++i) {
-                    const RECT b{box.left + i * (bw + gap), box.top, box.left + i * (bw + gap) + bw, box.bottom};
-                    Round(dc, b, Mix(c.text, back, 12), Mix(c.text, back, 12), Px(8) * h / Px(kIcon));
-                    Frame(dc, b, Mix(c.text, back, 45), Px(8) * h / Px(kIcon), PS_DOT);
-                }
-                return;
-            }
-            case StripTile::Shape::Icon:
-                if (t.icon) {
-                    DrawIconEx(dc, box.left, box.top, t.icon, w, h, 0, nullptr, DI_NORMAL);
-                    return;
-                }
-                [[fallthrough]];
-            case StripTile::Shape::Letter:
-            default: {
-                const COLORREF tint = c.hc ? c.secondary : t.disabled ? Mix(t.tint, back, 45) : t.tint;
-                Round(dc, box, tint, tint, std::max(4, w * 10 / 44 * 2));
-                const COLORREF ink = c.hc ? c.layer : Luma(tint) > 150 ? RGB(0x10, 0x10, 0x10) : RGB(0xFF, 0xFF, 0xFF);
-                SetBkMode(dc, TRANSPARENT);
-                Text(dc, std::wstring(1, t.letter), box, w >= Px(40) ? LetterFont() : SmallBold(), ink, DT_CENTER | DT_VCENTER);
-                return;
-            }
-        }
-    }
-
-    // A strip tile in `r` (selected: the dock colour; hot: a light fill).
-    void PaintTile(HDC dc, const StripTile& t, const RECT& r, bool selected, bool hot, const Colors& c) const {
-        const int radius = Px(8) * 2;
-        if (selected) {
-            Round(dc, r, Mix(c.dock, c.back, 24), c.dock, radius);
-        } else if (hot) {
-            const COLORREF f = Mix(c.text, c.back, 9);
-            Round(dc, r, f, f, radius);
-        }
-        const COLORREF back = selected ? Mix(c.dock, c.back, 24) : hot ? Mix(c.text, c.back, 9) : c.back;
-        const int cx = (r.left + r.right) / 2;
-        const int top = r.top + Px(8);
-        RECT box{cx - Px(kIcon) / 2, top, cx - Px(kIcon) / 2 + Px(kIcon), top + Px(kIcon)};
-        if (t.shape == StripTile::Shape::Running) box = RECT{cx - Px(49), top, cx - Px(49) + Px(98), top + Px(kIcon)};
-        if (t.shape == StripTile::Shape::Separator) box = RECT{cx - Px(2), top, cx + Px(2), top + Px(kIcon)};
-        PaintGlyph(dc, t, box, c, back);
-        if (t.shape == StripTile::Shape::Separator) return;
-        SetBkMode(dc, TRANSPARENT);
-        const RECT label{r.left + Px(4), top + Px(kIcon) + Px(5), r.right - Px(4), r.bottom - Px(4)};
-        Text(dc, t.name, label, Small(), Mix(c.text, back, 88), DT_CENTER | DT_VCENTER | DT_END_ELLIPSIS);
-    }
-
-    // A drawer row (or group header) in `r`.
-    void PaintRow(HDC dc, const StripTile& t, const RECT& r, bool focused, bool hot, bool addHot, bool deskHot, const Colors& c) const {
-        SetBkMode(dc, TRANSPARENT);
-        if (t.header) {
-            Text(dc, t.name, RECT{r.left + Px(2), r.top + Px(6), r.right, r.bottom}, SmallBold(), c.secondary,
-                 DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-            return;
-        }
-        const bool live = !t.disabled;
-        const COLORREF fill = Mix(c.text, c.layer, live && hot ? 10 : 5);
-        Round(dc, r, fill, Mix(c.text, c.layer, live && hot ? 24 : 13), Px(6) * 2);
-        // Round 6 phase 6E: a script widget's live preview in the area at the left; the letter tile
-        // while it renders / when it failed; the built-in kinds keep their glyphs (centred in it).
-        const RECT area = PreviewRect(r);
-        const SettingsWindow::PreviewImage* img = t.previewId.empty() ? nullptr : PreviewFor(t.previewId);
-        if (img) {
-            window_.PaintPreview(dc, area, *img, fill);
-        } else {
-            const int cx = (area.left + area.right) / 2, cy = (area.top + area.bottom) / 2;
-            const RECT box{cx - Px(15), cy - Px(15), cx - Px(15) + Px(30), cy - Px(15) + Px(30)};
-            PaintGlyph(dc, t, box, c, fill);
-        }
-        SetBkMode(dc, TRANSPARENT);
-        const RECT add = AddRect(r);
-        Round(dc, add, Mix(c.text, c.layer, live && addHot ? 20 : 11), Mix(c.text, c.layer, live ? 30 : 16), Px(4) * 2);
-        Text(dc, L"Add", add, Small(), live ? c.text : c.disabled, DT_CENTER | DT_VCENTER);
-        int buttonsL = add.left;
-        if (t.desktop) {
-            const RECT desk = DesktopRect(r);
-            Round(dc, desk, Mix(c.text, c.layer, live && deskHot ? 20 : 11), Mix(c.text, c.layer, live ? 30 : 16), Px(4) * 2);
-            Text(dc, L"Desktop", desk, Small(), live ? c.text : c.disabled, DT_CENTER | DT_VCENTER);
-            buttonsL = desk.left;
-        }
-        // The name (and version) on the first line, across the row; the note on the second, left of
-        // the buttons.
-        const int textL = area.right + Px(10);
-        int nameR = r.right - Px(10);
-        if (!t.version.empty()) {
-            const int vw = TextWidth(dc, t.version, Small());
-            Text(dc, t.version, RECT{nameR - vw, r.top + Px(6), nameR, r.top + Px(26)}, Small(), live ? c.secondary : c.disabled,
-                 DT_RIGHT | DT_VCENTER);
-            nameR -= vw + Px(6);
-        }
-        Text(dc, t.name, RECT{textL, r.top + Px(6), nameR, r.top + Px(26)}, Bold(), live ? c.text : c.disabled,
-             DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-        // The note beside the buttons when it has room for a few words (else the name and the
-        // preview say enough; the search still finds it).
-        if (buttonsL - Px(6) - textL >= Px(96)) {
-            Text(dc, t.note, RECT{textL, add.top, buttonsL - Px(6), add.bottom}, Small(), live ? c.secondary : c.disabled,
-                 DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-        }
-        if (focused) {
-            RECT f = r;
-            InflateRect(&f, -Px(2), -Px(2));
-            SetTextColor(dc, c.text);
-            DrawFocusRect(dc, &f);
-        }
-    }
-
-    // The dragged tile at 70 % alpha, following the pointer.
-    void PaintGhost(HDC dc, const StripTile& t, const Colors& c) const {
-        const SIZE client = Client();
-        const int w = TileW(t), h = Px(kTileH);
-        int x = std::clamp(static_cast<int>(dragPt_.x - grab_.x), static_cast<int>(-w / 2), static_cast<int>(client.cx - w / 2));
-        int y = std::clamp(static_cast<int>(dragPt_.y - grab_.y), 0, std::max(0, static_cast<int>(client.cy) - h));
-        HDC mem = CreateCompatibleDC(dc);
-        HBITMAP bmp = CreateCompatibleBitmap(dc, std::max(1, w), std::max(1, h));
-        HGDIOBJ old = SelectObject(mem, bmp);
-        Fill(mem, RECT{0, 0, w, h}, c.back);
-        PaintTile(mem, t, RECT{0, 0, w, h}, true, false, c);
-        const BLENDFUNCTION blend{AC_SRC_OVER, 0, 178, 0};
-        GdiAlphaBlend(dc, x, y, w, h, mem, 0, 0, w, h, blend);
-        SelectObject(mem, old);
-        DeleteObject(bmp);
-        DeleteDC(mem);
-    }
-
-    // A drawer row's preview (rendered now while the paint's budget lasts; null: not yet, or failed).
-    const SettingsWindow::PreviewImage* PreviewFor(const std::wstring& id) const {
-        const SIZE fit = DrawerPreviewFit(window_);
-        if (!window_.PreviewEntry(id, fit)) {
-            if (paintRenders_ > 0 && NowMs() - paintStart_ >= kPaintBudgetMs) {
-                previewPending_ = true;  // the next paint renders it
-                return nullptr;
-            }
-            ++paintRenders_;
-        }
-        return window_.Preview(id, fit, true);
-    }
-    static double NowMs() {
-        LARGE_INTEGER f{}, c{};
-        QueryPerformanceFrequency(&f);
-        QueryPerformanceCounter(&c);
-        return static_cast<double>(c.QuadPart) * 1000.0 / static_cast<double>(f.QuadPart);
-    }
-
-    void Paint(HDC dc) const {
-        const SIZE client = Client();
-        const RECT all{0, 0, client.cx, client.cy};
-        const Colors c = Palette();
-        const bool focus = GetFocus() == hwnd_;
-        paintStart_ = NowMs();
-        paintRenders_ = 0;
-        previewPending_ = false;
-        if (mode_ == Mode::Info) {
-            Fill(dc, all, c.layer);
-            SetBkMode(dc, TRANSPARENT);
-            if (tiles_.empty()) {
-                Text(dc, L"Select an item on the strip", all, Base(), c.secondary, DT_LEFT | DT_VCENTER);
-                return;
-            }
-            const StripTile& t = tiles_[0];
-            // Round 6 phase 6E: a script widget's larger preview above its name.
-            if (!t.previewId.empty()) {
-                if (const SettingsWindow::PreviewImage* img = window_.Preview(t.previewId, InfoPreviewFit(window_), true, kInfoZoom)) {
-                    const RECT area{0, 0, std::min(static_cast<int>(client.cx), Px(kInfoPreviewW)), Px(kInfoPreviewH)};
-                    window_.PaintPreview(dc, area, *img, c.layer);
-                    const int y = Px(kInfoPreviewH) + Px(2);
-                    Text(dc, t.name, RECT{0, y, client.cx, y + Px(17)}, Bold(), c.text, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-                    Text(dc, t.note, RECT{0, y + Px(17), client.cx, y + Px(34)}, Small(), c.secondary, DT_LEFT | DT_VCENTER | DT_END_ELLIPSIS);
-                    return;
-                }
-            }
-            const int s = std::min(Px(32), static_cast<int>(client.cy));
-            const int top = (client.cy - s) / 2;
-            RECT box{0, top, s, top + s};
-            if (t.shape == StripTile::Shape::Running) box.right = s * 3 / 2;
-            PaintGlyph(dc, t, box, c, c.layer);
-            const int x = box.right + Px(12);
-            Text(dc, t.name, RECT{x, 0, client.cx, client.cy / 2 + Px(1)}, Bold(), c.text, DT_LEFT | DT_BOTTOM | DT_END_ELLIPSIS);
-            Text(dc, t.note, RECT{x, client.cy / 2 + Px(1), client.cx, client.cy}, Small(), c.secondary,
-                 DT_LEFT | DT_TOP | DT_END_ELLIPSIS);
-            return;
-        }
-        Fill(dc, all, c.layer);
-        if (mode_ == Mode::Strip) {
-            Round(dc, all, c.back, c.hair, Px(12) * 2);
-            if (tiles_.empty()) {
-                SetBkMode(dc, TRANSPARENT);
-                Text(dc, L"The dock is empty: add apps, folders or widgets.", all, Base(), c.secondary, DT_CENTER | DT_VCENTER);
-            }
-            for (size_t i = 0; i < tiles_.size(); ++i) {
-                const RECT r = TileRect(i);
-                if (r.right < 0 || r.left > client.cx) continue;
-                PaintTile(dc, tiles_[i], r, static_cast<int>(i) == sel_, static_cast<int>(i) == hot_ && !dragging_, c);
-            }
-            if (focus && sel_ >= 0 && sel_ < static_cast<int>(tiles_.size()) && !(SendMessageW(hwnd_, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS)) {
-                RECT f = TileRect(static_cast<size_t>(sel_));
-                InflateRect(&f, -Px(3), -Px(3));
-                SetTextColor(dc, c.text);
-                DrawFocusRect(dc, &f);
-            }
-            if ((dragging_ || external_) && slot_ >= 0) {
-                const RECT m = MarkerRect(slot_);
-                Round(dc, m, c.dock, c.dock, std::max(2, Px(2)));
-            }
-            if (dragging_ && pressed_ >= 0 && pressed_ < static_cast<int>(tiles_.size())) PaintGhost(dc, tiles_[static_cast<size_t>(pressed_)], c);
-            if (external_) PaintGhost(dc, ghost_, c);
-            return;
-        }
-        // Drawer
-        if (tiles_.empty()) {
-            SetBkMode(dc, TRANSPARENT);
-            Text(dc, L"No widget matches the search.", RECT{Px(2), 0, client.cx, Px(kHeaderH)}, Small(), c.secondary, DT_LEFT | DT_VCENTER);
-        }
-        const bool cues = !(SendMessageW(hwnd_, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS);
-        for (size_t i = 0; i < tiles_.size(); ++i) {
-            const RECT r = TileRect(i);
-            if (r.bottom < 0 || r.top > client.cy) continue;
-            const bool isHot = static_cast<int>(i) == hot_;
-            PaintRow(dc, tiles_[i], r, focus && cues && static_cast<int>(i) == sel_, isHot, isHot && hotAdd_, isHot && hotDesk_, c);
-        }
-    }
-
-    static LRESULT CALLBACK Proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
-        auto* self = reinterpret_cast<SettingsStrip*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
-        if (!self) return DefWindowProcW(hwnd, msg, wp, lp);
-        if (msg == WM_NCDESTROY) {
-            SetWindowLongPtrW(hwnd, GWLP_USERDATA, 0);
-            self->hwnd_ = nullptr;
-            return DefWindowProcW(hwnd, msg, wp, lp);
-        }
-        return self->OnMessage(msg, wp, lp);
-    }
-
-    void OnScrollBar(int code) {
-        SCROLLINFO si{sizeof(si), SIF_ALL};
-        GetScrollInfo(hwnd_, Horizontal() ? SB_HORZ : SB_VERT, &si);
-        const int line = Horizontal() ? Px(kTileW) : Px(kRowH);
-        int pos = scroll_;
-        switch (code) {
-            case SB_LINEUP: pos -= line; break;
-            case SB_LINEDOWN: pos += line; break;
-            case SB_PAGEUP: pos -= static_cast<int>(si.nPage); break;
-            case SB_PAGEDOWN: pos += static_cast<int>(si.nPage); break;
-            case SB_THUMBTRACK:
-            case SB_THUMBPOSITION: pos = si.nTrackPos; break;
-            case SB_TOP: pos = 0; break;
-            case SB_BOTTOM: pos = content_; break;
-            default: return;
-        }
-        ScrollTo(pos);
-    }
-
-    void TrackLeave() {
-        if (tracking_) return;
-        TRACKMOUSEEVENT tme{sizeof(tme), TME_LEAVE, hwnd_, 0};
-        tracking_ = TrackMouseEvent(&tme) != FALSE;
-    }
-
-    void OnKey(WPARAM vk) {
-        const int n = static_cast<int>(tiles_.size());
-        if (mode_ == Mode::Strip) {
-            const bool ctrl = GetKeyState(VK_CONTROL) < 0;
-            switch (vk) {
-                case VK_LEFT:
-                case VK_UP:
-                    if (ctrl) {
-                        if (sel_ > 0 && onMove) onMove(sel_, sel_ - 1);
-                    } else {
-                        Select(sel_ < 0 ? 0 : sel_ - 1, true);
-                    }
-                    break;
-                case VK_RIGHT:
-                case VK_DOWN:
-                    if (ctrl) {
-                        if (sel_ >= 0 && sel_ < n - 1 && onMove) onMove(sel_, sel_ + 2);
-                    } else {
-                        Select(sel_ < 0 ? 0 : sel_ + 1, true);
-                    }
-                    break;
-                case VK_HOME: Select(0, true); break;
-                case VK_END: Select(n - 1, true); break;
-                case VK_DELETE:
-                    if (sel_ >= 0 && sel_ < n && onDelete) onDelete(sel_);
-                    break;
-                case VK_RETURN:
-                    if (sel_ >= 0 && sel_ < n && onActivate) onActivate(sel_);
-                    break;
-                default: break;
-            }
-            return;
-        }
-        if (mode_ != Mode::Drawer || n == 0) return;
-        auto step = [&](int from, int dir) {
-            for (int i = from + dir; i >= 0 && i < n; i += dir) {
-                if (!tiles_[static_cast<size_t>(i)].header) return i;
-            }
-            return from;
-        };
-        switch (vk) {
-            case VK_UP: Select(sel_ < 0 ? step(-1, 1) : step(sel_, -1), true); break;
-            case VK_DOWN: Select(sel_ < 0 ? step(-1, 1) : step(sel_, 1), true); break;
-            case VK_HOME: Select(step(-1, 1), true); break;
-            case VK_END: Select(step(n, -1), true); break;
-            case VK_PRIOR: Select(std::max(0, sel_ - 5), true); break;
-            case VK_NEXT: Select(std::min(n - 1, sel_ + 5), true); break;
-            case VK_RETURN:
-            case VK_SPACE:
-                if (sel_ >= 0 && sel_ < n) {
-                    const StripTile& t = tiles_[static_cast<size_t>(sel_)];
-                    if (t.disabled) {
-                        MessageBeep(MB_ICONWARNING);
-                    } else if (onActivate) {
-                        onActivate(t.ref);
-                    }
-                }
-                break;
-            default: break;
-        }
-    }
-
-    LRESULT OnMessage(UINT msg, WPARAM wp, LPARAM lp) {
-        switch (msg) {
-            case WM_SETFONT:
-                SetFont(reinterpret_cast<HFONT>(wp));
-                Layout();
-                if (lp) Repaint();
-                return 0;
-            case WM_GETFONT:
-                return reinterpret_cast<LRESULT>(font_);
-            case WM_SIZE:
-                Layout();
-                Repaint();
-                return 0;
-            case WM_ERASEBKGND:
-                return 1;
-            case WM_PAINT: {
-                PAINTSTRUCT ps;
-                HDC hdc = BeginPaint(hwnd_, &ps);
-                const SIZE c = Client();
-                HDC mem = CreateCompatibleDC(hdc);
-                HBITMAP bmp = CreateCompatibleBitmap(hdc, std::max<LONG>(1, c.cx), std::max<LONG>(1, c.cy));
-                HGDIOBJ old = SelectObject(mem, bmp);
-                Paint(mem);
-                BitBlt(hdc, 0, 0, c.cx, c.cy, mem, 0, 0, SRCCOPY);
-                SelectObject(mem, old);
-                DeleteObject(bmp);
-                DeleteDC(mem);
-                EndPaint(hwnd_, &ps);
-                if (previewPending_) InvalidateRect(hwnd_, nullptr, FALSE);  // the previews this paint had no time for
-                return 0;
-            }
-            case WM_SETFOCUS:
-                if (sel_ < 0 && !tiles_.empty() && mode_ != Mode::Info) Select(0, true);
-                NotifyWinEvent(EVENT_OBJECT_FOCUS, hwnd_, OBJID_CLIENT, CHILDID_SELF);
-                Repaint();
-                return 0;
-            case WM_KILLFOCUS:
-                Repaint();
-                return 0;
-            case WM_UPDATEUISTATE:
-                Repaint();
-                break;
-            case WM_GETDLGCODE: {
-                if (mode_ == Mode::Info) return DLGC_STATIC;
-                if (dragging_ || pressed_ >= 0) return DLGC_WANTALLKEYS;
-                // Arrows, Home / End, Delete and Enter are the control's; Tab and Esc the window's.
-                LRESULT code = DLGC_WANTARROWS | DLGC_WANTCHARS;
-                if (const MSG* m = reinterpret_cast<const MSG*>(lp); m && m->message == WM_KEYDOWN && m->wParam == VK_RETURN) {
-                    code |= DLGC_WANTMESSAGE;
-                }
-                return code;
-            }
-            case WM_KEYDOWN:
-                if (wp == VK_ESCAPE && (dragging_ || pressed_ >= 0)) {
-                    CancelDrag();
-                    return 0;
-                }
-                if (dragging_ || pressed_ >= 0) return 0;
-                OnKey(wp);
-                return 0;
-            case WM_CHAR:
-                return 0;
-            case WM_HSCROLL:
-            case WM_VSCROLL:
-                if ((msg == WM_HSCROLL) == Horizontal()) OnScrollBar(LOWORD(wp));
-                return 0;
-            case WM_MOUSEWHEEL:
-            case WM_MOUSEHWHEEL: {
-                if (mode_ == Mode::Info || content_ <= ViewLength()) break;  // the page scrolls
-                const int delta = GET_WHEEL_DELTA_WPARAM(wp);
-                const int unit = Horizontal() ? Px(kTileW) : Px(kRowH + kRowGap);
-                const int d = MulDiv(delta, unit, WHEEL_DELTA);
-                ScrollTo(msg == WM_MOUSEHWHEEL ? scroll_ + d : scroll_ - d);
-                return 0;
-            }
-            case WM_LBUTTONDOWN:
-            case WM_LBUTTONDBLCLK: {
-                if (mode_ == Mode::Info) return 0;
-                SetFocus(hwnd_);
-                const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-                const int hit = HitTile(pt);
-                if (hit < 0) return 0;
-                const StripTile& t = tiles_[static_cast<size_t>(hit)];
-                if (t.header) return 0;
-                Select(hit, true);
-                if (hit >= static_cast<int>(tiles_.size())) return 0;  // the selection rebuilt the tiles
-                const RECT r = TileRect(static_cast<size_t>(hit));
-                if (mode_ == Mode::Drawer) {
-                    const RECT add = AddRect(r);
-                    const RECT desk = DesktopRect(r);
-                    if (tiles_[static_cast<size_t>(hit)].desktop && PtInRect(&desk, pt)) {
-                        pressDesk_ = true;
-                        hotDesk_ = true;
-                        pressed_ = hit;
-                        SetCapture(hwnd_);
-                        Repaint();
-                        return 0;
-                    }
-                    if (PtInRect(&add, pt)) {
-                        if (tiles_[static_cast<size_t>(hit)].disabled) {
-                            MessageBeep(MB_ICONWARNING);
-                            return 0;
-                        }
-                        pressAdd_ = true;
-                        hotAdd_ = true;
-                        pressed_ = hit;
-                        SetCapture(hwnd_);
-                        Repaint();
-                        return 0;
-                    }
-                    if (msg == WM_LBUTTONDBLCLK) {
-                        if (!tiles_[static_cast<size_t>(hit)].disabled && onActivate) onActivate(tiles_[static_cast<size_t>(hit)].ref);
-                        return 0;
-                    }
-                    if (tiles_[static_cast<size_t>(hit)].disabled || tiles_[static_cast<size_t>(hit)].noDrag) return 0;  // not a drag source
-                } else if (msg == WM_LBUTTONDBLCLK) {
-                    if (onActivate) onActivate(hit);
-                    return 0;
-                }
-                pressed_ = hit;
-                pressPt_ = pt;
-                grab_ = POINT{pt.x - r.left, pt.y - r.top};
-                SetCapture(hwnd_);
-                return 0;
-            }
-            case WM_MOUSEMOVE: {
-                const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-                if (pressed_ >= 0 && GetCapture() == hwnd_) {
-                    if (pressDesk_) {
-                        const RECT desk = DesktopRect(TileRect(static_cast<size_t>(pressed_)));
-                        const bool in = PtInRect(&desk, pt) != FALSE;
-                        if (in != hotDesk_) {
-                            hotDesk_ = in;
-                            Repaint();
-                        }
-                        return 0;
-                    }
-                    if (pressAdd_) {
-                        const RECT add = AddRect(TileRect(static_cast<size_t>(pressed_)));
-                        const bool in = PtInRect(&add, pt) != FALSE;
-                        if (in != hotAdd_) {
-                            hotAdd_ = in;
-                            Repaint();
-                        }
-                        return 0;
-                    }
-                    if (!dragging_ && std::abs(pt.x - pressPt_.x) <= GetSystemMetrics(SM_CXDRAG) &&
-                        std::abs(pt.y - pressPt_.y) <= GetSystemMetrics(SM_CYDRAG)) {
-                        return 0;
-                    }
-                    dragging_ = true;
-                    if (mode_ == Mode::Strip) {
-                        AutoScroll(pt.x);
-                        dragPt_ = pt;
-                        slot_ = SlotAt(pt.x);
-                        Repaint();
-                        return 0;
-                    }
-                    // The drawer: over the strip, the strip shows where the drop would go.
-                    POINT screen = pt;
-                    ClientToScreen(hwnd_, &screen);
-                    const HWND under = WindowFromPoint(screen);
-                    if (peer_ && peer_->Hwnd() && under == peer_->Hwnd()) {
-                        peer_->ExternalOver(screen, tiles_[static_cast<size_t>(pressed_)]);
-                        SetCursor(LoadCursorW(nullptr, IDC_ARROW));
-                    } else {
-                        if (peer_) peer_->ExternalLeave();
-                        SetCursor(LoadCursorW(nullptr, IDC_NO));
-                    }
-                    return 0;
-                }
-                // Hover
-                TrackLeave();
-                const int hit = HitTile(pt);
-                bool add = false, desk = false;
-                if (mode_ == Mode::Drawer && hit >= 0) {
-                    const RECT a = AddRect(TileRect(static_cast<size_t>(hit)));
-                    add = PtInRect(&a, pt) != FALSE;
-                    const RECT d = DesktopRect(TileRect(static_cast<size_t>(hit)));
-                    desk = tiles_[static_cast<size_t>(hit)].desktop && PtInRect(&d, pt) != FALSE;
-                }
-                if (hit != hot_ || add != hotAdd_ || desk != hotDesk_) {
-                    hot_ = hit;
-                    hotAdd_ = add;
-                    hotDesk_ = desk;
-                    Repaint();
-                }
-                return 0;
-            }
-            case WM_MOUSELEAVE:
-                tracking_ = false;
-                if (hot_ >= 0 || hotAdd_ || hotDesk_) {
-                    hot_ = -1;
-                    hotAdd_ = false;
-                    hotDesk_ = false;
-                    Repaint();
-                }
-                return 0;
-            case WM_LBUTTONUP: {
-                if (pressed_ < 0) return 0;
-                const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
-                const int from = pressed_;
-                const bool drag = dragging_, addPress = pressAdd_, deskPress = pressDesk_;
-                const int ref = from < static_cast<int>(tiles_.size()) ? tiles_[static_cast<size_t>(from)].ref : -1;
-                int slot = -1;
-                if (drag && mode_ == Mode::Strip) slot = SlotAt(pt.x);
-                if (drag && mode_ == Mode::Drawer && peer_) slot = peer_->ExternalDrop();
-                bool addHit = false, deskHit = false;
-                if (addPress) {
-                    const RECT add = AddRect(TileRect(static_cast<size_t>(from)));
-                    addHit = PtInRect(&add, pt) != FALSE;
-                }
-                if (deskPress) {
-                    const RECT desk = DesktopRect(TileRect(static_cast<size_t>(from)));
-                    deskHit = PtInRect(&desk, pt) != FALSE;
-                }
-                dragging_ = false;
-                pressed_ = -1;
-                pressAdd_ = false;
-                pressDesk_ = false;
-                hotDesk_ = deskHit;
-                slot_ = -1;
-                hotAdd_ = addHit;
-                if (GetCapture() == hwnd_) {
-                    releasing_ = true;
-                    ReleaseCapture();
-                    releasing_ = false;
-                }
-                Repaint();
-                // Callbacks last: they rebuild the tiles.
-                if (deskPress && deskHit && onDesktop) {
-                    onDesktop(ref);
-                } else if (addPress && addHit && onActivate) {
-                    onActivate(ref);
-                } else if (drag && mode_ == Mode::Strip && onMove) {
-                    onMove(from, slot);
-                } else if (drag && mode_ == Mode::Drawer && slot >= 0 && onDropEntry) {
-                    onDropEntry(ref, slot);
-                }
-                return 0;
-            }
-            case WM_CAPTURECHANGED:
-                // Someone else took the mouse (or Esc): the drag is cancelled.
-                if (!releasing_ && reinterpret_cast<HWND>(lp) != hwnd_ && (dragging_ || pressed_ >= 0)) CancelDrag();
-                return 0;
-            case WM_CANCELMODE:
-                CancelDrag();
-                break;
-            default:
-                break;
-        }
-        return DefWindowProcW(hwnd_, msg, wp, lp);
-    }
-
-    SettingsWindow& window_;
-    Mode mode_;
-    std::wstring baseName_;
-    HWND hwnd_ = nullptr;
-    SettingsStrip* peer_ = nullptr;  // the drawer: the strip it drops onto
-    std::vector<StripTile> tiles_;
-    std::vector<int> pos_;  // content px: each tile's x (strip) / row's y (drawer)
-    int content_ = 0;
-    int scroll_ = 0;
-    bool inLayout_ = false;
-    int sel_ = -1;
-    int hot_ = -1;
-    bool hotAdd_ = false;
-    bool hotDesk_ = false;
-    bool tracking_ = false;
-    // Pressing / dragging
-    int pressed_ = -1;
-    bool pressAdd_ = false;
-    bool pressDesk_ = false;
-    POINT pressPt_{};
-    POINT grab_{};    // the pointer within the tile at the press
-    POINT dragPt_{};  // the pointer now (client)
-    bool dragging_ = false;
-    bool releasing_ = false;
-    int slot_ = -1;
-    bool external_ = false;  // a drawer row is dragged over the strip
-    StripTile ghost_;
-    // Fonts: the window's message font (not owned) and those made from it.
-    HFONT font_ = nullptr;
-    HFONT bold_ = nullptr;
-    HFONT small_ = nullptr;
-    HFONT smallBold_ = nullptr;
-    HFONT letter_ = nullptr;
-    // The paint in progress (round 6 phase 6E): when it began, the previews it rendered, and
-    // whether one was left for the next paint.
-    mutable double paintStart_ = 0.0;
-    mutable int paintRenders_ = 0;
-    mutable bool previewPending_ = false;
-};
 
 // --- the page --------------------------------------------------------------------------------
 
@@ -1285,28 +168,36 @@ constexpr int kDrawerW = 340;  // DIPs (round 6 phase 6E: 300 -> 340 for the row
 constexpr int kStripTop = 44, kStripBottom = 162;  // the item strip (118 DIPs tall, as before)
 constexpr int kInspectorTop = 176;  // round 8 phase 8B: right under the strip (the add buttons are gone)
 
-// A drawer entry: a built-in kind (0 - 6) or an installed script widget (7 ...).
-struct DrawerEntry {
-    ItemKind kind = ItemKind::Widget;
-    std::wstring id;    // a script widget's id; a built-in's kind name (searched too)
-    std::wstring name;
-    std::wstring note;
-    std::wstring version;
-    bool once = false;  // single instance on a dock
+
+// Round 12 phase 12D: the strip control's host is the settings window (its DPI, palette, dock
+// colour and preview cache), as before the control moved to SettingsStrip.h.
+class WindowStripHost final : public StripHost {
+public:
+    explicit WindowStripHost(SettingsWindow& w) : w_(w) {}
+    int Px(int dip) const override { return w_.Px(dip); }
+    const DarkMode::Palette& Colors() const override { return w_.Colors(); }
+    COLORREF DockColor() const override { return w_.DockColor(); }
+    const Image* Preview(const std::wstring& id, SIZE fit, bool render, float zoom) override { return w_.Preview(id, fit, render, zoom); }
+    const Image* PreviewEntry(const std::wstring& id, SIZE fit, float zoom) override { return w_.PreviewEntry(id, fit, zoom); }
+    void PaintPreview(HDC dc, const RECT& box, const Image& img, COLORREF under) const override { w_.PaintPreview(dc, box, img, under); }
+
+private:
+    SettingsWindow& w_;
 };
 
 class ContentsPage : public FormPage {
 public:
     explicit ContentsPage(SettingsWindow& w)
         : FormPage(w, L"Contents", L'\xE718'),
-          strip_(w, SettingsStrip::Mode::Strip, L"Items on the dock"),
-          drawer_(w, SettingsStrip::Mode::Drawer, L"Add to the dock"),
-          info_(w, SettingsStrip::Mode::Info, L"Selected item") {}
+          host_(w),
+          strip_(host_, SettingsStrip::Mode::Strip, L"Items on the dock"),
+          drawer_(host_, SettingsStrip::Mode::Drawer, L"Add to the dock"),
+          info_(host_, SettingsStrip::Mode::Info, L"Selected item") {}
     ~ContentsPage() override {
         for (auto& entry : icons_) {
             if (entry.second.icon) DestroyIcon(entry.second.icon);
         }
-        for (HICON i : {infoIcon_, binIcon_, appIcon_, folderIcon_}) {
+        for (HICON i : {infoIcon_}) {
             if (i) DestroyIcon(i);
         }
     }
@@ -1397,10 +288,14 @@ protected:
             RECT{dx + 16 + kDrawerTitleW, 12, W - 16, 36});
         y_ = 38;
         EditBox(kDrawerSearch, dx + 16, kDrawerW - 32, 80);
-        Tip(kDrawerSearch, L"Type to filter the list below by name or description.");
-        Add(kDrawerList, CtlKind::Custom, SettingsStrip::kClass, L"Add to the dock", WS_TABSTOP, RECT{dx + 16, 74, W - 16, 378});
+        Tip(kDrawerSearch, L"Type to filter the tiles below by name or description.");
+        // Round 12 phase 12D: the filter chips (push-like radio buttons) and the grid of tiles.
+        LayoutChips(true);
+        Add(kDrawerList, CtlKind::Custom, SettingsStrip::kClass, L"Add to the dock", WS_TABSTOP,
+            RECT{dx + 16, kDrawerGridTop, W - 16, 378});
         Tip(kDrawerList, L"Everything you can put on the dock: apps and folders, the built-in items and the widgets, with live "
-                         L"previews. Drag a row onto the strip, or press its Add button to add it at the end.");
+                         L"previews. Drag a tile onto the strip or the dock, or click it to add it at the end. Drag a widget "
+                         L"onto the desktop (or press its small monitor button) to place it there.");
         // Two lines: the text does not fit the drawer's width on one.
         Add(kDrawerLibraryLink, CtlKind::Link, WC_LINK, L"<a>Manage installed widgets in App settings > Widget library</a>", WS_TABSTOP,
             RECT{dx + 16, 386, W - 16, 422});
@@ -1421,7 +316,26 @@ protected:
         drawer_.onActivate = [this](int entry) { AddEntry(entry); };
         drawer_.onDropEntry = [this](int entry, int slot) { InsertEntry(entry, slot); };
         drawer_.onDesktop = [this](int entry) { AddToDesktop(entry); };
+        // Round 12 phase 12D: a tile dragged out of the window onto a dock (its marker shows where it
+        // lands) or, a script widget, onto the desktop (App: SettingsHost::drawerDrag).
+        drawer_.onDragOutside = [this](POINT screen, int entry) {
+            const std::optional<DockItemEntry> e = DragEntry(entry);
+            return Host().drawerDrag && e ? Host().drawerDrag(0, screen, &*e) : 0;
+        };
+        drawer_.onDragOutsideLeave = [this] {
+            if (Host().drawerDrag) Host().drawerDrag(1, POINT{}, nullptr);
+        };
+        drawer_.onDropOutside = [this](POINT screen, int entry) {
+            const std::optional<DockItemEntry> e = DragEntry(entry);
+            const bool done = Host().drawerDrag && e && Host().drawerDrag(2, screen, &*e) != 0;
+            if (done) {
+                FillStrip(sel_);
+                FillDrawer();
+            }
+            return done;
+        };
         if (HWND search = Item(kDrawerSearch)) SendMessageW(search, EM_SETCUEBANNER, TRUE, reinterpret_cast<LPARAM>(L"Search widgets"));
+        SetCheck(kDrawerChipAll, true);
         // ItemAnchor order.
         for (const wchar_t* a : {L"Follow the dock's alignment", L"Start (left / top)", L"Centre", L"End (right / bottom)"}) {
             ComboAdd(kItemAnchorCombo, a);
@@ -1434,7 +348,7 @@ protected:
         schemas_.clear();
         clockSchema_.settings.clear();
         weatherSchema_.settings.clear();
-        BuildEntries();
+        catalog_.Build();
         FillStrip(sel_);
         FillDrawer();
     }
@@ -1447,7 +361,7 @@ protected:
                 if (entry.second.icon) DestroyIcon(entry.second.icon);
             }
             icons_.clear();
-            for (HICON* i : {&infoIcon_, &binIcon_, &appIcon_, &folderIcon_}) {
+            for (HICON* i : {&infoIcon_}) {
                 if (*i) DestroyIcon(*i);
                 *i = nullptr;
             }
@@ -1505,22 +419,22 @@ protected:
                 return true;
             case 264: {  // round 6 phase 6E: drawer entry `arg`'s preview bitmap size (MAKELONG(w, h) px; 0 none / failed)
                 // Rendered now when the drawer has not painted it yet (a row scrolled out of view).
-                if (arg < 0 || static_cast<size_t>(arg) >= entries_.size() || entries_[static_cast<size_t>(arg)].kind != ItemKind::Widget) {
+                if (!catalog_.EntryOf(static_cast<int>(arg)) || catalog_.EntryOf(static_cast<int>(arg))->kind != ItemKind::Widget) {
                     out = 0;
                     return true;
                 }
                 const SettingsWindow::PreviewImage* img =
-                    Window().Preview(entries_[static_cast<size_t>(arg)].id, SettingsStrip::DrawerPreviewFit(Window()), true);
+                    Window().Preview(catalog_.EntryOf(static_cast<int>(arg))->id, SettingsStrip::DrawerPreviewFit(host_), true);
                 out = img ? static_cast<LRESULT>(MAKELONG(static_cast<WORD>(img->px.cx), static_cast<WORD>(img->px.cy))) : 0;
                 return true;
             }
             case 267: {  // round 6 phase 6E: drawer entry `arg`'s preview render time in microseconds (-1: not rendered)
-                if (arg < 0 || static_cast<size_t>(arg) >= entries_.size() || entries_[static_cast<size_t>(arg)].kind != ItemKind::Widget) {
+                if (!catalog_.EntryOf(static_cast<int>(arg)) || catalog_.EntryOf(static_cast<int>(arg))->kind != ItemKind::Widget) {
                     out = -1;
                     return true;
                 }
                 const SettingsWindow::PreviewImage* img =
-                    Window().PreviewEntry(entries_[static_cast<size_t>(arg)].id, SettingsStrip::DrawerPreviewFit(Window()));
+                    Window().PreviewEntry(catalog_.EntryOf(static_cast<int>(arg))->id, SettingsStrip::DrawerPreviewFit(host_));
                 out = img ? static_cast<LRESULT>(img->ms * 1000.0) : -1;
                 return true;
             }
@@ -1550,6 +464,14 @@ protected:
         if (id == kDrawerSearch) {
             if (code == EN_CHANGE) {
                 filter_ = GetText(kDrawerSearch);
+                FillDrawer();
+            }
+            return;
+        }
+        if (id >= kDrawerChipAll && id <= kDrawerChipApps) {  // round 12 phase 12D: a filter chip
+            if (code == BN_CLICKED) {
+                chip_ = static_cast<DrawerFilter>(id - kDrawerChipAll);
+                for (int c = kDrawerChipAll; c <= kDrawerChipApps; ++c) SetCheck(c, c == id);
                 FillDrawer();
             }
             return;
@@ -1591,7 +513,7 @@ protected:
                 FillStrip(static_cast<int>(at));
                 break;
             }
-            case kPinAddRecycleBin: AddEntry(kEntryRecycleBin); break;
+            case kPinAddRecycleBin: AddEntry(DrawerRefs::kRecycleBin); break;
             case kPinUp:
                 if (valid && sel_ > 0) MoveItem(sel_, sel_ - 1);
                 break;
@@ -2010,11 +932,43 @@ private:
             PostMessageW(Hwnd(), WM_COMMAND, MAKEWPARAM(kInspectorRefreshCmd, 0), 0);
         }
     }
-    static constexpr int kEntryRunning = 0, kEntryClock = 1, kEntryWeather = 2, kEntryTray = 3, kEntryBell = 4,
-                         kEntryRecycleBin = 5, kEntrySeparator = 6, kBuiltInEntries = 7;
-    // Round 8 phase 8B: the "Apps and folders" rows (refs of their own: the entries' indexes, which
-    // QueryState 230 / 264 / 267 take, stay as they were).
-    static constexpr int kEntryApp = 1000, kEntryFolder = 1001;
+    // Round 12 phase 12D: the drawer's entries are DrawerCatalog's (SettingsStrip.h, shared with the
+    // drawer popup of customize mode); refs as before (DrawerRefs).
+    static constexpr int kEntryWeather = DrawerRefs::kWeather, kEntryApp = DrawerRefs::kApp, kEntryFolder = DrawerRefs::kFolder;
+    // The grid's top (DIPs): under the search box and the filter chips.
+    static constexpr int kDrawerGridTop = 108;
+
+    // The filter chips' row under the search box (`create`: made, else moved), push-like radio
+    // buttons All / Built in / Widgets / Apps and folders (ids kDrawerChipAll ...).
+    void LayoutChips(bool create) {
+        const int dx = Width() - kDrawerW;
+        static constexpr struct {
+            int id;
+            const wchar_t* text;
+            int w;
+        } kChips[] = {{kDrawerChipAll, L"All", 40}, {kDrawerChipBuiltIn, L"Built in", 66}, {kDrawerChipWidgets, L"Widgets", 66},
+                      {kDrawerChipApps, L"Apps and folders", 112}};
+        int x = dx + 16;
+        for (const auto& c : kChips) {
+            const RECT r{x, 76, x + c.w, 102};
+            if (create) {
+                Add(c.id, CtlKind::Button, WC_BUTTONW, c.text,
+                    WS_TABSTOP | BS_AUTORADIOBUTTON | BS_PUSHLIKE | (c.id == kDrawerChipAll ? WS_GROUP : 0), r);
+                Tip(c.id, L"Shows only this group of the drawer's tiles (All: every group).");
+            } else {
+                MoveCtl(c.id, r);
+            }
+            x += c.w + 4;
+        }
+    }
+
+    // The item a drag of drawer entry `ref` would add to this window's dock (nothing for a dialog
+    // entry or a kind the dock has once already).
+    std::optional<DockItemEntry> DragEntry(int ref) {
+        const DrawerEntry* e = catalog_.EntryOf(ref);
+        if (!e || ref == kEntryApp || ref == kEntryFolder || (e->once && Dock().Has(e->kind))) return std::nullopt;
+        return catalog_.NewEntry(ref, Dock());
+    }
 
     // The left column's right edge (DIPs): beside the drawer (always shown since round 8 phase 8B).
     int Right() const { return Width() - kDrawerW - 20; }
@@ -2041,156 +995,10 @@ private:
         if (cmd > 0) OnCommand(cmd, BN_CLICKED, nullptr);
     }
 
-    // The entry behind drawer ref `ref` (null: none).
-    const DrawerEntry* EntryOf(int ref) const {
-        if (ref == kEntryWeather) return nullptr;  // retired native weather entry
-        if (ref == kEntryApp || ref == kEntryFolder) {
-            const size_t k = static_cast<size_t>(ref - kEntryApp);
-            return k < addEntries_.size() ? &addEntries_[k] : nullptr;  // none before the first Load
-        }
-        return ref >= 0 && ref < static_cast<int>(entries_.size()) ? &entries_[static_cast<size_t>(ref)] : nullptr;
-    }
-
-    void BuildEntries() {
-        if (addEntries_.empty()) {
-            DrawerEntry app;
-            app.kind = ItemKind::App;
-            app.id = L"app";
-            app.name = L"App or shortcut…";
-            app.note = L"Pin apps or shortcuts";
-            addEntries_.push_back(app);
-            DrawerEntry folder;
-            folder.kind = ItemKind::Folder;
-            folder.id = L"folder";
-            folder.name = L"Folder…";
-            folder.note = L"A folder opens as a stack";
-            addEntries_.push_back(folder);
-        }
-        if (entries_.empty()) {
-            auto builtIn = [&](ItemKind k, const wchar_t* name, const wchar_t* note, bool once) {
-                DrawerEntry e;
-                e.kind = k;
-                e.id = ToString(k);
-                e.name = name;
-                e.note = note;
-                e.once = once;
-                entries_.push_back(std::move(e));
-            };
-            // kEntry* order
-            builtIn(ItemKind::Running, L"Running apps", L"Open apps that are not pinned", true);
-            builtIn(ItemKind::Clock, L"Clock", L"Any number, each with its own format and zone", false);
-            entries_.emplace_back();  // retired native weather entry: preserve automation indexes
-            builtIn(ItemKind::Tray, L"System tray", L"The notification area icons as a grid", true);
-            builtIn(ItemKind::Notifications, L"Notification centre", L"A bell with the unread count; a click lists the notifications", true);
-            builtIn(ItemKind::RecycleBin, L"Recycle Bin", L"Drop files on it to recycle them", true);
-            builtIn(ItemKind::Separator, L"Separator", L"A thin line between groups of icons", false);
-        }
-        entries_.resize(kBuiltInEntries);
-        for (const Widgets::CatalogEntry& w : Widgets::Catalog()) {
-            auto it = packages_.find(w.id);
-            if (it == packages_.end()) {
-                // Its note (the description's first line) and version, read once per session.
-                std::pair<std::wstring, std::wstring> info;
-                std::wstring error;
-                if (const auto pkg = Widgets::Load(w.id, error)) {
-                    std::wstring d = pkg->manifest.description;
-                    if (const size_t nl = d.find_first_of(L"\r\n"); nl != std::wstring::npos) d.resize(nl);
-                    info.first = d.empty() ? w.id : d;
-                    info.second = pkg->manifest.version;
-                } else {
-                    info.first = L"Not readable: " + error;
-                }
-                it = packages_.emplace(w.id, std::move(info)).first;
-            }
-            DrawerEntry e;
-            e.kind = ItemKind::Widget;
-            e.id = w.id;
-            e.name = w.name;
-            e.note = it->second.first;
-            e.version = it->second.second;
-            entries_.push_back(std::move(e));
-        }
-    }
-
-    bool Matches(const DrawerEntry& e) const {
-        return filter_.empty() || ContainsNoCase(e.name, filter_) || ContainsNoCase(e.note, filter_) || ContainsNoCase(e.id, filter_);
-    }
-
-    StripTile EntryTile(int ref) {
-        const DrawerEntry& e = *EntryOf(ref);
-        StripTile t;
-        t.ref = ref;
-        t.name = e.name;
-        t.version = e.version;
-        t.disabled = e.once && Dock().Has(e.kind);
-        t.note = t.disabled ? L"Already on the dock" : e.note;
-        t.tint = TintOf(e.kind, e.id);
-        t.letter = LetterOf(e.kind, e.name);
-        t.desktop = e.kind == ItemKind::Widget;  // round 6 phase 6B: Add to the desktop
-        if (e.kind == ItemKind::Widget) t.previewId = e.id;  // round 6 phase 6E: its live preview
-        switch (e.kind) {
-            case ItemKind::Running: t.shape = StripTile::Shape::Running; break;
-            case ItemKind::Separator: t.shape = StripTile::Shape::Separator; break;
-            case ItemKind::RecycleBin:
-                if (!binIcon_) {
-                    DockItemEntry bin;
-                    bin.kind = ToString(ItemKind::RecycleBin);
-                    binIcon_ = SettingsItemIcon(nullptr, bin, Window().Px(44));
-                }
-                t.icon = binIcon_;
-                t.shape = binIcon_ ? StripTile::Shape::Icon : StripTile::Shape::Letter;
-                break;
-            case ItemKind::App:
-            case ItemKind::Folder: {
-                // Round 8 phase 8B: "App or shortcut…" / "Folder…" (the shell's stock icons; a dialog,
-                // so Add only, no drag).
-                HICON& icon = e.kind == ItemKind::App ? appIcon_ : folderIcon_;
-                if (!icon) {
-                    SHSTOCKICONINFO sii{sizeof(sii)};
-                    if (SUCCEEDED(SHGetStockIconInfo(e.kind == ItemKind::App ? SIID_APPLICATION : SIID_FOLDER,
-                                                     SHGSI_ICON | SHGSI_LARGEICON, &sii))) {
-                        icon = sii.hIcon;
-                    }
-                }
-                t.icon = icon;
-                t.shape = icon ? StripTile::Shape::Icon : StripTile::Shape::Letter;
-                t.noDrag = true;
-                break;
-            }
-            default: t.shape = StripTile::Shape::Letter; break;
-        }
-        return t;
-    }
-
+    // The drawer's grid for the search and the chip (round 12 phase 12D: DrawerCatalog::Tiles).
     void FillDrawer() {
-        const int keep = drawer_.SelectedRef();
-        std::vector<StripTile> tiles;
         int select = -1;
-        auto group = [&](size_t index, const wchar_t* title, const std::vector<int>& refs) {
-            int rows = 0;
-            for (int ref : refs) {
-                const DrawerEntry* e = EntryOf(ref);
-                if (!e || !Matches(*e)) continue;
-                if (rows++ == 0) {
-                    StripTile h;
-                    h.header = true;
-                    h.name = title;
-                    tiles.push_back(std::move(h));
-                }
-                if (ref == keep) select = static_cast<int>(tiles.size());
-                tiles.push_back(EntryTile(ref));
-            }
-            groupRows_[index] = rows;
-        };
-        std::vector<int> builtIn, scripts;
-        for (size_t i = 0; i < entries_.size(); ++i) {
-            if (i == kEntryWeather) continue;  // the weather script is listed with the other scripts
-            (i < static_cast<size_t>(kBuiltInEntries) ? builtIn : scripts).push_back(static_cast<int>(i));
-        }
-        // Round 8 phase 8B: apps and folders first (the add buttons of earlier versions).
-        group(0, L"APPS AND FOLDERS", {kEntryApp, kEntryFolder});
-        group(1, L"BUILT IN", builtIn);
-        group(2, L"SCRIPT WIDGETS", scripts);
+        std::vector<StripTile> tiles = catalog_.Tiles(Dock(), filter_, chip_, drawer_.SelectedRef(), Window().Px(44), &select, groupRows_);
         drawer_.SetTiles(std::move(tiles), select);
     }
 
@@ -2200,7 +1008,8 @@ private:
         MoveCtl(kDrawerTitle, RECT{dx + 16, 12, dx + 16 + kDrawerTitleW, 36});
         MoveCtl(kDrawerHint, RECT{dx + 16 + kDrawerTitleW, 12, W - 16, 36});
         MoveCtl(kDrawerSearch, RECT{dx + 16, 38 + 4, W - 16, 38 + kRowH - 4});
-        MoveCtl(kDrawerList, RECT{dx + 16, 74, W - 16, 378});
+        LayoutChips(false);
+        MoveCtl(kDrawerList, RECT{dx + 16, kDrawerGridTop, W - 16, 378});
         MoveCtl(kDrawerLibraryLink, RECT{dx + 16, 386, W - 16, 422});
         LayoutColumns();  // relayouts
     }
@@ -2422,7 +1231,7 @@ private:
             StripTile t = ItemTile(i, pin, firstRunning, false, &details);
             t.note = t.note + (details.empty() ? std::wstring() : L" · " + details);
             if (e.Kind() == ItemKind::Widget &&
-                Window().Preview(e.id, SettingsStrip::InfoPreviewFit(Window()), true, SettingsStrip::kInfoZoom)) {
+                Window().Preview(e.id, SettingsStrip::InfoPreviewFit(host_), true, SettingsStrip::kInfoZoom)) {
                 t.previewId = e.id;  // round 6 phase 6E: its live preview above the name
                 preview = true;
             }
@@ -2552,17 +1361,9 @@ private:
 
     // A new item of drawer entry `entry` (nothing for a single-instance kind the dock has).
     std::optional<DockItemEntry> NewEntry(int entry) {
-        if (entry == kEntryWeather) return std::nullopt;
-        if (entry < 0 || entry >= static_cast<int>(entries_.size())) return std::nullopt;  // App or shortcut… / Folder…: a dialog
-        const DrawerEntry& de = entries_[static_cast<size_t>(entry)];
-        if (de.once && Dock().Has(de.kind)) {
-            MessageBeep(MB_ICONWARNING);
-            return std::nullopt;
-        }
-        DockItemEntry e;
-        e.kind = ToString(de.kind);
-        if (de.kind == ItemKind::Widget) e.id = de.id;
-        if (de.kind == ItemKind::Tray) Cfg().tray.enabled = true;  // as the dock menu's Add widget > Tray
+        bool tray = false;
+        std::optional<DockItemEntry> e = catalog_.NewEntry(entry, Dock(), &tray);  // round 12 phase 12D: the shared catalog
+        if (e && tray) Cfg().tray.enabled = true;  // as the dock menu's Add widget > Tray
         return e;
     }
 
@@ -2602,8 +1403,9 @@ private:
     // A script widget's "Desktop" (round 6 phase 6B): a standalone widget of it on this dock's
     // display (its default size, under the windows), whose own window opens.
     void AddToDesktop(int entry) {
-        if (entry < 0 || entry >= static_cast<int>(entries_.size()) || entries_[static_cast<size_t>(entry)].kind != ItemKind::Widget) return;
-        const std::wstring id = entries_[static_cast<size_t>(entry)].id;
+        const DrawerEntry* de = catalog_.EntryOf(entry);
+        if (!de || de->kind != ItemKind::Widget) return;
+        const std::wstring id = de->id;
         if (!Host().addWidgetWindow || Host().addWidgetWindow(id, DockIndex(), true) == SIZE_MAX) MessageBeep(MB_ICONWARNING);
     }
 
@@ -2758,19 +1560,16 @@ private:
         bool used = false;
     };
 
+    WindowStripHost host_;  // round 12 phase 12D: first (the strips keep a reference to it)
     SettingsStrip strip_;
     SettingsStrip drawer_;
     SettingsStrip info_;
-    std::vector<DrawerEntry> entries_;
-    std::vector<DrawerEntry> addEntries_;  // round 8 phase 8B: App or shortcut… (kEntryApp), Folder… (kEntryFolder)
+    DrawerCatalog catalog_;  // round 12 phase 12D: the drawer's entries (shared with the drawer popup)
+    DrawerFilter chip_ = DrawerFilter::All;  // the drawer's filter chip
     int groupRows_[3] = {0, 0, 0};         // the drawer's rows per group as shown (QueryState 278)
-    HICON appIcon_ = nullptr;              // the shell's stock icons of those two rows
-    HICON folderIcon_ = nullptr;
-    std::map<std::wstring, std::pair<std::wstring, std::wstring>> packages_;  // widget id -> note, version
     std::map<std::wstring, CachedIcon> icons_;  // the strip's icons by IconKey
     HICON infoIcon_ = nullptr;                  // the inspector's
     std::wstring infoKey_;
-    HICON binIcon_ = nullptr;                   // the drawer's Recycle Bin row
     int iconPx_ = 0;
     int sel_ = 0;  // the selected item
     std::wstring filter_;

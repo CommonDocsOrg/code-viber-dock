@@ -118,6 +118,9 @@ public:
     static constexpr UINT_PTR kFlashTimerId = 26;         // Flash: the next border pulse step (one-shot)
     // 44 = App::kKeepTimerId (round 12 phase 12A: the Keep / Revert countdown on the app window;
     // 40 - 42 CalendarService, 43 DockManager::kDesktopTimer there). WM_APP + 14 = App::kTimelineCommit.
+    // Round 12 phase 12D: 29 = kEditPressTimerId (the long press into customize mode, on the dock
+    // window; 27 / 28 left free), WM_APP + 57 = App::kEditLeaveMessage (posted to the app window by
+    // the customize mode's foreground hook).
     static constexpr int kFlashSteps = 6;                 // lit, dark, lit, dark, lit, dark
     static constexpr UINT kFlashStepMs = 250;
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);
@@ -448,6 +451,46 @@ public:
     bool ReminderShown() const { return reminder_.Visible(); }
     size_t RemindersQueued() const { return reminders_.size(); }
 
+    // --- round 12 phase 12D: customize mode (edit mode) on the dock (DockWindowEdit.cpp) ---
+    // App owns the mode (one dock at a time, the edit bar, the drawer popup, the unlock question);
+    // the dock draws it and takes its input: a dashed outline in the dock's colour around the bar, a
+    // remove badge on the hovered item, "+" slots at the end of the pinned run and of the whole run,
+    // three anchor targets while an item is dragged; magnification paused, previews off, auto-hide
+    // held (kHoldEdit), plain dragging reorders (no hold-to-group). Nothing animates at rest.
+    struct EditRequests {
+        std::function<void()> enter;   // a long press (600 ms, the pointer still) on the bar's background
+        std::function<void()> leave;   // Escape on the dock, a click on the dock window beside the bar
+        std::function<void(size_t item)> remove;                // config item `item`'s remove badge
+        std::function<void(size_t item, ItemAnchor anchor)> anchor;  // item `item` dropped on an anchor target
+        std::function<void(int which)> plus;                    // "+" slot `which` (0 the pinned run's, 1 the end's)
+        std::function<void()> moved;   // the bar moved or changed its size while customizing (the edit bar follows)
+        std::function<void()> ended;   // the window goes away while customizing
+    };
+    void SetEditRequests(EditRequests requests) { editRequests_ = std::move(requests); }
+    // On: the dock is shown and held, the outline and the "+" slots appear (a relayout makes their
+    // room); off: back to normal. App calls it (the dock never enters by itself).
+    void SetEditing(bool on);
+    bool Editing() const { return editing_; }
+    // The drawer popup of customize mode is open (kHoldDrawer: the dock stays shown under it).
+    void SetDrawerHold(bool on);
+    // A drawer tile dragged in-process (the drawer keeps the mouse capture) over this dock at screen
+    // point `screen`: the bar opens the drop marker's gap where it would land (any slot boundary
+    // between elements). False: not over the bar (the marker goes). Leave: the marker goes.
+    bool ExternalItemOver(POINT screen);
+    void ExternalItemLeave();
+    // Released there: the config item index it goes before (the item count: the end); SIZE_MAX:
+    // not over the bar. The marker goes either way.
+    size_t ExternalItemDrop(POINT screen);
+    // Automation: the slot whose remove badge shows (QueryState 308 asks "shown": -1 none), the "+"
+    // slots laid out (QueryState 309), a click on "+" slot `which` (ItemCommand 862), on the badge of
+    // slot `slot` (ItemCommand 865; false: no such slot or it has no config item of its own).
+    int EditBadgeSlot() const { return editing_ ? editHover_ : -1; }
+    int PlusCount() const;
+    bool ClickPlus(int which);
+    bool EditRemoveSlot(int slot);
+    // The bar with its outline at rest (screen px; the edit bar and the drawer go beside it).
+    RECT EditFrameRect() const;
+
 private:
     class DropTarget;
     friend class DropTarget;
@@ -574,6 +617,14 @@ private:
         D2D1_RECT_F hub{};
         float hubScale = 1.0f;
         bool rotateIcons = false;
+        // --- round 12 phase 12D --- customize mode's "+" slots: room of a slot each, before slot
+        // plusPinSlot (right after the pinned run; -1: none) and at the run's end (plusEnd); their
+        // icon boxes start at these canonical main coordinates (rest layout).
+        int plusPinSlot = -1;
+        bool plusEnd = false;
+        float plusPinMain = 0.0f;
+        float plusEndMain = 0.0f;
+        float plusRoom = 0.0f;  // the room each takes (a slot: iconPx + gap)
 
         // The mappings (DockGeometry.h): the edge mapping for a bar, the ring for "arc" / "circle".
         D2D1_POINT_2F Phys(float u, float v) const {
@@ -920,6 +971,9 @@ private:
         kHoldWidget = 1u << 4,  // a script widget's popup
         kHoldCentre = 1u << 5,  // the notification centre
         kHoldEditor = 1u << 6,  // a script widget's text editor (popup.editText, round 6 phase 6C)
+        // --- round 12 phase 12D ---
+        kHoldEdit = 1u << 7,    // customize mode
+        kHoldDrawer = 1u << 8,  // its drawer popup
     };
     // Takes the hold for `bit` (cancels a pending hide).
     void TakePopupHold(uint32_t bit);
@@ -1557,4 +1611,53 @@ private:
     bool bgRing_ = false;       // the background surface was drawn as a ring
     LONG dockShiftY_ = 0;  // a circle dragged (Ctrl + drag): the vertical part of its move
     RECT dockStartBar_{};  // a floating dock dragged: its resting bar (screen px) when the drag began
+
+    // --- round 12 phase 12D: customize mode (DockWindowEdit.cpp) ---
+    static constexpr UINT_PTR kEditPressTimerId = 29;  // a long press on the bar's background (one-shot, 600 ms)
+    static constexpr UINT kEditPressMs = 600;           // = hold-to-group's (decision 6 of the round 12 plan)
+    // The visuals (in front of everything; drawn once per layout, placed with static offsets).
+    HRESULT RenderEditVisuals();
+    void PlaceEditVisuals();
+    void DestroyEditVisuals();
+    // The remove badge's / a "+" slot's / anchor target `k`'s box (physical stage px; empty: none).
+    D2D1_RECT_F EditBadgeBox(int slot) const;
+    D2D1_RECT_F PlusBox(int which) const;
+    D2D1_RECT_F AnchorBox(int k) const;
+    // The outline's rect (canonical stage px, clamped to the stage).
+    D2D1_RECT_F OutlineCanon() const;
+    // Slot `slot` has a config item of its own to remove (a pin, a widget; not a running app's window).
+    bool EditRemovable(int slot) const;
+    // The hovered slot under stage point `pt` for the badge (WM_MOUSEMOVE while customizing).
+    void UpdateEditHover(POINT stagePt);
+    // Press handling while customizing (true: the press was taken: a badge, a "+", beside the bar).
+    bool EditPress(POINT stagePt);
+    bool EditRelease(POINT stagePt);
+    // The long press: armed by a press on the background, cancelled by a move past 4 DIPs or the release.
+    void ArmEditPress(POINT stagePt);
+    void CancelEditPress();
+    void OnEditPressTimer();
+    // The anchor target (0 start, 1 centre, 2 end; -1 none) under the dragged item's pointer.
+    int AnchorAt(POINT stagePt) const;
+    void SetAnchorHot(int k);
+    // A gap for a drawer drag at stage main coordinate x: a slot boundary between elements.
+    int ElementGapAt(float stageX) const;
+    // The config index a drop in gap `gap` goes before.
+    size_t ConfigIndexOfGap(int gap) const;
+
+    bool editing_ = false;
+    EditRequests editRequests_;
+    int editHover_ = -1;           // the slot whose remove badge shows (-1 none)
+    int editPressBadge_ = -1;      // a press on that badge (its slot)
+    int editPressPlus_ = -1;       // a press on a "+" slot
+    bool editPressPending_ = false;  // kEditPressTimerId running
+    POINT editPressPt_{};          // where the long press started (stage px)
+    int anchorHot_ = -1;           // the anchor target under the dragged item (-1 none)
+    bool anchorsShown_ = false;    // the anchor targets are visible (an item is dragged while customizing)
+    bool externalDrag_ = false;    // a drawer tile is dragged over the dock (its marker shows)
+    bool editDirty_ = true;        // the edit visuals' surfaces must be drawn again
+    RECT editFrameShown_{};        // EditFrameRect when the edit bar was told last (moved)
+    Layer editOutline_;
+    Layer editBadge_;
+    Layer editPlus_[2];
+    Layer editAnchors_[3];
 };
