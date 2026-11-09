@@ -164,7 +164,7 @@ To reset the app look, open App settings > Themes, click **⋯** and choose **Re
 
 To reset one dock, apply the **Basic dock** layout to it: in its settings panel click **⋯** > **Apply a layout or look…**, choose **Basic dock** under **Layouts**, click **Apply** and then **Keep**. Clear **Keep my pinned apps and folders** for a clean dock.
 
-To go back a few steps instead, use Undo: **Ctrl+Z** in a settings window, or the first entry of the dock menu.
+To go back a few steps instead, use Undo: **Ctrl+Z** in a settings window or while customizing a dock, or the first entry of the dock menu.
 
 To start over completely:
 

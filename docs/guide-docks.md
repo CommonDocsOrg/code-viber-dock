@@ -63,7 +63,7 @@ While customizing (right-click the dock and choose **Customize this dock**):
 1. Press on an empty part of the bar, between or beside the icons.
 2. Drag along the edge to move the dock along it. A centred dock stops at the centre for a moment, so it is easy to put back.
 3. Drag toward the middle of the screen to move the bar away from its edge (up to 200 pixels).
-4. A small readout beside the pointer says where the dock is, for example "+40 px from the centre · 12 px from the edge".
+4. A small readout beside the pointer says where the dock is, for example "+40 px from the centre · 12 px from the edge" ("0 px from the edge" while it is on the edge).
 5. Let go. The move is one change you can undo.
 
 To put the dock on another edge, drag it toward that edge. The dock dims and the readout says "Release to move it to the left edge". When you let go there, the dock moves to that edge, and a bar offers **Keep** and **Revert (12 s)** (see [Keep or Revert](guide-settings.md#keep-or-revert)). Left alone, the move is kept.

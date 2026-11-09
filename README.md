@@ -1625,7 +1625,8 @@ but the configuration, and opening one that is already open brings it to the fro
   folder window has the same kind of window with only its Folder window page. Round 12 phase 12E:
   for a dock it is a **panel beside the dock** (no caption, not in the taskbar or Alt+Tab, Windows
   11's rounded corners, a 3 DIP band in the dock's colour on the side facing it): above a bottom
-  bar, under a top one, beside a vertical one, centred on the bar and kept on the work area; a
+  bar, under a top one, beside a vertical one, centred on the bar and kept on the work area (round
+  12 phase 12H: beyond a title drawn outside the bar too); a
   floating bar or a circle gets it on the side facing the screen's middle. It holds the dock shown,
   follows the bar when it moves (200 ms, none with Reduce motion; an "each" dock: beside the
   instance it was opened from), is sized by its three outer edges (a 6 DIP border; default 470 × 640,
@@ -1736,8 +1737,9 @@ the focus (in the order it lists them), a Dock window's tab strip with Left / Ri
 window. Tab moves into the page, Esc
 closes the window, Enter applies the text in an edit box. Round 12 phase 12A: **Ctrl+Z** /
 **Ctrl+Y** (or Ctrl+Shift+Z) undo / redo (below; an edit box that can undo its own typing keeps
-Ctrl+Z), Esc cancels an open preset preview instead of closing the window. On the dock in customize
-mode there is no Ctrl+Z: the edit bar's **Undo** and the dock menu's first entry undo there.
+Ctrl+Z), Esc cancels an open preset preview instead of closing the window. Round 12 phase 12H: on
+the dock in customize mode (and its edit bar and drawer popup) Ctrl+Z / Ctrl+Y / Ctrl+Shift+Z work
+too, one step per press (see Customize mode).
 
 **Undo, Saved, Keep / Revert, Keep / Cancel** (round 12 phase 12A; guide-settings "Undo and Saved"):
 
@@ -2088,7 +2090,8 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
     "Shifts this item and the ones after it in its group"; Enter, focus loss or the up-down
     apply it). On a dock with anchors, an item moved on the strip (drag, Ctrl+arrows, Move left /
     right) or dropped / added between two items of another group joins that group.
-  - **Add to the dock** (the drawer, on the right; round 8 phase 8B: always shown, and the only
+  - **Add to the dock** (the drawer, on the right; round 12 phase 12H: under the selected item's
+    box, full width, while the tab is narrower than 720 DIPs, as in the 470-DIP panel; round 8 phase 8B: always shown, and the only
     place that adds: the Add app… / Add folder… / Add separator / Add Recycle Bin buttons under the
     strip and the Hide / Show widget drawer button are gone). Round 12 phase 12D: a **grid of
     tiles** (the same control as customize mode's drawer popup, `WinDock.SettingsStrip` in drawer
@@ -2152,6 +2155,9 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
   customizing. It snaps to the centre.", for a floating bar or a circle **Position x** / **Position
   y** with **Centre it** (empties both), then Full width, Reserve screen space, the ring rows and
   When the icons do not fit. Exact offsets keeps Peek when hidden, Peek opacity and Maximum length.
+  Round 12 phase 12H: in a panel too narrow for the silhouette beside the drop-downs (the default
+  470 DIPs) the silhouette has a row of its own at the top of the card, and the distance sliders
+  get shorter (down to 80 DIPs) so the boxes and "px" stay in view.
   Round 12 phase 12C: the **Layer and title** card has Layer, **Show the title** (Never / On hover /
   Always: `titleShow`), **Use the dock's name** (`titleUseName`; the Title box is collapsed while
   it is on), **Title** and **Where** (Outside the bar / Inside the bar: `titlePlace`; disabled on a
@@ -2232,8 +2238,8 @@ the item's `anchor`); a **+** slot after the pinned run and one at the run's end
 plain drag on the bar's background (a bar on an edge that is not full width; a floating bar's
 background drag and Ctrl+drag work as always) moves the dock: along the edge sets `offset` (the
 alignment kept; a centred dock rests at 0 within 14 DIPs), toward the middle sets `edgeGap`, a
-tooltip readout beside the pointer says "+40 px from the centre · 12 px from the edge" or "Release
-to move it to the left edge" over another edge's zone (a release there switches the edge as
+tooltip readout beside the pointer says "+40 px from the centre · 12 px from the edge" (also "0 px
+from the edge" on the edge) or "Release to move it to the left edge" over another edge's zone (a release there switches the edge as
 Ctrl+drag does, with Keep / Revert); one undo entry per drag. The **edit bar** (`WinDock.EditBar`,
 topmost, never activated; beside the dock on the screen's side at its end: above a bottom dock's
 right end) shows "Customizing <name>", the save state and **Undo**, **Add items** / **Hide items**,
@@ -2241,8 +2247,12 @@ right end) shows "Customizing <name>", the save state and **Undo**, **Add items*
 <name>"; beyond the edit bar: above a bottom dock, beside a vertical one, never over the dock)
 holds the same grid as the Contents tab with its search box and chips; a click on a tile adds it at
 the end, a drag drops it onto any dock where its marker shows, a widget tile dragged onto the
-desktop (or its monitor button) makes a standalone widget. There is no Ctrl+Z on the dock: the
-edit bar's Undo and the dock menu's Undo entry undo there. Nothing ticks at rest.
+desktop (or its monitor button) makes a standalone widget. Round 12 phase 12H: **Ctrl+Z** /
+**Ctrl+Y** (or Ctrl+Shift+Z) undo / redo on the dock, the edit bar and the drawer popup as in a
+settings window (one step per press; the drawer's search box keeps Ctrl+Z while it can undo its
+typing), besides the edit bar's Undo and the dock menu's Undo entry. Entering the mode gives the
+dock the keyboard (Esc); leaving it by Done or Esc gives the window that was in front before back
+the foreground. Nothing ticks at rest.
 
 **A folder window's window** has the same compact header (its colour, id, display, Shown /
 Parked; no Flash / Lock, only **⋯**) and its one page, **Folder window** (round 4 phase 12b): its

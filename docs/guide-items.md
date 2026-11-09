@@ -56,7 +56,7 @@ Customizing lets you change a dock right where it is: add, move and remove its i
 
 To start customizing, do one of these:
 
-- Right-click an empty part of the dock and choose **Customize this dock** (the first entry).
+- Right-click an empty part of the dock and choose **Customize this dock** (the first entry, after **Undo** when there is something to undo).
 - In the dock's settings panel, click **Customize** in the header.
 - Press and hold an empty part of the bar for a moment, without moving the mouse.
 
@@ -73,12 +73,12 @@ While you customize:
 
 A small bar beside the dock (above a bottom dock, at its end) shows "Customizing" and the dock's name, the save state (**✓ Saved**) and these buttons:
 
-- **Undo**: undoes the last change.
+- **Undo**: undoes the last change. **Ctrl+Z** does the same on the dock, and **Ctrl+Y** redoes it.
 - **Add items** (or **Hide items** while it is open): shows or hides the drawer beside the dock.
 - **Settings**: opens the dock's settings panel.
 - **Done**: ends customizing.
 
-To stop customizing, click **Done**, press **Esc**, choose **Done customizing** in the dock menu, or click another app or the desktop.
+To stop customizing, click **Done**, press **Esc**, choose **Done customizing** in the dock menu, or click another app or the desktop. After **Done** or **Esc**, the window you were using before is in front again.
 
 ## Right-click menus
 

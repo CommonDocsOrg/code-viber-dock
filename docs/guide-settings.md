@@ -136,7 +136,7 @@ To undo or redo a change:
 
 - Press **Ctrl+Z** in any settings window to undo the last change, and **Ctrl+Y** to redo it. While you type in a text box, Ctrl+Z first undoes your typing there.
 - Right-click the dock (or the WinDock icon in the notification area): while there is something to undo, the first entry says what, for example **Undo “Icon size 48 → 64”**.
-- While customizing a dock, click **Undo** on the small bar beside it.
+- While customizing a dock, click **Undo** on the small bar beside it, or press **Ctrl+Z** (and **Ctrl+Y** to redo).
 - In a dock's panel, **⋯** has **Undo**, **Redo** and **Revert this window…**. Revert this window undoes every change made since you opened the panel, after asking first. It is one change itself, so Undo brings everything back.
 
 The changes are remembered until WinDock quits. They are not saved to disk.
@@ -513,7 +513,7 @@ Below them, for every item, is **Anchor and offset**, closed at first (most item
 
 Use **Position on the dock** to split a dock into parts, for example a Start button at the left end, your apps in the middle and the clock at the right end.
 
-**Add to the dock** is the drawer: a grid of tiles of everything you can put on the dock. It is the same drawer that opens beside the dock while you customize it.
+**Add to the dock** is the drawer: a grid of tiles of everything you can put on the dock. It is the same drawer that opens beside the dock while you customize it. In a narrow panel it is under the selected item; scroll down to it, or widen the panel to have it on the right.
 
 - The search box finds a tile by its name or description.
 - The chips filter the grid: **All**, **Built in**, **Widgets** or **Apps and folders**.
