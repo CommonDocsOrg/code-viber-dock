@@ -57,8 +57,11 @@ protected:
         Section(kFwFolderSection, L"Folder", L"guide-settings.md#which-folder");
         Label(kFwPathLabel, L"Folder");
         Tip(kFwPathLabel, L"The folder the folder window shows (type a path, or use the button beside it). Its files open as in Explorer.");
-        EditBox(kFwPathEdit, kColX, right - kColX - 110, 4096);
-        Button(kFwBrowse, L"Browse…", right - 100, 100);
+        // Round 12 phase 12I: the page lives in the 470-DIP panel now: beside the button the edit was
+        // 78 px wide (measured), so the path gets the whole column and Browse… a row of its own.
+        EditBox(kFwPathEdit, kColX, right - kColX, 4096);
+        NextRow();
+        Button(kFwBrowse, L"Browse…", kColX, 100);
         NextRow();
         Label(kFwTitleLabel, L"Title (empty: the folder's name)");
         Tip(kFwTitleLabel, L"The text in the window's title bar. Empty (the default): the folder's name.");
@@ -95,10 +98,11 @@ protected:
         Spin(kFwOpacityEdit, kFwOpacitySpin, kColX, kNumberW, 20, 100, 5);
         Text(kFwOpacityUnit, CtlKind::Note, L"%", kColX + kNumberW + 8, 60);
         NextRow();
-        Label(kFwTitleColorLabel, L"Title colour (#AARRGGBB)");
+        // Round 12 phase 12I: the note is the label's hint (beside the edit it was cut to "empt…" in
+        // the panel).
+        Label(kFwTitleColorLabel, L"Title colour (#AARRGGBB)", L"Empty: the theme's colour", kFwTitleColorNote);
         Tip(kFwTitleColorLabel, L"The title's colour as #AARRGGBB. Empty (the default): the theme's colour.");
         EditBox(kFwTitleColorEdit, kColX, 140, 9);
-        Text(kFwTitleColorNote, CtlKind::Note, L"empty: the theme's", kColX + 150, 160);
         NextRow();
         Label(kFwLinesLabel, L"Lines of name (grid)");
         Tip(kFwLinesLabel, L"How many lines of an item's name the grid shows under its icon: one or two (the default).");
