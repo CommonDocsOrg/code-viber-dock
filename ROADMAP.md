@@ -1245,6 +1245,44 @@ release exe was rebuilt and the user's dock runs on it; their config migrated on
 gap / padding on screen, the Running apps window by real input) is the user's manual check list in
 STATUS.md "Round 13".
 
+### 13F: Quick setup's look (done 2026-11-09)
+
+The user's request after the release: the Quick setup windows were "kind of basic". The wizard kept
+its controls, ids and messages (nothing in README's automation changed) and got the chrome that
+tells the user where they are and what each choice does: a step track with check marks for the
+steps done, a card per dock on step 1 with the layout's tagline under the controls (so a choice in
+the combo reads back in words at once), the fine-tuning of step 2 in a card, step 3's choices in
+two titled cards with a one-line hint under every control (the auto-hide and animation hints follow
+the selection), and a painted summary on step 4 listing every dock, the look and the four behaviour
+choices with a check mark each, so Finish is never a surprise. Everything is GDI in `WM_PAINT`
+(double-buffered, the children clipped out); a control on a card gets the card's brush by position.
+`tools\smoke\quick-setup.ps1` walks the steps and saves a PNG of each, which is how the result was
+checked; the smoke module got the generic helpers for it (a window message to any HWND, a window's
+rect, a screenshot of a window).
+
+### 13G: titles under the icons on a vertical dock; settings cards that stay put (done 2026-11-09)
+
+Two reports from the user after 13F. **Titles on vertical docks**: the running apps' titles (and
+the window tiles' titles) on a left / right dock were either beside the icon, in a column toward the
+screen edge that widens the bar, or off; the user wants them under each window as a bottom dock
+shows them, and as the default. `titlesVertical` gets `"under"` (the default from now on; a saved
+`"beside"` stays). It is not a band across the bar but a row inside each icon slot along the bar:
+every magnifying icon slot is longer by 2 DIP + the lines' height (`Layout::captionSlot`,
+`DockItem::capMain`, after the box and its half gap), the bar's thickness is unchanged, and the
+row is the bar's icon row wide with the text centred. The one real complication is magnification:
+on a horizontal dock the icon grows away from its title (across the bar), but here the scaled box
+grows along the bar, over a row at a fixed offset. So the row has its own tween (`DockItem::tc`)
+aimed at the scaled box's end, run with the same duration and easing as the icon's position and
+scale tweens, so it keeps step with the icon and is pushed down as the icon grows. (A first cut of
+this phase misread "window previews" as the hover popup and put the name under its cards beside a
+vertical dock; it was reverted before the build.) **Settings columns**: 12F's two-column flow put each
+card into the column that was shorter at that moment, so opening an expander (10D's Bar, Name
+label, ... cards on the Themes page, the Appearance tab's cards) made the cards after it change
+column and order. The flow now deals a band's cards left, right, left, ... in table order and
+stacks each column on its own: a card's column and its neighbours never depend on how tall the
+cards before it are. The columns can end uneven; that was the trade the user asked for ("always
+stayed in place").
+
 ## Dependencies at a glance
 
 ```

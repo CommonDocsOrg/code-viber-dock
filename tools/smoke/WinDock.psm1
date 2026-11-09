@@ -303,4 +303,47 @@ function Get-ClassAtPoint {
 
 function Get-ZIndex { param([IntPtr]$Hwnd) $script:N::ZIndex($Hwnd) }
 
+# --- any window (round 13 follow-up: the Quick setup look) ---
+
+function Get-WinDockWindowsOfClass {
+    <# Top-level windows of the running dock of class -Class (e.g. WinDock.QuickSetup), visible only unless -All. #>
+    param([Parameter(Mandatory)][string]$Class, [switch]$All)
+    $p = Get-WinDockProcess | Select-Object -First 1
+    if (-not $p) { return @() }
+    @($script:N::ByClass($Class, [uint32]$p.Id, -not $All))
+}
+
+function Send-WindowMessage {
+    <# A plain window message to -Hwnd (sent, 5 s timeout; -Post posts). -Msg 0x111 is WM_COMMAND. #>
+    param([Parameter(Mandatory)][IntPtr]$Hwnd, [Parameter(Mandatory)][int]$Msg, [int64]$WParam = 0, [int64]$LParam = 0, [switch]$Post)
+    if ($Post) { return [bool]$script:N::PostMessageW($Hwnd, [uint32]$Msg, [IntPtr]$WParam, [IntPtr]$LParam) }
+    $res = [IntPtr]::Zero
+    $ok = $script:N::SendMessageTimeoutW($Hwnd, [uint32]$Msg, [IntPtr]$WParam, [IntPtr]$LParam, 2, 5000, [ref]$res)
+    if ($ok -eq [IntPtr]::Zero) { throw "message $Msg to $Hwnd timed out" }
+    [int64]$res
+}
+
+function Get-WindowRect {
+    param([Parameter(Mandatory)][IntPtr]$Hwnd)
+    $r = New-Object WinDockSmoke.Native+RECT
+    [void]$script:N::GetWindowRect($Hwnd, [ref]$r)
+    [pscustomobject]@{ Left = $r.Left; Top = $r.Top; Right = $r.Right; Bottom = $r.Bottom }
+}
+
+function Save-WindowImage {
+    <# A PNG of the screen under -Hwnd's rect (the window must be on top; waits -DelayMs for its paint). #>
+    param([Parameter(Mandatory)][IntPtr]$Hwnd, [Parameter(Mandatory)][string]$Path, [int]$DelayMs = 300)
+    Add-Type -AssemblyName System.Drawing
+    Start-Sleep -Milliseconds $DelayMs
+    $r = Get-WindowRect $Hwnd
+    $w = [Math]::Max(1, $r.Right - $r.Left); $h = [Math]::Max(1, $r.Bottom - $r.Top)
+    $bmp = New-Object System.Drawing.Bitmap $w, $h
+    $g = [System.Drawing.Graphics]::FromImage($bmp)
+    $g.CopyFromScreen($r.Left, $r.Top, 0, 0, $bmp.Size)
+    $g.Dispose()
+    $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
+    $bmp.Dispose()
+    $Path
+}
+
 Export-ModuleMember -Function *

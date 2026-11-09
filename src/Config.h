@@ -108,9 +108,10 @@ enum class WindowsMode { Stacked, Unstacked };
 // Text under each icon: "off" (default), "one" (one line) or "two" (two lines), ellipsized; the
 // window title for a window slot, else the app / item name.
 enum class TitlesMode { Off, One, Two };
-// Titles on left / right docks: "beside" (default: next to the icon, toward the screen edge) or
-// "off".
-enum class TitlesVertical { Off, Beside };
+// Titles on left / right docks: "under" (default since round 13 phase 13G: a row under each icon
+// along the bar, as on a bottom dock), "beside" (next to the icon, toward the screen edge; the
+// default before 13G) or "off".
+enum class TitlesVertical { Off, Beside, Under };
 // Window thumbnails as dock items: "off" (default), "live" (Windows.Graphics.Capture: the tile
 // follows the window while the dock is visible, at most thumbnailFps frames a second; GPU work in
 // DWM and buffers the size of the window) or "snapshots" (PrintWindow every thumbnailIntervalS
@@ -311,7 +312,7 @@ struct RunningConfig {
     RunningFilter filter = RunningFilter::All;       // "filter"
     WindowsMode windows = WindowsMode::Stacked;      // "windows"
     TitlesMode titles = TitlesMode::Off;             // "titles"
-    TitlesVertical titlesVertical = TitlesVertical::Beside;
+    TitlesVertical titlesVertical = TitlesVertical::Under;  // 13G: was Beside
     // Thumbnails: each window slot (unstacked; stacked: an app slot with windows, its active
     // window) shows the window as a tile with the app icon in a corner.
     ThumbnailMode thumbnails = ThumbnailMode::Off;

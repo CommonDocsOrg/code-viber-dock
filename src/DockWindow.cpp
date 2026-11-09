@@ -771,18 +771,33 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     l.glowPad = glow != GlowMode::Off ? std::ceil(t.glowRadius * s) + 1.0f : 0.0f;
 
     // Titles under the icons: a band between the icon (and its reflection) and the dots, the
-    // label's font at kCaptionFontSize; on vertical docks a column beside the icon (toward the
-    // screen edge) or none (titlesVertical "off"). The bar's cross size grows by the band.
+    // label's font at kCaptionFontSize; on vertical docks a row under the icon along the bar
+    // (titlesVertical "under", round 13 phase 13G: each icon slot grows by it instead), a column
+    // beside the icon (toward the screen edge; "beside") or none ("off"). The bar's cross size
+    // grows by the band.
     const RunningConfig& runCfg = d.Running();  // round 13 phase 13D: the running item's titles
     int lines = runCfg.titles == TitlesMode::One ? 1 : runCfg.titles == TitlesMode::Two ? 2 : 0;
     if (l.vertical && runCfg.titlesVertical == TitlesVertical::Off) lines = 0;
     if (polar) lines = 0;  // no titles under the icons of a ring
     if (lines && !EnsureCaptionFormat(s)) lines = 0;
     l.captionLines = lines;
+    l.captionUnder = false;
+    l.captionSlot = 0.0f;
     float captionGap = 0.0f;
     if (lines) {
         const float textH = std::ceil(captionLineH_ * static_cast<float>(lines));
-        if (l.vertical) {
+        if (l.vertical && runCfg.titlesVertical == TitlesVertical::Under) {
+            // Round 13 phase 13G: a row under each icon along the bar (the default on a vertical
+            // dock): the slot grows by it (captionSlot -> DockItem::capMain), the bar's cross size
+            // does not; the row is the bar's icon row wide (the text centred). captionTop: below.
+            l.captionUnder = true;
+            captionGap = std::round(kCaptionGap * s);
+            l.captionMain = textH;
+            l.captionCross = std::round(l.iconPx + 2.0f * barPadDip * s);
+            l.captionShift = 0.0f;
+            l.captionSlot = captionGap + textH;
+            captionGap = 0.0f;  // nothing across the bar
+        } else if (l.vertical) {
             captionGap = std::round(kCaptionBesideGap * s);
             l.captionCross = std::round(kCaptionBesideWidth * s);
             l.captionMain = l.iconPx;
@@ -793,7 +808,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
             l.captionMain = l.iconPx + l.gap;  // the icon's slot
             l.captionShift = -std::floor(l.gap / 2.0f);
         }
-        l.captionBand = captionGap + l.captionCross;
+        l.captionBand = l.captionUnder ? 0.0f : captionGap + l.captionCross;
     }
 
     // The title (docks[].title): upright, in the label's font, kLabelGap beyond the bar's far side.
@@ -921,7 +936,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
             item.boxMain = main;
             if (item.Magnifies()) maxBox = std::max(maxBox, main);
             item.gapPx = element.SlotGap(ctx, l.gap);  // round 13 phase 13D
-            item.slotW = item.Magnifies() ? main + item.gapPx : main;
+            item.capMain = item.Magnifies() ? l.captionSlot : 0.0f;  // round 13 phase 13G
+            item.slotW = item.Magnifies() ? main + item.gapPx + item.capMain : main;
             item.boxCross = l.iconPx;
             item.hitSlack = 0.0f;
             ++icons;
@@ -1138,7 +1154,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
 
     l.bar = D2D1::RectF(barLeft, winH - crossMargin - barH, barLeft + barW, winH - crossMargin);  // 12E: off its edge by the gap
     l.itemTop = l.bar.top + l.iconTopPx;
-    l.captionTop = l.itemTop + l.iconPx + l.reflH + captionGap;  // under the icon and its reflection
+    // Under the icon and its reflection; 13G "under" on a vertical bar: the row spans the icon row.
+    l.captionTop = l.captionUnder ? l.bar.top + l.titleBand : l.itemTop + l.iconPx + l.reflH + captionGap;
     l.growRoomStart = l.bar.left;
     l.growRoomEnd = l.stageMain - l.bar.right;
     float polarRun = 0.0f;  // a ring: the run's length along it (0: not a ring)
@@ -2962,11 +2979,12 @@ HRESULT DockWindow::RenderCaption(DockItem& item) {
     // ones (the text stays upright).
     const float s = l.scale;
     const float pad = std::round(kCaptionPad * s);
-    // The slot's width (horizontal; a thumbnail tile is longer than an icon) or the box's length.
-    const float captionMain = l.vertical ? BoxW(item) : BoxW(item) + (l.captionMain - l.iconPx);
+    // The slot's width (horizontal; a thumbnail tile is longer than an icon) or the box's length;
+    // 13G "under" on a vertical dock: the row's height along the bar, the icon row across it.
+    const float captionMain = l.captionUnder ? l.captionMain : l.vertical ? BoxW(item) : BoxW(item) + (l.captionMain - l.iconPx);
     const D2D1_SIZE_F box = l.PhysSize(captionMain, l.captionCross);
     const float textW = std::max(1.0f, box.width - 2.0f * pad);
-    const float textH = l.vertical ? box.height : std::ceil(captionLineH_ * static_cast<float>(l.captionLines));
+    const float textH = l.vertical && !l.captionUnder ? box.height : std::ceil(captionLineH_ * static_cast<float>(l.captionLines));
     winrt::com_ptr<IDWriteTextLayout> layout;
     auto make = [&](const std::wstring& t) {
         layout = nullptr;
@@ -2978,9 +2996,9 @@ HRESULT DockWindow::RenderCaption(DockItem& item) {
         layout->SetWordWrapping(l.captionLines == 1 ? DWRITE_WORD_WRAPPING_NO_WRAP : DWRITE_WORD_WRAPPING_EMERGENCY_BREAK);
         // Horizontal docks: centred under the icon. Vertical: toward the icon (right-aligned on a
         // left dock, whose titles sit between the icon and the screen edge).
-        layout->SetTextAlignment(!l.vertical ? DWRITE_TEXT_ALIGNMENT_CENTER
-                                 : l.edge == DockEdge::Left ? DWRITE_TEXT_ALIGNMENT_TRAILING
-                                                            : DWRITE_TEXT_ALIGNMENT_LEADING);
+        layout->SetTextAlignment(!l.vertical || l.captionUnder ? DWRITE_TEXT_ALIGNMENT_CENTER
+                                 : l.edge == DockEdge::Left   ? DWRITE_TEXT_ALIGNMENT_TRAILING
+                                                              : DWRITE_TEXT_ALIGNMENT_LEADING);
     };
     make(text);
     if (layout && l.captionLines > 1) {
@@ -3010,7 +3028,7 @@ HRESULT DockWindow::RenderCaption(DockItem& item) {
     if (!layout) return S_OK;
     DWRITE_TEXT_METRICS m{};
     layout->GetMetrics(&m);
-    const float y = l.vertical ? std::round((box.height - std::min(m.height, box.height)) / 2.0f) : 0.0f;
+    const float y = l.vertical && !l.captionUnder ? std::round((box.height - std::min(m.height, box.height)) / 2.0f) : 0.0f;
     const D2D1_COLOR_F color = Theme::ToColor(DockTheme().clockText);  // drawn on the bar, like the clock
     HRESULT hr = renderer_.DrawLayer(item.caption, static_cast<UINT>(box.width), static_cast<UINT>(box.height),
                                      [&](ID2D1DeviceContext* dc) {
@@ -3021,9 +3039,14 @@ HRESULT DockWindow::RenderCaption(DockItem& item) {
                                      });
     if (FAILED(hr)) return hr;
     // The box sits captionShift along the bar from the icon box (the slot's left edge on horizontal
-    // docks); the icon's main tween drives the visual's own offset.
+    // docks); the icon's main tween drives the visual's own offset. 13G "under": its own tween
+    // (`tc`, ApplyTargets) puts it under the scaled box; no static shift.
     renderer_.SetStaticTransform(item.caption, l.vertical ? D2D1::Matrix3x2F::Translation(0.0f, l.captionShift)
                                                           : D2D1::Matrix3x2F::Translation(l.captionShift, 0.0f));
+    item.tc.valid = false;  // placed again by ApplyTargets (a new surface, or the mode changed)
+    // Across the bar: set here too (ApplyTargets sets it only with a fresh placement), so a
+    // change between "under" and "beside" / a band moves an existing visual.
+    SetCrossOffset(item.caption.visual.get(), l.CrossOrigin(l.captionTop, l.captionCross));
     item.captionText = std::move(text);
     item.captionDirty = false;
     return S_OK;
@@ -4006,7 +4029,7 @@ void DockWindow::ComputeTargets() {
     }
     // Width of an item's slot in the magnified layout (an icon or a thumbnail tile scales).
     auto magnifiedW = [&](const DockItem& item) {
-        return item.Magnifies() ? BoxW(item) * item.targetScale + item.gapPx : item.slotW;  // 13D: its own gap
+        return item.Magnifies() ? BoxW(item) * item.targetScale + item.gapPx + item.capMain : item.slotW;  // 13D: its own gap; 13G: its title row
     };
 
     float growLeft = 0.0f;
@@ -4282,6 +4305,12 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
         // The dot and the title follow the icon box along the bar: one animation object drives all.
         // (The title does not scale: magnification grows the icon away from it.) So does a slot
         // button (round 11 phase 11A; it never scales either).
+        // Round 13 phase 13G (titlesVertical "under" on a vertical bar): the title sits under the
+        // box along the bar, so the scaled box would grow over it: its own tween (`tc`) targets the
+        // scaled box's end (targetX + the box's half + the scaled half + the gap); the same duration
+        // and easing as `tx` / `ts` keep it in step with the icon.
+        IDCompositionVisual2* captionUnder = l.captionUnder ? caption : nullptr;
+        if (captionUnder) caption = nullptr;
         auto setMain = [&](auto v) {
             HRESULT hr = SetMainOffset(translate, v);
             if (SUCCEEDED(hr) && dot) hr = SetMainOffset(dot, v);
@@ -4289,6 +4318,10 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
             if (SUCCEEDED(hr) && button) hr = SetMainOffset(button, v);
             return hr;
         };
+        auto setCaptionMain = [&](auto v) { return captionUnder ? SetMainOffset(captionUnder, v) : S_OK; };
+        const float captionTarget =
+            captionUnder ? item.targetX + BoxW(item) / 2.0f + BoxW(item) * item.targetScale / 2.0f + (l.captionSlot - l.captionMain)
+                         : 0.0f;
         auto setScale = [&](auto v) {
             HRESULT hr = scale->SetScaleX(v);
             if (SUCCEEDED(hr)) hr = scale->SetScaleY(v);
@@ -4297,17 +4330,20 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
         if (scrolledOut(item)) {
             const bool moved = renderer_.Track(item.tx, item.targetX, duration, now, posEpsilon, easing);
             const bool scaled = renderer_.Track(item.ts, item.targetScale, duration, now, scaleEpsilon, easing);
-            if (moved || scaled) item.placementStale = true;
+            const bool capMoved = captionUnder && renderer_.Track(item.tc, captionTarget, duration, now, posEpsilon, easing);
+            if (moved || scaled || capMoved) item.placementStale = true;
             ++placedSkipped_;
             continue;
         }
         if (item.placementStale) {
             renderer_.Resume(item.tx, now, setMain);
             renderer_.Resume(item.ts, now, setScale);
+            if (captionUnder) renderer_.Resume(item.tc, now, setCaptionMain);
             item.placementStale = false;
         }
         renderer_.Drive(item.tx, item.targetX, duration, now, setMain, posEpsilon, easing);
         renderer_.Drive(item.ts, item.targetScale, duration, now, setScale, scaleEpsilon, easing);
+        if (captionUnder) renderer_.Drive(item.tc, captionTarget, duration, now, setCaptionMain, posEpsilon, easing);
         ++placedDriven_;
         DriveEdgeFade(item, index, now);
     }
@@ -8458,7 +8494,7 @@ int DockWindow::HitAlong(float x) const {
         if (item.Magnifies()) {
             const float box = BoxW(item), w = box * item.targetScale;
             a = item.targetX + box / 2.0f - w / 2.0f - BoxInset(item);
-            b = a + w + item.gapPx;  // round 13 phase 13D: the slot's own gap
+            b = a + w + item.gapPx + item.capMain;  // round 13 phase 13D: the slot's own gap; 13G: its title row
         } else {
             a = item.targetX - BoxInset(item);
             b = a + item.slotW;
@@ -9124,6 +9160,8 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const int gap = r.gap >= 0 ? r.gap : static_cast<int>(std::lround(std::clamp(DockTheme().iconGap, 0.0f, 48.0f)));
             return static_cast<LRESULT>(static_cast<unsigned>(gap & 0xFFFF) | (static_cast<unsigned>(r.padding & 0xFFFF) << 16));
         }
+        case 327:  // round 13 phase 13G: px each icon slot is longer by for its title row (titlesVertical "under" on a vertical dock; 0 otherwise)
+            return static_cast<LRESULT>(std::lround(layout_.captionSlot));
         default:
             return -1;
     }

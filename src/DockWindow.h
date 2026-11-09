@@ -626,6 +626,12 @@ private:
         float captionCross = 0.0f;
         float captionShift = 0.0f;
         float captionBand = 0.0f;  // what the captions add to the bar's cross size
+        // Round 13 phase 13G (titlesVertical "under", a vertical bar): the captions are not a band
+        // across the bar but a row in each icon slot, under the box along the bar: captionMain is
+        // the row's height, captionCross the bar's icon row (the text centred), captionSlot what
+        // each icon slot grows by (gap + row; DockItem::capMain), captionBand 0.
+        bool captionUnder = false;
+        float captionSlot = 0.0f;
         // docks[].overflow (round 4 phase 11a). `view`: the scrolling viewport (off: the identity);
         // iconDip: the icon size laid out (docks[].iconSize, smaller with "shrink").
         DockGeometry::Viewport view;

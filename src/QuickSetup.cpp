@@ -8,6 +8,8 @@
 
 #include <algorithm>
 #include <cwchar>
+#include <cwctype>
+#include <utility>
 
 #include "SettingsIds.h"
 #include "Theme.h"
@@ -24,9 +26,14 @@ constexpr int kStepsTop = 16, kStepsH = 36;
 constexpr int kHeadingTop = 64, kHeadingH = 36, kIntroTop = 102, kIntroH = 40;
 constexpr int kContentTop = 150;
 constexpr int kButtonH = 32;
-constexpr int kRowHeadH = 20, kRowH = 44, kRowCtlH = 28;
+constexpr int kFooterLine = 12;  // the hairline this far above the buttons
+// Step 1: the column headings, then a card per dock: its controls, under them the layout's words.
+constexpr int kRowHeadH = 22, kRowCtlH = 28, kCardPad = 10, kCardGap = 8;
+constexpr int kRowCardH = kCardPad + kRowCtlH + 6 + 18 + kCardPad;  // 72
 constexpr int kLabelW = 196, kControlW = 360;  // the design rules' row: label + control
 constexpr int kDropH = 300;                    // a drop-down combo's height with its list
+constexpr int kCardRadius = 6;
+constexpr int kDoneLineH = 26;                 // one line of step 4's summary
 
 const wchar_t* const kStepNames[QuickSetup::kSteps] = {L"Your docks", L"Their looks", L"How it behaves", L"Done"};
 const wchar_t* const kEdgeNames[] = {L"Bottom", L"Top", L"Left", L"Right"};  // DockEdge order
@@ -108,6 +115,7 @@ QuickSetup::~QuickSetup() {
     }
     if (layerBrush_) DeleteObject(layerBrush_);
     if (controlBrush_) DeleteObject(controlBrush_);
+    if (cardBrush_) DeleteObject(cardBrush_);
 }
 
 const DockConfig* QuickSetup::DockOf(const std::wstring& id) const {
@@ -190,12 +198,9 @@ bool QuickSetup::Create(HINSTANCE instance, HWND owner) {
     // Step 1: the rows (a container: its children's ids are 10 * row + part), Add a dock, the notes.
     rowsBox_ = make(hwnd_, kRowsClass, L"", WS_CLIPCHILDREN, kSetupRows, WS_EX_CONTROLPARENT);
     if (rowsBox_) SetWindowLongPtrW(rowsBox_, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(this));
-    const wchar_t* heads[4] = {L"Name", L"Layout", L"Display", L"Edge"};
-    for (int k = 0; k < 4; ++k) rowHeads_[k] = make(rowsBox_, WC_STATICW, heads[k], WS_VISIBLE | SS_LEFT | SS_NOPREFIX, 100 + k);
     for (size_t i = 0; i < rows_.size(); ++i) CreateRow(i);
     addDock_ = make(hwnd_, WC_BUTTONW, L"Add a dock", WS_TABSTOP | BS_PUSHBUTTON, kSetupAddDock);
-    addNote_ = make(hwnd_, WC_STATICW, L"Up to three docks here. Add more later in App settings.", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE,
-                    kSetupAddNote);
+    addNote_ = make(hwnd_, WC_STATICW, L"", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE, kSetupAddNote);
     layoutNote_ = make(hwnd_, WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, kSetupLayoutNote);
     // Step 2: same look, the "Look of" combo, a gallery, Transparency and Corners per row.
     same_ = make(hwnd_, WC_BUTTONW, L"Every dock uses the same look", WS_TABSTOP | BS_AUTOCHECKBOX, kSetupSameLook);
@@ -224,20 +229,20 @@ bool QuickSetup::Create(HINSTANCE instance, HWND owner) {
     startBox_ = make(hwnd_, WC_BUTTONW, L"Start WinDock when Windows starts", WS_TABSTOP | BS_AUTOCHECKBOX, kSetupStartWithWindows);
     startCaption_ = make(hwnd_, WC_STATICW, L"Start WinDock when Windows starts", SS_LEFT | SS_NOPREFIX | SS_NOTIFY | SS_CENTERIMAGE,
                          kSetupStartCaption);
+    startHint_ = make(hwnd_, WC_STATICW, L"Otherwise start it yourself from the Start menu or its folder.", SS_LEFT | SS_NOPREFIX, -1);
     taskbarBox_ = make(hwnd_, WC_BUTTONW, L"Hide the Windows taskbar", WS_TABSTOP | BS_AUTOCHECKBOX, kSetupHideTaskbar);
     taskbarCaption_ = make(hwnd_, WC_STATICW, L"Hide the Windows taskbar while WinDock runs", SS_LEFT | SS_NOPREFIX | SS_NOTIFY | SS_CENTERIMAGE,
                            kSetupTaskbarCaption);
+    taskbarHint_ = make(hwnd_, WC_STATICW, L"The dock stands in for it. The taskbar comes back as soon as WinDock quits.", SS_LEFT | SS_NOPREFIX, -1);
     behaviourNote_ = make(hwnd_, WC_STATICW, L"These two take effect when you choose Finish.", SS_LEFT | SS_NOPREFIX, kSetupBehaviourNote);
     autoHideLabel_ = make(hwnd_, WC_STATICW, L"Auto-hide", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE | SS_ENDELLIPSIS, kSetupAutoHideLabel);
     autoHide_ = make(hwnd_, WC_COMBOBOXW, L"", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST, kSetupAutoHide);
     for (const wchar_t* n : kAutoHideNames) SendMessageW(autoHide_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(n));
+    autoHideHint_ = make(hwnd_, WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, -1);
     animationLabel_ = make(hwnd_, WC_STATICW, L"Animation", SS_LEFT | SS_NOPREFIX | SS_CENTERIMAGE, kSetupAnimationLabel);
     animation_ = make(hwnd_, WC_COMBOBOXW, L"", WS_TABSTOP | WS_VSCROLL | CBS_DROPDOWNLIST, kSetupAnimation);
     for (const wchar_t* n : kAnimationNames) SendMessageW(animation_, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(n));
-    animationNote_ = make(hwnd_, WC_STATICW,
-                          L"Full: every animation, with less motion while Windows asks for it. Reduced: less motion always. Off: no "
-                          L"animation at all.",
-                          SS_LEFT | SS_NOPREFIX, -1);
+    animationNote_ = make(hwnd_, WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, -1);
     // Step 4.
     doneNote_ = make(hwnd_, WC_STATICW, L"", SS_LEFT | SS_NOPREFIX, -1);
     // The buttons (every step).
@@ -296,13 +301,14 @@ void QuickSetup::SetFonts() {
     auto set = [&](HWND c, HFONT f) {
         if (c) SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(f), TRUE);
     };
-    for (HWND c : {intro_, addDock_, addNote_, layoutNote_, same_, sameCaption_, lookDock_, alphaLabel_, cornersLabel_, startBox_,
-                   startCaption_, taskbarBox_, taskbarCaption_, behaviourNote_, autoHideLabel_, autoHide_, animationLabel_, animation_,
-                   animationNote_, doneNote_, back_, showAround_, next_, finish_, cancel_}) {
+    for (HWND c : {intro_, addDock_, addNote_, layoutNote_, same_, lookDock_, alphaLabel_, cornersLabel_, startBox_, startHint_, taskbarBox_,
+                   taskbarHint_, behaviourNote_, autoHideLabel_, autoHide_, autoHideHint_, animationLabel_, animation_, animationNote_, doneNote_,
+                   back_, showAround_, next_, finish_, cancel_}) {
         set(c, font_);
     }
     set(heading_, fontHeading_);
-    for (HWND c : rowHeads_) set(c, fontBold_);
+    // The two choices held for Finish and the same-look switch read as headings of their cards.
+    for (HWND c : {sameCaption_, startCaption_, taskbarCaption_}) set(c, fontBold_);
     for (int k = 0; k < kMaxDocks; ++k) {
         set(alpha_[k], font_);
         set(corners_[k], font_);
@@ -335,8 +341,12 @@ void QuickSetup::ApplyTheme() {
     }
     if (layerBrush_) DeleteObject(layerBrush_);
     if (controlBrush_) DeleteObject(controlBrush_);
+    if (cardBrush_) DeleteObject(cardBrush_);
     layerBrush_ = CreateSolidBrush(palette_.layer);
     controlBrush_ = CreateSolidBrush(palette_.control);
+    // A card as the settings windows paint it: the layer 4 % toward the text (high contrast: the layer).
+    cardColor_ = palette_.highContrast ? palette_.layer : Mix(palette_.text, palette_.layer, 4);
+    cardBrush_ = CreateSolidBrush(cardColor_);
     if (hwnd_) RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_FRAME | RDW_ALLCHILDREN);
 }
 
@@ -351,86 +361,120 @@ void QuickSetup::Layout() {
     place(steps_, kMargin, kStepsTop, cw, kStepsH);
     place(heading_, kMargin, kHeadingTop, cw, kHeadingH);
     place(intro_, kMargin, kIntroTop, cw, kIntroH);
-    const int contentBottom = H - 16 - kButtonH - 16;
-    // Step 1.
-    const int rowsH = kRowHeadH + 4 + kMaxDocks * kRowH;
+    const int contentBottom = H - 16 - kButtonH - kFooterLine - 12;
+    cards_.clear();
+    // Step 1: the rows container is as tall as its cards (Add a dock sits right under the last one).
+    const int n = static_cast<int>(rows_.size());
+    const int rowsH = kRowHeadH + n * (kRowCardH + kCardGap);
     place(rowsBox_, kMargin, kContentTop, cw, rowsH);
     LayoutRows();
-    const int addY = kContentTop + rowsH + 8;
+    const int addY = kContentTop + rowsH;
     place(addDock_, kMargin, addY, 140, 30);
     place(addNote_, kMargin + 152, addY, cw - 152, 30);
-    place(layoutNote_, kMargin, addY + 30 + 16, std::min(cw, 720), contentBottom - (addY + 46));
-    // Step 2.
+    place(layoutNote_, kMargin, addY + 30 + 10, std::min(cw, 720), std::max(0, contentBottom - (addY + 40)));
+    // Step 2: the switch and the "Look of" combo, the gallery, then a card with the fine-tuning.
     int y = kContentTop;
     place(same_, kMargin, y, 15, 24);
     place(sameCaption_, kMargin + 20, y, 320, 24);
     place(lookDock_, W - kMargin - 260, y - 2, 260, kDropH);
     y += 36;
-    const int sliderRowH = 36;
+    const int tuneH = 54;
     const int count = std::max(1, static_cast<int>(looks_.size()));
-    const int galleryH = std::max(SettingsGallery::kTileH, std::min(SettingsGallery::HeightDip(count, cw), contentBottom - sliderRowH - 12 - y));
+    const int galleryH = std::max(SettingsGallery::kTileH, std::min(SettingsGallery::HeightDip(count, cw), contentBottom - tuneH - 12 - y));
     for (int k = 0; k < kMaxDocks; ++k) place(galleries_[k].Hwnd(), kMargin, y, cw, galleryH);
     y += galleryH + 12;
-    place(alphaLabel_, kMargin, y, 150, 30);
-    for (int k = 0; k < kMaxDocks; ++k) place(alpha_[k], kMargin + 150, y, 240, 30);
-    const int cx = kMargin + 150 + 240 + 24;
+    cards_.push_back(Card{1, RECT{kMargin, y, kMargin + cw, y + tuneH}, L""});
+    y += (tuneH - 30) / 2;
+    place(alphaLabel_, kMargin + kCardPad, y, 150, 30);
+    for (int k = 0; k < kMaxDocks; ++k) place(alpha_[k], kMargin + kCardPad + 150, y, std::min(260, cw / 3), 30);
+    const int cx = kMargin + kCardPad + 150 + std::min(260, cw / 3) + 24;
     place(cornersLabel_, cx, y, 70, 30);
     for (int k = 0; k < kMaxDocks; ++k) place(corners_[k], cx + 70, y + 1, 150, kDropH);
-    // Step 3: label 196 + control 360.
+    // Step 3: two cards, a hint under every choice.
     y = kContentTop;
-    place(startBox_, kMargin, y, 15, 24);
-    place(startCaption_, kMargin + 20, y, kLabelW + kControlW - 20, 24);
-    y += 30;
-    place(taskbarBox_, kMargin, y, 15, 24);
-    place(taskbarCaption_, kMargin + 20, y, kLabelW + kControlW - 20, 24);
-    y += 26;
-    place(behaviourNote_, kMargin + 20, y, cw - 20, 20);
-    y += 36;
-    place(autoHideLabel_, kMargin, y, kLabelW - 8, 28);
-    place(autoHide_, kMargin + kLabelW, y, 300, kDropH);
-    y += 40;
-    place(animationLabel_, kMargin, y, kLabelW - 8, 28);
-    place(animation_, kMargin + kLabelW, y, 300, kDropH);
-    y += 36;
-    place(animationNote_, kMargin + kLabelW, y, std::min(cw - kLabelW, kControlW + 160), 48);
-    // Step 4.
-    place(doneNote_, kMargin, kContentTop, std::min(cw, 720), contentBottom - kContentTop);
+    const int x = kMargin + kCardPad, iw = cw - 2 * kCardPad;
+    place(startBox_, x, y + 34, 15, 22);
+    place(startCaption_, x + 22, y + 34, iw - 22, 22);
+    place(startHint_, x + 22, y + 56, iw - 22, 18);
+    place(taskbarBox_, x, y + 80, 15, 22);
+    place(taskbarCaption_, x + 22, y + 80, iw - 22, 22);
+    place(taskbarHint_, x + 22, y + 102, iw - 22, 18);
+    place(behaviourNote_, x, y + 126, iw, 18);
+    cards_.push_back(Card{2, RECT{kMargin, y, kMargin + cw, y + 154}, L"Starting up"});
+    y += 154 + 12;
+    place(autoHideLabel_, x, y + 34, kLabelW - kCardPad - 8, 28);
+    place(autoHide_, x + kLabelW - kCardPad, y + 34, 300, kDropH);
+    place(autoHideHint_, x + kLabelW - kCardPad, y + 64, iw - kLabelW + kCardPad, 18);
+    place(animationLabel_, x, y + 88, kLabelW - kCardPad - 8, 28);
+    place(animation_, x + kLabelW - kCardPad, y + 88, 300, kDropH);
+    place(animationNote_, x + kLabelW - kCardPad, y + 118, iw - kLabelW + kCardPad, 18);
+    cards_.push_back(Card{2, RECT{kMargin, y, kMargin + cw, y + 146}, L"On the desktop"});
+    // Step 4: the summary card (a line per dock, then look, start, taskbar, auto-hide, animation).
+    const int lines = n + 5;
+    const int doneH = kCardPad + 20 + lines * kDoneLineH + kCardPad;
+    cards_.push_back(Card{3, RECT{kMargin, kContentTop, kMargin + std::min(cw, 720), kContentTop + doneH}, L"What you chose"});
+    place(doneNote_, kMargin, kContentTop + doneH + 12, std::min(cw, 720), std::max(0, contentBottom - (kContentTop + doneH + 12)));
     // The buttons, right-aligned: (Show me around) Back, Next / Finish, Cancel.
     const int by = H - 16 - kButtonH;
-    int x = W - kMargin - 100;
-    place(cancel_, x, by, 100, kButtonH);
-    x -= 8 + 110;
-    place(next_, x, by, 110, kButtonH);
-    place(finish_, x, by, 110, kButtonH);
-    x -= 8 + 100;
-    place(back_, x, by, 100, kButtonH);
-    x -= 8 + 160;
-    place(showAround_, x, by, 160, kButtonH);
+    int bx = W - kMargin - 100;
+    place(cancel_, bx, by, 100, kButtonH);
+    bx -= 8 + 110;
+    place(next_, bx, by, 110, kButtonH);
+    place(finish_, bx, by, 110, kButtonH);
+    bx -= 8 + 100;
+    place(back_, bx, by, 100, kButtonH);
+    bx -= 8 + 160;
+    place(showAround_, bx, by, 160, kButtonH);
+    InvalidateRect(hwnd_, nullptr, TRUE);
 }
+
+// The columns of step 1 (DIPs from the container's left, inside a card's padding): name, layout,
+// display, edge, Remove (no control wider than 360 DIPs).
+namespace {
+struct RowColumns {
+    int x[5], w[5];
+};
+RowColumns ColumnsFor(int containerW) {
+    RowColumns c{};
+    const int removeW = 80, gap = 8;
+    const int avail = containerW - 2 * kCardPad - removeW - 4 * gap;
+    c.w[0] = std::min(kControlW, avail * 22 / 100);
+    c.w[1] = std::min(kControlW, avail * 34 / 100);
+    c.w[2] = std::min(kControlW, avail * 26 / 100);
+    c.w[3] = std::min(kControlW, avail - c.w[0] - c.w[1] - c.w[2]);
+    c.w[4] = removeW;
+    c.x[0] = kCardPad;
+    for (int k = 1; k < 5; ++k) c.x[k] = c.x[k - 1] + c.w[k - 1] + gap;
+    return c;
+}
+}  // namespace
 
 void QuickSetup::LayoutRows() {
     if (!rowsBox_) return;
-    const int cw = widthDip_ - 2 * kMargin;
-    // name, layout, display, edge, Remove (no control wider than 360 DIPs).
-    const int removeW = 80, gap = 8;
-    const int avail = cw - removeW - 4 * gap;
-    const int nameW = std::min(kControlW, avail * 22 / 100), layoutW = std::min(kControlW, avail * 34 / 100),
-              displayW = std::min(kControlW, avail * 26 / 100), edgeW = std::min(kControlW, avail - nameW - layoutW - displayW);
-    const int xs[5] = {0, nameW + gap, nameW + gap + layoutW + gap, nameW + gap + layoutW + gap + displayW + gap,
-                       nameW + gap + layoutW + gap + displayW + gap + edgeW + gap};
+    const RowColumns col = ColumnsFor(widthDip_ - 2 * kMargin);
     auto place = [&](HWND h, int x, int y, int w, int hh) {
         if (h) SetWindowPos(h, nullptr, Px(x), Px(y), Px(w), Px(hh), SWP_NOZORDER | SWP_NOACTIVATE);
     };
-    for (int k = 0; k < 4; ++k) place(rowHeads_[k], xs[k], 0, k == 0 ? nameW : k == 1 ? layoutW : k == 2 ? displayW : edgeW, kRowHeadH);
     for (size_t r = 0; r < rows_.size(); ++r) {
-        const int y = kRowHeadH + 4 + static_cast<int>(r) * kRowH;
+        const int y = kRowHeadH + static_cast<int>(r) * (kRowCardH + kCardGap) + kCardPad;
         const Row& row = rows_[r];
-        place(row.name, xs[0], y, nameW, kRowCtlH);
-        place(row.layout, xs[1], y, layoutW, kDropH);
-        place(row.display, xs[2], y, displayW, kDropH);
-        place(row.edge, xs[3], y, edgeW, kDropH);
-        place(row.remove, xs[4], y, removeW, kRowCtlH);
+        place(row.name, col.x[0], y, col.w[0], kRowCtlH);
+        place(row.layout, col.x[1], y, col.w[1], kDropH);
+        place(row.display, col.x[2], y, col.w[2], kDropH);
+        place(row.edge, col.x[3], y, col.w[3], kDropH);
+        place(row.remove, col.x[4], y, col.w[4], kRowCtlH);
     }
+    InvalidateRect(rowsBox_, nullptr, TRUE);
+}
+
+std::wstring QuickSetup::LayoutWords(size_t r) const {
+    if (r >= rows_.size()) return {};
+    const Row& row = rows_[r];
+    const int preset = row.keepEntry ? row.layoutSel - 1 : row.layoutSel;
+    const auto& all = Presets::All();
+    if (preset < 0 || static_cast<size_t>(preset) >= all.size()) return L"As it is now: kept as it was when Quick setup opened.";
+    const Presets::Preset& p = all[static_cast<size_t>(preset)];
+    return p.tagline.empty() ? p.name : p.name + L" \x00B7 " + p.tagline;
 }
 
 // --- the step indicator --------------------------------------------------------------------------------
@@ -455,33 +499,225 @@ void QuickSetup::PaintSteps(HWND hwnd, HDC hdc) {
                                 : (GetRValue(accent) * 299 + GetGValue(accent) * 587 + GetBValue(accent) * 114) / 1000 > 150 ? RGB(0, 0, 0)
                                                                                                                         : RGB(0xFF, 0xFF, 0xFF);
     const COLORREF line = Mix(palette_.text, palette_.layer, 22);
+    const COLORREF doneFill = palette_.highContrast ? accent : Mix(accent, palette_.layer, 55);
     const bool focused = GetFocus() == hwnd;
+    // A track: every step's circle and name, a line from the name to the next circle (in the accent
+    // up to the current step: the way travelled), a check in the circles of the steps done.
     for (int s = 0; s < kSteps; ++s) {
         const RECT r = StepRect(s);
         const int d = Px(24), cy = (r.top + r.bottom) / 2;
         const RECT circle{r.left, cy - d / 2, r.left + d, cy + d / 2};
         const bool current = s == step_, done = s < step_;
-        if (current || done) {
-            FillRound(dc, circle, current ? accent : Mix(accent, palette_.layer, 45), d);
+        HGDIOBJ oldFont = SelectObject(dc, current ? fontBold_ : font_);
+        RECT t{circle.right + Px(10), r.top, r.right - Px(8), r.bottom};
+        RECT measure = t;
+        DrawTextW(dc, kStepNames[s], -1, &measure, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT);
+        if (s + 1 < kSteps) {
+            const int x0 = std::min(t.left + (measure.right - measure.left) + Px(12), r.right - Px(12));
+            const int x1 = StepRect(s + 1).left - Px(12);
+            if (x1 > x0) {
+                const RECT seg{x0, cy - std::max(1, Px(1)), x1, cy + std::max(1, Px(1))};
+                HBRUSH b = CreateSolidBrush(done ? doneFill : line);
+                FillRect(dc, &seg, b);
+                DeleteObject(b);
+            }
+        }
+        if (done) {
+            PaintCheck(dc, circle, doneFill, accentText);
+        } else if (current) {
+            FillRound(dc, circle, accent, d);
         } else {
             FillRound(dc, circle, line, d);
             FillRound(dc, RECT{circle.left + 1, circle.top + 1, circle.right - 1, circle.bottom - 1}, palette_.layer, d - 2);
         }
-        HGDIOBJ oldFont = SelectObject(dc, current ? fontBold_ : font_);
-        SetTextColor(dc, current || done ? accentText : palette_.textSecondary);
-        wchar_t num[4];
-        swprintf_s(num, L"%d", s + 1);
-        RECT n = circle;
-        DrawTextW(dc, num, -1, &n, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        if (!done) {
+            SetTextColor(dc, current ? accentText : palette_.textSecondary);
+            wchar_t num[4];
+            swprintf_s(num, L"%d", s + 1);
+            RECT n = circle;
+            DrawTextW(dc, num, -1, &n, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+        }
         SetTextColor(dc, current ? palette_.text : palette_.textSecondary);
-        RECT t{circle.right + Px(8), r.top, r.right - Px(8), r.bottom};
         DrawTextW(dc, kStepNames[s], -1, &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
         if (current && focused && !(SendMessageW(hwnd_, WM_QUERYUISTATE, 0, 0) & UISF_HIDEFOCUS)) {
-            RECT f{r.left - Px(2), r.top + Px(2), r.right - Px(4), r.bottom - Px(2)};
+            RECT f{r.left - Px(2), r.top + Px(2), std::min(r.right - Px(4), t.left + (measure.right - measure.left) + Px(4)), r.bottom - Px(2)};
             DrawFocusRect(dc, &f);
         }
         SelectObject(dc, oldFont);
     }
+    BitBlt(hdc, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+    SelectObject(dc, oldBmp);
+    DeleteObject(bmp);
+    DeleteDC(dc);
+}
+
+void QuickSetup::PaintCheck(HDC dc, const RECT& circle, COLORREF fill, COLORREF mark) const {
+    const int d = circle.right - circle.left;
+    FillRound(dc, circle, fill, d);
+    LOGBRUSH lb{BS_SOLID, mark, 0};
+    HPEN pen = ExtCreatePen(PS_GEOMETRIC | PS_SOLID | PS_ENDCAP_ROUND | PS_JOIN_ROUND, static_cast<DWORD>(std::max(2, Px(2))), &lb, 0, nullptr);
+    HGDIOBJ op = SelectObject(dc, pen);
+    const int cx = (circle.left + circle.right) / 2, cy = (circle.top + circle.bottom) / 2;
+    POINT pts[3] = {{cx - d * 23 / 100, cy}, {cx - d * 6 / 100, cy + d * 17 / 100}, {cx + d * 25 / 100, cy - d * 16 / 100}};
+    Polyline(dc, pts, 3);
+    SelectObject(dc, op);
+    DeleteObject(pen);
+}
+
+bool QuickSetup::OnCard(HWND control) const {
+    if (!control || !hwnd_ || GetParent(control) != hwnd_) return false;
+    RECT r{};
+    GetWindowRect(control, &r);
+    MapWindowPoints(nullptr, hwnd_, reinterpret_cast<POINT*>(&r), 2);
+    const POINT c{(r.left + r.right) / 2, (r.top + r.bottom) / 2};
+    for (const Card& k : cards_) {
+        if (k.step != step_) continue;
+        const RECT px{Px(k.dip.left), Px(k.dip.top), Px(k.dip.right), Px(k.dip.bottom)};
+        if (PtInRect(&px, c)) return true;
+    }
+    return false;
+}
+
+void QuickSetup::PaintRows(HWND hwnd, HDC hdc) {
+    RECT rc{};
+    GetClientRect(hwnd, &rc);
+    HDC dc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
+    HGDIOBJ oldBmp = SelectObject(dc, bmp);
+    FillRect(dc, &rc, layerBrush_);
+    SetBkMode(dc, TRANSPARENT);
+    const int cw = widthDip_ - 2 * kMargin;
+    const RowColumns col = ColumnsFor(cw);
+    // The column headings once, over the cards.
+    const wchar_t* heads[4] = {L"Name", L"Layout", L"Display", L"Edge"};
+    HGDIOBJ oldFont = SelectObject(dc, fontBold_);
+    SetTextColor(dc, palette_.textSecondary);
+    for (int k = 0; k < 4; ++k) {
+        RECT t{Px(col.x[k]), 0, Px(col.x[k] + col.w[k]), Px(kRowHeadH)};
+        DrawTextW(dc, heads[k], -1, &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    }
+    // A card per dock, the layout's words under its controls.
+    const COLORREF border = palette_.highContrast ? palette_.text : Mix(palette_.text, palette_.layer, 14);
+    HPEN pen = CreatePen(PS_SOLID, 1, border);
+    HGDIOBJ oldPen = SelectObject(dc, pen), oldBrush = SelectObject(dc, cardBrush_);
+    const int radius = Px(kCardRadius) * 2;
+    SelectObject(dc, font_);
+    for (size_t r = 0; r < rows_.size(); ++r) {
+        const int top = kRowHeadH + static_cast<int>(r) * (kRowCardH + kCardGap);
+        RoundRect(dc, 0, Px(top), Px(cw), Px(top + kRowCardH), radius, radius);
+        RECT t{Px(kCardPad), Px(top + kCardPad + kRowCtlH + 6), Px(cw - kCardPad), Px(top + kRowCardH - kCardPad + 4)};
+        const std::wstring words = LayoutWords(r);
+        DrawTextW(dc, words.c_str(), -1, &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+    }
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    SelectObject(dc, oldFont);
+    DeleteObject(pen);
+    BitBlt(hdc, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
+    SelectObject(dc, oldBmp);
+    DeleteObject(bmp);
+    DeleteDC(dc);
+}
+
+void QuickSetup::PaintContent(HDC hdc) {
+    RECT rc{};
+    GetClientRect(hwnd_, &rc);
+    HDC dc = CreateCompatibleDC(hdc);
+    HBITMAP bmp = CreateCompatibleBitmap(hdc, std::max<LONG>(1, rc.right), std::max<LONG>(1, rc.bottom));
+    HGDIOBJ oldBmp = SelectObject(dc, bmp);
+    FillRect(dc, &rc, layerBrush_);
+    SetBkMode(dc, TRANSPARENT);
+    const COLORREF border = palette_.highContrast ? palette_.text : Mix(palette_.text, palette_.layer, 14);
+    const COLORREF hair = palette_.highContrast ? palette_.textDisabled : Mix(palette_.text, palette_.layer, 9);
+    // The step's cards and their titles.
+    HPEN pen = CreatePen(PS_SOLID, 1, border);
+    HGDIOBJ oldPen = SelectObject(dc, pen), oldBrush = SelectObject(dc, cardBrush_), oldFont = SelectObject(dc, fontBold_);
+    const int radius = Px(kCardRadius) * 2;
+    const Card* summary = nullptr;
+    for (const Card& c : cards_) {
+        if (c.step != step_) continue;
+        RoundRect(dc, Px(c.dip.left), Px(c.dip.top), Px(c.dip.right), Px(c.dip.bottom), radius, radius);
+        if (!c.title.empty()) {
+            SetTextColor(dc, palette_.text);
+            RECT t{Px(c.dip.left + kCardPad), Px(c.dip.top + kCardPad), Px(c.dip.right - kCardPad), Px(c.dip.top + kCardPad + 20)};
+            DrawTextW(dc, c.title.c_str(), -1, &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+        }
+        if (c.step == 3) summary = &c;
+    }
+    SelectObject(dc, oldBrush);
+    SelectObject(dc, oldPen);
+    DeleteObject(pen);
+    // The hairline over the buttons.
+    {
+        const int y = Px(heightDip_ - 16 - kButtonH - kFooterLine);
+        const RECT h{Px(kMargin), y, Px(widthDip_ - kMargin), y + std::max(1, Px(1))};
+        HBRUSH b = CreateSolidBrush(hair);
+        FillRect(dc, &h, b);
+        DeleteObject(b);
+    }
+    // Step 4: what Finish keeps, a checked line each.
+    if (summary && host_.config) {
+        const Config& cfg = *host_.config;
+        const COLORREF accent = palette_.highContrast ? GetSysColor(COLOR_HIGHLIGHT) : palette_.accent;
+        const COLORREF accentText = palette_.highContrast ? GetSysColor(COLOR_HIGHLIGHTTEXT)
+                                    : (GetRValue(accent) * 299 + GetGValue(accent) * 587 + GetBValue(accent) * 114) / 1000 > 150 ? RGB(0, 0, 0)
+                                                                                                                            : RGB(0xFF, 0xFF, 0xFF);
+        std::vector<std::pair<std::wstring, std::wstring>> lines;
+        for (size_t r = 0; r < rows_.size(); ++r) {
+            const DockConfig* d = DockOf(rows_[r].id);
+            if (!d) continue;
+            const int preset = rows_[r].keepEntry ? rows_[r].layoutSel - 1 : rows_[r].layoutSel;
+            const auto& all = Presets::All();
+            std::wstring words = preset >= 0 && static_cast<size_t>(preset) < all.size() ? all[static_cast<size_t>(preset)].name : L"As it is now";
+            std::wstring edge = kEdgeNames[static_cast<int>(d->edge) & 3];
+            edge[0] = static_cast<wchar_t>(towlower(edge[0]));
+            const int sel = DisplaySel(d->monitor);
+            const std::wstring display = d->monitor == DockConfig::kMonitorEach ? L"every display"
+                                         : sel <= 0                              ? L"Display 1 (main)"
+                                                                                 : L"Display " + std::to_wstring(sel + 1);
+            words += L" \x00B7 " + edge + L" edge of " + display;
+            lines.emplace_back(d->DisplayName(), words);
+        }
+        std::wstring look;
+        if (rows_.size() > 1 && !SameLook()) {
+            look = L"Each dock its own";
+        } else {
+            const DockConfig* d = DockOf(LookTarget(0));
+            const std::wstring& id = d && d->OwnLook() ? d->themePreset : cfg.themePreset;
+            look = id.empty() ? L"Default" : id;
+            for (const Presets::Look& l : looks_) {
+                if (_wcsicmp(l.id.c_str(), id.c_str()) == 0) look = l.name;
+            }
+            if (rows_.size() > 1) look += L" (every dock)";
+        }
+        lines.emplace_back(L"Look", look);
+        lines.emplace_back(L"Starts with Windows", start_ ? L"Yes" : L"No, you start it yourself");
+        lines.emplace_back(L"Windows taskbar", hideTaskbar_ ? L"Hidden while WinDock runs" : L"Stays beside the dock");
+        const DockConfig* first = rows_.empty() ? nullptr : DockOf(rows_.front().id);
+        lines.emplace_back(L"Auto-hide", !first             ? L"Off"
+                                        : first->Floating() ? L"Never (a floating dock)"
+                                                            : kAutoHideNames[std::clamp(static_cast<int>(first->autoHide), 0, 2)]);
+        const AnimationConfig& a = cfg.animation;
+        lines.emplace_back(L"Animation", kAnimationNames[a.speed == 0.0 ? 2 : a.reduceMotion == ReduceMotion::On ? 1 : 0]);
+        int y = summary->dip.top + kCardPad + 20;
+        const int left = summary->dip.left + kCardPad, right = summary->dip.right - kCardPad;
+        for (const auto& [label, value] : lines) {
+            const int cy = Px(y + kDoneLineH / 2), d = Px(18);
+            PaintCheck(dc, RECT{Px(left), cy - d / 2, Px(left) + d, cy + d / 2}, accent, accentText);
+            SelectObject(dc, fontBold_);
+            SetTextColor(dc, palette_.text);
+            RECT t{Px(left + 28), Px(y), Px(right), Px(y + kDoneLineH)};
+            RECT m = t;
+            DrawTextW(dc, label.c_str(), -1, &m, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX | DT_CALCRECT);
+            DrawTextW(dc, label.c_str(), -1, &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            SelectObject(dc, font_);
+            SetTextColor(dc, palette_.textSecondary);
+            t.left = std::min(t.right, t.left + (m.right - m.left) + Px(10));
+            DrawTextW(dc, value.c_str(), -1, &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
+            y += kDoneLineH;
+        }
+    }
+    SelectObject(dc, oldFont);
     BitBlt(hdc, 0, 0, rc.right, rc.bottom, dc, 0, 0, SRCCOPY);
     SelectObject(dc, oldBmp);
     DeleteObject(bmp);
@@ -590,8 +826,8 @@ void QuickSetup::ShowStep() {
     }
     show(alphaLabel_, s2);
     show(cornersLabel_, s2);
-    for (HWND h : {startBox_, startCaption_, taskbarBox_, taskbarCaption_, behaviourNote_, autoHideLabel_, autoHide_, animationLabel_,
-                   animation_, animationNote_}) {
+    for (HWND h : {startBox_, startCaption_, startHint_, taskbarBox_, taskbarCaption_, taskbarHint_, behaviourNote_, autoHideLabel_, autoHide_,
+                   autoHideHint_, animationLabel_, animation_, animationNote_}) {
         show(h, s3);
     }
     show(doneNote_, s4);
@@ -602,6 +838,7 @@ void QuickSetup::ShowStep() {
     show(showAround_, s4);
     SendMessageW(next_, BM_SETSTYLE, s4 ? BS_PUSHBUTTON : BS_DEFPUSHBUTTON, TRUE);
     SendMessageW(finish_, BM_SETSTYLE, s4 ? BS_DEFPUSHBUTTON : BS_PUSHBUTTON, TRUE);
+    InvalidateRect(hwnd_, nullptr, TRUE);  // the step's cards
     // The focus: never left on a control that went away (only while this window is the active one:
     // a refresh from a settings window must not pull the activation here).
     HWND f = GetFocus();
@@ -693,7 +930,7 @@ void QuickSetup::RebuildRows() {
     const bool hadFocus = focus && rowsBox_ && IsChild(rowsBox_, focus);
     DestroyRows();
     for (size_t r = 0; r < rows_.size(); ++r) CreateRow(r);
-    LayoutRows();
+    Layout();  // the rows container's height and Add a dock follow the row count
     if (hadFocus && !rows_.empty() && rows_.back().layout) SetFocus(rows_.back().layout);
 }
 
@@ -738,6 +975,7 @@ void QuickSetup::OnRowCommand(int id, int code, HWND control) {
                 return;
             }
             row.layoutSel = sel;
+            if (rowsBox_) InvalidateRect(rowsBox_, nullptr, TRUE);  // the card's tagline
             // What the layout is, under the rows (its description).
             const auto& all = Presets::All();
             const std::wstring note = preset >= 0 && static_cast<size_t>(preset) < all.size()
@@ -798,7 +1036,7 @@ void QuickSetup::AddDock() {
     row.layoutSel = basic == SIZE_MAX ? 0 : static_cast<int>(basic);
     rows_.push_back(std::move(row));
     CreateRow(rows_.size() - 1);
-    LayoutRows();
+    Layout();
     Sync();
     if (rows_.back().name) SetFocus(rows_.back().name);
 }
@@ -947,11 +1185,17 @@ void QuickSetup::SyncBehaviour() {
     if (first) {
         SetComboSel(autoHide_, static_cast<int>(first->autoHide));
         SetText(autoHideLabel_, L"Auto-hide of " + first->DisplayName());
-        // A floating bar never hides (its layer decides): the reason beside the control.
+        // A floating bar never hides (its layer decides): the reason under the control.
         EnableWindow(autoHide_, !first->Floating());
+        const wchar_t* hints[] = {L"The dock stays on screen.", L"The dock slides away and comes back when the pointer touches the edge.",
+                                  L"The dock hides only while a window covers its place."};
+        SetText(autoHideHint_, first->Floating() ? L"A floating dock never hides." : hints[std::clamp(static_cast<int>(first->autoHide), 0, 2)]);
     }
     const AnimationConfig& a = host_.config->animation;
-    SetComboSel(animation_, a.speed == 0.0 ? 2 : a.reduceMotion == ReduceMotion::On ? 1 : 0);
+    const int anim = a.speed == 0.0 ? 2 : a.reduceMotion == ReduceMotion::On ? 1 : 0;
+    SetComboSel(animation_, anim);
+    const wchar_t* notes[] = {L"Every animation, with less motion while Windows asks for it.", L"Less motion, always.", L"No animation at all."};
+    SetText(animationNote_, notes[anim]);
 }
 
 // --- the whole window ----------------------------------------------------------------------------------
@@ -987,15 +1231,18 @@ void QuickSetup::Sync() {
     if (rebuild) RebuildRows();
     for (size_t r = 0; r < rows_.size(); ++r) SyncRow(r);
     EnableWindow(addDock_, rows_.size() < static_cast<size_t>(kMaxDocks));
+    SetText(addNote_, rows_.size() < static_cast<size_t>(kMaxDocks) ? L"Up to three docks here. Add more later in App settings."
+                                                                     : L"Three docks is the most here. Add more later in App settings.");
+    if (rowsBox_) InvalidateRect(rowsBox_, nullptr, TRUE);
     SyncLooks();
     SyncBehaviour();
     // Step 4's words.
-    std::wstring note = L"Finish keeps everything you chose as one change: Undo in the dock menu brings back what was there before. "
-                        L"Show me around also shows three short tips on the dock.\n\n";
-    note += start_ ? L"WinDock starts when Windows starts." : L"WinDock does not start by itself; start it from its folder.";
-    note += hideTaskbar_ ? L" The Windows taskbar stays hidden while WinDock runs." : L" The Windows taskbar stays beside the dock.";
-    SetText(doneNote_, note);
-    if (step_ == 3) SetText(heading_, DoneHeading());
+    SetText(doneNote_, L"Finish keeps all of this as one change: Undo in the dock menu brings back what was there before. "
+                       L"Show me around finishes too, then shows three short tips on the dock.");
+    if (step_ == 3) {
+        SetText(heading_, DoneHeading());
+        InvalidateRect(hwnd_, nullptr, TRUE);  // the summary
+    }
     syncing_ = false;
 }
 
@@ -1056,12 +1303,18 @@ LRESULT CALLBACK QuickSetup::RowsProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp)
     auto* self = reinterpret_cast<QuickSetup*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
     if (!self) return DefWindowProcW(hwnd, msg, wp, lp);
     switch (msg) {
-        case WM_ERASEBKGND: {
-            RECT rc{};
-            GetClientRect(hwnd, &rc);
-            FillRect(reinterpret_cast<HDC>(wp), &rc, self->layerBrush_);
-            return 1;
+        case WM_ERASEBKGND:
+            return 1;  // PaintRows fills everything
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd, &ps);
+            self->PaintRows(hwnd, dc);
+            EndPaint(hwnd, &ps);
+            return 0;
         }
+        case WM_PRINTCLIENT:
+            self->PaintRows(hwnd, reinterpret_cast<HDC>(wp));
+            return 0;
         // The rows' notifications and colours are the window's (it tells a row's control by its parent).
         case WM_COMMAND:
         case WM_CTLCOLORSTATIC:
@@ -1093,7 +1346,7 @@ LRESULT CALLBACK QuickSetup::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM
         self->hwnd_ = nullptr;
         self->steps_ = self->heading_ = self->intro_ = self->back_ = self->next_ = self->finish_ = self->cancel_ = self->showAround_ = nullptr;
         self->rowsBox_ = self->addDock_ = self->addNote_ = self->layoutNote_ = nullptr;
-        for (HWND& h : self->rowHeads_) h = nullptr;
+        self->startHint_ = self->taskbarHint_ = self->autoHideHint_ = nullptr;
         for (Row& row : self->rows_) row.name = row.layout = row.display = row.edge = row.remove = nullptr;
         self->same_ = self->sameCaption_ = self->lookDock_ = self->alphaLabel_ = self->cornersLabel_ = nullptr;
         for (int k = 0; k < kMaxDocks; ++k) self->alpha_[k] = self->corners_[k] = nullptr;
@@ -1158,19 +1411,26 @@ LRESULT QuickSetup::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             HDC dc = reinterpret_cast<HDC>(wp);
             const HWND c = reinterpret_cast<HWND>(lp);
             const bool muted = c == intro_ || c == addNote_ || c == layoutNote_ || c == behaviourNote_ || c == animationNote_ ||
-                               std::find(std::begin(rowHeads_), std::end(rowHeads_), c) != std::end(rowHeads_);
+                               c == startHint_ || c == taskbarHint_ || c == autoHideHint_;
             SetTextColor(dc, muted ? palette_.textSecondary : IsWindowEnabled(c) ? palette_.text : palette_.textDisabled);
-            SetBkColor(dc, palette_.layer);
-            return reinterpret_cast<LRESULT>(layerBrush_);
+            const bool card = OnCard(c);  // a static (or a themed check box / trackbar) on a card
+            SetBkColor(dc, card ? cardColor_ : palette_.layer);
+            return reinterpret_cast<LRESULT>(card ? cardBrush_ : layerBrush_);
         }
         case WM_CTLCOLORBTN:
-            return reinterpret_cast<LRESULT>(layerBrush_);
-        case WM_ERASEBKGND: {
-            RECT rc{};
-            GetClientRect(hwnd_, &rc);
-            FillRect(reinterpret_cast<HDC>(wp), &rc, layerBrush_);
-            return 1;
+            return reinterpret_cast<LRESULT>(OnCard(reinterpret_cast<HWND>(lp)) ? cardBrush_ : layerBrush_);
+        case WM_ERASEBKGND:
+            return 1;  // PaintContent fills everything (the children are clipped out)
+        case WM_PAINT: {
+            PAINTSTRUCT ps;
+            HDC dc = BeginPaint(hwnd_, &ps);
+            PaintContent(dc);
+            EndPaint(hwnd_, &ps);
+            return 0;
         }
+        case WM_PRINTCLIENT:
+            PaintContent(reinterpret_cast<HDC>(wp));
+            return 0;
         case WM_HSCROLL:
             for (size_t k = 0; k < static_cast<size_t>(kMaxDocks); ++k) {
                 if (reinterpret_cast<HWND>(lp) == alpha_[k]) OnAlpha(k);

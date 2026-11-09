@@ -151,7 +151,7 @@ Turn previews on or off, include apps with a single window, and set the delay on
 
 ### Titles
 
-**Titles under icons** writes the window title (or the app's name) under each icon, in one or two lines. On a left or right dock, **Titles on vertical docks** puts the title beside the icon. Titles follow the windows as their titles change.
+**Titles under icons** writes the window title (or the app's name) under each icon, in one or two lines. On a left or right dock, **Titles on vertical docks** puts the title under the icon (the default) or beside it, toward the screen edge. Titles follow the windows as their titles change.
 
 Use titles with **One slot per window** to tell your windows apart at a glance.
 

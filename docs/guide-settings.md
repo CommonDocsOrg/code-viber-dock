@@ -674,7 +674,7 @@ The running apps are a widget of the dock (Add > Running apps), and their settin
 - **Windows**: **Stacked (one slot per app)**, or **One slot per window**, like the Windows taskbar.
 - **Show only the windows on this dock's display**: useful with a dock on each display.
 - **Titles under icons**: **Off**, **One line** or **Two lines** of the window title (or the app's name) under each icon.
-- **Titles on vertical docks**: **Off** or **Beside the icon**, for left and right docks. It shows while Titles under icons is not Off.
+- **Titles on vertical docks**: **Under the icon or thumbnail** (the default), **Beside the icon or thumbnail** or **Off**, for left and right docks. Under makes each icon's row taller by the title; Beside makes the bar wider. It shows while Titles under icons is not Off.
 - **Window thumbnails**: **Off**, **Live (GPU capture)** or **Snapshots (every N seconds)**. Each window's icon becomes a small picture of the window.
 - **Snapshot every**: seconds between pictures (for snapshots).
 - **Live frames per second**: the most pictures per second (for live).

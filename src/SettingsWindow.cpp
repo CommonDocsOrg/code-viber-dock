@@ -1977,9 +1977,10 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
     // --- round 12 phase 12F: one column or two ---
     // The page in parts, in table order: each card with its rows, and the runs of rows outside any
     // card (the title, the page's sentence, free rows). From kTwoColumnsDip of width the cards that
-    // are not wide flow into two equal columns (whole cards, the shortest column first, the page's
-    // first card leading the left one); a wide card, a hidden one or rows outside a card span both
-    // columns and end the pair (the cards after them start a new pair). A pair of one card spans.
+    // are not wide flow into two equal columns (whole cards, left and right by turns in table order,
+    // the page's first card leading the left one; see the flow below for why not the shorter
+    // column); a wide card, a hidden one or rows outside a card span both columns and end the pair
+    // (the cards after them start a new pair). A pair of one card spans.
     // The rows are laid out at their card's width first (a column's: Wc) and stacked as in one
     // column; the flow then moves whole cards into place. The tab order stays the table's order
     // (left column, then right, card by card), not the visual one.
@@ -2319,11 +2320,17 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
     // --- round 12 phase 12F: the flow into two columns ---
     // Each part keeps its stacked gap to the part before it; a pair of columns starts where the
     // part before it ends, a spanning part under the longer column.
+    // Round 13 phase 13G (the user's report of 2026-11-09): the cards of a band go left, right,
+    // left, ... in table order, each column stacked on its own. 12F put each card into the shorter
+    // column at that moment, which made the cards change column and order as the expanders
+    // (round 10 phase 10D: Bar, Name label, ... on the Themes page) opened and closed: a card's
+    // place must not depend on how tall the cards before it are.
     std::vector<int> rowDx(static_cast<size_t>(rows), 0);
     if (twoCols) {
         int y = INT_MIN, prevStacked = INT_MIN;
         bool band = false;
         int bandTop = 0;
+        int bandCount = 0;
         int colBottom[2] = {0, 0};
         bool colUsed[2] = {false, false};
         for (Part& p : parts) {
@@ -2359,12 +2366,11 @@ void SettingsWindow::Reflow(SettingsPage& page, HDC dc) {
                 if (!band) {
                     band = true;
                     bandTop = y == INT_MIN ? top : y + gap;
+                    bandCount = 0;
                     colUsed[0] = colUsed[1] = false;
                 }
-                const int next0 = colUsed[0] ? colBottom[0] + gap : bandTop;
-                const int next1 = colUsed[1] ? colBottom[1] + gap : bandTop;
-                const int c = next1 < next0 ? 1 : 0;  // the shorter column; a tie: the left (the page's first card)
-                newTop = c ? next1 : next0;
+                const int c = bandCount++ & 1;  // by turns: the band's first card left, the second right, ...
+                newTop = colUsed[c] ? colBottom[c] + gap : bandTop;
                 p.column = c;
                 p.dx = c ? rightDx : 0;
                 colUsed[c] = true;

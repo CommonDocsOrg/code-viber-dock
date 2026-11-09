@@ -51,7 +51,7 @@ const wchar_t* const kRunningFilterNames[] = {L"all", L"monitor"};
 const wchar_t* const kLayerNames[] = {L"normal", L"desktop", L"behind"};
 const wchar_t* const kWindowsModeNames[] = {L"stacked", L"unstacked"};
 const wchar_t* const kTitlesNames[] = {L"off", L"one", L"two"};
-const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside"};
+const wchar_t* const kTitlesVerticalNames[] = {L"off", L"beside", L"under"};
 const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kRunningOrderNames[] = {L"firstSeen", L"name"};  // round 13 phase 13D
 const wchar_t* const kOverflowNames[] = {L"scroll", L"shrink", L"clip"};
@@ -302,8 +302,8 @@ void SanitizeRunning(RunningConfig& r) {
     if (static_cast<unsigned>(r.filter) > static_cast<unsigned>(RunningFilter::Monitor)) r.filter = RunningFilter::All;
     if (static_cast<unsigned>(r.windows) > static_cast<unsigned>(WindowsMode::Unstacked)) r.windows = WindowsMode::Stacked;
     if (static_cast<unsigned>(r.titles) > static_cast<unsigned>(TitlesMode::Two)) r.titles = TitlesMode::Off;
-    if (static_cast<unsigned>(r.titlesVertical) > static_cast<unsigned>(TitlesVertical::Beside)) {
-        r.titlesVertical = TitlesVertical::Beside;
+    if (static_cast<unsigned>(r.titlesVertical) > static_cast<unsigned>(TitlesVertical::Under)) {
+        r.titlesVertical = TitlesVertical::Under;
     }
     if (static_cast<unsigned>(r.thumbnails) > static_cast<unsigned>(ThumbnailMode::Snapshots)) r.thumbnails = ThumbnailMode::Off;
     r.thumbnailIntervalS = std::clamp(r.thumbnailIntervalS, 1, 3600);

@@ -905,7 +905,7 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
   keys); each key is optional, a missing or invalid one takes its default:
   - `filter`: `"all"` (default) or `"monitor"` (only the windows whose centre is on the dock's display).
   - `windows`: `"stacked"` (default) or `"unstacked"`; `titles`: `"off"` (default), `"one"`, `"two"`;
-    `titlesVertical`: `"beside"` (default) or `"off"` (see **Running apps: windows and titles**).
+    `titlesVertical`: `"under"` (default since round 13 phase 13G), `"beside"` or `"off"` (see **Running apps: windows and titles**).
   - `thumbnails`: `"off"` (default), `"live"`, `"snapshots"`; `thumbnailIntervalS` (default 5, 1 -
     3600), `thumbnailSize` (DIPs, default 0 = twice `iconSize`, else 16 - 512), `thumbnailFps`
     (default 10, 1 - 60).
@@ -983,9 +983,13 @@ written at the dock level again.
   (Segoe UI) at 10 DIP in `theme.clockText`, centred in the icon's slot and ellipsized (one line is
   about 8 characters at the default 48 DIP icon, two lines about 16). The bar gets taller by the
   text (2 DIP + one or two lines). With reflections the title sits under the reflection, which is
-  unchanged. On left / right docks (`titlesVertical`: `"beside"` (default) or `"off"`) the title is
-  a 76 DIP column beside the icon on the screen-edge side (right-aligned toward the icon on a left
-  dock), which widens the bar. **Magnification**: titles do not scale; each title is a separate
+  unchanged. On left / right docks `titlesVertical` chooses: `"under"` (the default since round 13
+  phase 13G) puts the title under each icon along the bar, as a bottom dock does, in a row the
+  bar's width (centred, ellipsized; one or two lines as `titles` says): every icon slot gets longer
+  by 2 DIP + the lines, the bar does not widen, and a magnified icon pushes its title down with
+  it; `"beside"` (the default before 13G) is a 76 DIP column beside the icon on the screen-edge
+  side (right-aligned toward the icon on a left dock), which widens the bar; `"off"` leaves them
+  out. **Magnification**: titles do not scale; each title is a separate
   layer that follows its icon along the bar with the same animation as the dot, so it stays under
   its icon, is never redrawn while the dock magnifies, and the magnified icon grows away from it.
 - **Live titles**: when a window's caption changes (the shell's `HSHELL_REDRAW`, coalesced with
@@ -2283,7 +2287,7 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
   running app's menu > **Running apps settings…**; the footer has **Reset to factory defaults…**):
   **Windows** (Stacked / One slot per window), **Show only the windows on this
   dock's display**, **Titles under icons** (Off / One line / Two lines), **Titles on vertical
-  docks** (Off / Beside the icon), **Window thumbnails** (Off / Live (GPU capture) / Snapshots
+  docks** (Off / Beside the icon or thumbnail / Under the icon or thumbnail), **Window thumbnails** (Off / Live (GPU capture) / Snapshots
   (every N seconds)) and, round 8 phase 8B only for the mode that uses them, the snapshot
   interval (Snapshots), the live frames per second (Live) and the tile length (either); round 12
   phase 12F: a line says which rows the chosen mode leaves out and why, and one that Titles on
@@ -3613,7 +3617,10 @@ always there, also when every dock is parked) handle these registered messages:
   bool, one per value of a choice; ItemCommand 866 applies one; 0 for a slot without any or no such slot, -1 no
   such dock window). Round 13 phase 13D: **326** = the running item of dock `HIWORD(lParam)`: its effective gap in
   DIPs in the low word (its `gap`, or the theme's `iconGap` when `gap` is -1; 0xFFFF when the dock has no running
-  item) and its `padding` in DIPs in the high word (`tools\smoke\running-widget.ps1` uses it). The labels of the change Undo / Redo would
+  item) and its `padding` in DIPs in the high word (`tools\smoke\running-widget.ps1` uses it). Round 13 phase 13G:
+  **327** = px each icon slot of dock `HIWORD(lParam)` is longer by for its title row (`titlesVertical`
+  `"under"` on a left / right dock with titles on: 2 DIP + the lines, scaled; 0 on any other dock, or with
+  titles off). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -4042,8 +4049,8 @@ always there, also when every dock is parked) handle these registered messages:
   its unit line); Running apps (round 13 phase 13D: the running item's Item window, page 0, the same
   ids; the running item's `settings`) = 2162 "Show only the windows on this dock's display"
   (`filter`), 2232 Windows (0 stacked, 1 one slot per window), 2234 Titles under icons (0
-  off, 1 one line, 2 two lines), 2236 Titles on vertical docks (0 off, 1 beside the icon; round 9:
-  collapsed while titles are off), 2239 Window thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the
+  off, 1 one line, 2 two lines), 2236 Titles on vertical docks (0 off, 1 beside the icon or thumbnail, 2 under
+  it (13G); round 9: collapsed while titles are off), 2239 Window thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the
   trade-off), 2242 / 2243 snapshot interval (s), 2246 / 2247 live frames per second, 2250 / 2251
   tile length (DIPs, 0 = twice the icon; round 8 phase 8B: the three rows are collapsed unless the
   thumbnail mode uses them: the interval for Snapshots, the frames for Live, the length for either);

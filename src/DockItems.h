@@ -169,6 +169,10 @@ struct DockItem {
     // the running item's `gap`): the slot is boxMain + gapPx with floor(gapPx / 2) before the box.
     // Two neighbouring slots are therefore the mean of their gaps apart. Set by the layout.
     float gapPx = 0.0f;
+    // Round 13 phase 13G: on a vertical dock with titlesVertical "under" an icon slot is longer by
+    // the title's row (Layout::captionSlot: the gap to it + its height), after the box and its half
+    // gap; the title sits under the (magnified) box, driven by `tc`. 0 otherwise. Set by the layout.
+    float capMain = 0.0f;
     // Round 13 phase 13D: its element's RunPadding (px; the running item's `padding`), and the part
     // of `lead` that is padding (that element's before its first slot, the previous element's after
     // its last): the hairline sits in the rest of the lead.
@@ -187,6 +191,7 @@ struct DockItem {
     float targetScale = 1.0f;
     Tween tx;               // translate.OffsetX (and the dot's OffsetX)
     Tween ts;               // scale.ScaleX/Y
+    Tween tc;               // 13G: the caption's own main offset (titlesVertical "under": it follows the scaled box's end)
     Tween fade;             // layer opacity (dragging: dimmed; dragged off the dock: fading out)
     // A scrolling dock (DockGeometry::Viewport): the edge-fade opacity set on the slot's visuals (the
     // icon container, the dot and the caption; a widget's visual): the static value, or -1 while an

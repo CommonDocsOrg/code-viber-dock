@@ -56,7 +56,7 @@ protected:
         titlesReason.maxLines = 2;
         NextRow(22);
         Label(kTitlesVerticalLabel, L"Titles on vertical docks");
-        Tip(kTitlesVerticalLabel, L"On a left or right dock, titles go beside the icons (the default) or are left out.");
+        Tip(kTitlesVerticalLabel, L"On a left or right dock, each title goes under its icon or window thumbnail (the default), beside it toward the screen edge, or is left out.");
         Combo(kTitlesVerticalCombo, kColX, right - kColX, false);
         NextRow();
         Label(kThumbnailsLabel, L"Window thumbnails", L"Live: GPU · snapshots: cheap", kThumbnailsNote);
@@ -136,7 +136,8 @@ protected:
         ComboAdd(kTitlesCombo, L"One line");
         ComboAdd(kTitlesCombo, L"Two lines");
         ComboAdd(kTitlesVerticalCombo, L"Off");  // TitlesVertical order
-        ComboAdd(kTitlesVerticalCombo, L"Beside the icon");
+        ComboAdd(kTitlesVerticalCombo, L"Beside the icon or thumbnail");
+        ComboAdd(kTitlesVerticalCombo, L"Under the icon or thumbnail");  // 13G (the default)
         ComboAdd(kThumbnailsCombo, L"Off");  // ThumbnailMode order
         ComboAdd(kThumbnailsCombo, L"Live (GPU capture)");
         ComboAdd(kThumbnailsCombo, L"Snapshots (every N seconds)");
@@ -176,7 +177,7 @@ protected:
                     if (StoreRunning(r, SettingsScope::Appearance)) EnableDependents();  // relayout: the bar grows by the titles
                     return;
                 case kTitlesVerticalCombo:
-                    if (sel > 1) return;
+                    if (sel > 2) return;  // 13G: Under the icon is 2
                     r.titlesVertical = static_cast<TitlesVertical>(sel);
                     StoreRunning(r, SettingsScope::Appearance);
                     return;

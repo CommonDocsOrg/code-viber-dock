@@ -11,6 +11,13 @@
 //   4 Done: Finish (Keep: one undo entry "Quick setup") and Show me around (Finish, then the tips).
 // Cancel, Esc and closing the window put everything back (App's Cancel of the preview).
 //
+// Round 13 follow-up (2026-11-09, "the quick setup windows are kind of basic"): the same controls and
+// ids with a chrome that explains itself: the step indicator is a track (done steps checked, a line
+// to the next), each dock of step 1 is a card that names its layout's tagline under the controls,
+// step 2's fine-tuning and step 3's choices sit in cards with a hint under every choice, and step 4
+// paints a summary of what Finish keeps. All painted in WM_PAINT (the cards live in `cards_`; a
+// control on a card gets the card's brush from WM_CTLCOLORSTATIC by its position).
+//
 // A new file rather than PresetDialog's welcome variant grown into a stepped host: the chooser keeps
 // its one job (a list and a preview), and Quick setup's controls (rows, galleries, sliders) share
 // nothing with it but the window boilerplate. 960 x 640 DIPs on a display wider than 1400 DIPs,
@@ -120,6 +127,13 @@ private:
     void LayoutRows();
     void PaintSteps(HWND hwnd, HDC hdc);
     RECT StepRect(int step) const;  // in the step indicator's client px
+    // The rows container: a card per dock with the layout's tagline; the window: the step's cards,
+    // the footer hairline and step 4's summary (both double-buffered; the children are clipped out).
+    void PaintRows(HWND hwnd, HDC hdc);
+    void PaintContent(HDC hdc);
+    void PaintCheck(HDC dc, const RECT& circle, COLORREF fill, COLORREF mark) const;
+    bool OnCard(HWND control) const;  // the control sits on one of the step's cards
+    std::wstring LayoutWords(size_t r) const;  // "Modern · Glass, big icons and widgets" / "As it is now"
     void GoTo(int step);
     void ShowStep();
     // Every control from the config (Refresh's work).
@@ -159,14 +173,20 @@ private:
     bool closing_ = false, done_ = false, refreshPosted_ = false, syncing_ = false;
     DarkMode::Palette palette_;
     HFONT font_ = nullptr, fontBold_ = nullptr, fontHeading_ = nullptr;
-    HBRUSH layerBrush_ = nullptr, controlBrush_ = nullptr;
+    HBRUSH layerBrush_ = nullptr, controlBrush_ = nullptr, cardBrush_ = nullptr;
+    COLORREF cardColor_ = 0;
     std::vector<Presets::Look> looks_;
+    struct Card {
+        int step;            // shown on this step only
+        RECT dip;            // in the window's client DIPs
+        std::wstring title;  // painted bold at its top left ("" none)
+    };
+    std::vector<Card> cards_;  // Layout fills it
     // The frame.
     HWND steps_ = nullptr, heading_ = nullptr, intro_ = nullptr;
     HWND back_ = nullptr, next_ = nullptr, finish_ = nullptr, cancel_ = nullptr, showAround_ = nullptr;
     // Step 1.
     HWND rowsBox_ = nullptr, addDock_ = nullptr, addNote_ = nullptr, layoutNote_ = nullptr;
-    HWND rowHeads_[4] = {};
     std::vector<Row> rows_;
     // Step 2.
     HWND same_ = nullptr, sameCaption_ = nullptr, lookDock_ = nullptr, alphaLabel_ = nullptr, cornersLabel_ = nullptr;
@@ -176,6 +196,7 @@ private:
     // Step 3.
     HWND startBox_ = nullptr, startCaption_ = nullptr, taskbarBox_ = nullptr, taskbarCaption_ = nullptr, behaviourNote_ = nullptr;
     HWND autoHideLabel_ = nullptr, autoHide_ = nullptr, animationLabel_ = nullptr, animation_ = nullptr, animationNote_ = nullptr;
+    HWND startHint_ = nullptr, taskbarHint_ = nullptr, autoHideHint_ = nullptr;  // one line under each choice
     // Step 4.
     HWND doneNote_ = nullptr;
 };
