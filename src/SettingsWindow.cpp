@@ -89,6 +89,12 @@ int SettingsPage::Width() const {
     return w;
 }
 
+int SettingsPage::Height() const {
+    RECT rc{};
+    if (hwnd_) GetClientRect(hwnd_, &rc);
+    return MulDiv(rc.bottom, USER_DEFAULT_SCREEN_DPI, static_cast<int>(window_.Dpi()));
+}
+
 Ctl& SettingsPage::Add(int id, CtlKind kind, const wchar_t* cls, std::wstring text, DWORD style, RECT dip) {
     if (table_.empty()) buildW_ = Width();
     if (!pendingHelp_.empty() && reflow_ && kind != CtlKind::Title && card_ >= 0 && card_ == pendingHelpCard_) {
@@ -1905,10 +1911,14 @@ void SettingsWindow::Layout() {
         SetWindowPos(page.hwnd_, nullptr, x0 + navW, pageTop, std::max(0, width - navW), h, SWP_NOZORDER | SWP_NOACTIVATE);
         LayoutPage(page);
         // Round 8 phase 8A: a resized window: list columns, the Contents tab's own layout.
-        if (page.layoutW_ != page.Width()) {
+        // Round 15 phase 15A: a page that lays itself out follows the height too (the Contents
+        // tab's drawer fills the view), and is laid out once at first (its Build knew no height).
+        const bool heightMatters = !page.reflow_;
+        if (page.layoutW_ != page.Width() || (heightMatters && page.layoutH_ != page.Height())) {
             const bool first = page.layoutW_ == 0;
             page.layoutW_ = page.Width();
-            if (!first || page.Width() != page.buildW_) page.OnResized();
+            page.layoutH_ = page.Height();
+            if (!first || page.Width() != page.buildW_ || heightMatters) page.OnResized();
         }
     }
     LayoutBands();

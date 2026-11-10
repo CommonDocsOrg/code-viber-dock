@@ -524,7 +524,7 @@ Below them, for every item, is **Anchor and offset**, closed at first (most item
 
 Use **Position on the dock** to split a dock into parts, for example a Start button at the left end, your apps in the middle and the clock at the right end.
 
-**Add to the dock** is the drawer: a grid of tiles of everything you can put on the dock. It is the same drawer that opens beside the dock while you customize it. In a narrow panel it is under the selected item; scroll down to it, or widen the panel to have it on the right.
+**Add to the dock** is the drawer: a grid of tiles of everything you can put on the dock. It is the same drawer that opens beside the dock while you customize it. In a narrow panel it is under the selected item; scroll down to it, or widen the panel to have it on the right, where it grows with the panel: a wider panel gives it more columns of tiles and a taller one shows more of them without scrolling.
 
 - The search box finds a tile by its name or description.
 - The chips filter the grid: **All**, **Built in**, **Widgets** or **Apps and folders**.

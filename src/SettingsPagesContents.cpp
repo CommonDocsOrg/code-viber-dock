@@ -164,7 +164,13 @@ void Describe(const Config& c, const DockItemEntry& e, const AppIdentity::Resolv
 // --- the page --------------------------------------------------------------------------------
 
 // Round 8 phase 8B: the drawer ("Add to the dock") is always shown (no Hide / Show toggle).
-constexpr int kDrawerW = 340;  // DIPs (round 6 phase 6E: 300 -> 340 for the rows' previews)
+// Round 15 phase 15A: the drawer's width follows the window (DrawerW: two fifths of the page,
+// between these), and its grid runs down to the view's bottom (DrawerGridBottom). Measured on the
+// panel opened wide (about 1500 DIPs): the 340-DIP drawer scrolled two columns of tiles beside 400
+// DIPs of empty page under the inspector, and 600 DIPs of empty page under the grid itself.
+constexpr int kDrawerMinW = 340;  // DIPs (round 6 phase 6E: 300 -> 340 for the rows' previews)
+constexpr int kDrawerMaxW = 640;  // five columns of tiles; wider only adds to the left column
+constexpr int kDrawerLinkH = 36;  // the "Manage installed widgets" link under the grid (two lines)
 // Round 12 phase 12F: everything 24 DIPs lower than before, under the page's sentence (kPageLead).
 constexpr int kLeadDy = 24;
 constexpr int kStripTop = 44 + kLeadDy, kStripBottom = 162 + kLeadDy;  // the item strip (118 DIPs tall, as before)
@@ -296,14 +302,17 @@ protected:
         Tip(kDrawerSearch, L"Type to filter the tiles below by name or description.");
         // Round 12 phase 12D: the filter chips (push-like radio buttons) and the grid of tiles.
         LayoutChips(true);
+        // Round 15 phase 15A: as tall as the view allows (LayoutDrawer places it again once the
+        // page window exists: Build knows no height).
+        const int gb = DrawerGridBottom();
         Add(kDrawerList, CtlKind::Custom, SettingsStrip::kClass, L"Add to the dock", WS_TABSTOP,
-            RECT{dx + 16, kDrawerGridTop + dy, W - 16, 378 + kLeadDy + dy});
+            RECT{dx + 16, kDrawerGridTop + dy, W - 16, gb});
         Tip(kDrawerList, L"Everything you can put on the dock: apps and folders, the built-in items and the widgets, with live "
                          L"previews. Drag a tile onto the strip or the dock, or click it to add it at the end. Drag a widget "
                          L"onto the desktop (or press its small monitor button) to place it there.");
         // Two lines: the text does not fit the drawer's width on one.
         Add(kDrawerLibraryLink, CtlKind::Link, WC_LINK, L"<a>Manage installed widgets in App settings > Widget library</a>", WS_TABSTOP,
-            RECT{dx + 16, 386 + kLeadDy + dy, W - 16, 422 + kLeadDy + dy});
+            RECT{dx + 16, gb + 8, W - 16, gb + 8 + kDrawerLinkH});
     }
 
     void Created() override {
@@ -401,7 +410,7 @@ protected:
         if (Stacked()) return;
         RECT rc{};
         GetClientRect(Hwnd(), &rc);
-        const int x = Window().Px(Width() - kDrawerW);
+        const int x = Window().Px(Width() - DrawerW());
         Fill(dc, RECT{x, 0, x + std::max(1, Window().Px(1)), rc.bottom}, Mix(p.text, p.layer, 12));
     }
 
@@ -992,22 +1001,33 @@ private:
     // (full width; the page scrolls to it); wider, it stays on the right as before.
     static constexpr int kStackBelow = 720;
     bool Stacked() const { return Width() < kStackBelow; }
+    // Round 15 phase 15A: the drawer's width (DIPs) beside the left column: two fifths of the page
+    // between kDrawerMinW and kDrawerMaxW (the grid makes as many columns of tiles as fit).
+    int DrawerW() const { return std::clamp(Width() * 2 / 5, kDrawerMinW, kDrawerMaxW); }
     // The drawer's left (its controls start 16 DIPs further in) and how far down it moves.
-    int DrawerDx() const { return Stacked() ? kMargin - 16 : Width() - kDrawerW; }
+    int DrawerDx() const { return Stacked() ? kMargin - 16 : Width() - DrawerW(); }
     int DrawerDy() const { return Stacked() ? inspectorBottom_ + 16 - (12 + kLeadDy) : 0; }
+    // Round 15 phase 15A: the grid's bottom (DIPs): beside the inspector, down to the view's bottom
+    // with the link and the page's bottom margin under it (LayoutPage's content height adds kMargin
+    // under the lowest control: this leaves no scroll bar), at least 160 DIPs of grid (a short
+    // view scrolls the page). Stacked (under the inspector), 270 DIPs as before: the page scrolls.
+    int DrawerGridBottom() const {
+        if (Stacked()) return 378 + kLeadDy + DrawerDy();
+        return std::max(kDrawerGridTop + 160, Height() - kMargin - 2 - kDrawerLinkH - 8);
+    }
 
     // The left column's right edge (DIPs): beside the drawer (always shown since round 8 phase 8B).
-    int Right() const { return Stacked() ? Width() - 16 : Width() - kDrawerW - 20; }
+    int Right() const { return Stacked() ? Width() - 16 : Width() - DrawerW() - 20; }
 
     // The drawer's controls where DrawerDx / DrawerDy put them.
     void LayoutDrawer() {
-        const int W = Width(), dx = DrawerDx(), dy = DrawerDy();
+        const int W = Width(), dx = DrawerDx(), dy = DrawerDy(), gb = DrawerGridBottom();
         MoveCtl(kDrawerTitle, RECT{dx + 16, 12 + kLeadDy + dy, dx + 16 + kDrawerTitleW, 36 + kLeadDy + dy});
         MoveCtl(kDrawerHint, RECT{dx + 16 + kDrawerTitleW, 12 + kLeadDy + dy, W - 16, 36 + kLeadDy + dy});
         MoveCtl(kDrawerSearch, RECT{dx + 16, 38 + kLeadDy + 4 + dy, W - 16, 38 + kLeadDy + kRowH - 4 + dy});
         LayoutChips(false);
-        MoveCtl(kDrawerList, RECT{dx + 16, kDrawerGridTop + dy, W - 16, 378 + kLeadDy + dy});
-        MoveCtl(kDrawerLibraryLink, RECT{dx + 16, 386 + kLeadDy + dy, W - 16, 422 + kLeadDy + dy});
+        MoveCtl(kDrawerList, RECT{dx + 16, kDrawerGridTop + dy, W - 16, gb});
+        MoveCtl(kDrawerLibraryLink, RECT{dx + 16, gb + 8, W - 16, gb + 8 + kDrawerLinkH});
     }
 
     // --- the drawer ---

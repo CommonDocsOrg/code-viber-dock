@@ -391,6 +391,10 @@ protected:
     static constexpr int kTwoColumnsDip = 1000;
     static constexpr int kColumnGapDip = 16;
     int Width() const;  // content width in DIPs
+    // Round 15 phase 15A: the view's height in DIPs (the page window's client; 0 before it exists):
+    // a page that lays itself out (NoReflow) can fill it (the Contents tab's drawer). OnResized is
+    // called when it changes too (NoReflow pages only: the others' OnResized rebuilds list columns).
+    int Height() const;
     Ctl& Add(int id, CtlKind kind, const wchar_t* cls, std::wstring text, DWORD style, RECT dip);
     // The page's title (Global window only; round 8 phase 8A: a no-op in Dock and Item windows,
     // where the tab or the header names the page: the content then starts at y = 16).
@@ -577,6 +581,7 @@ private:
     mutable std::wstring firstTopic_;  // Topic() without HelpTopic: the first card's
     int buildW_ = 0;        // Width() when the table was built (DIPs)
     int layoutW_ = 0;       // Width() of the last layout (OnResized when it changes)
+    int layoutH_ = 0;       // Height() of the last layout (round 15 phase 15A: OnResized too, NoReflow pages)
     bool reflow_ = true;
     bool scrollBar_ = false;  // the page scrolls: Width() leaves its scroll bar out (round 8 phase 8A)
     // Round 12 phase 12F: the last reflow's layout (1 or 2 columns; QueryState 321) and the width it
