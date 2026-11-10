@@ -119,7 +119,7 @@ D2D1_RECT_F DockWindow::EditBadgeBox(int slot) const {
     if (slot < 0 || slot >= static_cast<int>(items_.size())) return D2D1_RECT_F{};
     const Layout& l = layout_;
     const DockItem& item = items_[static_cast<size_t>(slot)];
-    const float top = item.IsWidget() ? item.y : l.itemTop;
+    const float top = BoxTop(item);  // round 14 phase 14D: a tile's own (was: a widget's y, else itemTop)
     const D2D1_RECT_F box = l.BoxRect(item.targetX, top, item.targetX + BoxW(item), top + BoxCross(item));
     const float d = std::round(kBadgeDip * l.scale), inset = std::round(kBadgeInsetDip * l.scale);
     const float x = std::round(box.left + inset - d / 2.0f), y = std::round(box.top + inset - d / 2.0f);

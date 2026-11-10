@@ -607,7 +607,17 @@ private:
         // the automatic thickness is already thicker); the icon row sits floor(thickExtra / 2) further
         // from the bar's far side, so it stays centred across the bar.
         float thickExtra = 0.0f;
-        float barCross = 0.0f;    // round 11 phase 11C: LayoutContext::barCross (full width: the bar's thickness w/o reflections)
+        // Round 14 phase 14D: thumbnail tiles across the dock (the running item's thumbnailAcross).
+        // tileMain / tileCross: a tile's box as laid out (both 0 while no tile is in the layout).
+        // The icon row is rowCross thick (iconPx, or the tiles' cross when thicker), from rowTop on
+        // the cross axis; the tiles stand on its foot line (rowTop + rowCross, the screen-edge side),
+        // the icons are centred across it (itemTop = rowTop + floor(rowGrow / 2)), or stand on the
+        // foot line too with reflections (the reflection stays on the shelf).
+        float tileMain = 0.0f;
+        float tileCross = 0.0f;
+        float rowTop = 0.0f;
+        float rowCross = 0.0f;
+        float barCross = 0.0f;   // round 11 phase 11C: LayoutContext::barCross (full width: the bar's thickness w/o reflections)
         // Round 7 phase 7B: the items are laid out as anchored groups (DockConfig::Anchored() on a
         // bar whose run fits the room): the bar is the room's length, the gaps between the groups are
         // the slots' leads.
@@ -838,6 +848,8 @@ private:
     // --- window thumbnails ---
     // The tile's length along the bar (px) for this layout.
     float TilePx() const;
+    // Round 14 phase 14D: ... and its thickness across it (px; the icon size unless thumbnailAcross).
+    float TileCrossPx() const;
     // Hands the tile windows and the frame size to thumbs_ (after a rebuild / config change) and
     // whether the dock is visible.
     void SyncThumbnails();
@@ -1197,10 +1209,21 @@ private:
         return item.Magnifies() ? (item.boxMain > 0.0f ? item.boxMain : layout_.iconPx) : item.slotW;
     }
     // Height (cross axis) of an item's box: the icon, or a widget's content.
-    float BoxCross(const DockItem& item) const { return item.IsWidget() ? item.boxCross : layout_.iconPx; }
+    // Round 14 phase 14D: a thumbnail tile's is its own (docks' running thumbnailAcross).
+    float BoxCross(const DockItem& item) const {
+        return item.IsWidget() || (IsTile(item) && item.boxCross > 0.0f) ? item.boxCross : layout_.iconPx;
+    }
+    // Round 14 phase 14D: a slot shown as a thumbnail tile (as ComputeLayoutAt measures it).
+    static bool IsTile(const DockItem& item) { return item.thumbWindow && item.Magnifies(); }
+    // Round 14 phase 14D: the cross coordinate of an icon slot's box top (an icon: l.itemTop; a
+    // tile: its own y, on the row's foot line; a widget: its y).
+    float BoxTop(const DockItem& item) const { return item.IsWidget() || IsTile(item) ? item.y : layout_.itemTop; }
+    // Round 14 phase 14D: stage cross coordinate v lies off an icon slot's box across the bar.
+    bool OffBox(const DockItem& item, float v) const { return v < BoxTop(item) || v >= BoxTop(item) + BoxCross(item); }
     // The point (box-local, physical) an icon box scales about: the middle of its edge-facing side.
+    // Round 14 phase 14D: a tile's box is BoxCross thick (its foot: the row's foot line).
     D2D1_POINT_2F FootOf(const DockItem& item) const {
-        return DockGeometry::Point(layout_.edge, BoxW(item) / 2.0f, layout_.iconPx, layout_.iconPx);
+        return DockGeometry::Point(layout_.edge, BoxW(item) / 2.0f, BoxCross(item), BoxCross(item));
     }
     // Rest slot left edge -> icon box left edge.
     // Round 13 phase 13D: the slot's own gap (DockItem::gapPx), not the theme's.

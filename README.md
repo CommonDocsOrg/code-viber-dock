@@ -928,8 +928,9 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
   - `windows`: `"stacked"` (default) or `"unstacked"`; `titles`: `"off"` (default), `"one"`, `"two"`;
     `titlesVertical`: `"under"` (default since round 13 phase 13G), `"beside"` or `"off"` (see **Running apps: windows and titles**).
   - `thumbnails`: `"off"` (default), `"live"`, `"snapshots"`; `thumbnailIntervalS` (default 5, 1 -
-    3600), `thumbnailSize` (DIPs, default 0 = twice `iconSize`, else 16 - 512), `thumbnailFps`
-    (default 10, 1 - 60).
+    3600), `thumbnailSize` (DIPs, default 0 = twice `iconSize`, else 16 - 512), `thumbnailAcross`
+    (round 14 phase 14D: the tile's thickness across the dock, DIPs, default 0 = the icon size and
+    not written, else 16 - 512; a thicker tile makes the bar thicker), `thumbnailFps` (default 10, 1 - 60).
   - `badges`: `false` (default) or `true` (notification badges on the app icons).
   - `gap`: DIPs between the running slots, `-1` (default) = the theme's `iconGap`, else 0 - 48. Each
     icon slot holds half its own gap on each side, so between a pinned app (the theme's gap) and a
@@ -1019,8 +1020,16 @@ written at the dock level again.
 - **Window thumbnails** (`thumbnails`: `"off"` (default), `"live"`, `"snapshots"`): each window
   slot (on a stacked dock: each app slot with windows, showing the app's active window) becomes a
   tile with the window's picture and the app icon in its bottom-right corner. A tile is
-  `thumbnailSize` DIPs long along the dock (default 0: twice `iconSize`) and an icon deep, so the
-  bar keeps its height; on left / right docks tiles are an icon wide and `thumbnailSize` tall. Tiles
+  `thumbnailSize` DIPs long along the dock (default 0: twice `iconSize`) and `thumbnailAcross` DIPs
+  thick across it (round 14 phase 14D; default 0: an icon deep, so the bar keeps its height); on
+  left / right docks the length runs down the bar, so a tile is `thumbnailAcross` wide and
+  `thumbnailSize` tall (landscape: thickness larger than the length, e.g. 100 / 180). A tile thicker
+  than the icons makes the icon row that thick while a tile is on the dock (the automatic bar grows
+  to fit it; `docks[].thickness` stays a floor on top); the tiles stand on the row's screen-edge
+  side and the icons are centred across the row (with reflections they stand on that side too, so
+  the reflection stays under them); widgets keep their size and are centred as before. With no
+  tile on the dock the bar is as thin as before. On a ring tiles stay an icon thick. The frame keeps
+  the window's aspect inside the tile; the corner icon, radius and border keep the icon's size. Tiles
   magnify like icons (the picture is kept at the magnified size, so it stays sharp); label, click
   and preview work as for the slot. Pins and folders stay icons; tiles get no glow or reflection.
   A minimized window keeps its last picture, dimmed (minimize to dock).
@@ -2327,7 +2336,9 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
   dock's display**, **Titles under icons** (Off / One line / Two lines), **Titles on vertical
   docks** (Off / Beside the icon or thumbnail / Under the icon or thumbnail), **Window thumbnails** (Off / Live (GPU capture) / Snapshots
   (every N seconds)) and, round 8 phase 8B only for the mode that uses them, the snapshot
-  interval (Snapshots), the live frames per second (Live) and the tile length (either); round 12
+  interval (Snapshots), the live frames per second (Live) and the tile length (either; round 14
+  phase 14D: and **Tile thickness**, `thumbnailAcross`, 0 / 16 - 512 step 8, "DIP (0: the icon
+  size)", with the hint "Across the bar; length: along it"); round 12
   phase 12F: a line says which rows the chosen mode leaves out and why, and one that Titles on
   vertical docks appears when Titles under icons is not Off; see
   [Running apps: windows and titles](#running-apps-windows-and-titles). New in 13D: the
@@ -3678,7 +3689,11 @@ always there, also when every dock is parked) handle these registered messages:
   titles off). Round 14 phase 14A: **328** = dock `HIWORD(lParam)`'s resting bar as laid out, px:
   `MAKELONG(length along the edge, thickness across it)` (a ring: its arc's length and band); -2 not a
   dock (a folder window, a standalone widget, no such instance). Round 14 phase 14B: **329** =
-  `settings.snapToScreen` (0 / 1; app-wide, the dock in `HIWORD` is ignored). The labels of the change Undo / Redo would
+  `settings.snapToScreen` (0 / 1; app-wide, the dock in `HIWORD` is ignored). Round 14 phase 14D:
+  **330** = dock `HIWORD(lParam)`'s thumbnail tiles as laid out, px: `MAKELONG(length along the dock,
+  thickness across it)` (`thumbnailSize` / `thumbnailAcross` scaled; 0 while no tile is in the layout;
+  -2 not a dock; `tools\smoke\tile-size.ps1` uses it). QueryState 62 (a slot's box across) is a
+  tile's thickness for a tile. The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -3848,6 +3863,10 @@ always there, also when every dock is parked) handle these registered messages:
   5865 / 5866 its edit / spin / "px" (96 - 8000, step 50; collapsed while unchecked), 5867 Fixed thickness (check,
   caption 5868, hint 5872 "At least the icons' own height"), 5869 / 5870 / 5871 its edit / spin / "px" (24 - 1000,
   step 4). The card is collapsed for a ring, Fixed length for a full-width bar.
+  Round 14 phase 14D (5873 - 5877, in 14A's range; the Running apps window, after Tile length 2249 - 2252):
+  5873 Tile thickness (label, hint 5877 "Across the bar; length: along it"), 5874 / 5875 / 5876 its edit /
+  spin / "DIP (0: the icon size)" (`thumbnailAcross`, 0 or 16 - 512, step 8); collapsed with the other
+  thumbnail rows while thumbnails are off.
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that
@@ -4119,7 +4138,8 @@ always there, also when every dock is parked) handle these registered messages:
   it (13G); round 9: collapsed while titles are off), 2239 Window thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the
   trade-off), 2242 / 2243 snapshot interval (s), 2246 / 2247 live frames per second, 2250 / 2251
   tile length (DIPs, 0 = twice the icon; round 8 phase 8B: the three rows are collapsed unless the
-  thumbnail mode uses them: the interval for Snapshots, the frames for Live, the length for either);
+  thumbnail mode uses them: the interval for Snapshots, the frames for Live, the length for either;
+  round 14 phase 14D: 5874 / 5875 tile thickness, `thumbnailAcross`, collapsed with the length);
   round 13 phase 13D, the same window: 5832 / 5833 "Use the theme's gap" (checked: `gap` -1; the gap
   row 5834 - 5837 is collapsed while checked), 5835 / 5836 Gap (0 - 48 DIPs), 5839 / 5840 Padding
   (0 - 64 DIPs), 5844 Order (0 As they appear, 1 By name), 2254 / 2255 Notification badges on app

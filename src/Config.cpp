@@ -293,6 +293,7 @@ void ReadRunningFields(const json::JsonObject& o, RunningConfig& r) {
     ReadEnum(o, L"thumbnails", r.thumbnails);
     ReadInt(o, L"thumbnailIntervalS", r.thumbnailIntervalS);
     ReadInt(o, L"thumbnailSize", r.thumbnailSize);
+    ReadInt(o, L"thumbnailAcross", r.thumbnailAcross);  // round 14 phase 14D
     ReadInt(o, L"thumbnailFps", r.thumbnailFps);
     ReadBool(o, L"badges", r.badges);
     ReadInt(o, L"gap", r.gap);
@@ -310,6 +311,7 @@ void SanitizeRunning(RunningConfig& r) {
     if (static_cast<unsigned>(r.thumbnails) > static_cast<unsigned>(ThumbnailMode::Snapshots)) r.thumbnails = ThumbnailMode::Off;
     r.thumbnailIntervalS = std::clamp(r.thumbnailIntervalS, 1, 3600);
     r.thumbnailSize = r.thumbnailSize <= 0 ? 0 : std::clamp(r.thumbnailSize, 16, 512);
+    r.thumbnailAcross = r.thumbnailAcross <= 0 ? 0 : std::clamp(r.thumbnailAcross, 16, 512);  // round 14 phase 14D
     r.thumbnailFps = std::clamp(r.thumbnailFps, 1, 60);
     r.gap = r.gap < 0 ? RunningConfig::kThemeGap : std::min(r.gap, 48);
     r.padding = std::clamp(r.padding, 0, 64);
@@ -893,7 +895,10 @@ std::wstring RunningSettingsJson(const RunningConfig& r) {
     return L"{\"filter\":" + Quote(ToString(r.filter)) + L",\"windows\":" + Quote(ToString(r.windows)) + L",\"titles\":" +
            Quote(ToString(r.titles)) + L",\"titlesVertical\":" + Quote(ToString(r.titlesVertical)) + L",\"thumbnails\":" +
            Quote(ToString(r.thumbnails)) + L",\"thumbnailIntervalS\":" + Num(r.thumbnailIntervalS) +
-           L",\"thumbnailSize\":" + Num(r.thumbnailSize) + L",\"thumbnailFps\":" + Num(r.thumbnailFps) + L",\"badges\":" +
+           L",\"thumbnailSize\":" + Num(r.thumbnailSize) +
+           // Round 14 phase 14D: only when set (0, the icon size, is the default).
+           (r.thumbnailAcross > 0 ? L",\"thumbnailAcross\":" + Num(r.thumbnailAcross) : std::wstring()) +
+           L",\"thumbnailFps\":" + Num(r.thumbnailFps) + L",\"badges\":" +
            Bool(r.badges) + L",\"gap\":" + Num(r.gap) + L",\"padding\":" + Num(r.padding) + L",\"order\":" +
            Quote(ToString(r.order)) + L"}";
 }
@@ -929,6 +934,9 @@ void SetRunningSettings(DockItemEntry& item, const RunningConfig& r) {
     if (!settings) settings = json::JsonObject();
     const json::JsonObject values = SettingsObject(RunningSettingsJson(r));
     for (const auto& field : values) settings.SetNamedValue(field.Key(), field.Value());
+    // Round 14 phase 14D: thumbnailAcross is written only when set; back at 0 the key goes (the merge
+    // above would keep the old value).
+    if (r.thumbnailAcross <= 0 && settings.HasKey(L"thumbnailAcross")) settings.Remove(L"thumbnailAcross");
     item.settings = std::wstring(settings.Stringify());
 }
 

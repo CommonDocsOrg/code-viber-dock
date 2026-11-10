@@ -1362,6 +1362,39 @@ then `run.bat`: `build\x64-release\WinDock.exe` 5,803,520 bytes, 2026-11-09 14:5
 dock started on it with their config (no migration this round). What was not seen is listed in
 STATUS.md "Round 14 final regression" (everything visual and every real drag).
 
+### 14D: thumbnail tiles with a thickness across the dock (done 2026-11-09)
+
+From the user's report after 14C: on a right-edge dock with snapshot thumbnails, a fixed
+thickness did not make the tiles landscape; nothing set their aspect. A tile was `thumbnailSize`
+long along the bar and exactly an icon across it, and both the drawing and the capture used that box.
+
+- **Config**: the running item's `thumbnailAcross` (DIPs, 0 = the icon size, the default and not
+  written; else 16 - 512). Not added to the pre-13D dock-key table (`MoveOldRunningKeys`): it was
+  never a dock key. `SetRunningSettings` removes the key when it goes back to 0 (the merge would
+  keep the old value).
+- **Layout**: while a tile is in the layout (not on a ring), `Layout::tileCross` is the tile's
+  thickness and the icon row is `rowCross = max(iconPx, tileCross)` thick from `rowTop`. The
+  automatic bar (`iconBarH`), the stage's room for a magnified tile (`winH`: `rowCross x
+  magnification`), 13G's "under" title row and `barCross` are built from it, so the bar grows to fit
+  the tiles and 14A's thickness stays a floor on top. Placement across the row: the tiles stand on
+  its foot line (the screen-edge side; a tile thinner than the icons stands where an icon's foot
+  is) and scale about it (`FootOf` uses the box's own cross); the icons are centred
+  (`itemTop = rowTop + floor(rowGrow / 2)`), except with reflections, where they stand on the
+  foot line too so the reflection and the dot stay on the shelf under them (decision beyond the
+  plan). The captions "beside" / under a horizontal bar go under the row's foot; the widgets centre
+  across the grown row as before; `magTop` (popups, the label) reaches past a magnified tile; the
+  hover label of a tile starts from the tile's magnified box. With no tile the row is as before.
+- **Readers of the box**: `BoxCross` returns a tile's own cross; new helpers `IsTile`, `BoxTop`,
+  `OffBox` (the four "beside the box across the bar" press tests), the customize-mode badge, the
+  slot's screen box, QueryItemPoint, QueryState 62, the notification badge's corner and the group
+  hold's unpin line use them. The drop marker and separators keep the icon's size, centred.
+- **Drawing / capture**: `RenderTile` draws at `BoxW x BoxCross`; its units (radius, inset,
+  stroke, the corner icon) come from the icon size, not `min(w, h)`. `SyncThumbnails` captures at
+  `TilePx x TileCrossPx` times the magnification (all tiles share one size).
+- **Settings**: Running apps window, **Tile thickness** after Tile length (5873 - 5877 in 14A's
+  block), collapsed with the other thumbnail rows. **Automation**: QueryState 330. Script:
+  `tools\smoke\tile-size.ps1`.
+
 ## Dependencies at a glance
 
 ```

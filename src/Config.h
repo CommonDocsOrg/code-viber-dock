@@ -319,6 +319,10 @@ struct RunningConfig {
     int thumbnailIntervalS = 5;  // snapshots: seconds between pictures (1 - 3600)
     int thumbnailSize = 0;       // the tile's length along the dock in DIPs (0: twice iconSize; 16 - 512)
     int thumbnailFps = 10;       // live: at most this many frames a second per window (1 - 60)
+    // Round 14 phase 14D: the tile's thickness across the dock in DIPs (0: the icon size, the
+    // default, not written; else 16 - 512). A tile thicker than the icons makes the icon row (and
+    // the automatic bar) that much thicker; landscape tiles on a left / right dock need it.
+    int thumbnailAcross = 0;
     // Round 4 phase 9: a bubble with the unread notification count on the app slots
     // (NotificationService; the per-app toast count).
     bool badges = false;

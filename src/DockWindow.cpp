@@ -775,6 +775,28 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     const GlowMode glow = GlowOf(t);
     l.glowPad = glow != GlowMode::Off ? std::ceil(t.glowRadius * s) + 1.0f : 0.0f;
 
+    // --- round 14 phase 14D --- thumbnail tiles across the dock (the running item's
+    // thumbnailAcross; 0: an icon thick, as before). Only while a tile is in the layout: the icon row
+    // is then rowCross thick (the thickest of the icons and the tiles), which is what the automatic
+    // bar's thickness (iconBarH), the stage's room for a magnified tile (winH) and 13G's "under"
+    // title row are built from; docks[].thickness (14A) stays a floor on top. Not on a ring (its band
+    // is an icon thick around the centre line: a tile there keeps the icon's thickness).
+    bool anyTile = false;
+    for (const DockItem& item : items_) {
+        if (IsTile(item)) {
+            anyTile = true;
+            break;
+        }
+    }
+    const int acrossDip = d.Running().thumbnailAcross;
+    l.tileCross = !anyTile ? 0.0f : acrossDip > 0 && !polar ? std::round(static_cast<float>(acrossDip) * s) : l.iconPx;
+    l.rowCross = std::max(l.iconPx, l.tileCross);
+    const float rowGrow = l.rowCross - l.iconPx;
+    // Icons across a grown row: centred, or on its foot line when they have reflections (a
+    // reflection belongs on the shelf, under the icon, with the dot after it).
+    const float iconShift = reflect ? rowGrow : std::floor(rowGrow / 2.0f);
+    // --- end round 14 phase 14D ---
+
     // Titles under the icons: a band between the icon (and its reflection) and the dots, the
     // label's font at kCaptionFontSize; on vertical docks a row under the icon along the bar
     // (titlesVertical "under", round 13 phase 13G: each icon slot grows by it instead), a column
@@ -798,7 +820,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
             l.captionUnder = true;
             captionGap = std::round(kCaptionGap * s);
             l.captionMain = textH;
-            l.captionCross = std::round(l.iconPx + 2.0f * barPadDip * s);
+            l.captionCross = std::round(l.rowCross + 2.0f * barPadDip * s);  // round 14 phase 14D: the grown row's
             l.captionShift = 0.0f;
             l.captionSlot = captionGap + textH;
             captionGap = 0.0f;  // nothing across the bar
@@ -865,7 +887,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     if (l.titleInside != layout_.titleInside) titleDirty_ = true;  // drawn with / without its pill
 
     // The bar without reflections (the icon row and the titles).
-    const float iconBarH = std::round(l.iconPx + 2.0f * barPadDip * s) + l.captionBand + l.titleBand;
+    // Round 14 phase 14D: the row as thick as its thickest tile (rowCross: iconPx without tiles).
+    const float iconBarH = std::round(l.rowCross + 2.0f * barPadDip * s) + l.captionBand + l.titleBand;
     float barH = iconBarH + l.reflH;
     // Round 14 phase 14A: docks[].thickness (not a ring). The automatic thickness is the floor: the
     // bar only gets thicker. The icon row (and the widgets, titles, dots on it) is centred across the
@@ -886,7 +909,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     const float gapPx =
         l.fullWidth || l.floating || polar ? 0.0f : std::round(static_cast<float>(std::clamp(d.edgeGap, 0, DockConfig::kMaxEdgeGap)) * s);
     const float crossMargin = margin + gapPx;
-    float winH = std::round(l.iconPx * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
+    // Round 14 phase 14D: room for a magnified tile (rowCross x magnification from the row's foot).
+    float winH = std::round(l.rowCross * l.magnification + (l.vertical ? kVerticalWindowExtra : kWindowExtraHeight) * s) +
                  l.reflH + l.captionBand + gapPx;
     winH += l.thickExtra - thickFar;  // round 14 phase 14A: the row is that much further from the screen edge
     winH = std::max(winH, barH + crossMargin);
@@ -897,7 +921,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     if (l.glowPad > 0.0f) {
         // Room above a fully magnified icon for its halo.
         const float magTopRel =
-            winH - crossMargin - barH + l.iconTopPx + l.iconPx - l.iconPx * l.magnification;
+            winH - crossMargin - barH + l.iconTopPx + iconShift + l.iconPx - l.iconPx * l.magnification;  // 14D: + iconShift
         winH += std::max(0.0f, std::ceil(l.glowPad * l.magnification) - magTopRel);
     }
 
@@ -926,6 +950,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     bool firstFlush = false, lastFlush = false;  // the first / last real slot is a flush widget
     const int thumbDip = d.Running().thumbnailSize;  // round 13 phase 13D: the running item's
     const float tilePx = std::round(static_cast<float>(thumbDip > 0 ? thumbDip : 2 * iconDip) * s);
+    l.tileMain = anyTile ? tilePx : 0.0f;  // round 14 phase 14D (QueryState 330)
     float maxBox = l.iconPx;  // the longest magnifying box (a thumbnail tile is longer than an icon)
     size_t icons = 0;  // icon and separator slots (they make up the "items" of the bar)
     float itemsW = 0.0f;
@@ -954,7 +979,10 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
             item.gapPx = element.SlotGap(ctx, l.gap);  // round 13 phase 13D
             item.capMain = item.Magnifies() ? l.captionSlot : 0.0f;  // round 13 phase 13G
             item.slotW = item.Magnifies() ? main + item.gapPx + item.capMain : main;
-            item.boxCross = l.iconPx;
+            // Round 14 phase 14D: a tile is l.tileCross across (thumbnailAcross); redrawn at a new one.
+            const float cross = IsTile(item) ? l.tileCross : l.iconPx;
+            if (IsTile(item) && cross != item.boxCross) item.dirty = true;
+            item.boxCross = cross;
             item.hitSlack = 0.0f;
             ++icons;
             if (item.Magnifies()) {
@@ -1187,10 +1215,13 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     }
 
     l.bar = D2D1::RectF(barLeft, winH - crossMargin - barH, barLeft + barW, winH - crossMargin);  // 12E: off its edge by the gap
-    l.itemTop = l.bar.top + l.iconTopPx;
+    // Round 14 phase 14D: the icon row (rowCross thick); the icons inside it at iconShift.
+    l.rowTop = l.bar.top + l.iconTopPx;
+    l.itemTop = l.rowTop + iconShift;
     // Under the icon and its reflection; 13G "under" on a vertical bar: the row spans the icon row.
     // Round 14 phase 14A: "under" moves with the icon row across a thicker bar (thickFar).
-    l.captionTop = l.captionUnder ? l.bar.top + l.titleBand + thickFar : l.itemTop + l.iconPx + l.reflH + captionGap;
+    // Round 14 phase 14D: under the row's foot line (a tile's foot), not a centred icon's.
+    l.captionTop = l.captionUnder ? l.bar.top + l.titleBand + thickFar : l.rowTop + l.rowCross + l.reflH + captionGap;
     l.growRoomStart = l.bar.left;
     l.growRoomEnd = l.stageMain - l.bar.right;
     float polarRun = 0.0f;  // a ring: the run's length along it (0: not a ring)
@@ -1271,7 +1302,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         l.slack = static_cast<float>(ringRoomPx);
         // The canonical frame: the arc [0, arcLen] as the bar, the band as before.
         l.bar = D2D1::RectF(0.0f, winH - margin - barH, arcLen, winH - margin);
-        l.itemTop = l.bar.top + l.iconTopPx;
+        l.itemTop = l.rowTop = l.bar.top + l.iconTopPx;  // (a ring: rowCross is iconPx, iconShift 0)
         l.captionTop = l.itemTop + l.iconPx;
         l.stageMain = arcLen;
         l.stageCross = winH;
@@ -1413,7 +1444,10 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
         // Round 12 phase 12C: centred on the icon row, under an "inside" title's band.
         // Round 14 phase 14A: the row with docks[].thickness's extra (centred like the icons).
         const float rowTop = l.bar.top + l.titleBand, rowH = iconBarH - l.titleBand + l.thickExtra;
+        // Round 14 phase 14D: a thumbnail tile stands on the icon row's foot line (it fills a row
+        // grown for it; a tile thinner than the icons stands where an icon's foot is).
         item.y = item.IsWidget() ? std::round(std::min(rowTop + (rowH - item.boxCross) / 2.0f, rowTop + rowH - item.boxCross))
+                 : IsTile(item)  ? l.rowTop + l.rowCross - item.boxCross
                                  : l.itemTop;
         const int k = static_cast<int>(i);
         // "always": the room before the first magnifying slot is the icon side of its spacer, the
@@ -1439,6 +1473,8 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     if (l.view.on || polar) l.separatorX = l.leftSeparatorX = -1.0f;
     l.itemHeight = l.bar.bottom - l.itemTop;
     l.magTop = l.itemTop + l.iconPx - l.iconPx * l.magnification;
+    // Round 14 phase 14D: or beyond a fully magnified tile (from the row's foot line), when further.
+    if (l.tileCross > 0.0f) l.magTop = std::min(l.magTop, l.rowTop + l.rowCross - l.tileCross * l.magnification);
     // Popups open beyond a fully magnified icon (round 7 phase 7A: on every edge; before, above a
     // horizontal dock they opened beyond the whole stage), docks[].popupGap further (PopupAnchorAt).
     l.popupY = std::max(0.0f, std::floor(l.magTop));
@@ -1454,7 +1490,7 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // A glow that shows at rest (always / the active app) reaches above the bar: the resting HWND
     // grows by that much so it is not cut off (only that band; the bar stays the active zone).
     l.restTopExtra = (glow == GlowMode::Always || glow == GlowMode::Active)
-                         ? std::max(0.0f, l.glowPad - l.iconTopPx)
+                         ? std::max(0.0f, l.glowPad - l.iconTopPx - iconShift)  // 14D: the icon's place in the row
                          : 0.0f;
     // Round 11 phase 11A: the slot buttons' band across the bar. Round 14 phase 14A: across a bar
     // thickened by docks[].thickness too (a taller Windows 7 taskbar's buttons are as tall as it).
@@ -1851,7 +1887,7 @@ void DockWindow::LayoutPass() {
         old.polar.cy != l.polar.cy || !EqualRect(&old.window, &l.window) || old.scale != l.scale || old.bar.left != l.bar.left ||
         old.bar.top != l.bar.top || old.bar.right != l.bar.right || old.bar.bottom != l.bar.bottom ||
         old.itemsLeft != l.itemsLeft || old.iconPx != l.iconPx || old.gap != l.gap || old.growMax != l.growMax ||
-        old.itemsW != l.itemsW) {
+        old.itemsW != l.itemsW || old.tileCross != l.tileCross || old.itemTop != l.itemTop) {  // 14D: a tile's cross, the icons' place in the row
         snapPending_ = true;
         if (watching_) shared_->Watch().Poke();  // the bar's column moved: re-test the overlap (no-op unless intelligent)
     }
@@ -2344,11 +2380,21 @@ float DockWindow::TilePx() const {
     return std::round(static_cast<float>(tile > 0 ? tile : 2 * icon) * layout_.scale);
 }
 
+float DockWindow::TileCrossPx() const {
+    // Round 14 phase 14D: as laid out (ComputeLayoutAt: thumbnailAcross, not on a ring); while no
+    // tile is in the layout, what one would be.
+    if (layout_.tileCross > 0.0f) return layout_.tileCross;
+    const int across = DockCfg().Running().thumbnailAcross;
+    return across > 0 && !layout_.polar.on ? std::round(static_cast<float>(across) * layout_.scale) : layout_.iconPx;
+}
+
 HRESULT DockWindow::RenderTile(DockItem& item, ID2D1Bitmap* icon) {
     // Drawn upright like an icon, at rest size and at the magnified size (crisp both ways); the
     // frame keeps the window's aspect inside the tile, the app icon sits in its bottom-right corner.
+    // Round 14 phase 14D: the tile is BoxCross across (thumbnailAcross), so a tile on a left / right
+    // dock can be landscape; its radius, inset, stroke and corner icon keep the icon's size.
     const Layout& l = layout_;
-    const D2D1_SIZE_F rest = l.PhysSize(BoxW(item), l.iconPx);
+    const D2D1_SIZE_F rest = l.PhysSize(BoxW(item), BoxCross(item));
     const UINT smallW = static_cast<UINT>(rest.width), smallH = static_cast<UINT>(rest.height);
     const float k = l.bitmapPx > static_cast<UINT>(l.iconPx) ? static_cast<float>(l.bitmapPx) / l.iconPx : 0.0f;
     const UINT bigW = k > 0.0f ? static_cast<UINT>(std::lround(rest.width * k)) : 0;
@@ -2358,8 +2404,10 @@ HRESULT DockWindow::RenderTile(DockItem& item, ID2D1Bitmap* icon) {
     const bool dim = item.thumbDim;
     const ThemeConfig& t = DockTheme();
     auto draw = [&](ID2D1DeviceContext* dc, float w, float h) {
-        const float cross = std::min(w, h);  // the tile across the dock (an icon's size)
-        const float u = cross / 48.0f;       // tile units
+        // The icon's size at this surface's scale (round 14 phase 14D: was min(w, h), the tile across
+        // the dock, which was an icon's size until thumbnailAcross).
+        const float cross = l.iconPx * w / std::max(1.0f, rest.width);
+        const float u = cross / 48.0f;  // tile units
         const float radius = std::max(2.0f, std::round(5.0f * u));
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
         if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(t.previewHotBackground), brush.put()))) return;
@@ -2826,7 +2874,7 @@ HRESULT DockWindow::RenderBadge(DockItem& item) {
     if (FAILED(hr)) return hr;
     // At the icon's outer corner (away from the screen edge), overhanging it a little: top right on
     // bottom and left docks, bottom right on top docks, top left on right docks.
-    const D2D1_SIZE_F box = l.PhysSize(BoxW(item), l.iconPx);
+    const D2D1_SIZE_F box = l.PhysSize(BoxW(item), BoxCross(item));  // round 14 phase 14D: a tile's own cross
     const float o = std::round(h * 0.18f);
     float x = box.width - w + o, y = -o;
     if (l.edge == DockEdge::Top) y = box.height - h + o;
@@ -4179,7 +4227,8 @@ void DockWindow::ComputeTargets() {
         const float lh = static_cast<float>(l.vertical ? label_.width : label_.height);
         const bool cell = hoverCell_ >= 0 && hoverCellSlot_ == hovered_;
         const float centre = h.targetX + (cell ? hoverCellCentre_ : BoxW(h) / 2.0f);
-        const float iconTop = l.itemTop + l.iconPx * (1.0f - h.targetScale);
+        // Round 14 phase 14D: a tile's magnified box (from the row's foot line), not an icon's.
+        const float iconTop = IsTile(h) ? h.y + BoxCross(h) * (1.0f - h.targetScale) : l.itemTop + l.iconPx * (1.0f - h.targetScale);
         if (l.polar.on) {
             // Outside the ring at the icon's angle, kLabelGap beyond the magnified icon.
             const D2D1_POINT_2F c = l.polar.Outside(centre, iconTop - std::round(kLabelGap * l.scale), lw, lh);
@@ -4323,7 +4372,7 @@ void DockWindow::ApplyTargets(double duration, bool trackingMove) {
         if (!item.tx.valid) {
             const D2D1_POINT_2F foot = FootOf(item);
             renderer_.EnsurePlacement(item.layer, foot.x, foot.y);
-            SetCrossOffset(item.layer.translate.get(), l.CrossOrigin(item.y, l.iconPx));
+            SetCrossOffset(item.layer.translate.get(), l.CrossOrigin(item.y, BoxCross(item)));  // 14D: a tile's own cross
             if (item.dot.visual) {
                 SetCrossOffset(item.dot.visual.get(), l.CrossOrigin(l.dotTop, static_cast<float>(l.dotHeight)));
                 // The dot surface is an icon wide: centred under a longer thumbnail tile.
@@ -6167,10 +6216,11 @@ void DockWindow::SyncThumbnails() {
             windows.push_back(item.thumbWindow);
         }
     }
-    // Frames are kept at the magnified tile's pixel size (upright: on a vertical dock the tile is an
-    // icon wide and thumbnailSize tall), so a magnified tile stays sharp.
+    // Frames are kept at the magnified tile's pixel size (upright: on a vertical dock the tile is
+    // thumbnailSize tall and, round 14 phase 14D, thumbnailAcross wide (an icon by default)), so a
+    // magnified tile stays sharp. All tiles share the size.
     const float k = std::max(1.0f, layout_.magnification);
-    const D2D1_SIZE_F tile = layout_.PhysSize(TilePx() * k, std::max(1.0f, layout_.iconPx) * k);
+    const D2D1_SIZE_F tile = layout_.PhysSize(TilePx() * k, std::max(1.0f, TileCrossPx()) * k);
     thumbs_.SetWindows(windows, static_cast<UINT>(std::lround(tile.width)), static_cast<UINT>(std::lround(tile.height)));
     thumbs_.Activate(!desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing));
 }
@@ -7455,7 +7505,8 @@ int DockWindow::GroupCandidateAt(POINT pt) const {
     if ((src.window && !src.pinned) || (src.kind != DockItem::Kind::App && src.kind != DockItem::Kind::Folder)) return -1;
     if (!src.pinned && src.key.IsClassFallback()) return -1;  // nothing a group could keep
     const D2D1_POINT_2F c = layout_.Canon(pt);
-    if (c.y < layout_.itemTop - layout_.iconPx * 0.5f) return -1;  // well above the icons (the unpin zone)
+    // (Round 14 phase 14D: above the icon row's top, which a tile thicker than the icons reaches.)
+    if (c.y < std::min(layout_.itemTop, layout_.rowTop) - layout_.iconPx * 0.5f) return -1;  // well above the icons (the unpin zone)
     const float x = RestMain(c.x);
     const int slot = SlotAt(x);
     if (slot < 0 || slot == dragSource_) return -1;
@@ -9220,6 +9271,12 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const LONG len = std::lround(std::max(0.0f, w)), thick = std::lround(std::max(0.0f, h));
             return static_cast<LRESULT>(static_cast<unsigned>(len & 0xFFFF) | (static_cast<unsigned>(thick & 0xFFFF) << 16));
         }
+        case 330: {  // round 14 phase 14D: a thumbnail tile as laid out, px: along | across << 16 (0: no tile in the layout)
+            const Layout& l = layout_;
+            if (l.tileMain <= 0.0f || l.tileCross <= 0.0f) return 0;
+            const LONG along = std::lround(l.tileMain), across = std::lround(l.tileCross);
+            return static_cast<LRESULT>(static_cast<unsigned>(along & 0xFFFF) | (static_cast<unsigned>(across & 0xFFFF) << 16));
+        }
         default:
             return -1;
     }
@@ -9420,7 +9477,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 if (DockCfg().Floating() && !(wp & MK_CONTROL) && pressTrayKey_.empty()) {
                     const float v = layout_.Canon(pressPt_).y;
                     floatingBackground = pressed_ < 0 || (!items_[static_cast<size_t>(pressed_)].IsWidget() &&
-                                                          (v < layout_.itemTop || v >= layout_.itemTop + layout_.iconPx));
+                                                          OffBox(items_[static_cast<size_t>(pressed_)], v));
                 }
                 // Round 12 phase 12E: customize mode: a plain press on the background of a bar on an
                 // edge (not full width, not a ring) moves the dock too: along the edge (offset), off
@@ -9430,7 +9487,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                     !DockCfg().fullWidth) {
                     const float v = layout_.Canon(pressPt_).y;
                     editBackground = pressed_ < 0 || (!items_[static_cast<size_t>(pressed_)].IsWidget() &&
-                                                      (v < layout_.itemTop || v >= layout_.itemTop + layout_.iconPx));
+                                                      OffBox(items_[static_cast<size_t>(pressed_)], v));
                 }
                 dockPress_ = ((wp & MK_CONTROL) || floatingBackground || editBackground) && !DockCfg().locked &&
                              dragPhase_ == DragPhase::None && hideState_ == HideState::Shown && InZone(pressPt_) &&
@@ -9447,7 +9504,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             {
                 const float v = layout_.Canon(pressPt_).y;
                 const bool offBox = pressed_ >= 0 && !items_[static_cast<size_t>(pressed_)].IsWidget() &&
-                                    (v < layout_.itemTop || v >= layout_.itemTop + layout_.iconPx);
+                                    OffBox(items_[static_cast<size_t>(pressed_)], v);
                 scrollPress_ = !dockPress_ && layout_.view.on && dragPhase_ == DragPhase::None &&
                                hideState_ == HideState::Shown && InZone(pressPt_) && pressTrayKey_.empty() &&
                                (pressed_ < 0 || offBox || !Draggable(static_cast<size_t>(pressed_)));
@@ -9469,7 +9526,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 InZone(pressPt_) && pressTrayKey_.empty()) {
                 const float v = layout_.Canon(pressPt_).y;
                 const bool offBox = pressed_ >= 0 && !items_[static_cast<size_t>(pressed_)].IsWidget() &&
-                                    (v < layout_.itemTop || v >= layout_.itemTop + layout_.iconPx);
+                                    OffBox(items_[static_cast<size_t>(pressed_)], v);
                 if (pressed_ < 0 || offBox) ArmEditPress(pressPt_);
             }
             return 0;

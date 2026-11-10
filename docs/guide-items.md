@@ -162,7 +162,7 @@ Use titles with **One slot per window** to tell your windows apart at a glance.
 - **Live (GPU capture)**: the pictures follow the windows as they change. It uses the graphics card a little, and only while the dock is visible.
 - **Snapshots (every N seconds)**: a new picture every few seconds. It costs almost nothing in between.
 
-**Tile length** sets how long each picture is (0: twice the icon size). Videos protected against copying show as black.
+**Tile length** sets how long each picture is along the dock (0: twice the icon size), and **Tile thickness** how thick it is across the dock (0: the icon size). A thicker tile makes the bar thicker; the icons stay centred beside the tiles. On a left or right dock the length runs down the bar: for landscape pictures there, make the thickness larger than the length (for example 100 and 180). Videos protected against copying show as black.
 
 ## Folders
 

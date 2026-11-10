@@ -695,7 +695,8 @@ The running apps are a widget of the dock (Add > Running apps), and their settin
 - **Window thumbnails**: **Off**, **Live (GPU capture)** or **Snapshots (every N seconds)**. Each window's icon becomes a small picture of the window.
 - **Snapshot every**: seconds between pictures (for snapshots).
 - **Live frames per second**: the most pictures per second (for live).
-- **Tile length**: the length of each picture tile. 0 makes it twice the icon size.
+- **Tile length**: the length of each picture tile along the dock. 0 makes it twice the icon size.
+- **Tile thickness**: how thick each picture tile is across the dock. 0 makes it the icon size. A thicker tile makes the bar thicker to fit it. On a left or right dock the length runs down the bar, so for landscape pictures make the thickness larger than the length (for example length 100, thickness 180).
 
 Only the rows the chosen thumbnail mode uses are shown; a line says which are left out and why. Live thumbnails use the graphics card; snapshots cost almost nothing. See [Running apps](guide-items.md#running-apps).
 

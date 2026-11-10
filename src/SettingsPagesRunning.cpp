@@ -87,6 +87,17 @@ protected:
                    SettingsScope::Appearance);
         Text(kThumbSizeUnit, CtlKind::Note, L"DIP (0: twice the icon)", kColX + 98, 200);
         NextRow();
+        // Round 14 phase 14D: the tile's thickness across the dock (thumbnailAcross), so a tile on a
+        // left / right dock can be landscape; the bar grows to fit it (a relayout).
+        Label(kThumbAcrossLabel, L"Tile thickness", L"Across the bar; length: along it", kThumbAcrossHint);  // (a 196 DIP column)
+        Tip(kThumbAcrossLabel,
+            L"A thumbnail tile's thickness across the dock in DIPs (0: the icon size, the default). The bar gets thicker "
+            L"to fit it. For landscape thumbnails on a left or right dock, make it larger than the tile length (for "
+            L"example length 100, thickness 180).");
+        RunIntSpin(kThumbAcrossEdit, kThumbAcrossSpin, kColX, kNumberW, 0, 512, 8,
+                   [](RunningConfig& r) -> int& { return r.thumbnailAcross; }, SettingsScope::Appearance);
+        Text(kThumbAcrossUnit, CtlKind::Note, L"DIP (0: the icon size)", kColX + 98, 200);
+        NextRow();
 
         // New in 13D: the running apps' own spacing (a relayout).
         Section(kRunSpacingSection, L"Spacing", L"guide-settings.md#spacing");
@@ -230,6 +241,7 @@ protected:
         Collapse({kThumbIntervalLabel, kThumbIntervalEdit, kThumbIntervalUnit}, r.thumbnails != ThumbnailMode::Snapshots);
         Collapse({kThumbFpsLabel, kThumbFpsEdit, kThumbFpsUnit}, r.thumbnails != ThumbnailMode::Live);
         Collapse({kThumbSizeLabel, kThumbSizeEdit, kThumbSizeUnit}, r.thumbnails == ThumbnailMode::Off);
+        Collapse({kThumbAcrossLabel, kThumbAcrossEdit, kThumbAcrossUnit}, r.thumbnails == ThumbnailMode::Off);  // 14D
         // The gap row while the theme's gap is not used (collapsed, not greyed).
         Collapse({kRunGapLabel, kRunGapEdit, kRunGapUnit}, r.gap < 0);
     }

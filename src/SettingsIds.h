@@ -977,5 +977,14 @@ inline constexpr int kFixedThicknessSpin = 5870;
 inline constexpr int kFixedThicknessUnit = 5871;   // ... "px"
 inline constexpr int kFixedThicknessHint = 5872;   // ... "At least the icons' own height"
 // --- end round 14 phase 14A ---
+// --- round 14 phase 14D (5873 - 5877, in 14A's range): the Running apps window's row "Tile
+// thickness" after Tile length (the running item's thumbnailAcross); collapsed with the other
+// thumbnail rows while thumbnails are off ---
+inline constexpr int kThumbAcrossLabel = 5873;     // "Tile thickness" (+ hint 5877)
+inline constexpr int kThumbAcrossEdit = 5874;      // thumbnailAcross DIPs, 0 (the icon size) or 16 - 512 (step 8)
+inline constexpr int kThumbAcrossSpin = 5875;
+inline constexpr int kThumbAcrossUnit = 5876;      // "DIP (0: the icon size)"
+inline constexpr int kThumbAcrossHint = 5877;      // "Across the bar; length: along it" (the label column is 196 DIPs)
+// --- end round 14 phase 14D ---
 
 }  // namespace SettingsIds

@@ -4005,6 +4005,7 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         case 325:  // round 13 phase 13C: the quick entries of slot LOWORD(lParam) of dock HIWORD (-1 no such dock window)
             return inst && inst->window ? static_cast<LRESULT>(QuickEntries(*inst->window, static_cast<int>(arg)).size()) : -1;
         case 328:  // round 14 phase 14A: the resting bar's length | thickness << 16 (px; DockWindow), -2 not a dock
+        case 330:  // round 14 phase 14D: a thumbnail tile's along | across << 16 (px; 0 no tile; DockWindow), -2 not a dock
             if (!inst || !inst->window) return -2;
             return inst->window->QueryState(wp, arg);
         case 329:  // round 14 phase 14B: settings.snapToScreen (0 / 1; app-wide)
