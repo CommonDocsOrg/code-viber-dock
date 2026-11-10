@@ -1,5 +1,5 @@
 // Start: a button that opens the Start menu. The click sends the Windows key
-// (shell.sendKeys('win'), SendInput: the same as pressing it, so Start opens and closes as the key
+// (shell.sendKeys('start-near') or 'win', see 1.2.0 below; SendInput: the same as pressing it, so Start opens and closes as the key
 // does); if Windows refuses the injected input (another program's window of a higher integrity
 // level has the focus), the All apps folder (shell:AppsFolder) opens instead. Idle: nothing runs.
 //
@@ -8,6 +8,12 @@
 // while hovered, darker while pressed (onPress until the click / the pointer leaving, with a one-shot
 // 2 s timer as the backstop for a press that ends in a drag). `size` 0 = automatic: 62 % of the slot
 // for the logos and images, 100 % for the orb.
+//
+// Round 16 phase 16A (1.2.0): `menuPosition` "near" (the default) sends 'start-near' instead of
+// 'win': the dock first moves the Start menu's host window so that the menu opens beside this
+// button (above it on a bottom dock, beside it on a side dock, clamped to the monitor), and puts the
+// window back when the menu closes. "windows" sends plain 'win' (Windows' own place). Where the
+// menu's window is not found, 'start-near' is plain 'win'.
 
 let hovered = false;
 let pressed = false;
@@ -160,7 +166,7 @@ export function onHover(e) {
 export function onClick() {
   release();
   try {
-    shell.sendKeys('win');
+    shell.sendKeys(settings.menuPosition === 'windows' ? 'win' : 'start-near');
   } catch (e) {
     console.warn(e.message + ': opening All apps instead');
     shell.open('shell:AppsFolder');

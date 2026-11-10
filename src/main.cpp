@@ -13,6 +13,7 @@
 
 #include "App.h"
 #include "DockWindow.h"
+#include "StartMenuPlacer.h"
 #include "TaskbarController.h"
 #include "WidgetPackage.h"
 
@@ -78,6 +79,9 @@ void CrashRestoreTaskbar() {
         TrayHost::EmergencyRelease();  // the notify icons back to Explorer (our Shell_TrayWnd gone)
         DockWindow::EmergencyRemoveAppBar();  // the dock's reserved band first (best effort)
         TaskbarController::EmergencyRestore();
+        // Round 16 phase 16A: a Start menu host shifted beside a button goes back to its place (the
+        // shift persists in the shell's window: the next Windows key would open the menu there).
+        StartMenuPlacer::EmergencyRestore();
     }
 }
 

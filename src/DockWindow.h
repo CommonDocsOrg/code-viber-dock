@@ -37,6 +37,7 @@
 
 struct IDataObject;
 class DockWindow;
+class StartMenuPlacer;
 
 // The services every dock shares (one per process, owned by DockManager): the window list, the
 // weather data, the foreground watch of intelligent auto-hide.
@@ -79,6 +80,8 @@ public:
     // its monitor). True when the full-screen guard takes it (settings.fullscreen "hide"): the dock
     // then leaves its z-order alone. False: the dock handles it itself (before round 9's way).
     virtual bool FullscreenNotice(DockWindow* dock, bool on) = 0;
+    // Round 16 phase 16A: the Start menu's placer (App's one instance; null before App set it).
+    virtual StartMenuPlacer* StartPlacer() = 0;
 
 protected:
     ~DockShared() = default;
@@ -126,6 +129,8 @@ public:
     // (posted to a panel when the app lost the activation). Round 12 phase 12I: WM_APP + 71 =
     // App::kPanelAnchorMoved (posted to the app window, coalesced: a folder window / standalone
     // widget moved, so the settings panel beside it follows).
+    // Round 16 phase 16A: 45 = StartMenuPlacer::kWatchTimerId (on the app window: the 250 ms one-shot
+    // poll while the Start menu is open beside a Start widget; no WM_APP message).
     static constexpr int kFlashSteps = 6;                // lit, dark, lit, dark, lit, dark
     static constexpr UINT kFlashStepMs = 250;
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);
@@ -1170,6 +1175,7 @@ private:
     bool WidgetOpenCentre(WidgetInstance& widget) override;
     EditorPlace WidgetEditorPlace(const WidgetInstance& widget) const override;
     void WidgetEditorChanged(WidgetInstance& widget, bool open) override;
+    StartMenuPlacer* WidgetStartPlacer() override { return shared_ ? shared_->StartPlacer() : nullptr; }  // 16A
     // The pointer is over widget slot `index` now (-1: none): onHover leave / enter.
     void UpdateWidgetHover(int index);
 

@@ -1,8 +1,8 @@
 {
   "name": "Start",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "WinDock",
-  "description": "A Start button: opens the Start menu (the Windows key, sent with SendInput; if Windows refuses the input, the All apps folder opens instead). The Windows logo, the Windows 7 orb or your own icon.",
+  "description": "A Start button: opens the Start menu next to the button (the Windows key, sent with SendInput, after moving the menu's window beside the button; Menu position chooses Windows' own place instead; if Windows refuses the input, the All apps folder opens instead). The Windows logo, the Windows 7 orb or your own icon.",
   "api": 1,
   "size": {
     "horizontal": { "main": 48, "cross": 48 },
@@ -20,6 +20,12 @@
       ] },
     { "key": "image", "section": "appearance", "group": "Icon", "common": true, "visibleIf": { "icon": "image" }, "type": "string", "label": "Image", "default": "",
       "description": "A file of the widget (assets/start.png, after exporting it) or the full path of any file, whose shell icon is drawn (an .exe, .ico, .lnk ...)." },
-    { "key": "size", "section": "appearance", "group": "Icon", "common": true, "unit": "%", "type": "int", "label": "Icon size (0 = automatic)", "description": "How much of the slot the icon fills, in percent. 0 (the default) is automatic: 62% for the logos and images, 100% for the orb, which looks best at 95 - 100%.", "min": 0, "max": 100, "default": 0 }
+    { "key": "size", "section": "appearance", "group": "Icon", "common": true, "unit": "%", "type": "int", "label": "Icon size (0 = automatic)", "description": "How much of the slot the icon fills, in percent. 0 (the default) is automatic: 62% for the logos and images, 100% for the orb, which looks best at 95 - 100%.", "min": 0, "max": 100, "default": 0 },
+    { "key": "menuPosition", "section": "content", "group": "Start menu", "common": true, "type": "choice", "label": "Menu position", "default": "near",
+      "description": "Where the Start menu opens. Next to the button (the default) moves the menu's window beside this button for that click only and puts it back when the menu closes, so the Windows key still opens it at its usual place. Where Windows puts it: the usual place (where the hidden taskbar's Start button would be). On a Windows build where the menu's window is not found, the menu opens at Windows' place either way.",
+      "choices": [
+        { "value": "near", "label": "Next to the button" },
+        { "value": "windows", "label": "Where Windows puts it" }
+      ] }
   ]
 }

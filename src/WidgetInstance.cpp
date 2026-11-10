@@ -14,6 +14,7 @@
 #include "CalendarService.h"
 #include "JsonUtil.h"
 #include "NotificationService.h"
+#include "StartMenuPlacer.h"
 #include "TextEditorWindow.h"
 #include "Weather.h"
 #include "WeatherGlyphs.h"
@@ -1053,6 +1054,9 @@ struct KeyCombo {
 };
 constexpr KeyCombo kKeyCombos[] = {
     {L"win", {VK_LWIN, 0}},             // Start
+    // Round 16 phase 16A: the Windows key after StartMenuPlacer::Place moved the Start menu's host
+    // window beside the widget (the Start widget's Menu position); without a host it is just 'win'.
+    {L"start-near", {VK_LWIN, 0}},
     {L"win+a", {VK_LWIN, 'A'}},         // quick settings
     {L"win+b", {VK_LWIN, 'B'}},         // the notification area (keyboard focus)
     {L"win+d", {VK_LWIN, 'D'}},         // show / hide the desktop
@@ -1079,8 +1083,15 @@ constexpr KeyCombo kKeyCombos[] = {
 // Test hook (round 11 phase 11B): the environment variable WINDOCK_SENDKEYS_LOG of the dock process
 // names a file that gets a line per accepted shell.sendKeys call ("<name>\t<virtual keys, hex>") and
 // then NOTHING is pressed (a dry run), so a test can click the Start / Show desktop widgets without
-// opening Start or minimizing the session's windows. False without the variable.
-bool SendKeysDryRun(const std::wstring& name, const WORD* keys, size_t count) {
+// opening Start or minimizing the session's windows. False without the variable. Round 16 phase
+// 16A: `extra` (start-near: the placer's shift "<dx> <dy>") is appended after another tab.
+bool SendKeysDryRunOn() {
+    wchar_t path[MAX_PATH]{};
+    const DWORD n = GetEnvironmentVariableW(L"WINDOCK_SENDKEYS_LOG", path, MAX_PATH);
+    return n != 0 && n < MAX_PATH;
+}
+
+bool SendKeysDryRun(const std::wstring& name, const WORD* keys, size_t count, const std::wstring& extra = {}) {
     wchar_t path[MAX_PATH]{};
     const DWORD n = GetEnvironmentVariableW(L"WINDOCK_SENDKEYS_LOG", path, MAX_PATH);
     if (n == 0 || n >= MAX_PATH) return false;
@@ -1090,6 +1101,7 @@ bool SendKeysDryRun(const std::wstring& name, const WORD* keys, size_t count) {
         swprintf_s(hex, i ? L" %02X" : L"%02X", keys[i]);
         line += hex;
     }
+    if (!extra.empty()) line += L"\t" + extra;
     const std::string bytes = JsonUtil::WideToUtf8(line) + "\r\n";
     HANDLE f = CreateFileW(path, FILE_APPEND_DATA, FILE_SHARE_READ | FILE_SHARE_WRITE, nullptr, OPEN_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (f != INVALID_HANDLE_VALUE) {
@@ -1137,7 +1149,28 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
     if (preview_) return true;  // nothing is pressed in a preview (the script gets false)
     size_t count = 0;
     while (count < kMaxComboKeys && combo->keys[count]) ++count;
-    if (SendKeysDryRun(n, combo->keys, count)) {
+    // Round 16 phase 16A: 'start-near' first moves the Start menu's host window beside the widget's
+    // box (the box and side WidgetEditorPlace gives the text editor: the dock's popup side of the
+    // slot, a standalone widget's window), then presses the key, so the menu opens in place.
+    StartMenuPlacer* placer = nullptr;
+    std::wstring extra;
+    if (n == L"start-near") {
+        placer = client_.WidgetStartPlacer();
+        const Client::EditorPlace place = client_.WidgetEditorPlace(*this);
+        if (placer && place.owner) {
+            const HMONITOR monitor = MonitorFromRect(&place.box, MONITOR_DEFAULTTONEAREST);
+            const bool dry = SendKeysDryRunOn();
+            placer->Place(place.box, place.side, monitor, dry);
+            if (dry) {
+                const LPARAM s = placer->LastShift();
+                extra = std::to_wstring(static_cast<int16_t>(LOWORD(s))) + L" " + std::to_wstring(static_cast<int16_t>(HIWORD(s)));
+            }
+        } else {
+            placer = nullptr;
+        }
+    }
+    if (SendKeysDryRun(n, combo->keys, count, extra)) {
+        if (placer) placer->Restore();  // nothing opens: nothing may stay shifted (Place moved nothing)
         Log(ScriptLogLevel::Info, L"shell.sendKeys " + n + L" (dry run: WINDOCK_SENDKEYS_LOG)");
         return true;
     }
@@ -1155,6 +1188,7 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
     const UINT total = static_cast<UINT>(2 * count);
     if (SendInput(total, in, sizeof(INPUT)) != total) {
         error = L"shell.sendKeys: Windows blocked the input (" + std::to_wstring(GetLastError()) + L")";
+        if (placer) placer->Restore();  // 16A: the menu does not open; the script opens All apps instead
         return false;
     }
     Log(ScriptLogLevel::Info, L"shell.sendKeys " + n);

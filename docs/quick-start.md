@@ -56,7 +56,7 @@ Move the mouse along the dock and the icons grow under the pointer. The app's na
 
 ## The taskbar
 
-While WinDock runs, it hides the Windows taskbar. The Start menu still opens with the Windows key, and shortcuts such as Win+S (search) and Win+N (notifications) still work.
+While WinDock runs, it hides the Windows taskbar. The Start menu still opens with the Windows key (a Start widget on the dock opens it next to the button), and shortcuts such as Win+S (search) and Win+N (notifications) still work.
 
 WinDock always gives the taskbar back when it quits. If it ever stays hidden, see [The taskbar is missing](troubleshooting.md#the-taskbar-is-missing).
 

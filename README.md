@@ -1236,7 +1236,11 @@ write and edit without compiling anything. The full reference (every call, every
   scrolls while hovered, always or never, at a speed you set; middle-click for a popup; the wheel
   changes the volume with the same volume bar (a setting)), **Start**
   (`start`: the Windows logo, the Windows 7 orb (round 11: a glossy sphere with the waving flag,
-  lighter and glowing under the pointer, darker while pressed) or your icon, opens Start), **Show
+  lighter and glowing under the pointer, darker while pressed) or your icon, opens Start; round 16:
+  **Menu position** (`menuPosition`, Content) `"near"`, the default, opens the menu next to the
+  button (above it on a bottom dock, beside it on a side dock, clamped to the monitor: the dock moves
+  the Start menu's window there for that click and puts it back when the menu closes, so the Windows
+  key still opens it at its usual place), `"windows"` where Windows puts it), **Show
   desktop** (`show-desktop`, round 11: the Windows 7 sliver at the end of the bar, a narrow
   translucent strip (6 - 24 DIPs; on a full-width dock as thick as the bar and, as the last item,
   flush with the screen's end: `measure()`'s `flush`, round 11 phase 11C) or a desktop glyph; a click shows the desktop (Win+D) or
@@ -3693,7 +3697,13 @@ always there, also when every dock is parked) handle these registered messages:
   **330** = dock `HIWORD(lParam)`'s thumbnail tiles as laid out, px: `MAKELONG(length along the dock,
   thickness across it)` (`thumbnailSize` / `thumbnailAcross` scaled; 0 while no tile is in the layout;
   -2 not a dock; `tools\smoke\tile-size.ps1` uses it). QueryState 62 (a slot's box across) is a
-  tile's thickness for a tile. The labels of the change Undo / Redo would
+  tile's thickness for a tile. Round 16 phase 16A (app-wide, the dock in `HIWORD` is ignored):
+  **331** = the Start menu placer: 0 no Start host window found (the `Windows.UI.Core.CoreWindow`
+  titled "Start" of `StartMenuExperienceHost.exe`; `start-near` is then plain `win`), 1 found and at
+  its natural place, 2 shifted (the menu is open beside a Start widget; the watch runs); **332** =
+  the last shift the placer computed for `shell.sendKeys('start-near')`, a dry run too:
+  `MAKELONG((int16)dx, (int16)dy)` in px (0 before any). With `WINDOCK_SENDKEYS_LOG` set the log line
+  is `start-near<TAB>5B<TAB><dx> <dy>` and the host is not moved (`tools\smoke\start-near.ps1`). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its

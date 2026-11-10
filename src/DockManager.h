@@ -196,6 +196,9 @@ public:
     std::vector<RECT> FloatingRects(const void* self) const;
     bool DashboardOn() const override { return dashboard_; }
     void EndDashboard() override { SetDashboard(false); }
+    // Round 16 phase 16A: App's Start menu placer, handed to the widgets (WidgetStartPlacer).
+    StartMenuPlacer* StartPlacer() override { return startPlacer_; }
+    void SetStartPlacer(StartMenuPlacer* placer) { startPlacer_ = placer; }
 
     // --- the dashboard (round 6 phase 6A) ---
     // On: every dock and standalone widget (6B) with layer "desktop" or "behind" is shown, revealed
@@ -270,6 +273,7 @@ private:
     HINSTANCE instance_ = nullptr;
     Config* config_ = nullptr;
     HWND owner_ = nullptr;
+    StartMenuPlacer* startPlacer_ = nullptr;  // round 16 phase 16A: App's (outlives the docks)
     Callbacks callbacks_;
     // Before the windows: their script widgets unregister from it when they go.
     WidgetRuntime widgets_;

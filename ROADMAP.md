@@ -1395,6 +1395,74 @@ long along the bar and exactly an icon across it, and both the drawing and the c
   block), collapsed with the other thumbnail rows. **Automation**: QueryState 330. Script:
   `tools\smoke\tile-size.ps1`.
 
+## Round 16 (in progress 2026-11-09): the Start menu opens beside the Start button
+
+Plan: `C:\Users\olson\.claude\plans\windock-round16.md`. From the user's request of 2026-11-09:
+"make it so the start menu appears near wherever the user actually clicked the start button
+widget". Round 13's way of working: one ordinary agent for the phase, a smoke script, a manual
+check list; 16B only if the manual pass finds something.
+
+### What was measured (Windows 11 Pro 26300, the user's 5120 x 1440 display at 96 DPI)
+
+- The Start widget opened Start with `shell.sendKeys('win')`, so Windows decided where the menu
+  lands: where the hidden taskbar's Start button would be (`StuckRects3`'s edge, `TaskbarAl`'s
+  alignment: centred by default).
+- The menu lives in **one full-screen host window**: class `Windows.UI.Core.CoreWindow`, title
+  `Start`, process `StartMenuExperienceHost.exe`, rect `0,0 - 5120,1392` (the screen less the
+  hidden taskbar's band). It always exists; closed it is cloaked (`DWMWA_CLOAKED` = 2) with
+  `IsWindowVisible` true. The panel is XAML content anchored to the host's bottom edge, centred.
+- `SetWindowPos` of the host from another process moves the menu with it (search box included), no
+  snap-back. The shift **persists while closed**: the next Windows key opens the menu shifted too.
+  That is the mechanism (shift the host before the key: no visible jump) and the hazard (always
+  move it back).
+- UI Automation (16A's probe): `ElementFromHandle(host)` works while cloaked and the tree is whole,
+  but every `BoundingRectangle` is empty until the menu is open. There is no single panel element:
+  the host's raw-view children are the parts (`SearchBoxToggleButton`, `ShowHideCompanion`,
+  `TopLevelRoot` (SemanticZoom), `UserControl` (the account / power row), the Phone Link pane's
+  `NamedContainerAutomationPeer`, `ActionBarOverflowButton`, `CloseStartAccessibleButton` (always
+  empty)); open, their union (2003,531 - 3117,1367 here) is the panel's content, centred on the
+  host, 25 px above its bottom.
+- `EnumWindows` does not list the shell's CoreWindows (Windows 8+: desktop apps' windows only);
+  `FindWindowEx` does (the smoke module's `Get-StartHostWindow` had to use it).
+
+### 16A: `StartMenuPlacer`, the Start widget's Menu position, `sendKeys('start-near')`
+
+- **`StartMenuPlacer`** (`src\StartMenuPlacer.h/.cpp`, owned by `App`, UI thread): `Host()`
+  (FindWindowEx by class and title, the owner process image checked, cached with an `IsWindow`
+  check), `IsOpen()` (not cloaked), `PanelRect()` (the panel at the host's natural place: the
+  rect last read from UI Automation, kept as an offset inside the host; before any read, the
+  anchor model's guess, 1138 x 860 DIPs, bottom 13 DIPs above the host's bottom, centred: the
+  measured content plus an estimated 12 DIP frame), `Place(box, side, monitor, dryRun)` (the panel
+  beside the box like a dock popup, 8 px away, centred on it, clamped into the monitor with an 8 px
+  margin; nothing when the menu is open already (the key will close it), a zero shift, or a
+  button on a monitor of another DPI than the host's (the full-screen host would cross a DPI
+  boundary; not measured, so Windows' place)), `Restore()`, `EmergencyRestore()` (static values,
+  one `SetWindowPos`, from `CrashRestoreTaskbar`).
+- Because the cloaked tree has no rectangles, the panel is read **while the menu is open beside a
+  button**, by the watch, 500 ms after it was seen open (the animation over), once per open; the
+  next click uses it. The first click after a start uses the guess.
+- **The watch**: a 250 ms one-shot timer on the app window (id 45) only while the host is shifted.
+  The host gone or cloaked again after it was seen open (closed by Escape, a click elsewhere, the
+  key) restores it; never seen open within 3 s restores it too. No hook. Every other path that
+  could leave it shifted restores it: `App::Shutdown`, `WM_QUERYENDSESSION`, a refused `SendInput`,
+  the dry run, the crash filter.
+- **Script API**: allow-list name `start-near` = the Windows key after `Place` with the box and
+  side `Client::WidgetEditorPlace` already gives the text editor (dock slot or standalone window)
+  and that box's monitor; the placer reaches the widget through `Client::WidgetStartPlacer()`
+  (DockWindow's and WidgetWindow's clients, via `DockShared::StartPlacer()`; null in previews,
+  then the key is plain `win`). Dry run (`WINDOCK_SENDKEYS_LOG`): the line gets `\t<dx> <dy>` and
+  nothing moves.
+- **The Start widget** 1.2.0: `menuPosition` (Content, "Start menu", common) `near` (default) /
+  `windows`.
+- **Automation**: QueryState 331 (0 no host, 1 at its natural place, 2 shifted), 332 (the last
+  shift, `MAKELONG(dx, dy)`). Script `tools\smoke\start-near.ps1`; the module's `Start-WinDock`
+  gained `-Environment`.
+- **Hazards left**: the mechanism is undocumented; a future Start that re-lays itself out or
+  snaps the host back would show the menu at Windows' place (harmless); a crash that the filter
+  does not catch (a kill) leaves the host shifted until Explorer / Start restarts or the next
+  dock run's first Start click (whose `Place` starts from the host's current rect: it would not
+  know the natural place; not handled).
+
 ## Dependencies at a glance
 
 ```

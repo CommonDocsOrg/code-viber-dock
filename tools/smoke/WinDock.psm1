@@ -233,8 +233,10 @@ function Start-WinDock {
       Starts the dock. -Config: a path to a JSON file or a hashtable; it is written as the config
       (backup first!) with "startWithWindows": true and "reserveSpace": false on every docks[] entry.
       Without -Config the existing config is used (restarting the user's dock).
+      -Environment (round 16 phase 16A): variables the dock process gets (e.g. WINDOCK_SENDKEYS_LOG);
+      set in this process around Start-Process only (the child inherits them), then put back.
     #>
-    param([Parameter(Mandatory)][string]$Exe, $Config, [int]$TimeoutMs = 10000)
+    param([Parameter(Mandatory)][string]$Exe, $Config, [int]$TimeoutMs = 10000, [hashtable]$Environment)
     $exePath = (Resolve-Path $Exe).Path
     if (Get-WinDockProcess) { throw 'a WinDock process is already running (Stop-WinDock first)' }
     if ($null -ne $Config) {
@@ -244,7 +246,18 @@ function Start-WinDock {
         $json = $obj | ConvertTo-Json -Depth 20
         [IO.File]::WriteAllText($script:ConfigPath, $json, [Text.UTF8Encoding]::new($false))
     }
-    $p = Start-Process -FilePath $exePath -WorkingDirectory (Split-Path $exePath) -PassThru
+    $saved = @{}
+    if ($Environment) {
+        foreach ($k in $Environment.Keys) {
+            $saved[$k] = [Environment]::GetEnvironmentVariable($k)
+            [Environment]::SetEnvironmentVariable($k, [string]$Environment[$k])
+        }
+    }
+    try {
+        $p = Start-Process -FilePath $exePath -WorkingDirectory (Split-Path $exePath) -PassThru
+    } finally {
+        foreach ($k in $saved.Keys) { [Environment]::SetEnvironmentVariable($k, $saved[$k]) }
+    }
     $ok = Wait-Until -TimeoutMs $TimeoutMs { $w = Find-WinDockWindows; $w.App -and $w.Docks.Count -gt 0 }
     if (-not $ok) { throw "WinDock did not come up ($exePath)" }
     Start-Sleep -Milliseconds 1000  # the UI thread is busy ~0.8 s after a start (icons)
@@ -337,6 +350,34 @@ function Get-WindowRect {
     $r = New-Object WinDockSmoke.Native+RECT
     [void]$script:N::GetWindowRect($Hwnd, [ref]$r)
     [pscustomobject]@{ Left = $r.Left; Top = $r.Top; Right = $r.Right; Bottom = $r.Bottom }
+}
+
+function Get-StartHostWindow {
+    <#
+      Round 16 phase 16A: the Start menu's host window (class Windows.UI.Core.CoreWindow, title
+      "Start", process StartMenuExperienceHost), as StartMenuPlacer::Host finds it; IntPtr.Zero if none.
+      Check its rect (Get-WindowRect) before and after a test that may shift it.
+    #>
+    # FindWindowEx, not EnumWindows: since Windows 8 EnumWindows skips the shell's immersive windows
+    # (measured: ByClass found no CoreWindow at all). Its own type, so a session that loaded the
+    # module's Native type before this function existed still works.
+    if (-not ('WinDockSmoke.Find' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace WinDockSmoke {
+public static class Find {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr FindWindowExW(IntPtr parent, IntPtr after, string cls, string title);
+}
+}
+'@
+    }
+    $h = [IntPtr]::Zero
+    while (($h = [WinDockSmoke.Find]::FindWindowExW([IntPtr]::Zero, $h, 'Windows.UI.Core.CoreWindow', 'Start')) -ne [IntPtr]::Zero) {
+        $p = Get-Process -Id ($script:N::PidOf($h)) -ErrorAction SilentlyContinue
+        if ($p -and $p.ProcessName -eq 'StartMenuExperienceHost') { return $h }
+    }
+    [IntPtr]::Zero
 }
 
 function Save-WindowImage {

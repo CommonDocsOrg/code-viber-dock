@@ -22,6 +22,7 @@
 #include "QuickSetup.h"   // round 12 phase 12G
 #include "SettingsSearch.h"
 #include "SettingsWindow.h"
+#include "StartMenuPlacer.h"  // round 16 phase 16A
 #include "TaskbarController.h"
 #include "WidgetConsole.h"
 
@@ -111,6 +112,7 @@ private:
     // Round 12 phase 12A: the Keep / Revert bar's countdown (1 s steps, only while the bar shows;
     // 40 - 43 are CalendarService's / DockManager's on the same window).
     static constexpr UINT_PTR kKeepTimerId = 44;
+    // (45 = StartMenuPlacer::kWatchTimerId, round 16 phase 16A, on this window too.)
     static constexpr int kKeepSeconds = 12;
     static constexpr size_t kTimelineMax = 50;
 
@@ -447,6 +449,8 @@ private:
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;  // the app window (WinDock.App)
     Config config_;
+    // Round 16 phase 16A: before docks_ (their widgets hold a pointer to it, so it outlives them).
+    StartMenuPlacer startPlacer_;
     DockManager docks_;
     TaskbarController taskbar_;
 

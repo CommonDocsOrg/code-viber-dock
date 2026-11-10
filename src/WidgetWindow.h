@@ -167,6 +167,7 @@ private:
     bool WidgetOpenCentre(WidgetInstance& widget) override;
     EditorPlace WidgetEditorPlace(const WidgetInstance& widget) const override;
     void WidgetEditorChanged(WidgetInstance&, bool) override {}
+    StartMenuPlacer* WidgetStartPlacer() override;  // round 16 phase 16A
     void OnPopupRequest();
 
     // --- placement ---

@@ -120,6 +120,7 @@ add_executable(WinDock WIN32
   src/QuickSetup.cpp
   src/AppQuickSetup.cpp
   src/CoachMarks.cpp
+  src/StartMenuPlacer.cpp
   res/app.rc
   res/app.manifest
 )

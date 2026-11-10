@@ -350,7 +350,7 @@ WinDock comes with these widgets:
 - **System monitor**: one measurement, such as processor, memory, graphics, disk, network or battery, as a graph, a bar, a dial or a number.
 - **System overview**: processor, memory, graphics, disk and network at once.
 - **Battery**: the battery level, whether it charges and the time left.
-- **Start** and **Search**: open the Start menu and Windows Search. Start shows the Windows logo, your own icon or the **Windows 7 orb**, a glossy sphere with the four-colour flag that lights up under the pointer and darkens while pressed. Its icon size 0 is automatic: the orb then fills the slot.
+- **Start** and **Search**: open the Start menu and Windows Search. Start shows the Windows logo, your own icon or the **Windows 7 orb**, a glossy sphere with the four-colour flag that lights up under the pointer and darkens while pressed. Its icon size 0 is automatic: the orb then fills the slot. The Start menu opens next to the button you clicked: above it on a bottom dock, beside it on a side dock. Its **Menu position** setting (Content) can put it back where Windows puts it; the Windows key always opens it at its usual place.
 - **Show desktop**: the narrow strip at the end of the Windows 7 taskbar. On a full-width dock it is as tall as the bar and, as the last item, sits right against the screen's end. A click shows the desktop (Win+D; a second click brings the windows back) or, if you choose, minimizes every window (Win+M). Its style can also be a small desktop glyph, for other themes. Hovering it does not make the windows transparent (Aero Peek is not available).
 - **Notification bell**: a bell like the notification centre, with more choices.
 - **Hello**: a tiny example widget.

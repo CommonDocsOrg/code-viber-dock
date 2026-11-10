@@ -381,6 +381,7 @@ shortcuts (Ctrl+C, Alt+F4) into the app that has the focus. Round 11 phase 11B a
 | Name | Keys | Opens |
 |---|---|---|
 | `win` | Windows | Start |
+| `start-near` | Windows | Start, after moving the Start menu's window beside the widget (the Start widget's Menu position; round 16 phase 16A): above the widget's slot on a bottom dock, beside it on a side dock, above a standalone widget, clamped to the monitor; the window goes back when the menu closes. Where the menu's window is not found it is `win` |
 | `win+a` | Windows + A | Quick settings |
 | `win+b` | Windows + B | The notification area (keyboard focus) |
 | `win+d` | Windows + D | Show / hide the desktop |
@@ -1150,7 +1151,7 @@ built-ins are worked examples too:
   scroll wakes the dock less often; none with reduce motion. The 1.0 `marquee` bool is no longer read
   (`marqueeMode` is authoritative; an old `"marquee": false` scrolls on hover again: pick "Never").
   Permissions `media`, `audio`.
-- `widgets/start`: `shell.sendKeys('win')`, falling back to `shell.open('shell:AppsFolder')` when
+- `widgets/start`: `shell.sendKeys('start-near')` (or `'win'`, below), falling back to `shell.open('shell:AppsFolder')` when
   Windows refuses the input; `icon` `windows` / `mono` / `image` with `image` (a package file, or
   any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot). Round
   11 phase 11B (1.1.0): `icon` **`orb`**, the Windows 7 Start orb drawn with canvas calls only: a
@@ -1161,7 +1162,9 @@ built-ins are worked examples too:
   (`onPress`, until `onClick` or the pointer leaving, with one 2 s `setTimeout` as a backstop for a
   press that turns into a drag) they are 20 % darker. `size` 0 (the new default) is automatic: 62 %
   for the logos and images (the old default), 100 % for the orb (it fills 92 % of the slot's
-  shorter side). Nothing runs at rest.
+  shorter side). Nothing runs at rest. Round 16 phase 16A (1.2.0): `menuPosition` (Content, "Start
+  menu"): `near` (the default) sends `shell.sendKeys('start-near')`, so the menu opens beside the
+  button; `windows` sends `'win'` (Windows' own place).
 - `widgets/show-desktop` ("Show desktop", round 11 phase 11B): the Windows 7 taskbar's sliver. A
   click sends `win+d` (`click` `desktop`, the default: show the desktop, a second click brings the
   windows back) or `win+m` (`minimize`). `style` `strip` (default): `measure()` returns `width`

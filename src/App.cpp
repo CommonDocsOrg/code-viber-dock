@@ -226,6 +226,8 @@ bool App::Initialize(HINSTANCE instance) {
         });
         if (anyPanel) panelAnchorPending_ = PostMessageW(hwnd_, kPanelAnchorMoved, 0, 0) != FALSE;
     };
+    startPlacer_.Initialize(hwnd_);  // round 16 phase 16A: its watch's timer is on the app window
+    docks_.SetStartPlacer(&startPlacer_);
     docks_.Initialize(instance, &config_, hwnd_, std::move(callbacks));
     // Round 6 phase 6E: reloaded widget packages render their previews again.
     docks_.Widgets().SetPackagesChanged([this] { InvalidatePreviews(); });
@@ -1549,6 +1551,9 @@ void App::Shutdown() {
     geocodeDone_ = nullptr;
     geocodeOwner_ = nullptr;
     RemoveHotkey();
+    // Round 16 phase 16A: a Start menu open beside a button: its host back at its natural place
+    // (the next Windows key would open it shifted otherwise); the UI Automation client released.
+    startPlacer_.Shutdown();
     shutDown_ = true;
     // Round 12 phase 12A: a preview still open is cancelled by not saving it (RequestSave held it;
     // the file has the state before it); an open Keep / Revert keeps its change.
@@ -4010,6 +4015,10 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return inst->window->QueryState(wp, arg);
         case 329:  // round 14 phase 14B: settings.snapToScreen (0 / 1; app-wide)
             return config_.settings.snapToScreen ? 1 : 0;
+        case 331:  // round 16 phase 16A: the Start menu placer: 0 no host window, 1 at its natural place, 2 shifted
+            return startPlacer_.State();
+        case 332:  // round 16 phase 16A: the last shift Place computed (a dry run too): MAKELONG(dx, dy), 0 before any
+            return startPlacer_.LastShift();
         default:
             break;
     }
@@ -4750,6 +4759,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
             docks_.SetDashboard(!docks_.Dashboard());
             return 0;
         case WM_TIMER:
+            if (startPlacer_.OnTimer(wp)) return 0;  // round 16 phase 16A: the Start menu watch
             if (wp == kKeepTimerId) {
                 // Round 12 phase 12A: the Keep / Revert bar counts down; left alone, the change is kept.
                 if (--keepSeconds_ <= 0) CloseKeepRevert();
@@ -4762,6 +4772,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
             SaveNow();  // round 12 phase 12A: its result is the save state (Saved / Couldn't save)
             return 0;
         case WM_QUERYENDSESSION:
+            startPlacer_.Restore();  // round 16 phase 16A
             FlushSave();
             // Restore while Explorer is certainly still alive to persist the appbar state; if
             // the logoff is cancelled, WM_ENDSESSION(FALSE) hides the taskbar again.

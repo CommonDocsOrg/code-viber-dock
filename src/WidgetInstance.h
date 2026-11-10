@@ -21,6 +21,7 @@
 #include "WidgetPackage.h"
 
 class WidgetRuntime;
+class StartMenuPlacer;
 class WeatherService;
 class TextEditorWindow;
 
@@ -67,6 +68,9 @@ public:
         virtual EditorPlace WidgetEditorPlace(const WidgetInstance& widget) const = 0;
         // The widget's editor opened / closed (the dock holds itself shown while it is open).
         virtual void WidgetEditorChanged(WidgetInstance& widget, bool open) = 0;
+        // Round 16 phase 16A: the Start menu's placer for shell.sendKeys('start-near') (App's one
+        // instance through DockShared). Null: none (previews), the key is sent as 'win'.
+        virtual StartMenuPlacer* WidgetStartPlacer() { return nullptr; }
 
     protected:
         ~Client() = default;

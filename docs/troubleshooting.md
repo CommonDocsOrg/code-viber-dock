@@ -4,7 +4,7 @@ This page helps when something does not work as expected. Each section names a p
 
 ## The taskbar is missing
 
-WinDock hides the Windows taskbar while it runs, and gives it back when it quits. The Start menu still opens with the Windows key.
+WinDock hides the Windows taskbar while it runs, and gives it back when it quits. The Start menu still opens with the Windows key, and a Start widget on the dock opens it next to the button.
 
 To see the taskbar while WinDock keeps running:
 

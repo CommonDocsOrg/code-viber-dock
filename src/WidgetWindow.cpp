@@ -340,6 +340,10 @@ WidgetInstance::Client::EditorPlace WidgetWindow::WidgetEditorPlace(const Widget
     return p;
 }
 
+// Round 16 phase 16A: shell.sendKeys('start-near') opens the Start menu above the window (clamped
+// into its monitor) through App's placer.
+StartMenuPlacer* WidgetWindow::WidgetStartPlacer() { return host_.shared ? host_.shared->StartPlacer() : nullptr; }
+
 // --- placement -----------------------------------------------------------------------------------
 
 RECT WidgetWindow::WorkArea() const {
