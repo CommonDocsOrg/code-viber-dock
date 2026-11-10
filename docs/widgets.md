@@ -36,7 +36,7 @@ thread. This file is the full reference; README.md has the short version.
 
 Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
 `start`, `search`, `notification-bell`, `agenda`, `weather`, `notes`, `system-monitor`,
-`system-overview`, `battery`) are compiled into the
+`system-overview`, `battery`, `show-desktop`, `stocks`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Widgets are always loaded as source; bytecode is never loaded.
@@ -1165,6 +1165,31 @@ built-ins are worked examples too:
   shorter side). Nothing runs at rest. Round 16 phase 16A (1.2.0): `menuPosition` (Content, "Start
   menu"): `near` (the default) sends `shell.sendKeys('start-near')`, so the menu opens beside the
   button; `windows` sends `'win'` (Windows' own place).
+- `widgets/stocks` ("Stocks", round 16 phase 16C): quotes from Finnhub's REST API
+  (`https://finnhub.io/api/v1/quote`, permission `{ "http": ["finnhub.io"] }`; the key goes in the
+  `X-Finnhub-Token` header, never in the URL). `provider` (`finnhub`, the only one so far: the
+  script's `PROVIDERS` table maps a source to its URL, headers, answer parser and error texts, so a
+  second API is one more entry and one more choice), `apiKey` (empty: nothing is fetched, the slot
+  reads "Stocks: no API key" and the popup says where to get one), `symbols` (comma-separated, as
+  Finnhub spells them, up to 20, upper-cased), `view` `single` (one symbol: the wheel steps through
+  them, `cycleSeconds` > 0 shows the next one on an interval that stops while the dock is hidden) or
+  `all` (every symbol: `layout` `auto` / `row` / `list`: cells side by side on a top / bottom dock,
+  stacked cells on a left / right dock, a table with a line per symbol standalone or as an explicit
+  list on a top / bottom dock), `refreshMinutes` (`timer.setRefresh`; `tick()` fetches every symbol,
+  4 requests at a time, and stops the round on a refused key or a 429), `clickOpens` `popup` /
+  `refresh` / `none` (a middle click always fetches), `rowLink` (the page a popup row opens: Yahoo
+  Finance, Google Finance, Finnhub, none; permission `shell`); `change` `percent` / `amount` / `both` /
+  `none`, `showSymbol`, `arrows` (▲ ▼), `sparkline` (the prices this widget fetched over the last
+  day, up to 200 points, drawn beside the price), `upColor` / `downColor`, `textColor`, `background`.
+  Storage, shared by every Stocks item: `quote:<SYMBOL>` (the last quote: `price`, `change`, `pct`,
+  `high`, `low`, `open`, `prev`, `t`, `at`) and `hist:<SYMBOL>` (the sparkline's points);
+  `storage.onChange` picks up another item's fetch. A quote older than two refreshes, or from the
+  store before this run fetched it, is drawn at 60 %. The popup (340 wide, 44 per symbol): each
+  symbol with its last trade time, the price, the amount and percent change, O / H / L / PC, the
+  error if any, "Updated N min ago" (one timeout a minute while open), a refresh button and the
+  Finnhub credit. Previews (`dock.preview`) draw sample quotes (AAPL, MSFT, NVDA) and a sample
+  sparkline. Test hook: with the item setting `debugStore` the slot and the popup write what they
+  show to `slot` / `popup`. Standalone 240 x 140 by default, the layout scaled to the window.
 - `widgets/show-desktop` ("Show desktop", round 11 phase 11B): the Windows 7 taskbar's sliver. A
   click sends `win+d` (`click` `desktop`, the default: show the desktop, a second click brings the
   windows back) or `win+m` (`minimize`). `style` `strip` (default): `measure()` returns `width`
@@ -1206,8 +1231,26 @@ built-ins are worked examples too:
   left / right dock rows under the current conditions instead (the weekday's initial, a 14 DIP
   glyph, "high/low"). `measure()` grows the slot by the columns (rows); standalone the whole
   layout scales to the window (`fitLayout`). The manifest's `preview.settings` show three days.
-  Test hook: `"debugStore": true` stores what the slot (with its `days` count) and the popup drew.
-  Permissions `weather`, `shell`.
+  Round 16 phase 16D (1.2.0): the slot is two blocks, the current conditions and the day cells,
+  and **`layout`** picks a preset: `auto` (the above), `strip` (icon beside the temperature, a
+  column per day after it), `tiles` (a tile per day: the weekday over the icon on the left, the
+  high over the low on the right, after the conditions on a top / bottom dock and stacked under
+  them on a left / right dock), `list` (icon over the temperature, a line per day under them),
+  `card` (icon over the temperature, tiles under them: a desktop widget) or `custom`, which shows
+  `conditions` (`auto` / `beside` / `stacked`), `dayCell` (`auto` / `column` / `tile` / `row` /
+  `icon`: the icon and "high/low" only) and `forecastPlacement` (`auto` / `beside` / `below`);
+  `dockDays` goes to 7. Text: `showCondition` (the description under the temperature), `dayNames`
+  (`auto`: short in columns and tiles, the initial in lines; `short`, `initial`, `full`),
+  `todayLabel` ("Today" for the first cell, not with initials), `rangeStyle` (a high / low pair on
+  one line: `auto` is arrows under the temperature and a slash in a cell; `arrows`, `slash`,
+  `plain`). Icons: `iconPack` `windock` (`weather.icon`) or `lucide` (Lucide's line icons, ISC,
+  https://lucide.dev: their SVG path data in `main.js`, parsed once into `canvas.path` objects by a
+  small M / L / H / V / C / A / Z parser with the endpoint-to-centre arc conversion of the SVG
+  spec, stroked 2 / 24 of the box wide with round caps; the popup uses the same pack),
+  `iconStyle` `colour` (sun yellow, rain in the accent) or `mono` (the ink; the WinDock pack keeps
+  its sun), `size` 60 - 200 % (docks only; standalone fills the window as before). Test hook:
+  `"debugStore": true` stores what the slot (with its `days` count, `conditions`, `cell`,
+  `placement`, `stack`, `pack`) and the popup drew. Permissions `weather`, `shell`.
 - `widgets/notes` ("Notes", round 6): a note per item, written in the dock's text editor
   (`popup.editText`). Its text is kept in the widget's storage under `"note:" + dock.itemKey`, or
   under `"note:id:" + noteId` when the **Note id** setting is set (items with the same id, on any

@@ -75,11 +75,29 @@ public:
         vertical_ = ctx.axis == DockAxis::Vertical;
         scale_ = ctx.scale;
         const DockItemEntry& e = Entry();
-        const int rows = std::clamp(e.rows, 1, 2);
+        const int rows = std::clamp(e.rows, 1, 20);
         const int columns = std::clamp(e.columns, 1, 20);
-        // The cells fit the icon row: two rows of large icons shrink to half an icon each.
-        float cell = std::round((static_cast<float>(e.trayIconSize) + 2.0f * kCellPadDip) * ctx.scale);
-        if (ctx.iconPx > 0.0f) cell = std::min(cell, std::floor(ctx.iconPx / static_cast<float>(rows)));
+        // Round 16 phase 16B: rows / columns as seen on screen, on every edge (rows stacked top to
+        // bottom, columns left to right). On a bottom / top dock the rows run across the bar; on a
+        // left / right dock the columns do. (Before, `rows` was always across and `columns` along,
+        // so a vertical dock's grid looked transposed.)
+        size_t along = static_cast<size_t>(vertical_ ? rows : columns);
+        size_t across = static_cast<size_t>(vertical_ ? columns : rows);
+        const float cellFull = std::round((static_cast<float>(e.trayIconSize) + 2.0f * kCellPadDip) * ctx.scale);
+        float cell = cellFull;
+        // The room across: the box's cross room at rest inside the bar (a thick bar, titles beside
+        // the icons: more than the icon row), else the icon row; unknown (0, 0): no limit. One or
+        // two across always fit (shrunk, below); more only when they fit at full size, so a thin
+        // bar never turns twenty rows into slivers.
+        const float room = ctx.rowRoom > 0.0f ? ctx.rowRoom : ctx.iconPx;
+        if (room > 0.0f) {
+            if (cellFull > 0.0f) {
+                const size_t fit = static_cast<size_t>(std::max(0.0f, std::floor(room / cellFull)));
+                across = std::min(across, std::max<size_t>(2, fit));
+            }
+            // The cells fit the room: two rows of large icons shrink to half an icon each.
+            cell = std::min(cellFull, std::floor(room / static_cast<float>(across)));
+        }
         cell_ = std::max(cell, 8.0f);
         iconPx_ = std::max(4.0f, std::min(std::round(static_cast<float>(e.trayIconSize) * ctx.scale), cell_ - 2.0f));
 
@@ -89,16 +107,16 @@ public:
             all_ = TrayIconsFor(*tray, host_.DockCfg(), e, false).size();
             for (const TrayIcon* t : TrayIconsFor(*tray, host_.DockCfg(), e, true)) shown_.push_back(t->id);
         }
-        const size_t capacity = static_cast<size_t>(rows * columns);
+        const size_t capacity = along * across;  // (16B: across may be fewer than asked, above)
         // The overflow button: more icons than cells, or icons the grid leaves out (hidden).
         overflow_ = shown_.size() > capacity || all_ > shown_.size();
         if (overflow_ && shown_.size() >= capacity) shown_.resize(capacity - 1);
         cells_ = shown_.size() + (overflow_ ? 1 : 0);
         const size_t n = std::max<size_t>(cells_, 1);
-        used_ = std::min<size_t>(static_cast<size_t>(columns), (n + rows - 1) / rows);
-        const size_t usedRows = (n + used_ - 1) / used_;
+        used_ = std::min<size_t>(along, (n + across - 1) / across);
+        const size_t usedAcross = (n + used_ - 1) / used_;
         const float main = static_cast<float>(used_) * cell_;
-        const float cross = static_cast<float>(usedRows) * cell_;
+        const float cross = static_cast<float>(usedAcross) * cell_;
         size_ = vertical_ ? D2D1::SizeU(static_cast<UINT32>(cross), static_cast<UINT32>(main))
                           : D2D1::SizeU(static_cast<UINT32>(main), static_cast<UINT32>(cross));
         return {main, cross};

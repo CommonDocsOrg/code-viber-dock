@@ -943,7 +943,11 @@ void DockWindow::ComputeLayoutAt(int iconDip) {
     // Round 11 phase 11C: a full-width bar tells flush widgets its thickness (l.barCross).
     // Round 14 phase 14A: with docks[].thickness's extra (the widget is centred across the thicker bar).
     l.barCross = l.fullWidth ? iconBarH - l.titleBand + l.thickExtra : 0.0f;  // round 12 phase 12C: the icon row's, not the title band's
-    const LayoutContext ctx{l.vertical ? DockAxis::Vertical : DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite(), l.barCross};
+    // Round 16 phase 16B: the cross room a widget box has at rest (the tray grid fits more cells
+    // across a thick bar): the icon row, the captions band and the thickness's extra.
+    l.rowRoom = l.rowCross + l.captionBand + l.thickExtra;
+    const LayoutContext ctx{l.vertical ? DockAxis::Vertical : DockAxis::Horizontal, s, l.iconPx, renderer_.DWrite(), l.barCross,
+                            l.rowRoom};
     Run first = Run::None, prev = Run::None;
     const DockItem* firstItem = nullptr;  // round 13 phase 13D: the first / last real slot
     const DockItem* prevItem = nullptr;
@@ -6648,7 +6652,7 @@ void DockWindow::OpenTarget(const std::wstring& target) {
 
 LayoutContext DockWindow::Context() const {
     return LayoutContext{layout_.vertical ? DockAxis::Vertical : DockAxis::Horizontal, layout_.scale, layout_.iconPx,
-                         renderer_.DWrite(), layout_.barCross};
+                         renderer_.DWrite(), layout_.barCross, layout_.rowRoom};
 }
 
 void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {

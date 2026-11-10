@@ -1,8 +1,8 @@
 {
   "name": "Weather (script)",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "WinDock",
-  "description": "Current conditions and a forecast popup from Open-Meteo, with optional daily forecasts on the dock. Choose a place for each widget or use the app's default place.",
+  "description": "Current conditions and a forecast popup from Open-Meteo, with optional daily forecasts on the dock in several layouts and two icon packs. Choose a place for each widget or use the app's default place.",
   "api": 1,
   "size": {
     "horizontal": { "main": 56, "cross": 26 },
@@ -22,20 +22,85 @@
       ] },
     { "key": "refreshMinutes", "section": "content", "type": "int", "label": "Refresh every", "description": "How often a new forecast is fetched. Default: 30.", "min": 5, "max": 360, "step": 5, "default": 30,
       "unit": "minutes", "group": "Place" },
-    { "key": "showPlace", "common": true, "section": "appearance", "type": "bool", "label": "Show the place under the temperature", "description": "Writes the place's name under the temperature. Off by default.", "default": false, "group": "Slot" },
-    { "key": "showHigh", "section": "appearance", "type": "bool", "label": "Show today's high", "description": "Adds today's highest temperature under the current one. Off by default.", "default": false, "group": "Slot" },
-    { "key": "showLow", "section": "appearance", "type": "bool", "label": "Show today's low", "description": "Adds today's lowest temperature under the current one. Off by default.", "default": false, "group": "Slot" },
-    { "key": "dockForecast", "common": true, "section": "appearance", "type": "choice", "label": "Forecast on the dock", "default": "none", "group": "Slot",
+    { "key": "dockForecast", "common": true, "quick": true, "section": "appearance", "type": "choice", "label": "Forecast on the dock", "default": "none", "group": "Forecast",
       "choices": [
         { "value": "none", "label": "None" },
         { "value": "today", "label": "Today's high and low (under the temperature)" },
-        { "value": "days", "label": "Several days (a column per day)" }
+        { "value": "days", "label": "Several days" }
       ],
-      "description": "Days: the weekday, the condition and the high over the low for each day after the current conditions (rows under them on a left or right dock); the slot grows." },
-    { "key": "dockDays", "section": "appearance", "type": "int", "label": "Days on the dock", "description": "How many days the forecast on the dock shows. Default: 3.", "min": 2, "max": 5, "step": 1, "default": 3,
-      "unit": "days", "group": "Slot", "visibleIf": { "dockForecast": "days" } },
-    { "key": "compact", "section": "appearance", "type": "bool", "label": "Compact (the glyph only)", "default": false, "group": "Slot",
-      "description": "The temperature is left out; the popup still shows everything." },
+      "description": "Several days: a cell per day after the current conditions, laid out by Layout below; the slot grows." },
+    { "key": "dockDays", "common": true, "section": "appearance", "type": "int", "label": "Days on the dock", "description": "How many days the forecast on the dock shows. Default: 3.", "min": 2, "max": 7, "step": 1, "default": 3,
+      "unit": "days", "group": "Forecast", "visibleIf": { "dockForecast": "days" } },
+    { "key": "layout", "common": true, "quick": true, "section": "appearance", "type": "choice", "label": "Layout", "default": "auto", "group": "Layout",
+      "description": "A preset for the current conditions and the day cells, or Custom for the fields below. Default: automatic.",
+      "choices": [
+        { "value": "auto", "label": "Automatic (by the dock's edge)" },
+        { "value": "strip", "label": "Strip: a column per day beside the conditions" },
+        { "value": "tiles", "label": "Tiles: day over icon, high and low beside them" },
+        { "value": "list", "label": "List: a line per day under the conditions" },
+        { "value": "card", "label": "Card: big conditions, tiles under them" },
+        { "value": "custom", "label": "Custom (the fields below)" }
+      ] },
+    { "key": "conditions", "section": "appearance", "type": "choice", "label": "Current conditions", "default": "auto", "group": "Layout", "visibleIf": { "layout": "custom" },
+      "description": "The icon beside the temperature, or above it. Automatic: beside on a top or bottom dock, above on a left or right dock.",
+      "choices": [
+        { "value": "auto", "label": "Automatic" },
+        { "value": "beside", "label": "Icon beside the temperature" },
+        { "value": "stacked", "label": "Icon above the temperature" }
+      ] },
+    { "key": "dayCell", "section": "appearance", "type": "choice", "label": "Each day", "default": "auto", "group": "Layout", "visibleIf": { "layout": "custom" },
+      "description": "What a day's cell looks like. Automatic: a column on a top or bottom dock, a line on a left or right dock.",
+      "choices": [
+        { "value": "auto", "label": "Automatic" },
+        { "value": "column", "label": "A column: day, icon, high, low" },
+        { "value": "tile", "label": "A tile: day over the icon, high over the low beside them" },
+        { "value": "row", "label": "A line: day, icon, high/low" },
+        { "value": "icon", "label": "The icon and high/low only" }
+      ] },
+    { "key": "forecastPlacement", "section": "appearance", "type": "choice", "label": "The days go", "default": "auto", "group": "Layout", "visibleIf": { "layout": "custom" },
+      "description": "Where the day cells go: after the current conditions or under them. Automatic: after on a top or bottom dock, under on a left or right dock.",
+      "choices": [
+        { "value": "auto", "label": "Automatic" },
+        { "value": "beside", "label": "After the current conditions" },
+        { "value": "below", "label": "Under the current conditions" }
+      ] },
+    { "key": "showCondition", "section": "appearance", "type": "bool", "label": "Show the condition's name", "description": "Writes the condition (\"Partly cloudy\") under the temperature. Off by default.", "default": false, "group": "Text" },
+    { "key": "showPlace", "common": true, "section": "appearance", "type": "bool", "label": "Show the place under the temperature", "description": "Writes the place's name under the temperature. Off by default.", "default": false, "group": "Text" },
+    { "key": "showHigh", "section": "appearance", "type": "bool", "label": "Show today's high", "description": "Adds today's highest temperature under the current one. Off by default.", "default": false, "group": "Text" },
+    { "key": "showLow", "section": "appearance", "type": "bool", "label": "Show today's low", "description": "Adds today's lowest temperature under the current one. Off by default.", "default": false, "group": "Text" },
+    { "key": "dayNames", "section": "appearance", "type": "choice", "label": "Day names", "default": "auto", "group": "Text",
+      "description": "How the days are named: Mon, M or Monday. Automatic: Mon in columns and tiles, M in lines.",
+      "choices": [
+        { "value": "auto", "label": "Automatic" },
+        { "value": "short", "label": "Short (Mon)" },
+        { "value": "initial", "label": "Initial (M)" },
+        { "value": "full", "label": "Full (Monday)" }
+      ] },
+    { "key": "todayLabel", "section": "appearance", "type": "bool", "label": "Call the first day \"Today\"", "description": "The first day cell says Today instead of its weekday. On by default.", "default": true, "group": "Text" },
+    { "key": "rangeStyle", "section": "appearance", "type": "choice", "label": "High and low", "default": "auto", "group": "Text",
+      "description": "How a high and low pair is written on one line. Automatic: arrows under the temperature, a slash in a day cell.",
+      "choices": [
+        { "value": "auto", "label": "Automatic" },
+        { "value": "arrows", "label": "↑22° ↓14°" },
+        { "value": "slash", "label": "22°/14°" },
+        { "value": "plain", "label": "22° 14°" }
+      ] },
+    { "key": "iconPack", "quick": true, "section": "appearance", "type": "choice", "label": "Icons", "default": "windock", "group": "Icons",
+      "description": "The pictures of the conditions: WinDock's filled glyphs, or Lucide's line icons (lucide.dev, ISC licence). Default: WinDock.",
+      "choices": [
+        { "value": "windock", "label": "WinDock (filled)" },
+        { "value": "lucide", "label": "Lucide (line icons)" }
+      ] },
+    { "key": "iconStyle", "section": "appearance", "type": "choice", "label": "Icon colours", "default": "colour", "group": "Icons",
+      "description": "Coloured: a yellow sun and blue rain. Single colour: everything in the text colour (the WinDock pack keeps its yellow sun). Default: coloured.",
+      "choices": [
+        { "value": "colour", "label": "Coloured" },
+        { "value": "mono", "label": "Single colour" }
+      ] },
+    { "key": "size", "section": "appearance", "type": "int", "label": "Size", "description": "Scales the whole slot on a dock (a desktop widget fills its window instead). Default: 100.", "min": 60, "max": 200, "step": 10, "default": 100,
+      "unit": "%", "group": "Icons" },
+    { "key": "compact", "section": "appearance", "type": "bool", "label": "Compact (the icon only)", "default": false, "group": "Icons",
+      "description": "The temperature and the text lines are left out; the popup still shows everything." },
     { "key": "clickOpens", "section": "content", "type": "choice", "label": "Clicking the widget opens", "description": "What a click does: open the forecast popup, open the widget's settings to choose the place, or nothing. Default: the forecast popup.", "default": "popup", "group": "Click",
       "choices": [
         { "value": "popup", "label": "The forecast popup" },

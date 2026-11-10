@@ -1158,7 +1158,7 @@ void Config::Sanitize() {
         d.SortByGroup();
         for (DockItemEntry& e : d.items) {
             if (e.Kind() != ItemKind::Tray) continue;
-            e.rows = std::clamp(e.rows, 1, 2);
+            e.rows = std::clamp(e.rows, 1, 20);  // round 16 phase 16B: was 1 - 2
             e.columns = std::clamp(e.columns, 1, 20);
             e.trayIconSize = e.trayIconSize <= 18 ? 16 : e.trayIconSize <= 22 ? 20 : 24;
         }

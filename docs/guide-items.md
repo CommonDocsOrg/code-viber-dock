@@ -266,7 +266,14 @@ The weather settings window has Content and Appearance tabs. Its place and updat
 
 Each weather widget can have its own place, so a dock can show two cities. Use **Refresh now** in its settings or the refresh button in its forecast popup to update its place.
 
-The Appearance tab includes more choices, such as a forecast of several days on the dock.
+The Appearance tab has the forecast on the dock and how it looks:
+
+- **Forecast**: **Forecast on the dock** (none, today's high and low under the temperature, or several days) and **Days on the dock** (2 to 7).
+- **Layout**: a preset for the slot. **Automatic** follows the dock's edge (a column per day on a bottom or top dock, a line per day on a left or right dock). **Strip** is a column per day beside the conditions. **Tiles** puts each day's name over its icon with the high over the low beside them, after the conditions on a bottom or top dock and stacked under them on a left or right dock: the easiest to read on a narrow dock. **List** stacks the icon over the temperature with a line per day under them. **Card** is for a desktop widget: big conditions with tiles under them. **Custom** shows three fields instead: where the icon goes (beside or above the temperature), what each day's cell is (a column, a tile, a line, or the icon with high/low), and whether the days go after or under the conditions.
+- **Text**: the condition's name under the temperature, the place, today's high and low, **Day names** (Mon, M or Monday), whether the first day says **Today**, and **High and low** (arrows, a slash or a space between them).
+- **Icons**: **Icons** chooses WinDock's filled pictures or Lucide's line icons, **Icon colours** keeps the yellow sun and blue rain or draws everything in the text colour, **Size** scales the whole slot on a dock, and **Compact** leaves only the icon.
+
+Right-click the widget for the quickest changes: **Forecast on the dock**, **Layout** and **Icons** are in its menu.
 
 ## Calendar and reminders
 
@@ -305,9 +312,11 @@ To give the tray a small dock of its own at the bottom right, click **Put the tr
 
 The tray item's settings window starts with **The grid**:
 
-- **Rows**: across the dock, 1 or 2.
-- **Columns**: along the dock, up to 20.
+- **Rows**: stacked top to bottom, up to 20.
+- **Columns**: left to right, up to 20.
 - **Icon size**: 16, 20 or 24.
+
+Rows and columns are as you see them on screen, whichever edge the dock is on. Across the bar (rows on a bottom or top dock, columns on a left or right one) two cells always fit, shrunk to half an icon each. More fit only when the bar is thick enough for them at full size: turn on **Fixed thickness** on Dock settings > Position, or show titles beside the icons. Cells that do not fit are left out; the drawer still has every icon.
 
 ### Icons in the grid
 
@@ -350,6 +359,7 @@ WinDock comes with these widgets:
 - **System monitor**: one measurement, such as processor, memory, graphics, disk, network or battery, as a graph, a bar, a dial or a number.
 - **System overview**: processor, memory, graphics, disk and network at once.
 - **Battery**: the battery level, whether it charges and the time left.
+- **Stocks**: quotes for the ticker symbols you list (stocks, ETFs, forex and crypto as Finnhub spells them), one symbol at a time or all of them, with the change since the previous close in green or red. It needs a free API key from finnhub.io, entered under Widget settings > Data. A click opens the day's figures; a click on a symbol there opens it on Yahoo Finance.
 - **Start** and **Search**: open the Start menu and Windows Search. Start shows the Windows logo, your own icon or the **Windows 7 orb**, a glossy sphere with the four-colour flag that lights up under the pointer and darkens while pressed. Its icon size 0 is automatic: the orb then fills the slot. The Start menu opens next to the button you clicked: above it on a bottom dock, beside it on a side dock. Its **Menu position** setting (Content) can put it back where Windows puts it; the Windows key always opens it at its usual place.
 - **Show desktop**: the narrow strip at the end of the Windows 7 taskbar. On a full-width dock it is as tall as the bar and, as the last item, sits right against the screen's end. A click shows the desktop (Win+D; a second click brings the windows back) or, if you choose, minimizes every window (Win+M). Its style can also be a small desktop glyph, for other themes. Hovering it does not make the windows transparent (Aero Peek is not available).
 - **Notification bell**: a bell like the notification centre, with more choices.

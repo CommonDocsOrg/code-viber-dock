@@ -130,15 +130,22 @@ protected:
         HelpTopic(L"guide-items.md#the-tray");
         // Round 8 phase 8C: three cards, hints under the labels, the explanations as tooltips.
         Section(kTrayGridSection, L"The grid", L"guide-items.md#the-grid");
-        Label(kTrayRowsLabel, L"Rows", L"Across the dock", kTrayGridNote);
+        // Round 16 phase 16B: rows / columns as seen on screen on every edge; both 1 - 20.
+        Label(kTrayRowsLabel, L"Rows", L"Top to bottom", kTrayGridNote);
         Tip(kTrayRowsLabel,
-            L"Columns run along the dock and rows across it (on a left or right dock the grid is \"rows\" wide and "
-            L"\"columns\" tall). With more icons than cells, or icons hidden below, the last cell opens a drawer with "
-            L"every icon. A right click on an icon opens its app's menu; Ctrl + right click opens the tray menu.");
-        Spin(kTrayRowsEdit, kTrayRowsSpin, kColX, kNumberW, 1, 2, 1);
+            L"Rows are stacked top to bottom and columns run left to right, on every edge (round 16 phase 16B; before, "
+            L"columns ran along the dock whichever way it faced). Across the bar (rows on a bottom / top dock, columns "
+            L"on a left / right one) two cells always fit, shrunk to half an icon; more fit only when the bar is thick "
+            L"enough at full size (Dock settings > Position > Fixed thickness, or titles beside the icons). With more "
+            L"icons than cells, or icons hidden below, the last cell opens a drawer with every icon. A right click on an "
+            L"icon opens its app's menu; Ctrl + right click opens the tray menu.");
+        Spin(kTrayRowsEdit, kTrayRowsSpin, kColX, kNumberW, 1, 20, 1);
         NextRow();
-        Label(kTrayColumnsLabel, L"Columns", L"Along the dock");
-        Tip(kTrayColumnsLabel, L"Columns run along the dock. With more icons than cells the last cell opens a drawer with every icon.");
+        Label(kTrayColumnsLabel, L"Columns", L"Left to right");
+        Tip(kTrayColumnsLabel,
+            L"Columns run left to right on every edge; on a left or right dock they run across the bar, where more than "
+            L"two fit only when the bar is thick enough. With more icons than cells the last cell opens a drawer with "
+            L"every icon.");
         Spin(kTrayColumnsEdit, kTrayColumnsSpin, kColX, kNumberW, 1, 20, 1);
         NextRow();
         Label(kTrayIconSizeLabel, L"Icon size");
@@ -268,7 +275,7 @@ protected:
         const int spin = id == kTrayRowsEdit ? kTrayRowsSpin : id == kTrayColumnsEdit ? kTrayColumnsSpin : 0;
         if (!spin) return;
         int value = 0;
-        if (ReadInt(id, 1, spin == kTrayRowsSpin ? 2 : 20, value)) {
+        if (ReadInt(id, 1, 20, value)) {  // round 16 phase 16B: rows 1 - 20 too
             SetGrid(spin, value);
         } else if (DockItemEntry* e = Tray()) {
             SetSpin(spin, spin == kTrayRowsSpin ? e->rows : e->columns);
@@ -309,7 +316,7 @@ private:
         DockItemEntry* e = Tray();
         if (!e) return;
         int& field = spin == kTrayRowsSpin ? e->rows : e->columns;
-        value = std::clamp(value, 1, spin == kTrayRowsSpin ? 2 : 20);
+        value = std::clamp(value, 1, 20);
         SetSpin(spin, value);
         if (field == value) return;
         field = value;

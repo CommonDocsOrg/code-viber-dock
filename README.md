@@ -2,7 +2,8 @@
 
 A macOS-style dock for Windows 11. C++20 / Win32, Direct2D + DirectComposition; one vendored
 third-party library, the QuickJS-ng script engine for widgets (`third_party/quickjs-ng`, MIT,
-compiled in). Single static exe (no VC++ redistributable needed).
+compiled in); the Weather widget's optional line icons are Lucide's (ISC, path data in
+`widgets/weather/main.js`). Single static exe (no VC++ redistributable needed).
 
 What it does (rounds 1 to 4 are complete; ROADMAP.md has the history, STATUS.md what was verified):
 
@@ -1102,6 +1103,13 @@ shows any more is stopped and dropped at once.
   settings / refresh buttons; its own settings add a place of its own (the same Place field, units,
   interval and label as the native item: round 5), today's high / low or the place under the
   temperature, a glyph-only compact mode, what a click opens, and the popup's days and hours.
+  Round 16 phase 16D: **Layout** presets for the slot (Automatic, Strip, Tiles, List, Card, or
+  Custom with the current conditions beside / stacked, each day as a column / tile / line / icon,
+  and the days after / under the conditions), up to 7 days, text options (the condition's name,
+  day names, "Today", how a high / low pair is written), a size, and two icon packs: WinDock's
+  filled glyphs or Lucide's line icons (ISC licence, https://lucide.dev, their path data embedded
+  in the widget), coloured or in the text colour. Tiles put the day over the icon with the high
+  over the low beside them, so a narrow dock gets a readable forecast.
   Without a place of its own it uses the app's default place. This is the only weather widget
   offered by the add menu, widget drawer and bundled dock presets. Legacy `{ "kind": "weather" }`
   items automatically become `{ "kind": "widget", "id": "weather" }` when loaded, keeping their
@@ -1245,6 +1253,14 @@ write and edit without compiling anything. The full reference (every call, every
   translucent strip (6 - 24 DIPs; on a full-width dock as thick as the bar and, as the last item,
   flush with the screen's end: `measure()`'s `flush`, round 11 phase 11C) or a desktop glyph; a click shows the desktop (Win+D) or
   minimizes every window (Win+M); Aero Peek is not done), **Search** (`search`: opens Windows Search)
+  **Stocks** (`stocks`, round 16: stock, ETF, forex and crypto quotes from Finnhub with your own
+  free API key (Widget settings > Data); one symbol at a time (the wheel steps through them, or
+  they cycle on a timer) or every symbol as a row of cells, a stacked list on a left / right dock or
+  a table on the desktop; the price with the change since the previous close as a percent, an
+  amount or both, coloured up / down, optional sparklines of the prices fetched over the last day; a
+  click opens a popup with each symbol's last trade time, open, high, low and previous close, a
+  refresh button and the Finnhub credit, and a click on a row opens the symbol on Yahoo Finance,
+  Google Finance or Finnhub; refreshed every 5 minutes by default, one request per symbol),
   and **Notification bell** (`notification-bell`: a scriptable bell that behaves like the
   notification centre by default, the unread count in a badge and a click that opens WinDock's
   centre; its settings make it open Windows' notification centre (Win+N) instead, and with "Show
@@ -1425,9 +1441,16 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   dock; Add > Tray, or System tray in the widget drawer of Dock settings > Contents): the
   icons as a grid in one
   widget slot (it does not magnify, like the clock), in registration order (`order`: icon keys
-  shown first; 8b lets the grid be reordered by dragging). Columns run along the dock and rows
-  across it: on a left / right dock the grid is `rows` wide and `columns` tall. Cells are the icon
-  plus 3 DIPs on each side; two rows of large icons shrink to fit the icon row. Icons an app hid
+  shown first; 8b lets the grid be reordered by dragging). Round 16 phase 16B: `rows` and
+  `columns` are as seen on screen on every edge (rows stacked top to bottom, columns left to
+  right; both 1 - 20): across the bar are the rows on a bottom / top dock and the columns on a
+  left / right one (before 16B columns always ran along the dock, so a vertical dock's grid looked
+  transposed; the default 1 x 8 looks the same on every edge, so there is no migration). Cells
+  are the icon plus 3 DIPs on each side, filled along the dock first. Across the bar, one or two
+  cells always fit (two of large icons shrink to half the room each); more fit only when they
+  fit at full size in the box's room at rest: the icon row plus the titles beside the icons and
+  `docks[].thickness`'s extra (Dock settings > Position > Fixed thickness); the rest of the
+  asked-for cells across are dropped (the drawer has every icon). Icons an app hid
   (`NIS_HIDDEN`), without a picture or without a callback message (they cannot be clicked) are
   not shown; neither are the dock's own tray icon and the keys in `hidden`.
 - **Overflow and the drawer**: with more icons than cells, or icons hidden from the grid, the last
@@ -2441,7 +2464,7 @@ app default** beside it for a script widget with a place of its own), **Consoleâ
   `clock` / `weather` defaults, a widget its schema's. Round 10 phase 10D: a script widget's Place
   row has a â†º (Reset to app default) while it has a place of its own.
 - a **tray** item (round 5 phase D, "System tray"; round 8 phase 8C in three cards): **The grid**
-  (Rows "Across the dock", Columns "Along the dock", Icon size), **Icons in the grid** (in the
+  (Rows "Top to bottom", Columns "Left to right" since round 16 phase 16B, both 1 - 20; Icon size), **Icons in the grid** (in the
   grid's order with a check box each, Move up / Move down) and **Takeover** (Reset to Explorer,
   with its hint; see System tray).
 - a **folder** (or a shortcut to one) or a **group** (round 8 phase 8C: a card per section): a
@@ -2621,7 +2644,8 @@ items that exist. A file whose items have settings already is left alone.
       `settings` is optional and written back as it is.
     - `"tray"`: the notify icons as a grid (see **System tray** above), `{ "kind": "tray",
       "rows": 1, "columns": 8, "iconSize": 20, "hidden": ["<icon key>", ...], "order": [...] }`;
-      `rows` 1 - 2, `columns` 1 - 20, `iconSize` 16 / 20 / 24 DIPs (other values snap to the
+      `rows` 1 - 20 (stacked top to bottom), `columns` 1 - 20 (left to right; round 16 phase 16B:
+      as seen on screen on every edge, rows were 1 - 2 across the bar before), `iconSize` 16 / 20 / 24 DIPs (other values snap to the
       nearest), `hidden` icon keys never shown in the grid (still in the drawer), `order` icon
       keys shown first in that order (the tray item's own settings window edits all five). Each
       key is written only when it is not the default. An icon

@@ -44,6 +44,9 @@
 // Round 11 phase 11B: the Show desktop sliver.
 #define IDR_WIDGET_SHOWDESKTOP_JSON 355
 #define IDR_WIDGET_SHOWDESKTOP_MAIN 356
+// Round 16 phase 16C: the Stocks widget (Finnhub quotes).
+#define IDR_WIDGET_STOCKS_JSON 357
+#define IDR_WIDGET_STOCKS_MAIN 358
 
 // Round 9 phase 9C: the predefined dock setups (RCDATA, res/presets/<id>.json; Presets.cpp lists
 // them in this order).

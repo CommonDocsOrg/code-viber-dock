@@ -56,9 +56,14 @@ struct DockItemEntry {
     // versions keep a group's kind and icon only (its name and members are lost if they save).
     std::wstring name;
     std::vector<DockItemEntry> members;
-    // "tray" items (the notify icons of TrayHost as a grid, round 4 phase 8): rows across the bar
-    // (1 - 2), columns along it (1 - 20; on a vertical dock the grid is `rows` wide and `columns`
-    // tall), the icon size in DIPs (16 / 20 / 24), the icon keys never shown in the grid (they are
+    // "tray" items (the notify icons of TrayHost as a grid, round 4 phase 8): rows and columns as
+    // seen on screen (round 16 phase 16B: rows stacked top to bottom, columns left to right, on
+    // every edge; both 1 - 20; across the bar the grid fits two cells always, more only when the
+    // bar is thick enough, TrayElement::Measure). Before 16B rows were across the bar and columns
+    // along it on every edge. No migration: the default (1 row, 8 columns) on a vertical dock is
+    // now 1 column wide and 8 rows tall, which looks as it did (1 across, 8 along); a vertical
+    // dock saved with rows 2 now shows 2 rows (the user's request), not 2 columns.
+    // Also the icon size in DIPs (16 / 20 / 24), the icon keys never shown in the grid (they are
     // still in the drawer) and the user's order of icon keys (8b; icons not listed follow in
     // registration order). Saved only when not the default. "trayApp" items use `id` (the icon key:
     // "{guid}" or "exe-name.exe:uID").

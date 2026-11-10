@@ -1463,6 +1463,55 @@ check list; 16B only if the manual pass finds something.
   dock run's first Start click (whose `Place` starts from the host's current rect: it would not
   know the natural place; not handled).
 
+**Phase 16B: the tray grid as seen on screen** (from the user's report on a wide vertical dock).
+`rows` / `columns` of a `tray` item now mean rows stacked top to bottom and columns left to right
+on every edge (before, `rows` was always across the bar and `columns` along it, so a vertical
+dock's grid looked transposed); `TrayElement::Measure` maps them to along / across by the axis and
+the rest of the element was already in along / across terms. Across the bar the room is the new
+`LayoutContext::rowRoom` (the icon row, the captions band and `docks[].thickness`'s extra: the
+cross room a widget box is centred in at rest), else the icon row: one or two cells across always
+fit (shrunk to the room, as before), more only as many as fit at full size, so a thin bar never
+turns twenty rows into slivers and a thick one (Fixed thickness, titles beside the icons) gets
+them. Both counts are 1 - 20. No config migration: the default 1 x 8 looks the same on every edge
+under either reading, and a vertical dock saved with rows 2 showing 2 rows is what was asked for.
+
+**Phase 16C: the Stocks widget** (from the user's request: "a stock ticker widget (single and
+multi views) - support Finnhub api. we can add more apis later"). A built-in script widget
+(`widgets\stocks`), not a native element or a host provider: the quote is a plain REST call that
+`http.get` already covers, and keeping it in script keeps the exe free of another service. The
+data sources are a table in `main.js` (`PROVIDERS`: url, headers, parse into one quote shape,
+error texts) so a second API (Alpha Vantage, Twelve Data, Yahoo's unofficial endpoint) is one
+entry, one `provider` choice and one more `http` host in the manifest. The key is sent in
+Finnhub's `X-Finnhub-Token` header rather than the `token` query parameter so it never appears in
+the Console's request lines. Finnhub's free plan refuses `/stock/candle` (premium since 2024), so
+the sparkline is drawn from the prices this widget itself fetched (one point per refresh, a day
+kept in storage), not from an intraday series. Views: single (the wheel steps, an optional
+interval cycles and stops while the dock is hidden) and all (a row of cells on a top / bottom
+dock, stacked cells on a left / right dock, a table standalone). One refresh wake-up per
+`refreshMinutes`, nothing else ticks.
+
+**Phase 16D: the Weather widget's layouts and icon packs** (from the user's request: a forecast
+that is "easier to read on narrower docks", "day name with icon under it and high and low to the
+right of it instead of stacking all 4 values", "more customization options and preset layouts",
+and "an additional open source / MIT icon pack"). Script only (`widgets\weather` 1.2.0): the
+widget already owned its layout, so nothing in the exe changes and an exported copy in
+`%LocalAppData%\WinDock\widgets\weather` keeps working. The slot became two blocks (the current
+conditions: icon beside or above the temperature and its text lines; the day cells) and a
+`layout` setting names a preset or, as "custom", exposes the three fields behind the presets
+(`conditions`, `dayCell`, `forecastPlacement`; `visibleIf` hides them otherwise). "auto" of each
+field follows the dock's edge exactly as rounds 4 - 7 drew, so an older config looks the same. The
+cell the user asked for is the tile (the weekday over the icon, the high over the low beside it):
+26 DIPs tall, one line per day when stacked on a left / right dock. Presets rather than only
+fields because a preset is one quick-menu choice; fields rather than only presets because a
+desktop widget and a vertical dock want different combinations. The icon pack is Lucide (ISC):
+chosen over Feather / Tabler / Meteocons because its weather set covers every WMO family with
+day and night variants and every arc is circular, so its path data runs through a small SVG
+path parser onto `canvas.path` (`arc` in centre form, the endpoint-to-centre conversion of the
+SVG spec's F.6.5 with the F.6.6 radius correction) instead of needing an SVG renderer, a font or
+bitmaps in the exe: 20 icons are about 2 KB of path strings in `main.js`, parsed once per widget
+instance. Strokes keep Lucide's 2 / 24 width with round caps; whether that reads well at 16 DIPs
+is for the user's pass. The pack also draws the popup's icons so the two never disagree.
+
 ## Dependencies at a glance
 
 ```

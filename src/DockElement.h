@@ -57,6 +57,10 @@ struct LayoutContext {
     // titles; no reflections) on a full-width bar, 0 elsewhere (a centred bar, a ring, a floating
     // bar, a standalone widget, a preview): what a flush box's cross becomes.
     float barCross = 0.0f;
+    // Round 16 phase 16B: the cross room a widget box has at rest inside the bar: the icon row
+    // (rowCross), the captions band and docks[].thickness's extra, px (0: unknown, treat as
+    // iconPx). The tray grid fits more cells across a thick bar with it.
+    float rowRoom = 0.0f;
 };
 
 // Something outside the dock changed that an element may show.

@@ -623,6 +623,7 @@ private:
         float rowTop = 0.0f;
         float rowCross = 0.0f;
         float barCross = 0.0f;   // round 11 phase 11C: LayoutContext::barCross (full width: the bar's thickness w/o reflections)
+        float rowRoom = 0.0f;    // round 16 phase 16B: LayoutContext::rowRoom (rowCross + captionBand + thickExtra)
         // Round 7 phase 7B: the items are laid out as anchored groups (DockConfig::Anchored() on a
         // bar whose run fits the room): the bar is the room's length, the gaps between the groups are
         // the slots' leads.
