@@ -396,7 +396,16 @@ private:
     // `from` ends AddLayoutDock's ("Added dock work from layout Work").
     bool ApplyLayoutTo(const Presets::Preset& p, const std::wstring& label, size_t cfg, bool keepPins, bool keepLook, bool preview,
                        HWND host);
-    size_t AddLayoutDock(const Presets::Preset& p, const std::wstring& from, bool copyPins, bool preview, HWND host);
+    // Round 18 phase 18A: `monitor` / `placeFree` as Presets::MakeNew (the Add a dock card's display
+    // and the next free edge; the chooser and Quick setup keep the primary display and the preset's edge).
+    size_t AddLayoutDock(const Presets::Preset& p, const std::wstring& from, bool copyPins, bool preview, HWND host,
+                         int monitor = DockConfig::kMonitorPrimary, bool placeFree = false);
+    // --- round 18 phase 18A: the Add a dock card (SettingsHost::addLayoutDock; DockCommand 187) ---
+    // 1 added, 0 refused, 2 another source's preview is open. A preview this card started (its label
+    // still the preview's, its host window `w`) is cancelled first, so tiles flip on the live desktop.
+    int AddDockFromCard(SettingsWindow* w, bool mine, size_t index, bool copyPins, int monitor);
+    std::wstring cardPreviewLabel_;  // the label of the preview the card started last ("": none)
+    uint64_t cardAdds_ = 0;          // docks the card added (DockCommand 187 compares it)
     // Look `look` (Presets::Looks()) as config dock `cfg`'s own look (SIZE_MAX: the app look),
     // nothing else changed. `preview`: Keep / Cancel. False if refused.
     bool ApplyLook(size_t look, size_t cfg, bool preview, HWND host);

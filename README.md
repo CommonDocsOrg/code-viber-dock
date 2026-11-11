@@ -541,7 +541,7 @@ monitor (its `monitor` index; an `"each"` dock stays on every monitor, `"primary
 `"primary"`). An outline shows where it will go; the dock moves and the config is saved when the
 button is released (Escape or a lost capture cancels). A full-width dock only changes edge /
 monitor. The list under the drawing shows the docks (a dot in the dock's colour, id, edge,
-display, whether it is shown or parked), adds one (**Add ▾** > **Dock**: `id` `"dock"`, `"dock2"`
+display, whether it is shown or parked), adds one (round 18 phase 18A: a tile of the **Add a dock** card, see Settings; until then **Add ▾** > **Dock**: `id` `"dock"`, `"dock2"`
 ..., bottom of the primary monitor, the running apps and the clock), duplicates or removes the
 selected one (never the last) and opens its window (**Open settings**, or a double click on the
 row). **Each dock is edited in its own window** (round 5: Dock settings…; its items, position,
@@ -553,8 +553,8 @@ menu, for the first dock) acts on that dock; with more than one dock it also has
 / **Unlock all docks** (`WinDock.DockCommand` 124 / 125; Docks and displays has the **Lock all
 docks** check box, round 8 phase 8D).
 Folder windows (round 4 phase 12, [Desktop folder windows](#desktop-folder-windows)) are `docks[]`
-entries too: the list shows them (Edge: "Folder window", the folder after the state) with **Add ▾**
-> **Folder window…**, Remove (the last plain dock cannot be removed while folder windows remain)
+entries too: the list shows them (Edge: "Folder window", the folder after the state) with **Add a dock**
+> **More ▾** > **Folder window…** (round 18 phase 18A; was **Add ▾**), Remove (the last plain dock cannot be removed while folder windows remain)
 and **Open settings**, and the drawing shows them as rectangles that can be dragged to another
 place or display (moving only; they are resized on the desktop).
 
@@ -832,7 +832,7 @@ is a bar: `"floating"` with another `shape` reads as not floating.
   windows follow). Escape or a lost capture cancels; a press without a move is an ordinary click
   (on an icon's band: that icon). App settings > Docks and displays drags it too (its top-left,
   kept on that display's work area).
-- **New floating dock**: App settings > Docks and displays > **Add ▾** > **Floating dock** (a bar dock
+- **New floating dock**: App settings > Docks and displays > **Add a dock** > **More ▾** > **Floating dock** (a bar dock
   `floating`, layer `"desktop"`, centred on the primary display, the running apps and the clock;
   useful for folders and files), or check **Floating** on a dock's Position tab (it keeps its
   layer). Its header and the Docks and displays drawing show it as a small bar where it is.
@@ -1727,7 +1727,7 @@ Notifications ("Let apps access your notifications") is on; the access is checke
 A folder window (round 4 phase 12, Fences-like) shows a folder's contents in a titled panel on the
 desktop: under every window, above the wallpaper and the desktop icons. Add one from the dock
 menu (**Add** > **Folder window on the desktop…**, round 10; was "New folder window…": pick a
-folder, the window opens at the pointer) or on App settings > Docks and displays (**Add ▾** > **Folder window…**); each is a `docks[]` entry of kind `"folderWindow"` (see
+folder, the window opens at the pointer) or on App settings > Docks and displays (**Add a dock** > **More ▾** > **Folder window…**); each is a `docks[]` entry of kind `"folderWindow"` (see
 [Configuration](#configuration)).
 
 - **The window**: the folder's name (or `title`) in the title bar, the theme's acrylic (the dock's
@@ -1798,7 +1798,7 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
 
 - **Add one**: the widget drawer's **Desktop** button on a script widget's row (Dock settings >
   Contents: it opens on that dock's display), App settings > Widget library > **Add to the
-  desktop**, or App settings > Docks and displays > **Add ▾** > **Standalone widget ▸** (a
+  desktop**, or App settings > Docks and displays > **Add a dock** > **More ▾** > **Standalone widget ▸** (a
   submenu of the installed widgets). It gets the manifest's default size (`standalone.defaultWidth` /
   `defaultHeight`; else 200 x 200, or twice the dock size hint of a wide widget), the layer
   "behind" and the centre of the display; its settings open (round 12 phase 12I: the panel beside
@@ -2143,9 +2143,11 @@ About > **Show the tips again** shows all three again.
 
 **Layouts and looks** (round 9 as "Presets"; round 12 phase 12C: three kinds; guide-docks "Layouts
 and looks"): predefined and saved dock setups to start from, and looks to apply. **App settings >
-Docks and displays > Add ▾ > Dock from a preset…** adds a new dock from a built-in layout and
-**Dock from a layout…** from a saved one (the chooser opens on Mine; the new dock's id is the
-layout's, made unique: `modern`, `modern2` …; on the primary display), **⋯ > Apply a layout or
+Docks and displays > Add a dock** (round 18 phase 18A; see Settings) adds a new dock from a tile
+of a built-in or a saved layout as a Keep / Cancel preview (the new dock's id is the layout's, made
+unique: `modern`, `modern2` …; on the display it names, on the next free edge there); until 18A
+Add ▾ > **Dock from a preset…** / **Dock from a layout…** opened the chooser's new dock variant
+(still reachable by DockCommand 152 variants 2 / 3: the primary display, the preset's edge), **⋯ > Apply a layout or
 look…** in a dock's panel header (was "Apply a preset…") changes that dock, and Quick setup's first
 step offers the built-in layouts for each of its docks (round 12 phase 12G; before it the round 9
 welcome dialog did, on the first dock). The chooser (720 × 480 DIPs, dark like the settings
@@ -2228,13 +2230,37 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   open its settings (the panel beside it; round 12 phase 12I also for a folder window or a standalone
   widget); drag it along its edge (it snaps to the centre and the ends), onto another
   edge or onto another display: it moves when you let go. Round 8 phase 8D: the toolbar has
-  **Add ▾** (a menu: **Dock**, **Floating dock** (round 6 phase 6A), **Dock from a preset…**
-  (round 9: the chooser, see Layouts and looks above), **Dock from a layout…** (round 12 phase 12C:
-  the chooser on Mine), **Folder window…**,
-  **Standalone widget ▸** (6B: a submenu of the installed widgets)), the selected dock's line
-  (while dragging: where it would drop) and at the right **Lock all docks**, a check box that is
+  the selected dock's line (while dragging: where it would drop; round 18 phase 18A: its **Add ▾**
+  is gone, see the card below) and at the right **Lock all docks**, a check box that is
   checked while every dock and standalone widget is locked (folder windows have no lock; a mix
-  shows it unchecked): checking it locks them all, clearing it unlocks them all. Under the list,
+  shows it unchecked): checking it locks them all, clearing it unlocks them all. Round 18 phase
+  18A: under the toolbar the **Add a dock** card (a heading expander, open at first, remembered per
+  window like the others; its "?" opens guide-settings "Add a dock"): a wide gallery
+  (`WinDock.SettingsGallery`) with a tile per built-in layout (`Presets::All()` order), then the
+  saved layouts (`Presets::Mine()`, read at each refresh of the page, never per paint; a "Mine"
+  caption over the first), each a small display with the bar where the layout puts it
+  (`Presets::SilhouetteBar`, the chooser's silhouette) in the layout's look (its own theme preset,
+  else the app look) and a few glyphs of its items, the name and the tagline under it, as many
+  columns of at least 150 DIPs as fit (at most 6). Hovering a tile (or moving the selection with
+  the keyboard while the gallery has the focus) puts its description and where it sits into the
+  hint under the tiles and draws a **ghost** on the canvas: a dashed outline in the accent where
+  the dock would go (estimated: (icon size + 8) DIPs per item; the next free edge rule below),
+  labelled "New: <name>"; nothing in the config or on the desktop changes. A click / Enter / Space
+  adds the dock as a **Keep / Cancel preview** (App::AddLayoutDock; the banner and the window's bar
+  say "Previewing Modern as the new dock modern."; the list selects it, the dock flashes); a click
+  on another tile while that preview is up cancels it first, so the layouts can be tried one after
+  the other on the real desktop; Keep makes one undo entry "Added dock modern from preset Modern"
+  ("… from layout <name>" for a saved one), Cancel / Esc / closing the window removes it again.
+  While a preview of another source is up (a look on the Themes page, the chooser, Quick setup)
+  a click is refused with a beep and the hint "Keep or cancel the current preview first".
+  Under the tiles: **Copy my pinned apps** (on at first, per window; the first dock's pins at the
+  layout's marker; greyed while the hovered layout has no place for pins: Floating performance,
+  Desktop dashboard), **Display** (Primary, every other connected display as "Display 2 · 2560 ×
+  1440", Every display: the new dock's `monitor`) and **More ▾** (Floating dock, Folder window…,
+  Standalone widget ▸: the old Add ▾ menu without its dock entries). The new dock goes on the
+  layout's edge of that display unless an enabled bar dock is already there: then the next free
+  edge (bottom, top, left, right, as Duplicate); every edge taken: the layout's edge, moved along
+  it by its estimated length (never refused). Under the card, the list. Under the list,
   for the selected row: **Open settings**, **Duplicate**, **Remove** and (round 11 phase 11D)
   **Disable** / **Enable**: a disabled entry (`docks[].enabled` false, any kind) keeps its settings
   but has no window (listed as "Disabled", not drawn; its weather stops fetching, a disabled dock's
@@ -3596,7 +3622,11 @@ always there, also when every dock is parked) handle these registered messages:
   else clamped 24 - 1000); a dock only, 1 done, 0 refused; each one undo entry ("Changed the bar's length of
   *dock*" / "... thickness of ..."), through the same path as 177 / 178. Round 14 phase 14B: **186** sets
   `settings.snapToScreen` to `LOWORD(lParam) != 0` (app-wide, the dock in `HIWORD` is ignored; 1; one undo entry
-  "Snap to the screen's corners and centre: On / Off" when it changes). 143 opens the panel beside the dock instance in `HIWORD`. 111 and 113 left the dock
+  "Snap to the screen's corners and centre: On / Off" when it changes). Round 18 phase 18A: **187** chooses
+  the App settings window's Add a dock tile `LOWORD(lParam)` (QueryState 333 order) as a click would: a new
+  dock as a Keep / Cancel preview (an earlier preview of the card cancelled first), on the card's Display and
+  with its Copy my pinned apps; 1 added, 0 refused (no App settings window, no such tile, another preview is
+  open, a dock menu or dialog is open; app-wide, the dock in `HIWORD` is ignored). 143 opens the panel beside the dock instance in `HIWORD`. 111 and 113 left the dock
   menu (the weather item's own menu has Refresh weather; its Weather settings… is ItemCommand
   854) but keep working here; 114 / 115 / 133 keep toggling the popup of the dock's FIRST clock /
   weather / notifications item (the item menus' Show calendar / Show forecast / Show notification
@@ -3890,7 +3920,11 @@ always there, also when every dock is parked) handle these registered messages:
   its natural place, 2 shifted (the menu is open beside a Start widget; the watch runs); **332** =
   the last shift the placer computed for `shell.sendKeys('start-near')`, a dry run too:
   `MAKELONG((int16)dx, (int16)dy)` in px (0 before any). With `WINDOCK_SENDKEYS_LOG` set the log line
-  is `start-near<TAB>5B<TAB><dx> <dy>` and the host is not moved (`tools\smoke\start-near.ps1`). The labels of the change Undo / Redo would
+  is `start-near<TAB>5B<TAB><dx> <dy>` and the host is not moved (`tools\smoke\start-near.ps1`). Round 18
+  phase 18A (app-wide, the dock in `HIWORD` is ignored): **333** = the number of tiles in App settings >
+  Docks and displays' Add a dock gallery (the built-in layouts, then the saved ones; `LOWORD(lParam)` 1:
+  the selected tile, 2: the tile whose ghost the canvas shows now, -1 none; -2 no App settings window;
+  `tools\smoke\add-dock-gallery.ps1`). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -4364,13 +4398,20 @@ always there, also when every dock is parked) handle these registered messages:
   text lists every dock instance as `index:config index:monitor:left,top,right,bottom;` in canvas
   client pixels, `-` for a parked one; a click selects the row, a double click opens the dock's
   window; round 8 phase 8D: the long explanation is its tooltip), 2804 the hint under it, the
-  toolbar 2814 Add ▾ (a menu, press it with a posted `BM_CLICK`), 2902 the selected dock / where a
-  drag would drop it (beside Add ▾), 2806 / 2813 the Lock all docks check box, 2800 the list
+  toolbar 2814 Add ▾ (round 18 phase 18A: the button is gone; `WM_COMMAND(2814, 0)` opens More ▾'s
+  menu), 2902 the selected dock / where a drag would drop it, 2806 / 2813 the Lock all docks check
+  box; round 18 phase 18A, the **Add a dock** card: 2816 its heading expander, 2817 the gallery
+  (`WinDock.SettingsGallery`; `WM_USER + 1` selects tile `wParam`, `WM_USER + 2` chooses it as a
+  click would; QueryState 333 / DockCommand 187), 2818 the hint under the tiles (its window text:
+  the default line, the hovered tile's description, or the refusal), 2819 / 2820 Copy my pinned
+  apps (`BM_SETCHECK` + `WM_COMMAND(2819, BN_CLICKED)`), 2821 / 2822 the Display label and
+  drop-down (`CB_SETCURSEL` + `CBN_SELCHANGE`: Primary, the other displays in the canvas's order,
+  Every display), 2823 More ▾ (a menu: press it with a posted `BM_CLICK`); 2800 the list
   (Dock with the colour dot, Edge, Display, Windows; the selected row is what Open settings,
   Duplicate and Remove act on, nothing else; a double click opens its window), 2810 Open
   settings, 2802 Duplicate, 2803 Remove, 2815 Disable / Enable (round 11 phase 11D: its text
   follows the selected row's state; greyed for the last enabled dock; the Windows column says
-  "Disabled"); menu commands 2801 Dock, 2811 Floating dock, 2808 Folder
+  "Disabled"); menu commands 2801 Dock (round 18 phase 18A: no longer in a menu, still a command), 2811 Floating dock, 2808 Folder
   window…, 2812 Standalone widget, 2806 lock all, 2807 unlock all (2805 and 2809 are retired);
   Tray icons and Notifications: see
   Tray and Notifications above (4122 / 4223, the "which dock" lines, are retired); Widget library = the Widgets page (3510 the preview panel

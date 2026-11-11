@@ -13,8 +13,11 @@ Each dock has a name and a colour. The colour shows on the edge of its settings 
 To add a dock:
 
 1. Open App settings > Docks and displays.
-2. Click **Add ▾**.
-3. Choose **Dock** for a new dock with the running apps and a clock, **Floating dock** for a bar you can place anywhere, **Dock from a preset…** to start from a built-in layout, or **Dock from a layout…** to start from one you saved.
+2. Under **Add a dock**, point at the layouts: each is a small picture of where the dock sits and how it looks, and the drawing above shows where the new dock would go. **Basic dock** is the plain dock with your apps, the running ones and a clock; your saved layouts are under **Mine**.
+3. Choose the **Display** if you have several, and leave **Copy my pinned apps** checked to bring your pins along.
+4. Click a layout. The new dock appears on your desktop at once. Click another layout to try that one instead, then click **Keep** in the bar at the top of the window (or **Cancel**).
+
+**More ▾** in the same card adds a **Floating dock** (a bar you can place anywhere), a **Folder window…** or a **Standalone widget**. See [Add a dock](guide-settings.md#add-a-dock).
 
 To make a copy of a dock, right-click it and choose **Duplicate dock** (or select it on Docks and displays and click **Duplicate**). The copy is named after it, for example "main copy", and goes on the next free edge of the same display, with its own colour. To remove a dock, select it on Docks and displays and click **Remove**.
 
@@ -152,7 +155,7 @@ A floating dock is a bar placed anywhere on the screen, not on an edge. It suits
 To add a floating dock:
 
 1. Open App settings > Docks and displays.
-2. Click **Add ▾** and choose **Floating dock**.
+2. Under **Add a dock**, click **More ▾** and choose **Floating dock**.
 
 A new floating dock sits in the middle of the primary display, on the desktop layer. You can also turn any dock into one: choose **Floating bar** under **Kind** on its Position tab.
 
@@ -209,7 +212,7 @@ To add a folder window:
 1. Right-click the dock and choose **Add** > **Folder window on the desktop…**.
 2. Pick a folder.
 
-It opens at the pointer. You can also add one on App settings > Docks and displays > **Add ▾** > **Folder window…**.
+It opens at the pointer. You can also add one on App settings > Docks and displays > **Add a dock** > **More ▾** > **Folder window…**.
 
 Working with a folder window:
 
@@ -234,7 +237,7 @@ To put a widget on the desktop:
 
 - In the drawer (a dock's Contents tab, or **Add items** while customizing), drag the widget's tile onto the desktop, or press the small monitor button on its tile.
 - Or in App settings > Widget library, select a widget and click **Add to the desktop**.
-- Or in App settings > Docks and displays, click **Add ▾** > **Standalone widget** and choose the widget.
+- Or in App settings > Docks and displays, under **Add a dock** click **More ▾** > **Standalone widget** and choose the widget.
 
 The widget appears on the desktop, under your windows, and its settings panel opens beside it.
 
@@ -262,7 +265,7 @@ At the right the chooser shows the chosen one's description, a small picture of 
 There are three ways to use a layout:
 
 - **Quick setup**: on the very first start, WinDock opens Quick setup. Its first step picks a layout for each of your docks; **Cancel** keeps the basic dock. To see it again, click **Run quick setup again** in App settings > About, or run `WinDock.exe --welcome`. See [Quick setup](quick-start.md#quick-setup).
-- **A new dock from a layout**: App settings > Docks and displays > **Add ▾** > **Dock from a preset…** (or **Dock from a layout…** for your own). Check **Copy my pinned apps from the first dock** to bring your pins along, then click **Add dock**.
+- **A new dock from a layout**: App settings > Docks and displays > **Add a dock**: click a layout's picture (your own are under **Mine**). Leave **Copy my pinned apps** checked to bring your pins along. Clicking another layout replaces the one you are trying. See [Add a dock](guide-settings.md#add-a-dock).
 - **Change a dock**: in the dock's settings panel, click **⋯** > **Apply a layout or look…**, pick one and click **Apply**.
 
 When you apply a layout to a dock, two check boxes decide what stays:
@@ -287,7 +290,7 @@ The built-in layouts:
 - **Floating performance**: system load at the top right. A small floating bar with a processor graph, an overview of processor, memory, graphics, disk and network, the battery and a clock. It lives on the desktop under your windows and is locked so it does not move by accident.
 - **Desktop dashboard**: a floating bar in the middle of the desktop, under your windows, with a large analog clock, the weather, today's agenda and your notes. Show the desktop or press the dashboard hotkey to see it.
 
-Floating performance and Desktop dashboard have no place for your pinned apps; the chooser says so.
+Floating performance and Desktop dashboard have no place for your pinned apps; the chooser and the Add a dock card say so.
 
 A layout that names a theme, such as Modern (Glass), Minimal (Solid) or Windows 7 (Aero glass), gives the dock that theme as its own look, unless you check **Keep my current look**.
 
@@ -300,7 +303,7 @@ To save a dock as a layout:
 1. Right-click the dock and choose **Save dock as layout…** (or use the panel's **⋯** menu, or **Save as layout…** on App settings > Docks and displays).
 2. Type a name and click OK.
 
-The layout holds the dock's place, behaviour, items and look; your pinned apps are kept as a place where pins go. It shows under **Mine** in the chooser. Select one there to:
+The layout holds the dock's place, behaviour, items and look; your pinned apps are kept as a place where pins go. It shows under **Mine** in the chooser and as a tile under **Mine** in App settings > Docks and displays > **Add a dock**. Select one in the chooser to:
 
 - **Rename…** it.
 - **Delete** it (after asking). Docks made from it keep their settings.
@@ -312,7 +315,7 @@ Saved layouts are files in `%LocalAppData%\WinDock\layouts`. To bring an exporte
 
 The **Windows 7** layout turns a dock into the Windows 7 taskbar in one step.
 
-1. Apply it: in App settings > Docks and displays click **Add ▾** > **Dock from a preset…** for a new dock, or in a dock's settings panel click **⋯** > **Apply a layout or look…** to change that dock. Choose **Windows 7** under **Layouts**, keep **Keep my pinned apps and folders** checked, leave **Keep my current look** clear, and click **Apply** (or **Add dock**). Then click **Keep**.
+1. Apply it: for a new dock, click the **Windows 7** picture under **Add a dock** in App settings > Docks and displays (keep **Copy my pinned apps** checked). To change a dock instead, in its settings panel click **⋯** > **Apply a layout or look…**, choose **Windows 7** under **Layouts**, keep **Keep my pinned apps and folders** checked, leave **Keep my current look** clear, and click **Apply**. Then click **Keep**.
 2. In App settings > Animation, under **Launching an app**, choose **None**: Windows 7 icons do not bounce. This setting is for every dock, so the layout cannot set it.
 3. If you use several docks, turn off or remove the ones you do not need, so only the taskbar is at the bottom.
 

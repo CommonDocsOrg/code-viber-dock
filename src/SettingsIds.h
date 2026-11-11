@@ -449,8 +449,18 @@ inline constexpr int kDocksOpen = 2810;       // "Open settings" (the selected r
 inline constexpr int kDockAddFloating = 2811; // round 6 phase 6A: "Add ▾" > "Floating dock" (a floating bar, layer desktop, centred)
 inline constexpr int kDockAddWidget = 2812;   // round 6 phase 6B: "Add ▾" > "Standalone widget ▸" (as a command: the catalog's widgets in a menu)
 inline constexpr int kLockAllDocksCaption = 2813;  // round 8 phase 8D
-inline constexpr int kDockAddMenu = 2814;     // round 8 phase 8D: "Add ▾" (a menu: Dock, Floating dock, Folder window…, Standalone widget ▸)
+inline constexpr int kDockAddMenu = 2814;     // round 8 phase 8D: "Add ▾" (a menu: Dock, Floating dock, Folder window…, Standalone widget ▸); round 18 phase 18A: the button is gone (the card's More ▾, 2823, has its other entries); as a command it opens that menu
 inline constexpr int kDockToggleEnabled = 2815;  // round 11 phase 11D: "Disable" / "Enable" (the selected row's docks[].enabled; greyed for the last enabled dock; = DockCommand 156)
+// --- round 18 phase 18A: the "Add a dock" card (under the selection line, above the list) ---
+inline constexpr int kAddDockCard = 2816;        // its heading expander "Add a dock" (open at first; per window, not saved)
+inline constexpr int kAddDockGallery = 2817;     // WinDock.SettingsGallery: a tile per built-in layout (Presets::All() order), then the saved ones (Presets::Mine() order, "Mine" over the first); a click / Enter / kMsgChoose adds that dock as a Keep / Cancel preview (= DockCommand 187)
+inline constexpr int kAddDockHint = 2818;        // the note under the tiles (two lines): what a click does, or the hovered tile's description
+inline constexpr int kAddDockCopyPins = 2819;    // check box "Copy my pinned apps" (the first dock's pins at the layout's marker; on at first; greyed while the hovered tile has no place for pins)
+inline constexpr int kAddDockCopyPinsCaption = 2820;
+inline constexpr int kAddDockDisplayLabel = 2821;  // "Display"
+inline constexpr int kAddDockDisplay = 2822;     // drop-down: Primary, every other connected display, Every display (the new dock's docks[].monitor)
+inline constexpr int kAddDockMore = 2823;        // "More ▾": Floating dock, Folder window…, Standalone widget ▸ (the old Add ▾ menu's other entries)
+// --- end round 18 phase 18A ---
 
 // The canvas (round 4 phase 3b)
 inline constexpr int kLayoutCanvas = 2900;    // WinDock.LayoutCanvas: the monitors and docks; its window text lists the docks' canvas rects (automation); a click selects the row, a double click opens the dock's window

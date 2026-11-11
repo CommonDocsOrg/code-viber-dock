@@ -232,11 +232,12 @@ The drawing shows every display to scale, with its usable area shaded. Each dock
 - Double-click a dock to open its settings panel.
 - Drag a dock along its edge, onto another edge or onto another display. It moves when you let go. Press Esc to cancel.
 
-The toolbar under the drawing has:
+The line under the drawing has:
 
-- **Add ▾**: a menu to add a **Dock**, a **Floating dock**, a **Dock from a preset…** (one of the built-in layouts), a **Dock from a layout…** (the chooser opens on the layouts you saved), a **Folder window…** or a **Standalone widget** (a submenu of your widgets).
 - A line that describes the selected dock (while you drag: where it will go).
 - **Lock all docks**: checked while every dock and standalone widget is locked. Check it to lock them all, clear it to unlock them all.
+
+Under it is the **Add a dock** card (see below), then the list.
 
 The list shows every dock, folder window and standalone widget with its name, its edge, its display and whether it is shown, parked or disabled. A dock is "Parked" when its display is not connected; it comes back when the display does. "Disabled" means you turned it off for now (see **Disable** below).
 
@@ -247,15 +248,20 @@ Under the list, for the selected row:
 - **Remove**: removes it. You cannot remove the last dock.
 - **Disable** / **Enable**: turns it off for a while without removing it, or back on. A disabled dock, folder window or standalone widget has no window, but keeps all its settings and items, so you can bring it back later exactly as it was. One dock always stays on: the button is greyed for the last one.
 - **Rename**: edits the dock's name right in the list (F2 does the same). Press Enter to keep the new name, Esc to cancel. The name is what menus, headers and titles show. Docks only.
-- **Save as layout…**: saves the selected dock (its place, behaviour, items and look) as a layout of your own, after asking for a name. You find it under **Mine** in the chooser. Docks only.
+- **Save as layout…**: saves the selected dock (its place, behaviour, items and look) as a layout of your own, after asking for a name. It gets a tile of its own under **Mine** in **Add a dock**, and you find it under **Mine** in the chooser. Docks only.
 
-To add a dock from a layout:
+#### Add a dock
 
-1. Click **Add ▾** and choose **Dock from a preset…** (or **Dock from a layout…** for one you saved).
-2. Pick a layout at the left.
-3. Leave **Copy my pinned apps from the first dock** checked to bring your pins along.
-4. Click **Add dock**.
-5. The new dock shows at once. Click **Keep** in the bar to keep it, or **Cancel** to remove it again.
+The **Add a dock** card shows every layout as a small picture: a display with the dock where the layout puts it, in the layout's look. The built-in layouts come first, then the ones you saved under **Mine**.
+
+- Point at a layout: the line under the pictures says what it is for and where it sits, and the drawing above shows where the new dock would go, as a dashed outline.
+- Click a layout (or press Enter on it): the new dock appears on your desktop at once. Click **Keep** in the bar at the top of the window to keep it, or **Cancel** to remove it again.
+- While it is shown you can click another layout: it replaces the one you are trying, so you can flip through them on your real desktop. Closing the window also cancels.
+- **Copy my pinned apps**: the new dock gets the pinned apps and folders of your first dock. It is greyed for layouts that have no place for pins (Floating performance, Desktop dashboard).
+- **Display**: the display the new dock goes on, or **Every display** for one copy on each. If the layout's edge is already taken there, the new dock goes to the next free edge.
+- **More ▾**: a **Floating dock**, a **Folder window…** or a **Standalone widget** (a submenu of your widgets).
+
+If another preview is open (a look you are trying on the Themes page, for example), keep or cancel it first. The card folds away with its heading when you do not need it.
 
 ### Themes
 

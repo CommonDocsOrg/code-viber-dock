@@ -403,6 +403,13 @@ public static class Children {
         EnumChildWindows(parent, (h, lp) => { if (GetDlgCtrlID(h) == id) { found = h; return false; } return true; }, IntPtr.Zero);
         return found;
     }
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern int GetClassNameW(IntPtr h, StringBuilder sb, int n);
+    // Round 18 phase 18A: the first descendant of a class (WinDock.SettingsNav, WinDock.LayoutCanvas).
+    public static IntPtr ByClass(IntPtr parent, string cls) {
+        IntPtr found = IntPtr.Zero;
+        EnumChildWindows(parent, (h, lp) => { var sb = new StringBuilder(256); GetClassNameW(h, sb, 256); if (sb.ToString() == cls) { found = h; return false; } return true; }, IntPtr.Zero);
+        return found;
+    }
     // WM_GETTEXT, sent: GetWindowText does not cross processes for a control's text (it reads
     // the cached caption only: an edit box in the dock's process came back empty).
     public static string Text(IntPtr h) {
@@ -416,6 +423,27 @@ public static class Children {
 '@
     }
     [WinDockSmoke.Children]::ById($Hwnd, $Id)
+}
+
+function Get-ChildOfClass {
+    <# Round 18 phase 18A: the first descendant of -Hwnd of window class -Class (IntPtr.Zero: none). #>
+    param([Parameter(Mandatory)][IntPtr]$Hwnd, [Parameter(Mandatory)][string]$Class)
+    [void](Get-ChildControl -Hwnd $Hwnd -Id -1)  # loads WinDockSmoke.Children
+    [WinDockSmoke.Children]::ByClass($Hwnd, $Class)
+}
+
+function Show-GlobalPage {
+    <#
+      Round 18 phase 18A: shows nav row -Row of the App settings window -Hwnd (QueryState 279's order:
+      0 General, 1 Docks and displays, 2 Themes ...): posted Home and Downs to its WinDock.SettingsNav
+      (STATUS.md "Round 8 phase 8D"); true when QueryState 279 reports that row.
+    #>
+    param([Parameter(Mandatory)][IntPtr]$Hwnd, [Parameter(Mandatory)][int]$Row)
+    $nav = Get-ChildOfClass -Hwnd $Hwnd -Class 'WinDock.SettingsNav'
+    if ($nav -eq [IntPtr]::Zero) { return $false }
+    [void]$script:N::PostMessageW($nav, 0x0100, [IntPtr]0x24, [IntPtr]1)  # WM_KEYDOWN VK_HOME
+    for ($i = 0; $i -lt $Row; $i++) { [void]$script:N::PostMessageW($nav, 0x0100, [IntPtr]0x28, [IntPtr]1) }  # VK_DOWN
+    Wait-Until -TimeoutMs 3000 { (Get-DockState 279) -eq $Row }
 }
 
 function Get-ControlText {

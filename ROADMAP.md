@@ -1644,6 +1644,47 @@ Not done, by choice: sub-folders (`shell.list` is one level), a file dropped on 
 widget cannot write its own settings), a blurred shadow (a stack of translucent rounded rectangles
 instead).
 
+## Round 18 (2026-11-11): add a dock from a gallery, previewed live
+
+Plan: `C:\Users\olson\.claude\plans\windock-round18.md`. From the user's request of 2026-11-11:
+"I want it to be easier for the user to add/preview docks including the premade/template docks
+especially from the app settings i think".
+
+**What was there.** Adding a dock from App settings took Docks and displays > Add ▾ > a six-entry
+menu > (for a template) the modal chooser (a list of names, a silhouette, a one-bar strip, the pins
+check box, Add dock), and only then a Keep / Cancel preview on the desktop. The live preview existed
+but was three clicks and a modal dialog away, the templates were never seen as pictures, and the
+saved layouts sat behind a separate menu entry.
+
+**Phase 18A: the Add a dock card** (option A of the plan; B "one click to the chooser", C "an Add
+page" and D "Quick setup as the add flow" were rejected there). A card right under the Docks and
+displays canvas, so the result shows where the user is looking:
+
+- Tiles, not a list: every built-in layout, then the saved ones under a "Mine" caption, each a
+  small display with the bar where the layout puts it in the layout's look and a few glyphs of its
+  items. The theme gallery of round 12 (wide mode of 13H) is the control; it learned a layout
+  picture (`DrawMiniLayout`), captions that start a row, and a hover notification. The chooser's
+  silhouette geometry (`Presets::SilhouetteBar`) and `WhereText` moved into `Presets` so both draw
+  the same picture.
+- Hover is free: the description goes into a fixed two-line hint and a dashed ghost goes onto the
+  canvas (estimated from the config, the dock does not exist yet). Nothing in the config changes,
+  and the hint never relayouts the page.
+- A click is the live preview that was already there (`App::AddLayoutDock` → Keep / Cancel). The
+  new part is the flipping: a click while the card's own preview is up cancels it first, so the
+  user tries Modern, then Windows 7, on the real desktop. A preview of another source (a look, the
+  chooser, Quick setup) is never cancelled by the card: it refuses and says why.
+- The Display drop-down threads a monitor through `Presets::MakeNew`, and a new dock from the card
+  goes to the next free edge of that display (Duplicate's rule) instead of stacking on a taken
+  edge; the chooser and Quick setup keep their old placement.
+- More ▾ keeps what is not a dock template (Floating dock, Folder window…, Standalone widget ▸);
+  the old Add ▾ and its "Dock from a preset… / layout…" entries left the page, but their commands and
+  the chooser's NewDock variant (DockCommand 152) stay for automation.
+
+Idle cost: none added. The gallery paints on WM_PAINT only (software Direct2D, as the theme
+gallery), the saved layouts are read when the page reloads, the tiles are rebuilt only when what
+they show changed. Automation: DockCommand 187, QueryState 333, ids 2816 - 2823;
+`tools\smoke\add-dock-gallery.ps1`.
+
 ## Dependencies at a glance
 
 ```

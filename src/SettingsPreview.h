@@ -100,6 +100,13 @@ private:
 // (pixels); `s` = pixels per DIP. The gallery's tiles.
 void DrawMiniDock(ID2D1DeviceContext* dc, const D2D1_RECT_F& box, const ThemeConfig& t, float s);
 
+// Round 18 phase 18A: a layout's picture for the Add a dock gallery: a small display (bezel, the
+// wallpaper of DrawMiniDock) with the bar of `layout` where it puts it (Presets::SilhouetteBar), in
+// the colours of look `t` (fill, border), a few glyphs of its items on the bar (icons for the pins
+// and running apps, a bar for a separator, a pill for a clock or a widget) so Modern does not look
+// like Basic. Fills `box` (pixels); `s` = pixels per DIP.
+void DrawMiniLayout(ID2D1DeviceContext* dc, const D2D1_RECT_F& box, const DockConfig& layout, const ThemeConfig& t, float s);
+
 // Round 12 phase 12B: the theme gallery (WinDock.SettingsGallery), a control of the Themes page and
 // of a dock's Look tab: one tile per look (a small dock drawn by DrawMiniDock, the name under it),
 // wrapping to the control's width (SettingsPage::MeasureCustomDip asks HeightDip). The tile of the
@@ -114,11 +121,20 @@ public:
     static constexpr UINT kMsgSelect = WM_USER + 1;   // automation: wParam = tile index, selected (not chosen)
     static constexpr UINT kMsgChoose = WM_USER + 2;   // automation: wParam = tile index, chosen as a click would
     static constexpr int kTileW = 116, kTileH = 92, kGapX = 8, kGapY = 8;  // DIPs
+    // Round 18 phase 18A: the tile under the pointer (or, with the keyboard focus, the selected one)
+    // changed: WM_COMMAND(MAKEWPARAM(id, kHot), hwnd) to the parent, which reads Hot(). Sent only
+    // after SetNotifyHot(true) (the Add a dock gallery's ghost and hint).
+    static constexpr WORD kHot = 2;
     struct Tile {
         std::wstring name;    // "Glass", "App look (Dark)"
         std::wstring detail;  // the current tile's second line ("Current · 2 changed"; "" others)
         ThemeConfig theme;
         bool current = false;
+        // --- round 18 phase 18A: a layout tile (DrawMiniLayout of `dock` in `theme`, else the theme
+        // picture), and a caption the wide tiles draw above this one, which starts a new row ("Mine") ---
+        bool layout = false;
+        DockConfig dock;
+        std::wstring caption;
     };
 
     SettingsGallery() = default;
@@ -142,6 +158,15 @@ public:
     // tagline), the current tile ringed in the accent with a check badge. 0 columns: the classic tiles.
     void SetWide(int columns, int tileHDip);
     static constexpr int kWideGap = 8;  // DIPs between wide tiles (both ways)
+    // --- round 18 phase 18A ---
+    static constexpr int kCaptionH = 22;  // DIPs: a tile caption's row (wide tiles)
+    // The height of the tiles in wide mode at `columns` x `tileHDip` (captions start rows of their own).
+    int WideHeightDip(int columns, int tileHDip) const;
+    void SetNotifyHot(bool notify) { notifyHot_ = notify; }
+    // The tile under the pointer; else, while the gallery has the keyboard focus, the selected one;
+    // else -1.
+    int Hot() const;
+    // --- end round 18 phase 18A ---
 
 private:
     static LRESULT CALLBACK Proc(HWND, UINT, WPARAM, LPARAM);
@@ -174,4 +199,11 @@ private:
     winrt::com_ptr<IDWriteTextFormat> nameLeft_, detailLeft_;  // leading-aligned (the wide tiles)
     float nameLeftSize_ = 0.0f, detailLeftSize_ = 0.0f;
     // --- end round 13 phase 13H ---
+    // --- round 18 phase 18A ---
+    void NotifyHot();
+    bool notifyHot_ = false;
+    int notifiedHot_ = -1;  // what the parent was last told
+    winrt::com_ptr<IDWriteTextFormat> captionFormat_;
+    float captionSize_ = 0.0f;
+    // --- end round 18 phase 18A ---
 };

@@ -237,13 +237,112 @@ DockConfig Apply(const Preset& p, const Config& config, const DockConfig& target
     return d;
 }
 
-DockConfig MakeNew(const Preset& p, const Config& config, const std::vector<DockItemEntry>& pins) {
+DockConfig MakeNew(const Preset& p, const Config& config, const std::vector<DockItemEntry>& pins, int monitor, bool placeFree) {
     DockConfig d = p.dock;
     d.id = config.UniqueDockId(p.id);
     d.color = 0;
-    d.monitor = DockConfig::kMonitorPrimary;
+    d.monitor = monitor;
     d.items = BuildItems(p, config, pins, !pins.empty());
+    // Round 18 phase 18A: the next free edge of that display (the rule of App::DuplicateDock: only
+    // enabled bar docks that are not floating or rings count; "each" is on every display).
+    if (placeFree && d.shape == DockShape::Bar && !d.Floating()) {
+        auto display = [](int m) { return m == DockConfig::kMonitorPrimary ? 0 : m; };
+        bool used[4] = {};
+        for (const DockConfig& o : config.docks) {
+            if (!o.IsDock() || !o.enabled || o.Floating() || o.shape == DockShape::Circle) continue;
+            if (display(o.monitor) != display(d.monitor) && !o.Each() && !d.Each()) continue;
+            used[static_cast<int>(o.edge) & 3] = true;
+        }
+        if (used[static_cast<int>(d.edge) & 3]) {
+            const DockEdge order[] = {DockEdge::Bottom, DockEdge::Top, DockEdge::Left, DockEdge::Right};
+            const auto freeEdge = std::find_if(std::begin(order), std::end(order), [&](DockEdge e) { return !used[static_cast<int>(e)]; });
+            if (freeEdge != std::end(order)) {
+                d.edge = *freeEdge;
+                d.offset = 0;
+            } else if (!d.fullWidth) {
+                // Every edge taken: along its own edge, one bar length further (a full-width bar has
+                // no room to move: it overlaps, as two full-width docks on one edge always did).
+                const int step = EstimatedLengthDip(d) + 8;
+                d.offset = std::clamp(d.offset + (d.align == DockAlign::End ? -step : step), -16000, 16000);
+            }
+        }
+    }
     return d;
+}
+
+std::wstring WhereText(const DockConfig& d) {
+    // Round 18 phase 18A: moved here from PresetDialog.cpp (the gallery's hint shows it too).
+    std::wstring s;
+    if (d.Floating()) {
+        const bool cx = d.x == DockConfig::kCentred, cy = d.y == DockConfig::kCentred;
+        if (cx && cy) {
+            s = L"Floating in the middle of the screen.";
+        } else {
+            const std::wstring v = cy ? L"middle" : d.y < 400 ? L"top" : L"bottom";
+            const std::wstring h = cx ? L"" : d.x > 1000 ? L" right" : L" left";
+            s = L"Floating at the " + v + h + L" of the screen.";
+        }
+    } else {
+        s = std::wstring(d.edge == DockEdge::Top    ? L"Top"
+                         : d.edge == DockEdge::Left ? L"Left"
+                         : d.edge == DockEdge::Right ? L"Right"
+                                                     : L"Bottom") +
+            L" edge";
+        const bool vertical = IsVertical(d.edge);
+        if (d.fullWidth) {
+            s += L", full length.";
+        } else if (d.align == DockAlign::Start) {
+            s += vertical ? L", at the top." : L", at the left.";
+        } else if (d.align == DockAlign::End) {
+            s += vertical ? L", at the bottom." : L", at the right.";
+        } else {
+            s += L", centred.";
+        }
+    }
+    switch (d.layer) {
+        case DockLayer::Behind: s += L" On the desktop, under your windows."; break;
+        case DockLayer::Desktop: s += L" Shown while the desktop is showing."; break;
+        default:
+            s += !d.AutoHideOn()                           ? L" Always shown, above your windows."
+                 : d.autoHide == AutoHideMode::Intelligent ? L" Hides while a window covers it."
+                                                           : L" Hides when the pointer leaves it.";
+            break;
+    }
+    if (d.locked) s += L" Locked.";
+    return s;
+}
+
+RECT SilhouetteBar(const DockConfig& d, const RECT& in, int thick) {
+    // Round 18 phase 18A: PresetDialog::PaintPreview's geometry, shared.
+    const int iw = in.right - in.left, ih = in.bottom - in.top;
+    const bool vertical = IsVertical(d.edge);
+    if (d.Floating()) {
+        const int bw = vertical ? thick : iw * 40 / 100, bh = vertical ? ih * 40 / 100 : thick;
+        // x / y in DIPs from the work area (a nominal 1920 x 1080 one): left / centre / right.
+        auto at = [](int v, int room, int size, int nominal) {
+            if (v == DockConfig::kCentred) return (room - size) / 2;
+            return std::clamp(static_cast<int>(static_cast<long long>(v) * room / nominal), 0, std::max(0, room - size));
+        };
+        const int fx = at(d.x, iw, bw, 1920), fy = at(d.y, ih, bh, 1080);
+        return RECT{in.left + fx, in.top + fy, in.left + fx + bw, in.top + fy + bh};
+    }
+    const int length = vertical ? ih : iw;
+    const int len = d.fullWidth ? length : length * 46 / 100;
+    const int start = vertical ? in.top : in.left;
+    const int pos = d.fullWidth || d.align == DockAlign::Center ? start + (length - len) / 2
+                    : d.align == DockAlign::Start               ? start
+                                                                : start + length - len;
+    switch (d.edge) {
+        case DockEdge::Top: return RECT{pos, in.top, pos + len, in.top + thick};
+        case DockEdge::Left: return RECT{in.left, pos, in.left + thick, pos + len};
+        case DockEdge::Right: return RECT{in.right - thick, pos, in.right, pos + len};
+        case DockEdge::Bottom:
+        default: return RECT{pos, in.bottom - thick, pos + len, in.bottom};
+    }
+}
+
+int EstimatedLengthDip(const DockConfig& d) {
+    return (d.iconSize + 8) * static_cast<int>(std::max<size_t>(1, d.items.size()));
 }
 
 std::vector<DockItemEntry> PinsOf(const DockConfig& dock) { return dock.IsDock() ? dock.Pins() : std::vector<DockItemEntry>{}; }

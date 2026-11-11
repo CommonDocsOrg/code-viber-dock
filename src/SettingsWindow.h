@@ -216,6 +216,13 @@ struct SettingsHost {
     // something was added: on that dock where the marker was, or a standalone widget at the point).
     std::function<int(int phase, POINT screen, const DockItemEntry* entry)> drawerDrag;
     // --- end round 12 phase 12D ---
+    // --- round 18 phase 18A: Docks and displays' Add a dock card. A new dock from layout `index`
+    // (`mine`: of Presets::Mine(), else of Presets::All()) on display `monitor` (DockConfig::monitor),
+    // with the first dock's pins when `copyPins`, on the next free edge of that display, as a Keep /
+    // Cancel preview owned by this window; a preview this card started is cancelled first. 1 added
+    // (the Global window selects the new dock), 0 refused, 2 another preview is open (Keep or Cancel
+    // it first: it is not this card's to cancel). ---
+    std::function<int(bool mine, size_t index, bool copyPins, int monitor)> addLayoutDock;
 };
 
 class SettingsWindow;

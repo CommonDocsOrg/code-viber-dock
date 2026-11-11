@@ -70,47 +70,8 @@ const wchar_t* KindName(PresetKind k) {
     return k == PresetKind::Looks ? L"Looks" : k == PresetKind::Mine ? L"Mine" : L"Layouts";
 }
 
-// "Bottom edge, centred." / "Floating at the top right." / "Left edge, full length."
-std::wstring WhereText(const DockConfig& d) {
-    std::wstring s;
-    if (d.Floating()) {
-        const bool cx = d.x == DockConfig::kCentred, cy = d.y == DockConfig::kCentred;
-        if (cx && cy) {
-            s = L"Floating in the middle of the screen.";
-        } else {
-            const std::wstring v = cy ? L"middle" : d.y < 400 ? L"top" : L"bottom";
-            const std::wstring h = cx ? L"" : d.x > 1000 ? L" right" : L" left";
-            s = L"Floating at the " + v + h + L" of the screen.";
-        }
-    } else {
-        s = std::wstring(d.edge == DockEdge::Top    ? L"Top"
-                         : d.edge == DockEdge::Left ? L"Left"
-                         : d.edge == DockEdge::Right ? L"Right"
-                                                     : L"Bottom") +
-            L" edge";
-        const bool vertical = IsVertical(d.edge);
-        if (d.fullWidth) {
-            s += L", full length.";
-        } else if (d.align == DockAlign::Start) {
-            s += vertical ? L", at the top." : L", at the left.";
-        } else if (d.align == DockAlign::End) {
-            s += vertical ? L", at the bottom." : L", at the right.";
-        } else {
-            s += L", centred.";
-        }
-    }
-    switch (d.layer) {
-        case DockLayer::Behind: s += L" On the desktop, under your windows."; break;
-        case DockLayer::Desktop: s += L" Shown while the desktop is showing."; break;
-        default:
-            s += !d.AutoHideOn()                           ? L" Always shown, above your windows."
-                 : d.autoHide == AutoHideMode::Intelligent ? L" Hides while a window covers it."
-                                                           : L" Hides when the pointer leaves it.";
-            break;
-    }
-    if (d.locked) s += L" Locked.";
-    return s;
-}
+// Round 18 phase 18A: WhereText moved to Presets (the Add a dock gallery shows it too).
+using Presets::WhereText;
 
 }  // namespace
 
@@ -862,34 +823,8 @@ void PresetDialog::PaintPreview(HWND hwnd, HDC hdc) {
         FillRound(dc, RECT{mid - Px(26), screen.bottom + Px(9), mid + Px(26), screen.bottom + Px(14)}, Mix(palette_.text, card, 34), Px(3));
         const int inset = Px(5), thick = Px(7);
         const RECT in{screen.left + inset, screen.top + inset, screen.right - inset, screen.bottom - inset};
-        const int iw = in.right - in.left, ih = in.bottom - in.top;
-        const bool vertical = IsVertical(d.edge);
-        if (d.Floating()) {
-            const int bw = vertical ? thick : iw * 40 / 100, bh = vertical ? ih * 40 / 100 : thick;
-            // x / y in DIPs from the work area (a nominal 1920 x 1080 one): left / centre / right.
-            auto at = [](int v, int room, int size, int nominal) {
-                if (v == DockConfig::kCentred) return (room - size) / 2;
-                return std::clamp(static_cast<int>(static_cast<long long>(v) * room / nominal), 0, std::max(0, room - size));
-            };
-            const int fx = at(d.x, iw, bw, 1920), fy = at(d.y, ih, bh, 1080);
-            FillRound(dc, RECT{in.left + fx, in.top + fy, in.left + fx + bw, in.top + fy + bh}, bar, Px(3));
-        } else {
-            const int length = vertical ? ih : iw;
-            const int len = d.fullWidth ? length : length * 46 / 100;
-            const int start = vertical ? in.top : in.left;
-            const int pos = d.fullWidth || d.align == DockAlign::Center ? start + (length - len) / 2
-                            : d.align == DockAlign::Start               ? start
-                                                                        : start + length - len;
-            RECT b{};
-            switch (d.edge) {
-                case DockEdge::Top: b = RECT{pos, in.top, pos + len, in.top + thick}; break;
-                case DockEdge::Left: b = RECT{in.left, pos, in.left + thick, pos + len}; break;
-                case DockEdge::Right: b = RECT{in.right - thick, pos, in.right, pos + len}; break;
-                case DockEdge::Bottom:
-                default: b = RECT{pos, in.bottom - thick, pos + len, in.bottom}; break;
-            }
-            FillRound(dc, b, bar, Px(4));
-        }
+        // Round 18 phase 18A: the bar's place from Presets::SilhouetteBar (the gallery draws the same).
+        FillRound(dc, Presets::SilhouetteBar(d, in, thick), bar, Px(d.Floating() ? 3 : 4));
         // --- the text: where, then what is on the dock ---
         para(L"Where", fontBold_, palette_.text, 2);
         para(WhereText(d), font_, palette_.textSecondary, 8);

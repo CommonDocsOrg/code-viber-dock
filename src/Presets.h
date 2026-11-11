@@ -9,6 +9,8 @@
 // or name, an unknown item kind, a widget that is not installed, an unknown theme preset, more than
 // one marker) is left out of the list with an OutputDebugString line.
 
+#include <windows.h>  // RECT (round 18 phase 18A: SilhouetteBar)
+
 #include <string>
 #include <vector>
 
@@ -52,7 +54,26 @@ DockConfig Apply(const Preset& p, const Config& config, const DockConfig& target
 
 // A new dock from preset `p`: its id made unique (the preset's id, then id2 ...), the primary
 // monitor, no colour (the palette by index), `pins` at the marker (none: dropped).
-DockConfig MakeNew(const Preset& p, const Config& config, const std::vector<DockItemEntry>& pins);
+// Round 18 phase 18A: on display `monitor` (DockConfig::monitor: an index, kMonitorPrimary or
+// kMonitorEach); `placeFree`: a bar dock whose edge is taken on that display by another enabled
+// bar dock moves to the next free edge (bottom, top, left, right), as Duplicate dock does; every
+// edge taken: it stays on its edge, moved along it by its estimated length (never refused). The
+// Add a dock card places its docks so; the chooser's Add dock keeps the preset's edge as before.
+DockConfig MakeNew(const Preset& p, const Config& config, const std::vector<DockItemEntry>& pins,
+                   int monitor = DockConfig::kMonitorPrimary, bool placeFree = false);
+
+// --- round 18 phase 18A: shared by the chooser and the Add a dock gallery ---------------------------
+// "Bottom edge, centred. Hides while a window covers it." (where a layout puts its dock and how it
+// shows; was PresetDialog.cpp's).
+std::wstring WhereText(const DockConfig& d);
+// Where the bar of `d` sits in a small picture of a display whose inner area (the screen inside its
+// bezel) is `in`: `thick` px across, a share of the length (all of it when full width), aligned as
+// the dock is; a floating dock where its x / y put it on a nominal 1920 x 1080 work area. Pure
+// geometry, so the chooser's GDI silhouette and the gallery's Direct2D tiles draw the same picture.
+RECT SilhouetteBar(const DockConfig& d, const RECT& in, int thick);
+// A rough length of a new dock's bar in DIPs ((icon size + 8) per item, as Duplicate dock's
+// fallback): MakeNew's step along a full edge and the Docks and displays canvas's ghost.
+int EstimatedLengthDip(const DockConfig& d);
 
 // The pins (IsPin() items) of a dock, as Apply / MakeNew take them.
 std::vector<DockItemEntry> PinsOf(const DockConfig& dock);

@@ -18,8 +18,10 @@
 #include <vector>
 
 #include "ContextMenu.h"
+#include "Presets.h"
 #include "SettingsForm.h"
 #include "SettingsIds.h"
+#include "SettingsPreview.h"
 #include "WidgetPackage.h"
 
 namespace {
@@ -34,9 +36,18 @@ constexpr int kEdgeColDip = 110;
 constexpr int kDisplayColDip = 130;
 constexpr int kButtonW = 114;  // round 8 phase 8A: four in a row fit beside the scroll bar
 constexpr int kButtonStep = 120;
-constexpr int kAddW = 96;      // round 8 phase 8D: the toolbar's "Add ▾"
-constexpr int kLockW = 122;    // ... and "Lock all docks" (its box and caption) at its right
-// The Add ▾ menu's "Standalone widget ▸" entries: kWidgetCmd + the catalog index.
+constexpr int kLockW = 122;    // round 8 phase 8D: "Lock all docks" (its box and caption) at the toolbar's right
+// Round 18 phase 18A: the Add a dock card. Wide gallery tiles at least kAddTileMinW wide (as many
+// columns as fit, at most kAddTileMaxCols), kAddTileH tall: the layout's picture over its name and
+// tagline (the 40 DIPs SettingsGallery::PaintWide gives the text).
+constexpr int kAddTileMinW = 150;
+constexpr int kAddTileMaxCols = 6;
+constexpr int kAddTileH = 124;
+constexpr int kAddMoreW = 96;     // "More ▾"
+constexpr int kAddHintH = 36;     // the hint under the tiles: two lines, a fixed height (hover changes its text, not the layout)
+constexpr wchar_t kAddHint[] = L"Click a layout: the dock appears on your desktop at once. Keep it or Cancel it in the bar above; "
+                               L"another layout replaces it.";
+// The More ▾ menu's "Standalone widget ▸" entries: kWidgetCmd + the catalog index.
 constexpr UINT kWidgetCmd = 0x7000;
 constexpr float kMarginDip = 8.0f;     // the dock's distance from the monitor edge (DockWindow kBottomMargin)
 constexpr float kSnapDip = 24.0f;      // snaps to the centre / an end this close (DockWindow kDockSnapDip)
@@ -81,6 +92,15 @@ public:
     void Reload();
     void Repaint() {
         if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+    }
+    // Round 18 phase 18A: the dashed outline of a dock the Add a dock card would add (the hovered
+    // tile's: Presets::MakeNew on the chosen display), or none. Only the drawing: no config, no dock.
+    void SetGhost(const DockConfig* d, const std::wstring& label) {
+        const bool had = hasGhost_;
+        hasGhost_ = d != nullptr;
+        if (d) ghost_ = *d;
+        ghostLabel_ = label;
+        if (had || hasGhost_) Repaint();
     }
     static LRESULT CALLBACK Proc(HWND, UINT, WPARAM, LPARAM);
 
@@ -136,6 +156,11 @@ private:
     POINT grab_{};          // screen: pointer - bar centre at the press
     bool dragging_ = false;
     Target target_;
+    // --- round 18 phase 18A: the Add a dock card's ghost ---
+    std::vector<RECT> GhostRects() const;  // screen px: one per display it would show on (none: parked)
+    DockConfig ghost_;
+    bool hasGhost_ = false;
+    std::wstring ghostLabel_;
 };
 
 // Global > Docks and displays (round 5 phase B: the Docks list of round 4 phase 3 and the Layout
@@ -198,12 +223,53 @@ protected:
         // Round 9 phase 9D: the card's "?" on the hint's line (the canvas above takes the whole width).
         HelpButton(L"guide-settings.md#docks-and-displays");
         NextRow(24);
-        // Round 8 phase 8D: one toolbar: "Add ▾" (Dock, Floating dock, Folder window…, Standalone
-        // widget ▸), the selection / drop line, "Lock all docks" at the right.
-        Button(kDockAddMenu, L"Add \x25BE", kMargin, kAddW);
-        Text(kLayoutSelected, CtlKind::Value, L"", kMargin + kAddW + 12, right - kLockW - 8 - (kMargin + kAddW + 12));
+        // Round 8 phase 8D: one toolbar: the selection / drop line, "Lock all docks" at the right.
+        // Round 18 phase 18A: its "Add ▾" went into the Add a dock card below (More ▾).
+        Text(kLayoutSelected, CtlKind::Value, L"", kMargin, right - kLockW - 8 - kMargin);
         Check(kLockAllDocks, kLockAllDocksCaption, L"Lock all docks", right - kLockW);
         NextRow(kRowH + 4);
+        // --- round 18 phase 18A: the Add a dock card, right under the canvas (the new dock shows
+        // there where the user is looking): the layouts as pictures, a click adds one as a Keep /
+        // Cancel preview on the desktop, hovering one draws its ghost on the canvas. ---
+        SettingsGallery::Register(GetModuleHandleW(nullptr));
+        UntitledCard();
+        WideCard();
+        HeadingExpander(kAddDockCard, L"Add a dock", true, L"guide-settings.md#add-a-dock");
+        Ctl& tiles = Add(kAddDockGallery, CtlKind::Custom, SettingsGallery::kClassName, L"Add a dock", WS_TABSTOP,
+                         RECT{kMargin, y_ + 2, right, y_ + 2 + kAddTileH});
+        tiles.measured = true;  // MeasureCustomDip: the rows of tiles at the page's width
+        Tip(kAddDockGallery, L"Every built-in layout, then the layouts you saved (Save as layout\x2026 below). Click one (or "
+                             L"Enter): the new dock appears on your desktop at once as a preview; Keep or Cancel it in the "
+                             L"bar at the top of this window. Clicking another layout replaces the preview. Hovering a "
+                             L"layout shows where the dock would go on the drawing above.");
+        NextRow(kAddTileH + 8);
+        Ctl& addHint = Text(kAddDockHint, CtlKind::Note, kAddHint, kMargin, right - kMargin, kAddHintH);
+        addHint.measured = false;  // a fixed two lines: hovering changes the text, never the page's layout
+        addHint.style |= SS_ENDELLIPSIS;
+        NextRow(kAddHintH + 4);
+        Check(kAddDockCopyPins, kAddDockCopyPinsCaption, L"Copy my pinned apps");
+        static constexpr wchar_t kPinsTip[] =
+            L"The new dock gets the pinned apps and folders of your first dock where the layout has a place for them. "
+            L"Greyed while the layout under the pointer has none (Floating performance, Desktop dashboard).";
+        Tip(kAddDockCopyPins, kPinsTip);
+        Tip(kAddDockCopyPinsCaption, kPinsTip);
+        constexpr int kDisplayX = kMargin + 200, kDisplayLabelW = 56, kDisplayW = 200;
+        Text(kAddDockDisplayLabel, CtlKind::Label, L"Display", kDisplayX, kDisplayLabelW);
+        Combo(kAddDockDisplay, kDisplayX + kDisplayLabelW + 4, kDisplayW, false);
+        static constexpr wchar_t kDisplayTip[] =
+            L"Where the new dock goes: the primary display, another connected display, or Every display (one copy on "
+            L"each). If the layout's edge is taken there, the dock goes to the next free edge.";
+        Tip(kAddDockDisplayLabel, kDisplayTip);
+        Tip(kAddDockDisplay, kDisplayTip);
+        Button(kAddDockMore, L"More \x25BE", right - kAddMoreW, kAddMoreW);
+        Tip(kAddDockMore, L"A floating dock (anywhere on the display), a folder window (a folder on the desktop) or a "
+                          L"standalone widget (one widget in a window of its own).");
+        NextRow(kRowH + 4);
+        EndExpander();
+        // The list and its buttons: a card of their own.
+        UntitledCard();
+        WideCard();
+        // --- end round 18 phase 18A ---
         // Round 12 phase 12C: LVS_EDITLABELS for Rename (only Rename / F2 start an edit: LVN_BEGINLABELEDIT
         // refuses the others, so a slow second click does not rename).
         Add(kDocksList, CtlKind::List, WC_LISTVIEWW, L"Docks",
@@ -231,14 +297,14 @@ protected:
         Tip(kDockRename, L"Renames the selected dock in the list (F2 does the same; Enter keeps the name, Esc cancels). The name "
                          L"is what menus, headers and titles show; its id stays the same. Docks only.");
         Tip(kDockSaveLayout, L"Saves the selected dock (its place, behaviour, items and look) as a layout of your own, to apply "
-                             L"to a dock later or to start a new dock from (Add \x25BE > Dock from a layout\x2026). Docks only.");
+                             L"to a dock later or to start a new dock from (its tile in Add a dock above). Docks only.");
         NextRow(kRowH + 4);
         // --- end round 12 phase 12C ---
         static constexpr wchar_t kDocksTip[] =
             L"Every display with its docks (the shaded part is its work area). Click a dock to select it, double-click "
             L"it (or its row) to open its settings panel beside it; drag it along its edge (it snaps to the centre and the "
-            L"ends), onto another edge or onto another display: it moves when you let go. A new dock starts at the "
-            L"bottom of the primary display with the running apps and the clock. A dock whose display is not "
+            L"ends), onto another edge or onto another display: it moves when you let go. Add a dock below adds one from a "
+            L"layout (hover a layout: its outline shows here). A dock whose display is not "
             L"connected is parked until it is; \"Every display\" shows one copy on each. A folder window shows a "
             L"folder on the desktop, under your windows. A floating dock sits anywhere on its display (on the desktop "
             L"until you choose another layer): drag it where you want it. A standalone widget is one widget in a "
@@ -256,6 +322,11 @@ protected:
 
     void Created() override {
         if (HWND c = Item(kLayoutCanvas)) canvas_.Attach(c);
+        if (HWND g = Item(kAddDockGallery)) {  // round 18 phase 18A
+            gallery_.Attach(g);
+            gallery_.SetNotifyHot(true);
+        }
+        SetCheck(kAddDockCopyPins, copyPins_);
         HWND list = Item(kDocksList);
         if (!list) return;
         LVCOLUMNW col{};
@@ -272,14 +343,34 @@ protected:
     void Load() override {
         FillList();
         canvas_.Reload();
+        FillAddCard();  // round 18 phase 18A
     }
     void OnDisplayChange() override {
         FillList();
         canvas_.Reload();
+        FillDisplays();
+        UpdateHot();
     }
+
+    // --- round 18 phase 18A: the gallery's rows at the page's width; automation ---
+    int MeasureCustomDip(int id, int widthDip) const override {
+        if (id != kAddDockGallery) return -1;
+        const int cols = std::clamp((widthDip + SettingsGallery::kWideGap) / (kAddTileMinW + SettingsGallery::kWideGap), 1, kAddTileMaxCols);
+        gallery_.SetWide(cols, kAddTileH);  // the columns follow the measured width (repaints only)
+        return gallery_.WideHeightDip(cols, kAddTileH);
+    }
+    bool Query(int code, LPARAM arg, LRESULT& out) override {
+        if (code != 333) return false;
+        // QueryState 333: the tile count; LOWORD 1 the selected tile, 2 the tile whose ghost the canvas shows (-1 none).
+        const int what = static_cast<int>(arg & 0xFFFF);
+        out = what == 1 ? gallery_.Selected() : what == 2 ? ghostTile_ : gallery_.Count();
+        return true;
+    }
+    // --- end round 18 phase 18A ---
 
     void OnStyleChanged() override {
         canvas_.Reload();
+        GalleryColors();  // round 18 phase 18A
         HWND list = Item(kDocksList);
         if (!list) return;
         const Ctl* c = Find(kDocksList);
@@ -349,11 +440,32 @@ protected:
     }
 
     void OnCommand(int id, int code, HWND ctl) override {
+        // --- round 18 phase 18A: the Add a dock card ---
+        if (id == kAddDockGallery) {
+            if (code == SettingsGallery::kChosen) AddTile(gallery_.Selected());
+            if (code == SettingsGallery::kHot) UpdateHot();
+            return;
+        }
+        if (id == kAddDockDisplay) {
+            if (code != CBN_SELCHANGE) return;
+            const int sel = ComboSel(kAddDockDisplay);
+            if (sel >= 0 && static_cast<size_t>(sel) < displayIds_.size()) addMonitor_ = displayIds_[static_cast<size_t>(sel)];
+            UpdateHot();
+            return;
+        }
+        if (id == kAddDockCopyPins || id == kAddDockCopyPinsCaption) {
+            if (code != BN_CLICKED) return;
+            copyPins_ = GetCheck(kAddDockCopyPins);
+            UpdateHot();
+            return;
+        }
+        // --- end round 18 phase 18A ---
         if (code != BN_CLICKED) return;
         Config& c = Cfg();
         const size_t sel = SelectedCfg();
         switch (id) {
-            case kDockAddMenu:
+            case kDockAddMenu:  // round 18 phase 18A: the button is gone; the command opens More ▾'s menu
+            case kAddDockMore:
                 ShowAddMenu();
                 break;
             case kDockAdd:
@@ -442,9 +554,10 @@ private:
         if (catalog.empty()) AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"No widgets installed");
     }
 
-    // A menu under the Add ▾ button; the chosen command (0: none).
+    // A menu under the More ▾ button (round 18 phase 18A; the Add ▾ button's until then); the chosen
+    // command (0: none).
     UINT TrackUnderAdd(HMENU menu) {
-        HWND button = Item(kDockAddMenu);
+        HWND button = Item(kAddDockMore);
         RECT r{};
         if (button) {
             GetWindowRect(button, &r);
@@ -469,10 +582,10 @@ private:
             return;
         }
         AppendWidgets(widgets, catalog);
-        AppendMenuW(menu, MF_STRING, kDockAdd, L"Dock");
+        // Round 18 phase 18A: the Add a dock card's More ▾. "Dock" is the Basic tile now and the two
+        // chooser entries ("Dock from a preset…" / "Dock from a layout…") are the tiles themselves;
+        // their commands (2801, 5101, 5689) still work for automation.
         AppendMenuW(menu, MF_STRING, kDockAddFloating, L"Floating dock");
-        AppendMenuW(menu, MF_STRING, kDockAddPreset, L"Dock from a preset\x2026");  // round 9 phase 9C
-        AppendMenuW(menu, MF_STRING, kDockAddLayout, L"Dock from a layout\x2026");  // round 12 phase 12C: the saved ones first
         AppendMenuW(menu, MF_STRING, kDockAddFolder, L"Folder window\x2026");
         AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(widgets), L"Standalone widget");  // destroyed with its parent
         const UINT cmd = TrackUnderAdd(menu);
@@ -646,6 +759,175 @@ private:
                                 }));
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(list);
     }
+
+    // --- round 18 phase 18A: the Add a dock card ---
+    // Tile `i`'s layout: Presets::All() first, then the saved layouts read at the last Load.
+    const Presets::Preset* TilePreset(int i) const {
+        if (i < 0) return nullptr;
+        const std::vector<Presets::Preset>& all = Presets::All();
+        if (static_cast<size_t>(i) < all.size()) return &all[static_cast<size_t>(i)];
+        const size_t m = static_cast<size_t>(i) - all.size();
+        return m < mine_.size() ? &mine_[m] : nullptr;
+    }
+    // The look a layout's dock would show: its own (its theme preset under its own fields, as
+    // Config::ResolveDockThemes resolves a dock's), else the app look.
+    ThemeConfig LookOf(const Presets::Preset& p) {
+        if (!p.dock.OwnLook()) return Cfg().theme;
+        Config tmp;
+        tmp.theme = Cfg().theme;
+        tmp.docks = {p.dock};
+        tmp.ResolveDockThemes();
+        return tmp.docks.front().theme;
+    }
+
+    void GalleryColors() {
+        HWND g = Item(kAddDockGallery);
+        if (!g) return;
+        const DarkMode::Palette& pal = Window().Colors();
+        gallery_.SetColors(Window().SurfaceColor(g), pal.text, pal.textSecondary, pal.accent);
+    }
+
+    // The tiles (only when what they show changed: Load runs after every config change), the
+    // display list and the hint. Presets::Mine() reads the layouts folder: a handful of small files,
+    // once per Load (a Save as layout…, a chooser's Rename / Delete refresh every window), never per paint.
+    void FillAddCard() {
+        if (HWND g = Item(kAddDockGallery); g && g != gallery_.Hwnd()) gallery_.Attach(g);
+        GalleryColors();
+        mine_ = Presets::Mine().layouts;
+        const std::vector<Presets::Preset>& all = Presets::All();
+        const ThemeConfig& app = Cfg().theme;
+        std::wstring key = std::to_wstring(app.background) + L"/" + std::to_wstring(app.acrylicBackground) + L"/" +
+                           std::to_wstring(app.barBorder) + L"/" + std::to_wstring(app.acrylic) + L"/" +
+                           std::to_wstring(static_cast<int>(app.cornerRadius));
+        for (const Presets::Preset& p : mine_) key += L"|" + p.path + L":" + p.name + L":" + p.tagline;
+        if (key != tilesKey_) {
+            tilesKey_ = key;
+            std::vector<SettingsGallery::Tile> tiles;
+            auto add = [&](const Presets::Preset& p, const wchar_t* caption) {
+                SettingsGallery::Tile t;
+                t.name = p.name;
+                t.detail = p.tagline;
+                t.layout = true;
+                t.dock = p.dock;
+                t.theme = LookOf(p);
+                if (caption) t.caption = caption;
+                tiles.push_back(std::move(t));
+            };
+            for (const Presets::Preset& p : all) add(p, nullptr);
+            for (size_t i = 0; i < mine_.size(); ++i) add(mine_[i], i == 0 ? L"Mine" : nullptr);
+            const int before = gallery_.Count();
+            gallery_.SetTiles(std::move(tiles), gallery_.Selected());
+            if (gallery_.Count() != before) Relayout();  // the gallery's rows may change
+        }
+        SetCheck(kAddDockCopyPins, copyPins_);
+        FillDisplays();
+        UpdateHot();
+    }
+
+    // Primary, every other connected display ("Display 2 · 2560 × 1440", DockManager's order as the
+    // canvas numbers them), Every display; the choice kept by its monitor id.
+    void FillDisplays() {
+        HWND combo = Item(kAddDockDisplay);
+        if (!combo) return;
+        std::vector<int> ids;
+        std::vector<std::wstring> names;
+        const std::vector<HMONITOR> monitors = Monitors();
+        for (size_t i = 0; i < monitors.size(); ++i) {
+            MONITORINFO mi{sizeof(mi)};
+            const bool info = GetMonitorInfoW(monitors[i], &mi) != FALSE;
+            const std::wstring size = info ? L" \x00B7 " + std::to_wstring(mi.rcMonitor.right - mi.rcMonitor.left) + L" \x00D7 " +
+                                                 std::to_wstring(mi.rcMonitor.bottom - mi.rcMonitor.top)
+                                           : std::wstring();
+            ids.push_back(i == 0 ? DockConfig::kMonitorPrimary : static_cast<int>(i));
+            names.push_back((i == 0 ? std::wstring(L"Primary") : L"Display " + std::to_wstring(i + 1)) + size);
+        }
+        ids.push_back(DockConfig::kMonitorEach);
+        names.push_back(L"Every display");
+        if (std::find(ids.begin(), ids.end(), addMonitor_) == ids.end()) addMonitor_ = DockConfig::kMonitorPrimary;  // unplugged
+        if (ids != displayIds_ || static_cast<int>(SendMessageW(combo, CB_GETCOUNT, 0, 0)) != static_cast<int>(names.size())) {
+            SendMessageW(combo, CB_RESETCONTENT, 0, 0);
+            for (const std::wstring& n : names) ComboAdd(kAddDockDisplay, n.c_str());
+            displayIds_ = ids;
+        }
+        SetComboSel(kAddDockDisplay, static_cast<int>(std::find(ids.begin(), ids.end(), addMonitor_) - ids.begin()));
+    }
+
+    // The hovered tile (the keyboard's selection while the gallery has the focus): its description in
+    // the hint, Copy my pinned apps greyed when it has no place for pins, its ghost on the canvas.
+    void UpdateHot() {
+        const int hot = gallery_.Hot();
+        const Presets::Preset* p = TilePreset(hot);
+        Enable(kAddDockCopyPins, !p || p->hasPins);
+        if (!p) {
+            ghostTile_ = -1;
+            canvas_.SetGhost(nullptr, L"");
+            SetText(kAddDockHint, refused_ ? std::wstring(kRefusedHint) : std::wstring(kAddHint));
+            return;
+        }
+        refused_ = false;
+        std::wstring hint = p->name + L": " + (p->description.empty() ? p->tagline : p->description) + L" " + Presets::WhereText(p->dock);
+        if (!p->hasPins) hint += L" This layout has no place for pins.";
+        SetText(kAddDockHint, hint);
+        // Where it would go: MakeNew as the click would make it, against the docks without the card's
+        // own preview dock (a click replaces that one).
+        std::vector<DockItemEntry> pins;
+        const Config& c = Cfg();
+        if (copyPins_ && p->hasPins) {
+            const auto first = std::find_if(c.docks.begin(), c.docks.end(), [](const DockConfig& d) { return d.IsDock(); });
+            if (first != c.docks.end()) pins = Presets::PinsOf(*first);
+        }
+        DockConfig made;
+        const bool ownPreview = !addedId_.empty() && Host().status && Host().status().bar == 2 &&
+                                std::any_of(c.docks.begin(), c.docks.end(), [&](const DockConfig& d) { return d.id == addedId_; });
+        if (ownPreview) {
+            Config without = c;
+            std::erase_if(without.docks, [&](const DockConfig& d) { return d.id == addedId_; });
+            made = Presets::MakeNew(*p, without, pins, addMonitor_, true);
+        } else {
+            made = Presets::MakeNew(*p, c, pins, addMonitor_, true);
+        }
+        ghostTile_ = hot;
+        canvas_.SetGhost(&made, L"New: " + p->name);
+    }
+
+    // A click on tile `index` (Enter, kMsgChoose, DockCommand 187).
+    void AddTile(int index) {
+        const Presets::Preset* p = TilePreset(index);
+        if (!p || !Host().addLayoutDock) {
+            MessageBeep(MB_ICONWARNING);
+            return;
+        }
+        const size_t builtIns = Presets::All().size();
+        const bool mine = static_cast<size_t>(index) >= builtIns;
+        const size_t at = mine ? static_cast<size_t>(index) - builtIns : static_cast<size_t>(index);
+        copyPins_ = GetCheck(kAddDockCopyPins);
+        const int result = Host().addLayoutDock(mine, at, copyPins_ && p->hasPins, addMonitor_);
+        if (result != 1) {
+            MessageBeep(MB_ICONWARNING);
+            if (result == 2) {
+                // Another preview (a look on the Themes page, the chooser, Quick setup) is not ours to cancel.
+                refused_ = true;
+                SetText(kAddDockHint, kRefusedHint);
+            }
+            return;
+        }
+        // App selected the new dock (the list and the canvas show it after the refresh it made).
+        const size_t sel = SelectedCfg();
+        addedId_ = sel < Cfg().docks.size() ? Cfg().docks[sel].id : std::wstring();
+        UpdateHot();
+    }
+
+    static constexpr wchar_t kRefusedHint[] = L"Keep or cancel the current preview first (the bar at the top of this window).";
+    mutable SettingsGallery gallery_;  // mutable: MeasureCustomDip sets its columns for the measured width
+    std::vector<Presets::Preset> mine_;
+    std::wstring tilesKey_;
+    std::vector<int> displayIds_;
+    int addMonitor_ = DockConfig::kMonitorPrimary;
+    bool copyPins_ = true;
+    bool refused_ = false;
+    int ghostTile_ = -1;
+    std::wstring addedId_;  // the dock this card added last (left out of the ghost's placement while its preview is up)
+    // --- end round 18 phase 18A ---
 
     LayoutCanvas canvas_;
     HIMAGELIST images_ = nullptr;
@@ -939,6 +1221,68 @@ void LayoutCanvas::Publish() {
     page_.SetSelectedText(line);
 }
 
+std::vector<RECT> LayoutCanvas::GhostRects() const {
+    // Round 18 phase 18A: where the new dock would sit, estimated from its config (its window does
+    // not exist yet): (icon size + 8) DIPs per item along the edge (Presets::EstimatedLengthDip, or
+    // its fixed length), icon size + 16 across, the dock's margin, alignment and offset as
+    // TargetFor places a dragged one; a floating dock at its x / y on the work area.
+    std::vector<RECT> out;
+    if (!hasGhost_ || mons_.empty()) return out;
+    const DockConfig& d = ghost_;
+    std::vector<size_t> targets;
+    if (d.Each()) {
+        for (size_t i = 0; i < mons_.size(); ++i) targets.push_back(i);
+    } else {
+        const int m = d.monitor == DockConfig::kMonitorPrimary ? 0 : d.monitor;
+        if (m >= 0 && static_cast<size_t>(m) < mons_.size()) targets.push_back(static_cast<size_t>(m));
+    }
+    for (size_t i : targets) {
+        const Mon& m = mons_[i];
+        const float s = static_cast<float>(m.dpi) / 96.0f;
+        const bool vertical = IsVertical(d.edge);
+        const LONG thick = static_cast<LONG>(std::lround((d.thickness > 0 ? d.thickness : d.iconSize + 16) * s));
+        const LONG estimate = static_cast<LONG>(std::lround((d.length > 0 ? d.length : Presets::EstimatedLengthDip(d) + 16) * s));
+        if (d.Floating() || d.shape == DockShape::Circle) {
+            const RECT& w = m.work;
+            const LONG ww = w.right - w.left, wh = w.bottom - w.top;
+            LONG bw = vertical ? thick : std::min(estimate, ww), bh = vertical ? std::min(estimate, wh) : thick;
+            if (d.shape == DockShape::Circle) bw = bh = std::min({std::max(thick * 3, estimate / 3), ww, wh});
+            auto at = [&](int v, LONG origin, LONG room, LONG size) {
+                if (v == DockConfig::kCentred) return origin + (room - size) / 2;
+                const LONG p = origin + static_cast<LONG>(std::lround(v * s)) - (d.shape == DockShape::Circle ? size / 2 : 0);
+                return std::clamp(p, origin, std::max(origin, origin + room - size));
+            };
+            const LONG x = at(d.x, w.left, ww, bw), y = at(d.y, w.top, wh, bh);
+            out.push_back(RECT{x, y, x + bw, y + bh});
+            continue;
+        }
+        const RECT& r = m.rc;
+        const LONG margin = d.fullWidth ? 0 : static_cast<LONG>(std::lround(kMarginDip * s));
+        const LONG mStart = vertical ? r.top : r.left, mEnd = vertical ? r.bottom : r.right;
+        const LONG length = d.fullWidth ? mEnd - mStart : std::min(estimate, mEnd - mStart - 2 * margin);
+        const LONG offPx = static_cast<LONG>(std::lround(d.offset * s));
+        LONG start = 0;
+        if (d.fullWidth) {
+            start = mStart;
+        } else {
+            switch (d.align) {
+                case DockAlign::Start: start = mStart + margin + offPx; break;
+                case DockAlign::End: start = mEnd - margin - length + offPx; break;
+                default: start = (mStart + mEnd) / 2 - length / 2 + offPx; break;
+            }
+            start = std::clamp(start, mStart, std::max(mStart, mEnd - length));
+        }
+        switch (d.edge) {
+            case DockEdge::Top: out.push_back(RECT{start, r.top + margin, start + length, r.top + margin + thick}); break;
+            case DockEdge::Left: out.push_back(RECT{r.left + margin, start, r.left + margin + thick, start + length}); break;
+            case DockEdge::Right: out.push_back(RECT{r.right - margin - thick, start, r.right - margin, start + length}); break;
+            case DockEdge::Bottom:
+            default: out.push_back(RECT{start, r.bottom - margin - thick, start + length, r.bottom - margin}); break;
+        }
+    }
+    return out;
+}
+
 void LayoutCanvas::Paint(HDC hdc) {
     RECT client{};
     GetClientRect(hwnd_, &client);
@@ -1083,6 +1427,43 @@ void LayoutCanvas::Paint(HDC hdc) {
         tr.right = tr.left + sz.cx;
         tr.bottom = tr.top + sz.cy;
         DrawTextW(hdc, label.c_str(), -1, &tr, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
+    }
+    if (hasGhost_ && !dragging_) {
+        // Round 18 phase 18A: the dock the hovered Add a dock tile would add, dashed in the accent,
+        // with its name (on every display for "each").
+        LOGBRUSH lb{BS_SOLID, pal.accent, 0};
+        HPEN pen = ExtCreatePen(PS_GEOMETRIC | PS_DASH | PS_ENDCAP_FLAT, static_cast<DWORD>(std::max(1, page_.Win().Px(2))), &lb, 0, nullptr);
+        HGDIOBJ op = SelectObject(hdc, pen);
+        HGDIOBJ ob = SelectObject(hdc, GetStockObject(NULL_BRUSH));
+        SetTextColor(hdc, pal.accent);
+        for (const RECT& s : GhostRects()) {
+            RECT g = ToCanvas(s);
+            if (g.right - g.left < 4) g.right = g.left + 4;
+            if (g.bottom - g.top < 4) g.bottom = g.top + 4;
+            HBRUSH fill = CreateSolidBrush(mix(pal.accent, pal.layer, 22));
+            FillRect(hdc, &g, fill);
+            DeleteObject(fill);
+            Rectangle(hdc, g.left - 1, g.top - 1, g.right + 1, g.bottom + 1);
+            SIZE sz{};
+            GetTextExtentPoint32W(hdc, ghostLabel_.c_str(), static_cast<int>(ghostLabel_.size()), &sz);
+            const int gap = 4;
+            RECT tr{};
+            switch (ghost_.edge) {
+                case DockEdge::Top: tr = RECT{(g.left + g.right - sz.cx) / 2, g.bottom + gap, 0, 0}; break;
+                case DockEdge::Left: tr = RECT{g.right + gap, (g.top + g.bottom - sz.cy) / 2, 0, 0}; break;
+                case DockEdge::Right: tr = RECT{g.left - gap - sz.cx, (g.top + g.bottom - sz.cy) / 2, 0, 0}; break;
+                case DockEdge::Bottom:
+                default: tr = RECT{(g.left + g.right - sz.cx) / 2, g.top - gap - sz.cy, 0, 0}; break;
+            }
+            tr.left = std::clamp(tr.left, 2L, std::max(2L, client.right - 2 - sz.cx));
+            tr.top = std::clamp(tr.top, 2L, std::max(2L, client.bottom - 2 - sz.cy));
+            tr.right = tr.left + sz.cx;
+            tr.bottom = tr.top + sz.cy;
+            DrawTextW(hdc, ghostLabel_.c_str(), -1, &tr, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_NOPREFIX | DT_NOCLIP);
+        }
+        SelectObject(hdc, ob);
+        SelectObject(hdc, op);
+        DeleteObject(pen);
     }
     if (dragging_ && pressed_ >= 0) {
         // Where the drop puts it: an outline in the accent colour.

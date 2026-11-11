@@ -9,6 +9,7 @@
 
 #include "Backdrop.h"
 #include "IconEffects.h"
+#include "Presets.h"
 #include "Theme.h"
 #include "WeatherGlyphs.h"
 
@@ -757,6 +758,129 @@ void DrawMiniDock(ID2D1DeviceContext* dc, const D2D1_RECT_F& box, const ThemeCon
     dc->PopLayer();
 }
 
+// --- round 18 phase 18A: a layout's picture (the Add a dock gallery) ---
+
+void DrawMiniLayout(ID2D1DeviceContext* dc, const D2D1_RECT_F& box, const DockConfig& layout, const ThemeConfig& t, float s) {
+    if (box.right - box.left < 30.0f || box.bottom - box.top < 24.0f) return;
+    winrt::com_ptr<ID2D1SolidColorBrush> brush;
+    if (FAILED(dc->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, 1), brush.put()))) return;
+    // The display: a 16 : 9 screen in a dark bezel on a small stand, as big as the box allows.
+    const float standH = std::round(7.0f * s);
+    const float availW = box.right - box.left, availH = box.bottom - box.top - standH;
+    float sw = availW, sh = std::round(sw * 9.0f / 16.0f);
+    if (sh > availH) {
+        sh = availH;
+        sw = std::round(sh * 16.0f / 9.0f);
+    }
+    const float sx = std::round((box.left + box.right - sw) / 2.0f), sy = box.top;
+    const D2D1_RECT_F screen = D2D1::RectF(sx, sy, sx + sw, sy + sh);
+    const float bezel = std::max(2.0f, std::round(3.0f * s));
+    brush->SetColor(D2D1::ColorF(0x1C1C1E));
+    dc->FillRoundedRectangle(Rounded(screen, std::round(5.0f * s)), brush.get());
+    const float mid = (screen.left + screen.right) / 2.0f;
+    dc->FillRectangle(D2D1::RectF(mid - std::round(6.0f * s), screen.bottom, mid + std::round(6.0f * s), screen.bottom + standH - std::round(2.0f * s)),
+                      brush.get());
+    dc->FillRoundedRectangle(Rounded(D2D1::RectF(mid - std::round(16.0f * s), screen.bottom + standH - std::round(3.0f * s),
+                                                 mid + std::round(16.0f * s), screen.bottom + standH),
+                                     std::round(1.5f * s)),
+                             brush.get());
+    const D2D1_RECT_F in = Inset(screen, bezel);
+    // The wallpaper of DrawMiniDock's tiles.
+    const D2D1_GRADIENT_STOP stops[] = {
+        {0.0f, D2D1::ColorF(0x3B6E8F)}, {0.55f, D2D1::ColorF(0x7A5C99)}, {1.0f, D2D1::ColorF(0xC9798A)}};
+    winrt::com_ptr<ID2D1GradientStopCollection> stopCollection;
+    winrt::com_ptr<ID2D1LinearGradientBrush> gradient;
+    if (SUCCEEDED(dc->CreateGradientStopCollection(stops, static_cast<UINT32>(std::size(stops)), stopCollection.put())) &&
+        SUCCEEDED(dc->CreateLinearGradientBrush(
+            D2D1::LinearGradientBrushProperties(D2D1::Point2F(in.left, in.top), D2D1::Point2F(in.right, in.bottom)), stopCollection.get(),
+            gradient.put()))) {
+        dc->FillRoundedRectangle(Rounded(in, std::round(2.0f * s)), gradient.get());
+    }
+    // The bar where the layout puts it (the chooser's silhouette geometry), a little off the edge
+    // unless it is full width (as the dock's margin).
+    const float thick = std::max(6.0f, std::round(std::min(in.right - in.left, in.bottom - in.top) * 0.13f));
+    const float gap = layout.fullWidth || layout.Floating() ? 0.0f : std::max(1.0f, std::round(1.5f * s));
+    const RECT inner{static_cast<LONG>(in.left + gap), static_cast<LONG>(in.top + gap), static_cast<LONG>(in.right - gap),
+                     static_cast<LONG>(in.bottom - gap)};
+    const RECT b = Presets::SilhouetteBar(layout, inner, static_cast<int>(thick));
+    D2D1_RECT_F bar = D2D1::RectF(static_cast<float>(b.left), static_cast<float>(b.top), static_cast<float>(b.right), static_cast<float>(b.bottom));
+    const bool vertical = IsVertical(layout.edge);
+    const float radius = layout.fullWidth ? 0.0f : std::min(thick / 2.0f, std::round(t.cornerRadius * 0.25f * s));
+    const bool acrylic = t.acrylic && !(t.shelf || t.perspective) && Backdrop::SystemAllowsTransparency();
+    if (acrylic) {
+        brush->SetColor(D2D1::ColorF(0x6E6A8E, 0.85f));  // the blurred wallpaper, as DrawMiniDock
+        dc->FillRoundedRectangle(Rounded(bar, radius), brush.get());
+        brush->SetColor(Theme::ToColor(t.acrylicBackground));
+    } else {
+        brush->SetColor(Theme::ToColor(t.background));
+    }
+    dc->FillRoundedRectangle(Rounded(bar, radius), brush.get());
+    brush->SetColor(Theme::ToColor(t.barBorder));
+    const float stroke = std::max(1.0f, std::round(s * 0.75f));
+    dc->DrawRoundedRectangle(Rounded(Inset(bar, stroke / 2.0f), std::max(0.0f, radius - stroke / 2.0f)), brush.get(), stroke);
+    // The items: icons (pins, running apps), a thin bar (a separator), a pill (a clock, a widget,
+    // the tray, the notification centre), one after the other along the bar until it is full.
+    constexpr uint32_t kIconColors[] = {0xFF3A86FF, 0xFF34C759, 0xFFFF9F0A, 0xFFAF52DE, 0xFFFF375F};
+    const float pad = std::max(1.0f, std::round(thick * 0.18f));
+    const float g = std::max(2.0f, thick - 2.0f * pad);  // a glyph's size across the bar
+    const float step = std::max(1.0f, std::round(g * 0.3f));
+    const float mainStart = (vertical ? bar.top : bar.left) + pad + (radius > g / 2.0f ? radius - g / 2.0f : 0.0f);
+    const float mainEnd = (vertical ? bar.bottom : bar.right) - pad;
+    const float cross = (vertical ? bar.left : bar.top) + pad;
+    float at = mainStart;
+    int color = 0;
+    auto place = [&](float length) -> D2D1_RECT_F {
+        return vertical ? D2D1::RectF(cross, at, cross + g, at + length) : D2D1::RectF(at, cross, at + length, cross + g);
+    };
+    auto icon = [&]() {
+        if (at + g > mainEnd) return false;
+        brush->SetColor(Theme::ToColor(kIconColors[color++ % std::size(kIconColors)]));
+        dc->FillRoundedRectangle(Rounded(place(g), g * 0.24f), brush.get());
+        at += g + step;
+        return true;
+    };
+    for (const DockItemEntry& e : layout.items) {
+        bool more = true;
+        if (CompareStringOrdinal(e.kind.c_str(), -1, L"pins", -1, TRUE) == CSTR_EQUAL) {
+            for (int k = 0; k < 3 && more; ++k) more = icon();
+        } else {
+            switch (e.Kind()) {
+                case ItemKind::Running: more = icon() && icon(); break;
+                case ItemKind::Separator: {
+                    const float w = std::max(1.0f, std::round(s * 0.75f));
+                    if (at + w > mainEnd) {
+                        more = false;
+                        break;
+                    }
+                    brush->SetColor(Theme::ToColor(t.separator));
+                    const D2D1_RECT_F r = place(w);
+                    dc->FillRectangle(vertical ? D2D1::RectF(r.left, r.top, r.right, r.top + w) : D2D1::RectF(r.left, r.top, r.left + w, r.bottom),
+                                      brush.get());
+                    at += w + step;
+                    break;
+                }
+                case ItemKind::App:
+                case ItemKind::Folder:
+                case ItemKind::Group:
+                case ItemKind::RecycleBin: more = icon(); break;
+                default: {
+                    // A widget-like item: a pill twice as long as an icon, in the theme's text colour.
+                    const float len = std::round(g * 2.0f);
+                    if (at + len > mainEnd) {
+                        more = false;
+                        break;
+                    }
+                    brush->SetColor(Theme::ToColor(t.clockText, 0.6f));
+                    dc->FillRoundedRectangle(Rounded(place(len), g / 2.0f), brush.get());
+                    at += len + step;
+                    break;
+                }
+            }
+        }
+        if (!more) break;
+    }
+}
+
 SettingsGallery::~SettingsGallery() {
     if (hwnd_ && IsWindow(hwnd_)) SetWindowLongPtrW(hwnd_, GWLP_USERDATA, 0);
 }
@@ -783,6 +907,7 @@ void SettingsGallery::SetTiles(std::vector<Tile> tiles, int selected) {
     tiles_ = std::move(tiles);
     selected_ = tiles_.empty() ? 0 : std::clamp(selected, 0, static_cast<int>(tiles_.size()) - 1);
     hot_ = -1;
+    notifiedHot_ = Hot();  // round 18 phase 18A: the page reads Hot() after new tiles itself
     if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
@@ -812,6 +937,37 @@ void SettingsGallery::SetWide(int columns, int tileHDip) {
     if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
 }
 
+int SettingsGallery::WideHeightDip(int columns, int tileHDip) const {
+    // Round 18 phase 18A: TileRect's walk in DIPs (rows of `columns`, a caption starts a row).
+    columns = std::max(1, columns);
+    tileHDip = std::max(48, tileHDip);
+    if (tiles_.empty()) return tileHDip;
+    int col = 0, y = 0;
+    for (size_t i = 0; i < tiles_.size(); ++i) {
+        const bool caption = !tiles_[i].caption.empty();
+        if (i > 0 && (col == columns || (caption && col > 0))) {
+            col = 0;
+            y += tileHDip + kWideGap;
+        }
+        if (caption) y += kCaptionH;
+        ++col;
+    }
+    return y + tileHDip;
+}
+
+int SettingsGallery::Hot() const {
+    if (hot_ >= 0) return hot_;
+    return hwnd_ && GetFocus() == hwnd_ && !tiles_.empty() ? selected_ : -1;
+}
+
+void SettingsGallery::NotifyHot() {
+    if (!notifyHot_ || !hwnd_) return;
+    const int now = Hot();
+    if (now == notifiedHot_) return;
+    notifiedHot_ = now;
+    SendMessageW(GetParent(hwnd_), WM_COMMAND, MAKEWPARAM(GetDlgCtrlID(hwnd_), kHot), reinterpret_cast<LPARAM>(hwnd_));
+}
+
 int SettingsGallery::Columns() const {
     if (wideColumns_ > 0) return wideColumns_;
     RECT rc{};
@@ -829,10 +985,23 @@ D2D1_RECT_F SettingsGallery::TileRect(int index) const {
         if (hwnd_) GetClientRect(hwnd_, &rc);
         const float gap = std::round(kWideGap * s);
         const float w = (static_cast<float>(rc.right) - gap * static_cast<float>(cols - 1)) / static_cast<float>(cols);
-        const int col = index % cols, row = index / cols;
+        // Round 18 phase 18A: a tile with a caption starts a new row under its caption.
+        const float tileH = std::round(wideTileH_ * s), captionH = std::round(kCaptionH * s);
+        int col = 0;
+        float y = 0.0f;
+        for (int i = 0; i <= index && i < Count(); ++i) {
+            const bool caption = !tiles_[static_cast<size_t>(i)].caption.empty();
+            if (i > 0 && (col == cols || (caption && col > 0))) {
+                col = 0;
+                y += tileH + gap;
+            }
+            if (caption) y += captionH;
+            if (i < index) ++col;
+        }
+        if (index >= Count()) col = index % cols;  // past the end (never drawn)
         const float x = std::round(static_cast<float>(col) * (w + gap));
-        const float y = std::round(static_cast<float>(row) * (std::round(wideTileH_ * s) + gap));
-        return D2D1::RectF(x, y, std::round(static_cast<float>(col) * (w + gap) + w), y + std::round(wideTileH_ * s));
+        y = std::round(y);
+        return D2D1::RectF(x, y, std::round(static_cast<float>(col) * (w + gap) + w), y + tileH);
     }
     const float x = std::round(static_cast<float>((index % cols) * (kTileW + kGapX)) * s);
     const float y = std::round(static_cast<float>((index / cols) * (kTileH + kGapY)) * s);
@@ -854,6 +1023,7 @@ void SettingsGallery::Select(int index) {
     if (index == selected_) return;
     selected_ = index;
     InvalidateRect(hwnd_, nullptr, FALSE);
+    NotifyHot();  // round 18 phase 18A (the keyboard's selection is the hot tile while focused)
 }
 
 void SettingsGallery::Choose(int index) {
@@ -949,7 +1119,11 @@ void SettingsGallery::Paint() {
                 }
                 const D2D1_RECT_F pic = D2D1::RectF(r.left + std::round(6.0f * s), r.top + std::round(6.0f * s),
                                                     r.right - std::round(6.0f * s), r.top + std::round(50.0f * s));
-                DrawMiniDock(dc.get(), pic, tile.theme, s);
+                if (tile.layout) {
+                    DrawMiniLayout(dc.get(), pic, tile.dock, tile.theme, s);  // round 18 phase 18A
+                } else {
+                    DrawMiniDock(dc.get(), pic, tile.theme, s);
+                }
                 dc->SetTransform(D2D1::Matrix3x2F::Identity());
                 if (name) {
                     brush->SetColor(FromColorRef(text_));
@@ -1009,8 +1183,22 @@ void SettingsGallery::PaintWide(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* br
         }
         const float pad = std::round(6.0f * s), textH = std::round(40.0f * s);
         const D2D1_RECT_F pic = D2D1::RectF(r.left + pad, r.top + pad, r.right - pad, std::max(r.top + pad + 20.0f * s, r.bottom - pad - textH));
-        DrawMiniDock(dc, pic, tile.theme, s);
+        if (tile.layout) {
+            DrawMiniLayout(dc, pic, tile.dock, tile.theme, s);  // round 18 phase 18A
+        } else {
+            DrawMiniDock(dc, pic, tile.theme, s);
+        }
         dc->SetTransform(D2D1::Matrix3x2F::Identity());
+        if (!tile.caption.empty()) {
+            // Round 18 phase 18A: the caption over the row this tile starts ("Mine").
+            if (IDWriteTextFormat* cf = Format(captionFormat_, captionSize_, std::round(12.0f * s), DWRITE_FONT_WEIGHT_SEMI_BOLD,
+                                               DWRITE_TEXT_ALIGNMENT_LEADING)) {
+                brush->SetColor(FromColorRef(muted_));
+                dc->DrawText(tile.caption.c_str(), static_cast<UINT32>(tile.caption.size()), cf,
+                             D2D1::RectF(r.left + 2.0f * s, r.top - std::round(kCaptionH * s), r.right, r.top - 2.0f * s), brush,
+                             D2D1_DRAW_TEXT_OPTIONS_CLIP);
+            }
+        }
         if (name) {
             brush->SetColor(FromColorRef(text_));
             dc->DrawText(tile.name.c_str(), static_cast<UINT32>(tile.name.size()), name,
@@ -1080,6 +1268,7 @@ LRESULT SettingsGallery::OnMessage(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_SETFOCUS:
         case WM_KILLFOCUS:
             InvalidateRect(hwnd_, nullptr, FALSE);
+            NotifyHot();
             return 0;
         case WM_KEYDOWN: {
             const int cols = Columns();
@@ -1117,6 +1306,7 @@ LRESULT SettingsGallery::OnMessage(UINT msg, WPARAM wp, LPARAM lp) {
             if (hit != hot_) {
                 hot_ = hit;
                 InvalidateRect(hwnd_, nullptr, FALSE);
+                NotifyHot();
             }
             return 0;
         }
@@ -1125,6 +1315,7 @@ LRESULT SettingsGallery::OnMessage(UINT msg, WPARAM wp, LPARAM lp) {
             if (hot_ >= 0) {
                 hot_ = -1;
                 InvalidateRect(hwnd_, nullptr, FALSE);
+                NotifyHot();
             }
             return 0;
         case kMsgSelect:
@@ -1136,8 +1327,8 @@ LRESULT SettingsGallery::OnMessage(UINT msg, WPARAM wp, LPARAM lp) {
             return 1;
         case WM_DESTROY: {
             target_ = nullptr;
-            nameFormat_ = detailFormat_ = nameLeft_ = detailLeft_ = nullptr;
-            nameSize_ = detailSize_ = nameLeftSize_ = detailLeftSize_ = 0.0f;
+            nameFormat_ = detailFormat_ = nameLeft_ = detailLeft_ = captionFormat_ = nullptr;
+            nameSize_ = detailSize_ = nameLeftSize_ = detailLeftSize_ = captionSize_ = 0.0f;
             dwrite_ = nullptr;
             factory_ = nullptr;
             HWND self = hwnd_;

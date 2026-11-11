@@ -26,6 +26,7 @@
 #include "Presets.h"
 #include "SettingsForm.h"  // round 13 phase 13C: ItemSettingsValues / StoreItemSettings (the Item window's write)
 #include "SettingsIds.h"
+#include "SettingsPreview.h"  // round 18 phase 18A: SettingsGallery::kMsgChoose (DockCommand 187)
 #include "Theme.h"
 #include "WidgetPackage.h"
 #include "resource.h"
@@ -2625,6 +2626,10 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     // Round 12 phase 12D: a Contents drawer tile dragged onto a dock or the desktop.
     host.drawerDrag = [this](int phase, POINT screen, const DockItemEntry* entry) { return DrawerDrag(phase, screen, entry); };
     host.editDocks = [this](SettingsDockEdit edit, size_t index) { return EditDocks(edit, index); };
+    // Round 18 phase 18A: Docks and displays' Add a dock card.
+    host.addLayoutDock = [this, w](bool mine, size_t index, bool copyPins, int monitor) {
+        return AddDockFromCard(w, mine, index, copyPins, monitor);
+    };
     host.dockWindows = [this](size_t index) {
         int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;
         docks_.ForConfig(index, [&](DockWindow&) { ++n; });
@@ -3166,14 +3171,15 @@ size_t App::AddPresetDock(size_t index, bool copyPins, bool preview, HWND host) 
 
 // Round 12 phase 12C: AddPresetDock's body, for a built-in preset or a saved layout; `from` ends the
 // undo label ("Added dock work from layout Work").
-size_t App::AddLayoutDock(const Presets::Preset& p, const std::wstring& from, bool copyPins, bool preview, HWND host) {
+size_t App::AddLayoutDock(const Presets::Preset& p, const std::wstring& from, bool copyPins, bool preview, HWND host, int monitor,
+                          bool placeFree) {
     if (shutDown_ || modalDepth_ > 0) return SIZE_MAX;
     std::vector<DockItemEntry> pins;
     if (copyPins && p.hasPins) {
         const auto first = std::find_if(config_.docks.begin(), config_.docks.end(), [](const DockConfig& d) { return d.IsDock(); });
         if (first != config_.docks.end()) pins = Presets::PinsOf(*first);
     }
-    DockConfig made = Presets::MakeNew(p, config_, pins);
+    DockConfig made = Presets::MakeNew(p, config_, pins, monitor, placeFree);
     // Round 12 phase 12A: a preview (Keep / Cancel) or one timeline entry.
     const std::wstring label = L"Added dock " + made.DisplayName() + L" " + from;
     if (preview) {
@@ -3192,6 +3198,43 @@ size_t App::AddLayoutDock(const Presets::Preset& p, const std::wstring& from, bo
     RefreshSettings();
     FlashDock(cfg);
     return cfg;
+}
+
+// --- round 18 phase 18A: the Add a dock card ---------------------------------------------------------
+
+int App::AddDockFromCard(SettingsWindow* w, bool mine, size_t index, bool copyPins, int monitor) {
+    if (shutDown_ || modalDepth_ > 0 || !w || !w->Hwnd()) return 0;
+    const HWND host = w->Hwnd();
+    if (previewing_) {
+        // Only the card's own preview is cancelled for the next tile (the user flips through the
+        // layouts on the live desktop); a look preview of the Themes page, the chooser's or Quick
+        // setup's is not the card's to throw away. A look picked while the card's dock was previewed
+        // extends that preview under the look's label (StartPreview), so it no longer counts as ours.
+        const bool own = !cardPreviewLabel_.empty() && previewLabel_ == cardPreviewLabel_ && previewHost_ == host;
+        if (!own) return 2;
+        if (!CancelBar()) return 0;  // refused (a dock menu is open): the preview stays
+    }
+    Presets::Preset p;
+    std::wstring from;
+    if (mine) {
+        Presets::MineList list = Presets::Mine();  // read again: the card listed the same folder at its Load
+        if (index >= list.layouts.size()) return 0;
+        p = std::move(list.layouts[index]);
+        from = L"from layout " + p.name;
+    } else {
+        const std::vector<Presets::Preset>& all = Presets::All();
+        if (index >= all.size()) return 0;
+        p = all[index];
+        from = L"from preset " + p.name;
+    }
+    // A display that is not connected (unplugged since the card listed it) parks the dock as any
+    // config would; the card lists only connected ones.
+    if (monitor != DockConfig::kMonitorEach && monitor != DockConfig::kMonitorPrimary && monitor < 0) monitor = DockConfig::kMonitorPrimary;
+    const size_t made = AddLayoutDock(p, from, copyPins, true, host, monitor, true);
+    if (made == SIZE_MAX) return 0;
+    cardPreviewLabel_ = previewLabel_;
+    ++cardAdds_;
+    return 1;
 }
 
 // --- round 12 phase 12C: docks you keep ------------------------------------------------------------
@@ -4063,6 +4106,12 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return startPlacer_.State();
         case 332:  // round 16 phase 16A: the last shift Place computed (a dry run too): MAKELONG(dx, dy), 0 before any
             return startPlacer_.LastShift();
+        case 333: {  // round 18 phase 18A: the Add a dock gallery's tiles (LOWORD 1: the selected tile; 2: the canvas's ghost tile, -1 none); -2 no App settings window
+            SettingsWindow* w = FindSettings(SettingsKind::Global);
+            LRESULT out = -2;
+            if (!w || !w->Hwnd() || !w->QueryPages(333, arg, out)) out = -2;
+            return out;
+        }
         default:
             break;
     }
@@ -4372,6 +4421,28 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
             RefreshSettings();
         }
         result = 1;
+        return true;
+    }
+    // Round 18 phase 18A: DockCommand 187 the App settings window's Add a dock tile LOWORD(lParam),
+    // chosen as a click would (the gallery's kMsgChoose: the page's own path, refusals included).
+    if (msg == msgDockCommand_ && wp == ContextMenu::kAddDockTile) {
+        result = 0;
+        SettingsWindow* g = FindSettings(SettingsKind::Global);
+        if (!g || !g->Hwnd() || shutDown_) return true;
+        struct Find {
+            HWND found = nullptr;
+            static BOOL CALLBACK Proc(HWND h, LPARAM lp) {
+                auto* self = reinterpret_cast<Find*>(lp);
+                if (GetDlgCtrlID(h) != SettingsIds::kAddDockGallery) return TRUE;
+                self->found = h;
+                return FALSE;
+            }
+        } find;
+        EnumChildWindows(g->Hwnd(), &Find::Proc, reinterpret_cast<LPARAM>(&find));  // every descendant: the page's controls
+        if (!find.found) return true;
+        const uint64_t before = cardAdds_;
+        SendMessageW(find.found, SettingsGallery::kMsgChoose, static_cast<WPARAM>(lp & 0xFFFF), 0);
+        result = cardAdds_ != before ? 1 : 0;
         return true;
     }
     if (msg == msgItemCommand_ && (wp & 0xFFFF) >= ContextMenu::kClickPlus && (wp & 0xFFFF) <= ContextMenu::kEditRemove) {

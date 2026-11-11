@@ -138,6 +138,11 @@ enum Command : UINT {
     // --- end round 14 phase 14A ---
     // Round 14 phase 14B (automation only, App::OnSharedMessage; app-wide, the dock in lParam is ignored):
     kSetSnapToScreen = 186,  // settings.snapToScreen = LOWORD(lParam) != 0 (1 done)
+    // Round 18 phase 18A (automation only, App::OnSharedMessage; app-wide, HIWORD(lParam) ignored):
+    // the App settings window's Add a dock tile LOWORD(lParam) chosen as a click would (a Keep / Cancel
+    // preview; the card's own earlier preview is cancelled first). 1 added, 0 refused (no App settings
+    // window, no such tile, another preview is open, a dock menu / dialog is open).
+    kAddDockTile = 187,
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,
