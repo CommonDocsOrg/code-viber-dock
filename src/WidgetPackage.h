@@ -31,7 +31,9 @@ struct SettingField {
     // Round 5 phase A: Place (a geocoded place; its value is the item's `latitude`, `longitude` and
     // `location` keys, not a key of its own) and TimeZone (a Windows time zone key name, "" = the
     // local time).
-    enum class Type { Bool, Int, Number, String, Choice, Color, Font, Place, TimeZone };
+    // Round 17 phase 17A: File and Folder (an absolute path as a string; the settings page adds a
+    // Browse… button that opens the file / folder picker; `filter` narrows the file picker).
+    enum class Type { Bool, Int, Number, String, Choice, Color, Font, Place, TimeZone, File, Folder };
     std::wstring key;
     std::wstring label;        // default: the key
     std::wstring description;  // optional note
@@ -64,6 +66,8 @@ struct SettingField {
     // Choice fields, at most kMaxQuickFields per widget: ReadSettingsSchema clears the flag of the
     // others (a warning), Validate reports them.
     bool quick = false;
+    // Round 17 phase 17A: File: the picker's patterns ("*.png;*.jpg"; empty: every file).
+    std::wstring filter;
 };
 constexpr int kMaxQuickFields = 8;  // round 13 phase 13C
 

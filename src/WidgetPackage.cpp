@@ -70,6 +70,8 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"show-desktop", "main.js", IDR_WIDGET_SHOWDESKTOP_MAIN},
     {L"stocks", "widget.json", IDR_WIDGET_STOCKS_JSON},  // round 16 phase 16C
     {L"stocks", "main.js", IDR_WIDGET_STOCKS_MAIN},
+    {L"photo-frame", "widget.json", IDR_WIDGET_PHOTOFRAME_JSON},  // round 17 phase 17A
+    {L"photo-frame", "main.js", IDR_WIDGET_PHOTOFRAME_MAIN},
 };
 
 bool IsBuiltIn(const std::wstring& id) {
@@ -146,6 +148,8 @@ SettingField::Type TypeOf(const std::wstring& t, bool& ok) {
     if (s == L"font") return SettingField::Type::Font;
     if (s == L"place") return SettingField::Type::Place;
     if (s == L"timezone") return SettingField::Type::TimeZone;
+    if (s == L"file") return SettingField::Type::File;      // round 17 phase 17A
+    if (s == L"folder") return SettingField::Type::Folder;  // round 17 phase 17A
     ok = false;
     return SettingField::Type::String;
 }
@@ -315,6 +319,7 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
                 f.choiceFrom.clear();
             }
         }
+        if (f.type == SettingField::Type::File) JsonUtil::ReadString(o, L"filter", f.filter);  // round 17 phase 17A
         JsonUtil::ReadNumber(o, L"min", f.min);
         JsonUtil::ReadNumber(o, L"max", f.max);
         JsonUtil::ReadNumber(o, L"step", f.step);
@@ -367,6 +372,8 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
             case SettingField::Type::Font:
             case SettingField::Type::String:
             case SettingField::Type::TimeZone:  // "" = the local time
+            case SettingField::Type::File:      // round 17 phase 17A: "" = none chosen
+            case SettingField::Type::Folder:
             default:
                 f.defaultJson = JsonUtil::Quote(dt == json::JsonValueType::String
                                                     ? std::wstring(d.GetString())
@@ -676,7 +683,8 @@ constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"
                                          L"max",     L"step",       L"choices", L"choiceFrom", L"group", L"unit",
                                          L"visibleIf", L"common",  // common: round 10 phase 10B
                                          L"section",               // round 10 phase 10C
-                                         L"quick"};                // round 13 phase 13C
+                                         L"quick",                 // round 13 phase 13C
+                                         L"filter"};               // round 17 phase 17A (file fields)
 constexpr wchar_t kPermissionFix[] =
     L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\" or { \"http\": [\"host\"] }";
 
@@ -851,7 +859,7 @@ void CheckPermissions(Checker& c, const json::JsonObject& root) {
 }
 
 constexpr wchar_t kTypeNames[] =
-    L"\"bool\", \"int\", \"number\", \"string\", \"choice\", \"colour\", \"font\", \"place\" or \"timezone\"";
+    L"\"bool\", \"int\", \"number\", \"string\", \"choice\", \"colour\", \"font\", \"place\", \"timezone\", \"file\" or \"folder\"";
 
 // A Windows time zone key name of this machine (EnumDynamicTimeZoneInformation).
 bool KnownTimeZone(const std::wstring& key) {
@@ -916,9 +924,11 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
             c.Error(field + L".type", L"unknown type \"" + type + L"\"", kTypeNames);
             continue;
         }
-        for (const wchar_t* k : {L"label", L"description", L"group", L"unit", L"choiceFrom"}) {
+        for (const wchar_t* k : {L"label", L"description", L"group", L"unit", L"choiceFrom", L"filter"}) {
             c.Type(o, k, json::JsonValueType::String, field + L"." + k, L"a string");
         }
+        // Round 17 phase 17A: `filter` is the file picker's patterns; only a file field has one.
+        if (o.HasKey(L"filter") && t != SettingField::Type::File) c.Warn(field + L".filter", L"is not used by a " + type + L" field (ignored)");
         c.Type(o, L"common", json::JsonValueType::Boolean, field + L".common", L"\"common\": true");  // round 10 phase 10B
         // Round 13 phase 13C: a quick setting (the widget's menu) is a bool or a choice, 8 at most.
         if (c.Type(o, L"quick", json::JsonValueType::Boolean, field + L".quick", L"\"quick\": true")) {
@@ -1439,6 +1449,8 @@ std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson
                     }
                     case SettingField::Type::Font:
                     case SettingField::Type::String:
+                    case SettingField::Type::File:  // round 17 phase 17A: any string (the widget checks the path)
+                    case SettingField::Type::Folder:
                     default:
                         if (t == json::JsonValueType::String) value = given;
                         break;

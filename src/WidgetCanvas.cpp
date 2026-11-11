@@ -19,6 +19,15 @@ namespace {
 constexpr size_t kMaxImages = 32;
 constexpr size_t kMaxImageBytes = 8u << 20;
 constexpr UINT kMaxImagePx = 4096;
+// Round 17 phase 17A: "file:" images (a photo anywhere on disk, canvas.image with an absolute path
+// and the "shell" permission; the host caps the file at 64 MB). A photo is decoded at most
+// kMaxPhotoPx on its long side (WIC's scaler; the JPEG decoder scales while decoding), after its
+// EXIF orientation, and the decoded photos are kept within kPhotoBudget, least recently used first:
+// a slideshow's next picture can be decoded ahead (imageSize) without the cache growing.
+constexpr char kFileToken[] = "file:";
+constexpr UINT kMaxPhotoPx = 2048;
+constexpr UINT kMaxPhotoSourcePx = 24000;  // a raw size above this is refused (a 600 MP scan)
+constexpr size_t kPhotoBudget = 64u << 20;  // 4 full-size photos (2048 x 2048 x 4)
 constexpr size_t kMaxFormats = 16;
 constexpr size_t kMaxStrokes = 16;
 constexpr float kPi = std::numbers::pi_v<float>;
@@ -595,16 +604,47 @@ IWICImagingFactory* WidgetCanvas::Wic() {
     return wic_.get();
 }
 
+namespace {
+
+// Round 17 phase 17A: the EXIF orientation tag (274) of a decoded frame, 1 - 8; 1 (upright) when
+// there is none. JPEG keeps it under /app1/ifd, TIFF under /ifd (WIC's metadata query paths).
+UINT ExifOrientation(IWICBitmapFrameDecode* frame) {
+    winrt::com_ptr<IWICMetadataQueryReader> reader;
+    if (FAILED(frame->GetMetadataQueryReader(reader.put())) || !reader) return 1;
+    for (const wchar_t* query : {L"/app1/ifd/{ushort=274}", L"/ifd/{ushort=274}"}) {
+        PROPVARIANT v;
+        PropVariantInit(&v);
+        UINT result = 1;
+        if (SUCCEEDED(reader->GetMetadataByName(query, &v))) {
+            if (v.vt == VT_UI2) result = v.uiVal;
+            else if (v.vt == VT_UI4) result = v.ulVal;
+            else if (v.vt == VT_I2) result = static_cast<UINT>(v.iVal);
+            else if (v.vt == VT_I4) result = static_cast<UINT>(v.lVal);
+            PropVariantClear(&v);
+            return result >= 1 && result <= 8 ? result : 1;
+        }
+        PropVariantClear(&v);
+    }
+    return 1;
+}
+
+}  // namespace
+
 WidgetCanvas::ImageEntry* WidgetCanvas::FindImage(const std::string& path, std::wstring& error) {
-    if (auto it = images_.find(path); it != images_.end()) return &it->second;
+    if (auto it = images_.find(path); it != images_.end()) {
+        it->second.stamp = ++stamp_;
+        return &it->second;
+    }
     if (!reader_) {
         error = L"images are not available";
         return nullptr;
     }
+    const bool file = path.rfind(kFileToken, 0) == 0;  // round 17 phase 17A: a photo from disk
+    const std::wstring shown = JsonUtil::Utf8ToWide(file ? path.substr(std::strlen(kFileToken)) : path);
     std::string bytes;
     if (!reader_(path, bytes, error)) return nullptr;
-    if (bytes.empty() || bytes.size() > kMaxImageBytes) {
-        error = L"image is empty or larger than 8 MB: " + JsonUtil::Utf8ToWide(path);
+    if (bytes.empty() || (!file && bytes.size() > kMaxImageBytes)) {
+        error = L"image is empty or larger than 8 MB: " + shown;
         return nullptr;
     }
     IWICImagingFactory* wic = Wic();
@@ -615,33 +655,93 @@ WidgetCanvas::ImageEntry* WidgetCanvas::FindImage(const std::string& path, std::
     winrt::com_ptr<IWICStream> stream;
     winrt::com_ptr<IWICBitmapDecoder> decoder;
     winrt::com_ptr<IWICBitmapFrameDecode> frame;
-    winrt::com_ptr<IWICFormatConverter> converter;
     if (FAILED(wic->CreateStream(stream.put())) ||
         FAILED(stream->InitializeFromMemory(reinterpret_cast<BYTE*>(bytes.data()), static_cast<DWORD>(bytes.size()))) ||
         FAILED(wic->CreateDecoderFromStream(stream.get(), nullptr, WICDecodeMetadataCacheOnDemand, decoder.put())) ||
-        FAILED(decoder->GetFrame(0, frame.put())) || FAILED(wic->CreateFormatConverter(converter.put())) ||
-        FAILED(converter->Initialize(frame.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
-                                     WICBitmapPaletteTypeCustom))) {
-        error = L"cannot decode image: " + JsonUtil::Utf8ToWide(path);
+        FAILED(decoder->GetFrame(0, frame.put()))) {
+        error = L"cannot decode image: " + shown;
         return nullptr;
     }
+    winrt::com_ptr<IWICBitmapSource> source = frame;
     UINT w = 0, h = 0;
-    converter->GetSize(&w, &h);
-    if (w == 0 || h == 0 || w > kMaxImagePx || h > kMaxImagePx) {
-        error = L"image is larger than 4096 x 4096: " + JsonUtil::Utf8ToWide(path);
+    source->GetSize(&w, &h);
+    if (w == 0 || h == 0 || (!file && (w > kMaxImagePx || h > kMaxImagePx)) || (file && (w > kMaxPhotoSourcePx || h > kMaxPhotoSourcePx))) {
+        error = (file ? L"image is larger than 24000 x 24000: " : L"image is larger than 4096 x 4096: ") + shown;
+        return nullptr;
+    }
+    if (file) {
+        // Scale first (the JPEG decoder scales while it decodes: cheap), then turn the way the
+        // camera held it, flip first then rotate (two rotators: the combined flags' order is not
+        // documented, and the transposed orientations 5 and 7 depend on it).
+        if (w > kMaxPhotoPx || h > kMaxPhotoPx) {
+            const double k = static_cast<double>(kMaxPhotoPx) / std::max(w, h);
+            const UINT sw = std::max<UINT>(1, static_cast<UINT>(std::lround(w * k)));
+            const UINT sh = std::max<UINT>(1, static_cast<UINT>(std::lround(h * k)));
+            winrt::com_ptr<IWICBitmapScaler> scaler;
+            if (FAILED(wic->CreateBitmapScaler(scaler.put())) ||
+                FAILED(scaler->Initialize(source.get(), sw, sh, WICBitmapInterpolationModeFant))) {
+                error = L"cannot scale image: " + shown;
+                return nullptr;
+            }
+            source = scaler;
+            w = sw;
+            h = sh;
+        }
+        const UINT orientation = ExifOrientation(frame.get());
+        const WICBitmapTransformOptions flip = orientation == 2 || orientation == 5 || orientation == 7 ? WICBitmapTransformFlipHorizontal
+                                               : orientation == 4                                       ? WICBitmapTransformFlipVertical
+                                                                                                        : WICBitmapTransformRotate0;
+        const WICBitmapTransformOptions rotate = orientation == 3                      ? WICBitmapTransformRotate180
+                                                 : orientation == 6 || orientation == 7 ? WICBitmapTransformRotate90
+                                                 : orientation == 5 || orientation == 8 ? WICBitmapTransformRotate270
+                                                                                        : WICBitmapTransformRotate0;
+        for (const WICBitmapTransformOptions t : {flip, rotate}) {
+            if (t == WICBitmapTransformRotate0) continue;
+            winrt::com_ptr<IWICBitmapFlipRotator> rotator;
+            if (FAILED(wic->CreateBitmapFlipRotator(rotator.put())) || FAILED(rotator->Initialize(source.get(), t))) {
+                error = L"cannot rotate image: " + shown;
+                return nullptr;
+            }
+            source = rotator;
+        }
+        source->GetSize(&w, &h);
+    }
+    winrt::com_ptr<IWICFormatConverter> converter;
+    if (FAILED(wic->CreateFormatConverter(converter.put())) ||
+        FAILED(converter->Initialize(source.get(), GUID_WICPixelFormat32bppPBGRA, WICBitmapDitherTypeNone, nullptr, 0.0,
+                                     WICBitmapPaletteTypeCustom))) {
+        error = L"cannot decode image: " + shown;
         return nullptr;
     }
     // Decode now (the memory stream's bytes go away with this call).
     winrt::com_ptr<IWICBitmap> bitmap;
     if (FAILED(wic->CreateBitmapFromSource(converter.get(), WICBitmapCacheOnLoad, bitmap.put()))) {
-        error = L"cannot decode image: " + JsonUtil::Utf8ToWide(path);
+        error = L"cannot decode image: " + shown;
         return nullptr;
     }
-    if (images_.size() >= kMaxImages) images_.clear();
     ImageEntry entry;
     entry.source = bitmap;
     entry.w = w;
     entry.h = h;
+    entry.file = file;
+    entry.bytes = static_cast<size_t>(w) * h * 4;
+    entry.stamp = ++stamp_;
+    if (file) {
+        // Make room: the least recently used photos go first, package images stay.
+        while (fileBytes_ + entry.bytes > kPhotoBudget) {
+            auto victim = images_.end();
+            for (auto it = images_.begin(); it != images_.end(); ++it) {
+                if (it->second.file && (victim == images_.end() || it->second.stamp < victim->second.stamp)) victim = it;
+            }
+            if (victim == images_.end()) break;
+            fileBytes_ -= victim->second.bytes;
+            images_.erase(victim);
+        }
+        fileBytes_ += entry.bytes;
+    } else if (images_.size() >= kMaxImages) {
+        images_.clear();
+        fileBytes_ = 0;
+    }
     return &images_.emplace(path, std::move(entry)).first->second;
 }
 

@@ -1611,6 +1611,39 @@ cancels an ordinary move / resize drag of a standalone widget (back where it was
 locked standalone entry (its lock is about moving the window; the menu entry is deliberate).
 ItemCommand 868 is the automation hook (the target dock in HIWORD(wParam), appended at the end).
 
+## Round 17 (2026-11-11): the Photo frame widget
+
+No plan file. From the user's request of 2026-11-11: a photo frame widget that shows one image
+(PNG, JPEG, WebP ... ) or a folder as a slideshow; sizes and aspect ratios, cover / contain, borders,
+drop shadows (a borderless print with a shadow), the slideshow's order (name ascending / descending,
+oldest / newest, random), the time per slide and transitions (fade, appear, slide from a side).
+
+**Phase 17A: the widget and what it needed from the host.** Three gaps in the widget API decided
+the shape of the work:
+
+- `canvas.image` took package files only (8 MB, 4096 px). Photos live anywhere and are larger, so
+  with the `shell` permission (which already opens files and lists folders: the same trust) an
+  absolute path is allowed, carried as a `"file:"` token so `ReadFile` can tell it from a module
+  name, and decoded **photo-sized**: WIC's scaler to 2048 px on the long side (the JPEG decoder
+  scales while decoding, so a 20 MP file does not become an 80 MB bitmap), the EXIF orientation
+  applied (phone photos), and the decoded photos kept under a 64 MB LRU budget per canvas so a
+  slideshow can decode its next picture ahead. Decoding is synchronous inside `draw()`
+  (`timeLimitMs` 1000 in the manifest); a worker-thread decode is the follow-up if the stall
+  shows on big photos.
+- The settings schema had no way to pick a file or folder: `file` / `folder` field types with a
+  Browse… button on the generated page (`IFileOpenDialog`, `FOS_PICKFOLDERS` for a folder, a
+  file field's `filter` patterns). The value stays a plain string, so the inspector, the search
+  and config.json need nothing new.
+- Transitions: the composition layers of 16F animate offset and opacity in DWM, but a layer's
+  clip is a box and a slide needs the moving picture clipped to the frame's rounded corners, so
+  the slides and fades are drawn by the script at 16 ms for `transitionMs` only (as the Analog
+  clock's hover growth), never with Reduce motion. Nothing ticks between slides but the one
+  `setTimeout`.
+
+Not done, by choice: sub-folders (`shell.list` is one level), a file dropped on the frame (a
+widget cannot write its own settings), a blurred shadow (a stack of translucent rounded rectangles
+instead).
+
 ## Dependencies at a glance
 
 ```

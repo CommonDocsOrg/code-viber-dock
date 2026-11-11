@@ -36,7 +36,7 @@ thread. This file is the full reference; README.md has the short version.
 
 Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
 `start`, `search`, `notification-bell`, `agenda`, `weather`, `notes`, `system-monitor`,
-`system-overview`, `battery`, `show-desktop`, `stocks`) are compiled into the
+`system-overview`, `battery`, `show-desktop`, `stocks`, `photo-frame`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Widgets are always loaded as source; bytecode is never loaded.
@@ -96,6 +96,14 @@ Each entry: `key` (required), `type`, `label`, `description`, `default`, the pag
 | `font` | a font family name | |
 | `place` | a place (round 5): no key of its own; it edits the item's `latitude`, `longitude` (numbers, 4 decimals) and `location` (the name shown) | none (no `default`) |
 | `timezone` | a Windows time zone key name (`"Tokyo Standard Time"`); `""` = the local time | none |
+| `file` | an absolute path to a file (`""` = none; round 17 phase 17A) | `filter`: the picker's patterns, `"*.png;*.jpg"` (left out: every file) |
+| `folder` | an absolute path to a folder (`""` = none; round 17 phase 17A) | |
+
+`file` / `folder` (round 17 phase 17A): the settings page shows the path in a box (typed or pasted
+paths work, `%VAR%` included) with a **Browse…** button that opens the Windows file or folder
+picker (started in the current value's folder when it exists). The value is any string: the widget
+checks the path when it uses it (`shell.list`, `canvas.image` with the `shell` permission). The
+Contents inspector edits a `common` one as a plain box.
 
 `place` (round 5): the settings page shows the weather place block for it: **Find a place** (round
 8 phase 8C: an autocomplete box; typing searches Open-Meteo's geocoding service after a short pause
@@ -240,8 +248,8 @@ Stroke (`stroke` below): a width in DIPs (default 1), or `{ width, cap: "butt" |
 | `stroke(path, paint, stroke)` | |
 | `text(str, x, y, style)` | DirectWrite text. `style`: `{ font: "Segoe UI", size: 12, weight: 400 \| "thin" \| "light" \| "normal" \| "medium" \| "semibold" \| "bold" \| "black", italic: false, align: "left" \| "center" \| "right", baseline: "top" \| "middle" \| "bottom" \| "alphabetic", maxWidth: 0, color: paint }`. `x` is the left / centre / right of the text per `align`, `y` its top / middle / bottom / baseline. `"\n"` breaks lines; `maxWidth` > 0 wraps the text at that width (and `align` places the lines inside `[x - ..., x + maxWidth]` the same way). |
 | `measureText(str, style)` | `{ width, height, baseline, lines }` in DIPs (also in `measure()`). |
-| `image(path, x, y, w, h, opacity)` | An image file of the package (`"assets/icon.png"`; PNG, JPEG, BMP, GIF, ICO, TIFF via WIC; up to 8 MB and 4096 x 4096). `w` / `h` omitted or 0: its pixel size in DIPs. Decoded once and cached. Throws if it cannot be read. |
-| `imageSize(path)` | `{ width, height }` in pixels. |
+| `image(path, x, y, w, h, opacity)` | An image file of the package (`"assets/icon.png"`; PNG, JPEG, BMP, GIF, ICO, TIFF via WIC; up to 8 MB and 4096 x 4096). `w` / `h` omitted or 0: its pixel size in DIPs. Decoded once and cached. Throws if it cannot be read. Round 17 phase 17A: with the `shell` permission also **a file anywhere on disk** by its absolute path (`"C:\\Users\\me\\Pictures\\a.jpg"`, a UNC path, or one starting with `%VAR%`; also WebP, HEIC and AVIF where Windows has their codecs): up to 64 MB, decoded at most 2048 px on its long side (larger ones are scaled down while decoding) after its EXIF orientation, so a phone photo stands upright. The decoded photos are kept within 64 MB per widget, the least recently used going first: a slideshow can decode its next picture ahead with `imageSize` (also in `measure()`) and change to it without a pause. |
+| `imageSize(path)` | `{ width, height }` in pixels (a file from disk: as decoded, at most 2048 on the long side, after its orientation). |
 | `fileIcon(path, x, y, size)` | The shell's icon of a file or folder (an absolute path; `%VAR%` expanded), `size` DIPs square. Needs the `shell` permission. Cached like images. |
 | `save()`, `restore()` | The transform, opacity and clips (up to 64 levels). Whatever is left pushed at the end of `draw()` is popped. |
 | `translate(x, y)`, `rotate(radians, cx, cy)`, `scaleBy(sx, sy)` | Change the transform of what follows (`rotate`: clockwise for positive angles, about (cx, cy)). The scale call is `scaleBy` because `canvas.scale` is the DPI property (before 5a the method was listed as `scale(sx, sy)`, which the property shadowed). |
@@ -1224,6 +1232,33 @@ built-ins are worked examples too:
   Finnhub credit. Previews (`dock.preview`) draw sample quotes (AAPL, MSFT, NVDA) and a sample
   sparkline. Test hook: with the item setting `debugStore` the slot and the popup write what they
   show to `slot` / `popup`. Standalone 240 x 140 by default, the layout scaled to the window.
+- `widgets/photo-frame` ("Photo frame", round 17 phase 17A): one picture, or a folder of pictures
+  as a slideshow, in a frame. `source` `image` (the `file` field `image`) or `folder` (the
+  `folder` field `folder`: its own files with an image extension, read with `shell.list`, up to
+  1000, read again at the end of each round); `order` `name-asc` (Explorer's name order, so 2
+  before 10) / `name-desc` / `oldest` / `newest` (the modified time) / `random` (a shuffle per
+  round); `interval` 1 - 3600 s (one `setTimeout` to the next picture, none while the dock is
+  hidden, with `pauseOnHover` none while the pointer rests on the frame); `transition` `none` /
+  `fade` (the new picture fades in over the old one) / `slide-left` / `-right` / `-top` /
+  `-bottom` (the new one slides in from that side while the old one slides out), `transitionMs`
+  100 - 3000: the frames are the script's own `setInterval(16)` for that long only, never with
+  Reduce motion or in a preview; `click` `next` (the next picture; a single picture: open it) /
+  `open` / `folder` / `none`, a middle click always opens the picture, `wheel` steps through a
+  slideshow. Appearance: `size` `icon` / `small` 64 / `medium` 96 / `large` 160 / `custom`
+  (`width`) DIPs across on a dock, `aspect` `image` (the picture's own shape: `canvas.imageSize`
+  in `measure()`, so a slideshow's frame changes shape with each picture) / `1:1` / `4:3` /
+  `3:2` / `16:9` / `3:4` / `2:3` / `9:16` / `custom` (`width` : `height`); standalone the window
+  is the frame and a fixed aspect is the largest picture of that shape that fits, centred;
+  `fit` `cover` (cropped, centred) / `contain` (bands in `background`, `#00000000` = none);
+  `border` `none` / `line` / `mat` / `polaroid` (the bottom band three times `borderWidth`),
+  `borderWidth`, `borderColor`, `cornerRadius`; `shadow` `none` / `soft` / `medium` / `strong`
+  (a stack of eight translucent rounded rectangles growing outward, no blur) and `shadowOffset`
+  (downwards). `measure()` adds the border and the shadow's room to the picture. The next picture
+  of a slideshow is decoded at the end of `draw()` (`imageSize`), so the change is instant.
+  Previews draw a sample landscape with canvas calls. A picture that cannot be opened is skipped
+  (the frame says so when it is the only one). Test hook: `"debugStore": true` keeps the last 50
+  paths shown in `"shown:" + dock.itemKey` and the current layout in `"state:" + dock.itemKey`
+  (`tools\smoke\photo-frame.ps1`). Permission `shell`.
 - `widgets/show-desktop` ("Show desktop", round 11 phase 11B): the Windows 7 taskbar's sliver. A
   click sends `win+d` (`click` `desktop`, the default: show the desktop, a second click brings the
   windows back) or `win+m` (`minimize`). `style` `strip` (default): `measure()` returns `width`

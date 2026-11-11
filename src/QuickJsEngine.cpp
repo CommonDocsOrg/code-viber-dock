@@ -22,6 +22,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
+#include <cwctype>
 #include <map>
 #include <new>
 #include <string>
@@ -1183,6 +1184,24 @@ bool AssetPath(JSContext* ctx, const std::wstring& given, std::string& path) {
     }
     if (given.rfind(L"weather:", 0) == 0) {  // weather.icon(): the dock's vector glyphs (no data in them)
         path = WideToUtf8(given);
+        return true;
+    }
+    // Round 17 phase 17A: a file anywhere on disk ("C:\...", "\\server\...", "%USERPROFILE%\...")
+    // with the "shell" permission (which already opens files and lists folders). The host reads it
+    // under the "file:" token (ScriptHost::ReadFile; a module name never carries it: ResolvePath
+    // refuses ':' and '\'), and the canvas decodes it photo-sized (WidgetCanvas::FindImage).
+    const bool absolute = given.size() >= 3 && ((std::iswalpha(given[0]) && given[1] == L':' && (given[2] == L'\\' || given[2] == L'/')) ||
+                                                 (given[0] == L'\\' && given[1] == L'\\') || given[0] == L'%');
+    if (absolute) {
+        if (!Self(ctx)->host_.Permitted(ScriptHost::Permission::Shell)) {
+            JS_ThrowTypeError(ctx, "image: a file outside the widget folder needs the \"shell\" permission");
+            return false;
+        }
+        if (given.size() > 2048) {
+            JS_ThrowTypeError(ctx, "image: the path is too long");
+            return false;
+        }
+        path = "file:" + WideToUtf8(given);
         return true;
     }
     if (!Widgets::ResolvePath("", WideToUtf8(given), path)) {

@@ -1,0 +1,122 @@
+{
+  "name": "Photo frame",
+  "version": "1.0.0",
+  "author": "WinDock",
+  "description": "A picture in a frame: one image file, or a folder of pictures as a slideshow (in name or date order, or shuffled, with a fade or slide between them). Choose the frame's size and shape, how a picture fills it, its border and its shadow. A click shows the next picture or opens it.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 108, "cross": 84 },
+    "vertical": { "main": 84, "cross": 108 }
+  },
+  "timeLimitMs": 1000,
+  "standalone": { "minWidth": 64, "minHeight": 64, "defaultWidth": 260, "defaultHeight": 200 },
+  "permissions": ["shell"],
+  "preview": { "settings": { "size": "small", "border": "mat", "borderWidth": 4, "shadow": "soft" } },
+  "settings": [
+    { "key": "source", "section": "content", "group": "Picture", "common": true, "quick": true, "type": "choice", "label": "Show", "default": "image",
+      "description": "One image file, or every picture of a folder as a slideshow. Default: one image.",
+      "choices": [
+        { "value": "image", "label": "One picture" },
+        { "value": "folder", "label": "A folder of pictures (slideshow)" }
+      ] },
+    { "key": "image", "section": "content", "group": "Picture", "common": true, "visibleIf": { "source": "image" }, "type": "file", "label": "Picture", "default": "",
+      "filter": "*.png;*.jpg;*.jpeg;*.jfif;*.webp;*.bmp;*.gif;*.tif;*.tiff;*.ico;*.heic;*.heif;*.avif",
+      "description": "The image file to show: PNG, JPEG, WebP, BMP, GIF, TIFF (and HEIC where Windows can open it). Photos are turned the way the camera held them." },
+    { "key": "folder", "section": "content", "group": "Picture", "common": true, "visibleIf": { "source": "folder" }, "type": "folder", "label": "Folder", "default": "",
+      "description": "The folder whose pictures are shown one after another (its own files, not sub-folders; up to 1000). The list is read again at the end of each round." },
+    { "key": "order", "section": "content", "group": "Slideshow", "quick": true, "visibleIf": { "source": "folder" }, "type": "choice", "label": "Order", "default": "name-asc",
+      "description": "The order of the pictures: by name as Explorer sorts them (so 2 comes before 10), by the date they were last changed, or shuffled (every picture once per round, then reshuffled). Default: by name, A to Z.",
+      "choices": [
+        { "value": "name-asc", "label": "By name, A to Z (1 to 9)" },
+        { "value": "name-desc", "label": "By name, Z to A (9 to 1)" },
+        { "value": "oldest", "label": "Oldest first" },
+        { "value": "newest", "label": "Newest first" },
+        { "value": "random", "label": "Random" }
+      ] },
+    { "key": "interval", "section": "content", "group": "Slideshow", "common": true, "visibleIf": { "source": "folder" }, "type": "int", "label": "Time per picture", "min": 1, "max": 3600, "default": 10, "unit": "seconds",
+      "description": "How long each picture stays before the next one. Default: 10 seconds." },
+    { "key": "transition", "section": "content", "group": "Slideshow", "quick": true, "visibleIf": { "source": "folder" }, "type": "choice", "label": "Transition", "default": "fade",
+      "description": "How the next picture comes in: at once, fading in over the old one, or sliding in from a side while the old one slides out. Off with Reduce motion. Default: fade.",
+      "choices": [
+        { "value": "none", "label": "Appear (no animation)" },
+        { "value": "fade", "label": "Fade" },
+        { "value": "slide-left", "label": "Slide in from the left" },
+        { "value": "slide-right", "label": "Slide in from the right" },
+        { "value": "slide-top", "label": "Slide in from the top" },
+        { "value": "slide-bottom", "label": "Slide in from the bottom" }
+      ] },
+    { "key": "transitionMs", "section": "content", "group": "Slideshow", "visibleIf": { "source": "folder" }, "type": "int", "label": "Transition time", "min": 100, "max": 3000, "step": 50, "default": 600, "unit": "ms",
+      "description": "How long the fade or slide takes. Default: 600 ms." },
+    { "key": "pauseOnHover", "section": "content", "group": "Slideshow", "visibleIf": { "source": "folder" }, "type": "bool", "label": "Pause while the pointer is over it", "default": false,
+      "description": "The slideshow waits while the pointer rests on the frame. Off by default." },
+    { "key": "click", "section": "content", "group": "Click", "type": "choice", "label": "A click", "default": "next",
+      "description": "What a click on the frame does. A middle click always opens the picture in your image viewer. Default: the next picture (a slideshow), else open the picture.",
+      "choices": [
+        { "value": "next", "label": "Next picture (a slideshow), else open it" },
+        { "value": "open", "label": "Opens the picture" },
+        { "value": "folder", "label": "Opens its folder" },
+        { "value": "none", "label": "Nothing" }
+      ] },
+    { "key": "wheel", "section": "content", "group": "Click", "visibleIf": { "source": "folder" }, "type": "bool", "label": "The wheel steps through the pictures", "default": true,
+      "description": "Turning the mouse wheel over the frame shows the next or the previous picture. On by default." },
+
+    { "key": "size", "section": "appearance", "group": "Size", "common": true, "type": "choice", "label": "Size on a dock", "default": "medium",
+      "description": "The frame's width on a dock (its height follows the aspect ratio). On the desktop the frame fills its window instead. Default: medium.",
+      "choices": [
+        { "value": "icon", "label": "The dock's icon size" },
+        { "value": "small", "label": "Small (64 DIPs)" },
+        { "value": "medium", "label": "Medium (96 DIPs)" },
+        { "value": "large", "label": "Large (160 DIPs)" },
+        { "value": "custom", "label": "Custom width" }
+      ] },
+    { "key": "width", "section": "appearance", "group": "Size", "visibleIf": { "size": "custom" }, "type": "int", "label": "Width", "min": 24, "max": 1024, "default": 96, "unit": "DIPs",
+      "description": "The picture's width on a dock, without the border and the shadow." },
+    { "key": "aspect", "section": "appearance", "group": "Size", "quick": true, "type": "choice", "label": "Aspect ratio", "default": "4:3",
+      "description": "The frame's shape: the picture's own shape (a slideshow then changes shape with every picture), a fixed ratio, or your own width and height. On the desktop a fixed ratio is the largest frame of that shape that fits the window. Default: 4:3.",
+      "choices": [
+        { "value": "image", "label": "The picture's own" },
+        { "value": "1:1", "label": "Square (1:1)" },
+        { "value": "4:3", "label": "4:3" },
+        { "value": "3:2", "label": "3:2" },
+        { "value": "16:9", "label": "16:9" },
+        { "value": "3:4", "label": "3:4 (portrait)" },
+        { "value": "2:3", "label": "2:3 (portrait)" },
+        { "value": "9:16", "label": "9:16 (portrait)" },
+        { "value": "custom", "label": "Custom width and height" }
+      ] },
+    { "key": "height", "section": "appearance", "group": "Size", "visibleIf": { "aspect": "custom" }, "type": "int", "label": "Height", "min": 24, "max": 1024, "default": 72, "unit": "DIPs",
+      "description": "The picture's height on a dock, without the border and the shadow. On the desktop the width : height ratio is kept." },
+    { "key": "fit", "section": "appearance", "group": "Fit", "common": true, "quick": true, "type": "choice", "label": "A picture of another shape", "default": "cover",
+      "description": "Fill the frame and crop what sticks out (centred), or shrink the picture until it fits, with bands beside it. Default: fill.",
+      "choices": [
+        { "value": "cover", "label": "Fills the frame (cropped, centred)" },
+        { "value": "contain", "label": "Fits inside the frame (bands)" }
+      ] },
+    { "key": "background", "section": "appearance", "group": "Fit", "type": "colour", "label": "Band colour", "default": "#00000000",
+      "description": "Behind a picture that fits inside the frame. #00000000 (transparent): nothing, the dock shows through." },
+    { "key": "border", "section": "appearance", "group": "Border", "type": "choice", "label": "Border", "default": "mat",
+      "description": "None (a borderless print; try it with a strong shadow), a thin line, a mat of the border width all round, or a Polaroid print (a wider band under the picture). Default: a mat.",
+      "choices": [
+        { "value": "none", "label": "None" },
+        { "value": "line", "label": "Thin line" },
+        { "value": "mat", "label": "Mat" },
+        { "value": "polaroid", "label": "Polaroid" }
+      ] },
+    { "key": "borderWidth", "section": "appearance", "group": "Border", "type": "int", "label": "Border width", "min": 1, "max": 48, "default": 6, "unit": "DIPs",
+      "description": "The mat's width (a Polaroid's sides and top; its bottom is three times that). A thin line is always 1 DIP. Default: 6." },
+    { "key": "borderColor", "section": "appearance", "group": "Border", "type": "colour", "label": "Border colour", "default": "#FFFFFFFF",
+      "description": "The mat, Polaroid or line colour. Default: white." },
+    { "key": "cornerRadius", "section": "appearance", "group": "Border", "type": "int", "label": "Rounded corners", "min": 0, "max": 64, "default": 3, "unit": "DIPs",
+      "description": "The radius of the frame's corners (0: square). Default: 3." },
+    { "key": "shadow", "section": "appearance", "group": "Shadow", "type": "choice", "label": "Drop shadow", "default": "soft",
+      "description": "A shadow under the frame: none, soft, medium or strong (wider and darker). Default: soft.",
+      "choices": [
+        { "value": "none", "label": "None" },
+        { "value": "soft", "label": "Soft" },
+        { "value": "medium", "label": "Medium" },
+        { "value": "strong", "label": "Strong" }
+      ] },
+    { "key": "shadowOffset", "section": "appearance", "group": "Shadow", "type": "int", "label": "Shadow offset", "min": 0, "max": 32, "default": 3, "unit": "DIPs",
+      "description": "How far the shadow falls below the frame. Default: 3." }
+  ]
+}

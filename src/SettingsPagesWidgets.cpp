@@ -39,6 +39,56 @@ constexpr int kDefaultItemW = 600;  // an Item window's default width (DIPs): wh
 constexpr UINT_PTR kPlaceTimer = 1; // round 8 phase 8C: the place search's typing pause
 constexpr UINT kPlacePauseMs = 400;
 
+// Round 17 phase 17A: the Windows picker for a `file` / `folder` field (IFileOpenDialog; a folder
+// with FOS_PICKFOLDERS). `filter`: "*.png;*.jpg" (a file field's patterns; empty: every file).
+// `path` in: the current value (its folder is the start folder, when it exists); out: the choice.
+// False: cancelled or no dialog.
+bool PickPath(HWND owner, bool folder, const std::wstring& filter, const std::wstring& title, std::wstring& path) {
+    winrt::com_ptr<IFileOpenDialog> dialog;
+    if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
+        MessageBeep(MB_ICONERROR);
+        return false;
+    }
+    dialog->SetTitle(title.c_str());
+    FILEOPENDIALOGOPTIONS options = 0;
+    dialog->GetOptions(&options);
+    options |= FOS_FORCEFILESYSTEM | FOS_PATHMUSTEXIST | FOS_NOCHANGEDIR;
+    if (folder) {
+        options |= FOS_PICKFOLDERS;
+    } else {
+        options |= FOS_FILEMUSTEXIST;
+        const std::wstring spec = filter.empty() ? L"*.*" : filter;
+        const std::wstring name = filter.empty() ? L"All files" : L"Files (" + filter + L")";
+        const COMDLG_FILTERSPEC filters[] = {{name.c_str(), spec.c_str()}, {L"All files", L"*.*"}};
+        dialog->SetFileTypes(filter.empty() ? 1u : 2u, filters);
+    }
+    dialog->SetOptions(options);
+    // Start where the current value is: the folder itself, or the file's folder.
+    std::wstring start = path;
+    while (!start.empty() && (start.back() == L'\\' || start.back() == L'/')) start.pop_back();
+    if (!folder) {
+        const size_t slash = start.find_last_of(L"\\/");
+        start = slash == std::wstring::npos ? std::wstring() : start.substr(0, slash);
+    }
+    if (!start.empty()) {
+        wchar_t expanded[MAX_PATH * 2]{};
+        ExpandEnvironmentStringsW(start.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
+        const DWORD attrs = GetFileAttributesW(expanded);
+        winrt::com_ptr<IShellItem> item;
+        if (attrs != INVALID_FILE_ATTRIBUTES && (attrs & FILE_ATTRIBUTE_DIRECTORY) &&
+            SUCCEEDED(SHCreateItemFromParsingName(expanded, nullptr, IID_PPV_ARGS(item.put())))) {
+            dialog->SetFolder(item.get());
+        }
+    }
+    if (FAILED(dialog->Show(owner))) return false;  // cancelled
+    winrt::com_ptr<IShellItem> item;
+    PWSTR raw = nullptr;
+    if (FAILED(dialog->GetResult(item.put())) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw) return false;
+    path = raw;
+    CoTaskMemFree(raw);
+    return true;
+}
+
 // --- the library's preview panel (round 6 phase 6E) ------------------------------------------------
 // WinDock.WidgetPreviewPanel: the selected widget's live preview (SettingsWindow::Preview, fitted into
 // 240 x 120 DIPs over the theme-coloured panel) and its name and description beside it. GDI,
@@ -750,6 +800,15 @@ protected:
                     if (!f.unit.empty()) Text(base + 5, CtlKind::Note, f.unit, kColX + 168, 120);
                     NextRow();
                     break;
+                case T::File:
+                case T::Folder:
+                    // Round 17 phase 17A: the path in a box (typed or pasted paths work too) and a
+                    // Browse… button that opens the Windows file / folder picker.
+                    label();
+                    EditBox(base + 1, kColX, right - kColX - 96, 1024);
+                    Button(base + kWidgetFieldBrowse, L"Browse…", right - 88, 88);
+                    NextRow();
+                    break;
                 case T::Font:
                 case T::String:
                 default:
@@ -773,6 +832,8 @@ protected:
                 Tip(base + 1, tip);
                 if (f.type == T::Bool && !hint.empty()) Tip(base + 3, tip);
                 if (f.type == T::Color) Tip(base + kWidgetFieldSwatch, L"Click to pick a colour. Its alpha stays; type #AARRGGBB in the box to change it.");
+                if (f.type == T::File) Tip(base + kWidgetFieldBrowse, L"Choose a file. You can also type or paste a path in the box.");
+                if (f.type == T::Folder) Tip(base + kWidgetFieldBrowse, L"Choose a folder. You can also type or paste a path in the box.");
             }
             if (kind == ItemKind::Clock && f.key == L"face") {
                 Button(kClockFacesFolder, L"Open faces folder", kColX, 150);  // in the face's card
@@ -1019,6 +1080,16 @@ protected:
             SetText(id - kWidgetFieldSwatch + 1, FormatArgbColor(argb));
             InvalidateRect(Item(id), nullptr, FALSE);
             Store(*cf, json::JsonValue::CreateStringValue(FormatArgbColor(argb)));
+            return;
+        }
+        // Round 17 phase 17A: a file's / folder's Browse… opens the picker on the path in its box.
+        if (id >= kWidgetFieldBase && (id - kWidgetFieldBase) % 10 == kWidgetFieldBrowse && code == BN_CLICKED) {
+            const Widgets::SettingField* pf = FieldOf(id - kWidgetFieldBrowse + 1);
+            if (!pf || (pf->type != Widgets::SettingField::Type::File && pf->type != Widgets::SettingField::Type::Folder)) return;
+            std::wstring path = GetText(id - kWidgetFieldBrowse + 1);
+            if (!PickPath(Owner(), pf->type == Widgets::SettingField::Type::Folder, pf->filter, pf->label, path)) return;
+            SetText(id - kWidgetFieldBrowse + 1, path);
+            Store(*pf, json::JsonValue::CreateStringValue(path));
             return;
         }
         const Widgets::SettingField* f = FieldOf(id);

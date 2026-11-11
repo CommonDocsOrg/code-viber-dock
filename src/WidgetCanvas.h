@@ -188,7 +188,10 @@ public:
     void ClipPath(CanvasPath& path);
 
     // Drops the cached images (a device change: their Direct2D bitmaps belong to the old device).
-    void ReleaseImages() { images_.clear(); }
+    void ReleaseImages() {
+        images_.clear();
+        fileBytes_ = 0;
+    }
 
     // Round 16 phase 16F: layers. SetLayerSink before Begin (null: none). BeginLayer returns true
     // when the sink took the layer (the drawing calls now record its content), false when the
@@ -223,6 +226,12 @@ private:
         winrt::com_ptr<ID2D1Bitmap> bitmap;
         ID2D1Device* device = nullptr;  // the bitmap's device (not owned)
         UINT w = 0, h = 0;
+        // Round 17 phase 17A: a "file:" image (a photo from disk, decoded at most kMaxPhotoPx on
+        // its long side): its decoded bytes count against kPhotoBudget, the least recently used
+        // ones going first (`stamp`: the last FindImage).
+        bool file = false;
+        size_t bytes = 0;
+        uint64_t stamp = 0;
     };
 
     void Apply();  // sets the dc transform for the current state
@@ -249,6 +258,8 @@ private:
     std::map<std::wstring, winrt::com_ptr<IDWriteTextFormat>> formats_;
     std::map<std::wstring, winrt::com_ptr<ID2D1StrokeStyle>> strokes_;
     std::map<std::string, ImageEntry> images_;
+    size_t fileBytes_ = 0;  // round 17 phase 17A: the decoded bytes of the "file:" entries
+    uint64_t stamp_ = 0;
     winrt::com_ptr<IWICImagingFactory> wic_;
     // Round 16 phase 16F: layers.
     LayerSink* sink_ = nullptr;

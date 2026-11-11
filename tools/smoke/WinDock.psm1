@@ -380,6 +380,51 @@ public static class Find {
     [IntPtr]::Zero
 }
 
+function Get-ChildControl {
+    <#
+      Round 17 phase 17A: the descendant of -Hwnd (a settings window) whose control id is -Id
+      (src/SettingsIds.h; a page's controls are children of the page, so EnumChildWindows, which walks
+      every descendant, not GetDlgItem). IntPtr.Zero when there is none. Its text: Get-ControlText.
+    #>
+    param([Parameter(Mandatory)][IntPtr]$Hwnd, [Parameter(Mandatory)][int]$Id)
+    if (-not ('WinDockSmoke.Children' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+using System.Text;
+namespace WinDockSmoke {
+public static class Children {
+    public delegate bool EnumProc(IntPtr hwnd, IntPtr lp);
+    [DllImport("user32.dll")] public static extern bool EnumChildWindows(IntPtr parent, EnumProc cb, IntPtr lp);
+    [DllImport("user32.dll")] public static extern int GetDlgCtrlID(IntPtr h);
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageTimeoutW(IntPtr h, uint msg, IntPtr wp, StringBuilder lp, uint flags, uint ms, out IntPtr result);
+    public static IntPtr ById(IntPtr parent, int id) {
+        IntPtr found = IntPtr.Zero;
+        EnumChildWindows(parent, (h, lp) => { if (GetDlgCtrlID(h) == id) { found = h; return false; } return true; }, IntPtr.Zero);
+        return found;
+    }
+    // WM_GETTEXT, sent: GetWindowText does not cross processes for a control's text (it reads
+    // the cached caption only: an edit box in the dock's process came back empty).
+    public static string Text(IntPtr h) {
+        var sb = new StringBuilder(4096);
+        IntPtr r;
+        SendMessageTimeoutW(h, 0x000D, (IntPtr)4096, sb, 2, 2000, out r);
+        return sb.ToString();
+    }
+}
+}
+'@
+    }
+    [WinDockSmoke.Children]::ById($Hwnd, $Id)
+}
+
+function Get-ControlText {
+    <# The text of a control of the dock's process (a sent WM_GETTEXT; Get-ChildControl loads the type). #>
+    param([Parameter(Mandatory)][IntPtr]$Hwnd)
+    [void](Get-ChildControl -Hwnd $Hwnd -Id -1)  # loads WinDockSmoke.Children
+    [WinDockSmoke.Children]::Text($Hwnd)
+}
+
 if (-not ('WinDockSmoke.Capture' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;

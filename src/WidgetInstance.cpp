@@ -26,6 +26,10 @@ namespace {
 namespace json = winrt::Windows::Data::Json;
 
 constexpr char kArtToken[] = "media:art/";
+// Round 17 phase 17A: canvas.image of a file anywhere on disk (QuickJsEngine's AssetPath makes the
+// token; WidgetCanvas::FindImage decodes it photo-sized). The size cap is the raw file.
+constexpr char kFileToken[] = "file:";
+constexpr size_t kMaxFileImageBytes = 64u << 20;
 
 const char* FnName(ScriptEngine::Fn fn) {
     switch (fn) {
@@ -793,6 +797,36 @@ bool WidgetInstance::ReadFile(const std::string& path, std::string& bytes, std::
         }
         bytes = *media->Get().art;
         return true;
+    }
+    // Round 17 phase 17A: canvas.image's "file:" token (an absolute path; QuickJsEngine's AssetPath
+    // checked the "shell" permission). %VAR% expanded as shell.open does. Up to 64 MB (a photo).
+    if (path.rfind(kFileToken, 0) == 0) {
+        if (!Permitted(Permission::Shell)) {
+            error = L"a file outside the widget folder needs the \"shell\" permission";
+            return false;
+        }
+        const std::wstring given = JsonUtil::Utf8ToWide(path.substr(std::strlen(kFileToken)));
+        wchar_t expanded[MAX_PATH * 4]{};
+        ExpandEnvironmentStringsW(given.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
+        const HANDLE h = CreateFileW(expanded, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+                                     OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+        if (h == INVALID_HANDLE_VALUE) {
+            error = L"cannot open " + given;
+            return false;
+        }
+        LARGE_INTEGER size{};
+        bool ok = GetFileSizeEx(h, &size) && size.QuadPart > 0 && size.QuadPart <= static_cast<LONGLONG>(kMaxFileImageBytes);
+        if (ok) {
+            bytes.resize(static_cast<size_t>(size.QuadPart));
+            DWORD read = 0;
+            ok = ::ReadFile(h, bytes.data(), static_cast<DWORD>(bytes.size()), &read, nullptr) && read == bytes.size();
+        }
+        CloseHandle(h);
+        if (!ok) {
+            bytes.clear();
+            error = L"cannot read " + given + L" (empty, over 64 MB, or unreadable)";
+        }
+        return ok;
     }
     if (!package_) {
         error = L"no package";

@@ -1382,6 +1382,16 @@ write and edit without compiling anything. The full reference (every call, every
   click opens a popup with each symbol's last trade time, open, high, low and previous close, a
   refresh button and the Finnhub credit, and a click on a row opens the symbol on Yahoo Finance,
   Google Finance or Finnhub; refreshed every 5 minutes by default, one request per symbol),
+  **Photo frame** (`photo-frame`, round 17: one picture, or a folder of pictures as a slideshow,
+  in a frame: chosen with a file / folder picker (PNG, JPEG, WebP, BMP, GIF, TIFF, and HEIC where
+  Windows opens it; photos stand the way the camera held them); the slideshow's order (by name as
+  Explorer sorts, by date, or shuffled), time per picture and transition (appear, fade, or slide
+  in from a side); the frame's size on a dock (icon size, small, medium, large, a width) and
+  shape (the picture's own, 1:1, 4:3, 3:2, 16:9, portrait ratios, or a width and height; on the
+  desktop the window is the frame); a picture of another shape fills the frame cropped or fits
+  inside it with bands; a border (none, a thin line, a mat, a Polaroid band), rounded corners and
+  a drop shadow (soft, medium, strong, with an offset; a borderless print with a strong shadow is
+  one look); a click shows the next picture or opens it, the wheel steps through them),
   and **Notification bell** (`notification-bell`: a scriptable bell that behaves like the
   notification centre by default, the unread count in a badge and a click that opens WinDock's
   centre; its settings make it open Windows' notification centre (Win+N) instead, and with "Show
@@ -1420,7 +1430,8 @@ write and edit without compiling anything. The full reference (every call, every
   int, number, string, choice (also `choiceFrom`: one choice per package file matching a glob, or
   `"perf"`: the perf provider's metrics, listed by the dock),
   colour, font, place (a weather place: search, name, latitude / longitude) and timezone (round 5),
-  with defaults; the values live in the item's `settings` object), `standalone` (round 6) and
+  file and folder (round 17: a path with a Browse… button; a file field's `filter` narrows the
+  picker), with defaults; the values live in the item's `settings` object), `standalone` (round 6) and
   `preview` (round 6 phase 6E: `{ "settings": {...}, "width", "height" }`, what the widget
   drawer's live preview shows; `dock.preview` is true while it draws one, the providers answer
   sample data then: docs/widgets.md "Preview mode").
@@ -2366,7 +2377,7 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
     manifest fields marked `"common": true` (docs/widgets.md "Settings schema"; without any, its
     first three fields of a simple type), each while its `visibleIf` holds, at most six (a check
     box per `bool`, an up-down per `int`, a drop-down per `choice` / `timezone`, an edit box per
-    `number` / `string` / `colour` / `font`; a place as a line; a `"choiceFrom": "perf"` choice is
+    `number` / `string` / `colour` / `font` / `file` / `folder`; a place as a line; a `"choiceFrom": "perf"` choice is
     left to the Item window); apps, separators, the Recycle Bin, running apps, the tray and the
     notification centre have none. They write the item exactly as its Item window does (the same
     code: `settings` keys, `name`, `view`; applied at once and saved), an open Item window of the

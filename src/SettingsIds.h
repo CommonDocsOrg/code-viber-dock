@@ -509,8 +509,10 @@ inline constexpr int kPlaceLonUnit = 3632;        // "-180 to 180"
 inline constexpr int kWidgetFieldBase = 3700;
 inline constexpr int kWidgetFieldMax = 30;     // fields shown per widget
 // Field k's parts (3700 + 10 k + part): 0 label, 1 the control, 2 caption / up-down, 3 hint, 4 the
-// card header, 5 the unit, 6 a colour's swatch (round 16 phase 16D; BN_CLICKED: the colour dialog).
+// card header, 5 the unit, 6 a colour's swatch (round 16 phase 16D; BN_CLICKED: the colour dialog),
+// 7 a file's / folder's "Browse…" button (round 17 phase 17A; BN_CLICKED: the picker, modal).
 inline constexpr int kWidgetFieldSwatch = 6;
+inline constexpr int kWidgetFieldBrowse = 7;
 
 // Folders and groups (4000 - 4099; round 4 phase 7): the Item window's folder / group item.
 // 4000 / 4001: the item picker until round 5 phase B; reserved.
