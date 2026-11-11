@@ -141,6 +141,10 @@ enum Command : UINT {
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,
+    // Round 16 phase 16G, menu only: a standalone widget's Move to dock > "<name>" entries,
+    // kMoveToDockBase + the docks[] index (at most 200: 3400 - 3599; ItemCommand 868 is the
+    // automation path).
+    kMoveToDockBase = 3400,
     // Round 9 phase 9D: the dock menu's "Help…" (the quick start; SettingsIds::kMenuHelp).
     kHelpMenu = 5202,
     kTogglePin = 800,      // per-item: Pin to dock / Unpin from dock (separators: Remove)
@@ -236,6 +240,15 @@ enum Command : UINT {
     // HIWORD(wParam) of its quick list (App::QuickEntries; QueryState 325 counts them) exactly as its
     // menu entry does. 1 done, 0 no such entry.
     kQuickApply = 866,
+    // Round 16 phase 16E: slot LOWORD(lParam) of dock HIWORD(lParam) is moved to the desktop as a
+    // drag off the dock would (a standalone widget centred on the dock's monitor's work area; its
+    // settings carried over). 1 done, 0 refused (locked dock, not a script widget, dock-only widget).
+    kWidgetToDesktop = 867,
+    // Round 16 phase 16G, the reverse: standalone widget entry HIWORD(lParam) (as 855 / 856) moves
+    // to the end of config dock HIWORD(wParam), as its menu's Move to dock > <name> does (its item
+    // and settings carried over, the entry and its window gone). 1 done (posted), 0 refused (not a
+    // dock, turned off, locked).
+    kWidgetToDock = 868,
     kCloseAllWindows = 900,
     // Round 13 phase 13C: a widget menu's quick entries, kQuickBase + the entry's index in
     // ItemMenuState::quick (at most kQuickMax). Menu-local: never sent as ItemCommands (866 is). The

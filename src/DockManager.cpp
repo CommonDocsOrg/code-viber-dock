@@ -234,6 +234,9 @@ HRESULT DockManager::CreateWidgetFor(Instance& inst) {
     host.moved = [this] {  // round 12 phase 12I
         if (callbacks_.desktopMoved) callbacks_.desktopMoved();
     };
+    host.dockDrag = [this](size_t cfg, int phase, POINT screen) {  // round 16 phase 16G
+        return callbacks_.widgetDockDrag ? callbacks_.widgetDockDrag(cfg, phase, screen) : 0;
+    };
     const HRESULT hr = widget->Create(instance_, config_, inst.cfg, inst.monitor, std::move(host));
     if (FAILED(hr)) {
         widget->Destroy();

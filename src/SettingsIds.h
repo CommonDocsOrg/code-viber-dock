@@ -424,6 +424,7 @@ inline constexpr int kInspectorIntSpin = 5;      // ... with its up-down
 inline constexpr int kInspectorTextEdit = 6;     // a string / number / colour, a group's name: edit (WM_SETTEXT + EN_KILLFOCUS)
 inline constexpr int kInspectorUnit = 7;         // an int's / number's unit ("minutes")
 inline constexpr int kInspectorValue = 8;        // a read-only value (a weather place: "Seattle · 47.61, −122.33")
+inline constexpr int kInspectorSwatch = 9;       // round 16 phase 16D: a colour's swatch before its edit (BN_CLICKED: the Windows colour dialog)
 
 // Weather (2700 - 2799): the Weather page until round 5 phase A (retired: each weather item's place
 // is a Place field of the generated page, 3610 - 3629); reserved.
@@ -507,6 +508,9 @@ inline constexpr int kPlaceLatUnit = 3631;        // "-90 to 90"
 inline constexpr int kPlaceLonUnit = 3632;        // "-180 to 180"
 inline constexpr int kWidgetFieldBase = 3700;
 inline constexpr int kWidgetFieldMax = 30;     // fields shown per widget
+// Field k's parts (3700 + 10 k + part): 0 label, 1 the control, 2 caption / up-down, 3 hint, 4 the
+// card header, 5 the unit, 6 a colour's swatch (round 16 phase 16D; BN_CLICKED: the colour dialog).
+inline constexpr int kWidgetFieldSwatch = 6;
 
 // Folders and groups (4000 - 4099; round 4 phase 7): the Item window's folder / group item.
 // 4000 / 4001: the item picker until round 5 phase B; reserved.
@@ -872,19 +876,19 @@ inline constexpr int kDrawerPopupGrid = 5712;    // drawer popup: the grid (WinD
 // --- round 12 phase 12G ---
 // Quick setup (WinDock.QuickSetup, 5760 - 5794: WM_COMMAND(id, BN_CLICKED / CBN_SELCHANGE) to the
 // window as the other dialogs) and the tips on the dock (WinDock.CoachMark, 5795 - 5799).
-inline constexpr int kSetupSteps = 5760;         // the step indicator (WinDock.QuickSetupSteps; window text "Step n of 4: <name>"; a click on a step goes there)
+inline constexpr int kSetupSteps = 5760;         // the step rail (WinDock.QuickSetupSteps; window text "Step n of 4: <name>", 13H names Docks / Look / Behaviour / Review; a click on a step goes there)
 inline constexpr int kSetupBack = 5761;          // "Back" (hidden on step 1)
-inline constexpr int kSetupNext = 5762;          // "Next" (steps 1 - 3; = DockCommand 182; Enter)
+inline constexpr int kSetupNext = 5762;          // "Next" (steps 1 - 3, "Review" on step 3 since 13H; = DockCommand 182; Enter)
 inline constexpr int kSetupFinish = 5763;        // "Finish" (step 4; = DockCommand 183): keeps everything as one undo entry "Quick setup"
 inline constexpr int kSetupCancel = 5764;        // "Cancel" (= Esc, = WM_CLOSE): everything back as it was when Quick setup opened
 inline constexpr int kSetupShowAround = 5765;    // step 4: "Show me around" (Finish, then the three tips)
-inline constexpr int kSetupHeading = 5766;       // the step's heading ("Welcome to WinDock" / "Quick setup" on step 1)
+inline constexpr int kSetupHeading = 5766;       // the step's heading (13H: "Where should your docks live?", "Pick a look", "How should it behave?", "Everything is in place")
 inline constexpr int kSetupIntro = 5767;         // the step's one sentence under it
-inline constexpr int kSetupAddNote = 5768;       // step 1: "Up to three docks here. Add more later in App settings."
+inline constexpr int kSetupAddNote = 5768;       // step 1: "Up to three docks here. Add more later in App settings." (13H: hidden; the words are Add a dock's own at three docks)
 inline constexpr int kSetupLayoutNote = 5769;    // step 1: the last chosen layout's name and description
-inline constexpr int kSetupRows = 5770;          // step 1: the dock rows (WinDock.QuickSetupRows); its children: id 10 * row + part (1 name edit, 2 layout combo, 3 display combo, 4 edge combo, 5 Remove)
-inline constexpr int kSetupAddDock = 5771;       // step 1: "Add a dock" (a Basic dock on the next free edge of the primary display; at most three rows)
-inline constexpr int kSetupSameLook = 5772;      // step 2: check box "Every dock uses the same look" (two or more docks; + caption 5777)
+inline constexpr int kSetupRows = 5770;          // step 1: the dock rows (WinDock.QuickSetupRows); its children: id 10 * row + part (1 name edit, 2 layout combo, 3 display combo, 4 edge combo (13H: hidden, the state of 6), 5 Remove (an X), 6 the edge choice Top / Bottom / Left / Right (13H))
+inline constexpr int kSetupAddDock = 5771;       // step 1: "Add a dock" (a Basic dock on the next free edge of the primary display; at most three rows; disabled at three)
+inline constexpr int kSetupSameLook = 5772;      // step 2: check box "Same look for every dock" (two or more docks; + caption 5777; painted as a switch since 13H)
 inline constexpr int kSetupGallery = 5773;       // step 2: the look gallery of row n at 5773 + n (WinDock.SettingsGallery; the shown one's)
 inline constexpr int kSetupLookDock = 5776;      // step 2: "Look of" combo: the row whose look is shown (several docks, not the same look)
 inline constexpr int kSetupSameLookCaption = 5777;
@@ -893,13 +897,13 @@ inline constexpr int kSetupTaskbarCaption = 5779;
 inline constexpr int kSetupTransparency = 5780;  // step 2: Quick look's Transparency of row n at 5780 + n (trackbar 0 - 100)
 inline constexpr int kSetupTransparencyLabel = 5783;
 inline constexpr int kSetupCornersLabel = 5784;
-inline constexpr int kSetupCorners = 5785;       // step 2: Quick look's Corners of row n at 5785 + n (Square / Soft / Round)
+inline constexpr int kSetupCorners = 5785;       // step 2: Quick look's Corners of row n at 5785 + n (Square / Soft / Round; 13H: hidden, the state of 5880 + n)
 inline constexpr int kSetupAutoHideLabel = 5788;
 inline constexpr int kSetupAnimationLabel = 5789;
-inline constexpr int kSetupStartWithWindows = 5790;  // step 3: check box "Start WinDock when Windows starts" (applied at Finish)
-inline constexpr int kSetupHideTaskbar = 5791;   // step 3: check box "Hide the Windows taskbar" (applied at Finish)
-inline constexpr int kSetupAutoHide = 5792;      // step 3: the first dock's auto-hide: Off / Always / When a window overlaps
-inline constexpr int kSetupAnimation = 5793;     // step 3: Animation: Full / Reduced / Off
+inline constexpr int kSetupStartWithWindows = 5790;  // step 3: check box "Start with Windows" (applied at Finish; painted as a switch since 13H)
+inline constexpr int kSetupHideTaskbar = 5791;   // step 3: check box "Hide the Windows taskbar" (applied at Finish; painted as a switch since 13H)
+inline constexpr int kSetupAutoHide = 5792;      // step 3: the first dock's auto-hide: Never / Always / When a window overlaps (13H: hidden, the state of 5883)
+inline constexpr int kSetupAnimation = 5793;     // step 3: Animation: Full / Reduced / Off (13H: hidden, the state of 5884)
 inline constexpr int kSetupBehaviourNote = 5794; // step 3: "Start with Windows and Hide the taskbar take effect when you choose Finish."
 inline constexpr int kTipSkip = 5795;            // a tip: "Skip tips" (every tip marked seen; hidden)
 inline constexpr int kTipNext = 5796;            // a tip: "Next" / "Done" (this tip seen; the next unseen one)
@@ -986,5 +990,18 @@ inline constexpr int kThumbAcrossSpin = 5875;
 inline constexpr int kThumbAcrossUnit = 5876;      // "DIP (0: the icon size)"
 inline constexpr int kThumbAcrossHint = 5877;      // "Across the bar; length: along it" (the label column is 196 DIPs)
 // --- end round 14 phase 14D ---
+
+// --- Quick setup, round 13 phase 13H (5880 - 5899): the redesign's visible controls. Each choice
+// (WinDock.QuickSetupChoice: a segmented control or tiles) mirrors a 12G combo that stays, hidden,
+// as the state holder (CB_SETCURSEL + CBN_SELCHANGE still drive it); a click / arrow key on the
+// choice sets that combo and runs its handler. WM_USER + 2 (wParam = option) chooses as a click
+// would, WM_USER + 3 answers the selected option. The dock rows' edge choice is the rows
+// container's child 10 * row + 6 (beside the hidden edge combo, part 4). ---
+inline constexpr int kSetupCornersChoice = 5880;   // step 2: Corners of row n at 5880 + n: Square / Soft / Round (mirrors 5785 + n)
+inline constexpr int kSetupAutoHideTiles = 5883;   // step 3: auto-hide tiles Never / Always / When a window overlaps (mirrors 5792)
+inline constexpr int kSetupAnimationChoice = 5884; // step 3: Animation Full / Reduced / Off (mirrors 5793)
+inline constexpr int kSetupTransparencyValue = 5885;  // step 2: "35 %" beside the Transparency label 5783
+inline constexpr int kSetupEdit = 5886;            // step 4: line k's "Edit" at 5886 + k (k < 8: the docks, look, start, taskbar, auto-hide, animation): goes to its step
+// --- end Quick setup, round 13 phase 13H ---
 
 }  // namespace SettingsIds

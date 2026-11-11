@@ -2,8 +2,9 @@
 
 A macOS-style dock for Windows 11. C++20 / Win32, Direct2D + DirectComposition; one vendored
 third-party library, the QuickJS-ng script engine for widgets (`third_party/quickjs-ng`, MIT,
-compiled in); the Weather widget's optional line icons are Lucide's (ISC, path data in
-`widgets/weather/main.js`). Single static exe (no VC++ redistributable needed).
+compiled in); the Weather widget's optional icon packs are Lucide's line icons (ISC, path data in
+`widgets/weather/main.js`) and Bas Milius' Meteocons (MIT, converted into
+`widgets/weather/meteocons.js`). Single static exe (no VC++ redistributable needed).
 
 What it does (rounds 1 to 4 are complete; ROADMAP.md has the history, STATUS.md what was verified):
 
@@ -187,7 +188,12 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
     settings > Notifications).
   **Widget settings…** (ItemCommand 854; was "<name> settings…") opens the widget's own settings.
   **Remove this widget** (ItemCommand 861; was "Remove from dock") removes the item as Dock
-  settings > Contents > Remove does; it is greyed while the dock is locked. The weather commands left the dock menu: DockCommand
+  settings > Contents > Remove does; it is greyed while the dock is locked. Round 16 phase 16E: a
+  script widget **dragged up off the dock** (where a pin would be removed; it dims there) is not
+  removed but moved to the desktop as a [standalone widget](#standalone-widgets) centred under the
+  pointer (ItemCommand 867); round 16 phase 16G, the reverse: a standalone widget dragged onto a
+  dock's bar (or its menu's **Move to dock**, ItemCommand 868) joins that dock where the marker
+  shows. The weather commands left the dock menu: DockCommand
   111 (refresh every place) and 113 (the dock's first weather item's settings) still work.
 
 ### Magnification, name label, auto-hide
@@ -1108,7 +1114,11 @@ shows any more is stopped and dropped at once.
   and the days after / under the conditions), up to 7 days, text options (the condition's name,
   day names, "Today", how a high / low pair is written), a size, and two icon packs: WinDock's
   filled glyphs or Lucide's line icons (ISC licence, https://lucide.dev, their path data embedded
-  in the widget), coloured or in the text colour. Tiles put the day over the icon with the high
+  in the widget), coloured or in the text colour. Round 16 phase 16F adds **Meteocons** (MIT,
+  https://meteocons.com, by Bas Milius): coloured, **animated** icons (the sun's rays turn, clouds
+  drift, rain falls) whose loops Windows' compositor runs through the widget API's composition
+  layers (docs/widgets.md "canvas", `layer`), so the dock never wakes for a frame; **Animated
+  icons** turns the motion off, and reduce motion does too. Tiles put the day over the icon with the high
   over the low beside them, so a narrow dock gets a readable forecast.
   Without a place of its own it uses the app's default place. This is the only weather widget
   offered by the add menu, widget drawer and bundled dock presets. Legacy `{ "kind": "weather" }`
@@ -1257,7 +1267,8 @@ write and edit without compiling anything. The full reference (every call, every
   free API key (Widget settings > Data); one symbol at a time (the wheel steps through them, or
   they cycle on a timer) or every symbol as a row of cells, a stacked list on a left / right dock or
   a table on the desktop; the price with the change since the previous close as a percent, an
-  amount or both, coloured up / down, optional sparklines of the prices fetched over the last day; a
+  amount or both, coloured up / down, optional sparklines of the prices fetched over the last day,
+  an optional "Updated 3 min ago" line under or after the prices; a
   click opens a popup with each symbol's last trade time, open, high, low and previous close, a
   refresh button and the Finnhub credit, and a click on a row opens the symbol on Yahoo Finance,
   Google Finance or Finnhub; refreshed every 5 minutes by default, one request per symbol),
@@ -1671,6 +1682,29 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
   `defaultHeight`; else 200 x 200, or twice the dock size hint of a wide widget), the layer
   "behind" and the centre of the display; its settings open (round 12 phase 12I: the panel beside
   it, see Settings).
+- **Drag one off a dock** (round 16 phase 16E): a script widget dragged up off its dock (the zone
+  where a pin dragged there would be removed; the widget dims) and released there leaves the dock
+  and becomes a standalone widget centred under the pointer, of the manifest's default size. The
+  item's `settings` carry over (it looks and behaves as configured; the dock-only `anchor` /
+  `offset` are dropped, and a standalone entry saves only `widget` and `settings` of it); `storage`
+  is per widget id, so the same store; the script starts afresh. One undo entry ("Moved Hello to the desktop"; the dock menu's Undo puts it back). Escape
+  during the drag cancels it. Refused (the widget only reorders, as before): a locked dock (it
+  cannot be dragged at all), the built-in widget kinds (clock, weather, tray, notification centre),
+  the running apps, and a widget whose manifest has `"standalone": { "supported": false }` (it needs
+  a dock; such a widget is also never dropped on the desktop from the drawer nor added by Add to
+  the desktop). The automation hook is ItemCommand 867.
+- **Put one back on a dock** (round 16 phase 16G, the reverse): drag the standalone widget's window
+  onto a dock's bar (the dock shows its insertion marker between the items while the pointer is
+  over the bar) and release: the widget joins the dock there and its window goes. Released anywhere
+  else it simply moves; Escape during the drag puts the window back where it was (a `"desktop"`
+  layer window is never activated, so it gets no Escape: only a lost mouse capture cancels there).
+  Or right click it > **Move to dock** > the dock (added at the end). The item (`widget`, its
+  `settings`, its name) carries over; the entry's `x` / `y` / `w` / `h`, layer and lock stay behind.
+  The script starts afresh on the dock (`storage` is per widget id: the same store). One undo entry
+  ("Moved Hello to dock"; Undo brings the window back). Refused: a locked dock (no marker shows on
+  it, its menu entry is greyed), a turned-off dock, and folder windows / other standalone widgets
+  (not docks). A dock that is auto-hidden when the drag reaches its edge is not opened for it: the
+  drop does not land there. The automation hook is ItemCommand 868.
 - **The window is the widget's box**: the script sees `dock.standalone === true`, `dock.width` /
   `dock.height` = the window's size in DIPs and `dock.iconSize` = the shorter side / 1.5, so
   widgets that draw from their canvas or the icon size fill it (docs/widgets.md "Standalone
@@ -1691,6 +1725,8 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
 - **Right click**: "<widget> settings…" (its own widget settings: its settings panel's **Content**
   tab, beside the widget since round 12 phase 12I; the **Widget** tab until round 10 phase 10C),
   **Window settings…** (the panel's **Placement** tab, the **Window** tab until 10C), **Lock** / **Unlock**, **Reload widget**,
+  **Move to dock ▸** (round 16 phase 16G: one entry per enabled dock, a locked dock's greyed, the
+  whole submenu greyed when there is no dock to take it; ItemCommand 868),
   **App settings…** (was "Global settings…"), **Remove from desktop** (last since round 10).
 - **Layers** (`layer`): `"behind"` (default: always shown, on the desktop under every window, like
   folder windows; with background "panel" and acrylic its blur window stays beneath it),
@@ -1963,13 +1999,17 @@ default).
 config file yet) opens it once the dock is up; About > **Run quick setup again**, the dock menu's
 App > **Quick setup…** and `WinDock.exe --welcome` open it on the current config. One window
 (960 × 640 DIPs on a display wider than 1400 DIPs, else 760 × 540) with four steps, each one
-skippable: **Your docks** (up to three rows: name, a built-in layout, display, edge, Remove; **Add
-a dock** adds a Basic dock on the next free edge of the primary display), **Their looks** (**Every
-dock uses the same look** with two or more docks, the gallery of looks, Quick look's Transparency
-and Corners), **How it behaves** (Start WinDock when Windows starts, Hide the Windows taskbar, the
-first dock's auto-hide, Animation: Full = `animation.speed` 1 with `reduceMotion` "system",
-Reduced = `reduceMotion` "on", Off = speed 0) and **Done** ("Your dock is ready.", **Finish** and
-**Show me around**). It is one Keep / Cancel preview from its opening: the docks change as you
+skippable, listed in a rail on the left (each step with a one-line caption of what is chosen; a
+click on a step goes there; round 13 phase 13H's redesign): **Docks** (up to three dock cards: a
+picture of the dock's edge, name, a built-in layout, display, the edge as four buttons, and an ×
+to remove it; **Add a dock** adds a Basic dock on the next free edge of the primary display),
+**Look** (the gallery of looks as a grid, then **Same look for every dock** with two or more docks,
+Quick look's Transparency and Corners), **Behaviour** (switches for **Start with Windows** and **Hide
+the Windows taskbar**, the first dock's auto-hide as three tiles **Never** / **Always** / **When a
+window overlaps**, Animation: Full = `animation.speed` 1 with `reduceMotion` "system", Reduced =
+`reduceMotion` "on", Off = speed 0) and **Review** ("Everything is in place": a picture of the
+desktop with every dock in its look, a summary with an **Edit** link per line back to its step,
+**Finish** and **Show me around**). It is one Keep / Cancel preview from its opening: the docks change as you
 choose, nothing is saved until **Finish** (one undo entry "Quick setup"); Cancel, Esc and closing
 it put everything back (on the first start: the Basic layout with the seeded pins, as the welcome
 dialog's Skip gave). Start with Windows and Hide the taskbar are only written at Finish. **Show me
@@ -3350,7 +3390,9 @@ always there, also when every dock is parked) handle these registered messages:
   refused: no widget.json, an invalid folder name, the id taken). The clock's Face is field 5 of
   the clock schema (0 Digital, then the faces in `QueryState` 217's order; General 2175 - 2178 are
   retired); the generated page (an Item window): field k's controls are 3700 + 10 k + part (0 label, 1 the
-  control, 2 its caption / spin, 3 description, 4 the group header before it, 5 its unit); a field
+  control, 2 its caption / spin, 3 description, 4 the group header before it, 5 its unit, 6 a
+  `colour` field's swatch button, round 16 phase 16D: `BN_CLICKED` opens the Windows colour dialog on
+  the colour in the box, the RGB replaced and the alpha kept, a transparent one made opaque); a field
   hidden by `visibleIf` has none.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
@@ -3858,22 +3900,36 @@ always there, also when every dock is parked) handle these registered messages:
   and folders (push-like radio buttons; `BM_CLICK`, or `WM_COMMAND(id, BN_CLICKED)` to their parent) in the
   drawer popup and on the Contents tab, whose drawer list 2623 is a grid of tiles since 12D (a click on a
   tile adds it at the end; QueryState 230 / 252 / 264 / 267 take the same entry numbers).
-  Round 12 phase 12G, **Quick setup** (5760 - 5794) is a top-level `WinDock.QuickSetup` window owned by the app
+  Round 12 phase 12G, **Quick setup** (5760 - 5794, round 13 phase 13H 5880 - 5893) is a top-level `WinDock.QuickSetup` window owned by the app
   window (title "Welcome to WinDock" on the first run, else "Quick setup"); `WM_COMMAND(id, BN_CLICKED)` (or
   `lParam` 0) to it presses a button, `CB_SETCURSEL` + `WM_COMMAND(MAKEWPARAM(id, CBN_SELCHANGE), combo)`
-  chooses: 5760 the step indicator (`WinDock.QuickSetupSteps`, window text "Step n of 4: `<name>`"), 5761 Back,
-  5762 Next (= DockCommand 182), 5763 Finish (= 183), 5764 Cancel (= Esc, = `WM_CLOSE`), 5765 Show me around,
+  chooses: 5760 the step rail (`WinDock.QuickSetupSteps`, window text "Step n of 4: `<name>`", the names
+  Docks / Look / Behaviour / Review since 13H), 5761 Back (hidden on step 1),
+  5762 Next (= DockCommand 182; "Review" on step 3), 5763 Finish (= 183), 5764 Cancel (= Esc, = `WM_CLOSE`), 5765 Show me around,
   5766 / 5767 the heading and its sentence; step 1: 5770 the rows (`WinDock.QuickSetupRows`; its children
   have the ids 10 × row + part: 1 the name edit (committed when it loses the focus), 2 the layout combo
   ("As it is now" first for a dock that was there before, then the built-in layouts), 3 the display
-  combo (the displays, then "Every display"), 4 the edge combo, 5 Remove (not on the first row); send
-  their notifications to 5770 with the control as `lParam`), 5771 Add a dock, 5768 / 5769 its note and the
-  chosen layout's description; step 2: 5772 / 5777 Every dock uses the same look, 5776 "Look of" (the row
+  combo (the displays, then "Every display"), 4 the edge combo (hidden since 13H: the state of part 6), 5
+  Remove (an ×; not on the first row), 6 the edge choice (13H, see below); send
+  their notifications to 5770 with the control as `lParam`), 5771 Add a dock (its text says "Three docks is
+  the most here …" and it is disabled at three), 5768 its old note (hidden since 13H) and 5769 the
+  chosen layout's description; step 2: 5772 / 5777 Same look for every dock, 5776 "Look of" (the row
   shown), the gallery of row n 5773 + n (`WinDock.SettingsGallery`, as 5660), Transparency 5780 + n
-  (trackbar 0 - 100, `TBM_SETPOS` + `WM_HSCROLL` to the window), Corners 5785 + n, 5783 / 5784 their labels;
-  step 3: 5790 / 5778 Start WinDock when Windows starts, 5791 / 5779 Hide the Windows taskbar (both held:
-  QueryState 320), 5794 their note, 5792 auto-hide of the first dock (Off / Always / When a window
-  overlaps), 5793 Animation (Full / Reduced / Off), 5788 / 5789 their labels. **The tips**: a top-level
+  (trackbar 0 - 100, `TBM_SETPOS` + `WM_HSCROLL` to the window), Corners 5785 + n (hidden since 13H: the
+  state of 5880 + n), 5783 / 5784 their labels, 5885 the Transparency value ("20 %");
+  step 3: 5790 / 5778 Start with Windows, 5791 / 5779 Hide the Windows taskbar (both held:
+  QueryState 320; check boxes painted as switches, `BM_GETCHECK` / `BM_SETCHECK` as before), 5794 their note,
+  5792 auto-hide of the first dock (Never / Always / When a window overlaps; hidden since 13H: the state of
+  5883), 5793 Animation (Full / Reduced / Off; hidden since 13H: the state of 5884), 5788 / 5789 their
+  labels. Round 13 phase 13H, the **visible choices** (`WinDock.QuickSetupChoice`: a segmented control or a
+  row of tiles; a click or an arrow key sets the hidden combo beside it and runs that combo's handler, so
+  `CB_SETCURSEL` + `CBN_SELCHANGE` to the combo still drives everything and the choice follows; to it,
+  `WM_USER + 2` with `wParam` = the option chooses as a click would (1 done, 0 no such option) and
+  `WM_USER + 3` answers the selected option, -1 none; it tells its parent `WM_COMMAND(MAKEWPARAM(id, 1),
+  hwnd)`): the edge of row n is 5770's child 10 × n + 6 (Top / Bottom / Left / Right), 5880 + n the
+  Corners of row n (Square / Soft / Round), 5883 the auto-hide tiles, 5884 Animation; step 4: 5886 + k the
+  "Edit" of summary line k (k < 8: the docks, then Look, Starts with Windows, Windows taskbar, Auto-hide,
+  Animation; `BN_CLICKED` goes to the step that owns the line). **The tips**: a top-level
   `WinDock.CoachMark` (topmost, never activated; its window text "Tip n of 3: `<sentence>`"), children 5798
   the sentence, 5799 "Tip n of 3", 5795 Skip tips, 5796 Next / Done (`WM_COMMAND(id, BN_CLICKED)` to it);
   5797 About's "Show the tips again" (page 208; = DockCommand 181 `LOWORD` 0xFFFD).
@@ -4091,7 +4147,9 @@ always there, also when every dock is parked) handle these registered messages:
   `WM_COMMAND(id, BN_CLICKED)` to the page), 2 its caption, 3 a drop-down list (a `choice`, a time
   zone, Contents layout; `CB_SETCURSEL` + `CBN_SELCHANGE`), 4 / 5 an `int`'s edit and up-down
   (`WM_SETTEXT` + `EN_KILLFOCUS`, or the up-down), 6 an edit (a string / number / colour / font, a
-  group's name; `WM_SETTEXT` + `EN_KILLFOCUS`), 7 the unit, 8 a read-only value (a place); only
+  group's name; `WM_SETTEXT` + `EN_KILLFOCUS`), 7 the unit, 8 a read-only value (a place), 9 a
+  `colour` field's swatch before its edit (round 16 phase 16D; `BN_CLICKED` opens the Windows colour
+  dialog, the alpha kept); only
   the control of the row's kind is shown; QueryState 289 / 290 below find them (2639 is a page
   command the inspector posts to itself after a change: it refreshes the strip and the rows),
   page commands without a button since 8B: 2601 Add app…, 2606
@@ -4265,11 +4323,20 @@ always there, also when every dock is parked) handle these registered messages:
   `HIWORD(wParam)` of slot `LOWORD(lParam)` of dock `HIWORD(lParam)` exactly as its menu entry does (a bool's
   entry toggles it, a choice's entry chooses that value; the entries are numbered as the menu lists them, a
   choice's values one entry each; QueryState 325 counts them): 1 done (also when the value was already
-  that), 0 no such slot or entry. The menu's own ids for them (901 - 999) are never sent as ItemCommands. On a
+  that), 0 no such slot or entry. The menu's own ids for them (901 - 999) are never sent as ItemCommands.
+  Round 16 phase 16E: **867** moves slot `LOWORD(lParam)` of dock `HIWORD(lParam)` to the desktop as a
+  drag off the dock does (a new standalone widget entry with the item's settings, centred on the work
+  area of the dock window's monitor; the item leaves the dock; one undo entry): 1 done, 0 refused (no
+  such slot, a locked dock, not a script widget slot, a widget whose manifest has
+  `standalone.supported: false`; a beep). On a
   [standalone widget](#standalone-widgets) entry (round 6 phase 6B; the entry's index in the high
   word of `lParam`): 809 reloads its widget, 854 opens its widget's settings (round 8 phase 8C:
   its own window's Widget tab; before, an Item window), 855 locks / unlocks
-  it, 856 removes the entry (posted), 857 / 858 close its widget's text editor (below); any other
+  it, 856 removes the entry (posted), 857 / 858 close its widget's text editor (below), round 16
+  phase 16G: **868** moves it to the end of config dock `HIWORD(wParam)` as its menu's **Move to
+  dock** > that dock does (the item with its settings joins the dock, the entry and its window go;
+  one undo entry; posted): 1 done, 0 refused (`HIWORD(wParam)` not a dock entry, turned off or
+  locked; a beep); any other
   command returns -1. DockCommand 143 opens its Dock
   window, 144 flashes it, 116 locks / unlocks it, 142 with item 0 or `0xFFFF` opens its widget's
   settings (round 8 phase 8C: its window on the Widget tab, QueryState 225 for the entry reports

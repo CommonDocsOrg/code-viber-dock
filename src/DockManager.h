@@ -69,6 +69,9 @@ public:
         std::function<void()> widgetChanged;
         std::function<void(size_t cfg, POINT screen)> widgetMenu;
         std::function<void(size_t cfg)> widgetSettings;
+        // Round 16 phase 16G: one is dragged (WidgetWindow::Host::dockDrag: phase 0 a step, 1
+        // cancelled, 2 released; non-zero: a dock takes it).
+        std::function<int(size_t cfg, int phase, POINT screen)> widgetDockDrag;
         // Round 12 phase 12I: a folder window or standalone widget moved, was resized or hidden /
         // shown (FolderWindow / WidgetWindow Host::moved): the settings panel beside it follows. May
         // come from inside Sync (SetMonitor): the receiver must not walk the instances synchronously.

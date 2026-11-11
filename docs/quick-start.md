@@ -24,12 +24,12 @@ WinDock.exe --restore-taskbar   bring the Windows taskbar back
 
 ## Quick setup
 
-Quick setup sets up your docks in four short steps. Every choice shows on your desktop at once, and nothing is kept until you click **Finish**. Click **Next** to go on, **Back** to go back; you can skip any step.
+Quick setup sets up your docks in four short steps. Every choice shows on your desktop at once, and nothing is kept until you click **Finish**. Click **Next** to go on, **Back** to go back, or click a step in the list on the left to go straight to it; you can skip any step. Under each step's name the list shows what you chose.
 
-1. **Your docks**: for each dock, pick a layout, the display and the edge. Click **Add a dock** for a second or third one.
-2. **Their looks**: pick a look in the gallery, then set the **Transparency** and the **Corners**. With two or more docks, **Every dock uses the same look** gives them one look.
-3. **How it behaves**: **Start WinDock when Windows starts**, **Hide the Windows taskbar**, the first dock's **Auto-hide**, and **Animation** (Full, Reduced or Off).
-4. **Done**: click **Finish**, or **Show me around** for three short tips on the dock.
+1. **Docks**: each dock has a card. Name it, pick a layout and the display, and click one of the four edge buttons (top, bottom, left, right). Click **Add a dock** for a second or third one, and the **×** on a card to remove that dock.
+2. **Look**: click a look in the grid, then set the **Transparency** and the **Corners** (Square, Soft or Round). With two or more docks, the **Same look for every dock** switch gives them one look.
+3. **Behaviour**: the switches **Start with Windows** and **Hide the Windows taskbar**, the first dock's **Auto-hide** (Never, Always or When a window overlaps), and **Animation** (Full, Reduced or Off).
+4. **Review**: a picture of your desktop and a list of everything you chose. Click **Edit** beside a line to change it. Then click **Finish**, or **Show me around** for three short tips on the dock.
 
 **Cancel** (or Esc) puts everything back as it was. On the very first start, that leaves you the basic dock.
 

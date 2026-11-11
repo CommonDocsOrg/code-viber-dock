@@ -23,6 +23,7 @@
 #include "Launcher.h"
 #include "SnapLines.h"  // round 14 phase 14B
 #include "Theme.h"
+#include "WidgetPackage.h"  // round 16 phase 16E: Widgets::CanBeStandalone
 
 namespace {
 
@@ -7412,6 +7413,14 @@ void DockWindow::BeginDrag(POINT pt) {
     dragKey_ = item.key;
     dragRemove_ = false;
     dragWidget_ = item.IsWidget();
+    // Round 16 phase 16E: a script widget (not a clock / weather / tray / notifications slot) whose
+    // manifest allows the desktop: released in the remove zone it becomes a standalone widget.
+    // Decided once here (the manifest is loaded), not on every mouse move.
+    dragToDesktop_ = false;
+    if (dragWidget_ && !DockCfg().locked && item.element < DockCfg().items.size()) {
+        const DockItemEntry& e = DockCfg().items[item.element];
+        dragToDesktop_ = e.Kind() == ItemKind::Widget && Widgets::CanBeStandalone(e.id);
+    }
     dragMoveTo_ = SIZE_MAX;
     // Keep the grab point: the icon box's left edge stays this far left of the cursor.
     const float boxW = BoxW(item);
@@ -7493,7 +7502,8 @@ void DockWindow::UpdateDrag(POINT pt) {
     } else {
         UpdateAutoScroll(cursorX_);
     }
-    const bool remove = DragRemovable() && DragInRemoveZone(pt);
+    // (Round 16 phase 16E: a widget that can go to the desktop dims there as a pin does.)
+    const bool remove = (DragRemovable() || dragToDesktop_) && DragInRemoveZone(pt);
     if (remove != dragRemove_) {
         dragRemove_ = remove;
         SetItemOpacity(items_[static_cast<size_t>(dragSource_)], remove ? kRemoveOpacity : kDragOpacity,
@@ -7562,9 +7572,16 @@ void DockWindow::EndDrag(bool commit) {
     const size_t anchorItem = anchorDrop >= 0 ? items_[static_cast<size_t>(s)].element : SIZE_MAX;
     SetAnchorHot(-1);
     const bool remove = valid && commit && anchorDrop < 0 && dragRemove_ && DragRemovable();
+    // Round 16 phase 16E: a script widget released in the remove zone moves to the desktop (an
+    // anchor drop wins). Not the fade-out of a pin: it lands back in its slot like a cancelled
+    // drag, then the request takes the item off the dock (rebuilding the items, as moveItem does).
+    const bool toDesktop = valid && commit && anchorDrop < 0 && !remove && dragRemove_ && dragToDesktop_;
+    const size_t desktopItem = toDesktop ? items_[static_cast<size_t>(s)].element : SIZE_MAX;
+    POINT desktopAt{};
+    if (toDesktop && !GetCursorPos(&desktopAt)) desktopAt = POINT{(winRect_.left + winRect_.right) / 2, (winRect_.top + winRect_.bottom) / 2};
     // Released over a pin it was held on (or a group): the two make a group.
     AppKey groupWith;
-    if (valid && commit && !remove && groupTarget_ >= 0 && groupTarget_ < static_cast<int>(items_.size())) {
+    if (valid && commit && !remove && !toDesktop && groupTarget_ >= 0 && groupTarget_ < static_cast<int>(items_.size())) {
         groupWith = items_[static_cast<size_t>(groupTarget_)].key;
     }
     ResetGroupTarget();
@@ -7595,7 +7612,7 @@ void DockWindow::EndDrag(bool commit) {
     // Round 7 phase 7B: dropped into another group (the order may stay): that group's anchor.
     if (valid && dragGroup_ >= 0 && dragGroup_ != DragOwnGroup()) moved = true;
     std::optional<ItemAnchor> anchor;
-    if (valid && commit && anchorDrop < 0 && dragInsert_ >= 0 && moved && dragOrder_.size() == items_.size()) {
+    if (valid && commit && anchorDrop < 0 && !toDesktop && dragInsert_ >= 0 && moved && dragOrder_.size() == items_.size()) {
         if (dragWidget_) {
             moveFrom = items_[static_cast<size_t>(s)].element;
             anchor = DragAnchor(false);
@@ -7632,6 +7649,7 @@ void DockWindow::EndDrag(bool commit) {
         }
     }
     dragWidget_ = false;
+    dragToDesktop_ = false;
 
     KeepStage(motion_.rest + 0.04);  // the window stays at stage size until the icon has landed
     if (!order.empty() && pinRequests_.reorder) pinRequests_.reorder(order, dragKey_, anchor);
@@ -7646,6 +7664,8 @@ void DockWindow::EndDrag(bool commit) {
         runningOrder_ = std::move(running);
         RebuildFrom(shared_->Tracker().Current());
     }
+    // Round 16 phase 16E: after the drag state is reset (the request rebuilds the items).
+    if (desktopItem != SIZE_MAX && pinRequests_.widgetToDesktop) pinRequests_.widgetToDesktop(desktopItem, desktopAt);
     SetHold(false);  // starts the hide delay if the mouse is no longer on the dock
     POINT cursor{};
     if (hwnd_ && GetCursorPos(&cursor) && PtInRect(&winRect_, cursor)) ArmMouseTracking();
@@ -7665,6 +7685,7 @@ void DockWindow::AbortDrag() {
     dragGroup_ = -1;
     dragRemove_ = false;
     dragWidget_ = false;
+    dragToDesktop_ = false;  // round 16 phase 16E
     if (GetCapture() == hwnd_) ReleaseCapture();
     for (DockItem& item : items_) {
         if (item.key != dragKey_) continue;

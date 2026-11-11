@@ -8,6 +8,7 @@
 
 #include <winrt/base.h>
 
+#include <array>
 #include <cstdint>
 #include <functional>
 #include <map>
@@ -102,11 +103,47 @@ private:
     bool geometryEvenOdd_ = false;
 };
 
+// Round 16 phase 16F: composition layers (canvas.layer / endLayer, docs/widgets.md "canvas").
+// A layer is a child visual of the widget's slot with a surface of its own; its content is what
+// the script draws between the two calls, and its tracks are DirectComposition animations of the
+// visual's offset, rotation or opacity, so loops run in DWM while the dock stays idle.
+struct CanvasTrack {
+    std::string prop;        // "x", "y" (DIPs), "rotate" (degrees, about cx / cy) or "opacity"
+    float cx = 0, cy = 0;    // rotate: the centre, DIPs from the layer's top-left
+    double duration = 0;     // seconds (> 0): one loop
+    double begin = 0;        // the loop's phase (seconds): the value at t is key(t - begin mod duration)
+    bool repeat = true;      // false: ends at the last key
+    std::vector<std::pair<double, float>> keys;  // (seconds from 0, value), in order, 2 - 64
+    std::vector<std::array<float, 4>> easing;    // a cubic bezier (x1, y1, x2, y2) per key span; empty: linear
+};
+struct CanvasLayerSpec {
+    std::string id;       // the script's name for it (kept across draws: an unchanged animation keeps running)
+    std::string parent;   // another layer declared before it (a clipped or faded group), or "": the slot
+    float x = 0, y = 0, w = 0, h = 0;  // DIPs, from the parent's top-left (the slot's)
+    bool clip = false;    // clip the layer (and its children) to its box
+    float opacity = 1.0f;
+    std::vector<CanvasTrack> tracks;
+    std::string key;      // the options as text: the host restarts the animations only when it changes
+};
+
 class WidgetCanvas {
 public:
     // Reads a package file (an image under the widget's folder): false if it is not there or not
     // allowed. `error` explains.
     using FileReader = std::function<bool(const std::string& path, std::string& bytes, std::wstring& error)>;
+
+    // Round 16 phase 16F: who makes the layers (the WidgetInstance drawing a slot). Without one
+    // (a popup, a preview, measure()) the content is drawn inline at the tracks' first keys.
+    class LayerSink {
+    public:
+        // Starts layer `spec`: a device context to record its content into (px at `scale`, the
+        // origin at the layer's top-left), or null: no layers here (the content is drawn inline).
+        virtual ID2D1DeviceContext* BeginLayer(const CanvasLayerSpec& spec, float scale) = 0;
+        virtual void EndLayer() = 0;
+
+    protected:
+        ~LayerSink() = default;
+    };
 
     WidgetCanvas(ID2D1Factory1* d2d, IDWriteFactory* dwrite, FileReader reader);
     WidgetCanvas(const WidgetCanvas&) = delete;
@@ -153,12 +190,34 @@ public:
     // Drops the cached images (a device change: their Direct2D bitmaps belong to the old device).
     void ReleaseImages() { images_.clear(); }
 
+    // Round 16 phase 16F: layers. SetLayerSink before Begin (null: none). BeginLayer returns true
+    // when the sink took the layer (the drawing calls now record its content), false when the
+    // content is drawn inline (no sink, measuring, or `error` set: a layer is already open, a bad
+    // box). EndLayer: false when none is open. End() closes a layer the script left open.
+    void SetLayerSink(LayerSink* sink) { sink_ = sink; }
+    bool BeginLayer(const CanvasLayerSpec& spec, std::wstring& error);
+    bool EndLayer();
+    bool InLayer() const { return layerOpen_; }
+
 private:
     struct State {
         D2D1_MATRIX_3X2_F m = D2D1::Matrix3x2F::Identity();
         float alpha = 1.0f;
         size_t clips = 0;  // clips_ size when saved
     };
+    // The slot's drawing state while a live layer records (EndLayer puts it back).
+    struct Main {
+        ID2D1DeviceContext* dc = nullptr;
+        D2D1_MATRIX_3X2_F dcBase{}, base{};
+        float width = 0, height = 0;
+        State cur;
+        std::vector<State> stack;
+        std::vector<bool> clips;
+    };
+    struct InlineParent {
+        float x = 0, y = 0, alpha = 1.0f;  // an inline layer's absolute offset and opacity (for its children)
+    };
+    void Bind(ID2D1DeviceContext* dc, float scale, float width, float height);  // Begin's body
     struct ImageEntry {
         winrt::com_ptr<IWICBitmapSource> source;  // converted to 32bpp PBGRA
         winrt::com_ptr<ID2D1Bitmap> bitmap;
@@ -191,4 +250,9 @@ private:
     std::map<std::wstring, winrt::com_ptr<ID2D1StrokeStyle>> strokes_;
     std::map<std::string, ImageEntry> images_;
     winrt::com_ptr<IWICImagingFactory> wic_;
+    // Round 16 phase 16F: layers.
+    LayerSink* sink_ = nullptr;
+    bool layerOpen_ = false, layerLive_ = false;
+    Main main_;
+    std::map<std::string, InlineParent> inlineParents_;
 };

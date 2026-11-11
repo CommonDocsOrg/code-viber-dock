@@ -101,6 +101,10 @@ struct StandaloneHint {
     // What "Add to the desktop" creates (0: from the horizontal size hint, DefaultSize).
     float defaultWidth = 0.0f;
     float defaultHeight = 0.0f;
+    // Round 16 phase 16E, `"supported": false`: the widget needs a dock (it is never made a
+    // standalone widget: not dragged off the dock, not dropped on the desktop from the drawer, not
+    // added by "Add to the desktop"). Default true.
+    bool supported = true;
 };
 
 struct Manifest {
@@ -192,6 +196,9 @@ struct CatalogEntry {
 std::vector<CatalogEntry> Catalog();
 // The display name of widget `id` (its manifest name, else the id).
 std::wstring DisplayName(const std::wstring& id);
+// Round 16 phase 16E: widget `id` is installed and may live on the desktop as a standalone widget
+// (its manifest has no `"standalone": { "supported": false }`). Loads the manifest: not per frame.
+bool CanBeStandalone(const std::wstring& id);
 
 // Writes built-in widget `id`'s files to Directory()\<id>\ (refused if that folder exists), its
 // faces / assets sub-folders included, and a README.md stub pointing at docs/widgets.md.

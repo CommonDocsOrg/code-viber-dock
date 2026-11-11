@@ -119,6 +119,7 @@ async function fetchAll() {
   busy = true;
   error = '';
   if (popupShown) popup.redraw();
+  if (updatedMode() !== 'none') requestRedraw();  // "Fetching…"
   try {
     // Four at a time (the host allows 4 requests in flight per widget); a refused key or a rate
     // limit stops the round, so one bad key costs one request, not one per symbol.
@@ -188,8 +189,10 @@ function step(n) {
   requestRedraw();
 }
 
-export function onVisibilityChange() {
+export function onVisibilityChange(e) {
   cycle();
+  if (e.visible) requestRedraw();  // the "Updated" line catches up (draw schedules its timeout again)
+  else scheduleUpdatedTick();      // hidden: no timeout
 }
 
 export function onWheel(e) {
@@ -293,6 +296,41 @@ function ago(ms) {
   if (min < 60) return `Updated ${min} min ago`;
   const h = Math.floor(min / 60);
   return h < 24 ? `Updated ${h} h ${min % 60} min ago` : `Updated ${Math.floor(h / 24)} d ago`;
+}
+
+// The newest fetch among the symbols shown (0: none yet).
+function newestAt() {
+  let newest = 0;
+  for (const s of symbols) { const q = quotes[s]; if (q && q.at > newest) newest = q.at; }
+  return newest;
+}
+
+// --- the "Updated N min ago" line on the slot (settings.updatedLabel) ------------------------------
+
+const UPD_SIZE = 9, UPD_GAP = 2;
+let updatedTimer = 0;
+
+const updatedMode = () => (settings.updatedLabel === 'below' || settings.updatedLabel === 'beside' ? settings.updatedLabel : 'none');
+
+function updatedText() {
+  if (dock.preview) return 'Updated 5 min ago';
+  if (!hasKey() || !symbols.length) return '';
+  if (busy) return 'Fetching…';
+  const at = newestAt();
+  if (!at) return error ? 'Not updated' : 'Not updated yet';
+  return ago(at);
+}
+
+// One timeout to the next whole minute of the newest fetch's age, only while the line is shown
+// and the dock is on screen: a widget without the line never wakes for it.
+function scheduleUpdatedTick() {
+  if (updatedTimer) clearTimeout(updatedTimer);
+  updatedTimer = 0;
+  if (updatedMode() === 'none' || dock.preview || !dock.visible) return;
+  const at = newestAt();
+  if (!at) return;
+  const age = Math.max(0, Date.now() - at);
+  updatedTimer = setTimeout(() => { updatedTimer = 0; requestRedraw(); }, 60000 - (age % 60000) + 50);
 }
 
 // --- the slot ------------------------------------------------------------------------------------
@@ -420,7 +458,34 @@ function plan(canvas, dock, k = 1) {
     w = boxes.reduce((s, b) => s + b.w, 0) + (boxes.length - 1) * CELL_GAP * k;
     h = Math.max(...boxes.map((b) => b.h));
   }
-  return { cells, boxes, mode, table, vertical, pad, k, w: Math.ceil(w + 2 * pad), h: Math.ceil(h + 2 * pad) };
+  // The "Updated N min ago" line: under everything, or after it on a row (a left / right dock
+  // and a list: under it).
+  let upd = null;
+  const updText = cells.length ? updatedText() : '';
+  if (updText && updatedMode() !== 'none') {
+    const m = canvas.measureText(updText, { size: UPD_SIZE * k });
+    const beside = updatedMode() === 'beside' && !vertical && !table && mode !== 'list';
+    upd = { text: updText, w: Math.ceil(m.width), h: Math.ceil(m.height), beside };
+    if (beside) {
+      w += CELL_GAP * k + upd.w;
+      h = Math.max(h, upd.h);
+    } else {
+      w = Math.max(w, upd.w);
+      h += UPD_GAP * k + upd.h;
+    }
+  }
+  return { cells, boxes, mode, table, vertical, pad, k, upd, w: Math.ceil(w + 2 * pad), h: Math.ceil(h + 2 * pad) };
+}
+
+function drawUpdated(canvas, p, x0, y0, c) {
+  const u = p.upd;
+  if (!u) return;
+  const style = { size: UPD_SIZE * p.k, color: c.dim };
+  if (u.beside) {
+    canvas.text(u.text, x0 + p.w - p.pad - u.w, y0 + p.h / 2, { ...style, baseline: 'middle' });
+  } else {
+    canvas.text(u.text, x0 + p.w / 2, y0 + p.h - p.pad - u.h, { ...style, align: 'center' });
+  }
 }
 
 function message() {
@@ -452,12 +517,17 @@ export function draw(canvas, dock) {
   const y0 = dock.standalone ? Math.round((canvas.height - p.h) / 2) : 0;
   background(canvas, dock, x0, y0, p.w, p.h, p.k);
   if (settings.debugStore) {
-    storage.set('slot', { mode: p.mode, table: p.table, cells: p.cells.map((cl) => ({ s: cl.symbol, pr: cl.pr, ch: cl.ch })), w: p.w, h: p.h, error, busy });
+    storage.set('slot', { mode: p.mode, table: p.table, cells: p.cells.map((cl) => ({ s: cl.symbol, pr: cl.pr, ch: cl.ch })), w: p.w, h: p.h, error, busy,
+      updated: p.upd ? p.upd.text : '' });
   }
   if (!p.cells.length) {
     canvas.text(message(), x0 + p.pad, y0 + p.h / 2, { ...symStyle(p.k), baseline: 'middle', color: c.dim });
     return;
   }
+  scheduleUpdatedTick();
+  drawUpdated(canvas, p, x0, y0, c);
+  // The room the cells have (the "Updated" line under them takes its own).
+  const contentH = p.h - 2 * p.pad - (p.upd && !p.upd.beside ? UPD_GAP * p.k + p.upd.h : 0);
   let x = x0 + p.pad, y = y0 + p.pad;
   if (p.table) {
     const b = p.boxes, k = p.k, rh = ROW_H * k;
@@ -484,7 +554,7 @@ export function draw(canvas, dock) {
     return;
   }
   p.cells.forEach((cl, i) => {
-    drawCellH(canvas, cl, x, y + (p.h - 2 * p.pad - p.boxes[i].h) / 2, p.boxes[i], c, dimOf(cl.symbol, cl.q));
+    drawCellH(canvas, cl, x, y + (contentH - p.boxes[i].h) / 2, p.boxes[i], c, dimOf(cl.symbol, cl.q));
     x += p.boxes[i].w + CELL_GAP * p.k;
   });
 }
@@ -550,9 +620,7 @@ export function drawPopup(canvas, dock) {
     canvas.fillRoundRect(b.x, b.y, b.w, b.h, 6, fade(text, 0.08));
     canvas.text('', b.x + b.w / 2, b.y + b.h / 2, { font: 'Segoe Fluent Icons', size: 14, align: 'center', baseline: 'middle', color: busy ? fade(text, 0.4) : secondary });
     hits.push(b);
-    let newest = 0;
-    for (const s of symbols) { const q = quotes[s]; if (q && q.at > newest) newest = q.at; }
-    line(canvas, busy ? 'Fetching…' : ago(newest), b.x - 8, P_TITLE_TOP, P_TITLE_H, { size: 12, align: 'right', color: secondary });
+    line(canvas, busy ? 'Fetching…' : ago(newestAt()), b.x - 8, P_TITLE_TOP, P_TITLE_H, { size: 12, align: 'right', color: secondary });
   }
 
   if (!hasKey() || !symbols.length) {

@@ -187,6 +187,17 @@ private:
     std::vector<RunIntField> runInts_;
 };
 
+// Round 16 phase 16D: the colour swatch and the Windows colour dialog, shared by the theme pages,
+// the generated widget pages and the Contents inspector (defined in SettingsPagesAppearance.cpp).
+// The swatch is an owner-drawn button (CtlKind::Swatch): a frame (the accent while focused), then
+// the colour over a checkerboard so its alpha shows; a disabled one is drawn at half the alpha.
+void DrawColorSwatch(SettingsWindow& window, const DRAWITEMSTRUCT& di, uint32_t argb);
+// ChooseColor for an RGB (0x00RRGGBB; the session's custom colours kept). False: cancelled.
+bool PickRgbColor(HWND owner, uint32_t& rgb);
+// The dialog for an ARGB value: the RGB replaced, the alpha kept, except that a fully transparent
+// colour (a widget's "#00000000: the theme's colour") becomes opaque, so the pick is visible.
+bool PickArgbColor(HWND owner, uint32_t& argb);
+
 // Page factories (one source file each, besides SettingsPages.cpp).
 std::unique_ptr<SettingsPage> MakeAppearancePage(SettingsWindow& window);  // SettingsPagesAppearance.cpp (Global > Themes)
 std::unique_ptr<SettingsPage> MakeDockThemePage(SettingsWindow& window);   // SettingsPagesAppearance.cpp (Dock > Theme)

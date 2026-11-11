@@ -562,36 +562,7 @@ protected:
             if (!SplitId(static_cast<int>(di.CtlID), field, part) || part != kFieldSwatch) return false;
             argb = Theme::GetColor(Look(), Theme::Fields()[field]);
         }
-        const DarkMode::Palette& pal = Window().Colors();
-        RECT r = di.rcItem;
-        HBRUSH back = CreateSolidBrush(Window().SurfaceColor(di.hwndItem));  // a card's fill (round 8 phase 8A)
-        FillRect(di.hDC, &r, back);
-        DeleteObject(back);
-        // Frame, then a checkerboard under the colour so the alpha is visible.
-        const bool focus = (di.itemState & ODS_FOCUS) != 0;
-        const bool disabled = (di.itemState & ODS_DISABLED) != 0;
-        HBRUSH frame = CreateSolidBrush(focus ? pal.accent : disabled ? pal.textDisabled : pal.textSecondary);
-        FrameRect(di.hDC, &r, frame);
-        if (focus) {
-            RECT r2 = r;
-            InflateRect(&r2, -1, -1);
-            FrameRect(di.hDC, &r2, frame);
-        }
-        DeleteObject(frame);
-        InflateRect(&r, focus ? -3 : -2, focus ? -3 : -2);
-        const unsigned alpha = disabled ? (argb >> 24) / 2 : argb >> 24;  // read-only: faded (round 12 phase 12B)
-        const COLORREF c = RgbOf(argb);
-        HBRUSH light = CreateSolidBrush(Blend(c, RGB(0xFF, 0xFF, 0xFF), alpha));
-        HBRUSH dark = CreateSolidBrush(Blend(c, RGB(0xC4, 0xC4, 0xC4), alpha));
-        const int cell = std::max(3, Window().Px(5));
-        for (int y = r.top, row = 0; y < r.bottom; y += cell, ++row) {
-            for (int x = r.left, col = 0; x < r.right; x += cell, ++col) {
-                RECT cr{x, y, std::min<int>(x + cell, r.right), std::min<int>(y + cell, r.bottom)};
-                FillRect(di.hDC, &cr, ((row + col) & 1) ? dark : light);
-            }
-        }
-        DeleteObject(light);
-        DeleteObject(dark);
+        DrawColorSwatch(Window(), di, argb);  // round 16 phase 16D: shared with the widget pages
         return true;
     }
 
@@ -1050,24 +1021,8 @@ private:
         }
     }
 
-    // The Windows colour dialog for an RGB (the session's custom colours kept).
-    bool PickRgb(uint32_t& rgb) {
-        static COLORREF custom[16] = {
-            RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255),
-            RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255),
-            RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255),
-            RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255)};
-        CHOOSECOLORW cc{};
-        cc.lStructSize = sizeof(cc);
-        cc.hwndOwner = Owner();
-        cc.rgbResult = RgbOf(rgb);
-        cc.lpCustColors = custom;
-        cc.Flags = CC_FULLOPEN | CC_RGBINIT | CC_ANYCOLOR;
-        if (!ChooseColorW(&cc)) return false;
-        rgb = (static_cast<uint32_t>(GetRValue(cc.rgbResult)) << 16) | (static_cast<uint32_t>(GetGValue(cc.rgbResult)) << 8) |
-              GetBValue(cc.rgbResult);
-        return true;
-    }
+    // The Windows colour dialog for an RGB (round 16 phase 16D: the shared PickRgbColor).
+    bool PickRgb(uint32_t& rgb) { return PickRgbColor(Owner(), rgb); }
 
     void PickColor(int field) {
         if (ReadOnly()) return;
@@ -1436,6 +1391,68 @@ private:
 };
 
 }  // namespace
+
+// --- round 16 phase 16D: the colour swatch and dialog shared by every page with colours ---
+
+void DrawColorSwatch(SettingsWindow& window, const DRAWITEMSTRUCT& di, uint32_t argb) {
+    const DarkMode::Palette& pal = window.Colors();
+    RECT r = di.rcItem;
+    HBRUSH back = CreateSolidBrush(window.SurfaceColor(di.hwndItem));  // a card's fill (round 8 phase 8A)
+    FillRect(di.hDC, &r, back);
+    DeleteObject(back);
+    // Frame, then a checkerboard under the colour so the alpha is visible.
+    const bool focus = (di.itemState & ODS_FOCUS) != 0;
+    const bool disabled = (di.itemState & ODS_DISABLED) != 0;
+    HBRUSH frame = CreateSolidBrush(focus ? pal.accent : disabled ? pal.textDisabled : pal.textSecondary);
+    FrameRect(di.hDC, &r, frame);
+    if (focus) {
+        RECT r2 = r;
+        InflateRect(&r2, -1, -1);
+        FrameRect(di.hDC, &r2, frame);
+    }
+    DeleteObject(frame);
+    InflateRect(&r, focus ? -3 : -2, focus ? -3 : -2);
+    const unsigned alpha = disabled ? (argb >> 24) / 2 : argb >> 24;  // read-only: faded (round 12 phase 12B)
+    const COLORREF c = RgbOf(argb);
+    HBRUSH light = CreateSolidBrush(Blend(c, RGB(0xFF, 0xFF, 0xFF), alpha));
+    HBRUSH dark = CreateSolidBrush(Blend(c, RGB(0xC4, 0xC4, 0xC4), alpha));
+    const int cell = std::max(3, window.Px(5));
+    for (int y = r.top, row = 0; y < r.bottom; y += cell, ++row) {
+        for (int x = r.left, col = 0; x < r.right; x += cell, ++col) {
+            RECT cr{x, y, std::min<int>(x + cell, r.right), std::min<int>(y + cell, r.bottom)};
+            FillRect(di.hDC, &cr, ((row + col) & 1) ? dark : light);
+        }
+    }
+    DeleteObject(light);
+    DeleteObject(dark);
+}
+
+bool PickRgbColor(HWND owner, uint32_t& rgb) {
+    // The session's custom colours, shared by every page's dialog.
+    static COLORREF custom[16] = {
+        RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255),
+        RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255),
+        RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255),
+        RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255), RGB(255, 255, 255)};
+    CHOOSECOLORW cc{};
+    cc.lStructSize = sizeof(cc);
+    cc.hwndOwner = owner;
+    cc.rgbResult = RgbOf(rgb);
+    cc.lpCustColors = custom;
+    cc.Flags = CC_FULLOPEN | CC_RGBINIT | CC_ANYCOLOR;
+    if (!ChooseColorW(&cc)) return false;
+    rgb = (static_cast<uint32_t>(GetRValue(cc.rgbResult)) << 16) | (static_cast<uint32_t>(GetGValue(cc.rgbResult)) << 8) |
+          GetBValue(cc.rgbResult);
+    return true;
+}
+
+bool PickArgbColor(HWND owner, uint32_t& argb) {
+    uint32_t rgb = argb & 0x00FFFFFFu;
+    if (!PickRgbColor(owner, rgb)) return false;
+    const uint32_t alpha = (argb & 0xFF000000u) ? (argb & 0xFF000000u) : 0xFF000000u;
+    argb = alpha | rgb;
+    return true;
+}
 
 std::unique_ptr<SettingsPage> MakeAppearancePage(SettingsWindow& window) {
     return std::make_unique<AppearancePage>(window, false);

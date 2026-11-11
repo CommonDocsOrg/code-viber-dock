@@ -1148,6 +1148,8 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 Constrain(r, grab_);
             }
             Place(r);
+            // Round 16 phase 16G: the dock under the pointer shows where a release would put it.
+            if (grab_ == Grab::Move && host_.dockDrag) host_.dockDrag(cfg_, 0, s);
             return 0;
         }
         case WM_LBUTTONUP: {
@@ -1157,6 +1159,17 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             grab_ = Grab::None;
             grabMoved_ = false;
             if (GetCapture() == hwnd_) ReleaseCapture();
+            if (moved && g == Grab::Move && host_.dockDrag) {
+                // Round 16 phase 16G: released over a dock's bar: the dock takes the widget (App posts
+                // the move, so this window outlives the call; the next sync destroys it). The rect it
+                // is about to lose is not stored. Elsewhere: an ordinary move (below).
+                POINT s = pt;
+                ClientToScreen(hwnd_, &s);
+                if (host_.dockDrag(cfg_, 2, s) != 0) {
+                    pressClosedPopup_ = false;
+                    return 0;
+                }
+            }
             if (moved) {
                 StoreRect();
                 if (host_.changed) host_.changed();
@@ -1172,8 +1185,10 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_CAPTURECHANGED:
             if (grab_ != Grab::None && reinterpret_cast<HWND>(lp) != hwnd_) {
                 const bool moved = grabMoved_;
+                const bool moving = grab_ == Grab::Move;
                 grab_ = Grab::None;
                 grabMoved_ = false;
+                if (moving && host_.dockDrag) host_.dockDrag(cfg_, 1, POINT{});  // round 16 phase 16G: the marker goes
                 if (moved) {
                     StoreRect();
                     if (host_.changed) host_.changed();
@@ -1222,6 +1237,19 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN:
+            if (wp == VK_ESCAPE && grab_ != Grab::None && grab_ != Grab::Press) {
+                // Round 16 phase 16G: Escape cancels a move / resize drag: the window goes back where
+                // it was, nothing is stored, a dock's marker goes. (A "desktop"-layer window is never
+                // activated, so it gets no keys: only a capture loss cancels there.)
+                const bool moved = grabMoved_;
+                const bool moving = grab_ == Grab::Move;
+                grab_ = Grab::None;
+                grabMoved_ = false;
+                if (GetCapture() == hwnd_) ReleaseCapture();
+                if (moving && host_.dockDrag) host_.dockDrag(cfg_, 1, POINT{});
+                if (moved) Place(grabRect_);
+                return 0;
+            }
             if (wp == VK_ESCAPE && host_.shared && host_.shared->DashboardOn()) {
                 host_.shared->EndDashboard();
                 return 0;

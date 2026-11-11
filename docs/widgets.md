@@ -77,7 +77,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `preview` | none | Round 6 phase 6E: the widget's live preview in the settings window's widget drawer and Widget library ([Preview mode](#preview-mode)): `{ "settings": { "face": "classic" }, "width": 64, "height": 48 }`. `settings`: an object of setting values merged over the schema's defaults for the preview only (a nice face, a sample label); `width` / `height`: the preview's box in DIPs (8 - 1024 / 8 - 512; left out: the box the widget measures on a 48 DIP bottom dock). The manifest check reports a non-object, a setting the schema does not name (a warning) and sizes out of range. |
-| `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum). |
+| `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum); `supported`: `false` when the widget needs a dock (round 16 phase 16E; default `true`): it is never made a standalone widget (dragging it off the dock only reorders it, the drawer does not drop it on the desktop, **Add to the desktop** refuses it). |
 | `settings` | [] | The widget's settings schema, see below. |
 
 ### Settings schema
@@ -140,8 +140,11 @@ unchanged. Each widget item has its own settings window (an Item window, round 5
 the schema: **Widget settings…** in the widget's own right-click menu, or Dock settings >
 Contents > **More settings…** in the inspector of the widget's tile (a double click or Enter on it
 does the same; round 10 phase 10B: the inspector itself edits the fields marked `common`, below). It has a check box per `bool`, an up-down (stepper, `step` per click, `min` -
-`max`) per `int`, a drop-down per `choice` and `timezone`, the place block for a `place`, an edit
-box for the others (`colour` as `#AARRGGBB`), and **Reset to defaults** in its footer (removes the
+`max`) per `int`, a drop-down per `choice` and `timezone`, the place block for a `place`, a colour
+swatch (round 16 phase 16D: a click opens the Windows colour dialog, as the theme pages' swatches
+do; the RGB is replaced, the alpha kept, and a fully transparent value such as `#00000000` "the
+theme's colour" becomes opaque) beside an `#AARRGGBB` box for a `colour` (the Contents inspector
+shows the same pair for a `common` colour), an edit box for the others, and **Reset to defaults** in its footer (removes the
 item's `settings`). A change is saved and reaches the widget at once (`onSettingsChanged`). Round 8
 phase 8C: the manifest's `description` is the window header's third line (one line; its tooltip
 has all of it); a field's `description` is a one-line hint under its label (a check box: under its
@@ -245,6 +248,8 @@ Stroke (`stroke` below): a width in DIPs (default 1), or `{ width, cap: "butt" |
 | `opacity(a)` | Multiplies the opacity of everything drawn from now on (0 - 1). |
 | `clip(x, y, w, h)` | Clips to a rectangle (in the current transform; rotated: its bounds). |
 | `clipPath(path)` | Clips to a path (anti-aliased). |
+| `layer(id, x, y, w, h, options)` | Round 16 phase 16F: starts a **composition layer**, a child visual of the widget's slot with a surface of its own: the drawing calls up to `endLayer()` draw its content (its own coordinates, `w` x `h` DIPs, clipped to the box like the slot) and the layer sits at (`x`, `y`) in the slot (or in its `parent` layer). `options`: `parent` (the id of a layer declared earlier in this draw: a group), `clip` (clip the layer and its children to its box), `opacity` (0 - 1, also over its children), `tracks` (up to 32 loops DirectComposition runs on the visual, see [Animation](#animation): `{ prop: "x" \| "y" \| "rotate" \| "opacity", duration (seconds, > 0), begin (seconds: the loop's phase), once (true: ends at the last key), keys: [[seconds, value], ...] (2 - 64, in order, within the duration; x / y in DIPs, rotate in degrees about center: [cx, cy]), easing: [[x1, y1, x2, y2], ...] (a cubic bezier per key span, as CSS; left out: linear) }`). Returns **true** when the layer is live (the dock's slot or a standalone widget, no reduce motion) and **false** when the host drew the content inline instead (a popup, a preview, `measure()`, reduce motion): at the tracks' first keys, inside the parent's box and opacity. The same `id` across redraws keeps the layer and, with unchanged options, its running loops; layers not declared again are removed. Layers do not nest: `endLayer()` first, then declare the child with `parent`. |
+| `endLayer()` | Ends the open layer (throws without one). `draw()` returning with one open ends it. |
 | `linearGradient(x0, y0, x1, y1, stops)` | A paint. `stops`: `[[offset, colour], ...]` (1 - 64 stops, offsets 0 - 1). |
 | `radialGradient(cx, cy, rx, ry, stops, fx, fy)` | A paint centred on (cx, cy) with radii rx / ry (ry defaults to rx); (fx, fy) moves the gradient's origin from the centre. |
 
@@ -711,6 +716,18 @@ The rules (the dock's "efficiency first" budget):
   busy for a moment (loading icons at startup): pausing the animation's clock across such a stall
   (the `anim.last` check above) keeps it from being skipped.
 
+**Loops that never cost a frame** (round 16 phase 16F): a picture whose parts move rigidly, as the
+Weather widget's Meteocons do (a sun's rays turn, a cloud drifts, raindrops fall and fade), is drawn
+as [composition layers](#canvas) (`canvas.layer` with `tracks`): each moving part gets a child
+visual of the slot, drawn once, and its loop is handed to DirectComposition as cubic segments (the
+same way the dock's own tweens go to DWM). The compositor animates them on the GPU; the widget, the
+dock and the CPU stay idle (QueryState 58 / 59 do not move). Tracks are translate (`x`, `y`),
+`rotate` and `opacity` keyframes with optional cubic-bezier easing and a phase (`begin`) to stagger
+copies of one loop. Under reduce motion, in popups and previews the layers are drawn inline as a
+still picture at their first keys, so a script needs no second code path. A redraw with the same
+layer ids and options leaves the loops running (no restart jump); changed options restart them.
+Keep the parts few and small: each is a surface and a visual (a Meteocons icon is 3 - 8).
+
 Measured (5a, this machine, user config): the analog clock with a ticking second hand wakes 10
 times in 10 s; with the smooth second hand ~300 times in 10 s while the dock is shown and 0 while
 it is auto-hidden; without a second hand 0 in 10 s (once a minute); the sweep is ~45 frames.
@@ -773,9 +790,11 @@ on the dial, the focus moved by fractions of the radius) or `{ "linear": [[0, "#
     "hour":   { "length": 0.5,  "width": 0.11, "tail": 0.1,  "color": "#FF1C1814", "shape": "leaf" },
     "minute": { "length": 0.76, "width": 0.08, "tail": 0.12, "color": "#FF1C1814", "shape": "leaf" },
     "second": { "length": 0.84, "width": 0.018, "tail": 0.2, "color": "#FFB3261E", "shape": "line",
-                "counterweight": 0.055, "tipDot": 0 },
+                "counterweight": 0.055, "tipDot": 0, "tipDotAt": 1 },
                                             // shape: taper | line | block | leaf; counterweight: a disc on
-                                            // the tail; tipDot: a disc at the tip (station clocks)
+                                            // the tail; tipDot: a disc near the tip (station clocks), its
+                                            // centre at tipDotAt of the length (1 = on the tip; less lets
+                                            // the rod poke past it)
     "cap": { "radius": 0.055, "color": "#FF1C1814", "ring": "#FFB3261E", "ringWidth": 0.02 },
     "shadow": "#38000000"                   // a shadow under every hand (omit: none)
   },
@@ -965,7 +984,18 @@ box:
   (the built-in `hello`, `digital-clock`, `weather`, `agenda`, `media` and `battery` do this; the clocks, the
   calendar page and the icon-like widgets scale from the canvas already).
 - The manifest's `standalone` object sets the smallest window, the aspect and the default size
-  (see [widget.json](#widgetjson)).
+  (see [widget.json](#widgetjson)); `"standalone": { "supported": false }` keeps the widget on
+  docks (for a widget that means nothing without one).
+- Round 16 phase 16E: a widget **dragged up off a dock** (into the zone where a pin would be
+  removed; it dims there) moves to the desktop as a standalone widget centred under the pointer.
+  The item's `settings` carry over; `storage` is per widget id, so the standalone widget sees the
+  same store. Its running state does not: the dock's instance is released and the window starts a
+  new one (`init()` runs again, timers and popups of the old instance are gone). Not while the dock
+  is locked, and not for a widget whose manifest has `"supported": false`.
+- Round 16 phase 16G, the reverse: a standalone widget dragged onto a dock's bar (or moved with its
+  menu's **Move to dock**) becomes an item of that dock with the same `settings`; the same applies:
+  `storage` is shared (per widget id), the window's instance is released and the dock starts a new
+  one (`init()` runs again, now with `dock.standalone === false`).
 - Input: `onPress`, `onClick`, `onMiddleClick`, `onWheel`, `onHover` and `onDrop` work as on a dock,
   with coordinates in DIPs from the window's top-left. A left **press and release without moving**
   is the widget's click; a left **drag** (past the system drag distance) moves the window instead
@@ -1180,7 +1210,11 @@ built-ins are worked examples too:
   `refresh` / `none` (a middle click always fetches), `rowLink` (the page a popup row opens: Yahoo
   Finance, Google Finance, Finnhub, none; permission `shell`); `change` `percent` / `amount` / `both` /
   `none`, `showSymbol`, `arrows` (▲ ▼), `sparkline` (the prices this widget fetched over the last
-  day, up to 200 points, drawn beside the price), `upColor` / `downColor`, `textColor`, `background`.
+  day, up to 200 points, drawn beside the price), `updatedLabel` `none` / `below` / `beside` (a
+  9 DIP "Updated 3 min ago" line under the prices, or after them on a row; "Fetching…" while a
+  round runs, "Not updated yet" before the first answer; kept current by one timeout to the next
+  minute of the newest fetch's age, only while it is shown and the dock is visible),
+  `upColor` / `downColor`, `textColor`, `background`.
   Storage, shared by every Stocks item: `quote:<SYMBOL>` (the last quote: `price`, `change`, `pct`,
   `high`, `low`, `open`, `prev`, `t`, `at`) and `hist:<SYMBOL>` (the sparkline's points);
   `storage.onChange` picks up another item's fetch. A quote older than two refreshes, or from the
@@ -1248,7 +1282,21 @@ built-ins are worked examples too:
   small M / L / H / V / C / A / Z parser with the endpoint-to-centre arc conversion of the SVG
   spec, stroked 2 / 24 of the box wide with round caps; the popup uses the same pack),
   `iconStyle` `colour` (sun yellow, rain in the accent) or `mono` (the ink; the WinDock pack keeps
-  its sun), `size` 60 - 200 % (docks only; standalone fills the window as before). Test hook:
+  its sun). Round 16 phase 16F: `iconPack` `meteocons`, Bas Milius' coloured, animated Meteocons
+  (MIT, https://meteocons.com, the fill style): `tools/meteocons_convert.py` turns 20 of the
+  upstream animated SVGs into `widgets/weather/meteocons.js` (a third built-in file, `import`ed by
+  `main.js`): per icon the gradients and a list of parts, each a few filled / stroked paths and
+  circles with the SMIL loops as tracks (translate, rotate, opacity; key times, spline easing, the
+  `begin` phase). `drawMeteocon` declares a clipped group `canvas.layer` for the icon (its opacity
+  is the stale dimming) and one layer per part under it with the tracks scaled to the box, so on a
+  dock DirectComposition animates them (see [Animation](#animation)); `iconMotion` false (Animated
+  icons) hands no tracks over and poses the parts at their first keys; the popup and the previews
+  get the same still picture inline. The pin and the refresh arrow stay Lucide's. Sizes and spacing
+  (group "Layout"): `size` 60 - 250 % scales the whole slot (docks
+  only; standalone fills the window as before), `daySize` 60 - 250 % the day cells on their own
+  (their text, icons and the tile's inner gap, not the gap between cells), `dayGap` 0 - 48 DIPs
+  between cells (default 6) and `forecastGap` 0 - 48 DIPs between the conditions and the first
+  cell (default 8; half of it when the cells go under), both scaled by `size`. Test hook:
   `"debugStore": true` stores what the slot (with its `days` count, `conditions`, `cell`,
   `placement`, `stack`, `pack`) and the popup drew. Permissions `weather`, `shell`.
 - `widgets/notes` ("Notes", round 6): a note per item, written in the dock's text editor

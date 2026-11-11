@@ -2,7 +2,7 @@
   "name": "Weather (script)",
   "version": "1.2.0",
   "author": "WinDock",
-  "description": "Current conditions and a forecast popup from Open-Meteo, with optional daily forecasts on the dock in several layouts and two icon packs. Choose a place for each widget or use the app's default place.",
+  "description": "Current conditions and a forecast popup from Open-Meteo, with optional daily forecasts on the dock in several layouts and three icon packs, one of them animated. Choose a place for each widget or use the app's default place.",
   "api": 1,
   "size": {
     "horizontal": { "main": 56, "cross": 26 },
@@ -64,8 +64,16 @@
         { "value": "beside", "label": "After the current conditions" },
         { "value": "below", "label": "Under the current conditions" }
       ] },
+    { "key": "size", "common": true, "section": "appearance", "type": "int", "label": "Size of the whole slot", "description": "Scales everything on a dock (a desktop widget fills its window instead). Default: 100.", "min": 60, "max": 250, "step": 10, "default": 100,
+      "unit": "%", "group": "Layout" },
+    { "key": "daySize", "section": "appearance", "type": "int", "label": "Size of the day cells", "description": "Scales the day cells on their own, so the forecast can be larger than the current conditions. Default: 100.", "min": 60, "max": 250, "step": 10, "default": 100,
+      "unit": "%", "group": "Layout", "visibleIf": { "dockForecast": "days" } },
+    { "key": "dayGap", "section": "appearance", "type": "int", "label": "Space between days", "description": "The gap between one day's cell and the next. Default: 6.", "min": 0, "max": 48, "step": 2, "default": 6,
+      "unit": "DIPs", "group": "Layout", "visibleIf": { "dockForecast": "days" } },
+    { "key": "forecastGap", "section": "appearance", "type": "int", "label": "Space before the days", "description": "The gap between the current conditions and the first day. Default: 8.", "min": 0, "max": 48, "step": 2, "default": 8,
+      "unit": "DIPs", "group": "Layout", "visibleIf": { "dockForecast": "days" } },
     { "key": "showCondition", "section": "appearance", "type": "bool", "label": "Show the condition's name", "description": "Writes the condition (\"Partly cloudy\") under the temperature. Off by default.", "default": false, "group": "Text" },
-    { "key": "showPlace", "common": true, "section": "appearance", "type": "bool", "label": "Show the place under the temperature", "description": "Writes the place's name under the temperature. Off by default.", "default": false, "group": "Text" },
+    { "key": "showPlace", "section": "appearance", "type": "bool", "label": "Show the place under the temperature", "description": "Writes the place's name under the temperature. Off by default.", "default": false, "group": "Text" },
     { "key": "showHigh", "section": "appearance", "type": "bool", "label": "Show today's high", "description": "Adds today's highest temperature under the current one. Off by default.", "default": false, "group": "Text" },
     { "key": "showLow", "section": "appearance", "type": "bool", "label": "Show today's low", "description": "Adds today's lowest temperature under the current one. Off by default.", "default": false, "group": "Text" },
     { "key": "dayNames", "section": "appearance", "type": "choice", "label": "Day names", "default": "auto", "group": "Text",
@@ -86,19 +94,20 @@
         { "value": "plain", "label": "22° 14°" }
       ] },
     { "key": "iconPack", "quick": true, "section": "appearance", "type": "choice", "label": "Icons", "default": "windock", "group": "Icons",
-      "description": "The pictures of the conditions: WinDock's filled glyphs, or Lucide's line icons (lucide.dev, ISC licence). Default: WinDock.",
+      "description": "The pictures of the conditions: WinDock's filled glyphs, Lucide's line icons (lucide.dev, ISC licence), or Meteocons' coloured, animated icons (meteocons.com, MIT licence). Default: WinDock.",
       "choices": [
         { "value": "windock", "label": "WinDock (filled)" },
-        { "value": "lucide", "label": "Lucide (line icons)" }
+        { "value": "lucide", "label": "Lucide (line icons)" },
+        { "value": "meteocons", "label": "Meteocons (coloured, animated)" }
       ] },
+    { "key": "iconMotion", "quick": true, "section": "appearance", "type": "bool", "label": "Animated icons", "default": true, "group": "Icons", "visibleIf": { "iconPack": "meteocons" },
+      "description": "Meteocons move: the sun's rays turn, clouds drift, rain falls. Windows' compositor runs the loops, so the dock itself stays idle. Off with reduce motion. On by default." },
     { "key": "iconStyle", "section": "appearance", "type": "choice", "label": "Icon colours", "default": "colour", "group": "Icons",
-      "description": "Coloured: a yellow sun and blue rain. Single colour: everything in the text colour (the WinDock pack keeps its yellow sun). Default: coloured.",
+      "description": "Coloured: a yellow sun and blue rain. Single colour: everything in the text colour (the WinDock pack keeps its yellow sun; Meteocons are always coloured). Default: coloured.",
       "choices": [
         { "value": "colour", "label": "Coloured" },
         { "value": "mono", "label": "Single colour" }
       ] },
-    { "key": "size", "section": "appearance", "type": "int", "label": "Size", "description": "Scales the whole slot on a dock (a desktop widget fills its window instead). Default: 100.", "min": 60, "max": 200, "step": 10, "default": 100,
-      "unit": "%", "group": "Icons" },
     { "key": "compact", "section": "appearance", "type": "bool", "label": "Compact (the icon only)", "default": false, "group": "Icons",
       "description": "The temperature and the text lines are left out; the popup still shows everything." },
     { "key": "clickOpens", "section": "content", "type": "choice", "label": "Clicking the widget opens", "description": "What a click does: open the forecast popup, open the widget's settings to choose the place, or nothing. Default: the forecast popup.", "default": "popup", "group": "Click",

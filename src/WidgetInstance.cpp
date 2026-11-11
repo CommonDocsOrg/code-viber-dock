@@ -70,6 +70,7 @@ WidgetInstance::WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Fact
 }
 
 WidgetInstance::~WidgetInstance() {
+    DropLayers(nullptr);  // round 16 phase 16F: the slot's child visuals go with the instance
     DropEditor(false);  // the host forgets its hold itself (it is removing this instance)
     if (!preview_) {
         runtime_.CancelAll(this);
@@ -328,7 +329,12 @@ HRESULT WidgetInstance::Render(Renderer& renderer, Layer& layer, const LayoutCon
     if (wPx == 0 || hPx == 0) return renderer.DrawLayer(layer, 0, 0, {});
     float w = 0, h = 0;
     BoxDips(w, h);
-    return renderer.DrawLayer(layer, wPx, hPx, [&](ID2D1DeviceContext* dc) {
+    // Round 16 phase 16F: layers. With reduce motion the layers' content is drawn inline (a
+    // still picture at the first keys), which also means no child visuals at all.
+    layerRenderer_ = &renderer;
+    canvas_.SetLayerSink(dock_.reduceMotion ? nullptr : this);
+    for (auto& [id, ch] : layers_) ch.used = false;
+    const HRESULT hr = renderer.DrawLayer(layer, wPx, hPx, [&](ID2D1DeviceContext* dc) {
         if (state_ == State::Ok && engine_) {
             ++draws_;
             canvas_.Begin(dc, dock_.scale, w, h);
@@ -338,10 +344,253 @@ HRESULT WidgetInstance::Render(Renderer& renderer, Layer& layer, const LayoutCon
             canvas_.End();
             if (Check(r, FnName(ScriptEngine::Fn::Draw))) return;
             dc->Clear(D2D1::ColorF(0, 0, 0, 0));  // whatever it drew before it failed
+            for (auto& [id, ch] : layers_) ch.used = false;  // and its layers
             changed_ = false;  // the tile is drawn right here
         }
         DrawErrorTile(dc, w, h);
     });
+    canvas_.SetLayerSink(nullptr);
+    layerRenderer_ = nullptr;
+    RealizeLayers(renderer, layer, dock_.scale);
+    return hr;
+}
+
+// --- composition layers (round 16 phase 16F) -----------------------------------------------------
+
+namespace {
+
+// The value of a cubic-bezier easing (x1, y1, x2, y2) at progress s (0 - 1): the y of the curve
+// where its x is s (a few Newton steps, then bisection when they do not converge).
+float Eased(const std::array<float, 4>& b, double s) {
+    if (s <= 0.0) return 0.0f;
+    if (s >= 1.0) return 1.0f;
+    const double x1 = b[0], y1 = b[1], x2 = b[2], y2 = b[3];
+    auto bx = [&](double t) { return 3.0 * (1 - t) * (1 - t) * t * x1 + 3.0 * (1 - t) * t * t * x2 + t * t * t; };
+    auto by = [&](double t) { return 3.0 * (1 - t) * (1 - t) * t * y1 + 3.0 * (1 - t) * t * t * y2 + t * t * t; };
+    auto dbx = [&](double t) { return 3.0 * (1 - t) * (1 - t) * x1 + 6.0 * (1 - t) * t * (x2 - x1) + 3.0 * t * t * (1 - x2); };
+    double t = s;
+    for (int i = 0; i < 8; ++i) {
+        const double d = dbx(t);
+        if (std::fabs(d) < 1e-6) break;
+        const double nt = t - (bx(t) - s) / d;
+        if (nt < 0.0 || nt > 1.0) break;
+        if (std::fabs(nt - t) < 1e-7) return static_cast<float>(by(nt));
+        t = nt;
+    }
+    double lo = 0.0, hi = 1.0;
+    for (int i = 0; i < 40; ++i) {
+        t = (lo + hi) / 2.0;
+        if (bx(t) < s) lo = t; else hi = t;
+    }
+    return static_cast<float>(by(t));
+}
+
+// The track's value at loop time u (0 - duration), from its key spans.
+double TrackValue(const CanvasTrack& t, double u) {
+    const auto& k = t.keys;
+    if (u <= k.front().first) return k.front().second;
+    if (u >= k.back().first) return k.back().second;
+    size_t j = 0;
+    while (j + 2 < k.size() && u >= k[j + 1].first) ++j;
+    const double t0 = k[j].first, t1 = k[j + 1].first;
+    const double s = t1 > t0 ? (u - t0) / (t1 - t0) : 1.0;
+    const double p = j < t.easing.size() ? Eased(t.easing[j], s) : s;
+    return k[j].second + (k[j + 1].second - k[j].second) * p;
+}
+
+// A DirectComposition animation of one loop of `track` (values x `mult`): the loop is shifted by
+// `begin` (the value at animation time s is the track's at (s - begin) mod duration, as SMIL's
+// begin staggers a raindrop's loop against the next one's), cut at every key and at the wrap
+// into pieces, each piece a cubic Hermite fit (exact for linear spans, within a hair of the
+// bezier easings over 4 pieces), then repeated forever (or ended at the last key).
+winrt::com_ptr<IDCompositionAnimation> BuildTrackAnimation(Renderer& renderer, const CanvasTrack& t, float mult) {
+    const double D = t.duration;
+    if (!(D > 0.0) || t.keys.size() < 2) return nullptr;
+    winrt::com_ptr<IDCompositionAnimation> anim = renderer.CreateAnimation();
+    if (!anim) return nullptr;
+    const double b = std::fmod(std::fmod(t.begin, D) + D, D);
+    // The shifted value; `side` picks the limit at the wrap (s = b): from the left the loop's end,
+    // from the right its start.
+    auto G = [&](double s, int side) {
+        double u = std::fmod(s - b + D, D);
+        if (side < 0 && u < 1e-9) u = D;
+        if (side > 0 && u > D - 1e-9) u = 0.0;
+        return TrackValue(t, u) * mult;
+    };
+    std::vector<double> cuts{0.0, D};
+    for (const auto& k : t.keys) cuts.push_back(std::fmod(k.first + b, D));
+    if (b > 0.0) cuts.push_back(b);
+    std::sort(cuts.begin(), cuts.end());
+    cuts.erase(std::unique(cuts.begin(), cuts.end(), [](double x, double y) { return std::fabs(x - y) < 1e-6; }), cuts.end());
+    const bool eased = !t.easing.empty();
+    float last = static_cast<float>(G(D, -1));
+    for (size_t i = 0; i + 1 < cuts.size(); ++i) {
+        const double s0 = cuts[i], s1 = cuts[i + 1];
+        if (s1 - s0 < 1e-6) continue;
+        const int pieces = eased ? 4 : 1;
+        for (int p = 0; p < pieces; ++p) {
+            const double a = s0 + (s1 - s0) * p / pieces, c = s0 + (s1 - s0) * (p + 1) / pieces, h = c - a;
+            const double e = std::min(1e-4, h / 4.0);
+            const double p0 = G(a, +1), p1 = G(c, -1);
+            const double m0 = (G(a + e, +1) - p0) / e, m1 = (p1 - G(c - e, -1)) / e;
+            const double c2 = (3.0 * (p1 - p0) - 2.0 * m0 * h - m1 * h) / (h * h);
+            const double c3 = (2.0 * (p0 - p1) + m0 * h + m1 * h) / (h * h * h);
+            anim->AddCubic(a, static_cast<float>(p0), static_cast<float>(m0), static_cast<float>(c2), static_cast<float>(c3));
+            last = static_cast<float>(p1);
+        }
+    }
+    if (t.repeat) {
+        anim->AddRepeat(D, D);
+    } else {
+        anim->End(D, last);
+    }
+    return anim;
+}
+
+}  // namespace
+
+ID2D1DeviceContext* WidgetInstance::BeginLayer(const CanvasLayerSpec& spec, float) {
+    if (!layerRenderer_ || !openLayer_.empty() || preview_) return nullptr;
+    ID2D1DeviceContext* dc = layerRenderer_->ResourceContext();
+    if (!dc) return nullptr;
+    winrt::com_ptr<ID2D1CommandList> list;
+    if (FAILED(dc->CreateCommandList(list.put()))) return nullptr;
+    ChildLayer& ch = layers_[spec.id];
+    if (std::find(layerOrder_.begin(), layerOrder_.end(), spec.id) == layerOrder_.end()) layerOrder_.push_back(spec.id);
+    ch.used = true;
+    ch.spec = spec;
+    savedTarget_ = nullptr;
+    dc->GetTarget(savedTarget_.put());
+    dc->SetTarget(list.get());
+    dc->BeginDraw();
+    dc->SetDpi(96.0f, 96.0f);
+    dc->SetTransform(D2D1::Matrix3x2F::Identity());
+    dc->SetTextAntialiasMode(D2D1_TEXT_ANTIALIAS_MODE_GRAYSCALE);
+    ch.list = std::move(list);
+    openLayer_ = spec.id;
+    return dc;
+}
+
+void WidgetInstance::EndLayer() {
+    if (openLayer_.empty()) return;
+    ChildLayer& ch = layers_[openLayer_];
+    ID2D1DeviceContext* dc = layerRenderer_ ? layerRenderer_->ResourceContext() : nullptr;
+    if (dc) {
+        const HRESULT hr = dc->EndDraw();
+        dc->SetTarget(savedTarget_.get());
+        if (FAILED(hr)) ch.list = nullptr;
+    } else {
+        ch.list = nullptr;
+    }
+    if (ch.list && FAILED(ch.list->Close())) ch.list = nullptr;
+    savedTarget_ = nullptr;
+    openLayer_.clear();
+}
+
+void WidgetInstance::RealizeLayers(Renderer& renderer, Layer& slot, float scale) {
+    for (auto it = layers_.begin(); it != layers_.end();) {
+        if (it->second.used) {
+            ++it;
+            continue;
+        }
+        renderer.DestroyLayer(it->second.layer);
+        layerOrder_.erase(std::remove(layerOrder_.begin(), layerOrder_.end(), it->first), layerOrder_.end());
+        it = layers_.erase(it);
+    }
+    if (layers_.empty() || !slot.visual) return;
+    for (const std::string& id : layerOrder_) {
+        const auto it = layers_.find(id);
+        if (it == layers_.end()) continue;
+        ChildLayer& ch = it->second;
+        Layer* parent = &slot;
+        if (!ch.spec.parent.empty()) {
+            const auto p = layers_.find(ch.spec.parent);
+            if (p != layers_.end() && p->second.layer.visual) parent = &p->second.layer;
+        }
+        if (!ch.layer.visual || ch.parentVisual != parent->visual.get()) {
+            renderer.DestroyLayer(ch.layer);
+            if (FAILED(renderer.CreateLayer(ch.layer, parent))) {
+                ch.list = nullptr;
+                continue;
+            }
+            ch.parentVisual = parent->visual.get();
+            ch.rotate = nullptr;
+            ch.translate = nullptr;
+            ch.animatedKey.clear();
+        }
+        const UINT w = static_cast<UINT>(std::max(1.0f, std::ceil(ch.spec.w * scale)));
+        const UINT h = static_cast<UINT>(std::max(1.0f, std::ceil(ch.spec.h * scale)));
+        if (ch.list) {
+            winrt::com_ptr<ID2D1CommandList> list = std::move(ch.list);
+            renderer.DrawLayer(ch.layer, w, h, [&](ID2D1DeviceContext* dc) { dc->DrawImage(list.get()); });
+        } else if (ch.layer.width != w || ch.layer.height != h) {
+            renderer.DrawLayer(ch.layer, w, h, [](ID2D1DeviceContext*) {});  // a group without content of its own
+        }
+        renderer.SetOffset(ch.layer, std::round(ch.spec.x * scale), std::round(ch.spec.y * scale));
+        if (ch.spec.clip) renderer.SetClip(ch.layer, D2D1::RectF(0.0f, 0.0f, static_cast<float>(w), static_cast<float>(h)));
+        if (ch.animatedKey != ch.spec.key) {
+            ApplyLayerTracks(renderer, ch, scale);
+            ch.animatedKey = ch.spec.key;
+        }
+    }
+}
+
+void WidgetInstance::ApplyLayerTracks(Renderer& renderer, ChildLayer& ch, float scale) {
+    IDCompositionDesktopDevice* dcomp = renderer.DComp();
+    if (!dcomp || !ch.layer.visual) return;
+    bool moves = false;
+    for (const CanvasTrack& t : ch.spec.tracks) moves = moves || t.prop != "opacity";
+    // The static values first (they also detach older animations).
+    renderer.StopOpacityAnimation(ch.layer, ch.spec.opacity);
+    if (!moves) {
+        ch.layer.visual->SetTransform(D2D1::Matrix3x2F::Identity());
+        ch.rotate = nullptr;
+        ch.translate = nullptr;
+    } else {
+        if (!ch.rotate || !ch.translate) {
+            winrt::com_ptr<IDCompositionRotateTransform> rotate;
+            winrt::com_ptr<IDCompositionTranslateTransform> translate;
+            winrt::com_ptr<IDCompositionTransform> group;
+            if (FAILED(dcomp->CreateRotateTransform(rotate.put())) || FAILED(dcomp->CreateTranslateTransform(translate.put()))) return;
+            IDCompositionTransform* parts[] = {rotate.get(), translate.get()};  // rotate about the centre, then move
+            if (FAILED(dcomp->CreateTransformGroup(parts, 2, group.put())) || FAILED(ch.layer.visual->SetTransform(group.get()))) return;
+            ch.rotate = std::move(rotate);
+            ch.translate = std::move(translate);
+        }
+        ch.rotate->SetAngle(0.0f);
+        ch.translate->SetOffsetX(0.0f);
+        ch.translate->SetOffsetY(0.0f);
+    }
+    for (const CanvasTrack& t : ch.spec.tracks) {
+        const bool px = t.prop == "x" || t.prop == "y";
+        const float mult = px ? scale : t.prop == "opacity" ? ch.spec.opacity : 1.0f;
+        winrt::com_ptr<IDCompositionAnimation> anim = BuildTrackAnimation(renderer, t, mult);
+        if (!anim) continue;
+        if (t.prop == "rotate") {
+            ch.rotate->SetCenterX(t.cx * scale);
+            ch.rotate->SetCenterY(t.cy * scale);
+            ch.rotate->SetAngle(anim.get());
+        } else if (t.prop == "x") {
+            ch.translate->SetOffsetX(anim.get());
+        } else if (t.prop == "y") {
+            ch.translate->SetOffsetY(anim.get());
+        } else {
+            renderer.AnimateOpacity(ch.layer, anim.get());
+        }
+    }
+}
+
+void WidgetInstance::DropLayers(Renderer* renderer) {
+    for (auto& [id, ch] : layers_) {
+        if (renderer) {
+            renderer->DestroyLayer(ch.layer);
+        } else {
+            if (ch.layer.visual && ch.layer.parent) ch.layer.parent->RemoveVisual(ch.layer.visual.get());
+            ch.layer.Reset();
+        }
+    }
+    layers_.clear();
+    layerOrder_.clear();
 }
 
 void WidgetInstance::PixelSize(UINT& w, UINT& h) const {

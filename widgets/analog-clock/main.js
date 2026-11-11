@@ -31,7 +31,7 @@ const DEFAULT_FACE = {
   hands: {
     hour: { length: 0.5, width: 0.08, tail: 0.1, color: '#FF222222', shape: 'taper', counterweight: 0, tipDot: 0 },
     minute: { length: 0.76, width: 0.06, tail: 0.12, color: '#FF222222', shape: 'taper', counterweight: 0, tipDot: 0 },
-    second: { length: 0.84, width: 0.02, tail: 0.18, color: '#FFCC2222', shape: 'line', counterweight: 0, tipDot: 0 },
+    second: { length: 0.84, width: 0.02, tail: 0.18, color: '#FFCC2222', shape: 'line', counterweight: 0, tipDot: 0, tipDotAt: 1 },
     cap: { radius: 0.05, color: '#FF222222', ring: null, ringWidth: 0.02 },
     shadow: null,
   },
@@ -372,7 +372,9 @@ function handShape(canvas, spec, cx, cy, r, color) {
       break;
   }
   if (spec.counterweight > 0) canvas.fillCircle(cx, cy + tail, spec.counterweight * r, color);
-  if (spec.tipDot > 0) canvas.fillCircle(cx, cy - len, spec.tipDot * r, color);
+  // The disc sits at `tipDotAt` of the hand length (1 = on the tip). A station hand looks better with
+  // the rod poking a little past the disc, as on the Swiss railway clock.
+  if (spec.tipDot > 0) canvas.fillCircle(cx, cy - len * (spec.tipDotAt ?? 1), spec.tipDot * r, color);
 }
 
 function drawHand(canvas, spec, angle, cx, cy, r) {

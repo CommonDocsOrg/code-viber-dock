@@ -42,7 +42,10 @@ class DropTarget;
 //   Moves and resizes snap within 8 DIP to the work area and to the other floating things
 //   (floating docks, other standalone widgets); x / y / w / h are saved on release. A right click
 //   opens the window's menu (App: <name> settings…, Window settings…, Lock / Unlock, Reload widget,
-//   App settings…, Remove from desktop; round 10 phase 10A: renamed and reordered).
+//   App settings…, Remove from desktop; round 10 phase 10A: renamed and reordered; round 16 phase
+//   16G: Move to dock ▸ after Reload widget). Round 16 phase 16G: a move drag released over a
+//   dock's bar puts the widget on that dock (Host::dockDrag; the dock shows its marker meanwhile);
+//   Escape cancels a move / resize drag (back where it was).
 // - Layers: "behind" (default) registers with DesktopLayer (under every app window, activatable
 //   without rising; with background "panel" and acrylic its Backdrop window is kept beneath it);
 //   "desktop" is shown only while the desktop is the foreground (DesktopLayer::DesktopForeground,
@@ -77,6 +80,11 @@ public:
         // by the program: the config, a display / DPI change) or it was hidden / shown: its settings
         // panel goes beside it again (or closes while it is hidden). Not on each step of a drag.
         std::function<void()> moved;
+        // Round 16 phase 16G: a move drag of config entry `cfg` at screen point `screen`: phase 0
+        // each step (the dock under it shows its insertion marker), 1 cancelled (Escape, capture
+        // lost: the marker goes), 2 released. Non-zero on 2: a dock takes the widget (the move is
+        // posted; this window goes with the next sync, so it stores no rect).
+        std::function<int(size_t cfg, int phase, POINT screen)> dockDrag;
     };
 
     WidgetWindow() = default;

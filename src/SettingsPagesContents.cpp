@@ -260,12 +260,16 @@ protected:
             Combo(b + kInspectorCombo, cx, kFieldW, false);
             Spin(b + kInspectorIntEdit, b + kInspectorIntSpin, cx, 96, 0, 100, 1);
             EditBox(b + kInspectorTextEdit, cx, kFieldW, 1024);
+            // Round 16 phase 16D: a colour's swatch before its edit (the Windows colour dialog).
+            Add(b + kInspectorSwatch, CtlKind::Swatch, WC_BUTTONW, L"Colour", WS_TABSTOP | BS_OWNERDRAW,
+                RECT{cx, y_ + 5, cx + 36, y_ + kRowH - 5});
             Text(b + kInspectorUnit, CtlKind::Note, L"", cx + 104, 120);
             Text(b + kInspectorValue, CtlKind::Value, L"", cx, R - 14 - cx);
             for (int part : {kInspectorLabel, kInspectorCheck, kInspectorCaption, kInspectorCombo, kInspectorIntEdit, kInspectorTextEdit,
                              kInspectorValue}) {
                 Tip(b + part, L"A setting of the selected item.");
             }
+            Tip(b + kInspectorSwatch, L"Click to pick a colour. Its alpha stays; type #AARRGGBB in the box to change it.");
         }
         // Round 9 phase 9A: why they may be greyed.
         Tip(kPinUp, L"Moves the selected item one place left on the dock (Ctrl+Left). Greyed for the first item.");
@@ -514,6 +518,8 @@ protected:
             const int part = (id - kInspectorRowBase) % 10;
             if ((part == kInspectorCheck && code == BN_CLICKED) || (part == kInspectorCombo && code == CBN_SELCHANGE)) {
                 ApplyRow((id - kInspectorRowBase) / 10, part);
+            } else if (part == kInspectorSwatch && code == BN_CLICKED) {
+                PickRowColor((id - kInspectorRowBase) / 10);  // round 16 phase 16D
             }
             return;
         }
@@ -614,6 +620,7 @@ private:
         std::wstring label, tip, unit;
         std::vector<std::pair<std::wstring, std::wstring>> choices;  // RowKind::Combo: value, label
         int lo = 0, hi = 100, step = 1;                               // RowKind::Int
+        bool color = false;                                           // RowKind::Text of a `colour` field: a swatch before the edit (round 16 phase 16D)
     };
     static int RowId(int n) { return kInspectorRowBase + 10 * n; }
     static int PartOf(RowKind k) {
@@ -723,9 +730,12 @@ private:
                     r.tip = L"The place this item shows. More settings… finds another one (the place search) or edits its "
                             L"coordinates.";
                     break;
+                case T::Color:
+                    r.kind = RowKind::Text;
+                    r.color = true;
+                    break;
                 case T::Number:
                 case T::String:
-                case T::Color:
                 case T::Font:
                 default: r.kind = RowKind::Text; break;
             }
@@ -767,8 +777,8 @@ private:
         // their values are set every time.
         std::wstring shape;
         for (const InspectorRow& r : rows_) {
-            shape += std::to_wstring(static_cast<int>(r.kind)) + L":" + r.label + L":" + std::to_wstring(r.choices.size()) + L":" +
-                     std::to_wstring(r.lo) + L"," + std::to_wstring(r.hi) + L"|";
+            shape += std::to_wstring(static_cast<int>(r.kind)) + (r.color ? L"c" : L"") + L":" + r.label + L":" +
+                     std::to_wstring(r.choices.size()) + L":" + std::to_wstring(r.lo) + L"," + std::to_wstring(r.hi) + L"|";
         }
         const bool reshape = shape != rowsShape_;
         rowsShape_ = shape;
@@ -783,6 +793,7 @@ private:
             Show(b + kInspectorIntEdit, r && k == RowKind::Int);
             Show(b + kInspectorIntSpin, r && k == RowKind::Int);
             Show(b + kInspectorTextEdit, r && k == RowKind::Text);
+            Show(b + kInspectorSwatch, r && k == RowKind::Text && r->color);
             Show(b + kInspectorUnit, r && !r->unit.empty() && (k == RowKind::Int || k == RowKind::Text));
             Show(b + kInspectorValue, r && k == RowKind::Value);
             if (!r) continue;
@@ -851,11 +862,37 @@ private:
                     } else {
                         SetText(b + kInspectorTextEdit, v && v.ValueType() == JT::String ? std::wstring(v.GetString()) : std::wstring());
                     }
+                    if (r->color) {
+                        if (HWND sw = Item(b + kInspectorSwatch)) InvalidateRect(sw, nullptr, FALSE);
+                    }
                     break;
                 default: break;
             }
         }
         updatingRows_ = false;
+    }
+
+    // Round 16 phase 16D: the swatch of a colour row: the Windows colour dialog on the colour in
+    // its edit (the alpha kept; a transparent "theme colour" default becomes opaque), then the
+    // row applies as if the edit had been committed.
+    void PickRowColor(int n) {
+        if (n < 0 || static_cast<size_t>(n) >= rows_.size() || !rows_[static_cast<size_t>(n)].color) return;
+        const int b = RowId(n);
+        uint32_t argb = 0;
+        if (!ParseArgbColor(GetText(b + kInspectorTextEdit), argb)) argb = 0xFF000000u;
+        if (!PickArgbColor(Owner(), argb)) return;
+        SetText(b + kInspectorTextEdit, FormatArgbColor(argb));
+        if (HWND sw = Item(b + kInspectorSwatch)) InvalidateRect(sw, nullptr, FALSE);
+        ApplyRow(n, kInspectorTextEdit);
+    }
+
+    bool OnDrawItem(const DRAWITEMSTRUCT& di) override {
+        const int id = static_cast<int>(di.CtlID);
+        if (id < kInspectorRowBase || id >= RowId(kInspectorRowMax) || (id - kInspectorRowBase) % 10 != kInspectorSwatch) return false;
+        uint32_t argb = 0;
+        if (!ParseArgbColor(GetText(id - kInspectorSwatch + kInspectorTextEdit), argb)) argb = 0;
+        DrawColorSwatch(Window(), di, argb);
+        return true;
     }
 
     // Row `n`'s control `part` changed: its value -> the item (the generated page's write,
@@ -1120,7 +1157,10 @@ private:
                 MoveCtl(b + kInspectorIntSpin, RECT{cx + 96 - 18, top + 4, cx + 96, top + kRowH - 4});
                 const bool intRow = rows_[static_cast<size_t>(n)].kind == RowKind::Int;
                 const int editRight = rows_[static_cast<size_t>(n)].unit.empty() ? fieldRight : std::min(fieldRight, right - 128);
-                MoveCtl(b + kInspectorTextEdit, RECT{cx, top + 4, editRight, top + kRowH - 4});
+                // Round 16 phase 16D: a colour row's swatch, then its edit after it.
+                const int editX = rows_[static_cast<size_t>(n)].color ? cx + 44 : cx;
+                MoveCtl(b + kInspectorSwatch, RECT{cx, top + 5, cx + 36, top + kRowH - 5});
+                MoveCtl(b + kInspectorTextEdit, RECT{editX, top + 4, std::max(editX + 60, editRight), top + kRowH - 4});
                 const int unitX = intRow ? cx + 104 : editRight + 8;
                 MoveCtl(b + kInspectorUnit, RECT{unitX, top, std::min(right, unitX + 120), top + kRowH});
                 MoveCtl(b + kInspectorValue, RECT{cx, top, right, top + kRowH});

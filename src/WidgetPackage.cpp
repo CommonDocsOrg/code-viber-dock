@@ -57,6 +57,7 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"agenda", "main.js", IDR_WIDGET_AGENDA_MAIN},
     {L"weather", "widget.json", IDR_WIDGET_WEATHER_JSON},
     {L"weather", "main.js", IDR_WIDGET_WEATHER_MAIN},
+    {L"weather", "meteocons.js", IDR_WIDGET_WEATHER_METEOCONS},  // round 16 phase 16F
     {L"notes", "widget.json", IDR_WIDGET_NOTES_JSON},
     {L"notes", "main.js", IDR_WIDGET_NOTES_MAIN},
     {L"system-monitor", "widget.json", IDR_WIDGET_SYSMON_JSON},
@@ -177,6 +178,7 @@ void ReadStandalone(const json::JsonObject& root, Manifest& m) {
     v = 0.0;
     JsonUtil::ReadNumber(o, L"defaultHeight", v);
     s.defaultHeight = v > 0.0 ? static_cast<float>(Clamp(v, 16.0, 4000.0)) : 0.0f;
+    JsonUtil::ReadBool(o, L"supported", s.supported);  // round 16 phase 16E: false = needs a dock
     if (const json::IJsonValue a = JsonUtil::Find(o, L"aspect")) {
         if (a.ValueType() == json::JsonValueType::Number && std::isfinite(a.GetNumber()) && a.GetNumber() > 0.0) {
             s.aspect = StandaloneHint::Aspect::Ratio;
@@ -732,10 +734,13 @@ void CheckStandalone(Checker& c, const json::JsonObject& root) {
     const json::JsonObject o = v.GetObject();
     for (const auto& kv : o) {
         const std::wstring k(kv.Key());
-        if (k != L"minWidth" && k != L"minHeight" && k != L"aspect" && k != L"defaultWidth" && k != L"defaultHeight") {
-            c.Warn(L"standalone." + k, L"unknown key (ignored)", L"minWidth, minHeight, aspect, defaultWidth, defaultHeight");
+        if (k != L"minWidth" && k != L"minHeight" && k != L"aspect" && k != L"defaultWidth" && k != L"defaultHeight" &&
+            k != L"supported") {
+            c.Warn(L"standalone." + k, L"unknown key (ignored)", L"minWidth, minHeight, aspect, defaultWidth, defaultHeight, supported");
         }
     }
+    // Round 16 phase 16E: `"supported": false` (the widget needs a dock).
+    c.Type(o, L"supported", json::JsonValueType::Boolean, L"standalone.supported", L"\"supported\": false (the widget needs a dock)");
     for (const wchar_t* k : {L"minWidth", L"minHeight", L"defaultWidth", L"defaultHeight"}) {
         c.Range(o, k, 16, 4000, L"standalone." + std::wstring(k), L"DIPs, 16 - 4000");
     }
@@ -1374,6 +1379,12 @@ std::wstring DisplayName(const std::wstring& id) {
     std::wstring error;
     const auto pkg = Load(id, error);
     return pkg && !pkg->manifest.name.empty() ? pkg->manifest.name : id;
+}
+
+bool CanBeStandalone(const std::wstring& id) {
+    std::wstring error;
+    const auto pkg = Load(id, error);
+    return pkg && pkg->manifest.standalone.supported;
 }
 
 std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson) {

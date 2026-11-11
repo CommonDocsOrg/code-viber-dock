@@ -15,7 +15,7 @@
   "hands": {
     "hour": { "length": 0.52, "width": 0.11, "tail": 0.2, "color": "#FF111111", "shape": "block" },
     "minute": { "length": 0.84, "width": 0.085, "tail": 0.2, "color": "#FF111111", "shape": "block" },
-    "second": { "length": 0.6, "width": 0.025, "tail": 0.28, "color": "#FFD2141E", "shape": "line", "tipDot": 0.1 },
+    "second": { "length": 0.66, "width": 0.02, "tail": 0.26, "color": "#FFD2141E", "shape": "line", "tipDot": 0.055, "tipDotAt": 0.86 },
     "cap": { "radius": 0.035, "color": "#FFD2141E" }
   },
   "date": { "fill": "#FFFFFFFF", "border": "#FF111111", "color": "#FF111111", "font": "Segoe UI", "weight": 700, "size": 0.17, "radius": 0.5 }

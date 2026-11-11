@@ -380,8 +380,23 @@ public static class Find {
     [IntPtr]::Zero
 }
 
+if (-not ('WinDockSmoke.Capture' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace WinDockSmoke {
+public static class Capture {
+    [DllImport("user32.dll")] public static extern bool PrintWindow(IntPtr h, IntPtr dc, uint flags);
+}
+}
+'@
+}
+
 function Save-WindowImage {
-    <# A PNG of the screen under -Hwnd's rect (the window must be on top; waits -DelayMs for its paint). #>
+    <# A PNG of -Hwnd (waits -DelayMs for its paint). Round 13 phase 13H: PrintWindow with
+       PW_RENDERFULLCONTENT, so the picture is the window's even when another window covers it (a
+       window the script opens does not get the foreground while the terminal has it); the screen
+       under its rect only if PrintWindow fails. #>
     param([Parameter(Mandatory)][IntPtr]$Hwnd, [Parameter(Mandatory)][string]$Path, [int]$DelayMs = 300)
     Add-Type -AssemblyName System.Drawing
     Start-Sleep -Milliseconds $DelayMs
@@ -389,7 +404,10 @@ function Save-WindowImage {
     $w = [Math]::Max(1, $r.Right - $r.Left); $h = [Math]::Max(1, $r.Bottom - $r.Top)
     $bmp = New-Object System.Drawing.Bitmap $w, $h
     $g = [System.Drawing.Graphics]::FromImage($bmp)
-    $g.CopyFromScreen($r.Left, $r.Top, 0, 0, $bmp.Size)
+    $dc = $g.GetHdc()
+    $ok = [WinDockSmoke.Capture]::PrintWindow($Hwnd, $dc, 2)  # PW_RENDERFULLCONTENT
+    $g.ReleaseHdc($dc)
+    if (-not $ok) { $g.CopyFromScreen($r.Left, $r.Top, 0, 0, $bmp.Size) }
     $g.Dispose()
     $bmp.Save($Path, [System.Drawing.Imaging.ImageFormat]::Png)
     $bmp.Dispose()

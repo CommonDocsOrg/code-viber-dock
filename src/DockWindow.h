@@ -131,6 +131,8 @@ public:
     // widget moved, so the settings panel beside it follows).
     // Round 16 phase 16A: 45 = StartMenuPlacer::kWatchTimerId (on the app window: the 250 ms one-shot
     // poll while the Start menu is open beside a Start widget; no WM_APP message).
+    // Round 16 phase 16G: WM_APP + 72 = App::kMoveToDockMessage (posted to the app window: the
+    // standalone widgets queued to move onto a dock, by id; no timer).
     static constexpr int kFlashSteps = 6;                // lit, dark, lit, dark, lit, dark
     static constexpr UINT kFlashStepMs = 250;
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);
@@ -221,6 +223,9 @@ public:
         // count: to the end) of config->Main().items.
         // `anchor` as for reorder (also when the order stays: only the group changed).
         std::function<void(size_t from, size_t to, std::optional<ItemAnchor> anchor)> moveItem;
+        // Round 16 phase 16E: config item `item` (a script widget) dragged off the dock: it becomes
+        // a standalone widget centred on screen point `screen` (the owner refuses with a beep).
+        std::function<void(size_t item, POINT screen)> widgetToDesktop;
         // The dock was dragged (Ctrl + drag): put it on `edge` at `align` + `offset` DIPs.
         std::function<void(DockEdge edge, DockAlign align, int offset)> moveDock;
         // A circle was dragged: its centre goes to x / y DIPs from the work area's top-left. A
@@ -1551,7 +1556,10 @@ private:
     std::vector<size_t> dragPins_;     // pin slots (item indexes) in their new order
     std::vector<size_t> dragRunning_;  // unpinned running slots in their new order
     std::vector<size_t> dragOrder_;    // every slot in the order the drag layout shows them
-    bool dragRemove_ = false;     // released now, the pin would be removed
+    bool dragRemove_ = false;     // released now, the pin would be removed (16E: the widget goes to the desktop)
+    // Round 16 phase 16E: the dragged widget is a script widget the desktop takes (BeginDrag asks
+    // the manifest once): released in the remove zone it becomes a standalone widget.
+    bool dragToDesktop_ = false;
     bool dragLanding_ = false;    // targets for the dropped icon landing in its slot
     bool dragPending_ = false;    // kDragTimerId running
     bool removePending_ = false;  // kRemoveTimerId running

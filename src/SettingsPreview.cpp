@@ -804,7 +804,16 @@ float SettingsGallery::Scale() const {
     return static_cast<float>(hwnd_ ? GetDpiForWindow(hwnd_) : USER_DEFAULT_SCREEN_DPI) / USER_DEFAULT_SCREEN_DPI;
 }
 
+void SettingsGallery::SetWide(int columns, int tileHDip) {
+    columns = std::max(0, columns);
+    if (columns == wideColumns_ && tileHDip == wideTileH_) return;
+    wideColumns_ = columns;
+    wideTileH_ = std::max(48, tileHDip);
+    if (hwnd_) InvalidateRect(hwnd_, nullptr, FALSE);
+}
+
 int SettingsGallery::Columns() const {
+    if (wideColumns_ > 0) return wideColumns_;
     RECT rc{};
     if (hwnd_) GetClientRect(hwnd_, &rc);
     const int widthDip = static_cast<int>(std::lround(static_cast<float>(rc.right) / Scale()));
@@ -814,6 +823,17 @@ int SettingsGallery::Columns() const {
 D2D1_RECT_F SettingsGallery::TileRect(int index) const {
     const float s = Scale();
     const int cols = Columns();
+    if (wideColumns_ > 0) {
+        // Round 13 phase 13H: the width shared out between the columns (whole pixels, the gaps equal).
+        RECT rc{};
+        if (hwnd_) GetClientRect(hwnd_, &rc);
+        const float gap = std::round(kWideGap * s);
+        const float w = (static_cast<float>(rc.right) - gap * static_cast<float>(cols - 1)) / static_cast<float>(cols);
+        const int col = index % cols, row = index / cols;
+        const float x = std::round(static_cast<float>(col) * (w + gap));
+        const float y = std::round(static_cast<float>(row) * (std::round(wideTileH_ * s) + gap));
+        return D2D1::RectF(x, y, std::round(static_cast<float>(col) * (w + gap) + w), y + std::round(wideTileH_ * s));
+    }
     const float x = std::round(static_cast<float>((index % cols) * (kTileW + kGapX)) * s);
     const float y = std::round(static_cast<float>((index / cols) * (kTileH + kGapY)) * s);
     return D2D1::RectF(x, y, x + std::round(kTileW * s), y + std::round(kTileH * s));
@@ -845,7 +865,7 @@ void SettingsGallery::Choose(int index) {
 }
 
 IDWriteTextFormat* SettingsGallery::Format(winrt::com_ptr<IDWriteTextFormat>& slot, float& size, float want,
-                                           DWRITE_FONT_WEIGHT weight) {
+                                           DWRITE_FONT_WEIGHT weight, DWRITE_TEXT_ALIGNMENT align) {
     if (slot && size == want) return slot.get();
     slot = nullptr;
     size = 0.0f;
@@ -855,7 +875,7 @@ IDWriteTextFormat* SettingsGallery::Format(winrt::com_ptr<IDWriteTextFormat>& sl
         return nullptr;
     }
     slot->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-    slot->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+    slot->SetTextAlignment(align);
     const DWRITE_TRIMMING trim{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
     winrt::com_ptr<IDWriteInlineObject> ellipsis;
     if (SUCCEEDED(dwrite_->CreateEllipsisTrimmingSign(slot.get(), ellipsis.put()))) slot->SetTrimming(&trim, ellipsis.get());
@@ -900,7 +920,10 @@ void SettingsGallery::Paint() {
             IDWriteTextFormat* detail = Format(detailFormat_, detailSize_, std::round(11.0f * s), DWRITE_FONT_WEIGHT_NORMAL);
             const bool focused = GetFocus() == hwnd_;
             const float stroke = std::max(1.0f, std::round(s));
-            for (int i = 0; i < Count() && brush; ++i) {
+            if (wideColumns_ > 0 && brush) {
+                PaintWide(dc.get(), brush.get(), ps.rcPaint, focused, s, stroke);
+            }
+            for (int i = 0; i < Count() && brush && wideColumns_ == 0; ++i) {
                 const Tile& tile = tiles_[static_cast<size_t>(i)];
                 const D2D1_RECT_F r = TileRect(i);
                 if (r.top > static_cast<float>(ps.rcPaint.bottom) || r.bottom < static_cast<float>(ps.rcPaint.top)) continue;
@@ -955,6 +978,79 @@ void SettingsGallery::Paint() {
         DeleteObject(b);
     }
     EndPaint(hwnd_, &ps);
+}
+
+void SettingsGallery::PaintWide(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, const RECT& paint, bool focused, float s,
+                                float stroke) {
+    // Round 13 phase 13H (Quick setup's look grid; the prototype's .look tiles): picture, name,
+    // tagline, the current tile ringed with a check badge in its corner.
+    IDWriteTextFormat* name = Format(nameLeft_, nameLeftSize_, std::round(13.0f * s), DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_TEXT_ALIGNMENT_LEADING);
+    IDWriteTextFormat* detail = Format(detailLeft_, detailLeftSize_, std::round(11.5f * s), DWRITE_FONT_WEIGHT_NORMAL, DWRITE_TEXT_ALIGNMENT_LEADING);
+    const int lum = (GetRValue(accent_) * 299 + GetGValue(accent_) * 587 + GetBValue(accent_) * 114) / 1000;
+    // The badge's check: the accent nearly black on a light accent (as Quick setup's other marks).
+    const D2D1_COLOR_F mark = lum > 150 ? FromColorRef(RGB(GetRValue(accent_) * 12 / 100, GetGValue(accent_) * 12 / 100, GetBValue(accent_) * 12 / 100))
+                                        : FromColorRef(RGB(0xFF, 0xFF, 0xFF));
+    winrt::com_ptr<ID2D1StrokeStyle> roundCaps;
+    const D2D1_STROKE_STYLE_PROPERTIES rp = D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND, D2D1_CAP_STYLE_ROUND,
+                                                                        D2D1_LINE_JOIN_ROUND);
+    if (FAILED(factory_->CreateStrokeStyle(rp, nullptr, 0, roundCaps.put()))) roundCaps = nullptr;
+    for (int i = 0; i < Count(); ++i) {
+        const Tile& tile = tiles_[static_cast<size_t>(i)];
+        const D2D1_RECT_F r = TileRect(i);
+        if (r.top > static_cast<float>(paint.bottom) || r.bottom < static_cast<float>(paint.top)) continue;
+        const D2D1_ROUNDED_RECT shape = D2D1::RoundedRect(Inset(r, stroke), 10.0f * s, 10.0f * s);
+        if (i == hot_ && !tile.current) {
+            brush->SetColor(FromColorRef(text_, 0.05f));
+            dc->FillRoundedRectangle(shape, brush);
+        }
+        if (tile.current) {
+            brush->SetColor(FromColorRef(accent_));
+            dc->DrawRoundedRectangle(shape, brush, 2.0f * stroke);
+        }
+        const float pad = std::round(6.0f * s), textH = std::round(40.0f * s);
+        const D2D1_RECT_F pic = D2D1::RectF(r.left + pad, r.top + pad, r.right - pad, std::max(r.top + pad + 20.0f * s, r.bottom - pad - textH));
+        DrawMiniDock(dc, pic, tile.theme, s);
+        dc->SetTransform(D2D1::Matrix3x2F::Identity());
+        if (name) {
+            brush->SetColor(FromColorRef(text_));
+            dc->DrawText(tile.name.c_str(), static_cast<UINT32>(tile.name.size()), name,
+                         D2D1::RectF(pic.left + 4.0f * s, pic.bottom + 5.0f * s, r.right - pad, pic.bottom + 23.0f * s), brush,
+                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+        if (detail && !tile.detail.empty()) {
+            brush->SetColor(FromColorRef(muted_));
+            dc->DrawText(tile.detail.c_str(), static_cast<UINT32>(tile.detail.size()), detail,
+                         D2D1::RectF(pic.left + 4.0f * s, pic.bottom + 23.0f * s, r.right - pad, pic.bottom + 39.0f * s), brush,
+                         D2D1_DRAW_TEXT_OPTIONS_CLIP);
+        }
+        if (tile.current) {
+            const float cx = r.right - std::round(20.0f * s), cy = r.top + std::round(20.0f * s), rad = 10.0f * s;
+            brush->SetColor(FromColorRef(accent_));
+            dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), rad, rad), brush);
+            // The prototype's check (13-unit box) at 11 px.
+            const float k = 11.0f * s / 13.0f, ox = cx - 5.5f * s, oy = cy - 5.5f * s;
+            winrt::com_ptr<ID2D1PathGeometry> path;
+            winrt::com_ptr<ID2D1GeometrySink> sink;
+            if (SUCCEEDED(factory_->CreatePathGeometry(path.put())) && SUCCEEDED(path->Open(sink.put()))) {
+                sink->BeginFigure(D2D1::Point2F(ox + 2.5f * k, oy + 7.0f * k), D2D1_FIGURE_BEGIN_HOLLOW);
+                sink->AddLine(D2D1::Point2F(ox + 5.5f * k, oy + 10.0f * k));
+                sink->AddLine(D2D1::Point2F(ox + 10.5f * k, oy + 4.0f * k));
+                sink->EndFigure(D2D1_FIGURE_END_OPEN);
+                if (SUCCEEDED(sink->Close())) {
+                    brush->SetColor(mark);
+                    dc->DrawGeometry(path.get(), brush, 2.2f * k, roundCaps.get());
+                }
+            }
+        }
+        if (focused && i == selected_) {
+            winrt::com_ptr<ID2D1StrokeStyle> dash;
+            const D2D1_STROKE_STYLE_PROPERTIES sp = D2D1::StrokeStyleProperties(D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT, D2D1_CAP_STYLE_FLAT,
+                                                                                D2D1_LINE_JOIN_MITER, 10.0f, D2D1_DASH_STYLE_DOT);
+            if (FAILED(factory_->CreateStrokeStyle(sp, nullptr, 0, dash.put()))) dash = nullptr;
+            brush->SetColor(FromColorRef(text_));
+            dc->DrawRoundedRectangle(D2D1::RoundedRect(Inset(r, 4.0f * stroke), 7.0f * s, 7.0f * s), brush, stroke, dash.get());
+        }
+    }
 }
 
 LRESULT CALLBACK SettingsGallery::Proc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
@@ -1040,8 +1136,8 @@ LRESULT SettingsGallery::OnMessage(UINT msg, WPARAM wp, LPARAM lp) {
             return 1;
         case WM_DESTROY: {
             target_ = nullptr;
-            nameFormat_ = detailFormat_ = nullptr;
-            nameSize_ = detailSize_ = 0.0f;
+            nameFormat_ = detailFormat_ = nameLeft_ = detailLeft_ = nullptr;
+            nameSize_ = detailSize_ = nameLeftSize_ = detailLeftSize_ = 0.0f;
             dwrite_ = nullptr;
             factory_ = nullptr;
             HWND self = hwnd_;

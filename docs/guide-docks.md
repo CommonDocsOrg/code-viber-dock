@@ -242,7 +242,8 @@ Working with a standalone widget:
 
 - Drag it to move it. Drag its edges or corners to resize it. It snaps to the screen edges and centre, to floating docks and to other standalone widgets.
 - A click without moving goes to the widget, as on a dock.
-- Right-click it for its menu: its settings, **Window settings…**, **Lock** / **Unlock**, **Reload widget**, **App settings…** and, last, **Remove from desktop**.
+- Right-click it for its menu: its settings, **Window settings…**, **Lock** / **Unlock**, **Reload widget**, **Move to dock**, **App settings…** and, last, **Remove from desktop**.
+- To put it on a dock, drag it onto the dock's bar and let go where the marker shows, or choose **Move to dock** and the dock in its menu. See [Widgets on the desktop](guide-items.md#widgets-on-the-desktop).
 
 Its settings panel, beside the widget, has a Content and an Appearance tab (the widget's own settings) and a Placement tab (display, layer, lock, background, and the exact position and size). See [Standalone widget settings](guide-settings.md#standalone-widget-settings).
 

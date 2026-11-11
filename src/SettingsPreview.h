@@ -137,18 +137,25 @@ public:
     void SetColors(COLORREF back, COLORREF text, COLORREF muted, COLORREF accent);
     // The height of `count` tiles wrapped at `widthDip`.
     static int HeightDip(int count, int widthDip);
+    // Round 13 phase 13H: Quick setup's look grid: `columns` tiles a row stretched to the control's
+    // width, each `tileHDip` tall: the picture over a left-aligned name and detail (the look's
+    // tagline), the current tile ringed in the accent with a check badge. 0 columns: the classic tiles.
+    void SetWide(int columns, int tileHDip);
+    static constexpr int kWideGap = 8;  // DIPs between wide tiles (both ways)
 
 private:
     static LRESULT CALLBACK Proc(HWND, UINT, WPARAM, LPARAM);
     LRESULT OnMessage(UINT msg, WPARAM wp, LPARAM lp);
     void Paint();
+    void PaintWide(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, const RECT& paint, bool focused, float s, float stroke);
     float Scale() const;
     int Columns() const;
     D2D1_RECT_F TileRect(int index) const;  // client px
     int HitTest(POINT pt) const;
     void Select(int index);
     void Choose(int index);
-    IDWriteTextFormat* Format(winrt::com_ptr<IDWriteTextFormat>& slot, float& size, float want, DWRITE_FONT_WEIGHT weight);
+    IDWriteTextFormat* Format(winrt::com_ptr<IDWriteTextFormat>& slot, float& size, float want, DWRITE_FONT_WEIGHT weight,
+                              DWRITE_TEXT_ALIGNMENT align = DWRITE_TEXT_ALIGNMENT_CENTER);
 
     HWND hwnd_ = nullptr;
     std::vector<Tile> tiles_;
@@ -162,4 +169,9 @@ private:
     winrt::com_ptr<ID2D1DCRenderTarget> target_;
     winrt::com_ptr<IDWriteTextFormat> nameFormat_, detailFormat_;
     float nameSize_ = 0.0f, detailSize_ = 0.0f;
+    // --- round 13 phase 13H ---
+    int wideColumns_ = 0, wideTileH_ = 0;
+    winrt::com_ptr<IDWriteTextFormat> nameLeft_, detailLeft_;  // leading-aligned (the wide tiles)
+    float nameLeftSize_ = 0.0f, detailLeftSize_ = 0.0f;
+    // --- end round 13 phase 13H ---
 };

@@ -1266,6 +1266,159 @@ JSValue ClipFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     c->ClipRect(x, y, w, h);
     return JS_UNDEFINED;
 }
+// Round 16 phase 16F: canvas.layer(id, x, y, w, h, { parent, clip, opacity, tracks }) and
+// canvas.endLayer() (docs/widgets.md "canvas"). A track: { prop: "x" | "y" | "rotate" |
+// "opacity", center: [cx, cy], duration, begin, once, keys: [[seconds, value], ...], easing:
+// [[x1, y1, x2, y2], ...] }.
+bool ReadTrack(JSContext* ctx, JSValueConst v, CanvasTrack& t) {
+    if (!JS_IsObject(v)) {
+        JS_ThrowTypeError(ctx, "layer: a track must be an object");
+        return false;
+    }
+    float duration = 0.0f, begin = 0.0f;
+    bool once = false;
+    if (!PropS(ctx, v, "prop", t.prop) || !PropF(ctx, v, "duration", duration) || !PropF(ctx, v, "begin", begin) ||
+        !PropB(ctx, v, "once", once)) {
+        return false;
+    }
+    if (t.prop != "x" && t.prop != "y" && t.prop != "rotate" && t.prop != "opacity") {
+        JS_ThrowTypeError(ctx, "layer: a track's prop is \"x\", \"y\", \"rotate\" or \"opacity\"");
+        return false;
+    }
+    if (!(duration > 0.0f) || !std::isfinite(duration) || !std::isfinite(begin)) {
+        JS_ThrowTypeError(ctx, "layer: a track needs a duration above 0 (seconds)");
+        return false;
+    }
+    t.duration = duration;
+    t.begin = begin;
+    t.repeat = !once;
+    JSValue centre = JS_GetPropertyStr(ctx, v, "center");
+    if (JS_IsException(centre)) return false;
+    if (JS_IsArray(centre)) {
+        JSValue cx = JS_GetPropertyUint32(ctx, centre, 0), cy = JS_GetPropertyUint32(ctx, centre, 1);
+        double dx = 0, dy = 0;
+        JS_ToFloat64(ctx, &dx, cx);
+        JS_ToFloat64(ctx, &dy, cy);
+        t.cx = static_cast<float>(dx);
+        t.cy = static_cast<float>(dy);
+        JS_FreeValue(ctx, cx);
+        JS_FreeValue(ctx, cy);
+    }
+    JS_FreeValue(ctx, centre);
+    JSValue keys = JS_GetPropertyStr(ctx, v, "keys");
+    if (JS_IsException(keys)) return false;
+    int64_t n = 0;
+    if (!JS_IsArray(keys) || JS_GetLength(ctx, keys, &n) < 0 || n < 2 || n > 64) {
+        JS_FreeValue(ctx, keys);
+        JS_ThrowTypeError(ctx, "layer: a track's keys are 2 - 64 [seconds, value] pairs");
+        return false;
+    }
+    for (int64_t i = 0; i < n; ++i) {
+        JSValue k = JS_GetPropertyUint32(ctx, keys, static_cast<uint32_t>(i));
+        bool ok = JS_IsArray(k);
+        double time = 0, value = 0;
+        if (ok) {
+            JSValue a0 = JS_GetPropertyUint32(ctx, k, 0), a1 = JS_GetPropertyUint32(ctx, k, 1);
+            ok = !JS_ToFloat64(ctx, &time, a0) && !JS_ToFloat64(ctx, &value, a1) && std::isfinite(time) && std::isfinite(value);
+            JS_FreeValue(ctx, a0);
+            JS_FreeValue(ctx, a1);
+        }
+        JS_FreeValue(ctx, k);
+        ok = ok && time >= 0.0 && time <= t.duration + 1e-6 && (t.keys.empty() || time >= t.keys.back().first);
+        if (!ok) {
+            JS_FreeValue(ctx, keys);
+            if (!JS_HasException(ctx)) JS_ThrowTypeError(ctx, "layer: key %d: [seconds, value], in order, within the duration", static_cast<int>(i));
+            return false;
+        }
+        t.keys.emplace_back(time, static_cast<float>(value));
+    }
+    JS_FreeValue(ctx, keys);
+    JSValue easing = JS_GetPropertyStr(ctx, v, "easing");
+    if (JS_IsException(easing)) return false;
+    if (JS_IsArray(easing)) {
+        int64_t m = 0;
+        if (JS_GetLength(ctx, easing, &m) < 0 || m != n - 1) {
+            JS_FreeValue(ctx, easing);
+            JS_ThrowTypeError(ctx, "layer: easing needs one [x1, y1, x2, y2] per key span");
+            return false;
+        }
+        for (int64_t i = 0; i < m; ++i) {
+            JSValue e = JS_GetPropertyUint32(ctx, easing, static_cast<uint32_t>(i));
+            std::array<float, 4> b{0.0f, 0.0f, 1.0f, 1.0f};
+            if (JS_IsArray(e)) {
+                for (uint32_t j = 0; j < 4; ++j) {
+                    JSValue x = JS_GetPropertyUint32(ctx, e, j);
+                    double d = 0;
+                    if (!JS_ToFloat64(ctx, &d, x) && std::isfinite(d)) b[j] = static_cast<float>(d);
+                    JS_FreeValue(ctx, x);
+                }
+            }
+            JS_FreeValue(ctx, e);
+            b[0] = std::clamp(b[0], 0.0f, 1.0f);
+            b[2] = std::clamp(b[2], 0.0f, 1.0f);
+            t.easing.push_back(b);
+        }
+    }
+    JS_FreeValue(ctx, easing);
+    return true;
+}
+
+JSValue LayerFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    CANVAS_OR_THROW();
+    CanvasLayerSpec spec;
+    spec.id = WideToUtf8(a.S(0));
+    spec.x = a.F(1);
+    spec.y = a.F(2);
+    spec.w = a.F(3);
+    spec.h = a.F(4);
+    if (a.failed) return JS_EXCEPTION;
+    if (spec.id.empty() || spec.id.size() > 64) return JS_ThrowTypeError(ctx, "layer: an id of 1 - 64 characters is needed");
+    JSValueConst o = a.At(5);
+    if (JS_IsObject(o)) {
+        if (!PropS(ctx, o, "parent", spec.parent) || !PropB(ctx, o, "clip", spec.clip) || !PropF(ctx, o, "opacity", spec.opacity)) {
+            return JS_EXCEPTION;
+        }
+        spec.opacity = std::clamp(spec.opacity, 0.0f, 1.0f);
+        JSValue tracks = JS_GetPropertyStr(ctx, o, "tracks");
+        if (JS_IsException(tracks)) return JS_EXCEPTION;
+        if (!JS_IsUndefined(tracks) && !JS_IsNull(tracks)) {
+            int64_t n = 0;
+            if (!JS_IsArray(tracks) || JS_GetLength(ctx, tracks, &n) < 0 || n > 32) {
+                JS_FreeValue(ctx, tracks);
+                return JS_ThrowTypeError(ctx, "layer: tracks must be an array of up to 32 track objects");
+            }
+            for (int64_t i = 0; i < n; ++i) {
+                JSValue tv = JS_GetPropertyUint32(ctx, tracks, static_cast<uint32_t>(i));
+                CanvasTrack t;
+                const bool ok = ReadTrack(ctx, tv, t);
+                JS_FreeValue(ctx, tv);
+                if (!ok) {
+                    JS_FreeValue(ctx, tracks);
+                    return JS_EXCEPTION;
+                }
+                spec.tracks.push_back(std::move(t));
+            }
+        }
+        JS_FreeValue(ctx, tracks);
+        // The options as text: an unchanged animation keeps running across redraws.
+        JSValue json = JS_JSONStringify(ctx, o, JS_UNDEFINED, JS_UNDEFINED);
+        if (JS_IsException(json)) return JS_EXCEPTION;
+        spec.key = ToStd(ctx, json);
+        JS_FreeValue(ctx, json);
+    }
+    std::wstring error;
+    const bool live = c->BeginLayer(spec, error);
+    if (!live && !error.empty()) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_NewBool(ctx, live);
+}
+
+JSValue EndLayerFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
+    WidgetCanvas* c = CanvasOf(ctx);
+    if (!c) return NoCanvas(ctx);
+    if (!c->EndLayer()) return JS_ThrowTypeError(ctx, "endLayer: no layer is open");
+    return JS_UNDEFINED;
+}
+
 JSValue ClipPathFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     CANVAS_OR_THROW();
     CanvasPath* path = PathOf(ctx, a.At(0));
@@ -1522,6 +1675,8 @@ const JSCFunctionListEntry kCanvasFuncs[] = {
     JS_CFUNC_DEF("opacity", 1, Guard<OpacityFn>),
     JS_CFUNC_DEF("clip", 4, Guard<ClipFn>),
     JS_CFUNC_DEF("clipPath", 1, Guard<ClipPathFn>),
+    JS_CFUNC_DEF("layer", 6, Guard<LayerFn>),  // round 16 phase 16F
+    JS_CFUNC_DEF("endLayer", 0, Guard<EndLayerFn>),
     JS_CFUNC_DEF("fileIcon", 4, Guard<FileIconFn>),
     JS_CGETSET_MAGIC_DEF("width", GuardGet<CanvasGet>, nullptr, 0),
     JS_CGETSET_MAGIC_DEF("height", GuardGet<CanvasGet>, nullptr, 1),

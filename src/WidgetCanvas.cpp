@@ -259,6 +259,12 @@ WidgetCanvas::WidgetCanvas(ID2D1Factory1* d2d, IDWriteFactory* dwrite, FileReade
     : d2d_(d2d), dwrite_(dwrite), reader_(std::move(reader)) {}
 
 void WidgetCanvas::Begin(ID2D1DeviceContext* dc, float scale, float width, float height) {
+    layerOpen_ = layerLive_ = false;  // round 16 phase 16F: a new draw starts with no layer open
+    inlineParents_.clear();
+    Bind(dc, scale, width, height);
+}
+
+void WidgetCanvas::Bind(ID2D1DeviceContext* dc, float scale, float width, float height) {
     dc_ = dc;
     scale_ = scale > 0.0f ? scale : 1.0f;
     width_ = width;
@@ -278,6 +284,7 @@ void WidgetCanvas::Begin(ID2D1DeviceContext* dc, float scale, float width, float
 }
 
 void WidgetCanvas::End() {
+    if (layerOpen_) EndLayer();  // the script forgot endLayer(): close it (the slot's state comes back)
     if (!dc_) return;
     while (!clips_.empty()) {
         if (clips_.back()) {
@@ -297,6 +304,85 @@ void WidgetCanvas::End() {
 
 void WidgetCanvas::Apply() {
     if (dc_) dc_->SetTransform(cur_.m * base_);
+}
+
+// --- layers (round 16 phase 16F) ------------------------------------------------------------------
+
+bool WidgetCanvas::BeginLayer(const CanvasLayerSpec& spec, std::wstring& error) {
+    if (layerOpen_) {
+        error = L"layer: a layer is already open (call endLayer() first; layers do not nest, use `parent`)";
+        return false;
+    }
+    if (!Finite(spec.x + spec.y + spec.w + spec.h) || spec.w <= 0.0f || spec.h <= 0.0f) {
+        error = L"layer: the box needs a positive width and height";
+        return false;
+    }
+    layerOpen_ = true;
+    layerLive_ = false;
+    ID2D1DeviceContext* ldc = dc_ && sink_ ? sink_->BeginLayer(spec, scale_) : nullptr;
+    if (ldc) {
+        // The slot's state waits; the layer's recording context gets a fresh one of its own box.
+        main_ = Main{dc_, dcBase_, base_, width_, height_, cur_, std::move(stack_), std::move(clips_)};
+        Bind(ldc, scale_, spec.w, spec.h);
+        layerLive_ = true;
+        return true;
+    }
+    // Inline (no sink: a popup, a preview, measure(); or the host declined): the content is drawn
+    // into the current surface at the tracks' first keys, inside the parent's box, with the
+    // parent's opacity (an inline parent's clip is not inherited: a still picture, good enough).
+    Save();
+    InlineParent me{spec.x, spec.y, spec.opacity};
+    if (!spec.parent.empty()) {
+        const auto it = inlineParents_.find(spec.parent);
+        if (it != inlineParents_.end()) {
+            me.x += it->second.x;
+            me.y += it->second.y;
+            me.alpha *= it->second.alpha;
+        }
+    }
+    inlineParents_[spec.id] = me;
+    Translate(me.x, me.y);
+    if (spec.clip) ClipRect(0.0f, 0.0f, spec.w, spec.h);
+    Opacity(me.alpha);
+    for (const CanvasTrack& t : spec.tracks) {
+        if (t.keys.empty()) continue;
+        const float v = t.keys.front().second;
+        if (t.prop == "x") {
+            Translate(v, 0.0f);
+        } else if (t.prop == "y") {
+            Translate(0.0f, v);
+        } else if (t.prop == "rotate") {
+            Rotate(v * kPi / 180.0f, t.cx, t.cy);
+        } else if (t.prop == "opacity") {
+            Opacity(v);
+        }
+    }
+    return false;
+}
+
+bool WidgetCanvas::EndLayer() {
+    if (!layerOpen_) return false;
+    layerOpen_ = false;
+    if (!layerLive_) {
+        Restore();
+        return true;
+    }
+    layerLive_ = false;
+    End();  // the layer's context: its clips popped, its transform put back
+    if (sink_) sink_->EndLayer();
+    dc_ = main_.dc;
+    dcBase_ = main_.dcBase;
+    base_ = main_.base;
+    width_ = main_.width;
+    height_ = main_.height;
+    cur_ = main_.cur;
+    stack_ = std::move(main_.stack);
+    clips_ = std::move(main_.clips);
+    main_ = Main{};
+    solid_ = nullptr;
+    gradient_ = nullptr;
+    Apply();
+    return true;
 }
 
 ID2D1Brush* WidgetCanvas::Brush(const CanvasPaint& p) {

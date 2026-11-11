@@ -48,7 +48,7 @@ There are quicker ways for some items:
 - Drag a shortcut, a program or a folder from File Explorer onto the dock.
 - Right-click the dock and open **Add**: **Clock**, **Weather (script)**, **Running apps**, **Tray (notify icons)**, **Notification centre** or **Separator**. **Apps, folders and more widgets…** opens the Contents tab, and **Folder window on the desktop…** makes a folder window.
 
-To remove an item, customize the dock and click the item's **×**, or select it on the Contents tab and click **Remove** (or press Delete). A clock, a weather item, a widget, the tray and the notification centre also have **Remove this widget** at the end of their right-click menu. You can also drag a pinned app that is not running up and off the dock.
+To remove an item, customize the dock and click the item's **×**, or select it on the Contents tab and click **Remove** (or press Delete). A clock, a weather item, a widget, the tray and the notification centre also have **Remove this widget** at the end of their right-click menu. You can also drag a pinned app that is not running up and off the dock. A script widget dragged off the dock is not removed: it moves to the desktop (see [Widgets on the desktop](#widgets-on-the-desktop)).
 
 ## Customize a dock
 
@@ -270,8 +270,9 @@ The Appearance tab has the forecast on the dock and how it looks:
 
 - **Forecast**: **Forecast on the dock** (none, today's high and low under the temperature, or several days) and **Days on the dock** (2 to 7).
 - **Layout**: a preset for the slot. **Automatic** follows the dock's edge (a column per day on a bottom or top dock, a line per day on a left or right dock). **Strip** is a column per day beside the conditions. **Tiles** puts each day's name over its icon with the high over the low beside them, after the conditions on a bottom or top dock and stacked under them on a left or right dock: the easiest to read on a narrow dock. **List** stacks the icon over the temperature with a line per day under them. **Card** is for a desktop widget: big conditions with tiles under them. **Custom** shows three fields instead: where the icon goes (beside or above the temperature), what each day's cell is (a column, a tile, a line, or the icon with high/low), and whether the days go after or under the conditions.
+- **Sizes and spacing** (in the Layout card): **Size of the whole slot** scales everything on a dock (also in the Contents inspector), **Size of the day cells** makes the forecast larger than the current conditions on its own, **Space between days** spreads the cells out, and **Space before the days** sets the gap after the current conditions. A thick dock reads best with the day cells at 150 % or more.
 - **Text**: the condition's name under the temperature, the place, today's high and low, **Day names** (Mon, M or Monday), whether the first day says **Today**, and **High and low** (arrows, a slash or a space between them).
-- **Icons**: **Icons** chooses WinDock's filled pictures or Lucide's line icons, **Icon colours** keeps the yellow sun and blue rain or draws everything in the text colour, **Size** scales the whole slot on a dock, and **Compact** leaves only the icon.
+- **Icons**: **Icons** chooses WinDock's filled pictures, Lucide's line icons, or Meteocons, coloured icons that move (the sun's rays turn, clouds drift, rain falls); the motion runs in Windows' compositor, so it costs the dock nothing, and **Animated icons** turns it off (reduce motion does too). **Icon colours** keeps the yellow sun and blue rain or draws everything in the text colour, and **Compact** leaves only the icon.
 
 Right-click the widget for the quickest changes: **Forecast on the dock**, **Layout** and **Icons** are in its menu.
 
@@ -378,6 +379,8 @@ Every widget's window has the same structure, in two tabs:
 
 A widget whose settings are all of one kind (Hello, Start, Search) has one page and no tabs. Inside a tab the settings are grouped in cards. Each setting has a short hint under it; rest the mouse on it for the full explanation. Some settings appear only when another one has a certain value.
 
+A colour setting shows a small swatch of the colour beside its box. Click the swatch to choose a colour in the Windows colour dialog, or type the colour into the box as #AARRGGBB (the first pair is the opacity: FF is solid). Picking a colour keeps the opacity you had; a colour that was fully transparent (many widgets' way of saying "use the theme's colour") becomes solid. The same swatch appears in the Contents tab for a widget's everyday settings.
+
 The footer, under both tabs, has **Reset to factory defaults…** (back to the widget's own defaults, after asking) and **Console…** (the widget's log and errors).
 
 A widget with a place, such as Weather (script), has a **Find a place** box. Without a place of its own it shows the default place; the hint under **Place** says which. Once you choose a place for it, a **↺** beside the place and **Reset to app default** in the footer make it show the shared place again.
@@ -385,6 +388,10 @@ A widget with a place, such as Weather (script), has a **Find a place** box. Wit
 ### Widgets on the desktop
 
 A widget can also live on the desktop in a window of its own, moved and sized freely. Drag its tile from the drawer onto the desktop, press the small monitor button on its tile, or click **Add to the desktop** in App settings > Widget library. See [Standalone widgets](guide-docks.md#standalone-widgets).
+
+A widget already on the dock can move to the desktop too: drag it up and off the dock (it fades a little when you are far enough) and let go. It leaves the dock and appears on the desktop under the pointer, with the same settings. Press **Esc** before you let go to cancel, or choose **Undo** in the dock menu afterwards to put it back. This works for script widgets such as Hello, Digital clock or Weather (script), not for the dock's own Clock, Weather, Tray and Notification centre items, the running apps, or a locked dock; a widget made to need a dock stays on it.
+
+To put a desktop widget back on a dock, drag its window onto the dock's bar: a marker shows where it will go between the items, and when you let go it joins the dock there and its window closes, with the same settings. Let go anywhere else and it just moves; press **Esc** during the drag to put it back where it was. Or right-click the widget and choose **Move to dock**, then the dock: it is added at the end. **Undo** in the dock menu brings the window back. A locked dock does not take it (its entry in the menu is greyed), and a dock that is hidden at its edge must be showing for the drop to land.
 
 ### Your own widgets
 

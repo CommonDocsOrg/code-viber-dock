@@ -20,6 +20,15 @@
 // Cost: nothing polls. The widget redraws when the provider reports a change (a fetch started,
 // finished or failed); while the popup is open one timeout per minute updates "N min ago".
 
+// Round 16 phase 16F: a third icon pack, Meteocons (https://meteocons.com, MIT), coloured and
+// animated: each icon is a few parts (a sun, its rays, a cloud, each raindrop) with loops of
+// translate / rotate / opacity, converted from the upstream SVGs by tools/meteocons_convert.py into
+// meteocons.js. On a dock every part is a canvas.layer(): a child visual of the slot whose loop
+// DirectComposition runs, so the icons move while this script, the dock and the CPU stay idle. In
+// the popup, a preview, or with Animated icons / reduce motion off, the same parts are drawn
+// inline as a still picture.
+import { ICONS as METEO, SIZE as METEO_SIZE } from './meteocons.js';
+
 const GLYPH = 26;          // the native element's glyph (24 when the clock shows its date)
 const FONT = 16;           // its temperature size (14 with the clock's date)
 const GAP = 3;             // glyph -> temperature
@@ -164,12 +173,134 @@ function lucidePaths(canvas, name) {
   return paths;
 }
 
+// --- Meteocons -----------------------------------------------------------------------------------
+
+// WMO code -> Meteocons icon (null for the pin and the refresh arrow, which Lucide draws).
+function meteoconName(code, isDay) {
+  if (code === 'setLocation' || code === 'refresh') return null;
+  const c = Number(code), dn = isDay ? 'day' : 'night';
+  if (c === 0) return 'clear-' + dn;
+  if (c === 1 || c === 2) return 'partly-cloudy-' + dn;
+  if (c === 3) return 'overcast';
+  if (c === 45 || c === 48) return 'fog-' + dn;
+  if (c >= 51 && c <= 55) return 'drizzle';
+  if (c === 56 || c === 57 || c === 66 || c === 67) return 'sleet';
+  if (c >= 61 && c <= 65) return 'rain';
+  if ((c >= 71 && c <= 75) || c === 77) return 'snow';
+  if (c >= 80 && c <= 82) return 'partly-cloudy-' + dn + '-rain';
+  if (c === 85 || c === 86) return 'partly-cloudy-' + dn + '-snow';
+  if (c === 95) return 'thunderstorms-' + dn;
+  if (c === 96 || c === 99) return 'thunderstorms-' + dn + '-rain';
+  return 'cloudy';
+}
+
+const SVG_PATHS = new Map();  // path data -> canvas path (built once; a path's geometry is kept)
+function cachedPath(canvas, d) {
+  let p = SVG_PATHS.get(d);
+  if (!p) {
+    p = svgPath(canvas, d);
+    SVG_PATHS.set(d, p);
+  }
+  return p;
+}
+
+// A track of the converter's shape at scale s (icon units -> DIPs) as canvas.layer() wants it.
+function trackOf(t, s) {
+  const px = t.p === 'x' || t.p === 'y';
+  const track = { prop: t.p, duration: t.d, begin: t.b, once: !!t.once, keys: t.k.map(([time, v]) => [time, px ? v * s : v]) };
+  if (t.e) track.easing = t.e;
+  if (t.c) track.center = [t.c[0] * s, t.c[1] * s];
+  return track;
+}
+
+// The still pose of tracks the host was not given (Animated icons off): their first keys.
+function applyPose(canvas, tracks, s) {
+  for (const t of tracks) {
+    const v = t.k[0][1];
+    if (t.p === 'x') canvas.translate(v * s, 0);
+    else if (t.p === 'y') canvas.translate(0, v * s);
+    else if (t.p === 'rotate') canvas.rotate((v * Math.PI) / 180, (t.c ? t.c[0] : 0) * s, (t.c ? t.c[1] : 0) * s);
+    else if (t.p === 'opacity') canvas.opacity(v);
+  }
+}
+
+function drawMeteoconElements(canvas, els, grads) {
+  const paintOf = (ref) => {
+    if (!ref) return null;
+    if (ref.startsWith('g:')) {
+      const g = grads[ref.slice(2)];
+      return g ? canvas.linearGradient(g[0], g[1], g[2], g[3], g[4]) : '#888888';
+    }
+    return ref;
+  };
+  for (const el of els) {
+    const op = el[el.length - 1];
+    if (op < 1) {
+      canvas.save();
+      canvas.opacity(op);
+    }
+    if (el[0] === 'p') {
+      const [, d, fill, stroke, sw, cap, join] = el;
+      const path = cachedPath(canvas, d);
+      if (fill) canvas.fill(path, paintOf(fill));
+      if (stroke) canvas.stroke(path, paintOf(stroke), { width: sw, cap, join });
+    } else {
+      const [, cx, cy, r, fill, stroke, sw] = el;
+      if (fill) canvas.fillCircle(cx, cy, r, paintOf(fill));
+      if (stroke) canvas.strokeCircle(cx, cy, r, paintOf(stroke), sw);
+    }
+    if (op < 1) canvas.restore();
+  }
+}
+
+// The icon `name` in the square at (x, y): a clipped group layer (its opacity is `dim`), then a
+// layer per part under it (a clipped sub-group for the fog's masked sun). Layer ids come from
+// `key` (the slot's place for this icon: "cur", "d2"), so an icon that stays the same across
+// redraws keeps its loops running without a restart.
+function drawMeteocon(canvas, dock, name, x, y, size, dim, key) {
+  const icon = METEO[name] || METEO.cloudy;
+  const s = size / METEO_SIZE;
+  const motion = settings.iconMotion !== false;
+  const group = 'm:' + key;
+  canvas.layer(group, x, y, size, size, { clip: true, opacity: dim });
+  canvas.endLayer();
+  let n = 0;
+  const drawParts = (parts, parent, ox, oy) => {
+    for (const p of parts) {
+      const id = group + '/' + n++;
+      if (p.ch) {
+        const [cx, cy, cw, ch] = p.clip;
+        canvas.layer(id, ox + cx * s, oy + cy * s, cw * s, ch * s, { parent, clip: true });
+        canvas.endLayer();
+        drawParts(p.ch, id, -cx * s, -cy * s);
+        continue;
+      }
+      const opts = { parent };
+      if (p.tr && motion) opts.tracks = p.tr.map((t) => trackOf(t, s));
+      canvas.layer(id, ox, oy, size, size, opts);
+      canvas.save();
+      if (p.tr && !motion) applyPose(canvas, p.tr, s);
+      canvas.scaleBy(s, s);
+      drawMeteoconElements(canvas, p.el, icon.g);
+      canvas.restore();
+      canvas.endLayer();
+    }
+  };
+  drawParts(icon.parts, group, 0, 0);
+}
+
 // Draws the condition icon of `code` ("setLocation" / "refresh" too) into the square at (x, y)
-// with the chosen pack and colours. `ink` overrides the ink (the popup's dimmed buttons).
-function drawIcon(canvas, dock, code, isDay, x, y, size, dim = 1, ink) {
+// with the chosen pack and colours. `ink` overrides the ink (the popup's dimmed buttons). `key`
+// names the icon's place for the Meteocons pack's layers (unique per icon drawn).
+function drawIcon(canvas, dock, code, isDay, x, y, size, dim = 1, ink, key = 'icon') {
   ink = ink || dock.theme.text;
   const mono = settings.iconStyle === 'mono';
-  if (settings.iconPack !== 'lucide') {
+  const meteocon = settings.iconPack === 'meteocons' ? meteoconName(code, isDay) : null;
+  if (meteocon) {
+    drawMeteocon(canvas, dock, meteocon, x, y, size, dim, key);
+    return;
+  }
+  if (settings.iconPack !== 'lucide' && settings.iconPack !== 'meteocons') {
     canvas.image(weather.icon(code, isDay, mono ? { ink, water: ink } : { ink }), x, y, size, size, dim);
     return;
   }
@@ -267,16 +398,24 @@ const EXTRA_FONT = 10;
 // the icon, "high/low") or the icon with "high/low".
 const DAY_GLYPH = 16, ROW_GLYPH = 14;  // DIPs
 const DAY_FONT = 9, DAY_LINE = 10;      // the cells' text size and line pitch
-const DAY_GAP = 6;                      // between cells of a row
+const DAY_GAP = 6;                      // between cells of a row (settings.dayGap, 16D)
 const TILE_GAP = 4;                     // a tile's left half -> its right half
-const FORECAST_GAP = 8;                 // the current conditions -> the cells (half when under)
+const FORECAST_GAP = 8;                 // the current conditions -> the cells (settings.forecastGap; half when under)
 const DAY_ROW_H = 16;
+
+// 16D: the day cells have a scale of their own (settings.daySize) over the slot's, and the gaps
+// are settings, so a forecast can be spread out and read larger than the current conditions.
+const clampPct = (v, d) => Math.max(0.6, Math.min(2.5, (Number.isFinite(v) ? v : d) / 100));
+const dayK = (k) => k * clampPct(settings.daySize, 100);
+const dayGap = (k) => Math.round((Number.isFinite(settings.dayGap) ? settings.dayGap : DAY_GAP) * k);
+const forecastGap = (k) => Math.round((Number.isFinite(settings.forecastGap) ? settings.forecastGap : FORECAST_GAP) * k);
 
 const dayDeg = (t) => (t === null || t === undefined ? '–' : (lround(t) || 0) + '°');
 const dayNum = (t) => (t === null || t === undefined ? '–' : String(lround(t) || 0));
 
-function forecast(canvas, dock, k, A) {
+function forecast(canvas, dock, k0, A) {
   if (forecastMode() !== 'days' || !wx.configured || !wx.daily || !wx.daily.length) return null;
+  const k = dayK(k0);  // the cells' own scale; the gap between cells follows the slot's
   const days = wx.daily.slice(0, Math.max(2, Math.min(7, settings.dockDays || 3)));
   const label = { size: DAY_FONT * k, weight: 'semibold' };
   const small = { size: DAY_FONT * k };
@@ -320,10 +459,10 @@ function forecast(canvas, dock, k, A) {
     w = Math.max(...cells.map((c) => c.w));
     h = cells.reduce((s, c) => s + c.h, 0);
   } else {
-    w = cells.reduce((s, c) => s + c.w, 0) + (cells.length - 1) * Math.round(DAY_GAP * k);
+    w = cells.reduce((s, c) => s + c.w, 0) + (cells.length - 1) * dayGap(k0);
     h = Math.max(...cells.map((c) => c.h));
   }
-  return { cells, w, h, g, line, gap, label, small, cell, stack: A.stack };
+  return { cells, w, h, g, line, gap, label, small, cell, stack: A.stack, k, cellGap: dayGap(k0) };
 }
 
 // The slot's parts at scale k (1 on a dock, settings.size applied by sizeK).
@@ -344,22 +483,22 @@ function layout(canvas, dock, k = sizeK(dock)) {
   let w = cw, h = ch;
   if (f && A.placement === 'below') {
     w = Math.max(cw, f.w);
-    h = ch + Math.round((FORECAST_GAP / 2) * k) + f.h;
+    h = ch + Math.round(forecastGap(k) / 2) + f.h;
   } else if (f) {
-    w = cw + Math.round(FORECAST_GAP * k) + f.w;
+    w = cw + forecastGap(k) + f.w;
     h = Math.max(ch, f.h);
   }
   return { A, t, a, extras, extraStyle, glyph, gap, cw, ch, textW, textH, f, w, h, vertical: A.vertical, k };
 }
 
-const sizeK = (dock) => (dock.standalone ? 1 : Math.max(0.6, Math.min(2, (settings.size || 100) / 100)));
+const sizeK = (dock) => (dock.standalone ? 1 : clampPct(settings.size, 100));
 
 function drawForecast(canvas, dock, l, x, y, dim) {
-  const f = l.f, k = l.k;
+  const f = l.f, k = f.k;  // the cells' scale (TILE_GAP goes with it; the gap between cells is f.cellGap)
   const text = dock.theme.text, low = dock.theme.dateText;
   const centred = (s, cx, cy, st, color) => canvas.text(s, cx, cy, { ...st, align: 'center', baseline: 'middle', color });
   const icon = (c, ix, iy, g) => {
-    if (c.d.code !== null && c.d.code >= 0) drawIcon(canvas, dock, c.d.code, true, Math.round(ix), Math.round(iy), g, dim);
+    if (c.d.code !== null && c.d.code >= 0) drawIcon(canvas, dock, c.d.code, true, Math.round(ix), Math.round(iy), g, dim, undefined, 'd' + f.cells.indexOf(c));
   };
   canvas.save();
   canvas.opacity(dim);
@@ -396,7 +535,7 @@ function drawForecast(canvas, dock, l, x, y, dim) {
       canvas.text(c.lo, tx + c.hiW, my, { ...f.small, baseline: 'middle', color: low });
     }
     if (f.stack) cy += c.h;
-    else cx += c.w + Math.round(DAY_GAP * k);
+    else cx += c.w + f.cellGap;
   }
   canvas.restore();
 }
@@ -422,10 +561,10 @@ function drawConditions(canvas, dock, l, x, y, dim) {
     }
   };
   if (l.A.conditions === 'stacked') {
-    drawIcon(canvas, dock, code, isDay, Math.round(x + (l.cw - l.glyph) / 2), Math.round(y), l.glyph, dim);
+    drawIcon(canvas, dock, code, isDay, Math.round(x + (l.cw - l.glyph) / 2), Math.round(y), l.glyph, dim, undefined, 'cur');
     if (l.t.main || l.extras.length) lineY(y + l.glyph + l.gap);
   } else {
-    drawIcon(canvas, dock, code, isDay, Math.round(x), Math.round(y + (l.ch - l.glyph) / 2), l.glyph, dim);
+    drawIcon(canvas, dock, code, isDay, Math.round(x), Math.round(y + (l.ch - l.glyph) / 2), l.glyph, dim, undefined, 'cur');
     if (l.t.main || l.extras.length) lineY(Math.round(y + (l.ch - l.textH) / 2));
   }
 }
@@ -457,10 +596,10 @@ export function draw(canvas, dock) {
   const ox = Math.round((canvas.width - l.w) / 2), oy = Math.round((canvas.height - l.h) / 2);
   if (l.f && l.A.placement === 'below') {
     drawConditions(canvas, dock, l, ox + Math.round((l.w - l.cw) / 2), oy, dim);
-    drawForecast(canvas, dock, l, ox + Math.round((l.w - l.f.w) / 2), oy + l.ch + Math.round((FORECAST_GAP / 2) * l.k), dim);
+    drawForecast(canvas, dock, l, ox + Math.round((l.w - l.f.w) / 2), oy + l.ch + Math.round(forecastGap(l.k) / 2), dim);
   } else if (l.f) {
     drawConditions(canvas, dock, l, ox, oy + Math.round((l.h - l.ch) / 2), dim);
-    drawForecast(canvas, dock, l, ox + l.cw + Math.round(FORECAST_GAP * l.k), oy + Math.round((l.h - l.f.h) / 2), dim);
+    drawForecast(canvas, dock, l, ox + l.cw + forecastGap(l.k), oy + Math.round((l.h - l.f.h) / 2), dim);
   } else {
     drawConditions(canvas, dock, l, ox, oy, dim);
   }
@@ -577,7 +716,7 @@ export function drawPopup(canvas, dock) {
   if (wx.configured) {
     canvas.fillRoundRect(refresh.x, refresh.y, refresh.w, refresh.h, 6, fade(text, 0.08));
     const g = 16;
-    drawIcon(canvas, dock, 'refresh', true, refresh.x + (BUTTON - g) / 2, refresh.y + (BUTTON - g) / 2, g, 1, wx.busy ? fade(text, 0.4) : secondary);
+    drawIcon(canvas, dock, 'refresh', true, refresh.x + (BUTTON - g) / 2, refresh.y + (BUTTON - g) / 2, g, 1, wx.busy ? fade(text, 0.4) : secondary, 'pr');
     hits.push(refresh);
   }
 
@@ -598,7 +737,7 @@ export function drawPopup(canvas, dock) {
   // Header: glyph, temperature, condition, details; "Updated" and the credit on the right.
   const c = wx.current;
   const stale = wx.state !== 'fresh';
-  drawIcon(canvas, dock, c.code, c.isDay, PAD, MAIN_TOP + 2, BIG_GLYPH, stale ? STALE : 1);
+  drawIcon(canvas, dock, c.code, c.isDay, PAD, MAIN_TOP + 2, BIG_GLYPH, stale ? STALE : 1, undefined, 'pc');
   const unit = wx.temperatureUnit;
   const temp = (c.temp === null ? '–' : (lround(c.temp) || 0) + '°') + unit;
   const tempX = PAD + BIG_GLYPH + 8;
@@ -639,7 +778,7 @@ export function drawPopup(canvas, dock) {
   hours.forEach((h, i) => {
     const x = PAD + i * colW, cx = x + colW / 2;
     line(canvas, i === 0 ? 'Now' : hourLabel(h.hour), cx, top, 14, { size: 10.5, align: 'center', color: i === 0 ? text : secondary });
-    if (h.code >= 0) drawIcon(canvas, dock, h.code, h.isDay, cx - 8, top + 17, 16);
+    if (h.code >= 0) drawIcon(canvas, dock, h.code, h.isDay, cx - 8, top + 17, 16, 1, undefined, 'ph' + i);
     line(canvas, h.temp === null ? '–' : (lround(h.temp) || 0) + '°', cx, top + 35, 15, { size: 10.5, align: 'center', color: text });
     if (h.temp !== null) canvas.fillCircle(cx, bandY(h.temp), 1.8, water);
     if (h.precip !== null && h.precip >= 1) {
@@ -658,7 +797,7 @@ export function drawPopup(canvas, dock) {
   days.forEach((d, i) => {
     const y = dailyTop + i * ROW_H, cy = y + ROW_H / 2;
     line(canvas, i === 0 ? 'Today' : system.shortDayNames[d.weekday], PAD, y, ROW_H, { size: 13, color: text });
-    if (d.code >= 0) drawIcon(canvas, dock, d.code, true, PAD + 74, cy - 9, 18);
+    if (d.code >= 0) drawIcon(canvas, dock, d.code, true, PAD + 74, cy - 9, 18, 1, undefined, 'pd' + i);
     line(canvas, d.min === null ? '–' : (lround(d.min) || 0) + '°', PAD + 148, y, ROW_H, { size: 13, align: 'right', color: secondary });
     line(canvas, d.max === null ? '–' : (lround(d.max) || 0) + '°', w - PAD, y, ROW_H, { size: 13, align: 'right', color: text });
     canvas.fillRoundRect(trackL, cy - r, trackR - trackL, trackH, r, fade(border, 1.6));

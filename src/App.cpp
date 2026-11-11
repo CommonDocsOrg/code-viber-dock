@@ -216,6 +216,7 @@ bool App::Initialize(HINSTANCE instance) {
     };
     callbacks.widgetMenu = [this](size_t cfg, POINT pt) { ShowWidgetMenu(cfg, pt); };
     callbacks.widgetSettings = [this](size_t cfg) { OpenItemSettings(cfg, 0); };
+    callbacks.widgetDockDrag = [this](size_t cfg, int phase, POINT screen) { return WidgetDockDrag(cfg, phase, screen); };  // round 16 phase 16G
     // Round 12 phase 12I: a folder window / standalone widget moved, was resized or hidden: the
     // settings panel beside it follows. Posted and coalesced (it can come from inside Sync's
     // SetMonitor, and a collapse plus its config change arrive together); only when a panel is open.
@@ -311,6 +312,9 @@ void App::SetUpDock(DockWindow& dock) {
     };
     requests.moveItem = [this, d](size_t from, size_t to, std::optional<ItemAnchor> anchor) {
         MoveItem(d->ConfigIndex(), from, to, anchor);
+    };
+    requests.widgetToDesktop = [this, d](size_t item, POINT screen) {  // round 16 phase 16E
+        MoveWidgetToDesktop(d->ConfigIndex(), item, screen);
     };
     requests.group = [this, d](const AppKey& source, const AppKey& target) { GroupWith(*d, source, target); };
     requests.addToGroup = [this, d](const AppKey& group, const std::vector<std::wstring>& paths) {
@@ -3483,17 +3487,30 @@ void App::RemoveDesktopEntry(size_t cfg) {
 }
 
 size_t App::AddWidgetWindow(const std::wstring& id, size_t nearDock, bool open) {
-    if (shutDown_ || modalDepth_ > 0 || !Widgets::ValidId(id)) return SIZE_MAX;
-    std::wstring error;
-    const auto pkg = Widgets::Load(id, error);
-    if (!pkg) return SIZE_MAX;
-    DockConfig d;
-    d.dockKind = DockKind::Widget;
-    d.id = config_.UniqueDockId(id);
     DockItemEntry e;
     e.kind = ToString(ItemKind::Widget);
     e.id = id;
-    d.items = {std::move(e)};
+    return AddWidgetWindow(std::move(e), nearDock, open);
+}
+
+bool App::CanBeStandalone(const DockItemEntry& e) {
+    return e.Kind() == ItemKind::Widget && Widgets::ValidId(e.id) && Widgets::CanBeStandalone(e.id);
+}
+
+size_t App::AddWidgetWindow(DockItemEntry entry, size_t nearDock, bool open) {
+    // Round 16 phase 16E: from a config item (a widget dragged off a dock keeps its entry: settings,
+    // name). Only the dock-placement keys go: a standalone entry has no anchor / offset of its own.
+    const std::wstring id = entry.id;
+    if (shutDown_ || modalDepth_ > 0 || entry.Kind() != ItemKind::Widget || !Widgets::ValidId(id)) return SIZE_MAX;
+    std::wstring error;
+    const auto pkg = Widgets::Load(id, error);
+    if (!pkg || !pkg->manifest.standalone.supported) return SIZE_MAX;  // round 16 phase 16E: needs a dock
+    DockConfig d;
+    d.dockKind = DockKind::Widget;
+    d.id = config_.UniqueDockId(id);
+    entry.anchor = ItemAnchor::None;
+    entry.offset = 0;
+    d.items = {std::move(entry)};
     pkg->manifest.DefaultStandaloneSize(d.widgetWindow.w, d.widgetWindow.h);
     d.layer = DockLayer::Behind;
     // The display of the dock it was added from ("each": the primary), centred on its work area.
@@ -3556,6 +3573,22 @@ void App::ShowWidgetMenu(size_t cfg, POINT pt) {
     AppendMenuW(menu, MF_STRING, ContextMenu::kDockSettings, L"Window settings…");
     AppendMenuW(menu, MF_STRING | (locked ? MF_CHECKED : 0), ContextMenu::kWidgetToggleLock, locked ? L"Unlock" : L"Lock");
     AppendMenuW(menu, MF_STRING, ContextMenu::kReloadWidget, L"Reload widget");
+    // Round 16 phase 16G: Move to dock ▸ one entry per enabled dock (not the folder windows and
+    // standalone widgets); a locked dock's entry is greyed (MoveWidgetToDock refuses it); none at
+    // all: the submenu is greyed. The entries carry the dock ids in `moveTargets` (by index below).
+    std::vector<std::wstring> moveTargets(config_.docks.size());
+    if (HMENU docksMenu = CreatePopupMenu()) {
+        UINT count = 0;
+        for (size_t k = 0; k < config_.docks.size() && k < 200; ++k) {
+            const DockConfig& d = config_.docks[k];
+            if (!d.IsDock() || !d.enabled) continue;
+            moveTargets[k] = d.id;
+            AppendMenuW(docksMenu, MF_STRING | (d.locked ? MF_GRAYED : 0), ContextMenu::kMoveToDockBase + static_cast<UINT>(k),
+                        (d.DisplayName() + (d.locked ? L" (locked)" : L"")).c_str());
+            ++count;
+        }
+        AppendMenuW(menu, MF_POPUP | (count == 0 ? MF_GRAYED : 0), reinterpret_cast<UINT_PTR>(docksMenu), L"Move to dock");
+    }
     AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
     // Round 10 phase 10A: "App settings…" (was "Global settings…"), removal last.
     AppendMenuW(menu, MF_STRING, ContextMenu::kOpenSettings, L"App settings…");
@@ -3576,12 +3609,21 @@ void App::ShowWidgetMenu(size_t cfg, POINT pt) {
         OpenDockSettings(now, SettingsIds::kTabWidgetWindow);  // round 8 phase 8C: its Window tab
     } else if (cmd == ContextMenu::kOpenSettings) {
         OpenSettings();
+    } else if (cmd >= ContextMenu::kMoveToDockBase && cmd < ContextMenu::kMoveToDockBase + moveTargets.size()) {
+        // Round 16 phase 16G: that dock by id (posted: this runs inside the widget window's
+        // WM_RBUTTONUP, and the move destroys that window).
+        const size_t dock = DockIndexOf(moveTargets[cmd - ContextMenu::kMoveToDockBase]);
+        if (dock == SIZE_MAX) {
+            MessageBeep(MB_ICONWARNING);
+        } else {
+            RequestWidgetToDock(now, dock, SIZE_MAX);  // beeps when refused
+        }
     } else {
         WidgetEntryCommand(cmd, now);
     }
 }
 
-LRESULT App::WidgetEntryCommand(UINT cmd, size_t cfg) {
+LRESULT App::WidgetEntryCommand(UINT cmd, size_t cfg, size_t arg) {
     if (cfg >= config_.docks.size() || !config_.docks[cfg].IsWidgetWindow()) return -1;
     switch (cmd) {
         case ContextMenu::kReloadWidget: {
@@ -3601,6 +3643,8 @@ LRESULT App::WidgetEntryCommand(UINT cmd, size_t cfg) {
             // Posted: the entry may be in one of its own window's messages.
             if (hwnd_) PostMessageW(hwnd_, kRemoveFolderMessage, cfg, 0);
             return 1;
+        case ContextMenu::kWidgetToDock:  // round 16 phase 16G: to the end of config dock `arg` (posted)
+            return RequestWidgetToDock(cfg, arg, SIZE_MAX) ? 1 : 0;
         case ContextMenu::kEditorOk:
         case ContextMenu::kEditorCancel: {  // round 6 phase 6C: its widget's open text editor
             WidgetWindow* w = docks_.WidgetOf(cfg);
@@ -4362,6 +4406,24 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         result = dock && ApplyQuick(*dock, static_cast<int>(ArgOfParam(lp)), static_cast<size_t>((wp >> 16) & 0xFFFF)) ? 1 : 0;
         return true;
     }
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) == ContextMenu::kWidgetToDesktop) {
+        // Round 16 phase 16E: slot LOWORD(lParam) of dock HIWORD(lParam) moved to the desktop as a
+        // drag off the dock would, centred on the work area of the dock window's monitor. 1 done,
+        // 0 refused (no such slot, a locked dock, not a script widget, a dock-only widget).
+        DockWindow* dock = docks_.WindowAt(DockOfParam(lp));
+        const LPARAM slot = ArgOfParam(lp);
+        result = 0;
+        if (dock && slot >= 0 && slot < static_cast<LPARAM>(dock->Items().size())) {
+            const DockItem& item = dock->Items()[static_cast<size_t>(slot)];
+            std::optional<POINT> at;
+            MONITORINFO mi{sizeof(mi)};
+            if (dock->Hwnd() && GetMonitorInfoW(MonitorFromWindow(dock->Hwnd(), MONITOR_DEFAULTTONEAREST), &mi)) {
+                at = POINT{(mi.rcWork.left + mi.rcWork.right) / 2, (mi.rcWork.top + mi.rcWork.bottom) / 2};
+            }
+            if (item.IsWidget()) result = MoveWidgetToDesktop(dock->ConfigIndex(), item.element, at) ? 1 : 0;
+        }
+        return true;
+    }
     if (msg == msgDockCommand_ && wp == ContextMenu::kOpenHelp) {
         // Round 9 phase 9D: the Help window at guide LOWORD(lParam) (0 quick start, 1 settings, 2 docks,
         // 3 items, 4 troubleshooting, 5 the index). 1: it is shown.
@@ -4412,7 +4474,7 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         docks_.At(DockOfParam(lp))->isWidget) {
         // A standalone widget entry (round 6 phase 6B): 809 reload, 854 its widget's settings, 855
         // lock / unlock, 856 remove (posted); anything else: -1.
-        result = WidgetEntryCommand(static_cast<UINT>(wp & 0xFFFF), docks_.At(DockOfParam(lp))->cfg);
+        result = WidgetEntryCommand(static_cast<UINT>(wp & 0xFFFF), docks_.At(DockOfParam(lp))->cfg, static_cast<size_t>((wp >> 16) & 0xFFFF));
         return true;
     }
     if (msg == msgItemCommand_ && ((wp & 0xFFFF) == ContextMenu::kEditorOk || (wp & 0xFFFF) == ContextMenu::kEditorCancel)) {
@@ -4717,6 +4779,21 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == kRemoveFolderMessage) {
         RemoveDesktopEntry(static_cast<size_t>(wp));
+        return 0;
+    }
+    if (msg == kMoveToDockMessage) {
+        // Round 16 phase 16G: the moves RequestWidgetToDock queued, by id (an entry or dock that is
+        // gone or changed meanwhile: refused with a beep).
+        std::vector<PendingDockMove> moves = std::move(pendingDockMoves_);
+        pendingDockMoves_.clear();
+        for (const PendingDockMove& m : moves) {
+            const size_t cfg = DockIndexOf(m.entry), dock = DockIndexOf(m.dock);
+            if (cfg == SIZE_MAX || dock == SIZE_MAX) {
+                MessageBeep(MB_ICONWARNING);
+            } else {
+                MoveWidgetToDock(cfg, dock, m.at);  // beeps when refused
+            }
+        }
         return 0;
     }
     if (msg == WeatherService::kGeocodeMessage) {
@@ -5151,6 +5228,7 @@ int App::DrawerDrag(int phase, POINT screen, const DockItemEntry* entry) {
         if (docks_.IndexOf(dragDock_) != SIZE_MAX) dragDock_->ExternalItemLeave();
         dragDock_ = nullptr;
     }
+    if (phase == 1) drawerStandaloneId_.clear();  // round 16 phase 16E (below)
     if (phase == 1 || !entry) return 0;
     if (under) {
         // A dock (any dock of this process): its marker shows where the tile lands.
@@ -5165,9 +5243,21 @@ int App::DrawerDrag(int phase, POINT screen, const DockItemEntry* entry) {
     }
     // Outside every dock and every window of WinDock (the desktop, as the old "Desktop" button): a
     // script widget becomes a standalone widget centred on the point.
+    // Round 16 phase 16E: not a widget whose manifest says it needs a dock (CanBeStandalone, the
+    // same decision as a widget dragged off a dock). Phase 0 comes with every mouse move: the
+    // manifest's answer is kept per widget id for the drag (cleared by its drop).
     DWORD pid = 0;
     if (root) GetWindowThreadProcessId(root, &pid);
-    const bool desktop = entry->Kind() == ItemKind::Widget && root && pid != GetCurrentProcessId();
+    bool standalone = false;
+    if (entry->Kind() == ItemKind::Widget) {
+        if (drawerStandaloneId_ != entry->id) {
+            drawerStandaloneId_ = entry->id;
+            drawerStandaloneOk_ = CanBeStandalone(*entry);
+        }
+        standalone = drawerStandaloneOk_;
+    }
+    if (phase != 0) drawerStandaloneId_.clear();
+    const bool desktop = standalone && root && pid != GetCurrentProcessId();
     if (phase == 0 || !desktop) return desktop ? 2 : 0;
     return AddWidgetWindowAt(entry->id, screen) != SIZE_MAX ? 1 : 0;
 }
@@ -5178,6 +5268,119 @@ size_t App::AddWidgetWindowAt(const std::wstring& id, POINT screen) {
     const size_t cfg = AddWidgetWindow(id, SIZE_MAX, false);
     widgetAt_.reset();
     return cfg;
+}
+
+bool App::MoveWidgetToDesktop(size_t cfg, size_t item, std::optional<POINT> screen) {
+    // Round 16 phase 16E: refused on a locked dock, for anything but a script widget (the clock /
+    // weather / tray / notification kinds and the running apps need a dock: AddWidgetWindow only
+    // makes "widget" entries) and for a widget whose manifest says it needs a dock.
+    if (shutDown_ || modalDepth_ > 0 || cfg >= config_.docks.size() || !config_.docks[cfg].IsDock() || config_.docks[cfg].locked ||
+        item >= config_.docks[cfg].items.size() || !CanBeStandalone(config_.docks[cfg].items[item])) {
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    // One undo entry for the gesture (the first label wins: AddWidgetWindowAt's is not used).
+    NoteLabel(L"Moved " + EntryName(cfg, item) + L" to the desktop");
+    // A copy: the erase invalidates the reference, and AddWidgetWindow's push_back onto
+    // config_.docks may reallocate (no DockConfig& is held across it). The dock's widget instance
+    // goes with the item (ReloadPins rebuilds its elements); the standalone window makes its own
+    // (init runs again). storage is per widget id (WidgetRuntime), so the new one sees the same store.
+    const DockItemEntry entry = config_.docks[cfg].items[item];
+    config_.docks[cfg].items.erase(config_.docks[cfg].items.begin() + static_cast<ptrdiff_t>(item));
+    ReloadPins(cfg);  // first: the dock's slot is gone before the new window shows
+    if (screen) widgetAt_ = *screen;
+    const size_t added = AddWidgetWindow(entry, cfg, false);  // syncs, saves, refreshes the settings windows
+    widgetAt_.reset();
+    if (added == SIZE_MAX) {
+        // Refused after all (checked above, so unexpected): the item goes back where it was.
+        auto& items = config_.docks[cfg].items;
+        items.insert(items.begin() + static_cast<ptrdiff_t>(std::min(item, items.size())), entry);
+        ReloadPins(cfg);
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    return true;
+}
+
+// --- round 16 phase 16G: a standalone widget back onto a dock ---------------------------------
+
+bool App::CanMoveWidgetToDock(size_t cfg, size_t dock) const {
+    // Any script widget may live on a dock (standalone.supported only limits the other way). The
+    // entry's own lock (no move / resize of the window) does not refuse it: the menu entry is a
+    // deliberate choice, and a locked window cannot be dragged anyway.
+    if (shutDown_ || modalDepth_ > 0 || cfg >= config_.docks.size() || dock >= config_.docks.size() || cfg == dock) return false;
+    const DockConfig& entry = config_.docks[cfg];
+    const DockConfig& target = config_.docks[dock];
+    return entry.IsWidgetWindow() && entry.WidgetItem() && target.IsDock() && target.enabled && !target.locked;
+}
+
+bool App::RequestWidgetToDock(size_t cfg, size_t dock, size_t at) {
+    if (!hwnd_ || !CanMoveWidgetToDock(cfg, dock)) {
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    // By id: a sync or another posted removal may shift the indexes before the message runs.
+    pendingDockMoves_.push_back(PendingDockMove{config_.docks[cfg].id, config_.docks[dock].id, at});
+    if (pendingDockMoves_.size() == 1) PostMessageW(hwnd_, kMoveToDockMessage, 0, 0);  // one message drains them all
+    return true;
+}
+
+bool App::MoveWidgetToDock(size_t cfg, size_t dock, size_t at) {
+    if (!CanMoveWidgetToDock(cfg, dock)) {
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    // One undo entry for the gesture: the first label wins (InsertDockEntry's "Added …" and
+    // EditDocks' "Removed …" are not used). The timeline stores whole-config snapshots, so Undo
+    // brings the standalone entry (and its window) back and takes the item off the dock.
+    const std::wstring name = Widgets::DisplayName(config_.docks[cfg].WidgetItem()->id);
+    NoteLabel(L"Moved " + name + L" to " + config_.docks[dock].DisplayName());
+    // A copy of the item (kind, id, settings, name; its anchor / offset are none / 0 on a standalone
+    // entry, and InsertDockEntry joins it to its new neighbours' group). The entry's x / y / size /
+    // layer / lock stay behind with it. Storage is per widget id (WidgetRuntime): the dock's new
+    // instance sees the same store; its init runs again.
+    DockItemEntry item = *config_.docks[cfg].WidgetItem();
+    const std::wstring entryId = config_.docks[cfg].id;
+    // Into the dock first, then the entry goes: its erase shifts every index above `cfg` (no
+    // DockConfig& is held across either call).
+    if (!InsertDockEntry(dock, std::move(item), at == SIZE_MAX ? config_.docks[dock].items.size() : at)) return false;  // it beeped
+    const size_t now = DockIndexOf(entryId);
+    if (now == SIZE_MAX || !EditDocks(SettingsDockEdit::Remove, now)) {
+        // Unexpected (checked above): both now exist; the user can remove the window by hand.
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    return true;
+}
+
+int App::WidgetDockDrag(size_t cfg, int phase, POINT screen) {
+    // As DrawerDrag's dock half. WindowFromPoint would answer the dragged window itself (it is under
+    // the pointer, above the dock), so the dock is found by its rect instead: the first shown dock
+    // window containing the point whose config dock may take the widget (an enabled, unlocked dock:
+    // a locked one shows no marker at all). ExternalItemOver answers false off the bar and on a
+    // hidden (auto-hidden) dock: a drop there simply does not land (not opened specially).
+    DockWindow* under = nullptr;
+    if (phase != 1 && cfg < config_.docks.size()) {
+        docks_.ForEach([&](DockWindow& w) {
+            if (under || !w.Hwnd() || !IsWindowVisible(w.Hwnd()) || !CanMoveWidgetToDock(cfg, w.ConfigIndex())) return;
+            RECT r{};
+            if (GetWindowRect(w.Hwnd(), &r) && PtInRect(&r, screen)) under = &w;
+        });
+    }
+    if (widgetDragDock_ && widgetDragDock_ != under) {
+        if (docks_.IndexOf(widgetDragDock_) != SIZE_MAX) widgetDragDock_->ExternalItemLeave();
+        widgetDragDock_ = nullptr;
+    }
+    if (phase == 1 || !under) return 0;
+    if (phase == 0) {
+        if (!under->ExternalItemOver(screen)) return 0;
+        widgetDragDock_ = under;
+        return 1;
+    }
+    const size_t at = under->ExternalItemDrop(screen);
+    widgetDragDock_ = nullptr;
+    // Posted: this runs inside the widget window's WM_LBUTTONUP, and the move destroys that window.
+    return at != SIZE_MAX && RequestWidgetToDock(cfg, under->ConfigIndex(), at) ? 1 : 0;
 }
 
 std::vector<std::wstring> App::PickPins(HWND owner, bool folder) {

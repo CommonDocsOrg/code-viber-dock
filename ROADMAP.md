@@ -1283,6 +1283,26 @@ stacks each column on its own: a card's column and its neighbours never depend o
 cards before it are. The columns can end uneven; that was the trade the user asked for ("always
 stayed in place").
 
+### 13H: Quick setup redesign (built 2026-11-10)
+
+13F gave the wizard cards and hints over its stock controls; the user then approved an HTML
+prototype of a proper setup assistant, and 13H builds it in Win32 (named 13H: 13G was already the
+vertical titles). The step track becomes a rail on the left with a live caption under each step
+(what is chosen so far), so the whole setup reads at a glance and any step is one click away; the
+content column gets a heading and a sentence per step and a footer with Cancel apart from the
+forward buttons. The choices that were combos become what they are: the edge is four monitor
+pictures, corners and animation are segmented controls, auto-hide is three tiles that say what
+each mode does, the held choices are switches with a hint that follows them. The review step draws
+the desktop with every dock in its look and lists the choices with an Edit link back to each step.
+The constraint was automation: every 12G id still works, so a replaced combo stays as a hidden state
+holder that the new control sets and whose handler it runs (one code path; the smoke script drives
+the combos and the choices follow). The painting is one small kit (`QuickSetupControls`): a shared
+software Direct2D target on GDI memory DCs for antialiased shapes, GDI for text, the prototype's SVG
+icons as strokes, and the standard buttons painted through NM_CUSTOMDRAW so BM_CLICK / BM_GETCHECK
+keep working. Colours are mixes of the settings windows' palette, so light mode and high contrast
+follow (not yet seen). The smoke module's window picture now uses PrintWindow: a screen copy shows
+whatever window is on top, and a window the script opens does not get the foreground.
+
 ## Round 14 (complete 2026-11-09, pending the user's manual pass): a bar of a fixed size; snapping to the screen's corners and centre
 
 Plan: `C:\Users\olson\.claude\plans\windock-round14.md`. From the user's request of 2026-11-09:
@@ -1511,6 +1531,85 @@ SVG spec's F.6.5 with the F.6.6 radius correction) instead of needing an SVG ren
 bitmaps in the exe: 20 icons are about 2 KB of path strings in `main.js`, parsed once per widget
 instance. Strokes keep Lucide's 2 / 24 width with round caps; whether that reads well at 16 DIPs
 is for the user's pass. The pack also draws the popup's icons so the two never disagree.
+
+**Phase 16E: a widget dragged off the dock becomes a standalone widget** (from the user's request:
+"when you drag a widget off a dock it should become a standalone desktop widget (unless it's
+something like the running apps widget which needs to be on a dock)"). Before, a widget slot
+dragged up did nothing (`DragRemovable` only takes a pinned, not running app), so the drag only
+reordered. The gesture reuses the pin's remove zone and its dimming rather than adding a new
+target: up off the dock already means "take it off", and for a script widget the desktop is the
+useful place for it to go. Release there does not fade the icon out (the pin's path): the icon
+lands back as a cancelled drag, then a new `PinRequests::widgetToDesktop` asks the App, which
+erases the item and creates the standalone entry from a copy of it in one gesture and one undo
+label (the timeline is a config snapshot, so Undo restores both halves at once). What moves is
+the item's `settings` (a standalone entry saves only `widget` and `settings`; `anchor` / `offset`
+belong to the dock and are dropped). The plan expected `storage` to be lost (keyed per dock item);
+it is per widget id (`WidgetRuntime`), so the standalone widget sees the same store and there is
+nothing to migrate; only the running state starts over (a new instance, `init()` again). What
+stays on the dock: the native widget kinds (Clock, Weather, Tray, Notifications: only `"widget"`
+entries can be standalone), the running apps (App slots of the `running` element, never a widget
+slot) and, new, a script widget whose manifest says `"standalone": { "supported": false }`. That
+flag is the mechanism for the user's "needs to be on a dock" case among script widgets; no
+built-in sets it. One helper (`App::CanBeStandalone` over `Widgets::CanBeStandalone`) answers for
+the drag, the drawer's desktop drop and `AddWidgetWindow`, so the three paths agree; the dock asks
+once per drag and the drawer once per drag (both load the manifest), not per mouse move. Locked
+docks cannot drag at all (as before) and the App refuses them too, for ItemCommand 867, the
+automation hook (no point: the dock's monitor's work-area centre).
+
+**Phase 16F: animated Meteocons through composition layers** (from the user's "suppose i want you
+to make it so Meteocons works animated" ... "can you enable gpu rendering for animations ... i dont
+want you to write a whole engine" ... "just make it work"). Meteocons (MIT, meteocons.com) is the
+best-looking open weather set and its animated SVGs are SMIL loops of translate / rotate / opacity
+on groups of filled paths: rigid parts, nothing morphs. Redrawing a slot per frame for them would
+break the "idle widget costs nothing" rule (a 30 fps sun is ~300 wake-ups per 10 s, times six
+icons on a strip), so the parts became **composition layers**: `canvas.layer(id, x, y, w, h, {
+parent, clip, opacity, tracks })` / `endLayer()` make a child visual of the slot per part and
+hand its loop to DirectComposition as cubic segments (the dock's tweens already went that way),
+so DWM animates them on the GPU and the process never wakes. Two mechanics worth recording. (1) A
+DirectComposition surface cannot be drawn while another is open on the same device
+(`DCOMPOSITION_ERROR_SURFACE_BEING_RENDERED`), and the slot's surface is open during `draw()`:
+a layer's content is therefore recorded into a Direct2D **command list** on the renderer's
+resource context (`SetTarget` to the list, `BeginDraw` ... `EndDraw`, `Close`) and drawn into
+the child's surface after the slot's `EndDraw` (`WidgetInstance::RealizeLayers`). (2) SMIL spline
+easing is a parametric bezier in time while DComp wants polynomial segments: each key span is
+cut into four cubic **Hermite** pieces fitted to the eased value and its slope (exact for linear
+spans), the loop is phase-shifted by `begin` (a raindrop's loop staggered against the next one's)
+with a cut at the wrap so a 0 -> 360 rotation never interpolates backwards, then `AddRepeat`.
+Children sit under a parent group layer (a clip for the icon's box; the fog's masked sun is a
+clipped sub-group) and inherit its opacity (the stale dimming), as DComp visuals do. Everywhere
+a child visual cannot exist (popups, previews, `measure()`, reduce motion) the same calls draw
+the content inline at the first keys, so the widget has one code path. The icons themselves are
+converted once by `tools/meteocons_convert.py` (parts, gradients, tracks; 20 icons, 78 parts, 105
+tracks, 59 KB) into `widgets/weather/meteocons.js`, a third built-in file the widget imports; a
+parent visual recreated by device loss is noticed by its pointer and the children are made
+again. Not done: Lottie (no Win32 player), frame sequences (per-frame wake-ups again), and
+animating the popup's 31 icons (it is a still picture there).
+
+**Phase 16G: a desktop widget back onto a dock** (from the user's request: "need an easy way to
+put a desktop widget back into a dock too"; planned as 16F, renumbered because the Meteocons work
+in the same tree took 16F). The counterpart of 16E, by two paths that end in one
+`App::MoveWidgetToDock(entry, dock, at)`: dragging the standalone widget's window onto a dock's
+bar, and a **Move to dock ▸** submenu in its right-click menu (one entry per enabled dock, a
+locked dock's greyed; ids `kMoveToDockBase` 3400 + docks[] index, a free range beside
+`kDockSettingsBase`). The drag reuses the drawer's in-process tile drag API on the dock
+(`ExternalItemOver` / `Leave` / `Drop`, the insertion marker): `WidgetWindow` reports each move
+step, the cancel (Escape, capture loss) and the release through a new `Host::dockDrag`, and
+`App::WidgetDockDrag` keeps `widgetDragDock_` as `DrawerDrag` keeps `dragDock_`. The dock is found
+by its window rect, not `WindowFromPoint`: the dragged window itself is under the pointer, above
+the dock. Only enabled, unlocked docks are candidates, so a locked dock never shows a marker; a
+hidden (auto-hidden) dock answers false in `ExternalItemOver` and is not opened for the drag (left
+for later). The move copies the entry's item (kind, id, settings, name), inserts it as
+`InsertDockEntry` does (group join, sort, reload), then removes the entry through `EditDocks`'
+Remove (sync, save, settings windows closed). Insertion first, removal second, and the entry
+found again by id between them: the erase shifts every index above it. One undo label, "Moved
+(name) to (dock)": the timeline's first label of a gesture wins, so the two inner labels are not
+used, and the snapshot undo restores both halves. Because the removal destroys the widget window
+and both gestures run inside that window's own messages (WM_LBUTTONUP, the menu's WM_RBUTTONUP),
+the move is queued by id (`pendingDockMoves_`) and run from a posted `kMoveToDockMessage` (WM_APP +
+72 on the app window); on a release that a dock takes, the window stores no rect. Escape now also
+cancels an ordinary move / resize drag of a standalone widget (back where it was). Not refused: a
+locked standalone entry (its lock is about moving the window; the menu entry is deliberate).
+ItemCommand 868 is the automation hook (the target dock in HIWORD(wParam), appended at the end).
 
 ## Dependencies at a glance
 

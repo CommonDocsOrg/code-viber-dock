@@ -433,10 +433,47 @@ private:
     // display); syncs, saves, refreshes the settings windows and (open) opens its Dock window.
     // Returns its config index (SIZE_MAX: refused).
     size_t AddWidgetWindow(const std::wstring& id, size_t nearDock, bool open);
+    // Round 16 phase 16E: the same with config item `entry` (a "widget" item: its settings and the
+    // rest of the entry carry over). Refused as well for a widget that needs a dock
+    // (CanBeStandalone).
+    size_t AddWidgetWindow(DockItemEntry entry, size_t nearDock, bool open);
+    // Round 16 phase 16E: config item `e` may become a standalone widget: a script widget
+    // (ItemKind::Widget) whose manifest does not say it needs a dock (standalone.supported).
+    static bool CanBeStandalone(const DockItemEntry& e);
+    // Round 16 phase 16E: config item `item` of dock `cfg` (a script widget dragged off the dock, or
+    // ItemCommand 867) moves to a new standalone widget centred on `screen` (none: the dock's
+    // monitor's work area), its settings kept; one undo entry. False (with a beep): refused (a
+    // locked dock, not a script widget, a dock-only widget).
+    bool MoveWidgetToDesktop(size_t cfg, size_t item, std::optional<POINT> screen);
+    // Round 16 phase 16G, the reverse: standalone widget entry `cfg` moves onto config dock `dock`
+    // before its config item `at` (SIZE_MAX: the end): its item (kind, id, settings, name) is
+    // inserted as InsertDockEntry does, then the entry goes as Remove from desktop does; one undo
+    // entry ("Moved <name> to <dock>"). False (with a beep): refused (`cfg` not a widget entry,
+    // `dock` not an enabled dock, a locked dock, a menu / dialog open). Destroys the entry's
+    // window: never call it from inside that window's messages (RequestWidgetToDock posts it).
+    bool MoveWidgetToDock(size_t cfg, size_t dock, size_t at);
+    // MoveWidgetToDock's checks without the move (no beep).
+    bool CanMoveWidgetToDock(size_t cfg, size_t dock) const;
+    // Checks, then posts kMoveToDockMessage for the move (by ids: the indexes may shift before it
+    // runs). False: refused (beeps).
+    bool RequestWidgetToDock(size_t cfg, size_t dock, size_t at);
+    // The standalone widget `cfg`'s window is dragged (WidgetWindow::Host::dockDrag): phase 0 a
+    // step (the marker of the dock under `screen`), 1 cancelled / left, 2 released. Non-zero: a dock
+    // takes it (on 2 the move is posted; the window must not store the rect it no longer has).
+    int WidgetDockDrag(size_t cfg, int phase, POINT screen);
+    static constexpr UINT kMoveToDockMessage = WM_APP + 72;  // posted: run pendingDockMoves_
+    struct PendingDockMove {
+        std::wstring entry;  // the standalone entry's docks[] id
+        std::wstring dock;   // the target dock's docks[] id
+        size_t at = SIZE_MAX;
+    };
+    std::vector<PendingDockMove> pendingDockMoves_;
+    DockWindow* widgetDragDock_ = nullptr;  // the dock showing a standalone widget drag's marker
     // The right-click menu of standalone widget entry `cfg` at a screen point.
     void ShowWidgetMenu(size_t cfg, POINT pt);
-    // ItemCommand 809 / 854 / 855 / 856 on standalone widget entry `cfg`. -1: not one of them.
-    LRESULT WidgetEntryCommand(UINT cmd, size_t cfg);
+    // ItemCommand 809 / 854 / 855 / 856 / 868 (round 16 phase 16G: `arg` = the config dock) on
+    // standalone widget entry `cfg`. -1: not one of them.
+    LRESULT WidgetEntryCommand(UINT cmd, size_t cfg, size_t arg = 0);
     // After the config changed outside the settings windows: SyncSettingsTargets, then every open
     // window (but `except`) reloads its controls from the config.
     void RefreshSettings(SettingsWindow* except = nullptr);
@@ -536,6 +573,8 @@ private:
     HWINEVENTHOOK editHook_ = nullptr;
     DockWindow* dragDock_ = nullptr;  // the dock showing a drawer drag's marker
     std::optional<POINT> widgetAt_;   // AddWidgetWindow: centre the new widget on this screen point
+    std::wstring drawerStandaloneId_;  // round 16 phase 16E: DrawerDrag's CanBeStandalone answer for this id
+    bool drawerStandaloneOk_ = false;
     // --- end round 12 phase 12D ---
 
     // --- round 12 phase 12G: Quick setup and the three tips (AppQuickSetup.cpp) ---

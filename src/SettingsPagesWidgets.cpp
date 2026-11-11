@@ -735,6 +735,15 @@ protected:
                     }
                     break;
                 case T::Color:
+                    // Round 16 phase 16D: a swatch (the Windows colour dialog) before the #AARRGGBB
+                    // box, as the theme pages have; the box keeps the field's control id.
+                    label();
+                    Add(base + kWidgetFieldSwatch, CtlKind::Swatch, WC_BUTTONW, f.label.c_str(), WS_TABSTOP | BS_OWNERDRAW,
+                        RECT{kColX, y_ + 5, kColX + 36, y_ + kRowH - 5});
+                    EditBox(base + 1, kColX + 44, 116, 32);
+                    if (!f.unit.empty()) Text(base + 5, CtlKind::Note, f.unit, kColX + 168, 120);
+                    NextRow();
+                    break;
                 case T::Number:
                     label();
                     EditBox(base + 1, kColX, 160, 32);
@@ -763,6 +772,7 @@ protected:
                 Tip(f.type == T::Bool ? base + 2 : base, tip);
                 Tip(base + 1, tip);
                 if (f.type == T::Bool && !hint.empty()) Tip(base + 3, tip);
+                if (f.type == T::Color) Tip(base + kWidgetFieldSwatch, L"Click to pick a colour. Its alpha stays; type #AARRGGBB in the box to change it.");
             }
             if (kind == ItemKind::Clock && f.key == L"face") {
                 Button(kClockFacesFolder, L"Open faces folder", kColX, 150);  // in the face's card
@@ -922,6 +932,9 @@ protected:
                 }
                 default:
                     if (v.ValueType() == json::JsonValueType::String) SetText(base + 1, std::wstring(v.GetString()));
+                    if (f.type == T::Color) {
+                        if (HWND sw = Item(base + kWidgetFieldSwatch)) InvalidateRect(sw, nullptr, FALSE);  // round 16 phase 16D
+                    }
                     break;
             }
         }
@@ -995,6 +1008,19 @@ protected:
             UpdatePlaceStatus();
             return;
         }
+        // Round 16 phase 16D: a colour's swatch opens the Windows colour dialog on the colour in
+        // its box (the alpha kept; a transparent "theme colour" default becomes opaque).
+        if (id >= kWidgetFieldBase && (id - kWidgetFieldBase) % 10 == kWidgetFieldSwatch && code == BN_CLICKED) {
+            const Widgets::SettingField* cf = FieldOf(id - kWidgetFieldSwatch + 1);
+            if (!cf || cf->type != Widgets::SettingField::Type::Color) return;
+            uint32_t argb = 0;
+            if (!ParseArgbColor(GetText(id - kWidgetFieldSwatch + 1), argb)) argb = 0xFF000000u;
+            if (!PickArgbColor(Owner(), argb)) return;
+            SetText(id - kWidgetFieldSwatch + 1, FormatArgbColor(argb));
+            InvalidateRect(Item(id), nullptr, FALSE);
+            Store(*cf, json::JsonValue::CreateStringValue(FormatArgbColor(argb)));
+            return;
+        }
         const Widgets::SettingField* f = FieldOf(id);
         if (!f) return;
         using T = Widgets::SettingField::Type;
@@ -1012,6 +1038,16 @@ protected:
                 Store(*f, json::JsonValue::CreateStringValue(zones_[static_cast<size_t>(sel)].first));
             }
         }
+    }
+
+    // Round 16 phase 16D: a colour field's swatch shows the colour its box holds.
+    bool OnDrawItem(const DRAWITEMSTRUCT& di) override {
+        const int id = static_cast<int>(di.CtlID);
+        if (id < kWidgetFieldBase || (id - kWidgetFieldBase) % 10 != kWidgetFieldSwatch) return false;
+        uint32_t argb = 0;
+        if (!ParseArgbColor(GetText(id - kWidgetFieldSwatch + 1), argb)) argb = 0;
+        DrawColorSwatch(Window(), di, argb);
+        return true;
     }
 
     void Spun(int spin, int pos) override {

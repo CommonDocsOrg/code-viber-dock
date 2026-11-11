@@ -35,7 +35,7 @@ class TextEditorWindow;
 // exception: an error tile with the message is shown until a reload); Suspended (a call ran past
 // the manifest's timeLimitMs and the watchdog stopped it: the same tile, no more calls until a
 // reload). Reload (ItemCommand 809, DockCommand 126) re-reads the package and starts over.
-class WidgetInstance final : private ScriptHost {
+class WidgetInstance final : private ScriptHost, private WidgetCanvas::LayerSink {
 public:
     enum class State { Ok = 0, Error = 1, Suspended = 2 };
 
@@ -264,6 +264,30 @@ private:
     void RequestPopup(PopupRequest r);
     bool HostAllowed(const std::wstring& host) const;
 
+    // --- composition layers (round 16 phase 16F, canvas.layer): WidgetCanvas::LayerSink ---
+    // While Render() draws the slot, a layer's content is recorded into a Direct2D command list
+    // on the renderer's resource context (a DirectComposition surface cannot be drawn while
+    // another one is: the slot's own surface is open then); after the slot's draw,
+    // RealizeLayers draws each list into a child visual of the slot, places it, clips it and
+    // gives it its animations (DWM runs them; nothing here ticks). Layers draw() did not declare
+    // again are destroyed. A parent visual that was recreated (device loss, ResetLayers) is
+    // noticed by its pointer: the child is made again under the new one.
+    ID2D1DeviceContext* BeginLayer(const CanvasLayerSpec& spec, float scale) override;
+    void EndLayer() override;
+    struct ChildLayer {
+        Layer layer;
+        IDCompositionVisual2* parentVisual = nullptr;  // the visual it was created under
+        CanvasLayerSpec spec;
+        std::string animatedKey;  // spec.key of the animations now attached ("" static)
+        winrt::com_ptr<ID2D1CommandList> list;  // the content recorded by this draw, until realized
+        winrt::com_ptr<IDCompositionRotateTransform> rotate;
+        winrt::com_ptr<IDCompositionTranslateTransform> translate;
+        bool used = false;
+    };
+    void RealizeLayers(Renderer& renderer, Layer& slot, float scale);
+    void ApplyLayerTracks(Renderer& renderer, ChildLayer& ch, float scale);
+    void DropLayers(Renderer* renderer);
+
     // A call's outcome: a failure moves the widget to Error / Suspended (logged, timers stopped,
     // the tile shown). True if it went fine.
     bool Check(const ScriptResult& r, const char* what);
@@ -322,4 +346,10 @@ private:
     uint64_t draws_ = 0;
     std::deque<LogLine> log_;
     uint64_t logTotal_ = 0;
+    // Round 16 phase 16F: the slot's composition layers, in creation order (later ones in front).
+    std::map<std::string, ChildLayer> layers_;
+    std::vector<std::string> layerOrder_;
+    Renderer* layerRenderer_ = nullptr;  // the renderer of the Render() in progress
+    std::string openLayer_;              // the layer recording now
+    winrt::com_ptr<ID2D1Image> savedTarget_;
 };
