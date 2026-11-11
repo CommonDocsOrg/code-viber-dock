@@ -87,6 +87,26 @@ only Windows SDK libraries (Direct3D 11, Direct2D, DirectComposition, DirectWrit
 DWM, common controls, `windowsapp` for the JSON parser, `winhttp` for the weather widget, and
 `dxguid` for the Direct2D effect ids of the icon glow).
 
+### Installer
+
+`installer\build-installer.cmd` (or `.ps1`; `-NoBuild` packages the exe already in
+`build\x64-release`) builds the release exe and produces `dist\ViberDock-<version>-x64.msi`, a
+Windows Installer package to distribute. It needs the .NET SDK: the script installs the WiX
+toolset (pinned to 5.0.2) as a global dotnet tool and its UI extension on first use. The version
+comes from `project(WinDock VERSION x.y.z)` in `CMakeLists.txt`; `res\app.rc` carries the same
+number (the About page shows the exe's), so bump both for a release. The product name shown to
+users (version resource, installer, Start menu, Apps & features) is **ViberDock by CodeViber.org**;
+the exe, window classes, mutex, config folder and Run value keep their `WinDock` names.
+
+The MSI (`installer\WinDock.wxs`) installs the exe per machine into `Program Files\ViberDock`,
+adds a Start menu shortcut and an Apps & features entry, shows the license, and offers "Start
+ViberDock now" on its last page (started as the user, not elevated). A newer MSI upgrades an older one in
+place; before the exe is replaced or removed the installed exe is run with `--quit`, and on
+uninstall also with `--restore-taskbar`, so the Explorer taskbar comes back. Uninstall also
+deletes the user's "Start with Windows" Run value. `%LocalAppData%\WinDock` (config, widgets,
+caches) is never touched. The MSI is unsigned: SmartScreen warns on first run of a copy
+downloaded from the web. Quiet install / uninstall: `msiexec /i <msi> /qn`, `msiexec /x <msi> /qn`.
+
 ## Run
 
 ```bat

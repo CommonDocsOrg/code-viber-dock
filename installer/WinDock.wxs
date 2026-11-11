@@ -1,0 +1,98 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ViberDock by CodeViber.org installer (WiX v5). The product name shown to users is ViberDock;
+  the exe, window classes, mutex, config folder (%LocalAppData%\WinDock) and the Run value keep
+  their WinDock names so existing installs, configs and the automation keep working.
+  Built by installer\build-installer.ps1, which passes:
+    Version     the product version from CMakeLists.txt (project(... VERSION x.y.z))
+    ExePath     the release WinDock.exe
+    LicenseRtf  the LICENSE file converted to RTF (the license page of the UI)
+
+  What the MSI does: per-machine install of the single static exe into Program Files\ViberDock,
+  a Start menu shortcut, an Apps & features entry with the dock icon, and "Start WinDock now"
+  on the last page. The dock itself keeps running from wherever it was installed; its config
+  stays in %LocalAppData%\WinDock and is not touched by install, upgrade or uninstall.
+
+  Upgrades: a newer MSI replaces an older one in place (MajorUpgrade; the UpgradeCode below must
+  never change). Before the files are replaced or removed, the installed exe is run with the quit
+  switch (the dock then restores the Explorer taskbar itself) and, on uninstall, with the
+  restore-taskbar switch as a safety net for a dock that crashed and left the taskbar hidden
+  (see src/main.cpp for both). Both run impersonated:
+  a deferred action without impersonation runs as SYSTEM in session 0, where FindWindow cannot
+  see the user's dock. Uninstall also deletes the user's "Start with Windows" Run value, which
+  the dock writes with the quoted path of the running exe.
+-->
+<Wix xmlns="http://wixtoolset.org/schemas/v4/wxs"
+     xmlns:ui="http://wixtoolset.org/schemas/v4/wxs/ui">
+
+  <Package Name="ViberDock"
+           Manufacturer="CodeViber.org"
+           Version="$(var.Version)"
+           UpgradeCode="F7F57379-7AA2-4C9D-9C63-DDC74D5480AC"
+           Language="1033"
+           Scope="perMachine"
+           InstallerVersion="500"
+           Compressed="yes">
+
+    <SummaryInformation Description="ViberDock by CodeViber.org $(var.Version) installer" Manufacturer="CodeViber.org" />
+
+    <MajorUpgrade Schedule="afterInstallInitialize"
+                  DowngradeErrorMessage="A newer version of ViberDock is already installed. Uninstall it first to install this version." />
+    <MediaTemplate EmbedCab="yes" CompressionLevel="high" />
+
+    <Icon Id="DockIcon" SourceFile="$(var.ProjectRoot)\res\dock.ico" />
+    <Property Id="ARPPRODUCTICON" Value="DockIcon" />
+    <!-- (WixUI_InstallDir already sets ARPNOMODIFY.) -->
+    <Property Id="ARPNOREPAIR" Value="1" />
+    <Property Id="ARPURLINFOABOUT" Value="https://codeviber.org" />
+
+    <!-- UI: install folder page, license page (LICENSE as RTF), "Start WinDock now" at the end. -->
+    <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
+    <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Start ViberDock now" />
+    <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOX" Value="1" />
+
+    <StandardDirectory Id="ProgramFiles64Folder">
+      <Directory Id="INSTALLFOLDER" Name="ViberDock" />
+    </StandardDirectory>
+
+    <Feature Id="Main" Title="ViberDock" Level="1" AllowAbsent="no">
+      <ComponentGroupRef Id="MainComponents" />
+    </Feature>
+
+    <ComponentGroup Id="MainComponents" Directory="INSTALLFOLDER">
+      <Component Id="MainExe" Guid="3B2C3C8E-6B0D-4F5B-9C2E-2F1E6A7D4C01">
+        <File Id="WinDockExe" Source="$(var.ExePath)" Name="WinDock.exe" KeyPath="yes">
+          <!-- Advertised: keyed to the exe, so no per-user registry key path is needed. -->
+          <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="ViberDock"
+                    Description="ViberDock by CodeViber.org: a macOS-style dock for Windows 11"
+                    WorkingDirectory="INSTALLFOLDER" Icon="DockIcon" Advertise="yes" />
+        </File>
+        <RemoveRegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="WinDock" />
+      </Component>
+      <Component Id="LicenseFile" Guid="3B2C3C8E-6B0D-4F5B-9C2E-2F1E6A7D4C02">
+        <File Id="LicenseTxt" Source="$(var.ProjectRoot)\LICENSE" Name="LICENSE.txt" KeyPath="yes" />
+      </Component>
+    </ComponentGroup>
+
+    <!-- Quit a running dock before its exe is replaced (upgrade) or removed (uninstall). -->
+    <CustomAction Id="QuitDock" FileRef="WinDockExe" ExeCommand="--quit"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <!-- Uninstall safety net: bring the taskbar back if a crashed dock left it hidden. -->
+    <CustomAction Id="RestoreTaskbar" FileRef="WinDockExe" ExeCommand="--restore-taskbar"
+                  Execute="deferred" Impersonate="yes" Return="ignore" />
+    <!-- "Start WinDock now": from the UI sequence, so it runs as the user, not elevated. -->
+    <CustomAction Id="LaunchDock" FileRef="WinDockExe" ExeCommand="" Return="asyncNoWait" />
+
+    <InstallExecuteSequence>
+      <Custom Action="QuitDock" Before="RemoveFiles" Condition="(REMOVE=&quot;ALL&quot;) OR WIX_UPGRADE_DETECTED" />
+      <Custom Action="RestoreTaskbar" After="QuitDock" Condition="(REMOVE=&quot;ALL&quot;) AND NOT UPGRADINGPRODUCTCODE" />
+    </InstallExecuteSequence>
+
+    <UI>
+      <Publish Dialog="ExitDialog" Control="Finish" Event="DoAction" Value="LaunchDock"
+               Condition="WIXUI_EXITDIALOGOPTIONALCHECKBOX = 1 AND NOT Installed" />
+    </UI>
+
+  </Package>
+</Wix>

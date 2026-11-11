@@ -69,8 +69,8 @@ IDR_DOC_TROUBLESHOOTING RCDATA "../docs/troubleshooting.md"
 IDR_DOC_INDEX RCDATA "../docs/README.md"
 
 VS_VERSION_INFO VERSIONINFO
- FILEVERSION 0,1,0,0
- PRODUCTVERSION 0,1,0,0
+ FILEVERSION 0,5,0,0
+ PRODUCTVERSION 0,5,0,0
  FILEFLAGSMASK 0x3fL
  FILEFLAGS 0x0L
  FILEOS VOS_NT_WINDOWS32
@@ -81,12 +81,13 @@ BEGIN
   BEGIN
     BLOCK "040904b0"
     BEGIN
-      VALUE "FileDescription", "WinDock"
-      VALUE "FileVersion", "0.1.0"
+      VALUE "CompanyName", "CodeViber.org"
+      VALUE "FileDescription", "ViberDock by CodeViber.org"
+      VALUE "FileVersion", "0.5.0"
       VALUE "InternalName", "WinDock"
       VALUE "OriginalFilename", "WinDock.exe"
-      VALUE "ProductName", "WinDock"
-      VALUE "ProductVersion", "0.1.0"
+      VALUE "ProductName", "ViberDock"
+      VALUE "ProductVersion", "0.5.0"
     END
   END
   BLOCK "VarFileInfo"
