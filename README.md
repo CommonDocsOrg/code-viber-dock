@@ -1,60 +1,143 @@
-# WinDock
+<h1 align="center">ViberDock</h1>
 
-A macOS-style dock for Windows 11. C++20 / Win32, Direct2D + DirectComposition; one vendored
-third-party library, the QuickJS-ng script engine for widgets (`third_party/quickjs-ng`, MIT,
-compiled in); the Weather widget's optional icon packs are Lucide's line icons (ISC, path data in
-`widgets/weather/main.js`) and Bas Milius' Meteocons (MIT, converted into
-`widgets/weather/meteocons.js`). Single static exe (no VC++ redistributable needed).
+<p align="center"><b>A macOS-style dock for Windows 11. Free, open source, one small exe.</b></p>
 
-What it does (rounds 1 to 4 are complete; ROADMAP.md has the history, STATUS.md what was verified):
+<p align="center">
+  <a href="https://github.com/CommonDocsOrg/code-viber-dock/releases/latest"><img alt="Latest release" src="https://img.shields.io/github/v/release/CommonDocsOrg/code-viber-dock?label=download&color=2ea44f"></a>
+  <a href="https://github.com/CommonDocsOrg/code-viber-dock/releases"><img alt="Downloads" src="https://img.shields.io/github/downloads/CommonDocsOrg/code-viber-dock/total"></a>
+  <a href="LICENSE"><img alt="License GPL-3.0" src="https://img.shields.io/badge/license-GPL--3.0-blue"></a>
+  <img alt="Windows 11" src="https://img.shields.io/badge/Windows-11%20x64-0078d4">
+  <img alt="C++20 / Win32" src="https://img.shields.io/badge/C%2B%2B20-Win32%20%2B%20Direct2D-6e4c9e">
+</p>
 
-- **The dock**: a translucent (acrylic) bar whose icons magnify under the mouse, with the hovered
-  app's name, running-app dots, window previews, launch feedback, drag to reorder, drop files on
-  apps, folders and the Recycle Bin, custom icons, glow / reflection / 3D shelf effects, themes and
-  animation styles. The Explorer taskbar is hidden while the dock runs (and always restored: on
-  exit, after a crash, `--restore-taskbar`). Auto-hide off / always / when a window overlaps.
-- **Where**: any screen **edge** (bottom, top, left, right) with alignment and offset, full width,
-  reserved screen space, a peek strip, a title; **several docks** (per monitor, on every monitor,
-  a separate tray dock), docks on the **desktop layer**, **half-circle and circle** docks, docks that
-  **scroll** (or shrink) when the icons do not fit.
-- **What it holds**: everything in the order of the dock's `items` in config.json: pinned apps,
-  folders (a contents popup: grid or list, sub-folders), **shortcut groups**, separators, the
-  Recycle Bin, a `running` item where the unpinned running apps go (stacked per app or one slot per
-  window, titles under the icons, live or snapshot **thumbnails**), the clock (with **custom digital
-  faces**), the weather, the **system tray** (Windows' notify icons in a grid, tray icons pinned as
-  dock items), the **notification centre** with badges, and **script widgets**.
-- **Widgets**: small JavaScript programs (QuickJS-ng, sandboxed, a watchdog and a heap limit each)
-  that draw into a slot and open popups: analog clocks with faces, a calendar page, volume, now
-  playing, Start, Search, notifications, an agenda of your calendars, the weather (a script version
-  of the built-in one), your own (`docs/widgets.md`, `examples/`, `--validate-widget`).
-- **Calendars**: ICS feeds (Google / Outlook secret addresses, files) in the month calendar, dots on
-  the clock, an agenda widget, reminder banners.
-- **Desktop folder windows** (Fences-like): titled panels on the desktop showing a folder, with the
-  shell's menu, drops, rename, rules that sort the Desktop's files into them.
-- **Settings**: App settings and Item settings windows and a panel per dock, with a page for every
-  part (see Settings); everything is also in `config.json`.
+<p align="center"><img src="docs/screenshots/dock-modern-magnified.webp" alt="A glass dock at the bottom of the screen: icons grow under the pointer, the hovered app's name shows above it, volume, notifications, the weather and a clock sit at the right end" width="900"></p>
 
-Round 12 (customize the dock on the dock) added:
+ViberDock replaces the Windows taskbar with a dock: a translucent bar of icons that grow under the
+mouse, with your pinned apps, folders, the running apps and their window previews, a clock, the
+weather, the system tray, notifications and script widgets. Put it on any edge of any monitor, bend
+it into a half circle or a circle, run several at once, or drop widgets straight onto the desktop.
+It is written in C++ against Win32, Direct2D and DirectComposition, compiles to a single static
+exe, and spends nothing while idle. The internal name (exe, config folder, window classes) is
+**WinDock**; the product is **ViberDock by CodeViber.org**.
 
-- **Undo and Saved**: every change, made anywhere, is one step of a 50-step undo / redo (Ctrl+Z /
-  Ctrl+Y, the dock menu's first entry); a visible save state with actionable save errors; Keep /
-  Revert after a change that moves or hides a dock, Keep / Cancel previews for layouts and looks.
-- **Dock settings beside the dock**: a dock's settings are a panel attached to it (no caption,
-  resized by its edges, closed by Esc or a click elsewhere), so the real dock is the preview.
-- **Customize mode** on the dock: an outline, remove badges, plain drag to reorder, anchor targets,
-  "+" slots, an edit bar (Saved, Undo, Add items, Settings, Done), and the **drawer grid** beside the
-  dock (search, chips, live previews; click to add, drag to place, drag a widget onto the desktop).
-  A plain drag on the bar moves the dock (`offset`, `edgeGap`).
-- **Looks per dock**: a dock uses the app look or has its own (`docks[].theme`); **Quick look**
-  (tint, transparency, corners, icon effects, dots), a gallery of looks, theme files you can save,
-  import, export and apply to other docks.
-- **Layouts and looks**: the chooser's Layouts (the built-in presets), Looks and Mine (saved docks in
-  `layouts\`), "Keep my pinned apps and folders", "Keep my current look".
-- **Names and titles**: a dock's `name` apart from its id (rename in place, Duplicate dock), titles
-  shown always, on hover or never, inside or outside the bar, from the name.
-- **Quick setup** on the first run (docks, looks, behaviour, done) and three tips on the dock.
-- **Settings on a large display**: sizes from the display, two columns from 1000 DIPs, controls
-  capped at 360 DIPs, one sentence per page, the reason beside a control that does not apply.
+## Download
+
+**[Get the latest release](https://github.com/CommonDocsOrg/code-viber-dock/releases/latest)**:
+download `ViberDock-<version>-x64.msi`, run it, and click **Start ViberDock now** on the last page.
+
+- Windows 11, 64-bit. No runtime to install: the exe is statically linked.
+- The installer is unsigned, so SmartScreen may warn on first run: choose **More info**, then **Run anyway**.
+- The first start opens **Quick setup**: pick your docks, a look and how they behave, in four steps.
+- The Windows taskbar is hidden while the dock runs and comes back when you quit (right-click the
+  dock > **Quit**, or the tray icon). If it ever stays hidden, run `WinDock.exe --restore-taskbar`
+  from the install folder (`Program Files\ViberDock`).
+- Upgrading: run the newer MSI over the old one. Your settings live in `%LocalAppData%\WinDock`
+  and are never touched by install or uninstall.
+
+Prefer to build it yourself? See [Build](#build) below.
+
+## Screenshots
+
+<table>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/dock-window-previews-media.webp" alt="A large dock with live window pictures above each running app's icon, a folder, Chrome, a volume slider, the time and date, and the song now playing with its cover art"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><sub>Running apps with window pictures, a folder, volume, the clock and what is playing.</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/desktop-widgets.webp" alt="Standalone widgets floating on the desktop with no dock: a five-day weather forecast, a flip calendar, an analog clock and a sticky note"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><sub>Widgets on the desktop, no dock needed: weather, a calendar page, an analog clock, a note.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/desktop-widgets-system-monitor.webp" alt="A dark analog clock labelled Tokyo, a weather strip, a calendar page, a note and a system monitor with CPU, memory, GPU, disk and network graphs"></td>
+    <td><img src="docs/screenshots/clock-faces.webp" alt="Three analog clock faces: a Swiss station clock, a classic numbered dial and a dark modern dial showing the date and a city name"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>A second time zone, a system monitor with graphs, and more.</sub></td>
+    <td align="center"><sub>Clock faces: station, classic, modern dark. Make your own in JSON.</sub></td>
+  </tr>
+  <tr>
+    <td><img src="docs/screenshots/tray-system-overview-notifications.webp" alt="The end of a dock: Windows' tray icons in a grid, CPU, memory, GPU, disk and network readouts, and a notification bell with a badge"></td>
+    <td><img src="docs/screenshots/dock-circle.webp" alt="A circle dock floating on the desktop with nine app icons around a ring, one magnified under the pointer"></td>
+  </tr>
+  <tr>
+    <td align="center"><sub>The system tray taken over from Windows, a system overview and the notification centre.</sub></td>
+    <td align="center"><sub>A circle dock. Half circles and bars on any edge work the same way.</sub></td>
+  </tr>
+  <tr>
+    <td colspan="2"><img src="docs/screenshots/dock-windows7-look.webp" alt="A full-width Aero glass taskbar with the Windows 7 Start orb and apps as buttons"></td>
+  </tr>
+  <tr>
+    <td colspan="2" align="center"><sub>The Windows 7 layout: Aero glass, the Start orb, apps as buttons, previews on hover.</sub></td>
+  </tr>
+</table>
+
+<p align="center"><img src="docs/screenshots/dock-sidebar.webp" alt="A vertical dock on the right edge of the screen with app icons, the hovered app's name beside it, volume, weather and the time" height="500"><br><sub>A sidebar on the right edge.</sub></p>
+
+## Highlights
+
+- **The dock**: icons magnify under the mouse, with the app's name, running dots, window previews
+  (live or snapshots), launch bounce, drag to reorder, drop files on apps and folders, custom
+  icons, glow / reflection / 3D shelf effects. Auto-hide off, always or only when a window
+  overlaps; full-screen games are left alone.
+- **Anywhere**: bottom, top, left or right of any monitor, centred or offset, full width or
+  floating, half circle or circle, on the desktop layer under your windows, with reserved screen
+  space or a peek strip. Several docks at once, per monitor or on every monitor.
+- **Everything on it**: pinned apps, folders (grid or list popups), shortcut groups, separators,
+  the Recycle Bin, running apps (stacked per app or one slot per window, titles under the icons),
+  the clock with custom faces and a month calendar, the weather with forecasts, the **system tray**
+  (Windows' notify icons in a grid, or pinned as items), the **notification centre** with badges.
+- **Widgets**: analog clocks, calendar page, agenda, volume, now playing, Start, Search, battery,
+  system monitor, stocks, notes, show desktop, and your own: small sandboxed JavaScript programs
+  (QuickJS-ng) that draw on the dock, open popups, read settings you declare, and fetch the web
+  from an allow-list. Drag any widget off the dock and it keeps running on the desktop.
+- **Calendars**: ICS feeds (Google, Outlook, files) in the month view, dots on the clock, an agenda
+  widget and reminder banners.
+- **Desktop folder windows**: titled panels on the desktop showing a folder's files, with rules
+  that sort the Desktop into them.
+- **Customize on the dock**: customize mode with drag, remove badges and an add drawer with live
+  previews; a settings panel attached to each dock; layouts (Basic, Modern, Minimal, Sidebar,
+  Windows 7, Windows and labels, Dashboard, Performance); looks you can save, import and export;
+  50 steps of undo for every change made anywhere; settings search.
+- **Light on the machine**: one process, one UI thread, one-shot timers, nothing ticking while
+  idle; GPU rendering with a software fallback; no services, no background helpers.
+
+## For users
+
+Five minutes with the [Quick start](docs/quick-start.md) covers the first start, pinning an app,
+customizing the dock in place, layouts and quitting. The same guides open inside the app: press
+F1 in any settings window, click the **?** beside a card, or choose **Help…** from the dock menu.
+
+- Right-click an empty part of the dock for the dock menu; right-click an item for its own.
+- Everything is also a file: `%LocalAppData%\WinDock\config.json` (schema in
+  [Configuration](#configuration)); edit it and choose **Tools > Reload config**.
+- Something wrong? [Troubleshooting](docs/troubleshooting.md) covers a missing taskbar or dock,
+  crashes, full-screen games, lost changes and resetting to defaults.
+
+## For developers
+
+- **Stack**: C++20, Win32, Direct3D 11 / Direct2D / DirectComposition, DirectWrite, WIC; MSVC via
+  CMake presets and Ninja; a static CRT. The only vendored dependency is
+  [QuickJS-ng](third_party/quickjs-ng) for widgets. Build steps are in [Build](#build); the MSI
+  comes from `installer\build-installer.cmd` ([Installer](#installer)).
+- **Layout**: `src/` (the app; `App`, `DockManager`, `DockWindow`, elements, popups, settings
+  pages, `QuickJsEngine.cpp` for the script bindings), `widgets/` (the built-in widgets, each a
+  `widget.json` and a `main.js`), `res/` (icons, clock faces, presets, the embedded guides),
+  `docs/` (user guides, compiled into the exe), `examples/` (annotated starter widgets), `tests/`
+  (the ICS parser cases), `tools/` (doc checks and the smoke-test module), `installer/` (WiX).
+- **Write a widget**: a folder with a manifest and a script, validated with
+  `WinDock.exe --validate-widget <folder>`; the full API is the
+  [widget developer reference](docs/widgets.md) and the [examples](examples/README.md).
+- **Tests**: `WinDockTests` (ICS parser) plus registered window messages that let a script read
+  the dock's state and drive its commands ([Automation](#automation-for-tests),
+  `tools\smoke\`). `tools\check_docs.py` and `tools\check_widget_docs.py` keep the guides and the
+  API docs in step with the source.
+- **History**: [ROADMAP.md](ROADMAP.md) has the design notes of every round, [STATUS.md](STATUS.md)
+  what each phase did and verified.
+- **License**: [GPL-3.0](LICENSE). Issues and pull requests are welcome.
 
 ## Documentation
 
@@ -68,8 +151,15 @@ the "?" beside each card, the Help row of App settings, the dock menu's Help…)
 - [Troubleshooting](docs/troubleshooting.md): the taskbar is missing, crashes, full-screen games, a missing dock, lost changes, save errors, performance, widget errors, resetting.
 - [All guides](docs/README.md).
 
-For developers: the [widget developer reference](docs/widgets.md) (writing your own widgets); this
-README is the full reference (every setting, the config file and the automation messages).
+For developers: the [widget developer reference](docs/widgets.md) (writing your own widgets).
+
+---
+
+Everything below is the **full reference**: building and running, every behaviour and setting,
+the `config.json` schema, themes, animation and the automation messages used by the tests.
+Third-party code: QuickJS-ng (`third_party/quickjs-ng`, MIT, compiled in); the Weather widget's
+optional icon packs are Lucide's line icons (ISC, path data in `widgets/weather/main.js`) and Bas
+Milius' Meteocons (MIT, converted into `widgets/weather/meteocons.js`).
 
 ## Build
 
