@@ -808,6 +808,7 @@ One commit per phase. Round 13's rules: a warning-free `build\dev`, the doc chec
 5. With the drawer open, drag an icon from the grid into the drawer: it leaves the grid and sits in the drawer where dropped. A plain click on a grid icon with the drawer open still closes the drawer.
 6. Drag an icon from the drawer onto the grid (it shows there) and onto the dock's icon row (it is pinned); the drawer stays open throughout. Drag that pinned icon back into the drawer: it is unpinned.
 7. Lock the dock: none of the drags work, the right-click still keeps the drawer open.
+8. (19A fix, 2026-11-12) Right-click Logitech G HUB's icon: its own menu window (a WinUI window, not a Win32 menu) shows ON TOP; the drawer closes as it comes up (as before the hold existed). The user's first check of 1-3 passed with every other app; G HUB's window was behind the held drawer.
 
 ## How to resume
 

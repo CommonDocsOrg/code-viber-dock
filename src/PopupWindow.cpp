@@ -341,7 +341,17 @@ void CALLBACK PopupWindow::OnForegroundEvent(HWINEVENTHOOK hook, DWORD event, HW
         if (p->foregroundHook_ == hook) {
             // Round 19 phase 19A: held for a foreign menu (its owner window comes to the
             // foreground before or after MENUPOPUPSTART), or the window it stayed open behind.
-            if (p->menuHold_ || hwnd == p->keptForeground_) return;
+            if (hwnd == p->keptForeground_) return;
+            if (p->menuHold_) {
+                // A Win32 menu's owner is a hidden message window (PowerToys, Electron apps, ...):
+                // keep holding. A VISIBLE window with a size is the app's own popup in place of a
+                // menu (Logitech G HUB: a WinUI window, not topmost, so it would sit BEHIND the
+                // held, topmost drawer; seen 2026-11-12): the hold ends and the drawer closes as
+                // before the hold existed, letting that window show on top.
+                RECT r{};
+                if (!IsWindowVisible(hwnd) || !GetWindowRect(hwnd, &r) || r.right <= r.left || r.bottom <= r.top) return;
+                p->EndMenuHold(false);
+            }
             p->CloseSelf();
             return;
         }
