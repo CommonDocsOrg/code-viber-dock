@@ -311,8 +311,23 @@ void SettingsPreview::Draw(ID2D1DeviceContext* dc) {
             clockConfigured_ = true;
         }
         clock_.SetColors(t.clockText, t.clockDateText);
+        // Round 20 phase 20A: the item's look (no face here: the preview draws the digital look),
+        // its scale capped so the block fits the icon row, as ClockElement does.
+        Clock::Look look;
+        look.scale = cc.scale;
+        look.font = cc.font;
+        look.weight = ClockWeightOf(cc.weight);
+        ParseArgbColor(cc.timeColor, look.timeColor);
+        ParseArgbColor(cc.dateColor, look.dateColor);
+        clock_.SetLook(look);
         clock_.UpdateText();
         clockSize = clock_.BuildLayout(dwrite_.get(), u);
+        if (look.scale > 1.0f && static_cast<float>(clockSize.height) > rowH) {
+            look.scale = std::max(1.0f, look.scale * rowH / static_cast<float>(clockSize.height));
+            clock_.SetLook(look);
+            clock_.UpdateText();
+            clockSize = clock_.BuildLayout(dwrite_.get(), u);
+        }
     }
     const float clockW = static_cast<float>(clockSize.width), clockH = static_cast<float>(clockSize.height);
     // The weather widget: a sun glyph standing in for it (no data here), left of the clock.

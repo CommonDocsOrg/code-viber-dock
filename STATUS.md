@@ -790,7 +790,29 @@ One commit per phase. Round 13's rules: a warning-free `build\dev`, the doc chec
 4. Select a dock, Save as layout…: its tile appears under Mine.
 5. Folder window… (More ▾ > Folder window… before 18C) still adds a folder window.
 
+## Round 20: the clock's look (branch `feature/clock-look`, from master; round 19 is on its own branch)
+From the user (2026-11-12): the clock's default size suits a short dock, but on a thick dock they want to scale it up, set its colours and font without editing a face file. Round 13's rules: a warning-free `build\dev`, the doc checks, a smoke script, a manual check list for the user.
+
+| Phase | Status | Notes |
+|---|---|---|
+| 20A Size, font, weight and colours of a clock item (and of the Digital clock script widget) | Done, build + smoke (2026-11-12) | `ClockConfig` gets `scale` (0.5 - 4), `font`, `weight` (light / regular / semibold / bold) and `timeColor` / `dateColor` (each written only when set; a transparent colour reads as "not set"); `Clock::Look` / `SetLook` applies them over the digital look and over any face (every line's font, the time line's weight and colour with its seconds / AM-PM ranges, the date line's colour, a face's line gap / padding / corner radius scaled too). `ClockElement::Measure` caps the drawn scale so the block fits across the bar (`LayoutContext::rowRoom`; only the part above 1 is given up, the fit starts over when the room changes or after Configure). The clock schema (`BuiltInSchema`) adds fields 8 - 12 after the click's (ids stable), all in the Look card of the Appearance tab, Size also `common` (the Contents inspector). The settings preview draws the look too (scale capped to its row). QueryState 340 (drawn scale, percent) / 341 (the block, px). The Digital clock (script) 1.2.0 gets `scale`, `font`, `timeColor`, `dateColor` in its manifest (no fit cap: a script widget measures itself). README (Clocks per item, config keys, automation), guide-items.md "The clock". |
+| | | **Verified** (2026-11-12): `build\dev` warning-free; `WinDockTests` 3 case files, 0 failures; `check_docs.py` clean (82 topics), `check_widget_docs.py` no drift, `--validate-widget widgets\digital-clock` OK; `tools\smoke\clock-look.ps1` all passed: the plain clock 340 = 100 and a 57 x 34 block; `scale` 2 on a 160 DIP thick dock 340 = 200 and the block x1.97 / x1.98; `scale` 2 on a plain dock capped to 163 % with the block (48 px) inside the 64 px bar, with Consolas / bold / two colours set; the `large-time-small-date` face at 1.5 with Bahnschrift draws (216 = 1). The smoke test caught `SetLook` clearing the digital texts (an empty block until the next tick); fixed. |
+| | | **Not verified**: how it looks (the colours really applied, a face's small seconds in the override font, the pill's corners at 2x, the inspector's Size box, the colour swatches on the clock's page, the settings preview), a vertical dock (the cap is on the block's width there), the script widget's new fields in its Item window and standalone. |
+
+**Manual check (20A)**, on the release exe after `run.bat`:
+
+1. Right-click the clock > **Clock settings…** > Appearance: the Look card has Face, Size, Font, Weight of the time, Time colour, Date colour. Set Size 2 on your thick dock: the clock doubles at once; on a dock with no Thickness it grows only to the bar and stops.
+2. Type `Bahnschrift` (or any installed family) in Font: both lines change; an unknown name falls back to a default family (DirectWrite's fallback), no crash. Empty it: Segoe UI again.
+3. Weight of the time: Light / Bold change the digits only; the date line keeps its weight.
+4. Click the Time colour swatch, pick orange: the time (with its seconds and AM / PM) turns orange, the date keeps the theme's colour; the Date colour swatch the same for the date line. Type `#00000000` in a box: back to the theme's colour.
+5. Choose a face (Large time, small date) with Size 1.5 and a colour: the face's layout stays, the override colour and font apply to its lines, the small seconds stay small.
+6. Dock settings > Contents, select the clock: the inspector shows Size with the other common fields; change it there.
+7. Reset to factory defaults… on the clock's page: everything back; `config.json` has none of `scale`, `font`, `weight`, `timeColor`, `dateColor` in that item.
+8. The Digital clock (script) widget: its Appearance tab has the same Look fields (no Weight); Size 2 in a standalone window keeps fitting the window.
+
 ## How to resume
+
+**Round 20 phase 20A** (2026-11-12, table "Round 20" above, branch `feature/clock-look`, from master): a clock item's Size, Font, Weight of the time, Time colour and Date colour (`ClockConfig` scale / font / weight / timeColor / dateColor, `Clock::Look`, the fit cap in `ClockElement::Measure`, QueryState 340 / 341, `tools\smoke\clock-look.ps1`); the Digital clock script widget 1.2.0 has the same minus the weight. Built into `build\dev`, smoke test passed, `build\x64-release` rebuilt by `run.bat` and the user's dock restarted on it. Next: the user's manual check list above, then the PR to master.
 
 **Round 18 phase 18D** (2026-11-11, table "Round 18" above): the settings search dialog shows at once and indexes one settings window per posted message (`SettingsSearch::IndexStep`, `SettingsSearchHost::window(i)`, QueryState 338); a window made for the index is lean (`SettingsWindow::indexOnly_`: no tooltips, an empty Contents tab, `Refresh` deferred to `EnsureFresh`), the hidden windows stay while a settings window is open and go one per posted message after the last closes (`App::DropSearchWindows`, QueryState 339); `Clock::TimeZones` cached. Built into `build\dev` and verified by `tools\smoke\settings-search.ps1`; `build\x64-release` rebuilt by `run.bat --norun` and the user's dock restarted on it. Committed with 18B and 18C as e98eb1d (one commit: the three phases edit the same files) and pushed. Next: the user's manual check list for 18D on their own config.
 

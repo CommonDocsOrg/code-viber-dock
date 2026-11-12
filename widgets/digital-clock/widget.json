@@ -1,6 +1,6 @@
 {
   "name": "Digital clock (script)",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "WinDock",
   "description": "A scripted copy of the built-in clock: the time in a strftime format, optional seconds, the date under it in a format of your own, any time zone and a label; stacked (a smaller date line) or the Windows 7 taskbar look (time over date, the same size).",
   "api": 1,
@@ -25,6 +25,14 @@
       "choices": [
         { "value": "stacked", "label": "Stacked (a smaller date line)" },
         { "value": "taskbar", "label": "Taskbar (two lines of the same size)" }
-      ] }
+      ] },
+    { "key": "scale", "section": "appearance", "group": "Look", "common": true, "type": "number", "label": "Size", "default": 1, "min": 0.5, "max": 4, "step": 0.25, "unit": "× the usual size",
+      "description": "How big the clock is: 1 is the usual size, 2 twice as big. On a dock a bigger clock wants a thicker bar (Dock settings > Layout > Thickness). Default: 1." },
+    { "key": "font", "section": "appearance", "group": "Look", "type": "font", "label": "Font", "default": "",
+      "description": "A font family installed on this PC (Segoe UI, Bahnschrift, Consolas, ...). Empty: Segoe UI." },
+    { "key": "timeColor", "section": "appearance", "group": "Look", "type": "colour", "label": "Time colour", "default": "#00000000",
+      "description": "The time line's colour. Transparent (#00000000): the theme's clock text colour." },
+    { "key": "dateColor", "section": "appearance", "group": "Look", "type": "colour", "label": "Date colour", "default": "#00000000",
+      "description": "The date line's colour (the label too). Transparent (#00000000): the theme's clock date colour." }
   ]
 }

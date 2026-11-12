@@ -240,6 +240,10 @@ public:
     // A clock element: the minutes its zone is ahead of the local time (QueryState 219). False for
     // every other kind.
     virtual bool ClockOffset(int& /*minutes*/) const { return false; }
+    // Round 20 phase 20A: a clock element: the scale it draws at (its item's `scale`, or less to
+    // fit across the bar) in percent and its text block, px (QueryState 340 / 341). False for
+    // every other kind.
+    virtual bool ClockLook(int& /*scalePercent*/, D2D1_SIZE_U& /*block*/) const { return false; }
     // A weather element: its place (WeatherOf its item). False for every other kind.
     virtual bool WeatherPlace(WeatherConfig& /*place*/) const { return false; }
 

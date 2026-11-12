@@ -56,6 +56,21 @@ public:
                  bool showSeconds);
     bool HasFace() const { return face_ != nullptr; }
 
+    // Round 20 phase 20A: the item's own look over the face's (or the digital look's): a size
+    // factor on every text size (and a face's line gap, padding and corner radius), a font family
+    // for every line ("" the face's), the time's weight (0 the face's) and the time line's / the
+    // date line's colour (0 = the face's / the theme's; the time's covers its seconds and AM / PM
+    // ranges too). Rebuilds the layouts. Call after Configure / SetFace.
+    struct Look {
+        float scale = 1.0f;
+        std::wstring font;
+        int weight = 0;
+        uint32_t timeColor = 0, dateColor = 0;
+        bool operator==(const Look&) const = default;
+    };
+    void SetLook(const Look& look);
+    const Look& GetLook() const { return look_; }
+
     // Starts/restarts the aligned one-shot timer on hwnd. Call again from WM_TIMER.
     void ScheduleNextTick(HWND hwnd, UINT_PTR timerId) const;
     static void Stop(HWND hwnd, UINT_PTR timerId);
@@ -124,6 +139,7 @@ private:
 
     std::shared_ptr<const ClockFace> face_;
     ClockFaceColors faceColors_;
+    Look look_;  // round 20 phase 20A
     std::wstring rawFormat_ = L"%H:%M";
     bool rawSeconds_ = false;
     std::vector<FaceLine> faceLines_;

@@ -1775,6 +1775,39 @@ building the other tabs lazily (the index reads them), or keeping the hidden win
 process's life (USER handles for every entry). Automation: QueryState 338 / 339;
 `tools\smoke\settings-search.ps1`.
 
+## Round 20 (2026-11-12): the clock's look
+
+From the user: the clock's default size suits a short dock; on a thick dock they want to scale it
+up, and set its colours and fonts, as an end user, not by writing a face file. Branch
+`feature/clock-look`.
+
+**20A, five settings over the face.** A face file already describes fonts, size ratios and
+colours, so the item's look is a thin layer over whatever face draws (the digital look included):
+`scale` multiplies every size (a face's line gap, padding and corner radius too, so a pill keeps
+its shape), `font` replaces every line's family (the face's range fonts, e.g. a monospaced seconds
+range, are dropped: one family means one family), `weight` is the time's only (a bold date next
+to a bold time looks like a slab), `timeColor` covers the time line with its small seconds and
+AM / PM, `dateColor` the date line and the label. "Not set" is the empty string, and for the
+colours also a transparent value, because the settings page's colour fields show "the theme's" as
+`#00000000`; the schema's defaults are those, so Reset to factory defaults writes nothing.
+
+**The fit cap.** The bar does not grow for widgets (a widget taller than the icon row sticks out
+of it: `DockWindow` places it from the row's foot). Rather than teach the layout a widget-driven
+thickness, the clock gives up the part of its scale above 1 that does not fit `rowRoom` (the
+icon row, the captions band and the dock's `thickness`), and its Size field says to make the dock
+thicker. QueryState 340 tells the scale actually drawn so the smoke test can see the cap.
+
+**Field order.** The five fields are appended after the click's (schema indices 8 - 12): the
+generated page's control ids are `3700 + 10 k`, and README promises they never renumber; the
+Appearance tab still shows them with the face in one Look card because the card breaks are
+computed over that tab's own fields.
+
+**The script clock** got the same `scale`, `font` and colours in its manifest (1.2.0), without a
+fit cap: a script widget measures itself and the host does not tell it the room.
+
+Not done: a font picker (the field is a typed family name, as every `font` field is); a weight for
+the date; the Analog clock widget's faces (they have their own `faces/*.json`).
+
 ## Dependencies at a glance
 
 ```

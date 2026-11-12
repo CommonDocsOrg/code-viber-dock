@@ -88,10 +88,19 @@ public:
         if (!error.empty()) OutputDebugStringW((L"WinDock: clock face: " + error + L"\n").c_str());
         clock_.SetFace(face, face ? ClockFaces::Resolve(*face, host_.DockTheme()) : ClockFaceColors{}, c.format,
                        c.showSeconds);
+        // Round 20 phase 20A: the item's look; the fit (Measure) starts over from its scale.
+        fitRoom_ = -1.0f;
+        drawnScale_ = c.scale;
+        clock_.SetLook(LookOf(drawnScale_));
         dot_ = WantDot();
     }
     bool ClockOffset(int& minutes) const override {
         minutes = clock_.OffsetMinutes();
+        return true;
+    }
+    bool ClockLook(int& scalePercent, D2D1_SIZE_U& block) const override {
+        scalePercent = static_cast<int>(std::lround(drawnScale_ * 100.0f));
+        block = text_;
         return true;
     }
     void Start() override {
@@ -104,7 +113,28 @@ public:
     ElementSize Measure(const LayoutContext& ctx) override {
         const bool vertical = ctx.axis == DockAxis::Vertical;
         clock_.SetStacked(vertical);
+        // Round 20 phase 20A: the look's scale is capped so the block fits across the bar (the
+        // widget row's room; a widget taller than the row would stick out of the bar, which does
+        // not grow for widgets). Only the part above 1 is given up: at scale 1 the clock fits as
+        // it always did (or did not, on a tiny dock). The fit starts over from the item's scale
+        // when the room changes (a thicker dock, another icon size) and after Configure; a block
+        // that gets narrower on a vertical dock keeps the smaller scale until then.
+        const float room = ctx.rowRoom > 0.0f ? ctx.rowRoom : ctx.iconPx;
+        if (room != fitRoom_) {
+            fitRoom_ = room;
+            drawnScale_ = cfg_.scale;
+            clock_.SetLook(LookOf(drawnScale_));
+        }
         text_ = clock_.BuildLayout(ctx.dwrite, ctx.scale);
+        for (int pass = 0; pass < 2 && room > 0.0f && drawnScale_ > 1.0f; ++pass) {
+            const float cross = static_cast<float>(vertical ? text_.width : text_.height);
+            if (cross <= room + 0.5f) break;
+            const float fit = std::max(1.0f, drawnScale_ * room / cross);
+            if (fit >= drawnScale_ - 0.001f) break;
+            drawnScale_ = fit;
+            clock_.SetLook(LookOf(drawnScale_));
+            text_ = clock_.BuildLayout(ctx.dwrite, ctx.scale);
+        }
         size_ = text_;
         vertical_ = vertical;
         // With events today (calendars.showDots): a dot after the last line (under it when stacked).
@@ -162,6 +192,16 @@ private:
     static constexpr float kDotSize = 5.0f;  // DIPs
     static constexpr float kDotGap = 4.0f;
     bool WantDot() const { return host_.Cfg().calendars.showDots && host_.CalendarEventsToday() > 0; }
+    // Round 20 phase 20A: the item's look at scale `scale` (ClockConfig -> Clock::Look).
+    Clock::Look LookOf(float scale) const {
+        Clock::Look k;
+        k.scale = scale;
+        k.font = cfg_.font;
+        k.weight = ClockWeightOf(cfg_.weight);
+        ParseArgbColor(cfg_.timeColor, k.timeColor);  // "" (not set): stays 0
+        ParseArgbColor(cfg_.dateColor, k.dateColor);
+        return k;
+    }
 
     ClockConfig cfg_;  // ClockOf the item (Configure)
     Clock clock_;
@@ -170,6 +210,8 @@ private:
     UINT32 dotSpace_ = 0;
     bool dot_ = false;
     bool vertical_ = false;
+    float fitRoom_ = -1.0f;    // round 20 phase 20A: the room the fit was made for (px; -1 none yet)
+    float drawnScale_ = 1.0f;  // the scale drawn: cfg_.scale, or less to fit (QueryState 340)
 };
 
 // weather: a condition glyph and the temperature from the WeatherService of its item's place

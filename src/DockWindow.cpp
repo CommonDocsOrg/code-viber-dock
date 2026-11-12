@@ -9302,6 +9302,17 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             const LONG along = std::lround(l.tileMain), across = std::lround(l.tileCross);
             return static_cast<LRESULT>(static_cast<unsigned>(along & 0xFFFF) | (static_cast<unsigned>(across & 0xFFFF) << 16));
         }
+        case 340:    // round 20 phase 20A: the first clock item's drawn scale in percent (its `scale`, or less to fit the bar); -1 no clock
+        case 341: {  // its text block, px: width | height << 16 (as drawn: before the dot; -1 no clock)
+            for (const std::unique_ptr<DockElement>& e : elements_) {
+                int percent = 0;
+                D2D1_SIZE_U block{};
+                if (!e || !e->ClockLook(percent, block)) continue;
+                if (wp == 340) return percent;
+                return static_cast<LRESULT>(static_cast<unsigned>(block.width & 0xFFFF) | (static_cast<unsigned>(block.height & 0xFFFF) << 16));
+            }
+            return -1;
+        }
         default:
             return -1;
     }
