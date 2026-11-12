@@ -259,6 +259,12 @@ public:
         std::function<void(const std::wstring& key)> unpinTray;
         // Icon `key` hidden from / shown in the grid of tray item `item`.
         std::function<void(size_t item, const std::wstring& key, bool hide)> trayHide;
+        // Round 19 phase 19A: icon `key` dropped on the drawer of tray item `item`: it moves right
+        // before icon `before` in the drawer's order (empty: to the end; the grid shares that
+        // order); `hide` also hides it from the grid (it came from there), `unpin` removes its
+        // trayApp items (it came from one). One config change, one rebuild.
+        std::function<void(size_t item, const std::wstring& key, const std::wstring& before, bool hide, bool unpin)>
+            trayDrawerOrder;
         // The tray menu's Tray settings…: the Item window of tray item `item` (an index into the
         // dock's items; SIZE_MAX: the dock's first tray item).
         std::function<void(size_t item)> traySettings;
@@ -1164,9 +1170,17 @@ private:
     void ShowTrayMenu(int slot, const std::wstring& key, bool pinnedSlot) override;
     // An in-process OLE drag of tray icon `key` (private format): a dock of this process takes it
     // as a trayApp pin at its insertion marker, a tray grid as a new place in its order.
-    void DragTrayIcon(const std::wstring& key);
-    // The key of a tray icon drag of this process (empty: not one).
-    static std::wstring ReadTrayDrag(IDataObject* data);
+    // Round 19 phase 19A: the drawer is also a drop target (reorder, into the overflow) and stays
+    // open through the drag (trayDragKeepsDrawer_); `fromDrawer`: the drag started in the drawer.
+    void DragTrayIcon(const std::wstring& key, bool fromDrawer = false);
+    // The key of a tray icon drag of this process (empty: not one); `fromDrawer` (optional): it
+    // was dragged out of a drawer.
+    static std::wstring ReadTrayDrag(IDataObject* data, bool* fromDrawer = nullptr);
+    // Round 19 phase 19A: tray icon `key` dropped on the open drawer before member `before`
+    // (drawerIds_ index; its count: at the end).
+    void DropOnTrayDrawer(const std::wstring& key, bool fromDrawer, size_t before);
+    // The open drawer shows the icons as they are now (refilled when its signature changed).
+    void RefillTrayDrawer();
     // A trayApp slot's picture at the icon bitmap size (the HICON scaled; the app's own larger
     // icon resource when the handle still knows it). Null: its app does not run (placeholder).
     ID2D1Bitmap* TrayAppBitmap(const DockItem& item);
@@ -1613,6 +1627,12 @@ private:
     // while it is over this dock; the key under the press that may start one.
     std::wstring trayDragKey_;
     std::wstring pressTrayKey_;
+    // Round 19 phase 19A: a press on a tray icon while the drawer is open keeps the drawer (it may
+    // become a drag into it); the release without a drag closes it as the press used to.
+    bool pressKeptDrawer_ = false;
+    // A tray icon drag runs (DragTrayIcon) with the drawer open: SetHold (the drag entering the
+    // dock) leaves the drawer open so the icon can come back to it.
+    bool trayDragKeepsDrawer_ = false;
 
     // The notification centre and the widget that asked for it ("": the element's).
     NotificationPopup centre_;

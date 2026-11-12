@@ -100,7 +100,7 @@ void ItemGridView::SetStyle(const Style& style) {
 
 void ItemGridView::SetItems(std::vector<GridItem> items) {
     items_ = std::move(items);
-    hot_ = selected_ = drop_ = anchor_ = -1;
+    hot_ = selected_ = drop_ = anchor_ = insert_ = -1;
     marked_.assign(items_.size(), 0);
     typed_.clear();
     target_ = 0.0f;
@@ -437,6 +437,21 @@ HRESULT ItemGridView::DrawRow(Row& row) {
                 box(hl, style_.hotBackground, 1.0f, style_.accent, true);
             }
             const bool lit = isHot || Marked(i) || index == drop_;
+            // Round 19 phase 19A: the insert marker, at this entry's leading edge (before it) or,
+            // for "after the last", at the last entry's trailing edge.
+            if (insert_ >= 0 && (index == insert_ || (static_cast<size_t>(insert_) == items_.size() && i + 1 == items_.size()))) {
+                const bool before = index == insert_;
+                const float lw = std::max(2.0f, std::round(2.0f * s));
+                const float pad = std::round(6.0f * s);
+                brush->SetColor(Theme::ToColor(style_.accent));
+                if (mode_ == Mode::Grid) {
+                    const float x = before ? cell.left + lw / 2.0f : cell.right - lw / 2.0f;
+                    dc->DrawLine(D2D1::Point2F(x, cell.top + pad), D2D1::Point2F(x, cell.bottom - pad), brush.get(), lw);
+                } else {
+                    const float y = before ? cell.top + lw / 2.0f : cell.bottom - lw / 2.0f;
+                    dc->DrawLine(D2D1::Point2F(cell.left + pad, y), D2D1::Point2F(cell.right - pad, y), brush.get(), lw);
+                }
+            }
             if (mode_ == Mode::Grid) {
                 const float iconPx = std::round(style_.iconDip * s);
                 const float ix = std::round((cell.left + cell.right - iconPx) / 2.0f);
@@ -771,6 +786,38 @@ void ItemGridView::SetDropHighlight(int index) {
     InvalidateRowOf(index);
     RedrawDirty();
     Commit();
+}
+
+void ItemGridView::SetInsertMarker(int index) {
+    if (index > static_cast<int>(items_.size())) index = static_cast<int>(items_.size());
+    if (index == insert_) return;
+    const int old = insert_;
+    insert_ = index;
+    // "After the last" is drawn on the last entry's row.
+    const int last = static_cast<int>(items_.size()) - 1;
+    InvalidateRowOf(std::min(old, last));
+    InvalidateRowOf(std::min(index, last));
+    RedrawDirty();
+    Commit();
+}
+
+int ItemGridView::InsertIndexAt(POINT pt) const {
+    if (!Contains(pt)) return -1;
+    const int n = static_cast<int>(items_.size());
+    const float rowH = static_cast<float>(RowHeight());
+    if (n == 0) return 0;
+    if (rowH <= 0.0f) return -1;
+    const float y = std::max(0.0f, static_cast<float>(pt.y - bounds_.top) + CurrentScroll());
+    if (mode_ == Mode::List) return std::clamp(static_cast<int>(std::lround(y / rowH)), 0, n);
+    const size_t rows = RowCount();
+    const size_t row = std::min(rows > 0 ? rows - 1 : 0, static_cast<size_t>(y / rowH));
+    const size_t cols = Columns();
+    const LONG cellW = CellWidth();
+    if (cellW <= 0) return -1;
+    const LONG left = (static_cast<LONG>(ViewWidth()) - static_cast<LONG>(cols) * cellW) / 2;
+    const float fx = static_cast<float>(pt.x - bounds_.left - left) / static_cast<float>(cellW);
+    const int col = std::clamp(static_cast<int>(std::lround(fx)), 0, static_cast<int>(cols));
+    return std::min(static_cast<int>(row * cols) + col, n);
 }
 
 void ItemGridView::MouseMove(POINT pt) {

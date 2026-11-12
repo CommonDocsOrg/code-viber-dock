@@ -305,6 +305,17 @@ Clicks on the icons go to their apps as they would on the taskbar: a right-click
 
 When there are more icons than cells, the last cell is an arrow that opens a drawer with every icon.
 
+In the drawer, a right-click opens the app's menu and the drawer stays open behind it. Press Escape or click the drawer to close the menu and right-click another icon. Choosing a menu item that opens a window, or clicking somewhere else, closes the drawer.
+
+You can drag icons in the drawer too (unless the dock is locked). A line shows where the icon will go:
+
+- Drag an icon within the drawer to change the order. The grid uses the same order, so an icon moved to the front of the drawer also moves into a full grid.
+- Drag an icon from the grid into the drawer to take it out of the grid. It stays in the drawer where you drop it.
+- Drag an icon pinned on the dock into the drawer to unpin it.
+- Drag an icon from the drawer onto the grid to show it there, or onto the dock to pin it.
+
+The drawer stays open while you drag, so you can bring an icon back to it.
+
 Windows' own items (network, battery, language, its clock and volume) stay with Windows. The Volume, Battery and clock widgets cover them.
 
 To give the tray a small dock of its own at the bottom right, click **Put the tray in its own dock** on App settings > Tray icons.

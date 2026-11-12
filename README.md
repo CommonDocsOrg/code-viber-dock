@@ -1592,11 +1592,23 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
 - **Overflow and the drawer**: with more icons than cells, or icons hidden from the grid, the last
   cell is a chevron; a click opens the drawer (the folder / group popup in tray mode, titled
   "Notification area") with every icon, scrolling past eight rows. Its cells behave like the
-  grid's.
+  grid's. Round 19 phase 19A: a right click shows the app's menu with the drawer still open behind
+  it (like the Windows 11 overflow flyout); dismissing the menu (Escape, a click back on the
+  drawer) leaves the drawer there for the next icon, while a menu item that brings up a window, or
+  a click on the desktop / another app, closes it as before (`PopupWindow::HoldForMenu`: watched
+  through `EVENT_SYSTEM_MENUPOPUPSTART` / `END` only while the menu is up; an app whose menu is not
+  a Win32 menu gets 1.5 s, then the foreground decides).
 - **Arranging** (8b): drag an icon within the grid to move it there (the grid's order is saved as
   the item's `order`; a hidden icon dragged from the drawer into the grid is shown again); drag
   it out of the grid or the drawer onto the dock's icon row to pin it there as a **`trayApp`**
-  item at the insertion marker. **Ctrl + right click** on an icon (plain right click is its app's)
+  item at the insertion marker. Round 19 phase 19A: the drawer is a drop target too, with an
+  accent insertion line between its cells: an icon dragged within the drawer moves there in
+  `order` (which the grid shares, so moving one to the front of the drawer also brings it into a
+  full grid); one dragged from the grid into the drawer leaves the grid (added to `hidden`) at the
+  place dropped; a `trayApp` icon dragged into the drawer is unpinned and placed there. The drawer
+  stays open through the drag (also while it crosses the dock) and shows the new order; a press on
+  a grid icon with the drawer open closes it only when it is released without a drag. A locked
+  dock does none of it. **Ctrl + right click** on an icon (plain right click is its app's)
   opens the tray menu: Hide from / Show in the tray grid, Pin to the dock / Unpin from the dock,
   Tray settings… (the tray item's own settings window, below).
 - **Its settings window** (round 5 phase D: an Item window of its own, one per tray item; the tray

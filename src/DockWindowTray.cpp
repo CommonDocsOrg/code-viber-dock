@@ -23,6 +23,7 @@ struct TrayDragData {
     DWORD pid = 0;
     UINT64 dock = 0;  // the dock it was dragged from
     wchar_t key[128]{};
+    UINT32 fromDrawer = 0;  // round 19 phase 19A: dragged out of a drawer (a drop on it reorders)
 };
 
 CLIPFORMAT TrayDragFormat() {
@@ -60,7 +61,8 @@ private:
 };
 }  // namespace
 
-std::wstring DockWindow::ReadTrayDrag(IDataObject* data) {
+std::wstring DockWindow::ReadTrayDrag(IDataObject* data, bool* fromDrawer) {
+    if (fromDrawer) *fromDrawer = false;
     if (!data || !TrayDragFormat()) return {};
     FORMATETC fmt{TrayDragFormat(), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
     STGMEDIUM medium{};
@@ -68,7 +70,10 @@ std::wstring DockWindow::ReadTrayDrag(IDataObject* data) {
     std::wstring key;
     if (medium.hGlobal && GlobalSize(medium.hGlobal) >= sizeof(TrayDragData)) {
         if (const auto* p = static_cast<const TrayDragData*>(GlobalLock(medium.hGlobal))) {
-            if (p->pid == GetCurrentProcessId()) key.assign(p->key, wcsnlen(p->key, std::size(p->key)));
+            if (p->pid == GetCurrentProcessId()) {
+                key.assign(p->key, wcsnlen(p->key, std::size(p->key)));
+                if (fromDrawer) *fromDrawer = p->fromDrawer != 0;
+            }
             GlobalUnlock(medium.hGlobal);
         }
     }
@@ -76,7 +81,7 @@ std::wstring DockWindow::ReadTrayDrag(IDataObject* data) {
     return key;
 }
 
-void DockWindow::DragTrayIcon(const std::wstring& key) {
+void DockWindow::DragTrayIcon(const std::wstring& key, bool fromDrawer) {
     if (key.empty() || !TrayDragFormat()) return;
     winrt::com_ptr<IDataObject> data;
     if (FAILED(SHCreateDataObject(nullptr, 0, nullptr, nullptr, IID_PPV_ARGS(data.put())))) return;
@@ -86,6 +91,7 @@ void DockWindow::DragTrayIcon(const std::wstring& key) {
         p->pid = GetCurrentProcessId();
         p->dock = reinterpret_cast<UINT64>(hwnd_);
         wcsncpy_s(p->key, key.c_str(), _TRUNCATE);
+        p->fromDrawer = fromDrawer ? 1 : 0;
         GlobalUnlock(h);
     }
     FORMATETC fmt{TrayDragFormat(), nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL};
@@ -99,8 +105,13 @@ void DockWindow::DragTrayIcon(const std::wstring& key) {
     if (GetCapture() == hwnd_) ReleaseCapture();
     auto* source = new TrayDropSource();
     DWORD effect = DROPEFFECT_NONE;
-    DoDragDrop(data.get(), source, DROPEFFECT_MOVE, &effect);  // modal; the docks' drop targets take it
+    // Round 19 phase 19A: the open drawer is a target too: it stays open while the drag crosses
+    // the dock (SetHold would dismiss it) and after the drop, wherever it landed.
+    trayDragKeepsDrawer_ = folder_.Kind() == 3;
+    DoDragDrop(data.get(), source, DROPEFFECT_MOVE, &effect);  // modal; the docks' and the drawer's drop targets take it
+    trayDragKeepsDrawer_ = false;
     source->Release();
+    if (folder_.Kind() == 3) RefillTrayDrawer();  // a drop on the grid / the row changed the drawer's order too
 }
 
 void DockWindow::ShowTrayMenu(int slot, const std::wstring& key, bool pinnedSlot) {
@@ -304,8 +315,12 @@ void DockWindow::OnTrayChanged() {
         if (redraw) RenderWithRecovery([this] { return DrawFrame(false); });
     }
     // A hovered cell may show another icon now: its label is re-read on the next mouse move.
-    if (folder_.Kind() != 3) return;
     // An open drawer follows the icons (new ones, gone ones, new pictures / tips).
+    RefillTrayDrawer();
+}
+
+void DockWindow::RefillTrayDrawer() {
+    if (folder_.Kind() != 3) return;
     for (size_t i = 0; i < items_.size(); ++i) {
         if (items_[i].key != folderKey_ || items_[i].kind != DockItem::Kind::Tray) continue;
         if (!Tray()) break;
@@ -346,8 +361,14 @@ void DockWindow::ShowTrayDrawer(int index, float anchor) {
     cb.open = [this, at, cursor](size_t member) {
         if (TrayHost* t = Tray()) t->Forward(at(member), TrayHost::Click::Left, cursor());
     };
+    // Round 19 phase 19A: a right click shows the app's menu with the drawer still open behind it
+    // (HoldForMenu, held before the click goes out: the app takes the foreground at once); the
+    // menu dismissed (Escape, a click back on the drawer), another icon can be right-clicked.
     cb.menu = [this, at](size_t member, POINT screen) {
-        if (TrayHost* t = Tray()) t->Forward(at(member), TrayHost::Click::Right, screen);
+        TrayHost* t = Tray();
+        if (!t) return;
+        if (const TrayIcon* icon = t->ById(at(member))) folder_.HoldForMenu(icon->pid);
+        t->Forward(at(member), TrayHost::Click::Right, screen);
     };
     cb.middle = [this, at, cursor](size_t member) {
         if (TrayHost* t = Tray()) t->Forward(at(member), TrayHost::Click::Middle, cursor());
@@ -359,7 +380,15 @@ void DockWindow::ShowTrayDrawer(int index, float anchor) {
             const TrayIcon* icon = t ? t->ById(at(member)) : nullptr;
             if (!icon) return;
             const std::wstring key = icon->key;
-            DragTrayIcon(key);  // the drawer stays open (it is inside its own input handling here)
+            DragTrayIcon(key, true);  // the drawer stays open (it is inside its own input handling here)
+        };
+        // Round 19 phase 19A: dropped on the drawer (from itself, the grid or a trayApp slot): a
+        // new place in the order, out of the grid / off the row.
+        cb.trayAccepts = [this](IDataObject* data) { return !DockCfg().locked && !ReadTrayDrag(data).empty(); };
+        cb.trayDrop = [this](IDataObject* data, size_t before) {
+            bool fromDrawer = false;
+            const std::wstring key = ReadTrayDrag(data, &fromDrawer);
+            if (!key.empty()) DropOnTrayDrawer(key, fromDrawer, before);
         };
     }
     if (!folder_.ShowGroup(kDrawerTitle, std::move(entries), ItemView::Grid, PopupStyle(), PopupAnchorAt(anchor), std::move(cb))) {
@@ -371,6 +400,40 @@ void DockWindow::ShowTrayDrawer(int index, float anchor) {
     TakePopupHold(kHoldFolder);
     HideLabel();
     RenderWithRecovery([] { return S_OK; });  // commit the label hide
+}
+
+void DockWindow::DropOnTrayDrawer(const std::wstring& key, bool fromDrawer, size_t before) {
+    TrayHost* tray = Tray();
+    if (!tray || key.empty() || folder_.Kind() != 3 || DockCfg().locked || !pinRequests_.trayDrawerOrder) return;
+    size_t trayItem = SIZE_MAX;
+    for (const DockItem& it : items_) {
+        if (it.key == folderKey_ && it.kind == DockItem::Kind::Tray) {
+            trayItem = it.element;
+            break;
+        }
+    }
+    const std::vector<DockItemEntry>& entries = DockCfg().items;
+    if (trayItem >= entries.size()) return;
+    // The icon it goes before: the first member at or after the drop that is not the icon itself
+    // (dropped right before or right after itself: the same place).
+    std::wstring beforeKey;
+    for (size_t m = before; m < drawerIds_.size(); ++m) {
+        const TrayIcon* icon = tray->ById(drawerIds_[m]);
+        if (!icon || icon->key == key) continue;
+        beforeKey = icon->key;
+        break;
+    }
+    const bool pinned = std::any_of(entries.begin(), entries.end(),
+                                    [&](const DockItemEntry& e) { return e.Kind() == ItemKind::TrayApp && e.id == key; });
+    const std::vector<std::wstring>& hidden = entries[trayItem].hidden;
+    const bool isHidden = std::find(hidden.begin(), hidden.end(), key) != hidden.end();
+    // From the drawer: only its place (a pinned member stays pinned, a grid one in the grid). From
+    // a trayApp slot (a pinned icon dragged from elsewhere): off the row, into its place. From the
+    // grid: out of the grid (hidden), so it sits in the overflow where it was dropped.
+    const bool unpin = !fromDrawer && pinned;
+    const bool hide = !fromDrawer && !pinned && !isHidden;
+    pinRequests_.trayDrawerOrder(trayItem, key, beforeKey, hide, unpin);  // rebuilds (RefreshFolderPopup refills)
+    RefillTrayDrawer();
 }
 
 bool DockWindow::TrayIconRect(uint64_t id, RECT& screen) const {

@@ -50,6 +50,7 @@ public:
     enum class Mode { Hover, Click };
     enum class Button { Left, Middle, Right };
     static constexpr UINT_PTR kFadeTimerId = 1;  // subclasses use timer ids >= 100
+    static constexpr UINT_PTR kMenuHoldTimerId = 2;  // round 19 phase 19A: HoldForMenu's start window
 
     // Window chrome for one Show: placement, the backdrop and the panel's corner radius.
     struct Frame {
@@ -94,6 +95,21 @@ public:
     bool ContainsCursor() const;
     HWND Hwnd() const { return hwnd_; }
     Mode ActivationMode() const { return mode_; }
+
+    // Round 19 phase 19A: a click popup that forwards a right click to another process (the tray
+    // drawer's icons) stays open behind that app's context menu, like the Windows 11 overflow
+    // flyout. Called just BEFORE the click is forwarded; `pid` is the process expected to show the
+    // menu. While held, deactivation (WA_INACTIVE) and the foreground hook do not close the popup:
+    // the app takes the foreground for its menu (SetForegroundWindow on its own window, then
+    // TrackPopupMenu), and those two events may arrive in either order. An out-of-context WinEvent
+    // hook for EVENT_SYSTEM_MENUPOPUPSTART / END (only while held) counts the nested menus; when
+    // the count is back at 0, or no menu started within kMenuHoldStartMs, the hold ends and the
+    // foreground decides: this process's window, `pid`'s (the menu was dismissed: Escape, or a click
+    // back on the popup) or none keeps the popup open, anything else (a menu item opened a window,
+    // a click on the desktop / another app) closes it as before. Being activated again (a click on
+    // the popup) also ends the hold. Nothing runs while the popup is not held.
+    void HoldForMenu(DWORD pid);
+    bool MenuHeld() const { return menuHold_; }
 
 protected:
     // Shows the popup (fading in) or updates it in place: Measure() gives the client size,
@@ -183,6 +199,11 @@ private:
     void HookForeground(bool on);
     static void CALLBACK OnForegroundEvent(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG idObject, LONG idChild,
                                            DWORD thread, DWORD time);
+    // Round 19 phase 19A: HoldForMenu's end (`check`: let the foreground decide, see there).
+    void EndMenuHold(bool check);
+    void HookMenus(bool on);
+    static void CALLBACK OnMenuEvent(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG idObject, LONG idChild,
+                                     DWORD thread, DWORD time);
 
     const wchar_t* className_;
     const wchar_t* title_;
@@ -209,6 +230,17 @@ private:
     bool tracking_ = false;
     bool inside_ = false;
     HWINEVENTHOOK foregroundHook_ = nullptr;  // click popups, while on screen
+    // HoldForMenu (round 19 phase 19A)
+    bool menuHold_ = false;
+    DWORD menuHoldPid_ = 0;          // the process the right click went to
+    DWORD menuPid_ = 0;              // the process whose menu started (usually the same)
+    int menuDepth_ = 0;              // nested menu popups open
+    bool menuStarted_ = false;       // at least one started during this hold
+    bool menuTimer_ = false;         // kMenuHoldTimerId pending
+    HWINEVENTHOOK menuHook_ = nullptr;
+    // The foreground window the popup stayed open behind when a hold ended (the app's menu owner):
+    // a late EVENT_SYSTEM_FOREGROUND for it is not a reason to close. Cleared on activation / hide.
+    HWND keptForeground_ = nullptr;
 
     Tween fade_;
     bool fadePending_ = false;

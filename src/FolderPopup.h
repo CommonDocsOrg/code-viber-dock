@@ -66,6 +66,12 @@ public:
         // it instead of the member menu, a middle click calls `middle`, and Kind() reports 3.
         std::function<void(size_t member, POINT screen)> menu;
         std::function<void(size_t member)> middle;
+        // Round 19 phase 19A, the tray drawer: a tray icon dragged over it (the owner's private
+        // drag format, DockWindow::DragTrayIcon, from the drawer itself, the grid or a trayApp slot).
+        // `trayAccepts`: the drag is one the owner takes (an insert marker then follows the pointer);
+        // `trayDrop`: it was dropped before member `before` (the member count: after the last).
+        std::function<bool(IDataObject* data)> trayAccepts;
+        std::function<void(IDataObject* data, size_t before)> trayDrop;
     };
     struct Style {
         float scale = 1.0f;
@@ -208,4 +214,7 @@ private:
     // Drops
     ShellFiles::DropTarget* dropTarget_ = nullptr;  // registered on the window (one reference held)
     std::vector<std::wstring> dragFiles_;     // the files of the drag over the popup
+    bool trayDrag_ = false;                   // a tray icon drag the drawer takes is over it (19A)
+    // The insert index for a drag at a screen point (19A): the view's nearest cell edge, else the end.
+    size_t TrayInsertAt(POINT screen) const;
 };

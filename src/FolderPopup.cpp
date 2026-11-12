@@ -82,6 +82,7 @@ void FolderPopup::Release() {
     current_.clear();
     readable_ = true;
     dragFiles_.clear();
+    trayDrag_ = false;
     selectAfterLoad_.clear();
 }
 
@@ -786,7 +787,21 @@ DWORD FolderPopup::EffectFor(const std::wstring& dest, DWORD keys, DWORD allowed
     return ShellFiles::DropEffect(dragFiles_, dest, keys, allowed);
 }
 
+size_t FolderPopup::TrayInsertAt(POINT screen) const {
+    POINT client = screen;
+    if (Window()) ScreenToClient(Window(), &client);
+    const int at = view_.InsertIndexAt(client);
+    // Over the header or the padding: the end (the drop still lands somewhere sensible).
+    return at < 0 ? view_.Count() : static_cast<size_t>(at);
+}
+
 DWORD FolderPopup::DragEnter(IDataObject* data, POINT screen, DWORD keys, DWORD allowed) {
+    // Round 19 phase 19A: a tray icon over the drawer (the owner's format; no files in it).
+    trayDrag_ = Visible() && group_ && groupCallbacks_.trayAccepts && groupCallbacks_.trayAccepts(data);
+    if (trayDrag_) {
+        dragFiles_.clear();
+        return DragOver(screen, keys, allowed);
+    }
     dragFiles_ = Visible() ? ShellFiles::FilesOf(data) : std::vector<std::wstring>{};
     if (group_ && !dragFiles_.empty() && !(groupCallbacks_.accepts && groupCallbacks_.accepts(dragFiles_))) {
         dragFiles_.clear();  // nothing that can become a member: the no-drop cursor
@@ -795,6 +810,11 @@ DWORD FolderPopup::DragEnter(IDataObject* data, POINT screen, DWORD keys, DWORD 
 }
 
 DWORD FolderPopup::DragOver(POINT screen, DWORD keys, DWORD allowed) {
+    if (trayDrag_) {
+        if (!Visible()) return DROPEFFECT_NONE;
+        view_.SetInsertMarker(static_cast<int>(TrayInsertAt(screen)));
+        return allowed & DROPEFFECT_MOVE;
+    }
     if (dragFiles_.empty() || !Visible()) return DROPEFFECT_NONE;
     if (group_) return (allowed & DROPEFFECT_LINK) ? DROPEFFECT_LINK : (allowed & DROPEFFECT_COPY);
     int entry = -1;
@@ -806,10 +826,23 @@ DWORD FolderPopup::DragOver(POINT screen, DWORD keys, DWORD allowed) {
 
 void FolderPopup::DragLeave() {
     dragFiles_.clear();
+    trayDrag_ = false;
     view_.SetDropHighlight(-1);
+    view_.SetInsertMarker(-1);
 }
 
 DWORD FolderPopup::Drop(IDataObject* data, POINT screen, DWORD keys, DWORD allowed) {
+    if (trayDrag_) {
+        trayDrag_ = false;
+        view_.SetInsertMarker(-1);
+        if (!Visible() || !groupCallbacks_.trayDrop) return DROPEFFECT_NONE;
+        const size_t before = TrayInsertAt(screen);
+        // A copy: the owner refills the drawer (UpdateGroup), and would its rebuild dismiss it, the
+        // callbacks are reset (Release) while this one runs.
+        const auto drop = groupCallbacks_.trayDrop;
+        drop(data, before);
+        return allowed & DROPEFFECT_MOVE;
+    }
     dragFiles_ = Visible() ? ShellFiles::FilesOf(data) : std::vector<std::wstring>{};
     if (group_) {
         // Shortcuts / apps / folders become members (the owner decides); the files stay where they are.

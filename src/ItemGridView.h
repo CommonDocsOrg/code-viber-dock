@@ -175,6 +175,13 @@ public:
     // Drop feedback: the entry a drag would drop into (-1: none). Redraws the affected rows.
     void SetDropHighlight(int index);
     int DropHighlight() const { return drop_; }
+    // Round 19 phase 19A: insert feedback (the tray drawer's reorder): an accent line before entry
+    // `index` (Count(): after the last; -1: none), in the gap between cells (grid) or rows (list).
+    // Redraws the affected rows. InsertIndexAt gives the index for a client point: the nearest
+    // cell edge of the row under it (clamped to the rows there are; -1 outside the view).
+    void SetInsertMarker(int index);
+    int InsertMarker() const { return insert_; }
+    int InsertIndexAt(POINT clientPt) const;
 
     // --- input forwarded by the host (client px of the host window) ---
     void MouseMove(POINT pt);
@@ -277,6 +284,7 @@ private:
     std::vector<uint8_t> marked_;  // multiple selection, parallel to items_
     int anchor_ = -1;              // Shift ranges start here
     int drop_ = -1;
+    int insert_ = -1;  // SetInsertMarker
     Press press_;
     std::wstring typed_;       // type-to-select prefix
     ULONGLONG typedAt_ = 0;

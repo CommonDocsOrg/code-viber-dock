@@ -31,6 +31,16 @@ std::vector<PopupWindow*>& HookedPopups() {
     static std::vector<PopupWindow*> popups;
     return popups;
 }
+// ... and those held for a foreign menu (HoldForMenu: the menu hook), the same pattern.
+std::vector<PopupWindow*>& MenuHookedPopups() {
+    static std::vector<PopupWindow*> popups;
+    return popups;
+}
+
+// HoldForMenu: how long the app gets to open its menu before the hold ends without one (some apps
+// show a window of their own instead of a Win32 menu, which fires no MENUPOPUPSTART; the
+// foreground then decides as at the end of a menu).
+constexpr UINT kMenuHoldStartMs = 1500;
 
 }  // namespace
 
@@ -68,6 +78,8 @@ bool PopupWindow::EnsureWindow() {
 void PopupWindow::Destroy() {
     if (fadePending_ && hwnd_) KillTimer(hwnd_, kFadeTimerId);
     fadePending_ = false;
+    EndMenuHold(false);
+    keptForeground_ = nullptr;
     HookForeground(false);
     OnDestroying();
     content_.Reset();
@@ -187,9 +199,13 @@ bool PopupWindow::ShowAt(const Frame& frame, const PopupAnchor& anchor) {
     // A click popup takes the foreground when it appears (the dock just got the click, so this
     // process may set it); a hover popup never activates.
     // Shown again while fading out (or not allowed to take the foreground before): try again.
-    const bool activate = mode_ == Mode::Click && (wasHidden || GetForegroundWindow() != hwnd_);
+    // Round 19 phase 19A: not while held for a foreign menu (refilled because the app changed its
+    // icon or tip as its menu opened): taking the foreground would close that menu.
+    const bool activate = mode_ == Mode::Click && !menuHold_ && (wasHidden || GetForegroundWindow() != hwnd_);
+    // Held: the z-order stays too (raised to the top of the topmost band it would cover the menu).
     SetWindowPos(hwnd_, HWND_TOPMOST, rect_.left, rect_.top, size_.cx, size_.cy,
-                 (activate ? 0 : SWP_NOACTIVATE) | SWP_NOOWNERZORDER | (wasHidden ? SWP_SHOWWINDOW : 0));
+                 (activate ? 0 : SWP_NOACTIVATE) | SWP_NOOWNERZORDER | (wasHidden ? SWP_SHOWWINDOW : 0) |
+                     (menuHold_ && !wasHidden ? SWP_NOZORDER : 0));
     if (activate) {
         SetForegroundWindow(hwnd_);
         HookForeground(true);
@@ -253,6 +269,7 @@ void PopupWindow::Hide(bool animate) {
         return;
     }
     if (state_ == State::FadingOut) return;
+    EndMenuHold(false);
     state_ = State::FadingOut;
     std::fill(std::begin(pressed_), std::end(pressed_), -1);
     StartFade(0.0f);
@@ -271,6 +288,8 @@ void PopupWindow::CancelTracking() {
 void PopupWindow::FinishHide() {
     if (fadePending_) KillTimer(hwnd_, kFadeTimerId);
     fadePending_ = false;
+    EndMenuHold(false);
+    keptForeground_ = nullptr;
     HookForeground(false);
     state_ = State::Hidden;  // first: hiding an active click popup sends WM_ACTIVATE (ignored now)
     OnHidden();
@@ -320,9 +339,88 @@ void CALLBACK PopupWindow::OnForegroundEvent(HWINEVENTHOOK hook, DWORD event, HW
     // of the dock never close the popup this way; deactivation does that when it was active).
     for (PopupWindow* p : HookedPopups()) {
         if (p->foregroundHook_ == hook) {
+            // Round 19 phase 19A: held for a foreign menu (its owner window comes to the
+            // foreground before or after MENUPOPUPSTART), or the window it stayed open behind.
+            if (p->menuHold_ || hwnd == p->keptForeground_) return;
             p->CloseSelf();
             return;
         }
+    }
+}
+
+void PopupWindow::HoldForMenu(DWORD pid) {
+    if (mode_ != Mode::Click || state_ != State::Shown || !hwnd_) return;
+    // Held already (a second right click before the first menu showed): start over.
+    HookMenus(true);
+    menuHold_ = true;
+    menuHoldPid_ = pid;
+    menuPid_ = 0;
+    menuDepth_ = 0;
+    menuStarted_ = false;
+    keptForeground_ = nullptr;
+    SetTimer(hwnd_, kMenuHoldTimerId, kMenuHoldStartMs, nullptr);  // one-shot (killed when it fires)
+    menuTimer_ = true;
+}
+
+void PopupWindow::EndMenuHold(bool check) {
+    if (!menuHold_) return;
+    menuHold_ = false;
+    HookMenus(false);
+    if (menuTimer_ && hwnd_) KillTimer(hwnd_, kMenuHoldTimerId);
+    menuTimer_ = false;
+    if (!check || state_ != State::Shown) return;
+    HWND fg = GetForegroundWindow();
+    if (!fg) return;  // between two windows (a menu just closed): nothing says the user left
+    DWORD pid = 0;
+    GetWindowThreadProcessId(fg, &pid);
+    if (pid == GetCurrentProcessId()) return;  // the popup itself (clicked back on) or the dock
+    if (pid == menuHoldPid_ || (menuPid_ != 0 && pid == menuPid_)) {
+        // The menu was dismissed (Escape, a click on the popup that the menu ate) and the app's
+        // (hidden) owner window kept the foreground: stay open behind it. The popup is not active
+        // now and gets no WA_INACTIVE again, so the foreground hook closes it on the next change
+        // (armed here also when the popup never had the foreground: opened by automation).
+        keptForeground_ = fg;
+        HookForeground(true);
+        return;
+    }
+    CloseSelf();
+}
+
+void PopupWindow::HookMenus(bool on) {
+    auto& popups = MenuHookedPopups();
+    if (!on) {
+        if (menuHook_) UnhookWinEvent(menuHook_);
+        menuHook_ = nullptr;
+        std::erase(popups, this);
+        return;
+    }
+    if (menuHook_) return;
+    // Out of context (no DLL injection), other processes only: the dock's own menus never count.
+    menuHook_ = SetWinEventHook(EVENT_SYSTEM_MENUPOPUPSTART, EVENT_SYSTEM_MENUPOPUPEND, nullptr, &PopupWindow::OnMenuEvent,
+                                0, 0, WINEVENT_OUTOFCONTEXT | WINEVENT_SKIPOWNPROCESS);
+    if (menuHook_) popups.push_back(this);
+}
+
+void CALLBACK PopupWindow::OnMenuEvent(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG, LONG, DWORD, DWORD) {
+    for (PopupWindow* p : MenuHookedPopups()) {
+        if (p->menuHook_ != hook) continue;
+        if (!p->menuHold_) return;
+        if (event == EVENT_SYSTEM_MENUPOPUPSTART) {
+            ++p->menuDepth_;
+            p->menuStarted_ = true;
+            if (hwnd) {
+                DWORD pid = 0;
+                GetWindowThreadProcessId(hwnd, &pid);
+                if (pid != 0) p->menuPid_ = pid;
+            }
+            // The menu is up: it may stay open as long as the user likes; its end ends the hold.
+            if (p->menuTimer_ && p->hwnd_) KillTimer(p->hwnd_, kMenuHoldTimerId);
+            p->menuTimer_ = false;
+        } else if (event == EVENT_SYSTEM_MENUPOPUPEND) {
+            if (p->menuDepth_ > 0) --p->menuDepth_;
+            if (p->menuStarted_ && p->menuDepth_ == 0) p->EndMenuHold(true);  // unhooks: `popups` changes
+        }
+        return;
     }
 }
 
@@ -387,8 +485,17 @@ LRESULT PopupWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return mode_ == Mode::Hover ? MA_NOACTIVATE : MA_ACTIVATE;
 
         case WM_ACTIVATE:
-            // A click popup closes when another window takes the foreground.
-            if (mode_ == Mode::Click && LOWORD(wp) == WA_INACTIVE) CloseSelf();
+            // A click popup closes when another window takes the foreground; not while held for a
+            // foreign menu (round 19 phase 19A: the app's menu owner takes it). Activated again
+            // (clicked back on): the hold is over and the popup stays.
+            if (mode_ == Mode::Click) {
+                if (LOWORD(wp) == WA_INACTIVE) {
+                    if (!menuHold_) CloseSelf();
+                } else {
+                    keptForeground_ = nullptr;
+                    EndMenuHold(false);
+                }
+            }
             break;  // DefWindowProc gives the window the keyboard focus on activation
 
         case WM_KEYDOWN:
@@ -446,6 +553,13 @@ LRESULT PopupWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_TIMER:
             if (wp == kFadeTimerId) {
                 OnFadeTimer();
+                return 0;
+            }
+            if (wp == kMenuHoldTimerId) {
+                // No menu came within kMenuHoldStartMs: the foreground decides.
+                KillTimer(hwnd_, kMenuHoldTimerId);
+                menuTimer_ = false;
+                EndMenuHold(true);
                 return 0;
             }
             break;

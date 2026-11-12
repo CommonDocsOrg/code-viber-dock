@@ -1775,6 +1775,32 @@ building the other tabs lazily (the index reads them), or keeping the hidden win
 process's life (USER handles for every entry). Automation: QueryState 338 / 339;
 `tools\smoke\settings-search.ps1`.
 
+## Round 19 (2026-11-12): the tray drawer behaves like the Windows 11 overflow flyout
+
+From the user: right-clicking an icon in the drawer ("Notification area", the tray grid's overflow)
+closed the drawer, and icons could only be dragged out of it. Branch `feature/tray-drawer-menu-drag`.
+
+**19A, the menu hold.** The drawer is a click popup: it closed on `WA_INACTIVE` and on the
+out-of-context foreground hook as soon as the app took the foreground for its menu.
+`PopupWindow::HoldForMenu(pid)` is called just before the right click is forwarded; while held
+neither closes it, and a `EVENT_SYSTEM_MENUPOPUPSTART` / `END` hook (only while held) tells when the
+menu is gone. The foreground then decides: still the app's (Escape, a click back on the drawer that
+the menu ate) or ours keeps the drawer, anything else (a menu item opened a window, a click on the
+desktop) closes it. An app whose menu is a window of its own fires no menu events: 1.5 s after the
+click the foreground decides the same way. Nothing runs while the drawer is not held.
+
+**19A, drops on the drawer.** The drawer's existing OLE drop target also takes the private
+`WinDock.TrayIcon` drag: an insertion line (`ItemGridView::SetInsertMarker`) shows the place, and a
+drop rewrites the tray item's `order` from the drawer's sequence (`App::TrayDrawerOrder`). Because
+the grid shows the first N icons of the same order, moving an icon to the front of the drawer is how
+it comes into a full grid; an icon dragged from the grid is also added to `hidden` (it leaves the
+grid), one from a `trayApp` slot is unpinned. The drawer stays open through every tray icon drag
+(also while the drag crosses the dock, whose `SetHold` used to dismiss it) and refills in place.
+
+Not done: automation numbers for the hold or the drawer drop (the existing ItemCommand 827 reorders
+the grid; a drawer reorder through OLE cannot be driven by messages cheaply), and the insert line
+for a drop at a row's end (it shows before the next row's first cell instead).
+
 ## Dependencies at a glance
 
 ```

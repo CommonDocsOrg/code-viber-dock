@@ -5119,7 +5119,13 @@ void DockWindow::RefreshFolderPopup() {
         const bool present = std::any_of(items_.begin(), items_.end(), [&](const DockItem& item) {
             return item.key == folderKey_ && item.kind == DockItem::Kind::Tray;
         });
-        if (!present || !Tray()) DismissFolderPopup(true);
+        if (!present || !Tray()) {
+            DismissFolderPopup(true);
+        } else {
+            // Round 19 phase 19A: the tray item's order / hidden / the trayApp pins changed (a drop
+            // on the drawer, the grid or the row): it shows the new order in place.
+            RefillTrayDrawer();
+        }
         return;
     }
     if (folder_.Kind() == 2) {
@@ -6418,7 +6424,9 @@ void DockWindow::SetHold(bool hold) {
     if (hold) {
         CancelHide();
         SuppressPreview();  // a menu opens or a drag starts
-        DismissClickPopups(true, false);
+        // Round 19 phase 19A: not the drawer while a tray icon is dragged with it open (it is a drop
+        // target); at most one click popup is open, so there is nothing else to dismiss then.
+        if (!trayDragKeepsDrawer_ || folder_.Kind() != 3) DismissClickPopups(true, false);
         HideLabel();
         RenderWithRecovery([] { return S_OK; });  // commit the label hide
         return;
@@ -9383,6 +9391,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 const std::wstring key = std::move(pressTrayKey_);
                 pressTrayKey_.clear();
                 pressed_ = -1;
+                pressKeptDrawer_ = false;  // round 19 phase 19A: a drag: the drawer stays (a target)
                 HideLabel();
                 DragTrayIcon(key);
                 return 0;
@@ -9543,7 +9552,10 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // the clock, the weather) the release then does not open it again (the click toggles).
             // Round 12 phase 12D: customize mode: an item's press and click do nothing of their own.
             pressClosedPopup_ = !editing_ && pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).OnPress(pressed_);
-            if (ClickPopupOnScreen()) DismissClickPopups(true, false);
+            // Round 19 phase 19A: a press on a tray icon (a grid cell, a trayApp slot) with the
+            // drawer open may become a drag into the drawer: it stays until the release.
+            pressKeptDrawer_ = !pressTrayKey_.empty() && folder_.Kind() == 3 && !DockCfg().locked && !editing_;
+            if (ClickPopupOnScreen() && !pressKeptDrawer_) DismissClickPopups(true, false);
             RefreshButtons();  // round 11 phase 11A: the pressed frame (no-op without slot buttons)
             // Round 12 phase 12D: a press on the bar's background (or beside an icon's box across the
             // bar) held still for 600 ms enters customize mode (an item's press is hold-to-group's).
@@ -9558,6 +9570,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
 
         case WM_LBUTTONUP: {
             CancelEditPress();  // round 12 phase 12D: released before the long press: an ordinary click
+            if (pressKeptDrawer_) {
+                // Round 19 phase 19A: the press that kept the drawer was a click: it closes now.
+                pressKeptDrawer_ = false;
+                DismissFolderPopup(true, false);
+            }
             if (dockPress_) {
                 dockPress_ = false;  // a Ctrl + click without a move: an ordinary click
                 if (GetCapture() == hwnd_) ReleaseCapture();

@@ -198,6 +198,11 @@ private:
     // Icon `key` moves right before icon `before` in the grid of tray item `item` (empty: to the
     // end; the whole grid order is written to the item's `order`) and is no longer hidden.
     void TrayOrder(size_t cfg, size_t item, const std::wstring& key, const std::wstring& before);
+    // Round 19 phase 19A: icon `key` dropped on the drawer of tray item `item`: right before icon
+    // `before` in the drawer's order (empty: the end); `hide`: also hidden from the grid; `unpin`:
+    // its trayApp items go (DockWindow::PinRequests::trayDrawerOrder).
+    void TrayDrawerOrder(size_t cfg, size_t item, const std::wstring& key, const std::wstring& before, bool hide,
+                         bool unpin);
     // Icon `key` becomes a trayApp item at pin index `at` (SIZE_MAX: after the last pin); one per icon.
     void PinTray(size_t cfg, const std::wstring& key, size_t at);
     void UnpinTray(size_t cfg, const std::wstring& key);

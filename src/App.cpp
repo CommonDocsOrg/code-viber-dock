@@ -329,6 +329,8 @@ void App::SetUpDock(DockWindow& dock) {
     requests.pinTray = [this, d](const std::wstring& key, size_t at) { PinTray(d->ConfigIndex(), key, at); };
     requests.unpinTray = [this, d](const std::wstring& key) { UnpinTray(d->ConfigIndex(), key); };
     requests.trayHide = [this, d](size_t item, const std::wstring& key, bool hide) { TrayHide(d->ConfigIndex(), item, key, hide); };
+    requests.trayDrawerOrder = [this, d](size_t item, const std::wstring& key, const std::wstring& before, bool hide,
+                                         bool unpin) { TrayDrawerOrder(d->ConfigIndex(), item, key, before, hide, unpin); };
     requests.traySettings = [this, d](size_t item) {
         // The tray item's own window (the menu's item, else the dock's first tray item); without
         // one: Global > Tray icons.
@@ -1021,6 +1023,33 @@ void App::TrayOrder(size_t cfg, size_t item, const std::wstring& key, const std:
         if (std::find(keys.begin(), keys.end(), k) == keys.end()) keys.push_back(k);
     }
     tray.order = std::move(keys);
+    ItemsChanged(cfg);
+}
+
+// Round 19 phase 19A: a drop on the drawer. The drawer lists the tray item's `order` first, then
+// the other icons in registration order (TrayIconsFor, inGrid false), so the new order is the
+// drawer's sequence with the key moved; keys of icons that do not run now keep their place after
+// them. `hidden` changes only when the icon came from the grid (`hide`).
+void App::TrayDrawerOrder(size_t cfg, size_t item, const std::wstring& key, const std::wstring& before, bool hide,
+                          bool unpin) {
+    if (cfg >= config_.docks.size() || key.empty()) return;
+    DockConfig& d = config_.docks[cfg];
+    if (item >= d.items.size() || d.items[item].Kind() != ItemKind::Tray || d.locked) return;
+    DockItemEntry& tray = d.items[item];
+    if (hide && std::find(tray.hidden.begin(), tray.hidden.end(), key) == tray.hidden.end()) tray.hidden.push_back(key);
+    std::vector<std::wstring> keys;
+    if (docks_.TrayService().Running()) {
+        for (const TrayIcon* t : TrayIconsFor(docks_.TrayService(), d, tray, false)) keys.push_back(t->key);
+    }
+    std::erase(keys, key);
+    auto at = before.empty() ? keys.end() : std::find(keys.begin(), keys.end(), before);
+    keys.insert(at, key);
+    for (const std::wstring& k : tray.order) {
+        if (std::find(keys.begin(), keys.end(), k) == keys.end()) keys.push_back(k);
+    }
+    tray.order = std::move(keys);
+    // Last: erasing items moves `tray` (a reference into d.items).
+    if (unpin) std::erase_if(d.items, [&](const DockItemEntry& e) { return e.Kind() == ItemKind::TrayApp && e.id == key; });
     ItemsChanged(cfg);
 }
 
