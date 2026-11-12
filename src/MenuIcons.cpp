@@ -142,12 +142,12 @@ HICON ShellIcon(LPCWSTR pathOrPidl, UINT extraFlags, bool smallIcon) {
 
 UINT SizeFor(UINT dpi) { return static_cast<UINT>(MulDiv(16, static_cast<int>(dpi ? dpi : 96), 96)); }
 
-HBITMAP Glyph(wchar_t codepoint, UINT dpi, COLORREF colour) {
-    if (!codepoint) return nullptr;
-    const uint64_t key = static_cast<uint64_t>(codepoint) | (static_cast<uint64_t>(dpi & 0xFFFF) << 16) |
-                         (static_cast<uint64_t>(colour & 0xFFFFFF) << 32);
-    if (auto it = g_glyphs.find(key); it != g_glyphs.end()) return it->second;
-    const UINT px = SizeFor(dpi);
+namespace {
+
+// The glyph as a new px-square DIB in `colour`: premultiplied (a menu bitmap) or straight alpha
+// (an image list entry: comctl32 premultiplies on ImageList_Add). Null on failure; the caller
+// owns the bitmap. Round 18 phase 18C: shared by Glyph and GlyphList.
+HBITMAP RenderGlyph(wchar_t codepoint, UINT px, COLORREF colour, bool premultiplied) {
     uint32_t* bits = nullptr;
     HBITMAP bmp = CreateDib(px, bits);
     HDC dc = bmp ? CreateCompatibleDC(nullptr) : nullptr;
@@ -156,7 +156,6 @@ HBITMAP Glyph(wchar_t codepoint, UINT dpi, COLORREF colour) {
         if (font) DeleteObject(font);
         if (dc) DeleteDC(dc);
         if (bmp) DeleteObject(bmp);
-        g_glyphs[key] = nullptr;  // not tried again
         return nullptr;
     }
     HGDIOBJ oldBmp = SelectObject(dc, bmp);
@@ -176,10 +175,41 @@ HBITMAP Glyph(wchar_t codepoint, UINT dpi, COLORREF colour) {
     for (size_t i = 0; i < n; ++i) {
         const uint32_t p = bits[i];
         const uint32_t a = std::max({(p >> 16) & 0xFF, (p >> 8) & 0xFF, p & 0xFF});
-        bits[i] = (a << 24) | ((cr * a / 255) << 16) | ((cg * a / 255) << 8) | (cb * a / 255);
+        bits[i] = premultiplied ? (a << 24) | ((cr * a / 255) << 16) | ((cg * a / 255) << 8) | (cb * a / 255)
+                                : (a << 24) | (cr << 16) | (cg << 8) | cb;
     }
-    g_glyphs[key] = bmp;
     return bmp;
+}
+
+}  // namespace
+
+HBITMAP Glyph(wchar_t codepoint, UINT dpi, COLORREF colour) {
+    if (!codepoint) return nullptr;
+    const uint64_t key = static_cast<uint64_t>(codepoint) | (static_cast<uint64_t>(dpi & 0xFFFF) << 16) |
+                         (static_cast<uint64_t>(colour & 0xFFFFFF) << 32);
+    if (auto it = g_glyphs.find(key); it != g_glyphs.end()) return it->second;
+    HBITMAP bmp = RenderGlyph(codepoint, SizeFor(dpi), colour, true);
+    g_glyphs[key] = bmp;  // null: not tried again
+    return bmp;
+}
+
+HIMAGELIST GlyphList(wchar_t codepoint, UINT dpi, COLORREF colour, COLORREF disabled) {
+    if (!codepoint) return nullptr;
+    const UINT px = SizeFor(dpi);
+    HIMAGELIST list = ImageList_Create(static_cast<int>(px), static_cast<int>(px), ILC_COLOR32, 4, 0);
+    if (!list) return nullptr;
+    // BCM_SETIMAGELIST's state order: normal, hot, pressed, disabled (the button takes image
+    // min(state, count - 1), so one image would stay bright on a greyed button).
+    for (COLORREF c : {colour, colour, colour, disabled}) {
+        HBITMAP bmp = RenderGlyph(codepoint, px, c, false);
+        const int added = bmp ? ImageList_Add(list, bmp, nullptr) : -1;
+        if (bmp) DeleteObject(bmp);
+        if (added < 0) {
+            ImageList_Destroy(list);
+            return nullptr;
+        }
+    }
+    return list;
 }
 
 HBITMAP FromIcon(HICON icon, UINT dpi) {

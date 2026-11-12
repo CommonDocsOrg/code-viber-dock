@@ -43,12 +43,25 @@ constexpr int kLockW = 122;    // round 8 phase 8D: "Lock all docks" (its box an
 constexpr int kAddTileMinW = 150;
 constexpr int kAddTileMaxCols = 6;
 constexpr int kAddTileH = 124;
-constexpr int kAddMoreW = 96;     // "More ▾"
+// Round 18 phase 18C: the row of the other things the card adds (More ▾'s menu until then): three
+// glyph buttons; 418 DIPs in all, so they fit the Global window's minimum width (700 less the nav).
+constexpr int kAddFloatingW = 118;  // "Floating dock"
+constexpr int kAddFolderW = 128;    // "Folder window…"
+constexpr int kAddWidgetW = 156;    // "Standalone widget…"
+constexpr int kAddGap = 8;
+// Segoe Fluent Icons (the dock menu's picks, ContextMenu.cpp, for the entries it shares).
+constexpr wchar_t kGlyphFloating = 0xE7F4;   // the Dock glyph
+constexpr wchar_t kGlyphFolder = 0xE8B7;     // Folder
+constexpr wchar_t kGlyphWidget = 0xE80F;     // a script widget
+constexpr wchar_t kGlyphSettings = 0xE713;   // Settings (gear)
+constexpr wchar_t kGlyphDuplicate = 0xE8C8;  // Copy
+constexpr wchar_t kGlyphRemove = 0xE74D;     // Delete
+constexpr wchar_t kGlyphPower = 0xE7E8;      // PowerButton (Disable / Enable)
+constexpr wchar_t kGlyphRename = 0xE8AC;     // Rename
+constexpr wchar_t kGlyphSave = 0xE74E;       // Save
 constexpr int kAddHintH = 36;     // the hint under the tiles: two lines, a fixed height (hover changes its text, not the layout)
 constexpr wchar_t kAddHint[] = L"Click a layout: the dock appears on your desktop at once. Keep it or Cancel it in the bar above; "
                                L"another layout replaces it.";
-// The More ▾ menu's "Standalone widget ▸" entries: kWidgetCmd + the catalog index.
-constexpr UINT kWidgetCmd = 0x7000;
 constexpr float kMarginDip = 8.0f;     // the dock's distance from the monitor edge (DockWindow kBottomMargin)
 constexpr float kSnapDip = 24.0f;      // snaps to the centre / an end this close (DockWindow kDockSnapDip)
 
@@ -261,9 +274,19 @@ protected:
             L"each). If the layout's edge is taken there, the dock goes to the next free edge.";
         Tip(kAddDockDisplayLabel, kDisplayTip);
         Tip(kAddDockDisplay, kDisplayTip);
-        Button(kAddDockMore, L"More \x25BE", right - kAddMoreW, kAddMoreW);
-        Tip(kAddDockMore, L"A floating dock (anywhere on the display), a folder window (a folder on the desktop) or a "
-                          L"standalone widget (one widget in a window of its own).");
+        NextRow(kRowH + 4);
+        // Round 18 phase 18C: the More ▾ menu's entries as buttons of their own (with glyphs), so
+        // that the other things this card adds can be seen: "it's not super easy to recognize you
+        // can add docks / widgets from here" (the user). 2823 stays a command that opens that menu.
+        Button(kDockAddFloating, L"Floating dock", kMargin, kAddFloatingW, kGlyphFloating);
+        Button(kDockAddFolder, L"Folder window\x2026", kMargin + kAddFloatingW + kAddGap, kAddFolderW, kGlyphFolder);
+        Button(kDockAddWidget, L"Standalone widget\x2026", kMargin + kAddFloatingW + kAddFolderW + 2 * kAddGap, kAddWidgetW,
+               kGlyphWidget);
+        Tip(kDockAddFloating, L"Adds a floating dock: a bar you can place anywhere on the display (on the desktop until you "
+                              L"choose another layer), centred on the primary display with the running apps and a clock.");
+        Tip(kDockAddFolder, L"Adds a folder window: a folder shown on the desktop, under your windows. Pick the folder first.");
+        Tip(kDockAddWidget, L"Adds a standalone widget: one widget in a window of its own on the desktop. Opens a picker of "
+                            L"your widgets with previews under the button; click one, or drag its tile where you want it.");
         NextRow(kRowH + 4);
         EndExpander();
         // The list and its buttons: a card of their own.
@@ -279,11 +302,12 @@ protected:
                         L"buttons below; double-click it to open its settings.");
         NextRow(kListH + 8);
         // The selected row's actions.
-        Button(kDocksOpen, L"Open settings", kMargin, kButtonW);
-        Button(kDockDuplicate, L"Duplicate", kMargin + kButtonStep, kButtonW);
-        Button(kDockRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW);
+        // Round 18 phase 18C: each with a glyph (the dock menu's, ContextMenu.cpp's table, where it has one).
+        Button(kDocksOpen, L"Open settings", kMargin, kButtonW, kGlyphSettings);
+        Button(kDockDuplicate, L"Duplicate", kMargin + kButtonStep, kButtonW, kGlyphDuplicate);
+        Button(kDockRemove, L"Remove", kMargin + 2 * kButtonStep, kButtonW, kGlyphRemove);
         // Round 11 phase 11D: off for a while without losing it (the text follows the selected row).
-        Button(kDockToggleEnabled, L"Disable", kMargin + 3 * kButtonStep, kButtonW);
+        Button(kDockToggleEnabled, L"Disable", kMargin + 3 * kButtonStep, kButtonW, kGlyphPower);
         // Round 9 phase 9A: why Remove may be greyed.
         Tip(kDockRemove, L"Removes the selected dock, folder window or standalone widget. Greyed for the last dock: "
                          L"there is always at least one.");
@@ -292,8 +316,8 @@ protected:
                                 L"for the last dock that is on: one dock is always shown.");
         NextRow(kRowH + 4);
         // --- round 12 phase 12C: the selected dock's name and a saved layout of it (docks only) ---
-        Button(kDockRename, L"Rename", kMargin, kButtonW);
-        Button(kDockSaveLayout, L"Save as layout\x2026", kMargin + kButtonStep, kButtonW);
+        Button(kDockRename, L"Rename", kMargin, kButtonW, kGlyphRename);
+        Button(kDockSaveLayout, L"Save as layout\x2026", kMargin + kButtonStep, kButtonW, kGlyphSave);
         Tip(kDockRename, L"Renames the selected dock in the list (F2 does the same; Enter keeps the name, Esc cancels). The name "
                          L"is what menus, headers and titles show; its id stays the same. Docks only.");
         Tip(kDockSaveLayout, L"Saves the selected dock (its place, behaviour, items and look) as a layout of your own, to apply "
@@ -360,6 +384,21 @@ protected:
         return gallery_.WideHeightDip(cols, kAddTileH);
     }
     bool Query(int code, LPARAM arg, LRESULT& out) override {
+        if (code == 337) {
+            // Round 18 phase 18C: how many of the page's buttons carry a glyph image list (the
+            // button took it: BCM_GETIMAGELIST, which a test in another process cannot ask).
+            out = 0;
+            for (int id : {kDockAddFloating, kDockAddFolder, kDockAddWidget, kDocksOpen, kDockDuplicate, kDockRemove,
+                           kDockToggleEnabled, kDockRename, kDockSaveLayout}) {
+                const Ctl* c = Find(id);
+                BUTTON_IMAGELIST bil{};
+                if (c && c->hwnd && c->glyphList && SendMessageW(c->hwnd, BCM_GETIMAGELIST, 0, reinterpret_cast<LPARAM>(&bil)) &&
+                    bil.himl == c->glyphList) {
+                    ++out;
+                }
+            }
+            return true;
+        }
         if (code != 333) return false;
         // QueryState 333: the tile count; LOWORD 1 the selected tile, 2 the tile whose ghost the canvas shows (-1 none).
         const int what = static_cast<int>(arg & 0xFFFF);
@@ -465,7 +504,7 @@ protected:
         const size_t sel = SelectedCfg();
         switch (id) {
             case kDockAddMenu:  // round 18 phase 18A: the button is gone; the command opens More ▾'s menu
-            case kAddDockMore:
+            case kAddDockMore:  // round 18 phase 18C: that button is gone too (its entries are buttons)
                 ShowAddMenu();
                 break;
             case kDockAdd:
@@ -510,15 +549,20 @@ protected:
                 break;
             // --- end round 12 phase 12C ---
             case kDockAddWidget: {
-                // Round 6 phase 6B: which widget (round 8 phase 8D: as a command, the catalog in a
-                // menu under Add ▾; the Add ▾ menu has it as a submenu).
-                const std::vector<Widgets::CatalogEntry> catalog = Widgets::Catalog();
-                HMENU menu = CreatePopupMenu();
-                if (!menu) return;
-                AppendWidgets(menu, catalog);
-                const UINT cmd = TrackUnderAdd(menu);
-                DestroyMenu(menu);
-                if (cmd >= kWidgetCmd && cmd - kWidgetCmd < catalog.size()) AddWidget(catalog[cmd - kWidgetCmd].id);
+                // Round 6 phase 6B: which widget. Round 8 phase 8D: a menu of the catalog's names
+                // under Add ▾. Round 18 phase 18B: the standalone widget picker (customize mode's
+                // drawer popup with the widgets' live previews) under More ▾; a click on a tile adds
+                // that widget to the desktop (App::AddWidgetWindow: it selects the new entry here).
+                if (!Host().openWidgetPicker) return;
+                RECT r{};
+                if (HWND button = Item(kDockAddWidget)) {  // round 18 phase 18C: its own button
+                    GetWindowRect(button, &r);
+                } else {
+                    POINT pt{};
+                    GetCursorPos(&pt);
+                    r = RECT{pt.x, pt.y, pt.x, pt.y};
+                }
+                Host().openWidgetPicker(r, Window().Dpi());
                 break;
             }
             case kDocksOpen:
@@ -546,18 +590,10 @@ protected:
     }
 
 private:
-    // The installed widgets as menu items kWidgetCmd + k.
-    static void AppendWidgets(HMENU menu, const std::vector<Widgets::CatalogEntry>& catalog) {
-        for (size_t k = 0; k < catalog.size() && k < 400; ++k) {
-            AppendMenuW(menu, MF_STRING, kWidgetCmd + static_cast<UINT>(k), catalog[k].name.c_str());
-        }
-        if (catalog.empty()) AppendMenuW(menu, MF_STRING | MF_GRAYED, 0, L"No widgets installed");
-    }
-
-    // A menu under the More ▾ button (round 18 phase 18A; the Add ▾ button's until then); the chosen
-    // command (0: none).
+    // A menu under the Floating dock button (round 18 phase 18C; More ▾'s in 18A, the Add ▾
+    // button's until then; the menu is a command now, 2814 / 2823); the chosen command (0: none).
     UINT TrackUnderAdd(HMENU menu) {
-        HWND button = Item(kAddDockMore);
+        HWND button = Item(kDockAddFloating);
         RECT r{};
         if (button) {
             GetWindowRect(button, &r);
@@ -573,26 +609,21 @@ private:
     // Round 8 phase 8D: "Add ▾": Dock, Floating dock, Folder window…, Standalone widget ▸ (the
     // old buttons' ids as the commands).
     void ShowAddMenu() {
-        const std::vector<Widgets::CatalogEntry> catalog = Widgets::Catalog();
         HMENU menu = CreatePopupMenu();
-        HMENU widgets = CreatePopupMenu();
-        if (!menu || !widgets) {
-            if (menu) DestroyMenu(menu);
-            if (widgets) DestroyMenu(widgets);
-            return;
-        }
-        AppendWidgets(widgets, catalog);
+        if (!menu) return;
         // Round 18 phase 18A: the Add a dock card's More ▾. "Dock" is the Basic tile now and the two
         // chooser entries ("Dock from a preset…" / "Dock from a layout…") are the tiles themselves;
-        // their commands (2801, 5101, 5689) still work for automation.
+        // their commands (2801, 5101, 5689) still work for automation. Round 18 phase 18B: Standalone
+        // widget… opens the picker (the widgets as tiles with previews) in place of a submenu of names.
+        // Round 18 phase 18C: the button is gone (the three entries are buttons); the menu stays
+        // for the commands 2814 / 2823.
         AppendMenuW(menu, MF_STRING, kDockAddFloating, L"Floating dock");
         AppendMenuW(menu, MF_STRING, kDockAddFolder, L"Folder window\x2026");
-        AppendMenuW(menu, MF_POPUP, reinterpret_cast<UINT_PTR>(widgets), L"Standalone widget");  // destroyed with its parent
+        AppendMenuW(menu, MF_STRING, kDockAddWidget, L"Standalone widget\x2026");
         const UINT cmd = TrackUnderAdd(menu);
         DestroyMenu(menu);
-        if (cmd >= kWidgetCmd && cmd - kWidgetCmd < catalog.size()) {
-            AddWidget(catalog[cmd - kWidgetCmd].id);
-        } else if (cmd == kDockAdd || cmd == kDockAddFloating || cmd == kDockAddFolder || cmd == kDockAddPreset || cmd == kDockAddLayout) {
+        if (cmd == kDockAdd || cmd == kDockAddFloating || cmd == kDockAddFolder || cmd == kDockAddPreset || cmd == kDockAddLayout ||
+            cmd == kDockAddWidget) {
             OnCommand(static_cast<int>(cmd), BN_CLICKED, nullptr);
         }
     }
@@ -629,18 +660,6 @@ private:
     }
     bool renameAllowed_ = false;
     // --- end round 12 phase 12C ---
-
-    // A standalone widget of widget `wid` on the primary display (its window opens).
-    void AddWidget(const std::wstring& wid) {
-        Config& c = Cfg();
-        const size_t added = Host().addWidgetWindow ? Host().addWidgetWindow(wid, SIZE_MAX, true) : SIZE_MAX;
-        if (added == SIZE_MAX) {
-            MessageBeep(MB_ICONWARNING);
-            return;
-        }
-        if (added < c.docks.size()) Window().SelectDock(c.docks[added].id);
-        Window().Refresh();
-    }
 
     // A filled circle in the dock's colour (the list's dot) as an image list entry.
     void AddDot(COLORREF color) {

@@ -252,8 +252,14 @@ private:
     void OpenSearch(SettingsWindow* owner, const std::wstring& text);
     SettingsSearchHost MakeSearchHost();
     // A settings window created hidden for the search's index (kept in searchHidden_ until the last
-    // search dialog closes, unless an Open* path shows it first).
+    // search dialog and the last settings window of the user's have closed (round 18 phase 18D:
+    // DropSearchWindows), unless an Open* path shows it first).
     SettingsWindow* CreateHiddenSettings(SettingsKind kind, const std::wstring& dock, size_t item = SIZE_MAX);
+    // Round 18 phase 18D: no search dialog and no settings window of the user's is open, and hidden
+    // index windows remain: they can go (DropSearchWindows posts kDropSearchWindow; one per message).
+    bool SearchWindowsIdle() const;
+    void DropSearchWindows();
+    void DropOneSearchWindow();
     bool IsSearchHidden(const SettingsWindow* w) const;
     // An Open* path found `w`: it is a window of the user's from now on (shown by Activate).
     void ClaimSettings(SettingsWindow* w);
@@ -471,6 +477,11 @@ private:
     // takes it (on 2 the move is posted; the window must not store the rect it no longer has).
     int WidgetDockDrag(size_t cfg, int phase, POINT screen);
     static constexpr UINT kMoveToDockMessage = WM_APP + 72;  // posted: run pendingDockMoves_
+    // Round 18 phase 18D: posted by DropSearchWindows: destroy one of the search index's hidden
+    // settings windows, then post again while any remain (one per message: destroying a window of
+    // hundreds of controls takes up to a few seconds here, so the dock keeps taking messages between
+    // two of them).
+    static constexpr UINT kDropSearchWindow = WM_APP + 73;
     struct PendingDockMove {
         std::wstring entry;  // the standalone entry's docks[] id
         std::wstring dock;   // the target dock's docks[] id
@@ -529,6 +540,7 @@ private:
     // kSearchClosed) and the settings windows created hidden for their index.
     std::vector<std::unique_ptr<SettingsSearch>> searches_;
     std::vector<SettingsWindow*> searchHidden_;
+    bool searchDropPosted_ = false;  // round 18 phase 18D: a kDropSearchWindow is on its way
     // Round 9 phase 9C: the open preset chooser (at most one; freed by a posted kPresetClosed) and
     // whether this run started without a config file (the welcome dialog then opens once).
     std::unique_ptr<PresetDialog> presets_;
@@ -579,6 +591,16 @@ private:
     EditBar editBar_{[this](int id) { OnEditBarCommand(id); }};
     DrawerPopup drawerPopup_;
     bool drawerReady_ = false;        // its callbacks are set
+    // --- round 18 phase 18B: the standalone widget picker (SettingsHost::openWidgetPicker: App
+    // settings > Docks and displays > Add a dock > More ▾ > Standalone widget…): the drawer popup
+    // in its standalone mode, a second instance so customize mode's keeps its callbacks and state.
+    // A click on a tile (or ItemCommand 869) adds that widget to the desktop and opens its panel;
+    // a drag drops it on the desktop (or on a dock: DrawerDrag). QueryState 334 / 335. ---
+    void OpenWidgetPicker(HWND owner, const RECT& anchor, UINT dpi);
+    bool PickerAdd(int ref);  // the picker's tile `ref` (DrawerRefs) as a click: false refused
+    DrawerPopup widgetPicker_;
+    bool widgetPickerReady_ = false;
+    // --- end round 18 phase 18B ---
     HWINEVENTHOOK editHook_ = nullptr;
     DockWindow* dragDock_ = nullptr;  // the dock showing a drawer drag's marker
     std::optional<POINT> widgetAt_;   // AddWidgetWindow: centre the new widget on this screen point

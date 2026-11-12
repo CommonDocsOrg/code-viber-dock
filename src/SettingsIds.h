@@ -443,11 +443,11 @@ inline constexpr int kDocksNote = 2804;       // the one-line hint under the can
 // 2805: "The other pages edit: <id>" until round 5 phase B (the canvas's kLayoutSelected line says it); reserved.
 inline constexpr int kLockAllDocks = 2806;    // check box "Lock all docks" (+ caption 2813; mixed: unchecked); as a command: lock every entry (= DockCommand 124)
 inline constexpr int kUnlockAllDocks = 2807;  // a command (the button is gone): unlock every entry (= DockCommand 125)
-inline constexpr int kDockAddFolder = 2808;   // "Add ▾" > "Folder window…" (= DockCommand 139: a folder picker; round 4 phase 12)
+inline constexpr int kDockAddFolder = 2808;   // "Add ▾" > "Folder window…" (= DockCommand 139: a folder picker; round 4 phase 12); round 18 phase 18C: the Add a dock card's "Folder window…" button
 // 2809: "Folder window settings…" until round 5 phase B (kDocksOpen opens a folder window's own window); reserved.
 inline constexpr int kDocksOpen = 2810;       // "Open settings" (the selected row's own window; = a double click)
-inline constexpr int kDockAddFloating = 2811; // round 6 phase 6A: "Add ▾" > "Floating dock" (a floating bar, layer desktop, centred)
-inline constexpr int kDockAddWidget = 2812;   // round 6 phase 6B: "Add ▾" > "Standalone widget ▸" (as a command: the catalog's widgets in a menu)
+inline constexpr int kDockAddFloating = 2811; // round 6 phase 6A: "Add ▾" > "Floating dock" (a floating bar, layer desktop, centred); round 18 phase 18C: the Add a dock card's "Floating dock" button
+inline constexpr int kDockAddWidget = 2812;   // round 6 phase 6B: More ▾ > "Standalone widget…" (round 18 phase 18B: opens the standalone widget picker under More ▾; a menu of names until then); round 18 phase 18C: the card's "Standalone widget…" button (the picker opens under it)
 inline constexpr int kLockAllDocksCaption = 2813;  // round 8 phase 8D
 inline constexpr int kDockAddMenu = 2814;     // round 8 phase 8D: "Add ▾" (a menu: Dock, Floating dock, Folder window…, Standalone widget ▸); round 18 phase 18A: the button is gone (the card's More ▾, 2823, has its other entries); as a command it opens that menu
 inline constexpr int kDockToggleEnabled = 2815;  // round 11 phase 11D: "Disable" / "Enable" (the selected row's docks[].enabled; greyed for the last enabled dock; = DockCommand 156)
@@ -459,7 +459,7 @@ inline constexpr int kAddDockCopyPins = 2819;    // check box "Copy my pinned ap
 inline constexpr int kAddDockCopyPinsCaption = 2820;
 inline constexpr int kAddDockDisplayLabel = 2821;  // "Display"
 inline constexpr int kAddDockDisplay = 2822;     // drop-down: Primary, every other connected display, Every display (the new dock's docks[].monitor)
-inline constexpr int kAddDockMore = 2823;        // "More ▾": Floating dock, Folder window…, Standalone widget ▸ (the old Add ▾ menu's other entries)
+inline constexpr int kAddDockMore = 2823;        // "More ▾": Floating dock, Folder window…, Standalone widget ▸ (the old Add ▾ menu's other entries); round 18 phase 18C: the button is gone (2811 / 2808 / 2812 are buttons of their own on the row under Copy my pinned apps); as a command (lParam 0) it still opens that menu
 // --- end round 18 phase 18A ---
 
 // The canvas (round 4 phase 3b)

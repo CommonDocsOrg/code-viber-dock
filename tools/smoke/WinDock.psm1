@@ -453,6 +453,44 @@ function Get-ControlText {
     [WinDockSmoke.Children]::Text($Hwnd)
 }
 
+# --- round 18 phase 18B (widget-picker.ps1) ---
+
+function Set-ControlText {
+    <# Sets the text of a control of the dock's process (a sent WM_SETTEXT; a marshalled string, which
+       Send-WindowMessage's IntPtr lParam cannot carry). An edit box gets no EN_CHANGE from it: send
+       WM_COMMAND(MAKEWPARAM(id, EN_CHANGE), hwnd) to its parent afterwards. #>
+    param([Parameter(Mandatory)][IntPtr]$Hwnd, [Parameter(Mandatory)][AllowEmptyString()][string]$Text)
+    if (-not ('WinDockSmoke.SetText' -as [type])) {
+        Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace WinDockSmoke {
+public static class SetText {
+    [DllImport("user32.dll", CharSet = CharSet.Unicode)] public static extern IntPtr SendMessageTimeoutW(IntPtr h, uint msg, IntPtr wp, string lp, uint flags, uint ms, out IntPtr result);
+    [DllImport("user32.dll")] public static extern IntPtr GetParent(IntPtr h);
+    [DllImport("user32.dll")] public static extern bool IsWindowVisible(IntPtr h);
+    public static bool Set(IntPtr h, string text) { IntPtr r; return SendMessageTimeoutW(h, 0x000C, IntPtr.Zero, text, 2, 5000, out r) != IntPtr.Zero; }
+}
+}
+'@
+    }
+    [WinDockSmoke.SetText]::Set($Hwnd, $Text)
+}
+
+function Get-ParentWindow {
+    <# The parent of a child window (IntPtr.Zero for a top-level one). #>
+    param([Parameter(Mandatory)][IntPtr]$Hwnd)
+    [void](Set-ControlText -Hwnd ([IntPtr]::Zero) -Text '')  # loads WinDockSmoke.SetText (a no-op send to no window)
+    [WinDockSmoke.SetText]::GetParent($Hwnd)
+}
+
+function Test-WindowVisible {
+    <# IsWindowVisible (the window and its ancestors have WS_VISIBLE). #>
+    param([Parameter(Mandatory)][IntPtr]$Hwnd)
+    [void](Set-ControlText -Hwnd ([IntPtr]::Zero) -Text '')  # loads WinDockSmoke.SetText
+    [WinDockSmoke.SetText]::IsWindowVisible($Hwnd)
+}
+
 if (-not ('WinDockSmoke.Capture' -as [type])) {
     Add-Type -TypeDefinition @'
 using System;

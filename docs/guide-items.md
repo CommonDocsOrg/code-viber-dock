@@ -135,7 +135,7 @@ If a pinned program or shortcut no longer exists, the dock shows a placeholder i
 
 ## Running apps
 
-Apps that are running but not pinned appear where the dock's **Running apps** item is. Without that item, only pinned apps show their windows. You can drag running apps to reorder them for the session, or drop one among the pins to pin it there.
+Apps that are running but not pinned appear where the dock's **Running apps** item is. Without that item, only pinned apps show their windows. You can drag running apps to reorder them for the session, or drop one among the pins to pin it there. WinDock's own settings windows (App settings and an item's window) are listed there too, under WinDock's icon, so you can always get back to one.
 
 The settings are in the Running apps widget's own settings window: right-click a running app that is not pinned and choose **Running apps settings…** (the first entry under its name), or click **Running apps settings…** for the running apps on the Contents tab. There you also set the **Gap** between the running apps and the **Padding** beside them, their **Order** (as they appear, or by name), titles, thumbnails and notification badges. **Windows** chooses between **Stacked (one slot per app)** and **One slot per window**. With one slot per window, every window gets its own icon, like on the Windows taskbar: its name label shows the window title, and a click brings that window to the front. A minimized window keeps its slot.
 

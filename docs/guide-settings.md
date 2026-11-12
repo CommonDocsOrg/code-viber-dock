@@ -38,7 +38,7 @@ Each window's title names what it edits: an item's window reads like "Weather ·
 
 ## The settings windows
 
-The App settings window and the item windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. The first time, they open at a size that suits your display. They follow the Windows light or dark app mode.
+The App settings window and the item windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. The first time, they open at a size that suits your display. They follow the Windows light or dark app mode. They also show up among the dock's running apps, under WinDock's own icon, so if one gets lost under your other windows, click it there to bring it back (or close it from its preview).
 
 A dock's settings are a panel, not a normal window:
 
@@ -67,7 +67,7 @@ To find a setting:
 
 WinDock opens the right window and page, scrolls to the setting and flashes it, so you can see where it is.
 
-The results show three columns: the setting, where it is (such as "App › General › System") and its current value.
+The results show three columns: the setting, where it is (such as "App › General › System") and its current value. With many docks and standalone widgets the list takes a moment to fill (the line under it says "Indexing settings…" while it does); you can type and pick a result meanwhile, and the next search while a settings window is open is instant.
 
 You can also change many settings right in the search:
 
@@ -259,7 +259,7 @@ The **Add a dock** card shows every layout as a small picture: a display with th
 - While it is shown you can click another layout: it replaces the one you are trying, so you can flip through them on your real desktop. Closing the window also cancels.
 - **Copy my pinned apps**: the new dock gets the pinned apps and folders of your first dock. It is greyed for layouts that have no place for pins (Floating performance, Desktop dashboard).
 - **Display**: the display the new dock goes on, or **Every display** for one copy on each. If the layout's edge is already taken there, the new dock goes to the next free edge.
-- **More ▾**: a **Floating dock**, a **Folder window…** or a **Standalone widget** (a submenu of your widgets).
+- Under them, three more things the card adds: **Floating dock** (a bar you can place anywhere on the display), **Folder window…** (a folder shown on the desktop; pick the folder first) and **Standalone widget…**. The last one opens a picker of your widgets under the button, each with a live preview, the same tiles as the drawer. Click a widget to put it on the desktop (its settings open beside it), or drag its tile onto the desktop where you want it, or onto a dock. A widget that only works on a dock is greyed. Type to search, Esc closes the picker.
 
 If another preview is open (a look you are trying on the Themes page, for example), keep or cancel it first. The card folds away with its heading when you do not need it.
 

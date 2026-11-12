@@ -1685,6 +1685,96 @@ gallery), the saved layouts are read when the page reloads, the tiles are rebuil
 they show changed. Automation: DockCommand 187, QueryState 333, ids 2816 - 2823;
 `tools\smoke\add-dock-gallery.ps1`.
 
+**Phase 18B: the standalone widget picker** (2026-11-11). The user's request: widgets could be
+added from three places, customize mode's Add items popup (the one they like best, with the live
+previews), the Contents tab's drawer, and App settings' More ▾ > Standalone widget ▸, which was a
+plain submenu of names; "can you use the widget preview drawer thingy here in the app settings
+too?". So it is the same popup: `DrawerPopup` learned a standalone mode (`ShowStandalone`) and App
+keeps a second instance of it for the settings window. What changes in that mode is only what a
+standalone widget does not need: the chips (one group, the script widgets), the group header, the
+monitor button on the tiles (a click is the desktop), "On the dock". What is new is small: a widget
+whose manifest needs a dock is greyed "Needs a dock" instead of being refused after the click, and
+the popup hangs under the button that opened it (above it when the work area has no room below).
+A click adds the widget as the Widget library's Add to the desktop does (the primary display,
+centred, its panel open); a drag goes through customize mode's `DrawerDrag`, so a tile dropped on
+the desktop lands at the point and one dropped on a dock joins it where its marker showed. Not
+done: replacing the Widget library's list with the same grid (its rows carry Source / Version
+columns and the management buttons; the user asked about adding, not managing), and a chip or
+entry for standalone widgets inside the Add a dock gallery (a widget is not a dock layout).
+
+Idle cost: none (the popup is created on first use and nothing runs while it is hidden; its
+previews are dropped when it hides). Automation: QueryState 334 / 335, ItemCommand 869, command
+2812 opens it; `tools\smoke\widget-picker.ps1`.
+
+**Phase 18C: buttons with glyphs, no More ▾, the settings windows in the running apps**
+(2026-11-11). From the user's look at 18B: "add icons to the buttons and move all the more options
+out of the more dropdown, it's not super easy to recognize you can add docks / widgets from here",
+and "I want the app settings window to show up in the taskbar like a regular app / window you can
+close, sometimes I lose it". Three things. (1) A settings `Button` can carry a Segoe Fluent Icons
+glyph (`Ctl::glyph`): the window gives it a four-state button image list (`MenuIcons::GlyphList`,
+straight alpha, the disabled entry faded into the layer) in the palette's text colour, made again
+on a theme or DPI change (`SettingsWindow::ApplyButtonGlyphs`), so the themed button keeps drawing
+itself (dark and light, hot, pressed, greyed) and only gains a picture before its text; the
+Docks and displays buttons use the dock menu's glyphs where they share an entry. (2) More ▾'s three
+entries are buttons of their own on the row under Copy my pinned apps (418 DIPs: they fit the
+window's minimum width); 2823 and 2814 stay commands that open the old menu, so nothing in
+automation breaks. (3) The running-apps filter (`WindowTracker::PassesFilter`) lets the process's
+own `WinDock.Settings` windows through: they are ordinary overlapped windows with the exe's icon,
+so they list under a WinDock slot like any app and a click brings a lost one back; every other
+window of the process is a tool window and stays out, as before. Not done: a taskbar entry in
+Explorer's own taskbar (hidden while the dock runs), or listing the Help / console windows (not
+asked for; they are owned windows).
+
+**Phase 18D: the settings search opens at once** (2026-11-11). The user: "when I use the search
+feature in the settings it lags like hell before eventually loading the dialog". The search of
+round 9 reads its values from live controls, so a window that is not open is created hidden for
+the index: the Global window and one Dock window per docks[] entry, every page with every control.
+That was a design choice (one code path for the values, Go to and changes in place) that scaled
+with the number of entries, and a desktop of nine standalone widgets has ten such windows, each a
+good fraction of a second to build; the dialog was created only after all of them, and destroyed
+with it were the windows, so the next Ctrl+F paid again. Three changes, none to what the index
+contains:
+
+- The dialog shows first and the index is built afterwards, one window per one-shot timer tick (not
+  a posted message: Windows dispatches posted messages before input and paint, so a chain of
+  posted steps left the dialog white and deaf until the end; a timer fires only once input and
+  paint are done), so the UI thread is never away for longer than one window. The first build publishes the rows read so
+  far after each step: the list fills under the user while they type, and Enter works on what is
+  there. A rebuild (after Go to, a change, or coming back to the dialog) keeps the old rows until
+  the new ones are complete, so the list never empties under a selection. The status line says what
+  is going on ("Indexing settings… 3 of 12 windows").
+- The hidden windows stay while any settings window of the user's is open, and go after the last one
+  closes (`App::DropSearchWindows`), so the second search while settings are open is instant. They
+  are leaner than a window the user sees (`SettingsWindow::indexOnly_`): no tooltips, the Contents
+  tab (never indexed, and the dearest page: the widget catalog and every icon) is an empty page
+  window, and a config change only marks them stale (the index refreshes one before it reads it;
+  showing one builds the rest first). Memory and USER handles while settings are open are the only
+  cost; idle cost none, and a change made in the open settings window no longer reloads them all.
+- The time zone list (about 140 registry reads) is cached for ten minutes: every clock widget's
+  Content page enumerated it, and so did the index.
+
+What the measurements said (and why the stepped build, not a faster window): on this machine any
+child window costs ~0.5 ms to create and 3 - 5 ms to destroy, in any process (a plain PowerShell
+process creating 300 statics measures the same), and a Dock window has ~700 controls over four tabs
+(the Look tab alone ~290: a row of controls per theme field). So a Dock window is ~1 s to make and
+~2.5 s to destroy whatever WinDock does, and the only levers are how many controls a hidden window
+carries, when it is made, and when it goes. Destroying them is the dearer half, so it moved off the
+moment the user is waiting for (Esc) to after the last settings window closed, one window per
+posted message, so the dock keeps answering between two.
+
+The slow quit showed up at once: the user's dock, with ten hidden windows alive, took over ten
+seconds to quit, with the taskbar hidden meanwhile. At shutdown they are now abandoned (the window
+procedures detached, the HWNDs die with the process) rather than destroyed; a window the user sees
+is still destroyed, since closing it may commit a pending edit.
+
+Not done: an index that reads the config instead of windows (no hidden windows at all). It would
+make the first search instant too, but every settings page would have to describe its controls
+twice (the window and the index), and Go to / change in place still need the window; the stepped
+build keeps one code path and makes the wait visible and interruptible instead. Also not done:
+building the other tabs lazily (the index reads them), or keeping the hidden windows for the
+process's life (USER handles for every entry). Automation: QueryState 338 / 339;
+`tools\smoke\settings-search.ps1`.
+
 ## Dependencies at a glance
 
 ```

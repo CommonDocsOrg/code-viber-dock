@@ -1545,6 +1545,7 @@ void App::Shutdown() {
         std::vector<std::unique_ptr<SettingsSearch>> searches = std::move(searches_);  // round 9 phase 9B: before their owners
         searches_.clear();
         searches.clear();
+        for (SettingsWindow* w : searchHidden_) w->AbandonForExit();  // round 18 phase 18D: not destroyed (seconds each)
         searchHidden_.clear();
         std::vector<std::unique_ptr<SettingsWindow>> windows = std::move(settings_);
         settings_.clear();
@@ -2279,6 +2280,7 @@ void App::RefreshSettings(SettingsWindow* except) {
 void App::InvalidatePreviews() {
     ++previewGeneration_;
     drawerPopup_.InvalidatePreviews();  // round 12 phase 12D
+    widgetPicker_.InvalidatePreviews();  // round 18 phase 18B
     for (size_t i = 0; i < settings_.size(); ++i) {
         if (SettingsWindow* w = settings_[i].get(); w->Hwnd()) w->InvalidatePreviews();
     }
@@ -2313,6 +2315,10 @@ bool App::PreTranslateMessage(MSG& msg) {
     }
     // Round 12 phase 12D: the drawer popup's keyboard (Tab between its controls, Escape closes it).
     if (const HWND drawer = drawerPopup_.Hwnd(); drawer && (msg.hwnd == drawer || IsChild(drawer, msg.hwnd)) && IsDialogMessageW(drawer, &msg)) {
+        return true;
+    }
+    // Round 18 phase 18B: the standalone widget picker's keyboard the same way.
+    if (const HWND picker = widgetPicker_.Hwnd(); picker && (msg.hwnd == picker || IsChild(picker, msg.hwnd)) && IsDialogMessageW(picker, &msg)) {
         return true;
     }
     if (help_ && help_->Hwnd() && help_->PreTranslateMessage(msg)) return true;           // round 9 phase 9D
@@ -2630,6 +2636,8 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     host.addLayoutDock = [this, w](bool mine, size_t index, bool copyPins, int monitor) {
         return AddDockFromCard(w, mine, index, copyPins, monitor);
     };
+    // Round 18 phase 18B: its More ▾ > Standalone widget… picker (the drawer popup's widgets).
+    host.openWidgetPicker = [this, w](const RECT& anchor, UINT dpi) { OpenWidgetPicker(w->Hwnd(), anchor, dpi); };
     host.dockWindows = [this](size_t index) {
         int n = docks_.FolderOf(index) || docks_.WidgetOf(index) ? 1 : 0;
         docks_.ForConfig(index, [&](DockWindow&) { ++n; });
@@ -2807,6 +2815,28 @@ SettingsSearch* App::SearchOf(const SettingsWindow* w) const {
     return nullptr;
 }
 
+bool App::SearchWindowsIdle() const {
+    if (!searches_.empty() || searchHidden_.empty()) return false;
+    for (const auto& w : settings_) {
+        if (w->Hwnd() && !IsSearchHidden(w.get())) return false;  // a window of the user's is open: kept for the next search
+    }
+    return true;
+}
+
+void App::DropSearchWindows() {
+    if (shutDown_ || searchDropPosted_ || !hwnd_ || !SearchWindowsIdle()) return;
+    searchDropPosted_ = PostMessageW(hwnd_, kDropSearchWindow, 0, 0) != FALSE;
+}
+
+void App::DropOneSearchWindow() {
+    searchDropPosted_ = false;
+    if (shutDown_ || !SearchWindowsIdle()) return;  // a search or settings window opened meanwhile: the rest stay for it
+    SettingsWindow* w = searchHidden_.front();
+    searchHidden_.erase(searchHidden_.begin());
+    if (w->Hwnd() && !IsWindowVisible(w->Hwnd())) DestroyWindow(w->Hwnd());  // freed by kSettingsClosed
+    DropSearchWindows();  // the next one, if any
+}
+
 SettingsWindow* App::CreateHiddenSettings(SettingsKind kind, const std::wstring& dock, size_t item) {
     if (shutDown_) return nullptr;
     auto w = std::make_unique<SettingsWindow>(SettingsHost{}, kind, dock, item);
@@ -2824,20 +2854,19 @@ SettingsWindow* App::CreateHiddenSettings(SettingsKind kind, const std::wstring&
 SettingsSearchHost App::MakeSearchHost() {
     SettingsSearchHost host;
     host.config = &config_;
-    host.windows = [this] {
-        // The Global window and every docks[] entry's Dock window (a dock, a standalone widget, a
-        // folder window); those that are not open are created hidden.
-        std::vector<SettingsWindow*> out;
-        SettingsWindow* g = FindSettings(SettingsKind::Global);
-        if (!g && !config_.docks.empty()) g = CreateHiddenSettings(SettingsKind::Global, config_.docks.front().id);
-        if (g) out.push_back(g);
-        for (size_t i = 0; i < config_.docks.size(); ++i) {
-            const std::wstring id = config_.docks[i].id;
-            SettingsWindow* w = FindSettings(SettingsKind::Dock, id);
-            if (!w) w = CreateHiddenSettings(SettingsKind::Dock, id);
-            if (w) out.push_back(w);
+    // The Global window (0) and every docks[] entry's Dock window (1 + k: a dock, a standalone
+    // widget, a folder window); one that is not open is created hidden. Round 18 phase 18D: by
+    // number, one per call (the dialog asks for one per posted message).
+    host.windowCount = [this] { return config_.docks.empty() ? size_t{0} : 1 + config_.docks.size(); };
+    host.window = [this](size_t i) -> SettingsWindow* {
+        if (config_.docks.empty() || i > config_.docks.size()) return nullptr;
+        if (i == 0) {
+            SettingsWindow* g = FindSettings(SettingsKind::Global);
+            return g ? g : CreateHiddenSettings(SettingsKind::Global, config_.docks.front().id);
         }
-        return out;
+        const std::wstring id = config_.docks[i - 1].id;
+        SettingsWindow* w = FindSettings(SettingsKind::Dock, id);
+        return w ? w : CreateHiddenSettings(SettingsKind::Dock, id);
     };
     host.open = [this](SettingsKind kind, const std::wstring& dock, size_t item, int page) -> SettingsWindow* {
         // The paths of DockCommand 107 / 143 / 142 (a hidden window is shown by them).
@@ -3844,6 +3873,15 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             if (wp == 282) return s ? 1 : 0;
             return s ? s->ResultCount() : -2;
         }
+        case 338: {  // round 18 phase 18D: that dialog's index is complete (1) / still being built (0); -2 none open
+            SettingsWindow* w = arg == 1 ? FindSettings(SettingsKind::Global)
+                                : inst && inst->cfg < config_.docks.size() ? FindSettings(SettingsKind::Dock, config_.docks[inst->cfg].id)
+                                                                           : nullptr;
+            SettingsSearch* s = SearchOf(w);
+            return s ? (s->Indexing() ? 0 : 1) : -2;
+        }
+        case 339:  // round 18 phase 18D: the settings windows kept hidden for the search's index (LOWORD 1: the search dialogs still open, closed ones included until their kSearchClosed)
+            return static_cast<LRESULT>(arg == 1 ? searches_.size() : searchHidden_.size());
         case 264:    // round 6 phase 6E: the Dock window's drawer: entry LOWORD's preview size (MAKELONG(w, h) px; 0 none)
         case 267:    // ... its render time in microseconds (-1: not rendered)
         case 268: {  // the Contents tab's inspector shows a widget preview (1 / 0); -2 for each: no Dock window of that dock
@@ -4077,6 +4115,11 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return drawerPopup_.Shown() ? 1 : 0;
         case 312:  // its tiles after the search and the chip (-1: not shown)
             return drawerPopup_.Shown() ? drawerPopup_.TileCount() : -1;
+        // Round 18 phase 18B (app-wide): the standalone widget picker of App settings.
+        case 334:  // the picker is shown (1 / 0)
+            return widgetPicker_.Shown() ? 1 : 0;
+        case 335:  // its tiles after the search (-1: not shown)
+            return widgetPicker_.Shown() ? widgetPicker_.TileCount() : -1;
         // --- round 12 phase 12E ---
         // 313: the Dock settings window of dock HIWORD: 0 none open, 1 a panel beside the dock (2 a
         // captioned window: folder window / standalone widget entries until round 12 phase 12I;
@@ -4110,6 +4153,25 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             SettingsWindow* w = FindSettings(SettingsKind::Global);
             LRESULT out = -2;
             if (!w || !w->Hwnd() || !w->QueryPages(333, arg, out)) out = -2;
+            return out;
+        }
+        // --- round 18 phase 18C (app-wide) ---
+        case 336: {  // the process's own windows among the running apps (the settings windows the tracker lists)
+            LRESULT n = 0;
+            const DWORD self = GetCurrentProcessId();
+            for (const WindowTracker::Group& g : docks_.Tracker().Current().groups) {
+                for (HWND h : g.windows) {
+                    DWORD pid = 0;
+                    GetWindowThreadProcessId(h, &pid);
+                    if (pid == self) ++n;
+                }
+            }
+            return n;
+        }
+        case 337: {  // the Docks and displays buttons that carry a glyph image list (-2 no App settings window)
+            SettingsWindow* w = FindSettings(SettingsKind::Global);
+            LRESULT out = -2;
+            if (!w || !w->Hwnd() || !w->QueryPages(337, arg, out)) out = -2;
             return out;
         }
         default:
@@ -4477,6 +4539,13 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         result = dock && ApplyQuick(*dock, static_cast<int>(ArgOfParam(lp)), static_cast<size_t>((wp >> 16) & 0xFFFF)) ? 1 : 0;
         return true;
     }
+    if (msg == msgItemCommand_ && (wp & 0xFFFF) == ContextMenu::kPickerAdd) {
+        // Round 18 phase 18B: the standalone widget picker's tile LOWORD(lParam) (DrawerRefs: a
+        // script widget's ref) as a click on it. 1 done, 0 refused (the picker is not shown, no such
+        // tile, a widget that needs a dock). The dock in HIWORD(lParam) is ignored.
+        result = PickerAdd(static_cast<int>(ArgOfParam(lp))) ? 1 : 0;
+        return true;
+    }
     if (msg == msgItemCommand_ && (wp & 0xFFFF) == ContextMenu::kWidgetToDesktop) {
         // Round 16 phase 16E: slot LOWORD(lParam) of dock HIWORD(lParam) moved to the desktop as a
         // drag off the dock would, centred on the work area of the dock window's monitor. 1 done,
@@ -4775,16 +4844,13 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         return 0;
     }
     if (msg == kSearchClosed) {
-        // Round 9 phase 9B: a search dialog closed (Esc, its owner closed). With the last one gone,
-        // the windows made hidden for the index close too (those the user went to are shown: kept).
+        // Round 9 phase 9B: a search dialog closed (Esc, its owner closed). Round 18 phase 18D: the
+        // windows made hidden for the index stay while a settings window of the user's is open
+        // (the next Ctrl+F reuses them and is instant; until 18D they closed with the last dialog
+        // and every search created them again); they go with the last settings window
+        // (kSettingsClosed). Those the user went to are shown: kept either way.
         std::erase_if(searches_, [](const std::unique_ptr<SettingsSearch>& s) { return !s->Hwnd(); });
-        if (searches_.empty() && !searchHidden_.empty()) {
-            const std::vector<SettingsWindow*> hidden = std::move(searchHidden_);
-            searchHidden_.clear();
-            for (SettingsWindow* w : hidden) {
-                if (w->Hwnd() && !IsWindowVisible(w->Hwnd())) DestroyWindow(w->Hwnd());  // freed by kSettingsClosed
-            }
-        }
+        DropSearchWindows();
         return 0;
     }
     if (msg == kHelpClosed) {  // round 9 phase 9D
@@ -4832,6 +4898,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         std::erase_if(marks_, [](const WindowMark& m) { return !m.window->Hwnd(); });
         if (previewing_ && previewHost_ && !IsWindow(previewHost_)) CancelBar();
         std::erase_if(settings_, [](const std::unique_ptr<SettingsWindow>& w) { return !w->Hwnd(); });
+        DropSearchWindows();  // round 18 phase 18D: the last window of the user's closed: the index's hidden ones go (posted again)
         if (settings_.empty()) docks_.Previews().Release();  // round 6 phase 6E: its factories go with the last window
         UpdateKeepShown();   // round 12 phase 12E: a closed panel no longer holds its dock shown
         UpdateTimelineUi();  // the banner, when no window shows the bar any more
@@ -4850,6 +4917,10 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == kRemoveFolderMessage) {
         RemoveDesktopEntry(static_cast<size_t>(wp));
+        return 0;
+    }
+    if (msg == kDropSearchWindow) {  // round 18 phase 18D
+        DropOneSearchWindow();
         return 0;
     }
     if (msg == kMoveToDockMessage) {
@@ -5172,6 +5243,63 @@ void App::PlaceDrawer() {
     drawerPopup_.Show(instance_, dc, config_.DockDisplayName(cfg), config_.DockColor(cfg), avail, edge, endAlong, d->Dpi());  // 12C's name (the merge)
     if (!wasShown && drawerPopup_.Shown()) d->SetDrawerHold(true);
 }
+
+// --- round 18 phase 18B: the standalone widget picker of App settings -------------------------
+
+void App::OpenWidgetPicker(HWND owner, const RECT& anchor, UINT dpi) {
+    if (shutDown_) return;
+    if (!widgetPickerReady_) {
+        widgetPickerReady_ = true;
+        DrawerPopup::Callbacks cb;
+        cb.add = [this](int ref) { PickerAdd(ref); };
+        // (No `desktop`: the picker's tiles have no monitor button; a click is the desktop.)
+        cb.drag = [this](int phase, POINT screen, int ref) {
+            if (phase == 1) return DrawerDrag(1, screen, nullptr);
+            // The entry for no dock in particular: dropped on a dock it joins that dock (its marker
+            // showed), on the desktop it becomes a standalone widget centred on the point.
+            const std::optional<DockItemEntry> e = widgetPicker_.EntryFor(ref, DockConfig{});
+            return DrawerDrag(phase, screen, e ? &*e : nullptr);
+        };
+        cb.standaloneOk = [](const std::wstring& id) {
+            DockItemEntry e;
+            e.kind = ToString(ItemKind::Widget);
+            e.id = id;
+            return CanBeStandalone(e);
+        };
+        cb.renderPreview = [this](const std::wstring& id, float scale, SIZE fit, float maxZoom) {
+            const WidgetPreview::Result r = docks_.RenderPreview(id, scale, static_cast<UINT>(std::max<LONG>(1, fit.cx)),
+                                                                 static_cast<UINT>(std::max<LONG>(1, fit.cy)), maxZoom);
+            return SettingsWidgetPreview{r.bitmap, r.px, r.error, r.ms};
+        };
+        cb.previewStamp = [this] { return WidgetPreview::ThemeStamp(config_) ^ (previewGeneration_ * 0x9E3779B97F4A7C15ull); };
+        cb.previewPanel = [this] { return config_.theme.background; };
+        widgetPicker_.SetCallbacks(std::move(cb));
+    }
+    // The settings window gets the focus back when the picker hides (no other app's window in between).
+    widgetPicker_.SetReturnFocus(owner);
+    // The border in the accent of the app look (no dock of its own): the first dock's colour.
+    widgetPicker_.ShowStandalone(instance_, anchor, config_.docks.empty() ? 0xFF4CC2FFu : config_.DockColor(0), dpi);
+}
+
+bool App::PickerAdd(int ref) {
+    if (shutDown_ || !widgetPicker_.Shown()) return false;
+    const StripUi::DrawerEntry* e = widgetPicker_.Entry(ref);
+    if (!e || e->kind != ItemKind::Widget) return false;
+    const std::wstring id = e->id, name = e->name;
+    // Hidden first: the new widget's panel takes the activation, which would close it anyway (its
+    // click model), and the previews belong to this showing.
+    widgetPicker_.Hide();
+    NoteLabel(L"Added " + name + L" to the desktop");
+    // The primary display, centred, its panel open: as the Widget library's Add to the desktop
+    // (AddWidgetWindow selects the new entry in the App settings window and refreshes it).
+    if (AddWidgetWindow(id, SIZE_MAX, true) == SIZE_MAX) {
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    return true;
+}
+
+// --- end round 18 phase 18B ---
 
 void App::ShowDrawer(bool show) {
     DockWindow* d = editDock_;

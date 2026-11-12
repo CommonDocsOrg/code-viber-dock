@@ -17,7 +17,7 @@ To add a dock:
 3. Choose the **Display** if you have several, and leave **Copy my pinned apps** checked to bring your pins along.
 4. Click a layout. The new dock appears on your desktop at once. Click another layout to try that one instead, then click **Keep** in the bar at the top of the window (or **Cancel**).
 
-**More ▾** in the same card adds a **Floating dock** (a bar you can place anywhere), a **Folder window…** or a **Standalone widget**. See [Add a dock](guide-settings.md#add-a-dock).
+The buttons at the bottom of the same card add a **Floating dock** (a bar you can place anywhere), a **Folder window…** or a **Standalone widget…** (a picker of your widgets, with previews). See [Add a dock](guide-settings.md#add-a-dock).
 
 To make a copy of a dock, right-click it and choose **Duplicate dock** (or select it on Docks and displays and click **Duplicate**). The copy is named after it, for example "main copy", and goes on the next free edge of the same display, with its own colour. To remove a dock, select it on Docks and displays and click **Remove**.
 
@@ -155,7 +155,7 @@ A floating dock is a bar placed anywhere on the screen, not on an edge. It suits
 To add a floating dock:
 
 1. Open App settings > Docks and displays.
-2. Under **Add a dock**, click **More ▾** and choose **Floating dock**.
+2. Under **Add a dock**, click **Floating dock**.
 
 A new floating dock sits in the middle of the primary display, on the desktop layer. You can also turn any dock into one: choose **Floating bar** under **Kind** on its Position tab.
 
@@ -212,7 +212,7 @@ To add a folder window:
 1. Right-click the dock and choose **Add** > **Folder window on the desktop…**.
 2. Pick a folder.
 
-It opens at the pointer. You can also add one on App settings > Docks and displays > **Add a dock** > **More ▾** > **Folder window…**.
+It opens at the pointer. You can also add one on App settings > Docks and displays > **Add a dock** > **Folder window…**.
 
 Working with a folder window:
 
@@ -237,7 +237,7 @@ To put a widget on the desktop:
 
 - In the drawer (a dock's Contents tab, or **Add items** while customizing), drag the widget's tile onto the desktop, or press the small monitor button on its tile.
 - Or in App settings > Widget library, select a widget and click **Add to the desktop**.
-- Or in App settings > Docks and displays, under **Add a dock** click **More ▾** > **Standalone widget** and choose the widget.
+- Or in App settings > Docks and displays, under **Add a dock** click **Standalone widget…**: a picker of your widgets with previews opens under the button. Click one, or drag its tile onto the desktop where you want it.
 
 The widget appears on the desktop, under your windows, and its settings panel opens beside it.
 
@@ -286,7 +286,7 @@ The built-in layouts:
 - **Modern**: glass, big icons and widgets. Icons grow strongly under the pointer. A Start button sits at the left end; volume, now playing, notifications, the weather and a clock at the right end.
 - **Windows and labels**: every window with its title and a picture, like the Windows taskbar. Every open window gets its own place, with its title under it and a picture taken every 5 seconds. For the Aero look of Windows 7, pick Windows 7.
 - **Windows 7**: the classic Aero taskbar. A full-width glass bar at the bottom with the Start orb, your apps as taskbar buttons, the tray icons, a two-line clock and Show desktop at the right end. It never hides, and maximized windows stop above it. See [Make it look like Windows 7](#make-it-look-like-windows-7).
-- **Sidebar**: a bar along the whole left edge, its items from the top down. Every window has its own row with its title beside the icon. It hides while a window covers it.
+- **Sidebar**: a bar along the whole left edge. Start and your apps from the top down, every window with a row of its own (no titles), and the volume and the clock in the bottom corner. It hides while a window covers it.
 - **Floating performance**: system load at the top right. A small floating bar with a processor graph, an overview of processor, memory, graphics, disk and network, the battery and a clock. It lives on the desktop under your windows and is locked so it does not move by accident.
 - **Desktop dashboard**: a floating bar in the middle of the desktop, under your windows, with a large analog clock, the weather, today's agenda and your notes. Show the desktop or press the dashboard hotkey to see it.
 

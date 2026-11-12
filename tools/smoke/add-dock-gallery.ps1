@@ -77,8 +77,14 @@ try {
     Check 'no ghost without a hover (QueryState 333 / 2 = -1)' ((Get-DockState 333 -Arg 2) -eq -1)
     $hint = Get-ChildControl -Hwnd $settings -Id 2818
     Check 'the hint exists (2818) and says what a click does' ($hint -ne [IntPtr]::Zero -and (Get-ControlText $hint) -like 'Click a layout*')
-    $more = Get-ChildControl -Hwnd $settings -Id 2823
-    Check 'More ▾ exists (2823)' ($more -ne [IntPtr]::Zero -and (Get-ControlText $more) -like 'More*')
+    # Round 18 phase 18C: More ▾ (2823) is gone; its three entries are buttons with glyphs.
+    Check 'More ▾ is gone (2823)' ((Get-ChildControl -Hwnd $settings -Id 2823) -eq [IntPtr]::Zero)
+    foreach ($b in @(@{ Id = 2811; Text = 'Floating dock' }, @{ Id = 2808; Text = 'Folder window*' }, @{ Id = 2812; Text = 'Standalone widget*' })) {
+        $h = Get-ChildControl -Hwnd $settings -Id $b.Id
+        Check "button $($b.Id) '$($b.Text)' exists and is shown" ($h -ne [IntPtr]::Zero -and (Get-ControlText $h) -like $b.Text -and (Test-WindowVisible $h))
+    }
+    # BCM_GETIMAGELIST cannot be asked from another process: the page counts its glyph buttons.
+    Check 'the nine buttons carry their glyph image lists (QueryState 337 = 9)' ((Get-DockState 337) -eq 9)
     $pins = Get-ChildControl -Hwnd $settings -Id 2819
     Check 'Copy my pinned apps is checked (2819)' ($pins -ne [IntPtr]::Zero -and (Send-WindowMessage -Hwnd $pins -Msg 0x00F0) -eq 1)  # BM_GETCHECK
     $display = Get-ChildControl -Hwnd $settings -Id 2822

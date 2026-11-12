@@ -12,6 +12,7 @@
 #include <iterator>
 
 #include "Backdrop.h"
+#include "MenuIcons.h"
 #include "SettingsIds.h"
 #include "SettingsPreview.h"
 #include "resource.h"
@@ -134,7 +135,16 @@ Ctl& SettingsPage::Add(int id, CtlKind kind, const wchar_t* cls, std::wstring te
     return table_.back();
 }
 
+SettingsPage::~SettingsPage() {
+    for (Ctl& c : table_) {
+        if (c.glyphList) ImageList_Destroy(c.glyphList);  // round 18 phase 18C
+    }
+}
+
 void SettingsPage::ResetTable() {
+    for (Ctl& c : table_) {
+        if (c.glyphList) ImageList_Destroy(c.glyphList);  // round 18 phase 18C (the controls are gone)
+    }
     table_.clear();
     cards_.clear();
     hairlines_.clear();
@@ -425,8 +435,9 @@ void SettingsPage::Radios(std::initializer_list<RadioDef> radios, int x) {
     y_ += kRowGap;
 }
 
-void SettingsPage::Button(int id, const wchar_t* text, int x, int w) {
-    Add(id, CtlKind::Button, WC_BUTTONW, text, WS_TABSTOP | BS_PUSHBUTTON, RECT{x, y_ + 2, x + w, y_ + kRowH - 2});
+void SettingsPage::Button(int id, const wchar_t* text, int x, int w, wchar_t glyph) {
+    Ctl& c = Add(id, CtlKind::Button, WC_BUTTONW, text, WS_TABSTOP | BS_PUSHBUTTON, RECT{x, y_ + 2, x + w, y_ + kRowH - 2});
+    c.glyph = glyph;
 }
 
 void SettingsPage::Link(int id, std::wstring markup, int x, int w) {
@@ -1272,6 +1283,7 @@ bool SettingsWindow::Create(HINSTANCE instance, bool show) {
     // the captioned window; the user's decision 2026-11-09: panels only). Global and Item windows
     // stay captioned windows.
     panel_ = kind_ == SettingsKind::Dock;
+    indexOnly_ = !show;  // round 18 phase 18D
     auto place = [this] {
         if (!panel_) return InitialRect();
         int side = panelSide_;
@@ -1368,11 +1380,15 @@ bool SettingsWindow::CreatePage(SettingsPage& page, int index) {
                     hwnd_, reinterpret_cast<HMENU>(static_cast<INT_PTR>(SettingsIds::kPageBase + index)), instance_,
                     &page);
     if (!page.hwnd_) return false;
+    // Round 18 phase 18D: a window made hidden for the search's index gets the Contents tab (laid
+    // out by itself; not indexed, and the dearest page: its drawer loads the widget catalog and
+    // every icon) as an empty page window; Activate builds it (RebuildPage) before the window shows.
+    if (indexOnly_ && !page.reflow_) return true;
     page.ResetTable();
     page.Build();
     CreateControls(page);
     page.Created();
-    CreateTips(page);
+    if (!indexOnly_) CreateTips(page);
     return true;
 }
 
@@ -1461,11 +1477,53 @@ void SettingsWindow::CreateControls(SettingsPage& page) {
                 break;
         }
     }
+    ApplyButtonGlyphs(page);  // round 18 phase 18C
+}
+
+void SettingsWindow::ApplyButtonGlyphs(SettingsPage& page) {
+    // The disabled colour: the text colour faded into the layer, about what the themed button
+    // draws its greyed text in.
+    auto mix = [](BYTE x, BYTE y) { return static_cast<BYTE>((x * 45 + y * 55) / 100); };
+    const COLORREF a = palette_.text, b = palette_.layer;
+    const COLORREF disabled = RGB(mix(GetRValue(a), GetRValue(b)), mix(GetGValue(a), GetGValue(b)), mix(GetBValue(a), GetBValue(b)));
+    for (Ctl& c : page.table_) {
+        if (c.kind != CtlKind::Button || !c.glyph || !c.hwnd) continue;
+        HIMAGELIST list = MenuIcons::GlyphList(c.glyph, dpi_, palette_.text, disabled);
+        if (!list) continue;
+        // The picture at the left edge, the text centred in the rest (the button's own layout
+        // for BUTTON_IMAGELIST_ALIGN_LEFT): a 6-DIP margin before it, 2 after.
+        BUTTON_IMAGELIST bil{};
+        bil.himl = list;
+        bil.margin = RECT{Px(6), 0, Px(2), 0};
+        bil.uAlign = BUTTON_IMAGELIST_ALIGN_LEFT;
+        SendMessageW(c.hwnd, BCM_SETIMAGELIST, 0, reinterpret_cast<LPARAM>(&bil));
+        if (c.glyphList) ImageList_Destroy(c.glyphList);  // after the button took the new one
+        c.glyphList = list;
+        InvalidateRect(c.hwnd, nullptr, TRUE);
+    }
 }
 
 void SettingsWindow::Activate() {
     if (!hwnd_) return;
     if (!IsWindowVisible(hwnd_)) {
+        if (indexOnly_) {
+            // Round 18 phase 18D: what a window made for the index went without: the Contents
+            // tab's controls (RebuildPage: built, themed, laid out, loaded, with its tooltips), the
+            // other pages' tooltips, and the values changed since (Refresh).
+            indexOnly_ = false;
+            for (size_t i = 0; i < pages_.size(); ++i) {
+                if (!pages_[i]->hwnd_) continue;
+                if (!pages_[i]->reflow_) {
+                    RebuildPage(static_cast<int>(i));
+                } else {
+                    CreateTips(*pages_[i]);
+                }
+            }
+            if (indexStale_) {
+                indexStale_ = false;
+                Refresh();
+            }
+        }
         if (panel_) Reanchor(false);  // round 12 phase 12E: the dock may have moved since it was made hidden
         ShowWindow(hwnd_, SW_SHOWNORMAL);  // round 9 phase 9B: created hidden for a search
     } else if (IsIconic(hwnd_)) {
@@ -1476,10 +1534,41 @@ void SettingsWindow::Activate() {
 
 void SettingsWindow::Refresh() {
     if (!hwnd_) return;
+    if (indexOnly_) {  // round 18 phase 18D: later, when the index reads it (EnsureFresh) or it is shown
+        indexStale_ = true;
+        return;
+    }
     loading_ = true;
     for (auto& page : pages_) page->Load();
     loading_ = false;
     if (preview_) preview_->Invalidate();
+    UpdateIdentity();
+}
+
+void SettingsWindow::AbandonForExit() {
+    if (!hwnd_ || !indexOnly_ || IsWindowVisible(hwnd_)) return;
+    // No message reaches the objects again: the thunks fall through to DefWindowProc. The HWNDs,
+    // fonts, brushes and image lists go with the process.
+    for (auto& page : pages_) {
+        if (page->hwnd_) SetWindowLongPtrW(page->hwnd_, GWLP_USERDATA, 0);
+        page->hwnd_ = nullptr;
+        page->tip_ = nullptr;
+        for (Ctl& c : page->table_) c.hwnd = nullptr;
+    }
+    SetWindowLongPtrW(hwnd_, GWLP_USERDATA, 0);
+    ShowWindow(hwnd_, SW_HIDE);  // it is; so no WM_ACTIVATE reaches a detached window from the others' destruction
+    hwnd_ = nullptr;
+    preview_.reset();
+}
+
+void SettingsWindow::EnsureFresh() {
+    if (!hwnd_ || !indexOnly_ || !indexStale_) return;
+    indexStale_ = false;
+    loading_ = true;
+    for (auto& page : pages_) {
+        if (page->hwnd_ && page->reflow_) page->Load();  // not the Contents tab: an empty page window until shown
+    }
+    loading_ = false;
     UpdateIdentity();
 }
 
@@ -1720,6 +1809,7 @@ void SettingsWindow::ApplyTheme() {
             }
             UnselectComboText(c);
         }
+        ApplyButtonGlyphs(*page);  // round 18 phase 18C: the new text colour
     }
     if (preview_) {
         // The strip sits on the content layer, with a hairline between it and the page.
@@ -2930,7 +3020,7 @@ void SettingsWindow::RebuildPage(int index) {
                 break;
         }
     }
-    CreateTips(page);
+    if (!indexOnly_) CreateTips(page);
     LayoutPage(page);
     loading_ = true;
     page.Load();
@@ -3117,6 +3207,7 @@ LRESULT SettingsWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                          SWP_NOZORDER | SWP_NOACTIVATE);
             ApplyBackdrop();  // the nav width in pixels changed
             Layout();
+            for (auto& page : pages_) ApplyButtonGlyphs(*page);  // round 18 phase 18C: the glyphs at the new DPI
             StyleChanged();  // image lists at the new DPI
             RedrawWindow(hwnd_, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_ALLCHILDREN);
             if (panel_) Reanchor(false);  // round 12 phase 12E: its size in pixels changed, beside the dock again

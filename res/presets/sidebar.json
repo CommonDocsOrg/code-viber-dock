@@ -2,7 +2,7 @@
   "id": "sidebar",
   "name": "Sidebar",
   "tagline": "A full-height bar at the left edge",
-  "description": "A bar along the whole left edge of the screen, its items from the top down. Every window has its own row with its title beside the icon. It hides while a window covers it.",
+  "description": "A bar along the whole left edge of the screen: Start and your apps from the top down, every window with a row of its own, and the volume and the clock in the bottom corner. It hides while a window covers it.",
   "dock": {
     "edge": "left", "align": "start", "fullWidth": true, "iconSize": 40,
     "magnification": 1.0, "magnifyBar": "always",
@@ -12,9 +12,9 @@
     { "kind": "widget", "id": "start" },
     { "kind": "pins" },
     { "kind": "separator" },
-    { "kind": "running", "settings": { "windows": "unstacked", "titles": "one", "titlesVertical": "beside" } },
-    { "kind": "separator" },
-    { "kind": "widget", "id": "volume" },
-    { "kind": "clock" }
+    { "kind": "running", "settings": { "windows": "unstacked", "titles": "off" } },
+    { "kind": "separator", "anchor": "end" },
+    { "kind": "widget", "id": "volume", "anchor": "end" },
+    { "kind": "clock", "anchor": "end" }
   ]
 }

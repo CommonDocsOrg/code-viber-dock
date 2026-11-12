@@ -1,6 +1,7 @@
 #pragma once
 
 #include <windows.h>
+#include <commctrl.h>  // HIMAGELIST (round 18 phase 18C: GlyphList)
 
 #include "DockItems.h"
 
@@ -20,6 +21,11 @@ UINT SizeFor(UINT dpi);
 // not installed and GDI substitutes another one) in `colour`, 16 DIPs square. Cached by
 // (codepoint, dpi, colour) until Shutdown(); the menu does not own it. Null on failure.
 HBITMAP Glyph(wchar_t codepoint, UINT dpi, COLORREF colour);
+
+// Round 18 phase 18C: the glyph as a button image list (BCM_SETIMAGELIST): four 16-DIP entries
+// in the button's state order (normal, hot and pressed in `colour`, disabled in `disabled`),
+// straight alpha. The caller owns the list (ImageList_Destroy). Null on failure.
+HIMAGELIST GlyphList(wchar_t codepoint, UINT dpi, COLORREF colour, COLORREF disabled);
 
 // `icon` drawn at 16 DIPs (premultiplied; an icon without an alpha channel gets its alpha from
 // the mask). Cached per HICON until ReleaseTransient(); the caller keeps owning `icon`. Null on

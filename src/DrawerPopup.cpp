@@ -136,14 +136,81 @@ void DrawerPopup::ApplyStyle() {
 void DrawerPopup::Fill() {
     if (!grid_) return;
     int select = -1;
-    std::vector<StripUi::StripTile> tiles = catalog_.Tiles(dock_, filter_, chip_, grid_->SelectedRef(), Px(44), &select, nullptr);
+    std::vector<StripUi::StripTile> tiles =
+        catalog_.Tiles(dock_, filter_, standalone_ ? StripUi::DrawerFilter::Widgets : chip_, grid_->SelectedRef(), Px(44), &select, nullptr);
+    if (standalone_) {
+        // Round 18 phase 18B: the picker's tiles make standalone widgets themselves: no monitor
+        // button, and a widget whose manifest needs a dock is greyed (a click on it beeps; it is
+        // not a drag source). The group header ("SCRIPT WIDGETS") is left out: it is the only group.
+        std::vector<StripUi::StripTile> only;
+        only.reserve(tiles.size());
+        for (size_t i = 0; i < tiles.size(); ++i) {
+            StripUi::StripTile& t = tiles[i];
+            if (t.header) {
+                if (select > static_cast<int>(i)) --select;
+                continue;
+            }
+            t.desktop = false;
+            if (cb_.standaloneOk && !cb_.standaloneOk(t.previewId)) {
+                t.disabled = true;
+                t.note = L"Needs a dock";
+            }
+            only.push_back(std::move(t));
+        }
+        tiles = std::move(only);
+    }
     grid_->SetTiles(std::move(tiles), select);
 }
 
 int DrawerPopup::ContentHeight(int w) const {
     const int gridW = std::max(1, w - 2 * Px(kPad));
     const int gridH = grid_ ? std::max(grid_->GridHeight(gridW), Px(kMinGridH)) : Px(kMinGridH);
-    return Px(kGridTop) + gridH + Px(kPad);
+    return Px(standalone_ ? kChipsTop : kGridTop) + gridH + Px(kPad);
+}
+
+bool DrawerPopup::ShowStandalone(HINSTANCE instance, const RECT& anchor, uint32_t argb, UINT dpi) {
+    const bool wasShown = Shown();
+    dpi_ = std::max<UINT>(dpi, USER_DEFAULT_SCREEN_DPI / 2);
+    dockColor_ = RGB((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF);
+    if (!EnsureWindow(instance)) return false;
+    if (fontDpi_ != dpi_) ApplyStyle();
+    const COLORREF border = palette_.highContrast ? palette_.text : dockColor_;
+    DwmSetWindowAttribute(hwnd_, DWMWA_BORDER_COLOR, &border, sizeof(border));
+    // The script widgets only (the chips are hidden: Layout), nothing "On the dock".
+    standalone_ = true;
+    dock_ = DockConfig{};
+    name_.clear();
+    SetWindowTextW(hwnd_, L"Add a standalone widget");
+    if (!wasShown) {
+        catalog_.Build();  // widgets installed meanwhile
+        Fill();
+    }
+    // Under the anchor (its right edge), within the work area of the anchor's display; above it
+    // when the room below is less than about two rows of tiles and there is more above.
+    MONITORINFO mi{sizeof(mi)};
+    RECT work{};
+    if (GetMonitorInfoW(MonitorFromRect(&anchor, MONITOR_DEFAULTTONEAREST), &mi)) {
+        work = mi.rcWork;
+    } else {
+        work = RECT{0, 0, GetSystemMetrics(SM_CXSCREEN), GetSystemMetrics(SM_CYSCREEN)};
+    }
+    const int gap = Px(4);
+    const int w = std::min(Px(kWidthDip), std::max<int>(Px(240), work.right - work.left));
+    const int wantH = ContentHeight(w);
+    const int below = work.bottom - anchor.bottom - gap, above = anchor.top - work.top - gap;
+    const bool up = below < std::min(wantH, Px(kChipsTop + 2 * kMinGridH)) && above > below;
+    const int h = std::clamp(wantH, Px(160), std::max(Px(160), up ? above : below));
+    int x = anchor.right - w, y = up ? anchor.top - gap - h : anchor.bottom + gap;
+    x = std::clamp(x, static_cast<int>(work.left), std::max(static_cast<int>(work.left), static_cast<int>(work.right) - w));
+    y = std::clamp(y, static_cast<int>(work.top), std::max(static_cast<int>(work.top), static_cast<int>(work.bottom) - h));
+    SetWindowPos(hwnd_, HWND_TOPMOST, x, y, w, h, SWP_SHOWWINDOW | (wasShown ? SWP_NOACTIVATE : 0));
+    Layout();
+    if (!wasShown) {
+        SetForegroundWindow(hwnd_);
+        if (search_) SetFocus(search_);
+    }
+    InvalidateRect(hwnd_, nullptr, TRUE);
+    return true;
 }
 
 bool DrawerPopup::Show(HINSTANCE instance, const DockConfig& dock, const std::wstring& name, uint32_t argb, const RECT& avail, DockEdge edge,
@@ -155,6 +222,7 @@ bool DrawerPopup::Show(HINSTANCE instance, const DockConfig& dock, const std::ws
     if (fontDpi_ != dpi_) ApplyStyle();
     const COLORREF border = palette_.highContrast ? palette_.text : dockColor_;
     DwmSetWindowAttribute(hwnd_, DWMWA_BORDER_COLOR, &border, sizeof(border));
+    standalone_ = false;  // round 18 phase 18B: the dock variant (App keeps the picker in a second instance)
     if (!wasShown) {
         dock_ = dock;
     } else {
@@ -233,13 +301,16 @@ void DrawerPopup::Layout() {
     const int pad = Px(kPad), w = rc.right - 2 * pad;
     if (search_) SetWindowPos(search_, nullptr, pad, Px(kSearchTop), w, Px(kSearchH), SWP_NOZORDER | SWP_NOACTIVATE);
     int x = pad;
-    for (const Chip& c : kChips) {
-        if (HWND b = GetDlgItem(hwnd_, c.id)) SetWindowPos(b, nullptr, x, Px(kChipsTop), Px(c.w), Px(kChipsH), SWP_NOZORDER | SWP_NOACTIVATE);
+    for (const Chip& c : kChips) {  // round 18 phase 18B: no chips in the standalone picker (one group)
+        if (HWND b = GetDlgItem(hwnd_, c.id)) {
+            SetWindowPos(b, nullptr, x, Px(kChipsTop), Px(c.w), Px(kChipsH),
+                         SWP_NOZORDER | SWP_NOACTIVATE | (standalone_ ? SWP_HIDEWINDOW : SWP_SHOWWINDOW));
+        }
         x += Px(c.w) + Px(6);
     }
     if (grid_ && grid_->Hwnd()) {
-        SetWindowPos(grid_->Hwnd(), nullptr, pad, Px(kGridTop), w, std::max<int>(0, rc.bottom - Px(kGridTop) - pad),
-                     SWP_NOZORDER | SWP_NOACTIVATE);
+        const int top = Px(standalone_ ? kChipsTop : kGridTop);
+        SetWindowPos(grid_->Hwnd(), nullptr, pad, top, w, std::max<int>(0, rc.bottom - top - pad), SWP_NOZORDER | SWP_NOACTIVATE);
     }
 }
 
@@ -351,14 +422,15 @@ LRESULT DrawerPopup::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             HGDIOBJ old = SelectObject(dc, bold_);
             SetTextColor(dc, palette_.text);
             RECT t{Px(kPad), Px(8), rc.right - Px(kPad), Px(36)};
-            const std::wstring title = L"Add to " + name_;
+            const std::wstring title = standalone_ ? std::wstring(L"Add a standalone widget") : L"Add to " + name_;
             DrawTextW(dc, title.c_str(), static_cast<int>(title.size()), &t, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
             SIZE ext{};
             GetTextExtentPoint32W(dc, title.c_str(), static_cast<int>(title.size()), &ext);
             SelectObject(dc, font_);
             SetTextColor(dc, palette_.textSecondary);
             RECT hint{t.left + ext.cx + Px(12), t.top, t.right, t.bottom};
-            const wchar_t* text = L"Click a tile to add it, or drag it onto the dock";
+            const wchar_t* text = standalone_ ? L"Click a widget to put it on the desktop, or drag it where you want it"
+                                              : L"Click a tile to add it, or drag it onto the dock";
             DrawTextW(dc, text, -1, &hint, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX | DT_END_ELLIPSIS);
             SelectObject(dc, old);
             return 1;

@@ -554,7 +554,7 @@ menu, for the first dock) acts on that dock; with more than one dock it also has
 docks** check box, round 8 phase 8D).
 Folder windows (round 4 phase 12, [Desktop folder windows](#desktop-folder-windows)) are `docks[]`
 entries too: the list shows them (Edge: "Folder window", the folder after the state) with **Add a dock**
-> **More ▾** > **Folder window…** (round 18 phase 18A; was **Add ▾**), Remove (the last plain dock cannot be removed while folder windows remain)
+> **Folder window…** (round 18 phase 18C: a button of the card; 18A: **More ▾**'s menu; before: **Add ▾**), Remove (the last plain dock cannot be removed while folder windows remain)
 and **Open settings**, and the drawing shows them as rectangles that can be dragged to another
 place or display (moving only; they are resized on the desktop).
 
@@ -832,7 +832,7 @@ is a bar: `"floating"` with another `shape` reads as not floating.
   windows follow). Escape or a lost capture cancels; a press without a move is an ordinary click
   (on an icon's band: that icon). App settings > Docks and displays drags it too (its top-left,
   kept on that display's work area).
-- **New floating dock**: App settings > Docks and displays > **Add a dock** > **More ▾** > **Floating dock** (a bar dock
+- **New floating dock**: App settings > Docks and displays > **Add a dock** > **Floating dock** (round 18 phase 18C: a button; 18A: under **More ▾**; a bar dock
   `floating`, layer `"desktop"`, centred on the primary display, the running apps and the clock;
   useful for folders and files), or check **Floating** on a dock's Position tab (it keeps its
   layer). Its header and the Docks and displays drawing show it as a small bar where it is.
@@ -1060,7 +1060,11 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
 
   The window slots, titles, thumbnails and badges also apply to pinned apps' windows; a dock without
   a running item uses the defaults for them. A new running item gets every key written with its
-  default. Its settings window: Dock settings > Contents > the item's **Running apps settings…**, or
+  default. Round 18 phase 18C: WinDock's own `WinDock.Settings` windows (the App settings window
+  and the item windows: ordinary overlapped windows; the Dock settings panel is a tool window)
+  pass the running-apps filter like any app's windows, under WinDock's exe key and icon, so a
+  settings window lost under others can be brought back from the dock (the Explorer taskbar is
+  hidden while the dock runs). Every other window of the process stays excluded (`WindowTracker::PassesFilter`). Its settings window: Dock settings > Contents > the item's **Running apps settings…**, or
   right-click a running app > **Running apps settings…** (the first entry after the header).
 - **Custom icons**: any pin (app, folder, Recycle Bin; not separators) can have its own icon,
   stored as the entry's `"icon"` (see Configuration). The right-click menu of a pinned item has a
@@ -1727,7 +1731,7 @@ Notifications ("Let apps access your notifications") is on; the access is checke
 A folder window (round 4 phase 12, Fences-like) shows a folder's contents in a titled panel on the
 desktop: under every window, above the wallpaper and the desktop icons. Add one from the dock
 menu (**Add** > **Folder window on the desktop…**, round 10; was "New folder window…": pick a
-folder, the window opens at the pointer) or on App settings > Docks and displays (**Add a dock** > **More ▾** > **Folder window…**); each is a `docks[]` entry of kind `"folderWindow"` (see
+folder, the window opens at the pointer) or on App settings > Docks and displays (**Add a dock** > **Folder window…**, a button since round 18 phase 18C); each is a `docks[]` entry of kind `"folderWindow"` (see
 [Configuration](#configuration)).
 
 - **The window**: the folder's name (or `title`) in the title bar, the theme's acrylic (the dock's
@@ -1798,8 +1802,12 @@ is a `docks[]` entry of kind `"widget"` (see [Configuration](#configuration)).
 
 - **Add one**: the widget drawer's **Desktop** button on a script widget's row (Dock settings >
   Contents: it opens on that dock's display), App settings > Widget library > **Add to the
-  desktop**, or App settings > Docks and displays > **Add a dock** > **More ▾** > **Standalone widget ▸** (a
-  submenu of the installed widgets). It gets the manifest's default size (`standalone.defaultWidth` /
+  desktop**, or App settings > Docks and displays > **Add a dock** > **Standalone widget…**
+  (round 18 phase 18B: the **standalone widget picker**, customize mode's drawer popup with the script
+  widgets only, their live previews and the search box, no chips or monitor buttons, under the
+  button (18C: its own button on the card; 18B: More ▾'s menu entry); a click on a tile adds that widget, a drag drops it on the desktop where it is released or
+  onto a dock where the dock's marker shows; a widget whose manifest needs a dock is greyed "Needs a
+  dock"; until 18B a submenu of the widgets' names). It gets the manifest's default size (`standalone.defaultWidth` /
   `defaultHeight`; else 200 x 200, or twice the dock size hint of a wide widget), the layer
   "behind" and the centre of the display; its settings open (round 12 phase 12I: the panel beside
   it, see Settings).
@@ -2099,8 +2107,12 @@ drop-down row (or a click on the Value cell of the selected row) opens a small d
 cell; text boxes, numbers and sliders are Go to only. Down in the box goes to the list, Up on the
 first row back to the box, typing in the list goes on in the box; greyed settings are listed in
 grey (the row's tooltip says why). Windows that are not open are opened invisibly to read their
-values and closed again with the last search dialog (unless you went to one). Not searched: the
-Contents tab (items are not settings), folder / group / tray item windows, and the dock menus.
+values; round 18 phase 18D: the dialog appears at once and the list fills while they are opened,
+one window at a time (the status line says "Indexing settings… 3 of 12 windows" meanwhile; you can
+type, and Enter / Go to work on what is listed so far), and they are kept while any settings
+window is open, so the next search is instant; they close with the last settings window (unless
+you went to one). Not searched: the Contents tab (items are not settings), folder / group / tray
+item windows, and the dock menus.
 
 **Help** (round 9): the guides of [docs/](docs/README.md) are built into WinDock and open in a
 **Help** window (820 × 620 DIPs, resizable, dark like the settings windows; one per process): the
@@ -2183,7 +2195,7 @@ asks for a name and writes the dock's place, behaviour, items and look to `layou
 | **Modern** (`modern`) | a showy dock with widgets | bottom, 52 px, magnification 2.0 / range 3, previews, hides while covered, the Glass theme | Start, your pins, separator, running apps, separator, Volume, Media, notifications, weather, clock |
 | **Windows and labels** (`windows`) | taskbar-like: every window | bottom, 44 px, no magnification, previews, one slot per window, one line of title, window pictures every 5 s, hides while covered | your pins, running apps, clock |
 | **Windows 7** (`win7`, round 11 phase 11C) | the classic Aero taskbar | bottom, full length, items from the left, reserves its space (`reserveSpace`), never hides, 32 px, no magnification, previews (also of a single window), one slot per app, no titles, no badges, middle click opens a new window, the **Aero glass** theme (`aero`: glass, sheen, slot buttons, `iconGap` 28) | Start (the orb), your pins, running apps, then at the end: the System tray (one row of 8, 16 DIP icons), the Digital clock (`timeStyle` `taskbar`, `%#I:%M %p` over `%#m/%#d/%Y`), Show desktop (the strip, flush with the screen's end) |
-| **Sidebar** (`sidebar`) | a bar along the left edge | left, full length, items from the top, 40 px, no magnification, one slot per window, titles beside the icons, hides while covered | Start, your pins, separator, running apps, separator, Volume, clock |
+| **Sidebar** (`sidebar`) | a bar along the left edge | left, full length, items from the top, 40 px, no magnification, one slot per window, no titles (2026-11-11: they were beside the icons), hides while covered | Start, your pins, separator, running apps, then at the end (`"anchor": "end"`, the bottom corner): separator, Volume, clock |
 | **Floating performance** (`performance`) | system load at a glance | floating at the top right (`x` 16000 = against the right end, `y` 8), facing the top edge (popups open downward), on the desktop under your windows, 40 px, no magnification, locked | System monitor, System overview, Battery, clock (no pins) |
 | **Desktop dashboard** (`dashboard`) | a desktop panel | floating in the middle, on the desktop under your windows, 56 px, no magnification | Analog clock, weather, Agenda, Notes (no pins) |
 
@@ -2256,8 +2268,11 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   Under the tiles: **Copy my pinned apps** (on at first, per window; the first dock's pins at the
   layout's marker; greyed while the hovered layout has no place for pins: Floating performance,
   Desktop dashboard), **Display** (Primary, every other connected display as "Display 2 · 2560 ×
-  1440", Every display: the new dock's `monitor`) and **More ▾** (Floating dock, Folder window…,
-  Standalone widget ▸: the old Add ▾ menu without its dock entries). The new dock goes on the
+  1440", Every display: the new dock's `monitor`) and, on the row under them, the buttons
+  **Floating dock**, **Folder window…** and **Standalone widget…** (round 18 phase 18C, each with a
+  glyph; 18A: a **More ▾** menu of the same three, the old Add ▾ menu without its dock entries;
+  round 18 phase 18B: Standalone widget… opens the standalone widget picker under its button, see
+  Standalone widgets). The new dock goes on the
   layout's edge of that display unless an enabled bar dock is already there: then the next free
   edge (bottom, top, left, right, as Duplicate); every edge taken: the layout's edge, moved along
   it by its estimated length (never refused). Under the card, the list. Under the list,
@@ -3924,7 +3939,15 @@ always there, also when every dock is parked) handle these registered messages:
   phase 18A (app-wide, the dock in `HIWORD` is ignored): **333** = the number of tiles in App settings >
   Docks and displays' Add a dock gallery (the built-in layouts, then the saved ones; `LOWORD(lParam)` 1:
   the selected tile, 2: the tile whose ghost the canvas shows now, -1 none; -2 no App settings window;
-  `tools\smoke\add-dock-gallery.ps1`). The labels of the change Undo / Redo would
+  `tools\smoke\add-dock-gallery.ps1`). Round 18 phase 18B (app-wide): **334** = the standalone widget
+  picker of App settings (Docks and displays > Add a dock > Standalone widget…, `WM_COMMAND(2812,
+  0)` to the page) is shown (1 / 0), **335** = its tiles after its search (the installed script widgets,
+  DrawerRefs 7 ...; -1 not shown; `tools\smoke\widget-picker.ps1`). Round 18 phase 18C (app-wide): **336** =
+  how many of WinDock's own windows the running-apps tracker lists (the App settings window and the
+  item windows; `tools\smoke\widget-picker.ps1`), **337** = how many of the nine buttons of Docks and
+  displays (Floating dock, Folder window…, Standalone widget…, Open settings, Duplicate, Remove,
+  Disable / Enable, Rename, Save as layout…) carry their glyph image list (9 when all do; -2 no App
+  settings window; `tools\smoke\add-dock-gallery.ps1`). The labels of the change Undo / Redo would
   undo / redo are the window text of two hidden statics of the `WinDock.App` window,
   `GetDlgItem(app, 5610)` / `5611` (`WM_GETTEXT`; "" none). The banner is a top-level
   `WinDock.KeepBanner` window (topmost, never activated; its window text is what it says with its
@@ -3933,6 +3956,11 @@ always there, also when every dock is parked) handle these registered messages:
   Round 9 phase 9B, the settings search: 282 = 1 while a search dialog is open for the Dock
   window of dock `HIWORD(lParam)` (`LOWORD(lParam)` 1: for the App settings window), else 0; 283 = its
   rows shown now (the filtered result count; -2 none open). See Settings windows for its ids.
+  Round 18 phase 18D: **338** = 1 when that dialog's index is complete, 0 while it is still being
+  built (one settings window per timer tick after the dialog shows), -2 none open; **339** =
+  the settings windows kept hidden for the index (`LOWORD(lParam)` 1: the search dialog objects
+  still alive, a closed one included until its posted clean-up ran)
+  (`tools\smoke\settings-search.ps1`).
   Round 9 phase 9C: 284 = 1 while a preset chooser (any variant) is open, -2 none; `LOWORD(lParam)`
   2: its variant (0 apply, 1 welcome, 2 new dock), 3: the selected preset's index (-1 none). Since round 12
   phase 12G the welcome variant is Quick setup (QueryState 317), so 284 answers only for the chooser.
@@ -4054,7 +4082,9 @@ always there, also when every dock is parked) handle these registered messages:
   it), 5712 its grid (`WinDock.SettingsStrip`); 5708 - 5711 the filter chips All / Built in / Widgets / Apps
   and folders (push-like radio buttons; `BM_CLICK`, or `WM_COMMAND(id, BN_CLICKED)` to their parent) in the
   drawer popup and on the Contents tab, whose drawer list 2623 is a grid of tiles since 12D (a click on a
-  tile adds it at the end; QueryState 230 / 252 / 264 / 267 take the same entry numbers).
+  tile adds it at the end; QueryState 230 / 252 / 264 / 267 take the same entry numbers). Round 18 phase
+  18B: the standalone widget picker of App settings is a second `WinDock.DrawerPopup` (window text "Add
+  a standalone widget", 5707 / 5712, its chips hidden; QueryState 334 / 335, ItemCommand 869).
   Round 12 phase 12G, **Quick setup** (5760 - 5794, round 13 phase 13H 5880 - 5893) is a top-level `WinDock.QuickSetup` window owned by the app
   window (title "Welcome to WinDock" on the first run, else "Quick setup"); `WM_COMMAND(id, BN_CLICKED)` (or
   `lParam` 0) to it presses a button, `CB_SETCURSEL` + `WM_COMMAND(MAKEWPARAM(id, CBN_SELCHANGE), combo)`
@@ -4129,9 +4159,15 @@ always there, also when every dock is parked) handle these registered messages:
   box / radio row; Esc (posted to the box) closes the dialog; `WM_NEXTDLGCTL(control, TRUE)`
   focuses a child. `DockCommand` 151 opens it (`HIWORD(lParam)` the dock whose Dock window owns
   it, `LOWORD(lParam)` 1: the App settings window's; the window is opened first; 1 when the dialog is
-  open), QueryState 282 / 283 report it. The windows it opens hidden for its index are
+  open), QueryState 282 / 283 / 338 report it. The windows it opens hidden for its index are
   `WinDock.Settings` windows without `WS_VISIBLE`: QueryState 222 - 224, 225 and 227 do not count
-  them, and they are destroyed when the last search dialog closes unless Go to showed one.
+  them; round 18 phase 18D: they are created one per one-shot timer tick after the dialog is shown (the dialog paints and takes keys between two)
+  (QueryState 338 = 0 meanwhile; the status line 5013 says "Indexing settings… k of n windows"),
+  without tooltips and with the Contents tab as an empty page (both made when Go to shows one),
+  they do not reload on a config change until the next index reads them, and they are destroyed
+  one per posted message when the last settings window of the user's closes with no search dialog
+  open (QueryState 339 counts them; until 18D they went with the last search dialog), unless Go to
+  showed one.
   Round 9 phase 9C, **the presets** (ids 5100 - 5199): 5101 Docks and displays' Add ▾ menu item
   "Dock from a preset…" (also a page command: `WM_COMMAND(5101)` to the page 207), 5102 the Dock
   header ⋯ menu's "Apply a layout or look…" (round 12 phase 12C; was "Apply a preset…") (`WM_COMMAND(5102)` to the band 102; only on a dock's window),
@@ -4256,7 +4292,9 @@ always there, also when every dock is parked) handle these registered messages:
   2808 and Add standalone widget… 2812 (the **Add ▾** button 2814's menu: Dock = 2801, Floating
   dock = 2811, Folder window… = 2808, Standalone widget ▸ = a submenu of the installed widgets;
   `WM_COMMAND(2801 / 2811 / 2808, 0)` with `lParam` 0 to the page still adds (2808 opens the folder
-  picker: post it), 2812 shows the widget menu under Add ▾), Lock all docks 2806 and Unlock all
+  picker: post it), 2812 showed the widget menu under Add ▾, since round 18 phase 18B it opens the
+  standalone widget picker, see QueryState 334 / 335 and ItemCommand 869; round 18 phase 18C: 2811 /
+  2808 / 2812 are buttons of the Add a dock card again, with glyphs), Lock all docks 2806 and Unlock all
   docks 2807 (one check box, 2806 with its caption 2813: checked while every dock and standalone
   widget is locked (folder windows have no lock), unchecked when mixed; `BM_CLICK` on it locks /
   unlocks every entry by its new state; `WM_COMMAND(2806, 0)` locks and `WM_COMMAND(2807, 0)`
@@ -4406,13 +4444,19 @@ always there, also when every dock is parked) handle these registered messages:
   the default line, the hovered tile's description, or the refusal), 2819 / 2820 Copy my pinned
   apps (`BM_SETCHECK` + `WM_COMMAND(2819, BN_CLICKED)`), 2821 / 2822 the Display label and
   drop-down (`CB_SETCURSEL` + `CBN_SELCHANGE`: Primary, the other displays in the canvas's order,
-  Every display), 2823 More ▾ (a menu: press it with a posted `BM_CLICK`); 2800 the list
+  Every display), 2823 More ▾ (round 18 phase 18C: the button is gone; `WM_COMMAND(2823, 0)` to
+  the page still opens its menu of the three commands below), then the buttons 2811 Floating dock,
+  2808 Folder window… and 2812 Standalone widget… (18C; each with a Segoe Fluent Icons glyph through
+  a button image list, as the list's buttons below have: `BCM_GETIMAGELIST` returns one); 2800 the list
   (Dock with the colour dot, Edge, Display, Windows; the selected row is what Open settings,
   Duplicate and Remove act on, nothing else; a double click opens its window), 2810 Open
   settings, 2802 Duplicate, 2803 Remove, 2815 Disable / Enable (round 11 phase 11D: its text
   follows the selected row's state; greyed for the last enabled dock; the Windows column says
   "Disabled"); menu commands 2801 Dock (round 18 phase 18A: no longer in a menu, still a command), 2811 Floating dock, 2808 Folder
-  window…, 2812 Standalone widget, 2806 lock all, 2807 unlock all (2805 and 2809 are retired);
+  window…, 2812 Standalone widget… (round 18 phase 18B: opens the standalone widget picker, a
+  top-level `WinDock.DrawerPopup` titled "Add a standalone widget" under its button: 5707 its search box,
+  5712 its grid, no chips; QueryState 334 / 335, ItemCommand 869; `tools\smoke\widget-picker.ps1`),
+  2806 lock all, 2807 unlock all (2805 and 2809 are retired);
   Tray icons and Notifications: see
   Tray and Notifications above (4122 / 4223, the "which dock" lines, are retired); Widget library = the Widgets page (3510 the preview panel
   `WinDock.WidgetPreviewPanel`, its window text "Preview: <name>" (6E); 3500 list: Name, Id, Source,
@@ -4499,7 +4543,12 @@ always there, also when every dock is parked) handle these registered messages:
   dock** > that dock does (the item with its settings joins the dock, the entry and its window go;
   one undo entry; posted): 1 done, 0 refused (`HIWORD(wParam)` not a dock entry, turned off or
   locked; a beep); any other
-  command returns -1. DockCommand 143 opens its Dock
+  command returns -1. Round 18 phase 18B (app-wide, the dock in `HIWORD(lParam)` is ignored): **869**
+  = tile `LOWORD(lParam)` (a script widget's drawer ref, QueryState 230's numbering: 7 ...) of the
+  standalone widget picker (QueryState 334) as a click on it: the picker hides, a standalone widget
+  of it goes to the centre of the primary display and its panel opens (one undo entry "Added <name>
+  to the desktop"): 1 done, 0 refused (the picker is not shown, no such widget, a widget whose
+  manifest has `standalone.supported: false`). DockCommand 143 opens its Dock
   window, 144 flashes it, 116 locks / unlocks it, 142 with item 0 or `0xFFFF` opens its widget's
   settings (round 8 phase 8C: its window on the Widget tab, QueryState 225 for the entry reports
   it, 227 stays 0: no Item window); the commands that edit a dock's items, edge or auto-hide do nothing for it (nor for a

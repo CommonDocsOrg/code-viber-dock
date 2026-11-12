@@ -14,6 +14,12 @@
 // into a WS_EX_NOREDIRECTIONBITMAP composition window; it paints with GDI like the settings
 // windows (the palette's layer colour, Windows 11's rounded corners and a border in the dock's
 // colour). Nothing runs while it is shown and idle; previews render as tiles are painted.
+//
+// Round 18 phase 18B: the same popup as the standalone widget picker of App settings > Docks and
+// displays > Add a dock > More ▾ > Standalone widget… (ShowStandalone: a second instance in App, its
+// own callbacks). The script widgets only, no chips and no monitor buttons; a click (or a drag onto
+// the desktop) makes a standalone widget; a widget whose manifest needs a dock is greyed "Needs a
+// dock". It hangs under the button that opened it, within that display's work area.
 
 #include <windows.h>
 
@@ -45,6 +51,9 @@ public:
         std::function<SettingsWidgetPreview(const std::wstring& id, float scale, SIZE fitPx, float maxZoom)> renderPreview;
         std::function<uint64_t()> previewStamp;
         std::function<uint32_t()> previewPanel;
+        // Round 18 phase 18B (the standalone picker): widget `id` may live on the desktop (App::
+        // CanBeStandalone); unset: every widget may. A tile that may not is greyed "Needs a dock".
+        std::function<bool(const std::wstring& id)> standaloneOk;
     };
 
     DrawerPopup() = default;
@@ -59,6 +68,11 @@ public:
     // Activates it (the search box gets the focus) unless it is shown already.
     bool Show(HINSTANCE instance, const DockConfig& dock, const std::wstring& name, uint32_t argb, const RECT& avail, DockEdge edge,
               int endAlong, UINT dpi);
+    // Round 18 phase 18B: the standalone widget picker, hanging under `anchor` (screen px: the button
+    // that opened it; right-aligned to it, above it when the work area has no room below), with a
+    // border in `argb`. A click on a tile is the `add` callback (the owner makes a standalone widget),
+    // a drag the `drag` callbacks (the desktop or a dock). Activated: the search box gets the focus.
+    bool ShowStandalone(HINSTANCE instance, const RECT& anchor, uint32_t argb, UINT dpi);
     void Hide();
     bool Shown() const { return hwnd_ && IsWindowVisible(hwnd_); }
     HWND Hwnd() const { return hwnd_; }
@@ -119,6 +133,7 @@ private:
     HBRUSH brush_ = nullptr, editBrush_ = nullptr;
     DarkMode::Palette palette_;
     COLORREF dockColor_ = RGB(0x4C, 0xC2, 0xFF);
+    bool standalone_ = false;  // round 18 phase 18B: the standalone widget picker (ShowStandalone)
     bool modal_ = false;
     HWND returnFocus_ = nullptr;
     bool hiding_ = false;

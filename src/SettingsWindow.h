@@ -223,6 +223,11 @@ struct SettingsHost {
     // (the Global window selects the new dock), 0 refused, 2 another preview is open (Keep or Cancel
     // it first: it is not this card's to cancel). ---
     std::function<int(bool mine, size_t index, bool copyPins, int monitor)> addLayoutDock;
+    // Round 18 phase 18B: the card's More ▾ > Standalone widget…: the standalone widget picker
+    // (customize mode's drawer popup with the script widgets only) under `anchor` (screen px: the
+    // button) at `dpi`; a click on a widget puts it on the desktop (App::AddWidgetWindow, as the
+    // Widget library's Add to the desktop), a drag drops it where it is released.
+    std::function<void(const RECT& anchor, UINT dpi)> openWidgetPicker;
 };
 
 class SettingsWindow;
@@ -303,6 +308,11 @@ struct Ctl {
     // right column, 2 across both: a wide card, the title, the page's sentence; QueryState 322).
     bool wrapped = false;
     int column = 0;
+    // Round 18 phase 18C: a Button's Segoe Fluent Icons glyph before its text (0: none), drawn
+    // through a button image list in the palette's text colour (SettingsWindow::ApplyButtonGlyphs:
+    // creation, a theme change, a DPI change); `glyphList` is the page's (freed with the table).
+    wchar_t glyph = 0;
+    HIMAGELIST glyphList = nullptr;
 };
 
 // A page: a child window (WinDock.SettingsPage, WS_EX_CONTROLPARENT) holding the controls of its
@@ -311,7 +321,7 @@ struct Ctl {
 class SettingsPage {
 public:
     SettingsPage(SettingsWindow& window, const wchar_t* name, wchar_t glyph);
-    virtual ~SettingsPage() = default;
+    virtual ~SettingsPage();
     SettingsPage(const SettingsPage&) = delete;
     SettingsPage& operator=(const SettingsPage&) = delete;
 
@@ -468,7 +478,8 @@ protected:
     // Consecutive radio buttons, one row each, in one WS_GROUP. Their captions are created after
     // them so the group stays contiguous (auto-radio unchecking, arrow-key navigation).
     void Radios(std::initializer_list<RadioDef> radios, int x = kMargin);
-    void Button(int id, const wchar_t* text, int x, int w);
+    // `glyph` (round 18 phase 18C): a Segoe Fluent Icons code point drawn before the text (0: none).
+    void Button(int id, const wchar_t* text, int x, int w, wchar_t glyph = 0);
     void Link(int id, std::wstring markup, int x, int w);
     // The next row: the cursor moves down by `h` (a hint row: by kHintRowH - kRowH more) and
     // the controls added after it belong to the next reflow row.
@@ -634,7 +645,16 @@ public:
     // for messages to this window or its children. Returns true if the message was handled.
     bool PreTranslateMessage(MSG& msg);
     // Reloads every control from *host.config (after tray toggles, Reload config) and the header.
+    // Round 18 phase 18D: a window made hidden for the search's index only notes it (indexStale_):
+    // the index calls EnsureFresh before it reads, and Activate catches up before the window shows,
+    // so a dozen hidden windows cost nothing on every change made in the open settings window.
     void Refresh();
+    void EnsureFresh();
+    // Round 18 phase 18D, at the app's shutdown only: a window made hidden for the index is left to
+    // die with the process instead of being destroyed (its window procedures are detached first):
+    // destroying a dozen of them took over ten seconds here, with the taskbar still hidden
+    // meanwhile. A window the user sees is destroyed as before (a pending edit may commit).
+    void AbandonForExit();
     // Round 12 phase 12A: the timeline or the save state changed (host.status): the band's status
     // line and the bar at the top of the page area follow (the pages move down while it shows).
     void StatusChanged();
@@ -1000,6 +1020,10 @@ private:
     void CreateControls(SettingsPage& page);
     // Destroys the page's controls, builds its table again, creates, styles, lays out and loads them.
     void RebuildPage(int index);
+    // Round 18 phase 18C: the image lists of the page's buttons with a glyph (Ctl::glyph), at the
+    // window's DPI in the palette's text colour; called after the controls exist and after a theme
+    // or DPI change.
+    void ApplyButtonGlyphs(SettingsPage& page);
     static constexpr UINT kRebuildMessage = WM_APP + 40;  // posted: wParam = page index
     void CreateFonts();
     void DestroyFonts();
@@ -1126,6 +1150,15 @@ private:
     bool tabsTracking_ = false;
     HWND lastFocus_ = nullptr;
     bool loading_ = false;
+    // Round 18 phase 18D: created hidden for the search's index (Create(show = false)): no tooltips,
+    // and a page laid out by itself (the Contents tab: ~100 controls, the widget catalog, every
+    // item's and drawer entry's icon) is an empty page window, since the index never reads it; both
+    // are made when the window is first shown (Activate). Measured here (2026-11-11): a child window
+    // costs ~0.5 ms to create and 3 - 5 ms to destroy, in any process and for any class (the
+    // machine, not WinDock: a plain PowerShell process measures the same), so a Dock window of ~700
+    // controls is ~1 s to make and ~2.5 s to destroy; what a hidden one skips matters.
+    bool indexOnly_ = false;
+    bool indexStale_ = false;  // ... and a Refresh was asked since (EnsureFresh does it before the index reads)
     bool mica_ = false;        // Mica behind the caption and the nav column (frame extended)
     bool darkPopups_ = false;  // DarkMode::TryEnableDarkPopups succeeded (undone when the last window closes)
 

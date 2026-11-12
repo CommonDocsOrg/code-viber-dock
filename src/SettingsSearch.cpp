@@ -171,13 +171,18 @@ bool SettingsSearch::Create(HINSTANCE instance, const std::wstring& text) {
     ApplyTheme();
     Layout();
     if (!text.empty()) SetWindowTextW(edit_, text.c_str());  // EN_CHANGE filters (no rows yet: nothing)
-    Rebuild();  // the index (hidden windows are created here: never shown)
     const int n = GetWindowTextLengthW(edit_);
     SendMessageW(edit_, EM_SETSEL, static_cast<WPARAM>(n), n);
     lastFocus_ = edit_;
     ShowWindow(hwnd_, SW_SHOWNORMAL);
     SetForegroundWindow(hwnd_);
     SetFocus(edit_);
+    // Round 18 phase 18D: the index is built after the dialog is on screen, one window per timer
+    // tick (until 18D it was built here, before ShowWindow: with a dozen docks[] entries the
+    // hidden settings windows took seconds to create and the dialog appeared only then). The first
+    // paint before the first step, so the dialog never shows unpainted.
+    UpdateWindow(hwnd_);
+    Rebuild();
     return true;
 }
 
@@ -198,44 +203,90 @@ void SettingsSearch::Activate(const std::wstring& text) {
 
 void SettingsSearch::Rebuild() {
     rebuildPosted_ = false;
-    const int sel = Selected();
-    const std::wstring keep = sel >= 0 ? rows_[shown_[static_cast<size_t>(sel)]].Key() : std::wstring();
-    std::vector<Row> rows;
-    const std::vector<SettingsWindow*> windows = host_.windows ? host_.windows() : std::vector<SettingsWindow*>{};
-    for (SettingsWindow* w : windows) {
-        if (!w || !w->Hwnd()) continue;
-        const std::wstring name = w->SearchName();
-        for (SettingsWindow::SearchEntry& e : w->SearchEntries()) {
-            Row r;
-            r.kind = w->Kind();
-            r.dock = w->Kind() == SettingsKind::Global ? std::wstring() : w->DockId();
-            r.item = w->Kind() == SettingsKind::Item ? w->ItemIndex() : SIZE_MAX;
-            r.page = e.page;
-            r.id = e.id;
-            r.ctl = e.kind;
-            r.setting = std::move(e.setting);
-            r.value = std::move(e.value);
-            r.tip = std::move(e.tip);
-            r.enabled = e.enabled;
-            r.choices = std::move(e.choices);
-            r.choice = e.choice;
-            const std::wstring page = w->PageName(e.page);
-            r.where = name + L" \x203A " + page + (e.card.empty() || e.card == page ? std::wstring() : L" \x203A " + e.card);
-            r.label = Lower(r.setting);
-            r.hay = Lower(r.setting + L"\n" + r.where + L"\n" + r.value + L"\n" + e.extra + L"\n" + r.tip);
-            rows.push_back(std::move(r));
-        }
+    if (!hwnd_) return;
+    if (!indexing_) {
+        // The selection survives a rebuild (a restarted build keeps the key it had).
+        const int sel = Selected();
+        indexKeep_ = sel >= 0 ? rows_[shown_[static_cast<size_t>(sel)]].Key() : std::wstring();
+        indexPartial_ = rows_.empty();  // the first build fills the list as it goes
     }
-    IndexItems(rows);
-    rows_ = std::move(rows);
+    indexing_ = true;
+    indexStep_ = 0;
+    indexCount_ = host_.windowCount ? host_.windowCount() : 0;
+    indexRows_.clear();
+    UpdateStatus();
+    SetTimer(hwnd_, kIndexTimerId, USER_TIMER_MINIMUM, nullptr);
+}
+
+void SettingsSearch::IndexStep() {
+    if (!hwnd_ || !indexing_) return;
+    if (indexStep_ < indexCount_) {
+        // One window per message: creating a hidden settings window (every page, hundreds of
+        // controls) is the slow part, and between two of them the dialog paints and takes keys.
+        const size_t i = indexStep_++;
+        if (SettingsWindow* w = host_.window ? host_.window(i) : nullptr; w && w->Hwnd()) IndexWindow(*w, i, indexRows_);
+        if (indexPartial_) {
+            // The list grows under the user; a row they selected meanwhile stays selected.
+            const int sel = Selected();
+            const std::wstring keep = sel > 0 ? rows_[shown_[static_cast<size_t>(sel)]].Key() : std::wstring();
+            rows_ = indexRows_;
+            Filter();
+            for (size_t k = 0; !keep.empty() && k < shown_.size(); ++k) {
+                if (rows_[shown_[k]].Key() == keep) {
+                    SetSelected(static_cast<int>(k));
+                    break;
+                }
+            }
+        } else {
+            UpdateStatus();
+        }
+        if (hwnd_) SetTimer(hwnd_, kIndexTimerId, USER_TIMER_MINIMUM, nullptr);
+        return;
+    }
+    FinishIndex();
+}
+
+void SettingsSearch::FinishIndex() {
+    IndexItems(indexRows_);
+    rows_ = std::move(indexRows_);
+    indexRows_.clear();
+    indexing_ = false;
+    indexPartial_ = false;
     Filter();
-    if (!keep.empty()) {
+    if (!indexKeep_.empty()) {
         for (size_t k = 0; k < shown_.size(); ++k) {
-            if (rows_[shown_[k]].Key() == keep) {
+            if (rows_[shown_[k]].Key() == indexKeep_) {
                 SetSelected(static_cast<int>(k));
                 break;
             }
         }
+    }
+    indexKeep_.clear();
+}
+
+void SettingsSearch::IndexWindow(SettingsWindow& w, size_t number, std::vector<Row>& rows) {
+    w.EnsureFresh();  // a hidden window's controls catch up with the config first (18D)
+    const std::wstring name = w.SearchName();
+    for (SettingsWindow::SearchEntry& e : w.SearchEntries()) {
+        Row r;
+        r.kind = w.Kind();
+        r.window = number;
+        r.dock = w.Kind() == SettingsKind::Global ? std::wstring() : w.DockId();
+        r.item = w.Kind() == SettingsKind::Item ? w.ItemIndex() : SIZE_MAX;
+        r.page = e.page;
+        r.id = e.id;
+        r.ctl = e.kind;
+        r.setting = std::move(e.setting);
+        r.value = std::move(e.value);
+        r.tip = std::move(e.tip);
+        r.enabled = e.enabled;
+        r.choices = std::move(e.choices);
+        r.choice = e.choice;
+        const std::wstring page = w.PageName(e.page);
+        r.where = name + L" \x203A " + page + (e.card.empty() || e.card == page ? std::wstring() : L" \x203A " + e.card);
+        r.label = Lower(r.setting);
+        r.hay = Lower(r.setting + L"\n" + r.where + L"\n" + r.value + L"\n" + e.extra + L"\n" + r.tip);
+        rows.push_back(std::move(r));
     }
 }
 
@@ -431,7 +482,19 @@ void SettingsSearch::UpdateStatus() {
     if (!status_) return;
     std::wstring s;
     const size_t total = rows_.size();
-    if (query_.empty()) {
+    if (indexing_) {
+        // Round 18 phase 18D: the build in progress ("Indexing settings… 3 of 12 windows", with the
+        // rows read so far once there are any; a rebuild keeps the old rows and counts them).
+        const std::wstring progress = L"Indexing settings\x2026 " + std::to_wstring(std::min(indexStep_, indexCount_)) + L" of " +
+                                      std::to_wstring(indexCount_) + L" windows";
+        if (total == 0) {
+            s = progress;
+        } else if (query_.empty()) {
+            s = std::to_wstring(total) + L" settings so far \x00B7 " + progress;
+        } else {
+            s = std::to_wstring(shown_.size()) + L" of " + std::to_wstring(total) + L" so far \x00B7 " + progress;
+        }
+    } else if (query_.empty()) {
         s = std::to_wstring(total) + (total == 1 ? L" setting" : L" settings");
     } else if (shown_.empty()) {
         s = L"No setting matches \x201C" + Trim(TextOf(edit_)) + L"\x201D (of " + std::to_wstring(total) + L")";
@@ -465,10 +528,11 @@ bool SettingsSearch::Change(const Row& r, int choice) {
     SettingsWindow* w = nullptr;
     if (r.kind == SettingsKind::Item) {
         w = host_.itemWindow ? host_.itemWindow(r.dock, r.item) : nullptr;
-    } else if (host_.windows) {
-        for (SettingsWindow* x : host_.windows()) {
-            if (x && x->Hwnd() && x->Kind() == r.kind && (r.kind == SettingsKind::Global || x->DockId() == r.dock)) w = x;
-        }
+    } else if (host_.window && host_.windowCount && r.window < host_.windowCount()) {
+        // Its window by number, if it is still the one the row was read from (the docks may have
+        // changed since: the posted rebuild follows).
+        SettingsWindow* x = host_.window(r.window);
+        if (x && x->Hwnd() && x->Kind() == r.kind && (r.kind == SettingsKind::Global || x->DockId() == r.dock)) w = x;
     }
     if (!w || !w->Hwnd()) return false;
     const bool ok = w->SearchChange(r.page, r.id, choice);
@@ -753,6 +817,13 @@ LRESULT SettingsSearch::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case kRebuildMessage:
             Rebuild();
             return 0;
+        case WM_TIMER:  // round 18 phase 18D: the next index step
+            if (wp == kIndexTimerId) {
+                KillTimer(hwnd_, kIndexTimerId);
+                IndexStep();
+                return 0;
+            }
+            break;
         case kHideComboMessage:
             HideCombo(wp != 0);
             return 0;
@@ -770,8 +841,10 @@ LRESULT SettingsSearch::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 if (HWND f = GetFocus(); f && IsChild(hwnd_, f) && f != combo_) lastFocus_ = f;
             } else if (!HIWORD(wp)) {
                 SetFocus(lastFocus_ && IsWindow(lastFocus_) && IsWindowVisible(lastFocus_) ? lastFocus_ : edit_);
-                // Back to the dialog: the values may have changed meanwhile.
-                if (!rebuildPosted_) rebuildPosted_ = PostMessageW(hwnd_, kRebuildMessage, 0, 0) != FALSE;
+                // Back to the dialog: the values may have changed meanwhile (18D: not while the
+                // index is being built: it reads the live values anyway, and the dialog's own
+                // activation on Create would otherwise start the build twice).
+                if (!rebuildPosted_ && !indexing_) rebuildPosted_ = PostMessageW(hwnd_, kRebuildMessage, 0, 0) != FALSE;
             }
             return 0;
         case WM_SIZE:

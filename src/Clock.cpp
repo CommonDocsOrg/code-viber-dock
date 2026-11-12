@@ -102,6 +102,14 @@ bool ZoneMinutes(const DYNAMIC_TIME_ZONE_INFORMATION* zone, const SYSTEMTIME& ut
 }  // namespace
 
 std::vector<Clock::TimeZoneInfo> Clock::TimeZones() {
+    // Round 18 phase 18D: cached for ten minutes. The list (about 140 zones, a registry read each)
+    // was enumerated by every settings window with a time zone field (one per clock widget: a
+    // dozen windows for the settings search's index) and by the index itself; the zones of a
+    // Windows change only with an update, so a fresh read every so often is enough.
+    static std::vector<TimeZoneInfo> cached;
+    static ULONGLONG cachedAt = 0;
+    const ULONGLONG now = GetTickCount64();
+    if (!cached.empty() && now - cachedAt < 10 * 60 * 1000) return cached;
     std::vector<TimeZoneInfo> zones;
     DYNAMIC_TIME_ZONE_INFORMATION z{};
     for (DWORD i = 0; EnumDynamicTimeZoneInformation(i, &z) == ERROR_SUCCESS && i < 1000; ++i) {
@@ -121,6 +129,8 @@ std::vector<Clock::TimeZoneInfo> Clock::TimeZones() {
         if (a.bias != b.bias) return a.bias > b.bias;  // UTC-12 first (the largest bias)
         return _wcsicmp(a.display.c_str(), b.display.c_str()) < 0;
     });
+    cached = zones;
+    cachedAt = now;
     return zones;
 }
 

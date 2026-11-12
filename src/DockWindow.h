@@ -133,6 +133,11 @@ public:
     // poll while the Start menu is open beside a Start widget; no WM_APP message).
     // Round 16 phase 16G: WM_APP + 72 = App::kMoveToDockMessage (posted to the app window: the
     // standalone widgets queued to move onto a dock, by id; no timer).
+    // Round 18 phase 18D: WM_APP + 73 = App::kDropSearchWindow (posted to the app window: destroy
+    // one of the search index's hidden settings windows, then again while any remain).
+    // On the settings search dialog's own window (round 9 phase 9B / round 18 phase 18D): WM_APP + 41
+    // = SettingsSearch::kRebuildMessage, + 42 its kHideComboMessage, timer 1 = its kIndexTimerId (the
+    // next window of the index, one-shot); WM_APP + 40 = SettingsWindow::kRebuildMessage on a settings window.
     static constexpr int kFlashSteps = 6;                // lit, dark, lit, dark, lit, dark
     static constexpr UINT kFlashStepMs = 250;
     // Posted to the dock window: the Recycle Bin changed (SHChangeNotifyRegister, new delivery);

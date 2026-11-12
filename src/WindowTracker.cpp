@@ -171,7 +171,17 @@ bool WindowTracker::PassesFilter(HWND hwnd, bool checkCloak) const {
     if (GetAncestor(hwnd, GA_ROOTOWNER) != hwnd && !(ex & WS_EX_APPWINDOW)) return false;
     DWORD pid = 0;
     GetWindowThreadProcessId(hwnd, &pid);
-    if (pid == GetCurrentProcessId()) return false;
+    if (pid == GetCurrentProcessId()) {
+        // Our own windows are tool windows (the docks, the popups, folder and widget windows,
+        // the settings panel) and fail above. Round 18 phase 18C: the App settings window and
+        // the item windows (class WinDock.Settings, ordinary overlapped windows) are listed like
+        // any app's, so a settings window that got lost under others can be brought back from
+        // the running apps ("sometimes I lose it": the Explorer taskbar is hidden while the dock
+        // runs, so nothing else lists it).
+        wchar_t cls[32]{};
+        GetClassNameW(hwnd, cls, static_cast<int>(std::size(cls)));
+        if (wcscmp(cls, L"WinDock.Settings") != 0) return false;
+    }
     if (IsExcludedClass(hwnd)) return false;
     if (checkCloak) {
         // Only for windows we don't track yet: UWP windows are cloaked while minimized.

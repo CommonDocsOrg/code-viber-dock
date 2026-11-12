@@ -254,6 +254,11 @@ enum Command : UINT {
     // and settings carried over, the entry and its window gone). 1 done (posted), 0 refused (not a
     // dock, turned off, locked).
     kWidgetToDock = 868,
+    // Round 18 phase 18B: tile LOWORD(lParam) (DrawerRefs: a script widget's ref) of the standalone
+    // widget picker of App settings (Docks and displays > Add a dock > More ▾ > Standalone widget…)
+    // as a click on it: a standalone widget of it on the primary display, its panel open, the picker
+    // hidden. 1 done, 0 refused (the picker is not shown, no such widget, a dock-only widget).
+    kPickerAdd = 869,
     kCloseAllWindows = 900,
     // Round 13 phase 13C: a widget menu's quick entries, kQuickBase + the entry's index in
     // ItemMenuState::quick (at most kQuickMax). Menu-local: never sent as ItemCommands (866 is). The
