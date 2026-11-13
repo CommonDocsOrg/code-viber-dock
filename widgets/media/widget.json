@@ -1,8 +1,8 @@
 {
   "name": "Now playing",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "author": "WinDock",
-  "description": "The current media session (Spotify, a browser, the Media Player app ...): album art, title and artist. Previous / play-pause / next over the face while hovered, always, or as buttons beside it; a long title or artist scrolls; middle-click for a popup with the controls; the wheel changes the volume and shows a volume bar beside the dock (a setting).",
+  "description": "The current media session (Spotify, a browser, the Media Player app ...): album art, title and artist. Previous / play-pause / next over the face while hovered, always, or as buttons beside it; a long title or artist scrolls; middle-click for a popup with the controls; the wheel changes the volume and shows a volume bar beside the dock (a setting). On the desktop it can be a mini player instead: Deck, Capsule, Cover or Disc, in the dock theme's colours, Silver or Night, with progress (click or drag to seek) and a volume slider.",
   "api": 1,
   "size": {
     "horizontal": { "main": 170, "cross": 48 },
@@ -29,6 +29,27 @@
       ],
       "description": "Never with reduce motion. Always costs 10 - 30 wake-ups a second (by the speed) while a line is too long and the dock is shown." },
     { "key": "marqueeSpeed", "section": "appearance", "group": "Scrolling", "visibleIf": { "showText": true }, "type": "int", "label": "Scrolling speed", "description": "How fast a title or artist that does not fit scrolls. Default: 28.", "min": 5, "max": 120, "step": 5, "default": 28, "unit": "DIPs a second" },
-    { "key": "wheelVolume", "common": true, "section": "content", "group": "Wheel", "type": "bool", "label": "The wheel changes the volume (with a volume bar)", "description": "Turning the mouse wheel over the widget changes the volume and shows a volume bar beside the dock. On by default.", "default": true }
+    { "key": "wheelVolume", "common": true, "section": "content", "group": "Wheel", "type": "bool", "label": "The wheel changes the volume (with a volume bar)", "description": "Turning the mouse wheel over the widget changes the volume and shows a volume bar beside the dock. On by default.", "default": true },
+    { "key": "layout", "section": "appearance", "group": "Desktop mini player", "type": "choice", "label": "Layout on the desktop", "default": "tile",
+      "choices": [
+        { "value": "tile", "label": "Tile (as on a dock)" },
+        { "value": "deck", "label": "Deck: art, display, transport and volume in a bar" },
+        { "value": "capsule", "label": "Capsule: a pill with the art as a disc" },
+        { "value": "cover", "label": "Cover: large art over the display and controls" },
+        { "value": "disc", "label": "Disc: the art as a disc with a progress ring" }
+      ],
+      "description": "Used only while the widget is on the desktop by itself (a standalone widget); on a dock it is always the tile. Picking a layout gives the window that layout's size; the player then scales with the window." },
+    { "key": "skin", "section": "appearance", "group": "Desktop mini player", "visibleIf": { "layout": ["deck", "capsule", "cover", "disc"] }, "type": "choice", "label": "Skin", "default": "theme",
+      "choices": [
+        { "value": "theme", "label": "Dock theme (its panel, text and accent colours)" },
+        { "value": "silver", "label": "Silver (brushed metal with a blue display)" },
+        { "value": "night", "label": "Night (dark with an amber display)" }
+      ] },
+    { "key": "accentColor", "section": "appearance", "group": "Desktop mini player", "visibleIf": { "layout": ["deck", "capsule", "cover", "disc"] }, "type": "colour", "label": "Accent colour", "default": "#00000000",
+      "description": "The progress, the volume slider and (Silver, Night) the play button. Transparent (#00000000): the skin's own." },
+    { "key": "showProgress", "section": "appearance", "group": "Desktop mini player", "visibleIf": { "layout": ["deck", "capsule", "cover", "disc"] }, "type": "bool", "label": "Show the progress", "default": true,
+      "description": "The position in the track (the Disc: a ring round its rim), redrawn once a second while something plays. Click or drag on it to jump, when the playing app allows that." },
+    { "key": "showVolume", "section": "appearance", "group": "Desktop mini player", "visibleIf": { "layout": ["deck", "cover"] }, "type": "bool", "label": "Show the volume slider", "default": true,
+      "description": "Deck and Cover only (the others change the volume with the wheel)." }
   ]
 }

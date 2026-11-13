@@ -1199,7 +1199,22 @@ built-ins are worked examples too:
   28): the frames come every `clamp(round(1000 / speed), 33, 100)` ms (10 - 30 a second), so a slow
   scroll wakes the dock less often; none with reduce motion. The 1.0 `marquee` bool is no longer read
   (`marqueeMode` is authoritative; an old `"marquee": false` scrolls on hover again: pick "Never").
-  Permissions `media`, `audio`.
+  Round 23 (1.2.0), the **desktop mini players**: `layout` `"tile"` (default: the above) or, only
+  while `dock.standalone`, `"deck"` (356 x 100), `"capsule"` (360 x 104, shaped: drawn on the
+  transparent window), `"cover"` (228 x 364) or `"disc"` (204 x 232, shaped), each drawn at its
+  natural size under one `translate` + `scaleBy` that fits it into the window (centred; the Deck's
+  display and the Capsule's pill take extra width instead of leaving it empty); `skin` `"theme"`
+  (`dock.theme` colours), `"silver"`, `"night"` (Consolas in the display); `accentColor`
+  (transparent: the skin's); `showProgress`; `showVolume` (Deck, Cover). These four use
+  `visibleIf` arrays. The transport buttons, the progress bar (the Disc's rim ring, by angle) and
+  the volume slider **claim** their presses (`onPress` returns `true`), so they work with
+  `onDrag` / `onRelease` (a button acts on release over it, drawn brighter while held; the bar
+  previews while dragged and calls `media.seek` on release when `canSeek`; the slider calls
+  `audio.setVolume` per 1 % step, unmuting), while a press on the art or the panel still moves the
+  window. The position is carried forward from `media.get()`'s and redrawn by one 1 s
+  `setInterval` that runs only while playing, visible, with the progress shown and a mini layout;
+  `onSettingsChanged` calls `widget.resize` with the new layout's natural size (the tile's: the
+  manifest's 340 x 96). Permissions `media`, `audio`.
 - `widgets/start`: `shell.sendKeys('start-near')` (or `'win'`, below), falling back to `shell.open('shell:AppsFolder')` when
   Windows refuses the input; `icon` `windows` / `mono` / `image` with `image` (a package file, or
   any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot). Round

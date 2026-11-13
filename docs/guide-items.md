@@ -374,7 +374,7 @@ WinDock comes with these widgets:
 - **Agenda**: your next calendar event. A click shows the next events.
 - **Weather (script)**: the weather with more choices, such as a forecast of several days on the dock.
 - **Volume**: the sound level. The wheel changes it, a middle-click mutes, a click opens a slider and the output devices.
-- **Now playing**: the song or video that is playing, with previous, play / pause and next.
+- **Now playing**: the song or video that is playing, with previous, play / pause and next. On the desktop it can be a **mini player** instead: in its settings (Appearance > Desktop mini player) pick the **Layout on the desktop**: Deck (a bar with the art, the title, the progress, the buttons and a volume slider), Capsule (a pill with the art as a round disc), Cover (large art over the controls) or Disc (the art as a disc with the progress as a ring round it). The window takes that layout's size, and the player grows and shrinks with the window. Pick a **Skin** (your dock's colours, Silver or Night) and an accent colour, and whether the progress and the volume slider show. Click or drag on the progress (on the Disc: on the ring) to jump in the track, when the playing app allows it; drag the volume slider to change the volume. Drag the art or the panel to move the window. On a dock the widget always keeps its dock look.
 - **Notes**: a sticky note. A click opens a small editor.
 - **System monitor**: one measurement, such as processor, memory, graphics, disk, network or battery, as a graph, a bar, a dial or a number.
 - **System overview**: processor, memory, graphics, disk and network at once.

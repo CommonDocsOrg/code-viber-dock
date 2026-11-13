@@ -1850,6 +1850,10 @@ unclaimed press is untouched (the existing widgets return nothing from `onPress`
 for a standalone window (posted: the call is inside the script, and a resize draws it again). And
 `visibleIf` arrays ("any of"), so the skin fields can show for four layouts out of five.
 
+**23B, the widget.** Each layout is drawn at its natural size under one scale transform; the tile
+is untouched. No hover highlight per button (that would need pointer moves): a held button is drawn
+brighter instead, and acts on release. One 1 s interval only while the progress moves on screen.
+
 Not done (as agreed): colours taken from the art, a spinning disc, a spectrum. The Cover's natural
 height is 364, what the mock's CSS adds up to, not its caption's 348.
 

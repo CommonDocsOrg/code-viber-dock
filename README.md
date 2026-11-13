@@ -1373,7 +1373,13 @@ write and edit without compiling anything. The full reference (every call, every
   whole face while hovered, always, or (round 7) as buttons beside it, previous on the left and
   next on the right (above / below on a left / right dock); a title or artist that does not fit
   scrolls while hovered, always or never, at a speed you set; middle-click for a popup; the wheel
-  changes the volume with the same volume bar (a setting)), **Start**
+  changes the volume with the same volume bar (a setting); round 23: on the desktop, **Layout on
+  the desktop** (`layout`: `tile` (default), `deck`, `capsule`, `cover`, `disc`) makes it a mini
+  player (art, title, artist, progress you can click or drag to seek, previous / play-pause / next,
+  a volume slider on Deck and Cover) in a **Skin** (`skin`: `theme` the dock theme's colours,
+  `silver`, `night`) with **Accent colour** (`accentColor`, transparent: the skin's), **Show the
+  progress** (`showProgress`) and **Show the volume slider** (`showVolume`); picking a layout sizes
+  the window to it; on a dock the widget stays the tile)), **Start**
   (`start`: the Windows logo, the Windows 7 orb (round 11: a glossy sphere with the waving flag,
   lighter and glowing under the pointer, darker while pressed) or your icon, opens Start; round 16:
   **Menu position** (`menuPosition`, Content) `"near"`, the default, opens the menu next to the
