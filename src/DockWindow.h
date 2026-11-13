@@ -119,6 +119,11 @@ public:
     static constexpr UINT_PTR kScrollHintTimerId = 24;    // a scrolling dock: fade the scroll thumb out
     static constexpr UINT_PTR kAutoScrollTimerId = 25;    // a drag held near a viewport end scrolls the run
     static constexpr UINT_PTR kFlashTimerId = 26;         // Flash: the next border pulse step (one-shot)
+    // Round 24 phase 24B (27 / 28 were the free ids round 12 left): the tray drawer opened by
+    // hovering the arrow (`drawerOpen: hover`). Both one-shot; neither runs while the drawer is
+    // closed and the pointer is off the arrow.
+    static constexpr UINT_PTR kTrayHoverTimerId = 27;     // previewDelayMs on the arrow: open the drawer
+    static constexpr UINT_PTR kTrayLeaveTimerId = 28;     // grace after leaving the arrow and a hover-opened drawer
     // 44 = App::kKeepTimerId (round 12 phase 12A: the Keep / Revert countdown on the app window;
     // 40 - 42 CalendarService, 43 DockManager::kDesktopTimer there). WM_APP + 14 = App::kTimelineCommit.
     // Round 12 phase 12D: 29 = kEditPressTimerId (the long press into customize mode, on the dock
@@ -455,8 +460,16 @@ public:
     // Automation (ItemCommand 822 / 823): a left / right click on the drawer's icon `icon` of the
     // tray slot `slot`, forwarded as if clicked there. False without such a slot / icon.
     bool ClickTrayIcon(int slot, size_t icon, bool right);
-    // The drawer's icons of the tray slot `slot` (empty: not a tray slot / the tray is off).
+    // The drawer's icons of the tray slot `slot` (empty: not a tray slot / the tray is off). Round
+    // 24 phase 24B: with `drawerShows: overflow` only those its grid does not show (hidden,
+    // overflowed, pinned as trayApp items), so the automation that indexes the drawer (ItemCommand
+    // 822 - 827, QueryState 106 - 108) indexes that list.
     std::vector<const TrayIcon*> TrayDrawerIcons(int slot) const;
+    // Round 24 phase 24B, automation: opens the drawer of tray slot `slot` the hover way (at once,
+    // without the pointer on the arrow: the leave grace then closes it unless the pointer comes
+    // over it; ItemCommand 870) / presses the open drawer's gear (871). False: not done.
+    bool OpenTrayDrawerByHover(int slot);
+    bool PressTrayDrawerGear();
 
     // --- notifications (round 4 phase 9) ---
     // The notification list or the service's state changed (or docks[].badges / the exclusions):
@@ -1194,6 +1207,33 @@ private:
     void DropOnTrayDrawer(const std::wstring& key, bool fromDrawer, size_t before);
     // The open drawer shows the icons as they are now (refilled when its signature changed).
     void RefillTrayDrawer();
+    // Round 24 phase 24B: the drawer's layout from tray slot `slot`'s item (the drawer* keys), and
+    // the pixel size its icons are fetched at (0: the handle as sent, as before 24B).
+    FolderPopup::GroupLayout TrayDrawerLayout(int slot) const;
+    int TrayDrawerBitmapPx(int slot) const;
+    // A drawer member's picture: the handle as sent, unless `px` > 0 and the handle is smaller.
+    ID2D1Bitmap* DrawerBitmap(const TrayIcon& icon, int px);
+    // What the drawer's layout adds to drawerSignature_ (a changed key refills an open drawer).
+    static std::wstring DrawerLayoutSignature(const FolderPopup::GroupLayout& l, int px);
+    // Round 24 phase 24B, `drawerOpen: hover`. UpdateTrayHover runs when the hovered cell changes:
+    // on the arrow of a hover tray it starts kTrayHoverTimerId (no click popup up, no drag, the
+    // dock shown), elsewhere it stops it; a hover-opened drawer starts its leave grace once the
+    // pointer is over neither the arrow nor the drawer (kTrayLeaveTimerId; the drawer's own hover
+    // callback cancels / starts it too).
+    void UpdateTrayHover();
+    bool TrayHoverEligible() const;
+    void OnTrayHoverTimer();
+    void StartTrayLeave();
+    void CancelTrayLeave();
+    void OnTrayLeaveTimer();
+    // The pointer is on the arrow of the tray slot the drawer is open for.
+    bool PointerOnDrawerArrow() const;
+    // The open drawer is the tray drawer and was opened by hover.
+    bool TrayDrawerByHover() const { return drawerByHover_ && folder_.Kind() == 3; }
+    bool trayHoverPending_ = false;  // kTrayHoverTimerId running
+    int trayHoverSlot_ = -1;         // ... for this tray slot
+    bool trayLeavePending_ = false;  // kTrayLeaveTimerId running
+    bool drawerByHover_ = false;     // the tray drawer on screen was opened by hover
     // A trayApp slot's picture at the icon bitmap size (the HICON scaled; the app's own larger
     // icon resource when the handle still knows it). Null: its app does not run (placeholder).
     ID2D1Bitmap* TrayAppBitmap(const DockItem& item);

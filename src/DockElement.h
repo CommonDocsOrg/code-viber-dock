@@ -273,6 +273,9 @@ public:
     // Tray automation: icons drawn in the grid (-1: not a tray), whether the overflow button shows.
     virtual int TrayCells() const { return -1; }
     virtual bool TrayOverflow() const { return false; }
+    // Round 24 phase 24B: notify icon `id` has a cell in this tray grid as last measured (the
+    // drawer's `drawerShows: overflow` lists the others).
+    virtual bool TrayGridShows(uint64_t /*id*/) const { return false; }
     // Round 24 phase 24A: the tray grid's look as drawn (QueryState 343 - 350). False: not a tray.
     struct TrayLookState {
         int place = 0;        // where the arrow is drawn (TrayExpander; a strip next to an empty grid: end)

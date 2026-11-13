@@ -325,7 +325,10 @@ void ItemGridView::EnsureFormats() {
         gridFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_NEAR);
         gridFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
         // Fixed line height: exactly two lines fit the name box; the second one is ellipsized.
-        gridFormat_->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, kLineH * s, 13.0f * s);
+        // Round 24 phase 24B: the line (and its baseline) scale with the font (the tray drawer's
+        // label size); at 12 DIPs, every other view's size, it is the round-3 16 / 13.
+        const float k = style_.fontDip / 12.0f;
+        gridFormat_->SetLineSpacing(DWRITE_LINE_SPACING_METHOD_UNIFORM, kLineH * k * s, 13.0f * k * s);
         if (SUCCEEDED(dw->CreateEllipsisTrimmingSign(gridFormat_.get(), gridEllipsis_.put()))) {
             gridFormat_->SetTrimming(&trimming, gridEllipsis_.get());
         }
@@ -461,9 +464,11 @@ HRESULT ItemGridView::DrawRow(Row& row) {
                     dc->DrawBitmap(item.icon.get(), &dst, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr,
                                    nullptr);
                 }
-                if (dw && gridFormat_ && !item.label.empty()) {
+                // Round 24 phase 24B: labelLines 0 draws icons only.
+                if (dw && gridFormat_ && !item.label.empty() && style_.labelLines > 0) {
                     const float textW = (cell.right - cell.left) - 2.0f * std::round(kTextPadX * s);
-                    const float textH = std::round(static_cast<float>(std::clamp(style_.labelLines, 1, 2)) * kLineH * s);
+                    const float textH = std::round(static_cast<float>(std::clamp(style_.labelLines, 1, 2)) * kLineH *
+                                                   (style_.fontDip / 12.0f) * s);
                     winrt::com_ptr<IDWriteTextLayout> layout;
                     if (SUCCEEDED(dw->CreateTextLayout(item.label.c_str(), static_cast<UINT32>(item.label.size()),
                                                        gridFormat_.get(), textW, textH, layout.put()))) {

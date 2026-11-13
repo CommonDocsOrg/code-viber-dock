@@ -440,6 +440,16 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                      [this] { DismissFolderPopup(true); },
                      [this] { OnFolderPopupClosed(); },
                  });
+    // Round 24 phase 24B: a hover-opened tray drawer keeps open while the pointer is over it and
+    // starts its leave grace when the pointer goes (unless back on the arrow). Nothing otherwise.
+    folder_.SetHoverCallback([this](bool inside) {
+        if (!TrayDrawerByHover()) return;
+        if (inside) {
+            CancelTrayLeave();
+        } else if (!PointerOnDrawerArrow()) {
+            StartTrayLeave();
+        }
+    });
     // The forecast of the weather slot that opened it (round 5: its item's place).
     weatherPopup_.Init(instance, &renderer_,
                        [this]() -> const WeatherService* {
@@ -5193,6 +5203,8 @@ void DockWindow::DragGroupMember(const AppKey& group, size_t member) {
 
 void DockWindow::DismissFolderPopup(bool animate, bool leaveCheck) {
     folder_.Hide(animate);
+    drawerByHover_ = false;  // round 24 phase 24B
+    CancelTrayLeave();
     const AppKey was = std::exchange(folderKey_, AppKey{});
     ReleasePopupHold(kHoldFolder, leaveCheck);
     RedrawTraySlot(was);  // round 24 phase 24A: a tray grid's chevron points out again (others: no-op)
@@ -5200,6 +5212,8 @@ void DockWindow::DismissFolderPopup(bool animate, bool leaveCheck) {
 
 void DockWindow::OnFolderPopupClosed() {
     // Hidden already (fading out): only the dock's side.
+    drawerByHover_ = false;  // round 24 phase 24B
+    CancelTrayLeave();
     const AppKey was = std::exchange(folderKey_, AppKey{});
     ReleasePopupHold(kHoldFolder, true);
     RedrawTraySlot(was);
@@ -9461,6 +9475,17 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                 }
             }
         }
+        // --- round 24 phase 24B: this dock's open tray drawer (-1: no tray drawer open) ---
+        case 351:  // its columns as laid out (a list, `drawerLabels: beside`: 1)
+            return folder_.Kind() == 3 ? static_cast<LRESULT>(folder_.Columns()) : -1;
+        case 352:  // its icons' drawn size, px
+            return folder_.Kind() == 3 ? folder_.IconPx() : -1;
+        case 353:  // 1: it was opened by hovering the arrow (and no click / right click made it an ordinary one yet)
+            return folder_.Kind() == 3 ? (TrayDrawerByHover() ? 1 : 0) : -1;
+        case 354:  // 1 the title row is shown, + 2 the gear in it
+            return folder_.Kind() == 3 ? (folder_.TitleShown() ? 1 : 0) | (folder_.GearShown() ? 2 : 0) : -1;
+        case 355:  // the hover-open timers pending (any drawer state): 1 the open delay, + 2 the leave grace
+            return (trayHoverPending_ ? 1 : 0) | (trayLeavePending_ ? 2 : 0);
         default:
             return -1;
     }
@@ -9709,6 +9734,19 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // the clock, the weather) the release then does not open it again (the click toggles).
             // Round 12 phase 12D: customize mode: an item's press and click do nothing of their own.
             pressClosedPopup_ = !editing_ && pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).OnPress(pressed_);
+            // Round 24 phase 24B: a press on the arrow under a hover-opened drawer keeps it, as an
+            // ordinary click-opened drawer from now on (the user clicked to open it); the release
+            // does not open it again (pressClosedPopup_: OnPress said the press is on its arrow).
+            // (A block: the case has no braces of its own, and later case labels must not jump
+            // over this initialisation.)
+            {
+            bool adoptDrawer = false;
+            if (pressClosedPopup_ && TrayDrawerByHover() && items_[static_cast<size_t>(pressed_)].key == folderKey_ &&
+                PointerOnDrawerArrow()) {
+                adoptDrawer = true;
+                drawerByHover_ = false;
+                CancelTrayLeave();
+            }
             // Round 23 phase 23A: a script widget claimed the press (its onPress returned true): it
             // follows the held button (OnDrag / OnRelease); no item drag, dock move (Ctrl) or run
             // scroll starts from it, and the release is no click. An unclaimed press goes on as before.
@@ -9722,7 +9760,8 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // Round 19 phase 19A: a press on a tray icon (a grid cell, a trayApp slot) with the
             // drawer open may become a drag into the drawer: it stays until the release.
             pressKeptDrawer_ = !pressTrayKey_.empty() && folder_.Kind() == 3 && !DockCfg().locked && !editing_;
-            if (ClickPopupOnScreen() && !pressKeptDrawer_) DismissClickPopups(true, false);
+            if (ClickPopupOnScreen() && !pressKeptDrawer_ && !adoptDrawer) DismissClickPopups(true, false);
+            }
             RefreshButtons();  // round 11 phase 11A: the pressed frame (no-op without slot buttons)
             // Round 12 phase 12D: a press on the bar's background (or beside an icon's box across the
             // bar) held still for 600 ms enters customize mode (an item's press is hold-to-group's).
@@ -10003,6 +10042,12 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 case kEditPressTimerId:  // round 12 phase 12D
                     OnEditPressTimer();
                     return 0;
+                case kTrayHoverTimerId:  // round 24 phase 24B
+                    OnTrayHoverTimer();
+                    return 0;
+                case kTrayLeaveTimerId:
+                    OnTrayLeaveTimer();
+                    return 0;
                 case kRestTimerId:
                     KillTimer(hwnd_, kRestTimerId);
                     restPending_ = false;
@@ -10125,9 +10170,11 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             for (UINT_PTR id : {kClockTimerId, kIconEvictTimerId, kBounceTimerId, kHideTimerId, kRevealTimerId,
                                 kSlideTimerId, kMagnifyTimerId, kLabelTimerId, kRestTimerId, kBackdropTimerId,
                                 kDragTimerId, kRemoveTimerId, kPreviewTimerId, kPreviewLeaveTimerId,
-                                kLabelFadeTimerId, kRecycleBinTimerId}) {
+                                kLabelFadeTimerId, kRecycleBinTimerId, kTrayHoverTimerId, kTrayLeaveTimerId}) {
                 KillTimer(hwnd_, id);
             }
+            trayHoverPending_ = trayLeavePending_ = false;  // round 24 phase 24B
+            trayHoverSlot_ = -1;
             if (binNotify_) {
                 SHChangeNotifyDeregister(binNotify_);
                 binNotify_ = 0;

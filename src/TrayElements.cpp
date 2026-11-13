@@ -414,6 +414,7 @@ public:
     }
     int TrayCells() const override { return static_cast<int>(shown_.size()); }
     bool TrayOverflow() const override { return arrow_; }
+    bool TrayGridShows(uint64_t id) const override { return std::find(shown_.begin(), shown_.end(), id) != shown_.end(); }
     bool TrayLook(TrayLookState& out) const override {
         out.place = static_cast<int>(place_);
         out.style = static_cast<int>(style_);

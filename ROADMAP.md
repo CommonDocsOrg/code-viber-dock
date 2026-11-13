@@ -1905,9 +1905,33 @@ there would render on the lost device). `mono` is one premultiplied colour matri
 glow's. Icon sizes above 24 DIPs fetch the picture at that pixel size (as pinned tray icons do);
 16 - 24 keep the handle as before so a default grid draws the same pixels.
 
-**24B, the drawer (planned).** `FolderPopup` takes a layout (icon size, labels below / beside /
-none, label size, columns, title on / off) instead of the group popup's constants; `drawerShows:
-overflow`; hover open behind a one-shot timer with a grace close; a gear to the tray settings.
+**24B, the drawer.** `FolderPopup::ShowGroup` takes a `GroupLayout` (icon size, names below /
+beside / none, their size, columns, title on / off) whose default derives exactly the round-3
+constants (a `static_assert` holds the 84 DIP cell to it), so folders, shortcut groups and a
+default drawer lay out as before; `UpdateGroup` keeps it unless given another (the keys changed
+while the drawer is open: the layout is part of the drawer's signature). Cells derive from the
+icon and the font as the folder windows' do; a name line grows with the font, which needed
+`ItemGridView` to scale its fixed 16 DIP line (identical at 12, every other view's size) and to
+take `labelLines` 0 (icons only). Names beside the icons are the view's list rows, and a list has
+one column, so `drawerColumns` does not apply there: several list columns would mean a second
+layout in `ItemGridView`'s hit testing, keyboard and insert marker for a niche case.
+
+At the default 40 DIPs the drawer keeps drawing the icon handle as sent (the same pixels as before,
+as 24A's grid does up to 24 DIPs); any other size fetches the picture at the drawn size and uses it
+only when it is larger than the handle. `drawerShows: overflow` filters `TrayDrawerIcons` by the
+grid's last measured cells (`DockElement::TrayGridShows`), so every user of the drawer's list (the
+members, `drawerIds_` and so the drops, `TrayIconRect`, the automation) follows it without a second
+mapping; pinned trayApp icons stay in it (the grid never shows them, and the drawer is where they
+are dragged back from).
+
+Hover open uses the two ids round 12 left free (27 / 28): a one-shot delay timer armed only while
+the pointer is on a hover tray's arrow (from the hover-cell path, so nothing runs on a plain move),
+and a one-shot leave grace armed only while a hover-opened drawer is on screen and the pointer is
+over neither it nor the arrow (the drawer's own hover callback starts / cancels it too). The grace
+gives way to a drag and is started again when the drag ends; a right click on a member (the app's
+menu, `HoldForMenu`) or a press on the arrow make it an ordinary click-opened drawer. A press on the
+arrow keeping it open was chosen over closing it: the user clicked to open it. The gear sits in the
+title row (none without the title); the popups have no tooltip mechanism, so it has none.
 
 **24C, settings and docs (planned).** The tray item's page (The grid, The arrow, The drawer cards),
 the user guides, `tools\smoke\tray-look.ps1`, the manual check list.

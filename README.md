@@ -1645,12 +1645,43 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   open), `"dots"` (three dots along the arrow's longer side) or `"count"` (`+N`, the icons the
   grid does not show; a chevron while that is none). `expanderShow` `"always"` shows the arrow
   even when every icon fits (`"auto"`, the default: only when the grid leaves icons out).
-  `drawerOpen`, `drawerShows`, `drawerIconSize`, `drawerLabels`, `drawerLabelSize`,
-  `drawerColumns` and `drawerTitle` are read and saved now and take effect in phase 24B (see
-  Configuration).
+- **The drawer's look** (round 24 phase 24B; every default is the look before it, plus the gear):
+  `drawerIconSize` (16 - 48 DIPs, 40) sizes its icons; the cells follow the icon and
+  `drawerLabelSize` (10 - 16 DIPs, 12; a name line is 4 / 3 of it): with `drawerLabels`
+  `"below"` (the default) a cell is max(88 x size / 12, icon + 48) DIPs wide and 6 + icon + 4 +
+  two lines + 2 tall (88 x 84 at the defaults); `"beside"` lists the icons as rows, the icon then
+  the name on one line, icon + 12 DIPs tall, in one column (`drawerColumns` does not apply: the
+  list has one); `"none"` draws icons only in icon + 12 DIP square cells. `drawerColumns` 1 - 8
+  sets the columns (still within the room beside the dock, and never more than there are icons);
+  0 (the default) is the automatic count, min(6, the square root of the icons rounded up). Eight
+  rows show, then it scrolls. `drawerTitle` false drops the title row and the hairline under it
+  (no gear either; the drawer is then as wide as its icons). At 40 DIPs the drawer draws each
+  icon's handle as the app sent it, scaled, exactly as before; any other size asks for the
+  picture at the drawn pixel size (the app's own resource at that size when the handle still
+  knows it) and uses it when it is larger than the handle. A gear at the right of the title row
+  (in the popup's text colour, a hover plate) opens the tray item's settings window, as the tray
+  menu's Tray settings… does (there is no tooltip: the popups have no tooltip mechanism).
+- **What the drawer shows** (round 24 phase 24B): `drawerShows` `"all"` (the default) lists
+  every icon; `"overflow"` only those the grid does not show: hidden ones, the ones that did not
+  fit, and icons pinned as trayApp items (the grid never shows those; the drawer listed them
+  before and is where they are dragged back from). Drops into and within the drawer, drags out of
+  it and `Shell_NotifyIconGetRect` (an icon in the grid answers its cell, one in the drawer its
+  drawer cell, else the arrow) work on that list; so do the automation commands that index the
+  drawer (ItemCommand 822 - 827, QueryState 106 - 108).
+- **Opening the drawer by hover** (round 24 phase 24B): `drawerOpen` `"hover"` opens it once the
+  pointer rests on the arrow for the dock's popup hover delay (`previewDelayMs`, the window
+  previews' delay, 600 ms by default), not while another click popup is up, a drag runs, a menu is open or the dock is
+  being customized. A drawer opened that way closes 0.4 s after the pointer is over neither the
+  arrow nor the drawer (never during a drag, behind an app's menu, or while the pointer is on
+  it). A click on the arrow while it is hover-opened keeps it open, as an ordinary click-opened
+  drawer from then on (the click meant "open"; closing it would surprise); a right click on one
+  of its icons does the same. `"click"` (the default) is the click toggle as before. Nothing
+  runs while the drawer is closed and the pointer is elsewhere (two one-shot timers, armed only
+  on the arrow / while a hover-opened drawer is on screen).
 - **Overflow and the drawer**: with more icons than cells, or icons hidden from the grid, the
   arrow shows (the last cell by default, a chevron); a click opens the drawer (the folder / group popup in tray mode, titled
-  "Notification area") with every icon, scrolling past eight rows. Its cells behave like the
+  "Notification area") with every icon (24B: or only the ones the grid leaves out, `drawerShows`
+  above), scrolling past eight rows. Its cells behave like the
   grid's. Round 19 phase 19A: a right click shows the app's menu with the drawer still open behind
   it (like the Windows 11 overflow flyout); dismissing the menu (Escape, a click back on the
   drawer) leaves the drawer there for the next icon, while a menu item that brings up a window, or
@@ -2929,7 +2960,7 @@ items that exist. A file whose items have settings already is left alone.
       default): `spacing` 0 - 8 DIPs around each grid icon (3), `labels` `"none"` / `"beside"`,
       `colour` `"original"` / `"mono"`, `expander` `"end"` / `"start"` / `"before"` / `"after"`,
       `expanderStyle` `"chevron"` / `"dots"` / `"count"`, `expanderShow` `"auto"` / `"always"`;
-      and the drawer's (used from phase 24B): `drawerOpen` `"click"` / `"hover"`, `drawerShows`
+      and the drawer's (round 24 phase 24B): `drawerOpen` `"click"` / `"hover"`, `drawerShows`
       `"all"` / `"overflow"` (only the icons the grid does not show), `drawerIconSize` 16 - 48
       DIPs (40), `drawerLabels` `"below"` / `"beside"` / `"none"`, `drawerLabelSize` 10 - 16 (12),
       `drawerColumns` 0 - 8 (0: automatic), `drawerTitle` true / false (true). The first of each
@@ -3446,7 +3477,18 @@ always there, also when every dock is parked) handle these registered messages:
   beside the icon included), 347 = the icons' drawn size, px, 348 = the cell under the hover plate
   (-1 none; the icons' cells, then the arrow's at the icons' count), 349 = 1 while labels are drawn
   beside the icons, 350 = the arrow's centre in screen px, x | y << 16 (16 bits each, signed; -1
-  no arrow). `DockCommand` 128 Add > Tray (also turns `tray.enabled` on), 129 tray on,
+  no arrow). Round 24 phase 24B, this dock's open tray drawer (each -1 while no tray drawer is
+  open): 351 = its columns as laid out (1 for `drawerLabels` `"beside"`, a list), 352 = its icons'
+  drawn size, px, 353 = 1 while it is open by hover (0 once a click on the arrow or a right click
+  on an icon made it an ordinary drawer, and for a click-opened one), 354 = 1 the title row is
+  shown, + 2 the gear in it; 355 = the hover timers pending, any state (1 the open delay on the
+  arrow, + 2 the leave grace of a hover-opened drawer; 0 while idle). With `drawerShows`
+  `"overflow"` the drawer's list (106 - 108, ItemCommand 822 - 827) is the filtered one.
+  `ItemCommand` 870 opens tray slot `LOWORD(lParam)`'s drawer the hover way at once (no delay, no
+  pointer needed on the arrow: unless the pointer is over the drawer or the arrow, the 0.4 s
+  leave grace then closes it; 1 opened, 0 not a tray slot / the tray is off); 871 presses the
+  open drawer's gear (the tray item's settings window opens, the drawer closes; 1 done, 0 no tray
+  drawer with a gear is open). `DockCommand` 128 Add > Tray (also turns `tray.enabled` on), 129 tray on,
   130 tray off (the icons go back to Explorer). `ItemCommand` 822 / 823 = a left / right click on
   tray slot `lParam`'s drawer icon `HIWORD(wParam)` (the drawer's order, 106 / 107 tell which is
   which), forwarded as if clicked at the icon's place; returns 1 if it was delivered; 8b: 824 pins
