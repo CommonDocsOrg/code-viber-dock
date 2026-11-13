@@ -205,23 +205,79 @@ TrayHost* DockWindow::Tray() {
     return shared_ && shared_->TrayService().Running() ? &shared_->TrayService() : nullptr;
 }
 
-ID2D1Bitmap* DockWindow::TrayBitmap(const TrayIcon& icon) {
+ID2D1Bitmap* DockWindow::TrayBitmap(const TrayIcon& icon, int px) {
     if (!icon.icon) return nullptr;
-    auto it = trayBitmaps_.find(icon.imageSerial);
+    // Round 24 phase 24A: keyed by the picture and the size (the grid at a large icon size and the
+    // drawer at the handle's own size hold one each).
+    constexpr int kSizeBits = 12;
+    px = std::clamp(px, 0, (1 << kSizeBits) - 1);
+    const uint64_t key = (icon.imageSerial << kSizeBits) | static_cast<uint64_t>(px);
+    auto it = trayBitmaps_.find(key);
     if (it != trayBitmaps_.end()) return it->second.get();
     ID2D1DeviceContext* dc = renderer_.ResourceContext();
     if (!dc) return nullptr;
-    // Pictures of icons that changed or went: dropped once the cache holds twice the live ones.
-    if (TrayHost* tray = Tray(); tray && trayBitmaps_.size() >= 2 * tray->Icons().size() + 8) {
+    // Pictures of icons that changed or went: dropped once the cache holds three times the live
+    // ones (two sizes per icon are normal since 24A).
+    if (TrayHost* tray = Tray(); tray && trayBitmaps_.size() >= 3 * tray->Icons().size() + 8) {
         std::erase_if(trayBitmaps_, [&](const auto& kv) {
             return std::none_of(tray->Icons().begin(), tray->Icons().end(),
-                                [&](const TrayIcon& t) { return t.imageSerial == kv.first; });
+                                [&](const TrayIcon& t) { return t.imageSerial == kv.first >> kSizeBits; });
         });
     }
-    winrt::com_ptr<ID2D1Bitmap> bitmap = icons_.FromHicon(icon.icon, dc);
+    winrt::com_ptr<ID2D1Bitmap> bitmap;
+    if (px > 0) {
+        // As TrayAppBitmap: the icon's resource at that size when the handle still knows where it
+        // came from (an icon loaded from a module), so 28 - 48 DIP icons are not a 16 px handle
+        // scaled up; else the copy as the app sent it.
+        if (HICON sized = static_cast<HICON>(CopyImage(icon.icon, IMAGE_ICON, px, px, LR_COPYFROMRESOURCE))) {
+            bitmap = icons_.FromHicon(sized, dc);
+            DestroyIcon(sized);
+        }
+    }
+    if (!bitmap) bitmap = icons_.FromHicon(icon.icon, dc);
     ID2D1Bitmap* raw = bitmap.get();
-    trayBitmaps_.emplace(icon.imageSerial, std::move(bitmap));
+    trayBitmaps_.emplace(key, std::move(bitmap));
     return raw;
+}
+
+bool DockWindow::TrayDrawerShown(const AppKey& key) const {
+    return !key.id.empty() && folder_.Kind() == 3 && folderKey_ == key;
+}
+
+void DockWindow::RedrawTraySlot(const AppKey& key) {
+    if (!hwnd_ || key.id.empty()) return;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (items_[i].key == key && items_[i].kind == DockItem::Kind::Tray) RedrawTraySlots(static_cast<int>(i), -1);
+    }
+}
+
+void DockWindow::RedrawTraySlots(int a, int b) {
+    // Only the slot's surface, at the size its element last measured: no re-measure, so no relayout
+    // can start from here (this runs inside a rebuild's SetHover(-1) and popup dismissals too).
+    // A slot that cannot be drawn now (a layout or a device recovery runs, its element is new and
+    // not measured yet) is marked dirty: the next layout or RefreshDirtyWidgets draws it.
+    bool draw = false;
+    for (int s : {a, b}) {
+        if (s < 0 || s >= static_cast<int>(items_.size())) continue;
+        DockItem& item = items_[static_cast<size_t>(s)];
+        if (item.kind != DockItem::Kind::Tray || item.element >= elements_.size() || !elements_[item.element]) continue;
+        item.dirty = true;
+        DockElement::TrayLookState look;
+        if (hwnd_ && !recovering_ && !inLayout_ && item.layer.visual && ElementOf(static_cast<size_t>(s)).TrayLook(look) &&
+            look.cellAlong > 0) {
+            draw = true;
+        }
+    }
+    if (!draw) return;
+    RenderWithRecovery([this, a, b] {
+        HRESULT hr = S_OK;
+        for (int s : {a, b}) {
+            if (s < 0 || s >= static_cast<int>(items_.size())) continue;
+            DockItem& item = items_[static_cast<size_t>(s)];
+            if (SUCCEEDED(hr) && item.dirty && item.kind == DockItem::Kind::Tray && item.layer.visual) hr = RenderWidget(item);
+        }
+        return hr;
+    });
 }
 
 void DockWindow::SetHoverCell(int slot, int cell, std::wstring label, float centre) {
@@ -240,11 +296,17 @@ void DockWindow::SetHoverCell(int slot, int cell, std::wstring label, float cent
     hoverCell_ = cell;
     hoverCellLabel_ = std::move(label);
     hoverCellCentre_ = centre;
+    // Round 24 phase 24A: the tray grid draws a plate under its hot cell: its slot is redrawn
+    // when the hot cell changes (never on a move within the cell).
     if (oldSlot >= 0 && oldSlot < static_cast<int>(items_.size()) && elements_[items_[static_cast<size_t>(oldSlot)].element]) {
         ElementOf(static_cast<size_t>(oldSlot)).OnCellHover(oldSlot, oldCell, CellEvent::Leave);
     }
-    if (slot < 0) return;  // the caller sets the hover (SetHover) itself
+    if (slot < 0) {
+        RedrawTraySlots(oldSlot, -1);
+        return;  // the caller sets the hover (SetHover) itself
+    }
     ElementOf(static_cast<size_t>(slot)).OnCellHover(slot, cell, CellEvent::Enter);
+    RedrawTraySlots(oldSlot, slot == oldSlot ? -1 : slot);
     if (hovered_ == slot) {
         // Another cell of the same slot: the label follows; without a label it hides and the
         // dwell starts again.
@@ -398,6 +460,7 @@ void DockWindow::ShowTrayDrawer(int index, float anchor) {
     }
     folderKey_ = items_[static_cast<size_t>(index)].key;
     TakePopupHold(kHoldFolder);
+    RedrawTraySlot(folderKey_);  // round 24 phase 24A: the chevron points back while it is open
     HideLabel();
     RenderWithRecovery([] { return S_OK; });  // commit the label hide
 }

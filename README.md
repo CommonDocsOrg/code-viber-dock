@@ -1618,15 +1618,38 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   right; both 1 - 20): across the bar are the rows on a bottom / top dock and the columns on a
   left / right one (before 16B columns always ran along the dock, so a vertical dock's grid looked
   transposed; the default 1 x 8 looks the same on every edge, so there is no migration). Cells
-  are the icon plus 3 DIPs on each side, filled along the dock first. Across the bar, one or two
+  are the icon (`iconSize`, 16 - 32 DIPs since round 24; 16 / 20 / 24 before) plus `spacing`
+  DIPs on each side (0 - 8, default 3), filled along the dock first. Across the bar, one or two
   cells always fit (two of large icons shrink to half the room each); more fit only when they
   fit at full size in the box's room at rest: the icon row plus the titles beside the icons and
   `docks[].thickness`'s extra (Dock settings > Position > Fixed thickness); the rest of the
   asked-for cells across are dropped (the drawer has every icon). Icons an app hid
   (`NIS_HIDDEN`), without a picture or without a callback message (they cannot be clicked) are
   not shown; neither are the dock's own tray icon and the keys in `hidden`.
-- **Overflow and the drawer**: with more icons than cells, or icons hidden from the grid, the last
-  cell is a chevron; a click opens the drawer (the folder / group popup in tray mode, titled
+- **The grid's look** (round 24 phase 24A; every default is the look before it): `labels`
+  `"beside"` draws each icon's name to its right in a fixed 72 DIP column (ellipsized, 12 DIP
+  text in the theme's clock text colour); on a bottom / top dock the cells grow along the bar, on
+  a left / right one across it, and only when a labelled column fits the room across at full size
+  (a thin side dock stays icons only; so does a grid whose cells shrank below a line of text).
+  `colour` `"mono"` draws the grid's icons desaturated and tinted to the theme's clock text colour
+  (the drawer keeps their colours). The cell under the pointer (an icon or the arrow) gets a plate
+  in the popups' hover colours (`previewHotBackground` / `previewHotBorder`). Icon sizes above 24
+  DIPs ask the app's icon for that pixel size (its own resource at that size when the handle
+  still knows it), so a large grid icon is not a 16 px picture scaled up; 16 - 24 draw the handle
+  as before.
+- **The arrow** (round 24 phase 24A): `expander` places it: `"end"` (the last cell, as before),
+  `"start"` (the first cell; the icons move one cell on), `"before"` / `"after"` (a slim strip
+  before / after the grid along the bar, about 0.6 of a cell long and as deep as the grid, that
+  uses no icon cell; next to an empty grid it takes the cell instead). `expanderStyle`:
+  `"chevron"` (pointing away from the screen edge; back toward it while this grid's drawer is
+  open), `"dots"` (three dots along the arrow's longer side) or `"count"` (`+N`, the icons the
+  grid does not show; a chevron while that is none). `expanderShow` `"always"` shows the arrow
+  even when every icon fits (`"auto"`, the default: only when the grid leaves icons out).
+  `drawerOpen`, `drawerShows`, `drawerIconSize`, `drawerLabels`, `drawerLabelSize`,
+  `drawerColumns` and `drawerTitle` are read and saved now and take effect in phase 24B (see
+  Configuration).
+- **Overflow and the drawer**: with more icons than cells, or icons hidden from the grid, the
+  arrow shows (the last cell by default, a chevron); a click opens the drawer (the folder / group popup in tray mode, titled
   "Notification area") with every icon, scrolling past eight rows. Its cells behave like the
   grid's. Round 19 phase 19A: a right click shows the app's menu with the drawer still open behind
   it (like the Windows 11 overflow flyout); dismissing the menu (Escape, a click back on the
@@ -2898,10 +2921,19 @@ items that exist. A file whose items have settings already is left alone.
     - `"tray"`: the notify icons as a grid (see **System tray** above), `{ "kind": "tray",
       "rows": 1, "columns": 8, "iconSize": 20, "hidden": ["<icon key>", ...], "order": [...] }`;
       `rows` 1 - 20 (stacked top to bottom), `columns` 1 - 20 (left to right; round 16 phase 16B:
-      as seen on screen on every edge, rows were 1 - 2 across the bar before), `iconSize` 16 / 20 / 24 DIPs (other values snap to the
-      nearest), `hidden` icon keys never shown in the grid (still in the drawer), `order` icon
-      keys shown first in that order (the tray item's own settings window edits all five). Each
-      key is written only when it is not the default. An icon
+      as seen on screen on every edge, rows were 1 - 2 across the bar before), `iconSize` 16 - 32
+      DIPs (round 24 phase 24A; before it 16 / 20 / 24, other values snapped to the nearest; now
+      clamped), `hidden` icon keys never shown in the grid (still in the drawer), `order` icon
+      keys shown first in that order (the tray item's own settings window edits all five).
+      Round 24 phase 24A, the look (see System tray; out of range: clamped, unknown text: the
+      default): `spacing` 0 - 8 DIPs around each grid icon (3), `labels` `"none"` / `"beside"`,
+      `colour` `"original"` / `"mono"`, `expander` `"end"` / `"start"` / `"before"` / `"after"`,
+      `expanderStyle` `"chevron"` / `"dots"` / `"count"`, `expanderShow` `"auto"` / `"always"`;
+      and the drawer's (used from phase 24B): `drawerOpen` `"click"` / `"hover"`, `drawerShows`
+      `"all"` / `"overflow"` (only the icons the grid does not show), `drawerIconSize` 16 - 48
+      DIPs (40), `drawerLabels` `"below"` / `"beside"` / `"none"`, `drawerLabelSize` 10 - 16 (12),
+      `drawerColumns` 0 - 8 (0: automatic), `drawerTitle` true / false (true). The first of each
+      list is the default. Each key is written only when it is not the default. An icon
       key is the icon's GUID in braces, lower case (`"{7820ae78-23e3-4229-82c1-e41cb67d5b9c}"`), or
       `"<exe file name>:<uID>"` lower case (`"steam.exe:1"`). Shows nothing while `tray.enabled`
       is off. Older builds skip the item.
@@ -3406,7 +3438,15 @@ always there, also when every dock is parked) handle these registered messages:
   after such a raise, 110 / 111 = the `order` / `hidden` keys of tray slot `lParam`'s item (-1 not
   a tray slot), 112 = trayApp slot `lParam`: 1 its icon is registered, 0 the placeholder (-1 not
   a trayApp slot); 24 reports 8 for a tray slot and 9 for a trayApp slot, 93 reports 3 while the
-  folder popup is the tray drawer. `DockCommand` 128 Add > Tray (also turns `tray.enabled` on), 129 tray on,
+  folder popup is the tray drawer. Round 24 phase 24A, the grid's look of tray slot `lParam` (each
+  -1 when it is not a tray slot): 343 = where the arrow is drawn (0 end, 1 start, 2 before, 3
+  after; an empty grid's strip is reported as 0, end, where it is drawn), 344 = its look (0
+  chevron, 1 dots, 2 count), 345 = 1 while the arrow is shown (101 reports the same since 24A,
+  `expanderShow` `"always"` included), 346 = a cell as drawn, px: along | across << 16 (a label
+  beside the icon included), 347 = the icons' drawn size, px, 348 = the cell under the hover plate
+  (-1 none; the icons' cells, then the arrow's at the icons' count), 349 = 1 while labels are drawn
+  beside the icons, 350 = the arrow's centre in screen px, x | y << 16 (16 bits each, signed; -1
+  no arrow). `DockCommand` 128 Add > Tray (also turns `tray.enabled` on), 129 tray on,
   130 tray off (the icons go back to Explorer). `ItemCommand` 822 / 823 = a left / right click on
   tray slot `lParam`'s drawer icon `HIWORD(wParam)` (the drawer's order, 106 / 107 tell which is
   which), forwarded as if clicked at the icon's place; returns 1 if it was delivered; 8b: 824 pins

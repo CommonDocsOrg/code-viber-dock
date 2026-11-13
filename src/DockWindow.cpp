@@ -3949,6 +3949,13 @@ void DockWindow::RenderWithRecovery(const std::function<HRESULT()>& step) {
 bool DockWindow::RecoverDevice() {
     // Device removed/reset: rebuild the whole chain and every surface. Retry a few times
     // because a driver update can keep the adapter unavailable for a moment.
+    // Round 24 phase 24A: the dismissals below must not render on the lost device (a closing tray
+    // drawer redraws its grid's slot: RedrawTraySlot); DrawFrame(true) redraws everything.
+    recovering_ = true;
+    struct Reset {
+        bool& flag;
+        ~Reset() { flag = false; }
+    } reset{recovering_};
     DismissPreview(false, false);
     DismissClickPopups(false, false);
     DismissWidgetPassive(false);
@@ -5186,14 +5193,16 @@ void DockWindow::DragGroupMember(const AppKey& group, size_t member) {
 
 void DockWindow::DismissFolderPopup(bool animate, bool leaveCheck) {
     folder_.Hide(animate);
-    folderKey_ = AppKey{};
+    const AppKey was = std::exchange(folderKey_, AppKey{});
     ReleasePopupHold(kHoldFolder, leaveCheck);
+    RedrawTraySlot(was);  // round 24 phase 24A: a tray grid's chevron points out again (others: no-op)
 }
 
 void DockWindow::OnFolderPopupClosed() {
     // Hidden already (fading out): only the dock's side.
-    folderKey_ = AppKey{};
+    const AppKey was = std::exchange(folderKey_, AppKey{});
     ReleasePopupHold(kHoldFolder, true);
+    RedrawTraySlot(was);
 }
 
 void DockWindow::RefreshFolderPopup() {
@@ -9418,6 +9427,40 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 342:  // round 21 phase 21A: slot lp's pile, the cards drawn behind it (0 - 2; -1 no such slot)
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             return items_[static_cast<size_t>(lp)].pile;
+        // --- round 24 phase 24A: the tray grid's look, tray slot lp (-1: not a tray slot) ---
+        case 343:  // where the arrow is drawn: 0 end, 1 start, 2 before (a strip), 3 after (a strip)
+        case 344:  // its look: 0 chevron, 1 dots, 2 count
+        case 345:  // 1: the arrow is shown
+        case 346:  // a cell, px: along | across << 16 (a label beside the icon included)
+        case 347:  // the icons' drawn size, px
+        case 348:  // the cell under the pointer (the hover plate's), -1 none
+        case 349:  // 1: labels are drawn beside the icons
+        case 350: {  // the arrow's centre in screen px: x | y << 16 (16 bits each, signed); -1 no arrow
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size()) || items_[static_cast<size_t>(lp)].kind != DockItem::Kind::Tray ||
+                !elements_[items_[static_cast<size_t>(lp)].element]) {
+                return -1;
+            }
+            DockElement::TrayLookState look;
+            if (!ElementOf(static_cast<size_t>(lp)).TrayLook(look)) return -1;
+            switch (wp) {
+                case 343: return look.place;
+                case 344: return look.style;
+                case 345: return look.arrow ? 1 : 0;
+                case 346:
+                    return static_cast<LRESULT>(static_cast<unsigned>(look.cellAlong & 0xFFFF) |
+                                                (static_cast<unsigned>(look.cellAcross & 0xFFFF) << 16));
+                case 347: return look.iconPx;
+                case 348: return look.hotCell;
+                case 349: return look.labels ? 1 : 0;
+                default: {
+                    if (!look.arrow) return -1;
+                    const D2D1_RECT_F box = SlotScreenBox(static_cast<int>(lp));
+                    const LONG x = std::lround(box.left + (look.arrowRect.left + look.arrowRect.right) / 2.0f);
+                    const LONG y = std::lround(box.top + (look.arrowRect.top + look.arrowRect.bottom) / 2.0f);
+                    return static_cast<LRESULT>(static_cast<unsigned>(x & 0xFFFF) | (static_cast<unsigned>(y & 0xFFFF) << 16));
+                }
+            }
+        }
         default:
             return -1;
     }

@@ -1879,6 +1879,39 @@ brighter instead, and acts on release. One 1 s interval only while the progress 
 Not done (as agreed): colours taken from the art, a spinning disc, a spectrum. The Cover's natural
 height is 364, what the mock's CSS adds up to, not its caption's 348.
 
+## Round 24 (2026-11-13): the tray's look
+
+From the user: a slightly improved tray design with more customization that keeps the grid, the
+drawer and drag-and-drop as they are. An approved proposal page decided: grid labels stay in,
+opening the drawer on hover ships off, the drawer gets keys of its own, every part in scope. Every
+default is the look before round 24, so there is no migration. Branch `feature/tray-look`.
+
+**24A, config, the grid and the arrow.** Every new key on the `tray` item lands in one commit
+(the drawer's too, read and saved but used from 24B), so the schema does not change twice. The
+grid's cell is the icon plus `spacing` on each side; `labels: beside` widens the cell by a fixed
+label column (fixed so the grid does not jump as tips change) only where a labelled column fits the
+room across at full size, otherwise the grid stays icons only rather than shrinking text.
+
+The arrow keeps its cell index (the icons' count) whatever its place, so hit testing, the click,
+`TrayOverflow` and the drop path (which inserts before the key `CellAt` finds) keep working; only
+the drawing mapping changes: the end, the start, or a slim strip before / after the grid that uses
+no icon cell. The strip next to an empty grid would leave an empty cell, so then the arrow takes
+the cell. Looks: a chevron that points back while the drawer is open, three dots, or `+N`.
+
+A hover plate under the hot cell needs the slot redrawn on a cell change; it draws only the slot's
+surface at its last measure, because a re-measure from inside a rebuild's `SetHover(-1)` could start
+a relayout in the middle of one, and it does not render during a device recovery (the dismissals
+there would render on the lost device). `mono` is one premultiplied colour matrix per icon, as the
+glow's. Icon sizes above 24 DIPs fetch the picture at that pixel size (as pinned tray icons do);
+16 - 24 keep the handle as before so a default grid draws the same pixels.
+
+**24B, the drawer (planned).** `FolderPopup` takes a layout (icon size, labels below / beside /
+none, label size, columns, title on / off) instead of the group popup's constants; `drawerShows:
+overflow`; hover open behind a one-shot timer with a grace close; a gear to the tray settings.
+
+**24C, settings and docs (planned).** The tray item's page (The grid, The arrow, The drawer cards),
+the user guides, `tools\smoke\tray-look.ps1`, the manual check list.
+
 ## Dependencies at a glance
 
 ```

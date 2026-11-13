@@ -1167,7 +1167,14 @@ private:
     WidgetInstance* AcquireWidget(const DockItemEntry& entry, size_t ordinal) override;
     D2D1_RECT_F SlotScreenBox(int slot) const override;
     TrayHost* Tray() override;
-    ID2D1Bitmap* TrayBitmap(const TrayIcon& icon) override;
+    ID2D1Bitmap* TrayBitmap(const TrayIcon& icon, int px = 0) override;
+    bool TrayDrawerShown(const AppKey& key) const override;
+    // Round 24 phase 24A: redraws the tray slot with this key (the hover plate, the chevron that
+    // flips while the drawer is open); during a device recovery it is only marked (the recovery
+    // redraws every slot).
+    void RedrawTraySlot(const AppKey& key);
+    void RedrawTraySlots(int a, int b);  // slots a and b when they are tray slots (-1: none)
+    bool recovering_ = false;  // RecoverDevice runs (its dismissals must not render)
     // The pointer over a slot's cell (DockElement::CellAt; -1: none): the hover label shows the
     // cell's label, centred on it; the element hears Enter / Move / Leave.
     void SetHoverCell(int slot, int cell, std::wstring label, float centre);
@@ -1618,7 +1625,8 @@ private:
     int hoverCell_ = -1;
     std::wstring hoverCellLabel_;
     float hoverCellCentre_ = 0.0f;
-    // Notify icon pictures on this dock's device, keyed by TrayIcon::imageSerial.
+    // Notify icon pictures on this dock's device, keyed by TrayIcon::imageSerial << 12 | the pixel
+    // size (round 24 phase 24A; 0: the handle as sent).
     std::unordered_map<uint64_t, winrt::com_ptr<ID2D1Bitmap>> trayBitmaps_;
     std::wstring groupSignature_; // the group popup's GroupSignature when it was filled
 
