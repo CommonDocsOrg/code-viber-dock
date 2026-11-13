@@ -331,6 +331,10 @@ struct RunningConfig {
     // Round 4 phase 9: a bubble with the unread notification count on the app slots
     // (NotificationService; the per-app toast count).
     bool badges = false;
+    // Round 21 phase 21A: a stacked app slot with two or more windows is drawn as a pile (its
+    // picture slightly smaller in front of the tops of one or two plain cards), inside the slot's
+    // own surface. Written only when true.
+    bool pile = false;
     // New in 13D: DIPs between the running slots (-1: the theme's iconGap, else 0 - 48), DIPs
     // before the first and after the last running slot (0 - 64), and the order.
     static constexpr int kThemeGap = -1;

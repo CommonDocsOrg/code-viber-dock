@@ -313,6 +313,7 @@ void ReadRunningFields(const json::JsonObject& o, RunningConfig& r) {
     ReadInt(o, L"thumbnailAcross", r.thumbnailAcross);  // round 14 phase 14D
     ReadInt(o, L"thumbnailFps", r.thumbnailFps);
     ReadBool(o, L"badges", r.badges);
+    ReadBool(o, L"pile", r.pile);  // round 21 phase 21A
     ReadInt(o, L"gap", r.gap);
     ReadInt(o, L"padding", r.padding);
     ReadEnum(o, L"order", r.order);
@@ -929,7 +930,9 @@ std::wstring RunningSettingsJson(const RunningConfig& r) {
            // Round 14 phase 14D: only when set (0, the icon size, is the default).
            (r.thumbnailAcross > 0 ? L",\"thumbnailAcross\":" + Num(r.thumbnailAcross) : std::wstring()) +
            L",\"thumbnailFps\":" + Num(r.thumbnailFps) + L",\"badges\":" +
-           Bool(r.badges) + L",\"gap\":" + Num(r.gap) + L",\"padding\":" + Num(r.padding) + L",\"order\":" +
+           Bool(r.badges) +
+           // Round 21 phase 21A: only when on (off is the default).
+           (r.pile ? std::wstring(L",\"pile\":true") : std::wstring()) + L",\"gap\":" + Num(r.gap) + L",\"padding\":" + Num(r.padding) + L",\"order\":" +
            Quote(ToString(r.order)) + L"}";
 }
 
@@ -967,6 +970,8 @@ void SetRunningSettings(DockItemEntry& item, const RunningConfig& r) {
     // Round 14 phase 14D: thumbnailAcross is written only when set; back at 0 the key goes (the merge
     // above would keep the old value).
     if (r.thumbnailAcross <= 0 && settings.HasKey(L"thumbnailAcross")) settings.Remove(L"thumbnailAcross");
+    // Round 21 phase 21A: likewise pile, written only while on.
+    if (!r.pile && settings.HasKey(L"pile")) settings.Remove(L"pile");
     item.settings = std::wstring(settings.Stringify());
 }
 

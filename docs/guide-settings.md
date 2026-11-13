@@ -695,6 +695,7 @@ The timings, closed when the panel opens. Click the heading to open it. It count
 The running apps are a widget of the dock (Add > Running apps), and their settings are in its own settings window. To open it, right-click a running app that is not pinned and choose **Running apps settings…**, or select the running apps on the Contents tab and click **Running apps settings…**. It sets how running apps and their windows appear on this dock. Window slots, titles, thumbnails and badges also apply to your pinned apps' windows; a dock without the Running apps widget uses their defaults.
 
 - **Windows**: **Stacked (one slot per app)**, or **One slot per window**, like the Windows taskbar.
+- **Show a pile behind apps with several windows**: off by default. An app with two or more windows shows the tops of one or two cards behind its icon or thumbnail, so you can see at a glance that it has more than one window. It shows while Windows is Stacked.
 - **Show only the windows on this dock's display**: useful with a dock on each display.
 - **Titles under icons**: **Off**, **One line** or **Two lines** of the window title (or the app's name) under each icon.
 - **Titles on vertical docks**: **Under the icon or thumbnail** (the default), **Beside the icon or thumbnail** or **Off**, for left and right docks. Under makes each icon's row taller by the title; Beside makes the bar wider. It shows while Titles under icons is not Off.

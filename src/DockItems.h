@@ -102,6 +102,10 @@ struct DockItem {
     // stacked app's active window); null: an ordinary icon. A tile is boxMain (thumbnailSize) long.
     HWND thumbWindow = nullptr;
     bool thumbDim = false;  // that window is minimized: its last frame, dimmed
+    // Round 21 phase 21A: the running item's pile: a stacked app slot with 2+ windows is drawn
+    // with this many plain cards (0, 1 or 2) peeking out above its icon / tile, inside its own
+    // surface (no layout room). 0 for window slots, groups and unstacked docks.
+    int pile = 0;
     float boxMain = 0.0f;   // the box along the bar (icons: iconPx; tiles: the tile's length); set by the layout
     D2D1_POINT_2F dotShift{};  // the dot's static offset (physical; centred under a longer tile)
     // The text under the icon (docks[].titles; empty: none) as last drawn into `caption`.

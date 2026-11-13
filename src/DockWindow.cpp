@@ -2291,6 +2291,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
         }
     }
 
+    std::function<void(ID2D1DeviceContext*, float, float, bool)> drawPlain;  // set below drawIcon
     auto drawIcon = [&](ID2D1DeviceContext* dc, float size) {
         if (composed) {
             // A translucent rounded tile in the label text colour, a hairline, a 2 x 2 grid.
@@ -2327,6 +2328,31 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
             }
             return;
         }
+        // Round 21 phase 21A: a pile (item.pile cards behind a stacked app with several windows):
+        // the icon slightly smaller at the bottom of the square, and behind it, back to front,
+        // fainter and narrower copies of it whose tops peek out above it. All inside the slot's
+        // surface; n = 0 draws exactly what it did before (one call at (0, 0), full size).
+        const int n = item.pile;
+        if (n > 0) {
+            const float step = std::max(1.0f, std::round(size * 0.06f));
+            const float fs = size - static_cast<float>(n) * step;
+            D2D1_MATRIX_3X2_F old;
+            dc->GetTransform(&old);  // RenderEffects may draw this under a flip
+            for (int k = n; k >= 1; --k) {
+                const float cs = fs * (1.0f - 0.12f * static_cast<float>(k));
+                dc->SetTransform(D2D1::Matrix3x2F::Translation((size - cs) / 2.0f, static_cast<float>(n - k) * step) * old);
+                drawPlain(dc, cs, k == 1 ? 0.55f : 0.32f, false);
+            }
+            dc->SetTransform(D2D1::Matrix3x2F::Translation((size - fs) / 2.0f, static_cast<float>(n) * step) * old);
+            drawPlain(dc, fs, 1.0f, true);
+            dc->SetTransform(old);
+            return;
+        }
+        drawPlain(dc, size, 1.0f, true);
+    };
+    // The app's own picture (its icon, else the placeholder) at `size`, at `opacity`; the
+    // placeholder's letter only with `withLetter` (round 21 phase 21A: not on a pile's back copies).
+    drawPlain = [&](ID2D1DeviceContext* dc, float size, float opacity, bool withLetter) {
         if (bmp) {
             const D2D1_SIZE_F bs = bmp->GetSize();
             const float fit = std::min(size / std::max(bs.width, 1.0f), size / std::max(bs.height, 1.0f));
@@ -2334,16 +2360,19 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
             const float dh = bs.height * fit;
             const D2D1_RECT_F dst =
                 D2D1::RectF((size - dw) / 2.0f, (size - dh) / 2.0f, (size + dw) / 2.0f, (size + dh) / 2.0f);
-            dc->DrawBitmap(bmp, &dst, 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+            dc->DrawBitmap(bmp, &dst, opacity, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
             return;
         }
         // Placeholder: rounded square with the app's first letter.
         winrt::com_ptr<ID2D1SolidColorBrush> brush;
         if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(DockTheme().placeholderFill), brush.put()))) return;
+        brush->SetOpacity(opacity);
         const float inset = std::round(size * 0.06f);
         const float r = size * 0.22f;
         dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(inset, inset, size - inset, size - inset), r, r),
                                  brush.get());
+        if (!withLetter) return;
+        brush->SetOpacity(1.0f);
         winrt::com_ptr<IDWriteTextFormat> letterFormat;
         if (renderer_.DWrite() &&
             SUCCEEDED(renderer_.DWrite()->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD,
@@ -2408,7 +2437,7 @@ HRESULT DockWindow::RenderTile(DockItem& item, ID2D1Bitmap* icon) {
     // A minimized window: its last frame, dimmed.
     const bool dim = item.thumbDim;
     const ThemeConfig& t = DockTheme();
-    auto draw = [&](ID2D1DeviceContext* dc, float w, float h) {
+    auto front = [&](ID2D1DeviceContext* dc, float w, float h) {
         // The icon's size at this surface's scale (round 14 phase 14D: was min(w, h), the tile across
         // the dock, which was an icon's size until thumbnailAcross).
         const float cross = l.iconPx * w / std::max(1.0f, rest.width);
@@ -2441,6 +2470,48 @@ HRESULT DockWindow::RenderTile(DockItem& item, ID2D1Bitmap* icon) {
         const D2D1_RECT_F dst = D2D1::RectF(x + (size - dw) / 2.0f, y + (size - dh) / 2.0f, x + (size + dw) / 2.0f,
                                             y + (size + dh) / 2.0f);
         dc->DrawBitmap(icon, &dst, dim && frame ? 0.7f : 1.0f, D2D1_INTERPOLATION_MODE_HIGH_QUALITY_CUBIC, nullptr, nullptr);
+    };
+    // Round 21 phase 21A: a pile (item.pile cards behind a stacked app with several windows): the
+    // tile moves down by n steps and, above it, the tops of n plain cards, each narrower than the
+    // one in front. Plain (no captures of the other windows: only a few pixels would show). Each
+    // card is clipped to the strip that peeks out, so none shows through the translucent tile
+    // background or the card in front. n = 0: the tile as before, pixel for pixel.
+    auto draw = [&](ID2D1DeviceContext* dc, float w, float h) {
+        const int n = item.pile;
+        if (n <= 0) {
+            front(dc, w, h);
+            return;
+        }
+        const float u = l.iconPx * w / std::max(1.0f, rest.width) / 48.0f;  // as in front()
+        const float radius = std::max(2.0f, std::round(5.0f * u));
+        const float step = std::max(2.0f, std::round(3.0f * u));
+        const float insetX = std::max(2.0f, std::round(4.0f * u));
+        const float stroke = std::max(1.0f, std::round(u));
+        winrt::com_ptr<ID2D1SolidColorBrush> brush;
+        if (SUCCEEDED(dc->CreateSolidColorBrush(Theme::ToColor(t.labelText, 0.30f), brush.put()))) {
+            for (int k = n; k >= 1; --k) {
+                const float top = static_cast<float>(n - k) * step;
+                const float x = static_cast<float>(k) * insetX;
+                if (w - 2.0f * x <= 2.0f * radius) continue;  // too narrow to read as a card
+                const D2D1_RECT_F card = D2D1::RectF(x, top, w - x, top + 2.0f * radius + step);
+                dc->PushAxisAlignedClip(D2D1::RectF(0.0f, top, w, top + step), D2D1_ANTIALIAS_MODE_ALIASED);
+                brush->SetColor(Theme::ToColor(t.labelText, k == 1 ? 0.30f : 0.18f));
+                dc->FillRoundedRectangle(D2D1::RoundedRect(card, radius, radius), brush.get());
+                brush->SetColor(Theme::ToColor(t.barBorder));
+                dc->DrawRoundedRectangle(
+                    D2D1::RoundedRect(D2D1::RectF(card.left + stroke / 2.0f, card.top + stroke / 2.0f,
+                                                  card.right - stroke / 2.0f, card.bottom - stroke / 2.0f),
+                                      radius - stroke / 2.0f, radius - stroke / 2.0f),
+                    brush.get(), stroke);
+                dc->PopAxisAlignedClip();
+            }
+        }
+        const float down = static_cast<float>(n) * step;
+        D2D1_MATRIX_3X2_F old;
+        dc->GetTransform(&old);
+        dc->SetTransform(D2D1::Matrix3x2F::Translation(0.0f, down) * old);
+        front(dc, w, h - down);
+        dc->SetTransform(old);
     };
     HRESULT hr = renderer_.DrawLayer(item.icon, smallW, smallH, [&](ID2D1DeviceContext* dc) {
         draw(dc, static_cast<float>(smallW), static_cast<float>(smallH));
@@ -6806,6 +6877,16 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
             item.thumbDim = dim;
             if (thumb) item.dirty = true;
         }
+        // Round 21 phase 21A: the pile behind a stacked app slot with several windows (the cards
+        // are drawn inside the slot's own surface, so only a redraw, no layout change).
+        const int pile = DockCfg().Running().pile && !builder.unstacked && item.kind == DockItem::Kind::App &&
+                                 !item.window && item.windows.size() >= 2
+                             ? static_cast<int>(std::min<size_t>(2, item.windows.size() - 1))
+                             : 0;
+        if (pile != item.pile) {
+            item.pile = pile;
+            item.dirty = true;
+        }
         // The launched app's window appeared (any of its windows: an unstacked app has one per
         // slot): let the icon land.
         const size_t appWindows = g ? g->windows.size() : 0;
@@ -9334,6 +9415,9 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             }
             return -1;
         }
+        case 342:  // round 21 phase 21A: slot lp's pile, the cards drawn behind it (0 - 2; -1 no such slot)
+            if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
+            return items_[static_cast<size_t>(lp)].pile;
         default:
             return -1;
     }
