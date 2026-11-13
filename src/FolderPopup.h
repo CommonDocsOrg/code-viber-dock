@@ -37,7 +37,10 @@
 // The same popup shows a shortcut group (ShowGroup): the group's name, its members (icons from
 // the dock), a click opens / activates one (the owner does it), right click Open / Remove from
 // group / Move to dock, a member dragged out starts the owner's drag, files dropped are offered
-// to the owner (added as members). No Explorer button, no navigation.
+// to the owner (added as members). No Explorer button, no navigation. Round 24 phase 24B: a group
+// is laid out by a GroupLayout (the tray drawer's icon size, names below / beside / none, font,
+// columns, title on / off; the default is the look above) and the tray drawer has a settings gear
+// at the right of its title row (GroupCallbacks::settings).
 class FolderPopup : public PopupWindow {
 public:
     static constexpr wchar_t kClassName[] = L"WinDockFolder";
@@ -72,6 +75,26 @@ public:
         // `trayDrop`: it was dropped before member `before` (the member count: after the last).
         std::function<bool(IDataObject* data)> trayAccepts;
         std::function<void(IDataObject* data, size_t before)> trayDrop;
+        // Round 24 phase 24B, the tray drawer: set, a gear at the right of the title row (when the
+        // layout shows the title) calls it: the owner opens the tray item's settings window.
+        std::function<void()> settings;
+    };
+    // Round 24 phase 24B: how a group is laid out (the tray drawer's drawer* keys). The default is
+    // the round-3 look exactly (88 x 84 DIP cells, 40 DIP icons, 12 DIP names in two lines under
+    // them, up to 6 columns, the title row with its hairline), which folders and shortcut groups
+    // always get. Cell sizes follow the icon and the font (as FolderWindow::ViewStyle derives them):
+    //  - Below: cells max(88 x font / 12, icon + 48) wide, 6 + icon + 4 + two lines + 2 tall;
+    //  - Beside: list rows (the icon, then the name on one line), icon + 12 tall (at least a line
+    //    + 12), one column whatever `columns` says (ItemGridView's list mode has one);
+    //  - None: icons only, icon + 12 square cells.
+    struct GroupLayout {
+        enum class Labels { Below, Beside, None };
+        float iconDip = 40.0f;
+        Labels labels = Labels::Below;
+        float fontDip = 12.0f;   // the names' size
+        size_t columns = 0;      // grid: 0 automatic (min(6, ceil(sqrt(n))) within the room), else at most this many
+        bool title = true;       // the title row and the hairline under it
+        bool operator==(const GroupLayout&) const = default;
     };
     struct Style {
         float scale = 1.0f;
@@ -96,11 +119,12 @@ public:
     // edge) in `view`. Returns false if it could not be shown.
     bool Show(const std::wstring& folder, const std::wstring& name, ItemView view, const Style& style,
               const PopupAnchor& anchor);
-    // Shows a shortcut group's members (titled `name`) at `anchor`.
+    // Shows a shortcut group's members (titled `name`) at `anchor`, laid out as `layout` (24B).
     bool ShowGroup(const std::wstring& name, std::vector<GroupEntry> members, ItemView view, const Style& style,
-                   const PopupAnchor& anchor, GroupCallbacks callbacks);
-    // The group shown got other members / another name: shown again in place (same anchor).
-    void UpdateGroup(const std::wstring& name, std::vector<GroupEntry> members);
+                   const PopupAnchor& anchor, GroupCallbacks callbacks, const GroupLayout& layout = GroupLayout{});
+    // The group shown got other members / another name: shown again in place (same anchor). The
+    // layout is kept, unless `layout` gives another one (24B: the tray keys changed while open).
+    void UpdateGroup(const std::wstring& name, std::vector<GroupEntry> members, const GroupLayout* layout = nullptr);
     // 0 hidden, 1 a folder, 2 a group, 3 the tray drawer.
     int Kind() const { return !OnScreen() ? 0 : group_ ? (groupCallbacks_.menu ? 3 : 2) : 1; }
     // Member `index`'s cell on screen (px; false while hidden, or the member is scrolled away).
@@ -124,6 +148,14 @@ public:
     bool SelectEntry(int index);
     bool ScrollTo(int px);
     bool OpenEntry(int index);
+    // Round 24 phase 24B: the group's layout in use, the members' icon size in px as laid out,
+    // whether the title row / the gear is shown (all while on screen), and a press on the gear
+    // (false: no gear shown).
+    const GroupLayout& GetGroupLayout() const { return layout_; }
+    int IconPx() const;
+    bool TitleShown() const { return OnScreen() && !Empty(headerRect_); }
+    bool GearShown() const { return OnScreen() && !Empty(gearRect_); }
+    bool PressGear();
 
 protected:
     SIZE Measure() override;
@@ -138,6 +170,8 @@ private:
     // HitAt indices beyond the cells.
     static constexpr int kHitBack = 1000;
     static constexpr int kHitExplorer = 1001;
+    static constexpr int kHitGear = 1002;  // round 24 phase 24B
+    static bool Empty(const RECT& r) { return r.right <= r.left || r.bottom <= r.top; }
     static constexpr UINT_PTR kViewTimerBase = 100;  // the view's timers (100, 101)
 
     struct Entry {
@@ -184,6 +218,7 @@ private:
     ItemView viewSetting_ = ItemView::Auto;
     bool group_ = false;              // showing a group (members_), not a folder
     GroupCallbacks groupCallbacks_;
+    GroupLayout layout_;              // round 24 phase 24B (folders: always the default)
     std::vector<GroupEntry> members_;
     // Loads members_ into the view.
     void LoadGroup();
@@ -202,6 +237,7 @@ private:
     RECT headerRect_{};
     RECT backRect_{};
     RECT explorerRect_{};
+    RECT gearRect_{};        // round 24 phase 24B: the tray drawer's settings gear (empty: none)
     RECT messageRect_{};     // "This folder is empty" / "Cannot open this folder"
     RECT viewRect_{};
     float explorerTextW_ = 0.0f;
@@ -210,6 +246,7 @@ private:
     winrt::com_ptr<IDWriteTextFormat> titleFormat_;   // header
     winrt::com_ptr<IDWriteTextFormat> buttonFormat_;  // "Open in Explorer", messages
     winrt::com_ptr<IDWriteInlineObject> titleEllipsis_;
+    winrt::com_ptr<IDWriteTextFormat> glyphFormat_;   // 24B: the gear (Segoe Fluent Icons / MDL2 Assets; null: drawn)
 
     // Drops
     ShellFiles::DropTarget* dropTarget_ = nullptr;  // registered on the window (one reference held)

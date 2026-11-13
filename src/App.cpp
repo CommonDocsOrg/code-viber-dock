@@ -4755,6 +4755,12 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         if (index >= 0 && modal && InSendMessage()) {
             // A modal dialog would block the sender until it closes: run it after the call.
             PostMessageW(dock->Hwnd(), msgItemCommand_, wp, static_cast<LPARAM>((dockIndex << 16) | static_cast<size_t>(index)));
+        } else if (index >= 0 && cmd == ContextMenu::kTrayHoverOpen) {  // round 24 phase 24B
+            result = dock->OpenTrayDrawerByHover(index) ? 1 : 0;
+            return true;
+        } else if (dock && cmd == ContextMenu::kTrayDrawerGear) {
+            result = dock->PressTrayDrawerGear() ? 1 : 0;
+            return true;
         } else if (index >= 0 && (cmd == ContextMenu::kTrayClick || cmd == ContextMenu::kTrayRightClick)) {
             result = dock->ClickTrayIcon(index, arg, cmd == ContextMenu::kTrayRightClick) ? 1 : 0;
             return true;

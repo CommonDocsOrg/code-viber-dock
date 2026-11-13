@@ -128,8 +128,13 @@ public:
     virtual bool ReducedMotion() const = 0;
     // The tray takeover (null: not running: config tray.enabled off, or it could not start).
     virtual TrayHost* Tray() = 0;
-    // A notify icon's picture as a bitmap of the dock's device (cached by its imageSerial).
-    virtual ID2D1Bitmap* TrayBitmap(const TrayIcon& icon) = 0;
+    // A notify icon's picture as a bitmap of the dock's device (cached by its imageSerial and the
+    // size). `px` 0: the icon handle as the app sent it (scaled when drawn); round 24 phase 24A:
+    // else the icon at that pixel size (its own resource at that size when the handle knows it).
+    virtual ID2D1Bitmap* TrayBitmap(const TrayIcon& icon, int px) = 0;
+    // Round 24 phase 24A: this dock's tray drawer is open for the tray slot with this key (the
+    // grid's chevron points back while it is).
+    virtual bool TrayDrawerShown(const AppKey& key) const = 0;
     // The tray's own menu for icon `key` at the pointer (Ctrl + right click on a grid cell or a
     // pinned tray icon): Hide / Show in the grid, Pin to the dock / Unpin, Tray settings….
     // `pinnedSlot`: slot `slot` is a trayApp item.
@@ -268,6 +273,22 @@ public:
     // Tray automation: icons drawn in the grid (-1: not a tray), whether the overflow button shows.
     virtual int TrayCells() const { return -1; }
     virtual bool TrayOverflow() const { return false; }
+    // Round 24 phase 24B: notify icon `id` has a cell in this tray grid as last measured (the
+    // drawer's `drawerShows: overflow` lists the others).
+    virtual bool TrayGridShows(uint64_t /*id*/) const { return false; }
+    // Round 24 phase 24A: the tray grid's look as drawn (QueryState 343 - 350). False: not a tray.
+    struct TrayLookState {
+        int place = 0;        // where the arrow is drawn (TrayExpander; a strip next to an empty grid: end)
+        int style = 0;        // its look (TrayExpanderStyle)
+        bool arrow = false;   // it is shown
+        int cellAlong = 0;    // a cell, px along / across the bar (labels included)
+        int cellAcross = 0;
+        int iconPx = 0;       // the icons' drawn size, px
+        int hotCell = -1;     // the cell under the pointer (the hover plate), -1 none
+        bool labels = false;  // labels are drawn beside the icons
+        D2D1_RECT_F arrowRect{};  // the arrow's cell or strip in the slot's box, px
+    };
+    virtual bool TrayLook(TrayLookState& /*out*/) const { return false; }
     // Tray: the key of the icon under screen point `screen` (a grid cell, a pinned tray icon;
     // empty: none). Pressed and dragged, the dock starts the icon's drag (pin it, reorder the grid).
     virtual std::wstring TrayKeyAt(int /*slot*/, POINT /*screen*/) const { return {}; }

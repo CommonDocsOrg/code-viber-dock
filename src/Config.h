@@ -29,6 +29,26 @@ enum class ItemView { Auto, Grid, List };
 // in the bar as DockConfig::Anchored() describes.
 enum class ItemAnchor { None, Start, Center, End };
 
+// Round 24 phase 24A: the tray item's look (DockItemEntry::tray*; every default is the look before
+// round 24). Grid labels: "none" or "beside" (the icon's title next to it, where the bar is thick
+// enough). Grid colours: "original" or "mono" (desaturated, tinted to the theme's text colour).
+enum class TrayLabels { None, Beside };
+enum class TrayColour { Original, Mono };
+// Where the arrow (the overflow button that opens the drawer) is drawn: "end" (the last cell, as
+// before), "start" (the first cell; the icons shift by one), "before" / "after" (a slim strip
+// outside the grid along the bar that uses no icon cell). Its look: "chevron", "dots" or "count"
+// ("+N": the icons the grid does not show). "auto" shows it only when the grid leaves icons out;
+// "always" also when every icon fits.
+enum class TrayExpander { End, Start, Before, After };
+enum class TrayExpanderStyle { Chevron, Dots, Count };
+enum class TrayExpanderShow { Auto, Always };
+// The drawer (phase 24B consumes these): opened by a "click" on the arrow or by "hover"; it shows
+// "all" icons or only the "overflow" (those the grid does not show); labels "below" / "beside" /
+// "none".
+enum class TrayDrawerOpen { Click, Hover };
+enum class TrayDrawerShows { All, Overflow };
+enum class TrayDrawerLabels { Below, Beside, None };
+
 // One element of a dock, in dock order. App / folder entries set path (or aumid); the other
 // kinds set neither.
 struct DockItemEntry {
@@ -63,7 +83,7 @@ struct DockItemEntry {
     // along it on every edge. No migration: the default (1 row, 8 columns) on a vertical dock is
     // now 1 column wide and 8 rows tall, which looks as it did (1 across, 8 along); a vertical
     // dock saved with rows 2 now shows 2 rows (the user's request), not 2 columns.
-    // Also the icon size in DIPs (16 / 20 / 24), the icon keys never shown in the grid (they are
+    // Also the icon size in DIPs (16 - 32 since round 24), the icon keys never shown in the grid (they are
     // still in the drawer) and the user's order of icon keys (8b; icons not listed follow in
     // registration order). Saved only when not the default. "trayApp" items use `id` (the icon key:
     // "{guid}" or "exe-name.exe:uID").
@@ -72,6 +92,22 @@ struct DockItemEntry {
     int trayIconSize = 20;
     std::vector<std::wstring> hidden;
     std::vector<std::wstring> order;
+    // Round 24 phase 24A: the tray's look, JSON keys in brackets, each saved only when not the
+    // default (the defaults are the look before round 24). trayIconSize is now 16 - 32 (was snapped
+    // to 16 / 20 / 24).
+    int traySpacing = 3;                                          // "spacing": DIPs around each grid icon, 0 - 8
+    TrayLabels trayLabels = TrayLabels::None;                     // "labels"
+    TrayColour trayColour = TrayColour::Original;                 // "colour"
+    TrayExpander trayExpander = TrayExpander::End;                // "expander"
+    TrayExpanderStyle trayExpanderStyle = TrayExpanderStyle::Chevron;  // "expanderStyle"
+    TrayExpanderShow trayExpanderShow = TrayExpanderShow::Auto;   // "expanderShow"
+    TrayDrawerOpen trayDrawerOpen = TrayDrawerOpen::Click;        // "drawerOpen"
+    TrayDrawerShows trayDrawerShows = TrayDrawerShows::All;       // "drawerShows"
+    int trayDrawerIconSize = 40;                                  // "drawerIconSize": 16 - 48 DIPs
+    TrayDrawerLabels trayDrawerLabels = TrayDrawerLabels::Below;  // "drawerLabels"
+    int trayDrawerLabelSize = 12;                                 // "drawerLabelSize": 10 - 16 (DIPs, as the popup's font)
+    int trayDrawerColumns = 0;                                    // "drawerColumns": 0 automatic, 1 - 8
+    bool trayDrawerTitle = true;                                  // "drawerTitle"
     // Round 7 phase 7B, every kind: the item's group along the bar ("anchor": "start" / "center" /
     // "end"; none = the group the dock's `align` names) and a shift of it and the items after it in
     // its group ("offset", DIPs along the edge, positive toward the end; -4000 - 4000). Each saved
@@ -685,6 +721,23 @@ const wchar_t* ToString(ItemView v);
 bool FromString(std::wstring_view s, ItemView& v);
 const wchar_t* ToString(ItemAnchor v);  // "none" for None (never written)
 bool FromString(std::wstring_view s, ItemAnchor& v);
+// Round 24 phase 24A: the tray item's look.
+const wchar_t* ToString(TrayLabels v);
+bool FromString(std::wstring_view s, TrayLabels& v);
+const wchar_t* ToString(TrayColour v);
+bool FromString(std::wstring_view s, TrayColour& v);
+const wchar_t* ToString(TrayExpander v);
+bool FromString(std::wstring_view s, TrayExpander& v);
+const wchar_t* ToString(TrayExpanderStyle v);
+bool FromString(std::wstring_view s, TrayExpanderStyle& v);
+const wchar_t* ToString(TrayExpanderShow v);
+bool FromString(std::wstring_view s, TrayExpanderShow& v);
+const wchar_t* ToString(TrayDrawerOpen v);
+bool FromString(std::wstring_view s, TrayDrawerOpen& v);
+const wchar_t* ToString(TrayDrawerShows v);
+bool FromString(std::wstring_view s, TrayDrawerShows& v);
+const wchar_t* ToString(TrayDrawerLabels v);
+bool FromString(std::wstring_view s, TrayDrawerLabels& v);
 const wchar_t* ToString(FolderSort v);
 bool FromString(std::wstring_view s, FolderSort& v);
 const wchar_t* ToString(WidgetBackground v);

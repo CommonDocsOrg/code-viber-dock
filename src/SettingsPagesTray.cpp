@@ -1,7 +1,8 @@
 // The tray pages (round 4 phase 8; split in round 5 phase D). Global > Tray icons: the takeover of
 // the notify icons (tray.enabled) and "Put the tray in its own dock" (a new dock: global). A tray
-// item's own Item window: that item's rows, columns, icon size, the icons shown in its grid (hide,
-// order) and "Reset to Explorer". No page acts on a dock selected elsewhere.
+// item's own Item window: that item's grid (rows, columns, icon size, spacing, labels, colours), its
+// arrow and drawer (round 24 phase 24C), the icons shown in its grid (hide, order) and "Reset to
+// Explorer". No page acts on a dock selected elsewhere.
 
 #include <windows.h>
 #include <commctrl.h>
@@ -21,7 +22,62 @@ using namespace SettingsIds;
 constexpr int kListH = 200;
 constexpr int kButtonW = 200;
 constexpr int kNumberW = 72;
-const int kIconSizes[] = {16, 20, 24};
+constexpr int kTrackW = 212;  // a slider's width (the Appearance tab's), its value 4 DIPs after it
+constexpr int kComboW = 240;
+
+// Round 24 phase 24C: the tray item's number rows (spinner + edit), each bound to one field. One
+// table serves Spun / Commit / Load instead of a branch per row.
+struct TrayNumber {
+    int edit;
+    int spin;
+    int lo;
+    int hi;
+    int DockItemEntry::*field;
+};
+const TrayNumber kTrayNumbers[] = {
+    {kTrayRowsEdit, kTrayRowsSpin, 1, 20, &DockItemEntry::rows},  // round 16 phase 16B: rows 1 - 20 too
+    {kTrayColumnsEdit, kTrayColumnsSpin, 1, 20, &DockItemEntry::columns},
+    {kTraySpacingEdit, kTraySpacingSpin, 0, 8, &DockItemEntry::traySpacing},
+    {kTrayDrawerLabelSizeEdit, kTrayDrawerLabelSizeSpin, 10, 16, &DockItemEntry::trayDrawerLabelSize},
+    {kTrayDrawerColumnsEdit, kTrayDrawerColumnsSpin, 0, 8, &DockItemEntry::trayDrawerColumns},
+};
+
+// True when every look setting of tray item `e` is the factory default (a fresh entry's): the
+// footer's Reset to factory defaults then has nothing to do. Every field the page sets is here.
+bool TrayLookIsDefault(const DockItemEntry& e) {
+    const DockItemEntry f{e.kind};
+    return e.rows == f.rows && e.columns == f.columns && e.trayIconSize == f.trayIconSize &&
+           e.traySpacing == f.traySpacing && e.trayLabels == f.trayLabels && e.trayColour == f.trayColour &&
+           e.trayExpander == f.trayExpander && e.trayExpanderStyle == f.trayExpanderStyle &&
+           e.trayExpanderShow == f.trayExpanderShow && e.trayDrawerOpen == f.trayDrawerOpen &&
+           e.trayDrawerShows == f.trayDrawerShows && e.trayDrawerIconSize == f.trayDrawerIconSize &&
+           e.trayDrawerLabels == f.trayDrawerLabels && e.trayDrawerLabelSize == f.trayDrawerLabelSize &&
+           e.trayDrawerColumns == f.trayDrawerColumns && e.trayDrawerTitle == f.trayDrawerTitle && e.hidden.empty() &&
+           e.order.empty();
+}
+
+// ... and puts them back (the same fields as TrayLookIsDefault).
+void ResetTrayLook(DockItemEntry& e) {
+    const DockItemEntry f{e.kind};
+    e.rows = f.rows;
+    e.columns = f.columns;
+    e.trayIconSize = f.trayIconSize;
+    e.traySpacing = f.traySpacing;
+    e.trayLabels = f.trayLabels;
+    e.trayColour = f.trayColour;
+    e.trayExpander = f.trayExpander;
+    e.trayExpanderStyle = f.trayExpanderStyle;
+    e.trayExpanderShow = f.trayExpanderShow;
+    e.trayDrawerOpen = f.trayDrawerOpen;
+    e.trayDrawerShows = f.trayDrawerShows;
+    e.trayDrawerIconSize = f.trayDrawerIconSize;
+    e.trayDrawerLabels = f.trayDrawerLabels;
+    e.trayDrawerLabelSize = f.trayDrawerLabelSize;
+    e.trayDrawerColumns = f.trayDrawerColumns;
+    e.trayDrawerTitle = f.trayDrawerTitle;
+    e.hidden.clear();
+    e.order.clear();
+}
 
 // Global > Tray icons.
 class TrayPage : public FormPage {
@@ -137,21 +193,118 @@ protected:
             L"columns ran along the dock whichever way it faced). Across the bar (rows on a bottom / top dock, columns "
             L"on a left / right one) two cells always fit, shrunk to half an icon; more fit only when the bar is thick "
             L"enough at full size (Dock settings > Position > Fixed thickness, or titles beside the icons). With more "
-            L"icons than cells, or icons hidden below, the last cell opens a drawer with every icon. A right click on an "
-            L"icon opens its app's menu; Ctrl + right click opens the tray menu.");
+            L"icons than cells, or icons hidden below, the arrow opens a drawer (The arrow, The drawer). A right click on "
+            L"an icon opens its app's menu; Ctrl + right click opens the tray menu.");
         Spin(kTrayRowsEdit, kTrayRowsSpin, kColX, kNumberW, 1, 20, 1);
         NextRow();
         Label(kTrayColumnsLabel, L"Columns", L"Left to right");
         Tip(kTrayColumnsLabel,
             L"Columns run left to right on every edge; on a left or right dock they run across the bar, where more than "
-            L"two fit only when the bar is thick enough. With more icons than cells the last cell opens a drawer with "
-            L"every icon.");
+            L"two fit only when the bar is thick enough. With more icons than cells the arrow opens a drawer.");
         Spin(kTrayColumnsEdit, kTrayColumnsSpin, kColX, kNumberW, 1, 20, 1);
         NextRow();
+        // Round 24 phase 24C: the size became 16 - 32 (a slider; the 16 / 20 / 24 combo 4110 is
+        // retired), and the grid gained spacing, labels and colours. Every default is the old look.
         Label(kTrayIconSizeLabel, L"Icon size");
-        Tip(kTrayIconSizeLabel, L"The size of the notify icons in the grid: 16, 20 or 24 px. Default: 20 px.");
-        Combo(kTrayIconSizeCombo, kColX, 120, false);
+        static constexpr wchar_t kSizeTip[] =
+            L"The size of the notify icons in the grid, 16 - 32 DIPs. Default: 20. Larger sizes are drawn from the "
+            L"app's own larger icon where it has one, so they stay sharp.";
+        Tip(kTrayIconSizeLabel, kSizeTip);
+        Trackbar(kTrayIconSizeTrack, kColX - 6, kTrackW, 16, 32, 4);
+        Tip(kTrayIconSizeTrack, kSizeTip);
+        Text(kTrayIconSizeValue, CtlKind::Value, L"", kColX + kTrackW + 4, 48);
         NextRow();
+        Label(kTraySpacingLabel, L"Space around icons");
+        Tip(kTraySpacingLabel,
+            L"Empty DIPs on every side of each grid icon, 0 - 8: a cell is the icon plus twice this. Default: 3. Less "
+            L"space fits more icons in the same bar.");
+        Spin(kTraySpacingEdit, kTraySpacingSpin, kColX, kNumberW, 0, 8, 1);
+        NextRow();
+        Label(kTrayLabelsLabel, L"Labels");
+        Tip(kTrayLabelsLabel,
+            L"None: icons only (the default). Beside the icon: each cell grows along the bar by the app's name, cut with "
+            L"\x2026 when long. Only where the bar has room for it across: a side dock too narrow stays icons only.");
+        Combo(kTrayLabelsCombo, kColX, kComboW, false);
+        NextRow();
+        Label(kTrayColourLabel, L"Colours");
+        Tip(kTrayColourLabel,
+            L"Original: the icons as their apps draw them (the default). One colour: the grid's icons in the theme's text "
+            L"colour, for a calmer bar. The drawer always shows the original colours.");
+        Combo(kTrayColourCombo, kColX, kComboW, false);
+        NextRow();
+
+        // Round 24 phase 24C: the arrow (the overflow button) and the drawer it opens, between the
+        // grid and its icon list: they shape what is on the dock, the list only which icons.
+        Section(kTrayArrowSection, L"The arrow", L"guide-items.md#the-arrow");
+        Label(kTrayArrowPlaceLabel, L"Place");
+        Tip(kTrayArrowPlaceLabel,
+            L"Where the arrow that opens the drawer sits. Last cell: the grid's last cell (the default). First cell: the "
+            L"grid's first cell, the icons after it. Strip before / after the icons: a slim strip outside the grid that "
+            L"takes no cell, so every cell holds an icon.");
+        Combo(kTrayArrowPlaceCombo, kColX, kComboW, false);
+        NextRow();
+        Label(kTrayArrowLookLabel, L"Looks like");
+        Tip(kTrayArrowLookLabel,
+            L"Chevron: an arrow that turns over while the drawer is open (the default). Dots: three dots. Count: how many "
+            L"icons the grid does not show (+3).");
+        Combo(kTrayArrowLookCombo, kColX, kComboW, false);
+        NextRow();
+        Label(kTrayArrowShowLabel, L"Shown");
+        Tip(kTrayArrowShowLabel,
+            L"When there are more icons: only while some icons do not fit the grid or are hidden (the default). Always: "
+            L"the drawer is one click away even when every icon fits.");
+        Combo(kTrayArrowShowCombo, kColX, kComboW, false);
+        NextRow();
+        Label(kTrayArrowOpenLabel, L"Opens the drawer on");
+        Tip(kTrayArrowOpenLabel,
+            L"Click: the drawer opens when you click the arrow and closes when you click elsewhere (the default). Hover: "
+            L"it opens when the pointer rests on the arrow, and closes shortly after the pointer leaves both the arrow "
+            L"and the drawer.");
+        Combo(kTrayArrowOpenCombo, kColX, kComboW, false);
+        NextRow();
+
+        Section(kTrayDrawerSection, L"The drawer", L"guide-items.md#the-drawer");
+        Label(kTrayDrawerShowsLabel, L"Shows");
+        Tip(kTrayDrawerShowsLabel,
+            L"Every icon: the drawer lists all the tray's icons, the grid's too (the default). Only icons not in the "
+            L"grid: the ones that did not fit or are hidden. Drags between the grid and the drawer work either way.");
+        Combo(kTrayDrawerShowsCombo, kColX, kComboW, false);
+        NextRow();
+        Label(kTrayDrawerIconSizeLabel, L"Icon size");
+        static constexpr wchar_t kDrawerSizeTip[] = L"The size of the icons in the drawer, 16 - 48 DIPs. Default: 40.";
+        Tip(kTrayDrawerIconSizeLabel, kDrawerSizeTip);
+        Trackbar(kTrayDrawerIconSizeTrack, kColX - 6, kTrackW, 16, 48, 4);
+        Tip(kTrayDrawerIconSizeTrack, kDrawerSizeTip);
+        Text(kTrayDrawerIconSizeValue, CtlKind::Value, L"", kColX + kTrackW + 4, 48);
+        NextRow();
+        Label(kTrayDrawerLabelsLabel, L"Labels");
+        Tip(kTrayDrawerLabelsLabel,
+            L"Below: each icon with its app's name under it, in a grid (the default). Beside: one icon per row with the "
+            L"name after it, a list. None: icons only, closer together.");
+        Combo(kTrayDrawerLabelsCombo, kColX, kComboW, false);
+        NextRow();
+        Label(kTrayDrawerLabelSizeLabel, L"Label size");
+        Tip(kTrayDrawerLabelSizeLabel, L"The size of the names in the drawer, 10 - 16. Default: 12.");
+        Spin(kTrayDrawerLabelSizeEdit, kTrayDrawerLabelSizeSpin, kColX, kNumberW, 10, 16, 1);
+        NextRow();
+        Label(kTrayDrawerColumnsLabel, L"Columns");
+        static constexpr wchar_t kColumnsTip[] =
+            L"How many icons side by side in the drawer, 1 - 8; 0: automatic, as many as suit the number of icons (the "
+            L"default). Greyed while the labels are beside the icons: that list has one column.";
+        Tip(kTrayDrawerColumnsLabel, kColumnsTip);
+        Spin(kTrayDrawerColumnsEdit, kTrayDrawerColumnsSpin, kColX, kNumberW, 0, 8, 1);
+        Text(kTrayDrawerColumnsValue, CtlKind::Note, L"", kColX + kNumberW + 8, 120);
+        Tip(kTrayDrawerColumnsValue, kColumnsTip);
+        NextRow();
+        Check(kTrayDrawerTitle, kTrayDrawerTitleCaption, L"Show the title");
+        static constexpr wchar_t kTitleTip[] =
+            L"The drawer's title row (Notification area) with the settings gear at its right, which opens this window. "
+            L"Off: no title and no gear, only the icons (Ctrl + right click on a tray icon > Tray settings\x2026 still "
+            L"opens this window).";
+        Tip(kTrayDrawerTitle, kTitleTip);
+        Tip(kTrayDrawerTitleCaption, kTitleTip);
+        NextRow();
+
         Section(kTrayIconsLabel, L"Icons in the grid", L"guide-items.md#icons-in-the-grid");
         WideCard();  // round 12 phase 12F: the icon list gains from the width
         Text(kTrayIconsNote, CtlKind::Note, L"In order; unchecked icons are only in the drawer", kMargin, right - kMargin, 20);
@@ -160,7 +313,6 @@ protected:
             L"hidden or ordered. Move up / down (or a drag within the grid on the dock) sets the order; drag an icon out "
             L"of the grid or the drawer onto the dock to pin it there (Ctrl + right click on it: Hide / Pin / Unpin).");
         NextRow(24);
-        Tip(kTrayIconSizeCombo, L"The size of the notify icons in the grid: 16, 20 or 24 px. Default: 20 px.");
         Add(kTrayIconList, CtlKind::List, WC_LISTVIEWW, L"Tray icons",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
@@ -186,7 +338,27 @@ protected:
     void OnResized() override { OnStyleChanged(); }  // round 8 phase 8A: the list's columns
 
     void Created() override {
-        for (int size : kIconSizes) ComboAdd(kTrayIconSizeCombo, (std::to_wstring(size) + L" px").c_str());
+        // Round 24 phase 24C: each combo's entries in its config enum's order (Config.h).
+        ComboAdd(kTrayLabelsCombo, L"None");  // TrayLabels
+        ComboAdd(kTrayLabelsCombo, L"Beside the icon");
+        ComboAdd(kTrayColourCombo, L"Original");  // TrayColour
+        ComboAdd(kTrayColourCombo, L"One colour");
+        ComboAdd(kTrayArrowPlaceCombo, L"Last cell");  // TrayExpander
+        ComboAdd(kTrayArrowPlaceCombo, L"First cell");
+        ComboAdd(kTrayArrowPlaceCombo, L"Strip before the icons");
+        ComboAdd(kTrayArrowPlaceCombo, L"Strip after the icons");
+        ComboAdd(kTrayArrowLookCombo, L"Chevron");  // TrayExpanderStyle
+        ComboAdd(kTrayArrowLookCombo, L"Dots");
+        ComboAdd(kTrayArrowLookCombo, L"Count");
+        ComboAdd(kTrayArrowShowCombo, L"When there are more icons");  // TrayExpanderShow
+        ComboAdd(kTrayArrowShowCombo, L"Always");
+        ComboAdd(kTrayArrowOpenCombo, L"Click");  // TrayDrawerOpen
+        ComboAdd(kTrayArrowOpenCombo, L"Hover");
+        ComboAdd(kTrayDrawerShowsCombo, L"Every icon");  // TrayDrawerShows
+        ComboAdd(kTrayDrawerShowsCombo, L"Only icons not in the grid");
+        ComboAdd(kTrayDrawerLabelsCombo, L"Below");  // TrayDrawerLabels
+        ComboAdd(kTrayDrawerLabelsCombo, L"Beside");
+        ComboAdd(kTrayDrawerLabelsCombo, L"None");
         HWND list = Item(kTrayIconList);
         if (!list) return;
         ListView_SetExtendedListViewStyle(list, LVS_EX_FULLROWSELECT | LVS_EX_CHECKBOXES);
@@ -213,18 +385,32 @@ protected:
 
     void Load() override {
         const DockItemEntry* e = Tray();
-        for (int id : {kTrayRowsEdit, kTrayRowsSpin, kTrayColumnsEdit, kTrayColumnsSpin, kTrayIconSizeCombo, kTrayIconList}) {
+        for (int id : {kTrayIconSizeTrack, kTrayLabelsCombo, kTrayColourCombo, kTrayArrowPlaceCombo, kTrayArrowLookCombo,
+                       kTrayArrowShowCombo, kTrayArrowOpenCombo, kTrayDrawerShowsCombo, kTrayDrawerIconSizeTrack,
+                       kTrayDrawerLabelsCombo, kTrayDrawerTitle, kTrayIconList}) {
             Enable(id, e != nullptr);
         }
-        if (e) {
-            SetSpin(kTrayRowsSpin, e->rows);
-            SetSpin(kTrayColumnsSpin, e->columns);
-            int sel = 1;
-            for (int i = 0; i < 3; ++i) {
-                if (kIconSizes[i] == e->trayIconSize) sel = i;
-            }
-            SetComboSel(kTrayIconSizeCombo, sel);
+        for (const TrayNumber& n : kTrayNumbers) {
+            Enable(n.edit, e != nullptr);
+            Enable(n.spin, e != nullptr);
         }
+        if (e) {
+            for (const TrayNumber& n : kTrayNumbers) SetSpin(n.spin, e->*n.field);
+            SetTrack(kTrayIconSizeTrack, e->trayIconSize);
+            SetText(kTrayIconSizeValue, std::to_wstring(e->trayIconSize));
+            SetComboSel(kTrayLabelsCombo, static_cast<int>(e->trayLabels));
+            SetComboSel(kTrayColourCombo, static_cast<int>(e->trayColour));
+            SetComboSel(kTrayArrowPlaceCombo, static_cast<int>(e->trayExpander));
+            SetComboSel(kTrayArrowLookCombo, static_cast<int>(e->trayExpanderStyle));
+            SetComboSel(kTrayArrowShowCombo, static_cast<int>(e->trayExpanderShow));
+            SetComboSel(kTrayArrowOpenCombo, static_cast<int>(e->trayDrawerOpen));
+            SetComboSel(kTrayDrawerShowsCombo, static_cast<int>(e->trayDrawerShows));
+            SetTrack(kTrayDrawerIconSizeTrack, e->trayDrawerIconSize);
+            SetText(kTrayDrawerIconSizeValue, std::to_wstring(e->trayDrawerIconSize));
+            SetComboSel(kTrayDrawerLabelsCombo, static_cast<int>(e->trayDrawerLabels));
+            SetCheck(kTrayDrawerTitle, e->trayDrawerTitle);
+        }
+        UpdateDrawerColumns();
         Enable(kTrayReset, Cfg().tray.enabled);
         // Round 12 phase 12F: while the takeover is off the list is empty and Reset to Explorer greyed:
         // the existing hint slots say why and the way on.
@@ -245,40 +431,74 @@ protected:
             return;
         }
         if (id == kWidgetReset && code == BN_CLICKED) {  // the footer's Reset to factory defaults… (confirmed: round 10 phase 10D)
+            // Round 24 phase 24C: every look field of the grid, the arrow and the drawer too.
             DockItemEntry* e = Tray();
-            if (!e) return;
-            DockItemEntry fresh{e->kind};
-            if (e->rows == fresh.rows && e->columns == fresh.columns && e->trayIconSize == fresh.trayIconSize &&
-                e->hidden.empty() && e->order.empty()) {
-                return;
-            }
-            e->rows = fresh.rows;
-            e->columns = fresh.columns;
-            e->trayIconSize = fresh.trayIconSize;
-            e->hidden.clear();
-            e->order.clear();
+            if (!e || TrayLookIsDefault(*e)) return;
+            ResetTrayLook(*e);
             Changed(SettingsScope::Pins);
             Window().Refresh();
             return;
         }
-        if (id == kTrayIconSizeCombo && code == CBN_SELCHANGE) {
-            const int sel = ComboSel(kTrayIconSizeCombo);
+        if (id == kTrayDrawerTitle && code == BN_CLICKED) {
             DockItemEntry* e = Tray();
-            if (!e || sel < 0 || sel >= 3 || e->trayIconSize == kIconSizes[sel]) return;
-            e->trayIconSize = kIconSizes[sel];
+            const bool on = GetCheck(kTrayDrawerTitle);
+            if (!e || e->trayDrawerTitle == on) return;
+            e->trayDrawerTitle = on;
             Changed(SettingsScope::Pins);
+            return;
+        }
+        if (code == CBN_SELCHANGE) {
+            const int sel = ComboSel(id);
+            DockItemEntry* e = Tray();
+            if (!e || sel < 0) return;
+            bool changed = false;
+            switch (id) {
+                case kTrayLabelsCombo: changed = SetEnum(e->trayLabels, sel, 2); break;
+                case kTrayColourCombo: changed = SetEnum(e->trayColour, sel, 2); break;
+                case kTrayArrowPlaceCombo: changed = SetEnum(e->trayExpander, sel, 4); break;
+                case kTrayArrowLookCombo: changed = SetEnum(e->trayExpanderStyle, sel, 3); break;
+                case kTrayArrowShowCombo: changed = SetEnum(e->trayExpanderShow, sel, 2); break;
+                case kTrayArrowOpenCombo: changed = SetEnum(e->trayDrawerOpen, sel, 2); break;
+                case kTrayDrawerShowsCombo: changed = SetEnum(e->trayDrawerShows, sel, 2); break;
+                case kTrayDrawerLabelsCombo:
+                    changed = SetEnum(e->trayDrawerLabels, sel, 3);
+                    UpdateDrawerColumns();
+                    break;
+                default: return;
+            }
+            if (changed) Changed(SettingsScope::Pins);
         }
     }
 
-    void Spun(int spin, int pos) override { SetGrid(spin, pos); }
+    // Round 24 phase 24C: the two icon size sliders, applied on release (the value follows the thumb).
+    void Track(int id, int pos, bool released) override {
+        if (id != kTrayIconSizeTrack && id != kTrayDrawerIconSizeTrack) return;
+        const bool drawer = id == kTrayDrawerIconSizeTrack;
+        pos = std::clamp(pos, 16, drawer ? 48 : 32);
+        SetText(drawer ? kTrayDrawerIconSizeValue : kTrayIconSizeValue, std::to_wstring(pos));
+        DockItemEntry* e = Tray();
+        if (!released || !e) return;
+        int& field = drawer ? e->trayDrawerIconSize : e->trayIconSize;
+        if (field == pos) return;
+        field = pos;
+        Changed(SettingsScope::Pins);
+    }
+
+    void Spun(int spin, int pos) override {
+        for (const TrayNumber& n : kTrayNumbers) {
+            if (n.spin == spin) SetNumber(n, pos);
+        }
+    }
     void Commit(int id) override {
-        const int spin = id == kTrayRowsEdit ? kTrayRowsSpin : id == kTrayColumnsEdit ? kTrayColumnsSpin : 0;
-        if (!spin) return;
-        int value = 0;
-        if (ReadInt(id, 1, 20, value)) {  // round 16 phase 16B: rows 1 - 20 too
-            SetGrid(spin, value);
-        } else if (DockItemEntry* e = Tray()) {
-            SetSpin(spin, spin == kTrayRowsSpin ? e->rows : e->columns);
+        for (const TrayNumber& n : kTrayNumbers) {
+            if (n.edit != id) continue;
+            int value = 0;
+            if (ReadInt(id, n.lo, n.hi, value)) {
+                SetNumber(n, value);
+            } else if (DockItemEntry* e = Tray()) {
+                SetSpin(n.spin, e->*n.field);  // not a number: back to the current value
+            }
+            return;
         }
     }
 
@@ -312,15 +532,36 @@ private:
         return e && e->Kind() == ItemKind::Tray ? e : nullptr;
     }
 
-    void SetGrid(int spin, int value) {
+    void SetNumber(const TrayNumber& n, int value) {
         DockItemEntry* e = Tray();
         if (!e) return;
-        int& field = spin == kTrayRowsSpin ? e->rows : e->columns;
-        value = std::clamp(value, 1, 20);
-        SetSpin(spin, value);
+        int& field = e->*n.field;
+        value = std::clamp(value, n.lo, n.hi);
+        SetSpin(n.spin, value);
+        if (n.spin == kTrayDrawerColumnsSpin) UpdateDrawerColumns(value);
         if (field == value) return;
         field = value;
         Changed(SettingsScope::Pins);
+    }
+
+    // A combo's selection into config enum `field` (`count` values). True when it changed.
+    template <class E>
+    static bool SetEnum(E& field, int sel, int count) {
+        const E value = static_cast<E>(std::min(sel, count - 1));
+        if (field == value) return false;
+        field = value;
+        return true;
+    }
+
+    // The drawer's Columns row: its note reads "Automatic" at 0, and the row is greyed while the
+    // drawer's labels are beside the icons (that list layout has one column, phase 24B).
+    void UpdateDrawerColumns(int value = -1) {
+        const DockItemEntry* e = Tray();
+        if (value < 0) value = e ? e->trayDrawerColumns : 0;
+        SetText(kTrayDrawerColumnsValue, value == 0 ? L"Automatic" : value == 1 ? L"column" : L"columns");
+        const bool on = e && e->trayDrawerLabels != TrayDrawerLabels::Beside;
+        Enable(kTrayDrawerColumnsEdit, on);
+        Enable(kTrayDrawerColumnsSpin, on);
     }
 
     int SelectedRow() const {

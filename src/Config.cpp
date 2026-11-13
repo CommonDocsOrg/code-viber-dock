@@ -59,7 +59,16 @@ const wchar_t* const kMagnifyBarNames[] = {L"steady", L"follow", L"always"};  //
 const wchar_t* const kShapeNames[] = {L"bar", L"arc", L"circle"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kItemAnchorNames[] = {L"none", L"start", L"center", L"end"};
-const wchar_t* const kFolderSortNames[] = {L"name", L"date", L"type", L"size"};
+// Round 24 phase 24A: the tray item's look (in the order of the enums in Config.h).
+const wchar_t* const kTrayLabelsNames[] = {L"none", L"beside"};
+const wchar_t* const kTrayColourNames[] = {L"original", L"mono"};
+const wchar_t* const kTrayExpanderNames[] = {L"end", L"start", L"before", L"after"};
+const wchar_t* const kTrayExpanderStyleNames[] = {L"chevron", L"dots", L"count"};
+const wchar_t* const kTrayExpanderShowNames[] = {L"auto", L"always"};
+const wchar_t* const kTrayDrawerOpenNames[] = {L"click", L"hover"};
+const wchar_t* const kTrayDrawerShowsNames[] = {L"all", L"overflow"};
+const wchar_t* const kTrayDrawerLabelsNames[] = {L"below", L"beside", L"none"};
+const wchar_t* const kFolderSortNames[] ={L"name", L"date", L"type", L"size"};
 const wchar_t* const kWidgetBackgroundNames[] = {L"none", L"panel"};
 const wchar_t* const kItemKindNames[] = {L"",        L"app",   L"folder", L"separator",
                                          L"recycleBin", L"running", L"clock", L"weather", L"widget", L"group",
@@ -492,6 +501,20 @@ void ReadDockItems(const json::JsonObject& obj, DockConfig& d) {
             ReadInt(io, L"iconSize", e.trayIconSize);
             ReadStrings(io, L"hidden", e.hidden);
             ReadStrings(io, L"order", e.order);
+            // Round 24 phase 24A: the look (unknown text keeps the default).
+            ReadInt(io, L"spacing", e.traySpacing);
+            ReadEnum(io, L"labels", e.trayLabels);
+            ReadEnum(io, L"colour", e.trayColour);
+            ReadEnum(io, L"expander", e.trayExpander);
+            ReadEnum(io, L"expanderStyle", e.trayExpanderStyle);
+            ReadEnum(io, L"expanderShow", e.trayExpanderShow);
+            ReadEnum(io, L"drawerOpen", e.trayDrawerOpen);
+            ReadEnum(io, L"drawerShows", e.trayDrawerShows);
+            ReadInt(io, L"drawerIconSize", e.trayDrawerIconSize);
+            ReadEnum(io, L"drawerLabels", e.trayDrawerLabels);
+            ReadInt(io, L"drawerLabelSize", e.trayDrawerLabelSize);
+            ReadInt(io, L"drawerColumns", e.trayDrawerColumns);
+            ReadBool(io, L"drawerTitle", e.trayDrawerTitle);
         }
         if (e.Kind() == ItemKind::Group) {
             ReadString(io, L"name", e.name);
@@ -574,6 +597,22 @@ const wchar_t* ToString(ItemView v) { return EnumToString(v, kItemViewNames); }
 bool FromString(std::wstring_view s, ItemView& v) { return EnumFromString(s, v, kItemViewNames); }
 const wchar_t* ToString(ItemAnchor v) { return EnumToString(v, kItemAnchorNames); }
 bool FromString(std::wstring_view s, ItemAnchor& v) { return EnumFromString(s, v, kItemAnchorNames); }
+const wchar_t* ToString(TrayLabels v) { return EnumToString(v, kTrayLabelsNames); }
+bool FromString(std::wstring_view s, TrayLabels& v) { return EnumFromString(s, v, kTrayLabelsNames); }
+const wchar_t* ToString(TrayColour v) { return EnumToString(v, kTrayColourNames); }
+bool FromString(std::wstring_view s, TrayColour& v) { return EnumFromString(s, v, kTrayColourNames); }
+const wchar_t* ToString(TrayExpander v) { return EnumToString(v, kTrayExpanderNames); }
+bool FromString(std::wstring_view s, TrayExpander& v) { return EnumFromString(s, v, kTrayExpanderNames); }
+const wchar_t* ToString(TrayExpanderStyle v) { return EnumToString(v, kTrayExpanderStyleNames); }
+bool FromString(std::wstring_view s, TrayExpanderStyle& v) { return EnumFromString(s, v, kTrayExpanderStyleNames); }
+const wchar_t* ToString(TrayExpanderShow v) { return EnumToString(v, kTrayExpanderShowNames); }
+bool FromString(std::wstring_view s, TrayExpanderShow& v) { return EnumFromString(s, v, kTrayExpanderShowNames); }
+const wchar_t* ToString(TrayDrawerOpen v) { return EnumToString(v, kTrayDrawerOpenNames); }
+bool FromString(std::wstring_view s, TrayDrawerOpen& v) { return EnumFromString(s, v, kTrayDrawerOpenNames); }
+const wchar_t* ToString(TrayDrawerShows v) { return EnumToString(v, kTrayDrawerShowsNames); }
+bool FromString(std::wstring_view s, TrayDrawerShows& v) { return EnumFromString(s, v, kTrayDrawerShowsNames); }
+const wchar_t* ToString(TrayDrawerLabels v) { return EnumToString(v, kTrayDrawerLabelsNames); }
+bool FromString(std::wstring_view s, TrayDrawerLabels& v) { return EnumFromString(s, v, kTrayDrawerLabelsNames); }
 const wchar_t* ToString(FolderSort v) { return EnumToString(v, kFolderSortNames); }
 const wchar_t* ToString(WidgetBackground v) { return EnumToString(v, kWidgetBackgroundNames); }
 bool FromString(std::wstring_view s, WidgetBackground& v) { return EnumFromString(s, v, kWidgetBackgroundNames); }
@@ -1195,7 +1234,24 @@ void Config::Sanitize() {
             if (e.Kind() != ItemKind::Tray) continue;
             e.rows = std::clamp(e.rows, 1, 20);  // round 16 phase 16B: was 1 - 2
             e.columns = std::clamp(e.columns, 1, 20);
-            e.trayIconSize = e.trayIconSize <= 18 ? 16 : e.trayIconSize <= 22 ? 20 : 24;
+            // Round 24 phase 24A: any size 16 - 32 (was snapped to 16 / 20 / 24; those stay as they
+            // were) and the look's keys in range (out of range enums: the default).
+            e.trayIconSize = std::clamp(e.trayIconSize, 16, 32);
+            e.traySpacing = std::clamp(e.traySpacing, 0, 8);
+            auto inRange = [](auto& v, auto last, auto def) {
+                if (static_cast<unsigned>(v) > static_cast<unsigned>(last)) v = def;
+            };
+            inRange(e.trayLabels, TrayLabels::Beside, TrayLabels::None);
+            inRange(e.trayColour, TrayColour::Mono, TrayColour::Original);
+            inRange(e.trayExpander, TrayExpander::After, TrayExpander::End);
+            inRange(e.trayExpanderStyle, TrayExpanderStyle::Count, TrayExpanderStyle::Chevron);
+            inRange(e.trayExpanderShow, TrayExpanderShow::Always, TrayExpanderShow::Auto);
+            inRange(e.trayDrawerOpen, TrayDrawerOpen::Hover, TrayDrawerOpen::Click);
+            inRange(e.trayDrawerShows, TrayDrawerShows::Overflow, TrayDrawerShows::All);
+            inRange(e.trayDrawerLabels, TrayDrawerLabels::None, TrayDrawerLabels::Below);
+            e.trayDrawerIconSize = std::clamp(e.trayDrawerIconSize, 16, 48);
+            e.trayDrawerLabelSize = std::clamp(e.trayDrawerLabelSize, 10, 16);
+            e.trayDrawerColumns = std::clamp(e.trayDrawerColumns, 0, 8);
         }
         // A file stem inside the themes folder, like theme.preset: no paths.
         if (d.themePreset.size() > 64 || d.themePreset.find_first_of(L"\\/:*?\"<>|") != std::wstring::npos ||
@@ -1585,6 +1641,23 @@ std::wstring Config::ToJson(bool windowSizes) const {
                     };
                     list(L"hidden", e.hidden);
                     list(L"order", e.order);
+                    // Round 24 phase 24A: the look, only what differs from the defaults.
+                    auto num = [&](const wchar_t* key, int v, int def) {
+                        if (v != def) fields += L", " + Quote(key) + L": " + Num(v);
+                    };
+                    num(L"spacing", e.traySpacing, defaults.traySpacing);
+                    if (e.trayLabels != defaults.trayLabels) add(L"labels", ToString(e.trayLabels));
+                    if (e.trayColour != defaults.trayColour) add(L"colour", ToString(e.trayColour));
+                    if (e.trayExpander != defaults.trayExpander) add(L"expander", ToString(e.trayExpander));
+                    if (e.trayExpanderStyle != defaults.trayExpanderStyle) add(L"expanderStyle", ToString(e.trayExpanderStyle));
+                    if (e.trayExpanderShow != defaults.trayExpanderShow) add(L"expanderShow", ToString(e.trayExpanderShow));
+                    if (e.trayDrawerOpen != defaults.trayDrawerOpen) add(L"drawerOpen", ToString(e.trayDrawerOpen));
+                    if (e.trayDrawerShows != defaults.trayDrawerShows) add(L"drawerShows", ToString(e.trayDrawerShows));
+                    num(L"drawerIconSize", e.trayDrawerIconSize, defaults.trayDrawerIconSize);
+                    if (e.trayDrawerLabels != defaults.trayDrawerLabels) add(L"drawerLabels", ToString(e.trayDrawerLabels));
+                    num(L"drawerLabelSize", e.trayDrawerLabelSize, defaults.trayDrawerLabelSize);
+                    num(L"drawerColumns", e.trayDrawerColumns, defaults.trayDrawerColumns);
+                    if (e.trayDrawerTitle != defaults.trayDrawerTitle) fields += L", " + Quote(L"drawerTitle") + L": false";
                 }
                 if (e.Kind() == ItemKind::Group) {
                     add(L"name", e.name);

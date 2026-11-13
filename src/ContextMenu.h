@@ -259,6 +259,10 @@ enum Command : UINT {
     // as a click on it: a standalone widget of it on the primary display, its panel open, the picker
     // hidden. 1 done, 0 refused (the picker is not shown, no such widget, a dock-only widget).
     kPickerAdd = 869,
+    // Round 24 phase 24B, the tray drawer (lParam: the dock in its high word, the tray slot in its
+    // low word; 1 done, 0 refused):
+    kTrayHoverOpen = 870,   // opens tray slot LOWORD(lParam)'s drawer the hover way (at once; the leave grace applies)
+    kTrayDrawerGear = 871,  // presses the open drawer's gear (the tray item's settings window; 0: no gear shown)
     kCloseAllWindows = 900,
     // Round 13 phase 13C: a widget menu's quick entries, kQuickBase + the entry's index in
     // ItemMenuState::quick (at most kQuickMax). Menu-local: never sent as ItemCommands (866 is). The

@@ -80,7 +80,9 @@ public:
         // false (the desktop folder windows): a left click selects, a double click (DoubleClick)
         // or Enter activates.
         bool clickActivates = true;
-        // Grid: lines of name under the icon (1 or 2; make cellH fit them).
+        // Grid: lines of name under the icon (1 or 2; make cellH fit them). Round 24 phase 24B: 0 =
+        // icons only (no name drawn; the tray drawer's `drawerLabels: none`). A name line is 16 DIPs
+        // at fontDip 12 and grows with the font (fontDip x 4 / 3).
         int labelLines = 2;
         // Names drawn with a dark shadow (entries over the wallpaper, no panel behind them).
         bool textShadow = false;

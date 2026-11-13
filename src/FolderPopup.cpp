@@ -25,7 +25,7 @@ constexpr float kBackSize = 28.0f;     // back glyph hit box
 constexpr float kButtonH = 24.0f;      // "Open in Explorer"
 constexpr float kButtonPadX = 10.0f;
 constexpr float kCellW = 88.0f;
-constexpr float kCellH = 84.0f;
+constexpr float kCellH = 84.0f;        // round 24 phase 24B: derived in ViewStyle (6 + 40 + 4 + 2 x 16 + 2)
 constexpr float kListRowH = 36.0f;
 constexpr float kListWidth = 340.0f;
 constexpr float kMessageH = 56.0f;     // "This folder is empty"
@@ -41,6 +41,14 @@ constexpr size_t kMaxListRows = 14;
 constexpr size_t kMaxEntries = 20000;  // enumeration cap (a pathological folder)
 constexpr double kScrollSeconds = 0.16;
 constexpr wchar_t kExplorerText[] = L"Open in Explorer";
+// Round 24 phase 24B: the group layout's derived sizes (DIPs; see GroupLayout).
+constexpr float kLineDip = 16.0f;       // a name line at 12 DIPs (= ItemGridView's kLineH)
+constexpr float kIconTopDip = 6.0f;     // cell top -> icon (= ItemGridView's kIconTop)
+constexpr float kNameGapDip = 4.0f;     // icon -> name (= ItemGridView's kTextGap)
+constexpr float kGearGlyphDip = 15.0f;  // the gear glyph's em size
+static_assert(kCellH == kIconTopDip + 40.0f + kNameGapDip + 2.0f * kLineDip + 2.0f,
+              "the default group layout must derive the round-3 cell height");
+constexpr wchar_t kGearGlyph = L'\xE713';  // Settings (Segoe Fluent Icons / Segoe MDL2 Assets)
 constexpr wchar_t kPathSeparator[] = L" \u203A ";  // " › "
 
 LONG Px(float dip, float scale) { return static_cast<LONG>(std::lround(dip * scale)); }
@@ -49,8 +57,6 @@ D2D1_RECT_F ToRectF(const RECT& r) {
     return D2D1::RectF(static_cast<float>(r.left), static_cast<float>(r.top), static_cast<float>(r.right),
                        static_cast<float>(r.bottom));
 }
-
-bool Empty(const RECT& r) { return r.right <= r.left || r.bottom <= r.top; }
 
 using ShellFiles::IsInside;
 using ShellFiles::Join;
@@ -77,6 +83,7 @@ void FolderPopup::Release() {
     members_.clear();
     group_ = false;
     groupCallbacks_ = GroupCallbacks{};
+    layout_ = GroupLayout{};
     root_.clear();
     rootName_.clear();
     current_.clear();
@@ -99,6 +106,7 @@ void FolderPopup::OnDestroying() {
     viewReady_ = false;
     titleFormat_ = nullptr;
     buttonFormat_ = nullptr;
+    glyphFormat_ = nullptr;
     titleEllipsis_ = nullptr;
     formatScale_ = 0.0f;
 }
@@ -117,6 +125,7 @@ bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, Ite
     group_ = false;
     members_.clear();
     groupCallbacks_ = GroupCallbacks{};
+    layout_ = GroupLayout{};  // round 24 phase 24B: folders keep the round-3 look
     root_ = Normalize(folder);
     rootName_ = name.empty() ? LastComponent(root_) : name;
     Load(root_);
@@ -128,8 +137,10 @@ bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, Ite
 }
 
 bool FolderPopup::ShowGroup(const std::wstring& name, std::vector<GroupEntry> members, ItemView view,
-                            const Style& style, const PopupAnchor& anchor, GroupCallbacks callbacks) {
+                            const Style& style, const PopupAnchor& anchor, GroupCallbacks callbacks,
+                            const GroupLayout& layout) {
     style_ = style;
+    layout_ = layout;
     frame_ = Frame{};
     frame_.scale = style.scale;
     frame_.acrylic = style.acrylic;
@@ -152,8 +163,9 @@ bool FolderPopup::ShowGroup(const std::wstring& name, std::vector<GroupEntry> me
     return true;
 }
 
-void FolderPopup::UpdateGroup(const std::wstring& name, std::vector<GroupEntry> members) {
+void FolderPopup::UpdateGroup(const std::wstring& name, std::vector<GroupEntry> members, const GroupLayout* layout) {
     if (!OnScreen() || !group_) return;
+    if (layout) layout_ = *layout;
     rootName_ = name.empty() ? std::wstring(L"Group") : name;
     members_ = std::move(members);
     const LONG scroll = view_.ScrollOffset();
@@ -174,7 +186,9 @@ void FolderPopup::LoadGroup() {
         item.resolved = true;
         items.push_back(std::move(item));
     }
-    const bool list = viewSetting_ == ItemView::List || (viewSetting_ == ItemView::Auto && members_.size() > kAutoGridMax);
+    // Round 24 phase 24B: names beside the icons are the view's list rows.
+    const bool list = layout_.labels == GroupLayout::Labels::Beside || viewSetting_ == ItemView::List ||
+                      (viewSetting_ == ItemView::Auto && members_.size() > kAutoGridMax);
     view_.SetItems(std::move(items));
     view_.SetMode(list ? ItemGridView::Mode::List : ItemGridView::Mode::Grid);
     view_.SetDragOut(groupCallbacks_.drag != nullptr);
@@ -423,9 +437,31 @@ void FolderPopup::EnsureFormats() {
     IDWriteFactory* dw = Render() ? Render()->DWrite() : nullptr;
     const float s = style_.scale;
     if (!dw || (titleFormat_ && formatScale_ == s)) return;
-    titleFormat_ = buttonFormat_ = nullptr;
+    titleFormat_ = buttonFormat_ = glyphFormat_ = nullptr;
     titleEllipsis_ = nullptr;
     const DWRITE_TRIMMING trimming{DWRITE_TRIMMING_GRANULARITY_CHARACTER, 0, 0};
+    // Round 24 phase 24B: the gear's glyph, from the icon font the system has (Windows 11: Segoe
+    // Fluent Icons; Windows 10: Segoe MDL2 Assets, same code point). Neither installed: the gear is
+    // drawn as a ring with teeth (Paint).
+    {
+        winrt::com_ptr<IDWriteFontCollection> fonts;
+        if (SUCCEEDED(dw->GetSystemFontCollection(fonts.put(), FALSE)) && fonts) {
+            for (const wchar_t* face : {L"Segoe Fluent Icons", L"Segoe MDL2 Assets"}) {
+                UINT32 at = 0;
+                BOOL exists = FALSE;
+                if (FAILED(fonts->FindFamilyName(face, &at, &exists)) || !exists) continue;
+                if (SUCCEEDED(dw->CreateTextFormat(face, nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                                   DWRITE_FONT_STRETCH_NORMAL, kGearGlyphDip * s, L"", glyphFormat_.put()))) {
+                    glyphFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+                    glyphFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+                    glyphFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+                } else {
+                    glyphFormat_ = nullptr;
+                }
+                break;
+            }
+        }
+    }
     if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
                                        DWRITE_FONT_STRETCH_NORMAL, kTitleFont * s, L"", titleFormat_.put()))) {
         titleFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
@@ -464,9 +500,31 @@ ItemGridView::Style FolderPopup::ViewStyle() const {
     v.hotBorder = style_.hotBorder;
     v.accent = style_.accent;
     v.scrollbar = (style_.text & 0x00FFFFFF) | 0x80000000;
-    v.cellW = kCellW;
-    v.cellH = kCellH;
-    v.rowH = kListRowH;
+    // Round 24 phase 24B: cells from the group layout (the default gives exactly the round-3
+    // 88 x 84 cells, 36 DIP list rows with 24 DIP icons, 40 DIP icons, 12 DIP names).
+    const GroupLayout& l = layout_;
+    const float k = l.fontDip / 12.0f;
+    const float line = kLineDip * k;
+    v.iconDip = l.iconDip;
+    v.fontDip = l.fontDip;
+    switch (l.labels) {
+        case GroupLayout::Labels::None:
+            v.labelLines = 0;
+            v.cellW = v.cellH = l.iconDip + 2.0f * kIconTopDip;
+            break;
+        case GroupLayout::Labels::Beside:
+        case GroupLayout::Labels::Below:
+        default:
+            v.cellW = std::max(std::round(kCellW * k), l.iconDip + 48.0f);
+            v.cellH = kIconTopDip + l.iconDip + kNameGapDip + 2.0f * line + 2.0f;
+            break;
+    }
+    if (l.labels == GroupLayout::Labels::Beside) {
+        v.listIconDip = l.iconDip;
+        v.rowH = std::max(l.iconDip, line) + 12.0f;
+    } else {
+        v.rowH = kListRowH;
+    }
     v.scrollSeconds = kScrollSeconds;
     v.reduceMotion = style_.reduceMotion;
     return v;
@@ -488,11 +546,16 @@ SIZE FolderPopup::Measure() {
         viewReady_ = true;
     }
     if (!view_.Attached()) view_.Attach(ContentLayer());
-    view_.SetStyle(ViewStyle());
+    const ItemGridView::Style vs = ViewStyle();
+    view_.SetStyle(vs);
 
     const float s = style_.scale;
-    const LONG pad = Px(kPad, s), headerH = Px(kHeaderH, s), cellW = Px(kCellW, s), cellH = Px(kCellH, s);
-    const LONG rowH = Px(kListRowH, s);
+    // Round 24 phase 24B: the cells follow the group layout; without the title row there is no
+    // header and no gap (the hairline sits in it).
+    const bool title = layout_.title;
+    const LONG pad = Px(kPad, s), headerH = title ? Px(kHeaderH, s) : 0, cellW = Px(vs.cellW, s), cellH = Px(vs.cellH, s);
+    const LONG headerGap = title ? Px(kHeaderGap, s) : 0;
+    const LONG rowH = Px(vs.rowH, s);
     // A group has no "Open in Explorer".
     const LONG buttonW = group_ ? 0 : static_cast<LONG>(std::ceil(explorerTextW_)) + 2 * Px(kButtonPadX, s);
     const LONG buttonH = Px(kButtonH, s), back = Px(kBackSize, s), margin = Px(kMonitorMargin, s);
@@ -519,15 +582,18 @@ SIZE FolderPopup::Measure() {
         default: break;
     }
     const LONG availW = roomW - 2 * pad;
-    const LONG availH = roomH - 2 * pad - Px(kHeaderH + kHeaderGap, s);
+    const LONG availH = roomH - 2 * pad - (title ? Px(kHeaderH + kHeaderGap, s) : 0);
 
     LONG contentW = 0;
     size_t visibleRows = 0;
     if (n > 0 && !list) {
         // Columns min(6, ceil(sqrt(n))) within the room; rows up to 8 (and the room), then it scrolls.
+        // Round 24 phase 24B: a group layout's column count replaces the automatic one (still
+        // within the room, and never more than there are members).
         const size_t maxColumns = static_cast<size_t>(std::max<LONG>(1, availW / std::max<LONG>(1, cellW)));
-        const size_t cols = std::max<size_t>(
-            1, std::min({kMaxColumns, static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(n)))), maxColumns, n}));
+        const size_t wanted = layout_.columns > 0 ? layout_.columns
+                                                  : std::min(kMaxColumns, static_cast<size_t>(std::ceil(std::sqrt(static_cast<double>(n)))));
+        const size_t cols = std::max<size_t>(1, std::min({wanted, maxColumns, n}));
         const size_t maxRows = static_cast<size_t>(std::max<LONG>(1, availH / std::max<LONG>(1, cellH)));
         view_.SetColumns(cols);
         visibleRows = std::min({(n + cols - 1) / cols, maxRows, kMaxGridRows});
@@ -538,16 +604,25 @@ SIZE FolderPopup::Measure() {
         contentW = std::min(Px(kListWidth, s) - 2 * pad, availW);
     }
 
-    LONG w = std::max({2 * pad + contentW, Px(kMinWidth, s),
-                       2 * pad + (navigated ? back : 0) + Px(kMinTitleW, s) + buttonW + Px(8.0f, s)});
+    // Round 24 phase 24B: the tray drawer's gear sits at the right of the title row.
+    const bool gear = group_ && title && groupCallbacks_.settings != nullptr;
+    LONG w = 0;
+    if (title) {
+        w = std::max({2 * pad + contentW, Px(kMinWidth, s),
+                      2 * pad + (navigated ? back : 0) + Px(kMinTitleW, s) + buttonW + (gear ? back : 0) + Px(8.0f, s)});
+    } else {
+        // No title: as wide as the icons (the empty message keeps the usual minimum).
+        w = std::max(2 * pad + contentW, n == 0 ? Px(kMinWidth, s) : 2 * pad + std::max<LONG>(cellW, 1));
+    }
     w = std::min<LONG>(w, std::max<LONG>(Px(kMinWidth, s), (m.right - m.left) - 2 * margin));
 
     LONG y = pad;
-    headerRect_ = RECT{pad, y, w - pad, y + headerH};
+    headerRect_ = title ? RECT{pad, y, w - pad, y + headerH} : RECT{};
     backRect_ = navigated ? RECT{pad, y + (headerH - back) / 2, pad + back, y + (headerH - back) / 2 + back} : RECT{};
     explorerRect_ = group_ ? RECT{}
                            : RECT{w - pad - buttonW, y + (headerH - buttonH) / 2, w - pad, y + (headerH - buttonH) / 2 + buttonH};
-    y += headerH + Px(kHeaderGap, s);
+    gearRect_ = gear ? RECT{w - pad - back, y + (headerH - back) / 2, w - pad, y + (headerH - back) / 2 + back} : RECT{};
+    y += headerH + headerGap;
 
     if (n == 0) {
         messageRect_ = RECT{pad, y, w - pad, y + Px(kMessageH, s)};
@@ -609,11 +684,12 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
         dc->DrawLine(D2D1::Point2F(cx + g / 2.0f, cy - g), D2D1::Point2F(cx - g / 2.0f, cy), brush.get(), glyphStroke);
         dc->DrawLine(D2D1::Point2F(cx - g / 2.0f, cy), D2D1::Point2F(cx + g / 2.0f, cy + g), brush.get(), glyphStroke);
     }
-    {
+    if (!Empty(headerRect_)) {  // round 24 phase 24B: a group layout may leave the title out
         const float left = static_cast<float>(Empty(backRect_) ? headerRect_.left + Px(4.0f, s)
                                                                : backRect_.right + Px(6.0f, s));
-        const float right =
-            static_cast<float>(group_ ? headerRect_.right - Px(4.0f, s) : explorerRect_.left - Px(8.0f, s));
+        const float right = static_cast<float>(!group_                ? explorerRect_.left - Px(8.0f, s)
+                                               : !Empty(gearRect_)   ? gearRect_.left - Px(4.0f, s)
+                                                                      : headerRect_.right - Px(4.0f, s));
         const std::wstring title = Title(right - left);
         winrt::com_ptr<IDWriteTextLayout> layout;
         if (dw && titleFormat_ && !title.empty() && right > left &&
@@ -631,8 +707,30 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
         dc->DrawText(kExplorerText, static_cast<UINT32>(wcslen(kExplorerText)), buttonFormat_.get(),
                      ToRectF(explorerRect_), brush.get());
     }
-    // Hairline under the header.
-    {
+    // Round 24 phase 24B: the tray drawer's gear (the popup's text colour, a hot plate as the back
+    // glyph's). The icon font's Settings glyph; without one, a ring with eight teeth.
+    if (!Empty(gearRect_)) {
+        const bool gearHot = hot == kHitGear;
+        if (gearHot) hotBox(gearRect_, 1.0f, true);
+        brush->SetColor(Theme::ToColor(style_.text, gearHot ? 1.0f : 0.8f));
+        if (glyphFormat_) {
+            dc->DrawText(&kGearGlyph, 1, glyphFormat_.get(), ToRectF(gearRect_), brush.get());
+        } else {
+            const D2D1_RECT_F g = ToRectF(gearRect_);
+            const D2D1_POINT_2F c = D2D1::Point2F((g.left + g.right) / 2.0f, (g.top + g.bottom) / 2.0f);
+            const float r = std::round(4.0f * s), outer = std::round(7.0f * s);
+            const float w = std::max(1.0f, 1.5f * s);
+            dc->DrawEllipse(D2D1::Ellipse(c, r, r), brush.get(), w);
+            for (int t = 0; t < 8; ++t) {
+                const float a = static_cast<float>(t) * 3.14159265f / 4.0f;
+                const float dx = std::cos(a), dy = std::sin(a);
+                dc->DrawLine(D2D1::Point2F(c.x + dx * r, c.y + dy * r), D2D1::Point2F(c.x + dx * outer, c.y + dy * outer),
+                             brush.get(), w * 1.6f);
+            }
+        }
+    }
+    // Hairline under the header (none without the title row: 24B).
+    if (!Empty(headerRect_)) {
         const float y = static_cast<float>(headerRect_.bottom) + std::round(kHeaderGap * s / 2.0f) - inset;
         brush->SetColor(Theme::ToColor(style_.border));
         dc->DrawLine(D2D1::Point2F(static_cast<float>(headerRect_.left), y),
@@ -652,7 +750,22 @@ int FolderPopup::HitAt(POINT pt, int* part) const {
     if (part) *part = 0;
     if (!Empty(backRect_) && PtInRect(&backRect_, pt)) return kHitBack;
     if (!Empty(explorerRect_) && PtInRect(&explorerRect_, pt)) return kHitExplorer;
+    if (!Empty(gearRect_) && PtInRect(&gearRect_, pt)) return kHitGear;
     return -1;  // the entries are the view's
+}
+
+bool FolderPopup::PressGear() {
+    if (!OnScreen() || Empty(gearRect_) || !groupCallbacks_.settings) return false;
+    // A copy: the owner dismisses the popup, which resets the callbacks (Release) while this runs.
+    const auto settings = groupCallbacks_.settings;
+    settings();
+    return true;
+}
+
+int FolderPopup::IconPx() const {
+    if (!OnScreen()) return -1;
+    const ItemGridView::Style& v = view_.GetStyle();
+    return static_cast<int>(std::lround((view_.GetMode() == ItemGridView::Mode::List ? v.listIconDip : v.iconDip) * v.scale));
 }
 
 void FolderPopup::OnClick(int index, int, Button button) {
@@ -663,6 +776,9 @@ void FolderPopup::OnClick(int index, int, Button button) {
             return;
         case kHitExplorer:
             Open(current_, true);
+            return;
+        case kHitGear:  // round 24 phase 24B
+            if (button == Button::Left) PressGear();
             return;
         default:
             return;

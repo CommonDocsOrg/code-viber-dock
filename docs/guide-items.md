@@ -311,7 +311,7 @@ To show the tray icons on a dock:
 
 Clicks on the icons go to their apps as they would on the taskbar: a right-click opens the app's own menu. **Ctrl+right-click** an icon opens WinDock's tray menu: hide it from the grid, pin it to the dock, or open the tray settings.
 
-When there are more icons than cells, the last cell is an arrow that opens a drawer with every icon.
+When there are more icons than cells, the last cell is an arrow that opens a drawer with every icon. You can move the arrow, change its look and the drawer's layout in the tray's settings window (see [The arrow](#the-arrow) and [The drawer](#the-drawer)). Out of the box the tray looks as it always has; the only change is a soft highlight under the icon the pointer is on.
 
 In the drawer, a right-click opens the app's menu and the drawer stays open behind it. Press Escape or click the drawer to close the menu and right-click another icon. Choosing a menu item that opens a window, or clicking somewhere else, closes the drawer.
 
@@ -334,9 +334,34 @@ The tray item's settings window starts with **The grid**:
 
 - **Rows**: stacked top to bottom, up to 20.
 - **Columns**: left to right, up to 20.
-- **Icon size**: 16, 20 or 24.
+- **Icon size**: from 16 to 32 (20 at first). Larger sizes use the app's own larger icon where it has one, so they stay sharp.
+- **Space around icons**: the empty space on every side of each icon, from 0 to 8 (3 at first). Less space fits more icons in the same bar.
+- **Labels**: **None** shows icons only. **Beside the icon** adds the app's name after each icon, shortened with "…" when it is long. Names only appear where the bar has room for them; a side dock that is too narrow keeps icons only.
+- **Colours**: **Original** shows the icons as their apps draw them. **One colour** draws the grid's icons in the theme's text colour, for a calmer bar. The drawer always shows the original colours.
 
 Rows and columns are as you see them on screen, whichever edge the dock is on. Across the bar (rows on a bottom or top dock, columns on a left or right one) two cells always fit, shrunk to half an icon each. More fit only when the bar is thick enough for them at full size: turn on **Fixed thickness** on Dock settings > Position, or show titles beside the icons. Cells that do not fit are left out; the drawer still has every icon.
+
+### The arrow
+
+The arrow opens the drawer. The card **The arrow** sets where it is and how it behaves:
+
+- **Place**: **Last cell** (the grid's last cell, as before), **First cell** (the icons follow it), or a slim strip **before** or **after** the icons. A strip sits outside the grid and takes no cell, so every cell holds an icon.
+- **Looks like**: a **Chevron** that turns over while the drawer is open, three **Dots**, or a **Count** of the icons the grid does not show (for example +3).
+- **Shown**: **When there are more icons** (only while some icons do not fit or are hidden), or **Always**, so the drawer is one click away even when every icon fits.
+- **Opens the drawer on**: **Click**, or **Hover**: the drawer opens when the pointer rests on the arrow and closes shortly after the pointer leaves both the arrow and the drawer. A drawer you opened with a click stays until you click elsewhere.
+
+Dragging icons works the same wherever the arrow is.
+
+### The drawer
+
+The card **The drawer** sets what the drawer shows and how:
+
+- **Shows**: **Every icon** (the grid's icons too), or **Only icons not in the grid** (the ones that did not fit or are hidden). You can still drag icons between the grid and the drawer either way.
+- **Icon size**: from 16 to 48 (40 at first).
+- **Labels**: **Below** each icon (a grid, as before), **Beside** each icon (a list, one icon per row), or **None** (icons only, closer together).
+- **Label size**: from 10 to 16 (12 at first).
+- **Columns**: how many icons side by side, up to 8. 0 means automatic: the drawer picks a number that suits how many icons there are. Columns are greyed while labels are beside the icons, since that list has one column.
+- **Show the title**: the drawer's title row. The gear at the right of the title opens the tray's settings window. With the title off there is no gear; **Ctrl+right-click** an icon and choose **Tray settings** instead.
 
 ### Icons in the grid
 

@@ -1879,6 +1879,76 @@ brighter instead, and acts on release. One 1 s interval only while the progress 
 Not done (as agreed): colours taken from the art, a spinning disc, a spectrum. The Cover's natural
 height is 364, what the mock's CSS adds up to, not its caption's 348.
 
+## Round 24 (2026-11-13): the tray's look
+
+From the user: a slightly improved tray design with more customization that keeps the grid, the
+drawer and drag-and-drop as they are. An approved proposal page decided: grid labels stay in,
+opening the drawer on hover ships off, the drawer gets keys of its own, every part in scope. Every
+default is the look before round 24, so there is no migration. Branch `feature/tray-look`.
+
+**24A, config, the grid and the arrow.** Every new key on the `tray` item lands in one commit
+(the drawer's too, read and saved but used from 24B), so the schema does not change twice. The
+grid's cell is the icon plus `spacing` on each side; `labels: beside` widens the cell by a fixed
+label column (fixed so the grid does not jump as tips change) only where a labelled column fits the
+room across at full size, otherwise the grid stays icons only rather than shrinking text.
+
+The arrow keeps its cell index (the icons' count) whatever its place, so hit testing, the click,
+`TrayOverflow` and the drop path (which inserts before the key `CellAt` finds) keep working; only
+the drawing mapping changes: the end, the start, or a slim strip before / after the grid that uses
+no icon cell. The strip next to an empty grid would leave an empty cell, so then the arrow takes
+the cell. Looks: a chevron that points back while the drawer is open, three dots, or `+N`.
+
+A hover plate under the hot cell needs the slot redrawn on a cell change; it draws only the slot's
+surface at its last measure, because a re-measure from inside a rebuild's `SetHover(-1)` could start
+a relayout in the middle of one, and it does not render during a device recovery (the dismissals
+there would render on the lost device). `mono` is one premultiplied colour matrix per icon, as the
+glow's. Icon sizes above 24 DIPs fetch the picture at that pixel size (as pinned tray icons do);
+16 - 24 keep the handle as before so a default grid draws the same pixels.
+
+**24B, the drawer.** `FolderPopup::ShowGroup` takes a `GroupLayout` (icon size, names below /
+beside / none, their size, columns, title on / off) whose default derives exactly the round-3
+constants (a `static_assert` holds the 84 DIP cell to it), so folders, shortcut groups and a
+default drawer lay out as before; `UpdateGroup` keeps it unless given another (the keys changed
+while the drawer is open: the layout is part of the drawer's signature). Cells derive from the
+icon and the font as the folder windows' do; a name line grows with the font, which needed
+`ItemGridView` to scale its fixed 16 DIP line (identical at 12, every other view's size) and to
+take `labelLines` 0 (icons only). Names beside the icons are the view's list rows, and a list has
+one column, so `drawerColumns` does not apply there: several list columns would mean a second
+layout in `ItemGridView`'s hit testing, keyboard and insert marker for a niche case.
+
+At the default 40 DIPs the drawer keeps drawing the icon handle as sent (the same pixels as before,
+as 24A's grid does up to 24 DIPs); any other size fetches the picture at the drawn size and uses it
+only when it is larger than the handle. `drawerShows: overflow` filters `TrayDrawerIcons` by the
+grid's last measured cells (`DockElement::TrayGridShows`), so every user of the drawer's list (the
+members, `drawerIds_` and so the drops, `TrayIconRect`, the automation) follows it without a second
+mapping; pinned trayApp icons stay in it (the grid never shows them, and the drawer is where they
+are dragged back from).
+
+Hover open uses the two ids round 12 left free (27 / 28): a one-shot delay timer armed only while
+the pointer is on a hover tray's arrow (from the hover-cell path, so nothing runs on a plain move),
+and a one-shot leave grace armed only while a hover-opened drawer is on screen and the pointer is
+over neither it nor the arrow (the drawer's own hover callback starts / cancels it too). The grace
+gives way to a drag and is started again when the drag ends; a right click on a member (the app's
+menu, `HoldForMenu`) or a press on the arrow make it an ordinary click-opened drawer. A press on the
+arrow keeping it open was chosen over closing it: the user clicked to open it. The gear sits in the
+title row (none without the title); the popups have no tooltip mechanism, so it has none.
+
+**24C, settings and docs.** The tray item's window shows every new key: The grid keeps Rows and
+Columns and gains Icon size as a slider (16 - 32, its value beside it; the 16 / 20 / 24 combo's id
+4110 is retired rather than reused, so an old automation script fails loudly instead of driving a
+different control), Space around icons, Labels and Colours; two new cards sit between The grid and
+Icons in the grid, because they shape what is drawn on the dock while the list below only picks
+icons: The arrow (Place, Looks like, Shown, Opens the drawer on) and The drawer (Shows, Icon size
+slider 16 - 48, Labels, Label size, Columns, Show the title). Combos rather than radio groups keep
+the page at about 35 new controls (on this PC each child window costs ~0.5 ms to create). The
+drawer's Columns is a 0 - 8 spinner whose note reads "Automatic" at 0, greyed while the drawer's
+labels are beside (that list has one column). The footer's factory reset now covers every look key.
+The tray window stays out of the settings search, as the folder and group windows are. The guides
+gain "The arrow" and "The drawer" under The tray; `tools\smoke\tray-look.ps1` drives six variants
+on a bottom and a left dock through QueryState 343 - 355 and ItemCommand 870 / 871, written but not
+run (it takes over the tray on the live desktop); the round ends build only with a manual check
+list in STATUS.md, as rounds 22 and 23 did.
+
 ## Dependencies at a glance
 
 ```
