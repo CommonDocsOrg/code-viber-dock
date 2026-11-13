@@ -1933,8 +1933,21 @@ menu, `HoldForMenu`) or a press on the arrow make it an ordinary click-opened dr
 arrow keeping it open was chosen over closing it: the user clicked to open it. The gear sits in the
 title row (none without the title); the popups have no tooltip mechanism, so it has none.
 
-**24C, settings and docs (planned).** The tray item's page (The grid, The arrow, The drawer cards),
-the user guides, `tools\smoke\tray-look.ps1`, the manual check list.
+**24C, settings and docs.** The tray item's window shows every new key: The grid keeps Rows and
+Columns and gains Icon size as a slider (16 - 32, its value beside it; the 16 / 20 / 24 combo's id
+4110 is retired rather than reused, so an old automation script fails loudly instead of driving a
+different control), Space around icons, Labels and Colours; two new cards sit between The grid and
+Icons in the grid, because they shape what is drawn on the dock while the list below only picks
+icons: The arrow (Place, Looks like, Shown, Opens the drawer on) and The drawer (Shows, Icon size
+slider 16 - 48, Labels, Label size, Columns, Show the title). Combos rather than radio groups keep
+the page at about 35 new controls (on this PC each child window costs ~0.5 ms to create). The
+drawer's Columns is a 0 - 8 spinner whose note reads "Automatic" at 0, greyed while the drawer's
+labels are beside (that list has one column). The footer's factory reset now covers every look key.
+The tray window stays out of the settings search, as the folder and group windows are. The guides
+gain "The arrow" and "The drawer" under The tray; `tools\smoke\tray-look.ps1` drives six variants
+on a bottom and a left dock through QueryState 343 - 355 and ItemCommand 870 / 871, written but not
+run (it takes over the tray on the live desktop); the round ends build only with a manual check
+list in STATUS.md, as rounds 22 and 23 did.
 
 ## Dependencies at a glance
 

@@ -805,7 +805,7 @@ What the page holds depends on the item:
 - **Clock**: Content has the cards Time (time format, seconds, time zone), Text (the date, a label) and Click (what a click opens); Appearance has Look (the face, **Open faces folder**). See [The clock](guide-items.md#the-clock).
 - **Weather**: one page (it is all content): the Place card (find a place, the name on the dock, the status and **Refresh now**) and the Updates card (units, how often it refreshes). See [Weather](guide-items.md#weather).
 - **A script widget**: its own settings, in cards, on Content and Appearance as the widget sorts them. See [Widget settings](guide-items.md#widget-settings).
-- **System tray**: the cards The grid, Icons in the grid and Takeover. See [The tray](guide-items.md#the-tray).
+- **System tray**: the cards The grid (rows, columns, icon size, space around icons, labels, colours), The arrow (its place, look, when it shows, and click or hover to open the drawer), The drawer (what it shows, icon size, labels, label size, columns, the title with its gear), Icons in the grid and Takeover. See [The tray](guide-items.md#the-tray).
 - **Running apps**: the cards Running apps, Spacing, Order and Notifications. See [Running apps widget](#running-apps-widget).
 - **A folder or a group**: how it shows its contents, its icon, and for a group its shortcuts. See [Folders](guide-items.md#folders) and [Groups](guide-items.md#groups).
 

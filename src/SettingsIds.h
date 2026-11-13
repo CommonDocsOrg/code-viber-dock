@@ -549,8 +549,9 @@ inline constexpr int kItemIconSection = 4019;  // "Icon": Choose icon…, Choose
 
 // Tray (4100 - 4199; round 4 phase 8): tray.enabled and the tray item. Since round 5 phase D the
 // Global Tray icons page has 4100 - 4102, 4114 / 4115, 4125 / 4126 only; a tray item's own Item
-// window (its page 0) has 4103 - 4113, 4118 - 4121, 4123 / 4124 (the same ids as before). 4116 /
-// 4117 (Add a tray to this dock) and 4122 (which dock) are retired.
+// window (its page 0) has 4103 - 4113, 4118 - 4121, 4123 / 4124 (the same ids as before) and, since
+// round 24 phase 24C, 4127 / 4128 and 4130 - 4164. 4116 / 4117 (Add a tray to this dock), 4122
+// (which dock) and 4110 (the old icon size combo) are retired.
 inline constexpr int kTrayEnabled = 4100;       // check box: tray.enabled (DockCommand 129 / 130)
 inline constexpr int kTrayEnabledCaption = 4101;
 inline constexpr int kTrayEnabledNote = 4102;
@@ -561,7 +562,8 @@ inline constexpr int kTrayColumnsLabel = 4106;
 inline constexpr int kTrayColumnsEdit = 4107;   // 1 - 20 (columns)
 inline constexpr int kTrayColumnsSpin = 4108;
 inline constexpr int kTrayIconSizeLabel = 4109;
-inline constexpr int kTrayIconSizeCombo = 4110; // 0 = 16, 1 = 20, 2 = 24 px (iconSize)
+// 4110: the icon size combo (16 / 20 / 24 px) until round 24 phase 24C, replaced by the slider
+// kTrayIconSizeTrack (4130) when the size became 16 - 32; retired, not reused.
 inline constexpr int kTrayIconsLabel = 4111;
 inline constexpr int kTrayIconList = 4112;      // SysListView32 (report, check boxes): Icon, App, Key; checked = shown in the grid (unchecked: in `hidden`)
 inline constexpr int kTrayReset = 4113;         // "Reset to Explorer" (= DockCommand 130)
@@ -580,6 +582,43 @@ inline constexpr int kTrayOwnDockStatus = 4126; // Global: the last Put the tray
 inline constexpr int kTrayTakeoverSection = 4127;  // round 8 phase 8C: a tray item's "Takeover" card (Reset to Explorer)
 inline constexpr int kTrayResetLabel = 4128;       // ... its label "Explorer's icons" (4121 its hint)
 inline constexpr int kTraySection = 4129;          // round 8 phase 8D: Global > Tray icons' "Notification area" card
+// Round 24 phase 24C: a tray item's window. The grid card's new rows, then the cards "The arrow" and
+// "The drawer". A combo's selection is the config enum's order (the values in the comments).
+inline constexpr int kTrayIconSizeTrack = 4130;    // slider 16 - 32 (iconSize; replaces 4110)
+inline constexpr int kTrayIconSizeValue = 4131;    // its value ("20")
+inline constexpr int kTraySpacingLabel = 4132;
+inline constexpr int kTraySpacingEdit = 4133;      // 0 - 8 DIPs around each grid icon (spacing)
+inline constexpr int kTraySpacingSpin = 4134;
+inline constexpr int kTrayLabelsLabel = 4135;
+inline constexpr int kTrayLabelsCombo = 4136;      // 0 none, 1 beside the icon (labels)
+inline constexpr int kTrayColourLabel = 4137;
+inline constexpr int kTrayColourCombo = 4138;      // 0 original, 1 one colour (colour: mono)
+inline constexpr int kTrayArrowSection = 4139;     // the card "The arrow"
+inline constexpr int kTrayArrowPlaceLabel = 4140;
+inline constexpr int kTrayArrowPlaceCombo = 4141;  // 0 last cell (end), 1 first cell (start), 2 strip before, 3 strip after (expander)
+inline constexpr int kTrayArrowLookLabel = 4142;
+inline constexpr int kTrayArrowLookCombo = 4143;   // 0 chevron, 1 dots, 2 count (expanderStyle)
+inline constexpr int kTrayArrowShowLabel = 4144;
+inline constexpr int kTrayArrowShowCombo = 4145;   // 0 when there are more icons (auto), 1 always (expanderShow)
+inline constexpr int kTrayArrowOpenLabel = 4146;
+inline constexpr int kTrayArrowOpenCombo = 4147;   // 0 click, 1 hover (drawerOpen)
+inline constexpr int kTrayDrawerSection = 4148;    // the card "The drawer"
+inline constexpr int kTrayDrawerShowsLabel = 4149;
+inline constexpr int kTrayDrawerShowsCombo = 4150; // 0 every icon (all), 1 only icons not in the grid (overflow) (drawerShows)
+inline constexpr int kTrayDrawerIconSizeLabel = 4151;
+inline constexpr int kTrayDrawerIconSizeTrack = 4152;  // slider 16 - 48 (drawerIconSize)
+inline constexpr int kTrayDrawerIconSizeValue = 4153;  // its value ("40")
+inline constexpr int kTrayDrawerLabelsLabel = 4154;
+inline constexpr int kTrayDrawerLabelsCombo = 4155;    // 0 below, 1 beside, 2 none (drawerLabels)
+inline constexpr int kTrayDrawerLabelSizeLabel = 4156;
+inline constexpr int kTrayDrawerLabelSizeEdit = 4157;  // 10 - 16 (drawerLabelSize)
+inline constexpr int kTrayDrawerLabelSizeSpin = 4158;
+inline constexpr int kTrayDrawerColumnsLabel = 4159;
+inline constexpr int kTrayDrawerColumnsEdit = 4160;    // 0 - 8, 0 automatic (drawerColumns); disabled while labels are beside
+inline constexpr int kTrayDrawerColumnsSpin = 4161;
+inline constexpr int kTrayDrawerColumnsValue = 4162;   // "Automatic" at 0, else "columns"
+inline constexpr int kTrayDrawerTitle = 4163;          // check box: drawerTitle (the gear is in the title row)
+inline constexpr int kTrayDrawerTitleCaption = 4164;
 
 // Notifications (4200 - 4299; round 4 phase 9): config.notifications. 4200 - 4203 (the edited
 // dock's badges / centre) moved to the Dock window's Behaviour tab in round 5 phase D (2254 /

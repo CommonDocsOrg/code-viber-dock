@@ -1704,12 +1704,23 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
 - **Its settings window** (round 5 phase D: an Item window of its own, one per tray item; the tray
   menu's **Tray settings…**, **Tray settings…** at the top of the dock menu opened over the grid,
   **Settings…** on its tile in Dock settings > Contents, `WinDock.DockCommand`
-  142 / `ItemCommand` 854): **Rows**, **Columns**, **Icon size**, **Icons in the grid** (every icon
+  142 / `ItemCommand` 854, the drawer's gear): the card **The grid**: **Rows**, **Columns**,
+  **Icon size** (round 24 phase 24C: a slider 16 - 32 with its value; was a 16 / 20 / 24 list),
+  **Space around icons** (0 - 8), **Labels** (None / Beside the icon), **Colours** (Original / One
+  colour); the card **The arrow** (24C): **Place** (Last cell / First cell / Strip before the icons
+  / Strip after the icons), **Looks like** (Chevron / Dots / Count), **Shown** (When there are more
+  icons / Always), **Opens the drawer on** (Click / Hover); the card **The drawer** (24C): **Shows**
+  (Every icon / Only icons not in the grid), **Icon size** (a slider 16 - 48), **Labels** (Below /
+  Beside / None), **Label size** (10 - 16), **Columns** (0 - 8, 0 reads "Automatic"; greyed while
+  the labels are beside), **Show the title** (the gear is in the title row); then **Icons in the
+  grid** (every icon
   in the grid's order, a check box each: unchecked = only in the drawer; icons of apps that are not
   running are listed while they are hidden or ordered), **Move up** / **Move down** (the selected
   icon; the list's order becomes the item's `order`), **Reset to Explorer**, and in the footer
   **Reset to factory defaults…** (round 10 phase 10D: was Reset to defaults; it asks first) (1 row,
-  8 columns, 20 DIPs, nothing hidden, the registration order).
+  8 columns, 20 DIPs, and since 24C every look key of the grid, the arrow and the drawer back to its
+  default, nothing hidden, the registration order). Like the folder and group windows it is not
+  covered by the settings search.
 - **Pinned tray icons** (`{ "kind": "trayApp", "id": "<icon key>" }`): one icon as a full-size dock
   icon that magnifies like an app (its picture drawn at the icon size: the icon's own resource at
   that size when Windows still knows it, else the app's handle scaled). Its tooltip is the label;
@@ -2964,7 +2975,8 @@ items that exist. A file whose items have settings already is left alone.
       `"all"` / `"overflow"` (only the icons the grid does not show), `drawerIconSize` 16 - 48
       DIPs (40), `drawerLabels` `"below"` / `"beside"` / `"none"`, `drawerLabelSize` 10 - 16 (12),
       `drawerColumns` 0 - 8 (0: automatic), `drawerTitle` true / false (true). The first of each
-      list is the default. Each key is written only when it is not the default. An icon
+      list is the default. Each key is written only when it is not the default; the tray item's
+      settings window edits every one of them (round 24 phase 24C). An icon
       key is the icon's GUID in braces, lower case (`"{7820ae78-23e3-4229-82c1-e41cb67d5b9c}"`), or
       `"<exe file name>:<uID>"` lower case (`"steam.exe:1"`). Shows nothing while `tray.enabled`
       is off. Older builds skip the item.
@@ -3497,12 +3509,23 @@ always there, also when every dock is parked) handle these registered messages:
   23 right before drawer icon bits 24 - 31 in the grid order (255: to the end). Settings: the
   App settings window's page 4 Tray icons: 4100 the takeover check box, 4114 Put the tray in its own dock
   (8b), 4125 the note, 4126 its result line; a tray item's own Item window (round 5 phase D; page
-  0; round 8 phase 8C in three cards: 4118 The grid, 4111 Icons in the grid, 4127 Takeover):
-  4104 / 4105 rows (4119 its hint, was the grid note), 4107 / 4108 columns, 4110 icon size (0 =
-  16, 1 = 20, 2 = 24 px), 4120 the icons' note, 4112 the icon list (check boxes: shown in the grid;
+  0; round 8 phase 8C in three cards: 4118 The grid, 4111 Icons in the grid, 4127 Takeover; round
+  24 phase 24C adds 4139 The arrow and 4148 The drawer between the first two):
+  4104 / 4105 rows (4119 its hint, was the grid note), 4107 / 4108 columns, 4130 icon size (a
+  trackbar 16 - 32, applied on release; 4131 its value), 4133 / 4134 space around icons (0 - 8),
+  4136 labels (combo: 0 none, 1 beside the icon), 4138 colours (0 original, 1 one colour = `mono`);
+  The arrow: 4141 place (0 last cell = `end`, 1 first cell = `start`, 2 strip before = `before`, 3
+  strip after = `after`), 4143 looks like (0 chevron, 1 dots, 2 count), 4145 shown (0 when there are
+  more icons = `auto`, 1 always), 4147 opens the drawer on (0 click, 1 hover); The drawer: 4150 shows
+  (0 every icon = `all`, 1 only icons not in the grid = `overflow`), 4152 icon size (a trackbar 16 -
+  48; 4153 its value), 4155 labels (0 below, 1 beside, 2 none), 4157 / 4158 label size (10 - 16),
+  4160 / 4161 columns (0 - 8, 0 automatic; disabled while labels are beside; 4162 its note
+  "Automatic" / "columns"), 4163 show the title (check box; the gear is in the title row); each
+  combo's label is its id - 1 (4140, 4142, …). Then 4120 the icons' note, 4112 the icon list (check boxes: shown in the grid;
   rows in the grid's order), 4123 / 4124 Move up / Move down (the selected row), 4113 Reset to
   Explorer (4128 its label, 4121 its hint, was the note beside it), the footer's 114 Reset to
-  defaults (4116 / 4117 Add a tray to this dock and 4122 are retired). The tray menu (Ctrl +
+  defaults (every field above, `hidden` and `order`; 4116 / 4117 Add a tray to this dock, 4122 and
+  4110, the 16 / 20 / 24 px icon size combo before round 24, are retired). The tray menu (Ctrl +
   right click) is a `#32768` of the WinDock process with the ids 1 Hide / Show, 2 Pin, 3 Unpin, 4
   Tray settings… (the item's window).
 - **Notifications** (round 4 phase 9): `QueryState` 113 = the notification service (0 off, 1
