@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.21)
 
-project(WinDock VERSION 0.5.3 LANGUAGES C CXX RC)
+project(WinDock VERSION 0.5.4 LANGUAGES C CXX RC)
 
 if(NOT MSVC)
   message(FATAL_ERROR "WinDock is built with MSVC (run from a VS developer environment).")
