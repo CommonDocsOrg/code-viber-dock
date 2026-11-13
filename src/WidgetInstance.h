@@ -71,6 +71,10 @@ public:
         // Round 16 phase 16A: the Start menu's placer for shell.sendKeys('start-near') (App's one
         // instance through DockShared). Null: none (previews), the key is sent as 'win'.
         virtual StartMenuPlacer* WidgetStartPlacer() { return nullptr; }
+        // Round 23 phase 23A, widget.resize: the widget asks for its box to be w x h DIPs. Called
+        // from inside a script call: the window defers it. False: not honoured (a dock: the dock
+        // sizes its slots from measure()).
+        virtual bool WidgetResize(WidgetInstance&, float /*w*/, float /*h*/) { return false; }
 
     protected:
         ~Client() = default;
@@ -156,7 +160,15 @@ public:
     bool Preview() const { return preview_; }
 
     // Input on the widget's box; x / y in DIPs from its top-left (upright).
-    void Press(float x, float y);
+    // Round 23 phase 23A: true when onPress returned true: the widget claims the held button (the
+    // dock / window then starts no drag or move of its own, forwards the pointer's moves to Drag
+    // and ends with Release instead of a click).
+    bool Press(float x, float y);
+    bool Capturing() const { return capturing_; }
+    // The claimed button moved (onDrag) / went up or the capture was lost (onRelease, `cancelled`).
+    // No-ops unless Capturing().
+    void Drag(float x, float y);
+    void Release(float x, float y, bool cancelled);
     // `closedPopup`: the press closed this widget's popup (a click on the widget toggles it).
     void Click(float x, float y, bool closedPopup = false);
     void MiddleClick(float x, float y);
@@ -240,6 +252,8 @@ private:
     bool MediaGet(std::string& json, std::wstring& error) override;
     bool MediaCommand(const std::string& command, std::wstring& error) override;
     bool MediaArt(std::string& token, std::wstring& error) override;
+    bool MediaSeek(double seconds, std::wstring& error) override;
+    bool ResizeWindow(float w, float h) override;
     bool NotificationsGet(std::string& json, std::wstring& error) override;
     bool NotificationsCommand(const std::string& command, double id, std::wstring& error) override;
     bool PopupOpen(float w, float h, bool passive, std::wstring& error) override;
@@ -318,6 +332,7 @@ private:
     State state_ = State::Ok;
     std::wstring error_;
     bool changed_ = true;
+    bool capturing_ = false;  // round 23 phase 23A: onPress claimed the held button (until Release)
     uint32_t refreshMs_ = 0;
     bool refreshSet_ = false;  // the script called timer.setRefresh (overrides the manifest)
     std::wstring refreshZone_;  // its timeZone option (round 5 phase D): aligned to that zone's time of day

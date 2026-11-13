@@ -1834,6 +1834,25 @@ fit cap: a script widget measures itself and the host does not tell it the room.
 Not done: a font picker (the field is a typed family name, as every `font` field is); a weight for
 the date; the Analog clock widget's faces (they have their own `faces/*.json`).
 
+## Round 23 (2026-11-13): Now playing as a desktop mini player
+
+From the user: four mini-player layouts for the Now playing widget on the desktop (Deck, Capsule,
+Cover, Disc, from an approved HTML mock), each in three skins, with seeking and a draggable volume
+slider. Branch `feature/media-mini-player`.
+
+**23A, host.** Three small, general additions. `media.seek(seconds)` with `canSeek`, and the
+session's timeline followed after all: a `TimelinePropertiesChanged` wake reads only the timeline
+and posts only a jump, because some apps report their timeline every few seconds while playing and
+a full re-read plus a redraw of every media widget for each would be idle cost. Claimed presses:
+`onPress` returning `true` gets `onDrag` / `onRelease` (on a dock and standalone), the smallest
+change that gives a widget sliders without sending it any pointer moves the rest of the time; an
+unclaimed press is untouched (the existing widgets return nothing from `onPress`). `widget.resize`
+for a standalone window (posted: the call is inside the script, and a resize draws it again). And
+`visibleIf` arrays ("any of"), so the skin fields can show for four layouts out of five.
+
+Not done (as agreed): colours taken from the art, a spinning disc, a spectrum. The Cover's natural
+height is 364, what the mock's CSS adds up to, not its caption's 348.
+
 ## Dependencies at a glance
 
 ```

@@ -1447,7 +1447,9 @@ write and edit without compiling anything. The full reference (every call, every
   drawer's live preview shows; `dock.preview` is true while it draws one, the providers answer
   sample data then: docs/widgets.md "Preview mode").
 - **main.js** exports `draw(canvas, dock)` (required) and optionally `measure(canvas, dock)`
-  (returns `{ main, cross }`), `tick(dock)`, `onPress(e)`, `onClick(e)`, `onMiddleClick(e)`,
+  (returns `{ main, cross }`), `tick(dock)`, `onPress(e)` (round 23: return `true` to claim the
+  press: then `onDrag(e)` on every move and `onRelease(e)` at its end, instead of an item drag, a
+  window move and a click), `onClick(e)`, `onMiddleClick(e)`,
   `onWheel(e)` (return `true` to use the wheel), `onHover(e)`, `onDrop(e)` (files dropped on it;
   needs the shell permission), `onSettingsChanged(settings)`, and for its popup `drawPopup(canvas,
   dock)`, `onPopupClick(e)`, `onPopupClose()`, and `onVisibilityChange(e)` (the dock was hidden /

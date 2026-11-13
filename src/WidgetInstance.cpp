@@ -47,6 +47,8 @@ const char* FnName(ScriptEngine::Fn fn) {
         case ScriptEngine::Fn::OnPopupClick: return "onPopupClick()";
         case ScriptEngine::Fn::OnPopupClose: return "onPopupClose()";
         case ScriptEngine::Fn::OnVisibilityChange: return "onVisibilityChange()";
+        case ScriptEngine::Fn::OnDrag: return "onDrag()";
+        case ScriptEngine::Fn::OnRelease: return "onRelease()";
         default: return "a call";
     }
 }
@@ -89,6 +91,7 @@ std::wstring WidgetInstance::Name() const {
 
 void WidgetInstance::Reload() {
     DropEditor(true);  // an open editor goes; the old script's promise is never settled
+    capturing_ = false;  // round 23 phase 23A: the new script never claimed the held button
     if (!preview_) {
         runtime_.CancelAll(this);
         runtime_.ReleaseProviders(this);
@@ -867,10 +870,30 @@ void WidgetInstance::SetRefresh(uint32_t ms, const std::wstring& timeZone) {
 
 // --- 4b: press, drop, popups -------------------------------------------------------------------
 
-void WidgetInstance::Press(float x, float y) {
-    if (state_ != State::Ok || !engine_ || !engine_->Has(ScriptEngine::Fn::OnPress)) return;
-    Check(engine_->Call(ScriptEngine::Fn::OnPress, EventJson(x, y) + ",\"button\":\"left\"}"),
-          FnName(ScriptEngine::Fn::OnPress));
+bool WidgetInstance::Press(float x, float y) {
+    capturing_ = false;
+    if (state_ != State::Ok || !engine_ || !engine_->Has(ScriptEngine::Fn::OnPress)) return false;
+    const ScriptResult r = engine_->Call(ScriptEngine::Fn::OnPress, EventJson(x, y) + ",\"button\":\"left\"}");
+    // Round 23 phase 23A: only a literal true claims the press (the existing widgets return nothing,
+    // so their presses behave as before: a drag moves the item / the window).
+    capturing_ = Check(r, FnName(ScriptEngine::Fn::OnPress)) && r.json == "true" && state_ == State::Ok;
+    return capturing_;
+}
+
+// Round 23 phase 23A: the claimed button's moves. The host calls this only between a claimed
+// press and its end, so no pointer-move traffic reaches scripts otherwise.
+void WidgetInstance::Drag(float x, float y) {
+    if (!capturing_ || state_ != State::Ok || !engine_ || !engine_->Has(ScriptEngine::Fn::OnDrag)) return;
+    Check(engine_->Call(ScriptEngine::Fn::OnDrag, EventJson(x, y) + ",\"button\":\"left\"}"), FnName(ScriptEngine::Fn::OnDrag));
+}
+
+void WidgetInstance::Release(float x, float y, bool cancelled) {
+    if (!capturing_) return;
+    capturing_ = false;
+    if (state_ != State::Ok || !engine_ || !engine_->Has(ScriptEngine::Fn::OnRelease)) return;
+    Check(engine_->Call(ScriptEngine::Fn::OnRelease, EventJson(x, y) + ",\"button\":\"left\",\"cancelled\":" +
+                                                         (cancelled ? "true" : "false") + "}"),
+          FnName(ScriptEngine::Fn::OnRelease));
 }
 
 bool WidgetInstance::AcceptsDrops() const {
@@ -1551,7 +1574,8 @@ bool WidgetInstance::MediaGet(std::string& json, std::wstring& error) {
            ",\"position\":" + (pos >= 0.0 ? Num(std::round(pos * 10.0) / 10.0) : std::string("null")) +
            ",\"duration\":" + (s.duration > 0.0 ? Num(std::round(s.duration * 10.0) / 10.0) : std::string("null")) +
            ",\"canPlay\":" + Bool(s.canPlay) + ",\"canPause\":" + Bool(s.canPause) + ",\"canToggle\":" +
-           Bool(s.canToggle) + ",\"canNext\":" + Bool(s.canNext) + ",\"canPrevious\":" + Bool(s.canPrevious) + "}";
+           Bool(s.canToggle) + ",\"canNext\":" + Bool(s.canNext) + ",\"canPrevious\":" + Bool(s.canPrevious) +
+           ",\"canSeek\":" + Bool(s.session && s.canSeek && s.duration > 0.0) + "}";
     return true;
 }
 
@@ -1598,6 +1622,29 @@ bool WidgetInstance::MediaArt(std::string& token, std::wstring& error) {
     const MediaService* m = runtime_.UseMedia(this);
     if (m && m->Get().art && m->Get().artSerial) token = kArtToken + std::to_string(m->Get().artSerial);
     return true;
+}
+
+// Round 23 phase 23A: media.seek(seconds). Not logged per call (a seek drag sends one per release,
+// but a script may seek on every onDrag step).
+bool WidgetInstance::MediaSeek(double seconds, std::wstring& error) {
+    if (!Permitted(Permission::Media)) {
+        error = L"media needs the \"media\" permission";
+        return false;
+    }
+    if (preview_) return true;  // seeks nothing
+    MediaService* m = runtime_.UseMedia(this);
+    if (!m) {
+        error = L"media: the media session manager could not be started";
+        return false;
+    }
+    m->Seek(seconds);
+    return true;
+}
+
+// Round 23 phase 23A: widget.resize(w, h); only a standalone widget's window honours it.
+bool WidgetInstance::ResizeWindow(float w, float h) {
+    if (preview_ || !dock_.standalone) return false;
+    return client_.WidgetResize(*this, w, h);
 }
 
 // --- round 4 phase 9: notifications ------------------------------------------------------------

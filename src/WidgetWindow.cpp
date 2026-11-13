@@ -312,6 +312,45 @@ void WidgetWindow::WidgetPopupRequest(WidgetInstance&) {
     popupPosted_ = PostMessageW(hwnd_, kPopupMessage, 0, 0) != FALSE;
 }
 
+// Round 23 phase 23A, widget.resize: posted (the call comes from inside the script, and a resize
+// measures and draws it again); the last request of a burst wins.
+bool WidgetWindow::WidgetResize(WidgetInstance&, float w, float h) {
+    if (!hwnd_) return false;
+    resizeW_ = w;
+    resizeH_ = h;
+    if (!resizePosted_) resizePosted_ = PostMessageW(hwnd_, kResizeMessage, 0, 0) != FALSE;
+    return resizePosted_;
+}
+
+// The requested size, clamped to the window's limits (the manifest's minimum, kMaxSize; a fixed
+// aspect wins over the height), becomes the entry's w / h; the window is placed from the entry
+// again (its x / y, the top-left, stay; a centred entry stays centred; kept reachable) and saved.
+// Not in the middle of a move / resize drag (the drag's release stores its own rect). Honoured
+// whether or not the entry is locked: the lock is against the pointer, and this follows a setting
+// the user changed.
+void WidgetWindow::OnResizeRequest() {
+    resizePosted_ = false;
+    if (!Valid() || !widget_ || (grab_ != Grab::None && grab_ != Grab::Press && grab_ != Grab::Script)) return;
+    float w = std::clamp(resizeW_, MinWDip(), static_cast<float>(WidgetWindowConfig::kMaxSize));
+    float h = std::clamp(resizeH_, MinHDip(), static_cast<float>(WidgetWindowConfig::kMaxSize));
+    if (const Widgets::Package* p = widget_->Package()) {
+        if (p->manifest.standalone.aspect == Widgets::StandaloneHint::Aspect::Ratio && p->manifest.standalone.ratio > 0.0f) {
+            h = std::max(MinHDip(), w / p->manifest.standalone.ratio);
+        }
+    }
+    DockConfig& d = Cfg();
+    const int wi = std::clamp(static_cast<int>(std::lround(w)), WidgetWindowConfig::kMinSize, WidgetWindowConfig::kMaxSize);
+    const int hi = std::clamp(static_cast<int>(std::lround(h)), WidgetWindowConfig::kMinSize, WidgetWindowConfig::kMaxSize);
+    if (wi == d.widgetWindow.w && hi == d.widgetWindow.h) return;
+    d.widgetWindow.w = wi;
+    d.widgetWindow.h = hi;
+    keepRatio_ = static_cast<float>(wi) / static_cast<float>(hi);  // aspect "keep": the new shape
+    applied_ = d;
+    const RECT r = RectFromConfig();
+    if (!EqualRect(&r, &rect_)) Place(r);
+    if (host_.changed) host_.changed();
+}
+
 bool WidgetWindow::WidgetPopupShown(const WidgetInstance&) const {
     return popup_.Visible() || calendar_.Visible() || folderPopup_.Visible();
 }
@@ -1110,7 +1149,9 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             pressClosedPopup_ = hadPopup;
             float x = 0, y = 0;
             PointDips(pt, x, y);
-            if (widget_) widget_->Press(x, y);
+            // Round 23 phase 23A: onPress returned true: the widget follows the held button
+            // (onDrag / onRelease); the window neither moves nor sees a click for it.
+            if (widget_ && widget_->Press(x, y)) grab_ = Grab::Script;
             return 0;
         }
         case WM_MOUSEMOVE: {
@@ -1125,6 +1166,12 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 if (widget_) widget_->Hover(true, x, y);
             }
             if (grab_ == Grab::None || GetCapture() != hwnd_) return 0;
+            if (grab_ == Grab::Script) {  // round 23 phase 23A: every move, no drag threshold
+                float x = 0, y = 0;
+                PointDips(pt, x, y);
+                if (widget_) widget_->Drag(x, y);
+                return 0;
+            }
             POINT s = pt;
             ClientToScreen(hwnd_, &s);
             const LONG dx = s.x - grabPt_.x, dy = s.y - grabPt_.y;
@@ -1159,6 +1206,13 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             grab_ = Grab::None;
             grabMoved_ = false;
             if (GetCapture() == hwnd_) ReleaseCapture();
+            if (g == Grab::Script) {  // round 23 phase 23A: the claimed press ends (no click)
+                float x = 0, y = 0;
+                PointDips(pt, x, y);
+                if (widget_) widget_->Release(x, y, false);
+                pressClosedPopup_ = false;
+                return 0;
+            }
             if (moved && g == Grab::Move && host_.dockDrag) {
                 // Round 16 phase 16G: released over a dock's bar: the dock takes the widget (App posts
                 // the move, so this window outlives the call; the next sync destroys it). The rect it
@@ -1183,6 +1237,18 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         }
         case WM_CAPTURECHANGED:
+            if (grab_ == Grab::Script && reinterpret_cast<HWND>(lp) != hwnd_) {
+                // Round 23 phase 23A: the claimed press lost the mouse (a menu, Alt+Tab ...).
+                grab_ = Grab::None;
+                pressClosedPopup_ = false;
+                POINT c{};
+                GetCursorPos(&c);
+                ScreenToClient(hwnd_, &c);
+                float x = 0, y = 0;
+                PointDips(c, x, y);
+                if (widget_) widget_->Release(x, y, true);
+                return 0;
+            }
             if (grab_ != Grab::None && reinterpret_cast<HWND>(lp) != hwnd_) {
                 const bool moved = grabMoved_;
                 const bool moving = grab_ == Grab::Move;
@@ -1237,7 +1303,7 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_KEYDOWN:
         case WM_SYSKEYDOWN:
-            if (wp == VK_ESCAPE && grab_ != Grab::None && grab_ != Grab::Press) {
+            if (wp == VK_ESCAPE && grab_ != Grab::None && grab_ != Grab::Press && grab_ != Grab::Script) {
                 // Round 16 phase 16G: Escape cancels a move / resize drag: the window goes back where
                 // it was, nothing is stored, a dock's marker goes. (A "desktop"-layer window is never
                 // activated, so it gets no keys: only a capture loss cancels there.)
@@ -1273,6 +1339,9 @@ LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case kPopupMessage:
             OnPopupRequest();
+            return 0;
+        case kResizeMessage:
+            OnResizeRequest();
             return 0;
         case WM_TIMECHANGE:
             TimeChanged();

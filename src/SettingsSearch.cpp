@@ -61,14 +61,23 @@ std::wstring TextOf(HWND h) {
     return s;
 }
 
-// The generated page's visibleIf (SettingsPagesWidgets.cpp): every named field has that value now.
+// The generated page's visibleIf (SettingsPagesWidgets.cpp): every named field has that value now
+// (round 23 phase 23A: an array, any of its values).
 bool FieldVisible(const Widgets::SettingField& f, const json::JsonObject& values) {
     if (f.visibleIf.empty() || !values) return true;
     for (const auto& [key, want] : f.visibleIf) {
         const json::IJsonValue v = JsonUtil::Find(values, key.c_str());
         if (!v) return false;
         try {
-            if (std::wstring(v.Stringify()) != std::wstring(json::JsonValue::Parse(want).Stringify())) return false;
+            const std::wstring have(v.Stringify());
+            const json::JsonValue w = json::JsonValue::Parse(want);
+            if (w.ValueType() == json::JsonValueType::Array) {
+                bool any = false;
+                for (const json::IJsonValue& x : w.GetArray()) any = any || std::wstring(x.Stringify()) == have;
+                if (!any) return false;
+            } else if (have != std::wstring(w.Stringify())) {
+                return false;
+            }
         } catch (...) {
             return false;
         }
