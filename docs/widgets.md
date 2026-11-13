@@ -178,7 +178,7 @@ The page's layout keys (round 4 phase 14):
 | `unit` | `"unit": "DIPs"` | A unit after an `int`'s stepper or a `number`'s edit box ("%", "minutes"). |
 | `visibleIf` | `"visibleIf": { "seconds": true }` | The field (and a group header that would be left empty) is shown only while every named field has that value; the page is generated again when one of them changes. A key that names no other field is an error. |
 | `common` | `"common": true` | Round 10 phase 10B: one of the widget's few everyday settings. Dock settings > Contents shows the fields marked `common` in the inspector of the selected widget, editable in place (in schema order, at most six, each only while its `visibleIf` holds), above **More settings…**, which opens the whole page. Without any `common` field the inspector shows the first three fields of a simple type (`bool`, `int`, `number`, `string`, a `choice` not from `"perf"`). The inspector edits `bool`, `int`, `number`, `string`, `colour`, `font`, `choice` and `timezone` fields; a `place` shows as a read-only line, a `"choiceFrom": "perf"` choice is left to the page. Not a boolean: an error. Mark two to four fields. |
-| `quick` | `"quick": true` | Round 13 phase 13C: the field is a quick setting in the widget's right-click menu, between its own entries and **Widget settings…**. A `bool` is one checkable entry (its `label`, checked while the value is true; a click toggles it); a `choice` is a submenu titled with its `label`, holding one radio entry per choice (the current value checked; a click chooses it). Fields are listed in schema order. Only `bool` and `choice` fields can be quick: on another type the key is ignored and the manifest check warns. At most 8 quick fields per widget: the ones after the eighth are left out of the menu, with a warning. Not a boolean: an error. A change from the menu is written and applied as the settings window does (saved, `onSettingsChanged`, one Undo step named after the field and the widget, "Changed Units of Weather (script)"). A `"choiceFrom": "perf"` choice lists only its fixed `choices` there. |
+| `quick` | `"quick": true` | Round 13 phase 13C: the field is a quick setting in the widget's right-click menu, between its own entries and **Widget settings…**. A `bool` is one checkable entry (its `label`, checked while the value is true; a click toggles it); a `choice` is a submenu titled with its `label`, holding one radio entry per choice (the current value checked; a click chooses it). Fields are listed in schema order. Only `bool` and `choice` fields can be quick: on another type the key is ignored and the manifest check warns. At most 8 quick fields per widget: the ones after the eighth are left out of the menu, with a warning. Not a boolean: an error. A change from the menu is written and applied as the settings window does (saved, `onSettingsChanged`, one Undo step named after the field and the widget, "Changed Units of Weather"). A `"choiceFrom": "perf"` choice lists only its fixed `choices` there. |
 
 ```json
 { "key": "seconds", "type": "bool", "label": "Second hand", "default": false, "group": "Second hand", "section": "appearance" },
@@ -520,7 +520,7 @@ minutes later. Nothing polls; calls answer from the service's data at once.
 | `weather.icon(code, isDay, colours)` | An image token for `canvas.image(token, x, y, w, h, opacity)`: the dock's own vector condition glyph for a WMO `code` (sun / moon with `isDay` false, partly cloudy, overcast, fog, drizzle, rain, snow, thunder), `"setLocation"` (the map pin) or `"refresh"` (the circular arrow). `colours`: `{ ink, water }` (default `dock.theme.text` and `dock.theme.accent`; `refresh` uses `ink`). Drawn as geometry at any size (crisp at any scale; `w` / `h` omitted: 24 DIPs); `opacity` dims it as the native element does for stale data (0.6). |
 | `weather.onChange(fn)` | `fn(state)` (the `get()` object) whenever the data or the status of the widget's place changes: a fetch started, finished or failed, the place or units changed. Returns a remover. |
 
-The built-in `weather` widget ("Weather (script)", `widgets/weather`) is the worked example: its
+The built-in `weather` widget ("Weather", `widgets/weather`) is the worked example: its
 slot draws what the native element draws (pixel for pixel at 100 %), its popup the native
 forecast popup's layout; its schema has `place`, `label`, `units` and `refreshMinutes` (round 5),
 and it draws its `label` under the temperature.
@@ -1167,8 +1167,15 @@ built-ins are worked examples too:
   (`shell.open('ms-settings:sound')`). Each notch also opens the volume bar, a passive popup
   (`popup.open(44, 150, { passive: true })`, told apart in `drawPopup` by its size) that one
   `setTimeout` closes 1.2 s after the last notch; with the ordinary popup open the wheel redraws
-  that one instead. Settings `showPercent`, `step`, `wheelBar`, `middleClick`. Permissions
-  `audio`, `shell`.
+  that one instead. Round 22 (1.1.0): every view (`style`: `icon`, `ring`, `bar-horizontal`,
+  `bar-vertical`) is a design measured in one unit (`dock.iconSize` x `settings.scale`) that
+  returns its box and a paint function, so `measure()` and `draw()` share it; a standalone window
+  fits the design to itself, as a row or a column, whichever comes out larger. The icon
+  (`icon`: `speaker`, `bars`, `headphones`, `note`, `image`, `none`) is drawn with paths, or from
+  `settings.image` (a `file` field): `canvas.image` in proportion (`canvas.imageSize`) for a
+  picture, `canvas.fileIcon` for any other file. Settings `style`, `icon`, `image`, `scale`,
+  `showPercent`, `font`, `wheelBar`, `iconColor`, `textColor`, `levelColor`, `step`,
+  `middleClick`. Permissions `audio`, `shell`.
 - `widgets/media` ("Now playing"): `media.art()` drawn with `canvas.image` in a rounded clip, the
   note glyph when there is no art, title / artist beside it (faded at the edge, or scrolling); a
   middle click opens a popup with the album and the controls; the wheel changes the volume in 2 %
@@ -1283,7 +1290,7 @@ built-ins are worked examples too:
   look-ahead, local midnight); `calendar.onChange` redraws. Test hook: an item setting
   `"debugStore": true` appends each text it shows to its storage (`shown`). Permissions `calendar`,
   `shell`.
-- `widgets/weather` ("Weather (script)"): the native weather element and its popup on the
+- `widgets/weather` ("Weather"): the native weather element and its popup on the
   [weather](#weather) provider. `measure()` reproduces the element's box (`dock.clockDate` picks
   the smaller size), `draw()` the glyph (`weather.icon` + `canvas.image`, dimmed with the opacity
   argument) and the temperature; `weather.onChange` redraws the slot and the open popup; the popup

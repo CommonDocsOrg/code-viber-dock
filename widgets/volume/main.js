@@ -7,6 +7,18 @@
 // last notch. Event-driven: audio.onChange redraws when the level, the mute state or the devices
 // change (also when changed elsewhere: the volume keys, the quick settings); the bar's one-shot
 // is the only timer, and only while the bar is up.
+//
+// Round 22 phase 22A (1.1.0): the look. settings.style is the view: "icon" (as before), "ring" (a
+// circle that fills clockwise from the top, the icon inside it), "bar-horizontal" / "bar-vertical"
+// (a bar that fills left to right / bottom to top, in a row with the icon and the percentage on a
+// bottom / top dock and in a column on a side dock). settings.icon: the speaker, level bars,
+// headphones, a note, an image (settings.image: a picture, or any file's shell icon) or none.
+// settings.scale multiplies every size, as the Digital clock's (a standalone window fits the
+// design to itself instead, in the arrangement, row or column, that comes out larger);
+// settings.font is the percentage's family; iconColor / textColor / levelColor replace the
+// theme's text, date and accent colours (a transparent value, the colour field's "the theme's",
+// is not set). Every view is a design measured in one unit u (the dock's icon size x the scale):
+// design() gives its box and its paint, measure() and draw() both use it.
 
 const POPUP_W = 300;
 const BAR_W = 44, BAR_H = 150, BAR_MS = 1200;
@@ -76,9 +88,211 @@ function fit(canvas, text, style, w) {
   return text.slice(0, lo) + '…';
 }
 
+// --- the look (round 22 phase 22A) -----------------------------------------------------------------
+
+const STYLES = ['icon', 'ring', 'bar-horizontal', 'bar-vertical'];
+const ICONS = ['speaker', 'bars', 'headphones', 'note', 'image', 'none'];
+const viewStyle = () => (STYLES.includes(settings.style) ? settings.style : 'icon');
+const iconKind = () => (ICONS.includes(settings.icon) ? settings.icon : 'speaker');
+
+// A colour setting that is set: "#AARRGGBB" / "#RRGGBB" with a non-zero alpha.
+function colorOf(value, fallback) {
+  if (typeof value !== 'string' || !/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(value)) return fallback;
+  if (value.length === 9 && value.slice(1, 3) === '00') return fallback;
+  return value;
+}
+const lookScale = () => (typeof settings.scale === 'number' && settings.scale > 0 ? settings.scale : 1);
+const lookFont = () => (typeof settings.font === 'string' && settings.font.trim() ? { font: settings.font.trim() } : {});
+const textStyle = (size) => ({ size, weight: 'semibold', ...lookFont() });
+
+// The percentage is written: the setting, and always in the icon view without an icon (the text
+// then is all there is to draw).
+const showText = () => (settings.showPercent && state.available) || (viewStyle() === 'icon' && iconKind() === 'none');
+const label = () => (!state.available ? '–' : state.muted ? 'muted' : percent(state.volume) + '%');
+// The room the text takes: the wider of its two longest values, so the dock is not laid out again
+// with every notch.
+function textBox(canvas, style) {
+  const a = canvas.measureText('100%', style), b = canvas.measureText('muted', style);
+  return { width: Math.max(a.width, b.width), height: Math.max(a.height, b.height) };
+}
+// One line at (x, y) per the style's align, made smaller when it is wider than maxW.
+function fitText(canvas, str, x, y, style, maxW) {
+  const w = canvas.measureText(str, style).width;
+  canvas.text(str, x, y, w > maxW && w > 0 ? { ...style, size: (style.size * maxW) / w } : style);
+}
+
+// settings.image in a g x g box: a picture (a package file, or a picture file anywhere: kept in
+// proportion) or any other file's shell icon; faded while muted. False if it cannot be drawn (the
+// speaker is drawn then).
+let warnedFor = null;
+function picture(canvas, x, y, g, off) {
+  const p = String(settings.image || '').trim();
+  if (!p) return false;
+  try {
+    const absolute = /^[A-Za-z]:|^\\\\|^%/.test(p);
+    if (absolute && !/\.(png|jpe?g|jfif|webp|bmp|gif|tiff?|heic|heif|avif)$/i.test(p)) {
+      canvas.save();
+      if (off) canvas.opacity(0.4);
+      canvas.fileIcon(p, x, y, g);
+      canvas.restore();
+    } else {
+      const s = canvas.imageSize(p);
+      const k = Math.min(g / Math.max(1, s.width), g / Math.max(1, s.height));
+      canvas.image(p, x + (g - s.width * k) / 2, y + (g - s.height * k) / 2, s.width * k, s.height * k, off ? 0.4 : 1);
+    }
+    return true;
+  } catch (e) {
+    if (warnedFor !== p) console.warn('image: ' + e.message);
+    warnedFor = p;
+    return false;
+  }
+}
+
+// settings.icon in a g x g box at (x, y). Off (muted, no device): the speaker gets its cross, the
+// others are faded and crossed out.
+function glyph(canvas, x, y, g, v, off, color) {
+  const kind = iconKind();
+  if (kind === 'none') return;
+  if (kind === 'image' && picture(canvas, x, y, g, off)) return;
+  if (kind === 'speaker' || kind === 'image') {
+    speaker(canvas, x, y, g, wavesFor(v), off, color);
+    return;
+  }
+  canvas.save();
+  if (off) canvas.opacity(0.45);
+  if (kind === 'bars') {
+    // Four bars, lit from the left by quarters of the level.
+    const lit = off || v <= 0.005 ? 0 : Math.ceil(v * 4);
+    for (let i = 0; i < 4; i++) {
+      const bh = (0.28 + 0.2 * i) * g;
+      canvas.fillRoundRect(x + (0.095 + 0.22 * i) * g, y + 0.94 * g - bh, 0.15 * g, bh, 0.045 * g, i < lit || off ? color : '#40808080');
+    }
+  } else if (kind === 'headphones') {
+    canvas.stroke(canvas.path().arc(x + 0.5 * g, y + 0.54 * g, 0.36 * g, Math.PI, 2 * Math.PI), color,
+      { width: Math.max(1.2, 0.09 * g), cap: 'round' });
+    canvas.fillRoundRect(x + 0.08 * g, y + 0.5 * g, 0.17 * g, 0.36 * g, 0.06 * g, color);
+    canvas.fillRoundRect(x + 0.75 * g, y + 0.5 * g, 0.17 * g, 0.36 * g, 0.06 * g, color);
+  } else {
+    // The note: a head, a stem and a flag.
+    canvas.save();
+    canvas.rotate(-0.35, x + 0.36 * g, y + 0.75 * g);
+    canvas.fillEllipse(x + 0.36 * g, y + 0.75 * g, 0.17 * g, 0.125 * g, color);
+    canvas.restore();
+    const st = { width: Math.max(1.2, 0.08 * g), cap: 'round', join: 'round' };
+    canvas.stroke(canvas.path().moveTo(x + 0.5 * g, y + 0.72 * g).lineTo(x + 0.5 * g, y + 0.14 * g)
+      .quadTo(x + 0.56 * g, y + 0.32 * g, x + 0.78 * g, y + 0.4 * g), color, st);
+  }
+  canvas.restore();
+  if (off) canvas.line(x + 0.14 * g, y + 0.14 * g, x + 0.86 * g, y + 0.86 * g, color, { width: Math.max(1.2, 0.09 * g), cap: 'round' });
+}
+
+// What every view draws with.
+function look(dock) {
+  const off = state.muted || !state.available;
+  return {
+    v: Math.min(1, Math.max(0, state.volume || 0)),
+    off,
+    icon: state.available ? colorOf(settings.iconColor, dock.theme.text) : '#80808080',
+    text: colorOf(settings.textColor, dock.theme.dateText),
+    level: off ? '#80808080' : colorOf(settings.levelColor, dock.theme.accent),
+    track: '#40808080',
+  };
+}
+
+// The icon and ring views: one square (the icon view on a bottom / top dock: 0.8 as wide, as the
+// widget always was) holding the icon, or the ring around it, with the percentage under it.
+// Without an icon the percentage takes its place.
+function badgeDesign(canvas, u, row) {
+  const ring = viewStyle() === 'ring';
+  const W = ring || !row ? u : 0.8 * u, H = u;
+  return { w: W, h: H, paint(x, y, c) {
+    const m = Math.min(W, H), cx = x + W / 2;
+    const hasIcon = iconKind() !== 'none', text = showText();
+    const under = text && hasIcon;
+    if (ring) {
+      const d = m * (under ? 0.64 : 0.88), t = Math.max(2, d * 0.1), r = (d - t) / 2;
+      const cy = under ? y + H * 0.06 + d / 2 : y + H / 2;
+      canvas.strokeCircle(cx, cy, r, c.track, t);
+      if (c.v >= 0.999) canvas.strokeCircle(cx, cy, r, c.level, t);
+      else if (c.v > 0.005) {
+        canvas.stroke(canvas.path().arc(cx, cy, r, -Math.PI / 2, -Math.PI / 2 + 2 * Math.PI * c.v), c.level, { width: t, cap: 'round' });
+      }
+      const inner = d - 2 * t;
+      if (hasIcon) glyph(canvas, cx - inner * 0.31, cy - inner * 0.31, inner * 0.62, c.v, c.off, c.icon);
+      else if (text) fitText(canvas, label(), cx, cy, { ...textStyle(Math.max(7, inner * 0.36)), align: 'center', baseline: 'middle', color: c.text }, inner * 0.88);
+    } else if (hasIcon) {
+      const g = m * (under ? 0.58 : 0.66);
+      glyph(canvas, cx - g / 2, under ? y + H * 0.12 : y + (H - g) / 2, g, c.v, c.off, c.icon);
+    } else {
+      fitText(canvas, label(), cx, y + H / 2, { ...textStyle(Math.max(8, m * 0.34)), align: 'center', baseline: 'middle', color: c.text }, W * 0.92);
+    }
+    if (under) {
+      fitText(canvas, label(), cx, y + H * 0.96, { ...textStyle(Math.max(8, H * 0.21)), align: 'center', baseline: 'bottom', color: c.text }, W * 0.96);
+    }
+  } };
+}
+
+// The bar views: the icon, the bar and the percentage one after the other, in a row (bottom / top
+// docks) or a column (side docks). The bar is long when it runs along that direction (1.3 u) and
+// short across it (0.8 u). A bottom-to-top bar in a column is read as the wheel's volume bar: the
+// percentage on top, the icon at the foot.
+function barDesign(canvas, u, row) {
+  const horizontal = viewStyle() === 'bar-horizontal';
+  const along = horizontal === row;
+  const t = Math.max(3, 0.12 * u), g = 0.46 * u, gap = 0.1 * u, pad = 0.06 * u;
+  const parts = [];
+  if (iconKind() !== 'none') parts.push({ kind: 'icon', a: g, c: g });
+  parts.push({ kind: 'bar', a: along ? 1.3 * u : t, c: along ? t : 0.8 * u });
+  if (showText()) {
+    const style = textStyle(Math.max(8, (row ? 0.26 : 0.21) * u));
+    const m = textBox(canvas, style);
+    parts.push({ kind: 'text', a: row ? m.width : m.height, c: row ? m.height : m.width, style });
+  }
+  if (!row && !horizontal) parts.reverse();
+  let a = 2 * pad + gap * (parts.length - 1), across = 0;
+  for (const p of parts) {
+    a += p.a;
+    across = Math.max(across, p.c);
+  }
+  across += 2 * pad;
+  return { w: row ? a : across, h: row ? across : a, paint(x, y, c) {
+    let at = pad;
+    for (const p of parts) {
+      // The part's box: `a` along the row / column, `c` across it, centred across.
+      const px = row ? x + at : x + (across - p.c) / 2, py = row ? y + (across - p.c) / 2 : y + at;
+      const pw = row ? p.a : p.c, ph = row ? p.c : p.a;
+      if (p.kind === 'icon') glyph(canvas, px, py, g, c.v, c.off, c.icon);
+      else if (p.kind === 'text') {
+        // In a row the text starts right after the bar (its box is as wide as its widest value).
+        fitText(canvas, label(), row ? px : px + pw / 2, py + ph / 2,
+          { ...p.style, align: row ? 'left' : 'center', baseline: 'middle', color: c.text }, pw);
+      } else {
+        canvas.fillRoundRect(px, py, pw, ph, t / 2, c.track);
+        if (c.v > 0.005) {
+          if (horizontal) canvas.fillRoundRect(px, py, Math.max(t, pw * c.v), ph, t / 2, c.level);
+          else {
+            const fh = Math.max(t, ph * c.v);
+            canvas.fillRoundRect(px, py + ph - fh, pw, fh, t / 2, c.level);
+          }
+        }
+      }
+      at += p.a + gap;
+    }
+  } };
+}
+
+const design = (canvas, u, row) => (viewStyle().startsWith('bar') ? barDesign(canvas, u, row) : badgeDesign(canvas, u, row));
+
 export function measure(canvas, dock) {
+  const row = dock.axis !== 'vertical';
+  const d = design(canvas, dock.iconSize * lookScale(), row);
+  // Never thinner than an icon across the dock: the wheel and the click keep their target.
   const s = Math.round(dock.iconSize);
-  return dock.axis === 'vertical' ? { main: s, cross: s } : { main: Math.round(s * 0.8), cross: s };
+  return row ? { main: Math.ceil(d.w), cross: Math.max(s, Math.ceil(d.h)) } : { main: Math.ceil(d.h), cross: Math.max(s, Math.ceil(d.w)) };
+}
+
+export function onSettingsChanged() {
+  requestRedraw();  // also measures again
 }
 
 // A speaker in a g x g box at (x, y): waves 0 - 3, or a cross.
@@ -103,15 +317,22 @@ const wavesFor = (v) => (v <= 0.005 ? 0 : v < 0.34 ? 1 : v < 0.67 ? 2 : 3);
 
 export function draw(canvas, dock) {
   const w = canvas.width, h = canvas.height;
-  const ink = state.available ? dock.theme.text : '#80808080';
-  const text = settings.showPercent && state.available;
-  const g = Math.min(w, h) * (text ? 0.58 : 0.66);
-  const y = text ? h * 0.12 : (h - g) / 2;
-  speaker(canvas, (w - g) / 2, y, g, wavesFor(state.volume), state.muted || !state.available, ink);
-  if (text) {
-    canvas.text(state.muted ? 'muted' : percent(state.volume) + '%', w / 2, h - 2,
-      { size: Math.max(8, h * 0.21), weight: 'semibold', align: 'center', baseline: 'bottom', color: dock.theme.dateText });
+  // How much of the box the design at 1 unit fills, for a row and for a column.
+  const fit = (row) => {
+    const d = design(canvas, 100, row);
+    return Math.min(w / d.w, h / d.h) * 100;
+  };
+  let row = dock.axis !== 'vertical', u = dock.iconSize * lookScale();
+  if (dock.standalone) {
+    // A window of its own: the arrangement that comes out larger, grown to fill the window.
+    const a = fit(true), b = fit(false);
+    row = a >= b;
+    u = Math.max(a, b) * 0.94;
+  } else {
+    u = Math.min(u, fit(row));  // a box smaller than measured (a preview's): the design shrinks into it
   }
+  const d = design(canvas, u, row);
+  d.paint((w - d.w) / 2, (h - d.h) / 2, look(dock));
 }
 
 export function onWheel(e) {

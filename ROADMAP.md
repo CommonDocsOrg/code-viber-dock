@@ -1848,3 +1848,27 @@ the date; the Analog clock widget's faces (they have their own `faces/*.json`).
 ```
 
 Phases 5 to 13 can be reordered freely within those edges.
+
+## Round 22 (2026-11-13): the Volume widget's look
+
+From the user: the Volume widget should scale as easily as the digital clock, with an icon of
+their choice and other views of the level: a gauge circle that fills up, a bar going up or
+sideways, the percentage on or off. Branch `feature/volume-look`. Script and manifest only.
+
+**22A, one design function per view.** The old `draw()` placed a speaker and a text by fractions
+of the canvas and `measure()` returned a fixed box, so every new view would have needed both
+written twice. Now a view is `design(canvas, u, row)`: sizes in one unit (the dock's icon size x
+`scale`), returning its box and a paint closure. `measure()` returns the box; `draw()` paints it
+centred, shrinking the unit when the canvas is smaller (a preview) and, in a standalone window,
+fitting it as a row or a column, whichever comes out larger (so the manifest no longer forces a
+square window). The bar views are a list of parts (icon, bar, text) laid along the dock's axis.
+
+**No fit cap.** As the Digital clock script, the widget does not give up scale that does not fit
+the bar (a script cannot see the row's room); the Size field says to make the dock thicker.
+
+**The text's room** is the wider of "100%" and "muted", so the dock is not laid out again on
+every wheel notch; a text wider than its room is drawn smaller instead of clipped.
+
+**Icons are paths**, not a glyph font: they scale to any size and take the icon colour. An image
+is the user's file: a picture through `canvas.image` in proportion, anything else through
+`canvas.fileIcon`; while muted the speaker keeps its cross and the others fade under a line.

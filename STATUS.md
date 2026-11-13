@@ -830,7 +830,29 @@ From the user (2026-11-12): the clock's default size suits a short dock, but on 
 7. Reset to factory defaults… on the clock's page: everything back; `config.json` has none of `scale`, `font`, `weight`, `timeColor`, `dateColor` in that item.
 8. The Digital clock (script) widget: its Appearance tab has the same Look fields (no Weight); Size 2 in a standalone window keeps fitting the window.
 
+## Round 22: the Volume widget's look (branch `feature/volume-look`, from master; round 21 is on its own branch)
+From the user (2026-11-13): the Volume widget should scale easily, as the digital clock does, with a configurable icon and different views (a gauge circle filling up, the percentage on / off, a bar going up / down or left / right). Round 13's rules: a warning-free `build\dev`, the doc checks, a smoke script, a manual check list for the user.
+
+| Phase | Status | Notes |
+|---|---|---|
+| 22A Views, icons, size, font and colours of the Volume widget | Done, build + smoke (2026-11-13) | Script and manifest only (`widgets/volume`, 1.1.0; no C++ change). `style`: `icon` (as before), `ring` (fills clockwise from the top, the icon inside), `bar-horizontal`, `bar-vertical` (icon, bar, percentage in a row on a bottom / top dock, a column on a side dock). `icon`: `speaker`, `bars`, `headphones`, `note`, `image` (`image`, a `file` field: a picture in proportion, any other file's shell icon; a file that cannot be drawn falls back to the speaker with one console warning), `none` (the percentage takes its place). `scale` 0.5 - 4 (no fit cap, as the Digital clock script: a bigger widget wants a thicker bar), `font` (the percentage), `iconColor` / `textColor` / `levelColor` (transparent = the theme's text / date / accent). Every view is a `design(canvas, u, row)` returning its box and a paint, shared by `measure()` and `draw()`; standalone fits the design to the window as a row or a column, whichever is larger, so the manifest's `standalone.aspect` 1 is gone (free). The box is never thinner than an icon across the dock. Inspector (`common`): View, Icon, Size, Show percent, Wheel step. README (widget list), docs/widgets.md (examples), guide-items.md. |
+| | | **Verified** (2026-11-13): `build\dev` builds; `--validate-widget widgets\volume` OK; `check_docs.py` clean (82 topics), `check_widget_docs.py` no drift; `tools\smoke\volume-look.ps1` all passed: 13 variants on a bottom and a left dock, each QueryState 54 = 0 and 58 > 0; the two pictures it saves were looked at (ring, both bars in both arrangements, the four drawn icons, an exe's icon, the missing image's fallback, scale 1.5 with a font and three colours all draw as meant). |
+| | | **Not verified**: the muted and no-device pictures (the test never changes the volume), the wheel / popup / volume bar after the change (their code is untouched), the Item window's new fields (the Image row showing only for "An image", Browse…, the swatches), the inspector, a standalone window's fit, a picture file (only a shell icon was drawn), a light theme, the drawer's preview. |
+
+**Manual check (22A)**, on the release exe after `run.bat`:
+
+1. Right-click the Volume widget > **Widget settings…** > Appearance: the Look card has View, Icon, Size, Show the level in percent, Font and the volume bar check box; the Colours card has Icon, Percentage and Level colour.
+2. View **Ring**: a circle around the icon fills clockwise as the wheel raises the level, the percentage under it; turn the percentage off: the ring grows to the slot. Icon **No icon** with the percentage on: the number sits inside the ring.
+3. View **Bar, left to right** and **Bar, bottom to top** on a bottom dock: icon, bar, percentage in a row; the dock does not jump as the level goes 9 > 10 > 100 %. The same on a left / right dock: a column.
+4. Each Icon: speaker (waves follow the level), level bars (lit by quarters), headphones, music note. Middle-click to mute: the speaker gets its cross, the others fade with a line through them, the ring / bar turn grey, the text says muted.
+5. Icon **An image**: the Image row appears; Browse… to a PNG (drawn in proportion) and to an .exe (its icon); a wrong path draws the speaker.
+6. Size 2 on your thick dock: everything doubles; Font and the three colours apply; `#00000000` gives the theme's colour back.
+7. Dock settings > Contents, select Volume: the inspector shows View, Icon, Size, the percentage and the wheel step.
+8. Drag the widget to the desktop: it fills its window; a wide window lays a bar view out as a row, a tall one as a column. The wheel, the click's popup and the wheel's volume bar work as before.
+
 ## How to resume
+
+**Round 22 phase 22A** (2026-11-13, table "Round 22" above, branch `feature/volume-look`, from master): the Volume widget's `style` / `icon` / `image` / `scale` / `font` / `iconColor` / `textColor` / `levelColor` (script and manifest only, `tools\smoke\volume-look.ps1`). Built into `build\dev`, smoke test passed; `build\x64-release` not rebuilt (the user's dock still runs the old widget until `run.bat`). Next: the user's manual check list above, then the PR into master.
 
 **Round 20 phase 20A** (2026-11-12, table "Round 20" above, branch `feature/clock-look`, from master): a clock item's Size, Font, Weight of the time, Time colour and Date colour (`ClockConfig` scale / font / weight / timeColor / dateColor, `Clock::Look`, the fit cap in `ClockElement::Measure`, QueryState 340 / 341, `tools\smoke\clock-look.ps1`); the Digital clock script widget 1.2.0 has the same minus the weight. Built into `build\dev`, smoke test passed, `build\x64-release` rebuilt by `run.bat` and the user's dock restarted on it. Merged into master with round 19 and released as 0.5.2 (2026-11-12). Next: the user's manual check list above.
 
