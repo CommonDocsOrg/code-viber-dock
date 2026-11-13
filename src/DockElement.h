@@ -235,6 +235,12 @@ public:
     virtual RightClickAction OnRightClick(int) const { return RightClickAction::ItemMenu; }
     // The pointer entered / left the slot (widget slots only: icons have the hover label).
     virtual void OnHover(int /*slot*/, bool /*inside*/) {}
+    // Round 23 phase 23A: the last OnPress was claimed by the slot (a script widget whose onPress
+    // returned true): the dock starts no item / dock / scroll drag, sends the held button's moves
+    // to OnDrag and its end to OnRelease (`cancelled`: the capture was lost) instead of a click.
+    virtual bool PressClaimed(int /*slot*/) const { return false; }
+    virtual void OnDrag(int /*slot*/) {}
+    virtual void OnRelease(int /*slot*/, bool /*cancelled*/) {}
     // A script widget element's instance (null for every other kind).
     virtual WidgetInstance* Widget() const { return nullptr; }
     // A clock element: the minutes its zone is ahead of the local time (QueryState 219). False for

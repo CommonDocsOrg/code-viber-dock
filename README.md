@@ -288,7 +288,7 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
   - Round 13 phase 13C, between the kind's entries and **Widget settings…** (separators around
     them): the widget's quick settings. A script widget's fields marked `"quick": true` (bools as
     check entries, choices as a submenu named after the field with a radio entry per choice; at
-    most 8 fields; docs/widgets.md "Settings schema"; the built-in Weather (script) widget marks
+    most 8 fields; docs/widgets.md "Settings schema"; the built-in Weather widget marks
     **Units**), the clock's **Show seconds** and **Show date** (`showSeconds` / `showDate`; 12 / 24
     hours is the `format` string, not a quick entry). A click writes the item's `settings` as its
     settings window does (saved, applied at once, one Undo step such as "Changed Show seconds of Clock").
@@ -1216,7 +1216,7 @@ shows any more is stopped and dropped at once.
   of that place's service and **Refresh now**.
 - Right-click the dock (the widget included) for **Refresh weather** (every place) and **Weather
   settings…** (the dock's first weather item).
-- **Weather (script)** (round 4 phase 14): the same widget and popup written as a script widget
+- **Weather** (round 4 phase 14): the same widget and popup written as a script widget
   (`widgets/weather`, id `weather`, the Widgets section below) on the `weather` provider. It shows
   the same data from the same service (one fetch per refresh whatever shows it), the same glyph and
   temperature in the slot, and a popup laid out like the built-in one with "Updated N min ago" and
@@ -1365,7 +1365,12 @@ write and edit without compiling anything. The full reference (every call, every
   it**, 1 = off) and **Calendar page**
   (`analog-date`: today's date as a flip-calendar or flat page with the month or weekday in a
   coloured header; a click opens the month calendar; it wakes once a day, at midnight of its time
-  zone), **Volume** (`volume`: the output level with a percentage; the wheel
+  zone), **Volume** (`volume`: the output level with a percentage, as an icon, a ring that
+  fills up or a bar that fills left to right / bottom to top (`style`: `icon`, `ring`,
+  `bar-horizontal`, `bar-vertical`; round 22), with a choice of icon (`icon`: `speaker`, `bars`,
+  `headphones`, `note`, `image` with `image` a picture or any file whose shell icon is drawn,
+  `none`), a size (`scale` 0.5 - 4, as the Digital clock's), a `font` for the percentage and
+  `iconColor` / `textColor` / `levelColor`; the wheel
   changes it in 2 % steps and shows a volume bar beside the dock until a moment after the last
   notch, a middle click mutes, a click opens a popup with a slider, Mute, Mute microphone, the
   output devices and Sound settings), **Now playing** (`media`: the current media session's art,
@@ -1373,7 +1378,13 @@ write and edit without compiling anything. The full reference (every call, every
   whole face while hovered, always, or (round 7) as buttons beside it, previous on the left and
   next on the right (above / below on a left / right dock); a title or artist that does not fit
   scrolls while hovered, always or never, at a speed you set; middle-click for a popup; the wheel
-  changes the volume with the same volume bar (a setting)), **Start**
+  changes the volume with the same volume bar (a setting); round 23: on the desktop, **Layout on
+  the desktop** (`layout`: `tile` (default), `deck`, `capsule`, `cover`, `disc`) makes it a mini
+  player (art, title, artist, progress you can click or drag to seek, previous / play-pause / next,
+  a volume slider on Deck and Cover) in a **Skin** (`skin`: `theme` the dock theme's colours,
+  `silver`, `night`) with **Accent colour** (`accentColor`, transparent: the skin's), **Show the
+  progress** (`showProgress`) and **Show the volume slider** (`showVolume`); picking a layout sizes
+  the window to it; on a dock the widget stays the tile)), **Start**
   (`start`: the Windows logo, the Windows 7 orb (round 11: a glossy sphere with the waving flag,
   lighter and glowing under the pointer, darker while pressed) or your icon, opens Start; round 16:
   **Menu position** (`menuPosition`, Content) `"near"`, the default, opens the menu next to the
@@ -1410,7 +1421,7 @@ write and edit without compiling anything. The full reference (every call, every
   **Agenda** (`agenda`: the next event of the calendar feeds, "In 25 min" / "Now" / its time over
   its title with the feed's colour; a click shows the next events in a popup, the month calendar or
   an app / address; it wakes only when its text changes: at an event's start and end, each minute
-  of the last hour before one, at midnight, and when the feeds change), and **Weather (script)**
+  of the last hour before one, at midnight, and when the feeds change), and **Weather**
   (`weather`: the weather item and its forecast popup on the `weather` provider, see Weather and
   calendar above; round 7: **Forecast on the dock** shows today's high and low under the
   temperature, or 2 - 5 day columns (weekday, condition, high over low) after it, rows under it on
@@ -1447,7 +1458,9 @@ write and edit without compiling anything. The full reference (every call, every
   drawer's live preview shows; `dock.preview` is true while it draws one, the providers answer
   sample data then: docs/widgets.md "Preview mode").
 - **main.js** exports `draw(canvas, dock)` (required) and optionally `measure(canvas, dock)`
-  (returns `{ main, cross }`), `tick(dock)`, `onPress(e)`, `onClick(e)`, `onMiddleClick(e)`,
+  (returns `{ main, cross }`), `tick(dock)`, `onPress(e)` (round 23: return `true` to claim the
+  press: then `onDrag(e)` on every move and `onRelease(e)` at its end, instead of an item drag, a
+  window move and a click), `onClick(e)`, `onMiddleClick(e)`,
   `onWheel(e)` (return `true` to use the wheel), `onHover(e)`, `onDrop(e)` (files dropped on it;
   needs the shell permission), `onSettingsChanged(settings)`, and for its popup `drawPopup(canvas,
   dock)`, `onPopupClick(e)`, `onPopupClose()`, and `onVisibilityChange(e)` (the dock was hidden /
@@ -2459,7 +2472,7 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
     shortcut is pinned as the shortcut, apps that are already pinned are skipped) and **Folder…** (a
     folder picker; both open their dialog and pin after the last pin; a click only, no drag), the
     built-ins (Running apps, Clock, System tray, Notification centre, Recycle Bin, Separator; the
-    weather is the Weather (script) widget since the native item was retired) and every installed
+    weather is the Weather widget since the native item was retired) and every installed
     widget with its version and its description's first line. Round 6 phase 6E: each widget's tile
     shows the widget **live**: its own `draw()` once, on a
     virtual 48 DIP bottom dock in the global theme's colours, with the providers answering

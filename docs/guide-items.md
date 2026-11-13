@@ -37,7 +37,7 @@ The drawer holds:
 
 - **App or shortcut…** and **Folder…**: they open a file dialog. Pick one or more apps or shortcuts, or a folder. These two are clicked, not dragged.
 - The built-in items: Running apps, Clock, System tray, Notification centre, Recycle Bin and Separator.
-- Every installed widget, such as **Weather (script)**, **Analog clock** or **System monitor**, each with a small live preview.
+- Every installed widget, such as **Weather**, **Analog clock** or **System monitor**, each with a small live preview.
 
 A dock can have only one Running apps item, one tray, one notification centre and one Recycle Bin. While it has one, that tile says "On the dock".
 
@@ -46,7 +46,7 @@ To put a widget on the desktop instead of on the dock, drag its tile onto the de
 There are quicker ways for some items:
 
 - Drag a shortcut, a program or a folder from File Explorer onto the dock.
-- Right-click the dock and open **Add**: **Clock**, **Weather (script)**, **Running apps**, **Tray (notify icons)**, **Notification centre** or **Separator**. **Apps, folders and more widgets…** opens the Contents tab, and **Folder window on the desktop…** makes a folder window.
+- Right-click the dock and open **Add**: **Clock**, **Weather**, **Running apps**, **Tray (notify icons)**, **Notification centre** or **Separator**. **Apps, folders and more widgets…** opens the Contents tab, and **Folder window on the desktop…** makes a folder window.
 
 To remove an item, customize the dock and click the item's **×**, or select it on the Contents tab and click **Remove** (or press Delete). A clock, a weather item, a widget, the tray and the notification centre also have **Remove this widget** at the end of their right-click menu. You can also drag a pinned app that is not running up and off the dock. A script widget dragged off the dock is not removed: it moves to the desktop (see [Widgets on the desktop](#widgets-on-the-desktop)).
 
@@ -259,7 +259,7 @@ For a round clock with hands, use the **Analog clock** widget.
 
 ## Weather
 
-The **Weather (script)** widget shows the current conditions as a small picture and the temperature. A click opens a forecast: the next 24 hours and the next 7 days. The data comes from Open-Meteo, a free weather service. Older native Weather items are automatically replaced with this widget, keeping their place and settings.
+The **Weather** widget shows the current conditions as a small picture and the temperature. A click opens a forecast: the next 24 hours and the next 7 days. The data comes from Open-Meteo, a free weather service. Older native Weather items are automatically replaced with this widget, keeping their place and settings.
 
 To set the place:
 
@@ -372,9 +372,9 @@ WinDock comes with these widgets:
 - **Digital clock (script)**: a scripted copy of the dock's own clock, with a date format of your own. Its **Layout** "Taskbar" writes the time over the date in two lines of the same size, as the Windows 7 taskbar clock (for example the time format `%#I:%M %p` over the date format `%#m/%#d/%Y`: 2:05 PM over 11/6/2026).
 - **Calendar page**: today's date as a small calendar page. A click opens the month calendar.
 - **Agenda**: your next calendar event. A click shows the next events.
-- **Weather (script)**: the weather with more choices, such as a forecast of several days on the dock.
-- **Volume**: the sound level. The wheel changes it, a middle-click mutes, a click opens a slider and the output devices.
-- **Now playing**: the song or video that is playing, with previous, play / pause and next.
+- **Weather**: the current conditions and temperature, optionally with a forecast of several days on the dock. A click opens the forecast.
+- **Volume**: the sound level. The wheel changes it, a middle-click mutes, a click opens a slider and the output devices. Its **View** is an icon, a ring that fills up as the level rises, or a bar that fills left to right or bottom to top. You can choose the **Icon** (a speaker, level bars, headphones, a music note, your own image, or none), turn the percentage on or off, and set the **Size**, the font and the colours.
+- **Now playing**: the song or video that is playing, with previous, play / pause and next. On the desktop it can be a **mini player** instead: in its settings (Appearance > Desktop mini player) pick the **Layout on the desktop**: Deck (a bar with the art, the title, the progress, the buttons and a volume slider), Capsule (a pill with the art as a round disc), Cover (large art over the controls) or Disc (the art as a disc with the progress as a ring round it). The window takes that layout's size, and the player grows and shrinks with the window. Pick a **Skin** (your dock's colours, Silver or Night) and an accent colour, and whether the progress and the volume slider show. Click or drag on the progress (on the Disc: on the ring) to jump in the track, when the playing app allows it; drag the volume slider to change the volume. Drag the art or the panel to move the window. On a dock the widget always keeps its dock look.
 - **Notes**: a sticky note. A click opens a small editor.
 - **System monitor**: one measurement, such as processor, memory, graphics, disk, network or battery, as a graph, a bar, a dial or a number.
 - **System overview**: processor, memory, graphics, disk and network at once.
@@ -403,13 +403,13 @@ A colour setting shows a small swatch of the colour beside its box. Click the sw
 
 The footer, under both tabs, has **Reset to factory defaults…** (back to the widget's own defaults, after asking) and **Console…** (the widget's log and errors).
 
-A widget with a place, such as Weather (script), has a **Find a place** box. Without a place of its own it shows the default place; the hint under **Place** says which. Once you choose a place for it, a **↺** beside the place and **Reset to app default** in the footer make it show the shared place again.
+A widget with a place, such as Weather, has a **Find a place** box. Without a place of its own it shows the default place; the hint under **Place** says which. Once you choose a place for it, a **↺** beside the place and **Reset to app default** in the footer make it show the shared place again.
 
 ### Widgets on the desktop
 
 A widget can also live on the desktop in a window of its own, moved and sized freely. Drag its tile from the drawer onto the desktop, press the small monitor button on its tile, or click **Add to the desktop** in App settings > Widget library. See [Standalone widgets](guide-docks.md#standalone-widgets).
 
-A widget already on the dock can move to the desktop too: drag it up and off the dock (it fades a little when you are far enough) and let go. It leaves the dock and appears on the desktop under the pointer, with the same settings. Press **Esc** before you let go to cancel, or choose **Undo** in the dock menu afterwards to put it back. This works for script widgets such as Hello, Digital clock or Weather (script), not for the dock's own Clock, Weather, Tray and Notification centre items, the running apps, or a locked dock; a widget made to need a dock stays on it.
+A widget already on the dock can move to the desktop too: drag it up and off the dock (it fades a little when you are far enough) and let go. It leaves the dock and appears on the desktop under the pointer, with the same settings. Press **Esc** before you let go to cancel, or choose **Undo** in the dock menu afterwards to put it back. This works for script widgets such as Hello, Digital clock or Weather, not for the dock's own Clock, Weather, Tray and Notification centre items, the running apps, or a locked dock; a widget made to need a dock stays on it.
 
 To put a desktop widget back on a dock, drag its window onto the dock's bar: a marker shows where it will go between the items, and when you let go it joins the dock there and its window closes, with the same settings. Let go anywhere else and it just moves; press **Esc** during the drag to put it back where it was. Or right-click the widget and choose **Move to dock**, then the dock: it is added at the end. **Undo** in the dock menu brings the window back. A locked dock does not take it (its entry in the menu is greyed), and a dock that is hidden at its edge must be showing for the drop to land.
 

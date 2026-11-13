@@ -1,4 +1,4 @@
-// Weather (script): the dock's weather element and its forecast popup rewritten on the widget
+// Weather: the dock's weather element and its forecast popup rewritten on the widget
 // runtime (round 4 phase 14). The data comes from the dock's WeatherService of its place through
 // the `weather` provider (round 5: its own place, units and interval from its settings, else the
 // place of its dock's first Weather item): one fetcher per place, shared with every item of that

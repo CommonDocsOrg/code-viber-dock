@@ -1834,6 +1834,29 @@ fit cap: a script widget measures itself and the host does not tell it the room.
 Not done: a font picker (the field is a typed family name, as every `font` field is); a weight for
 the date; the Analog clock widget's faces (they have their own `faces/*.json`).
 
+## Round 23 (2026-11-13): Now playing as a desktop mini player
+
+From the user: four mini-player layouts for the Now playing widget on the desktop (Deck, Capsule,
+Cover, Disc, from an approved HTML mock), each in three skins, with seeking and a draggable volume
+slider. Branch `feature/media-mini-player`.
+
+**23A, host.** Three small, general additions. `media.seek(seconds)` with `canSeek`, and the
+session's timeline followed after all: a `TimelinePropertiesChanged` wake reads only the timeline
+and posts only a jump, because some apps report their timeline every few seconds while playing and
+a full re-read plus a redraw of every media widget for each would be idle cost. Claimed presses:
+`onPress` returning `true` gets `onDrag` / `onRelease` (on a dock and standalone), the smallest
+change that gives a widget sliders without sending it any pointer moves the rest of the time; an
+unclaimed press is untouched (the existing widgets return nothing from `onPress`). `widget.resize`
+for a standalone window (posted: the call is inside the script, and a resize draws it again). And
+`visibleIf` arrays ("any of"), so the skin fields can show for four layouts out of five.
+
+**23B, the widget.** Each layout is drawn at its natural size under one scale transform; the tile
+is untouched. No hover highlight per button (that would need pointer moves): a held button is drawn
+brighter instead, and acts on release. One 1 s interval only while the progress moves on screen.
+
+Not done (as agreed): colours taken from the art, a spinning disc, a spectrum. The Cover's natural
+height is 364, what the mock's CSS adds up to, not its caption's 348.
+
 ## Dependencies at a glance
 
 ```
@@ -1848,3 +1871,27 @@ the date; the Analog clock widget's faces (they have their own `faces/*.json`).
 ```
 
 Phases 5 to 13 can be reordered freely within those edges.
+
+## Round 22 (2026-11-13): the Volume widget's look
+
+From the user: the Volume widget should scale as easily as the digital clock, with an icon of
+their choice and other views of the level: a gauge circle that fills up, a bar going up or
+sideways, the percentage on or off. Branch `feature/volume-look`. Script and manifest only.
+
+**22A, one design function per view.** The old `draw()` placed a speaker and a text by fractions
+of the canvas and `measure()` returned a fixed box, so every new view would have needed both
+written twice. Now a view is `design(canvas, u, row)`: sizes in one unit (the dock's icon size x
+`scale`), returning its box and a paint closure. `measure()` returns the box; `draw()` paints it
+centred, shrinking the unit when the canvas is smaller (a preview) and, in a standalone window,
+fitting it as a row or a column, whichever comes out larger (so the manifest no longer forces a
+square window). The bar views are a list of parts (icon, bar, text) laid along the dock's axis.
+
+**No fit cap.** As the Digital clock script, the widget does not give up scale that does not fit
+the bar (a script cannot see the row's room); the Size field says to make the dock thicker.
+
+**The text's room** is the wider of "100%" and "muted", so the dock is not laid out again on
+every wheel notch; a text wider than its room is drawn smaller instead of clipped.
+
+**Icons are paths**, not a glyph font: they scale to any size and take the icon colour. An image
+is the user's file: a picture through `canvas.image` in proportion, anything else through
+`canvas.fileIcon`; while muted the speaker keeps its cross and the others fade under a line.

@@ -135,6 +135,8 @@ public:
     // standalone widgets queued to move onto a dock, by id; no timer).
     // Round 18 phase 18D: WM_APP + 73 = App::kDropSearchWindow (posted to the app window: destroy
     // one of the search index's hidden settings windows, then again while any remain).
+    // Round 23 phase 23A: WM_APP + 74 = WidgetWindow::kResizeMessage (posted to a standalone
+    // widget's window: widget.resize asked for another size).
     // On the settings search dialog's own window (round 9 phase 9B / round 18 phase 18D): WM_APP + 41
     // = SettingsSearch::kRebuildMessage, + 42 its kHideComboMessage, timer 1 = its kIndexTimerId (the
     // next window of the index, one-shot); WM_APP + 40 = SettingsWindow::kRebuildMessage on a settings window.
@@ -767,6 +769,8 @@ private:
     void BeginScrollDrag();
     void UpdateScrollDrag(POINT stagePt);
     void EndScrollDrag(bool fling);
+    // Round 23 phase 23A: the end of a press a script widget claimed (DockElement::PressClaimed).
+    void EndWidgetGrab(bool cancelled);
     // A drag (an icon, or an OLE drag over the dock) at main coordinate `main`: near a viewport end
     // the run scrolls that way (kAutoScrollTimerId) until it leaves the zone or the run ends.
     void UpdateAutoScroll(float main);
@@ -1683,6 +1687,9 @@ private:
     // Wheel deltas below a notch add up (precision touchpads).
     int wheelRemainder_ = 0;
     // Drag-scrolling the bar.
+    // Round 23 phase 23A: the slot whose script widget claimed the left press (onPress returned
+    // true; -1 none): the capture is the dock's, moves go to the widget's onDrag until the release.
+    int widgetGrab_ = -1;
     bool scrollPress_ = false;    // a left press on the bar's background of a scrolling dock
     bool scrollDrag_ = false;     // ... moved: the run follows the pointer
     float scrollPressMain_ = 0.0f;

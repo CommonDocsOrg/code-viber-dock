@@ -1,5 +1,5 @@
 {
-  "name": "Weather (script)",
+  "name": "Weather",
   "version": "1.2.0",
   "author": "WinDock",
   "description": "Current conditions and a forecast popup from Open-Meteo, with optional daily forecasts on the dock in several layouts and three icon packs, one of them animated. Choose a place for each widget or use the app's default place.",

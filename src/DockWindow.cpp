@@ -3396,6 +3396,19 @@ void DockWindow::UpdateScrollDrag(POINT pt) {
     });
 }
 
+// Round 23 phase 23A: the end of a press a script widget claimed: the capture goes (WM_CAPTURECHANGED
+// finds widgetGrab_ cleared), the widget hears onRelease. A release off the dock's zone is a leave
+// (the moves meanwhile were the widget's, so nothing left the zone before).
+void DockWindow::EndWidgetGrab(bool cancelled) {
+    const int slot = widgetGrab_;
+    widgetGrab_ = -1;
+    if (GetCapture() == hwnd_) ReleaseCapture();
+    if (slot >= 0 && static_cast<size_t>(slot) < items_.size() && elements_[items_[static_cast<size_t>(slot)].element]) {
+        ElementOf(static_cast<size_t>(slot)).OnRelease(slot, cancelled);
+    }
+    if (!cancelled && !CursorInZone()) LeaveZone();
+}
+
 void DockWindow::EndScrollDrag(bool fling) {
     const bool dragged = scrollDrag_;
     scrollPress_ = false;
@@ -9368,6 +9381,12 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 UpdateScrollDrag(pt);
                 return 0;
             }
+            if (widgetGrab_ >= 0) {  // round 23 phase 23A: a claimed press: the widget's onDrag, every move
+                if (static_cast<size_t>(widgetGrab_) < items_.size() && elements_[items_[static_cast<size_t>(widgetGrab_)].element]) {
+                    ElementOf(static_cast<size_t>(widgetGrab_)).OnDrag(widgetGrab_);
+                }
+                return 0;
+            }
             if (scrollPress_ && (wp & MK_LBUTTON) && dragPhase_ == DragPhase::None &&
                 std::fabs(layout_.Canon(pt).x - scrollPressMain_) >
                     static_cast<float>(GetSystemMetricsForDpi(layout_.vertical ? SM_CYDRAG : SM_CXDRAG, dpi_))) {
@@ -9473,7 +9492,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_MOUSELEAVE:
             trackingMouse_ = false;
             // A drag owns the mouse (an icon, the dock, the run of a scrolling dock).
-            if (dragPhase_ != DragPhase::None || dockDrag_ || scrollDrag_ || scrollPress_) return 0;
+            if (dragPhase_ != DragPhase::None || dockDrag_ || scrollDrag_ || scrollPress_ || widgetGrab_ >= 0) return 0;
             if (hideState_ == HideState::Hidden) {
                 if (revealPending_) {  // left the strip before the reveal delay: stay hidden
                     KillTimer(hwnd_, kRevealTimerId);
@@ -9563,6 +9582,16 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // the clock, the weather) the release then does not open it again (the click toggles).
             // Round 12 phase 12D: customize mode: an item's press and click do nothing of their own.
             pressClosedPopup_ = !editing_ && pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).OnPress(pressed_);
+            // Round 23 phase 23A: a script widget claimed the press (its onPress returned true): it
+            // follows the held button (OnDrag / OnRelease); no item drag, dock move (Ctrl) or run
+            // scroll starts from it, and the release is no click. An unclaimed press goes on as before.
+            if (!editing_ && pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).PressClaimed(pressed_)) {
+                widgetGrab_ = pressed_;
+                dockPress_ = false;
+                editMove_ = false;
+                scrollPress_ = false;
+                SetCapture(hwnd_);
+            }
             // Round 19 phase 19A: a press on a tray icon (a grid cell, a trayApp slot) with the
             // drawer open may become a drag into the drawer: it stays until the release.
             pressKeptDrawer_ = !pressTrayKey_.empty() && folder_.Kind() == 3 && !DockCfg().locked && !editing_;
@@ -9585,6 +9614,14 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 // Round 19 phase 19A: the press that kept the drawer was a click: it closes now.
                 pressKeptDrawer_ = false;
                 DismissFolderPopup(true, false);
+            }
+            if (widgetGrab_ >= 0) {  // round 23 phase 23A: the claimed press ends: onRelease, no click
+                pressed_ = -1;
+                pressClosedPopup_ = false;
+                pressTrayKey_.clear();
+                EndWidgetGrab(false);
+                RefreshButtons();
+                return 0;
             }
             if (dockPress_) {
                 dockPress_ = false;  // a Ctrl + click without a move: an ordinary click
@@ -9736,6 +9773,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (dragPhase_ == DragPhase::Dragging && reinterpret_cast<HWND>(lp) != hwnd_) EndDrag(false);
             if (dockDrag_ && reinterpret_cast<HWND>(lp) != hwnd_) EndDockDrag(false);
             if ((scrollDrag_ || scrollPress_) && reinterpret_cast<HWND>(lp) != hwnd_) EndScrollDrag(false);
+            if (widgetGrab_ >= 0 && reinterpret_cast<HWND>(lp) != hwnd_) EndWidgetGrab(true);  // round 23 phase 23A
             return 0;
 
         case WM_ENTERMENULOOP:  // round 13 phase 13A: see menuOpen_ (ApplyWindowPos, AssertTopmost)

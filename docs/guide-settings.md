@@ -535,7 +535,7 @@ Use **Position on the dock** to split a dock into parts, for example a Start but
 - The search box finds a tile by its name or description.
 - The chips filter the grid: **All**, **Built in**, **Widgets** or **Apps and folders**.
 - **App or shortcut…** and **Folder…** open a file dialog and pin what you choose.
-- The built-in items are Running apps, Clock, System tray, Notification centre, Recycle Bin and Separator. The weather is a widget: **Weather (script)**.
+- The built-in items are Running apps, Clock, System tray, Notification centre, Recycle Bin and Separator. The weather is a widget: **Weather**.
 - Every installed widget has a tile with a small live preview.
 
 To add an item:
