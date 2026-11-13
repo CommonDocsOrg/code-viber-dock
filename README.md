@@ -1049,6 +1049,9 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
     (round 14 phase 14D: the tile's thickness across the dock, DIPs, default 0 = the icon size and
     not written, else 16 - 512; a thicker tile makes the bar thicker), `thumbnailFps` (default 10, 1 - 60).
   - `badges`: `false` (default) or `true` (notification badges on the app icons).
+  - `pile` (round 21 phase 21A): `false` (default, not written) or `true`: on a stacked dock an app
+    slot with two or more windows is drawn as a pile (see **Window pile** under **Running apps:
+    windows and titles**). Written only while `true`.
   - `gap`: DIPs between the running slots, `-1` (default) = the theme's `iconGap`, else 0 - 48. Each
     icon slot holds half its own gap on each side, so between a pinned app (the theme's gap) and a
     running app the space is the mean of the two gaps.
@@ -1170,6 +1173,19 @@ written at the dock level again.
     (1920 x 1080) per window on the worker, a few ms of CPU.
   - Neither shows DRM-protected video (it captures black). `"off"` changes nothing: no session, no
     timer, no thread.
+- **Window pile** (round 21 phase 21A; `pile`, off by default): on a stacked dock an app slot with
+  two or more windows shows the tops of min(2, windows - 1) cards behind its picture. A thumbnail
+  tile moves down by n steps of 3 tile units (at least 2 px; a unit is the icon size / 48) and
+  above it the tops of n plain rounded cards peek out, each 4 units narrower per side than the one
+  in front, in the label text colour at 30 % / 18 % with the bar border's hairline; each card is
+  clipped to its visible strip, so none shows through the tile's translucent background. A plain
+  icon is drawn smaller (by n steps of 6 % of the icon size) at the bottom of its square, with
+  copies of it behind, 12 % / 24 % smaller, centred, at 55 % / 32 % opacity, their tops one step
+  apart (the glow and reflection follow, as they are drawn from the icon). The cards are plain: no
+  captures of the other windows (only a few pixels would show, and each would cost a capture
+  session or a PrintWindow). Everything is drawn inside the slot's existing surface: no layout
+  change, no timer, no extra capture; the slot is redrawn only when its pile count changes. Window
+  slots (One slot per window), groups and pins without windows never pile.
 
 ### Weather and calendar
 
@@ -2580,7 +2596,10 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
 - **Running apps** (until round 13 phase 13D a tab here; now the running item's own Item window,
   `RunningItemPage`: Dock settings > Contents > the running apps' **Running apps settings…**, or a
   running app's menu > **Running apps settings…**; the footer has **Reset to factory defaults…**):
-  **Windows** (Stacked / One slot per window), **Show only the windows on this
+  **Windows** (Stacked / One slot per window), round 21 phase 21A: **Show a pile behind apps with
+  several windows** (`pile`, off by default; collapsed while Windows is One slot per window; tip
+  "Stacked apps with two or more windows show the tops of one or two more cards behind their icon
+  or thumbnail. Off by default."), **Show only the windows on this
   dock's display**, **Titles under icons** (Off / One line / Two lines), **Titles on vertical
   docks** (Off / Beside the icon or thumbnail / Under the icon or thumbnail), **Window thumbnails** (Off / Live (GPU capture) / Snapshots
   (every N seconds)) and, round 8 phase 8B only for the mode that uses them, the snapshot
@@ -3589,6 +3608,9 @@ always there, also when every dock is parked) handle these registered messages:
   first clock item draws at, in percent: its `scale` x 100, or less when the block was capped to fit
   across the bar (-1: no clock item on that dock); 341 = that clock's text block as drawn, px:
   width | height << 16 (before the calendar dot). `tools\smoke\clock-look.ps1` drives them.
+- **The window pile** (round 21 phase 21A): `QueryState` 342 = slot `LOWORD(lParam)`'s pile on dock
+  `HIWORD(lParam)`: the cards drawn behind it, 0 - 2 (min(2, windows - 1) for a stacked app slot with
+  two or more windows while the running item's `pile` is on; 0 otherwise; -1 no such slot).
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.
@@ -4175,6 +4197,9 @@ always there, also when every dock is parked) handle these registered messages:
   5873 Tile thickness (label, hint 5877 "Across the bar; length: along it"), 5874 / 5875 / 5876 its edit /
   spin / "DIP (0: the icon size)" (`thumbnailAcross`, 0 or 16 - 512, step 8); collapsed with the other
   thumbnail rows while thumbnails are off.
+  Round 21 phase 21A (5878 - 5879, the last of 14A's range; the Running apps window, after the Windows combo
+  2232): 5878 Show a pile behind apps with several windows (check, caption 5879; `pile`, stored with the Pins
+  scope); collapsed while Windows is One slot per window.
   Round 9 phase 9B, **the settings search** (ids 5000 - 5099): 5001 the App settings window's Find a
   setting… box (`WinDock.SettingsFind`, a child of the frame above the page list 100; a posted
   `WM_LBUTTONDOWN`, Enter / Space / Down, or a `WM_CHAR` opens the dialog, a character with that
@@ -4451,7 +4476,8 @@ always there, also when every dock is parked) handle these registered messages:
   Popups section, 2261 / 2262 Popup gap box and up-down (`popupGap`, 0 - 64; 2260 its label, 2263
   its unit line); Running apps (round 13 phase 13D: the running item's Item window, page 0, the same
   ids; the running item's `settings`) = 2162 "Show only the windows on this dock's display"
-  (`filter`), 2232 Windows (0 stacked, 1 one slot per window), 2234 Titles under icons (0
+  (`filter`), 2232 Windows (0 stacked, 1 one slot per window), round 21 phase 21A: 5878 / 5879 "Show a
+  pile behind apps with several windows" (`pile`; collapsed while Windows is one slot per window), 2234 Titles under icons (0
   off, 1 one line, 2 two lines), 2236 Titles on vertical docks (0 off, 1 beside the icon or thumbnail, 2 under
   it (13G); round 9: collapsed while titles are off), 2239 Window thumbnails (0 off, 1 live, 2 snapshots; 2240 the note on the
   trade-off), 2242 / 2243 snapshot interval (s), 2246 / 2247 live frames per second, 2250 / 2251

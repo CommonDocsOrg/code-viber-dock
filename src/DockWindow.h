@@ -203,7 +203,9 @@ public:
     // drag (0 none, 1 moving the dock along its edge, 2 over another edge's zone: dropping there
     // moves it to that edge). "docks[0]" above means this dock's own config entry. App answers 16
     // and 47 - 51 (dock count, monitor index, parked, config index, window) and routes the others
-    // to the dock in HIWORD(lParam) (AppIpc in App.h).
+    // to the dock in HIWORD(lParam) (AppIpc in App.h). Later numbers are listed in README
+    // "Automation (for tests)" and at their cases in DockWindow::QueryState; the newest: 342
+    // (round 21 phase 21A), the pile of slot lp (cards drawn behind it, 0 - 2; -1 no such slot).
     static constexpr wchar_t kQueryStateMessage[] = L"WinDock.QueryState";
 
     enum class HideState { Shown, Hiding, Hidden, Showing };

@@ -1002,6 +1002,12 @@ inline constexpr int kThumbAcrossSpin = 5875;
 inline constexpr int kThumbAcrossUnit = 5876;      // "DIP (0: the icon size)"
 inline constexpr int kThumbAcrossHint = 5877;      // "Across the bar; length: along it" (the label column is 196 DIPs)
 // --- end round 14 phase 14D ---
+// --- round 21 phase 21A (5878 - 5879, the last of 14A's range): the Running apps window's check
+// box after the Windows row (the running item's `pile`); collapsed while Windows is "One slot per
+// window" ---
+inline constexpr int kRunPile = 5878;              // check box "Show a pile behind apps with several windows" (+ caption 5879)
+inline constexpr int kRunPileCaption = 5879;
+// --- end round 21 phase 21A ---
 
 // --- Quick setup, round 13 phase 13H (5880 - 5899): the redesign's visible controls. Each choice
 // (WinDock.QuickSetupChoice: a segmented control or tiles) mirrors a 12G combo that stays, hidden,

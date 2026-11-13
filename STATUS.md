@@ -830,7 +830,26 @@ From the user (2026-11-12): the clock's default size suits a short dock, but on 
 7. Reset to factory defaults… on the clock's page: everything back; `config.json` has none of `scale`, `font`, `weight`, `timeColor`, `dateColor` in that item.
 8. The Digital clock (script) widget: its Appearance tab has the same Look fields (no Weight); Size 2 in a standalone window keeps fitting the window.
 
+## Round 21: a pile behind an app with several windows (branch `feature/window-pile`, from master)
+From the user (2026-11-13): an app with several windows should look like it has more than one. Round 13's rules: a warning-free `build\dev`, the doc checks, a manual check list for the user.
+
+| Phase | Status | Notes |
+|---|---|---|
+| 21A The running item's `pile`: a stacked app slot with 2+ windows drawn as a pile | Done, build + static checks only (2026-11-13) | `RunningConfig::pile` (default false, written only while true, removed from the kept `settings` when false); `DockItem::pile` (0 - 2 = min(2, windows - 1)) set in the rebuild's windows loop for an App slot without `item.window` on a stacked dock, a change sets `dirty` (a redraw only, no relayout). `RenderTile`: the old body is `front()`, drawn translated down by n steps of 3 tile units (>= 2 px) with h reduced; above it n plain cards (inset 4 units per side each, `labelText` at 30 % / 18 %, a `barBorder` hairline), each clipped to its visible strip so nothing shows through the translucent tile. `RenderItem`'s `drawIcon`: the bitmap / placeholder drawing moved to `drawPlain(dc, size, opacity, letter)`; with a pile the icon is drawn n steps (6 % of the size, >= 1 px) smaller at the bottom of its square and copies 12 % / 24 % smaller at 55 % / 32 % behind it (placeholder copies without the letter); the transform composes with RenderEffects' flip, so glow and reflection include the pile. Settings: Running apps window check box 5878 / 5879 after Windows, collapsed while Windows is One slot per window (the Windows combo now calls `EnableDependents`), stored with `SettingsScope::Pins`. QueryState 342 (slot lp's pile). README (config key, Running apps: windows and titles > Window pile, Settings, control ids, automation), guide-settings.md "Running apps widget". |
+| | | **Verified** (2026-11-13): `build\dev` (target WinDock) warning-free; `check_docs.py` clean (82 topics), `check_widget_docs.py` no drift. |
+| | | **Not verified**: everything at run time (the dock was not run, by request; not committed): how the pile looks (on thumbnails off / live / snapshots, on a light and a dark theme, at 2x magnification, with glow / reflection, on top / left / right docks where the cards still peek "up" in the icon's own frame), that QueryState 342 reads as expected, the check box's collapse, the Reset to factory defaults. |
+
+**Manual check (21A)**, on the release exe after `run.bat`, on a stacked dock:
+
+1. Running apps settings: the check box **Show a pile behind apps with several windows** is right under Windows, off. Choose One slot per window: it collapses; Stacked: it comes back.
+2. Thumbnails Off, turn the pile on: an app with 1 window looks as before; with 2 windows its icon is a little smaller with one faint copy peeking above; with 3 or more, two copies. Close windows: the pile shrinks back.
+3. Thumbnails Snapshots, then Live: the same app's tile is a little lower with the tops of one / two cards above it; the tile's picture, corner icon and dot are unchanged; no card shows through the tile.
+4. Magnify over the pile: it stays sharp; glow / reflection (if the theme has them) follow the pile's outline.
+5. One slot per window: no slot shows a pile (QueryState 342 = 0 for each). Turn the pile off: every slot is back to today's picture; `config.json` has no `pile` key in the running item.
+
 ## How to resume
+
+**Round 21 phase 21A** (2026-11-13, table "Round 21" above, branch `feature/window-pile`, from master): the running item's `pile` (`RunningConfig::pile`, `DockItem::pile`, drawn in `RenderTile` / `RenderItem`'s `drawIcon`; check box 5878 / 5879; QueryState 342). Built into `build\dev` only, not run, not committed. Next: the user's manual check list above, then the commit.
 
 **Round 20 phase 20A** (2026-11-12, table "Round 20" above, branch `feature/clock-look`, from master): a clock item's Size, Font, Weight of the time, Time colour and Date colour (`ClockConfig` scale / font / weight / timeColor / dateColor, `Clock::Look`, the fit cap in `ClockElement::Measure`, QueryState 340 / 341, `tools\smoke\clock-look.ps1`); the Digital clock script widget 1.2.0 has the same minus the weight. Built into `build\dev`, smoke test passed, `build\x64-release` rebuilt by `run.bat` and the user's dock restarted on it. Merged into master with round 19 and released as 0.5.2 (2026-11-12). Next: the user's manual check list above.
 

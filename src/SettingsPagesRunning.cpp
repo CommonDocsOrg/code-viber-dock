@@ -44,6 +44,13 @@ protected:
         Tip(kWindowsLabel, L"One slot per window: a pinned app's icon is its first window and its other windows follow it.");
         Combo(kWindowsCombo, kColX, right - kColX, false);
         NextRow();
+        // Round 21 phase 21A: a pile behind a stacked app with several windows (collapsed while
+        // Windows is One slot per window: those slots never pile).
+        Check(kRunPile, kRunPileCaption, L"Show a pile behind apps with several windows");
+        Tip(kRunPileCaption,
+            L"Stacked apps with two or more windows show the tops of one or two more cards behind their icon or "
+            L"thumbnail. Off by default.");
+        NextRow();
         Check(kRunningMonitorOnly, kRunningMonitorOnlyCaption, L"Show only the windows on this dock's display");
         Tip(kRunningMonitorOnlyCaption, L"With several displays, this dock shows only the running apps whose windows are on its own display. Off by default: every window.");
         NextRow();
@@ -168,6 +175,7 @@ protected:
         if (r.gap < 0) SetSpin(kRunGapSpin, ThemeGap());  // what "off" would start from
         SetComboSel(kRunOrderCombo, static_cast<int>(r.order));
         SetCheck(kBadges, r.badges);
+        SetCheck(kRunPile, r.pile);  // round 21 phase 21A
         EnableDependents();
     }
 
@@ -180,7 +188,8 @@ protected:
                 case kWindowsCombo:
                     if (sel > 1) return;
                     r.windows = static_cast<WindowsMode>(sel);
-                    StoreRunning(r, SettingsScope::Appearance);  // the dock rebuilds its slots
+                    // The dock rebuilds its slots; round 21 phase 21A: the pile row follows it.
+                    if (StoreRunning(r, SettingsScope::Appearance)) EnableDependents();
                     return;
                 case kTitlesCombo:
                     if (sel > 2) return;
@@ -222,6 +231,10 @@ protected:
                 r.badges = GetCheck(id);
                 StoreRunning(r, SettingsScope::Notifications);  // the service starts / stops with the demand
                 break;
+            case kRunPile:  // round 21 phase 21A
+                r.pile = GetCheck(id);
+                StoreRunning(r, SettingsScope::Pins);  // the dock rebuilds its slots (the pile is set there)
+                break;
             case kWidgetReset: {  // the footer's Reset to factory defaults… (confirmed by the window)
                 if (!RunningItem()) return;
                 if (StoreRunning(RunningConfig{}, SettingsScope::Pins)) Window().Refresh();
@@ -233,6 +246,7 @@ protected:
 
     void EnableDependents() {
         const RunningConfig r = RunningValues();
+        Collapse(kRunPile, r.windows == WindowsMode::Unstacked);  // round 21 phase 21A (with its caption)
         Collapse(kTitlesReason, r.titles != TitlesMode::Off);
         Collapse({kTitlesVerticalLabel, kTitlesVerticalCombo}, r.titles == TitlesMode::Off);
         SetText(kThumbReason, r.thumbnails == ThumbnailMode::Off         ? L"Off: no tiles. Choose Live or Snapshots to set their size and rate."

@@ -1834,6 +1834,28 @@ fit cap: a script widget measures itself and the host does not tell it the room.
 Not done: a font picker (the field is a typed family name, as every `font` field is); a weight for
 the date; the Analog clock widget's faces (they have their own `faces/*.json`).
 
+## Round 21 (2026-11-13): a pile behind an app with several windows
+
+From the user: an app with several windows should show that it has more than one, as a stack of
+cards would. Branch `feature/window-pile`.
+
+**21A, the running item's `pile`** (off by default). A stacked app slot with two or more windows
+draws its picture (icon or thumbnail tile) slightly smaller, with the tops of min(2, windows - 1)
+cards peeking out above it. Decisions:
+
+- **The cards are plain.** No captures of the other windows: only a few pixels of each would
+  show, and each would cost a capture session (live) or a `PrintWindow` (snapshots). A tile's
+  cards are rounded rects in the label text colour; an icon's are fainter, smaller copies of the
+  same icon bitmap (already in the cache).
+- **Inside the slot's existing surface.** The front shrinks to make room, so the layout, the
+  dock's thickness and the slot's box do not change; a change of the pile count only redraws that
+  slot. Idle cost is zero: no timer, no capture, nothing per frame.
+- **Stacked slots only.** On a dock with One slot per window each window already has its slot,
+  so a pile would say nothing; groups and pins without windows never pile.
+- **Off by default**, and not written to the config while off.
+
+Not done: a pile that tells more than three windows apart; cards showing the other windows.
+
 ## Dependencies at a glance
 
 ```
