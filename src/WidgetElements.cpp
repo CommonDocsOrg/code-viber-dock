@@ -441,6 +441,16 @@ public:
         widget_->SetMagnified(host_.Magnifying());
         widget_->Hover(inside, x, y);
     }
+    // Round 23 phase 23A: the press onPress claimed (WidgetInstance::Press returned true).
+    bool PressClaimed(int) const override { return widget_ && widget_->Capturing(); }
+    void OnDrag(int slot) override {
+        float x = 0, y = 0;
+        if (widget_ && Local(slot, x, y)) widget_->Drag(x, y);
+    }
+    void OnRelease(int slot, bool cancelled) override {
+        float x = 0, y = 0;
+        if (widget_ && Local(slot, x, y)) widget_->Release(x, y, cancelled);
+    }
 
 private:
     // The pointer (of the message being handled) in DIPs from the box's top-left.

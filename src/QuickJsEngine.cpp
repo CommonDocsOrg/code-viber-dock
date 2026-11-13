@@ -233,6 +233,7 @@ constexpr char kPrelude[] = R"JS(
   g.widget = Object.freeze({
     files: (pattern) => w.files(pattern),
     read: (path) => w.read(path),
+    resize: (width, height) => w.resize(Number(width), Number(height)),
     readJson: (path) => {
       const text = w.read(path);
       try { return JSON.parse(text); } catch (e) { throw new SyntaxError(String(path) + ': ' + e.message); }
@@ -262,6 +263,7 @@ constexpr char kPrelude[] = R"JS(
     toggle: () => p.mediaCmd('toggle'),
     next: () => p.mediaCmd('next'),
     previous: () => p.mediaCmd('previous'),
+    seek: (s) => p.mediaSeek(Number(s)),
     onChange: onChange('media'),
   });
   // notifications (phase 9): get() the list (newest first), count() the unread ones.
@@ -445,7 +447,7 @@ public:
         static const char* const kNames[] = {"draw",      "measure",      "tick",         "onClick",
                                              "onMiddleClick", "onWheel", "onHover",     "onSettingsChanged",
                                              "onPress",   "onDrop",       "drawPopup",    "onPopupClick",
-                                             "onPopupClose", "onVisibilityChange"};
+                                             "onPopupClose", "onVisibilityChange", "onDrag", "onRelease"};
         static_assert(std::size(kNames) == static_cast<size_t>(Fn::Count));
         for (size_t i = 0; i < std::size(kNames); ++i) {
             JSValue f = JS_GetPropertyStr(ctx_, ns_, kNames[i]);
@@ -1924,6 +1926,16 @@ JSValue MediaArtFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
     if (!Self(ctx)->host_.MediaArt(token, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
     return token.empty() ? JS_NULL : NewString(ctx, token);
 }
+// Round 23 phase 23A: mediaSeek(seconds).
+JSValue MediaSeekFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const float seconds = a.F(0, 0.0f);
+    if (a.failed) return JS_EXCEPTION;
+    if (!std::isfinite(seconds)) return JS_ThrowTypeError(ctx, "media.seek: the position must be a number of seconds");
+    std::wstring error;
+    if (!Self(ctx)->host_.MediaSeek(seconds, error)) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_UNDEFINED;
+}
 JSValue NotifGetFn(JSContext* ctx, JSValueConst, int, JSValueConst*) {
     std::string json;
     std::wstring error;
@@ -2180,6 +2192,17 @@ JSValue WidgetReadFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv)
     }
     return NewString(ctx, bytes);
 }
+// Round 23 phase 23A, widget.resize(w, h): a standalone widget's window size in DIPs (true: it
+// will be applied; false: not standalone, or a preview).
+JSValue WidgetResizeFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const float w = a.F(0, 0.0f), h = a.F(1, 0.0f);
+    if (a.failed) return JS_EXCEPTION;
+    if (!std::isfinite(w) || !std::isfinite(h) || w <= 0.0f || h <= 0.0f) {
+        return JS_ThrowRangeError(ctx, "widget.resize: the width and height must be positive numbers of DIPs");
+    }
+    return JS_NewBool(ctx, Self(ctx)->host_.ResizeWindow(w, h));
+}
 
 const JSCFunctionListEntry kStorageFuncs[] = {
     JS_CFUNC_DEF("get", 2, Guard<StorageGetFn>),
@@ -2201,6 +2224,7 @@ const JSCFunctionListEntry kProviderFuncs[] = {
     JS_CFUNC_DEF("mediaGet", 0, Guard<MediaGetFn>),
     JS_CFUNC_DEF("mediaCmd", 1, Guard<MediaCmdFn>),
     JS_CFUNC_DEF("mediaArt", 0, Guard<MediaArtFn>),
+    JS_CFUNC_DEF("mediaSeek", 1, Guard<MediaSeekFn>),
     JS_CFUNC_DEF("notifGet", 0, Guard<NotifGetFn>),
     JS_CFUNC_DEF("notifCmd", 2, Guard<NotifCmdFn>),
     JS_CFUNC_DEF("cal", 2, Guard<CalFn>),
@@ -2223,6 +2247,7 @@ const JSCFunctionListEntry kPopupFuncs[] = {
 const JSCFunctionListEntry kWidgetFuncs[] = {
     JS_CFUNC_DEF("files", 1, Guard<WidgetFilesFn>),
     JS_CFUNC_DEF("read", 1, Guard<WidgetReadFn>),
+    JS_CFUNC_DEF("resize", 2, Guard<WidgetResizeFn>),
 };
 
 const JSCFunctionListEntry kNativeFuncs[] = {

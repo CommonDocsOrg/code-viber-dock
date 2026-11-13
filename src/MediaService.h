@@ -15,10 +15,16 @@
 // calls are fine there): it waits on an event that the session manager's and the current session's
 // change events set (SessionsChanged, CurrentSessionChanged, MediaPropertiesChanged,
 // PlaybackInfoChanged) and on commands, re-reads the session, and posts a snapshot to the owner
-// window (kMessage). Nothing polls; the timeline is read with every other change, not followed
-// (widgets extrapolate the position while playing). The thumbnail's bytes are read only when the
-// track (app + title + artist + album) changes. Started by WidgetRuntime when the first widget uses
-// `media`, stopped when the last such widget goes.
+// window (kMessage). Nothing polls; widgets extrapolate the position while playing. Round 23 phase
+// 23A: the session's TimelinePropertiesChanged is followed too, but cheaply: such a wake (with no
+// other event) reads only the timeline and posts a snapshot only when the position jumped from
+// where the last snapshot's extrapolation puts it (a seek, an app-side jump: more than 1.5 s) or
+// the duration changed, so an app that reports its timeline often (some do, every few seconds
+// while playing) costs a worker wake and no UI work. Seek (media.seek): TryChangePlaybackPosition-
+// Async; until the app reports a timeline newer than the seek, the snapshots carry the seek's
+// target (the stale timeline would put the position back). The thumbnail's bytes are read only
+// when the track (app + title + artist + album) changes. Started by WidgetRuntime when the first
+// widget uses `media`, stopped when the last such widget goes.
 class MediaService {
 public:
     static constexpr UINT kMessage = WM_APP + 34;  // wParam: generation, lParam: State* (owned by the receiver)
@@ -33,6 +39,7 @@ public:
         double position = -1.0, duration = -1.0;  // seconds (-1: not reported)
         double sampledAt = 0.0;  // WidgetNowMs when position was read
         bool canPlay = false, canPause = false, canToggle = false, canNext = false, canPrevious = false;
+        bool canSeek = false;  // round 23 phase 23A: the session's IsPlaybackPositionEnabled
         uint64_t artSerial = 0;  // 0: no art; changes with the art
         std::shared_ptr<const std::string> art;  // the thumbnail's encoded bytes (PNG / JPEG)
     };
@@ -52,6 +59,11 @@ public:
     // The position now (extrapolated while playing), seconds; -1 unknown.
     double PositionNow() const;
     void Send(Command c);
+    // Round 23 phase 23A: the current session to `seconds` from the track's start (clamped to the
+    // duration; ignored when it cannot seek). The snapshot here takes the target at once (the
+    // caller redraws; no change callback from inside its call), the worker sends it (the latest
+    // of a burst wins).
+    void Seek(double seconds);
     // kMessage: takes the snapshot, then calls the changed callback. True if handled.
     bool HandleMessage(UINT msg, WPARAM wp, LPARAM lp);
     void SetChanged(std::function<void()> changed) { changed_ = std::move(changed); }

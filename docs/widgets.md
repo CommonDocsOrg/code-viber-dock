@@ -176,7 +176,7 @@ The page's layout keys (round 4 phase 14):
 | `section` | `"section": "appearance"` | Round 10 phase 10C: the tab the field is on, `"content"` or `"appearance"` (any other value, or not a string: an error). Without it the field goes to **Appearance** when its `type` is `colour` or its `group` is one of Colours, Colors, Look, Face, Size, Slot, Display, Motion, Motion and size (case ignored), else to **Content**, so a schema written before the key keeps working. Groups stay the cards inside a tab (a group whose fields are on both tabs gets a card on each). `common` (the Contents inspector) does not depend on it. Every built-in widget sets it on every field. |
 | `group` | `"group": "Second hand"` | Round 8 phase 8C: a card titled with the group around the field and the ones after it with the same group; a field whose group differs from the field above it starts a new card (so fields of one group should be next to each other: a group that comes back later gets a second card). Fields without a group: a card titled with the widget's `name`. |
 | `unit` | `"unit": "DIPs"` | A unit after an `int`'s stepper or a `number`'s edit box ("%", "minutes"). |
-| `visibleIf` | `"visibleIf": { "seconds": true }` | The field (and a group header that would be left empty) is shown only while every named field has that value; the page is generated again when one of them changes. A key that names no other field is an error. |
+| `visibleIf` | `"visibleIf": { "seconds": true }` | The field (and a group header that would be left empty) is shown only while every named field has that value; the page is generated again when one of them changes. Round 23: an array means any of its values (`"visibleIf": { "layout": ["deck", "cover"] }`). A key that names no other field is an error. |
 | `common` | `"common": true` | Round 10 phase 10B: one of the widget's few everyday settings. Dock settings > Contents shows the fields marked `common` in the inspector of the selected widget, editable in place (in schema order, at most six, each only while its `visibleIf` holds), above **More settings…**, which opens the whole page. Without any `common` field the inspector shows the first three fields of a simple type (`bool`, `int`, `number`, `string`, a `choice` not from `"perf"`). The inspector edits `bool`, `int`, `number`, `string`, `colour`, `font`, `choice` and `timezone` fields; a `place` shows as a read-only line, a `"choiceFrom": "perf"` choice is left to the page. Not a boolean: an error. Mark two to four fields. |
 | `quick` | `"quick": true` | Round 13 phase 13C: the field is a quick setting in the widget's right-click menu, between its own entries and **Widget settings…**. A `bool` is one checkable entry (its `label`, checked while the value is true; a click toggles it); a `choice` is a submenu titled with its `label`, holding one radio entry per choice (the current value checked; a click chooses it). Fields are listed in schema order. Only `bool` and `choice` fields can be quick: on another type the key is ignored and the manifest check warns. At most 8 quick fields per widget: the ones after the eighth are left out of the menu, with a warning. Not a boolean: an error. A change from the menu is written and applied as the settings window does (saved, `onSettingsChanged`, one Undo step named after the field and the widget, "Changed Units of Weather"). A `"choiceFrom": "perf"` choice lists only its fixed `choices` there. |
 
@@ -198,7 +198,9 @@ available), then calls its exports:
 | `draw(canvas, dock)` | **required.** When the widget asked for a redraw (`requestRedraw()`, a tick), when its settings changed, and when the dock lays it out again (its size, scale, theme or edge changed). Never per frame while idle. | the canvas, the dock | |
 | `measure(canvas, dock)` | Before the dock lays the widget out (and after every redraw request). Only `canvas.measureText` works here. | | `{ main, cross }` in DIPs; without this export the manifest's size hint for the dock's axis is used. `main` 0: the widget takes no room on the dock (it is not drawn; the Battery widget without a battery). A box thicker than the bar stands on the bar's near (screen-edge) side and sticks out on the far side only, like a magnified icon (round 7; thinner boxes are centred on the icon row). A changed size lays the dock out again at once: a widget can grow and shrink by frames (the Analog clock's hover growth). Round 11 phase 11C: `flush: true` in the result asks for the Windows 7 "Show desktop" placement: on a full-width dock the box is the bar's whole thickness (`cross` is ignored; `canvas.height` / `dock.cross` are that thickness in `draw()`) and, as the dock's first or last item, it takes no end padding, so it touches the screen's end; anywhere else (a centred, floating or ring dock, standalone, previews) it is ignored |
 | `tick(dock)` | Every `refreshMs` (see the manifest, `timer.setRefresh`). | the dock | `false` to skip the redraw that follows |
-| `onPress(e)` | The left button went down on the widget. | `{ x, y, button }`: DIPs from the box's top-left | |
+| `onPress(e)` | The left button went down on the widget. | `{ x, y, button }`: DIPs from the box's top-left | Round 23: `true` **claims** the press: the widget follows the held button (`onDrag`, `onRelease`); the dock starts no item drag (nor a Ctrl + drag of the dock, nor a scroll of its run), a standalone window does not move, and no `onClick` follows. Anything else (nothing): the press goes on as before. Claim only presses on the widget's own controls (a slider, a seek bar, a button that acts on release), so the rest of it can still be dragged |
+| `onDrag(e)` | Round 23: the pointer moved while a press this widget claimed is held, every move (no drag threshold), also outside its box (the dock / the window holds the mouse capture). Never called otherwise: no pointer-move events reach a widget outside a claimed press. | `{ x, y, button }`: DIPs from the box's top-left (may be outside it, negative) | |
+| `onRelease(e)` | Round 23: a claimed press ended: the button went up, or the capture was lost (a menu, Alt+Tab, the window went away: `cancelled` true; do not act then). | `{ x, y, button, cancelled }` | |
 | `onClick(e)` | A left click on the widget (press and release on it). | `{ x, y, button, closedPopup }`: `closedPopup` is true when that press closed this widget's popup (so a click toggles it: `if (!e.closedPopup) popup.open(...)`) | |
 | `onMiddleClick(e)` | A middle click. | `{ x, y, button }` | |
 | `onWheel(e)` | The mouse wheel over the widget. | `{ x, y, delta, notches, horizontal }`: `delta` in WHEEL_DELTA units (120 per notch; positive: away from the user) | `true` if the widget used it |
@@ -434,13 +436,18 @@ quick settings' media controls act on: Spotify, browsers playing media, the Medi
 through `GlobalSystemMediaTransportControlsSessionManager`. The provider starts with the first call
 and stops when the last widget using it goes; all its WinRT calls run on a worker thread of its own,
 woken by the session manager's events (sessions, current session, media properties, playback
-state); nothing polls and the timeline is not followed.
+state, and since round 23 the timeline); nothing polls. A timeline report alone only updates the
+position when it jumped (more than 1.5 s from where the last report, carried forward, puts it: a
+seek, the app moved), so apps that report their timeline often cost no redraws; between reports a
+widget carries `position` forward itself while `status` is `"playing"` (as the Now playing mini
+players do, redrawing once a second only while they show the progress).
 
 | Call | |
 |---|---|
-| `media.get()` | `{ available, session, title, artist, album, app, status, hasArt, position, duration, canPlay, canPause, canToggle, canNext, canPrevious }`: `session` false when nothing is current; `status` `"playing"`, `"paused"`, `"stopped"` or `"none"`; `app` the session's AppUserModelId (`"Spotify.exe"`, `"Chrome"`, `"Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic"`); `position` / `duration` in seconds or `null` (the position is carried forward while playing, from the app's last report). The first call returns `available: false` until the worker's first snapshot (a moment later, `onChange` follows). |
+| `media.get()` | `{ available, session, title, artist, album, app, status, hasArt, position, duration, canPlay, canPause, canToggle, canNext, canPrevious, canSeek }`: `canSeek` (round 23) true when the session lets its position be changed (`media.seek`) and reports a duration; `session` false when nothing is current; `status` `"playing"`, `"paused"`, `"stopped"` or `"none"`; `app` the session's AppUserModelId (`"Spotify.exe"`, `"Chrome"`, `"Microsoft.ZuneMusic_8wekyb3d8bbwe!Microsoft.ZuneMusic"`); `position` / `duration` in seconds or `null` (the position is carried forward while playing, from the app's last report). The first call returns `available: false` until the worker's first snapshot (a moment later, `onChange` follows). |
 | `media.art()` | The current art as an image token (`"media:art/3"`) for `canvas.image(token, x, y, w, h)` / `imageSize`, or `null`. The thumbnail is read once per track (app + title + artist + album) and decoded by the canvas like a package image; a token of an older track throws in `canvas.image`. |
 | `media.play()`, `pause()`, `toggle()`, `next()`, `previous()` | Sent to the current session (asynchronously; `onChange` reports the result). |
+| `media.seek(seconds)` | Round 23: the current session to `seconds` from the track's start (clamped to the duration; `TryChangePlaybackPositionAsync`). Ignored unless `canSeek`. `get()` reports the target at once (no `onChange` for it: redraw yourself), and keeps reporting it until the app reports a position newer than the seek; the seeks of a burst (a drag) are coalesced, the latest wins. Seek on release rather than on every `onDrag` step. |
 | `media.onChange(fn)` | `fn(state)` (the `get()` object) when the session, the track, the playback state or the art change. Returns a remover. |
 
 ### notifications
@@ -668,6 +675,7 @@ anyway). Paths are package paths as for `import` (`"faces/classic.json"`).
 | `widget.files(pattern)` | The package's files, sorted (`"main.js"`, `"faces/classic.json"` ...), only those matching the glob when one is given (`"faces/*.json"`; `*` and `?` stay inside one folder level, case-insensitive). A folder widget lists up to 512 files. |
 | `widget.read(path)` | A file as text (UTF-8, at most 8 MB). Throws if it is not in the package. |
 | `widget.readJson(path)` | The same, parsed (a SyntaxError names the file). |
+| `widget.resize(w, h)` | Round 23: a [standalone widget](#standalone-widgets) asks for its window's size in DIPs (its client area). Applied after the current call returns: the top-left stays (a centred window stays centred), clamped to the manifest's `standalone.minWidth` / `minHeight` (a fixed `aspect` sets the height from the width) and to 4000, kept reachable on its monitor, and saved like a resize by hand; the widget is measured and drawn again at the new size. It works on a locked window too (the lock is against the pointer). Returns `true` when the request was taken, `false` on a dock (the dock sizes slots from `measure()`) or in a preview. Call it on a user's choice (`onSettingsChanged`), not from `draw()`. |
 
 ## Animation
 
@@ -1009,6 +1017,9 @@ box:
   is the widget's click; a left **drag** (past the system drag distance) moves the window instead
   (the widget saw the press, but no click follows), and an 8 DIP band along the edges and corners
   resizes it, while the entry is unlocked. A right click opens the window's menu, not the widget's.
+  Round 23: a press `onPress` claims (returns `true`) never moves the window: its moves go to
+  `onDrag` and its end to `onRelease` (the same on a dock: no item drag starts from it).
+  `widget.resize(w, h)` sets the window's size.
 - Popups (`popup.open`, the passive kind, `popup.folder`, `popup.calendar`,
   `notifications.openCentre()`) open above the window, centred on it, or below it when there is no
   room above; so does the text editor of `popup.editText` (owned by the window). `popup.previews` has no app windows to show there: it does nothing (a line in the
@@ -1044,7 +1055,7 @@ Each preview is the widget's own `draw()`, run once by a **preview instance**:
   `remove` / `clear` write to a scratch store of the preview only (reads see those writes over the
   widget's real store, which is read but never written), `shell.open` and `shell.sendKeys` return
   `false` and do nothing, `popup.open` / `close` / `folder` / `calendar` / `previews` do nothing,
-  `popup.editText` returns a rejected promise, `audio.setVolume` and the other setters, `media.play()` ..., `notifications.dismiss`
+  `popup.editText` returns a rejected promise, `audio.setVolume` and the other setters, `media.play()` ... and `media.seek()`, `widget.resize()` (returns false), `notifications.dismiss`
   ... and `weather.refresh()` / `openSettings()` change nothing, `onChange` listeners are kept and
   never called. Permissions are checked as always (a call without its permission still throws).
 - The providers answer with **sample data**, in exactly the shapes of the real calls (the samples
@@ -1053,7 +1064,7 @@ Each preview is the widget's own `draw()`, run once by a **preview instance**:
 | Provider | Sample |
 |---|---|
 | `audio.get()` | `available` true, `volume` 0.62, not muted, `device` "Speakers (Sample)", a microphone ("Microphone (Sample)", 0.8, not muted), two outputs (Speakers, Headphones). |
-| `media.get()` / `media.art()` | Playing "Sample Song" by "Sample Artist" from "Sample Album" (`app` "Sample.Player"), `position` 73 s of `duration` 214, every `can*` true; `art()` is `"media:art/1"`: a generated 64 x 64 violet-to-orange gradient square that `canvas.image` draws. |
+| `media.get()` / `media.art()` | Playing "Sample Song" by "Sample Artist" from "Sample Album" (`app` "Sample.Player"), `position` 73 s of `duration` 214, every `can*` true (`canSeek` too); `art()` is `"media:art/1"`: a generated 64 x 64 violet-to-orange gradient square that `canvas.image` draws. |
 | `notifications` | `state` "polling", 3 unread: "Mail" (5 minutes ago, "Sam Rivera"), "Mail" (20 minutes ago, "Weekly report"), "Calendar" (an hour ago, "Stand-up"), newest first. |
 | `calendar` | One feed "Sample" in the first feed colour (`#FF4CC2FF`); today "Stand-up" 09:30 - 09:45 and "Lunch with Sam" 12:30 - 13:30 (local time, `recurring`); `eventsOn` another day is empty; `next()` lists today's events that have not ended, after 13:30 the same two tomorrow (so an agenda never previews "No events"); `events()` covers today and tomorrow. |
 | `weather.get()` | `state` "fresh" (fetched 5 minutes ago), "Sample City", sunny (code 0, day), 21 °C or 70 °F (the default `units`), wind 12 km/h / 7 mph, humidity 45 %, 24 hourly columns from the current hour (a mild day / night curve), 7 days from today (WMO codes 0, 1, 2, 3, 61, 2, 0: clear, through overcast and rain, to clear; highs 23 - 16 °C). `weather.icon()` works as always. |
@@ -1195,7 +1206,22 @@ built-ins are worked examples too:
   28): the frames come every `clamp(round(1000 / speed), 33, 100)` ms (10 - 30 a second), so a slow
   scroll wakes the dock less often; none with reduce motion. The 1.0 `marquee` bool is no longer read
   (`marqueeMode` is authoritative; an old `"marquee": false` scrolls on hover again: pick "Never").
-  Permissions `media`, `audio`.
+  Round 23 (1.2.0), the **desktop mini players**: `layout` `"tile"` (default: the above) or, only
+  while `dock.standalone`, `"deck"` (356 x 100), `"capsule"` (360 x 104, shaped: drawn on the
+  transparent window), `"cover"` (228 x 364) or `"disc"` (204 x 232, shaped), each drawn at its
+  natural size under one `translate` + `scaleBy` that fits it into the window (centred; the Deck's
+  display and the Capsule's pill take extra width instead of leaving it empty); `skin` `"theme"`
+  (`dock.theme` colours), `"silver"`, `"night"` (Consolas in the display); `accentColor`
+  (transparent: the skin's); `showProgress`; `showVolume` (Deck, Cover). These four use
+  `visibleIf` arrays. The transport buttons, the progress bar (the Disc's rim ring, by angle) and
+  the volume slider **claim** their presses (`onPress` returns `true`), so they work with
+  `onDrag` / `onRelease` (a button acts on release over it, drawn brighter while held; the bar
+  previews while dragged and calls `media.seek` on release when `canSeek`; the slider calls
+  `audio.setVolume` per 1 % step, unmuting), while a press on the art or the panel still moves the
+  window. The position is carried forward from `media.get()`'s and redrawn by one 1 s
+  `setInterval` that runs only while playing, visible, with the progress shown and a mini layout;
+  `onSettingsChanged` calls `widget.resize` with the new layout's natural size (the tile's: the
+  manifest's 340 x 96). Permissions `media`, `audio`.
 - `widgets/start`: `shell.sendKeys('start-near')` (or `'win'`, below), falling back to `shell.open('shell:AppsFolder')` when
   Windows refuses the input; `icon` `windows` / `mono` / `image` with `image` (a package file, or
   any absolute path whose shell icon `canvas.fileIcon` draws), `size` (percent of the slot). Round

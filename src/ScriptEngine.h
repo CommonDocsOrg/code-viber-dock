@@ -104,6 +104,14 @@ public:
     virtual bool MediaCommand(const std::string& command, std::wstring& error) = 0;
     // The current art as an image token for canvas.image ("" none).
     virtual bool MediaArt(std::string& token, std::wstring& error) = 0;
+    // Round 23 phase 23A, media.seek: the current session to `seconds` from the track's start
+    // (ignored when the session cannot seek).
+    virtual bool MediaSeek(double seconds, std::wstring& error) = 0;
+
+    // Round 23 phase 23A, widget.resize: a standalone widget asks for its window's client size in
+    // DIPs (applied after the call returns, top-left kept, clamped to the window's limits). False:
+    // not honoured (on a dock, a preview).
+    virtual bool ResizeWindow(float w, float h) = 0;
 
     // --- notifications (permission "notifications", round 4 phase 9) ---
     // { state: "off" | "polling" | "denied", reason, unread, items: [ { id, app, appKey, title, body,
@@ -205,6 +213,10 @@ public:
         OnPopupClick,   // (event, dock)
         OnPopupClose,   // (event, dock): the popup closed (by itself or popup.close())
         OnVisibilityChange,  // ({ visible }, dock): the dock was hidden / shown
+        // Round 23 phase 23A: a press onPress claimed (it returned true): the held left button's
+        // moves and its end (release, or the capture lost: `cancelled`).
+        OnDrag,     // ({ x, y }, dock)
+        OnRelease,  // ({ x, y, cancelled }, dock)
         Count
     };
 

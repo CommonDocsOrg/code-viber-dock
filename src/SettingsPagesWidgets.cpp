@@ -610,7 +610,8 @@ bool ParseCoord(std::wstring text, double lo, double hi, double& value) {
 bool HasSettings(ItemKind k) { return k == ItemKind::Widget || k == ItemKind::Clock || k == ItemKind::Weather; }
 
 // visibleIf: every named field has that value now (compared as JSON). Round 10 phase 10B: shared
-// with the Contents tab's inspector (SettingFieldVisible).
+// with the Contents tab's inspector (SettingFieldVisible). Round 23 phase 23A: an array is "any of
+// these values" (the media widget's skin shows for four of its five layouts).
 bool FieldVisible(const Widgets::SettingField& f, const json::JsonObject& values) {
     if (f.visibleIf.empty()) return true;
     if (!values) return true;
@@ -618,7 +619,15 @@ bool FieldVisible(const Widgets::SettingField& f, const json::JsonObject& values
         const json::IJsonValue v = JsonUtil::Find(values, key.c_str());
         if (!v) return false;
         try {
-            if (std::wstring(v.Stringify()) != std::wstring(json::JsonValue::Parse(want).Stringify())) return false;
+            const std::wstring have(v.Stringify());
+            const json::JsonValue w = json::JsonValue::Parse(want);
+            if (w.ValueType() == json::JsonValueType::Array) {
+                bool any = false;
+                for (const json::IJsonValue& x : w.GetArray()) any = any || std::wstring(x.Stringify()) == have;
+                if (!any) return false;
+            } else if (have != std::wstring(w.Stringify())) {
+                return false;
+            }
         } catch (...) {
             return false;
         }

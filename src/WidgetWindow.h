@@ -45,7 +45,10 @@ class DropTarget;
 //   App settings…, Remove from desktop; round 10 phase 10A: renamed and reordered; round 16 phase
 //   16G: Move to dock ▸ after Reload widget). Round 16 phase 16G: a move drag released over a
 //   dock's bar puts the widget on that dock (Host::dockDrag; the dock shows its marker meanwhile);
-//   Escape cancels a move / resize drag (back where it was).
+//   Escape cancels a move / resize drag (back where it was). Round 23 phase 23A: a press the
+//   widget claims (onPress returned true) is its own: every move goes to onDrag, the release (or a
+//   lost capture) to onRelease, and the window neither moves nor reports a click for it.
+//   widget.resize(w, h) sets the window's size (posted; see OnResizeRequest).
 // - Layers: "behind" (default) registers with DesktopLayer (under every app window, activatable
 //   without rising; with background "panel" and acrylic its Backdrop window is kept beneath it);
 //   "desktop" is shown only while the desktop is the foreground (DesktopLayer::DesktopForeground,
@@ -144,8 +147,13 @@ public:
 private:
     static constexpr UINT kRedrawMessage = WM_APP + 30;  // posted: the widget asked to be redrawn
     static constexpr UINT kPopupMessage = WM_APP + 31;   // posted: the widget asked for its popup
+    // Round 23 phase 23A: posted: the widget asked for another window size (widget.resize). A free
+    // number in the hand-kept table (DockWindow.h), though only this window class handles it.
+    static constexpr UINT kResizeMessage = WM_APP + 74;
     static constexpr UINT_PTR kFlashTimer = 1;
-    enum class Grab { None, Press, Move, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
+    // Script (round 23 phase 23A): a press the widget claimed (onPress returned true): moves go to
+    // its onDrag, the release to its onRelease; no window move, no click.
+    enum class Grab { None, Press, Move, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight, Script };
 
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
     LRESULT WndProc(UINT msg, WPARAM wp, LPARAM lp);
@@ -176,7 +184,9 @@ private:
     EditorPlace WidgetEditorPlace(const WidgetInstance& widget) const override;
     void WidgetEditorChanged(WidgetInstance&, bool) override {}
     StartMenuPlacer* WidgetStartPlacer() override;  // round 16 phase 16A
+    bool WidgetResize(WidgetInstance& widget, float w, float h) override;  // round 23 phase 23A
     void OnPopupRequest();
+    void OnResizeRequest();
 
     // --- placement ---
     RECT WorkArea() const;
@@ -243,6 +253,8 @@ private:
     float panelRadius_ = 8.0f;  // DIPs (acrylic: the system radius)
     bool redrawPosted_ = false;
     bool popupPosted_ = false;
+    bool resizePosted_ = false;            // round 23 phase 23A: kResizeMessage is on its way
+    float resizeW_ = 0.0f, resizeH_ = 0.0f;  // the size it asks for, DIPs
 
     // Layer state.
     bool registered_ = false;  // with DesktopLayer ("behind", not lifted)

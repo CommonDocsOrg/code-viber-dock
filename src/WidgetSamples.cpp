@@ -280,7 +280,7 @@ std::string AudioJson() {
 std::string MediaJson() {
     return "{\"available\":true,\"session\":true,\"title\":\"Sample Song\",\"artist\":\"Sample Artist\",\"album\":\"Sample Album\","
            "\"app\":\"Sample.Player\",\"status\":\"playing\",\"hasArt\":true,\"position\":73,\"duration\":214,\"canPlay\":true,"
-           "\"canPause\":true,\"canToggle\":true,\"canNext\":true,\"canPrevious\":true}";
+           "\"canPause\":true,\"canToggle\":true,\"canNext\":true,\"canPrevious\":true,\"canSeek\":true}";
 }
 
 const std::string& MediaArtBytes() {
