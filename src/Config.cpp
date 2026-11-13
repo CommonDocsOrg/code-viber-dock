@@ -207,6 +207,14 @@ void ReadClockFields(const json::JsonObject& o, ClockConfig& c) {
     ReadString(o, L"face", c.face);
     ReadString(o, L"timeZone", c.timeZone);
     ReadString(o, L"label", c.label);
+    // Round 20 phase 20A: the look.
+    double scale = c.scale;
+    ReadNumber(o, L"scale", scale);
+    c.scale = static_cast<float>(scale);
+    ReadString(o, L"font", c.font);
+    ReadString(o, L"weight", c.weight);
+    ReadString(o, L"timeColor", c.timeColor);
+    ReadString(o, L"dateColor", c.dateColor);
 }
 
 void ReadWeatherFields(const json::JsonObject& o, WeatherConfig& w) {
@@ -258,6 +266,15 @@ void SanitizeClock(ClockConfig& c) {
     if (static_cast<unsigned>(c.click) > static_cast<unsigned>(ClockClick::None)) c.click = ClockClick::Calendar;
     SingleLine(c.timeZone, 128);
     SingleLine(c.label, 64);
+    // Round 20 phase 20A: the look. A colour that does not parse, or is fully transparent (the
+    // colour picker's "the theme's colour"), is "not set".
+    c.scale = std::isfinite(c.scale) ? std::clamp(c.scale, ClockConfig::kMinScale, ClockConfig::kMaxScale) : 1.0f;
+    SingleLine(c.font, 64);
+    if (ClockWeightOf(c.weight) == 0) c.weight.clear();
+    for (std::wstring* color : {&c.timeColor, &c.dateColor}) {
+        uint32_t argb = 0;
+        if (!ParseArgbColor(*color, argb) || !(argb >> 24)) color->clear();
+    }
 }
 
 void SanitizeWeather(WeatherConfig& w) {
@@ -864,10 +881,23 @@ WeatherConfig ScriptWeatherOf(const Config& config, const DockConfig& dock, cons
     return config.weather;
 }
 
+int ClockWeightOf(const std::wstring& weight) {
+    if (weight == L"light") return 300;
+    if (weight == L"regular") return 400;
+    if (weight == L"semibold") return 600;
+    if (weight == L"bold") return 700;
+    return 0;
+}
+
 std::wstring ClockSettingsJson(const ClockConfig& c) {
+    // Round 20 phase 20A: the look keys too (a colour not set is the transparent "#00000000": the
+    // settings page's colour fields show that as "the theme's").
+    auto color = [](const std::wstring& s) { return Quote(s.empty() ? std::wstring(L"#00000000") : s); };
     return L"{\"format\":" + Quote(c.format) + L",\"showSeconds\":" + Bool(c.showSeconds) + L",\"showDate\":" +
            Bool(c.showDate) + L",\"click\":" + Quote(ToString(c.click)) + L",\"clickTarget\":" + Quote(c.clickTarget) +
-           L",\"face\":" + Quote(c.face) + L",\"timeZone\":" + Quote(c.timeZone) + L",\"label\":" + Quote(c.label) + L"}";
+           L",\"face\":" + Quote(c.face) + L",\"timeZone\":" + Quote(c.timeZone) + L",\"label\":" + Quote(c.label) +
+           L",\"scale\":" + Num(c.scale) + L",\"font\":" + Quote(c.font) + L",\"weight\":" + Quote(c.weight) +
+           L",\"timeColor\":" + color(c.timeColor) + L",\"dateColor\":" + color(c.dateColor) + L"}";
 }
 
 std::wstring WeatherSettingsJson(const WeatherConfig& w) {
@@ -1624,7 +1654,13 @@ std::wstring Config::ToJson(bool windowSizes) const {
              L", \"clickTarget\": " + Quote(clock.clickTarget) +
              (clock.face != L"digital" ? L", \"face\": " + Quote(clock.face) : std::wstring()) +
              (!clock.timeZone.empty() ? L", \"timeZone\": " + Quote(clock.timeZone) : std::wstring()) +
-             (!clock.label.empty() ? L", \"label\": " + Quote(clock.label) : std::wstring()) + L" },\n";
+             (!clock.label.empty() ? L", \"label\": " + Quote(clock.label) : std::wstring()) +
+             // Round 20 phase 20A: the look, each key only when set.
+             (clock.scale != 1.0f ? L", \"scale\": " + Num(clock.scale) : std::wstring()) +
+             (!clock.font.empty() ? L", \"font\": " + Quote(clock.font) : std::wstring()) +
+             (!clock.weight.empty() ? L", \"weight\": " + Quote(clock.weight) : std::wstring()) +
+             (!clock.timeColor.empty() ? L", \"timeColor\": " + Quote(clock.timeColor) : std::wstring()) +
+             (!clock.dateColor.empty() ? L", \"dateColor\": " + Quote(clock.dateColor) : std::wstring()) + L" },\n";
         // Only the preset and the fields set inline: editing the theme file keeps affecting the dock.
         o += L"  \"theme\": { \"preset\": " + Quote(themePreset) +
              Theme::WriteFields(theme, themeOverrides, L"             ") + L" },\n";

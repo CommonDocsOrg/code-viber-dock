@@ -1524,9 +1524,36 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind) {
                                     L"An app, a document or a URL; the month calendar shows a button that opens it too.");
         target.visibleIf.emplace_back(L"click", L"\"launch\"");
         s.push_back(std::move(target));
-        // Round 10 phase 10C: the face is Appearance (the clock has no colour / font / size of its
-        // own: the theme draws it); the time, the zone, the date, the label and the click Content.
-        for (SettingField& f : s) f.section = f.key == L"face" ? SettingField::Section::Appearance : SettingField::Section::Content;
+        // Round 20 phase 20A: the look over the face's (ClockConfig scale / font / weight / colours):
+        // fields 8 - 12, after the click's, so the generated page's control ids of the fields
+        // before them stay (README "Automation"); on the Appearance tab they follow the face in its
+        // Look card (the card breaks are over the tab's own fields).
+        SettingField scale = field(L"scale", T::Number, L"Size", L"1", L"Look",
+                                   L"How big the clock is: 1 is the usual size, 2 twice as big. It grows up to what fits across "
+                                   L"the bar: for a bigger clock make the dock thicker (Dock settings > Layout > Thickness). "
+                                   L"Default: 1.");
+        scale.min = ClockConfig::kMinScale;
+        scale.max = ClockConfig::kMaxScale;
+        scale.step = 0.25;
+        scale.unit = L"\x00D7 the usual size";
+        scale.common = true;
+        s.push_back(std::move(scale));
+        s.push_back(field(L"font", T::Font, L"Font", L"\"\"", L"Look",
+                          L"A font family installed on this PC (Segoe UI, Bahnschrift, Consolas, ...). Empty: the face's own "
+                          L"font (Segoe UI for the digital look)."));
+        SettingField weight = field(L"weight", T::Choice, L"Weight of the time", L"\"\"", L"Look",
+                                    L"How heavy the time's digits are. Default: as the face draws them (the digital look: semibold).");
+        weight.choices = {{L"", L"As the face"}, {L"light", L"Light"}, {L"regular", L"Regular"}, {L"semibold", L"Semibold"}, {L"bold", L"Bold"}};
+        s.push_back(std::move(weight));
+        s.push_back(field(L"timeColor", T::Color, L"Time colour", L"\"#00000000\"", L"Look",
+                          L"The time line's colour (its seconds and AM / PM too). Transparent (#00000000): the face's, else the "
+                          L"theme's clock text colour."));
+        s.push_back(field(L"dateColor", T::Color, L"Date colour", L"\"#00000000\"", L"Look",
+                          L"The date line's colour (the label too). Transparent (#00000000): the face's, else the theme's "
+                          L"clock date colour."));
+        // Round 10 phase 10C: the face is Appearance (round 20 phase 20A: with the look's fields,
+        // the Look group); the time, the zone, the date, the label and the click Content.
+        for (SettingField& f : s) f.section = f.group == L"Look" ? SettingField::Section::Appearance : SettingField::Section::Content;
     } else if (kind == ItemKind::Weather) {
         // Round 10 phase 10B: the place (read only in the inspector), the name and the units are "common".
         s.push_back(field(L"place", T::Place, L"Place", L"null", L"Place"));

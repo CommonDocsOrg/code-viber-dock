@@ -1247,6 +1247,13 @@ zone of this Windows by display name, sorted by UTC offset as Windows does; dayl
 the zone's own rules) and a **label** (`label`, e.g. "Tokyo": drawn on the date's line in its
 colour, before the date, or alone under the time without it). The clock still wakes only at the
 minute (or second) boundary; every zone's offset is whole minutes, so the tick stays aligned.
+Round 20 phase 20A, **the clock's look**: the Appearance tab's Look card also has **Size** (`scale`:
+1 the usual size, up to 4; the clock grows up to what fits across the bar, so a big clock wants a
+thick dock: Dock settings > Layout > Thickness), **Font** (`font`: any installed family), **Weight
+of the time** (`weight`) and the **Time colour** / **Date colour** swatches (`timeColor` /
+`dateColor`; transparent = the face's / the theme's). They apply over the digital look and over any
+face (a face's own fonts and colours are what "as the face" means); Size is also in the Contents
+tab's inspector of the clock. QueryState 340 / 341 report the drawn scale and block.
 The script clocks have the same two settings (round 5 phase D): **Digital clock (script)** and
 **Analog clock** take a `timeZone` and a `label` (under the time / under the dial), **Calendar page**
 a `timeZone` (its page turns over at that zone's midnight); they read the time through
@@ -3040,7 +3047,15 @@ items that exist. A file whose items have settings already is left alone.
   zone key name (`"Tokyo Standard Time"`, `"GMT Standard Time"`; `tzutil /l` lists them; an unknown
   name shows the local time). `clock.label` (default `""`, written only when set): text on the
   date's line. Since round 5 the top-level `clock` object holds the **defaults** for new clock
-  items; each clock item has these keys in its own `settings`.
+  items; each clock item has these keys in its own `settings`. Round 20 phase 20A, the look (each
+  written only when set): `clock.scale` (0.5 - 4, default 1) multiplies every text size of the
+  clock (a face's line gap, padding and corners too); the clock is drawn no bigger than fits across
+  the bar (the icon row with the dock's `thickness`), so a bigger clock needs a thicker dock.
+  `clock.font` (default `""`): a font family name for every line (`""`: the face's, Segoe UI for the
+  digital look). `clock.weight` (default `""`: the face's / semibold): the time's weight, `"light"`,
+  `"regular"`, `"semibold"` or `"bold"`. `clock.timeColor` / `clock.dateColor` (`"#AARRGGBB"`,
+  default `""`): the time line (its seconds and AM / PM too) and the date line (the label too);
+  `""` or a transparent value: the face's colour, else the theme's `clockText` / `clockDateText`.
 - `weather`: the weather widget (see Weather and calendar; shown by a `weather` item);
   `latitude` (-90 - 90) and `longitude` (-180 - 180), in degrees, saved with 4 decimals (both 0:
   no location yet); `location`, the name shown in the popup (it is not looked up); `units`,
@@ -3549,7 +3564,9 @@ always there, also when every dock is parked) handle these registered messages:
   Weather item's", "The default place"; was a note); 3627 a clock's Open faces folder (in the face's card); a TimeZone field's drop-down is
   the field's control (`3700 + 10 k + 1`: row 0 Local time, then the zones). The clock and weather
   schemas' field order: clock 0 format, 1 showSeconds, 2 timeZone, 3 showDate, 4 label, 5 face, 6
-  click, 7 clickTarget (shown for "launch"); weather 0 place, 1 label, 2 units, 3 refreshMinutes. The script Weather widget's own state: the widget QueryStates (54 state, 58
+  click, 7 clickTarget (shown for "launch"), round 20 phase 20A: 8 scale (a `number` box), 9 font,
+  10 weight (a choice: row 0 As the face, 1 Light, 2 Regular, 3 Semibold, 4 Bold), 11 timeColor, 12
+  dateColor (colour swatch + box); weather 0 place, 1 label, 2 units, 3 refreshMinutes. The script Weather widget's own state: the widget QueryStates (54 state, 58
   draws, 59 wake-ups, 61 / 62 its box, 65 / 66 its popup) and, with the item setting `"debugStore":
   true`, its storage (`widget-data\weather.json`: `slot` = { state, temp, code, dim, text, w, h } of
   its last draw, `popup` = { hours, days, state, updated, width, height, temp, unit } or { message }
@@ -3568,6 +3585,10 @@ always there, also when every dock is parked) handle these registered messages:
   `colour` field's swatch button, round 16 phase 16D: `BN_CLICKED` opens the Windows colour dialog on
   the colour in the box, the RGB replaced and the alpha kept, a transparent one made opaque); a field
   hidden by `visibleIf` has none.
+- **The clock's look** (round 20 phase 20A): `QueryState` 340 = the scale dock `HIWORD(lParam)`'s
+  first clock item draws at, in percent: its `scale` x 100, or less when the block was capped to fit
+  across the bar (-1: no clock item on that dock); 341 = that clock's text block as drawn, px:
+  width | height << 16 (before the calendar dot). `tools\smoke\clock-look.ps1` drives them.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.

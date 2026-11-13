@@ -599,8 +599,24 @@ struct ClockConfig {
     // time without one; "" = none, e.g. "Tokyo"). Both written only when set.
     std::wstring timeZone;
     std::wstring label;
+    // Round 20 phase 20A: the clock's look, over the face's (or the digital look's) own. All
+    // written only when set. `scale` (0.5 - 4, default 1) multiplies every text size; the drawn
+    // scale is capped so the block fits across the bar (ClockElement). `font`: a family name
+    // ("" = the face's, Segoe UI for the digital look). `weight`: the time's weight, "" = the
+    // face's, else "light" / "regular" / "semibold" / "bold" (ClockWeightOf). `timeColor` /
+    // `dateColor`: "#AARRGGBB" ("" = the face's / the theme's clockText and clockDateText; a
+    // transparent value reads as ""): the time line (seconds and AM / PM included) and the date line.
+    static constexpr float kMinScale = 0.5f, kMaxScale = 4.0f;
+    float scale = 1.0f;
+    std::wstring font;
+    std::wstring weight;
+    std::wstring timeColor;
+    std::wstring dateColor;
     bool operator==(const ClockConfig&) const = default;
 };
+
+// Round 20 phase 20A: ClockConfig::weight as a DirectWrite weight (0 = not set: the face's).
+int ClockWeightOf(const std::wstring& weight);
 
 // Temperatures in °C and wind in km/h ("metric") or °F and mph ("imperial").
 enum class Units { Metric, Imperial };

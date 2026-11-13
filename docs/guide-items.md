@@ -239,7 +239,15 @@ Each clock has its own settings window, with two tabs. The **Content** tab has t
 - **Text**: **Show the date under the time** and a **Label**, such as "Tokyo".
 - **Click**: **Clicking the clock opens** the month calendar, an app or web address of your choice, or nothing.
 
-The **Appearance** tab has the **Look** card: the **Face**. **Digital (built in)** is the usual look; the others are clock face files. **Open faces folder** opens the folder for your own faces. The clock's colours and font come from the dock's theme.
+The **Appearance** tab has the **Look** card:
+
+- **Face**: **Digital (built in)** is the usual look; the others are clock face files. **Open faces folder** opens the folder for your own faces.
+- **Size**: 1 is the usual size, 2 twice as big (up to 4). The clock only grows as far as the bar is thick: for a really big clock, raise the dock's **Thickness** on its Layout tab first.
+- **Font**: the name of any font installed on your PC, such as Bahnschrift or Consolas. Leave it empty for the face's own font (Segoe UI for the digital look).
+- **Weight of the time**: light, regular, semibold or bold digits, or the face's own.
+- **Time colour** and **Date colour**: click a swatch to pick a colour. A transparent colour (the default) means the face's own colour, which for the digital look is the theme's clock colour.
+
+**Size** is also in the inspector of the Contents tab, so you can resize a clock without opening its window.
 
 To show the time in another city:
 

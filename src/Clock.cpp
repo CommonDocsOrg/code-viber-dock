@@ -222,6 +222,18 @@ void Clock::SetFace(std::shared_ptr<const ClockFace> face, const ClockFaceColors
     ReleaseLayout();
 }
 
+void Clock::SetLook(const Look& look) {
+    if (look == look_) return;
+    look_ = look;
+    // The texts stay (the look changes no text): the digital layouts are rebuilt from them by the
+    // next BuildLayout without an UpdateText, which matters when ClockElement::Measure sets a
+    // smaller look to fit the bar after the dock's Update() of that pass (found by the smoke test:
+    // clearing them left an empty block until the next tick). A face's lines carry the look's
+    // fonts and colours, so they are made again (BuildFaceLayout calls UpdateText when they are gone).
+    faceLines_.clear();
+    ReleaseLayout();
+}
+
 bool Clock::FaceLine::SameText(const FaceLine& o) const {
     if (text != o.text || font != o.font || weight != o.weight || size != o.size || color != o.color ||
         ranges.size() != o.ranges.size()) {
@@ -242,9 +254,18 @@ bool Clock::FaceLine::SameText(const FaceLine& o) const {
 // seconds, the suffix, the date on an inline line). Layouts come later (BuildFaceLayout).
 std::vector<Clock::FaceLine> Clock::FaceTexts(const tm& t) const {
     const ClockFace& f = *face_;
-    const float timeDip = (SecondLine() ? 14.0f : 16.0f) * f.time.size;
-    const float dateDip = 11.0f * f.date.size;
+    // Round 20 phase 20A: the item's look over the face's (Look): sizes, one font for every line
+    // (the ranges' own fonts dropped), the time's weight, the time line's and the date line's colours.
+    const float timeDip = (SecondLine() ? 14.0f : 16.0f) * f.time.size * look_.scale;
+    const float dateDip = 11.0f * f.date.size * look_.scale;
     auto pick = [](const std::wstring& a, const std::wstring& b) { return a.empty() ? b : a; };
+    auto font = [this, &pick](const std::wstring& own) { return look_.font.empty() ? own : look_.font; };
+    auto rangeFont = [this](const std::wstring& own) { return look_.font.empty() ? own : std::wstring(); };
+    const uint32_t timeColor = look_.timeColor ? look_.timeColor : faceColors_.time;
+    const uint32_t secondsColor = look_.timeColor ? look_.timeColor : faceColors_.seconds;
+    const uint32_t suffixColor = look_.timeColor ? look_.timeColor : faceColors_.suffix;
+    const uint32_t dateColor = look_.dateColor ? look_.dateColor : faceColors_.date;
+    const int timeWeight = look_.weight ? look_.weight : f.time.weight;
 
     // The time: before / the seconds / after the minutes, so small seconds are their own range.
     const bool formatSeconds = FormatHasSeconds(rawFormat_);
@@ -292,34 +313,34 @@ std::vector<Clock::FaceLine> Clock::FaceTexts(const tm& t) const {
     }
     FaceLine timeLine;
     timeLine.text = time;
-    timeLine.font = f.time.font;
-    timeLine.weight = f.time.weight;
+    timeLine.font = font(f.time.font);
+    timeLine.weight = timeWeight;
     timeLine.size = timeDip;
-    timeLine.color = faceColors_.time;
+    timeLine.color = timeColor;
     if (secLen) {
-        timeLine.ranges.push_back(FaceRange{static_cast<UINT32>(secStart), static_cast<UINT32>(secLen), f.secondsText.font,
-                                            f.secondsText.weight, timeDip * f.secondsText.size, faceColors_.seconds});
+        timeLine.ranges.push_back(FaceRange{static_cast<UINT32>(secStart), static_cast<UINT32>(secLen), rangeFont(f.secondsText.font),
+                                            f.secondsText.weight, timeDip * f.secondsText.size, secondsColor});
     }
     if (sufLen) {
-        timeLine.ranges.push_back(FaceRange{static_cast<UINT32>(sufStart), static_cast<UINT32>(sufLen), f.suffixText.font,
-                                            f.suffixText.weight, timeDip * f.suffixText.size, faceColors_.suffix});
+        timeLine.ranges.push_back(FaceRange{static_cast<UINT32>(sufStart), static_cast<UINT32>(sufLen), rangeFont(f.suffixText.font),
+                                            f.suffixText.weight, timeDip * f.suffixText.size, suffixColor});
     }
 
     FaceLine dateLine;
     if (SecondLine()) {
         dateLine.text = DateLine(showDate_ ? ApplyCase(FormatRaw(f.dateFormat, t), f.date.textCase) : std::wstring());
-        dateLine.font = f.date.font;
+        dateLine.font = font(f.date.font);
         dateLine.weight = f.date.weight;
         dateLine.size = dateDip;
-        dateLine.color = faceColors_.date;
+        dateLine.color = dateColor;
     }
     FaceLine secondsLine;
     if (!secLine.empty()) {
         secondsLine.text = secLine;
-        secondsLine.font = pick(f.secondsText.font, f.time.font);
-        secondsLine.weight = f.secondsText.weight ? f.secondsText.weight : f.time.weight;
+        secondsLine.font = font(pick(f.secondsText.font, f.time.font));
+        secondsLine.weight = f.secondsText.weight ? f.secondsText.weight : timeWeight;
         secondsLine.size = timeDip * f.secondsText.size;
-        secondsLine.color = faceColors_.seconds;
+        secondsLine.color = secondsColor;
     }
 
     std::vector<FaceLine> lines;
@@ -328,8 +349,8 @@ std::vector<Clock::FaceLine> Clock::FaceTexts(const tm& t) const {
     if (layout == ClockFace::Layout::Inline && !dateLine.text.empty()) {
         const UINT32 at = static_cast<UINT32>(timeLine.text.size());
         timeLine.text += f.separator + dateLine.text;
-        timeLine.ranges.push_back(FaceRange{at, static_cast<UINT32>(f.separator.size() + dateLine.text.size()), f.date.font,
-                                            f.date.weight, dateDip, faceColors_.date});
+        timeLine.ranges.push_back(FaceRange{at, static_cast<UINT32>(f.separator.size() + dateLine.text.size()), rangeFont(f.date.font),
+                                            f.date.weight, dateDip, dateColor});
         dateLine.text.clear();
     }
     if (layout == ClockFace::Layout::DateFirst && !dateLine.text.empty()) lines.push_back(dateLine);
@@ -455,15 +476,19 @@ D2D1_SIZE_U Clock::BuildLayout(IDWriteFactory* dwrite, float scale) {
         scale_ = scale;
     }
 
-    const float timeSize = (SecondLine() ? 14.0f : 16.0f) * scale;
+    // Round 20 phase 20A: the item's look (Look) over the digital look: its size factor, font
+    // family and the time's weight.
+    const float timeSize = (SecondLine() ? 14.0f : 16.0f) * scale * look_.scale;
+    const wchar_t* family = look_.font.empty() ? kFontFamily : look_.font.c_str();
+    const DWRITE_FONT_WEIGHT timeWeight = look_.weight ? static_cast<DWRITE_FONT_WEIGHT>(look_.weight) : DWRITE_FONT_WEIGHT_SEMI_BOLD;
     if (!timeFormat_ &&
-        FAILED(dwrite->CreateTextFormat(kFontFamily, nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+        FAILED(dwrite->CreateTextFormat(family, nullptr, timeWeight, DWRITE_FONT_STYLE_NORMAL,
                                         DWRITE_FONT_STRETCH_NORMAL, timeSize, L"", timeFormat_.put()))) {
         return size_;
     }
     if (SecondLine() && !dateFormat_ &&
-        FAILED(dwrite->CreateTextFormat(kFontFamily, nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
-                                        DWRITE_FONT_STRETCH_NORMAL, 11.0f * scale, L"", dateFormat_.put()))) {
+        FAILED(dwrite->CreateTextFormat(family, nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
+                                        DWRITE_FONT_STRETCH_NORMAL, 11.0f * scale * look_.scale, L"", dateFormat_.put()))) {
         return size_;
     }
 
@@ -568,17 +593,18 @@ D2D1_SIZE_U Clock::BuildFaceLayout(IDWriteFactory* dwrite, float scale) {
     const float blockWidth = std::ceil(width);
     float y = 0.0f;
     const FaceLine* last = nullptr;
+    const float k = scale * look_.scale;  // round 20 phase 20A: the look's size factor on the face's DIPs
     for (FaceLine& l : faceLines_) {
         if (!l.layout) continue;
-        if (last) y += f.lineGap * scale;
+        if (last) y += f.lineGap * k;
         l.layout->SetMaxWidth(blockWidth);
         l.layout->SetTextAlignment(align);
         l.y = y;
         y += l.height;
         last = &l;
     }
-    padX_ = f.background ? std::round(f.padX * scale) : 0.0f;
-    padY_ = f.background ? std::round(f.padY * scale) : 0.0f;
+    padX_ = f.background ? std::round(f.padX * k) : 0.0f;
+    padY_ = f.background ? std::round(f.padY * k) : 0.0f;
     faceLastCentre_ = padY_ + (last ? last->y + last->height / 2.0f : 0.0f);
     if (blockWidth <= 0.0f) return size_;
     size_ = D2D1::SizeU(static_cast<UINT32>(blockWidth + 2.0f * padX_), static_cast<UINT32>(std::ceil(y) + 2.0f * padY_));
@@ -591,7 +617,7 @@ void Clock::DrawFace(ID2D1DeviceContext* dc, float x, float y) const {
     if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(faceColors_.time), brush.put()))) return;
     if (f.background) {
         const float bw = (faceColors_.border >> 24) ? std::max(0.0f, std::round(f.borderWidth * scale_)) : 0.0f;
-        const float r = f.radius * scale_;
+        const float r = f.radius * scale_ * look_.scale;  // round 20 phase 20A: the pill's corners grow with the text
         const D2D1_RECT_F box = D2D1::RectF(x + bw / 2.0f, y + bw / 2.0f, x + static_cast<float>(size_.width) - bw / 2.0f,
                                             y + static_cast<float>(size_.height) - bw / 2.0f);
         brush->SetColor(Theme::ToColor(faceColors_.fill));
@@ -626,10 +652,11 @@ void Clock::Draw(ID2D1DeviceContext* dc, float x, float y) const {
         return;
     }
     winrt::com_ptr<ID2D1SolidColorBrush> brush;
-    if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(textColor_), brush.put()))) return;
+    // Round 20 phase 20A: the look's colours over the theme's.
+    if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(look_.timeColor ? look_.timeColor : textColor_), brush.put()))) return;
     if (timeLayout_) dc->DrawTextLayout(D2D1::Point2F(x, y), timeLayout_.get(), brush.get());
     if (dateLayout_) {
-        brush->SetColor(Theme::ToColor(dateColor_));
+        brush->SetColor(Theme::ToColor(look_.dateColor ? look_.dateColor : dateColor_));
         dc->DrawTextLayout(D2D1::Point2F(x, y + timeHeight_), dateLayout_.get(), brush.get());
     }
 }

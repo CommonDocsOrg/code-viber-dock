@@ -15,8 +15,22 @@
 // the date colour) or "taskbar" (the Windows 7 clock: two centred lines of the same size and weight,
 // both in the text colour). "%#I" / "%#m" / "%#d" (no leading zero) are MSVC's wcsftime flag, which
 // system.format passes through (the Windows 7 preset uses "%#I:%M %p" over "%#m/%#d/%Y").
+//
+// Round 20 phase 20A (1.2.0): the look, as the dock's own clock got it: settings.scale multiplies
+// both sizes (a standalone window still fits the lines to itself), settings.font is the family of
+// both lines, settings.timeColor / dateColor replace the theme's colours (a transparent value,
+// the colour field's "the theme's", is not set).
 
 const DATE_FORMAT = '%a %d %b';
+
+// A colour setting that is set: "#AARRGGBB" / "#RRGGBB" with a non-zero alpha.
+function colorOf(value, fallback) {
+  if (typeof value !== 'string' || !/^#([0-9a-f]{6}|[0-9a-f]{8})$/i.test(value)) return fallback;
+  if (value.length === 9 && value.slice(1, 3) === '00') return fallback;
+  return value;
+}
+const lookScale = () => (typeof settings.scale === 'number' && settings.scale > 0 ? settings.scale : 1);
+const lookFont = () => (typeof settings.font === 'string' && settings.font.trim() ? { font: settings.font.trim() } : {});
 
 // Any specifier whose output includes seconds (as Clock::FormatHasSeconds).
 function hasSeconds(format) {
@@ -84,9 +98,9 @@ function lines(dock) {
 
 const taskbar = () => settings.timeStyle === 'taskbar';
 // Taskbar: both lines 12 DIPs, regular weight (Windows 7 draws the clock in 9 pt Segoe UI).
-const timeStyle = () => (taskbar() ? { size: 12, align: 'center' }
-  : { size: settings.showDate || settings.label ? 14 : 16, weight: 'semibold', align: 'center' });
-const dateStyle = () => (taskbar() ? { size: 12, align: 'center' } : { size: 11, align: 'center' });
+const timeStyle = () => ({ ...(taskbar() ? { size: 12 * lookScale(), align: 'center' }
+  : { size: (settings.showDate || settings.label ? 14 : 16) * lookScale(), weight: 'semibold', align: 'center' }), ...lookFont() });
+const dateStyle = () => ({ ...(taskbar() ? { size: 12 * lookScale(), align: 'center' } : { size: 11 * lookScale(), align: 'center' }), ...lookFont() });
 
 export function measure(canvas, dock) {
   const t = lines(dock);
@@ -113,6 +127,9 @@ export function draw(canvas, dock) {
     top = (canvas.height - (a0.height + b0.height) * k) / 2;
   }
   const a = canvas.measureText(t.time, style);
-  canvas.text(t.time, canvas.width / 2, top, { ...style, color: dock.theme.text });
-  if (t.date) canvas.text(t.date, canvas.width / 2, top + a.height, { ...date, color: taskbar() ? dock.theme.text : dock.theme.dateText });
+  canvas.text(t.time, canvas.width / 2, top, { ...style, color: colorOf(settings.timeColor, dock.theme.text) });
+  if (t.date) {
+    canvas.text(t.date, canvas.width / 2, top + a.height,
+                { ...date, color: colorOf(settings.dateColor, taskbar() ? dock.theme.text : dock.theme.dateText) });
+  }
 }
