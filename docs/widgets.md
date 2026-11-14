@@ -944,7 +944,7 @@ falls back to the first file.
 The dock's built-in clock (a `clock` item) draws its `face` (round 5: each clock item's own
 setting; `clock.face` is the default for new ones): `"digital"` (the default: its own look,
 unchanged) or the id of a face file. Shipped faces: `default` (the built-in look as a face file,
-pixel for pixel the same: a starting point), `large-time-small-date`, `mono-pill`. Your own:
+pixel for pixel the same: a starting point), `large-time-small-date`, `mono-pill`, and (round 28) `seconds-line`, `compact`, `time-weekday`, `big-date`. Your own:
 `%LocalAppData%\WinDock\clock-faces\<id>.json` (the clock item's settings page: **Open faces
 folder**); a file with a shipped face's id replaces it. The **Face** drop-down of a clock item's
 settings page lists them (the list is read again whenever the page is generated); a face that

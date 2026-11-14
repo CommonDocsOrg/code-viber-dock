@@ -1,0 +1,14 @@
+{
+  "name": "Time and weekday",
+  "description": "A menu-bar line: the time, then the weekday, the day and the month (with Show the date on), all the same size.",
+  "type": "digital",
+  "format": 2,
+  "layout": "inline",
+  "align": "center",
+  "separator": "  ",
+  "time": { "font": "Segoe UI", "weight": 600, "size": 0.93, "color": "theme:text" },
+  "date": { "font": "Segoe UI", "weight": 400, "size": 1.18, "color": "theme:text", "format": "%a %#d %b" },
+  "seconds": { "style": "inline" },
+  "suffix": { "style": "as-is" },
+  "vertical": { "stack": true, "align": "center" }
+}

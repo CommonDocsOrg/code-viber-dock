@@ -69,6 +69,12 @@
 #define IDR_WIDGET_MOON_MAIN 388
 #define IDR_WIDGET_QUICKBUTTONS_JSON 389
 #define IDR_WIDGET_QUICKBUTTONS_MAIN 390
+// Round 28 phase 28C: the Top bar preset (391) and four clock faces (392 - 395).
+#define IDR_PRESET_TOPBAR 391
+#define IDR_CLOCKFACE_SECONDS_LINE 392
+#define IDR_CLOCKFACE_COMPACT 393
+#define IDR_CLOCKFACE_TIME_WEEKDAY 394
+#define IDR_CLOCKFACE_BIG_DATE 395
 
 // Round 9 phase 9C: the predefined dock setups (RCDATA, res/presets/<id>.json; Presets.cpp lists
 // them in this order).

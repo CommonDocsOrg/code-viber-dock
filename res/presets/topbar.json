@@ -1,0 +1,22 @@
+{
+  "id": "topbar",
+  "name": "Top bar",
+  "tagline": "A slim menu bar along the top",
+  "description": "A slim dark bar across the whole top edge, like a menu bar: Start at the left, your running apps after it, and the clock with the weekday, the network, the volume, the battery (on a laptop) and the notification bell at the right. Icons stay small and do not magnify. It never hides, and maximized windows start below it. Pair it with a dock at the bottom for your pinned apps.",
+  "dock": {
+    "edge": "top", "align": "start", "fullWidth": true, "reserveSpace": true,
+    "iconSize": 24, "magnification": 1.0, "autoHide": "off",
+    "previews": true, "previewsSingleWindow": false,
+    "middleClick": "newInstance", "layer": "normal",
+    "themePreset": "dark"
+  },
+  "items": [
+    { "kind": "widget", "id": "start", "anchor": "start" },
+    { "kind": "running", "settings": { "filter": "all", "windows": "stacked", "titles": "off", "badges": true } },
+    { "kind": "clock", "anchor": "end", "settings": { "face": "time-weekday", "showDate": true, "showSeconds": false } },
+    { "kind": "widget", "id": "network", "anchor": "end" },
+    { "kind": "widget", "id": "volume", "anchor": "end", "settings": { "style": "icon", "showPercent": false } },
+    { "kind": "widget", "id": "battery", "anchor": "end" },
+    { "kind": "widget", "id": "notification-bell", "anchor": "end" }
+  ]
+}

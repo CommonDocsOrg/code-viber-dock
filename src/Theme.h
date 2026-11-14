@@ -81,9 +81,15 @@ int GetInt(const ThemeConfig& t, const FieldInfo& f);
 void SetInt(ThemeConfig& t, const FieldInfo& f, int v);  // clamped to [min, max]
 
 struct Preset {
-    const wchar_t* id;    // "dark", "light", "glass", "solid", "shelf", "leopard", "contrast", "aero"
+    const wchar_t* id;    // "dark", "light", "glass", "solid", "shelf", "leopard", "contrast", "aero"; round 28:
+                          // "nord", "dracula", "catppuccin-mocha", "catppuccin-latte", "solarized-light",
+                          // "solarized-dark", "gruvbox-dark", "neon", "luna"
     const wchar_t* name;  // "Dark", "Light", ...
     ThemeConfig values;
+    // Round 28 phase 28C: a colour palette (Nord ... Luna). Listed after the eight looks everywhere
+    // the presets are; Quick setup's four-column grid (sized for two rows, no scrolling) leaves them
+    // out: they are in App settings > Themes, the Look tab's gallery and Apply a look.
+    bool palette = false;
 };
 const Preset* BuiltIns(size_t& count);
 const Preset* FindBuiltIn(std::wstring_view id);  // case-insensitive; nullptr if none

@@ -269,6 +269,134 @@ ThemeConfig MakeAero() {
     return t;
 }
 
+// Round 28 phase 28C: colour palettes. Each is the dark look (or the light one) with the palette's
+// published colours in the colour fields: the bar (opaque fill and the tint over the blur), the
+// label, the accent, the hairlines, the indicator dots, badges, the clock and the preview cards.
+// Shape, effects and spacing stay as dark's / light's unless the palette's look needs them (Neon's
+// glow, Luna's taskbar buttons).
+struct Palette {
+    uint32_t base, surface, overlay, text, subtext, accent, active, attention, badge;
+};
+
+ThemeConfig FromPalette(ThemeConfig t, const Palette& p, bool light) {
+    const uint32_t rgb = 0x00FFFFFF;
+    t.background = 0xE6000000 | (p.base & rgb);
+    t.acrylic = true;
+    t.acrylicBackground = (light ? 0xA6000000 : 0x99000000) | (p.base & rgb);
+    t.labelBackground = 0xF2000000 | (p.surface & rgb);
+    t.labelText = 0xFF000000 | (p.text & rgb);
+    t.labelBorder = 0x59000000 | (p.overlay & rgb);
+    t.accent = 0xFF000000 | (p.accent & rgb);
+    t.barBorder = (light ? 0x4D000000 : 0x66000000) | (p.overlay & rgb);
+    t.separator = 0x80000000 | (p.overlay & rgb);
+    t.dotRunning = 0xA6000000 | (p.subtext & rgb);
+    t.dotActive = 0xFF000000 | (p.active & rgb);
+    t.dotAttention = 0xFF000000 | (p.attention & rgb);
+    t.badgeFill = 0xFF000000 | (p.badge & rgb);
+    t.badgeText = 0xFF000000 | (p.base & rgb);
+    t.clockText = 0xF2000000 | (p.text & rgb);
+    t.clockDateText = 0xD9000000 | (p.subtext & rgb);
+    t.placeholderFill = 0xFF000000 | (p.overlay & rgb);
+    t.placeholderText = 0xFF000000 | (p.text & rgb);
+    t.previewHotBackground = (light ? 0x1F000000 : 0x26000000) | (p.overlay & rgb);
+    t.previewHotBorder = 0x66000000 | (p.accent & rgb);
+    t.closeHover = 0xFF000000 | (p.badge & rgb);
+    return t;
+}
+
+// Nord (nordtheme.com): Polar Night nord0 #2E3440 / nord1 #3B4252 / nord3 #4C566A, Snow Storm
+// nord4 #D8DEE9 / nord6 #ECEFF4, Frost nord8 #88C0D0, Aurora nord11 #BF616A / nord13 #EBCB8B.
+ThemeConfig MakeNord() {
+    return FromPalette(ThemeConfig{}, {0x2E3440, 0x3B4252, 0x4C566A, 0xECEFF4, 0xD8DEE9, 0x88C0D0, 0x88C0D0, 0xEBCB8B, 0xBF616A}, false);
+}
+
+// Dracula (draculatheme.com): Background #282A36, Current Line #44475A, Comment #6272A4,
+// Foreground #F8F8F2, Purple #BD93F9, Pink #FF79C6, Orange #FFB86C, Red #FF5555.
+ThemeConfig MakeDracula() {
+    return FromPalette(ThemeConfig{}, {0x282A36, 0x44475A, 0x6272A4, 0xF8F8F2, 0xBFC2D6, 0xBD93F9, 0xFF79C6, 0xFFB86C, 0xFF5555}, false);
+}
+
+// Catppuccin Mocha (catppuccin.com/palette): Base #1E1E2E, Surface0 #313244, Overlay0 #6C7086,
+// Text #CDD6F4, Subtext0 #A6ADC8, Mauve #CBA6F7, Lavender #B4BEFE, Peach #FAB387, Red #F38BA8.
+ThemeConfig MakeMocha() {
+    return FromPalette(ThemeConfig{}, {0x1E1E2E, 0x313244, 0x6C7086, 0xCDD6F4, 0xA6ADC8, 0xCBA6F7, 0xB4BEFE, 0xFAB387, 0xF38BA8}, false);
+}
+
+// Catppuccin Latte: Base #EFF1F5, Mantle #E6E9EF, Overlay0 #9CA0B0, Text #4C4F69, Subtext0
+// #6C6F85, Mauve #8839EF, Lavender #7287FD, Peach #FE640B, Red #D20F39.
+ThemeConfig MakeLatte() {
+    ThemeConfig t = FromPalette(MakeLight(), {0xEFF1F5, 0xE6E9EF, 0x9CA0B0, 0x4C4F69, 0x6C6F85, 0x8839EF, 0x7287FD, 0xFE640B, 0xD20F39}, true);
+    t.badgeText = 0xFFFFFFFF;
+    return t;
+}
+
+// Solarized (ethanschoonover.com/solarized): base03 #002B36, base02 #073642, base01 #586E75,
+// base00 #657B83, base0 #839496, base1 #93A1A1, base2 #EEE8D5, base3 #FDF6E3, yellow #B58900,
+// orange #CB4B16, red #DC322F, blue #268BD2, cyan #2AA198.
+ThemeConfig MakeSolarizedLight() {
+    ThemeConfig t = FromPalette(MakeLight(), {0xFDF6E3, 0xEEE8D5, 0x93A1A1, 0x586E75, 0x657B83, 0x268BD2, 0x268BD2, 0xCB4B16, 0xDC322F}, true);
+    t.badgeText = 0xFFFDF6E3;
+    return t;
+}
+
+ThemeConfig MakeSolarizedDark() {
+    return FromPalette(ThemeConfig{}, {0x002B36, 0x073642, 0x586E75, 0x93A1A1, 0x839496, 0x268BD2, 0x2AA198, 0xB58900, 0xDC322F}, false);
+}
+
+// Gruvbox dark (github.com/morhetz/gruvbox): bg #282828, bg1 #3C3836, bg3 #665C54, fg #EBDBB2,
+// fg4 #A89984, yellow #FABD2F, orange #FE8019, red #FB4934.
+ThemeConfig MakeGruvbox() {
+    return FromPalette(ThemeConfig{}, {0x282828, 0x3C3836, 0x665C54, 0xEBDBB2, 0xA89984, 0xFABD2F, 0xFABD2F, 0xFE8019, 0xFB4934}, false);
+}
+
+// Neon: a near-black violet bar outlined in cyan, hot pink for the active app, and every icon with a
+// strong cyan glow (synthwave colours: #0D0221, #05D9E8, #FF2A6D, #F9C80E).
+ThemeConfig MakeNeon() {
+    ThemeConfig t = FromPalette(ThemeConfig{}, {0x0D0221, 0x1A0B3D, 0x05D9E8, 0xFFFFFF, 0x05D9E8, 0x05D9E8, 0xFF2A6D, 0xF9C80E, 0xFF2A6D}, false);
+    t.background = 0xF20D0221;
+    t.acrylicBackground = 0xCC0D0221;
+    t.barBorder = 0xE605D9E8;
+    t.separator = 0xB3FF2A6D;
+    t.labelBorder = 0xFF05D9E8;
+    t.clockText = 0xFF05D9E8;
+    t.clockDateText = 0xE6FF2A6D;
+    t.glow = static_cast<int>(GlowMode::Always);
+    t.glowColor = 0xFF05D9E8;
+    t.glowRadius = 18.0f;
+    t.glowStrength = 0.85f;
+    return t;
+}
+
+// Luna: the blue taskbar and green accent of Windows XP's default theme, by look: a glossy royal blue
+// bar (#245EDC) with square corners, lighter blue taskbar buttons (#3C81F3; pressed #1E52B7),
+// tooltip-yellow labels (#FFFFE1) and the green of its Start button (#3C9A3C) as the accent.
+ThemeConfig MakeLuna() {
+    ThemeConfig t = MakeAero();
+    t.acrylic = false;
+    t.background = 0xFF245EDC;
+    t.acrylicBackground = 0xE6245EDC;
+    t.barBorder = 0x80FFFFFF;
+    t.separator = 0x591941A5;
+    t.sheen = 0.7f;
+    t.slotRunning = 0xFF3C81F3;
+    t.slotActive = 0xFF1E52B7;
+    t.slotAttention = 0xFFF0A030;
+    t.slotHover = 0x33FFFFFF;
+    t.slotBorder = 0x8CFFFFFF;
+    t.slotCornerRadius = 3.0f;
+    t.labelBackground = 0xFFFFFFE1;
+    t.labelText = 0xFF000000;
+    t.labelBorder = 0xFF000000;
+    t.labelCornerRadius = 0.0f;
+    t.accent = 0xFF3C9A3C;
+    t.clockText = 0xFFFFFFFF;
+    t.clockDateText = 0xE6FFFFFF;
+    t.badgeFill = 0xFFE5342A;
+    t.previewHotBackground = 0x333C81F3;
+    t.previewHotBorder = 0x99FFFFFF;
+    return t;
+}
+
 void Log(const std::wstring& text) { OutputDebugStringW((L"WinDock: " + text + L"\n").c_str()); }
 
 }  // namespace
@@ -323,6 +451,19 @@ const Preset* BuiltIns(size_t& count) {
         {L"leopard", L"3D shelf", MakeLeopard()},
         {L"contrast", L"High contrast", MakeContrast()},
         {L"aero", L"Aero glass", MakeAero()},  // round 11 phase 11A
+        // Round 28 phase 28C: the colour palettes, appended so the looks keep their indexes
+        // (Presets::Looks() order is DockCommand 168's LOWORD; theme files now come after these).
+        // A theme file named like one of these ids is now ignored (ListUserThemes, as for every
+        // built-in id); this PC had no themes folder when they were added.
+        {L"nord", L"Nord", MakeNord(), true},
+        {L"dracula", L"Dracula", MakeDracula(), true},
+        {L"catppuccin-mocha", L"Catppuccin Mocha", MakeMocha(), true},
+        {L"catppuccin-latte", L"Catppuccin Latte", MakeLatte(), true},
+        {L"solarized-light", L"Solarized Light", MakeSolarizedLight(), true},
+        {L"solarized-dark", L"Solarized Dark", MakeSolarizedDark(), true},
+        {L"gruvbox-dark", L"Gruvbox Dark", MakeGruvbox(), true},
+        {L"neon", L"Neon", MakeNeon(), true},
+        {L"luna", L"Luna", MakeLuna(), true},
     };
     count = std::size(kPresets);
     return kPresets;

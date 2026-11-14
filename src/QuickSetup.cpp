@@ -194,6 +194,13 @@ bool QuickSetup::Create(HINSTANCE instance, HWND owner) {
     }
     if (rows_.empty()) return false;
     looks_ = Presets::Looks();
+    // Round 28 phase 28C: the grid shows the looks and theme files, not the colour palettes (its four
+    // columns are sized for two rows and do not scroll); gridLooks_ maps a tile to its Looks() index.
+    gridLooks_.clear();
+    for (size_t i = 0; i < looks_.size(); ++i) {
+        const Theme::Preset* p = looks_[i].user ? nullptr : Theme::FindBuiltIn(looks_[i].id);
+        if (!p || !p->palette) gridLooks_.push_back(i);
+    }
 
     // The primary display (the app window is hidden): its DPI and size decide the window's.
     HMONITOR mon = MonitorFromPoint(POINT{0, 0}, MONITOR_DEFAULTTOPRIMARY);
@@ -533,7 +540,7 @@ void QuickSetup::Layout() {
         const bool twoRows = several && m.narrow;  // the small window: the switch on a row of its own
         const int cardH = twoRows ? 114 : 78;
         const int avail = std::max(96, m.bodyBottom - top - 16 - cardH);
-        const int count = std::max(1, static_cast<int>(looks_.size()));
+        const int count = std::max(1, static_cast<int>(gridLooks_.size()));
         const int gridRows = (count + 3) / 4;
         const int gap = SettingsGallery::kWideGap;
         const int tileH = std::clamp((avail - (gridRows - 1) * gap) / gridRows, 84, 134);
@@ -1646,16 +1653,17 @@ void QuickSetup::SyncLooks() {
         for (uint64_t m = mask; m; m &= m - 1) ++changed;
         std::vector<SettingsGallery::Tile> tiles;
         int selected = 0;
-        for (size_t i = 0; i < looks_.size(); ++i) {
+        for (size_t g = 0; g < gridLooks_.size(); ++g) {
+            const Presets::Look& entry = looks_[gridLooks_[g]];
             SettingsGallery::Tile t;
-            t.name = looks_[i].name;
-            t.theme = looks_[i].values;
-            t.detail = ShortTagline(looks_[i]);
-            t.current = _wcsicmp(looks_[i].id.c_str(), preset.c_str()) == 0;
+            t.name = entry.name;
+            t.theme = entry.values;
+            t.detail = ShortTagline(entry);
+            t.current = _wcsicmp(entry.id.c_str(), preset.c_str()) == 0;
             if (t.current) {
                 // The ring and the badge say "current"; the line says what was changed on it.
                 if (changed) t.detail = std::to_wstring(changed) + L" changed \x00B7 " + t.detail;
-                selected = static_cast<int>(i);
+                selected = static_cast<int>(g);
             }
             tiles.push_back(std::move(t));
         }
@@ -1697,11 +1705,11 @@ void QuickSetup::OnLookCommand(int id, int code) {
         if (code != SettingsGallery::kChosen) return;
         const size_t k = static_cast<size_t>(id - kSetupGallery);
         const int sel = galleries_[k].Selected();
-        if (sel < 0 || static_cast<size_t>(sel) >= looks_.size()) return;
+        if (sel < 0 || static_cast<size_t>(sel) >= gridLooks_.size()) return;
         QuickSetupChange c;
         c.kind = QuickSetupChange::Kind::Look;
         c.dock = LookTarget(k);
-        c.value = sel;
+        c.value = static_cast<int>(gridLooks_[static_cast<size_t>(sel)]);  // its Presets::Looks() index
         Apply(c);
         return;
     }

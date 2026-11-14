@@ -1,0 +1,14 @@
+{
+  "name": "Compact",
+  "description": "One short line: the time and a numeric day and month (with Show the date on), no AM / PM. For slim bars; pair it with a 24-hour time format (%H:%M).",
+  "type": "digital",
+  "format": 2,
+  "layout": "inline",
+  "align": "center",
+  "separator": "  ",
+  "time": { "font": "Segoe UI", "weight": 600, "size": 0.95, "color": "theme:text" },
+  "date": { "font": "Segoe UI", "weight": 400, "size": 0.95, "color": "theme:dateText", "format": "%d.%m." },
+  "seconds": { "style": "small", "size": 0.7, "color": "theme:dateText" },
+  "suffix": { "style": "none" },
+  "vertical": { "stack": true, "align": "center" }
+}

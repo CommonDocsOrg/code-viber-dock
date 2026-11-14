@@ -216,6 +216,7 @@ private:
     HFONT font_ = nullptr, fontBold_ = nullptr, fontHeading_ = nullptr, fontSmall_ = nullptr, fontLabel_ = nullptr;
     HBRUSH baseBrush_ = nullptr, controlBrush_ = nullptr, cardBrush_ = nullptr;
     std::vector<Presets::Look> looks_;
+    std::vector<size_t> gridLooks_;  // round 28 phase 28C: the grid's tiles as looks_ indexes (no palettes)
     Metrics m_;
     struct Card {
         int step;            // shown on this step only

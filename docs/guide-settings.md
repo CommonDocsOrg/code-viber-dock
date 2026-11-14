@@ -283,13 +283,15 @@ Each control has a **↺** that goes back to the theme's value.
 
 #### Choosing a theme
 
-The **Theme** card shows the themes as a gallery of tiles, each a small dock drawn in that theme: the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast, Aero glass), then your own theme files.
+The **Theme** card shows the themes as a gallery of tiles, each a small dock drawn in that theme: the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast, Aero glass), the colour palettes (Nord, Dracula, Catppuccin Mocha, Catppuccin Latte, Solarized Light, Solarized Dark, Gruvbox Dark, Neon and Luna), then your own theme files.
 
 - Click a tile, or move with the arrow keys and press Enter, to try that theme. It is a preview: click **Keep** or **Cancel** in the bar above the page.
 - The tile of the theme in use is framed. When you changed some of its values it says so, for example "Current · 3 changed".
 - The hint under **Theme** counts your changes too. Choosing another theme clears them.
 
 **Aero glass** is the look of the Windows 7 taskbar: a blue-grey glass tint over the blur, square corners, a glossy sheen, taskbar buttons instead of the dots, wide gaps between the icons, a thin bar and light name labels. It looks best on a full-width bar with 32 DIP icons and magnification 1.00×. The **Windows 7** layout builds the whole taskbar on it: see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7).
+
+The colour palettes are popular editor and terminal colour schemes on the dock: the bar, the name labels, the dots under running apps, the badges and the clock take the palette's colours. Catppuccin Latte and Solarized Light are light; the others are dark. **Neon** gives every icon a strong cyan glow on a near-black bar. **Luna** is the blue taskbar of Windows XP: a glossy blue bar with lighter blue buttons behind your apps and yellow name labels; it looks best on a full-width bar with 32 DIP icons. Quick setup shows the eight themes above; the palettes are here and on a dock's Look tab.
 
 The **⋯** button next to it has:
 

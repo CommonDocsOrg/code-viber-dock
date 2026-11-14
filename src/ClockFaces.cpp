@@ -27,6 +27,10 @@ constexpr Shipped kShipped[] = {
     {L"default", IDR_CLOCKFACE_DEFAULT},
     {L"large-time-small-date", IDR_CLOCKFACE_LARGE},
     {L"mono-pill", IDR_CLOCKFACE_MONO_PILL},
+    {L"seconds-line", IDR_CLOCKFACE_SECONDS_LINE},  // round 28 phase 28C
+    {L"compact", IDR_CLOCKFACE_COMPACT},
+    {L"time-weekday", IDR_CLOCKFACE_TIME_WEEKDAY},
+    {L"big-date", IDR_CLOCKFACE_BIG_DATE},
 };
 constexpr size_t kMaxFileBytes = 256u * 1024u;
 

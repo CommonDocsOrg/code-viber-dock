@@ -241,7 +241,7 @@ Each clock has its own settings window, with two tabs. The **Content** tab has t
 
 The **Appearance** tab has the **Look** card:
 
-- **Face**: **Digital (built in)** is the usual look; the others are clock face files. **Open faces folder** opens the folder for your own faces.
+- **Face**: **Digital (built in)** is the usual look; the others are clock face files. **Open faces folder** opens the folder for your own faces. The faces that come with ViberDock: Default, Large time, small date, Mono pill, Seconds under the time, Compact (one short line), Time and weekday (one line, as on a menu bar) and Large date over the time. The faces with a date show it only while **Show the date under the time** is on (on the one-line faces it sits beside the time).
 - **Size**: 1 is the usual size, 2 twice as big (up to 4). The clock only grows as far as the bar is thick: for a really big clock, raise the dock's **Thickness** on its Layout tab first.
 - **Font**: the name of any font installed on your PC, such as Bahnschrift or Consolas. Leave it empty for the face's own font (Segoe UI for the digital look).
 - **Weight of the time**: light, regular, semibold or bold digits, or the face's own.

@@ -100,7 +100,7 @@ Prefer to build it yourself? See [Build](#build) below.
   that sort the Desktop into them.
 - **Customize on the dock**: customize mode with drag, remove badges and an add drawer with live
   previews; a settings panel attached to each dock; layouts (Basic, Modern, Minimal, Sidebar,
-  Windows 7, Windows and labels, Dashboard, Performance, Everyday taskbar); looks you can save, import and export;
+  Windows 7, Windows and labels, Dashboard, Performance, Everyday taskbar, Top bar); looks you can save, import and export;
   50 steps of undo for every change made anywhere; settings search.
 - **Light on the machine**: one process, one UI thread, one-shot timers, nothing ticking while
   idle; GPU rendering with a software fallback; no services, no background helpers.
@@ -1346,8 +1346,11 @@ calendar) or an `.ics` file on this PC (a full path or a `file:///` URL).
 **Clock faces** (round 4 phase 14): `clock.face` is `"digital"` (the default: the clock as it has
 always looked) or a face file: the shipped `default` (the same look as a file to start from),
 `large-time-small-date` (a big light time with small seconds and AM / PM over a small upper-case
-date in the accent colour) and `mono-pill` (a monospaced time and date on one line in a rounded
-pill), or your own `%LocalAppData%\WinDock\clock-faces\<id>.json` (the clock item's settings page:
+date in the accent colour), `mono-pill` (a monospaced time and date on one line in a rounded
+pill) and, since round 28, `seconds-line` (the seconds on a small accent line under the time),
+`compact` (one short line: the time and `%d.%m.`, no AM / PM), `time-weekday` (one menu-bar line:
+the time, then the weekday, day and month at the same size; the Top bar preset's) and `big-date`
+(the weekday and date large over a smaller accent time), or your own `%LocalAppData%\WinDock\clock-faces\<id>.json` (the clock item's settings page:
 Face, **Open faces folder**). A face sets the lines (stacked, date first, one line), fonts, size ratios, colours
 (or the theme's), the seconds' and the AM / PM's style, separators, an optional background pill and
 the alignment on vertical docks; the format, seconds and date settings still apply
@@ -2359,6 +2362,7 @@ asks for a name and writes the dock's place, behaviour, items and look to `layou
 | **Floating performance** (`performance`) | system load at a glance | floating at the top right (`x` 16000 = against the right end, `y` 8), facing the top edge (popups open downward), on the desktop under your windows, 40 px, no magnification, locked | System monitor, System overview, Battery, clock (no pins) |
 | **Desktop dashboard** (`dashboard`) | a desktop panel | floating in the middle, on the desktop under your windows, 56 px, no magnification | Analog clock, weather, Agenda, Notes (no pins) |
 | **Everyday taskbar** (`everyday`) | a full taskbar replacement with widgets | bottom, full length, centred, reserves its space (`reserveSpace`), never hides, 48 px, magnification 1.1 / range 3, previews, one slot per app with one line of title under it, window pictures every 2 s, middle click opens a new window, the Dark theme | at the start: weather (7 days on the dock); in the middle: Start, running apps, separator, your pins, Volume (ring), Media, clock (large time over a small date, 1.5 ×); at the end: System overview, the System tray (2 rows of 4, 16 DIP icons, the overflow in a drawer), Network and Input language (round 27; `hideSingle`: no room with one layout), notifications, Show desktop |
+| **Top bar** (`topbar`, round 28 phase 28C) | a slim menu bar along the top | top, full length, items from the left, reserves its space (`reserveSpace`), never hides, 24 px, no magnification, previews, middle click opens a new window, the Dark theme | Start, running apps (one slot per app, no titles), then at the end: the clock (the `time-weekday` face: the time, then the weekday, day and month on one line), Network, Volume (icon only), Battery (no room without a battery), Notification bell (no pins) |
 
 A layout picks a theme preset for the dock (`themePreset`): Modern uses Glass, Minimal Solid,
 Windows 7 Aero glass. Since round 12 phase 12B that gives the dock its own look (the preset's values;
@@ -3206,7 +3210,7 @@ items that exist. A file whose items have settings already is left alone.
   variables are expanded, and a quoted path may be followed by arguments
   (`"\"C:\\Program Files\\App\\app.exe\" --calendar"`). See Weather and calendar.
   `clock.face` (default `"digital"`, written only when it is not): the clock's look, `"digital"` or
-  the id of a digital face file (`default`, `large-time-small-date`, `mono-pill`, or a file of
+  the id of a digital face file (`default`, `large-time-small-date`, `mono-pill`, `seconds-line`, `compact`, `time-weekday`, `big-date`, or a file of
   `%LocalAppData%\WinDock\clock-faces\`); see Clock faces under Weather and calendar.
   `clock.timeZone` (round 5, default `""` = the local time; written only when set): a Windows time
   zone key name (`"Tokyo Standard Time"`, `"GMT Standard Time"`; `tzutil /l` lists them; an unknown
@@ -3345,7 +3349,22 @@ grey glass shelf with icon reflections, a glow on the hovered icon and the 3D pe
 slot colours, `iconGap` 28, `barPadding` 4 (a 40 DIP bar for 32 DIP icons), white labels with
 black text and a grey hairline (`labelCornerRadius` 3), white clock text, a blue preview hover; no
 glow, reflection or tilt; the dots as `dark`; the dock preset **Windows 7** (`win7`, Presets)
-builds the whole taskbar on it). Ids are case-insensitive.
+builds the whole taskbar on it). Round 28 phase 28C adds colour palettes, each the dark look (or,
+marked *light*, the light one) with the palette's published colours in the bar, label, accent,
+hairline, dot, badge, clock and preview fields (`Theme.cpp` `FromPalette` names each colour):
+`nord` (Nord: Polar Night `#2E3440`, Frost `#88C0D0`), `dracula` (Dracula: `#282A36`, purple
+`#BD93F9`, pink active dots), `catppuccin-mocha` (Catppuccin Mocha: base `#1E1E2E`, mauve
+`#CBA6F7`), `catppuccin-latte` (Catppuccin Latte, *light*: base `#EFF1F5`, mauve `#8839EF`),
+`solarized-light` (*light*: base3 `#FDF6E3`, blue `#268BD2`), `solarized-dark` (base03
+`#002B36`, blue / cyan), `gruvbox-dark` (`#282828`, yellow `#FABD2F`), `neon` (a near-black violet
+bar `#0D0221` outlined in cyan `#05D9E8`, hot pink `#FF2A6D` active dots, a cyan clock and `glow`
+"always" in cyan, radius 18, strength 0.85) and `luna` (Luna: Windows XP's blue taskbar by look,
+built on `aero`'s slot buttons: an opaque royal blue `#245EDC` bar with `sheen` 0.7, lighter blue
+buttons `#3C81F3` (pressed `#1E52B7`), tooltip-yellow labels `#FFFFE1` with square corners and the
+green `#3C9A3C` accent). They are listed after the eight looks (App settings > Themes, a dock's
+Look tab, Apply a look, the preset chooser); Quick setup's look grid shows the eight looks only (it
+is sized for two rows). A theme file named like one of these ids is now ignored, as for every
+built-in id. Ids are case-insensitive.
 
 User themes live in `%LocalAppData%\WinDock\themes\<id>.json`; the file name without `.json` is
 the id used in `preset` (case-insensitive). A file named like a built-in id is ignored. Round 12

@@ -1,0 +1,14 @@
+{
+  "name": "Seconds under the time",
+  "description": "The time large, its seconds on a line of their own under it (with Show seconds on), then the date (with Show the date on).",
+  "type": "digital",
+  "format": 2,
+  "layout": "stacked",
+  "align": "center",
+  "time": { "font": "Segoe UI", "weight": 600, "size": 1.15, "color": "theme:text" },
+  "date": { "font": "Segoe UI", "weight": 400, "size": 0.9, "color": "theme:dateText", "format": "%a %d %b" },
+  "seconds": { "style": "line", "size": 0.6, "color": "theme:accent" },
+  "suffix": { "style": "small", "size": 0.55 },
+  "lineGap": -1,
+  "vertical": { "stack": true, "align": "center" }
+}

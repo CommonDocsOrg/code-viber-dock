@@ -2141,6 +2141,16 @@ no data). The Quick buttons are the reason for 28A's keys; they stay a fixed lis
 rather than a free "keys" field, for the same reason the allow-list exists. Not done: a drive
 space widget (the API is there; System overview could show it later).
 
+**28C, styles.** Theme presets are a compiled table, so the palettes are nine more entries built
+from one helper that maps a palette's roles (base, surface, overlay, text, subtext, accent, active,
+attention, red) onto the theme's colour fields; shape and effects stay the dark / light look's
+except where the palette is a look (Neon's glow, Luna's buttons on the Aero base). They are
+appended, so the looks keep their indexes. Quick setup's grid was not grown to 17 tiles: it does not
+scroll and was designed for two rows of four; it keeps the eight looks and the palettes are one
+click away in Themes (to confirm with the owner). The Top bar preset is a second bar, not a dock
+replacement: no pins, small icons, the clock on one line through a new face. Four clock faces fill
+gaps in the shipped set (a seconds line, a compact line, a menu-bar line, a large date).
+
 ## Dependencies at a glance
 
 ```

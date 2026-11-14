@@ -290,8 +290,9 @@ The built-in layouts:
 - **Floating performance**: system load at the top right. A small floating bar with a processor graph, an overview of processor, memory, graphics, disk and network, the battery and a clock. It lives on the desktop under your windows and is locked so it does not move by accident.
 - **Desktop dashboard**: a floating bar in the middle of the desktop, under your windows, with a large analog clock, the weather, today's agenda and your notes. Show the desktop or press the dashboard hotkey to see it.
 - **Everyday taskbar**: a full-width bar with everything on it. A dark bar along the whole bottom edge that takes the place of the taskbar: the weather with a week of forecast at the left end; Start, your windows with their titles, your apps, the volume, now playing and a large clock in the middle; the system overview, the tray icons, the network, the keyboard language (when you have more than one), notifications and Show desktop at the right end. It never hides, and maximized windows stop above it.
+- **Top bar**: a slim menu bar along the whole top edge. Start and your running apps at the left; the clock with the weekday, the network, the volume, the battery (on a laptop) and the notification bell at the right. Icons stay small and do not grow. It never hides, and maximized windows start below it. Add a dock at the bottom for your pinned apps.
 
-Floating performance and Desktop dashboard have no place for your pinned apps; the chooser and the Add a dock card say so.
+Floating performance, Desktop dashboard and Top bar have no place for your pinned apps; the chooser and the Add a dock card say so.
 
 A layout that names a theme, such as Modern (Glass), Minimal (Solid) or Windows 7 (Aero glass), gives the dock that theme as its own look, unless you check **Keep my current look**.
 
