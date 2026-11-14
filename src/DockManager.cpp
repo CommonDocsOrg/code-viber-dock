@@ -54,6 +54,8 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     tracker_.SetTitleCallback([this](const std::vector<HWND>& windows) {
         ForEach([&](DockWindow& w) { w.OnWindowTitles(windows); });
     });
+    // Round 27 phase 27C: the input-language provider's signals (a flag test while it is not running).
+    tracker_.SetShellListener([this](WPARAM code, LPARAM lp) { widgets_.OnShellEvent(code, lp); });
     tracker_.Start(owner_, [this](const WindowTracker::Snapshot& snap) {
         ForEach([&](DockWindow& w) { w.OnSnapshot(snap); });
     });
@@ -154,6 +156,7 @@ void DockManager::Shutdown() {
     abnMonitors_.clear();
     guardForce_ = -1;
     watch_.Stop();
+    tracker_.SetShellListener(nullptr);  // round 27 phase 27C
     tracker_.Stop();
     widgets_.SetWeather(nullptr, nullptr);
     for (auto& w : weather_) {

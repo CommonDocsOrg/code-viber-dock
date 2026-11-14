@@ -58,6 +58,11 @@ public:
     void Start(HWND owner, ChangeFn onChange);
     void Stop();
     void SetTitleCallback(TitleFn onTitles) { onTitles_ = std::move(onTitles); }
+    // Round 27 phase 27C: every shell hook message as it comes (wParam the HSHELL_ code, lParam as
+    // sent: a window, or the HKL of HSHELL_LANGUAGE), before the tracker's own handling. The input
+    // provider listens here instead of registering a hook of its own.
+    using ShellFn = std::function<void(WPARAM code, LPARAM lp)>;
+    void SetShellListener(ShellFn listener) { onShell_ = std::move(listener); }
 
     // Feed every message of the owner window. Returns true if consumed.
     bool HandleMessage(UINT msg, WPARAM wp, LPARAM lp);
@@ -100,6 +105,7 @@ private:
     HWINEVENTHOOK cloakHook_ = nullptr;
     HWINEVENTHOOK minimizeHook_ = nullptr;
     TitleFn onTitles_;
+    ShellFn onShell_;  // round 27 phase 27C
     std::unordered_set<HWND> titleChanged_;  // HSHELL_REDRAW since the last reconcile
     bool structural_ = false;          // round 26 phase 26C: the pending pass needs the full Reconcile
     ULONGLONG scheduledSince_ = 0;     // the first event of the pending pass (0: none pending)

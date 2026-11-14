@@ -245,7 +245,9 @@ void WidgetRuntime::Shutdown() {
     media_.Stop();
     perf_.Stop();
     networkUsers_.clear();  // round 27
+    inputUsers_.clear();
     network_.Stop();
+    input_.Stop();
     FlushStorage();
     StopWatcher();
     watched_.clear();
@@ -771,6 +773,15 @@ NetworkService* WidgetRuntime::UseNetwork(WidgetInstance* w) {
     return &network_;
 }
 
+InputService* WidgetRuntime::UseInput(WidgetInstance* w) {
+    if (!input_.Active()) {
+        if (!input_.Start()) return nullptr;
+        input_.SetChanged([this] { NotifyProvider(inputUsers_, "input"); });
+    }
+    if (inputUsers_.insert(w).second) SyncProviderQuiet();
+    return &input_;
+}
+
 void WidgetRuntime::SyncProviderQuiet() {
     // Round 27 (the round 26 rule for providers): quiet unless some user can be seen and the session
     // is in use. A user is any live instance that called the provider (previews never do).
@@ -779,6 +790,7 @@ void WidgetRuntime::SyncProviderQuiet() {
         return std::none_of(users.begin(), users.end(), [this](WidgetInstance* w) { return Alive(w) && w->CanBeSeen(); });
     };
     if (network_.Active()) network_.SetQuiet(quiet(networkUsers_));
+    if (input_.Active()) input_.SetQuiet(quiet(inputUsers_));
 }
 
 PerfService* WidgetRuntime::UsePerf(WidgetInstance* w) {
@@ -865,6 +877,10 @@ void WidgetRuntime::ReleaseProviders(WidgetInstance* w) {
     // Round 27: the last user stops the provider; another one leaving may make it quiet.
     if (networkUsers_.erase(w)) {
         if (networkUsers_.empty()) network_.Stop();
+        SyncProviderQuiet();
+    }
+    if (inputUsers_.erase(w)) {
+        if (inputUsers_.empty()) input_.Stop();
         SyncProviderQuiet();
     }
     if (perfUsers_.erase(w)) {

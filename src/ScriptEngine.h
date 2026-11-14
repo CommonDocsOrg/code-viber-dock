@@ -71,7 +71,7 @@ public:
     virtual void SetRefresh(uint32_t ms, const std::wstring& timeZone) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf, Network };
+    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf, Network, Input };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -142,6 +142,10 @@ public:
     // --- network (permission "network", round 27 phase 27B): the process's NetworkService ---
     // `what`: "get" (the state object, docs/widgets.md "network"). The result as JSON.
     virtual bool NetworkCall(const std::string& what, std::string& json, std::wstring& error) = 0;
+    // --- input (permission "input", round 27 phase 27C): the process's InputService ---
+    // `what`: "get" (the state object, docs/widgets.md "input"), "set" (`text`: a layout id or a
+    // language tag), "next" (Windows + Space, as the user's own shortcut). The result as JSON.
+    virtual bool InputCall(const std::string& what, const std::wstring& text, std::string& json, std::wstring& error) = 0;
 
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs. `passive`: the passive kind (never takes
@@ -253,8 +257,8 @@ public:
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).
     virtual size_t HeapBytes() = 0;
-    // A provider changed ("audio", "media", "notifications", "calendar", "weather", "perf", "network"
-    // (round 27)): its onChange listeners
+    // A provider changed ("audio", "media", "notifications", "calendar", "weather", "perf", "network",
+    // "input" (round 27)): its onChange listeners
     // run with its new state. "calendarReminder": the onReminder listeners get `payload` (JSON);
     // "storage" (round 6 phase 6C): storage.onChange listeners get `payload` ({ key }, JSON).
     virtual ScriptResult Emit(const std::string& channel, const std::string& payload = {}) = 0;

@@ -145,6 +145,7 @@ struct Manifest {
     bool weather = false;        // permission "weather" (round 4 phase 14)
     bool perf = false;           // permission "perf" (round 6 phase 6D)
     bool network = false;        // permission "network" (round 27 phase 27B)
+    bool input = false;          // permission "input" (round 27 phase 27C)
     std::vector<std::wstring> httpHosts;  // lowercase; "*.example.com" matches sub-domains
     std::vector<SettingField> settings;
     std::vector<std::wstring> warnings;  // what was ignored while reading it
@@ -237,8 +238,8 @@ std::vector<SettingField> BuiltInSchema(ItemKind kind);
 // (it takes over that widget's placements and its widget-data file), even without permissions.
 //
 // The manifest's permissions as the canonical list stored in a consent: sorted, unique, one entry
-// per permission ("audio", "calendar", "media", "network", "notifications", "perf", "shell",
-// "weather"; network since round 27), an
+// per permission ("audio", "calendar", "input", "media", "network", "notifications", "perf", "shell",
+// "weather"; input and network since round 27), an
 // http host as "http:<host>" ("http" alone for the permission without hosts).
 std::vector<std::wstring> PermissionList(const Manifest& manifest);
 // The package is a folder with the id of a built-in widget.

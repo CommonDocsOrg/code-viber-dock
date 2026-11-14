@@ -2,7 +2,7 @@
   "id": "everyday",
   "name": "Everyday taskbar",
   "tagline": "A full-width bar with everything on it",
-  "description": "A dark bar along the whole bottom edge that takes the place of the taskbar. The weather with a week of forecast sits at the left end. Start, your windows with their titles, your apps, the volume, now playing and a large clock sit in the middle. The system overview, the tray icons, the network, notifications and Show desktop sit at the right end. It never hides, and maximized windows stop above it.",
+  "description": "A dark bar along the whole bottom edge that takes the place of the taskbar. The weather with a week of forecast sits at the left end. Start, your windows with their titles, your apps, the volume, now playing and a large clock sit in the middle. The system overview, the tray icons, the network, the keyboard language (with more than one), notifications and Show desktop sit at the right end. It never hides, and maximized windows stop above it.",
   "dock": {
     "edge": "bottom", "align": "center", "fullWidth": true, "reserveSpace": true,
     "iconSize": 48, "magnification": 1.1, "magnifyRange": 3, "magnifyBar": "always",
@@ -27,6 +27,7 @@
     { "kind": "widget", "id": "system-overview", "anchor": "end" },
     { "kind": "tray", "anchor": "end", "rows": 2, "columns": 4, "iconSize": 16, "expander": "after", "expanderStyle": "count", "drawerShows": "overflow", "drawerIconSize": 36, "drawerColumns": 5 },
     { "kind": "widget", "id": "network", "anchor": "end" },
+    { "kind": "widget", "id": "input-language", "anchor": "end", "settings": { "hideSingle": true } },
     { "kind": "notifications", "anchor": "end" },
     { "kind": "widget", "id": "show-desktop", "anchor": "end" }
   ]

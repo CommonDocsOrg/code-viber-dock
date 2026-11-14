@@ -52,10 +52,12 @@
 // Round 17 phase 17A: the Photo frame widget (one picture, or a slideshow of a folder).
 #define IDR_WIDGET_PHOTOFRAME_JSON 368
 #define IDR_WIDGET_PHOTOFRAME_MAIN 369
-// Round 27 phase 27B: what the taskbar had: the network icon (377 / 378: after the presets' and
-// guides' 360 - 376).
+// Round 27 phases 27B / 27C: what the taskbar had: the network icon and the input-language indicator
+// (377 - 380: after the presets' and guides' 360 - 376).
 #define IDR_WIDGET_NETWORK_JSON 377
 #define IDR_WIDGET_NETWORK_MAIN 378
+#define IDR_WIDGET_INPUTLANG_JSON 379
+#define IDR_WIDGET_INPUTLANG_MAIN 380
 
 // Round 9 phase 9C: the predefined dock setups (RCDATA, res/presets/<id>.json; Presets.cpp lists
 // them in this order).

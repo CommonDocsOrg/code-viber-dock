@@ -293,6 +293,11 @@ private:
     bool PerfCall(const std::string& what, double number, std::string& json, std::wstring& error) override;
     bool PerfSeries(const std::string& key, size_t n, std::vector<double>& out, std::wstring& error) override;
     bool NetworkCall(const std::string& what, std::string& json, std::wstring& error) override;  // round 27 phase 27B
+    bool InputCall(const std::string& what, const std::wstring& text, std::string& json, std::wstring& error) override;  // 27C
+    // shell.sendKeys's pressing of an allow-listed combination `n` (lower case), the permission
+    // already checked (round 27 phase 27C: input.next presses "win+space" under "input"). `who`
+    // names the caller in errors and the log.
+    bool PressCombo(const std::wstring& n, const wchar_t* who, std::wstring& error);
     std::vector<std::string> PackageFiles() override;
     void RequestPopup(PopupRequest r);
     bool HostAllowed(const std::wstring& host) const;

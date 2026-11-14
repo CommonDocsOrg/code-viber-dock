@@ -1437,7 +1437,10 @@ write and edit without compiling anything. The full reference (every call, every
   round 27: the taskbar's network icon: Wi-Fi with its signal bars, ethernet, cellular, a VPN, a
   cross without internet, a crossed globe without a connection; an optional label with the
   network's name or the state; a click opens a popup with the details, the quick settings or the
-  Network & internet settings), and
+  Network & internet settings), **Input language** (`input-language`, round 27: the taskbar's
+  language indicator, "ENG" with the region under it when two layouts share a language; a click
+  switches to the next layout (Windows + Space), the popup lists the layouts and selects one;
+  optionally no room with a single layout), and
   **Agenda** (`agenda`: the next event of the calendar feeds, "In 25 min" / "Now" / its time over
   its title with the feed's colour; a click shows the next events in a popup, the month calendar or
   an app / address; it wakes only when its text changes: at an event's start and end, each minute
@@ -1509,7 +1512,8 @@ write and edit without compiling anything. The full reference (every call, every
   machine's performance and HWiNFO's sensors: `get()`, `metrics()`, `series(key, n)`,
   `setInterval(ms)`, `hwinfo()`, `onChange`), `network` (round 27: the internet connection:
   online or not, its kind, the Wi-Fi network's name and signal bars, metered; `get()`,
-  `onChange`), `popup` (a popup the widget
+  `onChange`), `input` (round 27: the keyboard layout in use and the installed ones; `get()`,
+  `set(id)`, `next()`, `onChange`), `popup` (a popup the widget
   draws, or the dock's folder / window-preview / month calendar popups, anchored on the widget;
   round 6: `editText({ title, text, multiline, maxLength, placeholder })`, a text editor window
   whose promise gives the typed text, or `null` when cancelled),
@@ -1517,7 +1521,7 @@ write and edit without compiling anything. The full reference (every call, every
 - **Permissions** (`"permissions"` in widget.json): `{ "http": ["api.example.com"] }` for
   requests to those hosts, `"shell"` for opening files / URLs, listing folders, file icons, the
   folder popup, file drops and `sendKeys`, `"audio"`, `"media"`, `"notifications"`, `"calendar"`,
-  `"weather"`, `"perf"` and (round 27) `"network"` for the providers. Without them
+  `"weather"`, `"perf"` and (round 27) `"network"` / `"input"` for the providers. Without them
   those calls throw. The audio and media providers run only while a widget uses them and never
   poll (Core Audio and media-session events).
 - **Consent** (round 25 phase 25D): a widget from the widgets folder that asks for permissions, or
@@ -2338,7 +2342,7 @@ asks for a name and writes the dock's place, behaviour, items and look to `layou
 | **Sidebar** (`sidebar`) | a bar along the left edge | left, full length, items from the top, 40 px, no magnification, one slot per window, no titles (2026-11-11: they were beside the icons), hides while covered | Start, your pins, separator, running apps, then at the end (`"anchor": "end"`, the bottom corner): separator, Volume, clock |
 | **Floating performance** (`performance`) | system load at a glance | floating at the top right (`x` 16000 = against the right end, `y` 8), facing the top edge (popups open downward), on the desktop under your windows, 40 px, no magnification, locked | System monitor, System overview, Battery, clock (no pins) |
 | **Desktop dashboard** (`dashboard`) | a desktop panel | floating in the middle, on the desktop under your windows, 56 px, no magnification | Analog clock, weather, Agenda, Notes (no pins) |
-| **Everyday taskbar** (`everyday`) | a full taskbar replacement with widgets | bottom, full length, centred, reserves its space (`reserveSpace`), never hides, 48 px, magnification 1.1 / range 3, previews, one slot per app with one line of title under it, window pictures every 2 s, middle click opens a new window, the Dark theme | at the start: weather (7 days on the dock); in the middle: Start, running apps, separator, your pins, Volume (ring), Media, clock (large time over a small date, 1.5 ×); at the end: System overview, the System tray (2 rows of 4, 16 DIP icons, the overflow in a drawer), Network (round 27), notifications, Show desktop |
+| **Everyday taskbar** (`everyday`) | a full taskbar replacement with widgets | bottom, full length, centred, reserves its space (`reserveSpace`), never hides, 48 px, magnification 1.1 / range 3, previews, one slot per app with one line of title under it, window pictures every 2 s, middle click opens a new window, the Dark theme | at the start: weather (7 days on the dock); in the middle: Start, running apps, separator, your pins, Volume (ring), Media, clock (large time over a small date, 1.5 ×); at the end: System overview, the System tray (2 rows of 4, 16 DIP icons, the overflow in a drawer), Network and Input language (round 27; `hideSingle`: no room with one layout), notifications, Show desktop |
 
 A layout picks a theme preset for the dock (`themePreset`): Modern uses Glass, Minimal Solid,
 Windows 7 Aero glass. Since round 12 phase 12B that gives the dock its own look (the preset's values;
@@ -3287,8 +3291,8 @@ items that exist. A file whose items have settings already is left alone.
 - `widgetConsent` (round 25 phase 25D; written only when not empty): what the user allowed each
   widget from the widgets folder, `{ "<widget id>": { "permissions": ["http:api.example.com",
   "shell"], "replacesBuiltIn": true } }`. `permissions`: the sorted list of the manifest's
-  permissions as allowed (`"audio"`, `"calendar"`, `"media"`, `"network"`,
-  `"notifications"`, `"perf"`, `"shell"`, `"weather"`, `"http:<host>"`; `"network"`
+  permissions as allowed (`"audio"`, `"calendar"`, `"input"`, `"media"`, `"network"`,
+  `"notifications"`, `"perf"`, `"shell"`, `"weather"`, `"http:<host>"`; `"input"` and `"network"`
   since round 27); `replacesBuiltIn`: the folder (whose id is a built-in
   widget's) may replace that widget. A widget runs only when this covers what its manifest asks
   for now (Widgets::ConsentOf; a manifest asking for less keeps running). Written by the consent
@@ -3825,9 +3829,9 @@ always there, also when every dock is parked) handle these registered messages:
   `EnumWindows`). The tracker's 50 ms debounce is capped at 250 ms after the first event.
 - **Taskbar gaps** (round 27): **367** (any dock index) = the network provider (27B): 0 not
   running, 1 running, 3 running and quiet (none of its widgets can be seen, or the session is
-  paused: Windows' events are only noted); **368** = widgets using it. It starts with the first
-  widget that calls it and stops when the last one goes (`tools\smoke\taskbar-gaps.ps1` drives
-  54 / 55 / 367 / 368).
+  paused: Windows' events are only noted); **368** = widgets using it; **369** / **370** = the same
+  for the input-language provider (27C). Both start with the first widget that calls them and stop
+  when the last one goes (`tools\smoke\taskbar-gaps.ps1` drives 54 / 55 / 367 - 370).
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.

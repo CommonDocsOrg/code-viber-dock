@@ -238,7 +238,7 @@ void WidgetInstance::SetVisible(bool visible) {
     } else {
         ResumeRefresh();
     }
-    // Round 27: the network provider goes quiet while none of its users can be seen.
+    // Round 27: the network / input providers go quiet while none of their users can be seen.
     if (!preview_) runtime_.ProviderVisibilityChanged();
 }
 
@@ -1388,6 +1388,7 @@ bool WidgetInstance::Permitted(Permission p) const {
         case Permission::Weather: return package_->manifest.weather;
         case Permission::Perf: return package_->manifest.perf;
         case Permission::Network: return package_->manifest.network;  // round 27 phase 27B
+        case Permission::Input: return package_->manifest.input;      // round 27 phase 27C
         case Permission::Http:
         default: return package_->manifest.http;
     }
@@ -1662,6 +1663,7 @@ constexpr KeyCombo kKeyCombos[] = {
     {L"win+v", {VK_LWIN, 'V'}},         // clipboard history
     {L"win+w", {VK_LWIN, 'W'}},         // Widgets
     {L"win+x", {VK_LWIN, 'X'}},         // the Start button's context menu
+    {L"win+space", {VK_LWIN, VK_SPACE}},  // round 27 phase 27C: the next input language (input.next)
     {L"ctrl+shift+esc", {VK_CONTROL, VK_SHIFT, VK_ESCAPE}},  // Task Manager (11B)
     {L"volume-up", {VK_VOLUME_UP, 0}},
     {L"volume-down", {VK_VOLUME_DOWN, 0}},
@@ -1730,12 +1732,20 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
     }
     std::wstring n = name;
     for (wchar_t& c : n) c = static_cast<wchar_t>(std::towlower(c));
+    if (std::none_of(std::begin(kKeyCombos), std::end(kKeyCombos), [&](const KeyCombo& k) { return n == k.name; })) {
+        error = L"shell.sendKeys: \"" + name + L"\" is not in the allow-list (docs/widgets.md)";
+        return false;
+    }
+    return PressCombo(n, L"shell.sendKeys", error);
+}
+
+bool WidgetInstance::PressCombo(const std::wstring& n, const wchar_t* who, std::wstring& error) {
     const KeyCombo* combo = nullptr;
     for (const KeyCombo& k : kKeyCombos) {
         if (n == k.name) combo = &k;
     }
     if (!combo) {
-        error = L"shell.sendKeys: \"" + name + L"\" is not in the allow-list (docs/widgets.md)";
+        error = std::wstring(who) + L": \"" + n + L"\" is not in the allow-list";
         return false;
     }
     if (preview_) return true;  // nothing is pressed in a preview (the script gets false)
@@ -1763,7 +1773,7 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
     }
     if (SendKeysDryRun(n, combo->keys, count, extra)) {
         if (placer) placer->Restore();  // nothing opens: nothing may stay shifted (Place moved nothing)
-        Log(ScriptLogLevel::Info, L"shell.sendKeys " + n + L" (dry run: WINDOCK_SENDKEYS_LOG)");
+        Log(ScriptLogLevel::Info, std::wstring(who) + L" " + n + L" (dry run: WINDOCK_SENDKEYS_LOG)");
         return true;
     }
     INPUT in[2 * kMaxComboKeys]{};
@@ -1779,11 +1789,11 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
     }
     const UINT total = static_cast<UINT>(2 * count);
     if (SendInput(total, in, sizeof(INPUT)) != total) {
-        error = L"shell.sendKeys: Windows blocked the input (" + std::to_wstring(GetLastError()) + L")";
+        error = std::wstring(who) + L": Windows blocked the input (" + std::to_wstring(GetLastError()) + L")";
         if (placer) placer->Restore();  // 16A: the menu does not open; the script opens All apps instead
         return false;
     }
-    Log(ScriptLogLevel::Info, L"shell.sendKeys " + n);
+    Log(ScriptLogLevel::Info, std::wstring(who) + L" " + n);
     return true;
 }
 
@@ -2418,7 +2428,7 @@ bool WidgetInstance::PerfSeries(const std::string& key, size_t n, std::vector<do
     return true;
 }
 
-// --- round 27: network ------------------------------------------------------------------------------
+// --- round 27: network and input --------------------------------------------------------------------
 
 bool WidgetInstance::NetworkCall(const std::string& what, std::string& json, std::wstring& error) {
     if (!Permitted(Permission::Network)) {
@@ -2440,6 +2450,47 @@ bool WidgetInstance::NetworkCall(const std::string& what, std::string& json, std
         json = "null";
     } else {
         json = NetworkService::Json(net ? net->Get() : NetworkService::State{});
+    }
+    return true;
+}
+
+bool WidgetInstance::InputCall(const std::string& what, const std::wstring& text, std::string& json, std::wstring& error) {
+    if (!Permitted(Permission::Input)) {
+        error = L"input needs the \"input\" permission";
+        return false;
+    }
+    if (preview_) {
+        if (what == "get") {
+            json = WidgetSamples::InputJson();
+        } else if (what == "use" || what == "set" || what == "next") {
+            json = what == "use" ? "null" : "true";  // nothing is switched in a preview
+        } else {
+            error = L"input: unknown call";
+            return false;
+        }
+        return true;
+    }
+    InputService* in = runtime_.UseInput(this);
+    if (!in) {
+        error = L"input: the keyboard layouts are not available";
+        return false;
+    }
+    if (what == "get") {
+        json = InputService::Json(in->Get());
+    } else if (what == "use") {
+        json = "null";
+    } else if (what == "set") {
+        if (!in->Select(text, error)) return false;
+        json = "true";
+    } else if (what == "next") {
+        // Windows + Space, as if the user pressed it: the switch every app follows (UWP and console
+        // windows included, which may ignore WM_INPUTLANGCHANGEREQUEST); Windows 11 shows its
+        // language switcher for a moment. Under "input", not "shell": the key is fixed.
+        if (!PressCombo(L"win+space", L"input.next", error)) return false;
+        json = "true";
+    } else {
+        error = L"input: unknown call";
+        return false;
     }
     return true;
 }

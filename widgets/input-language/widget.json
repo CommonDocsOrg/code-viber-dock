@@ -1,0 +1,48 @@
+{
+  "name": "Input language",
+  "version": "1.0.0",
+  "author": "ViberDock",
+  "description": "The keyboard language indicator the taskbar had: the current input language's short code (ENG, DEU, FRA …), with its region under it when needed, optionally the language's full name. A click switches to the next layout (as Windows + Space does); the popup lists every installed layout, a click on one selects it.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 40, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "standalone": { "minWidth": 48, "minHeight": 48, "defaultWidth": 120, "defaultHeight": 64 },
+  "preview": { "settings": { "showName": false } },
+  "permissions": ["input"],
+  "settings": [
+    { "key": "region", "section": "appearance", "group": "Look", "common": true, "type": "choice", "label": "Region under the code", "default": "auto",
+      "description": "Writes the region (US, GB, DE …) under the language code, as the taskbar does. Automatic: only when two installed layouts have the same language code (English US and English UK). Default: automatic.",
+      "choices": [
+        { "value": "auto", "label": "Automatic" },
+        { "value": "always", "label": "Always" },
+        { "value": "never", "label": "Never" }
+      ] },
+    { "key": "showName", "section": "appearance", "group": "Look", "common": true, "type": "bool", "label": "Show the language's full name", "default": false,
+      "description": "Writes the language's name (English (United States)) beside the code, under it on a side dock. Off by default." },
+    { "key": "scale", "section": "appearance", "group": "Look", "type": "number", "label": "Size", "default": 1, "min": 0.5, "max": 4, "step": 0.25, "unit": "× the usual size",
+      "description": "How big the text is: 1 is the usual size, 2 twice as big. Default: 1." },
+    { "key": "font", "section": "appearance", "group": "Look", "type": "font", "label": "Font", "default": "",
+      "description": "A font family installed on this PC. Empty: Segoe UI." },
+    { "key": "textColor", "section": "appearance", "group": "Colours", "type": "colour", "label": "Code colour", "default": "#00000000",
+      "description": "The language code's colour. Transparent (#00000000): the theme's text colour." },
+    { "key": "nameColor", "section": "appearance", "group": "Colours", "type": "colour", "label": "Region and name colour", "default": "#00000000",
+      "description": "The region's and the full name's colour. Transparent (#00000000): the theme's date colour." },
+    { "key": "click", "section": "content", "group": "Clicks", "common": true, "type": "choice", "label": "A click", "default": "next",
+      "description": "What a click on the widget does: switch to the next layout (as Windows + Space does; Windows shows its switcher for a moment), or open the list of layouts. Default: the next layout.",
+      "choices": [
+        { "value": "next", "label": "Switches to the next layout" },
+        { "value": "popup", "label": "Opens the list of layouts" }
+      ] },
+    { "key": "middleClick", "section": "content", "group": "Clicks", "type": "choice", "label": "A middle click", "default": "popup",
+      "description": "What a middle click does. Default: opens the list of layouts.",
+      "choices": [
+        { "value": "popup", "label": "Opens the list of layouts" },
+        { "value": "next", "label": "Switches to the next layout" },
+        { "value": "none", "label": "Nothing" }
+      ] },
+    { "key": "hideSingle", "section": "content", "group": "With one layout", "type": "bool", "label": "Take no room while only one layout is installed", "default": false,
+      "description": "With a single keyboard layout there is nothing to switch: the widget can take no room on the dock then. Off: it shows the code anyway." }
+  ]
+}

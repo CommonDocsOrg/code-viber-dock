@@ -77,7 +77,7 @@ loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws (only while the widget can be seen, see `timer.setRefresh`). 0: no ticking. `timer.setRefresh(ms)` overrides it at run time (also for another time zone: `timer.setRefresh(ms, { timeZone })`). |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `"network"` (round 27: the [network](#network) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself; an IP address is matched only by an entry that is that address). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). Round 25: a widget from the widgets folder runs only after the user allowed its permissions (see [Consent](#consent)); ask for the fewest you need. |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `"network"` (round 27: the [network](#network) provider), `"input"` (round 27: the [input](#input) provider: the keyboard language), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself; an IP address is matched only by an entry that is that address). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). Round 25: a widget from the widgets folder runs only after the user allowed its permissions (see [Consent](#consent)); ask for the fewest you need. |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `preview` | none | Round 6 phase 6E: the widget's live preview in the settings window's widget drawer and Widget library ([Preview mode](#preview-mode)): `{ "settings": { "face": "classic" }, "width": 64, "height": 48 }`. `settings`: an object of setting values merged over the schema's defaults for the preview only (a nice face, a sample label); `width` / `height`: the preview's box in DIPs (8 - 1024 / 8 - 512; left out: the box the widget measures on a 48 DIP bottom dock). The manifest check reports a non-object, a setting the schema does not name (a warning) and sizes out of range. |
 | `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum); `supported`: `false` when the widget needs a dock (round 16 phase 16E; default `true`): it is never made a standalone widget (dragging it off the dock only reorders it, the drawer does not drop it on the desktop, **Add to the desktop** refuses it). |
@@ -436,6 +436,7 @@ shortcuts (Ctrl+C, Alt+F4) into the app that has the focus. Round 11 phase 11B a
 | `win+v` | Windows + V | Clipboard history |
 | `win+w` | Windows + W | Widgets |
 | `win+x` | Windows + X | The Start button's menu |
+| `win+space` | Windows + Space | The next input language (round 27; Windows 11 shows its switcher for a moment; `input.next()` presses it without the `shell` permission) |
 | `ctrl+shift+esc` | Ctrl + Shift + Esc | Task Manager |
 | `volume-up`, `volume-down`, `volume-mute` | the volume keys | (the system volume; prefer `audio`) |
 | `media-play-pause`, `media-next`, `media-previous`, `media-stop` | the media keys | (the focused media app; prefer `media`) |
@@ -669,6 +670,35 @@ location prompt; they are not used. The SSID comes from `WlanConnectionProfileDe
 GetConnectedSsid`, which Microsoft's page on that change ("Changes to API behavior for Wi-Fi access and location") recommends instead. A VPN is recognised by its adapter's
 type only (the built-in Windows VPN, WireGuard, OpenVPN's TAP / wintun); one that presents an
 ethernet adapter shows as ethernet. Airplane mode shows as no connection.
+
+### input
+
+Round 27. Needs `"input"` in `permissions`. The keyboard layout (input language) of the window the
+user works in, and the installed layouts: what the taskbar's language indicator ("ENG") showed.
+The provider starts with the first call (`get()` or `onChange`) and stops with the last widget
+using it; it adds no hook of its own: it listens to the shell notices the dock already receives (a
+language change, a window activated) and is quiet while none of its widgets can be seen or the
+session is locked. Each notice costs a `GetKeyboardLayout` and a `GetKeyboardLayoutList`; the names
+are read once per layout.
+
+| Call | |
+|---|---|
+| `input.get()` | `{ available, id, tag, code, region, language, layout, current, layouts }`: the active layout's `id` (the HKL as 8 hex digits, `"04090409"`), `tag` (`"en-US"`), `code` (the three letters the taskbar shows, `"ENG"`, `"DEU"`: the ISO 639-2 name, upper case), `region` (`"US"`), `language` (`"English (United States)"`, in Windows' display language), `layout` (the keyboard's name, `"US"`, `"German"`, an IME's name); `current` its index in `layouts` (-1 when it is not listed); `layouts` every installed layout in the switcher's order, `[{ id, tag, code, region, language, layout, current }]`. Read fresh at every call. |
+| `input.set(idOrTag)` | Asks the window the user works in (the foreground window; while a popup of the dock is in front, the window before it) to switch to that layout (an `id` from `layouts`, or a `tag`: its first layout) by posting `WM_INPUTLANGCHANGEREQUEST`, as the old language bar did. Returns `true` when the request was posted; an unknown id throws, and so does a window Windows does not let the dock post to (an app running as administrator). The switch itself happens when the app handles the message: `onChange` (or the next `get()`) shows it. |
+| `input.next()` | Presses Windows + Space (as the user would: every app follows it, and Windows 11 shows its switcher for a moment). Needs only `"input"` (the key is fixed). Returns `true`; input Windows refuses throws. |
+| `input.onChange(fn)` | `fn(state)` (the `get()` object) when the active layout or the list changed. Returns a remover. |
+
+Limits: Windows reports a switch inside a window only to that window (`WM_INPUTLANGCHANGE`). The
+provider relies on the shell's `HSHELL_LANGUAGE` notice, which is documented for shell hooks
+(`WH_SHELL`); that it also reaches a shell hook window (`RegisterShellHookWindow`, what the dock
+uses) is assumed, not documented. Without it the indicator follows at the next window activation
+and at every `get()` (the built-in widget reads again shortly after its own switch).
+`input.set` is a request: an app that handles `WM_INPUTLANGCHANGEREQUEST` itself, console windows
+and some UWP / WinUI apps may ignore it (`input.next()` works there). With Windows' default "one
+input method for all apps" the layout is the same everywhere; with "Let me use a different input
+method for each app window" the indicator follows the foreground app. Out of scope: an IME's
+conversion mode (あ / A, half / full width) and Text Services Framework profiles beyond the layout
+list.
 
 ### popup
 
@@ -991,7 +1021,8 @@ notifications and dismisses them; `"calendar"` reads the dock's calendar feeds (
 refresh); `"weather"` reads the dock's forecast (and asks it to refresh); `"perf"` reads the
 machine's performance counters and HWiNFO's shared sensor memory (nothing else); `"network"` (round
 27) reads the state of the internet connection (online or not, its kind, the Wi-Fi network's name and
-its signal bars). Modules and images
+its signal bars); `"input"` (round 27) reads the keyboard layouts and switches the one in use (a
+posted request to the window the user works in, or Windows + Space). Modules and images
 are read
 only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
@@ -1187,6 +1218,7 @@ Each preview is the widget's own `draw()`, run once by a **preview instance**:
 | `calendar` | One feed "Sample" in the first feed colour (`#FF4CC2FF`); today "Stand-up" 09:30 - 09:45 and "Lunch with Sam" 12:30 - 13:30 (local time, `recurring`); `eventsOn` another day is empty; `next()` lists today's events that have not ended, after 13:30 the same two tomorrow (so an agenda never previews "No events"); `events()` covers today and tomorrow. |
 | `weather.get()` | `state` "fresh" (fetched 5 minutes ago), "Sample City", sunny (code 0, day), 21 °C or 70 °F (the default `units`), wind 12 km/h / 7 mph, humidity 45 %, 24 hourly columns from the current hour (a mild day / night curve), 7 days from today (WMO codes 0, 1, 2, 3, 61, 2, 0: clear, through overcast and rain, to clear; highs 23 - 16 °C). `weather.icon()` works as always. |
 | `network.get()` | Round 27: `available`, `connected` and `internet` true, `state` "internet", `kind` "wifi", `name` "Sample Wi-Fi", `bars` 4, `signal` 80, not `metered`. |
+| `input.get()` | Round 27: English (United States) current (`id` "04090409", `tag` "en-US", `code` "ENG", `region` "US", `layout` "US"), then German (Germany) (`id` "04070407", "de-DE", "DEU", "DE", "German"). `input.set` / `input.next` switch nothing and return true. |
 | `perf` | `get()`: serial 1, interval 1000, `cpu.total` 37, eight cores, `cpu.frequency` 4180, `memory.percent` 58, `memory.used` / `total` 9.3 / 16 GB, `gpu.total` 12, `disk.total` 4, `network.down` 120 KB/s, `up` 18 KB/s, `system.uptime` 3 days 4 hours, a laptop on battery (round 7: `battery.percent` 74, `battery.charging` 0, `battery.acLine` 0, `battery.timeLeft` 11400 s = 3 h 10 min); `metrics()` lists those keys (35); `series(key, n)` up to 60 samples (a sine wave with noise, the newest one the snapshot's value; the same numbers every time); `hwinfo()` `{ available: false, reason: "preview" }`; `setInterval` answers 1000. |
 
 The manifest's `preview` object (see [widget.json](#widgetjson)) picks what the preview shows:
@@ -1562,6 +1594,17 @@ built-ins are worked examples too:
   **Quick settings** (`shell.sendKeys('win+a')`)), `quick` or `settings`. `network.onChange`
   redraws only when something drawn changed. Settings `showLabel`, `label`, `scale`, `font`,
   `iconColor`, `textColor`, `warnColor`, `click`. Permissions `network`, `shell`.
+- `widgets/input-language` ("Input language", round 27 phase 27C): the [input](#input) provider as
+  the taskbar's indicator: `code` ("ENG") semibold in `dock.theme.text`, `region` under it
+  (`region` `auto`: only when two layouts share the code, `always`, `never`), `showName` (default
+  off) the full language name beside it. `click` `next` (default: `input.next()`) or `popup`;
+  `middleClick` `popup` (default), `next` or `none`. The popup lists `layouts` (a row of 40 DIPs
+  each: the code, the language, the keyboard; the current one marked with the accent), a click on
+  a row calls `input.set(id)`. After its own switch the widget reads the state once more 400 ms
+  later (one `setTimeout`, never while idle), in case Windows does not report the switch.
+  `hideSingle` (default off): with one layout `measure()` returns `main` 0. Settings `region`,
+  `showName`, `scale`, `font`, `textColor`, `nameColor`, `click`, `middleClick`, `hideSingle`.
+  Permission `input`.
 
 A minimal widget:
 

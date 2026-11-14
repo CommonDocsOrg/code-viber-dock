@@ -2077,13 +2077,13 @@ menu, and the installer adds a second Start menu shortcut, **Restore Windows tas
 (`--restore-taskbar`), so getting the taskbar back needs no command prompt. Same file and
 component as the main shortcut: no new GUID.
 
-**27B, what the taskbar had: the network icon** (branch `feature/taskbar-gaps`, on
-`feature/viberdock-name`). Hiding the Explorer taskbar loses indicators nothing in the dock
-replaced; the network icon is now a built-in script widget on a small native provider, in the
-pattern of audio / media / perf (started by the first widget that calls it, stopped with the last,
-changes delivered through `ProviderChanged`), with the round 26 rule added for providers: quiet
-while none of its widgets can be seen or the session is paused, one read when seen again if
-something came meanwhile.
+**27B and 27C, what the taskbar had** (branch `feature/taskbar-gaps`, on `feature/viberdock-name`).
+Hiding the Explorer taskbar loses two indicators nothing in the dock replaced: the network icon
+and the input-language indicator. Both are now built-in script widgets on small native providers,
+in the pattern of audio / media / perf (started by the first widget that calls them, stopped with
+the last, changes delivered through `ProviderChanged`), with the round 26 rule added for
+providers: quiet while none of their widgets can be seen or the session is paused, one read when
+seen again if something came meanwhile.
 
 Network: the plan was wlanapi for the SSID and a 0 - 100 signal with its notifications. Microsoft's
 documentation ("Changes to API behavior for Wi-Fi access and location") says that since Windows 11
@@ -2096,6 +2096,17 @@ preferred to `INetworkListManager`'s connection points and `NotifyNetworkConnect
 which give connectivity (and cost) only. What this costs: the signal is Windows' 0 - 5 bars, and a
 bars-only change has no event (re-read at every event, on wake and on a click). The profile read is
 an RPC, so it runs on a pool thread and posts its result.
+
+Input language: no hook of its own. The shell hook window the dock already registers forwards
+`HSHELL_LANGUAGE` (documented for `WH_SHELL`; assumed for `RegisterShellHookWindow`, to be confirmed
+by hand) and the activations; a missed notice is caught at the next activation and at every
+`get()`. Rejected: a low-level keyboard hook to see Win+Space / Alt+Shift (a global hook in every
+keystroke's path for an indicator), polling `GetKeyboardLayout`, TSF sinks (they report only the
+calling thread's own changes). Switching: `next()` presses Win+Space under the `input` permission
+(a fixed key: no reason to give the widget `shell`); `set()` posts `WM_INPUTLANGCHANGEREQUEST`, the
+language bar's old way, because `ActivateKeyboardLayout` only affects the dock's own process; its
+refusals (elevated windows, apps that handle the message) are documented, and `next()` still works
+there.
 
 ## Dependencies at a glance
 

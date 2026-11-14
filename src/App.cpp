@@ -4583,6 +4583,10 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return docks_.Widgets().Network().Active() ? (docks_.Widgets().Network().Quiet() ? 3 : 1) : 0;
         case 368:  // round 27 phase 27B (app-wide): widgets using the network provider
             return static_cast<LRESULT>(docks_.Widgets().NetworkUsers());
+        case 369:  // round 27 phase 27C (app-wide): the input provider runs: 0 no, 1 yes, 3 yes and quiet
+            return docks_.Widgets().Input().Active() ? (docks_.Widgets().Input().Quiet() ? 3 : 1) : 0;
+        case 370:  // round 27 phase 27C (app-wide): widgets using the input provider
+            return static_cast<LRESULT>(docks_.Widgets().InputUsers());
         case 356:  // round 25 phase 25B (app-wide): 0 a normal start; 1 started from a malformed config.json, + 2 its copy was made, + 4 saving is blocked now
             if (!startedMalformed_) return 0;
             return 1 | (badCopyMade_ ? 2 : 0) | (saveBlocked_ ? 4 : 0);

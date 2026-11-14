@@ -242,7 +242,7 @@ constexpr char kPrelude[] = R"JS(
   });
   // Providers: onChange listeners kept here; the host calls the returned emit(channel).
   const listeners = { audio: [], media: [], notifications: [], calendar: [], calendarReminder: [], weather: [], storage: [], perf: [],
-    network: [] };
+    network: [], input: [] };
   const onChange = (ch) => (cb) => {
     if (typeof cb !== 'function') throw new TypeError(ch + '.onChange: the argument must be a function');
     listeners[ch].push(cb);
@@ -351,6 +351,13 @@ constexpr char kPrelude[] = R"JS(
     get: () => p.net('get'),
     onChange: (cb) => { const off = onChange('network')(cb); p.net('use'); return off; },
   });
+  // input (round 27 phase 27C): the keyboard language of the window the user works in.
+  g.input = Object.freeze({
+    get: () => p.input('get'),
+    set: (id) => p.input('set', String(id)),
+    next: () => p.input('next'),
+    onChange: (cb) => { const off = onChange('input')(cb); p.input('use'); return off; },
+  });
   // storage.onChange (round 6 phase 6C): another item of this widget changed a key ({ key }).
   g.storage.onChange = onChange('storage');
   Object.freeze(g.storage);
@@ -359,7 +366,7 @@ constexpr char kPrelude[] = R"JS(
     if (!l || !l.length) return;
     const state = ch === 'audio' ? p.audioGet() : ch === 'media' ? p.mediaGet() : ch === 'calendar' ? cal('feeds')
       : ch === 'calendarReminder' || ch === 'storage' ? JSON.parse(data) : ch === 'weather' ? wx('get')
-      : ch === 'perf' ? perfGet() : ch === 'network' ? p.net('get') : p.notifGet().items;
+      : ch === 'perf' ? perfGet() : ch === 'network' ? p.net('get') : ch === 'input' ? p.input('get') : p.notifGet().items;
     for (const cb of l.slice()) cb(state);
   };
 })(globalThis, globalThis.__windock);
@@ -2241,6 +2248,17 @@ JSValue NetFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     const bool ok = Self(ctx)->host_.NetworkCall(what, json, error);
     return JsonResult(ctx, ok, json, error, "<network>");
 }
+// input(what, text): the input-language provider (permission "input", round 27 phase 27C).
+JSValue InputFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::string what = WideToUtf8(a.S(0));
+    const std::wstring text = a.Has(1) ? a.S(1) : std::wstring();
+    if (a.failed) return JS_EXCEPTION;
+    std::string json;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.InputCall(what, text, json, error);
+    return JsonResult(ctx, ok, json, error, "<input>");
+}
 
 // canvas.fileIcon(path, x, y, size): the shell's icon of a file or folder (permission "shell").
 JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
@@ -2464,7 +2482,8 @@ const JSCFunctionListEntry kProviderFuncs[] = {
     JS_CFUNC_DEF("weather", 2, Guard<WeatherFn>),
     JS_CFUNC_DEF("perf", 2, Guard<PerfFn>),
     JS_CFUNC_DEF("perfSeries", 2, Guard<PerfSeriesFn>),
-    JS_CFUNC_DEF("net", 1, Guard<NetFn>),  // round 27 phase 27B
+    JS_CFUNC_DEF("net", 1, Guard<NetFn>),      // round 27 phase 27B
+    JS_CFUNC_DEF("input", 2, Guard<InputFn>),  // round 27 phase 27C
 };
 
 const JSCFunctionListEntry kPopupFuncs[] = {

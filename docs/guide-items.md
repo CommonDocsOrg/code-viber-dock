@@ -410,6 +410,7 @@ ViberDock comes with these widgets:
 - **Show desktop**: the narrow strip at the end of the Windows 7 taskbar. On a full-width dock it is as tall as the bar and, as the last item, sits right against the screen's end. A click shows the desktop (Win+D; a second click brings the windows back) or, if you choose, minimizes every window (Win+M). Its style can also be a small desktop glyph, for other themes. Hovering it does not make the windows transparent (Aero Peek is not available).
 - **Notification bell**: a bell like the notification centre, with more choices.
 - **Network**: the network icon of the taskbar: Wi-Fi with its signal, ethernet, cellular or a VPN, and whether there is internet. See [Network](#network).
+- **Input language**: the keyboard language indicator of the taskbar (ENG, DEU …). A click switches to the next layout. See [Input language](#input-language).
 - **Hello**: a tiny example widget.
 
 The System monitor can also show any sensor of HWiNFO (temperatures, fans, power) while HWiNFO runs with its shared memory turned on. See [Performance and memory](troubleshooting.md#performance-and-memory).
@@ -429,6 +430,17 @@ Its settings:
 - **Size**, **Font** and the colours of the icon, the label and the no-internet cross.
 
 The signal follows Windows' own bars. It is updated whenever the connection changes and when you click the widget, so it can lag behind a slowly changing signal. The widget does not ask Windows for your location: it never shows the "allow location" prompt that some Wi-Fi tools cause.
+
+### Input language
+
+The taskbar's language indicator (ENG, DEU, FRA …) disappears with the taskbar too. The Input language widget shows the language you type in, as the same three letters.
+
+- When two of your layouts share a language (English US and English UK), the region (US, GB) shows under the code, as on the taskbar. **Region under the code** can also show it always or never.
+- **Show the language's full name** writes it beside the code, for example English (United States).
+- A click switches to the next layout, as Windows + Space does (Windows shows its language switcher for a moment). With **A click** set to the list, or with a middle click, a list of all your layouts opens; click one to switch to it.
+- **Take no room while only one layout is installed** hides the widget when there is nothing to switch.
+
+Some apps, such as apps that run as administrator, do not accept a switch from the list; the next layout (a click) works there. The widget follows the language of the window you work in. It does not show an input method's own modes (for example the Japanese あ / A).
 
 ### Widget settings
 
@@ -468,7 +480,7 @@ Everything about writing widgets is in the [widget developer reference](widgets.
 
 #### Widget permissions
 
-A widget from your widgets folder may ask for permissions: to open files and run programs, to connect to named web sites, to read your notifications, your calendar feeds, the forecast, what is playing, the volume, the PC's performance or the network connection. Such a widget runs only after you allow what it asks for. The built-in widgets never need this.
+A widget from your widgets folder may ask for permissions: to open files and run programs, to connect to named web sites, to read your notifications, your calendar feeds, the forecast, what is playing, the volume, the PC's performance, the network connection or the keyboard language. Such a widget runs only after you allow what it asks for. The built-in widgets never need this.
 
 - When you add or install such a widget, ViberDock asks right away. The question names the widget, its id, version, author and folder, and lists each permission in plain words. **Don't allow** is the default.
 - Until you allow it, the widget shows a **Needs permission** tile and its script does not run at all. Click the tile, or right-click it and choose **Review permissions…**, to see the question again.

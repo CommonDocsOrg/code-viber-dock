@@ -13,6 +13,7 @@
 #include "AudioService.h"
 #include "Config.h"
 #include "HttpClient.h"
+#include "InputService.h"
 #include "MediaService.h"
 #include "NetworkService.h"
 #include "PerfService.h"
@@ -168,7 +169,7 @@ public:
     // through each instance's visibility.
     void SetPaused(bool paused) {
         perf_.SetPaused(paused);
-        sessionPaused_ = paused;  // round 27: the network provider goes quiet too
+        sessionPaused_ = paused;  // round 27: the network / input providers go quiet too
         SyncProviderQuiet();
     }
     // `w`'s own period (0: the default); the service re-times to the fastest of its users.
@@ -221,22 +222,31 @@ public:
     void NotifyWeather(const WeatherConfig& place);
     uint64_t WeatherNotices() const { return weatherNotices_; }  // onChange deliveries (QueryState 215)
 
-    // --- round 27: network (27B) ---
-    // Started for the first widget that uses it, stopped when the last such widget goes or
-    // reloads (ReleaseProviders); its changes reach every user (ProviderChanged). Quiet while
-    // none of its users can be seen (WidgetInstance::CanBeSeen: an auto-hidden dock, a hidden
+    // --- round 27: network (27B) and input (27C) ---
+    // Started for the first widget that uses one, stopped when the last such widget goes or
+    // reloads (ReleaseProviders); their changes reach every user (ProviderChanged). Quiet while
+    // none of their users can be seen (WidgetInstance::CanBeSeen: an auto-hidden dock, a hidden
     // desktop widget, the full-screen guard) or the session is paused (SetPaused): nothing is read
     // or delivered then, and leaving quiet reads once if something changed meanwhile.
     NetworkService* UseNetwork(WidgetInstance* w);
+    InputService* UseInput(WidgetInstance* w);
     const NetworkService& Network() const { return network_; }
+    const InputService& Input() const { return input_; }
     size_t NetworkUsers() const { return networkUsers_.size(); }
-    // A widget's visibility changed (WidgetInstance::SetVisible): the provider's quiet follows.
+    size_t InputUsers() const { return inputUsers_.size(); }
+    // A widget's visibility changed (WidgetInstance::SetVisible): the providers' quiet follows.
     void ProviderVisibilityChanged() { SyncProviderQuiet(); }
+    // DockManager forwards WindowTracker's shell hook events (HSHELL_LANGUAGE, activations): the
+    // input provider's signals (no hook of its own). Cheap while it is not running.
+    void OnShellEvent(WPARAM code, LPARAM lp) {
+        if (input_.Active()) input_.OnShellEvent(code, lp);
+    }
 
 private:
     void SyncProviderQuiet();
     NetworkService network_;
-    std::set<WidgetInstance*> networkUsers_;
+    InputService input_;
+    std::set<WidgetInstance*> networkUsers_, inputUsers_;
     bool sessionPaused_ = false;
     struct Entry {
         WidgetInstance* w = nullptr;

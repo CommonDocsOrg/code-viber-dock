@@ -8,6 +8,7 @@
 #include <cstring>
 
 #include "Config.h"
+#include "InputService.h"
 #include "JsonUtil.h"
 #include "NetworkService.h"
 #include "WeatherGlyphs.h"
@@ -535,7 +536,7 @@ void PerfSeries(const std::string& key, size_t n, std::vector<double>& out) {
     }
 }
 
-// Round 27: the real provider's Json builder, so the shapes cannot drift.
+// Round 27: the real providers' Json builders, so the shapes cannot drift.
 std::string NetworkJson() {
     NetworkService::State s;
     s.available = s.connected = true;
@@ -544,6 +545,19 @@ std::string NetworkJson() {
     s.name = L"Sample Wi-Fi";
     s.bars = 4;
     return NetworkService::Json(s);
+}
+
+std::string InputJson() {
+    InputService::State s;
+    s.available = true;
+    InputService::Layout en{L"04090409", L"en-US", L"ENG", L"US", L"English (United States)", L"US"};
+    InputService::Layout de{L"04070407", L"de-DE", L"DEU", L"DE", L"German (Germany)", L"German"};
+    en.hkl = reinterpret_cast<HKL>(static_cast<uintptr_t>(0x04090409));
+    de.hkl = reinterpret_cast<HKL>(static_cast<uintptr_t>(0x04070407));
+    s.layouts = {en, de};
+    s.current = 0;
+    s.active = en;
+    return InputService::Json(s);
 }
 
 }  // namespace WidgetSamples

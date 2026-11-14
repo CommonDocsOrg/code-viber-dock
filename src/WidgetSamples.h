@@ -47,5 +47,8 @@ void PerfSeries(const std::string& key, size_t n, std::vector<double>& out);
 // Round 27 phase 27B, network.get(): connected to the internet over Wi-Fi "Sample Wi-Fi", 4 bars of 5,
 // not metered.
 std::string NetworkJson();
+// Round 27 phase 27C, input.get(): English (United States), US layout, current; German (Germany),
+// German layout, second.
+std::string InputJson();
 
 }  // namespace WidgetSamples

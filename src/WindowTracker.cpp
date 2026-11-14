@@ -109,6 +109,7 @@ void CALLBACK WindowTracker::WinEventProc(HWINEVENTHOOK, DWORD, HWND hwnd, LONG 
 
 bool WindowTracker::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (shellHookMsg_ && msg == shellHookMsg_) {
+        if (onShell_) onShell_(wp, lp);  // round 27 phase 27C (HSHELL_LANGUAGE has no case below)
         OnShellEvent(wp, reinterpret_cast<HWND>(lp));
         return true;
     }
