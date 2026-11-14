@@ -120,7 +120,7 @@ struct Observance {
 };
 
 template <class F>
-void ForEachInstance(const Rule& r, int64_t dtstart, int64_t winFrom, int64_t winTo, int64_t untilWall, F&& emit);
+bool ForEachInstance(const Rule& r, int64_t dtstart, int64_t winFrom, int64_t winTo, int64_t untilWall, int64_t& budget, F&& emit);
 
 // A VTIMEZONE: the offset in effect at a UTC instant is the TZOFFSETTO of the latest onset at or
 // before it (onsets in UTC = the observance's wall onset - its TZOFFSETFROM), cached per year.
@@ -206,7 +206,8 @@ private:
                         : o.rule.until.IsDate()             ? o.rule.until.wall + 86399
                                                              : o.rule.until.wall;
             }
-            ForEachInstance(o.rule, o.start, lo, hi, until, [&](int64_t wall) {
+            int64_t budget = kEventIterations;  // round 25 phase 25C: one year of one observance (cached)
+            ForEachInstance(o.rule, o.start, lo, hi, until, budget, [&](int64_t wall) {
                 on.push_back(wall - o.from);
                 return true;
             });
@@ -642,22 +643,86 @@ bool DailyMatch(const Rule& r, int64_t day) {
 
 int64_t WeekStart(int64_t day, int wkst) { return day - (WeekdayOf(day) - wkst + 7) % 7; }
 
+// Round 25 phase 25C: COUNT rules whose instances per period are known without building them, so
+// the periods before the window can be skipped with the count kept exact (InstancesInPeriods).
+// DAILY without BYMONTH / BYMONTHDAY / BYSETPOS (BYDAY: the weekday test DailyMatch makes, which
+// repeats every 7 / gcd(INTERVAL, 7) periods), WEEKLY without BYMONTH / BYSETPOS (the same days every
+// week), MONTHLY / YEARLY without any BYxxx (DTSTART's day each period; not a day 29 - 31, which
+// some months / years lack). Every other COUNT rule is iterated from DTSTART as before 25C, bounded
+// by the iteration limits.
+bool CountSkippable(const Rule& r, int dtMonth, int dtDom) {
+    if (!r.bySetPos.empty()) return false;
+    switch (r.freq) {
+        case Rule::Freq::Daily: return r.byMonth.empty() && r.byMonthDay.empty();
+        case Rule::Freq::Weekly: return r.byMonth.empty();
+        case Rule::Freq::Monthly:
+            return r.byDay.empty() && r.byMonthDay.empty() && r.byMonth.empty() && r.byYearDay.empty() && dtDom <= 28;
+        case Rule::Freq::Yearly:
+            return r.byDay.empty() && r.byMonthDay.empty() && r.byMonth.empty() && r.byYearDay.empty() &&
+                   !(dtMonth == 2 && dtDom == 29);
+        default: return false;
+    }
+}
+
+// The instances after DTSTART that periods 0 .. k - 1 of a CountSkippable rule give (DTSTART's own
+// day is not one: the loop below skips t <= dtstart and DTSTART is counted before it starts).
+int64_t InstancesInPeriods(const Rule& r, int64_t k, int64_t dtDay, int64_t interval, const std::vector<int>& weekdays) {
+    if (k <= 0) return 0;
+    switch (r.freq) {
+        case Rule::Freq::Daily: {
+            if (r.byDay.empty()) return k - 1;  // one per period, period 0 is DTSTART
+            // Day j = dtDay + j * interval matches by its weekday, which repeats every `cycle` periods.
+            const int64_t cycle = interval % 7 == 0 ? 1 : 7;
+            auto match = [&](int64_t j) { return DailyMatch(r, dtDay + j * interval) ? 1 : 0; };
+            int64_t perCycle = 0;
+            for (int64_t j = 1; j <= cycle; ++j) perCycle += match(j);
+            const int64_t n = k - 1;  // periods 1 .. k - 1
+            int64_t total = (n / cycle) * perCycle;
+            for (int64_t j = 1; j <= n % cycle; ++j) total += match(j);
+            return total;
+        }
+        case Rule::Freq::Weekly: {
+            const int64_t ws0 = WeekStart(dtDay, r.wkst);
+            int64_t first = 0;
+            for (int wd : weekdays) {
+                if (ws0 + (wd - r.wkst + 7) % 7 > dtDay) ++first;
+            }
+            return first + (k - 1) * static_cast<int64_t>(weekdays.size());
+        }
+        case Rule::Freq::Monthly:
+        case Rule::Freq::Yearly: return k - 1;
+        default: return 0;
+    }
+}
+
 // Calls emit(wall) for the instances of rule `r` after `dtstart` (wall-clock seconds; DTSTART
 // itself is the first instance and is not emitted) whose start lies in [winFrom, winTo), in order.
 // COUNT counts from DTSTART; `untilWall` is inclusive (INT64_MAX: none). emit returns false to stop.
+// Round 25 phase 25C: at most min(kEventIterations, budget) periods are iterated and `budget` is
+// charged with them (the caller's total over its events). Returns false when it stopped at that
+// limit (true: the rule ended, the window was passed, or emit stopped it).
 template <class F>
-void ForEachInstance(const Rule& r, int64_t dtstart, int64_t winFrom, int64_t winTo, int64_t untilWall, F&& emit) {
-    if (r.freq == Rule::Freq::None || r.freq == Rule::Freq::Unsupported) return;
+bool ForEachInstance(const Rule& r, int64_t dtstart, int64_t winFrom, int64_t winTo, int64_t untilWall, int64_t& budget, F&& emit) {
+    if (r.freq == Rule::Freq::None || r.freq == Rule::Freq::Unsupported) return true;
     const int64_t dtDay = DayOf(dtstart);
     const int64_t tod = dtstart - dtDay * 86400;
     int y0 = 0, m0 = 0, d0 = 0;
     CivilFromDays(dtDay, y0, m0, d0);
     const int64_t interval = std::max(1, r.interval);
     const bool counting = r.count > 0;
-    if (counting && r.count <= 1) return;
+    if (counting && r.count <= 1) return true;
     int64_t produced = 1;
     int64_t k = 0;
-    if (!counting && winFrom > dtstart) {  // skip the periods before the window
+    std::vector<int> weekdays;
+    for (const Rule::Day& d : r.byDay) {
+        if (!Contains(weekdays, d.weekday)) weekdays.push_back(d.weekday);
+    }
+    if (weekdays.empty()) weekdays.push_back(WeekdayOf(dtDay));
+    // Round 25 phase 25C: with COUNT too, for the rules whose skipped instances can be counted
+    // exactly; until 25C a COUNT rule always started at DTSTART (a daily rule from 2015 iterated
+    // every day since, for every event, at every refresh).
+    const bool skippable = !counting || CountSkippable(r, m0, d0);
+    if (skippable && winFrom > dtstart) {  // skip the periods before the window
         const int64_t fromDay = DayOf(winFrom);
         int yf = 0, mf = 0, df = 0;
         CivilFromDays(fromDay, yf, mf, df);
@@ -670,14 +735,20 @@ void ForEachInstance(const Rule& r, int64_t dtstart, int64_t winFrom, int64_t wi
             default: break;
         }
         k = std::max<int64_t>(0, periods - 1);
+        if (counting) {
+            produced += InstancesInPeriods(r, k, dtDay, interval, weekdays);
+            if (produced >= r.count) return true;  // the rule ended before the window
+        }
     }
     std::vector<int64_t> days;
-    std::vector<int> weekdays;
-    for (const Rule::Day& d : r.byDay) {
-        if (!Contains(weekdays, d.weekday)) weekdays.push_back(d.weekday);
-    }
-    if (weekdays.empty()) weekdays.push_back(WeekdayOf(dtDay));
-    for (int guard = 0; guard < 400000; ++guard, ++k) {
+    // Round 25 phase 25C: the limits (until 25C a fixed guard of 400 000 periods per call).
+    const int64_t cap = std::min(kEventIterations, std::max<int64_t>(0, budget));
+    struct Charge {
+        int64_t& budget;
+        int64_t used = 0;
+        ~Charge() { budget -= used; }
+    } charge{budget};
+    for (; charge.used < cap; ++charge.used, ++k) {
         days.clear();
         int64_t periodFirst = 0;
         switch (r.freq) {
@@ -714,10 +785,10 @@ void ForEachInstance(const Rule& r, int64_t dtstart, int64_t winFrom, int64_t wi
                 YearDays(r, y, m0, d0, days);
                 break;
             }
-            default: return;
+            default: return true;
         }
-        if (periodFirst * 86400 >= winTo) return;  // nothing later is inside the window
-        if (untilWall != INT64_MAX && periodFirst * 86400 > untilWall) return;
+        if (periodFirst * 86400 >= winTo) return true;  // nothing later is inside the window
+        if (untilWall != INT64_MAX && periodFirst * 86400 > untilWall) return true;
         std::sort(days.begin(), days.end());
         days.erase(std::unique(days.begin(), days.end()), days.end());
         if (!r.bySetPos.empty() && !days.empty()) {
@@ -734,12 +805,13 @@ void ForEachInstance(const Rule& r, int64_t dtstart, int64_t winFrom, int64_t wi
         for (int64_t day : days) {
             const int64_t t = day * 86400 + tod;
             if (t <= dtstart) continue;
-            if (t > untilWall) return;
-            if (counting && ++produced > r.count) return;
-            if (t >= winTo) return;
-            if (t >= winFrom && !emit(t)) return;
+            if (t > untilWall) return true;
+            if (counting && ++produced > r.count) return true;
+            if (t >= winTo) return true;
+            if (t >= winFrom && !emit(t)) return true;
         }
     }
+    return false;  // stopped at the limit (the rule goes on)
 }
 
 // --- content lines -------------------------------------------------------------------------------
@@ -941,7 +1013,7 @@ bool ParseOffset(const std::wstring& raw, int& out) {
 
 }  // namespace
 
-bool Parse(const std::string& text, Calendar& out, std::wstring* error) {
+bool Parse(const std::string& text, Calendar& out, std::wstring* error, size_t maxEvents) {
     out = Calendar{};
     try {
         // Unfold into logical lines (CRLF or LF; a line starting with a space or tab continues the
@@ -1010,7 +1082,9 @@ bool Parse(const std::string& text, Calendar& out, std::wstring* error) {
                 const Comp c = stack.back();
                 stack.pop_back();
                 if (c == Comp::Event) {
-                    if (ev.start.Valid()) {
+                    if (ev.start.Valid() && out.events.size() >= maxEvents) {
+                        ++out.eventsDropped;  // round 25 phase 25C: beyond the cap (the first ones are kept)
+                    } else if (ev.start.Valid()) {
                         out.events.push_back(std::move(ev));
                     } else {
                         ++out.skipped;
@@ -1139,8 +1213,13 @@ bool Parse(const std::string& text, Calendar& out, std::wstring* error) {
 
 // --- expansion -----------------------------------------------------------------------------------
 
-std::vector<Occurrence> Expand(const Calendar& cal, int64_t from, int64_t to, const Zone& local, size_t limit) {
+std::vector<Occurrence> Expand(const Calendar& cal, int64_t from, int64_t to, const Zone& local, size_t limit,
+                               ExpandStats* stats) {
     std::vector<Occurrence> out;
+    // Round 25 phase 25C: one iteration budget for every event of this call (ForEachInstance
+    // charges it), so the total work is bounded however many hostile rules the feed holds.
+    int64_t budget = kExpandBudget;
+    size_t eventsCut = 0;
     const Zone& utc = *UtcZone();
     const Zone& floating = cal.floating ? *cal.floating : local;
     auto zoneOf = [&](const Time& t) -> const Zone& {
@@ -1262,10 +1341,12 @@ std::vector<Occurrence> Expand(const Calendar& cal, int64_t from, int64_t to, co
                         until = u.wall;  // floating: the event's own wall-clock
                     }
                 }
-                ForEachInstance(ev.rule, startWall, winFrom, winTo, until, [&](int64_t wall) {
-                    instances.push_back(wall);
-                    return instances.size() < 50000;
-                });
+                if (!ForEachInstance(ev.rule, startWall, winFrom, winTo, until, budget, [&](int64_t wall) {
+                        instances.push_back(wall);
+                        return instances.size() < 50000;
+                    })) {
+                    ++eventsCut;
+                }
             }
             for (const Time& r : ev.rdates) {
                 int64_t wall = 0;
@@ -1316,6 +1397,11 @@ std::vector<Occurrence> Expand(const Calendar& cal, int64_t from, int64_t to, co
         return a.event < b.event;
     });
     if (out.size() > limit) out.resize(limit);
+    if (stats) {
+        stats->iterations = kExpandBudget - budget;
+        stats->eventsCut = eventsCut;
+        stats->budgetHit = budget <= 0;
+    }
     return out;
 }
 

@@ -1,10 +1,10 @@
 # Settings guide
 
-This guide walks through every settings window of WinDock, page by page and card by card. It says what each setting does and when you would want it.
+This guide walks through every settings window of ViberDock, page by page and card by card. It says what each setting does and when you would want it.
 
-WinDock has three kinds of settings:
+ViberDock has three kinds of settings:
 
-- **App settings**: what applies to every dock and to WinDock as a whole. They open in a window.
+- **App settings**: what applies to every dock and to ViberDock as a whole. They open in a window.
 - **Dock settings**: one dock. They open in a panel right beside that dock, so you see every change on the real dock. Standalone widgets and folder windows have their own settings too, in the same kind of panel beside them.
 - **Item settings**: one item on a dock, such as a clock, a weather item, a widget, the tray, a folder or a group. They open in a window.
 
@@ -16,7 +16,7 @@ Every change applies at once and is saved within a moment. There is no OK or App
 
 To open the App settings:
 
-- Right-click the WinDock icon in the notification area and choose **App settings…**.
+- Right-click the ViberDock icon in the notification area and choose **App settings…**.
 - Or right-click the dock, open **App** and choose **App settings…**.
 - Or, in a dock's settings panel, click **App settings…** in its header.
 - Or run `WinDock.exe --settings`.
@@ -25,7 +25,7 @@ To open a dock's settings panel:
 
 - Right-click an empty part of that dock and choose **Dock settings…**.
 - Or, while customizing the dock, click **Settings** on the small bar beside it.
-- Or right-click the WinDock icon in the notification area, open **Docks** and choose the dock.
+- Or right-click the ViberDock icon in the notification area, open **Docks** and choose the dock.
 - Or, in App settings > Docks and displays, double-click the dock (or select it and click **Open settings**).
 - Or, in an item's settings window, click the dock's name in the header.
 
@@ -38,7 +38,7 @@ Each window's title names what it edits: an item's window reads like "Weather ·
 
 ## The settings windows
 
-The App settings window and the item windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. The first time, they open at a size that suits your display. They follow the Windows light or dark app mode. They also show up among the dock's running apps, under WinDock's own icon, so if one gets lost under your other windows, click it there to bring it back (or close it from its preview).
+The App settings window and the item windows are normal windows: you can move, resize, maximize and minimize them, and each kind remembers its last size. The first time, they open at a size that suits your display. They follow the Windows light or dark app mode. They also show up among the dock's running apps, under ViberDock's own icon, so if one gets lost under your other windows, click it there to bring it back (or close it from its preview).
 
 A dock's settings are a panel, not a normal window:
 
@@ -65,7 +65,7 @@ To find a setting:
 2. Type a few words, for example `hide delay` or `magnification`.
 3. Pick a result and press **Enter**, double-click it, or click **Go to**.
 
-WinDock opens the right window and page, scrolls to the setting and flashes it, so you can see where it is.
+ViberDock opens the right window and page, scrolls to the setting and flashes it, so you can see where it is.
 
 The results show three columns: the setting, where it is (such as "App › General › System") and its current value. With many docks and standalone widgets the list takes a moment to fill (the line under it says "Indexing settings…" while it does); you can type and pick a result meanwhile, and the next search while a settings window is open is instant.
 
@@ -80,14 +80,14 @@ The search does not cover the items on a dock (use the Contents tab for those), 
 
 ## Getting help
 
-The guides you are reading are also built into WinDock.
+The guides you are reading are also built into ViberDock.
 
 To open the Help:
 
 - Press **F1** in any settings window. The Help opens at the part of the guide for the page or tab you are on.
 - Click the small round **?** button at the right of a card's heading. The Help opens at that card's section.
 - Click **Help** in the App settings window's page list, after About. It opens the quick start.
-- Right-click the dock (or the WinDock icon in the notification area) and choose **Help…**.
+- Right-click the dock (or the ViberDock icon in the notification area) and choose **Help…**.
 - In App settings > About, click **Quick start guide**.
 
 The Help window lists the guides at the left and shows the chosen guide at the right. Links inside a guide move between the guides. Web links open in your browser.
@@ -125,7 +125,7 @@ Everything else is simply the dock's or the item's own setting: there is no app 
 There are two kinds of reset, and they never touch each other's values:
 
 - **Reset to app default** (the **↺** buttons above, and the button of that name in a widget's footer): drops the dock's or item's own value, so it follows the app-wide one again. For a dock's look the ↺ is called **Use the app look again**.
-- **Reset to factory defaults…** (an item's settings window, the last card of a standalone widget's Content tab): puts every setting of that one item back to the values WinDock ships with. It asks first, and says what it resets. App defaults (App settings) are not changed.
+- **Reset to factory defaults…** (an item's settings window, the last card of a standalone widget's Content tab): puts every setting of that one item back to the values ViberDock ships with. It asks first, and says what it resets. App defaults (App settings) are not changed.
 
 On App settings > Themes and on a dock's Look tab, the **↺** of a theme value goes back to the theme's own value instead (its tooltip says "Reset to the preset's value"), and **⋯** > **Reset all to preset** does that for every value.
 
@@ -133,16 +133,16 @@ Both kinds of reset can be undone, like any other change.
 
 ## Undo and Saved
 
-Nothing you change is a one-way door. WinDock remembers your last 50 changes, made anywhere: in any settings window, on the dock (pinning, unpinning, dragging an icon to another place, customizing, moving the dock) or from the dock menu. A whole gesture is one change: letting go of a slider, one drag on the dock, one layout, all of Quick setup.
+Nothing you change is a one-way door. ViberDock remembers your last 50 changes, made anywhere: in any settings window, on the dock (pinning, unpinning, dragging an icon to another place, customizing, moving the dock) or from the dock menu. A whole gesture is one change: letting go of a slider, one drag on the dock, one layout, all of Quick setup.
 
 To undo or redo a change:
 
 - Press **Ctrl+Z** in any settings window to undo the last change, and **Ctrl+Y** to redo it. While you type in a text box, Ctrl+Z first undoes your typing there.
-- Right-click the dock (or the WinDock icon in the notification area): while there is something to undo, the first entry says what, for example **Undo “Icon size 48 → 64”**.
+- Right-click the dock (or the ViberDock icon in the notification area): while there is something to undo, the first entry says what, for example **Undo “Icon size 48 → 64”**.
 - While customizing a dock, click **Undo** on the small bar beside it, or press **Ctrl+Z** (and **Ctrl+Y** to redo).
 - In a dock's panel, **⋯** has **Undo**, **Redo** and **Revert this window…**. Revert this window undoes every change made since you opened the panel, after asking first. It is one change itself, so Undo brings everything back.
 
-The changes are remembered until WinDock quits. They are not saved to disk.
+The changes are remembered until ViberDock quits. They are not saved to disk.
 
 ### Saved
 
@@ -151,7 +151,7 @@ The top of the App settings window and of a dock's panel, the bottom of an item'
 - **✓ Saved**: everything is in config.json.
 - **Saving…**: a change is about to be written (a moment after you make it).
 - **Not saved yet**: a preview of a layout or look is open. Nothing is written until you keep it.
-- **⚠ Not saved**: the last save failed. A bar over the page says why, for example "Couldn't save: config.json is read-only or locked.", with **Retry** (save now) and **Open folder** (show config.json in File Explorer). Your changes stay in WinDock, and the next change tries again. See [Couldn't save](troubleshooting.md#couldnt-save-configjson-is-read-only-or-locked).
+- **⚠ Not saved**: the last save failed. A bar over the page says why, for example "Couldn't save: config.json is read-only or locked.", with **Retry** (save now) and **Open folder** (show config.json in File Explorer). Your changes stay in ViberDock, and the next change tries again. See [Couldn't save](troubleshooting.md#couldnt-save-configjson-is-read-only-or-locked).
 
 ### Keep or Revert
 
@@ -186,13 +186,13 @@ Nothing on these pages changes one dock only. A single dock's settings are in th
 
 ### General
 
-The General page has the settings for WinDock itself. The line under the title reminds you that each dock's own settings open beside the dock.
+The General page has the settings for ViberDock itself. The line under the title reminds you that each dock's own settings open beside the dock.
 
 #### System
 
-- **Start with Windows**: starts WinDock when you sign in to Windows.
-- **Hide the Windows taskbar**: hides the Windows taskbar while WinDock runs. Clear it to see the taskbar and the dock at the same time.
-- **Renderer**: **Automatic** draws with the graphics card and falls back to software if that fails. **Software** uses no graphics card and a little less memory. A change takes effect after WinDock restarts.
+- **Start with Windows**: starts ViberDock when you sign in to Windows. The entry it adds keeps the old name: in Task Manager's Startup apps (and Settings > Apps > Startup) look for WinDock or `WinDock.exe`, depending on how Windows lists it.
+- **Hide the Windows taskbar**: hides the Windows taskbar while ViberDock runs. Clear it to see the taskbar and the dock at the same time.
+- **Renderer**: **Automatic** draws with the graphics card and falls back to software if that fails. **Software** uses no graphics card and a little less memory. A change takes effect after ViberDock restarts.
 
 #### Full-screen apps
 
@@ -283,13 +283,15 @@ Each control has a **↺** that goes back to the theme's value.
 
 #### Choosing a theme
 
-The **Theme** card shows the themes as a gallery of tiles, each a small dock drawn in that theme: the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast, Aero glass), then your own theme files.
+The **Theme** card shows the themes as a gallery of tiles, each a small dock drawn in that theme: the built-in themes (Dark, Light, Glass, Solid, Glass shelf, 3D shelf, High contrast, Aero glass), the colour palettes (Nord, Dracula, Catppuccin Mocha, Catppuccin Latte, Solarized Light, Solarized Dark, Gruvbox Dark, Neon and Luna), then your own theme files.
 
 - Click a tile, or move with the arrow keys and press Enter, to try that theme. It is a preview: click **Keep** or **Cancel** in the bar above the page.
 - The tile of the theme in use is framed. When you changed some of its values it says so, for example "Current · 3 changed".
 - The hint under **Theme** counts your changes too. Choosing another theme clears them.
 
 **Aero glass** is the look of the Windows 7 taskbar: a blue-grey glass tint over the blur, square corners, a glossy sheen, taskbar buttons instead of the dots, wide gaps between the icons, a thin bar and light name labels. It looks best on a full-width bar with 32 DIP icons and magnification 1.00×. The **Windows 7** layout builds the whole taskbar on it: see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7).
+
+The colour palettes are popular editor and terminal colour schemes on the dock: the bar, the name labels, the dots under running apps, the badges and the clock take the palette's colours. Catppuccin Latte and Solarized Light are light; the others are dark. **Neon** gives every icon a strong cyan glow on a near-black bar. **Luna** is the blue taskbar of Windows XP: a glossy blue bar with lighter blue buttons behind your apps and yellow name labels; it looks best on a full-width bar with 32 DIP icons. Quick setup shows the eight themes above; the palettes are here and on a dock's Look tab.
 
 The **⋯** button next to it has:
 
@@ -386,7 +388,7 @@ Then click **Add feed** for a new feed, or **Save changes** for the selected one
 To add a Google calendar:
 
 1. In Google Calendar, open the calendar's settings and copy its "Secret address in iCal format".
-2. In WinDock, click **Add feed…**.
+2. In ViberDock, click **Add feed…**.
 3. Paste the address into **Address or file** and give the feed a name.
 4. Click **Add feed**.
 
@@ -399,22 +401,22 @@ The **Display** card has:
 
 ### Notifications
 
-This page sets how WinDock reads the Windows notifications, for the notification centre widget and the badges on app icons. See [Notifications](guide-items.md#notifications).
+This page sets how ViberDock reads the Windows notifications, for the notification centre widget and the badges on app icons. See [Notifications](guide-items.md#notifications).
 
 #### Notification centre
 
 The **Centre** card:
 
 - The notification centre is a widget: add it to a dock from the drawer (the dock's Contents tab, or **Add items** while customizing).
-- **Tray balloons in the centre instead of Windows toasts**: with the tray takeover on (see [Tray icons](#tray-icons)), the pop-up messages of tray icons go to WinDock's list instead of Windows.
+- **Tray balloons in the centre instead of Windows toasts**: with the tray takeover on (see [Tray icons](#tray-icons)), the pop-up messages of tray icons go to ViberDock's list instead of Windows.
 - **Clear an app's badge when it is opened from the dock**: clicking an app on the dock marks its notifications as read.
-- **Check for notifications every**: seconds between checks. WinDock checks only while badges, the centre or a widget need it.
+- **Check for notifications every**: seconds between checks. ViberDock checks only while badges, the centre or a widget need it.
 
 #### Notification access
 
-The **Access** card shows whether Windows lets WinDock read your notifications. If it does not, click **Open Windows settings** and turn on "Let apps access your notifications".
+The **Access** card shows whether Windows lets ViberDock read your notifications. If it does not, click **Open Windows settings** and turn on "Let apps access your notifications".
 
-WinDock has no Do not disturb switch: use the one in the Windows quick settings.
+ViberDock has no Do not disturb switch: use the one in the Windows quick settings.
 
 #### Badges per app
 
@@ -426,7 +428,7 @@ Whether a dock shows badges at all is set on that dock's Behaviour tab: see [Not
 
 #### Notification area
 
-- **Show the notification area icons in the dock**: WinDock takes over the notification area (the icons at the right of the taskbar) and shows them on a dock. It needs a System tray item on a dock. Clearing it gives every icon back to Windows.
+- **Show the notification area icons in the dock**: ViberDock takes over the notification area (the icons at the right of the taskbar) and shows them on a dock. It needs a System tray item on a dock. Clearing it gives every icon back to Windows.
 - The line under it reminds you that each tray item's grid and icons are in that item's own settings window.
 - **Put the tray in its own dock**: makes a new small dock at the bottom right of the screen that holds only the tray, and turns the takeover on. Move or remove it on [Docks and displays](#docks-and-displays).
 
@@ -434,13 +436,13 @@ See [The tray](guide-items.md#the-tray).
 
 ### Widget library
 
-The Widget library lists every installed widget with its name, id, where it comes from (built in or a folder) and its version.
+The Widget library lists every installed widget with its name, id, where it comes from (built in or a folder), its version and its permissions: built in, none needed, allowed, needs permission, or asks for more (than you allowed).
 
-Select a widget to see a live preview and its description. Then:
+Select a widget to see a live preview and its description. The line under the preview says, for a widget from your widgets folder, who made it (as the widget says) and its version, then what it may do, the internet hosts it connects to, and whether you allowed it; **Permissions…** opens the question to allow it, or to revoke what you allowed (the widget then stops). See [Widget permissions](guide-items.md#widget-permissions). Then:
 
 - **Add to dock**: adds it to a dock. With several docks a small menu asks which one.
 - **Add to the desktop**: puts it on the desktop in a window of its own. See [Standalone widgets](guide-docks.md#standalone-widgets).
-- **More ▾**: a menu with **Add from folder…** (install a widget from a folder), **Export built-in to folder** (make a copy of a built-in widget you can edit), **Reload widgets**, **Open widgets folder** and **Console…** (each widget's log and errors).
+- **More ▾**: a menu with **Add from folder…** (install a widget from a folder), **Install from zip…** (install a widget someone sent you as a .zip or .viberwidget file, see [Installing a widget](guide-items.md#installing-a-widget)), **Export built-in to folder** (make a copy of a built-in widget you can edit), **Show folder** and **Uninstall…** (for a widget from your widgets folder), **Reload widgets**, **Open widgets folder** and **Console…** (each widget's log and errors).
 
 The line under the buttons shows the result of the last action.
 
@@ -448,14 +450,14 @@ To write your own widgets, see the [widget developer reference](widgets.md).
 
 ### About
 
-About shows the WinDock version.
+About shows the ViberDock version.
 
 #### Configuration
 
 - **Settings are saved to**: the path of your settings file. Click it to show the file in File Explorer.
 - **Open config file**: opens the file in your text editor.
 - **Reload config**: reads the file again after you edited it by hand.
-- **Renderer in use**: whether WinDock draws with the graphics card or in software.
+- **Renderer in use**: whether ViberDock draws with the graphics card or in software.
 - **Run quick setup again**: opens Quick setup, the steps of the first start: your docks, their looks and how they behave. It starts from your docks as they are now. See [Quick setup](quick-start.md#quick-setup).
 - **Quick start guide**: opens the Help at the quick start.
 - **Show the tips again**: shows the three tips on the dock again, one at a time.
@@ -470,13 +472,13 @@ The panel has a header and four tabs: Contents, Position, Look and Behaviour. Th
 
 The first row shows the dock's name in its colour and small chips with its edge, its display, how many items it has, whether it is shown or parked, and whether it is locked. **✕** at the right end closes the panel (Esc does the same).
 
-To rename the dock, click its name, or press **F2**. Type the new name and press Enter; Esc keeps the old one. The name is what menus, headers and the drawing on Docks and displays show. The dock's id, which WinDock uses inside, stays the same.
+To rename the dock, click its name, or press **F2**. Type the new name and press Enter; Esc keeps the old one. The name is what menus, headers and the drawing on Docks and displays show. The dock's id, which ViberDock uses inside, stays the same.
 
 The second row has:
 
 - The save state: **✓ Saved**, **Saving…**, **Not saved yet** or **⚠ Not saved** (see [Undo and Saved](#undo-and-saved)).
 - **Customize**: customize the dock right on the dock (see [Customize a dock](guide-items.md#customize-a-dock)).
-- **App settings…**: opens the settings that apply to every dock and to WinDock as a whole.
+- **App settings…**: opens the settings that apply to every dock and to ViberDock as a whole.
 - **⋯**: a menu with:
   - **Undo** and **Redo** (each names the change), and **Revert this window…**, which undoes every change made since the panel opened.
   - **Find a setting…** (Ctrl+F).
@@ -638,6 +640,7 @@ While the dock has its own look, the **Quick look** card and the value cards wor
 
 - **Icon size**: the size of the icons at rest.
 - **Magnification**: how much the icon under the pointer grows. 1.00 turns magnification off; 2.50 is the largest.
+- **Running indicator**: the mark under an app that is running. **Dot** (the default), **Line** (a short line), **Pill** (a short pill that grows wider for the app in front) or **A dot per window** (one dot for each open window, up to three). The colours come from the look: one for running apps, one for the app in front, one for an app that wants your attention. A look with taskbar buttons (Aero glass, Luna) shows the buttons instead of any of these.
 
 The **Magnification details** card under it is closed at first (its heading counts the values you changed):
 
@@ -718,7 +721,7 @@ Only the rows the chosen thumbnail mode uses are shown; a line says which are le
 
 The **Notifications** card has **Notification badges on app icons**: the number of unread notifications on each app's icon, pinned apps too. **Reset to factory defaults…** in the footer puts every setting of the widget back to its default.
 
-Older settings files kept these settings on the dock itself. WinDock moves them into the dock's Running apps widget when it loads such a file. A dock that had them but no Running apps widget loses them.
+Older settings files kept these settings on the dock itself. ViberDock moves them into the dock's Running apps widget when it loads such a file. A dock that had them but no Running apps widget loses them.
 
 ## Standalone widget settings
 
@@ -809,6 +812,6 @@ What the page holds depends on the item:
 - **Running apps**: the cards Running apps, Spacing, Order and Notifications. See [Running apps widget](#running-apps-widget).
 - **A folder or a group**: how it shows its contents, its icon, and for a group its shortcuts. See [Folders](guide-items.md#folders) and [Groups](guide-items.md#groups).
 
-**Reset to factory defaults…** puts the item back to the settings WinDock ships with, after asking (see [Resetting](#resetting)). A clock or weather item takes the settings a new clock or weather item starts with; a widget takes its own defaults.
+**Reset to factory defaults…** puts the item back to the settings ViberDock ships with, after asking (see [Resetting](#resetting)). A clock or weather item takes the settings a new clock or weather item starts with; a widget takes its own defaults.
 
 If the item moves on the dock, its window follows it. If the item is removed, its window closes.

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -71,7 +72,7 @@ public:
     virtual void SetRefresh(uint32_t ms, const std::wstring& timeZone) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf };
+    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf, Network, Input, Notify, Links };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -139,6 +140,28 @@ public:
     // perf.series(key, n): up to n newest values, oldest first (NaN: no value in that sample).
     virtual bool PerfSeries(const std::string& key, size_t n, std::vector<double>& out, std::wstring& error) = 0;
 
+    // --- network (permission "network", round 27 phase 27B): the process's NetworkService ---
+    // `what`: "get" (the state object, docs/widgets.md "network"). The result as JSON.
+    virtual bool NetworkCall(const std::string& what, std::string& json, std::wstring& error) = 0;
+    // --- input (permission "input", round 27 phase 27C): the process's InputService ---
+    // `what`: "get" (the state object, docs/widgets.md "input"), "set" (`text`: a layout id or a
+    // language tag), "next" (Windows + Space, as the user's own shortcut). The result as JSON.
+    virtual bool InputCall(const std::string& what, const std::wstring& text, std::string& json, std::wstring& error) = 0;
+    // --- notify (permission "notify", round 28 phase 28A): notify.banner ---
+    // A banner on screen (the dock's reminder banner). False with `error` empty: refused by the
+    // rate limit (the script gets false); false with `error`: thrown.
+    virtual bool NotifyBanner(const std::wstring& title, const std::wstring& text, bool sound, std::wstring& error) = 0;
+    // --- round 29 phase 29C ---
+    // settings.set(key, value): `json` is the value as JSON. True: taken (written after the call,
+    // onSettingsChanged follows); false with `error` empty: refused by the rate limit (the script
+    // gets false); false with `error`: thrown (not a key of the manifest, a value the settings page
+    // would not take).
+    virtual bool SettingsSet(const std::wstring& key, const std::string& json, std::wstring& error) = 0;
+    // links.open(url) (permission "links"): an http(s) URL in the browser, after the call, only
+    // right after a click on the widget. False with `error` empty: no click just before (the script
+    // gets false); false with `error`: thrown.
+    virtual bool LinksOpen(const std::wstring& url, std::wstring& error) = 0;
+
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs. `passive`: the passive kind (never takes
     // the focus, the mouse passes through it, not counted by PopupShown; e.g. a wheel's level bar).
@@ -180,13 +203,23 @@ enum class ScriptStatus {
     Threw,        // an uncaught exception (error: message and stack)
     TimedOut,     // the watchdog interrupted it (it ran longer than the time limit)
     OutOfMemory,  // the heap limit was reached
+    // Round 25 phase 25A: a call into this script is on the stack already (a host call the script
+    // made led back to it synchronously, or a message pumped inside it). No call into a script ever
+    // starts inside another of its calls: the engine keeps this request and runs it once the host
+    // calls RunDeferred (Deferred), or refuses one that cannot wait because its result is needed
+    // now (Busy: draw, measure, drawPopup, onWheel, onPress). Neither ran anything.
+    Deferred,
+    Busy,
 };
 
 struct ScriptResult {
     ScriptStatus status = ScriptStatus::Ok;
     std::string json;    // the return value as JSON (undefined: empty)
     std::wstring error;  // Threw / TimedOut / OutOfMemory: what happened, with the stack
-    bool Failed() const { return status != ScriptStatus::Ok && status != ScriptStatus::Missing; }
+    double ms = 0.0;     // round 25 phase 25A: the wall time the call ran (0: nothing ran)
+    bool Failed() const {
+        return status == ScriptStatus::Threw || status == ScriptStatus::TimedOut || status == ScriptStatus::OutOfMemory;
+    }
 };
 
 struct ScriptLimits {
@@ -239,10 +272,31 @@ public:
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).
     virtual size_t HeapBytes() = 0;
-    // A provider changed ("audio", "media", "notifications", "calendar", "weather", "perf"): its onChange listeners
+    // A provider changed ("audio", "media", "notifications", "calendar", "weather", "perf", "network",
+    // "input" (round 27)): its onChange listeners
     // run with its new state. "calendarReminder": the onReminder listeners get `payload` (JSON);
     // "storage" (round 6 phase 6C): storage.onChange listeners get `payload` ({ key }, JSON).
     virtual ScriptResult Emit(const std::string& channel, const std::string& payload = {}) = 0;
+
+    // --- round 25 phase 25A: re-entry ---
+    // A call into the script is on the stack (every entry above then answers Deferred / Busy).
+    virtual bool Busy() const = 0;
+    // The calls kept while it was busy (in order; repeats of the same timer, provider channel,
+    // hover / drag / visibility / settings / tick coalesced; bounded, and a chain of calls that
+    // keep re-triggering one another through RunDeferred is cut after a few rounds with a warning).
+    virtual size_t DeferredCalls() const = 0;
+    // Runs the oldest kept call (not while Busy); `what` names it for the host's messages.
+    virtual ScriptResult RunDeferred(std::string& what) = 0;
 };
 
 std::unique_ptr<ScriptEngine> CreateQuickJsEngine(ScriptHost& host, const ScriptLimits& limits);
+
+// Round 29 phase 29A (`WinDock.exe --validate-widget`): parses and compiles `source` as an ES module
+// named `name` in a throwaway runtime of its own: no host API is bound, nothing runs (not even the
+// top-level code). Compiling a module also compiles its static imports (QuickJS-ng resolves them
+// then): `read` gives a package file by its normalized path (Widgets::ResolvePath rules, as the
+// widget's own loader). True when it all compiles; else `message` (the engine's error text) and the
+// position (`line` / `column` 1-based, 0 when the engine gave none) in `where` (the file it is in).
+bool CheckScriptSyntax(const std::string& source, const std::string& name,
+                       const std::function<bool(const std::string& path, std::string& bytes)>& read, std::wstring& message,
+                       std::string& where, int& line, int& column);

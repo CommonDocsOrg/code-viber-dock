@@ -76,6 +76,9 @@ public:
         // shown (FolderWindow / WidgetWindow Host::moved): the settings panel beside it follows. May
         // come from inside Sync (SetMonitor): the receiver must not walk the instances synchronously.
         std::function<void()> desktopMoved;
+        // Round 26 phase 26A follow-up: the user is evidently there (PointerInput while paused):
+        // App clears its paused bits as an unlock / display-on would.
+        std::function<void()> userPresent;
     };
 
     DockManager() = default;
@@ -101,6 +104,9 @@ public:
     // docks[].monitor indexes).
     const std::vector<HMONITOR>& Monitors() const { return monitors_; }
     static std::vector<HMONITOR> EnumerateMonitors();
+    // Round 26 phase 26C: the monitors now differ from what the last Sync saw (handles in order,
+    // rects, effective DPI): App skips a device-node-only Sync when they do not.
+    bool MonitorsChanged() const;
     // The monitor index a config dock (not "each") is on, or -1 when its monitor is not connected.
     int MonitorIndexFor(const DockConfig& d) const;
 
@@ -203,6 +209,22 @@ public:
     StartMenuPlacer* StartPlacer() override { return startPlacer_; }
     void SetStartPlacer(StartMenuPlacer* placer) { startPlacer_ = placer; }
 
+    // --- round 26 phase 26A: the session paused ---
+    // App's session / display notifications: bits of kPausedLocked / Display / Disconnected (0: in
+    // use). While any is set every dock and standalone widget counts as hidden (widget refresh
+    // ticks, clocks and snapshot thumbnails stop, redraws wait), the perf sampler sleeps and the
+    // notification poll stops; leaving it ticks what was due once and polls the notifications at
+    // once (a toast that came while locked shows up then). Other widget timers keep running.
+    static constexpr int kPausedLocked = 1, kPausedDisplayOff = 2, kPausedDisconnected = 4;
+    void SetSessionPaused(int bits);
+    int SessionPausedBits() const { return sessionPaused_; }
+    bool SessionPaused() const override { return sessionPaused_ != 0; }
+    // Follow-up: real pointer input on one of our windows while paused (DockShared::PointerInput;
+    // folder windows through their Host::pointerInput) calls Callbacks::userPresent once.
+    void PointerInput(UINT msg) override {
+        if (sessionPaused_ != 0 && callbacks_.userPresent && RealPointerInput(msg)) callbacks_.userPresent();
+    }
+
     // --- the dashboard (round 6 phase 6A) ---
     // On: every dock and standalone widget (6B) with layer "desktop" or "behind" is shown, revealed
     // and topmost (a dock's popups
@@ -283,6 +305,14 @@ private:
     // Round 6 phase 6E: the settings windows' widget previews (reads widgets_' storage).
     WidgetPreview previews_{widgets_};
     std::vector<HMONITOR> monitors_;
+    struct MonitorSeen {  // round 26 phase 26C
+        HMONITOR monitor = nullptr;
+        RECT rect{};
+        UINT dpi = 0;
+        bool operator==(const MonitorSeen& o) const { return monitor == o.monitor && EqualRect(&rect, &o.rect) && dpi == o.dpi; }
+    };
+    static std::vector<MonitorSeen> MonitorSignature(const std::vector<HMONITOR>& monitors);
+    std::vector<MonitorSeen> syncedMonitors_;
     std::vector<Instance> instances_;
     std::vector<std::unique_ptr<DockWindow>> graveyard_;  // closed windows, freed by Reap
     std::vector<std::unique_ptr<FolderWindow>> folderGraveyard_;
@@ -299,6 +329,7 @@ private:
     bool appBarAllowed_ = false;
     bool syncing_ = false;
     bool trayStartPosted_ = false;
+    int sessionPaused_ = 0;  // round 26 phase 26A: kPaused* bits (SetSessionPaused)
 
     WindowTracker tracker_;
     // The weather services (round 5 phase A), one per place; see SyncWeather.

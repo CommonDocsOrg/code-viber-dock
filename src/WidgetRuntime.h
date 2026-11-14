@@ -13,7 +13,9 @@
 #include "AudioService.h"
 #include "Config.h"
 #include "HttpClient.h"
+#include "InputService.h"
 #include "MediaService.h"
+#include "NetworkService.h"
 #include "PerfService.h"
 
 class NotificationService;
@@ -40,6 +42,21 @@ public:
     static constexpr UINT kWatchMessage = WM_APP + 31;  // wParam: folder index, lParam: generation
     static constexpr UINT kWatchSyncMessage = WM_APP + 32;  // posted: re-read the watched folders
     static constexpr UINT kStorageMessage = WM_APP + 36;    // posted: storage.onChange deliveries (coalesced)
+    // Round 25 phase 25A: posted (coalesced): WidgetInstance::RunDeferred for the instances that
+    // kept work while one of their calls was on the stack (PostDeferred). No timer.
+    static constexpr UINT kDeferredMessage = WM_APP + 75;
+    // Round 25 phase 25D: posted (coalesced): the consent dialog for the widgets RequestConsent
+    // named (App's handler, SetConsent). Never inside a script call or a click's own handling.
+    static constexpr UINT kConsentMessage = WM_APP + 77;
+    // Round 29 phase 29C: posted (coalesced) to the owner: settings.set changes to write
+    // (QueueSettingsWrite, the writer of SetSettingsWriter). DockWindow.h's table has it.
+    static constexpr UINT kSettingsWriteMessage = WM_APP + 82;
+    // Round 25 phase 25A (A6): OnTimer runs due timers back to back for at most this long (the first
+    // always runs), then re-arms for the rest, so input and painting get a turn between them (a
+    // WM_TIMER is only generated when the queue is otherwise empty). 6 ms: a second's worth of
+    // aligned clock ticks of a few widgets (well under a millisecond each) still fits in one pass;
+    // 64 timers just under the watchdog's limit no longer run as one 3-second block.
+    static constexpr double kTimerSliceMs = 6.0;
     static constexpr DWORD kSaveDelayMs = 1000;
     static constexpr DWORD kReloadDelayMs = 250;
     static constexpr size_t kMaxStorageBytes = 1u << 20;  // per widget id
@@ -69,10 +86,15 @@ public:
     static std::wstring StorageDirectory();
     // Writes every changed storage file now.
     void FlushStorage();
+    // Round 29 phase 29B (Uninstall with its data): forgets widget `id`'s store in memory, unsaved
+    // changes included, so nothing writes its file again (a later read loads the file anew).
+    void ForgetStore(const std::wstring& id) { stores_.erase(id); }
 
     // --- http ---
     // Runs `request` on a worker thread; the result comes back as WidgetInstance::OnHttpResult(id)
-    // if `w` (with the same generation) still exists. False if the thread could not start.
+    // if `w` (with the same generation) still exists. False if the thread could not start. Round 25
+    // phase 25A: the pointer alone is not an identity (a new instance may get a freed one's
+    // address); the generation is, being process-wide (WidgetInstance::generation_).
     bool StartHttp(WidgetInstance* w, uint64_t generation, int id, Http::Request request);
 
     // --- watched folders ---
@@ -100,9 +122,14 @@ public:
     void Cancel(WidgetInstance* w, int id);
     void CancelAll(WidgetInstance* w);
     size_t PendingTimers(const WidgetInstance* w) const;
+    // Round 26 phase 26A: when timer `id` of `w` is due (WidgetNowMs), -1 when none is scheduled.
+    double DueOf(const WidgetInstance* w, int id) const;
 
     void Add(WidgetInstance* w);
     void Remove(WidgetInstance* w);
+    // Round 25 phase 25A: `w` kept work while a call into its script was on the stack: its
+    // RunDeferred runs from a posted kDeferredMessage (coalesced; dropped if `w` goes first).
+    void PostDeferred(WidgetInstance* w);
     const std::vector<WidgetInstance*>& Instances() const { return instances_; }
     bool Alive(const WidgetInstance* w) const;
     // Every widget instance reloads its package and script.
@@ -112,6 +139,32 @@ public:
     void SetPackagesChanged(std::function<void()> f) { packagesChanged_ = std::move(f); }
     // How often the scheduler's timer fired (automation: idle widgets never wake the process).
     uint64_t Wakeups() const { return wakeups_; }
+
+    // --- round 25 phase 25D: consent (Widgets::ConsentOf) ---
+    // `lookup`: what the user allowed widget `id` (config.json widgetConsent; null: nothing);
+    // `review`: opens the consent dialog for `id` (App, from a posted message).
+    void SetConsent(std::function<const WidgetConsent*(const std::wstring& id)> lookup,
+                    std::function<void(const std::wstring& id)> review) {
+        consentLookup_ = std::move(lookup);
+        consentReview_ = std::move(review);
+    }
+    const WidgetConsent* GrantedFor(const std::wstring& id) const { return consentLookup_ ? consentLookup_(id) : nullptr; }
+    // --- round 29 phase 29C: settings.set ---
+    // The writer (App): stores an instance's validated changes ("key" -> JSON) in its config item.
+    using SettingsWriter = std::function<void(WidgetInstance&, const std::vector<std::pair<std::wstring, std::wstring>>&)>;
+    void SetSettingsWriter(SettingsWriter writer) { settingsWriter_ = std::move(writer); }
+    // `w` has settings.set changes (WidgetInstance::TakeSettingsWrites): written from a posted message.
+    void QueueSettingsWrite(WidgetInstance* w);
+    // Reloads the instances showing item `itemKey` (dock.itemKey; a host consent given for a URL
+    // that did not change: the script starts over and fetches with it).
+    void ReloadItem(const std::string& itemKey);
+    // A "Needs permission" tile was clicked (or its menu entry chosen): the dialog for `id`,
+    // posted (coalesced per id).
+    void RequestConsent(const std::wstring& id);
+    // The consent of `id` changed ("" every id: a reload of config.json): each of its instances
+    // whose consent state no longer matches what it runs reloads (a granted one starts its
+    // script, a revoked one stops it and shows the placeholder).
+    void ConsentChanged(const std::wstring& id);
 
     // --- providers (audio, media): started for the first widget that uses one, stopped when the
     // last such widget goes or reloads; their changes reach every widget that used them
@@ -126,6 +179,14 @@ public:
     // and stopped with the last; its period is the fastest any live user asked for
     // (perf.setInterval, default 1000 ms). Each snapshot reaches the users as perf.onChange.
     PerfService* UsePerf(WidgetInstance* w);
+    // Round 26 phase 26A: the session is locked / the display off (DockManager): the perf sampler
+    // sleeps. Widget timers (setTimeout / setInterval) are not touched; the refresh ticks pause
+    // through each instance's visibility.
+    void SetPaused(bool paused) {
+        perf_.SetPaused(paused);
+        sessionPaused_ = paused;  // round 27: the network / input providers go quiet too
+        SyncProviderQuiet();
+    }
     // `w`'s own period (0: the default); the service re-times to the fastest of its users.
     void SetPerfInterval(WidgetInstance* w, uint32_t ms);
     PerfService& Perf() { return perf_; }
@@ -176,7 +237,32 @@ public:
     void NotifyWeather(const WeatherConfig& place);
     uint64_t WeatherNotices() const { return weatherNotices_; }  // onChange deliveries (QueryState 215)
 
+    // --- round 27: network (27B) and input (27C) ---
+    // Started for the first widget that uses one, stopped when the last such widget goes or
+    // reloads (ReleaseProviders); their changes reach every user (ProviderChanged). Quiet while
+    // none of their users can be seen (WidgetInstance::CanBeSeen: an auto-hidden dock, a hidden
+    // desktop widget, the full-screen guard) or the session is paused (SetPaused): nothing is read
+    // or delivered then, and leaving quiet reads once if something changed meanwhile.
+    NetworkService* UseNetwork(WidgetInstance* w);
+    InputService* UseInput(WidgetInstance* w);
+    const NetworkService& Network() const { return network_; }
+    const InputService& Input() const { return input_; }
+    size_t NetworkUsers() const { return networkUsers_.size(); }
+    size_t InputUsers() const { return inputUsers_.size(); }
+    // A widget's visibility changed (WidgetInstance::SetVisible): the providers' quiet follows.
+    void ProviderVisibilityChanged() { SyncProviderQuiet(); }
+    // DockManager forwards WindowTracker's shell hook events (HSHELL_LANGUAGE, activations): the
+    // input provider's signals (no hook of its own). Cheap while it is not running.
+    void OnShellEvent(WPARAM code, LPARAM lp) {
+        if (input_.Active()) input_.OnShellEvent(code, lp);
+    }
+
 private:
+    void SyncProviderQuiet();
+    NetworkService network_;
+    InputService input_;
+    std::set<WidgetInstance*> networkUsers_, inputUsers_;
+    bool sessionPaused_ = false;
     struct Entry {
         WidgetInstance* w = nullptr;
         int id = 0;
@@ -191,6 +277,7 @@ private:
     struct Store {
         bool loaded = false;
         bool dirty = false;
+        bool oversized = false;  // round 25 phase 25D: the file passed the cap: not loaded, never written
         std::map<std::string, std::string> values;  // key -> JSON text
         size_t bytes = 0;
     };
@@ -206,6 +293,8 @@ private:
     };
     std::vector<StorageNote> storageNotes_;
     bool storagePosted_ = false;
+    std::vector<WidgetInstance*> deferred_;  // round 25 phase 25A: RunDeferred wanted (live ones; Remove erases)
+    bool deferredPosted_ = false;
     uint64_t storageNotices_ = 0;
     void OnHttpResult(LPARAM lp);
     void DoSyncWatch();
@@ -249,6 +338,13 @@ private:
     uint64_t weatherNotices_ = 0;
     NotificationService* notifications_ = nullptr;
     std::function<void()> notificationsDemand_;
+    std::function<const WidgetConsent*(const std::wstring&)> consentLookup_;  // round 25 phase 25D
+    std::function<void(const std::wstring&)> consentReview_;
+    std::vector<std::wstring> consentAsked_;  // ids waiting for kConsentMessage
+    SettingsWriter settingsWriter_;               // round 29 phase 29C
+    std::vector<WidgetInstance*> settingsWriters_;  // waiting for kSettingsWriteMessage
+    bool settingsPosted_ = false;
+    bool consentPosted_ = false;
     void NotifyProvider(std::set<WidgetInstance*>& users, const char* channel, const std::string& payload = {});
 };
 

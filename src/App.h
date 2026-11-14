@@ -107,6 +107,11 @@ private:
     static constexpr UINT kHelpClosed = WM_APP + 13;      // round 9 phase 9D: posted: delete the closed Help window
     static constexpr UINT kTimelineCommit = WM_APP + 14;  // round 12 phase 12A: posted (coalesced): record the gesture's change
     // (WM_APP + 71 = kPanelAnchorMoved, round 12 phase 12I, declared with ReanchorPanels.)
+    // Round 25 phase 25B: posted once by Initialize after a start from a malformed config.json: the
+    // notice (ShowMalformedNotice) opens once the docks are up and the message loop runs.
+    static constexpr UINT kMalformedNotice = WM_APP + 76;
+    // Round 26 phase 26A follow-up: posted to the app window (coalesced, userPresentPosted_).
+    static constexpr UINT kUserPresentMessage = WM_APP + 80;
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
     // Round 12 phase 12A: the Keep / Revert bar's countdown (1 s steps, only while the bar shows;
@@ -226,13 +231,84 @@ private:
     UINT RunMenu(DockWindow* dock, const std::function<UINT()>& show);
     void EndModal();
     // Display / monitor changes: re-sync the docks with the monitors (deferred while a menu or
-    // dialog is open).
-    void ScheduleDisplaySync();
+    // dialog is open). Round 26 phase 26C: `deviceNodes` (DBT_DEVNODES_CHANGED only): skipped when
+    // the monitors are what the last Sync saw (syncDeviceOnly_, QueryState 365).
+    void ScheduleDisplaySync(bool deviceNodes = false);
+    bool syncDeviceOnly_ = false;
+    size_t deviceSyncsSkipped_ = 0;
     // DockManager::Sync, then the reserved work areas and the settings window follow.
     void SyncDocks();
     void UpdateReservedMonitors();
-    void ReloadConfig();
+    // Round 25 phase 25B: true when the file was read and applied (false: refused while a menu is
+    // open, the file is malformed, or it was missing and the settings were written back).
+    bool ReloadConfig();
     void OpenConfigFile();
+    // --- round 25 phase 25B: a malformed config.json at startup ---
+    // The notice (a task dialog without owner, posted after the start: the docks are up and
+    // usable while it shows): what happened, the copy's name, links to the folder and the file,
+    // Try again (ReloadConfig; shown again while the file is still malformed).
+    void ShowMalformedNotice();
+    static HRESULT CALLBACK MalformedNoticeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LONG_PTR data);
+    // Config::Save unless saving is blocked (a malformed start whose copy could not be made: each
+    // call tries the copy again first; the file gone: nothing to protect any more). `error` as Save.
+    bool WriteConfig(DWORD* error = nullptr);
+    bool startedMalformed_ = false;  // QueryState 356: this run started from a malformed config.json
+    bool badCopyMade_ = false;       // ... and its copy (badCopyName_) was made
+    bool saveBlocked_ = false;       // ... without a copy: nothing is written over the file
+    std::wstring badCopyName_;       // config.bad-<stamp>.json (file name only)
+    // --- round 25 phase 25D: consent for widget folders (Widgets::ConsentOf) ---
+    // The consent dialog for widget `id` (a task dialog, owned by `owner` when given): what the
+    // widget is, each permission in plain words, a prominent line when it replaces a built-in.
+    // Not yet allowed: Allow / Don't allow (default); allowed: Keep allowed (default) / Revoke.
+    // A widget needing nothing: a short note. True when the consent changed.
+    bool ReviewWidgetConsent(const std::wstring& id, HWND owner);
+    // An add / install through the UI: the dialog only when `id` needs a consent it does not have.
+    // `post`: from a click of a popup (the drawer, the picker): posted (WidgetRuntime::RequestConsent).
+    bool OfferWidgetConsent(const std::wstring& id, HWND owner, bool post = false);
+    // Grants (the manifest's current set) or revokes widget `id`'s consent without a dialog
+    // (automation, the dialog's answer): saved, its instances follow, the settings windows refresh.
+    // False: grant of a widget that is not installed.
+    bool SetWidgetConsent(const std::wstring& id, bool grant);
+    // The consent state of widget `id` (QueryState 357; -1: not installed).
+    int WidgetConsentState(const std::wstring& id) const;
+    bool consentOpen_ = false;  // a consent dialog is open (one at a time)
+    // --- round 29 phase 29B: the Widget library's Uninstall… and install from a zip ---
+    // Uninstall… of a widget folder (`id`): a confirmation naming the widget and how many docks and
+    // desktop widgets use it, with a check box for its saved data (widget-data\<id>.json, off by
+    // default); then the folder (and, ticked, the data file) to the Recycle Bin, its consent
+    // dropped, its widgets reloaded: placed items stay and show the "not installed" error tile (a
+    // folder that replaced a built-in: the built-in comes back). Built-ins: refused. `ask` false
+    // (automation, DockCommand 190): no dialog, the data kept. True when it was removed.
+    bool UninstallWidget(const std::wstring& id, HWND owner, bool ask = true, bool deleteData = false);
+    // A widget folder `id` was just installed (from a zip): any consent of that id is dropped (an
+    // install never inherits what the user allowed an earlier folder of that name), the widgets
+    // reload, and the consent dialog is offered when it needs one.
+    void WidgetInstalled(const std::wstring& id, HWND owner);
+    // How many dock items / standalone widgets show widget `id` (the confirmation, QueryState 374).
+    void WidgetUses(const std::wstring& id, size_t& dockItems, size_t& docks, size_t& standalone) const;
+    int lastUninstall_ = 0;  // QueryState 375: the last Uninstall's result (0 none, 1 removed, 2 refused, 3 cancelled, 4 failed)
+    // --- round 29 phase 29C: the script settings API ---
+    // settings.set's changes of instance `w` (validated by it), written into its config item as the
+    // Item window writes (StoreItemSettings: secrets protected), one undo step, saved debounced; the
+    // dock re-reads the item, so onSettingsChanged / settings.onChange follow and an open settings
+    // window refreshes. Called from WidgetRuntime's posted message, never inside a script call.
+    void WriteScriptSettings(WidgetInstance& w, const std::vector<std::pair<std::wstring, std::wstring>>& changes);
+    // The config item an instance shows (its dock entry by dock id, then the n-th item of its widget
+    // there; a standalone widget's entry). False: none (removed meanwhile).
+    bool ItemOfInstance(const WidgetInstance& w, size_t& cfg, size_t& element) const;
+    // dock.itemKey of item `element` of docks[cfg] ("<dock id>/<widget id>#<n>", a standalone
+    // widget's entry id).
+    std::wstring ItemKeyOf(size_t cfg, size_t element) const;
+    // The prompt for a host the user typed into host setting `key` of a widget item: "<Widget>
+    // wants to connect to <host>" (a local-network host said so), Allow / Don't allow (default).
+    // Allowed: WidgetConsent::hosts["<item key>|<key>"] = host (saved; not an undo step). Nothing
+    // asked when that host is allowed already. True when the widget may connect to it now.
+    bool ReviewHostConsent(size_t cfg, size_t element, const std::wstring& key, const std::wstring& url, HWND owner);
+    // Plain values of secret settings (written before the field was a secret, by hand) protected in
+    // place; at start and after Reload config. True when something changed (saved).
+    bool ProtectWidgetSecrets();
+    static constexpr UINT kSecretNotice = WM_APP + 83;  // posted once: DPAPI refused a secret (DockWindow.h's table)
+    int lastHostConsent_ = 0;  // QueryState 379: the last host prompt: 0 none, 1 allowed now, 2 allowed before, 3 refused
     // --- the dashboard hotkey (round 6 phase 6A) ---
     // Registers config.dashboard.hotkey on the app window (RegisterHotKey, id kDashboardHotkeyId),
     // replacing the one registered before; "" registers none. A combination another app holds
@@ -532,6 +608,21 @@ private:
     AutoHideMode lastOnMode_ = AutoHideMode::Always;
     HICON trayIcon_ = nullptr;
     bool trayAdded_ = false;
+    // Round 26 phase 26A: the session / display notifications (RegisterSessionWatch): registered
+    // WTSRegisterSessionNotification, the GUID_CONSOLE_DISPLAY_STATE handle, the paused bits
+    // (DockManager::kPaused*, QueryState 358).
+    void RegisterSessionWatch();
+    void UnregisterSessionWatch();
+    void OnSessionChange(WPARAM code);
+    void OnDisplayState(DWORD state);
+    bool wtsRegistered_ = false;
+    HPOWERNOTIFY displayNotify_ = nullptr;
+    int pausedBits_ = 0;
+    // Follow-up: real pointer input reached a dock / folder window / standalone widget while paused
+    // (DockManager::Callbacks::userPresent posts kUserPresentMessage once): the pause is cleared as
+    // an unlock plus display-on would, in case one of those notifications was missed.
+    void OnUserPresent();
+    bool userPresentPosted_ = false;
     bool shutDown_ = false;
     int modalDepth_ = 0;          // menus / dialogs open (RunMenu, ChooseItemIcon)
     bool syncPending_ = false;    // a display sync is posted or waits for the modal loop to end

@@ -1,0 +1,53 @@
+{
+  "name": "World clock",
+  "version": "1.0.0",
+  "author": "ViberDock",
+  "description": "The time in up to six places of your choice. The tile shows one or two of them; a click lists them all with their day (today, tomorrow, yesterday) and how far ahead or behind they are. Time zones are Windows' own, daylight saving included.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 64, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "refreshMs": 60000,
+  "standalone": { "minWidth": 80, "minHeight": 48, "defaultWidth": 180, "defaultHeight": 90 },
+  "preview": { "settings": { "tileZones": 2 } },
+  "permissions": [],
+  "settings": [
+    { "key": "zone1", "section": "content", "group": "Places", "common": true, "type": "timezone", "label": "Place 1", "default": "GMT Standard Time",
+      "description": "A time zone of this Windows. The tile shows the first one (or the first two)." },
+    { "key": "label1", "section": "content", "group": "Places", "common": true, "type": "string", "label": "Name of place 1", "default": "London",
+      "description": "Empty: the time zone's name." },
+    { "key": "zone2", "section": "content", "group": "Places", "type": "timezone", "label": "Place 2", "default": "Tokyo Standard Time",
+      "description": "\"Local time\" leaves the place out." },
+    { "key": "label2", "section": "content", "group": "Places", "type": "string", "label": "Name of place 2", "default": "Tokyo", "description": "Empty: the time zone's name." },
+    { "key": "zone3", "section": "content", "group": "Places", "type": "timezone", "label": "Place 3", "default": "Eastern Standard Time",
+      "description": "\"Local time\" leaves the place out." },
+    { "key": "label3", "section": "content", "group": "Places", "type": "string", "label": "Name of place 3", "default": "New York", "description": "Empty: the time zone's name." },
+    { "key": "zone4", "section": "content", "group": "Places", "type": "timezone", "label": "Place 4", "default": "",
+      "description": "\"Local time\" leaves the place out." },
+    { "key": "label4", "section": "content", "group": "Places", "type": "string", "label": "Name of place 4", "default": "", "description": "Empty: the time zone's name." },
+    { "key": "zone5", "section": "content", "group": "Places", "type": "timezone", "label": "Place 5", "default": "",
+      "description": "\"Local time\" leaves the place out." },
+    { "key": "label5", "section": "content", "group": "Places", "type": "string", "label": "Name of place 5", "default": "", "description": "Empty: the time zone's name." },
+    { "key": "zone6", "section": "content", "group": "Places", "type": "timezone", "label": "Place 6", "default": "",
+      "description": "\"Local time\" leaves the place out." },
+    { "key": "label6", "section": "content", "group": "Places", "type": "string", "label": "Name of place 6", "default": "", "description": "Empty: the time zone's name." },
+    { "key": "tileZones", "section": "appearance", "group": "Look", "common": true, "type": "int", "label": "Places on the tile", "default": 1, "min": 1, "max": 2,
+      "description": "One place (its name over its time) or two (a row each)." },
+    { "key": "hours", "section": "appearance", "group": "Look", "type": "choice", "label": "Time format", "default": "auto",
+      "description": "Your Windows time format, or always 24-hour / 12-hour.",
+      "choices": [
+        { "value": "auto", "label": "As Windows shows it" },
+        { "value": "24", "label": "24-hour (14:05)" },
+        { "value": "12", "label": "12-hour (2:05 PM)" }
+      ] },
+    { "key": "scale", "section": "appearance", "group": "Look", "type": "number", "label": "Size", "default": 1, "min": 0.5, "max": 3, "step": 0.25, "unit": "× the usual size",
+      "description": "1 is the usual size. Default: 1." },
+    { "key": "font", "section": "appearance", "group": "Look", "type": "font", "label": "Font", "default": "",
+      "description": "A font family installed on this PC. Empty: Segoe UI." },
+    { "key": "textColor", "section": "appearance", "group": "Colours", "type": "colour", "label": "Time colour", "default": "#00000000",
+      "description": "Transparent (#00000000): the theme's text colour." },
+    { "key": "labelColor", "section": "appearance", "group": "Colours", "type": "colour", "label": "Name colour", "default": "#00000000",
+      "description": "Transparent (#00000000): the theme's date colour." }
+  ]
+}

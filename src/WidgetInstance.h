@@ -35,9 +35,13 @@ class TextEditorWindow;
 // exception: an error tile with the message is shown until a reload); Suspended (a call ran past
 // the manifest's timeLimitMs and the watchdog stopped it: the same tile, no more calls until a
 // reload). Reload (ItemCommand 809, DockCommand 126) re-reads the package and starts over.
+// Round 25 phase 25D: NeedsConsent (a widget from the widgets folder whose permissions, or whose
+// replacing a built-in, the user has not allowed: Widgets::ConsentOf). Its script is never loaded;
+// the tile says "Needs permission" and a click on it asks for the consent dialog
+// (WidgetRuntime::RequestConsent). A grant or a revoke reloads it (ConsentChanged).
 class WidgetInstance final : private ScriptHost, private WidgetCanvas::LayerSink {
 public:
-    enum class State { Ok = 0, Error = 1, Suspended = 2 };
+    enum class State { Ok = 0, Error = 1, Suspended = 2, NeedsConsent = 3 };
 
     // The dock that shows the widget.
     class Client {
@@ -120,6 +124,9 @@ public:
 
     // Loads (again) the package and the script. The first load happens in the constructor.
     void Reload();
+    // Round 25 phase 25D: the user granted or revoked this widget's consent: reloads when what it
+    // runs no longer matches (NeedsConsent but now allowed, or running but no longer allowed).
+    void ConsentChanged();
     // --- popup.editText (round 6 phase 6C) ---
     // Opens the editor asked for in the last script call (the host calls it from its posted popup
     // request handler, never inside a script call). No-op without a pending request.
@@ -141,8 +148,12 @@ public:
     // DIPs (the window's client area); Measure returns it without asking measure() or the manifest.
     void SetStandaloneBox(float widthDip, float heightDip);
     // The dock went off / came back on screen (auto-hide, a desktop dock): dock.visible and
-    // onVisibilityChange({ visible }) when it changed.
+    // onVisibilityChange({ visible }) when it changed. Round 26 phase 26A: off screen the refresh
+    // tick pauses and redraw requests are kept; on screen one catch-up tick and one redraw.
     void SetVisible(bool visible);
+    // Round 27: the dock / window shows it, or a popup of it is open (WidgetRuntime: the network and
+    // input providers go quiet while none of their users can be seen).
+    bool CanBeSeen() const;
     // The system time / time zone changed or the machine resumed: aligned refreshes are re-aligned
     // and a refreshing widget ticks at once.
     void TimeChanged();
@@ -186,6 +197,22 @@ public:
         popupRequest_ = PopupRequest{};
         return r;
     }
+    // Round 28 phase 28A, notify.banner: the banner the script asked for, handed to the dock / the
+    // standalone window with the popup requests (WidgetPopupRequest). False: none waiting.
+    struct Banner {
+        std::wstring title, text;
+        bool sound = false;
+    };
+    bool TakeBanner(Banner& out) {
+        if (!bannerPending_) return false;
+        out = std::move(banner_);
+        banner_ = Banner{};
+        bannerPending_ = false;
+        return true;
+    }
+    // The limits notify.banner enforces per instance (docs/widgets.md "notify").
+    static constexpr size_t kBannerTitleMax = 80, kBannerTextMax = 160;
+    static constexpr double kBannerGapMs = 5000.0;
     // drawPopup(canvas, dock) into the popup's surface (w x h DIPs at `scale`).
     void RenderPopup(ID2D1DeviceContext* dc, float w, float h, float scale);
     void PopupClick(float x, float y, int button);
@@ -203,6 +230,20 @@ public:
     bool WatchFolder(std::wstring& id, std::wstring& folder) const;
     // A line of the host's own in the widget's log (reloads, file changes).
     void Note(const std::wstring& line) { Log(ScriptLogLevel::Info, line); }
+    // Round 29 phase 29C (WidgetRuntime, posted): the settings.set changes since the last call
+    // ("key" -> JSON, validated), for the writer.
+    std::vector<std::pair<std::wstring, std::wstring>> TakeSettingsWrites() {
+        std::vector<std::pair<std::wstring, std::wstring>> out = std::move(pendingSettings_);
+        pendingSettings_.clear();
+        return out;
+    }
+
+    // Round 25 phase 25A, WidgetRuntime (posted, PostDeferred): what had to wait while a call into
+    // this script was on the stack runs now: an engine that failed or a reload asked for meanwhile,
+    // shell.open / notifications.activate (they can pump messages, so they never run inside a
+    // call), the redraws skipped, then the calls the engine kept (ScriptEngine::RunDeferred).
+    // Nothing while a call is still on the stack (that call's end posts it again).
+    void RunDeferred();
 
     // A redraw was requested since the last Render (clears the flag).
     bool TakeChanged() {
@@ -274,6 +315,37 @@ private:
     bool WeatherCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) override;
     bool PerfCall(const std::string& what, double number, std::string& json, std::wstring& error) override;
     bool PerfSeries(const std::string& key, size_t n, std::vector<double>& out, std::wstring& error) override;
+    bool NetworkCall(const std::string& what, std::string& json, std::wstring& error) override;  // round 27 phase 27B
+    bool InputCall(const std::string& what, const std::wstring& text, std::string& json, std::wstring& error) override;  // 27C
+    bool NotifyBanner(const std::wstring& title, const std::wstring& text, bool sound, std::wstring& error) override;  // 28A
+    // --- round 29 phase 29C ---
+    bool SettingsSet(const std::wstring& key, const std::string& json, std::wstring& error) override;
+    bool LinksOpen(const std::wstring& url, std::wstring& error) override;
+    // The hosts the user typed into this item's host settings and allowed (Http::Request::userHosts).
+    std::vector<std::wstring> UserHosts() const;
+    // The plain values of its secret settings (4 characters or more): replaced by "[secret]" in
+    // every line of its log and in its error tile.
+    void UpdateSecrets();
+    std::wstring Redact(const std::wstring& text) const;
+    std::vector<std::wstring> secrets_;
+    // settings.set: what waits for the runtime's posted write, and the rate limit (a bucket of
+    // kSettingsBurst writes, one more every kSettingsRefillMs).
+    std::vector<std::pair<std::wstring, std::wstring>> pendingSettings_;
+    double settingsTokens_ = 0.0;
+    double settingsTokensAt_ = -1.0;
+    double settingsWarnedAt_ = -1e12;
+    static constexpr double kSettingsBurst = 5.0;
+    static constexpr double kSettingsRefillMs = 10000.0;
+    // links.open: the last click on the widget or its popup (WidgetNowMs), and whether a link was
+    // opened for it already (one per click, within kGestureMs).
+    double gestureAt_ = -1e12;
+    bool gestureUsed_ = true;
+    static constexpr double kGestureMs = 1500.0;
+    void Gesture();
+    // shell.sendKeys's pressing of an allow-listed combination `n` (lower case), the permission
+    // already checked (round 27 phase 27C: input.next presses "win+space" under "input"). `who`
+    // names the caller in errors and the log.
+    bool PressCombo(const std::wstring& n, const wchar_t* who, std::wstring& error);
     std::vector<std::string> PackageFiles() override;
     void RequestPopup(PopupRequest r);
     bool HostAllowed(const std::wstring& host) const;
@@ -303,10 +375,49 @@ private:
     void DropLayers(Renderer* renderer);
 
     // A call's outcome: a failure moves the widget to Error / Suspended (logged, timers stopped,
-    // the tile shown). True if it went fine.
+    // the tile shown). True if it went fine. Round 25 phase 25A: also charges the call's time to
+    // the CPU budget (ChargeCpu), and after the outermost call posts what waited for it
+    // (KickDeferred). Deferred (kept for later) counts as fine, Busy (refused) as not.
     bool Check(const ScriptResult& r, const char* what);
     void Fail(State state, const std::wstring& message);
+
+    // --- round 25 phase 25A: re-entry and the CPU budget ---
+    // A call into the script is on the stack (the live engine's, or one Fail retired meanwhile).
+    bool InCall() const { return (engine_ && engine_->Busy()) || (retired_ && retired_->Busy()); }
+    bool HasDeferred() const;
+    // Posts RunDeferred when something waits and no call is on the stack (not for a preview).
+    void KickDeferred();
+    // A script's share of the UI thread: the wall time of its calls (draw, measure, events,
+    // timers, provider callbacks, http results...) summed in one-second buckets over a sliding
+    // window. Past the budget the widget is suspended (Fail). False then.
+    bool ChargeCpu(double ms);
+    // More than kCpuBudgetMs of script time within the last kCpuWindowS seconds (half the UI thread
+    // for ten seconds) suspends the widget. Chosen from what the bundled widgets do (read from
+    // widgets\, not profiled): the analog clock's 16 ms sweep, the analog date's and the photo
+    // frame's 16 ms transitions draw one small frame per timer (around a millisecond of script
+    // each: under 10 % of the thread at 60 frames a second), the media marquee runs at 33 - 100 ms,
+    // the clocks and system monitors wake once a second or less. The heaviest normal moment is the
+    // photo frame decoding a large photo inside a call (its manifest allows 1000 ms) once per
+    // picture: at the shortest "Time per picture" (1 s) the budget still holds a 400 ms decode every
+    // second plus its transition; a longer window would let a runaway freeze the dock for longer,
+    // a shorter one would trip on a few slow decodes in a row. What does trip it is the runaway the
+    // per-call watchdog cannot see: 64 timers each running just under timeLimitMs.
+    static constexpr double kCpuBudgetMs = 5000.0;
+    static constexpr int kCpuWindowS = 10;
+    double cpuMs_[kCpuWindowS]{};  // script ms per second (ring, by second % kCpuWindowS)
+    int64_t cpuSecond_ = 0;        // the second of the newest bucket
     void ScheduleRefresh();
+    // Round 26 phase 26A: the refresh tick only while the widget can be seen. Unseen: the dock (or
+    // window) is off screen and no popup of the widget is open. PauseRefresh cancels timer 0 and
+    // remembers when it was due (`missedNow`: the tick firing now is the one skipped);
+    // ResumeRefresh posts a redraw kept meanwhile, schedules the refresh aligned again and runs
+    // one tick at once when a boundary passed while hidden.
+    bool Unseen() const;
+    void PauseRefresh(bool missedNow = false);
+    void ResumeRefresh();
+    bool refreshPaused_ = false;  // timer 0 is cancelled until ResumeRefresh
+    double pausedDue_ = 0.0;      // WidgetNowMs of the first tick skipped (or that would have run)
+    bool redrawOnShow_ = false;   // RequestRedraw came while Unseen: WidgetChanged on the show
     // The upright box size in DIPs for the current dock (from the cached measure).
     void BoxDips(float& w, float& h) const;
     void DrawErrorTile(ID2D1DeviceContext* dc, float w, float h);
@@ -336,10 +447,32 @@ private:
     uint32_t refreshMs_ = 0;
     bool refreshSet_ = false;  // the script called timer.setRefresh (overrides the manifest)
     std::wstring refreshZone_;  // its timeZone option (round 5 phase D): aligned to that zone's time of day
-    uint64_t generation_ = 0;  // +1 per load: http results of an older load are dropped
+    // A new one per load and per failure (http results and the editor of an older one are dropped).
+    // Round 25 phase 25A: taken from a process-wide counter (WidgetInstance.cpp NextGeneration):
+    // every instance used to count from 0, so a result posted for an instance that went could be
+    // taken by a new instance allocated at the same address with the same count (request ids
+    // start at 1 in every instance too).
+    uint64_t generation_ = 0;
+    // Round 25 phase 25A: what waits for the call on the stack to return (RunDeferred).
+    struct AfterCall {
+        enum class Kind { ShellOpen, Activate } kind = Kind::ShellOpen;
+        std::wstring target, args;  // ShellOpen: the expanded target and its arguments
+        std::wstring shown;         // ShellOpen: the target as the script gave it (messages)
+        uint32_t id = 0;            // Activate: the notification
+    };
+    static constexpr size_t kMaxAfterCall = 16;  // per call; more are refused (a script opening 16 things at once is broken)
+    std::vector<AfterCall> afterCall_;
+    std::unique_ptr<ScriptEngine> retired_;  // Fail during a call: freed once that call returned
+    bool reloadAfterCall_ = false;           // Reload asked for during a call
+    bool redrawAfterCall_ = false;           // a draw / measure was refused during a call
+    bool popupRedrawAfterCall_ = false;      // a drawPopup was refused during a call
     int nextRequest_ = 1;
     int requests_ = 0;         // http requests in flight (this generation)
     PopupRequest popupRequest_;
+    // notify.banner (round 28 phase 28A): the one waiting for the host, and when the last was asked.
+    Banner banner_;
+    bool bannerPending_ = false;
+    double lastBannerMs_ = -1e12;
     // popup.editText: the request waiting for the host's posted handler, and the open editor (a
     // self-deleting window; null when none).
     struct EditPending {

@@ -1949,6 +1949,273 @@ on a bottom and a left dock through QueryState 343 - 355 and ItemCommand 870 / 8
 run (it takes over the tray on the live desktop); the round ends build only with a manual check
 list in STATUS.md, as rounds 22 and 23 did.
 
+## Round 25 (2026-11-13): hardening
+
+From the user: a review of the whole program (by reading: three agents for security and
+robustness, performance and dock bugs, UX / features / widgets / styles), then "hardening first".
+The report and the order of the rounds after it are in
+`C:\Users\olson\.claude\plans\carefully-review-all-aspects-glittery-pony.md`. Two answers shape the
+round: widgets written by other people are expected, so the script sandbox is a security boundary
+and not only a convenience; the product's name is ViberDock wherever the user sees one (round 27).
+Branch `feature/hardening`.
+
+**25A, the script engine.** The rule is now "no call into an instance's script starts while one of
+its calls is on the stack", enforced at the one place every entry passes (`QuickJsEngine.cpp`
+`Scope`), not per provider: a provider that reports a change synchronously (notifications, the
+calendar's refresh) or a host call that pumps messages (`ShellExecute`) would otherwise each need
+their own guard, and the next one added would be forgotten. What cannot start is kept and run from
+a posted message (so input and painting come first), except the calls whose result is needed at
+once (draw, measure, wheel, press), which are refused and made up for by a redraw. Loops are
+bounded twice: repeats coalesce, and a chain of calls that re-trigger one another is cut after 8
+rounds. The watchdog only ever bounded one call; a CPU budget over ten seconds (half the thread)
+bounds their sum, and the timer pass yields after 6 ms. Tried and kept out: suspending by timer
+count or frequency alone (the sweeping clocks legitimately run at 16 ms).
+
+**25B, the settings file.** A file that cannot be parsed is the user's work with a typo in it, so
+it is copied aside before anything can save, and said once in a dialog that blocks nothing. With
+the copy made, saving goes on as usual: refusing to save for a whole session would lose the
+session's changes to protect a file that is already safe. Backups rotate only at startup and only
+when the file changed, so they are three distinct earlier states, not three copies of today.
+
+**25C, four bugs.** The icon cache's key is the whole request (app, size, icon file, index); the
+old size of the same icon is dropped when the dock asks for a new one, which keeps the cache as
+small as the one-entry map was. Clocks: one timer for the earliest boundary and every clock asked
+on each tick (a compare per clock) instead of a timer id per clock. ICS: limits that a real
+calendar never meets (50 000 events, a million periods per expansion) plus exact skip-ahead for
+the plain COUNT rules, because a budget alone would have cut long-running honest series.
+
+**25D, widget trust.** Consent is per permission set, not per version: asking again on every
+update teaches people to click Allow. It is asked where the user acts (adding a widget, clicking
+its tile), never at startup, and automation can never answer the dialog for the user by showing
+none. A folder that takes a built-in's id needs consent even with no permissions: it takes over
+that widget's settings and data. Http: the allowlist is checked on every hop and on the address
+the connection really reached, since a name in the manifest says nothing about where it resolves.
+Left for later: a finer `shell` permission (open versus run).
+
+**25E, the process.** System32 is the only place a DLL is loaded from by name. Every way the
+process can end without the unhandled-exception filter (invalid parameter, pure call, abort, a
+worker thread's exception) now runs the desktop restore, and a worker's exception fails its job
+instead of the dock.
+
+## Round 26 (2026-11-13): idle cost
+
+From the review of round 25 (plan `C:\Users\olson\.claude\plans\carefully-review-all-aspects-glittery-pony.md`,
+the "idle cost" findings, read from the code, never measured): the places where the dock still
+woke up, drew or blocked while nothing the user could see changed. Branch `feature/idle-cost`, on
+`feature/hardening`. Each fix was confirmed against the code first; none was measured.
+
+**26A, wake-ups that should not happen.** The foreground watch's cursor / caret suspension was
+already a throttle (one wake per 100 ms instead of one per mouse move), but each wake ran every
+consumer. The cure is a cheap probe of exactly what the consumers read (the foreground window, its
+rect, four style bits) compared before anything else, plus a back-off of the re-hook while
+suspensions keep finding nothing (100 ms → 500 ms → 1 s). The probe means a missed move is never
+lost, only delayed, and only while the pointer keeps moving over the app; 2 s was rejected for the
+last step because a maximize click after a long pointer movement would then hide the dock up to
+two seconds late. Hidden content: the host, not each widget, stops the refresh tick while the
+widget cannot be seen, and keeps redraw requests for the show; `setTimeout` / `setInterval` keep
+running because widgets poll with them, and stopping them would be a silent behaviour change. The
+catch-up tick on the show runs only when a boundary passed while hidden: running it on every show
+would make a widget that fetches in `tick()` (Stocks) fetch on every reveal of an auto-hide dock.
+"Can be seen" now also excludes the full-screen guard (it was missing: a guarded dock kept its
+widgets ticking and its thumbnails capturing). The session (lock, display off, disconnect) is a
+fourth reason to be hidden; the perf sampler sleeps instead of stopping (stopping empties every
+graph's history), and the notification worker waits for an event instead of polling (one poll on
+the return finds what came meanwhile). Without notification access the worker now asks every 2
+minutes instead of every 5 s; the dock's own "Open Windows settings" links bring back the normal
+pace for a minute.
+
+**26B, stalls on the UI thread.** `IShellLink::Resolve` was dropped rather than tamed with
+`SLR_NOSEARCH | SLR_NOTRACK | SLR_NOLINKINFO`: with those flags it does little more than touch the
+target (which an offline share makes slow too), and nothing the dock reads from a link needs it.
+Tray mirroring keeps its order and its "Explorer gets everything" rule; what changed is that a slow
+Explorer now costs one short wait per pass instead of two seconds per message, relying on a
+timed-out cross-thread send staying queued (so it is not resent; resending would show balloons
+twice). Folder listings: only folders that can block (UNC, remote, removable, optical) go to a
+worker, because a local folder lists in milliseconds and making it asynchronous would show every
+popup empty for a frame and lay it out twice; enumerating every folder off the thread was
+rejected for that reason. For the icon fetch the plan's `SMTO_BLOCK` removal was rejected (the
+wait would dispatch other processes' sent messages in the middle of a rebuild); the shorter
+timeout is the part that helps.
+
+**26C, storms and repeated work.** The rule throughout: compare what the consumer actually uses
+before doing the work, and coalesce with a cap. A folder window's reload compares only what it
+shows (names, folder flags, sizes and dates only where seen or sorted by); the throttle became a
+debounce with a one-second cap, so a burst that never pauses still shows its changes. Settings
+broadcasts compare the dock's monitor rect, work area, DPI and the system transparency switch
+(the dock's colours come from the config, not the system theme), posted once per burst. Device
+nodes compare the monitor list Sync last saw; no recorded case needed a Sync without a monitor
+change, and a real display change also brings `WM_DISPLAYCHANGE`, which is not skipped. The
+window tracker keeps its 50 ms debounce but caps it at 250 ms, and a caption change alone no longer
+enumerates every window. Rejected: one shared WinHTTP session (cookies, auth state and pooled
+idle connections would cross from one widget to another and to the weather and calendar, against
+round 25's isolation, for a saving nobody measured on requests that are rare).
+
+A follow-up to 26A: should the unlock or display-on notification ever be missed (an RDP
+reconnect that sends no unlock, a display driver that never reports "on"), real pointer input on
+one of the dock's own windows ends the pause. Input that the system makes up (`IMO_SYSTEM`: the
+move sent when a window appears under a resting pointer) does not count; nothing polls.
+
+## Round 27 (2026-11-13)
+
+**27A, the product name** (branch `feature/viberdock-name`, on `feature/idle-cost`). The owner
+decided that everything a user sees says ViberDock: the MSI, the Start menu and README already did,
+while window titles, dialogs, the tray tip, settings texts, the About page, Quick setup, the Help
+window, error texts (also those a widget script sees), the HTTP User-Agent, the built-in widgets'
+author and texts, the user guides and the widget reference still said WinDock. What keeps the old
+name, and why: everything something else depends on by name. The exe `WinDock.exe` (the Run key
+value, shortcuts, scripts and the installer's custom actions point at it), the data folder
+`%LocalAppData%\WinDock` (every user's config, widgets, layouts, themes, caches and the crash
+markers live there), the Run value `WinDock` (an existing "Start with Windows" entry keeps
+working and uninstall finds it), window class names, registered messages, the mutex and clipboard
+formats (automation, `tools\smoke`, an older build's `--quit` and the single-instance check), the
+CMake targets, source and class names, the script API's internal `__windock`, the weather icon
+pack's config value `windock`, the marker files' header lines, the version resource's
+InternalName / OriginalFilename, and the debugger output's `WinDock:` prefix (DebugView filters,
+not seen by users). The guides say so in one sentence where a user looks for something by name.
+The quick start and troubleshooting were written for a loose exe; they now lead with the Start
+menu, and the installer adds a second Start menu shortcut, **Restore Windows taskbar**
+(`--restore-taskbar`), so getting the taskbar back needs no command prompt. Same file and
+component as the main shortcut: no new GUID.
+
+**27B and 27C, what the taskbar had** (branch `feature/taskbar-gaps`, on `feature/viberdock-name`).
+Hiding the Explorer taskbar loses two indicators nothing in the dock replaced: the network icon
+and the input-language indicator. Both are now built-in script widgets on small native providers,
+in the pattern of audio / media / perf (started by the first widget that calls them, stopped with
+the last, changes delivered through `ProviderChanged`), with the round 26 rule added for
+providers: quiet while none of their widgets can be seen or the session is paused, one read when
+seen again if something came meanwhile.
+
+Network: the plan was wlanapi for the SSID and a 0 - 100 signal with its notifications. Microsoft's
+documentation ("Changes to API behavior for Wi-Fi access and location") says that since Windows 11
+24H2 exactly those calls (the current connection query, MSM notifications) need precise-location
+consent and show a one-time location prompt; a network icon that makes Windows ask for the user's
+location was not acceptable, so wlanapi is not used at all (no DLL to load dynamically). One WinRT
+call (`GetInternetConnectionProfile`) gives connectivity, kind, SSID (`GetConnectedSsid`, the
+documented alternative), bars and cost, and `NetworkStatusChanged` covers the state changes; it was
+preferred to `INetworkListManager`'s connection points and `NotifyNetworkConnectivityHintChange`,
+which give connectivity (and cost) only. What this costs: the signal is Windows' 0 - 5 bars, and a
+bars-only change has no event (re-read at every event, on wake and on a click). The profile read is
+an RPC, so it runs on a pool thread and posts its result.
+
+Input language: no hook of its own. The shell hook window the dock already registers forwards
+`HSHELL_LANGUAGE` (documented for `WH_SHELL`; assumed for `RegisterShellHookWindow`, to be confirmed
+by hand) and the activations; a missed notice is caught at the next activation and at every
+`get()`. Rejected: a low-level keyboard hook to see Win+Space / Alt+Shift (a global hook in every
+keystroke's path for an indicator), polling `GetKeyboardLayout`, TSF sinks (they report only the
+calling thread's own changes). Switching: `next()` presses Win+Space under the `input` permission
+(a fixed key: no reason to give the widget `shell`); `set()` posts `WM_INPUTLANGCHANGEREQUEST`, the
+language bar's old way, because `ActivateKeyboardLayout` only affects the dock's own process; its
+refusals (elevated windows, apps that handle the message) are documented, and `next()` still works
+there.
+
+## Round 28 (2026-11-13): widgets and styles pack
+
+Branch `feature/widgets-styles`, on `feature/taskbar-gaps`. The owner asked for a pack of small
+widgets and looks ("do what you think is best"); each host addition below exists for one of the
+widgets in 28B.
+
+**28A, host additions.** The `sendKeys` allow-list grows by the Windows UI a quick-buttons row
+needs (snip, Cast, emoji, virtual desktops); it stays a fixed list (round 11's rule: no
+"modifier+key" parser). Weather: Open-Meteo returns sunrise / sunset, UV and the apparent
+temperature for the same request, so they were added to it rather than fetched separately (no
+second request per place). Drive space: `perf.drives()` reads only `DRIVE_FIXED` volumes and only
+when asked (cached 5 s), because a mapped share can hang the UI thread and an empty card reader
+can raise a "insert a disk" box; it does not start the perf sampler, which a disk tile does not
+need. Banners: `notify.banner` reuses the calendar reminder banner (one window class, the same
+queue, the same full-screen rule), behind a new `notify` permission and a per-widget rate limit (one
+on screen, 5 s between calls, plain one-line text) so a widget from someone else cannot flood the
+screen or draw a fake dialog with links. Rejected: Windows toast notifications (they need an
+AppUserModelID shortcut and show under the app's name in the notification centre, and a widget
+would then speak for ViberDock in Windows' own UI). The round 26 pause was checked, not changed:
+only the refresh tick stops while a widget is unseen; script timers run, so a countdown's
+`setTimeout` still fires on a hidden dock.
+
+**28B, five widgets.** All script, no new host code. The Timer stores end timestamps instead of
+counting ticks (a tick count would drift and stop with the dock) and costs a redraw a second only
+while running and seen; its end is a single `setTimeout`. The World clock uses Windows' own time
+zones through the existing `timezone` setting and `system.localTime`: shipping IANA data or a
+mapping table was unnecessary, since the host already converts with Windows' daylight-saving rules
+(the brief asked for IANA names; the code already had the better tool). The To-do list reuses the
+Notes widget's `popup.editText`. The Moon is Meeus' algorithm in about 60 lines (minute accuracy,
+no data). The Quick buttons are the reason for 28A's keys; they stay a fixed list of actions
+rather than a free "keys" field, for the same reason the allow-list exists. Not done: a drive
+space widget (the API is there; System overview could show it later). Follow-up: the Quick buttons'
+glyph code points, written from memory, were checked against Microsoft Learn's Segoe Fluent Icons
+list; all thirteen are there under the intended names, so nothing changed (F406 ClippingTool was
+not taken for the snip: the F4xx glyphs are missing from the first Windows 11 font).
+
+**28C, styles.** Theme presets are a compiled table, so the palettes are nine more entries built
+from one helper that maps a palette's roles (base, surface, overlay, text, subtext, accent, active,
+attention, red) onto the theme's colour fields; shape and effects stay the dark / light look's
+except where the palette is a look (Neon's glow, Luna's buttons on the Aero base). They are
+appended, so the looks keep their indexes. Quick setup's grid was not grown to 17 tiles: it does not
+scroll and was designed for two rows of four; it keeps the eight looks and the palettes are one
+click away in Themes (to confirm with the owner). The Top bar preset is a second bar, not a dock
+replacement: no pins, small icons, the clock on one line through a new face. Four clock faces fill
+gaps in the shipped set (a seconds line, a compact line, a menu-bar line, a large date).
+
+**28D, indicator shapes.** The dot was already a shared surface per look swapped into each slot,
+so the new shapes are only new drawings of those surfaces (nine now: three looks by three window
+counts) in the same box and place; nothing in the layout, the slot visuals or the ring placement
+changed, which is why it was landed rather than left as a design note. There was no animation
+between inactive and active (the surface swaps), so none was added: a tween of the pill's width
+would need a per-slot surface or a scale transform on the dot visual, a larger change for a small
+effect (a candidate for later, with the Tween path's scale animation). Colours stay the theme's dot
+colours, so no Theme field was added; the style is per dock.
+
+## Round 29 (2026-11-13): widget developer tools
+
+Branch `feature/widget-dev-tools`, on `feature/widgets-styles`. The owner expects widgets written by
+other people; this round is for the people writing them (checks, typing, the Console), for the
+people installing them (zip install, uninstall, what the prompts say) and for the script API a
+real third-party widget needs (secrets, settings it can change, a host the user types).
+
+**29A, validation and typing.** The syntax check lives only in `--validate-widget`: the dock already
+reports a load error with its stack, and compiling every script once more at every dock start would
+double the parse cost for nothing the user can act on. QuickJS stays inside `QuickJsEngine.cpp`: the
+check is one engine-neutral function in `ScriptEngine.h`. A surprise worth recording: QuickJS-ng
+resolves a module's static imports at compile time, so the check needs a loader (the widget's own
+rules: package paths only), and an import that is not a file is caught as a bonus. The usage
+warnings are textual on purpose (no AST walk): a permission whose name appears in no script is
+almost certainly not needed, and a false "used" only means no warning. The `.d.ts` is written by
+hand from the bindings rather than generated: the prelude's objects and the native lists are not a
+type source, the doc comments are the point, and the checker makes drift a failure the same way it
+does for widgets.md. It is embedded (26 KB) because an exported built-in is where people start
+editing, and a folder outside the repository has no other way to get it. The DOM question: an
+editor gives loose `.js` files the DOM library, which redeclares `console` and the timers; merging
+(an `interface Console` + `declare var`) is what works, `no-default-lib` did not; the exported
+folder's `jsconfig.json` removes the DOM there.
+
+**29B, installing and removing.** The brief offered two ways to read a zip; the Shell's zip folder
+was rejected because it gives no say over what it writes: names, links and sizes are its business
+and are known only after the copy, so a bomb or a `..` name is found out on disk, and it can show
+dialogs of its own from a worker. A reader of our own is small when it only has to read what a
+widget needs (stored and deflate, the central directory, no zip64 or encryption) and can refuse
+everything else before a byte is written; the decoder is the puff.c design (slow, simple, every
+read checked) because speed does not matter at this size and safety does. The test suite builds
+one archive per flaw by hand rather than trusting a zip tool to produce the hostile cases. What the
+install refuses rather than repairs (a name with a trailing dot, two names differing in case, a
+non-UTF-8 name): repairing would mean deciding which of two files the author meant. Staging in a
+fresh folder of our own, then one rename, means a failed install never leaves half a widget in
+`widgets\`, and the existing folder of that id is only touched after the user said yes. Dropping
+the id's consent on every zip install is the security choice: the consent was given to a folder's
+permission set, and a different archive under the same name may come from someone else (cost: an
+update of a widget you trust asks again). Uninstall recycles instead of deleting (the user can
+undo it from the bin) and keeps the saved data unless asked, because a note or a to-do list is the
+user's, not the widget's; placed items are left as "not installed" tiles rather than removed, so
+reinstalling puts everything back where it was.
+
+## Round 30 (2026-11-13): the tray arrow's shape and size
+
+The user's request: the tray's `+20` toggle was hard to notice; put it in a larger circle, or make
+shape, padding and size settable. Done as four keys of the tray item (`expanderShape`,
+`expanderFill`, `expanderSize`, `expanderPadding`; README, System tray > The arrow), all defaults
+the old look. Design notes: the shape is sized from the glyph plus padding, not from the cell, so
+`expanderSize` and `expanderPadding` both make it larger; a strip follows it along the bar, while a
+grid cell keeps its size and shrinks the arrow instead (the grid must not jump). The lit shape
+replaces the hover plate and also shows the open drawer, which dots and `+N` could not show before.
+Status and what was not verified: STATUS.md, Round 30.
+
 ## Dependencies at a glance
 
 ```

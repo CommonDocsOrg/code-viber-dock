@@ -73,6 +73,7 @@ public:
 private:
     struct Shared;  // what the worker and the UI thread share (commands, events, the owner)
     static DWORD WINAPI ThreadMain(void* param);
+    static DWORD ThreadBody(void* param);  // round 25 phase 25E: ThreadMain runs it through Crash::Job
 
     HANDLE thread_ = nullptr;
     std::shared_ptr<Shared> shared_;

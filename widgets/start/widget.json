@@ -1,7 +1,7 @@
 {
   "name": "Start",
   "version": "1.2.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "A Start button: opens the Start menu next to the button (the Windows key, sent with SendInput, after moving the menu's window beside the button; Menu position chooses Windows' own place instead; if Windows refuses the input, the All apps folder opens instead). The Windows logo, the Windows 7 orb or your own icon.",
   "api": 1,
   "size": {

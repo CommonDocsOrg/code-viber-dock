@@ -8,7 +8,9 @@
 #include <cstring>
 
 #include "Config.h"
+#include "InputService.h"
 #include "JsonUtil.h"
+#include "NetworkService.h"
 #include "WeatherGlyphs.h"
 
 namespace WidgetSamples {
@@ -455,7 +457,8 @@ std::string WeatherJson(bool imperial, const std::wstring& label) {
     o += ",\"refreshMinutes\":30,\"busy\":false,\"error\":\"\",\"status\":\"Sample forecast (preview)\",\"age\":300";
     o += ",\"fetchedAt\":" + std::to_string(fetched) + ",\"updated\":" + Q(updated);
     o += ",\"current\":{\"temp\":" + N(temp(21)) + ",\"code\":0,\"isDay\":true,\"description\":" + Q(WeatherGlyphs::Describe(0)) +
-         ",\"glyph\":\"clear\",\"wind\":" + N(imperial ? 7 : 12) + ",\"humidity\":45}";
+         ",\"glyph\":\"clear\",\"wind\":" + N(imperial ? 7 : 12) + ",\"humidity\":45" +
+         ",\"feelsLike\":" + N(temp(20)) + ",\"uv\":3}";  // round 28 phase 28A
     // 24 hours from the current one (local hours), a mild day / night curve.
     o += ",\"hourly\":[";
     const int64_t hourStart = LocalToUtc(TodayLocal(), st.wHour, 0);
@@ -478,7 +481,11 @@ std::string WeatherJson(bool imperial, const std::wstring& label) {
     for (int i = 0; i < 7; ++i) {
         o += (i ? ",{" : "{") + std::string("\"day\":\"") + DayText(today + i) + "\",\"weekday\":" + std::to_string(Weekday(today + i)) +
              ",\"code\":" + std::to_string(kCodes[i]) + ",\"description\":" + Q(WeatherGlyphs::Describe(kCodes[i])) +
-             ",\"min\":" + N(temp(kMin[i])) + ",\"max\":" + N(temp(kMax[i])) + "}";
+             ",\"min\":" + N(temp(kMin[i])) + ",\"max\":" + N(temp(kMax[i])) +
+             // Round 28 phase 28A: sunrise 07:10 and sunset 17:40 local, UV highest 4 (rain day 1).
+             ",\"uvMax\":" + std::to_string(kCodes[i] == 61 ? 1 : 4) +
+             ",\"sunrise\":" + std::to_string(LocalToUtc(today + i, 7, 10) * 1000) +
+             ",\"sunset\":" + std::to_string(LocalToUtc(today + i, 17, 40) * 1000) + "}";
     }
     o += "]}";
     return o;
@@ -532,6 +539,37 @@ void PerfSeries(const std::string& key, size_t n, std::vector<double>& out) {
         }
         out.push_back(std::clamp(x, m->min, m->max));
     }
+}
+
+// Round 28 phase 28A, perf.drives(): C: 1 TB with 380 GB free, D: 2 TB with 1.2 TB free.
+std::string DrivesJson() {
+    return "[{\"drive\":\"C:\",\"label\":\"Windows\",\"ready\":true,\"total\":1000000000000,\"free\":380000000000,"
+           "\"used\":620000000000},{\"drive\":\"D:\",\"label\":\"Data\",\"ready\":true,\"total\":2000000000000,"
+           "\"free\":1200000000000,\"used\":800000000000}]";
+}
+
+// Round 27: the real providers' Json builders, so the shapes cannot drift.
+std::string NetworkJson() {
+    NetworkService::State s;
+    s.available = s.connected = true;
+    s.level = 3;
+    s.kind = L"wifi";
+    s.name = L"Sample Wi-Fi";
+    s.bars = 4;
+    return NetworkService::Json(s);
+}
+
+std::string InputJson() {
+    InputService::State s;
+    s.available = true;
+    InputService::Layout en{L"04090409", L"en-US", L"ENG", L"US", L"English (United States)", L"US"};
+    InputService::Layout de{L"04070407", L"de-DE", L"DEU", L"DE", L"German (Germany)", L"German"};
+    en.hkl = reinterpret_cast<HKL>(static_cast<uintptr_t>(0x04090409));
+    de.hkl = reinterpret_cast<HKL>(static_cast<uintptr_t>(0x04070407));
+    s.layouts = {en, de};
+    s.current = 0;
+    s.active = en;
+    return InputService::Json(s);
 }
 
 }  // namespace WidgetSamples

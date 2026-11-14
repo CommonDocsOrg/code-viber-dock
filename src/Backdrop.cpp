@@ -1,4 +1,5 @@
 #include "Backdrop.h"
+#include "Crash.h"
 
 #include <dwmapi.h>
 
@@ -14,6 +15,9 @@ constexpr DWORD kStyle = WS_POPUP | WS_THICKFRAME;
 }  // namespace
 
 LRESULT CALLBACK Backdrop::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     switch (msg) {
         case WM_NCCALCSIZE:
             if (wp) return 0;  // client area = window rect: no visible frame
@@ -50,7 +54,7 @@ bool Backdrop::Create(HINSTANCE instance, bool mouseTransparent) {
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
 
     const DWORD ex = kExStyle | (mouseTransparent ? WS_EX_TRANSPARENT | WS_EX_LAYERED : 0);
-    hwnd_ = CreateWindowExW(ex, kClassName, L"WinDock backdrop", kStyle, 0, 0, 1, 1, nullptr, nullptr, instance, nullptr);
+    hwnd_ = CreateWindowExW(ex, kClassName, L"ViberDock backdrop", kStyle, 0, 0, 1, 1, nullptr, nullptr, instance, nullptr);
     if (!hwnd_) return false;
     if (mouseTransparent) SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
 

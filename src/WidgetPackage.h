@@ -12,7 +12,8 @@
 // Widget packages (docs/widgets.md). A widget is a folder %LocalAppData%\WinDock\widgets\<id>\
 // with a manifest `widget.json`, its ES module `main.js` (plus any modules it imports) and its
 // assets, or a built-in shipped inside the exe as RCDATA resources (res/app.rc, the sources live in
-// the repo's widgets\ folder). A folder with the id of a built-in replaces it (the folder wins).
+// the repo's widgets\ folder). A folder with the id of a built-in replaces it (the folder wins;
+// round 25 phase 25D: only with the user's consent, see ConsentOf).
 // Everything a script reads goes through Package::Read, which keeps it inside the package.
 namespace Widgets {
 
@@ -33,7 +34,11 @@ struct SettingField {
     // local time).
     // Round 17 phase 17A: File and Folder (an absolute path as a string; the settings page adds a
     // Browse… button that opens the file / folder picker; `filter` narrows the file picker).
-    enum class Type { Bool, Int, Number, String, Choice, Color, Font, Place, TimeZone, File, Folder };
+    // Round 29 phase 29C: Secret (a password-style box; stored DPAPI-protected, Secrets.h; the script
+    // gets the plain value; never a default, never common or quick) and Url (an https URL, http only
+    // for a host on the local network, never this PC: CheckUrlValue; a manifest's `hostSettings` can
+    // let the user's host be reached, after a prompt).
+    enum class Type { Bool, Int, Number, String, Choice, Color, Font, Place, TimeZone, File, Folder, Secret, Url };
     std::wstring key;
     std::wstring label;        // default: the key
     std::wstring description;  // optional note
@@ -143,7 +148,15 @@ struct Manifest {
     bool calendar = false;       // permission "calendar" (round 4 phase 13)
     bool weather = false;        // permission "weather" (round 4 phase 14)
     bool perf = false;           // permission "perf" (round 6 phase 6D)
+    bool network = false;        // permission "network" (round 27 phase 27B)
+    bool input = false;          // permission "input" (round 27 phase 27C)
+    bool notify = false;         // permission "notify" (round 28 phase 28A: notify.banner)
+    bool links = false;          // permission "links" (round 29 phase 29C: links.open, a web page in the browser on a click)
     std::vector<std::wstring> httpHosts;  // lowercase; "*.example.com" matches sub-domains
+    // Round 29 phase 29C: { "http": [...], "hostSettings": ["feedUrl"] }: `url` settings whose host,
+    // as the user typed it in the settings page and allowed in the prompt that follows, this item
+    // may reach too (WidgetConsent::hosts, per item and setting).
+    std::vector<std::wstring> hostSettings;
     std::vector<SettingField> settings;
     std::vector<std::wstring> warnings;  // what was ignored while reading it
     std::vector<Issue> issues;           // Validate's findings (Load fills them in)
@@ -187,7 +200,11 @@ std::shared_ptr<const Package> Load(const std::wstring& id, std::wstring& error)
 std::vector<Issue> Validate(const std::string& bytes, const Package& pkg);
 // The CLI's check of a widget folder (not installed): reads and validates it. False when it cannot
 // be read at all (no folder, no widget.json; `issues` say why). `name`: its manifest name.
-bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name);
+// Round 25 phase 25D: `manifest` (optional): the parsed manifest (the CLI prints its permissions).
+// Round 29 phase 29A: also compiles every script of the folder (CheckScriptSyntax: a syntax error is
+// an error with file:line:column), warns about permissions no script mentions (and http / shell /
+// notify calls without their permission), and about a missing description, version or author.
+bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name, Manifest* manifest = nullptr);
 
 // The installed widgets for menus and the settings window: every built-in and every folder under
 // Directory() with a widget.json, one entry per id (folder wins), sorted by name.
@@ -220,12 +237,64 @@ bool InstallFolder(const std::wstring& source, std::wstring& id, std::wstring& e
 // `location` (a string) when it has them. UTF-8 JSON object.
 std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson);
 
+// Round 29 phase 29C: a `url` setting's value: "" (none), an https URL, or an http one whose host
+// is on the local network (Http::LocalNetworkHost: a private address, a .local / .lan / .home.arpa /
+// .internal name, a single-label name); never this PC (localhost, loopback), never user info, at
+// most 2048 characters. `host` (lowercase) and `local` describe it. False with `error` (plain words).
+bool CheckUrlValue(const std::wstring& url, std::wstring& host, bool& local, std::wstring& error);
+// Round 29 phase 29C (settings.set): `json` (a JSON value) for field `f`, by the rules the settings
+// page applies: bool a boolean; int a whole number within min - max; number finite, clamped to
+// min - max; choice one of its values (a "perf" choice: any metric key); colour #AARRGGBB / #RRGGBB;
+// timezone "" or a zone of this Windows; url CheckUrlValue; string / font / file / folder / secret
+// a single-line string of at most 1024 characters. `normalized`: the JSON to store. A place is set
+// in its settings window only (refused).
+bool CheckSettingValue(const SettingField& f, const std::string& json, std::wstring& normalized, std::wstring& error);
+// The field with key `key` of `manifest` (null: none).
+const SettingField* FieldOf(const Manifest& manifest, const std::wstring& key);
+
 // The schemas of the built-in kinds that have item settings (round 5 phase A), for the generated
 // settings page: ItemKind::Clock (format, showSeconds, timeZone, showDate, label, face, click,
 // clickTarget) and ItemKind::Weather (place, label, units, refreshMinutes); empty for the others.
 // The clock's face choices are read now (Digital, then ClockFaces::List()). The keys are those of
 // ClockConfig / WeatherConfig (Config.h: ClockOf / WeatherOf read them).
 std::vector<SettingField> BuiltInSchema(ItemKind kind);
+
+// --- round 25 phase 25D: consent for a widget folder's permissions ---
+// A widget from the widgets folder runs only when the user allowed what its manifest asks for
+// (config.json `widgetConsent`, WidgetConsent in Config.h); a built-in never needs it. A folder
+// needs consent when its manifest asks for any permission, or when it replaces a built-in widget
+// (it takes over that widget's placements and its widget-data file), even without permissions.
+//
+// The manifest's permissions as the canonical list stored in a consent: sorted, unique, one entry
+// per permission ("audio", "calendar", "input", "media", "network", "notifications", "notify", "perf",
+// "shell", "weather"; input and network since round 27, notify since round 28), an
+// http host as "http:<host>" ("http" alone for the permission without hosts).
+std::vector<std::wstring> PermissionList(const Manifest& manifest);
+// The package is a folder with the id of a built-in widget.
+bool ReplacesBuiltIn(const Package& pkg);
+bool IsBuiltInId(const std::wstring& id);
+enum class ConsentState {
+    NotNeeded = 0,  // a built-in, or a folder that asks for nothing and replaces nothing
+    Granted = 1,    // the consent covers every permission it asks for (and the replacement)
+    Missing = 2,    // never allowed (or revoked)
+    More = 3,       // allowed before, but the manifest now asks for something not yet allowed
+};
+ConsentState ConsentOf(const Package& pkg, const WidgetConsent* granted);
+// What a consent for the package as it is now holds.
+WidgetConsent ConsentFor(const Package& pkg);
+// Round 29 phase 29C: `slot` allows the package as it is now (ConsentFor), keeping the hosts the
+// user allowed through its url settings.
+void GrantConsent(WidgetConsent& slot, const Package& pkg);
+// The dialog's lines: one per permission, in plain words ("Open files, folders and web pages, and
+// run programs on this PC"; http: "Connect to: a.com, *.b.org (any sub-domain of b.org),
+// localhost (this PC)"), in PermissionList's order.
+std::vector<std::wstring> PermissionLines(const Manifest& manifest);
+// The same as one short line for a list column ("shell, http (2 hosts)"; "none").
+std::wstring PermissionSummary(const Manifest& manifest);
+// Round 25 phase 25D (D3): %VAR% expanded into `out` with the result's size checked (the callers
+// used fixed buffers and ignored a truncated or failed expansion). False when the expansion
+// fails or the result is longer than `maxChars`.
+bool ExpandPath(const std::wstring& in, std::wstring& out, size_t maxChars = 32767);
 
 // Round 10 phase 10B: the fields the Contents tab's inspector offers (indexes into
 // manifest.settings, in schema order): the ones marked `"common": true`; a schema without any: its

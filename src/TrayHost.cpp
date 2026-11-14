@@ -11,6 +11,7 @@
 #include <iterator>
 
 #include "Config.h"
+#include "Crash.h"
 
 namespace {
 
@@ -165,7 +166,13 @@ bool TrayHost::Start(HINSTANCE instance) {
                             r.right - r.left, r.bottom - r.top, nullptr, nullptr, instance, this);
     if (!hwnd_) return false;
     CreateWindowExW(0, kNotifyClass, nullptr, WS_CHILD, 0, 0, 0, 0, hwnd_, nullptr, instance, nullptr);
-    // Elevated apps may register too (a higher integrity level may always send down; allow the copy).
+    // Round 25 phase 25E (the old note had the direction wrong: elevated apps never needed this, a
+    // higher integrity level may always send down): WM_COPYDATA is let through from LOWER-integrity
+    // processes, as Explorer's Shell_TrayWnd lets them register notify icons. Such a sender is not
+    // trusted with anything the dock does for it: an icon's callback must be WM_USER or above (the
+    // dock posts it to the owner window from medium integrity, past UIPI: WM_SYSCOMMAND, WM_CLOSE or
+    // WM_KEYDOWN to another app's window would be a confused deputy; OnNotifyIcon, Post), and the
+    // in-process app bar path takes only same-thread calls (OnAppBar).
     ChangeWindowMessageFilterEx(hwnd_, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
     self_ = this;
     live_.store(hwnd_);
@@ -181,7 +188,7 @@ void TrayHost::Stop() {
     if (!hwnd_) return;
     if (rebroadcastPending_) KillTimer(hwnd_, kRebroadcastTimer);
     rebroadcastPending_ = false;
-    FlushMirrors();  // Explorer gets everything before the apps are sent back to it
+    FlushMirrors(true);  // Explorer gets everything before the apps are sent back to it
     Unhook();
     for (auto& [pid, w] : waits_) {
         if (w.wait) UnregisterWaitEx(w.wait, INVALID_HANDLE_VALUE);  // waits for a running callback
@@ -358,6 +365,20 @@ void TrayHost::EmergencyRelease() {
 // Window
 
 LRESULT CALLBACK TrayHost::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    // One exception keeps the restore whole: the dock's own ABM_REMOVE (DockWindow::
+    // EmergencyRemoveAppBar, from a thread other than this window's, which then still exists) finds
+    // this Shell_TrayWnd, so an app bar message is handed to Explorer's as it is (ABM_REMOVE needs no
+    // answer block; ExplorerTray allocates nothing).
+    if (Crash::Crashing()) {
+        if (msg == WM_COPYDATA && lp && reinterpret_cast<const COPYDATASTRUCT*>(lp)->dwData == 0) {
+            DWORD_PTR result = 0;
+            if (HWND ex = ExplorerTray()) SendMessageTimeoutW(ex, WM_COPYDATA, wp, lp, SMTO_ABORTIFHUNG, kMirrorTimeoutMs, &result);
+            return static_cast<LRESULT>(result);
+        }
+        return DefWindowProcW(hwnd, msg, wp, lp);
+    }
     TrayHost* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<TrayHost*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
@@ -384,9 +405,19 @@ LRESULT TrayHost::WndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
             return cds->dwData == 0 ? OnAppBar(wp, *cds) : Relay(wp, lp);
         }
         case kMirrorMessage:
+            if (mirrorRetryPending_) {  // round 26 phase 26B: posted by an arrival before the pause began: the timer goes on
+                mirrorPosted_ = false;
+                return 0;
+            }
             FlushMirrors();
             return 0;
         case WM_TIMER:
+            if (wp == kMirrorRetryTimer) {  // round 26 phase 26B: one-shot
+                KillTimer(hwnd, kMirrorRetryTimer);
+                mirrorRetryPending_ = false;
+                FlushMirrors();
+                return 0;
+            }
             if (wp != kRebroadcastTimer) break;
             KillTimer(hwnd, kRebroadcastTimer);  // one-shot
             rebroadcastPending_ = false;
@@ -443,11 +474,21 @@ LRESULT TrayHost::OnAppBar(WPARAM wp, const COPYDATASTRUCT& cds) {
     if (cds.cbData < sizeof(AppBarMessage64) || !cds.lpData) return Relay(wp, reinterpret_cast<LPARAM>(&cds));
     AppBarMessage64 m;
     std::memcpy(&m, cds.lpData, sizeof(m));
-    if (!m.hSharedMemory || m.dwSourceProcessId != GetCurrentProcessId()) return Relay(wp, reinterpret_cast<LPARAM>(&cds));
+    // Round 25 phase 25E: dwSourceProcessId is the sender's word, not proof: any process (a lower
+    // integrity one too, the message filter above) could name our pid and an address in our memory,
+    // which this code reads, sends to Explorer and then OVERWRITES with Explorer's answer. The real
+    // in-process call is a dock's SHAppBarMessage on the UI thread, this window's own thread, so
+    // shell32's SendMessage calls this procedure directly: InSendMessage() is false only then (a
+    // message sent from another thread or process sets it). Anything else is relayed as it is (its
+    // "handle" is then Explorer's to map, as for every other process). The block must also be what
+    // SHAllocShared makes: a mapped view (MEM_MAPPED).
+    if (!m.hSharedMemory || m.dwSourceProcessId != GetCurrentProcessId() || InSendMessage()) {
+        return Relay(wp, reinterpret_cast<LPARAM>(&cds));
+    }
     auto* header = reinterpret_cast<BYTE*>(static_cast<ULONG_PTR>(m.hSharedMemory));
     MEMORY_BASIC_INFORMATION mbi{};
     // A handle value is never a mapped address (the first 64 KB are never mapped).
-    if (m.hSharedMemory < 0x10000 || !VirtualQuery(header, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT ||
+    if (m.hSharedMemory < 0x10000 || !VirtualQuery(header, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT || mbi.Type != MEM_MAPPED ||
         !(mbi.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE)) ||
         header + 16 > static_cast<BYTE*>(mbi.BaseAddress) + mbi.RegionSize) {
         return Relay(wp, reinterpret_cast<LPARAM>(&cds));
@@ -560,8 +601,13 @@ LRESULT TrayHost::OnNotifyIcon(HWND sender, const COPYDATASTRUCT& cds) {
                     WatchOwner(pid);
                 }
                 if (n.uFlags & NIF_MESSAGE) {
-                    if (t.callback != n.uCallbackMessage) changed = true;
-                    t.callback = n.uCallbackMessage;
+                    // Round 25 phase 25E: a callback below WM_USER is never kept (0: the dock posts
+                    // nothing for the icon). Real tray callbacks are private messages (WM_USER /
+                    // WM_APP ranges, registered ones); a system message here would let any sender
+                    // have the dock post WM_SYSCOMMAND / WM_CLOSE / WM_KEYDOWN to a window it names.
+                    const UINT callback = n.uCallbackMessage >= WM_USER ? n.uCallbackMessage : 0;
+                    if (t.callback != callback) changed = true;
+                    t.callback = callback;
                 }
                 if (n.uFlags & NIF_TIP) {
                     std::wstring tip = Bounded(n.szTip, std::size(n.szTip));
@@ -666,22 +712,67 @@ void TrayHost::QueueMirror(HWND sender, const COPYDATASTRUCT& cds) {
         }
     }
     mirrors_.push_back(std::move(m));
-    if (!mirrorPosted_ && hwnd_) mirrorPosted_ = PostMessageW(hwnd_, kMirrorMessage, 0, 0) != FALSE;
+    // (Round 26 phase 26B: not while a timed-out batch waits for its retry: the timer flushes these too.)
+    if (!mirrorPosted_ && !mirrorRetryPending_ && hwnd_) mirrorPosted_ = PostMessageW(hwnd_, kMirrorMessage, 0, 0) != FALSE;
 }
 
-void TrayHost::FlushMirrors() {
+void TrayHost::FlushMirrors(bool all) {
     mirrorPosted_ = false;
+    if (mirrorRetryPending_ && hwnd_) KillTimer(hwnd_, kMirrorRetryTimer);
+    mirrorRetryPending_ = false;
     // Taken out first: the sends below may dispatch new notify messages, which queue (and post) anew.
     std::deque<Mirror> batch;
     batch.swap(mirrors_);
     HWND ex = ExplorerTray();
-    for (const Mirror& m : batch) {
-        if (!ex) break;
-        COPYDATASTRUCT copy{1, static_cast<DWORD>(m.data.size()), const_cast<BYTE*>(m.data.data())};
+    // Round 26 phase 26B: the whole batch used to go out in one loop with 2 s per message: after
+    // TaskbarCreated every app registers again at once, and a slow Explorer (it is slow right after
+    // it hid its taskbar, see OnNotifyIcon) froze the dock's input for up to 2 s per message. Now a
+    // pass stops at the first message Explorer did not answer within kFlushTimeoutMs, and after
+    // kFlushSliceMs of sending; the rest goes on later, in order. A shorter timeout loses nothing:
+    // a cross-thread SendMessageTimeout that times out does not take the message back (it stays in
+    // Explorer's queue and is handled when Explorer gets to it; documented, not measured here), so
+    // a timed-out message is not sent again (a resent balloon would show twice). One that never got
+    // there (SMTO_ABORTIFHUNG gives up at once on a thread hung for 5 s; another error) is sent
+    // again on the next pass, at most kMirrorAttempts times. 2 s stays for the sends whose answer
+    // is needed (our own icons, Relay) and for Stop, which must hand Explorer everything first.
+    const ULONGLONG start = GetTickCount64();
+    size_t i = 0;
+    bool waitForExplorer = false;
+    for (; i < batch.size(); ++i) {
+        if (!ex) {
+            i = batch.size();  // no Explorer to mirror to: dropped, as before
+            break;
+        }
+        if (!all && i > 0 && GetTickCount64() - start >= kFlushSliceMs) break;
+        Mirror& m = batch[i];
+        COPYDATASTRUCT copy{1, static_cast<DWORD>(m.data.size()), m.data.data()};
         DWORD_PTR ignored = 0;
-        SendMessageTimeoutW(ex, WM_COPYDATA, reinterpret_cast<WPARAM>(m.sender), reinterpret_cast<LPARAM>(&copy),
-                            SMTO_ABORTIFHUNG, kMirrorTimeoutMs, &ignored);
+        SetLastError(ERROR_SUCCESS);
+        if (SendMessageTimeoutW(ex, WM_COPYDATA, reinterpret_cast<WPARAM>(m.sender), reinterpret_cast<LPARAM>(&copy),
+                                SMTO_ABORTIFHUNG, all ? kMirrorTimeoutMs : kFlushTimeoutMs, &ignored)) {
+            continue;
+        }
+        if (all) continue;  // Stop: on to the next one (as before)
+        if (GetLastError() == ERROR_TIMEOUT) {
+            ++i;  // it is in Explorer's queue: the next one waits for the retry
+        } else if (++m.attempts >= kMirrorAttempts) {
+            ++i;
+            OutputDebugStringW(L"WinDock: tray mirror: Explorer never took a notify icon message; dropped\n");
+        }
+        waitForExplorer = true;
+        break;
     }
+    if (i < batch.size()) {
+        // Before what arrived during the sends: the order Explorer sees stays the apps' order.
+        mirrors_.insert(mirrors_.begin(), std::make_move_iterator(batch.begin() + static_cast<std::ptrdiff_t>(i)),
+                        std::make_move_iterator(batch.end()));
+    }
+    if (mirrors_.empty() || !hwnd_) return;
+    if (waitForExplorer) {
+        mirrorRetryPending_ = SetTimer(hwnd_, kMirrorRetryTimer, kMirrorRetryMs, nullptr) != 0;
+        if (mirrorRetryPending_) return;
+    }
+    if (!mirrorPosted_) mirrorPosted_ = PostMessageW(hwnd_, kMirrorMessage, 0, 0) != FALSE;
 }
 
 LRESULT TrayHost::OnIconRect(const COPYDATASTRUCT& cds) {
@@ -762,6 +853,7 @@ void TrayHost::PostChanged() {
 // Input
 
 bool TrayHost::Post(const TrayIcon& icon, UINT event, POINT anchor) const {
+    if (icon.callback < WM_USER) return false;  // round 25 phase 25E: never a system message (OnNotifyIcon)
     WPARAM wp;
     LPARAM lp;
     if (icon.version >= NOTIFYICON_VERSION_4) {

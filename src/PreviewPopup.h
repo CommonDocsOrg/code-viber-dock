@@ -44,7 +44,7 @@ public:
         RECT monitor{};
     };
 
-    PreviewPopup() : PopupWindow(kClassName, L"WinDock preview", Mode::Hover) {}
+    PreviewPopup() : PopupWindow(kClassName, L"ViberDock preview", Mode::Hover) {}
     ~PreviewPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, Callbacks callbacks);

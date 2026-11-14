@@ -1,4 +1,4 @@
-# WinDock widgets: API reference
+# ViberDock widgets: API reference
 
 A widget is a small JavaScript program that draws into one slot of a dock. It is a folder (or a
 built-in shipped inside `WinDock.exe`), loads without compiling, and runs in its own sandboxed
@@ -9,14 +9,17 @@ thread. This file is the full reference; README.md has the short version.
 - [widget.json](#widgetjson): the manifest
 - [main.js](#mainjs): the module and its exports, when they are called
 - [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`,
-  `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `weather`, `perf`, `popup`, `widget`
+  `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `weather`, `perf`, `network`,
+  `input`, `notify`, `links`, `popup`, `widget`
 - [Animation](#animation): frames with timers, `dock.visible`, `dock.reduceMotion`, the cost rules
 - [Clock faces](#clock-faces): the face formats: analog (`faces/*.json` of the Analog clock widget)
   and digital (the dock's own clock, `clock.face`)
 - [Limits and errors](#limits-and-errors): the watchdog, memory, the error tile, reloading
 - [Sandbox](#sandbox): what a widget can and cannot reach, permissions
-- [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages, `examples/`
-- [Validating a widget](#validating-a-widget): the manifest check, `WinDock.exe --validate-widget`
+- [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages, `examples/`,
+  editor help with [`windock.d.ts`](windock.d.ts)
+- [Validating a widget](#validating-a-widget): the manifest and syntax check, `WinDock.exe --validate-widget`
+- [Publishing a widget](#publishing-a-widget): zip it; what Install from zip… checks; uninstalling
 - [Standalone widgets](#standalone-widgets): a widget in a window of its own on the desktop
 - [Preview mode](#preview-mode): the widget drawer's live previews, `dock.preview`, the sample data,
   the manifest's `preview`
@@ -36,10 +39,14 @@ thread. This file is the full reference; README.md has the short version.
 
 Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
 `start`, `search`, `notification-bell`, `agenda`, `weather`, `notes`, `system-monitor`,
-`system-overview`, `battery`, `show-desktop`, `stocks`, `photo-frame`) are compiled into the
+`system-overview`, `battery`, `show-desktop`, `stocks`, `photo-frame`, `network`, `input-language`,
+`timer`, `world-clock`, `todo`, `moon`, `quick-buttons`, `feed`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
-widget. Widgets are always loaded as source; bytecode is never loaded.
+widget. Round 25: such a folder takes over the built-in's places, settings and `widget-data` file,
+so it runs only after the user allowed it (see [Consent](#consent)), even when it asks for no
+permissions; **Export built-in to folder** makes a copy that is allowed at once. Widgets are always
+loaded as source; bytecode is never loaded.
 
 ## widget.json
 
@@ -47,7 +54,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 {
   "name": "Hello",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "A label and a click counter.",
   "main": "main.js",
   "size": {
@@ -71,10 +78,10 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `version`, `author`, `description` | "" | Informational. |
 | `main` | `"main.js"` | The module to load, a path inside the package. |
 | `size.horizontal`, `size.vertical` | 64 x 40, 48 x 48 | The box in DIPs (pixels at 100 % scale) on a horizontal (bottom / top) and a vertical (left / right) dock: `main` along the dock, `cross` across it. Used unless the module exports `measure()`. Clamped to 4 - 1024 (main) and 4 - 512 (cross). |
-| `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time (also for another time zone: `timer.setRefresh(ms, { timeZone })`). |
+| `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws (only while the widget can be seen, see `timer.setRefresh`). 0: no ticking. `timer.setRefresh(ms)` overrides it at run time (also for another time zone: `timer.setRefresh(ms, { timeZone })`). |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `"network"` (round 27: the [network](#network) provider), `"input"` (round 27: the [input](#input) provider: the keyboard language), `"notify"` (round 28: [notify](#notify), a banner on screen), `"links"` (round 29: [links](#links), a web page in the browser on a click), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself; an IP address is matched only by an entry that is that address), and in that object (round 29) `"hostSettings": ["feedUrl"]`: `url` settings whose host the user may allow per item ([http](#http), user hosts; `"http": []` with it: only the user's hosts). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). Round 25: a widget from the widgets folder runs only after the user allowed its permissions (see [Consent](#consent)); ask for the fewest you need. |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `preview` | none | Round 6 phase 6E: the widget's live preview in the settings window's widget drawer and Widget library ([Preview mode](#preview-mode)): `{ "settings": { "face": "classic" }, "width": 64, "height": 48 }`. `settings`: an object of setting values merged over the schema's defaults for the preview only (a nice face, a sample label); `width` / `height`: the preview's box in DIPs (8 - 1024 / 8 - 512; left out: the box the widget measures on a 48 DIP bottom dock). The manifest check reports a non-object, a setting the schema does not name (a warning) and sizes out of range. |
 | `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum); `supported`: `false` when the widget needs a dock (round 16 phase 16E; default `true`): it is never made a standalone widget (dragging it off the dock only reorders it, the drawer does not drop it on the desktop, **Add to the desktop** refuses it). |
@@ -98,6 +105,30 @@ Each entry: `key` (required), `type`, `label`, `description`, `default`, the pag
 | `timezone` | a Windows time zone key name (`"Tokyo Standard Time"`); `""` = the local time | none |
 | `file` | an absolute path to a file (`""` = none; round 17 phase 17A) | `filter`: the picker's patterns, `"*.png;*.jpg"` (left out: every file) |
 | `folder` | an absolute path to a folder (`""` = none; round 17 phase 17A) | |
+| `secret` | text the user keeps private: an API key, a token, a password (round 29) | none: no `default` (it would be in the manifest for everyone), never `common` or `quick` |
+| `url` | `""` or an `https://` address; `http://` only for a device on the local network; never this PC (round 29) | none (a `default` must be a valid url value, else `""`); name it in `hostSettings` to let the user's host be reached |
+
+`secret` (round 29): the settings page shows a password box (dots) with **Show** / **Hide** beside
+it. The value is stored in config.json **protected with Windows' DPAPI for the current user**
+(`"apiKey": "dpapi:AQAAANCMnd8B..."`), so the file, its backups and copies of it do not give the
+value away on another account or machine; **Save layout** and dock exports leave secret values out
+altogether. The script gets the plain value in `settings`. The widget's log and its error tile never
+show it: a line that contains the value (4 characters or more) shows `[secret]` in its place. A
+plain value found in config.json for a secret field (a widget updated to make a field secret, or a
+value typed into the file) is protected the next time the dock starts or reloads its config. If
+Windows refuses to protect a value, it is not saved at all and the dock says so once. What it does
+not do: hide the value from other programs running as the same Windows user (they could ask DPAPI
+too), or from the widget itself. The built-in Stocks widget's **API key** is a secret since 1.1.0.
+
+`url` (round 29): an edit box; what the user types is checked when the box loses the focus (a
+message says why an address is refused, and the box goes back to the value before): `https://`
+only, unless the host names a device on the local network (a private address, `.local`, `.lan`,
+`.home`, `.home.arpa`, `.internal`, `.localdomain` or one label: then `http://` works too); never
+`localhost` or a loopback address; no user name or password in it; at most 2048 characters. A
+`url` field named in the manifest's `hostSettings` ([http](#http)) asks, right after the user types
+a new host, `"<Widget> wants to connect to <host>"` with **Allow** / **Don't allow** (the default);
+the address is kept either way, and the widget can reach the host only after Allow. Like `secret`,
+a `url` cannot be `common` (the Contents inspector would skip the check and the prompt).
 
 `file` / `folder` (round 17 phase 17A): the settings page shows the path in a box (typed or pasted
 paths work, `%VAR%` included) with a **Browse…** button that opens the Windows file or folder
@@ -197,10 +228,10 @@ available), then calls its exports:
 |---|---|---|---|
 | `draw(canvas, dock)` | **required.** When the widget asked for a redraw (`requestRedraw()`, a tick), when its settings changed, and when the dock lays it out again (its size, scale, theme or edge changed). Never per frame while idle. | the canvas, the dock | |
 | `measure(canvas, dock)` | Before the dock lays the widget out (and after every redraw request). Only `canvas.measureText` works here. | | `{ main, cross }` in DIPs; without this export the manifest's size hint for the dock's axis is used. `main` 0: the widget takes no room on the dock (it is not drawn; the Battery widget without a battery). A box thicker than the bar stands on the bar's near (screen-edge) side and sticks out on the far side only, like a magnified icon (round 7; thinner boxes are centred on the icon row). A changed size lays the dock out again at once: a widget can grow and shrink by frames (the Analog clock's hover growth). Round 11 phase 11C: `flush: true` in the result asks for the Windows 7 "Show desktop" placement: on a full-width dock the box is the bar's whole thickness (`cross` is ignored; `canvas.height` / `dock.cross` are that thickness in `draw()`) and, as the dock's first or last item, it takes no end padding, so it touches the screen's end; anywhere else (a centred, floating or ring dock, standalone, previews) it is ignored |
-| `tick(dock)` | Every `refreshMs` (see the manifest, `timer.setRefresh`). | the dock | `false` to skip the redraw that follows |
+| `tick(dock)` | Every `refreshMs` (see the manifest, `timer.setRefresh`), only while the widget can be seen (round 26: one catch-up tick when it is seen again). | the dock | `false` to skip the redraw that follows |
 | `onPress(e)` | The left button went down on the widget. | `{ x, y, button }`: DIPs from the box's top-left | Round 23: `true` **claims** the press: the widget follows the held button (`onDrag`, `onRelease`); the dock starts no item drag (nor a Ctrl + drag of the dock, nor a scroll of its run), a standalone window does not move, and no `onClick` follows. Anything else (nothing): the press goes on as before. Claim only presses on the widget's own controls (a slider, a seek bar, a button that acts on release), so the rest of it can still be dragged |
 | `onDrag(e)` | Round 23: the pointer moved while a press this widget claimed is held, every move (no drag threshold), also outside its box (the dock / the window holds the mouse capture). Never called otherwise: no pointer-move events reach a widget outside a claimed press. | `{ x, y, button }`: DIPs from the box's top-left (may be outside it, negative) | |
-| `onRelease(e)` | Round 23: a claimed press ended: the button went up, or the capture was lost (a menu, Alt+Tab, the window went away: `cancelled` true; do not act then). | `{ x, y, button, cancelled }` | |
+| `onRelease(e)` | Round 23: a claimed press ended: the button went up, or the capture was lost (a menu, Alt+Tab, the window went away: `cancelled` true; do not act then). Round 25: the dock's slots changing during the press (a window opened or closed) no longer ends it: `onDrag` and `onRelease` keep coming to this widget; when its slot is gone from the dock it gets `cancelled` true with `x` and `y` 0. | `{ x, y, button, cancelled }` | |
 | `onClick(e)` | A left click on the widget (press and release on it). | `{ x, y, button, closedPopup }`: `closedPopup` is true when that press closed this widget's popup (so a click toggles it: `if (!e.closedPopup) popup.open(...)`) | |
 | `onMiddleClick(e)` | A middle click. | `{ x, y, button }` | |
 | `onWheel(e)` | The mouse wheel over the widget. | `{ x, y, delta, notches, horizontal }`: `delta` in WHEEL_DELTA units (120 per notch; positive: away from the user) | `true` if the widget used it |
@@ -210,7 +241,7 @@ available), then calls its exports:
 | `drawPopup(canvas, dock)` | The widget's popup (`popup.open`) is shown or redrawn (`popup.redraw()`). The canvas is the popup's (`canvas.width` / `height`: its size in DIPs), over the theme's panel. It draws both kinds, the ordinary popup and a passive one: the module tells them apart by what it opened (e.g. `canvas.width`). | the canvas, the dock | |
 | `onPopupClick(e)` | A click in the popup (never in a passive one). | `{ x, y, button }`: DIPs from the popup's top-left; `button` `"left"`, `"middle"`, `"right"` | |
 | `onPopupClose(e)` | The popup closed (Escape, another window came forward, a click on the dock, `popup.close()`, a reload; a passive one: see `popup.open`). | `{ passive }`: true when the passive popup closed | |
-| `onVisibilityChange(e)` | The dock went off screen (auto-hide hid it, a desktop dock lost the desktop) or came back. Stop animations while hidden (see [Animation](#animation)). | `{ visible }` | |
+| `onVisibilityChange(e)` | The dock went off screen (auto-hide hid it, a desktop dock lost the desktop; round 26: also the full-screen guard hid it, the session was locked, the display went off) or came back. Stop animations while hidden (see [Animation](#animation)). | `{ visible }` | |
 
 Every export also gets `dock` as its last argument; it is the same object as the global `dock`.
 Nothing redraws by itself after an event: call `requestRedraw()` when the content changed. A right
@@ -279,10 +310,10 @@ Read-only, always current:
 | `magnified` | The dock is magnifying (the pointer is on the dock). |
 | `reduceMotion` | Reduce motion is in effect (`animation.reduceMotion`, or Windows' animation effects are off). |
 | `locked` | The dock is locked. |
-| `visible` | The dock is on screen: shown or sliding in, not auto-hidden or hiding, not a desktop dock hidden behind another window. `onVisibilityChange` reports changes. |
+| `visible` | The dock is on screen: shown or sliding in, not auto-hidden or hiding, not a desktop dock hidden behind another window, not hidden by the full-screen guard, and (round 26) the session is not locked, disconnected or on a display that is off. `onVisibilityChange` reports changes. While it is false (and no popup of the widget is open) `tick()` does not run and redraws wait for the show. |
 | `id`, `widgetId` | The dock's id (`docks[].id`; a standalone widget: its entry's id), the widget's id. |
 | `itemKey` | Round 6: a key for this item, for per-item data in `storage` (the widget's storage is shared by every item of the widget). On a dock `"<dock id>/<widget id>#<n>"`: the n-th item of this widget on that dock (`"main/notes#0"`), so it stays the same when the item is moved past other items, and changes when it is moved past another item of the same widget or when one of those before it is removed (the items then trade keys: the data follows the position among them). A standalone widget: its entry's id (`"note1"`), which never changes. A widget that must keep its data across such moves can offer a setting for the key as well (the Notes widget's **Note id**). |
-| `standalone` | `true` for a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `width` / `height` (and `main` / `cross`) are the window's client size, `iconSize` is the shorter side / 1.5, `axis` is `"horizontal"`, `edge` `"bottom"`, `magnified` and `clockDate` are false, `locked` is the entry's lock, `visible` false while a "desktop" layer hides it. |
+| `standalone` | `true` for a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `width` / `height` (and `main` / `cross`) are the window's client size, `iconSize` is the shorter side / 1.5, `axis` is `"horizontal"`, `edge` `"bottom"`, `magnified` and `clockDate` are false, `locked` is the entry's lock, `visible` false while a "desktop" layer hides it (also while the full-screen guard hides it and, round 26, while the session is paused). |
 | `preview` | Round 6 phase 6E: `true` while the widget draws its live preview in a settings window ([Preview mode](#preview-mode)): drawn once on a virtual dock, every side effect a no-op, the providers answering with sample data. A widget with content of its own (a note, a list) can show a sample instead (the Notes widget's "Shopping list"). |
 | `clockDate` | A built-in clock item of the dock draws a second line (its date or, since round 5, its label): the dock's own widgets then use their smaller size (the weather element: a 24 instead of 26 DIP glyph, 14 instead of 16 DIP text). |
 | `theme` | The dock's theme colours as `"#AARRGGBB"`: `text`, `dateText`, `accent`, `background`, `labelBackground`, `labelText`, `separator`, `border`. |
@@ -292,10 +323,10 @@ Read-only, always current:
 
 | Call | |
 |---|---|
-| `requestRedraw()` (also `timer.requestRedraw()`, `dock.requestRedraw()`) | Redraw (and re-measure) the widget soon: once, after the current call returns, however often it is called. |
-| `setTimeout(fn, ms)`, `setInterval(fn, ms)` (also `timer.setTimeout` / `timer.setInterval`) | Returns an id. One shared host scheduler runs every widget's timers (one Windows timer for the earliest deadline; none while nothing waits). Intervals are at least 16 ms. At most 64 timers per widget (more throws a RangeError). No extra arguments are passed to `fn`. |
+| `requestRedraw()` (also `timer.requestRedraw()`, `dock.requestRedraw()`) | Redraw (and re-measure) the widget soon: once, after the current call returns, however often it is called. Round 26: asked while the widget cannot be seen (see `timer.setRefresh`), the redraw waits and happens once when it is seen again. |
+| `setTimeout(fn, ms)`, `setInterval(fn, ms)` (also `timer.setTimeout` / `timer.setInterval`) | Returns an id. One shared host scheduler runs every widget's timers (one Windows timer for the earliest deadline; none while nothing waits). Intervals are at least 16 ms. At most 64 timers per widget (more throws a RangeError). No extra arguments are passed to `fn`. They keep running while the widget cannot be seen (round 26: only the refresh pauses; stop frame timers yourself in `onVisibilityChange`). |
 | `clearTimeout(id)`, `clearInterval(id)`, `timer.clear(id)` | |
-| `timer.setRefresh(ms[, { timeZone }])` | `tick()` every `ms` (at least 100, at most 86400000) aligned to local time, replacing the manifest's `refreshMs`; 0 stops it. A clock that shows seconds calls `timer.setRefresh(1000)`, one without `60000`; `86400000` wakes at local midnight. With `timeZone` (round 5: a Windows time zone key name, see [system](#system); the key alone as the second argument works too) the multiples are of that zone's time of day: `timer.setRefresh(86400000, { timeZone: 'Tokyo Standard Time' })` wakes at Tokyo's midnight, `3600000` on its hours (zones 5:45 or 12:45 from UTC included). Every Windows zone is a whole number of minutes from UTC, so periods up to a minute fall on the same instants in every zone. When the system time or time zone changes, or the machine resumes from sleep, the refresh is re-aligned and `tick()` runs at once; a daylight-saving change of the zone itself is picked up at the next wake-up (each wake-up aligns the next one again). |
+| `timer.setRefresh(ms[, { timeZone }])` | `tick()` every `ms` (at least 100, at most 86400000) aligned to local time, replacing the manifest's `refreshMs`; 0 stops it. A clock that shows seconds calls `timer.setRefresh(1000)`, one without `60000`; `86400000` wakes at local midnight. With `timeZone` (round 5: a Windows time zone key name, see [system](#system); the key alone as the second argument works too) the multiples are of that zone's time of day: `timer.setRefresh(86400000, { timeZone: 'Tokyo Standard Time' })` wakes at Tokyo's midnight, `3600000` on its hours (zones 5:45 or 12:45 from UTC included). Every Windows zone is a whole number of minutes from UTC, so periods up to a minute fall on the same instants in every zone. When the system time or time zone changes, or the machine resumes from sleep, the refresh is re-aligned and `tick()` runs at once; a daylight-saving change of the zone itself is picked up at the next wake-up (each wake-up aligns the next one again). Round 26: while the widget cannot be seen (`dock.visible` false and no popup of it open: an auto-hidden dock, a desktop dock behind another window, the full-screen guard, a locked session or a display that is off) the refresh does not run at all; when it is seen again and a boundary passed meanwhile, `tick()` runs once at once, then the aligned schedule continues (shown again before the next boundary: nothing extra runs). |
 
 Prefer `setRefresh` / `refreshMs` for anything tied to the clock (it wakes at the boundary itself)
 and redraw only what changed: a widget that does nothing costs no CPU at all.
@@ -338,7 +369,26 @@ export function draw(canvas, dock) {
 ### settings
 
 The global `settings` is the merged settings object (see [Settings schema](#settings-schema)). It
-is replaced (and `onSettingsChanged` called) when the item's settings change.
+is replaced (and `onSettingsChanged` called) when the item's settings change. A `secret` setting's
+value is there in plain text (the widget needs it); a `url` setting's value is one the settings
+page would accept (else its default).
+
+Round 29: the settings object also has two methods (not enumerable: `JSON.stringify(settings)` and
+`Object.keys(settings)` see the values only; no setting may be named `set` or `onChange`):
+
+| Call | |
+|---|---|
+| `settings.set(key, value)` | Changes one of this item's own settings: `key` must be a key of the manifest's schema (another key throws a TypeError), and `value` is checked exactly as the settings page checks what the user types: a `bool` a boolean; an `int` a whole number within `min` - `max` (outside: refused); a `number` finite, clamped to `min` - `max`; a `choice` one of its values (a `"perf"` choice any metric key); a `colour` `#AARRGGBB` / `#RRGGBB`; a `timezone` `""` or a zone of this Windows; a `url` a valid url value (below); `string`, `font`, `file`, `folder` and `secret` one line of at most 1024 characters; a `place` cannot be set (it throws: the user picks a place). A refused value throws a TypeError naming the reason. The change is written after the calling function returns (with the other changes of the same moment, in one write of config.json through its usual debounced save, as one Undo step `"Changed <setting> of <widget> (by the widget)"`); then the dock re-reads the item, so `onSettingsChanged` and `settings.onChange` run (never inside the call that set it) and an open settings window shows the new value. A `secret` is stored protected, as when the user types it. Returns `true` when the change was taken (also when the value is the one it has), **`false`** when the rate limit refused it: 5 changes at once, then one more every 10 seconds (a warning in the log, at most every 30 s). config.json is rewritten whole on every save: keep state that changes often in `storage`, not in settings. **A `url` set this way does not make its host reachable**: only an address the user types in the settings page, followed by the prompt, does (see [http](#http), user hosts). In a preview it changes nothing and returns `false`. |
+| `settings.onChange(fn)` | `fn(settings)` after the item's settings changed (the settings window, a quick setting, Reload config, the widget's own `settings.set`), right after `onSettingsChanged`. Returns a remover. Register it at the top level: the listeners belong to the script, not to one settings object, so they keep working after `settings` is replaced. |
+
+```js
+// A widget that remembers the view the user picked in its popup (a choice setting "view").
+export function onPopupClick(e) {
+  const view = e.x < POPUP_W / 2 ? 'day' : 'week';        // the popup's width, as opened
+  if (!settings.set('view', view)) console.warn('too many changes; try again in a few seconds');
+}
+settings.onChange(() => requestRedraw());
+```
 
 ### storage
 
@@ -346,7 +396,9 @@ A small persistent JSON store per widget **id** (every item with that id shares 
 `%LocalAppData%\WinDock\widget-data\<id>.json` (outside the widget's folder, so exporting,
 replacing or deleting the folder keeps the data, and `watch` does not see the writes). Changes are
 written one second after the last change (and when the dock quits); nothing is written while
-nothing changes. At most 1 MB per widget.
+nothing changes. At most 1 MB per widget. Round 25: a store file larger than that on disk (edited
+by hand, written by another program) is not loaded: the widget sees an empty store, every
+`storage.set` throws an Error naming the file, and the file is left as it is (never rewritten).
 
 | Call | |
 |---|---|
@@ -359,11 +411,51 @@ nothing changes. At most 1 MB per widget.
 
 Needs `{ "http": [hosts] }` in `permissions`; any other host, or no permission, throws a
 TypeError at the call. Requests run on a worker thread (WinHTTP, the system's proxy settings) and
-come back as a promise resolved on the dock's thread.
+come back as a promise resolved on the dock's thread. Round 25:
+
+- **Redirects** are followed by the host, at most 5, and each one is checked like the first URL:
+  its host must be in the permission (a wildcard never matches an IP address), and an https URL
+  never redirects to http. A refused redirect rejects the promise ("http: the redirect to host ...
+  is not in the widget's http permission").
+- **Local addresses are refused**: this PC (`localhost`, 127.0.0.0/8, ::1), the local network
+  (10/8, 172.16/12, 192.168/16, link-local 169.254/16 and fe80::/10, unique-local fc00::/7) and
+  the unspecified address, in their IPv4-mapped forms too. The address checked is the one the
+  request actually connected to, before anything of the response reaches the script, so a public
+  name that resolves to a local address is refused as well. To reach a device on your network or a
+  server on this PC, list that address itself (`"http:192.168.1.20"`) or `"http:localhost"`; the
+  consent dialog then says "this PC" / "your local network" for it. Behind a proxy the address
+  WinHTTP connects to is the proxy's, and the check does not apply.
+- **The timeout** (`timeout`, 1000 - 30000 ms, default 10000) is for the whole request, redirects
+  and body included.
+- **Headers**: the name must be a token and neither name nor value may hold a line break (checked
+  by the host, not only by the API's own code); `Host`, `Content-Length`, `Transfer-Encoding`,
+  `Connection`, `Keep-Alive`, `Upgrade`, `TE`, `Trailer`, `Expect` and every `Proxy-*` header are
+  refused (a TypeError at the call), and all headers together are at most 16 KB. On a redirect to
+  another host `Authorization` is dropped.
+- Windows credentials are never sent (no automatic logon to intranet servers or proxies).
+- **User hosts** (round 29): a manifest can let the user choose the server, for a widget that reads
+  "any RSS feed" or "your Home Assistant": `{ "http": ["api.example.com"], "hostSettings": ["feedUrl"] }`
+  names `url` settings ([Settings schema](#settings-schema)) whose host becomes reachable for that
+  item once the user typed the address in the widget's settings page and allowed it in the prompt
+  that follows (`"<Widget> wants to connect to <host>"`). The consent is per item (`dock.itemKey`) and
+  setting, for exactly that host; the URL changed to another host asks again, and until then a
+  request to it throws ("host ... was not allowed: enter it in the widget's settings and allow it
+  when asked"). A value the script sets with `settings.set`, or one written into config.json, is
+  never allowed by itself. Every redirect is checked against the manifest's hosts plus that host.
+  Such a host must use **https**; plain `http://` and **local addresses** are allowed only when the
+  host's own text names a device on the local network: a private, link-local or unique-local
+  address (`192.168.1.20`, `fd00::5`), a name under `.local`, `.lan`, `.home`, `.home.arpa`,
+  `.internal` or `.localdomain`, or a single-label name (`homeassistant`); the prompt then says the
+  address is on the local network. Such a host may connect to a private address, never to this PC
+  (`localhost`, loopback). A public-looking name must connect to a public address: a name the user
+  typed that resolves (or is rebound) to an address on the local network is refused after connect,
+  before the script sees anything (use the device's own `.local` name or its address instead). The
+  idea behind the rules: a widget must not be able to steer itself to an address inside the user's
+  network (a router's admin page, a NAS) through a host the user allowed for something else.
 
 | Call | |
 |---|---|
-| `http.get(url, options)` | `options`: `{ headers: { name: value }, timeout: ms (1000 - 30000, default 10000), type: "json" \| "text" }`. |
+| `http.get(url, options)` | `options`: `{ headers: { name: value }, timeout: ms (1000 - 30000, default 10000; the whole request), type: "json" \| "text" }`. |
 | `http.post(url, body, options)` | A string body is sent as text (`Content-Type: text/plain; charset=utf-8`), anything else as JSON (`application/json`), unless `headers` names a content type. |
 | `http.request({ method, url, body, headers, timeout, type })` | `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`. |
 
@@ -384,7 +476,7 @@ Needs `"shell"` in `permissions` (else every call throws).
 
 | Call | |
 |---|---|
-| `shell.open(target, args)` | Opens a file, folder, app or URL the way Explorer does (ShellExecute; `%VAR%` expanded). |
+| `shell.open(target, args)` | Opens a file, folder, app or URL the way Explorer does (ShellExecute; `%VAR%` expanded). Round 25: it opens right **after** the calling function returns (ShellExecute can wait on other programs and show its own message box, which must not happen in the middle of a script call), so `shell.open` returns `true` at once and a target that cannot be opened is reported in the widget's log ("shell.open: could not open ..."), not thrown. A missing permission or an empty target still throws. At most 16 per call. |
 | `shell.list(folder)` | The folder's entries, folders first, in Explorer's name order, hidden and system entries left out (up to 1000): `[{ name, path, folder, size, modified }]` (`modified`: ms since 1970, UTC). Draw their icons with `canvas.fileIcon`. |
 | `shell.sendKeys(name)` | Presses one key combination of a fixed allow-list with `SendInput` (as if typed: the keys go to whatever has the focus, the shell handles the Windows-key ones). Anything else throws, and so does input Windows refuses (a window of higher integrity has the focus). Returns `true`. |
 
@@ -410,6 +502,11 @@ shortcuts (Ctrl+C, Alt+F4) into the app that has the focus. Round 11 phase 11B a
 | `win+v` | Windows + V | Clipboard history |
 | `win+w` | Windows + W | Widgets |
 | `win+x` | Windows + X | The Start button's menu |
+| `win+space` | Windows + Space | The next input language (round 27; Windows 11 shows its switcher for a moment; `input.next()` presses it without the `shell` permission) |
+| `win+shift+s` | Windows + Shift + S | A screen snip (Snipping Tool; round 28) |
+| `win+k` | Windows + K | Cast (round 28) |
+| `win+.` | Windows + . | The emoji panel (round 28; it types into the window that has the focus, which is the user's app, not the dock) |
+| `win+ctrl+left`, `win+ctrl+right` | Windows + Ctrl + Left / Right | The previous / next virtual desktop (round 28) |
 | `ctrl+shift+esc` | Ctrl + Shift + Esc | Task Manager |
 | `volume-up`, `volume-down`, `volume-mute` | the volume keys | (the system volume; prefer `audio`) |
 | `media-play-pause`, `media-next`, `media-previous`, `media-stop` | the media keys | (the focused media app; prefer `media`) |
@@ -467,9 +564,9 @@ the dock) until the widget goes or reloads; while it runs every change calls `on
 | `notifications.dismiss(id)` | Removes it from Windows' notification centre (a balloon: from the list). |
 | `notifications.dismissAll()` | Every notification of the dock's list. |
 | `notifications.markRead(id)` | Marks it read (its badge goes; it stays in Windows). |
-| `notifications.activate(id)` | Brings its app to the front from the dock (its slot's windows, or starts it: shell:AppsFolder for an AUMID, the exe for a path) and marks its notifications read. Windows does not let another app activate the toast itself. |
+| `notifications.activate(id)` | Brings its app to the front from the dock (its slot's windows, or starts it: shell:AppsFolder for an AUMID, the exe for a path) and marks its notifications read. Windows does not let another app activate the toast itself. Round 25: an unknown `id` throws at once; the activation itself runs right after the calling function returns (starting an app can wait on other programs). |
 | `notifications.openCentre()` | Toggles the dock's notification centre (README "Notifications and badges") over the widget: the same list as the `notifications` element's, opened after the call returns. Throws when the widget has no slot. |
-| `notifications.onChange(fn)` | `fn(list)` (the `get()` array) when notifications come, go or change state. Returns a remover. |
+| `notifications.onChange(fn)` | `fn(list)` (the `get()` array) when notifications come, go or change state. Returns a remover. A change the widget makes itself (`dismiss`, `dismissAll`, `markRead`, `activate`) reaches its own listeners **after** the function that made it returns, not inside the call (see [Limits and errors](#limits-and-errors), re-entry). |
 
 ### calendar
 
@@ -521,7 +618,7 @@ minutes later. Nothing polls; calls answer from the service's data at once.
 
 | Call | |
 |---|---|
-| `weather.get()` | `{ state, configured, place, latitude, longitude, units, temperatureUnit, windUnit, refreshMinutes, busy, error, status, age, fetchedAt, updated, current, hourly, daily }`: `state` `"none"` (no data yet / not configured / not running), `"stale"` (the cached or last data; a fetch failed or has not finished), `"fresh"` or `"error"` (no data and the last fetch failed: `error` says why, e.g. `"cannot connect"`); `configured` false while no place is set; `place` the name shown (the widget's own `location`, else its place's); `label` the widget's own `label` setting (`""` none); `units` `"metric"` / `"imperial"`, `temperatureUnit` `"C"` / `"F"`, `windUnit` `"km/h"` / `"mph"`; `busy` a fetch is in flight; `status` the Settings page's status line; `age` seconds since the data was fetched (-1 none); `fetchedAt` ms since 1970 (0 none); `updated` its local short time (`"10:15"`); `current` `{ temp, code, isDay, description, glyph, wind, humidity }` or `null` (`code` the WMO weather code, `description` "Partly cloudy", `glyph` the glyph's name); `hourly` up to 48 hours from the current one: `[{ time (ms since 1970), hour (0 - 23, the place's local time), temp, code, isDay, precip (% chance) }]`; `daily` up to 7 days from today: `[{ day ("YYYY-MM-DD"), weekday (0 = Sunday), code, description, min, max }]`. Missing numbers are `null`. |
+| `weather.get()` | `{ state, configured, place, latitude, longitude, units, temperatureUnit, windUnit, refreshMinutes, busy, error, status, age, fetchedAt, updated, current, hourly, daily }`: `state` `"none"` (no data yet / not configured / not running), `"stale"` (the cached or last data; a fetch failed or has not finished), `"fresh"` or `"error"` (no data and the last fetch failed: `error` says why, e.g. `"cannot connect"`); `configured` false while no place is set; `place` the name shown (the widget's own `location`, else its place's); `label` the widget's own `label` setting (`""` none); `units` `"metric"` / `"imperial"`, `temperatureUnit` `"C"` / `"F"`, `windUnit` `"km/h"` / `"mph"`; `busy` a fetch is in flight; `status` the Settings page's status line; `age` seconds since the data was fetched (-1 none); `fetchedAt` ms since 1970 (0 none); `updated` its local short time (`"10:15"`); `current` `{ temp, code, isDay, description, glyph, wind, humidity, feelsLike, uv }` or `null` (`code` the WMO weather code, `description` "Partly cloudy", `glyph` the glyph's name; round 28: `feelsLike` the apparent temperature in the same unit, `uv` the UV index now); `hourly` up to 48 hours from the current one: `[{ time (ms since 1970), hour (0 - 23, the place's local time), temp, code, isDay, precip (% chance) }]`; `daily` up to 7 days from today: `[{ day ("YYYY-MM-DD"), weekday (0 = Sunday), code, description, min, max, uvMax, sunrise, sunset }]` (round 28: `uvMax` the day's highest UV index; `sunrise` / `sunset` ms since 1970, `null` when the sun does not rise or set that day; all from the same request as before). Missing numbers are `null`. |
 | `weather.refresh()` | Fetches the widget's place now (its service: every item of that place gets the result). After the call returns. |
 | `weather.openSettings()` | Opens this widget item's own settings window (its Item window, round 5, where its `place` field is; after the call returns; the widget's popup closes). |
 | `weather.icon(code, isDay, colours)` | An image token for `canvas.image(token, x, y, w, h, opacity)`: the dock's own vector condition glyph for a WMO `code` (sun / moon with `isDay` false, partly cloudy, overcast, fog, drizzle, rain, snow, thunder), `"setLocation"` (the map pin) or `"refresh"` (the circular arrow). `colours`: `{ ink, water }` (default `dock.theme.text` and `dock.theme.accent`; `refresh` uses `ink`). Drawn as geometry at any size (crisp at any scale; `w` / `h` omitted: 24 DIPs); `opacity` dims it as the native element does for stale data (0.6). |
@@ -551,6 +648,7 @@ needs no history of its own (`perf.series`). Calls answer from the dock's copy a
 | `perf.series(key, n)` | Up to `n` (0 - 600, default 600) newest values of `key`, **oldest first**, as numbers; `NaN` for a sample in which the key was missing. Fewer while the sampler has not taken that many since it started; `[]` for a key it never saw. |
 | `perf.setInterval(ms)` | This widget's sampling period, clamped to 250 - 10000 ms (a widget that never calls it counts as 1000). The sampler uses the fastest of all its widgets'; returns the period it uses now. `onChange` then comes at that rate for every widget: a widget that wants a slow display can still redraw less often. |
 | `perf.hwinfo()` | `{ available, reason, version, pollTime, sensors: [{ index, name }], readingCount }`: `available` true while HWiNFO's shared memory is readable and fresh (updated in the last 10 s), else `reason` says why (not running / sharing off, stopped sharing, stale data: the free version stops after 12 hours); `version` "2.1" (its layout), `pollTime` ms since 1970 of HWiNFO's last update (refreshed every 5 s here), `sensors` its sensors by index (the `<sensor>` part of the keys), `readingCount` its readings. |
+| `perf.drives()` | Round 28: the space of the **fixed** drives: `[{ drive, label, ready, total, free, used }]` (`drive` `"C:"`, `label` the volume's name, `ready` false for a drive that cannot be read, such as a locked BitLocker volume, which then has no numbers; `total` / `free` / `used` in bytes, `free` what this user may still write). Network, removable and optical drives are never asked (they can hang or ask for a disc). Read when a script asks, at most every 5 s (calls in between get the same answer); it does not start the sampler. Call it from a timer of a few seconds or more, not from every `draw()`. |
 | `perf.onChange(fn)` | `fn(snapshot)` (the `get()` object) after every snapshot. Returns a remover. Starts the sampler like `get()`. |
 
 **Keys** (`perf.metrics()` lists exactly the available ones; values in the unit shown):
@@ -617,6 +715,95 @@ export function draw(canvas, dock) {
 
 The built-in `system-monitor` and `system-overview` widgets are the worked examples (see
 [Examples](#examples)).
+
+### network
+
+Round 27. Needs `"network"` in `permissions`. The connection Windows uses for the internet, what the
+taskbar's network icon showed (Windows.Networking.Connectivity: `GetInternetConnectionProfile`).
+The provider starts with the first call (`get()` or `onChange`) of a widget that has the
+permission and stops when the last such widget goes. It is event-driven (Windows'
+`NetworkStatusChanged`: connected / disconnected, internet gained or lost, a captive portal, the
+cost, another connection taking over); nothing polls, and it is quiet (reads nothing, calls no
+listener) while none of its widgets can be seen (`dock.visible` false and no popup open) or the
+session is locked; when one is seen again it reads once if something changed meanwhile.
+
+| Call | |
+|---|---|
+| `network.get()` | `{ available, connected, internet, state, kind, name, bars, signal, metered }`: `available` false when Windows could not say; `connected` there is a connection for the internet; `state` `"internet"`, `"local"` (connected, no internet), `"constrained"` (a captive portal: sign-in needed) or `"none"`; `internet` the same as `state === "internet"`; `kind` `"wifi"`, `"ethernet"`, `"cellular"`, `"vpn"` (a PPP, tunnel or virtual adapter carries it), `"other"` or `"none"`; `name` the Wi-Fi network's name (SSID), for other kinds the connection's profile name ("Network 2"), `""` without one; `bars` Windows' signal bars 0 - 5 for Wi-Fi and cellular, else `null`; `signal` `bars` × 20 (0 - 100) or `null`; `metered` the connection is set as metered (a fixed or variable cost). |
+| `network.onChange(fn)` | `fn(state)` (the `get()` object) when anything in it changed (coalesced: one call per change, not per Windows event). Returns a remover. |
+
+Limits (from Microsoft's documentation; not measured): the signal is the 0 - 5 bars Windows shows,
+not a percentage, and a change of the bars alone is not an event: they are read again at every
+network event and whenever the provider wakes, so they can lag while nothing else changes. The
+Wi-Fi APIs that give a 0 - 100 quality and signal events (`wlanapi`'s current connection and its
+MSM notifications) need the user's precise-location consent since Windows 11 24H2 and would show a
+location prompt; they are not used. The SSID comes from `WlanConnectionProfileDetails.
+GetConnectedSsid`, which Microsoft's page on that change ("Changes to API behavior for Wi-Fi access and location") recommends instead. A VPN is recognised by its adapter's
+type only (the built-in Windows VPN, WireGuard, OpenVPN's TAP / wintun); one that presents an
+ethernet adapter shows as ethernet. Airplane mode shows as no connection.
+
+### input
+
+Round 27. Needs `"input"` in `permissions`. The keyboard layout (input language) of the window the
+user works in, and the installed layouts: what the taskbar's language indicator ("ENG") showed.
+The provider starts with the first call (`get()` or `onChange`) and stops with the last widget
+using it; it adds no hook of its own: it listens to the shell notices the dock already receives (a
+language change, a window activated) and is quiet while none of its widgets can be seen or the
+session is locked. Each notice costs a `GetKeyboardLayout` and a `GetKeyboardLayoutList`; the names
+are read once per layout.
+
+| Call | |
+|---|---|
+| `input.get()` | `{ available, id, tag, code, region, language, layout, current, layouts }`: the active layout's `id` (the HKL as 8 hex digits, `"04090409"`), `tag` (`"en-US"`), `code` (the three letters the taskbar shows, `"ENG"`, `"DEU"`: the ISO 639-2 name, upper case), `region` (`"US"`), `language` (`"English (United States)"`, in Windows' display language), `layout` (the keyboard's name, `"US"`, `"German"`, an IME's name); `current` its index in `layouts` (-1 when it is not listed); `layouts` every installed layout in the switcher's order, `[{ id, tag, code, region, language, layout, current }]`. Read fresh at every call. |
+| `input.set(idOrTag)` | Asks the window the user works in (the foreground window; while a popup of the dock is in front, the window before it) to switch to that layout (an `id` from `layouts`, or a `tag`: its first layout) by posting `WM_INPUTLANGCHANGEREQUEST`, as the old language bar did. Returns `true` when the request was posted; an unknown id throws, and so does a window Windows does not let the dock post to (an app running as administrator). The switch itself happens when the app handles the message: `onChange` (or the next `get()`) shows it. |
+| `input.next()` | Presses Windows + Space (as the user would: every app follows it, and Windows 11 shows its switcher for a moment). Needs only `"input"` (the key is fixed). Returns `true`; input Windows refuses throws. |
+| `input.onChange(fn)` | `fn(state)` (the `get()` object) when the active layout or the list changed. Returns a remover. |
+
+Limits: Windows reports a switch inside a window only to that window (`WM_INPUTLANGCHANGE`). The
+provider relies on the shell's `HSHELL_LANGUAGE` notice, which is documented for shell hooks
+(`WH_SHELL`); that it also reaches a shell hook window (`RegisterShellHookWindow`, what the dock
+uses) is assumed, not documented. Without it the indicator follows at the next window activation
+and at every `get()` (the built-in widget reads again shortly after its own switch).
+`input.set` is a request: an app that handles `WM_INPUTLANGCHANGEREQUEST` itself, console windows
+and some UWP / WinUI apps may ignore it (`input.next()` works there). With Windows' default "one
+input method for all apps" the layout is the same everywhere; with "Let me use a different input
+method for each app window" the indicator follows the foreground app. Out of scope: an IME's
+conversion mode (あ / A, half / full width) and Text Services Framework profiles beyond the layout
+list.
+
+### notify
+
+Round 28. Needs `"notify"` in `permissions`. A banner on screen: the one the dock shows for calendar
+reminders (beside the dock, over the widget's slot; above a standalone widget's window), with the
+widget's title, one line of text and a **Dismiss** button. It never takes the focus. For a timer
+that ended, a reminder of the widget's own, a state the user should see now.
+
+| Call | |
+|---|---|
+| `notify.banner({ title, text, sound })` | Shows the banner after the current call returns. `title` (required, not empty) and `text` are plain text, one line each: line breaks and other control characters become spaces, `title` is cut at 80 characters and `text` at 160 (with "…"); nothing in them is a link or markup. `sound: true` plays Windows' "Asterisk" sound (the sound scheme's, off when the user turned system sounds off). Returns `true` when the banner was taken, `false` when the rate limit refused it (and in a preview, which shows nothing); a missing permission or an empty title throws. |
+
+The limits, per widget item: **one banner at a time** (a newer one replaces the widget's banner on
+screen or waiting), and **at least 5 seconds between two calls** (a call inside that gap shows
+nothing, returns `false` and writes a warning to the widget's log). The banner stays until the user
+dismisses it (Dismiss, or a click on it); the widget cannot close it. Like the calendar reminders
+it also shows while the dock is auto-hidden (the dock stays hidden), it waits while a full-screen
+app is in front (the full-screen guard) and shows when that app is gone, and on a dock it queues
+behind a calendar reminder already shown. Script timers keep running while the dock is hidden, so a
+`setTimeout` for the end of a countdown raises its banner then too (the Timer widget does this).
+
+### links
+
+Round 29. Needs `"links"` in `permissions`. Opens a web page in the user's browser, for a widget
+that lists things to read (the built-in Headlines widget opens a headline's article) without asking
+for `"shell"` (which could open anything and run programs).
+
+| Call | |
+|---|---|
+| `links.open(url)` | Opens `url` (an `http://` or `https://` address, at most 2048 characters, no spaces or control characters; anything else throws a TypeError) in the default browser, right after the calling function returns. Only **as the answer to a click**: within 1.5 s of a click on the widget (`onClick`, `onMiddleClick`) or in its popup (`onPopupClick`), and once per click; otherwise it opens nothing, returns `false` and writes a warning to the log. Returns `true` when the page will open (`false` in a preview). |
+
+A script cannot open pages by itself (a timer, a provider's `onChange`, an http answer): the user's
+click is the consent for each page. The address can be any host: it is shown by the browser, not
+fetched by ViberDock.
 
 ### popup
 
@@ -722,7 +909,10 @@ The rules (the dock's "efficiency first" budget):
 - **Frames only while visible**: `dock.visible` is false while the dock is auto-hidden (or a
   desktop dock is behind another window); `onVisibilityChange({ visible })` tells the widget, which
   stops its frame timers then (the analog clock also stops its minute / second refresh while
-  hidden and redraws once when it comes back).
+  hidden and redraws once when it comes back). Round 26: the host does part of this for every
+  widget: while hidden the refresh (`tick()`) does not run and `requestRedraw` waits; on the show
+  one catch-up `tick()` (when a boundary passed) and one redraw. `setTimeout` / `setInterval` are
+  left running (a widget may poll data with them), so frame timers are still the widget's to stop.
 - **Reduce motion**: `dock.reduceMotion` (the dock's `animation.reduceMotion`, or Windows' "Animation
   effects" off) means no decorative animation: jump to the end state (the clock's smooth second
   hand ticks instead, its sweep is skipped).
@@ -834,7 +1024,7 @@ falls back to the first file.
 The dock's built-in clock (a `clock` item) draws its `face` (round 5: each clock item's own
 setting; `clock.face` is the default for new ones): `"digital"` (the default: its own look,
 unchanged) or the id of a face file. Shipped faces: `default` (the built-in look as a face file,
-pixel for pixel the same: a starting point), `large-time-small-date`, `mono-pill`. Your own:
+pixel for pixel the same: a starting point), `large-time-small-date`, `mono-pill`, and (round 28) `seconds-line`, `compact`, `time-weekday`, `big-date`. Your own:
 `%LocalAppData%\WinDock\clock-faces\<id>.json` (the clock item's settings page: **Open faces
 folder**); a file with a shipped face's id replaces it. The **Face** drop-down of a clock item's
 settings page lists them (the list is read again whenever the page is generated); a face that
@@ -885,6 +1075,29 @@ An analog clock on the dock is the Analog clock widget (Dock settings > Contents
   where it is (an endless loop, a runaway regular expression, an async loop: none can catch it),
   the widget is **suspended** and shows a "Stopped" tile until it is reloaded. The dock itself
   keeps responding: at worst it waits that long once.
+- **CPU budget** (round 25). The watchdog limits one call, not how many come: a widget whose calls
+  (draws, measures, events, timers, provider callbacks, http results, together) take **more than
+  5 seconds of the last 10** is suspended the same way, with "the script used the UI thread for
+  ... s of the last 10 s" as its message. Every widget runs on the dock's one UI thread, so that
+  is a widget keeping the dock half frozen; the bundled widgets stay far below it (a 60 frames a
+  second animation that draws in about a millisecond uses under 10 %). Due timers also run in short
+  slices (about 6 ms of callbacks, then input and painting get a turn), so many timers falling due
+  together are spread over a few frames instead of running as one block.
+- **Re-entry** (round 25). A call into a widget's script never starts while another of its calls
+  is running. When something the script does leads straight back to it (calling
+  `notifications.dismiss` / `dismissAll` / `markRead` / `activate`, or `calendar.refresh()`, changes
+  what that provider reports, so its own `onChange` listeners are due), the listener call is kept
+  and runs right after the current call returns, in order; the same timer, provider channel or
+  storage key kept twice runs once, and so do repeated `onHover`, `onDrag`, `onVisibilityChange`,
+  `onSettingsChanged` and `tick` calls (with the latest event). A listener whose own work keeps
+  triggering it again is cut off after 8 such rounds (a warning in the log), and at most 64 calls
+  are kept at a time. A widget may also see `shell.open` and `notifications.activate` take effect
+  only after its function returned (see their entries).
+- **Needs permission** (round 25). A widget from the widgets folder that the user has not allowed
+  yet (see [Consent](#consent)) does not load its script at all: its tile says "Needs permission"
+  (on a narrow tile "Permission" or "?") and a click on it, or **Review permissions…** in its
+  right-click menu, opens the consent dialog. The Console lists it as "needs permission";
+  `QueryState` 54 (and 244 for a standalone widget) report state 3.
 - **Errors.** An uncaught exception in any export or timer callback (and a module that fails to
   load, a missing `draw` export, a package that is not installed) puts the widget in the **error**
   state: an "Error" tile with the first line of the message, the message and its stack
@@ -911,7 +1124,14 @@ allow-list; `"audio"` reads and changes the system volume / mutes / the default 
 reads the current media session and controls its playback; `"notifications"` reads Windows'
 notifications and dismisses them; `"calendar"` reads the dock's calendar feeds (and asks them to
 refresh); `"weather"` reads the dock's forecast (and asks it to refresh); `"perf"` reads the
-machine's performance counters and HWiNFO's shared sensor memory (nothing else). Modules and images
+machine's performance counters and HWiNFO's shared sensor memory (nothing else); `"network"` (round
+27) reads the state of the internet connection (online or not, its kind, the Wi-Fi network's name and
+its signal bars); `"input"` (round 27) reads the keyboard layouts and switches the one in use (a
+posted request to the window the user works in, or Windows + Space); `"notify"` (round 28) shows
+a banner on screen, with the limits in [notify](#notify); `"links"` (round 29) opens http(s) pages in
+the browser, only as the answer to a click ([links](#links)). A `secret` setting is stored protected
+and never shown in the log; a host the user types into a `url` setting is reachable only after the
+prompt ([http](#http), user hosts). Modules and images
 are read
 only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
@@ -921,6 +1141,43 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
   backslashes, empty segments, and any `..` that would leave the package.
 - For folder widgets the file actually opened must be inside the widget's folder (a junction or
   symbolic link pointing elsewhere is refused), and every file is at most 8 MB.
+
+### Consent
+
+Round 25. Widgets written by other people are expected, so the permissions are a boundary the user
+decides on:
+
+- **Built-in widgets** (compiled into the exe) never ask.
+- **A widget from the widgets folder** that asks for any permission, or whose id is a built-in's
+  (it replaces that widget, its settings and its saved data), runs only after the user allowed it.
+  Without that its script is not loaded at all (not even in the drawer's preview): it shows the
+  "Needs permission" tile. A folder asking for nothing and replacing nothing needs no consent.
+- **The question** comes when the user adds or installs such a widget through the settings or the
+  drawer (App settings > Widget library's Add from folder…, Add to dock, Add to the desktop; the
+  Contents tab's drawer; customize mode's drawer; the standalone widget picker), and from a click on
+  its tile. It names the widget (name, id, version, author, folder), lists each permission in plain
+  words (for `http` every host, a wildcard as "any sub-domain of", a local address as "this PC" /
+  "your local network"), says so prominently when the folder replaces a built-in, and offers
+  **Allow** / **Don't allow** (the default). Nothing asks at startup: widgets installed before
+  round 25 show the tile until they are reviewed. Automation installs (`DockCommand` 141) never
+  ask.
+- **What is stored**: `widgetConsent` in config.json, the widget's id with the sorted list of what
+  was allowed (`"shell"`, `"http:api.example.com"`, ...) and `"replacesBuiltIn"`. It is asked again
+  only when the manifest asks for something that list does not hold: a new version with the same
+  or fewer permissions keeps running. Undo / Redo never change it.
+- **Review and revoke**: App settings > Widget library shows every widget's permissions and state;
+  **Permissions…** opens the dialog (Keep allowed / Revoke for an allowed widget). Revoking stops the
+  widget at once and brings the tile back.
+- **Hosts the user types** (round 29): a widget with `hostSettings` lists "Internet: connect to the
+  address you enter as ..." among its permissions; each host itself is asked about later, per item,
+  when the user types it ([http](#http)). Those answers are stored with the consent
+  (`widgetConsent.<id>.hosts`, `"<item key>|<setting key>": "<host>"`, also for built-in widgets);
+  revoking the widget, uninstalling it or installing another zip of that id forgets them.
+
+For authors: ask for the minimum. Every permission is one more line the user must accept, and
+`"shell"` (which can run any program) is the one most users should refuse; prefer `http` with exact
+host names over wildcards, and never list a local address unless the widget is for a device on the
+user's network. `WinDock.exe --validate-widget` prints the lines the dialog will show.
 
 ## Developing a widget
 
@@ -948,7 +1205,26 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
   stopped), the selected one's log (console output, errors with their stacks, the host's own
   lines: loading, reloads, file changes, shell.open), **Reload**, **Open folder** (the widget's
   folder, or the widgets folder for a built-in) and **Clear** (the view; the log is kept). It
-  updates as lines arrive.
+  updates as lines arrive. Round 29: **Copy all** puts the log as shown (from the last Clear on) on
+  the clipboard, **Save to file…** writes it to a text file (UTF-8, `<id>-log.txt` by default), for a
+  bug report. A [secret](#settings-schema) setting's value is never in it: a line that contains
+  the value shows `[secret]` in its place (the host's own lines never print it to begin with).
+- **Editor help** (round 29): `docs/windock.d.ts` declares the whole API (every global, method,
+  event, the export signatures, the manifest and its settings schema) with short doc comments, for
+  VS Code or any TypeScript-aware editor. Put these two lines at the top of main.js:
+
+  ```js
+  // @ts-check
+  /// <reference path="./windock.d.ts" />
+  ```
+
+  and `canvas.`, `dock.`, `settings.` ... complete with their documentation, wrong argument types are
+  underlined, and `/** @type {ViberDock.Exports['draw']} */` above an export types its parameters.
+  The dock ignores both lines (they are comments). **Export built-in to folder** writes a copy of the
+  file and a `jsconfig.json` (ES2023 only, no DOM) into the exported folder, so the globals are known
+  there without the reference line; the repository's examples reference `../../docs/windock.d.ts`.
+  `// @ts-check` is optional: without it the editor still completes, it just does not underline.
+  `tools/check_widget_docs.py` keeps the file in step with the bindings.
 - **Errors** show on the widget's tile ("Error" / "Stopped" and the first line of the message).
 
 ## Validating a widget
@@ -959,13 +1235,37 @@ authors and CI; no dock starts, nothing is shown). Each problem names the field 
 
 ```
 > WinDock.exe --validate-widget C:\src\my-widget
-WinDock widget check: C:\src\my-widget
+ViberDock widget check: C:\src\my-widget
   name: My widget
+  permissions (installed, it runs only after the user allows them):
+    - Internet: connect to api.example.com
   error: main: "app.js" was not found in the widget (fix: add the module or set "main" to its path)
   error: permissions[1]: unknown permission "camera" (fix: use "shell", "audio", ... or { "http": ["host"] })
   warning: settings[2] (size).default: 500 is outside min - max (clamped)
 FAILED: 2 errors, 1 warning
 ```
+
+Round 25: after the name it prints the permissions as the consent dialog will list them ("none"
+when it asks for nothing), and a note when the folder name is a built-in widget's id (installed,
+it would replace that widget and ask for consent).
+
+Round 29, what only the command line checks (the dock does not, to keep loading cheap):
+
+- **Every script compiles**: each `.js` / `.mjs` file of the folder (at most 64) is parsed and
+  compiled as a module, with its static imports, in a throwaway engine with no host API; nothing
+  runs, not even the top-level code. A syntax error, or an import that is not a file of the
+  widget, is an error with its place: `error: lib/util.js:12:7: SyntaxError: unexpected token in
+  expression: ';'`. What it cannot see: errors that only happen when the code runs (a misspelt
+  global, a wrong argument), which the Console shows.
+- **Permissions in use** (warnings, textual): a permission that no script mentions (`"http"` asked
+  for, no `http.` anywhere; `"shell"` counts `shell.`, `fileIcon`, `popup.folder`, `onDrop` and a
+  `file` / `folder` setting), and the reverse for the calls that need one (`http.get(` without an
+  `http` permission, `shell.open(` without `"shell"`, `notify.banner(` without `"notify"`).
+- **What the user sees**: a missing `description` (the Widget library and the drawer show it),
+  `version` or `author` (the consent dialog shows both).
+
+The manifest has no icon: the drawer and the library show the widget's own live preview
+([Preview mode](#preview-mode)), so there is nothing to check for one.
 
 Exit code **0**: no errors (warnings may be listed), **1**: errors, **2**: no folder given, or no
 widget.json in it. The output goes to the console that started it (or a redirected standard
@@ -984,6 +1284,67 @@ out of range (the type's default or the clamped value is used), `refreshMs` / `t
 On a dock, a widget with an error does not run: its tile shows "Error" and the first problem
 (`widget.json: permissions[1]: ...`), and the Console lists every problem with its fix; warnings
 go to the Console only.
+
+Round 29: given a `.zip` or `.viberwidget` file instead of a folder, the check reads the archive
+exactly as **Install from zip…** does (see [Publishing a widget](#publishing-a-widget)), unpacks it
+into a staging folder under `%LocalAppData%\WinDock` (removed again) and checks that folder; the
+output adds `archive: <n> files, installs as "<id>"`. Run it on the file you are about to publish.
+
+## Publishing a widget
+
+Round 29. To give a widget to other people, zip its folder:
+
+```
+my-widget.zip
+  my-widget\            the only top-level folder: its name (lower case) is the widget's id
+    widget.json
+    main.js
+    lib\util.js         any modules and assets, as in the folder
+    windock.d.ts        optional (editor help; the dock never reads it)
+```
+
+A zip whose root holds `widget.json` directly works too: the id is then the zip's file name, lower
+case, with anything but a-z 0-9 - _ . turned into `-` (`My Clock (2).zip` installs as
+`my-clock-2`). `.viberwidget` is the same format under its own extension. Check the file with
+`WinDock.exe --validate-widget my-widget.zip` before you publish it.
+
+**What the user does**: App settings > Widget library > More ▾ > **Install from zip…**. What
+ViberDock does, in this order, refusing the whole archive at the first problem (the reason is
+shown under the library's buttons):
+
+1. Reads the archive (at most 20 MB) with its own reader: only the stored and deflate methods, no
+   encryption, no zip64, at most 200 entries, a file at most 8 MB and all files at most 20 MB
+   unpacked (as declared, and checked again while unpacking: a file never grows past its declared
+   size), no file above 64 KB compressed more than 100 to 1, every CRC-32 checked.
+2. Checks every name: no absolute paths, drive letters, `:` (alternate data streams), `..` or `.`
+   segments, empty segments, names ending in a dot or a space, the characters `< > " | ? *` or
+   control characters, reserved device names (`CON`, `NUL`, `COM1`, `LPT1`, ..., also `con.txt`),
+   non-ASCII names unless the archive marks them UTF-8, two names that differ only in case, more
+   than 16 levels; no symbolic links or reparse points. A Finder-made `__MACOSX/` folder and
+   `.DS_Store` files are skipped.
+3. Finds the widget: `widget.json` at the root, or inside the one top-level folder.
+4. Unpacks into a fresh staging folder `%LocalAppData%\WinDock\install-<unique>\<id>\` (every file
+   created new) and runs the [widget check](#validating-a-widget) on it, the script compile
+   included; an error refuses it. Nothing of the archive runs.
+5. If a widget with that id is installed, asks whether to replace it (the old folder goes to the
+   Recycle Bin, its `widget-data` stays). Then moves the folder into the widgets folder.
+6. Drops any consent the user gave an earlier widget of that id: the new one asks for its
+   permissions like any widget from the widgets folder ([Consent](#consent)) and shows **Needs
+   permission** until the user allows them. A widget that asks for nothing and replaces nothing
+   runs at once.
+
+**How your permissions read to the user**: the consent dialog lists one line per permission in
+plain words, for example "Internet: connect to api.example.com", "Shell: open files, folders and
+web pages, and run programs on this PC (with any arguments) ...", "Banners: show banners on
+screen ...". Ask for as little as you can: every line is one more reason to click Don't allow, and
+`"shell"` reads as what it is. Give `name`, `version`, `author` and `description` in the manifest:
+the dialog and the library show them (`--validate-widget` warns when one is missing).
+
+**Uninstall** (Widget library > More ▾ > **Uninstall…**) moves the widget's folder to the Recycle
+Bin after a confirmation that names it and how many docks and desktop widgets use it; its
+`widget-data\<id>.json` goes too only when the user ticks the box. Its consent is forgotten. Items
+that showed it stay and show the "not installed" error tile. Built-in widgets cannot be
+uninstalled; uninstalling a folder that replaced a built-in brings the built-in back.
 
 ## Standalone widgets
 
@@ -1067,8 +1428,12 @@ Each preview is the widget's own `draw()`, run once by a **preview instance**:
 | `media.get()` / `media.art()` | Playing "Sample Song" by "Sample Artist" from "Sample Album" (`app` "Sample.Player"), `position` 73 s of `duration` 214, every `can*` true (`canSeek` too); `art()` is `"media:art/1"`: a generated 64 x 64 violet-to-orange gradient square that `canvas.image` draws. |
 | `notifications` | `state` "polling", 3 unread: "Mail" (5 minutes ago, "Sam Rivera"), "Mail" (20 minutes ago, "Weekly report"), "Calendar" (an hour ago, "Stand-up"), newest first. |
 | `calendar` | One feed "Sample" in the first feed colour (`#FF4CC2FF`); today "Stand-up" 09:30 - 09:45 and "Lunch with Sam" 12:30 - 13:30 (local time, `recurring`); `eventsOn` another day is empty; `next()` lists today's events that have not ended, after 13:30 the same two tomorrow (so an agenda never previews "No events"); `events()` covers today and tomorrow. |
-| `weather.get()` | `state` "fresh" (fetched 5 minutes ago), "Sample City", sunny (code 0, day), 21 °C or 70 °F (the default `units`), wind 12 km/h / 7 mph, humidity 45 %, 24 hourly columns from the current hour (a mild day / night curve), 7 days from today (WMO codes 0, 1, 2, 3, 61, 2, 0: clear, through overcast and rain, to clear; highs 23 - 16 °C). `weather.icon()` works as always. |
-| `perf` | `get()`: serial 1, interval 1000, `cpu.total` 37, eight cores, `cpu.frequency` 4180, `memory.percent` 58, `memory.used` / `total` 9.3 / 16 GB, `gpu.total` 12, `disk.total` 4, `network.down` 120 KB/s, `up` 18 KB/s, `system.uptime` 3 days 4 hours, a laptop on battery (round 7: `battery.percent` 74, `battery.charging` 0, `battery.acLine` 0, `battery.timeLeft` 11400 s = 3 h 10 min); `metrics()` lists those keys (35); `series(key, n)` up to 60 samples (a sine wave with noise, the newest one the snapshot's value; the same numbers every time); `hwinfo()` `{ available: false, reason: "preview" }`; `setInterval` answers 1000. |
+| `weather.get()` | `state` "fresh" (fetched 5 minutes ago), "Sample City", sunny (code 0, day), 21 °C or 70 °F (the default `units`), wind 12 km/h / 7 mph, humidity 45 %, feels like 20 °C / 68 °F, UV 3, 24 hourly columns from the current hour (a mild day / night curve), 7 days from today (WMO codes 0, 1, 2, 3, 61, 2, 0: clear, through overcast and rain, to clear; highs 23 - 16 °C; sunrise 07:10 and sunset 17:40 local, highest UV 4, 1 on the rain day). `weather.icon()` works as always. |
+| `network.get()` | Round 27: `available`, `connected` and `internet` true, `state` "internet", `kind` "wifi", `name` "Sample Wi-Fi", `bars` 4, `signal` 80, not `metered`. |
+| `input.get()` | Round 27: English (United States) current (`id` "04090409", `tag` "en-US", `code` "ENG", `region` "US", `layout` "US"), then German (Germany) (`id` "04070407", "de-DE", "DEU", "DE", "German"). `input.set` / `input.next` switch nothing and return true. |
+| `perf` | `get()`: serial 1, interval 1000, `cpu.total` 37, eight cores, `cpu.frequency` 4180, `memory.percent` 58, `memory.used` / `total` 9.3 / 16 GB, `gpu.total` 12, `disk.total` 4, `network.down` 120 KB/s, `up` 18 KB/s, `system.uptime` 3 days 4 hours, a laptop on battery (round 7: `battery.percent` 74, `battery.charging` 0, `battery.acLine` 0, `battery.timeLeft` 11400 s = 3 h 10 min); `metrics()` lists those keys (35); `series(key, n)` up to 60 samples (a sine wave with noise, the newest one the snapshot's value; the same numbers every time); `hwinfo()` `{ available: false, reason: "preview" }`; `setInterval` answers 1000; round 28: `drives()` C: "Windows" 1 TB with 380 GB free and D: "Data" 2 TB with 1.2 TB free. |
+| `notify.banner()` | Round 28: shows nothing and returns false (the permission and the title are checked). |
+| `settings.set()`, `links.open()` | Round 29: change / open nothing and return false (the key, the value and the URL are checked as always). |
 
 The manifest's `preview` object (see [widget.json](#widgetjson)) picks what the preview shows:
 
@@ -1126,10 +1491,17 @@ centred on the dock's display, under the other windows; its settings open in a p
 ## Examples
 
 The repository's `examples\` folder holds four small annotated widgets to start from (README.md
-in each; install with App settings > Widget library > **Add from folder…**): `examples/minimal`,
+in each; install with App settings > Widget library > **More ▾** > **Add from folder…**): `examples/minimal`,
 `examples/http-json`, `examples/popup-list`, `examples/edit-text` ([Developing a widget](#developing-a-widget)). The
 built-ins are worked examples too:
 
+- `widgets/feed` ("Headlines", round 29): the newest items of an RSS or Atom feed. The worked
+  example of a widget that reaches a server the user chooses: its manifest names no host
+  (`{ "http": [], "hostSettings": ["feedUrl"] }` and `"links"`), the feed's address is a `url`
+  setting, so ViberDock asks before the typed host is reached; `timer.setRefresh` every
+  `refreshMinutes`; a small tolerant parser (RSS 2.0, RSS 1.0, Atom; CDATA and entities) with
+  `indexOf` scans over at most the first 512 KB of the answer; the tile rotates the headlines with
+  one `setTimeout` while `dock.visible`; the popup lists them and `links.open` opens a clicked one.
 - `widgets/hello`: a label and a counter. `onClick` counts, `onMiddleClick` resets, `onWheel`
   counts up / down and returns `true`, `onHover` highlights the border; every handler ends with
   `requestRedraw()`.
@@ -1349,7 +1721,7 @@ built-ins are worked examples too:
   https://lucide.dev: their SVG path data in `main.js`, parsed once into `canvas.path` objects by a
   small M / L / H / V / C / A / Z parser with the endpoint-to-centre arc conversion of the SVG
   spec, stroked 2 / 24 of the box wide with round caps; the popup uses the same pack),
-  `iconStyle` `colour` (sun yellow, rain in the accent) or `mono` (the ink; the WinDock pack keeps
+  `iconStyle` `colour` (sun yellow, rain in the accent) or `mono` (the ink; the ViberDock pack keeps
   its sun). Round 16 phase 16F: `iconPack` `meteocons`, Bas Milius' coloured, animated Meteocons
   (MIT, https://meteocons.com, the fill style): `tools/meteocons_convert.py` turns 20 of the
   upstream animated SVGs into `widgets/weather/meteocons.js` (a third built-in file, `import`ed by
@@ -1431,6 +1803,53 @@ built-ins are worked examples too:
   `badge` number shows) draws `notifications.count()` and redraws on `notifications.onChange`;
   `click` `centre` (default: `notifications.openCentre()`) or `windows`
   (`shell.sendKeys('win+n')`); `badgeColor`, `image`. Permissions `shell`, `notifications`.
+- `widgets/network` ("Network", round 27 phase 27B): the [network](#network) provider as the
+  taskbar's icon, drawn with paths in one square of `dock.iconSize` x 0.5 x `scale`: Wi-Fi as a dot
+  and three arcs lit up to the signal (the 0 - 5 bars mapped to four steps, the rest at 28 %
+  opacity), an ethernet plug, five cellular bars, a padlock for a VPN, a globe otherwise; a cross
+  badge (`warnColor`) without internet, an exclamation mark for a captive portal, a crossed globe
+  without a connection. `showLabel` (default off) with `label` `name` (the SSID, else "No internet"
+  / "Not connected") or `state`; on a side dock the label goes under the icon when it fits across.
+  `click` `popup` (default: 280 x 150, the name, kind, state, "metered", the signal as five
+  segments, **Network & internet settings** (`shell.open('ms-settings:network-status')`) and
+  **Quick settings** (`shell.sendKeys('win+a')`)), `quick` or `settings`. `network.onChange`
+  redraws only when something drawn changed. Settings `showLabel`, `label`, `scale`, `font`,
+  `iconColor`, `textColor`, `warnColor`, `click`. Permissions `network`, `shell`.
+- `widgets/input-language` ("Input language", round 27 phase 27C): the [input](#input) provider as
+  the taskbar's indicator: `code` ("ENG") semibold in `dock.theme.text`, `region` under it
+  (`region` `auto`: only when two layouts share the code, `always`, `never`), `showName` (default
+  off) the full language name beside it. `click` `next` (default: `input.next()`) or `popup`;
+  `middleClick` `popup` (default), `next` or `none`. The popup lists `layouts` (a row of 40 DIPs
+  each: the code, the language, the keyboard; the current one marked with the accent), a click on
+  a row calls `input.set(id)`. After its own switch the widget reads the state once more 400 ms
+  later (one `setTimeout`, never while idle), in case Windows does not report the switch.
+  `hideSingle` (default off): with one layout `measure()` returns `main` 0. Settings `region`,
+  `showName`, `scale`, `font`, `textColor`, `nameColor`, `click`, `middleClick`, `hideSingle`.
+  Permission `input`.
+- `widgets/timer` ("Timer", round 28 phase 28B): `mode` `countdown` / `pomodoro` / `stopwatch` /
+  `date`, one state per item in `storage` (`"timer:" + (timerId || dock.itemKey)`) holding **end
+  timestamps** (`endAt`, a stopwatch's `startAt`), never a tick count: it survives a restart, and
+  one that ended while the dock was quit says so once on load. While running it calls
+  `timer.setRefresh(1000)` (paused by the host while unseen), stopped `setRefresh(0)`; the end is
+  one `setTimeout` (at most 6 hours ahead, re-armed), which also runs on a hidden dock, and raises
+  `notify.banner` (`banner`, `sound` settings). A countdown to a date ticks once a minute while
+  seen, each second in its last hour. Popup: Start / Pause, Reset, Skip (Pomodoro), the
+  `presets` chips; `onMiddleClick` starts / pauses; `onWheel` changes a stopped countdown by a
+  minute. Permission `notify`.
+- `widgets/world-clock` ("World clock"): up to six `timezone` fields (`zone1` - `zone6`, Windows
+  zone keys) with names; `system.formatTime(false, zone)` / `system.localTime(zone)` for each
+  (no Date arithmetic across zones); `refreshMs` 60000 (the shared, minute-aligned tick); the
+  popup's day offset from comparing `system.now()` with `system.localTime(zone)`.
+- `widgets/todo` ("To-do"): a list in `storage` (`"todo:" + (listId || dock.itemKey)`, shared
+  through `storage.onChange`), `popup.editText({ multiline: false })` to add, a paged popup (10
+  rows) that `popup.open` resizes to the list. Nothing runs while idle.
+- `widgets/moon` ("Moon phase"): Meeus' principal phases (Astronomical Algorithms ch. 49, the
+  larger periodic terms) and the lunation fraction; the lit part drawn as a semicircle plus the
+  terminator (a half ellipse of two cubic beziers); `hemisphere` mirrors it; `refreshMs` 3600000.
+- `widgets/quick-buttons` ("Quick buttons"): 1 - 6 buttons, each a `shell.sendKeys` name of the
+  allow-list or `shell.open` (`ms-settings:`, `rundll32.exe user32.dll,LockWorkStation`); icons
+  drawn with `canvas.text` in the `Segoe Fluent Icons` font (two as paths). `onPress` (not
+  claimed) shows the pressed tile. Permission `shell`.
 
 A minimal widget:
 

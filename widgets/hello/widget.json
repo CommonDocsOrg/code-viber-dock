@@ -1,7 +1,7 @@
 {
   "name": "Hello",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "The smallest useful widget: a label and a counter. Click to count, middle-click to reset, turn the wheel to count up or down.",
   "api": 1,
   "size": {

@@ -40,6 +40,7 @@ const TrayNumber kTrayNumbers[] = {
     {kTraySpacingEdit, kTraySpacingSpin, 0, 8, &DockItemEntry::traySpacing},
     {kTrayDrawerLabelSizeEdit, kTrayDrawerLabelSizeSpin, 10, 16, &DockItemEntry::trayDrawerLabelSize},
     {kTrayDrawerColumnsEdit, kTrayDrawerColumnsSpin, 0, 8, &DockItemEntry::trayDrawerColumns},
+    {kTrayArrowPaddingEdit, kTrayArrowPaddingSpin, 0, 12, &DockItemEntry::trayExpanderPadding},  // round 30
 };
 
 // True when every look setting of tray item `e` is the factory default (a fresh entry's): the
@@ -49,7 +50,9 @@ bool TrayLookIsDefault(const DockItemEntry& e) {
     return e.rows == f.rows && e.columns == f.columns && e.trayIconSize == f.trayIconSize &&
            e.traySpacing == f.traySpacing && e.trayLabels == f.trayLabels && e.trayColour == f.trayColour &&
            e.trayExpander == f.trayExpander && e.trayExpanderStyle == f.trayExpanderStyle &&
-           e.trayExpanderShow == f.trayExpanderShow && e.trayDrawerOpen == f.trayDrawerOpen &&
+           e.trayExpanderShow == f.trayExpanderShow && e.trayExpanderShape == f.trayExpanderShape &&
+           e.trayExpanderFill == f.trayExpanderFill && e.trayExpanderSize == f.trayExpanderSize &&
+           e.trayExpanderPadding == f.trayExpanderPadding && e.trayDrawerOpen == f.trayDrawerOpen &&
            e.trayDrawerShows == f.trayDrawerShows && e.trayDrawerIconSize == f.trayDrawerIconSize &&
            e.trayDrawerLabels == f.trayDrawerLabels && e.trayDrawerLabelSize == f.trayDrawerLabelSize &&
            e.trayDrawerColumns == f.trayDrawerColumns && e.trayDrawerTitle == f.trayDrawerTitle && e.hidden.empty() &&
@@ -68,6 +71,10 @@ void ResetTrayLook(DockItemEntry& e) {
     e.trayExpander = f.trayExpander;
     e.trayExpanderStyle = f.trayExpanderStyle;
     e.trayExpanderShow = f.trayExpanderShow;
+    e.trayExpanderShape = f.trayExpanderShape;
+    e.trayExpanderFill = f.trayExpanderFill;
+    e.trayExpanderSize = f.trayExpanderSize;
+    e.trayExpanderPadding = f.trayExpanderPadding;
     e.trayDrawerOpen = f.trayDrawerOpen;
     e.trayDrawerShows = f.trayDrawerShows;
     e.trayDrawerIconSize = f.trayDrawerIconSize;
@@ -88,7 +95,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Tray icons");
-        Lead(L"Whether WinDock takes over the notification area.");  // round 12 phase 12F
+        Lead(L"Whether ViberDock takes over the notification area.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#tray-icons");
         // Round 8 phase 8A: one-line notes, the explanations as their tooltips; round 8 phase 8D:
         // one card, the note the check box's hint.
@@ -249,6 +256,35 @@ protected:
             L"icons the grid does not show (+3).");
         Combo(kTrayArrowLookCombo, kColX, kComboW, false);
         NextRow();
+        // Round 30: a shape behind the arrow and the arrow's size, so it is easier to see and hit.
+        Label(kTrayArrowShapeLabel, L"Shape");
+        Tip(kTrayArrowShapeLabel,
+            L"A shape drawn behind the arrow so it stands out. None: the arrow alone (the default). Circle, Pill or "
+            L"Rounded square: the arrow on that shape, which lights up under the pointer and while the drawer is open. A "
+            L"strip grows along the bar to hold the shape; in a grid cell the shape and the arrow shrink to the cell.");
+        Combo(kTrayArrowShapeCombo, kColX, kComboW, false);
+        NextRow();
+        Label(kTrayArrowFillLabel, L"Shape colour");
+        Tip(kTrayArrowFillLabel,
+            L"Subtle: the shape in a faint tint of the text colour, with an outline (the default). Accent: filled with the "
+            L"theme's accent colour, the arrow in black or white. Greyed while Shape is None.");
+        Combo(kTrayArrowFillCombo, kColX, kComboW, false);
+        NextRow();
+        Label(kTrayArrowSizeLabel, L"Size");
+        static constexpr wchar_t kArrowSizeTip[] =
+            L"The size of the chevron, the dots or the count, 50 - 200 %. Default: 100 %. A strip grows along the bar "
+            L"with it; in a grid cell the arrow is never larger than the cell.";
+        Tip(kTrayArrowSizeLabel, kArrowSizeTip);
+        Trackbar(kTrayArrowSizeTrack, kColX - 6, kTrackW, 50, 200, 25);
+        Tip(kTrayArrowSizeTrack, kArrowSizeTip);
+        Text(kTrayArrowSizeValue, CtlKind::Value, L"", kColX + kTrackW + 4, 56);
+        NextRow();
+        Label(kTrayArrowPaddingLabel, L"Space inside the shape");
+        Tip(kTrayArrowPaddingLabel,
+            L"DIPs between the arrow and the edge of its shape, 0 - 12. Default: 4. More makes a larger circle, pill or "
+            L"square. Greyed while Shape is None.");
+        Spin(kTrayArrowPaddingEdit, kTrayArrowPaddingSpin, kColX, kNumberW, 0, 12, 1);
+        NextRow();
         Label(kTrayArrowShowLabel, L"Shown");
         Tip(kTrayArrowShowLabel,
             L"When there are more icons: only while some icons do not fit the grid or are hidden (the default). Always: "
@@ -350,6 +386,12 @@ protected:
         ComboAdd(kTrayArrowLookCombo, L"Chevron");  // TrayExpanderStyle
         ComboAdd(kTrayArrowLookCombo, L"Dots");
         ComboAdd(kTrayArrowLookCombo, L"Count");
+        ComboAdd(kTrayArrowShapeCombo, L"None");  // TrayExpanderShape
+        ComboAdd(kTrayArrowShapeCombo, L"Circle");
+        ComboAdd(kTrayArrowShapeCombo, L"Pill");
+        ComboAdd(kTrayArrowShapeCombo, L"Rounded square");
+        ComboAdd(kTrayArrowFillCombo, L"Subtle");  // TrayExpanderFill
+        ComboAdd(kTrayArrowFillCombo, L"Accent");
         ComboAdd(kTrayArrowShowCombo, L"When there are more icons");  // TrayExpanderShow
         ComboAdd(kTrayArrowShowCombo, L"Always");
         ComboAdd(kTrayArrowOpenCombo, L"Click");  // TrayDrawerOpen
@@ -387,7 +429,7 @@ protected:
         const DockItemEntry* e = Tray();
         for (int id : {kTrayIconSizeTrack, kTrayLabelsCombo, kTrayColourCombo, kTrayArrowPlaceCombo, kTrayArrowLookCombo,
                        kTrayArrowShowCombo, kTrayArrowOpenCombo, kTrayDrawerShowsCombo, kTrayDrawerIconSizeTrack,
-                       kTrayDrawerLabelsCombo, kTrayDrawerTitle, kTrayIconList}) {
+                       kTrayDrawerLabelsCombo, kTrayDrawerTitle, kTrayIconList, kTrayArrowShapeCombo, kTrayArrowSizeTrack}) {
             Enable(id, e != nullptr);
         }
         for (const TrayNumber& n : kTrayNumbers) {
@@ -403,6 +445,10 @@ protected:
             SetComboSel(kTrayArrowPlaceCombo, static_cast<int>(e->trayExpander));
             SetComboSel(kTrayArrowLookCombo, static_cast<int>(e->trayExpanderStyle));
             SetComboSel(kTrayArrowShowCombo, static_cast<int>(e->trayExpanderShow));
+            SetComboSel(kTrayArrowShapeCombo, static_cast<int>(e->trayExpanderShape));
+            SetComboSel(kTrayArrowFillCombo, static_cast<int>(e->trayExpanderFill));
+            SetTrack(kTrayArrowSizeTrack, e->trayExpanderSize);
+            SetText(kTrayArrowSizeValue, std::to_wstring(e->trayExpanderSize) + L" %");
             SetComboSel(kTrayArrowOpenCombo, static_cast<int>(e->trayDrawerOpen));
             SetComboSel(kTrayDrawerShowsCombo, static_cast<int>(e->trayDrawerShows));
             SetTrack(kTrayDrawerIconSizeTrack, e->trayDrawerIconSize);
@@ -411,6 +457,7 @@ protected:
             SetCheck(kTrayDrawerTitle, e->trayDrawerTitle);
         }
         UpdateDrawerColumns();
+        UpdateArrowShape();  // after the numbers' loop: it greys the padding row while there is no shape
         Enable(kTrayReset, Cfg().tray.enabled);
         // Round 12 phase 12F: while the takeover is off the list is empty and Reset to Explorer greyed:
         // the existing hint slots say why and the way on.
@@ -458,6 +505,11 @@ protected:
                 case kTrayArrowPlaceCombo: changed = SetEnum(e->trayExpander, sel, 4); break;
                 case kTrayArrowLookCombo: changed = SetEnum(e->trayExpanderStyle, sel, 3); break;
                 case kTrayArrowShowCombo: changed = SetEnum(e->trayExpanderShow, sel, 2); break;
+                case kTrayArrowShapeCombo:
+                    changed = SetEnum(e->trayExpanderShape, sel, 4);
+                    UpdateArrowShape();
+                    break;
+                case kTrayArrowFillCombo: changed = SetEnum(e->trayExpanderFill, sel, 2); break;
                 case kTrayArrowOpenCombo: changed = SetEnum(e->trayDrawerOpen, sel, 2); break;
                 case kTrayDrawerShowsCombo: changed = SetEnum(e->trayDrawerShows, sel, 2); break;
                 case kTrayDrawerLabelsCombo:
@@ -471,7 +523,19 @@ protected:
     }
 
     // Round 24 phase 24C: the two icon size sliders, applied on release (the value follows the thumb).
+    // Round 30: the arrow's size too (50 - 200 %, in steps of 5).
     void Track(int id, int pos, bool released) override {
+        if (id == kTrayArrowSizeTrack) {
+            pos = std::clamp((pos + 2) / 5 * 5, 50, 200);
+            SetText(kTrayArrowSizeValue, std::to_wstring(pos) + L" %");
+            DockItemEntry* e = Tray();
+            if (!released || !e) return;
+            SetTrack(kTrayArrowSizeTrack, pos);  // the thumb onto the step
+            if (e->trayExpanderSize == pos) return;
+            e->trayExpanderSize = pos;
+            Changed(SettingsScope::Pins);
+            return;
+        }
         if (id != kTrayIconSizeTrack && id != kTrayDrawerIconSizeTrack) return;
         const bool drawer = id == kTrayDrawerIconSizeTrack;
         pos = std::clamp(pos, 16, drawer ? 48 : 32);
@@ -562,6 +626,15 @@ private:
         const bool on = e && e->trayDrawerLabels != TrayDrawerLabels::Beside;
         Enable(kTrayDrawerColumnsEdit, on);
         Enable(kTrayDrawerColumnsSpin, on);
+    }
+
+    // Round 30: the shape's colour and padding rows are greyed while the arrow has no shape.
+    void UpdateArrowShape() {
+        const DockItemEntry* e = Tray();
+        const bool on = e && e->trayExpanderShape != TrayExpanderShape::None;
+        Enable(kTrayArrowFillCombo, on);
+        Enable(kTrayArrowPaddingEdit, on);
+        Enable(kTrayArrowPaddingSpin, on);
     }
 
     int SelectedRow() const {

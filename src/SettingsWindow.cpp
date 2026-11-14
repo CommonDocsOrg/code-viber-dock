@@ -16,6 +16,7 @@
 #include "SettingsIds.h"
 #include "SettingsPreview.h"
 #include "resource.h"
+#include "Crash.h"
 
 namespace {
 
@@ -1293,7 +1294,7 @@ bool SettingsWindow::Create(HINSTANCE instance, bool show) {
     };
     RECT r = place();
     // No owner: an owned window of the topmost, non-activating dock would inherit topmost.
-    CreateWindowExW(ExStyle(), kClassName, L"WinDock settings", Style(), r.left, r.top, r.right - r.left, r.bottom - r.top,
+    CreateWindowExW(ExStyle(), kClassName, L"ViberDock settings", Style(), r.left, r.top, r.right - r.left, r.bottom - r.top,
                     nullptr, nullptr, instance, this);
     if (!hwnd_) {
         if (darkPopups_ && --g_darkPopupWindows == 0) DarkMode::TryEnableDarkPopups(false);
@@ -2848,6 +2849,9 @@ bool SettingsWindow::PreTranslateMessage(MSG& msg) {
 // --- window procedures -----------------------------------------------------------------------
 
 LRESULT CALLBACK SettingsWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     SettingsWindow* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<SettingsWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

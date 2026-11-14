@@ -11,6 +11,7 @@
 #include "JsonUtil.h"
 #include "Weather.h"
 #include "WidgetInstance.h"
+#include "Crash.h"
 
 namespace WidgetSystem {
 
@@ -243,6 +244,10 @@ void WidgetRuntime::Shutdown() {
     audio_.Stop();
     media_.Stop();
     perf_.Stop();
+    networkUsers_.clear();  // round 27
+    inputUsers_.clear();
+    network_.Stop();
+    input_.Stop();
     FlushStorage();
     StopWatcher();
     watched_.clear();
@@ -254,6 +259,7 @@ void WidgetRuntime::Shutdown() {
     armed_ = savePending_ = reloadPending_ = false;
     entries_.clear();
     reloadIds_.clear();
+    deferred_.clear();
     owner_ = nullptr;
 }
 
@@ -314,14 +320,81 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             }
             return true;
         }
+        case kDeferredMessage: {
+            deferredPosted_ = false;
+            const std::vector<WidgetInstance*> list = std::move(deferred_);
+            deferred_.clear();
+            for (WidgetInstance* w : list) {
+                if (Alive(w)) w->RunDeferred();
+            }
+            return true;
+        }
+        case kConsentMessage: {
+            // Round 25 phase 25D: the consent dialogs asked for (one per id; the dialog is modal, so
+            // the rest wait for it in turn).
+            consentPosted_ = false;
+            const std::vector<std::wstring> ids = std::move(consentAsked_);
+            consentAsked_.clear();
+            for (const std::wstring& id : ids) {
+                if (consentReview_) consentReview_(id);
+            }
+            return true;
+        }
+        case kSettingsWriteMessage: {
+            // Round 29 phase 29C: settings.set of the instances that asked (each one's changes, taken
+            // now: a later set before this message merged into them). The writer (App) stores them
+            // through the config's debounced save and re-applies the item: onSettingsChanged follows
+            // from that, outside any call of the script.
+            settingsPosted_ = false;
+            const std::vector<WidgetInstance*> list = std::move(settingsWriters_);
+            settingsWriters_.clear();
+            for (WidgetInstance* w : list) {
+                if (!Alive(w)) continue;
+                std::vector<std::pair<std::wstring, std::wstring>> changes = w->TakeSettingsWrites();
+                if (!changes.empty() && settingsWriter_) {
+                    settingsWriter_(*w, changes);
+                }
+            }
+            return true;
+        }
         case AudioService::kMessage:
             return audio_.HandleMessage(msg, wp, lp);
         case MediaService::kMessage:
             return media_.HandleMessage(msg, wp, lp);
         case PerfService::kMessage:
             return perf_.HandleMessage(msg, wp, lp);
+        case NetworkService::kMessage:  // round 27 phase 27B
+            return network_.HandleMessage(msg, wp, lp);
         default:
             return false;
+    }
+}
+
+// --- consent (round 25 phase 25D) ----------------------------------------------------------------
+
+void WidgetRuntime::RequestConsent(const std::wstring& id) {
+    if (!owner_ || id.empty()) return;
+    if (std::find(consentAsked_.begin(), consentAsked_.end(), id) == consentAsked_.end()) consentAsked_.push_back(id);
+    if (!consentPosted_) consentPosted_ = PostMessageW(owner_, kConsentMessage, 0, 0) != FALSE;
+}
+
+void WidgetRuntime::QueueSettingsWrite(WidgetInstance* w) {
+    if (!owner_ || !w) return;
+    if (std::find(settingsWriters_.begin(), settingsWriters_.end(), w) == settingsWriters_.end()) settingsWriters_.push_back(w);
+    if (!settingsPosted_) settingsPosted_ = PostMessageW(owner_, kSettingsWriteMessage, 0, 0) != FALSE;
+}
+
+void WidgetRuntime::ReloadItem(const std::string& itemKey) {
+    const std::vector<WidgetInstance*> all = instances_;
+    for (WidgetInstance* w : all) {
+        if (Alive(w) && w->DockInfo().itemKey == itemKey) w->Reload();
+    }
+}
+
+void WidgetRuntime::ConsentChanged(const std::wstring& id) {
+    const std::vector<WidgetInstance*> all = instances_;  // a reload may register / unregister nothing, but be safe
+    for (WidgetInstance* w : all) {
+        if (Alive(w) && (id.empty() || w->Id() == id)) w->ConsentChanged();
     }
 }
 
@@ -333,8 +406,22 @@ WidgetRuntime::Store& WidgetRuntime::StoreFor(const std::wstring& id) {
     Store& s = stores_[id];
     if (s.loaded) return s;
     s.loaded = true;
+    // Round 25 phase 25D (D3): a store is never loaded beyond what a widget may write. The reader
+    // took files up to 16 MB while writes are capped at kMaxStorageBytes, so an oversized file (an
+    // edit by hand, another program) made every later write fail as "full" and stay so. Now such a
+    // file is not loaded at all: the widget sees an empty store, every write is refused with a
+    // message naming the file, and the file is left on disk untouched (never rewritten). The file
+    // test allows the format's overhead (quotes, indentation, a line per key) on top of the cap.
+    const std::wstring path = StorageDirectory() + L"\\" + id + L".json";
+    WIN32_FILE_ATTRIBUTE_DATA fa{};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fa) &&
+        ((static_cast<uint64_t>(fa.nFileSizeHigh) << 32) | fa.nFileSizeLow) > 2 * kMaxStorageBytes) {
+        s.oversized = true;
+        OutputDebugStringW((L"WinDock: " + path + L" is larger than the 1 MB a widget may store: not loaded\n").c_str());
+        return s;
+    }
     JsonUtil::json::JsonObject o{nullptr};
-    if (JsonUtil::ReadObjectFile(StorageDirectory() + L"\\" + id + L".json", o) && o) {
+    if (JsonUtil::ReadObjectFile(path, o) && o) {
         try {
             for (const auto& kv : o) {
                 std::string key = JsonUtil::WideToUtf8(std::wstring(kv.Key()));
@@ -344,6 +431,12 @@ WidgetRuntime::Store& WidgetRuntime::StoreFor(const std::wstring& id) {
             }
         } catch (...) {
         }
+    }
+    if (s.bytes > kMaxStorageBytes) {
+        s.values.clear();
+        s.bytes = 0;
+        s.oversized = true;
+        OutputDebugStringW((L"WinDock: " + path + L" holds more than the 1 MB a widget may store: not loaded\n").c_str());
     }
     return s;
 }
@@ -359,6 +452,10 @@ bool WidgetRuntime::StorageGet(const std::wstring& id, const std::string& key, s
 bool WidgetRuntime::StorageSet(const std::wstring& id, const std::string& key, const std::string& json,
                                std::wstring& error, WidgetInstance* writer) {
     Store& s = StoreFor(id);
+    if (s.oversized) {  // round 25 phase 25D: the file on disk is kept as it is
+        error = L"storage: widget-data\\" + id + L".json is larger than 1 MB and was not loaded (move or trim it)";
+        return false;
+    }
     auto it = s.values.find(key);
     const size_t old = it == s.values.end() ? 0 : key.size() + it->second.size();
     if (s.bytes - old + key.size() + json.size() > kMaxStorageBytes) {
@@ -376,6 +473,7 @@ bool WidgetRuntime::StorageSet(const std::wstring& id, const std::string& key, c
 
 void WidgetRuntime::StorageRemove(const std::wstring& id, const std::string& key, WidgetInstance* writer) {
     Store& s = StoreFor(id);
+    if (s.oversized) return;  // round 25 phase 25D: nothing loaded, nothing written
     auto it = s.values.find(key);
     if (it == s.values.end()) return;
     s.bytes -= key.size() + it->second.size();
@@ -449,7 +547,7 @@ struct HttpJob {
     Http::Result result;
 };
 
-DWORD WINAPI HttpThread(LPVOID param) {
+DWORD HttpBody(LPVOID param) {
     auto* job = static_cast<HttpJob*>(param);
     try {
         Http::Perform(job->request, job->result);
@@ -459,6 +557,13 @@ DWORD WINAPI HttpThread(LPVOID param) {
     }
     // The owner window frees it; a window that is gone cannot.
     if (!PostMessageW(job->owner, WidgetRuntime::kHttpMessage, 0, reinterpret_cast<LPARAM>(job))) delete job;
+    return 0;
+}
+
+// Round 25 phase 25E: as the weather fetch: the body catches the request's exceptions, Crash::Job
+// is the backstop and the thread's terminate handler (Crash.h).
+DWORD WINAPI HttpThread(LPVOID param) {
+    Crash::Job(L"widget http request", [&] { HttpBody(param); }, [] {});
     return 0;
 }
 
@@ -501,7 +606,7 @@ struct WatchThreadArgs {
 
 // Blocks in ReadDirectoryChangesW on every watched folder (overlapped, one event each) and posts
 // kWatchMessage(folder index) for each batch of changes. Ends when `stop` is set.
-DWORD WINAPI WatchThread(LPVOID param) {
+DWORD WatchBody(LPVOID param) {
     std::unique_ptr<WatchThreadArgs> args(static_cast<WatchThreadArgs*>(param));
     struct Dir {
         HANDLE handle = INVALID_HANDLE_VALUE;
@@ -552,6 +657,13 @@ DWORD WINAPI WatchThread(LPVOID param) {
         CloseHandle(d->ov.hEvent);
         CloseHandle(d->handle);
     }
+    return 0;
+}
+
+// Round 25 phase 25E: an exception (std::bad_alloc) ends the watch only: `watch` widgets stop
+// reloading on a change until the next sync starts a new watcher; the dock keeps running (Crash.h).
+DWORD WINAPI WatchThread(LPVOID param) {
+    Crash::Job(L"widget folder watch", [&] { WatchBody(param); }, [] {});
     return 0;
 }
 
@@ -637,13 +749,27 @@ size_t WidgetRuntime::PendingTimers(const WidgetInstance* w) const {
     return static_cast<size_t>(std::count_if(entries_.begin(), entries_.end(), [&](const Entry& e) { return e.w == w; }));
 }
 
+double WidgetRuntime::DueOf(const WidgetInstance* w, int id) const {
+    for (const Entry& e : entries_) {
+        if (e.w == w && e.id == id) return e.due;
+    }
+    return -1.0;
+}
+
 void WidgetRuntime::Add(WidgetInstance* w) {
     instances_.push_back(w);
     NotifyChanged();
 }
 
+void WidgetRuntime::PostDeferred(WidgetInstance* w) {
+    if (!owner_ || !Alive(w)) return;
+    if (std::find(deferred_.begin(), deferred_.end(), w) == deferred_.end()) deferred_.push_back(w);
+    if (!deferredPosted_) deferredPosted_ = PostMessageW(owner_, kDeferredMessage, 0, 0) != FALSE;
+}
+
 void WidgetRuntime::Remove(WidgetInstance* w) {
     ReleaseProviders(w);
+    std::erase(deferred_, w);  // round 25 phase 25A: a new instance at this address never inherits it
     std::erase(instances_, w);
     CancelAll(w);
     SyncWatch();
@@ -666,6 +792,35 @@ MediaService* WidgetRuntime::UseMedia(WidgetInstance* w) {
     }
     mediaUsers_.insert(w);
     return &media_;
+}
+
+NetworkService* WidgetRuntime::UseNetwork(WidgetInstance* w) {
+    if (!network_.Active()) {
+        if (!owner_ || !network_.Start(owner_)) return nullptr;
+        network_.SetChanged([this] { NotifyProvider(networkUsers_, "network"); });
+    }
+    if (networkUsers_.insert(w).second) SyncProviderQuiet();
+    return &network_;
+}
+
+InputService* WidgetRuntime::UseInput(WidgetInstance* w) {
+    if (!input_.Active()) {
+        if (!input_.Start()) return nullptr;
+        input_.SetChanged([this] { NotifyProvider(inputUsers_, "input"); });
+    }
+    if (inputUsers_.insert(w).second) SyncProviderQuiet();
+    return &input_;
+}
+
+void WidgetRuntime::SyncProviderQuiet() {
+    // Round 27 (the round 26 rule for providers): quiet unless some user can be seen and the session
+    // is in use. A user is any live instance that called the provider (previews never do).
+    auto quiet = [this](const std::set<WidgetInstance*>& users) {
+        if (sessionPaused_) return true;
+        return std::none_of(users.begin(), users.end(), [this](WidgetInstance* w) { return Alive(w) && w->CanBeSeen(); });
+    };
+    if (network_.Active()) network_.SetQuiet(quiet(networkUsers_));
+    if (input_.Active()) input_.SetQuiet(quiet(inputUsers_));
 }
 
 PerfService* WidgetRuntime::UsePerf(WidgetInstance* w) {
@@ -749,6 +904,15 @@ void WidgetRuntime::ReleaseProviders(WidgetInstance* w) {
     if (weatherUsers_.erase(w)) WeatherRequest(WeatherAction::Sync, w->WeatherCfg());
     if (audioUsers_.erase(w) && audioUsers_.empty()) audio_.Stop();
     if (mediaUsers_.erase(w) && mediaUsers_.empty()) media_.Stop();
+    // Round 27: the last user stops the provider; another one leaving may make it quiet.
+    if (networkUsers_.erase(w)) {
+        if (networkUsers_.empty()) network_.Stop();
+        SyncProviderQuiet();
+    }
+    if (inputUsers_.erase(w)) {
+        if (inputUsers_.empty()) input_.Stop();
+        SyncProviderQuiet();
+    }
     if (perfUsers_.erase(w)) {
         perfIntervals_.erase(w);
         if (perfUsers_.empty()) {
@@ -808,7 +972,13 @@ void WidgetRuntime::OnTimer() {
         if (e.due <= now) due.push_back(e);
     }
     std::sort(due.begin(), due.end(), [](const Entry& a, const Entry& b) { return a.due < b.due; });
+    // Round 25 phase 25A (A6): at most kTimerSliceMs of callbacks per pass (the first always runs).
+    // The ones left keep their due time (the earliest), so Arm below wakes again at once (the
+    // shortest SetTimer) and they run first then: nothing is skipped, only spread out.
+    const double sliceStart = WidgetNowMs();
+    bool ranOne = false;
     for (const Entry& d : due) {
+        if (ranOne && WidgetNowMs() - sliceStart >= kTimerSliceMs) break;
         auto it = std::find_if(entries_.begin(), entries_.end(), [&](const Entry& e) { return e.w == d.w && e.id == d.id; });
         if (it == entries_.end() || it->due > now) continue;  // cancelled / replaced by an earlier callback
         if (it->period == 0) {
@@ -818,6 +988,7 @@ void WidgetRuntime::OnTimer() {
         } else {
             it->due = std::max(it->due + it->period, WidgetNowMs() + 1.0);
         }
+        ranOne = true;
         if (Alive(d.w)) d.w->OnTimer(d.id);
     }
     firing_ = false;

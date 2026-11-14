@@ -1,7 +1,7 @@
 {
   "name": "Battery",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "The battery's level as a battery glyph (red when low, a bolt while charging) with the percentage and, optionally, the time left. A click opens a popup with the state and Power & battery settings. A PC without a battery shows a crossed battery, or nothing.",
   "api": 1,
   "size": {

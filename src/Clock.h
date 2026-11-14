@@ -71,9 +71,12 @@ public:
     void SetLook(const Look& look);
     const Look& GetLook() const { return look_; }
 
-    // Starts/restarts the aligned one-shot timer on hwnd. Call again from WM_TIMER.
-    void ScheduleNextTick(HWND hwnd, UINT_PTR timerId) const;
-    static void Stop(HWND hwnd, UINT_PTR timerId);
+    // Milliseconds to the next boundary the text can change at (the next second when seconds are
+    // shown, else the next minute), plus a small slack. Round 25 phase 25C: it replaced
+    // ScheduleNextTick(hwnd, timerId), which set the timer itself (several clocks on one dock
+    // overwrote each other's interval); the dock now arms one timer for the earliest of them
+    // (ElementHost::RequestClockTick). Clock::Stop (KillTimer) went with it, unused.
+    UINT NextTickDelay() const;
 
     // Vertical docks: every space of the time and date text breaks the line ("12:34" over "PM"),
     // so the block stays narrow. Rebuilds the layouts when it changes.

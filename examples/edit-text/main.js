@@ -1,3 +1,7 @@
+// @ts-check
+/// <reference path="../../docs/windock.d.ts" />
+// (Editor help only: docs/windock.d.ts declares the widget API for VS Code; the dock ignores both lines.)
+
 // popup.editText: a text editor window the dock opens next to the widget. It answers with a
 // promise: the edited text after OK (or Enter / Ctrl+Enter), null after Cancel (or Escape, the
 // close box, a reload of the widget). Only one editor per widget is open at a time: a second call

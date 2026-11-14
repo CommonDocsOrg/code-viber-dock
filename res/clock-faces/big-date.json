@@ -1,0 +1,14 @@
+{
+  "name": "Large date over the time",
+  "description": "Two lines: the weekday and the date large (with Show the date on), the time smaller under it in the accent colour.",
+  "type": "digital",
+  "format": 2,
+  "layout": "date-first",
+  "align": "center",
+  "time": { "font": "Segoe UI", "weight": 400, "size": 0.85, "color": "theme:accent" },
+  "date": { "font": "Segoe UI", "weight": 600, "size": 1.35, "color": "theme:text", "format": "%a %#d %b" },
+  "seconds": { "style": "small", "size": 0.7, "color": "theme:dateText" },
+  "suffix": { "style": "small", "size": 0.6 },
+  "lineGap": -1,
+  "vertical": { "stack": true, "align": "center" }
+}

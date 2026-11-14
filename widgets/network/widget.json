@@ -1,0 +1,41 @@
+{
+  "name": "Network",
+  "version": "1.0.0",
+  "author": "ViberDock",
+  "description": "The network icon the taskbar had: Wi-Fi with its signal bars, an ethernet plug, a cellular signal or a VPN lock, a cross when there is no internet and a crossed globe when there is no connection. Optionally the network's name or its state beside it. A click opens a popup with the name, kind, signal and state, or Windows' quick settings, or the Network & internet settings.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 40, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "standalone": { "minWidth": 48, "minHeight": 48, "defaultWidth": 160, "defaultHeight": 80 },
+  "preview": { "settings": { "showLabel": true } },
+  "permissions": ["network", "shell"],
+  "settings": [
+    { "key": "showLabel", "section": "appearance", "group": "Look", "common": true, "type": "bool", "label": "Show a label beside the icon", "default": false,
+      "description": "Writes the network's name (or its state, below) next to the icon, under it on a side dock. Off by default." },
+    { "key": "label", "section": "appearance", "group": "Look", "visibleIf": { "showLabel": true }, "type": "choice", "label": "Label", "default": "name",
+      "description": "What the label says. Name: the Wi-Fi network's name (or the connection's name), \"No internet\" or \"Not connected\" when that is the state. State: Connected, No internet, Sign-in needed or Not connected. Default: name.",
+      "choices": [
+        { "value": "name", "label": "The network's name" },
+        { "value": "state", "label": "The state (Connected, No internet …)" }
+      ] },
+    { "key": "scale", "section": "appearance", "group": "Look", "common": true, "type": "number", "label": "Size", "default": 1, "min": 0.5, "max": 4, "step": 0.25, "unit": "× the usual size",
+      "description": "How big the icon is: 1 is the usual size, 2 twice as big. Default: 1." },
+    { "key": "font", "section": "appearance", "group": "Look", "visibleIf": { "showLabel": true }, "type": "font", "label": "Font", "default": "",
+      "description": "The label's font: a font family installed on this PC. Empty: Segoe UI." },
+    { "key": "iconColor", "section": "appearance", "group": "Colours", "type": "colour", "label": "Icon colour", "default": "#00000000",
+      "description": "The icon's colour. Transparent (#00000000): the theme's text colour." },
+    { "key": "textColor", "section": "appearance", "group": "Colours", "visibleIf": { "showLabel": true }, "type": "colour", "label": "Label colour", "default": "#00000000",
+      "description": "The label's colour. Transparent (#00000000): the theme's date colour." },
+    { "key": "warnColor", "section": "appearance", "group": "Colours", "type": "colour", "label": "No internet colour", "default": "#FFE81123",
+      "description": "The cross drawn on the icon while there is no internet (or no connection). Default: red." },
+    { "key": "click", "section": "content", "group": "Clicks", "common": true, "type": "choice", "label": "A click opens", "default": "popup",
+      "description": "What a click on the widget opens: a popup with the network's name, kind, signal and state (with buttons for the settings), Windows' quick settings (Windows + A, where Wi-Fi is switched), or the Network & internet settings page. Default: the popup.",
+      "choices": [
+        { "value": "popup", "label": "The network popup" },
+        { "value": "quick", "label": "Windows' quick settings" },
+        { "value": "settings", "label": "Network & internet settings" }
+      ] }
+  ]
+}

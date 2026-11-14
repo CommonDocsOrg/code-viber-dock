@@ -4,43 +4,48 @@ This page helps when something does not work as expected. Each section names a p
 
 ## The taskbar is missing
 
-WinDock hides the Windows taskbar while it runs, and gives it back when it quits. The Start menu still opens with the Windows key, and a Start widget on the dock opens it next to the button.
+ViberDock hides the Windows taskbar while it runs, and gives it back when it quits. The Start menu still opens with the Windows key, and a Start widget on the dock opens it next to the button.
 
-To see the taskbar while WinDock keeps running:
+To see the taskbar while ViberDock keeps running:
 
-- Right-click the WinDock icon in the notification area and choose **Show Windows taskbar temporarily** (on the dock: right-click it, then **App** > **Show Windows taskbar temporarily**). The taskbar comes back for this session.
+- Right-click the ViberDock icon in the notification area and choose **Show Windows taskbar temporarily** (on the dock: right-click it, then **App** > **Show Windows taskbar temporarily**). The taskbar comes back for this session.
 - Or clear **Hide taskbar** in the same menus (or **Hide the Windows taskbar** in App settings > General) to keep it shown for good.
 
-If WinDock is not running and the taskbar is still hidden:
+If ViberDock is not running and the taskbar is still hidden:
 
-1. Open a command prompt in the folder that holds `WinDock.exe`. Press Win+R, type `cmd` and press Enter, then go to that folder.
+1. Press the Windows key, type `taskbar` and click **Restore Windows taskbar** (it is in the Start menu's list of apps, next to ViberDock). It works without a running dock.
+2. Or start ViberDock again from the Start menu: it puts the taskbar back in order first.
+
+Without the installer (you run `WinDock.exe` from a folder of your own), use a command prompt instead:
+
+1. Press Win+R, type `cmd` and press Enter, then go to the folder that holds `WinDock.exe` (for example `cd C:\Tools\ViberDock`).
 2. Run the command below. It works without a running dock.
 
 ```
 WinDock.exe --restore-taskbar
 ```
 
-Starting WinDock again also puts the taskbar back in order first.
+To find out whether ViberDock is still running, open Task Manager: on the Processes tab it is listed as **ViberDock by CodeViber.org**, and on the Details tab the process is `WinDock.exe`.
 
-## WinDock crashed
+## ViberDock crashed
 
-When WinDock hides the taskbar, it writes a small marker file, `taskbar-hidden`, in `%LocalAppData%\WinDock`. It holds the way the taskbar was before. If WinDock crashes or is ended from Task Manager, that marker stays behind, and the next start (or `WinDock.exe --restore-taskbar`) uses it to restore the taskbar exactly as it was.
+When ViberDock hides the taskbar, it writes a small marker file, `taskbar-hidden`, in `%LocalAppData%\WinDock`. It holds the way the taskbar was before. If ViberDock crashes or is ended from Task Manager, that marker stays behind, and the next start (or `WinDock.exe --restore-taskbar`) uses it to restore the taskbar exactly as it was.
 
 After a crash:
 
-1. Start WinDock again. It restores the taskbar from the marker, then starts as usual.
-2. If you do not want to start it, run `WinDock.exe --restore-taskbar` instead.
+1. Start ViberDock again. It restores the taskbar from the marker, then starts as usual.
+2. If you do not want to start it, click **Restore Windows taskbar** in the Start menu (or run `WinDock.exe --restore-taskbar`) instead.
 
 Other things clean up by themselves:
 
 - Space a dock reserved on the screen is given back by Windows.
 - If the tray takeover was on, the next start asks every app to show its tray icons again. If some icons are still missing, quit and restart the app that owns them.
 
-If WinDock crashes again at start, see [Reset to defaults](#reset-to-defaults).
+If ViberDock crashes again at start, see [Reset to defaults](#reset-to-defaults).
 
 ## A game leaves full screen
 
-Any window placed above a full-screen game makes the game drop out of its full-screen mode. WinDock avoids that by hiding its docks while a full-screen app is in front.
+Any window placed above a full-screen game makes the game drop out of its full-screen mode. ViberDock avoids that by hiding its docks while a full-screen app is in front.
 
 To make sure this is on:
 
@@ -67,22 +72,22 @@ A dock can be out of sight for several reasons. Open App settings > Docks and di
 
 To find a dock, open its settings (double-click it in the list) and choose **⋯** > **Flash this dock**. The dock shows itself and its border pulses in its colour.
 
-If the dock went missing right after you moved it or changed its auto-hide or layer, undo that change: right-click the WinDock icon in the notification area and choose the first entry, **Undo**.
+If the dock went missing right after you moved it or changed its auto-hide or layer, undo that change: right-click the ViberDock icon in the notification area and choose the first entry, **Undo**.
 
 ## A change I made disappeared
 
-WinDock never throws away a change you kept. Look at what happened to it:
+ViberDock never throws away a change you kept. Look at what happened to it:
 
 - **You tried a layout or a look** and did not click **Keep**. A preview is only a try: **Cancel**, Esc, or closing the settings puts everything back as it was. Apply it again and click **Keep**.
 - **You moved or hid a dock** and a bar offered **Keep** and **Revert**. Left alone, such a change is kept; only **Revert** undoes it.
 - **You undid it.** Press **Ctrl+Y** in a settings window to redo it.
-- **WinDock could not save it.** The settings say **⚠ Not saved**. See the next section.
+- **ViberDock could not save it.** The settings say **⚠ Not saved**. See the next section.
 
-Undo and Redo last until WinDock quits. See [Undo and Saved](guide-settings.md#undo-and-saved).
+Undo and Redo last until ViberDock quits. See [Undo and Saved](guide-settings.md#undo-and-saved).
 
 ## Couldn't save: config.json is read-only or locked
 
-When WinDock cannot write its settings file, a bar over the settings says "Couldn't save: config.json is read-only or locked." and the save state reads **⚠ Not saved**. Your changes stay in WinDock while it runs, and every new change tries again.
+When ViberDock cannot write its settings file, a bar over the settings says "Couldn't save: config.json is read-only or locked." and the save state reads **⚠ Not saved**. Your changes stay in ViberDock while it runs, and every new change tries again.
 
 To fix it:
 
@@ -108,20 +113,20 @@ A dock's settings open in a panel beside the dock, not in a normal window. It ha
 
 - To make it bigger or smaller, drag its outer edges.
 - To close it, press **Esc** or click **✕** at its top right. It also closes when you click another app or the desktop.
-- To keep it open while you work in another window of WinDock, such as App settings, just switch there: it stays open while WinDock is in front.
+- To keep it open while you work in another window of ViberDock, such as App settings, just switch there: it stays open while ViberDock is in front.
 
 The App settings window and the item settings windows are normal windows with a title bar.
 
 ## Performance and memory
 
-WinDock costs almost nothing while you do not use it: it does no work while nothing changes. Some features do cost a little:
+ViberDock costs almost nothing while you do not use it: it does no work while nothing changes. Some features do cost a little:
 
 - **Live thumbnails** use the graphics card while the dock is visible. **Snapshots** cost much less. Change it in the Running apps widget's settings (right-click a running app > **Running apps settings…**).
 - **Notifications** (badges, the notification centre, the Notification bell) check Windows' list every few seconds, a few hundredths of a second of processor time each. Raise **Check for notifications every** in App settings > Notifications, or turn badges off.
 - **The System monitor and System overview** widgets take a measurement at the fastest **Update every** any of them asks for. A slower update costs less.
 - **Icon effects** (glow, reflection, 3D) use a few more megabytes of memory.
 
-To use less memory, choose **Software** as the **Renderer** in App settings > General and restart WinDock. App settings > About shows the renderer in use.
+To use less memory, choose **Software** as the **Renderer** in App settings > General and restart ViberDock. App settings > About shows the renderer in use.
 
 To show HWiNFO sensors (temperatures, fans, power) in a System monitor:
 
@@ -137,7 +142,7 @@ The free version of HWiNFO shares its sensors for 12 hours after each start. Aft
 A widget that fails shows its problem on its tile:
 
 - **Error**: the widget hit a mistake. The message says what.
-- **Stopped**: the widget took too long and was stopped, so it could not slow down the dock.
+- **Stopped**: the widget took too long and was stopped, so it could not slow down the dock: one of its steps ran too long, or it kept the dock busy for more than half of ten seconds.
 
 To see what happened:
 
@@ -147,6 +152,29 @@ To see what happened:
 To start the widgets again, right-click the dock and choose **Reload widgets** (or click Reload in the Console).
 
 If a widget you installed has a problem with its description file, the message names the field and how to fix it. Widget authors can check a widget folder from the command line with `WinDock.exe --validate-widget <folder>`. See the [widget developer reference](widgets.md).
+
+## A widget shows Needs permission
+
+A widget from your widgets folder that asks for permissions (to open files or programs, connect to web sites, read your notifications and so on), or that replaces a built-in widget, runs only after you allow it. Until then it shows **Needs permission** and does nothing else. This is not an error.
+
+- Click the tile, or right-click it and choose **Review permissions…**. Read what it asks for and click **Allow** if you trust where the widget came from.
+- Or open App settings > Widget library, select the widget and click **Permissions…**.
+- After an update of ViberDock, widgets you installed before show Needs permission once, until you review them.
+- A widget that worked before and shows Needs permission again was updated and now asks for something more. Review it again.
+- Built-in widgets never show it. If a built-in widget shows Needs permission, a folder with its id in your widgets folder replaces it: allow it, or uninstall that folder (App settings > Widget library, select it, **More ▾** > **Uninstall…**) to get the built-in back.
+- A widget you just installed from a zip shows Needs permission until you allow it, even if you allowed an earlier widget of the same name.
+
+See [Widget permissions](guide-items.md#widget-permissions).
+
+## A widget cannot reach the address I entered
+
+A widget that fetches from an address you type (such as the Headlines widget's feed) may connect to that site only after you allowed it in the question that follows.
+
+- If you clicked **Don't allow**, or the question did not come, type the address again (or click into the box and leave it): the question comes again.
+- Changing the address to another site asks again; until you allow it, the widget says it is not allowed.
+- A plain http address works only for a device on your local network (a .local name, an address such as 192.168.1.20). Use the https address of the site.
+- An address of this PC (localhost) is never allowed.
+- A web site's name that points to a device on your network is refused. Use the device's own name (such as homeassistant.local) or its address instead.
 
 ## Reset to defaults
 
@@ -171,8 +199,24 @@ To start over completely:
 1. Right-click the dock and choose **Quit**.
 2. Open the folder `%LocalAppData%\WinDock` (paste it into the File Explorer address bar).
 3. Rename `config.json`, for example to `config-old.json`, so you keep a copy.
-4. Start WinDock. It creates a new settings file with the defaults and opens Quick setup.
+4. Start ViberDock. It creates a new settings file with the defaults and opens Quick setup.
 
 Your own themes (`themes`) and saved layouts (`layouts`) stay in the folder and are offered again.
 
-If your settings file has a mistake in it, WinDock starts with the defaults and leaves the file as it is, so you can fix it. After you fix it, choose **Tools** > **Reload config** in the dock menu.
+## If your settings file cannot be read
+
+If `config.json` has a mistake in it (or cannot be read), ViberDock starts with the default settings and tells you so in a message. Before it saves anything, it keeps a copy of the file as it was, named `config.bad-` followed by the date and time, for example `config.bad-20261113-101500.json`, in the same folder. The five newest such copies are kept.
+
+From then on ViberDock saves as usual: the first change you make writes the default-based settings into `config.json`. Your old settings are in the `config.bad-…` copy. If ViberDock could not make the copy, it does not save over `config.json` at all until the file can be read or copied; the settings window then shows **Couldn't save**.
+
+To get your settings back:
+
+1. In the message, click **Open the folder** (or open `%LocalAppData%\WinDock`).
+2. Fix the mistake in `config.json`, or copy a backup over it: the `config.bad-…` copy after you fix it, or one of the automatic backups below.
+3. Click **Try again** in the message, or choose **Tools** > **Reload config** in the dock menu.
+
+## Automatic backups
+
+Each time ViberDock starts with a good settings file, it keeps a copy of it as it was: `config.backup-1.json` is the newest, then `config.backup-2.json` and `config.backup-3.json`. A new copy is made only when the file changed since the last one, so restarting without changes keeps the older backups. They are in the same folder as `config.json`, `%LocalAppData%\WinDock`.
+
+To go back to a backup, quit ViberDock, copy the backup over `config.json` and start ViberDock again.

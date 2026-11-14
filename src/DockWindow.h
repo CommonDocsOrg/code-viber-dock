@@ -82,6 +82,24 @@ public:
     virtual bool FullscreenNotice(DockWindow* dock, bool on) = 0;
     // Round 16 phase 16A: the Start menu's placer (App's one instance; null before App set it).
     virtual StartMenuPlacer* StartPlacer() = 0;
+    // Round 26 phase 26A: the session is locked, the display off or the session disconnected (a
+    // window made meanwhile starts paused; DockManager::SetSessionPaused tells the live ones).
+    virtual bool SessionPaused() const = 0;
+    // Round 26 phase 26A follow-up: a fallback for a missed unlock / display-on notification. Each
+    // dock, folder window and standalone widget window calls it for every mouse message it gets
+    // (cheap: a flag test while not paused); while the session counts as paused, a message that
+    // RealPointerInput accepts clears the pause through App's own path (the same as the event).
+    virtual void PointerInput(UINT msg) = 0;
+    // A mouse message (WM_MOUSEFIRST..WM_MOUSELAST) that came from a device or SendInput, not one
+    // the system made up (GetCurrentInputMessageSource: IMO_SYSTEM is e.g. the WM_MOUSEMOVE sent
+    // when a window appears or moves under a resting pointer; IMO_UNAVAILABLE a SendMessage'd one,
+    // documented). Valid only while the message is being handled.
+    static bool RealPointerInput(UINT msg) {
+        if (msg < WM_MOUSEFIRST || msg > WM_MOUSELAST) return false;
+        INPUT_MESSAGE_SOURCE src{};
+        if (!GetCurrentInputMessageSource(&src)) return false;
+        return src.originId == IMO_HARDWARE || src.originId == IMO_INJECTED;
+    }
 
 protected:
     ~DockShared() = default;
@@ -93,7 +111,7 @@ protected:
 class DockWindow : private ElementHost, private WidgetInstance::Client {
 public:
     static constexpr wchar_t kClassName[] = L"WinDock.DockWindow";
-    static constexpr UINT_PTR kClockTimerId = ElementHost::kClockTimerId;  // a clock element's tick
+    static constexpr UINT_PTR kClockTimerId = ElementHost::kClockTimerId;  // the clock elements' tick (round 25 phase 25C: one for all, RequestClockTick)
     // 3 = WindowTracker::kCoalesceTimerId
     static constexpr UINT_PTR kIconEvictTimerId = 4;
     // 5 = App::kSaveTimerId
@@ -142,6 +160,18 @@ public:
     // one of the search index's hidden settings windows, then again while any remain).
     // Round 23 phase 23A: WM_APP + 74 = WidgetWindow::kResizeMessage (posted to a standalone
     // widget's window: widget.resize asked for another size).
+    // Round 25: WM_APP + 75 = WidgetRuntime::kDeferredMessage (phase 25A, the deferred script entries);
+    // WM_APP + 76 = App::kMalformedNotice (phase 25B, posted to the app window once after a start
+    // from a malformed config.json); WM_APP + 77 = WidgetRuntime::kConsentMessage (phase 25D,
+    // posted to the app window: a widget's "Needs permission" tile was clicked, the dialog opens).
+    // Round 26: WM_APP + 78 = FolderWindow::kListedMessage and FolderPopup::kListedMessage (phase
+    // 26B, posted to a folder window / the folder popup by the worker that listed a slow folder);
+    // TrayHost's own window: timer 2 = TrayHost::kMirrorRetryTimer (26B). No new timer on a dock.
+    // WM_APP + 79 = kEnvCheckMessage (26C, posted to the dock window itself, below). WM_APP + 80 =
+    // App::kUserPresentMessage (26A follow-up, posted to the app window, coalesced: real pointer
+    // input on one of our windows while the session counts as paused). WM_APP + 81 =
+    // NetworkService::kMessage (27B). Round 29: WM_APP + 82 = WidgetRuntime::kSettingsWriteMessage
+    // (29C, posted to the app window, coalesced: settings.set changes to write).
     // On the settings search dialog's own window (round 9 phase 9B / round 18 phase 18D): WM_APP + 41
     // = SettingsSearch::kRebuildMessage, + 42 its kHideComboMessage, timer 1 = its kIndexTimerId (the
     // next window of the index, one-shot); WM_APP + 40 = SettingsWindow::kRebuildMessage on a settings window.
@@ -168,6 +198,9 @@ public:
     // Posted (coalesced): a popup's hold ended without a leave check while the bar is grown (9A
     // follow-up): if nothing holds the dock any more and the pointer is gone, the bar returns to rest.
     static constexpr UINT kGrownCheckMessage = WM_APP + 48;
+    // Round 26 phase 26C: posted (coalesced): a WM_SETTINGCHANGE / WM_DISPLAYCHANGE came; OnEnvCheck
+    // relayouts only when what the dock uses changed.
+    static constexpr UINT kEnvCheckMessage = WM_APP + 79;
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -306,6 +339,12 @@ public:
     // window or app, launch, open its popup). False without such a slot.
     bool ClickSlot(int index);
     void OnWatchEvent();
+    // Round 26 phase 26A: the session is locked, the display is off or the session is disconnected
+    // (DockManager): treated like the dock being hidden (widget refresh ticks, clocks, thumbnails).
+    void SetSessionPaused(bool paused);
+    // Round 26 phase 26B: the Recycle Bin's item count and size (SHQueryRecycleBinW over every
+    // drive), kept while the bin watch runs until it reports a change. False: unknown.
+    bool RecycleBinInfo(SHQUERYRBINFO& info) const;
     // The weather service's data or status changed: the weather elements redraw (DockEvent), the
     // popup updates.
     void OnWeatherChanged();
@@ -1049,7 +1088,7 @@ private:
     void UpdateRecycleBinWatch();
     void OnRecycleBinChanged();
     // "Recycle Bin (N items, 12.3 MB)" / "Recycle Bin (empty)".
-    static std::wstring RecycleBinLabel();
+    std::wstring RecycleBinLabel() const;  // round 26 phase 26B: from RecycleBinInfo (no longer static)
 
     // --- popup holds ---
     // An open popup keeps the dock shown (part of Held()): one bit per popup in popupHolds_.
@@ -1138,8 +1177,31 @@ private:
     // Shows / hides a desktop dock per the foreground (and shows a normal one that was hidden).
     void UpdateDesktopShown();
     // Tells every script widget whether the dock is on screen (dock.visible, onVisibilityChange):
-    // shown or showing, and not a hidden desktop dock.
+    // shown or showing, and not a hidden desktop dock (round 26 phase 26A: ContentVisible; also
+    // resumes the clocks paused while it could not be seen).
     void SyncWidgetVisibility();
+    // Round 26 phase 26A: the dock's content can be seen: shown or showing, not a hidden desktop
+    // dock, not hidden by the full-screen guard, the session not paused (QueryState 361).
+    bool ContentVisible() const;
+    // Round 26 phase 26C (B7): what a layout depends on from outside the config: the monitor's rect
+    // and work area, the DPI (recorded by LayoutPass), and the system half of the acrylic decision
+    // (recorded by UpdateAcrylic). PostEnvCheck posts one kEnvCheckMessage per burst; OnEnvCheck
+    // relayouts only on a difference (QueryState 364 counts the checks that skipped).
+    struct EnvSeen {
+        RECT monitor{}, work{};
+        UINT dpi = 0;
+        bool operator==(const EnvSeen& o) const {
+            return EqualRect(&monitor, &o.monitor) && EqualRect(&work, &o.work) && dpi == o.dpi;
+        }
+    };
+    EnvSeen EnvNow() const;
+    void PostEnvCheck(bool acrylic);
+    void OnEnvCheck();
+    EnvSeen envSeen_;
+    bool acrylicSystem_ = true;
+    bool envCheckPosted_ = false;
+    bool envAcrylic_ = false;  // the pending check also re-tests acrylic
+    size_t envSkipped_ = 0;
     // Subscribes to / leaves the shared foreground watch.
     void SetWatchingForeground(bool on) {
         if (on == watching_ || !shared_) return;
@@ -1171,6 +1233,8 @@ private:
     }
     const ThemeConfig& DockTheme() const override { return config_->ThemeOf(DockCfg()); }
     void SlotWindows(int slot, WindowsCommand cmd) override;
+    void RequestClockTick(UINT delayMs) override;  // round 25 phase 25C
+    ULONGLONG clockDue_ = 0;  // GetTickCount64 the armed kClockTimerId is due at (0: none armed)
     void OpenTarget(const std::wstring& target) override;
     void ActivateOrLaunch(int slot) override;
     void LaunchSlot(int slot, bool newInstance) override { LaunchItem(slot, newInstance); }
@@ -1264,6 +1328,12 @@ private:
     void OnBounceTimer();
     void ScheduleBounceTimer();
     void UpdateIconUsage();
+    // Round 25 phase 25C: the icon eviction timer (one-shot) when the cache has unused entries and
+    // none is pending (UpdateIconUsage; a transient Get from the notification centre).
+    void ArmIconEvict();
+    // The dominant colour of the slot's own cache entry (its app at the layout's bitmap size with
+    // its icon file / index); 0 unknown.
+    uint32_t ItemDominant(const DockItem& item) const;
     // The slot under a stage point (inside the active zone; widgets with their hit slack), or -1:
     // where the slots are laid out now (HitAlong).
     int HitTest(POINT stagePt) const;
@@ -1459,7 +1529,12 @@ private:
     bool perspectiveApplied_ = false;  // the 3D tilt is set on the groups (QueryState 32 bit 2)
     // The three indicator-dot looks (inactive, active, attention), drawn once and shared by every
     // item's dot visual (each DComp surface has a sizeable fixed cost). The source visuals are hidden.
-    Layer dotSources_[3];
+    // Round 28 phase 28D: per look three window counts (1, 2, 3 or more: docks[].indicator
+    // "windows"; the other styles use the first of each), index look * 3 + count - 1, all drawn in
+    // the dock's indicator style (dotStyleDrawn_: the style they show, -1 none yet).
+    static constexpr int kDotSources = 9;
+    Layer dotSources_[kDotSources];
+    int dotStyleDrawn_ = -1;
     Layer label_;
     Layer title_;
     winrt::com_ptr<IDWriteTextLayout> titleLayout_;  // docks[].title laid out (null: none)
@@ -1605,6 +1680,10 @@ private:
     RECT appBarRect_{};           // the rect last set (ABM_SETPOS)
     bool fullscreenApp_ = false;  // ABN_FULLSCREENAPP: a fullscreen app is open, the dock is not topmost
     bool fullscreenHidden_ = false;  // round 9 phase 9A: hidden by the manager's full-screen guard
+    // Round 26 phase 26A: the session is locked / the display is off / disconnected (SetSessionPaused).
+    bool sessionPaused_ = false;
+    // Round 26 phase 26A: kClockTimerId fired while !ContentVisible() and was not re-armed.
+    bool clockPaused_ = false;
     std::function<void(bool, const RECT&, const RECT&)> appBarChanged_;
 
     // Dragging the dock
@@ -1706,6 +1785,8 @@ private:
 
     // Recycle Bin item
     ULONG binNotify_ = 0;         // SHChangeNotifyRegister id (0: not registered)
+    mutable SHQUERYRBINFO binInfo_{};     // round 26 phase 26B: RecycleBinInfo's cached answer ...
+    mutable bool binInfoValid_ = false;   // ... until the watch's next change
     bool binPending_ = false;     // kRecycleBinTimerId running
 
     // External drops
@@ -1740,6 +1821,18 @@ private:
     // Round 23 phase 23A: the slot whose script widget claimed the left press (onPress returned
     // true; -1 none): the capture is the dock's, moves go to the widget's onDrag until the release.
     int widgetGrab_ = -1;
+    // Round 25 phase 25C: what the grab is on, so it survives a rebuild that moves the slot (a
+    // window opened or closed during a seek-bar drag): the slot's key (Rebuild finds its new index
+    // by it, as the preview and the drag are found again) and its widget instance's key. Until 25C
+    // Rebuild kept the old index and the moves / release went to whatever slot had it then.
+    AppKey widgetGrabSlot_;
+    std::wstring widgetGrabWidget_;
+    // After a rebuild: widgetGrab_ = the grabbed slot's new index, or (gone, or another widget there
+    // now) DropWidgetGrab.
+    void RefindWidgetGrab();
+    // Ends the grab without its slot: the capture goes and the widget, if it still runs, hears a
+    // cancelled onRelease (x / y 0: there is no box to measure from).
+    void DropWidgetGrab();
     bool scrollPress_ = false;    // a left press on the bar's background of a scrolling dock
     bool scrollDrag_ = false;     // ... moved: the run follows the pointer
     float scrollPressMain_ = 0.0f;

@@ -1,6 +1,8 @@
 // WinDockTests: the ICS parser / expander against hand-written cases (round 4 phase 13).
 //
-//   WinDockTests.exe [folder]   (default: the folder of this source, tests\ics)
+//   WinDockTests.exe [folder] [zip folder]   (default: the folder of this source, tests\ics, and tests\zip)
+//
+// Round 29 phase 29B: also the zip reader's cases (tests/zip/ZipTests.cpp, before the ICS ones).
 //
 // Every <name>.ics with a <name>.expected beside it is parsed and expanded into the window the
 // .expected file names ("# window: <from> <to>", UTC "YYYYMMDDTHHMMSSZ"), with the local zone it
@@ -81,6 +83,55 @@ void Direct() {
               cal.events.size() == 1 && cal.events[0].reminderMin == 26 * 60 && cal.events[0].summary == L"a\nb",
           "VALARM offset, escapes");
     Check(!Ics::Parse("hello", cal), "not a calendar");
+
+    // Round 25 phase 25C: the event cap (here 3 instead of Ics::kMaxEvents): the first ones in file
+    // order are kept, the rest counted.
+    std::string many = "BEGIN:VCALENDAR\r\n";
+    for (int i = 0; i < 5; ++i) {
+        many += "BEGIN:VEVENT\r\nUID:e" + std::to_string(i) + "\r\nSUMMARY:e" + std::to_string(i) +
+                "\r\nDTSTART:2026010" + std::to_string(i + 1) + "T100000Z\r\nEND:VEVENT\r\n";
+    }
+    many += "END:VCALENDAR\r\n";
+    Check(Ics::Parse(many, cal, nullptr, 3) && cal.events.size() == 3 && cal.eventsDropped == 2 && cal.events[2].summary == L"e2",
+          "event cap keeps the first events");
+    Check(Ics::Parse(many, cal) && cal.events.size() == 5 && cal.eventsDropped == 0, "no cap below kMaxEvents");
+
+    // Round 25 phase 25C: six never-matching COUNT rules from the year 1000: the shared budget
+    // bounds the work (until 25C: 6 x 400 000 periods), no instances come out.
+    std::string hostile = "BEGIN:VCALENDAR\r\n";
+    for (int i = 0; i < 6; ++i) {
+        hostile += "BEGIN:VEVENT\r\nUID:h" + std::to_string(i) +
+                   "\r\nSUMMARY:h\r\nDTSTART:10000101T000000Z\r\nRRULE:FREQ=DAILY;COUNT=999999999;BYMONTH=2;BYMONTHDAY=30\r\n"
+                   "END:VEVENT\r\n";
+    }
+    hostile += "END:VCALENDAR\r\n";
+    Ics::ExpandStats stats;
+    const auto utcZone = Ics::UtcZone();
+    const bool parsed = Ics::Parse(hostile, cal);
+    const DWORD t0 = GetTickCount();
+    const size_t n = parsed ? Ics::Expand(cal, Ics::DaysFromCivil(2026, 1, 1) * 86400, Ics::DaysFromCivil(2027, 1, 1) * 86400,
+                                          *utcZone, 20000, &stats)
+                                  .size()
+                            : 1;
+    const DWORD ms = GetTickCount() - t0;
+    std::printf("     hostile budget: %lld periods, %zu events cut, %lu ms\n", static_cast<long long>(stats.iterations),
+                stats.eventsCut, static_cast<unsigned long>(ms));
+    Check(parsed && n == 0 && stats.budgetHit && stats.iterations <= Ics::kExpandBudget && stats.eventsCut == 6,
+          "hostile rules: the shared budget, no instances");
+
+    // Round 25 phase 25C: a COUNT rule years before the window skips ahead (count-late.ics checks
+    // the instances; this that the periods before the window are not iterated).
+    const bool parsedLate = Ics::Parse("BEGIN:VCALENDAR\r\nBEGIN:VEVENT\r\nUID:d\r\nDTSTART:20150101T090000Z\r\n"
+                                       "RRULE:FREQ=DAILY;COUNT=5000\r\nEND:VEVENT\r\nBEGIN:VEVENT\r\nUID:w\r\n"
+                                       "DTSTART:20140106T170000Z\r\nRRULE:FREQ=WEEKLY;BYDAY=MO,WE,FR;COUNT=2015\r\nEND:VEVENT\r\n"
+                                       "END:VCALENDAR\r\n",
+                                       cal);
+    Ics::ExpandStats late;
+    const size_t lateN = parsedLate ? Ics::Expand(cal, Ics::DaysFromCivil(2026, 11, 1) * 86400, Ics::DaysFromCivil(2026, 12, 1) * 86400,
+                                                  *utcZone, 20000, &late)
+                                          .size()
+                                    : 0;
+    Check(parsedLate && lateN == 30 + 8 && late.iterations < 100 && late.eventsCut == 0, "COUNT rules skip to the window");
 }
 
 void RunCase(const std::wstring& folder, const std::wstring& name) {
@@ -142,6 +193,9 @@ void RunCase(const std::wstring& folder, const std::wstring& name) {
 
 }  // namespace
 
+// Round 29 phase 29B: the zip reader's cases (tests/zip/ZipTests.cpp).
+int RunZipTests(const std::wstring& folder, int& cases);
+
 int wmain(int argc, wchar_t** argv) {
     SetConsoleOutputCP(CP_UTF8);
     std::wstring folder;
@@ -152,6 +206,18 @@ int wmain(int argc, wchar_t** argv) {
         const size_t cut = src.find_last_of("\\/");
         folder.assign(src.begin(), src.begin() + static_cast<ptrdiff_t>(cut == std::string::npos ? 0 : cut));
     }
+    // Round 29 phase 29B: the zip cases, from the second argument, else tests\zip beside tests\ics.
+    std::wstring zipFolder;
+    if (argc > 2) {
+        zipFolder = argv[2];
+    } else {
+        const size_t cut = folder.find_last_of(L"\\/");
+        zipFolder = (cut == std::wstring::npos ? std::wstring(L".") : folder.substr(0, cut)) + L"\\zip";
+    }
+    int zipCases = 0;
+    const int zipFailures = RunZipTests(zipFolder, zipCases);
+    std::printf("%d zip case files, %d failures\n", zipCases, zipFailures);
+    g_failures += zipFailures;
     Direct();
     WIN32_FIND_DATAW fd{};
     HANDLE find = FindFirstFileW((folder + L"\\*.expected").c_str(), &fd);

@@ -37,7 +37,7 @@ public:
     };
 
     explicit ScriptPopup(Mode mode = Mode::Click, const wchar_t* className = kClassName)
-        : PopupWindow(className, mode == Mode::Click ? L"WinDock widget popup" : L"WinDock widget passive popup", mode) {}
+        : PopupWindow(className, mode == Mode::Click ? L"ViberDock widget popup" : L"ViberDock widget passive popup", mode) {}
     ~ScriptPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, Callbacks callbacks);

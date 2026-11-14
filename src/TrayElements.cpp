@@ -147,7 +147,7 @@ public:
         if (labels && cell_ < std::round(kLabelFontDip * 1.25f * ctx.scale)) labels = false;
         labelPx_ = labels ? labelFull : 0.0f;
         style_ = e.trayExpanderStyle;
-        if (IDWriteFactory* dw = ctx.dwrite) EnsureFormats(dw, labels, iconDip);
+        if (IDWriteFactory* dw = ctx.dwrite) EnsureFormats(dw, labels);
 
         shown_.clear();
         all_ = 0;
@@ -171,6 +171,51 @@ public:
         used_ = std::min<size_t>(along, (n + across - 1) / across);
         usedAcross_ = (n + used_ - 1) / used_;
         stripPx_ = arrow_ && !ArrowInGrid() ? std::max(6.0f, std::round(cell_ * kStripFraction)) : 0.0f;
+        // Round 30: the arrow's glyph at `expanderSize` and the shape behind it. With neither set
+        // (shape none, 100 %) everything below is the look before round 30, to the pixel. Else the
+        // glyph and its shape shrink together to the arrow's room (a grid cell; a strip: the
+        // grid's extent across only), and a strip grows along the bar to hold them.
+        shape_ = e.trayExpanderShape;
+        fill_ = e.trayExpanderFill;
+        hiddenCount_ = all_ > shown_.size() ? all_ - shown_.size() : 0;
+        boxW_ = boxH_ = 0.0f;
+        if (arrow_) {
+            const DockEdge edge = host_.DockCfg().edge;
+            const bool strip = !ArrowInGrid();
+            const bool custom = shape_ != TrayExpanderShape::None || e.trayExpanderSize != 100;
+            const float k = static_cast<float>(std::clamp(e.trayExpanderSize, 50, 200)) / 100.0f;
+            const float pad = shape_ == TrayExpanderShape::None
+                                  ? 0.0f : std::round(static_cast<float>(std::clamp(e.trayExpanderPadding, 0, 12)) * ctx.scale);
+            dotsWide_ = !strip || vertical_;  // along the arrow's longer side, as before round 30
+            const float acrossRoom = strip ? static_cast<float>(usedAcross_) * AcrossStep() : AcrossStep();
+            const float alongRoom = strip ? 1.0e6f : AlongStep();
+            const float roomW = (vertical_ ? acrossRoom : alongRoom) - 2.0f, roomH = (vertical_ ? alongRoom : acrossRoom) - 2.0f;
+            // Layouts repeat with nothing of the arrow changed: its metrics (a text format, a
+            // measured "+N") are redone only when one of their inputs differs.
+            const std::array<float, 12> inputs{static_cast<float>(style_), static_cast<float>(shape_), k, pad,
+                                               static_cast<float>(hiddenCount_), cell_, ctx.scale, roomW, roomH,
+                                               static_cast<float>(edge), dotsWide_ ? 1.0f : 0.0f, static_cast<float>(iconDip)};
+            const bool same = inputs == arrowInputs_ && (style_ != TrayExpanderStyle::Count || countFormat_);
+            arrowInputs_ = inputs;
+            if (same) {
+                boxW_ = arrowBoxW_;
+                boxH_ = arrowBoxH_;
+            } else {
+                LayoutArrow(ctx.dwrite, iconDip, k, pad, edge);
+                if (custom) {
+                    const float fit = std::min({1.0f, roomW / std::max(boxW_, 1.0f), roomH / std::max(boxH_, 1.0f)});
+                    if (fit < 1.0f) LayoutArrow(ctx.dwrite, iconDip, k * fit, std::floor(pad * fit), edge);
+                }
+                arrowBoxW_ = boxW_;
+                arrowBoxH_ = boxH_;
+            }
+            if (custom) {
+                if (strip) {
+                    const float margin = std::round(2.0f * ctx.scale);
+                    stripPx_ = std::max(stripPx_, std::ceil(vertical_ ? boxH_ : boxW_) + 2.0f * margin);
+                }
+            }
+        }
         const float main = stripPx_ + static_cast<float>(used_) * AlongStep();
         const float cross = static_cast<float>(usedAcross_) * AcrossStep();
         size_ = vertical_ ? D2D1::SizeU(static_cast<UINT32>(cross), static_cast<UINT32>(main))
@@ -187,7 +232,8 @@ public:
         return r.DrawLayer(content, size_.width, size_.height, [&](ID2D1DeviceContext* dc) {
             // Round 24 phase 24A: a plate under the hovered cell (an icon or the arrow), in the
             // popups' hover colours; redrawn only when the hot cell changes (DockWindow::SetHoverCell).
-            if (hotCell_ >= 0 && ValidCell(static_cast<size_t>(hotCell_))) {
+            // (Round 30: not under an arrow with a shape: the shape itself lights up, DrawArrow.)
+            if (hotCell_ >= 0 && ValidCell(static_cast<size_t>(hotCell_)) && !(ArrowHot() && HasShape())) {
                 winrt::com_ptr<ID2D1SolidColorBrush> fill, border;
                 if (SUCCEEDED(dc->CreateSolidColorBrush(Theme::ToColor(theme.previewHotBackground), fill.put())) &&
                     SUCCEEDED(dc->CreateSolidColorBrush(Theme::ToColor(theme.previewHotBorder), border.put()))) {
@@ -260,7 +306,7 @@ public:
             winrt::com_ptr<ID2D1SolidColorBrush> brush;
             if (FAILED(dc->CreateSolidColorBrush(Theme::ToColor(theme.clockText, 0.85f), brush.put()))) return;
             if (arrow_) {
-                DrawArrow(dc, brush.get(), edge);
+                DrawArrow(dc, brush.get(), edge, theme);
             } else if (shown_.empty()) {
                 // No notify icon yet (or the tray is off): a dim dot keeps the slot findable.
                 brush->SetOpacity(0.35f);
@@ -425,6 +471,12 @@ public:
         out.hotCell = hotCell_;
         out.labels = labelPx_ > 0.0f;
         out.arrowRect = arrow_ ? CellRect(ArrowIndex()) : D2D1_RECT_F{};
+        out.shape = static_cast<int>(shape_);
+        if (HasShape()) {
+            const D2D1_RECT_F s = ShapeRect();
+            out.shapeW = static_cast<int>(s.right - s.left);
+            out.shapeH = static_cast<int>(s.bottom - s.top);
+        }
         return true;
     }
 
@@ -481,7 +533,93 @@ private:
         return Rect(GridStart() + m, k, AlongStep(), AcrossStep());
     }
 
-    void EnsureFormats(IDWriteFactory* dw, bool labels, int iconDip) {
+    // --- the arrow's glyph and shape (round 30) ---
+    bool HasShape() const { return arrow_ && shape_ != TrayExpanderShape::None && boxW_ > 0.0f && boxH_ > 0.0f; }
+    bool ArrowHot() const { return arrow_ && hotCell_ == static_cast<int>(ArrowIndex()); }
+    // The shape in the slot surface: boxW_ x boxH_ centred in the arrow's cell or strip, on whole
+    // pixels, never larger than it (Measure fits it already; this guards the rounding).
+    D2D1_RECT_F ShapeRect() const {
+        const D2D1_RECT_F cell = CellRect(ArrowIndex());
+        float w = std::min(std::round(boxW_), cell.right - cell.left), h = std::min(std::round(boxH_), cell.bottom - cell.top);
+        if (shape_ == TrayExpanderShape::Circle || shape_ == TrayExpanderShape::Square) w = h = std::min(w, h);
+        const float x = std::round((cell.left + cell.right - w) / 2.0f), y = std::round((cell.top + cell.bottom - h) / 2.0f);
+        return D2D1::RectF(x, y, x + w, y + h);
+    }
+    // The glyph's metrics at `k` (1: the size before round 30) and the box of the shape around it
+    // with `pad` px between them (shape none: the glyph's own box).
+    void LayoutArrow(IDWriteFactory* dw, int iconDip, float k, float pad, DockEdge edge) {
+        float gw = 0.0f, gh = 0.0f;
+        // "+N": about half the icon's height, semi-bold, centred in the arrow's cell or strip.
+        const float countPx = std::round(std::max(9.0f, static_cast<float>(iconDip) * 0.55f) * scale_ * k);
+        if (style_ == TrayExpanderStyle::Count && dw) EnsureCountFormat(dw, countPx);
+        if (style_ == TrayExpanderStyle::Dots) {
+            dotRad_ = std::max(1.0f, std::round(1.25f * scale_ * k));
+            dotStep_ = std::max(dotRad_ * 2.0f + 1.0f, std::round(cell_ * 0.16f * k));
+            const float lng = 2.0f * (dotStep_ + dotRad_), shrt = 2.0f * dotRad_;
+            gw = dotsWide_ ? lng : shrt;
+            gh = dotsWide_ ? shrt : lng;
+        } else if (style_ == TrayExpanderStyle::Count && hiddenCount_ > 0 && countFormat_) {
+            std::wstring text = L"+" + std::to_wstring(hiddenCount_);
+            if (text != countText_ || countPx_ != countMeasuredPx_) {
+                countText_ = std::move(text);
+                countMeasuredPx_ = countPx_;
+                countW_ = countPx_ * 0.6f * static_cast<float>(countText_.size());  // when it cannot be measured
+                winrt::com_ptr<IDWriteTextLayout> layout;
+                DWRITE_TEXT_METRICS m{};
+                if (dw && SUCCEEDED(dw->CreateTextLayout(countText_.c_str(), static_cast<UINT32>(countText_.size()),
+                                                         countFormat_.get(), 4096.0f, 4096.0f, layout.put())) &&
+                    SUCCEEDED(layout->GetMetrics(&m))) {
+                    countW_ = std::ceil(m.width);
+                }
+            }
+            gw = countW_;
+            gh = countPx_;  // the em: digits are about 0.7 of it tall, so the shape hugs them like their sides
+        } else {
+            chevA_ = std::round(cell_ * 0.18f * k);
+            chevB_ = std::round(cell_ * 0.09f * k);
+            chevStroke_ = std::max(1.0f, std::round(1.5f * scale_ * k));
+            const bool upDown = edge == DockEdge::Top || edge == DockEdge::Bottom;
+            gw = 2.0f * (upDown ? chevA_ : chevB_) + chevStroke_;
+            gh = 2.0f * (upDown ? chevB_ : chevA_) + chevStroke_;
+        }
+        switch (shape_) {
+            case TrayExpanderShape::Circle:
+            case TrayExpanderShape::Square:
+                boxW_ = boxH_ = std::max(gw, gh) + 2.0f * pad;
+                break;
+            case TrayExpanderShape::Pill:
+                // A little longer than the padding alone: the round ends would crowd the glyph.
+                boxW_ = gw + 2.0f * pad;
+                boxH_ = gh + 2.0f * pad;
+                if (boxW_ >= boxH_) {
+                    boxW_ += std::round(boxH_ * 0.3f);
+                } else {
+                    boxH_ += std::round(boxW_ * 0.3f);
+                }
+                break;
+            case TrayExpanderShape::None:
+            default:
+                boxW_ = gw;
+                boxH_ = gh;
+                break;
+        }
+    }
+
+    void EnsureCountFormat(IDWriteFactory* dw, float countPx) {
+        if (countFormat_ && countPx == countPx_) return;
+        countFormat_ = nullptr;
+        if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
+                                           DWRITE_FONT_STRETCH_NORMAL, countPx, L"", countFormat_.put()))) {
+            countFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
+            countFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
+            countFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
+            countPx_ = countPx;
+        } else {
+            countFormat_ = nullptr;
+        }
+    }
+
+    void EnsureFormats(IDWriteFactory* dw, bool labels) {
         if (labels && !labelFormat_) {
             if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_NORMAL, DWRITE_FONT_STYLE_NORMAL,
                                                DWRITE_FONT_STRETCH_NORMAL, kLabelFontDip * scale_, L"", labelFormat_.put()))) {
@@ -496,50 +634,68 @@ private:
                 labelFormat_ = nullptr;
             }
         }
-        // "+N": about half the icon's height, semi-bold, centred in the arrow's cell or strip.
-        const float countPx = std::round(std::max(9.0f, static_cast<float>(iconDip) * 0.55f) * scale_);
-        if (style_ == TrayExpanderStyle::Count && (!countFormat_ || countPx != countPx_)) {
-            countFormat_ = nullptr;
-            if (SUCCEEDED(dw->CreateTextFormat(L"Segoe UI", nullptr, DWRITE_FONT_WEIGHT_SEMI_BOLD, DWRITE_FONT_STYLE_NORMAL,
-                                               DWRITE_FONT_STRETCH_NORMAL, countPx, L"", countFormat_.put()))) {
-                countFormat_->SetWordWrapping(DWRITE_WORD_WRAPPING_NO_WRAP);
-                countFormat_->SetTextAlignment(DWRITE_TEXT_ALIGNMENT_CENTER);
-                countFormat_->SetParagraphAlignment(DWRITE_PARAGRAPH_ALIGNMENT_CENTER);
-                countPx_ = countPx;
-            } else {
-                countFormat_ = nullptr;
-            }
-        }
     }
 
     // The arrow in its cell or strip: a chevron pointing away from the screen edge (where the
     // drawer opens; toward the edge while this grid's drawer is open), three dots along the
     // rect's long side, or "+N" (N: the icons the grid does not show; with none, as expanderShow
-    // "always" can have it, the chevron).
-    void DrawArrow(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, DockEdge edge) const {
+    // "always" can have it, the chevron). Round 30: at `expanderSize`, on `expanderShape` (the
+    // metrics are Measure's, LayoutArrow). The shape is brighter under the pointer and while
+    // this grid's drawer is open: it takes the hover plate's place, and gives dots and "+N" the
+    // open state that only the chevron showed.
+    void DrawArrow(ID2D1DeviceContext* dc, ID2D1SolidColorBrush* brush, DockEdge edge, const ThemeConfig& theme) const {
         const D2D1_RECT_F cell = CellRect(ArrowIndex());
         const float cx = (cell.left + cell.right) / 2.0f, cy = (cell.top + cell.bottom) / 2.0f;
-        const size_t hiddenCount = all_ > shown_.size() ? all_ - shown_.size() : 0;
+        const bool open = host_.TrayDrawerShown(key_);
+        if (HasShape()) {
+            const D2D1_RECT_F s = ShapeRect();
+            const float shortSide = std::min(s.right - s.left, s.bottom - s.top);
+            const float radius = shape_ == TrayExpanderShape::Square ? std::min(std::round(4.0f * scale_), shortSide / 2.0f)
+                                                                     : shortSide / 2.0f;
+            const bool lit = open || ArrowHot();
+            if (fill_ == TrayExpanderFill::Accent) {
+                D2D1_COLOR_F c = Theme::ToColor(theme.accent);
+                // Black or white, whichever reads on the accent (before it is lit).
+                const bool dark = 0.299f * c.r + 0.587f * c.g + 0.114f * c.b > 0.6f;
+                if (lit) {  // a fifth of the way to white
+                    c.r += (1.0f - c.r) * 0.2f;
+                    c.g += (1.0f - c.g) * 0.2f;
+                    c.b += (1.0f - c.b) * 0.2f;
+                }
+                brush->SetColor(c);
+                dc->FillRoundedRectangle(D2D1::RoundedRect(s, radius, radius), brush);
+                brush->SetColor(dark ? D2D1::ColorF(0.0f, 0.0f, 0.0f, 0.9f) : D2D1::ColorF(1.0f, 1.0f, 1.0f, 1.0f));
+            } else {
+                brush->SetColor(Theme::ToColor(theme.clockText, lit ? 0.30f : 0.16f));
+                dc->FillRoundedRectangle(D2D1::RoundedRect(s, radius, radius), brush);
+                brush->SetColor(Theme::ToColor(theme.clockText, lit ? 0.60f : 0.40f));
+                const float r = std::max(0.0f, radius - 0.5f);
+                dc->DrawRoundedRectangle(
+                    D2D1::RoundedRect(D2D1::RectF(s.left + 0.5f, s.top + 0.5f, s.right - 0.5f, s.bottom - 0.5f), r, r), brush, 1.0f);
+                brush->SetColor(Theme::ToColor(theme.clockText));
+            }
+        }
         if (style_ == TrayExpanderStyle::Dots) {
-            const float rad = std::max(1.0f, std::round(1.25f * scale_));
-            const float step = std::max(rad * 2.0f + 1.0f, std::round(cell_ * 0.16f));
-            const bool wide = cell.right - cell.left >= cell.bottom - cell.top;
             for (int i = -1; i <= 1; ++i) {
-                const float d = static_cast<float>(i) * step;
-                dc->FillEllipse(D2D1::Ellipse(wide ? D2D1::Point2F(cx + d, cy) : D2D1::Point2F(cx, cy + d), rad, rad), brush);
+                const float d = static_cast<float>(i) * dotStep_;
+                dc->FillEllipse(D2D1::Ellipse(dotsWide_ ? D2D1::Point2F(cx + d, cy) : D2D1::Point2F(cx, cy + d), dotRad_, dotRad_),
+                                brush);
             }
             return;
         }
-        if (style_ == TrayExpanderStyle::Count && hiddenCount > 0 && countFormat_) {
-            const std::wstring text = L"+" + std::to_wstring(hiddenCount);
-            dc->DrawText(text.c_str(), static_cast<UINT32>(text.size()), countFormat_.get(), cell, brush);
+        if (style_ == TrayExpanderStyle::Count && hiddenCount_ > 0 && countFormat_ && !countText_.empty()) {
+            // In a shape the digits are centred by eye: Segoe UI's digits sit about 0.06 em below
+            // the middle of the line box (ascent 1.08, descent 0.25, digits 0.70 em tall).
+            const float up = HasShape() ? std::round(countPx_ * 0.06f) : 0.0f;
+            const D2D1_RECT_F box = D2D1::RectF(cell.left, cell.top - up, cell.right, cell.bottom - up);
+            dc->DrawText(countText_.c_str(), static_cast<UINT32>(countText_.size()), countFormat_.get(), box, brush);
             return;
         }
-        const float a = std::round(cell_ * 0.18f), b = std::round(cell_ * 0.09f);
-        const float w = std::max(1.0f, std::round(1.5f * scale_));
+        const float a = chevA_, b = chevB_;
+        const float w = chevStroke_;
         // Round 24 phase 24A: flipped while the drawer is open (it points back where it closes).
         DockEdge toward = edge;
-        if (host_.TrayDrawerShown(key_)) {
+        if (open) {
             toward = edge == DockEdge::Top ? DockEdge::Bottom : edge == DockEdge::Left ? DockEdge::Right
                    : edge == DockEdge::Right ? DockEdge::Left : DockEdge::Top;
         }
@@ -590,6 +746,19 @@ private:
     winrt::com_ptr<IDWriteTextFormat> labelFormat_;
     winrt::com_ptr<IDWriteTextFormat> countFormat_;
     float countPx_ = 0.0f;
+    // Round 30: the arrow's shape and the glyph's metrics as last measured (LayoutArrow).
+    TrayExpanderShape shape_ = TrayExpanderShape::None;
+    TrayExpanderFill fill_ = TrayExpanderFill::Subtle;
+    size_t hiddenCount_ = 0;       // icons the grid does not show ("+N")
+    std::wstring countText_;       // "+N" as measured
+    float countMeasuredPx_ = 0.0f; // the font size countW_ was measured at
+    float countW_ = 0.0f;          // its width, px
+    bool dotsWide_ = true;         // the dots run along x
+    float dotRad_ = 1.0f, dotStep_ = 3.0f;
+    float chevA_ = 0.0f, chevB_ = 0.0f, chevStroke_ = 1.0f;
+    float boxW_ = 0.0f, boxH_ = 0.0f;  // the shape (none: the glyph's box), px; 0 while no arrow is shown
+    std::array<float, 12> arrowInputs_{};        // what LayoutArrow last ran for (Measure)
+    float arrowBoxW_ = 0.0f, arrowBoxH_ = 0.0f;  // ... and the box it gave
 };
 
 // trayApp: one notify icon pinned as a dock icon. The slot's key is "kind:trayapp:<icon key>";

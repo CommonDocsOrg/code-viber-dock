@@ -12,6 +12,7 @@
 
 #include "Backdrop.h"
 #include "Config.h"
+#include "FolderListing.h"
 #include "IconCache.h"
 #include "ItemGridView.h"
 #include "Renderer.h"
@@ -61,6 +62,8 @@ public:
         // by the program: the config, a display / DPI change, collapse): its settings panel goes
         // beside it again. Not on each step of a drag (the panel follows when it ends).
         std::function<void()> moved;
+        // Round 26 phase 26A follow-up: every mouse message (DockShared::PointerInput).
+        std::function<void(UINT msg)> pointerInput;
     };
 
     FolderWindow() = default;
@@ -96,18 +99,15 @@ private:
     static constexpr UINT kChangeMessage = WM_APP + 10;   // SHChangeNotifyRegister
     static constexpr UINT kJobDoneMessage = WM_APP + 11;  // a file operation finished
     static constexpr UINT kMenuMessage = WM_APP + 12;     // posted: the context menu (automation)
-    static constexpr UINT_PTR kRefreshTimer = 1;          // 250 ms one-shot after a change notification
+    // Round 26 phase 26B: a slow folder's listing came from its worker (wParam: the tag, lParam: a
+    // FolderListing::Listing* the window frees). Listed in DockWindow.h's WM_APP table.
+    static constexpr UINT kListedMessage = WM_APP + 78;
+    static constexpr UINT_PTR kRefreshTimer = 1;          // one-shot: 250 ms after the last change notification, at most 1 s after the first (26C)
     static constexpr UINT_PTR kRollTimer = 2;             // rollUpOnHover: 400 ms after the pointer left
     static constexpr UINT_PTR kViewTimerBase = 100;       // the view's (100, 101)
 
     enum class Grab { None, Move, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
-    struct Entry {
-        std::wstring name;  // file name
-        std::wstring path;
-        bool folder = false;
-        ULONGLONG size = 0;
-        FILETIME modified{};
-    };
+    using Entry = FolderListing::Entry;  // round 26 phase 26B: shared with the folder popup
 
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
     LRESULT WndProc(UINT msg, WPARAM wp, LPARAM lp);
@@ -146,8 +146,14 @@ private:
     // --- contents ---
     std::wstring FolderPath() const;  // the config path, environment variables expanded
     void Load();
-    // Load again keeping the scroll position and the selection (by path).
-    void Reload();
+    // Load again keeping the scroll position and the selection (by path). `rebuild`: F5 / Refresh.
+    void Reload(bool rebuild = false);
+    // Round 26 phase 26B: the listing, read here or (a slow folder) on a worker; see the .cpp.
+    void RequestListing(bool rebuild, bool keepState);
+    void OnListed(WPARAM tag, FolderListing::Listing* listing);
+    void ApplyListing(FolderListing::Listing listing, bool rebuild, bool keepState, bool async);
+    // Round 26 phase 26C: a change notification / a finished file operation: the reload, debounced.
+    void ArmRefresh();
     void Watch();
     void Unwatch();
     void ResolveItem(size_t index, GridItem& item);
@@ -211,6 +217,19 @@ private:
     size_t resolved_ = 0;       // entries whose icon / label was resolved (QueryState 196)
     std::vector<std::wstring> selectAfterLoad_;  // a rename / drop: select these when they appear
     LONG jobs_ = 0;             // this window's file operations in flight
+    // Round 26 phase 26B: the worker listing of a slow folder (RequestListing / OnListed).
+    WPARAM listTag_ = 0;        // the newest listing started
+    WPARAM inFlight_ = 0;       // the tag of the one running (0: none; QueryState 362)
+    std::wstring inFlightFolder_;
+    bool inFlightRebuild_ = false, inFlightKeep_ = true;
+    bool listAgain_ = false;    // asked again while it ran: one more run after it, with ...
+    bool againRebuild_ = false, againKeep_ = true;  // ... the most any of those asks wanted
+    bool loading_ = false;      // the folder's first listing has not come yet ("Loading…")
+    // Round 26 phase 26C: reloads after notifications that changed nothing shown (QueryState 363),
+    // the first notification of the pending debounce (ArmRefresh), the icon cache's pixel size.
+    size_t unchangedReloads_ = 0;
+    ULONGLONG refreshSince_ = 0;
+    int iconCachePx_ = 0;
 
     // Move / resize.
     Grab grab_ = Grab::None;

@@ -65,7 +65,7 @@ struct LayoutContext {
 
 // Something outside the dock changed that an element may show.
 enum class DockEvent {
-    ClockTick,    // the clock's timer (DockWindow::kClockTimerId) fired
+    ClockTick,    // the clocks' timer (DockWindow::kClockTimerId) fired (round 25 phase 25C: shared by every clock element of the dock)
     TimeChanged,  // WM_TIMECHANGE, resume from sleep
     WeatherData,  // the weather service's data or status changed
     WidgetRedraw, // a script widget asked to be redrawn (WidgetInstance::TakeChanged)
@@ -145,6 +145,12 @@ public:
     virtual bool NotificationsDenied() const = 0;
     // Calendars (round 4 phase 13): events today on the enabled feeds (0 while the service is off).
     virtual size_t CalendarEventsToday() const = 0;
+    // Round 25 phase 25C: a clock element wants a ClockTick within `delayMs` (its next minute or
+    // second boundary). The dock keeps one one-shot timer (kClockTimerId) armed for the earliest
+    // request; a later request while an earlier tick is armed is dropped (every clock asks again on
+    // each tick). Until 25C each element set kClockTimerId itself and the last one's interval won:
+    // a seconds clock followed by a minutes-only clock on one dock updated once a minute.
+    virtual void RequestClockTick(UINT delayMs) = 0;
 
 protected:
     ~ElementHost() = default;
@@ -287,6 +293,9 @@ public:
         int hotCell = -1;     // the cell under the pointer (the hover plate), -1 none
         bool labels = false;  // labels are drawn beside the icons
         D2D1_RECT_F arrowRect{};  // the arrow's cell or strip in the slot's box, px
+        int shape = 0;        // round 30: the shape behind the arrow's glyph (TrayExpanderShape)
+        int shapeW = 0;       // ... and the shape as drawn, px (0, 0: none, or no arrow)
+        int shapeH = 0;
     };
     virtual bool TrayLook(TrayLookState& /*out*/) const { return false; }
     // Tray: the key of the icon under screen point `screen` (a grid cell, a pinned tray icon;

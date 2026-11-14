@@ -43,6 +43,21 @@ D2D1_RECT_F ToRectF(const RECT& r) {
 
 bool Empty(const RECT& r) { return r.right <= r.left || r.bottom <= r.top; }
 
+// Round 28 phase 28A: minutes since 1970 in the place's own local time -> "07:12" in the user's time
+// format (the place's clock, not this PC's: sunrise in another time zone reads as it is there).
+std::wstring PlaceTime(int64_t minutes) {
+    SYSTEMTIME st{};
+    st.wYear = 2000;
+    st.wMonth = 1;
+    st.wDay = 1;
+    const int64_t m = ((minutes % 1440) + 1440) % 1440;
+    st.wHour = static_cast<WORD>(m / 60);
+    st.wMinute = static_cast<WORD>(m % 60);
+    wchar_t buf[64]{};
+    if (!GetTimeFormatEx(LOCALE_NAME_USER_DEFAULT, TIME_NOSECONDS, &st, nullptr, buf, 64)) return {};
+    return buf;
+}
+
 }  // namespace
 
 const WeatherService* WeatherPopup::W() const {
@@ -270,7 +285,8 @@ void WeatherPopup::Paint(ID2D1DeviceContext* dc) {
          D2D1::RectF(condX, mainTop + 6.0f * s, rightCol - 8.0f * s, mainTop + 26.0f * s), style_.text, 1.0f,
          DWRITE_TEXT_ALIGNMENT_LEADING);
     std::wstring details;
-    if (std::isfinite(data.humidity)) details = L"Humidity " + std::to_wstring(std::lround(data.humidity)) + L"%";
+    if (std::isfinite(data.feelsLike)) details = L"Feels like " + Temp(data.feelsLike, true) + L" · ";  // round 28
+    if (std::isfinite(data.humidity)) details += L"Humidity " + std::to_wstring(std::lround(data.humidity)) + L"%";
     if (std::isfinite(data.wind)) {
         if (!details.empty()) details += L" · ";
         details += L"Wind " + std::to_wstring(std::lround(data.wind)) +
@@ -278,6 +294,19 @@ void WeatherPopup::Paint(ID2D1DeviceContext* dc) {
     }
     Text(dc, smallFormat_.get(), details, D2D1::RectF(condX, mainTop + 28.0f * s, rightCol - 8.0f * s, mainTop + 46.0f * s),
          style_.secondary, 1.0f, DWRITE_TEXT_ALIGNMENT_LEADING);
+    // Round 28 phase 28A: today's sunrise / sunset and the UV index, a second detail line (the
+    // header has room for it above the rule at kRule1). Left out where the data has none.
+    {
+        std::wstring sun;
+        const std::vector<WeatherService::Day> today = W()->DailyWindow(1);
+        if (!today.empty() && today[0].sunrise >= 0) sun = L"Sunrise " + PlaceTime(today[0].sunrise);
+        if (!today.empty() && today[0].sunset >= 0) sun += (sun.empty() ? L"" : L" · ") + std::wstring(L"Sunset ") + PlaceTime(today[0].sunset);
+        if (std::isfinite(data.uv)) sun += (sun.empty() ? L"" : L" · ") + std::wstring(L"UV ") + std::to_wstring(std::lround(data.uv));
+        if (!sun.empty()) {
+            Text(dc, smallFormat_.get(), sun, D2D1::RectF(condX, mainTop + 45.0f * s, rightCol - 8.0f * s, mainTop + 61.0f * s),
+                 style_.secondary, 1.0f, DWRITE_TEXT_ALIGNMENT_LEADING);
+        }
+    }
     std::wstring updated = L"Updated " + WeatherService::FormatTime(data.fetchedAt);
     if (stale) updated += L" (stale)";
     Text(dc, smallFormat_.get(), updated, D2D1::RectF(rightCol, mainTop + 6.0f * s, w - pad, mainTop + 24.0f * s),

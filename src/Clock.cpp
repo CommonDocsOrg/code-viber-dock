@@ -402,7 +402,7 @@ std::wstring Clock::EffectiveFormat(const std::wstring& format, bool showSeconds
     return format.substr(0, after) + L":%S" + format.substr(after);
 }
 
-void Clock::ScheduleNextTick(HWND hwnd, UINT_PTR timerId) const {
+UINT Clock::NextTickDelay() const {
     SYSTEMTIME st{};
     GetLocalTime(&st);
     UINT delay;
@@ -416,10 +416,8 @@ void Clock::ScheduleNextTick(HWND hwnd, UINT_PTR timerId) const {
     }
     // Small slack so the tick lands just after the boundary, never just before it.
     delay += 15;
-    SetTimer(hwnd, timerId, delay, nullptr);
+    return delay;
 }
-
-void Clock::Stop(HWND hwnd, UINT_PTR timerId) { KillTimer(hwnd, timerId); }
 
 bool Clock::UpdateText() {
     tm local{};

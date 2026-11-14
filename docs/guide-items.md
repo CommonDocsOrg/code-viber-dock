@@ -97,7 +97,7 @@ Some widgets put their everyday settings straight into this menu, above **Widget
 
 The dock menu is grouped by task. First, while there is something to undo, **Undo** with the name of the last change. Then for this dock: **Customize this dock**, **Dock settings…**, **Add**, **Position on screen**, **Auto-hide**, **Lock dock**, **Rename dock…**, **Duplicate dock** and **Save dock as layout…**. Then **All docks** (the dashboard, lock all), **App** (App settings, the taskbar, Start with Windows, Quick setup), **Tools** (the config file, widgets, Task Manager), **Help…** and **Quit**.
 
-The WinDock icon in the notification area has the app-wide commands: **App settings…**, **Docks** (each dock's settings), **Show dashboard**, **Show Windows taskbar temporarily**, **Hide taskbar**, **Start with Windows**, **Tools**, **Help…** and **Quit**.
+The ViberDock icon in the notification area has the app-wide commands: **App settings…**, **Docks** (each dock's settings), **Show dashboard**, **Show Windows taskbar temporarily**, **Hide taskbar**, **Start with Windows**, **Tools**, **Help…** and **Quit**.
 
 To move an item, drag it on the dock, or drag its tile on the Contents tab. To give an item a fixed place, such as the right end, drop it on a target while customizing, or use **Position on the dock** in the Contents tab's inspector.
 
@@ -122,7 +122,7 @@ A pinned app stays on the dock whether it runs or not.
 - **Right-click** for **New window**, **Open file location**, **Close** for each window, **Customize icon**, and **Pin to dock** or **Unpin from dock**.
 - **Drop files** on an app to open them with it.
 
-While an app starts, its icon bounces until its window appears. A dot under the icon shows that it is running: brighter for the app in front, orange when the app wants your attention.
+While an app starts, its icon bounces until its window appears. A dot under the icon shows that it is running: brighter for the app in front, orange when the app wants your attention. The dock's Look tab can make it a line, a pill or a dot for each window (**Running indicator**).
 
 To give an app its own icon:
 
@@ -135,7 +135,7 @@ If a pinned program or shortcut no longer exists, the dock shows a placeholder i
 
 ## Running apps
 
-Apps that are running but not pinned appear where the dock's **Running apps** item is. Without that item, only pinned apps show their windows. You can drag running apps to reorder them for the session, or drop one among the pins to pin it there. WinDock's own settings windows (App settings and an item's window) are listed there too, under WinDock's icon, so you can always get back to one.
+Apps that are running but not pinned appear where the dock's **Running apps** item is. Without that item, only pinned apps show their windows. You can drag running apps to reorder them for the session, or drop one among the pins to pin it there. ViberDock's own settings windows (App settings and an item's window) are listed there too, under ViberDock's icon, so you can always get back to one.
 
 The settings are in the Running apps widget's own settings window: right-click a running app that is not pinned and choose **Running apps settings…** (the first entry under its name), or click **Running apps settings…** for the running apps on the Contents tab. There you also set the **Gap** between the running apps and the **Padding** beside them, their **Order** (as they appear, or by name), titles, thumbnails and notification badges. **Windows** chooses between **Stacked (one slot per app)** and **One slot per window**. With one slot per window, every window gets its own icon, like on the Windows taskbar: its name label shows the window title, and a click brings that window to the front. A minimized window keeps its slot.
 
@@ -241,7 +241,7 @@ Each clock has its own settings window, with two tabs. The **Content** tab has t
 
 The **Appearance** tab has the **Look** card:
 
-- **Face**: **Digital (built in)** is the usual look; the others are clock face files. **Open faces folder** opens the folder for your own faces.
+- **Face**: **Digital (built in)** is the usual look; the others are clock face files. **Open faces folder** opens the folder for your own faces. The faces that come with ViberDock: Default, Large time, small date, Mono pill, Seconds under the time, Compact (one short line), Time and weekday (one line, as on a menu bar) and Large date over the time. The faces with a date show it only while **Show the date under the time** is on (on the one-line faces it sits beside the time).
 - **Size**: 1 is the usual size, 2 twice as big (up to 4). The clock only grows as far as the bar is thick: for a really big clock, raise the dock's **Thickness** on its Layout tab first.
 - **Font**: the name of any font installed on your PC, such as Bahnschrift or Consolas. Leave it empty for the face's own font (Segoe UI for the digital look).
 - **Weight of the time**: light, regular, semibold or bold digits, or the face's own.
@@ -280,13 +280,13 @@ The Appearance tab has the forecast on the dock and how it looks:
 - **Layout**: a preset for the slot. **Automatic** follows the dock's edge (a column per day on a bottom or top dock, a line per day on a left or right dock). **Strip** is a column per day beside the conditions. **Tiles** puts each day's name over its icon with the high over the low beside them, after the conditions on a bottom or top dock and stacked under them on a left or right dock: the easiest to read on a narrow dock. **List** stacks the icon over the temperature with a line per day under them. **Card** is for a desktop widget: big conditions with tiles under them. **Custom** shows three fields instead: where the icon goes (beside or above the temperature), what each day's cell is (a column, a tile, a line, or the icon with high/low), and whether the days go after or under the conditions.
 - **Sizes and spacing** (in the Layout card): **Size of the whole slot** scales everything on a dock (also in the Contents inspector), **Size of the day cells** makes the forecast larger than the current conditions on its own, **Space between days** spreads the cells out, and **Space before the days** sets the gap after the current conditions. A thick dock reads best with the day cells at 150 % or more.
 - **Text**: the condition's name under the temperature, the place, today's high and low, **Day names** (Mon, M or Monday), whether the first day says **Today**, and **High and low** (arrows, a slash or a space between them).
-- **Icons**: **Icons** chooses WinDock's filled pictures, Lucide's line icons, or Meteocons, coloured icons that move (the sun's rays turn, clouds drift, rain falls); the motion runs in Windows' compositor, so it costs the dock nothing, and **Animated icons** turns it off (reduce motion does too). **Icon colours** keeps the yellow sun and blue rain or draws everything in the text colour, and **Compact** leaves only the icon.
+- **Icons**: **Icons** chooses ViberDock's filled pictures, Lucide's line icons, or Meteocons, coloured icons that move (the sun's rays turn, clouds drift, rain falls); the motion runs in Windows' compositor, so it costs the dock nothing, and **Animated icons** turns it off (reduce motion does too). **Icon colours** keeps the yellow sun and blue rain or draws everything in the text colour, and **Compact** leaves only the icon.
 
 Right-click the widget for the quickest changes: **Forecast on the dock**, **Layout** and **Icons** are in its menu.
 
 ## Calendar and reminders
 
-WinDock reads calendars in iCal format: a web address, such as the secret address of a Google calendar or a published Outlook calendar, or an `.ics` file on your PC. It cannot sign in to an account.
+ViberDock reads calendars in iCal format: a web address, such as the secret address of a Google calendar or a published Outlook calendar, or an `.ics` file on your PC. It cannot sign in to an account.
 
 To add a calendar, go to App settings > Calendar feeds and click **Add feed…**. See [Calendar feeds](guide-settings.md#calendar-feeds).
 
@@ -309,7 +309,7 @@ To show the tray icons on a dock:
 2. Or add **System tray** from the Contents tab's drawer. This also turns on the takeover (the check box **Show the notification area icons in the dock** on App settings > Tray icons).
 3. Or apply the **Windows 7** layout, which has the tray at the right end and turns on the takeover too (see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7)).
 
-Clicks on the icons go to their apps as they would on the taskbar: a right-click opens the app's own menu. **Ctrl+right-click** an icon opens WinDock's tray menu: hide it from the grid, pin it to the dock, or open the tray settings.
+Clicks on the icons go to their apps as they would on the taskbar: a right-click opens the app's own menu. **Ctrl+right-click** an icon opens ViberDock's tray menu: hide it from the grid, pin it to the dock, or open the tray settings.
 
 When there are more icons than cells, the last cell is an arrow that opens a drawer with every icon. You can move the arrow, change its look and the drawer's layout in the tray's settings window (see [The arrow](#the-arrow) and [The drawer](#the-drawer)). Out of the box the tray looks as it always has; the only change is a soft highlight under the icon the pointer is on.
 
@@ -347,6 +347,10 @@ The arrow opens the drawer. The card **The arrow** sets where it is and how it b
 
 - **Place**: **Last cell** (the grid's last cell, as before), **First cell** (the icons follow it), or a slim strip **before** or **after** the icons. A strip sits outside the grid and takes no cell, so every cell holds an icon.
 - **Looks like**: a **Chevron** that turns over while the drawer is open, three **Dots**, or a **Count** of the icons the grid does not show (for example +3).
+- **Shape**: **None** (the arrow alone), or a **Circle**, **Pill** or **Rounded square** behind it, so the arrow stands out and is easier to hit. The shape lights up under the pointer and while the drawer is open. A strip grows to hold the shape; in a grid cell the shape and the arrow shrink to fit the cell.
+- **Shape colour**: **Subtle** (a faint tint of the text colour with an outline) or **Accent** (the theme's accent colour).
+- **Size**: the size of the chevron, the dots or the count, from 50 % to 200 %.
+- **Space inside the shape**: the room between the arrow and the edge of its shape. More makes a larger shape.
 - **Shown**: **When there are more icons** (only while some icons do not fit or are hidden), or **Always**, so the drawer is one click away even when every icon fits.
 - **Opens the drawer on**: **Click**, or **Hover**: the drawer opens when the pointer rests on the arrow and closes shortly after the pointer leaves both the arrow and the drawer. A drawer you opened with a click stays until you click elsewhere.
 
@@ -373,7 +377,7 @@ This card lists every icon in the grid's order. Clear an icon's check box to kee
 
 ## Notifications
 
-WinDock can read the notifications in the Windows notification centre. Windows must allow it: Settings > Privacy & security > Notifications > "Let apps access your notifications".
+ViberDock can read the notifications in the Windows notification centre. Windows must allow it: Settings > Privacy & security > Notifications > "Let apps access your notifications".
 
 The **notification centre** is a bell on the dock with the number of unread notifications. To add it, click or drag **Notification centre** in the drawer (see [Adding items](#adding-items)).
 
@@ -391,7 +395,7 @@ Widgets are small programs that live in a slot of the dock or on the desktop. Ea
 
 ### Built-in widgets
 
-WinDock comes with these widgets:
+ViberDock comes with these widgets:
 
 - **Analog clock**: a clock with hands and five faces, optionally with a second hand, the date and a time zone. It grows a little while the pointer is over it.
 - **Digital clock (script)**: a scripted copy of the dock's own clock, with a date format of your own. Its **Layout** "Taskbar" writes the time over the date in two lines of the same size, as the Windows 7 taskbar clock (for example the time format `%#I:%M %p` over the date format `%#m/%#d/%Y`: 2:05 PM over 11/6/2026).
@@ -404,14 +408,94 @@ WinDock comes with these widgets:
 - **System monitor**: one measurement, such as processor, memory, graphics, disk, network or battery, as a graph, a bar, a dial or a number.
 - **System overview**: processor, memory, graphics, disk and network at once.
 - **Battery**: the battery level, whether it charges and the time left.
-- **Stocks**: quotes for the ticker symbols you list (stocks, ETFs, forex and crypto as Finnhub spells them), one symbol at a time or all of them, with the change since the previous close in green or red. It needs a free API key from finnhub.io, entered under Widget settings > Data. A click opens the day's figures; a click on a symbol there opens it on Yahoo Finance.
+- **Stocks**: quotes for the ticker symbols you list (stocks, ETFs, forex and crypto as Finnhub spells them), one symbol at a time or all of them, with the change since the previous close in green or red. It needs a free API key from finnhub.io, entered under Widget settings > Data. The key is kept protected for your Windows account and shows as dots (click **Show** to see it). A click opens the day's figures; a click on a symbol there opens it on Yahoo Finance.
+- **Headlines**: the newest headlines of a news feed (RSS or Atom) you choose. See [Headlines](#headlines).
 - **Photo frame**: a picture in a frame, or a folder of pictures as a slideshow. Choose the picture or the folder with the Browse… button in its settings (Content > Picture). A slideshow goes by name, by date or shuffled, waits the time you set on each picture, and changes with a fade, a slide from a side, or at once. Under Appearance pick the frame's size on a dock and its shape (the picture's own, square, 4:3, 16:9, a portrait ratio, or your own width and height; on the desktop the window is the frame), whether a picture of another shape is cropped to fill the frame or fits inside it, the border (none, a thin line, a mat, a Polaroid band), rounded corners and the drop shadow. A click shows the next picture (or opens the picture), a middle click opens it, and the wheel steps through a slideshow.
 - **Start** and **Search**: open the Start menu and Windows Search. Start shows the Windows logo, your own icon or the **Windows 7 orb**, a glossy sphere with the four-colour flag that lights up under the pointer and darkens while pressed. Its icon size 0 is automatic: the orb then fills the slot. The Start menu opens next to the button you clicked: above it on a bottom dock, beside it on a side dock. Its **Menu position** setting (Content) can put it back where Windows puts it; the Windows key always opens it at its usual place.
 - **Show desktop**: the narrow strip at the end of the Windows 7 taskbar. On a full-width dock it is as tall as the bar and, as the last item, sits right against the screen's end. A click shows the desktop (Win+D; a second click brings the windows back) or, if you choose, minimizes every window (Win+M). Its style can also be a small desktop glyph, for other themes. Hovering it does not make the windows transparent (Aero Peek is not available).
 - **Notification bell**: a bell like the notification centre, with more choices.
+- **Network**: the network icon of the taskbar: Wi-Fi with its signal, ethernet, cellular or a VPN, and whether there is internet. See [Network](#network).
+- **Input language**: the keyboard language indicator of the taskbar (ENG, DEU …). A click switches to the next layout. See [Input language](#input-language).
+- **Timer**: a countdown timer, a Pomodoro timer, a stopwatch or a countdown to a date, with a banner when it ends. See [Timer](#timer).
+- **World clock**: the time in up to six places; the tile shows one or two of them, a click lists them all with their day. See [World clock](#world-clock).
+- **To-do**: a short to-do list. The tile shows how many things are open; a click opens the list. See [To-do](#to-do).
+- **Moon phase**: tonight's moon as it looks. A click shows the phase, how much is lit and the dates of the next phases.
+- **Quick buttons**: a row of up to six buttons for Windows' own tools. See [Quick buttons](#quick-buttons).
 - **Hello**: a tiny example widget.
 
 The System monitor can also show any sensor of HWiNFO (temperatures, fans, power) while HWiNFO runs with its shared memory turned on. See [Performance and memory](troubleshooting.md#performance-and-memory).
+
+### Headlines
+
+The Headlines widget shows the newest items of a news feed. Open its settings and type the feed's address under **Feed address** (most news sites and blogs have one; it usually ends in /feed, /rss or .xml).
+
+- When you leave the box, ViberDock asks whether the widget may connect to that site, naming it. Click **Allow** to let it fetch the feed. You are asked again if you change the address to another site.
+- An address of a device in your own network (for example a .local name) works too; the question then says the address is on your local network.
+- The tile shows the newest headline, or each one in turn (**Show each headline in turn**). A click lists the newest headlines; click one to open it in your browser. A middle click opens the headline the tile shows.
+- **Refresh every** sets how often the feed is fetched again.
+
+### Network
+
+While ViberDock hides the taskbar, its network icon is gone with it. The Network widget puts it back on a dock (or on the desktop).
+
+- **Wi-Fi** shows as a dot and three arcs, lit up to the signal strength Windows reports (its bars).
+- **Ethernet** shows as a network plug, **cellular** as five rising bars, a **VPN** as a padlock.
+- A small red cross on the icon means you are connected but have **no internet**. A yellow exclamation mark means the network wants you to **sign in** (a hotel or airport Wi-Fi). A crossed-out globe means there is **no connection** at all.
+
+Its settings:
+
+- **Show a label beside the icon**: writes the network's name (or, with **Label** set to the state, Connected, No internet, Sign-in needed or Not connected) next to the icon.
+- **A click opens**: the widget's popup (the network's name, the kind of connection, its state, the signal, and buttons for **Network & internet settings** and **Quick settings**), Windows' quick settings (where you switch Wi-Fi networks), or the Network & internet settings page.
+- **Size**, **Font** and the colours of the icon, the label and the no-internet cross.
+
+The signal follows Windows' own bars. It is updated whenever the connection changes and when you click the widget, so it can lag behind a slowly changing signal. The widget does not ask Windows for your location: it never shows the "allow location" prompt that some Wi-Fi tools cause.
+
+### Input language
+
+The taskbar's language indicator (ENG, DEU, FRA …) disappears with the taskbar too. The Input language widget shows the language you type in, as the same three letters.
+
+- When two of your layouts share a language (English US and English UK), the region (US, GB) shows under the code, as on the taskbar. **Region under the code** can also show it always or never.
+- **Show the language's full name** writes it beside the code, for example English (United States).
+- A click switches to the next layout, as Windows + Space does (Windows shows its language switcher for a moment). With **A click** set to the list, or with a middle click, a list of all your layouts opens; click one to switch to it.
+- **Take no room while only one layout is installed** hides the widget when there is nothing to switch.
+
+Some apps, such as apps that run as administrator, do not accept a switch from the list; the next layout (a click) works there. The widget follows the language of the window you work in. It does not show an input method's own modes (for example the Japanese あ / A).
+
+### Timer
+
+The Timer widget counts down, up or to a date. Pick its **Kind** in its settings (also in its right-click menu):
+
+- **Countdown timer**: runs for the **Length** you set. The popup has buttons for your **Presets** (1, 3, 5, 10, 15 and 30 minutes to start with): a click on one starts it. Over a stopped timer the mouse wheel adds or takes away a minute.
+- **Pomodoro**: work periods and breaks in a set (25 minutes of work, 5-minute breaks, a 15-minute break after the fourth work period, to start with). **Start the next period by itself** goes on without waiting for you. The ring turns green during a break; **Skip** in the popup goes to the next period.
+- **Stopwatch**: counts up from zero. The ring goes round once a minute.
+- **Countdown to a date**: the days and hours left until the **Date and time** you enter, written as 2027-01-01 18:30 (your local time).
+
+A click opens the popup with **Start** / **Pause** and **Reset**; a middle click starts or pauses. When a countdown or a period ends, a banner beside the dock says so (also while the dock is hidden), with a sound if **Play a sound with the banner** is on. Over a full-screen game or video the banner waits until you leave it. A running timer keeps counting while ViberDock is closed: start it again and it shows the right time, or says when it ended.
+
+Under Appearance, **Style** chooses a progress ring with the time inside, the time with a bar under it, or the time alone. Each item has its own timer; give two items the same **Timer id** to show one timer in two places.
+
+A date across a change to or from daylight saving time can show an hour off.
+
+### World clock
+
+The World clock widget shows the time in other places. Under **Places** pick up to six time zones (the same list as Windows' own time zone setting) and give each a name; a zone left on "Local time" is skipped. **Places on the tile** shows the first one, or the first two as two rows. A click opens a list of them all with the time here, each place's day (Today, Tomorrow, Yesterday) and how many hours it is ahead or behind. Daylight saving time comes from Windows. **Time format** follows your Windows format, or always shows 24-hour or 12-hour times.
+
+### To-do
+
+The To-do widget keeps a short list. The tile shows a check box and the number of things still open (the box is ticked when everything is done). A click opens the list:
+
+- Click a thing (or its box) to tick it off; click again to bring it back.
+- The × at the end of a row deletes it.
+- **+ Add** opens a small box to type a new one; Enter adds it.
+- **Clear done** removes the ticked ones.
+
+Ten rows show at a time; the arrows at the bottom page through a longer list. Each item has its own list; give two items the same **List id** to share one, on any dock or the desktop.
+
+### Quick buttons
+
+The Quick buttons widget is a row of up to six buttons (a column on a left or right dock). Set **Buttons** to the number you want and choose what each one opens: Quick settings, Task view, Clipboard history, a screen snip, the notification centre, Show desktop, the emoji panel, File Explorer, Settings, Search, the previous or next virtual desktop, Cast, Task Manager or Lock. Most buttons press the Windows shortcut for you (the name in the list shows which), so they do what the shortcut does on your PC. **Style** puts each icon on a small tile or shows the icons alone.
+
+The emoji panel types into the window you were working in, not into the dock.
 
 ### Widget settings
 
@@ -443,8 +527,47 @@ To put a desktop widget back on a dock, drag its window onto the dock's bar: a m
 A widget is a folder with a small description file and a JavaScript file. You can write your own, or change a copy of a built-in one, without any tools.
 
 - App settings > Widget library > **More ▾** > **Add from folder…** installs a widget from a folder.
+- **Install from zip…** installs a widget from a .zip or .viberwidget file (see below).
 - **Export built-in to folder** makes an editable copy of a built-in widget.
-- **Open widgets folder** opens the folder where your widgets live.
+- **Open widgets folder** opens the folder where your widgets live; **Show folder** opens the selected widget's own folder.
+- **Uninstall…** removes the selected widget (see below).
 - **Console…** shows each widget's log and errors.
 
 Everything about writing widgets is in the [widget developer reference](widgets.md).
+
+#### Installing a widget
+
+Widgets made by other people usually come as a .zip file (or a .viberwidget file, which is the same thing with its own name). To install one, open App settings > Widget library, choose **More ▾** > **Install from zip…** and pick the file.
+
+- ViberDock checks the file before anything is installed: every name in it, its size (at most 20 MB unpacked, 200 files), and every script. A file with something odd in it, such as a name that points outside the widget's folder, a link, or a file that unpacks to far more than its size, is refused as a whole, and the line under the buttons says why.
+- Nothing in the file runs while it is checked and installed.
+- If a widget with the same id is installed already, ViberDock asks before replacing it. The old one goes to the Recycle Bin; its saved data stays.
+- After installing, the widget asks for its permissions as any widget from your widgets folder does (see Widget permissions below). An installed widget never keeps a permission you gave an earlier widget of the same name.
+
+#### Uninstalling a widget
+
+Select a widget from your widgets folder in App settings > Widget library and choose **More ▾** > **Uninstall…**. The question names the widget and how many docks and desktop widgets use it.
+
+- Its folder goes to the Recycle Bin, so you can restore it from there.
+- Its saved data (notes, lists and the like) is kept unless you tick **Also delete its saved data**.
+- Docks that show it keep its place and show "not installed" until you remove the item or install the widget again.
+- The permission you gave it is forgotten.
+- Built-in widgets cannot be uninstalled. Uninstalling a folder that replaced a built-in brings the built-in back.
+
+#### Widget permissions
+
+A widget from your widgets folder may ask for permissions: to open files and run programs, to connect to named web sites, to read your notifications, your calendar feeds, the forecast, what is playing, the volume, the PC's performance, the network connection or the keyboard language. Such a widget runs only after you allow what it asks for. The built-in widgets never need this.
+
+- When you add or install such a widget, ViberDock asks right away. The question names the widget, its id, version, author and folder, and lists each permission in plain words. **Don't allow** is the default.
+- Until you allow it, the widget shows a **Needs permission** tile and its script does not run at all. Click the tile, or right-click it and choose **Review permissions…**, to see the question again.
+- You are asked again only when a new version asks for something you did not allow. A version that asks for the same or less keeps running.
+- A folder with the same id as a built-in widget replaces it, with its settings and saved data, so ViberDock asks before it runs even when it asks for no permissions. A copy you make with **Export built-in to folder** is allowed at once.
+- App settings > Widget library shows each widget's permissions and whether you allowed them. Select a widget and click **Permissions…** to allow it or to revoke what you allowed; a revoked widget stops and shows Needs permission.
+
+Allow a widget only if you trust where it came from.
+
+Some questions come later, while you set a widget up:
+
+- **"Headlines wants to connect to news.example.com"** (with the widget's and the site's names): you typed an address into one of the widget's settings (a feed, a server of your own). Allow it and the widget may fetch from that site, for this one widget on this dock; change the address to another site and you are asked again. If the question says the address is on your local network, it is a device in your home or office rather than the internet: allow it only if you want that widget to talk to that device. A widget can never make this choice for you by changing its own settings.
+- **Opening web pages**: a widget with the "Links" permission opens a page in your browser only when you click it, one page per click.
+- **Secret settings** such as an API key show as dots, with **Show** to see them. They are kept protected for your Windows account: the settings file holds them in a scrambled form, saved layouts leave them out, and the widget console never prints them.

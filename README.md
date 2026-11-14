@@ -100,7 +100,7 @@ Prefer to build it yourself? See [Build](#build) below.
   that sort the Desktop into them.
 - **Customize on the dock**: customize mode with drag, remove badges and an add drawer with live
   previews; a settings panel attached to each dock; layouts (Basic, Modern, Minimal, Sidebar,
-  Windows 7, Windows and labels, Dashboard, Performance, Everyday taskbar); looks you can save, import and export;
+  Windows 7, Windows and labels, Dashboard, Performance, Everyday taskbar, Top bar); looks you can save, import and export;
   50 steps of undo for every change made anywhere; settings search.
 - **Light on the machine**: one process, one UI thread, one-shot timers, nothing ticking while
   idle; GPU rendering with a software fallback; no services, no background helpers.
@@ -141,7 +141,7 @@ F1 in any settings window, click the **?** beside a card, or choose **Help…** 
 
 ## Documentation
 
-Guides for people using WinDock (the same pages open inside the app: F1 in any settings window,
+Guides for people using ViberDock (the same pages open inside the app: F1 in any settings window,
 the "?" beside each card, the Help row of App settings, the dock menu's Help…):
 
 - [Quick start](docs/quick-start.md): five minutes from the first start (Quick setup) to your own dock, customized on the dock.
@@ -214,7 +214,12 @@ phase 12G; it replaced the welcome dialog; see Quick setup under [Settings](#set
 
 `--validate-widget <folder>` starts no dock: it prints the folder's manifest problems with their
 fields and fixes and exits with 0 (no errors), 1 (errors) or 2 (not a widget folder); see
-[docs/widgets.md](docs/widgets.md#validating-a-widget).
+[docs/widgets.md](docs/widgets.md#validating-a-widget). Round 29: it also compiles every script of
+the folder (a syntax error is an error with its file, line and column; nothing runs) and warns about
+permissions no script mentions and a missing description, version or author. Given a `.zip` or
+`.viberwidget` file it checks the archive as Install from zip… reads it (entry names, links, sizes,
+the compression ratio), unpacks it into a staging folder under `%LocalAppData%\WinDock` that it
+removes again, and checks that folder; exit 1 when the archive cannot be installed.
 
 There are three menus (round 10 phase 10A; "…" marks the entries that open a window or a dialog):
 
@@ -264,7 +269,7 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
   - **Help…** (round 9): opens the Help window at the quick start (see [Help](#settings) under
     Settings and [Documentation](#documentation)).
   - **Quit**.
-- **The tray-icon menu**: right-click (or click) WinDock's notification-area icon. The main place
+- **The tray-icon menu**: right-click (or click) ViberDock's notification-area icon. The main place
   for app-wide commands: **App settings…**, **Docks** submenu (one "<id> settings…" entry per
   `docks[]` entry, folder windows and desktop widgets marked as such: that entry's settings
   window), **Show dashboard**, then **Show Windows taskbar temporarily**, **Hide taskbar**,
@@ -276,7 +281,7 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
   excepted) starts with a greyed header naming the item with its icon (an app's, a folder's or the
   Recycle Bin's own icon; a group's custom icon, else a group glyph), and the menus show small icons
   beside their main entries and submenus (the same icon for a command in every menu; the dock
-  menu's **App** submenu shows WinDock's own icon). The widget kinds' header reads **Widget:
+  menu's **App** submenu shows ViberDock's own icon). The widget kinds' header reads **Widget:
   <name>** ("Widget: Clock", "Widget: Weather", "Widget: Tray", "Widget: Notification centre", a
   script widget's display name) with the kind's icon, then the kind's own entries, **Widget
   settings…**, **Reload widget** (script widgets only), **Remove this widget** and the **Dock**
@@ -409,7 +414,7 @@ screen, and auto-hide slides the dock off its own edge.
   General > **Full-screen apps** > **Hide the docks while a full-screen app is in front**): any
   window placed above an exclusive full-screen game makes the game leave its full-screen mode, and
   a dock with auto-hide off (or a standalone widget on the "normal" layer) is a topmost window. So
-  while a full-screen app is in front on a display, every WinDock window there that sits above the
+  while a full-screen app is in front on a display, every ViberDock window there that sits above the
   windows (docks of any auto-hide mode, the tray dock, floating docks and standalone widgets on the
   "normal" layer) is hidden (`ShowWindow(SW_HIDE)`: no activation and no z-order call at all
   until it comes back), its popups, name label and previews close and its auto-hide / magnify
@@ -417,7 +422,7 @@ screen, and auto-hide slides the dock off its own edge.
   When the display is no longer full screen (the app closes, or another window comes to the front)
   they come back as they were (`SW_SHOWNA`, in their auto-hide state, topmost once; a calendar
   reminder that fired meanwhile shows then). A display is full screen when the foreground window
-  (not WinDock's own, not the desktop / a taskbar / Start, visible, not cloaked, not minimized)
+  (not ViberDock's own, not the desktop / a taskbar / Start, visible, not cloaked, not minimized)
   either has its visible frame (DWM's extended frame bounds) over the whole display and is not an
   ordinary maximized window (maximized with a caption: with the taskbar hidden that covers the
   display too), or is on that display while `SHQueryUserNotificationState` reports Direct3D full
@@ -479,7 +484,7 @@ back to its place on its edge of its monitor (see Position and Multiple docks).
 ### Multiple docks and monitors
 
 `docks[]` may hold any number of docks; every one is shown, each with its own items, edge,
-position, auto-hide, lock and the other per-dock keys (they all run in the one WinDock process and
+position, auto-hide, lock and the other per-dock keys (they all run in the one `WinDock.exe` process and
 share the window list, the weather data and the foreground watch; each has its own window, renderer,
 icon cache and popups). Per dock:
 
@@ -510,7 +515,7 @@ icon cache and popups). Per dock:
   - `"normal"` (default; "Normal (above windows)"): topmost, above every window.
   - `"desktop"` ("On the desktop, only while the desktop is showing"): the dock is shown only
     while the desktop is the foreground (after Win+D or a click on the wallpaper; also while one of
-    WinDock's own windows, such as its popups or a settings window, is in front) and hides as soon
+    ViberDock's own windows, such as its popups or a settings window, is in front) and hides as soon
     as another window comes to the foreground; while shown it sits at the bottom of the z-order,
     directly above the desktop window (never topmost), so every window stays above it. It follows
     the same WinEvent hooks as intelligent auto-hide (no polling). It draws its bar without the
@@ -852,7 +857,7 @@ popups, drags). The first of them takes the keyboard (the hotkey's input allows 
 - **another window comes to the foreground** (a click on any other window, Alt+Tab, a launched app):
   the shared foreground watch (the WinEvent hooks intelligent auto-hide uses; no global input
   hooks) runs while the mode lasts. A click on the wallpaper makes the desktop the foreground,
-  which **keeps the dashboard up** (the docks are on the desktop anyway); WinDock's own windows
+  which **keeps the dashboard up** (the docks are on the desktop anyway); ViberDock's own windows
   (a settings window, a dock menu) keep it up too.
 
 Round 6 phase 6B: [standalone widgets](#standalone-widgets) with layer `"desktop"` or `"behind"`
@@ -868,7 +873,7 @@ and press the combination: Win, Ctrl, Alt, Shift and a key; Backspace or Delete 
 hotkey); the box shows the canonical text), whether it is registered (a combination another app
 already holds cannot be registered: the line says so and the debugger output logs it; choose
 another one), and **Show the dashboard now** (DockCommand 146). The hotkey is registered with
-`RegisterHotKey` on WinDock's app window and registered again when it changes and on Reload config.
+`RegisterHotKey` on ViberDock's app window and registered again when it changes and on Reload config.
 Nothing runs while the dashboard is off (no timer, no hook beyond what the docks use anyway).
 `WinDock.QueryState` 234 (on), 240 (hotkey registered).
 
@@ -1063,9 +1068,9 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
 
   The window slots, titles, thumbnails and badges also apply to pinned apps' windows; a dock without
   a running item uses the defaults for them. A new running item gets every key written with its
-  default. Round 18 phase 18C: WinDock's own `WinDock.Settings` windows (the App settings window
+  default. Round 18 phase 18C: ViberDock's own `WinDock.Settings` windows (the App settings window
   and the item windows: ordinary overlapped windows; the Dock settings panel is a tool window)
-  pass the running-apps filter like any app's windows, under WinDock's exe key and icon, so a
+  pass the running-apps filter like any app's windows, under ViberDock's exe key and icon, so a
   settings window lost under others can be brought back from the dock (the Explorer taskbar is
   hidden while the dock runs). Every other window of the process stays excluded (`WindowTracker::PassesFilter`). Its settings window: Dock settings > Contents > the item's **Running apps settings…**, or
   right-click a running app > **Running apps settings…** (the first entry after the header).
@@ -1206,7 +1211,8 @@ shows any more is stopped and dropped at once.
 
 - A click on the widget opens the **forecast popup** above it (click again, Escape, or clicking
   anywhere else closes it; F5 refreshes): the place, a large glyph and temperature, the condition,
-  humidity and wind, when the data was fetched, the **Weather data by Open-Meteo** credit (a link)
+  the feels-like temperature, humidity and wind, today's sunrise and sunset (the place's own time)
+  and the UV index (round 28), when the data was fetched, the **Weather data by Open-Meteo** credit (a link)
   and a refresh button; then 24 hourly columns starting at the current hour (hour, glyph,
   temperature, the chance of precipitation when it is above 0 %, and a thin line through the
   temperatures) and 7 daily rows (weekday, glyph, low and high, and a bar showing the day's range
@@ -1242,7 +1248,7 @@ shows any more is stopped and dropped at once.
   Round 16 phase 16D: **Layout** presets for the slot (Automatic, Strip, Tiles, List, Card, or
   Custom with the current conditions beside / stacked, each day as a column / tile / line / icon,
   and the days after / under the conditions), up to 7 days, text options (the condition's name,
-  day names, "Today", how a high / low pair is written), a size, and two icon packs: WinDock's
+  day names, "Today", how a high / low pair is written), a size, and two icon packs: ViberDock's
   filled glyphs or Lucide's line icons (ISC licence, https://lucide.dev, their path data embedded
   in the widget), coloured or in the text colour. Round 16 phase 16F adds **Meteocons** (MIT,
   https://meteocons.com, by Bas Milius): coloured, **animated** icons (the sun's rays turn, clouds
@@ -1345,8 +1351,11 @@ calendar) or an `.ics` file on this PC (a full path or a `file:///` URL).
 **Clock faces** (round 4 phase 14): `clock.face` is `"digital"` (the default: the clock as it has
 always looked) or a face file: the shipped `default` (the same look as a file to start from),
 `large-time-small-date` (a big light time with small seconds and AM / PM over a small upper-case
-date in the accent colour) and `mono-pill` (a monospaced time and date on one line in a rounded
-pill), or your own `%LocalAppData%\WinDock\clock-faces\<id>.json` (the clock item's settings page:
+date in the accent colour), `mono-pill` (a monospaced time and date on one line in a rounded
+pill) and, since round 28, `seconds-line` (the seconds on a small accent line under the time),
+`compact` (one short line: the time and `%d.%m.`, no AM / PM), `time-weekday` (one menu-bar line:
+the time, then the weekday, day and month at the same size; the Top bar preset's) and `big-date`
+(the weekday and date large over a smaller accent time), or your own `%LocalAppData%\WinDock\clock-faces\<id>.json` (the clock item's settings page:
 Face, **Open faces folder**). A face sets the lines (stacked, date first, one line), fonts, size ratios, colours
 (or the theme's), the seconds' and the AM / PM's style, separators, an optional background pill and
 the alignment on vertical docks; the format, seconds and date settings still apply
@@ -1431,9 +1440,28 @@ write and edit without compiling anything. The full reference (every call, every
   a drop shadow (soft, medium, strong, with an offset; a borderless print with a strong shadow is
   one look); a click shows the next picture or opens it, the wheel steps through them),
   and **Notification bell** (`notification-bell`: a scriptable bell that behaves like the
-  notification centre by default, the unread count in a badge and a click that opens WinDock's
+  notification centre by default, the unread count in a badge and a click that opens ViberDock's
   centre; its settings make it open Windows' notification centre (Win+N) instead, and with "Show
-  the unread count" off nothing polls and a fixed badge number shows), and
+  the unread count" off nothing polls and a fixed badge number shows), **Network** (`network`,
+  round 27: the taskbar's network icon: Wi-Fi with its signal bars, ethernet, cellular, a VPN, a
+  cross without internet, a crossed globe without a connection; an optional label with the
+  network's name or the state; a click opens a popup with the details, the quick settings or the
+  Network & internet settings), **Input language** (`input-language`, round 27: the taskbar's
+  language indicator, "ENG" with the region under it when two layouts share a language; a click
+  switches to the next layout (Windows + Space), the popup lists the layouts and selects one;
+  optionally no room with a single layout), the round 28 pack: **Timer** (`timer`: a countdown
+  with presets, Pomodoro rounds, a stopwatch or a countdown to a date, a progress ring / bar / the
+  time alone; end timestamps in storage, so it survives a restart; one `setTimeout` for the end
+  and `notify.banner` (optional sound) when it ends, also on a hidden dock; a refresh each second
+  only while running and seen), **World clock** (`world-clock`: up to six Windows time zones with
+  names, one or two on the tile, the popup with each place's day and offset; ticks on the minute),
+  **To-do** (`todo`: the open count on the tile; the popup ticks off, deletes, adds through
+  `popup.editText`, clears the done ones; widget storage, a shared List id), **Moon phase**
+  (`moon`: the moon drawn with its terminator, the phase name or illumination beside it; the popup
+  with the age and the next four principal phases from Meeus' algorithm; hourly), **Quick buttons**
+  (`quick-buttons`: 1 - 6 buttons for quick settings, Task view, clipboard history, a snip, the
+  notification centre, the desktop, emoji, Explorer, Settings, Search, the virtual desktops, Cast,
+  Task Manager, Lock; Segoe Fluent Icons glyphs), and
   **Agenda** (`agenda`: the next event of the calendar feeds, "In 25 min" / "Now" / its time over
   its title with the feed's colour; a click shows the next events in a popup, the month calendar or
   an app / address; it wakes only when its text changes: at an event's start and end, each minute
@@ -1503,7 +1531,12 @@ write and edit without compiling anything. The full reference (every call, every
   conditions, hourly and daily arrays, place, units, state and age; `refresh()`, `onChange`,
   `openSettings()`, `icon(code, isDay)` for the dock's own condition glyphs), `perf` (round 6: the
   machine's performance and HWiNFO's sensors: `get()`, `metrics()`, `series(key, n)`,
-  `setInterval(ms)`, `hwinfo()`, `onChange`), `popup` (a popup the widget
+  `setInterval(ms)`, `hwinfo()`, `onChange`), `network` (round 27: the internet connection:
+  online or not, its kind, the Wi-Fi network's name and signal bars, metered; `get()`,
+  `onChange`), `input` (round 27: the keyboard layout in use and the installed ones; `get()`,
+  `set(id)`, `next()`, `onChange`), `notify` (round 28: `banner({ title, text, sound })`, the
+  dock's reminder banner over the widget, one per widget at a time, at most one every 5 seconds),
+  `popup` (a popup the widget
   draws, or the dock's folder / window-preview / month calendar popups, anchored on the widget;
   round 6: `editText({ title, text, multiline, maxLength, placeholder })`, a text editor window
   whose promise gives the typed text, or `null` when cancelled),
@@ -1511,13 +1544,26 @@ write and edit without compiling anything. The full reference (every call, every
 - **Permissions** (`"permissions"` in widget.json): `{ "http": ["api.example.com"] }` for
   requests to those hosts, `"shell"` for opening files / URLs, listing folders, file icons, the
   folder popup, file drops and `sendKeys`, `"audio"`, `"media"`, `"notifications"`, `"calendar"`,
-  `"weather"` and `"perf"` for the providers. Without them
+  `"weather"`, `"perf"`, (round 27) `"network"` / `"input"` for the providers and (round 28)
+  `"notify"` for `notify.banner`. Without them
   those calls throw. The audio and media providers run only while a widget uses them and never
   poll (Core Audio and media-session events).
+- **Consent** (round 25 phase 25D): a widget from the widgets folder that asks for permissions, or
+  whose id is a built-in's (it replaces that widget), runs only after the user allowed it: the
+  consent dialog (name, id, version, author, folder, each permission in plain words; Allow /
+  Don't allow, the default) comes when it is added or installed through the settings or a drawer,
+  and from a click on its "Needs permission" tile or **Review permissions…** in its menu. Until
+  then its script is not loaded. Stored in config.json `widgetConsent`; asked again only when the
+  manifest asks for something not yet allowed. Built-in widgets never ask. Widget http requests
+  re-check every redirect against the allowlist, refuse local addresses unless listed as
+  themselves, send no Windows credentials and bound the whole request by its timeout
+  (docs/widgets.md, http).
 - **Settings**: each widget item's own settings window is generated from its schema (**<name>
   settings…** in the dock menu over it, or **Settings…** on its tile in Dock
   settings > Contents); changes apply at once.
-  App settings > **Widget library** lists the installed widgets (built-in / folder) with **Add to dock**,
+  App settings > **Widget library** lists the installed widgets (built-in / folder; round 25 phase
+  25D: their permissions and consent state, the selected one's in words and **Permissions…** to
+  allow or revoke) with **Add to dock**,
   **Add to the desktop** and **More ▾** (round 8 phase 8D: **Add from folder…**, **Export built-in
   to folder** (to edit a copy), **Reload widgets**, **Open widgets folder** and **Console…**).
 - **Developing**: `"watch": true` reloads a folder widget when one of its files changes (no
@@ -1534,7 +1580,12 @@ write and edit without compiling anything. The full reference (every call, every
   a bad size, an unknown permission, a bad settings entry, a `choiceFrom` glob that matches nothing)
   stops it with the field and the fix on its tile and in the Console, warnings go to the Console.
   `WinDock.exe --validate-widget <folder>` runs the same check from a command line (exit code 0 / 1
-  / 2), for authors and CI.
+  / 2), for authors and CI; round 29: plus a compile of every script (syntax errors with file:line:column)
+  and warnings for unused permissions and missing metadata.
+- **Editor help** (round 29): `docs/windock.d.ts` declares the whole script API for TypeScript-aware
+  editors: `// @ts-check` and `/// <reference path="windock.d.ts" />` at the top of main.js give VS Code
+  completions, the doc comments and type checks. Export built-in to folder writes a copy (and a
+  `jsconfig.json`) into the exported folder; the examples reference the repository's copy.
 - **Settings page layout**: schema entries can carry `group` (section headers), `unit` (after a
   stepper), `visibleIf` (shown only for some value of another field) and (round 10 phase 10B)
   `common` (`true`: the field is one of the few the Dock window's Contents tab edits in its
@@ -1645,6 +1696,16 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   open), `"dots"` (three dots along the arrow's longer side) or `"count"` (`+N`, the icons the
   grid does not show; a chevron while that is none). `expanderShow` `"always"` shows the arrow
   even when every icon fits (`"auto"`, the default: only when the grid leaves icons out).
+  Round 30, to make it easier to see and hit: `expanderShape` `"circle"` / `"pill"` / `"square"`
+  (rounded) draws that shape behind the glyph (`"none"`, the default: the glyph alone);
+  `expanderFill` `"subtle"` (a faint tint of the text colour with an outline) or `"accent"` (the
+  theme's `accent`, the glyph in black or white, whichever reads on it); `expanderSize` 50 - 200
+  (%, 100) scales the chevron, the dots or the `+N`; `expanderPadding` 0 - 12 DIPs (4) is the room
+  between the glyph and its shape's edge. A strip grows along the bar to hold the shape (never
+  narrower than before); in a grid cell, and across the bar in a strip, the glyph and its shape
+  shrink together to the room. A shape is brighter under the pointer (it replaces the hover
+  plate there) and while this grid's drawer is open. With shape `"none"` and size 100 the arrow
+  is drawn exactly as before round 30.
 - **The drawer's look** (round 24 phase 24B; every default is the look before it, plus the gear):
   `drawerIconSize` (16 - 48 DIPs, 40) sizes its icons; the cells follow the icon and
   `drawerLabelSize` (10 - 16 DIPs, 12; a name line is 4 / 3 of it): with `drawerLabels`
@@ -1708,7 +1769,10 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   **Icon size** (round 24 phase 24C: a slider 16 - 32 with its value; was a 16 / 20 / 24 list),
   **Space around icons** (0 - 8), **Labels** (None / Beside the icon), **Colours** (Original / One
   colour); the card **The arrow** (24C): **Place** (Last cell / First cell / Strip before the icons
-  / Strip after the icons), **Looks like** (Chevron / Dots / Count), **Shown** (When there are more
+  / Strip after the icons), **Looks like** (Chevron / Dots / Count), **Shape** (round 30: None /
+  Circle / Pill / Rounded square), **Shape colour** (Subtle / Accent; greyed without a shape),
+  **Size** (a slider 50 - 200 %, steps of 5), **Space inside the shape** (0 - 12; greyed without
+  a shape), **Shown** (When there are more
   icons / Always), **Opens the drawer on** (Click / Hover); the card **The drawer** (24C): **Shows**
   (Every icon / Only icons not in the grid), **Icon size** (a slider 16 - 48), **Labels** (Below /
   Beside / None), **Label size** (10 - 16), **Columns** (0 - 8, 0 reads "Automatic"; greyed while
@@ -1811,7 +1875,11 @@ Notifications ("Let apps access your notifications") is on; the access is checke
   without package identity), so while the feature is on a worker thread asks for the list every
   `notifications.pollS` seconds (default 2), every max(pollS, 5) s once nothing changed for a
   minute, every second while the notification centre popup is open, and goes back to pollS on any
-  change. Only the ids are compared; a new toast's details are read once. The worker exists only
+  change. Round 26 phase 26A: without access it only re-checks the access, every 2 minutes once a
+  minute passed without a change (Open Windows settings in the centre brings back pollS for a
+  minute, opening the centre polls every second); while the session is locked, disconnected or
+  the display is off it does not poll at all and polls once at once on the return, so what came
+  meanwhile shows up then. Only the ids are compared; a new toast's details are read once. The worker exists only
   while something needs it: a dock whose running item has `badges`, a widget that uses the `notifications` provider,
   or the open centre; otherwise nothing polls. Cost measured here with 46 notifications in the
   centre: about 25 ms of CPU per poll, almost all of it inside Windows' `GetNotificationsAsync`
@@ -1861,7 +1929,12 @@ folder, the window opens at the pointer) or on App settings > Docks and displays
   list above (icon, name, size and date), like the folder popup. Icons come from the shell (the
   system image list; above 48 px the shell's icon at that size) as rows scroll into view. The
   window follows the folder live: one `SHChangeNotifyRegister` per window, changes coalesced into
-  one reload 250 ms after the last notification; nothing polls.
+  one reload 250 ms after the last notification (round 26 phase 26C: at most 1 s after the first
+  of a burst that does not pause; until then it was a 250 ms throttle); a reload that changes
+  nothing shown (a file growing during a download, with the grid view and sort by name or type)
+  is neither laid out nor drawn, and entries still there keep their icons; F5 / Refresh starts
+  over. A folder on a share or a removable drive is listed on a worker thread (round 26 phase 26B;
+  "Loading…" meanwhile); nothing polls.
 - **Mouse and keyboard**: a click selects (Ctrl + click adds / removes one, Shift + click a range, a
   click on the background selects nothing), a double click or Enter opens the entry with the shell's
   default verb (folders open in Explorer; `singleClick`: a click opens). Ctrl+A, the arrows, Home /
@@ -2133,9 +2206,9 @@ the preset's value" (their fallback is the preset). Every other dock / item sett
 (no app default behind it: see the table in STATUS.md "Round 10", 10D). Item windows' **Reset to
 factory defaults…** (was Reset to defaults; a standalone widget's Content tab has it as its last
 card) asks first with a Yes / No message box owned by the settings window ("Resets all of Weather's
-settings on main to the values WinDock ships with … App defaults are not changed.", No is the
+settings on main to the values ViberDock ships with … App defaults are not changed.", No is the
 default); a clock or weather item gets the settings a new one starts with (the top-level `clock` /
-`weather` objects, WinDock's own unless edited by hand), a widget its schema's defaults, the tray
+`weather` objects, ViberDock's own unless edited by hand), a widget its schema's defaults, the tray
 its grid's. A script widget with a place of its own has **Reset to app default** beside it in the
 footer (drops `latitude` / `longitude` / `location`, as the place's ↺ does).
 
@@ -2227,7 +2300,7 @@ window is open, so the next search is instant; they close with the last settings
 you went to one). Not searched: the Contents tab (items are not settings), folder / group / tray
 item windows, and the dock menus.
 
-**Help** (round 9): the guides of [docs/](docs/README.md) are built into WinDock and open in a
+**Help** (round 9): the guides of [docs/](docs/README.md) are built into ViberDock and open in a
 **Help** window (820 × 620 DIPs, resizable, dark like the settings windows; one per process): the
 guides at the left (Quick start, Settings, Docks and displays, Items and widgets,
 Troubleshooting, All guides), the chosen one at the right; a link to another guide or heading
@@ -2311,7 +2384,8 @@ asks for a name and writes the dock's place, behaviour, items and look to `layou
 | **Sidebar** (`sidebar`) | a bar along the left edge | left, full length, items from the top, 40 px, no magnification, one slot per window, no titles (2026-11-11: they were beside the icons), hides while covered | Start, your pins, separator, running apps, then at the end (`"anchor": "end"`, the bottom corner): separator, Volume, clock |
 | **Floating performance** (`performance`) | system load at a glance | floating at the top right (`x` 16000 = against the right end, `y` 8), facing the top edge (popups open downward), on the desktop under your windows, 40 px, no magnification, locked | System monitor, System overview, Battery, clock (no pins) |
 | **Desktop dashboard** (`dashboard`) | a desktop panel | floating in the middle, on the desktop under your windows, 56 px, no magnification | Analog clock, weather, Agenda, Notes (no pins) |
-| **Everyday taskbar** (`everyday`) | a full taskbar replacement with widgets | bottom, full length, centred, reserves its space (`reserveSpace`), never hides, 48 px, magnification 1.1 / range 3, previews, one slot per app with one line of title under it, window pictures every 2 s, middle click opens a new window, the Dark theme | at the start: weather (7 days on the dock); in the middle: Start, running apps, separator, your pins, Volume (ring), Media, clock (large time over a small date, 1.5 ×); at the end: System overview, the System tray (2 rows of 4, 16 DIP icons, the overflow in a drawer), notifications, Show desktop |
+| **Everyday taskbar** (`everyday`) | a full taskbar replacement with widgets | bottom, full length, centred, reserves its space (`reserveSpace`), never hides, 48 px, magnification 1.1 / range 3, previews, one slot per app with one line of title under it, window pictures every 2 s, middle click opens a new window, the Dark theme | at the start: weather (7 days on the dock); in the middle: Start, running apps, separator, your pins, Volume (ring), Media, clock (large time over a small date, 1.5 ×); at the end: System overview, the System tray (2 rows of 4, 16 DIP icons, the overflow in a drawer), Network and Input language (round 27; `hideSingle`: no room with one layout), notifications, Show desktop |
+| **Top bar** (`topbar`, round 28 phase 28C) | a slim menu bar along the top | top, full length, items from the left, reserves its space (`reserveSpace`), never hides, 24 px, no magnification, previews, middle click opens a new window, the Dark theme | Start, running apps (one slot per app, no titles), then at the end: the clock (the `time-weekday` face: the time, then the weekday, day and month on one line), Network, Volume (icon only), Battery (no room without a battery), Notification bell (no pins) |
 
 A layout picks a theme preset for the dock (`themePreset`): Modern uses Glass, Minimal Solid,
 Windows 7 Aero glass. Since round 12 phase 12B that gives the dock its own look (the preset's values;
@@ -2331,7 +2405,7 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
 
 - **General**: a line under the title on where each dock's own settings are, then a **System**
   card (Start with Windows, Hide the Windows taskbar, the renderer (`auto` / `software`; takes
-  effect after WinDock restarts, its hint shows the one in use)) and a **Dashboard** card (round
+  effect after ViberDock restarts, its hint shows the one in use)) and a **Dashboard** card (round
   6 phase 6A: the hotkey box (click it and press the combination; Backspace / Delete clears it),
   whether the hotkey is registered, **Show the dashboard now**; see Dashboard). Round 9: between
   them a **Full-screen apps** card with **Hide the docks while a full-screen app is in front**
@@ -2471,7 +2545,16 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   widget](#standalone-widgets) of the selected one) and **More ▾** (round 8 phase 8D: a menu with
   **Add from folder…**, **Export built-in to folder** (greyed unless a built-in that no folder
   replaces is selected), **Reload widgets**, **Open widgets folder** and **Console…**; see
-  **Widgets** above), and the last action's result line.
+  **Widgets** above), and the last action's result line. Round 29: More ▾ also has **Install from
+  zip…** (a `.zip` or `.viberwidget` file: checked and unpacked off the UI thread into a staging
+  folder, then moved into the widgets folder; it asks before replacing an installed widget of the
+  same id, and the widget needs your permission before it runs, see
+  [docs/widgets.md](docs/widgets.md#publishing-a-widget)), **Show folder** and **Uninstall…** (a
+  widget from your widgets folder: a confirmation names it and how many docks and desktop widgets
+  use it; its folder goes to the Recycle Bin, its saved data only when you tick the box; placed
+  items stay and show "not installed"; built-ins cannot be uninstalled). The permission line under
+  the preview names a folder widget's author (as the widget says) and version, its permissions and
+  every host it connects to.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, the renderer in use, **Run quick setup again** (round 12 phase 12G;
   was round 9's Show the welcome dialog: Quick setup, see above) and **Show the tips again**.
@@ -2639,7 +2722,7 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
   magnification range (1-4 icons) and (round 9) **Bar while magnified**: **Grows once and stays**
   (`magnifyBar` `"steady"`, the default) / **Follows the pointer** (`"follow"`) / **Always wide
   (never grows or shrinks)** (`"always"`; see
-  [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). While the dock
+  [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). Round 28: **Running indicator** (`indicator`): Dot / Line / Pill (wider for the app in front) / A dot per window (up to three). While the dock
   uses the app look a line says "This dock uses the app look. Changes to it are in App settings >
   Themes." with **Give this dock its own look** (copies the app's current preset and fields to the
   dock) and a **Change for every dock** link (App settings > Themes); the Quick look card and the
@@ -2850,8 +2933,18 @@ beeps). Pinning, unpinning, and the menu toggles save the file within 300 ms. Th
 (a temp file replaced with `MoveFileEx`). The dock rewrites the whole file in its own layout.
 Top-level keys it does not know are kept, as compact JSON. Unknown keys inside a dock, an item,
 `clock`, `theme`, `animation` or `weather` are dropped (an item's `settings` object is kept as it
-is). If the file is malformed, the dock starts
-with the defaults and leaves the file untouched.
+is).
+
+Round 25 phase 25B: if the file is malformed (or present but unreadable) at startup, the dock first
+copies it to `config.bad-<yyyyMMdd-HHmmss>.json` in the same folder (the five newest such copies
+are kept), runs with the defaults and says so in a task dialog (Open the folder, Open config.json,
+Try again = Reload config). With the copy made it saves as usual, so the first change writes the
+defaults-based settings over `config.json` (the copy is the recovery); if the copy failed, nothing
+is written over `config.json` in that session (each save tries the copy again first; the save state
+shows "Couldn't save") until the file reads again (Reload) or is gone. After a good load at
+startup, `config.backup-1.json` (newest), `-2` and `-3` keep the file as it was on disk, rotated
+only when it differs from `config.backup-1.json` (plain file copies; restarts without changes do
+not rotate).
 
 ```json
 {
@@ -2971,7 +3064,9 @@ items that exist. A file whose items have settings already is left alone.
       Round 24 phase 24A, the look (see System tray; out of range: clamped, unknown text: the
       default): `spacing` 0 - 8 DIPs around each grid icon (3), `labels` `"none"` / `"beside"`,
       `colour` `"original"` / `"mono"`, `expander` `"end"` / `"start"` / `"before"` / `"after"`,
-      `expanderStyle` `"chevron"` / `"dots"` / `"count"`, `expanderShow` `"auto"` / `"always"`;
+      `expanderStyle` `"chevron"` / `"dots"` / `"count"`, `expanderShow` `"auto"` / `"always"`,
+      `expanderShape` `"none"` / `"circle"` / `"pill"` / `"square"`, `expanderFill` `"subtle"` /
+      `"accent"`, `expanderSize` 50 - 200 % (100), `expanderPadding` 0 - 12 DIPs (4) (round 30);
       and the drawer's (round 24 phase 24B): `drawerOpen` `"click"` / `"hover"`, `drawerShows`
       `"all"` / `"overflow"` (only the icons the grid does not show), `drawerIconSize` 16 - 48
       DIPs (40), `drawerLabels` `"below"` / `"beside"` / `"none"`, `drawerLabelSize` 10 - 16 (12),
@@ -3069,6 +3164,15 @@ items that exist. A file whose items have settings already is left alone.
   - `popupGap` (round 7; DIPs, default 6, 0 - 64; written only when not 6): how far the dock's
     popups (previews, calendar, folders, widget popups ...) open beyond a fully magnified icon,
     see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
+  - `indicator` (round 28 phase 28D; `"dot"` (default; not written), `"line"`, `"pill"` or
+    `"windows"`; unknown text reads as `"dot"`): the mark under a running app: the dot; a short
+    rounded line (about a third of the icon); a short pill, wider (about 0.42 of the icon) for the
+    app that owns the foreground window; or one dot per open window of the app, at most three (a
+    window slot and a group show one). Drawn in the theme's `dotRunning` / `dotActive` /
+    `dotAttention`, in the dot's place (the layout does not change); a look with `slotStyle`
+    `"buttons"` draws none. The shapes are shared surfaces like the dot's (nine: three looks by
+    three window counts), drawn again only when the layout, the theme or the style changes; a
+    change of look between running and active swaps the surface at once, as the dot always did.
   - `magnifyBar` (round 9; `"steady"` (default; not written), `"follow"` or `"always"`; unknown
     text reads as `"steady"`): how the bar grows while magnified: once, to a fixed length about its
     resting centre, from the moment the pointer first reaches something that zooms (an icon, a
@@ -3149,7 +3253,7 @@ items that exist. A file whose items have settings already is left alone.
   variables are expanded, and a quoted path may be followed by arguments
   (`"\"C:\\Program Files\\App\\app.exe\" --calendar"`). See Weather and calendar.
   `clock.face` (default `"digital"`, written only when it is not): the clock's look, `"digital"` or
-  the id of a digital face file (`default`, `large-time-small-date`, `mono-pill`, or a file of
+  the id of a digital face file (`default`, `large-time-small-date`, `mono-pill`, `seconds-line`, `compact`, `time-weekday`, `big-date`, or a file of
   `%LocalAppData%\WinDock\clock-faces\`); see Clock faces under Weather and calendar.
   `clock.timeZone` (round 5, default `""` = the local time; written only when set): a Windows time
   zone key name (`"Tokyo Standard Time"`, `"GMT Standard Time"`; `tzutil /l` lists them; an unknown
@@ -3247,6 +3351,17 @@ items that exist. A file whose items have settings already is left alone.
   0 / 1 / 2 = the first / second / third tip on the dock was seen or skipped, or its gesture was
   made (the dock menu opened, customize mode entered, a dock dragged); such a tip is not shown by
   Show me around. Like the windows' sizes it is not part of an undo step.
+- `widgetConsent` (round 25 phase 25D; written only when not empty): what the user allowed each
+  widget from the widgets folder, `{ "<widget id>": { "permissions": ["http:api.example.com",
+  "shell"], "replacesBuiltIn": true } }`. `permissions`: the sorted list of the manifest's
+  permissions as allowed (`"audio"`, `"calendar"`, `"input"`, `"media"`, `"network"`,
+  `"notifications"`, `"notify"`, `"perf"`, `"shell"`, `"weather"`, `"http:<host>"`; `"input"` and
+  `"network"` since round 27, `"notify"` since round 28); `replacesBuiltIn`: the folder (whose id is a built-in
+  widget's) may replace that widget. A widget runs only when this covers what its manifest asks
+  for now (Widgets::ConsentOf; a manifest asking for less keeps running). Written by the consent
+  dialog, App settings > Widget library > Permissions…, Export built-in to folder and DockCommand
+  188 / 189; never part of an undo step (Undo cannot grant or revoke). Editing it by hand and
+  Reload config applies it.
 
 Saved layouts (round 12 phase 12C) live in `%LocalAppData%\WinDock\layouts\<id>.json` (the folder
 is made by the first Save dock as layout…; the file name without `.json` is the id): the preset
@@ -3277,7 +3392,22 @@ grey glass shelf with icon reflections, a glow on the hovered icon and the 3D pe
 slot colours, `iconGap` 28, `barPadding` 4 (a 40 DIP bar for 32 DIP icons), white labels with
 black text and a grey hairline (`labelCornerRadius` 3), white clock text, a blue preview hover; no
 glow, reflection or tilt; the dots as `dark`; the dock preset **Windows 7** (`win7`, Presets)
-builds the whole taskbar on it). Ids are case-insensitive.
+builds the whole taskbar on it). Round 28 phase 28C adds colour palettes, each the dark look (or,
+marked *light*, the light one) with the palette's published colours in the bar, label, accent,
+hairline, dot, badge, clock and preview fields (`Theme.cpp` `FromPalette` names each colour):
+`nord` (Nord: Polar Night `#2E3440`, Frost `#88C0D0`), `dracula` (Dracula: `#282A36`, purple
+`#BD93F9`, pink active dots), `catppuccin-mocha` (Catppuccin Mocha: base `#1E1E2E`, mauve
+`#CBA6F7`), `catppuccin-latte` (Catppuccin Latte, *light*: base `#EFF1F5`, mauve `#8839EF`),
+`solarized-light` (*light*: base3 `#FDF6E3`, blue `#268BD2`), `solarized-dark` (base03
+`#002B36`, blue / cyan), `gruvbox-dark` (`#282828`, yellow `#FABD2F`), `neon` (a near-black violet
+bar `#0D0221` outlined in cyan `#05D9E8`, hot pink `#FF2A6D` active dots, a cyan clock and `glow`
+"always" in cyan, radius 18, strength 0.85) and `luna` (Luna: Windows XP's blue taskbar by look,
+built on `aero`'s slot buttons: an opaque royal blue `#245EDC` bar with `sheen` 0.7, lighter blue
+buttons `#3C81F3` (pressed `#1E52B7`), tooltip-yellow labels `#FFFFE1` with square corners and the
+green `#3C9A3C` accent). They are listed after the eight looks (App settings > Themes, a dock's
+Look tab, Apply a look, the preset chooser); Quick setup's look grid shows the eight looks only (it
+is sized for two rows). A theme file named like one of these ids is now ignored, as for every
+built-in id. Ids are case-insensitive.
 
 User themes live in `%LocalAppData%\WinDock\themes\<id>.json`; the file name without `.json` is
 the id used in `preset` (case-insensitive). A file named like a built-in id is ignored. Round 12
@@ -3490,7 +3620,8 @@ always there, also when every dock is parked) handle these registered messages:
   beside the icon included), 347 = the icons' drawn size, px, 348 = the cell under the hover plate
   (-1 none; the icons' cells, then the arrow's at the icons' count), 349 = 1 while labels are drawn
   beside the icons, 350 = the arrow's centre in screen px, x | y << 16 (16 bits each, signed; -1
-  no arrow). Round 24 phase 24B, this dock's open tray drawer (each -1 while no tray drawer is
+  no arrow); round 30: 377 = the shape behind the arrow (0 none, 1 circle, 2 pill, 3 rounded
+  square), 378 = that shape as drawn, px: width | height << 16 (0 without a shape or an arrow). Round 24 phase 24B, this dock's open tray drawer (each -1 while no tray drawer is
   open): 351 = its columns as laid out (1 for `drawerLabels` `"beside"`, a list), 352 = its icons'
   drawn size, px, 353 = 1 while it is open by hover (0 once a click on the arrow or a right click
   on an icon made it an ordinary drawer, and for a click-opened one), 354 = 1 the title row is
@@ -3527,7 +3658,7 @@ always there, also when every dock is parked) handle these registered messages:
   Explorer (4128 its label, 4121 its hint, was the note beside it), the footer's 114 Reset to
   defaults (every field above, `hidden` and `order`; 4116 / 4117 Add a tray to this dock, 4122 and
   4110, the 16 / 20 / 24 px icon size combo before round 24, are retired). The tray menu (Ctrl +
-  right click) is a `#32768` of the WinDock process with the ids 1 Hide / Show, 2 Pin, 3 Unpin, 4
+  right click) is a `#32768` of the `WinDock.exe` process with the ids 1 Hide / Show, 2 Pin, 3 Unpin, 4
   Tray settings… (the item's window).
 - **Notifications** (round 4 phase 9): `QueryState` 113 = the notification service (0 off, 1
   polling, 2 access denied / not available), 114 = unread notifications (every app), 115 = the
@@ -3544,7 +3675,7 @@ always there, also when every dock is parked) handle these registered messages:
   (the dock in the high word of `lParam`, the row in `HIWORD(wParam)`): 828 dismisses row n (its
   cross), 829 Clear all, 830 opens row n as a click does; each returns 1 when the centre is open and
   the row exists. A click on the bell's slot (ItemCommand 810) opens / closes it. The centre is a
-  `WinDockNotifications` window of the WinDock process (Delete / Escape / arrows can be posted to
+  `WinDockNotifications` window of the `WinDock.exe` process (Delete / Escape / arrows can be posted to
   it as `WM_KEYDOWN`). Settings: the App settings window's page 5 Notifications: 4204 the note, 4205
   balloons, 4208 clear on activate, 4211 / 4212 poll interval, 4217 the status text, 4218 Open
   Windows settings, 4221 the app list (check boxes; column 2 is the app key; every dock's apps); a
@@ -3603,7 +3734,7 @@ always there, also when every dock is parked) handle these registered messages:
   event row, 177 = the row its detail strip describes (hovered, else selected; -1 none).
   `DockCommand` 135 = every feed fetches / is read now. `ItemCommand` 835 = the open calendar popup
   selects today + `(int16) HIWORD(wParam)` days (its month is shown; 1 when the popup is open). The
-  popup is a `WinDockCalendar` window of the WinDock process (Up / Down / Enter can be sent to it as
+  popup is a `WinDockCalendar` window of the `WinDock.exe` process (Up / Down / Enter can be sent to it as
   `WM_KEYDOWN`). Settings: the App settings window's page 3 Calendar feeds: 4300 the feed list (check boxes = enabled; columns Name,
   Address, Every, Status), 4302 name, 4304 address / file, 4306 colour, 4309 / 4310 interval, 4323
   enabled, 4312 Add feed, 4313 Save changes, 4314 Remove, 4315 Refresh now, 4316 Show dots, 4319 the
@@ -3646,7 +3777,7 @@ always there, also when every dock is parked) handle these registered messages:
   `LOWORD(lParam)` (1: the box is open); 844 commits the rename with the name in the global atom
   `HIWORD(wParam)` (0: the box's text); 845 = Delete (the selection to the Recycle Bin); 846 opens
   the context menu of entry `LOWORD(lParam)` (0xFFFF: the window's menu; posted, the menu is a
-  `#32768` of the WinDock process: drive it with `MN_GETHMENU` and posted keys); 847 = Ctrl+A;
+  `#32768` of the `WinDock.exe` process: drive it with `MN_GETHMENU` and posted keys); 847 = Ctrl+A;
   test hooks for drops (OLE's drag loop needs real input): 848 drops the selection onto folder
   window `HIWORD(wParam)`'s background (the target's drop code, no OLE loop; returns the effect),
   849 / 850 drop the path in the atom `HIWORD(wParam)` onto entry `LOWORD(lParam)` (a sub-folder;
@@ -3716,7 +3847,32 @@ always there, also when every dock is parked) handle these registered messages:
   clock draws, -1 a face that cannot be read (the clock draws digital); 217 = the faces offered
   (shipped + readable user files). `DockCommand` 141 = App settings > Widget library > Add from folder…
   without its dialog: the path in the global atom `LOWORD(lParam)` (returns 1 installed, 0
-  refused: no widget.json, an invalid folder name, the id taken). The clock's Face is field 5 of
+  refused: no widget.json, an invalid folder name, the id taken; round 25 phase 25D: never a consent
+  dialog, so a widget that needs consent stays unallowed). **Consent** (round 25 phase 25D):
+  `QueryState` 357 = the consent state of the widget whose id is in the global atom
+  `LOWORD(lParam)` (any dock index): 0 needs none (built-in, or a folder asking for nothing that
+  replaces nothing), 1 allowed, 2 never allowed / revoked, 3 asks for more than allowed; -1 not
+  installed. `DockCommand` **188** allows the widget named by the atom (its manifest's current
+  permissions, as the dialog's Allow), **189** revokes it (as Revoke); both without a dialog, saved,
+  its instances reload at once (1 done, 0 refused: no atom, an invalid id, 188 for a widget that is
+  not installed). `ItemCommand` **872** = **Review permissions…** of script widget slot
+  `LOWORD(lParam)` (posted: the dialog opens after the call; the item menu shows the entry only
+  while the widget waits for consent; a standalone widget's menu has it too). The dialog is a task
+  dialog titled "ViberDock widget permissions" (button 100 Allow / Keep allowed, 101 Don't allow /
+  Revoke). Settings ids: 3512 the selected widget's permission line, 3513 **Permissions…**; the
+  list (3500) has a fifth column, Permissions. **Install and uninstall** (round 29 phase 29B):
+  `DockCommand` **190** installs the `.zip` / `.viberwidget` whose path is in the global atom
+  `LOWORD(lParam)` (on the calling thread; never over an installed widget of that id; no consent
+  dialog: the widget stays "Needs permission" until 188 or the UI, and any earlier consent of that
+  id is dropped; 1 installed, 0 refused, the reason to the debugger output); **191** uninstalls the
+  widget folder whose id is in the atom (no dialog, its saved data kept; 1 removed, 0 refused: a
+  built-in, not installed, the Recycle Bin failed). `QueryState` **374** = the uses of the widget
+  whose id is in the atom, `MAKELONG(dock items, standalone widgets)` (-1 no atom); **375** = the
+  last Uninstall (0 none, 1 removed, 2 refused, 3 cancelled, 4 failed); **376** = the Widget
+  library's zip install (0 none, 1 running, 2 installed, 3 refused, 4 an installed widget was not
+  replaced; -2 no App settings window). The Uninstall confirmation is a task dialog titled
+  "ViberDock widget library" (button 100 Uninstall, Cancel; its check box "Also delete its saved
+  data" only when the widget has a `widget-data` file). The clock's Face is field 5 of
   the clock schema (0 Digital, then the faces in `QueryState` 217's order; General 2175 - 2178 are
   retired); the generated page (an Item window): field k's controls are 3700 + 10 k + part (0 label, 1 the
   control, 2 its caption / spin, 3 description, 4 the group header before it, 5 its unit, 6 a
@@ -3730,6 +3886,51 @@ always there, also when every dock is parked) handle these registered messages:
 - **The window pile** (round 21 phase 21A): `QueryState` 342 = slot `LOWORD(lParam)`'s pile on dock
   `HIWORD(lParam)`: the cards drawn behind it, 0 - 2 (min(2, windows - 1) for a stacked app slot with
   two or more windows while the running item's `pile` is on; 0 otherwise; -1 no such slot).
+- **Config protection** (round 25 phase 25B; any dock index): `QueryState` 356 = 0 after a normal
+  start; after a start from a malformed (or unreadable) `config.json`: 1, + 2 when its
+  `config.bad-<stamp>.json` copy was made, + 4 while saving over the file is blocked (the copy
+  failed; cleared once a save's retried copy works, the file is gone, or Reload read it). The notice
+  is a task dialog (`#32770`, title "ViberDock", no owner) of the `WinDock.exe` process, posted after the
+  start; its button 100 is Try again (Reload config; shown again while the file is still
+  malformed), Close / Escape / `WM_CLOSE` dismiss it. `tools\smoke\config-protect.ps1` drives it.
+- **Idle cost** (round 26 phase 26A): `QueryState` **358** (any dock index) = the session paused:
+  0 in use; 1 locked, + 2 the console display is off (dimmed counts as on), + 4 the session is
+  disconnected (console or remote). While it is not 0 every dock and standalone widget counts as
+  hidden for widgets (`dock.visible` false), clocks, snapshot thumbnails; the perf sampler and the
+  notification poll stop. **359** = the foreground watch's evaluations so far (its callback: the
+  full-screen guard, intelligent auto-hide, the desktop layer's rule; process-wide, any dock),
+  **360** = its timer firings that skipped an evaluation (a cursor / caret suspension found the
+  foreground window unchanged; the re-hook then backs off 100 ms → 500 ms → 1 s). **361** = 1
+  while dock `HIWORD(lParam)`'s content is paused (it cannot be seen: auto-hidden or hiding, a
+  hidden desktop dock, the full-screen guard, the session paused): its clocks do not tick, its
+  script widgets' refresh does not run and their redraws wait (QueryState 58 / 59 stay flat for a
+  widget that only refreshes), thumbnails stop. `tools\smoke\idle-cost.ps1` drives 58 / 59 / 358 /
+  361. Round 26 phase 26B: **362** = 1 while folder window `HIWORD(lParam)` waits for its listing
+  from a worker thread (a folder on a UNC path or a remote, removable, optical or unknown drive is
+  listed off the UI thread; the window says "Loading…" meanwhile, the folder popup too; local
+  folders are listed at once as before); -1 for a dock. Round 26 phase 26C: **363** = folder
+  window `HIWORD(lParam)`'s reloads after change notifications that changed nothing shown (not
+  laid out or drawn; QueryState 194 counts every reload); **364** = the settings / display
+  broadcasts (`WM_SETTINGCHANGE` work area, non-client metrics, high contrast,
+  "ImmersiveColorSet"; `WM_DISPLAYCHANGE`) dock `HIWORD(lParam)` checked and found nothing it uses
+  changed (its monitor rect, work area, DPI, the system transparency setting): no relayout;
+  **365** (any dock index) = `DBT_DEVNODES_CHANGED` events that found the monitors (handles,
+  rects, DPI) as the last Sync saw them, so no Sync ran; **366** (any dock index) = window tracker
+  passes that only re-read captions (a tracked window's `HSHELL_REDRAW` alone: no
+  `EnumWindows`). The tracker's 50 ms debounce is capped at 250 ms after the first event.
+- **Taskbar gaps** (round 27): **367** (any dock index) = the network provider (27B): 0 not
+  running, 1 running, 3 running and quiet (none of its widgets can be seen, or the session is
+  paused: Windows' events are only noted); **368** = widgets using it; **369** / **370** = the same
+  for the input-language provider (27C). Both start with the first widget that calls them and stop
+  when the last one goes (`tools\smoke\taskbar-gaps.ps1` drives 54 / 55 / 367 - 370).
+- **Widget banners** (round 28 phase 28A): **371** on a dock = widget banners (`notify.banner`)
+  waiting in that dock's reminder queue, the shown one included (179 is 1 while the banner, a
+  reminder's or a widget's, is shown); on a standalone widget's index: 1 its banner is shown, 2 it
+  waits for a full-screen app to go, 0 none (`tools\smoke\widgets-pack.ps1`).
+- **Running indicator** (round 28 phase 28D): **372** (dock HIWORD) = `docks[].indicator` (0 dot,
+  1 line, 2 pill, 3 a dot per window); **373** (slot in `LOWORD(lParam)`) = how many dots slot lp's
+  indicator shows: 1 - 3 (only "windows" shows more than 1), 0 none (not running, a minimized
+  window slot, slot buttons, a widget), -1 no such slot.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.
@@ -3899,7 +4100,7 @@ always there, also when every dock is parked) handle these registered messages:
   window handle (0 parked). 52 = `docks[].layer` (0 normal, 1 desktop, 2 behind). 53 = a
   `"desktop"`-layer dock's window is shown (1) or hidden because another window is in the
   foreground (0); -1 for a normal or `"behind"` dock, and while dashboard mode lifts it. Script widgets (24 reports kind 6 for their slots): 54 = the widget state of slot
-  `lParam` (0 ok, 1 error, 2 suspended by the watchdog; -1 if the slot is not a script widget).
+  `lParam` (0 ok, 1 error, 2 suspended by the watchdog, 3 needs permission (round 25 phase 25D: not allowed by the user, its script not loaded); -1 if the slot is not a script widget).
   55 = the number of script widgets on the dock. 56 = the number of script widgets of every dock
   (live script runtimes). 57 = the script heap of slot `lParam`'s widget in bytes (0 once it
   failed: the runtime is freed). 58 = how often slot `lParam`'s widget has drawn (`draw()` calls).
@@ -3951,7 +4152,7 @@ always there, also when every dock is parked) handle these registered messages:
   entry `HIWORD(lParam)` is a [standalone widget](#standalone-widgets)): 241 = the kind of
   `docks[]` entry behind that index (0 dock, 1 folder window, 2 standalone widget; any index); 242 =
   the window's screen left / top as `MAKELONG` (px), 243 = its width / height; 244 = its widget's
-  state (0 ok, 1 error, 2 suspended; -1 none; = 54); 245 = its layer (0 normal, 1 desktop, 2
+  state (0 ok, 1 error, 2 suspended, 3 needs permission; -1 none; = 54); 245 = its layer (0 normal, 1 desktop, 2
   behind; 235 answers too); 246 = `DesktopLayer::AboveDesktop` (= 239); 247 = the widget's draw
   count (= 58); 248 = its script popup is visible; 249 = locked; 250 = the window is shown (not
   hidden by the "desktop" rule); 251 = `dock.width` / `dock.height` as the script sees them
@@ -4117,7 +4318,7 @@ always there, also when every dock is parked) handle these registered messages:
   picker of App settings (Docks and displays > Add a dock > Standalone widget…, `WM_COMMAND(2812,
   0)` to the page) is shown (1 / 0), **335** = its tiles after its search (the installed script widgets,
   DrawerRefs 7 ...; -1 not shown; `tools\smoke\widget-picker.ps1`). Round 18 phase 18C (app-wide): **336** =
-  how many of WinDock's own windows the running-apps tracker lists (the App settings window and the
+  how many of ViberDock's own windows the running-apps tracker lists (the App settings window and the
   item windows; `tools\smoke\widget-picker.ps1`), **337** = how many of the nine buttons of Docks and
   displays (Floating dock, Folder window…, Standalone widget…, Open settings, Duplicate, Remove,
   Disable / Enable, Rename, Save as layout…) carry their glyph image list (9 when all do; -2 no App
@@ -4260,7 +4461,7 @@ always there, also when every dock is parked) handle these registered messages:
   18B: the standalone widget picker of App settings is a second `WinDock.DrawerPopup` (window text "Add
   a standalone widget", 5707 / 5712, its chips hidden; QueryState 334 / 335, ItemCommand 869).
   Round 12 phase 12G, **Quick setup** (5760 - 5794, round 13 phase 13H 5880 - 5893) is a top-level `WinDock.QuickSetup` window owned by the app
-  window (title "Welcome to WinDock" on the first run, else "Quick setup"); `WM_COMMAND(id, BN_CLICKED)` (or
+  window (title "Welcome to ViberDock" on the first run, else "Quick setup"); `WM_COMMAND(id, BN_CLICKED)` (or
   `lParam` 0) to it presses a button, `CB_SETCURSEL` + `WM_COMMAND(MAKEWPARAM(id, CBN_SELCHANGE), combo)`
   chooses: 5760 the step rail (`WinDock.QuickSetupSteps`, window text "Step n of 4: `<name>`", the names
   Docks / Look / Behaviour / Review since 13H), 5761 Back (hidden on step 1),
@@ -4354,7 +4555,7 @@ always there, also when every dock is parked) handle these registered messages:
   while it is open; the welcome variant (unused since 12G) from the first run, `--welcome` or 152 was owned by the app
   window), titled "Apply a layout or look to `<dock name>`", "New dock from a layout", "Apply a
   look to the app look" (round 12 phase 12C; they were "Apply a preset to <dock>" and "New dock
-  from a preset") or "Welcome to WinDock";
+  from a preset") or "Welcome to ViberDock";
   children 5110 the list (an owner-drawn `LISTBOX`: `LB_SETCURSEL` + `WM_COMMAND(5110,
   LBN_SELCHANGE)` to the dialog chooses; posted Up / Down / Enter / Esc work as keys), 5111 the
   description, 5112 the preview (`WinDock.PresetPreview`; its window text is the "where" line and
@@ -4370,7 +4571,7 @@ always there, also when every dock is parked) handle these registered messages:
   and each card's "?" button **5300 + k** on its page (k the card's index on the page; an
   owner-drawn button, window text "Help: " and the card's title, `BM_CLICK` opens the Help at its topic).
   F1 (a `WM_KEYDOWN` VK_F1 posted to a settings window) opens the Help at the active page's topic.
-  The Help window is a top-level `WinDock.Help` window (title "WinDock Help", unowned, one per
+  The Help window is a top-level `WinDock.Help` window (title "ViberDock Help", unowned, one per
   process): children 5210 the guides (an owner-drawn `LISTBOX`: `LB_SETCURSEL` +
   `WM_COMMAND(5210, LBN_SELCHANGE)` to the window opens one) and 5211 the guide (a read-only
   RichEdit 4.1+ `RICHEDIT50W`: `EM_GETFIRSTVISIBLELINE` + `EM_GETLINE` read the heading at the top,
@@ -4583,7 +4784,7 @@ always there, also when every dock is parked) handle these registered messages:
   card with 2101 - 2109 (icon size, magnification, range; on Behaviour until 8B) and (round 9
   phase 9A) 2280 **Bar while magnified** (`magnifyBar`: 0 Grows once and stays (`"steady"`), 1
   Follows the pointer (`"follow"`), 2 Always wide (`"always"`, 9A follow-up); `CB_SETCURSEL` + `WM_COMMAND(2280, CBN_SELCHANGE)`; 2279 its
-  label); Behaviour = the Behaviour page's auto-hide (round 9 phase 9A: for a floating bar the
+  label), (round 28 phase 28D) 2288 **Running indicator** (`indicator`: 0 Dot, 1 Line, 2 Pill, 3 A dot per window; 2287 its label); Behaviour = the Behaviour page's auto-hide (round 9 phase 9A: for a floating bar the
   radios 2201 - 2206, the note 2222 and the delays are collapsed and 2281 (the line) / 2282 (the
   **Position tab** SysLink: a click selects tab 1) are shown; the delays expander 2269 and its
   rows are collapsed while auto-hide is off; the preview delay 2216 - 2218 / 2221 and 2223 are
@@ -4642,7 +4843,12 @@ always there, also when every dock is parked) handle these registered messages:
   to dock ▾": press it with `PostMessage`), 3509 Add to the desktop, 3511 More ▾ (round 8 phase
   8D: a menu of 3501 Add from folder…, 3502 Export built-in to folder, 3503 Reload widgets, 3504
   Open widgets folder, 3505 Console…, which were buttons until then), 3508 the last action's
-  result); the generated page (an Item
+  result; round 25 phase 25D: the list's fifth column Permissions (built in, none needed, allowed,
+  needs permission, asks for more), 3512 the selected widget's permissions and consent in words,
+  3513 Permissions… (the consent dialog, modal to the window: press it with `PostMessage`; greyed
+  for a widget that needs no consent); round 29 phase 29B: More ▾ also runs 3514 Install from zip…
+  (a file dialog: post it), 3515 Uninstall… (the confirmation: post it) and 3516 Show folder, the
+  last two greyed for a built-in); the generated page (an Item
   window of a widget, clock or weather item; per schema field k `3700 + 10 * k + part`: 0 label, 1
   the control (check box, edit, drop-down), 2 the check box's caption or the int's up-down, 3 the
   field's hint (round 8 phase 8C: one line under the label or the check box's caption, the whole
@@ -4680,7 +4886,7 @@ always there, also when every dock is parked) handle these registered messages:
   an app, opens a folder's or widget's popup; by slot index, so it reaches each window slot of an
   unstacked app), 811 / 812 / 813 a folder's or group's popup layout automatic / grid / list
   (saved as its `view`), 817 Rename… a group (a dialog: sent, it is posted back like 804; the
-  dialog is a `#32770` of the WinDock process with the edit box 100, OK = `IDOK`), 818 Ungroup,
+  dialog is a `#32770` of the `WinDock.exe` process with the edit box 100, OK = `IDOK`), 818 Ungroup,
   819 / 820 / 821 with an argument in the high word of `wParam` (the low word is the command):
   819 slot `lParam` onto slot `HIWORD(wParam)` (a group of the two, or added to that group), 820
   group slot `lParam`'s member `HIWORD(wParam)` out (a pin right after the group), 821 that member
@@ -4746,4 +4952,6 @@ always there, also when every dock is parked) handle these registered messages:
 - Widget Console (class `WinDock.WidgetConsole`, `DockCommand` 127, `QueryState` 63 / 64): 4001 the
   instance list (LISTBOX, one row "dock · name (id#n) · state"; select with `LB_SETCURSEL` +
   `WM_COMMAND(LBN_SELCHANGE)`), 4002 the log (read-only EDIT, `WM_GETTEXT`), 4003 Reload, 4004 Open
-  folder, 4005 Clear, 4006 the count.
+  folder, 4005 Clear, 4006 the count; round 29: 4007 Copy all (the shown log to the clipboard as text),
+  4008 Save to file… (a Save dialog, modal: post its `BN_CLICKED`; UTF-8 with a BOM, default name
+  `<id>-log.txt`); both greyed while the shown log is empty.

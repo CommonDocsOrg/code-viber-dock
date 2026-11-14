@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "SettingsIds.h"
+#include "Crash.h"
 
 namespace {
 
@@ -87,7 +88,7 @@ bool EditBar::Show(HINSTANCE instance, const RECT& bar, const RECT& work, DockEd
     dpi_ = std::max<UINT>(dpi, USER_DEFAULT_SCREEN_DPI / 2);
     if (!hwnd_) {
         // Topmost (the dock is topmost too), never activated: a click on a button still works.
-        CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClassName, L"WinDock", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 0,
+        CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClassName, L"ViberDock", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 0,
                         0, nullptr, nullptr, instance, this);
         if (!hwnd_) return false;
         auto make = [&](const wchar_t* cls, const wchar_t* text, DWORD style, int id) {
@@ -177,6 +178,9 @@ void EditBar::Layout() {
 }
 
 LRESULT CALLBACK EditBar::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     EditBar* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<EditBar*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

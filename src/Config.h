@@ -3,6 +3,7 @@
 #include <climits>
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -42,6 +43,10 @@ enum class TrayColour { Original, Mono };
 enum class TrayExpander { End, Start, Before, After };
 enum class TrayExpanderStyle { Chevron, Dots, Count };
 enum class TrayExpanderShow { Auto, Always };
+// Round 30: a shape behind the arrow's glyph ("none": the glyph alone, as before) and its fill:
+// "subtle" (the text colour, faint) or "accent" (the theme's accent, the glyph in black or white).
+enum class TrayExpanderShape { None, Circle, Pill, Square };
+enum class TrayExpanderFill { Subtle, Accent };
 // The drawer (phase 24B consumes these): opened by a "click" on the arrow or by "hover"; it shows
 // "all" icons or only the "overflow" (those the grid does not show); labels "below" / "beside" /
 // "none".
@@ -101,6 +106,11 @@ struct DockItemEntry {
     TrayExpander trayExpander = TrayExpander::End;                // "expander"
     TrayExpanderStyle trayExpanderStyle = TrayExpanderStyle::Chevron;  // "expanderStyle"
     TrayExpanderShow trayExpanderShow = TrayExpanderShow::Auto;   // "expanderShow"
+    // Round 30: the arrow's shape, its fill, the glyph's size and the room between glyph and shape.
+    TrayExpanderShape trayExpanderShape = TrayExpanderShape::None;  // "expanderShape"
+    TrayExpanderFill trayExpanderFill = TrayExpanderFill::Subtle;   // "expanderFill"
+    int trayExpanderSize = 100;                                   // "expanderSize": the glyph, 50 - 200 % of the look before round 30
+    int trayExpanderPadding = 4;                                  // "expanderPadding": DIPs between the glyph and its shape's edge, 0 - 12
     TrayDrawerOpen trayDrawerOpen = TrayDrawerOpen::Click;        // "drawerOpen"
     TrayDrawerShows trayDrawerShows = TrayDrawerShows::All;       // "drawerShows"
     int trayDrawerIconSize = 40;                                  // "drawerIconSize": 16 - 48 DIPs
@@ -172,6 +182,11 @@ enum class OverflowMode { Scroll, Shrink, Clip };
 // magnified icons at both ends of the icons, nothing grows or shrinks). Rings, a scrolling bar and
 // a full-width or anchored bar always grow as before.
 enum class MagnifyBar { Steady, Follow, Always };
+// The mark under a running app (round 28 phase 28D, docks[].indicator): "dot" (default: the dot of
+// every version before), "line" (a short rounded line), "pill" (a short pill, a wider one for the
+// app in front) or "windows" (one dot per open window, at most 3). Its colours stay the theme's
+// dotRunning / dotActive / dotAttention; slot buttons (theme slotStyle) draw none of them.
+enum class IndicatorStyle { Dot, Line, Pill, Windows };
 // The dock's shape (round 4 phase 11b): "bar" (default), "arc" (a half ring whose diameter lies
 // on the screen edge, the items along the arc) or "circle" (a full ring floating on the monitor at
 // x / y; it ignores the edge, alignment and offset).
@@ -466,6 +481,8 @@ struct DockConfig {
     // Round 9 phase 9A: how the bar grows while magnified ("steady" / "follow" / "always"). Saved
     // only when not "steady".
     MagnifyBar magnifyBar = MagnifyBar::Steady;
+    // Round 28 phase 28D: the running indicator's shape. Saved only when not "dot".
+    IndicatorStyle indicator = IndicatorStyle::Dot;
     AutoHideMode autoHide = AutoHideMode::Always;
     int hideDelayMs = 400;
     int revealDelayMs = 150;
@@ -715,6 +732,8 @@ const wchar_t* ToString(OverflowMode v);
 bool FromString(std::wstring_view s, OverflowMode& v);
 const wchar_t* ToString(MagnifyBar v);
 bool FromString(std::wstring_view s, MagnifyBar& v);
+const wchar_t* ToString(IndicatorStyle v);  // round 28 phase 28D
+bool FromString(std::wstring_view s, IndicatorStyle& v);
 const wchar_t* ToString(DockShape v);
 bool FromString(std::wstring_view s, DockShape& v);
 const wchar_t* ToString(ItemView v);
@@ -732,6 +751,10 @@ const wchar_t* ToString(TrayExpanderStyle v);
 bool FromString(std::wstring_view s, TrayExpanderStyle& v);
 const wchar_t* ToString(TrayExpanderShow v);
 bool FromString(std::wstring_view s, TrayExpanderShow& v);
+const wchar_t* ToString(TrayExpanderShape v);
+bool FromString(std::wstring_view s, TrayExpanderShape& v);
+const wchar_t* ToString(TrayExpanderFill v);
+bool FromString(std::wstring_view s, TrayExpanderFill& v);
 const wchar_t* ToString(TrayDrawerOpen v);
 bool FromString(std::wstring_view s, TrayDrawerOpen& v);
 const wchar_t* ToString(TrayDrawerShows v);
@@ -881,6 +904,26 @@ struct SettingsUiConfig {
     }
 };
 
+// Round 25 phase 25D: what the user allowed a widget from the widgets folder to do (the consent
+// dialog, App::ReviewWidgetConsent). `widgetConsent` in config.json: { "<id>": { "permissions":
+// [...], "replacesBuiltIn": true } }. `permissions` is the canonical list Widgets::PermissionList
+// makes from the manifest (sorted, one entry per permission, an http host as "http:<host>"), kept
+// as a list rather than a hash so a manifest asking for fewer permissions than granted (a version
+// bump that drops one) is recognised as covered, and so the file says what was allowed.
+// `replacesBuiltIn`: the user also allowed the folder to take a built-in widget's place (its
+// placements and its widget-data file). Built-in widgets never need an entry.
+struct WidgetConsent {
+    std::vector<std::wstring> permissions;  // sorted, unique
+    bool replacesBuiltIn = false;
+    // Round 29 phase 29C: the hosts the user allowed through a widget's `url` setting (the manifest's
+    // `hostSettings`): "<item key>|<setting key>" -> the host (lowercase), one per item and setting,
+    // replaced when the user allows a new one. The item key is the script's dock.itemKey ("<dock
+    // id>/<widget id>#<n>", a standalone widget's entry id). Kept for built-in widgets too (an entry
+    // with only hosts: ConsentOf ignores them). `widgetConsent.<id>.hosts` in config.json.
+    std::map<std::wstring, std::wstring> hosts;
+    bool operator==(const WidgetConsent&) const = default;
+};
+
 struct Config {
     // At least one dock after LoadFile / Sanitize; ids are unique (Sanitize). Every dock is shown
     // (DockManager), docks[].monitor "each" once per monitor.
@@ -908,6 +951,10 @@ struct Config {
     CalendarsConfig calendars;
     DashboardConfig dashboard;
     SettingsUiConfig settings;  // round 8 phase 8A: `settings.windows`
+    // Round 25 phase 25D: widget id -> what the user allowed (WidgetConsent). Like the windows'
+    // sizes it is not part of an undo snapshot (ToJson(false) leaves it out, App::ApplySnapshot keeps
+    // the current map): undo must never grant or revoke a permission. Saved only when not empty.
+    std::map<std::wstring, WidgetConsent> widgetConsent;
     // Top-level keys this version does not know, kept verbatim (compact JSON) so a save does not
     // drop them. Unknown keys inside known objects (docks, items, clock, theme, animation, weather)
     // are not kept, nor are the legacy pre-`docks` keys.
@@ -961,13 +1008,33 @@ struct Config {
 
     enum class LoadResult { Ok, Missing, Malformed };
     // Loads the config file into *this (defaults for anything missing). Missing file: defaults.
-    // Malformed file: defaults (the file is left untouched so the user can fix it). Never throws.
+    // Malformed file (unparsable, or present but unreadable): defaults; LoadFile itself writes
+    // nothing. Never throws.
+    // Round 25 phase 25B, the save rule after a malformed start (App::Initialize / WriteConfig):
+    // before anything can save, the file is copied to config.bad-<yyyyMMdd-HHmmss>.json beside it
+    // (KeepBadCopy). With that copy made, the session saves as usual: the first change writes the
+    // defaults-based settings over config.json and the copy is the user's recovery. Without it
+    // (the copy failed), nothing is written over config.json in that session; each save tries the
+    // copy again first. Until 25B the start treated Malformed like Ok and the first debounced save
+    // silently replaced the user's file (only Reload refused a malformed file).
     LoadResult LoadFile();
     // Round 12 phase 12A: the same from the file's text (an undo snapshot; ToJson's output): Ok,
     // or Malformed (defaults). Never throws. LoadFile reads the file and calls it.
     LoadResult LoadJson(const std::wstring& text);
-    // LoadFile() == Missing, i.e. first run: the caller seeds defaults and saves.
-    bool Load() { return LoadFile() == LoadResult::Missing; }
+    // (Round 25 phase 25B: `bool Load()`, "LoadFile() == Missing", is gone: it let the start treat
+    // a malformed file like a good one.)
+
+    // --- round 25 phase 25B: copies of the file (plain file copies, no parsing) ---
+    // Copies config.json to config.bad-<local time yyyyMMdd-HHmmss>.json in Directory() (a "-2" ...
+    // suffix when that name exists) and deletes the oldest such copies beyond kBadCopiesKept (by
+    // name, i.e. by time). `name` gets the copy's file name. False when the copy failed.
+    static bool KeepBadCopy(std::wstring& name);
+    static constexpr size_t kBadCopiesKept = 5;
+    // After a good (Ok) load at startup: config.backup-1.json (newest) ... -3.json of the file as it
+    // is on disk, rotated only when the file differs from backup-1 (a restart without changes does
+    // not churn). Two small reads, at most two renames and a copy; failures are ignored.
+    static void RotateBackups();
+    static constexpr int kBackupsKept = 3;
     // Round 12 phase 12A: the file's text, exactly what Save writes; `windowSizes` false leaves the
     // settings windows' sizes out (`settings.windows`: an undo snapshot must not record a resize).
     // May throw (winrt string quoting); Save catches.

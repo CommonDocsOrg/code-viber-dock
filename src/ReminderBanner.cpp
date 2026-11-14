@@ -45,6 +45,10 @@ bool ReminderBanner::Show(const Style& style, const PopupAnchor& anchor, const C
     frame_.monitor = style.monitor;
     info_ = reminder;
     more_ = more;
+    if (reminder.script) {  // round 28 phase 28A: a widget's banner: its text as given
+        when_ = reminder.when;
+        return ShowAt(frame_, anchor);
+    }
     // Written once: the banner does not tick ("In 15 min" is when it appeared).
     const int64_t left = reminder.start - CalendarService::Now();
     if (left <= 30) {
@@ -90,7 +94,7 @@ SIZE ReminderBanner::Measure() {
     y += Px(kButtonsGap, s);
     const LONG bw = Px(kButtonW, s), bh = Px(kButtonH, s), gap = Px(8.0f, s);
     dismissRect_ = RECT{w - pad - bw, y, w - pad, y + bh};
-    snoozeRect_ = RECT{dismissRect_.left - gap - bw, y, dismissRect_.left - gap, y + bh};
+    snoozeRect_ = info_.script ? RECT{} : RECT{dismissRect_.left - gap - bw, y, dismissRect_.left - gap, y + bh};
     return SIZE{w, y + bh + pad};
 }
 
@@ -120,6 +124,7 @@ void ReminderBanner::Paint(ID2D1DeviceContext* dc) {
     if (!info_.location.empty()) text(textFormat_.get(), info_.location, D2D1::RectF(textX, y, w - pad, y + kLineH * s), style_.secondary);
     const float stroke = std::max(1.0f, std::round(s)), inset = stroke / 2.0f, radius = std::round(kRadius * s);
     for (const int which : {kHitSnooze, kHitDismiss}) {
+        if (which == kHitSnooze && info_.script) continue;  // round 28: a widget's banner has no Snooze
         const RECT& rc = which == kHitSnooze ? snoozeRect_ : dismissRect_;
         const D2D1_RECT_F f = ToRectF(rc);
         const bool hot = Hot() == which;

@@ -96,7 +96,7 @@ public:
     // Round 13 phase 13H: part 6, the edge as a segmented control (part 4, the combo, stays hidden).
     enum RowPart { kRowName = 1, kRowLayout = 2, kRowDisplay = 3, kRowEdge = 4, kRowRemove = 5, kRowEdgeChoice = 6 };
 
-    // `firstRun`: the first start's variant ("Welcome to WinDock"; the first row's layout is Basic,
+    // `firstRun`: the first start's variant ("Welcome to ViberDock"; the first row's layout is Basic,
     // which App applied before the preview). `startWithWindows`: the Run key now.
     QuickSetup(QuickSetupHost host, bool firstRun, bool startWithWindows);
     ~QuickSetup();
@@ -216,6 +216,7 @@ private:
     HFONT font_ = nullptr, fontBold_ = nullptr, fontHeading_ = nullptr, fontSmall_ = nullptr, fontLabel_ = nullptr;
     HBRUSH baseBrush_ = nullptr, controlBrush_ = nullptr, cardBrush_ = nullptr;
     std::vector<Presets::Look> looks_;
+    std::vector<size_t> gridLooks_;  // round 28 phase 28C: the grid's tiles as looks_ indexes (no palettes)
     Metrics m_;
     struct Card {
         int step;            // shown on this step only

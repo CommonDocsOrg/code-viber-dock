@@ -1,8 +1,8 @@
 // Notification bell: a scriptable bell that behaves like the built-in notification centre by
 // default: the unread count (the `notifications` provider, round 4 phase 9) in a badge, and a
-// click that opens WinDock's centre (notifications.openCentre()). Its settings make it a plain
+// click that opens ViberDock's centre (notifications.openCentre()). Its settings make it a plain
 // button instead: Windows' centre (Win+N, shell.sendKeys) and, with "Show the unread count" off,
-// the provider is never called, so WinDock does not read notifications for this widget (the fixed
+// the provider is never called, so ViberDock does not read notifications for this widget (the fixed
 // badge number shows instead). Idle: nothing runs; a change of the list calls onChange, which redraws.
 
 let hovered = false;
@@ -39,7 +39,7 @@ function image(canvas, x, y, g) {
   }
 }
 
-// Subscribes while the unread count is on (the first call starts WinDock's notification service).
+// Subscribes while the unread count is on (the first call starts ViberDock's notification service).
 function follow() {
   if (settings.unread && !listening) {
     try {

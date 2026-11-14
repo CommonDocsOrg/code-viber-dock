@@ -295,7 +295,7 @@ winrt::com_ptr<ID2D1Bitmap> IconCache::LoadRecycleBinIcon(UINT px, ID2D1DeviceCo
 
 uint32_t IconCache::ComputeDominantColor(ID2D1Bitmap* bitmap, ID2D1DeviceContext* dc) {
     // Read back through a CPU-readable copy (a bitmap that can be drawn cannot be mapped). Done
-    // once per load; the copy is released at once.
+    // once per entry, at its first DominantColor (round 26 phase 26C); the copy is released at once.
     if (!bitmap || !dc) return 0;
     const D2D1_SIZE_U size = bitmap->GetPixelSize();
     if (size.width == 0 || size.height == 0) return 0;
@@ -401,7 +401,14 @@ winrt::com_ptr<ID2D1Bitmap> IconCache::LoadShellImage(const AppKey& key, UINT px
 winrt::com_ptr<ID2D1Bitmap> IconCache::LoadWindowIcon(HWND hwnd, ID2D1DeviceContext* dc) {
     if (!hwnd || !IsWindow(hwnd)) return nullptr;
     DWORD_PTR icon = 0;
-    if (!SendMessageTimeoutW(hwnd, WM_GETICON, ICON_BIG, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 200, &icon) || !icon) {
+    // Round 26 phase 26B: 50 ms (was 200), as MenuIcons. An app that answers WM_GETICON at all does
+    // so in well under a millisecond; a busy one now costs the UI thread a quarter of the wait per
+    // window (the class icon is the fallback, as before). SMTO_BLOCK stays, as in MenuIcons: this
+    // runs inside the dock's rebuild / render, and without it the wait would dispatch other
+    // processes' sent messages here (a WM_SETTINGCHANGE broadcast relayouts the dock, the tray
+    // takeover's WM_COPYDATA changes its icons) in the middle of that pass. The plan's idea of
+    // dropping it assumed MenuIcons did; it does not.
+    if (!SendMessageTimeoutW(hwnd, WM_GETICON, ICON_BIG, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 50, &icon) || !icon) {
         icon = static_cast<DWORD_PTR>(GetClassLongPtrW(hwnd, GCLP_HICON));
     }
     if (!icon) return nullptr;
@@ -410,19 +417,37 @@ winrt::com_ptr<ID2D1Bitmap> IconCache::LoadWindowIcon(HWND hwnd, ID2D1DeviceCont
 }
 
 ID2D1Bitmap* IconCache::Get(const AppKey& key, HWND sampleWindow, UINT pixelSize, ID2D1DeviceContext* dc,
-                            const std::wstring& iconFile, int iconIndex) {
-    auto it = entries_.find(key);
-    if (it != entries_.end() && it->second.pixelSize == pixelSize && it->second.iconFile == iconFile &&
-        it->second.iconIndex == iconIndex) {
-        it->second.inUse = true;
-        return it->second.bitmap.get();
+                            const std::wstring& iconFile, int iconIndex, bool transient) {
+    EntryKey k{key, pixelSize, iconFile, iconIndex};
+    const ULONGLONG now = GetTickCount64();
+    auto it = entries_.find(k);
+    if (it != entries_.end()) {
+        Entry& hit = it->second;
+        hit.lastUsed = now;
+        if (!transient) {
+            hit.transient = false;  // the dock shows it too now: an ordinary entry
+            hit.inUse = true;
+        }
+        return hit.bitmap.get();
     }
     if (!dc) return nullptr;
+    if (!transient) {
+        // Round 25 phase 25C: the dock asks at a new size (icon size, magnification, DPI): its
+        // entries of this icon at other sizes are stale (what the one-entry-per-app map replaced).
+        // Not the transient ones (the notification centre's own size), not other icon files of the
+        // app (another group member). Never one a caller still draws with in this pass: the dock
+        // asks at one size per layout.
+        std::erase_if(entries_, [&](const auto& kv) {
+            return !kv.second.transient && kv.first.pixelSize != pixelSize && kv.first.iconIndex == iconIndex &&
+                   kv.first.app == key && kv.first.iconFile == iconFile;
+        });
+    }
 
     Entry e;
-    e.pixelSize = pixelSize;
-    e.iconFile = iconFile;
-    e.iconIndex = iconIndex;
+    e.transient = transient;
+    e.inUse = !transient;
+    e.unusedSince = now;
+    e.lastUsed = now;
     // Cheapest source first; the shell (exact but memory hungry) only when those fail.
     if (!iconFile.empty()) e.bitmap = LoadFileIcon(iconFile, iconIndex, pixelSize, dc);
     if (!e.bitmap) {
@@ -437,21 +462,35 @@ ID2D1Bitmap* IconCache::Get(const AppKey& key, HWND sampleWindow, UINT pixelSize
     }
     if (!e.bitmap && !key.IsSynthetic()) e.bitmap = LoadShellImage(key, pixelSize, dc);
     if (!e.bitmap) e.bitmap = LoadWindowIcon(sampleWindow, dc);
-    e.dominant = ComputeDominantColor(e.bitmap.get(), dc);
+    // (Round 26 phase 26C: the dominant colour waits for its first DominantColor call.)
     ID2D1Bitmap* raw = e.bitmap.get();
-    entries_[key] = std::move(e);
+    entries_.insert_or_assign(std::move(k), std::move(e));
     return raw;
 }
 
-uint32_t IconCache::DominantColor(const AppKey& key) const {
-    const auto it = entries_.find(key);
-    return it != entries_.end() ? it->second.dominant : 0;
+uint32_t IconCache::DominantColor(const AppKey& key, UINT pixelSize, const std::wstring& iconFile, int iconIndex,
+                                  ID2D1DeviceContext* dc) const {
+    const auto it = entries_.find(EntryKey{key, pixelSize, iconFile, iconIndex});
+    if (it == entries_.end()) return 0;
+    const Entry& e = it->second;
+    if (!e.dominantDone && dc) {
+        e.dominant = ComputeDominantColor(e.bitmap.get(), dc);
+        e.dominantDone = true;
+    }
+    return e.dominant;
 }
 
-void IconCache::SetInUse(const std::vector<AppKey>& keys) {
+void IconCache::Evict(const AppKey& key) {
+    std::erase_if(entries_, [&](const auto& kv) { return kv.first.app == key; });
+}
+
+void IconCache::SetInUse(const std::vector<Use>& uses) {
     const ULONGLONG now = GetTickCount64();
-    for (auto& [key, e] : entries_) {
-        const bool used = std::find(keys.begin(), keys.end(), key) != keys.end();
+    for (auto& [k, e] : entries_) {
+        if (e.transient) continue;  // never in use: dropped kEvictAfterMs after its last Get
+        const bool used = std::any_of(uses.begin(), uses.end(), [&](const Use& u) {
+            return u.iconIndex == k.iconIndex && u.key == k.app && u.iconFile == k.iconFile;
+        });
         if (e.inUse && !used) e.unusedSince = now;
         e.inUse = used;
     }
@@ -459,8 +498,10 @@ void IconCache::SetInUse(const std::vector<AppKey>& keys) {
 
 bool IconCache::EvictExpired() {
     const ULONGLONG now = GetTickCount64();
+    // Round 25 phase 25C: from the later of "unused since" and the last Get (a transient entry is
+    // unused from the start; asked for again, its countdown starts over).
     std::erase_if(entries_, [&](const auto& kv) {
-        return !kv.second.inUse && now - kv.second.unusedSince + 500 >= kEvictAfterMs;
+        return !kv.second.inUse && now - std::max(kv.second.unusedSince, kv.second.lastUsed) + 500 >= kEvictAfterMs;
     });
     return HasUnused();
 }

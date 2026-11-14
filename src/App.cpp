@@ -9,6 +9,7 @@
 #include <shobjidl.h>
 #include <shellscalingapi.h>
 #include <windowsx.h>
+#include <wtsapi32.h>
 
 #include <algorithm>
 #include <cwctype>
@@ -29,7 +30,11 @@
 #include "SettingsPreview.h"  // round 18 phase 18A: SettingsGallery::kMsgChoose (DockCommand 187)
 #include "Theme.h"
 #include "WidgetPackage.h"
+#include "WidgetInstall.h"  // round 29 phase 29B: RecyclePaths (Uninstall)
+#include "WidgetInstance.h"  // round 29 phase 29C: settings.set's writer
+#include "Secrets.h"
 #include "resource.h"
+#include "Crash.h"
 
 namespace {
 
@@ -83,10 +88,16 @@ std::wstring DisplayWords(int monitor) {
 
 // Empties the Recycle Bin with the shell's confirmation and progress UI, on a thread of its own
 // so the dock keeps running while the dialog is up (the dock watches the bin for the result).
-DWORD WINAPI EmptyRecycleBinThread(LPVOID) {
+DWORD EmptyRecycleBinBody(LPVOID) {
     const HRESULT co = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
     SHEmptyRecycleBinW(nullptr, nullptr, 0);
     if (SUCCEEDED(co)) CoUninitialize();
+    return 0;
+}
+
+// Round 25 phase 25E: a failure (an exception escaping the shell call) only ends this thread (Crash.h).
+DWORD WINAPI EmptyRecycleBinThread(LPVOID param) {
+    Crash::Job(L"empty the Recycle Bin", [&] { EmptyRecycleBinBody(param); }, [] {});
     return 0;
 }
 
@@ -117,6 +128,9 @@ bool App::SetAutostartOn(bool enable) { return SetAutostart(enable); }
 // --- end round 12 phase 12G ---
 
 LRESULT CALLBACK App::AppWndProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     App* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<App*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
@@ -146,7 +160,8 @@ bool App::Initialize(HINSTANCE instance) {
     msgQueryState_ = RegisterWindowMessageW(DockWindow::kQueryStateMessage);
     msgQueryItem_ = RegisterWindowMessageW(DockWindow::kQueryItemMessage);
 
-    if (config_.Load()) {
+    const Config::LoadResult loaded = config_.LoadFile();
+    if (loaded == Config::LoadResult::Missing) {
         // First run: no config file yet. Seed the default pins and write the file; the welcome
         // dialog opens once the first dock is up (round 9 phase 9C; round 12 phase 12G: Quick setup's
         // first-run variant).
@@ -154,8 +169,20 @@ bool App::Initialize(HINSTANCE instance) {
         SeedDefaultPins();
         config_.EnsureItemSettings();  // the default clock item's settings (from the defaults)
         config_.Save();
-    } else if (config_.migrated) {
-        config_.Save();  // a legacy file (pinned[], top-level dock keys): rewrite it as docks[] once
+    } else if (loaded == Config::LoadResult::Malformed) {
+        // Round 25 phase 25B: the file is there but could not be read or parsed. Until 25B this ran
+        // like a good load (Load() only told Missing apart): the dock used the defaults without a
+        // word and the first debounced save replaced the user's file. Now, before anything can
+        // save: a copy beside it; without one nothing is written over the file this session
+        // (WriteConfig). The notice is posted below, once the docks are up.
+        startedMalformed_ = true;
+        badCopyMade_ = Config::KeepBadCopy(badCopyName_);
+        saveBlocked_ = !badCopyMade_;
+    } else {
+        // Round 25 phase 25B: a good file: config.backup-1 ... -3 of it as it is on disk (before
+        // the migration below rewrites it).
+        Config::RotateBackups();
+        if (config_.migrated) config_.Save();  // a legacy file (pinned[], top-level dock keys): rewrite it as docks[] once
     }
     if (config_.Main().AutoHideOn()) lastOnMode_ = config_.Main().autoHide;
 
@@ -174,7 +201,7 @@ bool App::Initialize(HINSTANCE instance) {
     // were on only while a settings window was open, and no menu owner was allowed). Once, before
     // the windows that own menus are made; each of them then allows itself (DarkMode::DarkMenusOn).
     DarkMode::EnableDarkMenus();
-    if (!CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, AppIpc::kAppWindowClass, L"WinDock", WS_POPUP, 0, 0, 0, 0,
+    if (!CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, AppIpc::kAppWindowClass, L"ViberDock", WS_POPUP, 0, 0, 0, 0,
                          nullptr, nullptr, instance, this)) {
         return false;
     }
@@ -228,17 +255,42 @@ bool App::Initialize(HINSTANCE instance) {
         });
         if (anyPanel) panelAnchorPending_ = PostMessageW(hwnd_, kPanelAnchorMoved, 0, 0) != FALSE;
     };
+    // Round 26 phase 26A follow-up: posted (it comes from inside a window's mouse message; resuming
+    // re-schedules widget ticks and redraws every window).
+    callbacks.userPresent = [this] {
+        if (userPresentPosted_ || !hwnd_) return;
+        userPresentPosted_ = PostMessageW(hwnd_, kUserPresentMessage, 0, 0) != FALSE;
+    };
     startPlacer_.Initialize(hwnd_);  // round 16 phase 16A: its watch's timer is on the app window
     docks_.SetStartPlacer(&startPlacer_);
     docks_.Initialize(instance, &config_, hwnd_, std::move(callbacks));
     // Round 6 phase 6E: reloaded widget packages render their previews again.
     docks_.Widgets().SetPackagesChanged([this] { InvalidatePreviews(); });
+    // Round 25 phase 25D: what the user allowed each widget folder (before the first Sync creates
+    // the widgets), and the dialog a "Needs permission" tile's click asks for (posted). Owned by the
+    // foreground window when it is one of ours (a settings window), else none.
+    docks_.Widgets().SetConsent(
+        [this](const std::wstring& id) -> const WidgetConsent* {
+            const auto it = config_.widgetConsent.find(id);
+            return it == config_.widgetConsent.end() ? nullptr : &it->second;
+        },
+        [this](const std::wstring& id) {
+            HWND fg = GetForegroundWindow();
+            DWORD pid = 0;
+            if (fg) GetWindowThreadProcessId(fg, &pid);
+            ReviewWidgetConsent(id, pid == GetCurrentProcessId() && docks_.ByHwnd(fg) == nullptr ? fg : nullptr);
+        });
+    // Round 29 phase 29C: settings.set's writes, and plain values of secret settings protected.
+    docks_.Widgets().SetSettingsWriter([this](WidgetInstance& w, const std::vector<std::pair<std::wstring, std::wstring>>& changes) {
+        WriteScriptSettings(w, changes);
+    });
+    ProtectWidgetSecrets();
     const HRESULT hr = docks_.Sync();
     if (FAILED(hr)) {
         wchar_t text[256];
-        swprintf_s(text, L"WinDock could not initialize Direct2D / DirectComposition (error 0x%08X).",
+        swprintf_s(text, L"ViberDock could not initialize Direct2D / DirectComposition (error 0x%08X).",
                    static_cast<unsigned>(hr));
-        MessageBoxW(nullptr, text, L"WinDock", MB_ICONERROR | MB_OK);
+        MessageBoxW(nullptr, text, L"ViberDock", MB_ICONERROR | MB_OK);
         docks_.Shutdown();
         DestroyWindow(hwnd_);
         return false;
@@ -248,6 +300,8 @@ bool App::Initialize(HINSTANCE instance) {
     // by Sync) its own broadcast asks the apps to register; otherwise ask them now, for Explorer.
     if (!docks_.SyncTray()) TrayHost::RecoverFromMarker();
     AddTrayIcon();
+    RegisterSessionWatch();  // round 26 phase 26A: lock / display off pause the docks' idle work
+    Widgets::RemoveStaleStaging();  // round 29 phase 29B: a zip install the last run did not finish
     taskbar_.SetEnabled(config_.hideTaskbar);
     // Only now: the controller has saved the original work area (without our reservations).
     docks_.AllowAppBar(true);
@@ -266,7 +320,517 @@ bool App::Initialize(HINSTANCE instance) {
     lastPlacement_ = PlacementOf(config_);
     timelineReady_ = true;
     if (firstRun_) OpenWelcome();  // round 9 phase 9C: posted, after the docks are shown
+    // Round 25 phase 25B: posted, so the notice comes after RecoverFromMarker / Sync / the taskbar
+    // and the docks are usable while it shows (it has no owner and disables nothing).
+    if (startedMalformed_) PostMessageW(hwnd_, kMalformedNotice, 0, 0);
     return true;
+}
+
+// --- round 25 phase 25B: a malformed config.json at startup ---------------------------------------
+
+bool App::WriteConfig(DWORD* error) {
+    if (error) *error = 0;
+    if (saveBlocked_) {
+        // The copy failed at the start (the file locked or unreadable): try it again; the file gone
+        // meanwhile (deleted, renamed by the user) leaves nothing to protect.
+        if (GetFileAttributesW(Config::FilePath().c_str()) == INVALID_FILE_ATTRIBUTES) {
+            saveBlocked_ = false;
+        } else if (Config::KeepBadCopy(badCopyName_)) {
+            badCopyMade_ = true;
+            saveBlocked_ = false;
+        } else {
+            if (error) *error = ERROR_FILE_CORRUPT;  // SaveErrorText says why (saveBlocked_)
+            return false;
+        }
+    }
+    return config_.Save(error);
+}
+
+HRESULT CALLBACK App::MalformedNoticeProc(HWND, UINT msg, WPARAM, LPARAM lp, LONG_PTR data) {
+    App* self = reinterpret_cast<App*>(data);
+    if (msg == TDN_HYPERLINK_CLICKED && self && lp) {
+        const wchar_t* href = reinterpret_cast<const wchar_t*>(lp);
+        if (wcscmp(href, L"folder") == 0) self->OpenConfigFolder();  // config.json selected
+        if (wcscmp(href, L"file") == 0) self->OpenConfigFile();
+    }
+    return S_OK;  // the links leave the notice open
+}
+
+void App::ShowMalformedNotice() {
+    // A task dialog (not the tray balloon, the Keep banner or the settings bar): the tray icon sits
+    // in Explorer's notification area, hidden with the taskbar by default, and a balloon becomes a
+    // toast that Do not disturb swallows; the banner is one line with Keep / Revert semantics that
+    // closes itself; the save-state bar shows only in an open settings window. This happens rarely
+    // and the user's settings seem gone, so it is said once, plainly, with the actions at hand.
+    // No owner: nothing is disabled and the docks keep working while it is open; it is not counted
+    // in modalDepth_, so Try again's ReloadConfig is not refused because of it.
+    enum { kTryAgain = 100 };
+    for (;;) {
+        if (shutDown_ || !hwnd_ || !startedMalformed_) return;
+        const std::wstring dir = Config::Directory();
+        std::wstring content = L"ViberDock is running with the default settings. ";
+        if (badCopyMade_) {
+            content += L"A copy of the file was kept as " + badCopyName_ +
+                       L" in the same folder. From now on changes are saved to config.json as usual.";
+        } else {
+            content += L"A copy of the file could not be made, so ViberDock does not save over config.json in this session "
+                       L"(changes stay in memory until the file can be copied).";
+        }
+        if (GetFileAttributesW((dir + L"\\config.backup-1.json").c_str()) != INVALID_FILE_ATTRIBUTES) {
+            content += L"\n\nconfig.backup-1.json in the same folder is the settings file as it was at the last good start.";
+        }
+        content += L"\n\nFix the file (or put a backup in its place) and click Try again.\n\n"
+                   L"<a href=\"folder\">Open the folder</a>    <a href=\"file\">Open config.json</a>";
+        TASKDIALOG_BUTTON buttons[] = {{kTryAgain, L"Try again"}};
+        TASKDIALOGCONFIG tdc{};
+        tdc.cbSize = sizeof(tdc);
+        tdc.hInstance = instance_;
+        tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_ENABLE_HYPERLINKS;
+        tdc.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+        tdc.pszWindowTitle = L"ViberDock";
+        tdc.pszMainIcon = TD_WARNING_ICON;
+        tdc.pszMainInstruction = L"config.json could not be read";
+        tdc.pszContent = content.c_str();
+        tdc.pButtons = buttons;
+        tdc.cButtons = static_cast<UINT>(std::size(buttons));
+        tdc.nDefaultButton = IDCLOSE;
+        tdc.pfCallback = &App::MalformedNoticeProc;
+        tdc.lpCallbackData = reinterpret_cast<LONG_PTR>(this);
+        int button = IDCLOSE;
+        if (FAILED(TaskDialogIndirect(&tdc, &button, nullptr, nullptr))) {
+            MessageBeep(MB_ICONWARNING);
+            return;
+        }
+        // --quit while it was open: its WM_QUIT ended the dialog; nothing more to do.
+        if (button != kTryAgain || shutDown_) return;
+        if (ReloadConfig()) return;  // fixed: the file's settings apply (saveBlocked_ cleared there)
+    }
+}
+
+// --- round 25 phase 25D: consent for widget folders ------------------------------------------------
+
+int App::WidgetConsentState(const std::wstring& id) const {
+    std::wstring error;
+    const auto pkg = Widgets::ValidId(id) ? Widgets::Load(id, error) : nullptr;
+    if (!pkg) return -1;
+    const auto it = config_.widgetConsent.find(id);
+    return static_cast<int>(Widgets::ConsentOf(*pkg, it == config_.widgetConsent.end() ? nullptr : &it->second));
+}
+
+bool App::SetWidgetConsent(const std::wstring& id, bool grant) {
+    if (shutDown_ || !Widgets::ValidId(id)) return false;
+    if (grant) {
+        std::wstring error;
+        const auto pkg = Widgets::Load(id, error);
+        if (!pkg) return false;
+        Widgets::GrantConsent(config_.widgetConsent[id], *pkg);  // round 29 phase 29C: the hosts stay
+    } else {
+        config_.widgetConsent.erase(id);
+    }
+    RequestSave();  // not a timeline entry: undo never grants or revokes (Config::widgetConsent)
+    docks_.Widgets().ConsentChanged(id);
+    InvalidatePreviews();  // a preview of it may run now (or must not any more)
+    RefreshSettings();
+    return true;
+}
+
+bool App::OfferWidgetConsent(const std::wstring& id, HWND owner, bool post) {
+    const int state = WidgetConsentState(id);
+    if (state != static_cast<int>(Widgets::ConsentState::Missing) && state != static_cast<int>(Widgets::ConsentState::More)) {
+        return false;
+    }
+    if (post) {
+        docks_.Widgets().RequestConsent(id);  // the dialog after the click's own handling
+        return false;
+    }
+    return ReviewWidgetConsent(id, owner);
+}
+
+bool App::ReviewWidgetConsent(const std::wstring& id, HWND owner) {
+    if (shutDown_ || !hwnd_) return false;
+    if (consentOpen_ || modalDepth_ > 0) {
+        MessageBeep(MB_ICONWARNING);  // one dialog at a time (a menu or another dialog is open)
+        return false;
+    }
+    std::wstring error;
+    const auto pkg = Widgets::ValidId(id) ? Widgets::Load(id, error) : nullptr;
+    if (!pkg) {
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    const Widgets::Manifest& m = pkg->manifest;
+    const auto it = config_.widgetConsent.find(id);
+    const Widgets::ConsentState state = Widgets::ConsentOf(*pkg, it == config_.widgetConsent.end() ? nullptr : &it->second);
+    const bool replaces = Widgets::ReplacesBuiltIn(*pkg);
+    // Who it is: name, id, version, author, the folder (the reviewer's facts, not the author's claims
+    // alone: the id and the folder are what WinDock itself goes by).
+    std::wstring about = L"Id: " + id + (m.version.empty() ? L"" : L"    Version: " + m.version) +
+                         (m.author.empty() ? L"" : L"\nAuthor (as the widget says): " + m.author) +
+                         L"\nFolder: " + (pkg->folder.empty() ? Widgets::Directory() + L"\\" + id : pkg->folder);
+    std::wstring content;
+    if (replaces) {
+        // By the built-in's id: the folder's manifest may call itself anything.
+        content = L"This replaces the built-in \"" + id + L"\" widget and takes over its settings and saved data: "
+                  L"every place that shows that widget runs this folder instead.\n\n";
+    }
+    const std::vector<std::wstring> lines = Widgets::PermissionLines(m);
+    if (state == Widgets::ConsentState::NotNeeded) {
+        content += pkg->source == Widgets::Package::Source::BuiltIn ? L"This widget is built into ViberDock: it needs no permission."
+                                                                    : L"This widget asks for no permissions: it only draws and reacts to "
+                                                                      L"clicks, with no access to files, programs, the internet or your data.";
+    } else if (lines.empty()) {
+        content += L"It asks for no permissions of its own.";
+    } else {
+        content += state == Widgets::ConsentState::Granted ? L"You allowed it to:" : L"It asks to:";
+        for (const std::wstring& l : lines) content += L"\n\x2022 " + l;
+    }
+    if (state == Widgets::ConsentState::More) content += L"\n\nIt asks for more than you allowed before (its files changed).";
+    if (state == Widgets::ConsentState::Missing || state == Widgets::ConsentState::More) {
+        content += L"\n\nAllow it only if you trust where this widget came from. Until you allow it, its script does not run.";
+    }
+    enum { kAllow = 100, kDeny = 101 };
+    const bool granted = state == Widgets::ConsentState::Granted;
+    TASKDIALOG_BUTTON buttons[] = {{kAllow, granted ? L"Keep allowed" : L"Allow"},
+                                   {kDeny, granted ? L"Revoke (stop the widget)" : L"Don't allow"}};
+    const std::wstring name = m.name.substr(0, 64);  // the manifest's text: kept short
+    const std::wstring instruction = state == Widgets::ConsentState::NotNeeded ? name
+                                     : granted                                  ? name + L": permissions"
+                                                                                : L"Allow the widget \"" + name + L"\" to run?";
+    TASKDIALOGCONFIG tdc{};
+    tdc.cbSize = sizeof(tdc);
+    tdc.hwndParent = owner && IsWindow(owner) ? owner : nullptr;
+    tdc.hInstance = instance_;
+    tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | (tdc.hwndParent ? TDF_POSITION_RELATIVE_TO_WINDOW : 0);
+    tdc.pszWindowTitle = L"ViberDock widget permissions";
+    tdc.pszMainIcon = replaces || state == Widgets::ConsentState::More ? TD_WARNING_ICON : TD_SHIELD_ICON;
+    tdc.pszMainInstruction = instruction.c_str();
+    tdc.pszContent = content.c_str();
+    tdc.pszFooter = about.c_str();
+    tdc.pszFooterIcon = TD_INFORMATION_ICON;
+    if (state == Widgets::ConsentState::NotNeeded) {
+        tdc.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+    } else {
+        tdc.pButtons = buttons;
+        tdc.cButtons = static_cast<UINT>(std::size(buttons));
+        tdc.nDefaultButton = granted ? kAllow : kDeny;  // the safe answer is the default
+    }
+    int button = IDCANCEL;
+    consentOpen_ = true;
+    ++modalDepth_;  // as a dock's dialog: no Reload config, no dock removal under it
+    const HRESULT hr = TaskDialogIndirect(&tdc, &button, nullptr, nullptr);
+    EndModal();
+    consentOpen_ = false;
+    if (FAILED(hr) || shutDown_ || state == Widgets::ConsentState::NotNeeded) return false;
+    if (button == kAllow && !granted) {
+        // Exactly what was shown (Widgets::ConsentFor of this package): files changed meanwhile that
+        // ask for more show the placeholder again.
+        Widgets::GrantConsent(config_.widgetConsent[id], *pkg);  // round 29 phase 29C: the hosts stay
+    } else if (button == kDeny && granted) {
+        config_.widgetConsent.erase(id);
+    } else {
+        return false;  // Don't allow / Keep allowed / closed: nothing changes
+    }
+    RequestSave();
+    docks_.Widgets().ConsentChanged(id);
+    InvalidatePreviews();
+    RefreshSettings();
+    return true;
+}
+
+// --- round 29 phase 29B: uninstall, install -----------------------------------------------------
+
+void App::WidgetUses(const std::wstring& id, size_t& dockItems, size_t& docks, size_t& standalone) const {
+    dockItems = docks = standalone = 0;
+    for (const DockConfig& d : config_.docks) {
+        const size_t n = static_cast<size_t>(std::count_if(d.items.begin(), d.items.end(), [&](const DockItemEntry& e) {
+            return e.Kind() == ItemKind::Widget && e.id == id;
+        }));
+        if (!n) continue;
+        if (d.IsWidgetWindow()) {
+            standalone += n;
+        } else if (d.IsDock()) {
+            dockItems += n;
+            ++docks;
+        }
+    }
+}
+
+bool App::UninstallWidget(const std::wstring& id, HWND owner, bool ask, bool deleteData) {
+    lastUninstall_ = 2;
+    if (shutDown_ || !Widgets::ValidId(id) || consentOpen_ || modalDepth_ > 0) {
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    std::wstring error;
+    const auto pkg = Widgets::Load(id, error);
+    if (!pkg || pkg->source != Widgets::Package::Source::Folder) {
+        MessageBeep(MB_ICONWARNING);  // not installed, or a built-in (it cannot be uninstalled)
+        return false;
+    }
+    const std::wstring folder = pkg->folder;
+    const std::wstring dataFile = WidgetRuntime::StorageDirectory() + L"\\" + id + L".json";
+    const bool hasData = GetFileAttributesW(dataFile.c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (ask) {
+        size_t items = 0, docks = 0, standalone = 0;
+        WidgetUses(id, items, docks, standalone);
+        const std::wstring name = pkg->manifest.name.substr(0, 64);
+        std::wstring content;
+        if (items || standalone) {
+            content = L"It is in use: ";
+            if (items) content += std::to_wstring(items) + (items == 1 ? L" item on " : L" items on ") + std::to_wstring(docks) + (docks == 1 ? L" dock" : L" docks");
+            if (items && standalone) content += L" and ";
+            if (standalone) content += std::to_wstring(standalone) + (standalone == 1 ? L" widget on the desktop" : L" widgets on the desktop");
+            content += L". They stay where they are and show \"not installed\" until you remove them or install the widget again.\n\n";
+        } else {
+            content = L"No dock or desktop widget uses it.\n\n";
+        }
+        content += Widgets::ReplacesBuiltIn(*pkg) ? L"This folder replaces the built-in widget of the same id: the built-in comes back.\n\n" : L"";
+        content += L"Its folder goes to the Recycle Bin:\n" + folder;
+        const std::wstring instruction = L"Uninstall \"" + name + L"\"?";
+        enum { kUninstall = 100 };
+        TASKDIALOG_BUTTON buttons[] = {{kUninstall, L"Uninstall"}};
+        TASKDIALOGCONFIG tdc{};
+        tdc.cbSize = sizeof(tdc);
+        tdc.hwndParent = owner && IsWindow(owner) ? owner : nullptr;
+        tdc.hInstance = instance_;
+        tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | (tdc.hwndParent ? TDF_POSITION_RELATIVE_TO_WINDOW : 0);
+        tdc.dwCommonButtons = TDCBF_CANCEL_BUTTON;
+        tdc.pszWindowTitle = L"ViberDock widget library";
+        tdc.pszMainIcon = TD_WARNING_ICON;
+        tdc.pszMainInstruction = instruction.c_str();
+        tdc.pszContent = content.c_str();
+        tdc.pButtons = buttons;
+        tdc.cButtons = static_cast<UINT>(std::size(buttons));
+        tdc.nDefaultButton = IDCANCEL;
+        // Its saved data (notes, lists, settings it stored) only when asked: off by default.
+        const std::wstring verify = L"Also delete its saved data (widget-data\\" + id + L".json)";
+        if (hasData) tdc.pszVerificationText = verify.c_str();
+        int button = IDCANCEL;
+        BOOL checked = FALSE;
+        ++modalDepth_;
+        const HRESULT hr = TaskDialogIndirect(&tdc, &button, nullptr, &checked);
+        EndModal();
+        if (FAILED(hr) || button != kUninstall || shutDown_) {
+            lastUninstall_ = 3;
+            return false;
+        }
+        deleteData = checked != FALSE;
+    }
+    std::vector<std::wstring> paths{folder};
+    if (deleteData && hasData) {
+        docks_.Widgets().ForgetStore(id);  // the in-memory copy must not write the file back
+        paths.push_back(dataFile);
+    }
+    ++modalDepth_;  // the shell may ask (an item it cannot recycle)
+    const bool removed = Widgets::RecyclePaths(paths, owner, error);
+    EndModal();
+    if (!removed) {
+        lastUninstall_ = 4;
+        MessageBeep(MB_ICONWARNING);
+        if (ask && !error.empty()) {
+            const std::wstring text = L"The widget could not be uninstalled: " + error + L".";
+            MessageBoxW(owner && IsWindow(owner) ? owner : nullptr, text.c_str(), L"ViberDock widget library", MB_ICONWARNING | MB_OK);
+        }
+        return false;
+    }
+    config_.widgetConsent.erase(id);
+    RequestSave();
+    docks_.Widgets().ReloadAll();  // its instances: "not installed" (or the built-in again)
+    InvalidatePreviews();
+    RefreshSettings();
+    lastUninstall_ = 1;
+    return true;
+}
+
+void App::WidgetInstalled(const std::wstring& id, HWND owner) {
+    if (shutDown_ || !Widgets::ValidId(id)) return;
+    if (config_.widgetConsent.erase(id)) RequestSave();
+    docks_.Widgets().ReloadAll();
+    InvalidatePreviews();
+    RefreshSettings();
+    OfferWidgetConsent(id, owner);
+}
+
+// --- round 29 phase 29C: settings.set, host consent, secrets ----------------------------------------
+
+std::wstring App::ItemKeyOf(size_t cfg, size_t element) const {
+    if (cfg >= config_.docks.size()) return {};
+    const DockConfig& d = config_.docks[cfg];
+    if (d.IsWidgetWindow()) return d.id;
+    if (element >= d.items.size()) return {};
+    const std::wstring& id = d.items[element].id;
+    size_t n = 0;  // the n-th item of this widget on the dock (DockWindow's instance key "<id>#<n>")
+    for (size_t k = 0; k < element; ++k) {
+        if (d.items[k].Kind() == ItemKind::Widget && d.items[k].id == id) ++n;
+    }
+    return d.id + L"/" + id + L"#" + std::to_wstring(n);
+}
+
+bool App::ItemOfInstance(const WidgetInstance& w, size_t& cfg, size_t& element) const {
+    const std::wstring dockId = JsonUtil::Utf8ToWide(w.DockInfo().dockId);
+    for (size_t c = 0; c < config_.docks.size(); ++c) {
+        const DockConfig& d = config_.docks[c];
+        if (d.id != dockId) continue;
+        if (w.DockInfo().standalone) {
+            if (!d.IsWidgetWindow() || !d.WidgetItem() || d.WidgetItem()->id != w.Id()) return false;
+            cfg = c;
+            element = 0;
+            return true;
+        }
+        if (!d.IsDock()) return false;
+        // The instance key "<id>#<n>": the n-th item of this widget.
+        const std::wstring& key = w.Key();
+        const size_t hash = key.find_last_of(L'#');
+        const size_t n = hash == std::wstring::npos ? 0 : static_cast<size_t>(_wtoi(key.c_str() + hash + 1));
+        size_t seen = 0;
+        for (size_t k = 0; k < d.items.size(); ++k) {
+            if (d.items[k].Kind() != ItemKind::Widget || d.items[k].id != w.Id()) continue;
+            if (seen++ == n) {
+                cfg = c;
+                element = k;
+                return true;
+            }
+        }
+        return false;
+    }
+    return false;
+}
+
+void App::WriteScriptSettings(WidgetInstance& w, const std::vector<std::pair<std::wstring, std::wstring>>& changes) {
+    if (shutDown_ || changes.empty()) return;
+    size_t cfg = 0, element = 0;
+    if (!ItemOfInstance(w, cfg, element)) return;  // the item went meanwhile
+    DockItemEntry& e = config_.docks[cfg].items[element];
+    if (!StoreItemSettings(config_, e, changes)) return;  // the values it has already
+    std::wstring what = changes.front().first;
+    if (const Widgets::Package* pkg = w.Package()) {
+        if (const Widgets::SettingField* f = Widgets::FieldOf(pkg->manifest, what)) what = f->label;
+    }
+    if (changes.size() > 1) what += L" and " + std::to_wstring(changes.size() - 1) + L" more";
+    NoteLabel(L"Changed " + what + L" of " + EntryName(cfg, element) + L" (by the widget)");
+    OnSettingsChanged(SettingsScope::Pins, cfg, nullptr);  // saved; the dock re-reads the item
+    RefreshSettings();  // an open settings window shows the new value
+}
+
+bool App::ReviewHostConsent(size_t cfg, size_t element, const std::wstring& key, const std::wstring& url, HWND owner) {
+    lastHostConsent_ = 3;
+    if (shutDown_ || cfg >= config_.docks.size() || element >= config_.docks[cfg].items.size()) return false;
+    const DockItemEntry& e = config_.docks[cfg].items[element];
+    if (e.Kind() != ItemKind::Widget) return false;
+    std::wstring error, host, why;
+    bool local = false;
+    const auto pkg = Widgets::Load(e.id, error);
+    if (!pkg || std::find(pkg->manifest.hostSettings.begin(), pkg->manifest.hostSettings.end(), key) == pkg->manifest.hostSettings.end() ||
+        !Widgets::CheckUrlValue(url, host, local, why) || host.empty()) {
+        return false;
+    }
+    const std::wstring itemKey = ItemKeyOf(cfg, element);
+    const std::wstring slot = itemKey + L"|" + key;
+    if (const auto it = config_.widgetConsent.find(e.id); it != config_.widgetConsent.end()) {
+        if (const auto h = it->second.hosts.find(slot); h != it->second.hosts.end() && h->second == host) {
+            lastHostConsent_ = 2;
+            return true;  // allowed before, for this item and setting
+        }
+    }
+    if (consentOpen_ || modalDepth_ > 0) {
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    const Widgets::SettingField* f = Widgets::FieldOf(pkg->manifest, key);
+    const std::wstring name = pkg->manifest.name.substr(0, 64);
+    const std::wstring label = f && !f->label.empty() ? f->label : key;
+    const std::wstring instruction = name + L" wants to connect to " + host;
+    std::wstring content = local ? L"This address is on your local network: a device in your home or office (a hub, a NAS, a printer), "
+                                   L"not the internet. "
+                                 : L"";
+    content += L"You entered it as \"" + label + L"\". If you allow it, the widget can send requests to " + host +
+               L" and read the answers, as it does for the hosts it names itself. Only this host is allowed, and only for this "
+               L"widget on this dock: if you change the address to another host, you are asked again.";
+    if (local) content += L"\n\nAllow it only if you trust this widget with that device.";
+    const std::wstring footer = L"Widget: " + e.id + (pkg->manifest.author.empty() ? L"" : L"    Author (as the widget says): " + pkg->manifest.author) +
+                                L"\nAddress: " + url.substr(0, 200);
+    enum { kAllow = 100, kDeny = 101 };
+    TASKDIALOG_BUTTON buttons[] = {{kAllow, L"Allow"}, {kDeny, L"Don't allow"}};
+    TASKDIALOGCONFIG tdc{};
+    tdc.cbSize = sizeof(tdc);
+    tdc.hwndParent = owner && IsWindow(owner) ? owner : nullptr;
+    tdc.hInstance = instance_;
+    tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | (tdc.hwndParent ? TDF_POSITION_RELATIVE_TO_WINDOW : 0);
+    tdc.pszWindowTitle = L"ViberDock widget permissions";
+    tdc.pszMainIcon = local ? TD_WARNING_ICON : TD_SHIELD_ICON;
+    tdc.pszMainInstruction = instruction.c_str();
+    tdc.pszContent = content.c_str();
+    tdc.pszFooter = footer.c_str();
+    tdc.pszFooterIcon = TD_INFORMATION_ICON;
+    tdc.pButtons = buttons;
+    tdc.cButtons = static_cast<UINT>(std::size(buttons));
+    tdc.nDefaultButton = kDeny;  // the safe answer
+    int button = IDCANCEL;
+    consentOpen_ = true;
+    ++modalDepth_;
+    const HRESULT hr = TaskDialogIndirect(&tdc, &button, nullptr, nullptr);
+    EndModal();
+    consentOpen_ = false;
+    if (FAILED(hr) || button != kAllow || shutDown_) return false;
+    // The value already stored is this URL (a commit of the same text): the widget will not hear of
+    // a change, so it starts over and fetches with the host it may reach now.
+    bool unchanged = false;
+    try {
+        JsonUtil::json::JsonObject o{nullptr};
+        std::wstring stored;
+        if (JsonUtil::json::JsonObject::TryParse(e.settings, o) && o) JsonUtil::ReadString(o, key.c_str(), stored);
+        unchanged = stored == url;
+    } catch (...) {
+    }
+    config_.widgetConsent[e.id].hosts[slot] = host;  // one host per item and setting: a new one replaces the old
+    RequestSave();  // not an undo step: undo never grants
+    if (unchanged) docks_.Widgets().ReloadItem(JsonUtil::WideToUtf8(itemKey));
+    lastHostConsent_ = 1;
+    return true;
+}
+
+bool App::ProtectWidgetSecrets() {
+    namespace json = JsonUtil::json;
+    bool changed = false;
+    std::map<std::wstring, std::shared_ptr<const Widgets::Package>> packages;
+    for (DockConfig& d : config_.docks) {
+        for (DockItemEntry& e : d.items) {
+            if (e.Kind() != ItemKind::Widget || e.settings.empty()) continue;
+            auto it = packages.find(e.id);
+            if (it == packages.end()) {
+                std::wstring error;
+                it = packages.emplace(e.id, Widgets::Load(e.id, error)).first;
+            }
+            if (!it->second) continue;
+            json::JsonObject o{nullptr};
+            try {
+                if (!json::JsonObject::TryParse(e.settings, o) || !o) continue;
+            } catch (...) {
+                continue;
+            }
+            bool itemChanged = false;
+            for (const Widgets::SettingField& f : it->second->manifest.settings) {
+                if (f.type != Widgets::SettingField::Type::Secret) continue;
+                const json::IJsonValue v = JsonUtil::Find(o, f.key.c_str());
+                if (!v || v.ValueType() != json::JsonValueType::String) continue;
+                const std::wstring plain(v.GetString());
+                std::wstring stored;
+                if (plain.empty() || Secrets::IsProtected(plain)) continue;
+                // A plain value (an API key typed before the field was a secret): protected in place.
+                // When DPAPI refuses, it stays as it was (the widget keeps working) and the notice says so.
+                if (!Secrets::Protect(plain, stored)) continue;
+                o.SetNamedValue(f.key, json::JsonValue::CreateStringValue(stored));
+                itemChanged = true;
+            }
+            if (itemChanged) {
+                e.settings = std::wstring(o.Stringify());
+                changed = true;
+            }
+        }
+    }
+    if (changed) RequestSave();
+    if (Secrets::TakeFailureNotice() && hwnd_) PostMessageW(hwnd_, kSecretNotice, 0, 0);
+    return changed;
 }
 
 void App::OpenWelcome() {
@@ -434,7 +998,7 @@ void App::SeedDefaultPins() {
 
 void App::RequestSave() {
     if (!hwnd_) {
-        config_.Save();
+        WriteConfig();  // round 25 phase 25B: the malformed start's rule applies here too
         return;
     }
     ScheduleCommit();  // round 12 phase 12A: the gesture becomes one timeline entry
@@ -461,7 +1025,9 @@ void App::FlushSave() {
 void App::SaveNow() {
     DWORD error = 0;
     // A failed save keeps the config in memory; the next change saves again (and Retry does now).
-    saveError_ = config_.Save(&error) ? 0 : (error ? error : static_cast<DWORD>(ERROR_GEN_FAILURE));
+    // Round 25 phase 25B: WriteConfig, not Config::Save (after a malformed start without its copy
+    // nothing is written over the file: a failed save the bar explains, Retry tries the copy again).
+    saveError_ = WriteConfig(&error) ? 0 : (error ? error : static_cast<DWORD>(ERROR_GEN_FAILURE));
     if (saveError_) {
         wchar_t buf[96];
         swprintf_s(buf, L"WinDock: saving config.json failed (error %lu)\n", saveError_);
@@ -490,6 +1056,7 @@ int App::BarKind() const {
 }
 
 std::wstring App::SaveErrorText() const {
+    if (saveBlocked_) return L"config.json could not be read or copied, so it is not overwritten";  // round 25 phase 25B
     switch (saveError_) {
         case ERROR_ACCESS_DENIED:
         case ERROR_SHARING_VIOLATION:
@@ -614,6 +1181,7 @@ bool App::ApplySnapshot(const std::wstring& state) {
     if (state.empty() || fresh.LoadJson(state) != Config::LoadResult::Ok) return false;
     for (int k = 0; k < SettingsUiConfig::kKinds; ++k) fresh.settings.windows[k] = config_.settings.windows[k];
     fresh.settings.tipsShown = config_.settings.tipsShown;  // round 12 phase 12G: UI state, not in the snapshot
+    fresh.widgetConsent = config_.widgetConsent;  // round 25 phase 25D: undo never grants or revokes a permission
     // As Reload config, but the taskbar and the Run key only when the snapshot changes them (a
     // "Show Windows taskbar temporarily" of this session stays).
     const bool taskbar = fresh.hideTaskbar != config_.hideTaskbar;
@@ -1480,6 +2048,17 @@ void App::RunItemCommand(DockWindow& dock, UINT cmd, const AppKey& key, const st
         case ContextMenu::kReloadWidget:
             dock.ReloadWidget(IndexOfKey(dock, key));
             return;
+        case ContextMenu::kReviewConsent: {
+            // Round 25 phase 25D: the slot's widget's consent dialog (posted: after the menu).
+            const int index = IndexOfKey(dock, key);
+            const size_t cfg = dock.ConfigIndex();
+            if (index < 0 || cfg >= config_.docks.size()) return;
+            const size_t element = dock.Items()[static_cast<size_t>(index)].element;
+            if (element < config_.docks[cfg].items.size() && config_.docks[cfg].items[element].Kind() == ItemKind::Widget) {
+                docks_.Widgets().RequestConsent(config_.docks[cfg].items[element].id);
+            }
+            return;
+        }
         case ContextMenu::kOpenItemSettings: {
             // The item's own settings window (the slot's config item).
             const int index = IndexOfKey(dock, key);
@@ -1599,6 +2178,7 @@ void App::Shutdown() {
     taskbar_.SetReservedMonitors(nullptr, 0);
     taskbar_.Restore();
     RemoveTrayIcon();
+    UnregisterSessionWatch();  // round 26 phase 26A
     docks_.Shutdown();
     if (trayIcon_) {
         DestroyIcon(trayIcon_);
@@ -1626,7 +2206,7 @@ void App::AddTrayIcon() {
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
     nid.uCallbackMessage = kTrayCallback;
     nid.hIcon = trayIcon_ ? trayIcon_ : LoadIconW(nullptr, IDI_APPLICATION);
-    wcscpy_s(nid.szTip, L"WinDock");
+    wcscpy_s(nid.szTip, L"ViberDock");
     trayAdded_ = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
     if (trayAdded_) {
         nid.uVersion = NOTIFYICON_VERSION_4;
@@ -1742,8 +2322,10 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
     itemState.kind = item.kind;
     itemState.pinned = item.pinned;
     if (item.kind == DockItem::Kind::RecycleBin) {
-        SHQUERYRBINFO info{sizeof(info)};
-        itemState.binEmpty = SUCCEEDED(SHQueryRecycleBinW(nullptr, &info)) && info.i64NumItems == 0;
+        // Round 26 phase 26B: the dock's cached count (re-read after the bin watch's next change)
+        // instead of SHQueryRecycleBinW over every drive on each right-click.
+        SHQUERYRBINFO info{};
+        itemState.binEmpty = dock.RecycleBinInfo(info) && info.i64NumItems == 0;
     }
     if (item.pinned) {
         // Reset icon follows the config entry, so an `icon` whose file is gone can be cleared too.
@@ -1772,7 +2354,14 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
                 break;
             case ItemKind::Tray: widgetName = L"Tray"; break;
             case ItemKind::Notifications: widgetName = L"Notification centre"; break;  // settings: App settings > Notifications
-            case ItemKind::Widget: widgetName = Widgets::DisplayName(e.id); break;
+            case ItemKind::Widget: {
+                widgetName = Widgets::DisplayName(e.id);
+                // Round 25 phase 25D: waiting for consent: "Review permissions…" first.
+                const int consent = WidgetConsentState(e.id);
+                itemState.needsConsent = consent == static_cast<int>(Widgets::ConsentState::Missing) ||
+                                         consent == static_cast<int>(Widgets::ConsentState::More);
+                break;
+            }
             default: break;
         }
         itemState.hasSettings = !widgetName.empty();
@@ -2227,8 +2816,77 @@ void App::SetAutoHide(size_t cfg, AutoHideMode mode) {
     RequestSave();
 }
 
-void App::ScheduleDisplaySync() {
+// --- round 26 phase 26A: the session paused --------------------------------------------------------
+// Before this round nothing noticed a locked session or a display that went off: notification polls
+// every 2 - 5 s, the perf sampler, snapshot thumbnails, per-second clocks and widget refresh ticks
+// all kept running for a screen nobody could see. Now the app window hears the session's lock /
+// unlock and console / remote (dis)connects (WM_WTSSESSION_CHANGE) and the console display's state
+// (GUID_CONSOLE_DISPLAY_STATE through WM_POWERBROADCAST), and DockManager treats any of them like
+// every dock being hidden. "Dimmed" (2) counts as on: the screen can still be read. Registering
+// for the display state sends its current value at once, so a start with the display off is
+// covered; a start inside a locked session is not (the Run key starts the dock after logon).
+
+void App::RegisterSessionWatch() {
+    if (!hwnd_) return;
+    if (!wtsRegistered_) wtsRegistered_ = WTSRegisterSessionNotification(hwnd_, NOTIFY_FOR_THIS_SESSION) != FALSE;
+    if (!wtsRegistered_) OutputDebugStringW(L"WinDock: WTSRegisterSessionNotification failed\n");
+    if (!displayNotify_) {
+        displayNotify_ = RegisterPowerSettingNotification(hwnd_, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
+        if (!displayNotify_) OutputDebugStringW(L"WinDock: RegisterPowerSettingNotification failed\n");
+    }
+}
+
+void App::UnregisterSessionWatch() {
+    if (wtsRegistered_ && hwnd_) WTSUnRegisterSessionNotification(hwnd_);
+    wtsRegistered_ = false;
+    if (displayNotify_) UnregisterPowerSettingNotification(displayNotify_);
+    displayNotify_ = nullptr;
+}
+
+void App::OnSessionChange(WPARAM code) {
+    int bits = pausedBits_;
+    switch (code) {
+        case WTS_SESSION_LOCK: bits |= DockManager::kPausedLocked; break;
+        case WTS_SESSION_UNLOCK:
+        case WTS_SESSION_LOGON: bits &= ~DockManager::kPausedLocked; break;
+        case WTS_CONSOLE_DISCONNECT:
+        case WTS_REMOTE_DISCONNECT: bits |= DockManager::kPausedDisconnected; break;
+        case WTS_CONSOLE_CONNECT:
+        case WTS_REMOTE_CONNECT: bits &= ~DockManager::kPausedDisconnected; break;
+        default: return;
+    }
+    if (bits == pausedBits_) return;
+    pausedBits_ = bits;
+    docks_.SetSessionPaused(bits);
+}
+
+void App::OnDisplayState(DWORD state) {
+    const int bits = state == 0 ? pausedBits_ | DockManager::kPausedDisplayOff : pausedBits_ & ~DockManager::kPausedDisplayOff;
+    if (bits == pausedBits_) return;
+    pausedBits_ = bits;
+    docks_.SetSessionPaused(bits);
+}
+
+// Follow-up: the pause clears on an unlock / display-on notification; were one ever missed (an RDP
+// reconnect that sends no unlock, a driver that never reports the display back on), the dock would
+// stay paused. A real mouse message on one of our windows (DockShared::RealPointerInput: from a
+// device or SendInput, not a system-made WM_MOUSEMOVE) means a user is there and can see the
+// screen: every bit goes as if each event had come. No timer and no polling: it costs a flag test
+// per mouse message while not paused. A locked session's windows get no input (the lock screen is
+// another desktop), so this cannot end a real lock early.
+void App::OnUserPresent() {
+    if (pausedBits_ == 0) return;
+    OutputDebugStringW(L"WinDock: pointer input while paused: resuming\n");
+    pausedBits_ = 0;
+    docks_.SetSessionPaused(0);
+}
+
+void App::ScheduleDisplaySync(bool deviceNodes) {
+    // Round 26 phase 26C (B7): only device-node events alone may be skipped (kDisplaySync compares);
+    // anything else pending makes it a full Sync as before.
+    if (!deviceNodes) syncDeviceOnly_ = false;
     if (syncPending_ || !hwnd_) return;
+    if (deviceNodes) syncDeviceOnly_ = true;
     syncPending_ = true;
     PostMessageW(hwnd_, kDisplaySync, 0, 0);
 }
@@ -2243,21 +2901,25 @@ void App::SyncDocks() {
     PlaceTip();  // round 12 phase 12G: the first dock may be on another display now
 }
 
-void App::ReloadConfig() {
+bool App::ReloadConfig() {
     if (modalDepth_ > 0) {
         MessageBeep(MB_ICONWARNING);  // a menu or dialog of a dock is open: its dock must stay
-        return;
+        return false;
     }
     Config fresh;
     const Config::LoadResult result = fresh.LoadFile();
     if (result == Config::LoadResult::Malformed) {
         // Keep running with the current settings; the user can fix the file and reload again.
         MessageBeep(MB_ICONWARNING);
-        return;
+        return false;
     }
     if (result == Config::LoadResult::Missing) {
         SaveNow();  // the file was deleted: write the current settings back
-        return;
+        return false;
+    }
+    if (saveBlocked_) {
+        saveBlocked_ = false;  // round 25 phase 25B: the file reads again; saving over it is fine
+        saveError_ = 0;        // the refused save's bar goes (what is in memory now is the file)
     }
     // Round 12 phase 12A: what came before is an entry of its own; a preview open now ends (the
     // file never had it: the reload is its Cancel).
@@ -2276,6 +2938,7 @@ void App::ReloadConfig() {
     fresh.renderer = config_.renderer;  // the device type is chosen at startup only
     config_ = std::move(fresh);
     if (config_.migrated) RequestSave();  // a legacy file was loaded: rewrite it as docks[]
+    ProtectWidgetSecrets();  // round 29 phase 29C: a secret typed into the file by hand
     if (config_.Main().AutoHideOn()) lastOnMode_ = config_.Main().autoHide;
     // Unknown preset or broken theme file: the dock uses dark (the config itself still applies).
     if (config_.themeResolveFailed) MessageBeep(MB_ICONWARNING);
@@ -2288,11 +2951,13 @@ void App::ReloadConfig() {
     if (taskbar_.Enabled() != config_.hideTaskbar) SetTaskbarEnabled(config_.hideTaskbar);
     if (AutostartEnabled() != config_.startWithWindows) SetAutostart(config_.startWithWindows);
     ApplyHotkey();  // a new dashboard hotkey (or a retry of one another app held)
+    docks_.Widgets().ConsentChanged(L"");  // round 25 phase 25D: the file's widgetConsent may differ
     RefreshSettings();
     // Round 12 phase 12A: the file's state is one entry (Undo goes back to what was in memory).
     pendingLabel_ = L"Reloaded config.json";
     CommitTimeline(false);
     UpdateTimelineUi();
+    return true;
 }
 
 void App::RefreshSettings(SettingsWindow* except) {
@@ -2709,6 +3374,15 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
     };
     host.hotkeyRegistered = [this] { return hotkeyRegistered_; };
     host.addWidgetWindow = [this](const std::wstring& id, size_t nearDock, bool open) { return AddWidgetWindow(id, nearDock, open); };
+    host.widgetConsent = [this, w](const std::wstring& id, bool offer) {  // round 25 phase 25D
+        const HWND owner = w->Hwnd();
+        return offer ? OfferWidgetConsent(id, owner) : ReviewWidgetConsent(id, owner);
+    };
+    host.uninstallWidget = [this, w](const std::wstring& id) { return UninstallWidget(id, w->Hwnd()); };  // round 29 phase 29B
+    host.widgetInstalled = [this, w](const std::wstring& id) { WidgetInstalled(id, w->Hwnd()); };
+    host.hostConsent = [this, w](size_t dock, size_t item, const std::wstring& key, const std::wstring& url) {  // round 29 phase 29C
+        return ReviewHostConsent(dock, item, key, url, w->Hwnd());
+    };
     host.dashboardOn = [this] { return docks_.Dashboard(); };
     host.calendarFeeds = [this] {
         std::vector<SettingsCalendarFeed> feeds;
@@ -3670,6 +4344,13 @@ void App::ShowWidgetMenu(size_t cfg, POINT pt) {
     // The automation ids double as the menu's (README "Standalone widgets").
     HMENU menu = CreatePopupMenu();
     if (!menu) return;
+    // Round 25 phase 25D: a widget waiting for consent: the way to the dialog first.
+    const std::wstring widgetId = item ? item->id : std::wstring();
+    const int consent = item ? WidgetConsentState(widgetId) : -1;
+    if (consent == static_cast<int>(Widgets::ConsentState::Missing) || consent == static_cast<int>(Widgets::ConsentState::More)) {
+        AppendMenuW(menu, MF_STRING, ContextMenu::kReviewConsent, L"Review permissions…");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+    }
     AppendMenuW(menu, MF_STRING, ContextMenu::kOpenItemSettings, (name + L" settings…").c_str());
     AppendMenuW(menu, MF_STRING, ContextMenu::kDockSettings, L"Window settings…");
     AppendMenuW(menu, MF_STRING | (locked ? MF_CHECKED : 0), ContextMenu::kWidgetToggleLock, locked ? L"Unlock" : L"Lock");
@@ -3706,7 +4387,9 @@ void App::ShowWidgetMenu(size_t cfg, POINT pt) {
     // The entries may have changed while the menu was open: the same entry by id.
     const size_t now = DockIndexOf(id);
     if (now == SIZE_MAX || !config_.docks[now].IsWidgetWindow()) return;
-    if (cmd == ContextMenu::kDockSettings) {
+    if (cmd == ContextMenu::kReviewConsent) {
+        docks_.Widgets().RequestConsent(widgetId);  // round 25 phase 25D (posted)
+    } else if (cmd == ContextMenu::kDockSettings) {
         OpenDockSettings(now, SettingsIds::kTabWidgetWindow);  // round 8 phase 8C: its Window tab
     } else if (cmd == ContextMenu::kOpenSettings) {
         OpenSettings();
@@ -3758,6 +4441,7 @@ LRESULT App::WidgetEntryCommand(UINT cmd, size_t cfg, size_t arg) {
 
 void App::OnSettingsChanged(SettingsScope scope, size_t cfg, SettingsWindow* source) {
     if (shutDown_) return;
+    if (Secrets::TakeFailureNotice() && hwnd_) PostMessageW(hwnd_, kSecretNotice, 0, 0);  // round 29 phase 29C
     if (scope == SettingsScope::WindowSize) {
         RequestSave();  // round 8 phase 8A: config.settings.windows; nothing else changes
         return;
@@ -4203,6 +4887,48 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             if (!w || !w->Hwnd() || !w->QueryPages(337, arg, out)) out = -2;
             return out;
         }
+        case 358:  // round 26 phase 26A (app-wide): the session paused: 0 in use; 1 locked, + 2 the display off, + 4 disconnected
+            return docks_.SessionPausedBits();
+        case 365:  // round 26 phase 26C (app-wide): device-node events that found the monitors unchanged (no Sync)
+            return static_cast<LRESULT>(deviceSyncsSkipped_);
+        case 367:  // round 27 phase 27B (app-wide): the network provider runs: 0 no, 1 yes, 3 yes and quiet
+            return docks_.Widgets().Network().Active() ? (docks_.Widgets().Network().Quiet() ? 3 : 1) : 0;
+        case 368:  // round 27 phase 27B (app-wide): widgets using the network provider
+            return static_cast<LRESULT>(docks_.Widgets().NetworkUsers());
+        case 369:  // round 27 phase 27C (app-wide): the input provider runs: 0 no, 1 yes, 3 yes and quiet
+            return docks_.Widgets().Input().Active() ? (docks_.Widgets().Input().Quiet() ? 3 : 1) : 0;
+        case 370:  // round 27 phase 27C (app-wide): widgets using the input provider
+            return static_cast<LRESULT>(docks_.Widgets().InputUsers());
+        case 356:  // round 25 phase 25B (app-wide): 0 a normal start; 1 started from a malformed config.json, + 2 its copy was made, + 4 saving is blocked now
+            if (!startedMalformed_) return 0;
+            return 1 | (badCopyMade_ ? 2 : 0) | (saveBlocked_ ? 4 : 0);
+        case 357: {
+            // Round 25 phase 25D (app-wide): the consent state of the widget whose id is in the
+            // global atom LOWORD(lParam): 0 needs none (built-in, or a folder asking for nothing and
+            // replacing nothing), 1 allowed, 2 never allowed / revoked, 3 asks for more than allowed;
+            // -1 not installed (or no atom).
+            wchar_t buf[256]{};
+            return GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf))) ? WidgetConsentState(buf) : -1;
+        }
+        case 374: {
+            // Round 29 phase 29B (app-wide): the uses of the widget whose id is in the global atom
+            // LOWORD(lParam): MAKELONG(dock items, standalone widgets); -1 no atom.
+            wchar_t buf[256]{};
+            if (!GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf)))) return -1;
+            size_t items = 0, docks = 0, standalone = 0;
+            WidgetUses(buf, items, docks, standalone);
+            return MAKELONG(static_cast<WORD>(std::min<size_t>(items, 0xFFFF)), static_cast<WORD>(std::min<size_t>(standalone, 0xFFFF)));
+        }
+        case 375:  // round 29 phase 29B (app-wide): the last Uninstall: 0 none, 1 removed, 2 refused, 3 cancelled, 4 failed
+            return lastUninstall_;
+        case 379:  // round 29 phase 29C (app-wide): the last host prompt: 0 none, 1 allowed now, 2 allowed before, 3 refused / not asked
+            return lastHostConsent_;
+        case 376: {  // round 29 phase 29B: Global > Widget library's zip install: 0 none, 1 running, 2 installed, 3 refused, 4 not replaced; -2 no Global window
+            SettingsWindow* w = FindSettings(SettingsKind::Global);
+            LRESULT out = -2;
+            if (w && !w->QueryPages(376, arg, out)) out = -2;
+            return out;
+        }
         default:
             break;
     }
@@ -4351,6 +5077,46 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
                      : 0;
         if (!result) OutputDebugStringW((L"WinDock: install widget folder: " + error + L"\n").c_str());
         if (result) RefreshSettings();
+        // Round 25 phase 25D: no consent dialog here (automation must never get a modal): a widget
+        // that needs one stays unallowed ("Needs permission") until DockCommand 188 or the UI.
+        return true;
+    }
+    if (msg == msgDockCommand_ && (wp == ContextMenu::kInstallWidgetZip || wp == ContextMenu::kUninstallWidget)) {
+        // Round 29 phase 29B: the path / the id in the global atom LOWORD(lParam).
+        wchar_t buf[512]{};
+        result = 0;
+        if (GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf)))) {
+            if (wp == ContextMenu::kUninstallWidget) {
+                result = UninstallWidget(buf, nullptr, false, false) ? 1 : 0;
+            } else {
+                Widgets::ZipInstall job;
+                job.zipPath = buf;
+                Widgets::PrepareZipInstall(job);
+                std::wstring error = job.error;
+                if (job.ok && !Widgets::InstalledFolderExists(job.id) && Widgets::CommitZipInstall(job, false, nullptr, error)) {
+                    if (config_.widgetConsent.erase(job.id)) RequestSave();
+                    docks_.Widgets().ReloadAll();
+                    InvalidatePreviews();
+                    RefreshSettings();
+                    result = 1;
+                } else {
+                    Widgets::DiscardZipInstall(job);
+                    if (job.ok && error.empty()) error = L"a widget \"" + job.id + L"\" is installed already";
+                    OutputDebugStringW((L"WinDock: install widget zip: " + error + L"\n").c_str());
+                }
+            }
+        }
+        return true;
+    }
+    if (msg == msgDockCommand_ && (wp == ContextMenu::kGrantWidgetConsent || wp == ContextMenu::kRevokeWidgetConsent)) {
+        // Round 25 phase 25D: widget id in the global atom LOWORD(lParam); grant (its manifest's
+        // current permissions) / revoke without the dialog. 1 done, 0 refused (no atom, an invalid id,
+        // a grant for a widget that is not installed).
+        wchar_t buf[256]{};
+        result = GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf))) &&
+                         SetWidgetConsent(buf, wp == ContextMenu::kGrantWidgetConsent)
+                     ? 1
+                     : 0;
         return true;
     }
     if (msg == msgDockCommand_ && wp == ContextMenu::kItemSettings) {
@@ -4908,6 +5674,23 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
         OpenQuickSetup(firstRun_);  // round 12 phase 12G: the first run's variant once
         return 0;
     }
+    if (msg == kMalformedNotice) {  // round 25 phase 25B
+        ShowMalformedNotice();
+        return 0;
+    }
+    if (msg == kSecretNotice) {  // round 29 phase 29C: once a session
+        MessageBoxW(nullptr,
+                    L"Windows could not protect a widget's secret setting (an API key or a password), so it was not saved. "
+                    L"The widget keeps working without it; enter it again later. ViberDock never writes such a value to its "
+                    L"settings file in plain text.",
+                    L"ViberDock", MB_ICONWARNING | MB_OK);
+        return 0;
+    }
+    if (msg == kUserPresentMessage) {  // round 26 phase 26A follow-up (coalesced)
+        userPresentPosted_ = false;
+        OnUserPresent();
+        return 0;
+    }
     if (msg == kPanelAnchorMoved) {  // round 12 phase 12I: a folder window / standalone widget moved (coalesced)
         panelAnchorPending_ = false;
         ReanchorPanels(nullptr, true, true);
@@ -4942,6 +5725,18 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == kDisplaySync) {
         if (modalDepth_ > 0) return 0;  // EndModal posts it again
         syncPending_ = false;
+        // Round 26 phase 26C (B7): WM_DEVICECHANGE(DBT_DEVNODES_CHANGED) comes for every USB /
+        // Bluetooth device plugged or removed, and each ran the whole SyncDocks (every folder and
+        // widget window's ApplyConfig, weather, notifications, the panels, the settings). It is
+        // there for displays (round 3a: "a display may have been (dis)connected"; no case was
+        // recorded where WM_DISPLAYCHANGE did not come too), so a device-node event alone syncs
+        // only when the monitors (handles, rects, DPI) differ from what the last Sync saw.
+        const bool deviceOnly = syncDeviceOnly_;
+        syncDeviceOnly_ = false;
+        if (deviceOnly && !docks_.MonitorsChanged()) {
+            ++deviceSyncsSkipped_;
+            return 0;
+        }
         SyncDocks();
         RefreshSettings();  // the Docks page's parked states, the display lists
         return 0;
@@ -5049,7 +5844,21 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
             ScheduleDisplaySync();  // monitors came, went or changed: park / unpark / re-point docks
             return 0;
         case WM_DEVICECHANGE:
-            if (wp == DBT_DEVNODES_CHANGED) ScheduleDisplaySync();  // a display may have been (dis)connected
+            if (wp == DBT_DEVNODES_CHANGED) ScheduleDisplaySync(true);  // a display may have been (dis)connected
+            return TRUE;
+        case WM_WTSSESSION_CHANGE:  // round 26 phase 26A
+            OnSessionChange(wp);
+            return 0;
+        case WM_POWERBROADCAST:
+            // Round 26 phase 26A: the console display's state (0 off, 1 on, 2 dimmed).
+            if (wp == PBT_POWERSETTINGCHANGE && lp) {
+                const auto* s = reinterpret_cast<const POWERBROADCAST_SETTING*>(lp);
+                if (IsEqualGUID(s->PowerSetting, GUID_CONSOLE_DISPLAY_STATE) && s->DataLength >= sizeof(DWORD)) {
+                    DWORD state = 0;
+                    memcpy(&state, s->Data, sizeof(state));
+                    OnDisplayState(state);
+                }
+            }
             return TRUE;
         case WM_DESTROY:
             PostQuitMessage(0);
@@ -5247,12 +6056,23 @@ void App::PlaceDrawer() {
     if (!drawerReady_) {
         drawerReady_ = true;
         DrawerPopup::Callbacks cb;
-        cb.add = [this](int ref) { AddDrawerEntry(ref, SIZE_MAX); };
+        cb.add = [this](int ref) {
+            // Round 25 phase 25D: a widget folder that needs consent asks right after (posted; the
+            // drawer's own automation, ItemCommand 863 / 864, never does).
+            const StripUi::DrawerEntry* e = drawerPopup_.Entry(ref);
+            const std::wstring id = e && e->kind == ItemKind::Widget ? e->id : std::wstring();
+            if (AddDrawerEntry(ref, SIZE_MAX) && !id.empty()) OfferWidgetConsent(id, nullptr, true);
+        };
         cb.desktop = [this](int ref) {
             const StripUi::DrawerEntry* e = drawerPopup_.Entry(ref);
             if (!e || e->kind != ItemKind::Widget || !editDock_) return;
+            const std::wstring id = e->id;
             NoteLabel(L"Added " + e->name + L" to the desktop");
-            if (AddWidgetWindow(e->id, editDock_->ConfigIndex(), false) == SIZE_MAX) MessageBeep(MB_ICONWARNING);
+            if (AddWidgetWindow(id, editDock_->ConfigIndex(), false) == SIZE_MAX) {
+                MessageBeep(MB_ICONWARNING);
+            } else {
+                OfferWidgetConsent(id, nullptr, true);  // round 25 phase 25D
+            }
         };
         cb.drag = [this](int phase, POINT screen, int ref) {
             if (phase == 1 || !editDock_ || editDock_->ConfigIndex() >= config_.docks.size()) return DrawerDrag(1, screen, nullptr);
@@ -5286,7 +6106,12 @@ void App::OpenWidgetPicker(HWND owner, const RECT& anchor, UINT dpi) {
     if (!widgetPickerReady_) {
         widgetPickerReady_ = true;
         DrawerPopup::Callbacks cb;
-        cb.add = [this](int ref) { PickerAdd(ref); };
+        cb.add = [this](int ref) {
+            // Round 25 phase 25D: the click (not DockCommand 869) asks for a needed consent after.
+            const StripUi::DrawerEntry* e = widgetPicker_.Entry(ref);
+            const std::wstring id = e && e->kind == ItemKind::Widget ? e->id : std::wstring();
+            if (PickerAdd(ref) && !id.empty()) OfferWidgetConsent(id, nullptr, true);
+        };
         // (No `desktop`: the picker's tiles have no monitor button; a click is the desktop.)
         cb.drag = [this](int phase, POINT screen, int ref) {
             if (phase == 1) return DrawerDrag(1, screen, nullptr);
@@ -5473,7 +6298,10 @@ int App::DrawerDrag(int phase, POINT screen, const DockItemEntry* entry) {
         }
         const size_t at = under->ExternalItemDrop(screen);
         dragDock_ = nullptr;
-        return at != SIZE_MAX && InsertDockEntry(under->ConfigIndex(), *entry, at) ? 1 : 0;
+        const bool added = at != SIZE_MAX && InsertDockEntry(under->ConfigIndex(), *entry, at);
+        // Round 25 phase 25D: a dropped widget folder that needs consent asks after the drop.
+        if (added && entry->Kind() == ItemKind::Widget) OfferWidgetConsent(entry->id, nullptr, true);
+        return added ? 1 : 0;
     }
     // Outside every dock and every window of WinDock (the desktop, as the old "Desktop" button): a
     // script widget becomes a standalone widget centred on the point.
@@ -5493,7 +6321,10 @@ int App::DrawerDrag(int phase, POINT screen, const DockItemEntry* entry) {
     if (phase != 0) drawerStandaloneId_.clear();
     const bool desktop = standalone && root && pid != GetCurrentProcessId();
     if (phase == 0 || !desktop) return desktop ? 2 : 0;
-    return AddWidgetWindowAt(entry->id, screen) != SIZE_MAX ? 1 : 0;
+    const std::wstring id = entry->id;
+    if (AddWidgetWindowAt(id, screen) == SIZE_MAX) return 0;
+    OfferWidgetConsent(id, nullptr, true);  // round 25 phase 25D (posted)
+    return 1;
 }
 
 size_t App::AddWidgetWindowAt(const std::wstring& id, POINT screen) {

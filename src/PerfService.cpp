@@ -25,6 +25,7 @@
 #include <type_traits>
 
 #include "JsonUtil.h"
+#include "Crash.h"
 
 namespace {
 
@@ -935,7 +936,8 @@ struct PerfService::Shared {
     uint64_t generation = 0;
     std::atomic<uint32_t> interval{kDefaultInterval};
     std::atomic<bool> stop{false};
-    HANDLE wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);  // auto reset: stop, or the interval changed
+    std::atomic<bool> paused{false};  // round 26 phase 26A: the session is locked / the display off
+    HANDLE wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);  // auto reset: stop, the interval changed, paused / resumed
     ~Shared() {
         if (wake) CloseHandle(wake);
     }
@@ -948,6 +950,7 @@ bool PerfService::Start(HWND owner) {
     shared->owner = owner;
     shared->generation = ++generation_;
     shared->interval = interval_;
+    shared->paused = paused_;
     auto* param = new std::shared_ptr<Shared>(shared);
     HANDLE t = CreateThread(nullptr, 256 * 1024, &PerfService::ThreadMain, param, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (!t) {
@@ -999,7 +1002,21 @@ void PerfService::SetInterval(uint32_t ms) {
     }
 }
 
+void PerfService::SetPaused(bool paused) {
+    paused_ = paused;
+    if (shared_ && shared_->paused.exchange(paused) != paused) SetEvent(shared_->wake);
+}
+
+// Round 25 phase 25E: an exception escaping the thread's body ends this service's thread (the
+// service stops delivering; the dock keeps running) instead of std::terminate ending the process
+// with the taskbar hidden (Crash.h).
 DWORD WINAPI PerfService::ThreadMain(void* param) {
+    DWORD rc = 1;
+    Crash::Job(L"perf service", [&] { rc = ThreadBody(param); }, [] {});
+    return rc;
+}
+
+DWORD PerfService::ThreadBody(void* param) {
     std::shared_ptr<Shared> s = std::move(*static_cast<std::shared_ptr<Shared>*>(param));
     delete static_cast<std::shared_ptr<Shared>*>(param);
     Sampler sampler;
@@ -1012,6 +1029,20 @@ DWORD WINAPI PerfService::ThreadMain(void* param) {
     double last = QpcMs();
     double next = last + std::min<uint32_t>(s->interval, 500);
     while (!s->stop) {
+        // Round 26 phase 26A: the session is locked or the display off: no samples (and no posts
+        // to the UI thread) until resumed; the history rings are kept, the first sample after the
+        // resume comes at once. Stopping the service as when nobody uses it would empty every
+        // graph of the system monitors.
+        if (s->paused) {
+            WaitForSingleObject(s->wake, INFINITE);
+            if (s->stop) break;
+            if (!s->paused) {
+                sampler.Prime();  // the deltas (CPU, network rates) start over from now
+                last = QpcMs();
+                next = last + std::min<uint32_t>(s->interval, 500);
+            }
+            continue;
+        }
         const double now = QpcMs();
         if (now < next) {
             WaitForSingleObject(s->wake, static_cast<DWORD>(std::ceil(next - now)));
@@ -1180,6 +1211,49 @@ void PerfService::Series(const std::string& key, size_t n, std::vector<double>& 
     const size_t count = std::min({n, head_, kHistory});
     out.reserve(count);
     for (size_t i = 0; i < count; ++i) out.push_back(ring[(head_ - count + i) % kHistory]);
+}
+
+// Round 28 phase 28A: perf.drives(). Read on the UI thread when a script asks, at most every
+// kDrivesCacheMs (the answer is cached for the process): the fixed drives only. GetDriveTypeW is a
+// mount-manager query that touches no media; DRIVE_REMOTE (mapped shares, which can hang on a
+// dead server), DRIVE_REMOVABLE / CDROM (an empty reader can block or ask for a disc) and RAM disks
+// are never asked for their space. Critical-error boxes are off for the calls (a locked BitLocker
+// volume fails quietly: it is listed with `ready` false).
+std::string PerfService::DrivesJson() {
+    static double at = -1e12;
+    static std::string cached;
+    const double now = QpcMs();
+    if (now - at < kDrivesCacheMs && !cached.empty()) return cached;
+    DWORD oldMode = 0;
+    SetThreadErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX, &oldMode);
+    std::string out = "[";
+    bool first = true;
+    const DWORD mask = GetLogicalDrives();
+    for (int i = 0; i < 26; ++i) {
+        if (!(mask & (1u << i))) continue;
+        const wchar_t root[4] = {static_cast<wchar_t>(L'A' + i), L':', L'\\', 0};
+        if (GetDriveTypeW(root) != DRIVE_FIXED) continue;
+        ULARGE_INTEGER freeToCaller{}, total{}, freeTotal{};
+        const bool ready = GetDiskFreeSpaceExW(root, &freeToCaller, &total, &freeTotal) != FALSE;
+        wchar_t label[MAX_PATH + 1]{};
+        if (ready && !GetVolumeInformationW(root, label, MAX_PATH + 1, nullptr, nullptr, nullptr, nullptr, 0)) label[0] = 0;
+        const std::wstring name(root, 2);
+        out += first ? "{" : ",{";
+        first = false;
+        out += "\"drive\":" + Quoted(name) + ",\"label\":" + Quoted(label) + ",\"ready\":" + (ready ? "true" : "false");
+        if (ready) {
+            // `free`: what this user may still write (quotas); `total` the volume's size.
+            const unsigned long long t = total.QuadPart, f = freeToCaller.QuadPart;
+            out += ",\"total\":" + std::to_string(t) + ",\"free\":" + std::to_string(f) +
+                   ",\"used\":" + std::to_string(t > freeTotal.QuadPart ? t - freeTotal.QuadPart : 0ull);
+        }
+        out += "}";
+    }
+    out += "]";
+    SetThreadErrorMode(oldMode, nullptr);
+    cached = out;
+    at = now;
+    return cached;
 }
 
 std::vector<PerfService::Metric> PerfService::ListOnce() {

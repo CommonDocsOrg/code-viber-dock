@@ -1,18 +1,20 @@
 # Quick start
 
-This page gets you going in about five minutes. It shows you how to start WinDock, what is on the screen, how to pin an app, how to change the dock right where it is, and how to quit and get the Windows taskbar back.
+This page gets you going in about five minutes. It shows you how to start ViberDock, what is on the screen, how to pin an app, how to change the dock right where it is, and how to quit and get the Windows taskbar back.
 
-## Start WinDock
+## Start ViberDock
 
-To start WinDock:
+To start ViberDock:
 
-1. Open the folder that holds `WinDock.exe`.
-2. Double-click `WinDock.exe`.
+1. Open the Start menu and click **ViberDock** (the installer puts it there; it may already be running if you left **Start ViberDock now** checked at the end of the setup).
+2. If you use the program without the installer, double-click `WinDock.exe` in its folder instead.
 3. On the very first start, **Quick setup** opens. Go through its four steps, or click **Cancel** to keep the basic dock. See [Quick setup](#quick-setup).
 
-Only one copy of WinDock runs at a time. Starting it again does nothing harmful.
+Only one copy of ViberDock runs at a time. Starting it again does nothing harmful.
 
-You can also start and control WinDock from a command prompt:
+Some names still say WinDock: the program file is `WinDock.exe` (that is also the name Task Manager's Details tab shows), and your settings live in `%LocalAppData%\WinDock`. They kept the old name so that existing settings and the Start with Windows entry keep working.
+
+You can also start and control ViberDock from a command prompt. The installer puts `WinDock.exe` in `C:\Program Files\ViberDock`; run the commands there (or in the folder that holds `WinDock.exe` if you did not use the installer):
 
 ```
 WinDock.exe                     start the dock
@@ -39,7 +41,7 @@ To run Quick setup again, right-click the dock, open **App** and choose **Quick 
 
 ## What you see
 
-WinDock shows a dock: a see-through bar at the bottom of your screen. On it you find:
+ViberDock shows a dock: a see-through bar at the bottom of your screen. On it you find:
 
 - Your pinned apps, such as File Explorer.
 - The apps that are running but not pinned.
@@ -52,13 +54,13 @@ Move the mouse along the dock and the icons grow under the pointer. The app's na
 - Rest the mouse on an app with several windows to see a preview of each window.
 - Click the clock to open a month calendar.
 - Right-click an empty part of the dock for the dock menu. Right-click an item for that item's own menu; its **Dock** submenu holds the dock menu.
-- Right-click the WinDock icon in the notification area for the app menu: **App settings…**, your docks' settings, the taskbar and **Quit**.
+- Right-click the ViberDock icon in the notification area for the app menu: **App settings…**, your docks' settings, the taskbar and **Quit**.
 
 ## The taskbar
 
-While WinDock runs, it hides the Windows taskbar. The Start menu still opens with the Windows key (a Start widget on the dock opens it next to the button), and shortcuts such as Win+S (search) and Win+N (notifications) still work.
+While ViberDock runs, it hides the Windows taskbar. The Start menu still opens with the Windows key (a Start widget on the dock opens it next to the button), and shortcuts such as Win+S (search) and Win+N (notifications) still work.
 
-WinDock always gives the taskbar back when it quits. If it ever stays hidden, see [The taskbar is missing](troubleshooting.md#the-taskbar-is-missing).
+ViberDock always gives the taskbar back when it quits. If it ever stays hidden, see [The taskbar is missing](troubleshooting.md#the-taskbar-is-missing).
 
 If you want the taskbar and the dock at the same time, right-click the dock, open **App** and clear **Hide taskbar**.
 
@@ -140,7 +142,7 @@ Every change can be undone, wherever you made it: in a settings window, on the d
 - On the dock, right-click it: while there is something to undo, the first entry says what, for example **Undo “Icon size 48 → 64”**.
 - While customizing, click **Undo** on the small bar.
 
-The top of every settings window, and the small bar while customizing, says **✓ Saved** once your changes are on disk. WinDock remembers your last 50 changes until it quits. See [Undo and Saved](guide-settings.md#undo-and-saved).
+The top of every settings window, and the small bar while customizing, says **✓ Saved** once your changes are on disk. ViberDock remembers your last 50 changes until it quits. See [Undo and Saved](guide-settings.md#undo-and-saved).
 
 ## Add a widget
 
@@ -160,7 +162,7 @@ To change a widget's settings, right-click it on the dock and choose **Widget se
 
 ## Where your settings live
 
-WinDock keeps everything in one file:
+ViberDock keeps everything in one file:
 
 ```
 %LocalAppData%\WinDock\config.json
@@ -170,19 +172,21 @@ You do not need to edit it: every setting is in the settings windows. If you do 
 
 App settings > About shows the file's full path. Click the path to show the file in File Explorer.
 
-The same folder holds your own themes (`themes`), your saved layouts (`layouts`), widgets and clock faces. To back up WinDock, copy this folder.
+The same folder holds your own themes (`themes`), your saved layouts (`layouts`), widgets and clock faces. To back up ViberDock, copy this folder. ViberDock also keeps the last three versions of the settings file there by itself (`config.backup-1.json` is the newest); see [Automatic backups](troubleshooting.md#automatic-backups).
 
 ## Quit and get the taskbar back
 
-To quit WinDock, right-click the dock and choose **Quit**. The Windows taskbar comes back at once.
+To quit ViberDock, right-click the dock and choose **Quit**. The Windows taskbar comes back at once.
 
-To keep WinDock running but see the taskbar for a while, right-click the WinDock icon in the notification area and choose **Show Windows taskbar temporarily** (on the dock it is under **App**). The next time WinDock starts it hides the taskbar again.
+To keep ViberDock running but see the taskbar for a while, right-click the ViberDock icon in the notification area and choose **Show Windows taskbar temporarily** (on the dock it is under **App**). The next time ViberDock starts it hides the taskbar again.
 
-If the taskbar does not come back, run this from a command prompt in the WinDock folder:
+If the taskbar does not come back, open the Start menu and click **Restore Windows taskbar** (the installer adds it next to ViberDock). Without the installer, run this from a command prompt in the folder that holds `WinDock.exe`:
 
 ```
 WinDock.exe --restore-taskbar
 ```
+
+See [The taskbar is missing](troubleshooting.md#the-taskbar-is-missing) for more.
 
 ## Next steps
 

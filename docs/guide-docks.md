@@ -1,6 +1,6 @@
 # Docks and displays
 
-This guide is about the docks themselves: how many you have, where they sit, how you move them, how they hide, and the other things WinDock can put on your desktop: folder windows and standalone widgets. It ends with layouts and looks, ready-made docks and colours to start from.
+This guide is about the docks themselves: how many you have, where they sit, how you move them, how they hide, and the other things ViberDock can put on your desktop: folder windows and standalone widgets. It ends with layouts and looks, ready-made docks and colours to start from.
 
 ## One dock or several
 
@@ -89,7 +89,7 @@ You can also drag a dock to another place, edge or display on App settings > Doc
 
 ## Names and titles
 
-Every dock has a name, which is what you see in menus, in its panel's header, on Docks and displays and in the undo entries. A new dock's name is its id, such as "main" or "dock2". The id is what WinDock uses inside (and in `config.json`), so renaming a dock never breaks anything.
+Every dock has a name, which is what you see in menus, in its panel's header, on Docks and displays and in the undo entries. A new dock's name is its id, such as "main" or "dock2". The id is what ViberDock uses inside (and in `config.json`), so renaming a dock never breaks anything.
 
 To rename a dock:
 
@@ -181,7 +181,7 @@ You can also choose **All docks** > **Show dashboard** in the dock menu. To chan
 
 ## Full-screen apps and games
 
-A window placed above a full-screen game makes the game leave its full-screen mode. To prevent that, WinDock hides its docks while a full-screen app is in front.
+A window placed above a full-screen game makes the game leave its full-screen mode. To prevent that, ViberDock hides its docks while a full-screen app is in front.
 
 While a full-screen app (a game, a video, a presentation) is in front on a display, every dock, the tray dock and every standalone widget that sits above the windows on that display is hidden. They come back as they were when the app closes or another window comes to the front. Docks and widgets on the desktop layers and folder windows sit under the windows, so they stay.
 
@@ -264,7 +264,7 @@ At the right the chooser shows the chosen one's description, a small picture of 
 
 There are three ways to use a layout:
 
-- **Quick setup**: on the very first start, WinDock opens Quick setup. Its first step picks a layout for each of your docks; **Cancel** keeps the basic dock. To see it again, click **Run quick setup again** in App settings > About, or run `WinDock.exe --welcome`. See [Quick setup](quick-start.md#quick-setup).
+- **Quick setup**: on the very first start, ViberDock opens Quick setup. Its first step picks a layout for each of your docks; **Cancel** keeps the basic dock. To see it again, click **Run quick setup again** in App settings > About, or run `WinDock.exe --welcome`. See [Quick setup](quick-start.md#quick-setup).
 - **A new dock from a layout**: App settings > Docks and displays > **Add a dock**: click a layout's picture (your own are under **Mine**). Leave **Copy my pinned apps** checked to bring your pins along. Clicking another layout replaces the one you are trying. See [Add a dock](guide-settings.md#add-a-dock).
 - **Change a dock**: in the dock's settings panel, click **⋯** > **Apply a layout or look…**, pick one and click **Apply**.
 
@@ -289,9 +289,10 @@ The built-in layouts:
 - **Sidebar**: a bar along the whole left edge. Start and your apps from the top down, every window with a row of its own (no titles), and the volume and the clock in the bottom corner. It hides while a window covers it.
 - **Floating performance**: system load at the top right. A small floating bar with a processor graph, an overview of processor, memory, graphics, disk and network, the battery and a clock. It lives on the desktop under your windows and is locked so it does not move by accident.
 - **Desktop dashboard**: a floating bar in the middle of the desktop, under your windows, with a large analog clock, the weather, today's agenda and your notes. Show the desktop or press the dashboard hotkey to see it.
-- **Everyday taskbar**: a full-width bar with everything on it. A dark bar along the whole bottom edge that takes the place of the taskbar: the weather with a week of forecast at the left end; Start, your windows with their titles, your apps, the volume, now playing and a large clock in the middle; the system overview, the tray icons, notifications and Show desktop at the right end. It never hides, and maximized windows stop above it.
+- **Everyday taskbar**: a full-width bar with everything on it. A dark bar along the whole bottom edge that takes the place of the taskbar: the weather with a week of forecast at the left end; Start, your windows with their titles, your apps, the volume, now playing and a large clock in the middle; the system overview, the tray icons, the network, the keyboard language (when you have more than one), notifications and Show desktop at the right end. It never hides, and maximized windows stop above it.
+- **Top bar**: a slim menu bar along the whole top edge. Start and your running apps at the left; the clock with the weekday, the network, the volume, the battery (on a laptop) and the notification bell at the right. Icons stay small and do not grow. It never hides, and maximized windows start below it. Add a dock at the bottom for your pinned apps.
 
-Floating performance and Desktop dashboard have no place for your pinned apps; the chooser and the Add a dock card say so.
+Floating performance, Desktop dashboard and Top bar have no place for your pinned apps; the chooser and the Add a dock card say so.
 
 A layout that names a theme, such as Modern (Glass), Minimal (Solid) or Windows 7 (Aero glass), gives the dock that theme as its own look, unless you check **Keep my current look**.
 
@@ -333,7 +334,7 @@ What you get:
 Tuning it:
 
 - **The glass colour**: on the dock's Look tab, use **Tint** in Quick look, or open the **Bar** card and change **Acrylic tint** (the colour over the blur; its opacity sets how strong the colour is). **Background** is the colour used when transparency effects are off. **Sheen** sets how glossy the bar is. These change only this dock, because it has its own look (see [This dock's look](guide-settings.md#this-docks-look)).
-- **The orb**: open the Start item's settings (right-click it, then **Start settings…**). **Icon** switches between the orb, the Windows logo and your own image; **Icon size** 0 lets the orb fill the slot.
+- **The orb**: open the Start item's settings (right-click it, then **Widget settings…**). **Icon** switches between the orb, the Windows logo and your own image; **Icon size** 0 lets the orb fill the slot.
 - **The clock**: open the clock's settings. **Time format** `%#I:%M %p` writes 2:05 PM, `%H:%M` writes 14:05; **Date format** `%#m/%#d/%Y` writes 11/6/2026, `%#d.%#m.%Y` writes 6.11.2026. **Layout** "Taskbar" writes both lines in the same size.
 - **Show desktop**: its settings choose what a click does (show the desktop, or minimize every window) and how wide the strip is.
 - **Smaller icons**: the dock's Look tab sets the icon size; the tray keeps its own icon size in its settings.

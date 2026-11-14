@@ -1,7 +1,7 @@
 {
   "name": "System monitor",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "One performance metric (CPU, memory, GPU, disk, network or a HWiNFO sensor) as a graph, bar, ring, gauge, dial or number.",
   "api": 1,
   "size": {

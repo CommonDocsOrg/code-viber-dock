@@ -26,6 +26,10 @@ public:
     static constexpr int kFolder = 4004;  // Open folder (the widget's own, or the widgets folder)
     static constexpr int kClear = 4005;   // clears the view (the log itself is kept)
     static constexpr int kStatus = 4006;
+    // Round 29 phase 29A: the shown log (what Clear left) to the clipboard / to a UTF-8 text file
+    // (the Save dialog is modal: automation posts the click).
+    static constexpr int kCopy = 4007;
+    static constexpr int kSave = 4008;
 
     explicit WidgetConsole(WidgetRuntime& runtime, std::function<void()> destroyed)
         : runtime_(runtime), destroyed_(std::move(destroyed)) {}
@@ -50,12 +54,15 @@ private:
     void FillLog();
     void PostRefresh(bool list);
     WidgetInstance* Selected() const;
+    void CopyLog();
+    void SaveLog();
     int Px(int dip) const { return MulDiv(dip, static_cast<int>(dpi_), USER_DEFAULT_SCREEN_DPI); }
 
     WidgetRuntime& runtime_;
     std::function<void()> destroyed_;
     HWND hwnd_ = nullptr;
     HWND list_ = nullptr, log_ = nullptr, reload_ = nullptr, folder_ = nullptr, clear_ = nullptr, status_ = nullptr;
+    HWND copy_ = nullptr, save_ = nullptr;  // round 29 phase 29A
     HFONT font_ = nullptr, mono_ = nullptr;
     UINT dpi_ = USER_DEFAULT_SCREEN_DPI;
     DarkMode::Palette palette_;

@@ -10,6 +10,7 @@
 #include <new>
 
 #include "HttpClient.h"
+#include "Crash.h"
 
 namespace {
 
@@ -190,7 +191,7 @@ bool ParseBody(const std::string& body, CalendarService::Job& job) {
     return true;
 }
 
-DWORD WINAPI JobThread(LPVOID param) {
+DWORD JobBody(LPVOID param) {
     auto* job = static_cast<CalendarService::Job*>(param);
     try {
         using Job = CalendarService::Job;
@@ -221,6 +222,10 @@ DWORD WINAPI JobThread(LPVOID param) {
             Http::Request rq;
             rq.url = job->location;
             rq.timeoutMs = kTimeoutMs;
+            // Round 25 phase 25D: the whole fetch at most 2 minutes (a feed may be up to kMaxBody,
+            // 32 MB: about 2 Mbit/s for that, far beyond any real calendar; the default 4 x 15 s
+            // could cut a large feed on a slow line). Redirects stay WinHTTP's (feeds move hosts).
+            rq.totalMs = 120000;
             rq.maxBody = kMaxBody;
             rq.headers = L"Accept: text/calendar, */*\r\n";
             if (!job->etag.empty()) rq.headers += L"If-None-Match: " + job->etag + L"\r\n";
@@ -254,6 +259,19 @@ DWORD WINAPI JobThread(LPVOID param) {
     return 0;
 }
 
+// Round 25 phase 25E: the body catches what the fetch and the parser throw; Crash::Job is the
+// backstop (and sets the thread's terminate handler): nothing after its catch throws, so a job
+// that reaches `failed` was not posted yet and is posted as failed (Crash.h).
+DWORD WINAPI JobThread(LPVOID param) {
+    Crash::Job(L"calendar feed", [&] { JobBody(param); }, [&] {
+        auto* job = static_cast<CalendarService::Job*>(param);
+        job->cal.reset();
+        job->error = ERROR_GEN_FAILURE;
+        if (!PostMessageW(job->owner, CalendarService::kResultMessage, 0, reinterpret_cast<LPARAM>(job))) delete job;
+    });
+    return 0;
+}
+
 struct WatchArgs {
     HWND owner = nullptr;
     HANDLE stop = nullptr;
@@ -264,7 +282,7 @@ struct WatchArgs {
 
 // One thread: ReadDirectoryChangesW on each folder (not recursive, overlapped); a batch that names
 // one of the watched files posts kFileMessage(generation, folder). Ends when `stop` is set.
-DWORD WINAPI WatchThread(LPVOID param) {
+DWORD WatchBody(LPVOID param) {
     std::unique_ptr<WatchArgs> args(static_cast<WatchArgs*>(param));
     struct Dir {
         HANDLE handle = INVALID_HANDLE_VALUE;
@@ -320,6 +338,13 @@ DWORD WINAPI WatchThread(LPVOID param) {
         CloseHandle(d->ov.hEvent);
         CloseHandle(d->handle);
     }
+    return 0;
+}
+
+// Round 25 phase 25E: an exception (std::bad_alloc) ends the watch only: the feeds' files are no
+// longer followed until the next sync starts a new watcher; the dock keeps running (Crash.h).
+DWORD WINAPI WatchThread(LPVOID param) {
+    Crash::Job(L"calendar file watch", [&] { WatchBody(param); }, [] {});
     return 0;
 }
 
@@ -765,9 +790,20 @@ void CalendarService::Rebuild() {
     for (size_t k = 0; k < feeds_.size(); ++k) {
         Feed& f = feeds_[k];
         f.occurrences = 0;
+        f.expandCut = 0;
         if (!f.cfg.enabled || !f.cal) continue;
-        const std::vector<Ics::Occurrence> occ = Ics::Expand(*f.cal, from, to, *local_);
+        // Round 25 phase 25C: Expand's work is bounded per call (Ics::kExpandBudget); what it cut
+        // short shows in the feed's status line.
+        Ics::ExpandStats stats;
+        const std::vector<Ics::Occurrence> occ = Ics::Expand(*f.cal, from, to, *local_, 20000, &stats);
         f.occurrences = occ.size();
+        f.expandCut = stats.eventsCut;
+        if (stats.eventsCut) {
+            wchar_t buf[256];
+            swprintf_s(buf, L"WinDock: calendar \"%s\": %zu repeating events cut short (%lld periods)\n", f.cfg.name.c_str(),
+                       stats.eventsCut, static_cast<long long>(stats.iterations));
+            OutputDebugStringW(buf);
+        }
         for (const Ics::Occurrence& o : occ) items_.push_back(Item{o, static_cast<uint32_t>(k)});
     }
     std::stable_sort(items_.begin(), items_.end(), [](const Item& a, const Item& b) {
@@ -846,6 +882,12 @@ std::wstring CalendarService::StatusText(size_t index) const {
         s = (f.lastFetch > 0 ? L"Updated " + FormatClock(LocalWall(f.lastFetch)) : std::wstring(L"Loaded")) + L", " +
             std::to_wstring(f.occurrences) + (f.occurrences == 1 ? L" event" : L" events");
         if (f.fromCache) s += L" (cached)";
+        // Round 25 phase 25C: the limits, said where the feed's state is shown.
+        if (f.cal->eventsDropped) s += L"; only the first " + std::to_wstring(Ics::kMaxEvents) + L" events are read";
+        if (f.expandCut) {
+            s += L"; " + std::to_wstring(f.expandCut) + (f.expandCut == 1 ? L" repeating event is" : L" repeating events are") +
+                 L" too complex to show in full";
+        }
     }
     if (f.inFlight) return s.empty() ? std::wstring(L"Loading\x2026") : s + L"; updating\x2026";
     if (!f.error.empty()) {

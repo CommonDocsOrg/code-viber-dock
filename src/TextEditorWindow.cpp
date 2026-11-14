@@ -10,6 +10,7 @@
 #include <utility>
 
 #include "resource.h"
+#include "Crash.h"
 
 namespace {
 
@@ -406,6 +407,9 @@ LRESULT CALLBACK TextEditorWindow::ChildProc(HWND hwnd, UINT msg, WPARAM wp, LPA
 // --- window --------------------------------------------------------------------------------------
 
 LRESULT CALLBACK TextEditorWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     TextEditorWindow* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<TextEditorWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

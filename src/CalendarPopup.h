@@ -57,7 +57,7 @@ public:
         std::function<void(const std::wstring& url)> openUrl;  // an event with a URL was clicked
     };
 
-    CalendarPopup() : PopupWindow(kClassName, L"WinDock calendar", Mode::Click) {}
+    CalendarPopup() : PopupWindow(kClassName, L"ViberDock calendar", Mode::Click) {}
     ~CalendarPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, Callbacks callbacks);

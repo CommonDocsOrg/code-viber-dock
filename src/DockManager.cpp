@@ -5,6 +5,7 @@
 #include <cwchar>
 
 #include <dwmapi.h>
+#include <shellscalingapi.h>  // round 26 phase 26C: GetDpiForMonitor (MonitorSignature)
 #include <shlobj.h>
 #include <shlwapi.h>
 
@@ -53,6 +54,8 @@ void DockManager::Initialize(HINSTANCE instance, Config* config, HWND owner, Cal
     tracker_.SetTitleCallback([this](const std::vector<HWND>& windows) {
         ForEach([&](DockWindow& w) { w.OnWindowTitles(windows); });
     });
+    // Round 27 phase 27C: the input-language provider's signals (a flag test while it is not running).
+    tracker_.SetShellListener([this](WPARAM code, LPARAM lp) { widgets_.OnShellEvent(code, lp); });
     tracker_.Start(owner_, [this](const WindowTracker::Snapshot& snap) {
         ForEach([&](DockWindow& w) { w.OnSnapshot(snap); });
     });
@@ -153,6 +156,7 @@ void DockManager::Shutdown() {
     abnMonitors_.clear();
     guardForce_ = -1;
     watch_.Stop();
+    tracker_.SetShellListener(nullptr);  // round 27 phase 27C
     tracker_.Stop();
     widgets_.SetWeather(nullptr, nullptr);
     for (auto& w : weather_) {
@@ -310,6 +314,7 @@ HRESULT DockManager::CreateFolderFor(Instance& inst) {
     host.moved = [this] {  // round 12 phase 12I
         if (callbacks_.desktopMoved) callbacks_.desktopMoved();
     };
+    host.pointerInput = [this](UINT msg) { PointerInput(msg); };  // round 26 phase 26A follow-up
     const HRESULT hr = folder->Create(instance_, config_, inst.cfg, inst.monitor, std::move(host));
     if (FAILED(hr)) {
         folder->Destroy();
@@ -625,10 +630,28 @@ HRESULT DockManager::CreateWindowFor(Instance& inst) {
     return S_OK;
 }
 
+std::vector<DockManager::MonitorSeen> DockManager::MonitorSignature(const std::vector<HMONITOR>& monitors) {
+    std::vector<MonitorSeen> out;
+    out.reserve(monitors.size());
+    for (HMONITOR m : monitors) {
+        MonitorSeen s;
+        s.monitor = m;
+        MONITORINFO mi{sizeof(mi)};
+        if (GetMonitorInfoW(m, &mi)) s.rect = mi.rcMonitor;
+        UINT dx = 96, dy = 96;
+        if (SUCCEEDED(GetDpiForMonitor(m, MDT_EFFECTIVE_DPI, &dx, &dy))) s.dpi = dx;
+        out.push_back(s);
+    }
+    return out;
+}
+
+bool DockManager::MonitorsChanged() const { return MonitorSignature(EnumerateMonitors()) != syncedMonitors_; }
+
 HRESULT DockManager::Sync() {
     if (!config_ || syncing_) return S_OK;
     syncing_ = true;
     monitors_ = EnumerateMonitors();
+    syncedMonitors_ = MonitorSignature(monitors_);  // round 26 phase 26C: MonitorsChanged compares with it
 
     // What should exist: per config dock one instance, or one per monitor ("each").
     std::vector<Instance> next;
@@ -1088,6 +1111,23 @@ void DockManager::SetCentreOpen(bool open) {
     centreOpen_ = open;
     SyncNotifications();
     if (open) notifications_.PollNow();
+}
+
+void DockManager::SetSessionPaused(int bits) {
+    if (bits == sessionPaused_) return;
+    const bool was = sessionPaused_ != 0;
+    sessionPaused_ = bits;
+    const bool now = bits != 0;
+    wchar_t buf[96];
+    swprintf_s(buf, L"WinDock: session paused bits %d\n", bits);
+    OutputDebugStringW(buf);
+    if (was == now) return;  // e.g. the display went off while locked: nothing new to stop
+    notifications_.SetPaused(now);  // resuming polls at once
+    widgets_.SetPaused(now);        // the perf sampler
+    for (Instance& i : instances_) {
+        if (i.window) i.window->SetSessionPaused(now);
+        if (i.widget) i.widget->SetSessionPaused();
+    }
 }
 
 bool DockManager::ActivateNotification(uint32_t id) {

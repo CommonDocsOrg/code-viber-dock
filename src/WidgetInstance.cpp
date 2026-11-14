@@ -53,6 +53,13 @@ const char* FnName(ScriptEngine::Fn fn) {
     }
 }
 
+// Round 25 phase 25A: generations are process-wide (WidgetInstance::generation_), so one names one
+// load of one instance. The UI thread is the only caller; 64 bits never wrap.
+uint64_t NextGeneration() {
+    static uint64_t last = 0;
+    return ++last;
+}
+
 }  // namespace
 
 WidgetInstance::WidgetInstance(WidgetRuntime& runtime, Client& client, ID2D1Factory1* d2d, IDWriteFactory* dwrite,
@@ -82,7 +89,11 @@ WidgetInstance::~WidgetInstance() {
         runtime_.CancelAll(this);
         runtime_.Remove(this);
     }
+    // Round 25 phase 25A: no host path destroys an instance from inside one of its calls (every
+    // script request that changes the dock is posted; shell.open and notifications.activate, the
+    // two that could pump messages, run after the call), so the engine is never on the stack here.
     engine_.reset();  // its finalizers may still log
+    retired_.reset();
 }
 
 std::wstring WidgetInstance::Name() const {
@@ -90,6 +101,15 @@ std::wstring WidgetInstance::Name() const {
 }
 
 void WidgetInstance::Reload() {
+    // Round 25 phase 25A: never under a call of the script it replaces (a message pumped inside
+    // it): the call returns first, then RunDeferred reloads.
+    if (InCall()) {
+        reloadAfterCall_ = true;
+        return;
+    }
+    retired_.reset();
+    reloadAfterCall_ = redrawAfterCall_ = popupRedrawAfterCall_ = false;
+    std::fill(std::begin(cpuMs_), std::end(cpuMs_), 0.0);  // a new script, a new budget
     DropEditor(true);  // an open editor goes; the old script's promise is never settled
     capturing_ = false;  // round 23 phase 23A: the new script never claimed the held button
     if (!preview_) {
@@ -108,7 +128,7 @@ void WidgetInstance::Reload() {
     refreshZone_.clear();
     measured_ = false;
     changed_ = true;
-    ++generation_;  // results of the old script's requests are dropped
+    generation_ = NextGeneration();  // results of the old script's requests are dropped
     requests_ = 0;
     struct Synced {  // whatever happens below, the watcher and the Console follow (not for a preview)
         WidgetRuntime& rt;
@@ -139,8 +159,19 @@ void WidgetInstance::Reload() {
                                (firstError->fix.empty() ? L"" : L" (fix: " + firstError->fix + L")"));
         return;
     }
+    // Round 25 phase 25D: a widget folder whose permissions (or whose taking a built-in's place) the
+    // user has not allowed never loads its script; the tile asks for a click (Click -> the dialog).
+    // Previews follow the same rule: nothing of an unallowed folder runs, not even sandboxed.
+    const Widgets::ConsentState consent = Widgets::ConsentOf(*package_, runtime_.GrantedFor(id_));
+    if (consent == Widgets::ConsentState::Missing || consent == Widgets::ConsentState::More) {
+        Fail(State::NeedsConsent, consent == Widgets::ConsentState::More
+                                      ? L"It now asks for more than you allowed. Click to review."
+                                      : L"Click to review what it asks for.");
+        return;
+    }
     // A preview (round 6 phase 6E): the manifest's preview.settings over the defaults.
     settings_ = Widgets::MergeSettings(m, preview_ ? m.previewSettings : itemSettings_);
+    UpdateSecrets();  // round 29 phase 29C
     Log(ScriptLogLevel::Info, L"loading " + m.name + (m.version.empty() ? L"" : L" " + m.version) +
                                   (package_->source == Widgets::Package::Source::BuiltIn ? L" (built-in)"
                                                                                        : L" from " + package_->folder));
@@ -162,6 +193,14 @@ void WidgetInstance::Reload() {
     client_.WidgetChanged(*this);
 }
 
+void WidgetInstance::ConsentChanged() {
+    if (!package_) return;
+    const Widgets::ConsentState c = Widgets::ConsentOf(*package_, runtime_.GrantedFor(id_));
+    const bool allowed = c == Widgets::ConsentState::NotNeeded || c == Widgets::ConsentState::Granted;
+    if (allowed == (state_ != State::NeedsConsent)) return;  // it already runs (or waits) as it should
+    Reload();  // reads the package again (the folder may have changed too) and decides there
+}
+
 void WidgetInstance::SetWeatherConfig(const WeatherConfig& weather) {
     if (weather == weather_) return;
     const bool samePlace = WeatherService::SamePlace(weather, weather_);
@@ -176,11 +215,15 @@ void WidgetInstance::SetSettings(const std::wstring& itemSettings) {
     const std::string merged = Widgets::MergeSettings(package_->manifest, itemSettings_);
     if (merged == settings_) return;
     settings_ = merged;
+    UpdateSecrets();  // round 29 phase 29C
     measured_ = false;
     changed_ = true;
     if (state_ == State::Ok && engine_) {
         engine_->SettingsChanged();
         Check(engine_->Call(ScriptEngine::Fn::OnSettingsChanged, {}), FnName(ScriptEngine::Fn::OnSettingsChanged));
+        // Round 29 phase 29C: settings.onChange listeners (after the export; kept like any call
+        // while the script is busy).
+        if (state_ == State::Ok && engine_) Check(engine_->Emit("settings"), "settings.onChange");
     }
     client_.WidgetChanged(*this);
 }
@@ -188,17 +231,69 @@ void WidgetInstance::SetSettings(const std::wstring& itemSettings) {
 void WidgetInstance::SetVisible(bool visible) {
     if (dock_.visible == visible) return;
     dock_.visible = visible;
-    if (state_ != State::Ok || !engine_) return;
-    Check(engine_->Call(ScriptEngine::Fn::OnVisibilityChange,
-                        std::string("{\"visible\":") + (visible ? "true" : "false") + "}"),
-          FnName(ScriptEngine::Fn::OnVisibilityChange));
+    if (state_ == State::Ok && engine_) {
+        Check(engine_->Call(ScriptEngine::Fn::OnVisibilityChange,
+                            std::string("{\"visible\":") + (visible ? "true" : "false") + "}"),
+              FnName(ScriptEngine::Fn::OnVisibilityChange));
+    }
+    // Round 26 phase 26A: off screen the refresh tick stops (PauseRefresh); back on screen the
+    // redraw asked for meanwhile is posted once and a tick that was missed runs once.
+    if (!visible) {
+        PauseRefresh();
+    } else {
+        ResumeRefresh();
+    }
+    // Round 27: the network / input providers go quiet while none of their users can be seen.
+    if (!preview_) runtime_.ProviderVisibilityChanged();
+}
+
+bool WidgetInstance::CanBeSeen() const { return !Unseen(); }
+
+// Round 26 phase 26A: a seconds clock on an auto-hidden dock ran tick() + draw() + a composition
+// commit every second for nobody. The host now stops the refresh (timer id 0) while the instance
+// cannot be seen; setTimeout / setInterval keep running (a widget may poll with them), and their
+// redraw requests are kept for the show (RequestRedraw). Not while its popup is open: a popup of a
+// hidden dock can still be on screen and may show what tick() updates.
+bool WidgetInstance::Unseen() const {
+    return !preview_ && !dock_.visible && !client_.WidgetPopupShown(*this) && !client_.WidgetPassiveShown(*this);
+}
+
+void WidgetInstance::PauseRefresh(bool missedNow) {
+    if (preview_ || refreshMs_ == 0 || state_ != State::Ok || !Unseen()) return;
+    if (!refreshPaused_) {
+        const double due = runtime_.DueOf(this, 0);
+        pausedDue_ = due >= 0.0 ? due : WidgetNowMs() + WidgetAlignedDelay(refreshMs_, refreshZone_);
+    }
+    if (missedNow) pausedDue_ = std::min(pausedDue_, WidgetNowMs());
+    runtime_.Cancel(this, 0);
+    refreshPaused_ = true;
+}
+
+void WidgetInstance::ResumeRefresh() {
+    if (Unseen()) return;
+    if (redrawOnShow_) {
+        redrawOnShow_ = false;
+        client_.WidgetChanged(*this);
+    }
+    if (!refreshPaused_) return;
+    refreshPaused_ = false;
+    // The tick due while it was hidden runs once now (12 ms: the runtime's own early-firing slack);
+    // a widget shown again before its next boundary just waits for it, so a widget that fetches in
+    // tick() (Stocks) does not fetch on every reveal of an auto-hide dock.
+    const bool missed = WidgetNowMs() + 12.0 >= pausedDue_;
+    ScheduleRefresh();  // aligned as before
+    if (missed && state_ == State::Ok && engine_) OnTimer(0);
 }
 
 void WidgetInstance::TimeChanged() {
     WidgetSystem::ForgetZones();  // the zone data may have changed with it
     if (state_ != State::Ok || !engine_ || refreshMs_ == 0) return;
     ScheduleRefresh();  // aligned to the new local time
-    OnTimer(0);         // and up to date now
+    if (refreshPaused_) {  // round 26 phase 26A: hidden: the tick waits for the show
+        pausedDue_ = WidgetNowMs();
+        return;
+    }
+    OnTimer(0);  // and up to date now
 }
 
 void WidgetInstance::SetDock(const ScriptDockInfo& info) {
@@ -242,6 +337,14 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
         measuredBarCross_ == ctx.barCross) {
         return size_;
     }
+    // Round 25 phase 25A: asked while one of its own calls is on the stack (a message pumped inside
+    // it): measure() cannot run now; the last box stands (else the size hint) and RunDeferred
+    // measures and redraws once the call returned.
+    const bool busy = InCall();
+    if (busy) {
+        redrawAfterCall_ = true;
+        if (size_.main > 0.0f && size_.cross > 0.0f) return size_;
+    }
     const bool vertical = ctx.axis == DockAxis::Vertical;
     const float s = ctx.scale > 0.0f ? ctx.scale : 1.0f;
     if (dock_.standalone) {
@@ -273,7 +376,7 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
     dock_.width = vertical ? crossDip : mainDip;
     dock_.height = vertical ? mainDip : crossDip;
     bool flush = false;
-    if (state_ == State::Ok && engine_ && engine_->Has(ScriptEngine::Fn::Measure)) {
+    if (state_ == State::Ok && engine_ && !busy && engine_->Has(ScriptEngine::Fn::Measure)) {
         canvas_.Begin(nullptr, s, dock_.width, dock_.height);
         inCanvas_ = true;
         const ScriptResult r = engine_->Call(ScriptEngine::Fn::Measure, {});
@@ -328,6 +431,13 @@ ElementSize WidgetInstance::Measure(const LayoutContext& ctx) {
 }
 
 HRESULT WidgetInstance::Render(Renderer& renderer, Layer& layer, const LayoutContext& ctx) {
+    // Round 25 phase 25A: asked while one of its own calls is on the stack (a message pumped inside
+    // it): draw() cannot run now; the slot keeps its last picture and RunDeferred redraws it once
+    // the call returned (changed_ stays set, so nothing else is lost).
+    if (InCall()) {
+        redrawAfterCall_ = true;
+        return S_OK;
+    }
     if (!measured_) Measure(ctx);
     changed_ = false;
     const bool vertical = measuredAxis_ == DockAxis::Vertical;
@@ -607,7 +717,7 @@ void WidgetInstance::PixelSize(UINT& w, UINT& h) const {
 }
 
 void WidgetInstance::DrawInto(ID2D1DeviceContext* dc) {
-    if (!dc || state_ != State::Ok || !engine_ || !measured_) return;
+    if (!dc || state_ != State::Ok || !engine_ || !measured_ || InCall()) return;
     float w = 0, h = 0;
     BoxDips(w, h);
     ++draws_;
@@ -622,10 +732,13 @@ void WidgetInstance::DrawInto(ID2D1DeviceContext* dc) {
 
 void WidgetInstance::DrawErrorTile(ID2D1DeviceContext* dc, float w, float h) {
     canvas_.Begin(dc, dock_.scale, w, h);
+    // Round 25 phase 25D: NeedsConsent is the same tile in a neutral slate with an amber edge (it is
+    // waiting for the user, not broken), "Needs permission" over "Click to review ...".
+    const bool consent = state_ == State::NeedsConsent;
     CanvasPaint fill;
-    fill.color = CanvasColorFromArgb(0xD8471C1C);
+    fill.color = CanvasColorFromArgb(consent ? 0xD82A2F3A : 0xD8471C1C);
     CanvasPaint edge;
-    edge.color = CanvasColorFromArgb(0xC0FF7A6E);
+    edge.color = CanvasColorFromArgb(consent ? 0xC0FFC15A : 0xC0FF7A6E);
     CanvasPaint ink;
     ink.color = CanvasColorFromArgb(0xFFFFFFFF);
     CanvasStroke stroke;
@@ -638,8 +751,12 @@ void WidgetInstance::DrawErrorTile(ID2D1DeviceContext* dc, float w, float h) {
     title.weight = 700;
     title.align = 1;
     title.valign = 0;
-    const std::wstring head = state_ == State::Suspended ? L"Stopped" : L"Error";
+    std::wstring head = state_ == State::Suspended ? L"Stopped" : consent ? L"Needs permission" : L"Error";
     CanvasTextMetrics tm = canvas_.MeasureText(head, title);
+    if (consent && tm.width > w - 4.0f) {  // a dock-sized tile: the short form
+        head = L"Permission";
+        tm = canvas_.MeasureText(head, title);
+    }
     if (tm.width > w - 4.0f && tm.width > 0.0f) {  // a narrow tile: a smaller title
         title.size = std::max(7.0f, title.size * (w - 4.0f) / tm.width);
         tm = canvas_.MeasureText(head, title);
@@ -647,7 +764,7 @@ void WidgetInstance::DrawErrorTile(ID2D1DeviceContext* dc, float w, float h) {
     const bool room = h >= tm.height + 16.0f && w >= 40.0f;
     if (!room) {
         title.valign = 1;
-        canvas_.Text(w >= tm.width + 4.0f ? head : L"!", w / 2.0f, h / 2.0f, title, ink);
+        canvas_.Text(w >= tm.width + 4.0f ? head : (consent ? L"?" : L"!"), w / 2.0f, h / 2.0f, title, ink);
         canvas_.End();
         return;
     }
@@ -671,7 +788,12 @@ std::string WidgetInstance::EventJson(float x, float y) {
 }
 
 void WidgetInstance::Click(float x, float y, bool closedPopup) {
+    if (state_ == State::NeedsConsent) {  // round 25 phase 25D: the tile's click opens the dialog (posted)
+        if (!preview_) runtime_.RequestConsent(id_);
+        return;
+    }
     if (state_ != State::Ok || !engine_) return;
+    Gesture();  // round 29 phase 29C: links.open may follow this click
     Check(engine_->Call(ScriptEngine::Fn::OnClick, EventJson(x, y) + ",\"button\":\"left\",\"closedPopup\":" +
                                                       (closedPopup ? "true" : "false") + "}"),
           FnName(ScriptEngine::Fn::OnClick));
@@ -679,6 +801,7 @@ void WidgetInstance::Click(float x, float y, bool closedPopup) {
 
 void WidgetInstance::MiddleClick(float x, float y) {
     if (state_ != State::Ok || !engine_) return;
+    Gesture();  // round 29 phase 29C
     Check(engine_->Call(ScriptEngine::Fn::OnMiddleClick, EventJson(x, y) + ",\"button\":\"middle\"}"),
           FnName(ScriptEngine::Fn::OnMiddleClick));
 }
@@ -702,6 +825,13 @@ void WidgetInstance::Hover(bool inside, float x, float y) {
 void WidgetInstance::OnTimer(int id) {
     if (state_ != State::Ok || !engine_) return;
     if (id == 0) {
+        // Round 26 phase 26A: the instance went out of sight while its popup kept the refresh
+        // running (or the visibility changed without SetVisible pausing it): this tick is skipped
+        // and the refresh stops; the show runs it (ResumeRefresh).
+        if (Unseen()) {
+            PauseRefresh(true);
+            return;
+        }
         // The refresh: tick(), then a redraw unless it returned false.
         if (engine_->Has(ScriptEngine::Fn::Tick)) {
             const ScriptResult r = engine_->Call(ScriptEngine::Fn::Tick, {});
@@ -714,44 +844,162 @@ void WidgetInstance::OnTimer(int id) {
 }
 
 bool WidgetInstance::Check(const ScriptResult& r, const char* what) {
-    switch (r.status) {
-        case ScriptStatus::Ok:
-        case ScriptStatus::Missing:
-            return true;
-        case ScriptStatus::TimedOut: {
-            wchar_t buf[160];
-            swprintf_s(buf, L"%hs ran longer than %d ms and was stopped", what,
-                       package_ ? package_->manifest.timeLimitMs : 50);
-            Fail(State::Suspended, buf + (r.error.empty() ? std::wstring() : L"\n" + r.error));
-            return false;
+    bool ok = false;
+    if (state_ != State::Ok) {
+        // Round 25 phase 25A: the widget failed already while this call ran (Fail retired its
+        // engine): the first failure is the one shown, and nothing more is charged.
+    } else {
+        switch (r.status) {
+            case ScriptStatus::Ok:
+            case ScriptStatus::Missing:
+                ok = ChargeCpu(r.ms);
+                break;
+            case ScriptStatus::Deferred:  // round 25 phase 25A: kept; it runs from RunDeferred
+                ok = true;
+                break;
+            case ScriptStatus::Busy:  // refused (a draw / measure / wheel / press during a call): nothing ran
+                break;
+            case ScriptStatus::TimedOut: {
+                wchar_t buf[160];
+                swprintf_s(buf, L"%hs ran longer than %d ms and was stopped", what,
+                           package_ ? package_->manifest.timeLimitMs : 50);
+                Fail(State::Suspended, buf + (r.error.empty() ? std::wstring() : L"\n" + r.error));
+                break;
+            }
+            case ScriptStatus::OutOfMemory:
+                Fail(State::Error, JsonUtil::Utf8ToWide(what) + L": out of memory (" +
+                                       std::to_wstring(package_ ? package_->manifest.memoryLimitMb : 32) + L" MB limit)");
+                break;
+            case ScriptStatus::Threw:
+            default:
+                Fail(State::Error, r.error.empty() ? JsonUtil::Utf8ToWide(what) + L" failed" : r.error);
+                break;
         }
-        case ScriptStatus::OutOfMemory:
-            Fail(State::Error, JsonUtil::Utf8ToWide(what) + L": out of memory (" +
-                                   std::to_wstring(package_ ? package_->manifest.memoryLimitMb : 32) + L" MB limit)");
-            return false;
-        case ScriptStatus::Threw:
-        default:
-            Fail(State::Error, r.error.empty() ? JsonUtil::Utf8ToWide(what) + L" failed" : r.error);
-            return false;
     }
+    KickDeferred();  // round 25 phase 25A: the outermost call returned: what waited for it runs next
+    return ok;
+}
+
+// Round 25 phase 25A (A6): the per-call watchdog bounds one call, not how often calls come: 64
+// timers repeating every 16 ms, each just under timeLimitMs, kept the UI thread busy for good.
+// This bounds the script's share of the thread instead (kCpuBudgetMs in kCpuWindowS, the numbers'
+// reasoning in WidgetInstance.h). One add per call and a ten-entry sum; nothing ticks.
+bool WidgetInstance::ChargeCpu(double ms) {
+    if (!(ms > 0.0) || preview_) return true;
+    const int64_t second = static_cast<int64_t>(WidgetNowMs() / 1000.0);
+    if (second - cpuSecond_ >= kCpuWindowS) {
+        std::fill(std::begin(cpuMs_), std::end(cpuMs_), 0.0);
+    } else {
+        for (int64_t s = cpuSecond_ + 1; s <= second; ++s) cpuMs_[s % kCpuWindowS] = 0.0;
+    }
+    cpuSecond_ = second;
+    cpuMs_[second % kCpuWindowS] += ms;
+    double sum = 0.0;
+    for (double v : cpuMs_) sum += v;
+    if (sum <= kCpuBudgetMs) return true;
+    wchar_t buf[200];
+    swprintf_s(buf, L"the script used the UI thread for %.1f s of the last %d s (more than %.0f s): stopped so the "
+                    L"dock stays responsive",
+               sum / 1000.0, kCpuWindowS, kCpuBudgetMs / 1000.0);
+    Fail(State::Suspended, buf);
+    return false;
+}
+
+bool WidgetInstance::HasDeferred() const {
+    return retired_ || reloadAfterCall_ || redrawAfterCall_ || popupRedrawAfterCall_ || !afterCall_.empty() ||
+           (engine_ && engine_->DeferredCalls() > 0);
+}
+
+void WidgetInstance::KickDeferred() {
+    if (preview_ || InCall() || !HasDeferred()) return;
+    runtime_.PostDeferred(this);
+}
+
+void WidgetInstance::RunDeferred() {
+    if (InCall()) return;  // a message pumped inside one of its calls: that call's end posts again
+    retired_.reset();      // the engine Fail took away while it was on the stack
+    // shell.open / notifications.activate first: they were asked for before anything kept below.
+    std::vector<AfterCall> actions = std::move(afterCall_);
+    afterCall_.clear();
+    for (const AfterCall& a : actions) {
+        if (a.kind == AfterCall::Kind::ShellOpen) {
+            AllowSetForegroundWindow(ASFW_ANY);
+            const auto rc = reinterpret_cast<INT_PTR>(ShellExecuteW(nullptr, nullptr, a.target.c_str(),
+                                                                    a.args.empty() ? nullptr : a.args.c_str(), nullptr,
+                                                                    SW_SHOWNORMAL));
+            if (rc <= 32) {
+                Log(ScriptLogLevel::Warn, L"shell.open: could not open " + a.shown + L" (" + std::to_wstring(rc) + L")");
+            } else {
+                Log(ScriptLogLevel::Info, L"shell.open " + a.shown);
+            }
+        } else if (!client_.WidgetActivateNotification(a.id)) {
+            Log(ScriptLogLevel::Warn, L"notifications.activate: the notification is gone");
+        }
+    }
+    if (reloadAfterCall_) {
+        reloadAfterCall_ = false;
+        Reload();  // drops what the old script kept
+        return;
+    }
+    if (redrawAfterCall_) {
+        redrawAfterCall_ = false;
+        // Forced: Render returned early with changed_ still set, so RequestRedraw would not post.
+        measured_ = false;
+        changed_ = true;
+        client_.WidgetChanged(*this);
+    }
+    if (popupRedrawAfterCall_) {
+        popupRedrawAfterCall_ = false;
+        if (state_ == State::Ok && PopupShown()) RequestPopup(PopupRequest{PopupRequest::Kind::Redraw});
+    }
+    // The kept calls, only those there now: what they keep in turn waits for the next post (their
+    // Check posts it), so a chain yields to input and painting between rounds and the engine's hop
+    // limit ends a loop.
+    size_t n = engine_ ? engine_->DeferredCalls() : 0;
+    bool ran = false;
+    while (n-- > 0 && state_ == State::Ok && engine_ && engine_->DeferredCalls() > 0) {
+        std::string what;
+        const ScriptResult r = engine_->RunDeferred(what);
+        ran = true;
+        if (!Check(r, what.c_str())) break;
+    }
+    if (ran && state_ == State::Ok) RequestRedraw();  // a kept tick() asked for one (its result is not known here)
+    KickDeferred();
 }
 
 void WidgetInstance::Fail(State state, const std::wstring& message) {
     state_ = state;
-    error_ = message;
+    error_ = Redact(message);  // round 29 phase 29C: the error tile shows no secret either
     DropEditor(true);
     if (!preview_) {
         runtime_.CancelAll(this);
         runtime_.ReleaseProviders(this);
     }
-    // Never called again until a reload: give its heap back now (Fail only runs after a call into
-    // the script has returned).
-    engine_.reset();
-    ++generation_;
+    // Never called again until a reload: give its heap back now. Round 25 phase 25A: but not while
+    // one of its calls is on the stack (the old note here said Fail only runs after a call into the
+    // script has returned; a host call that led back into the same script broke that, freeing the
+    // runtime under the native function still running): the engine is retired and freed by
+    // RunDeferred once that call returned. The entries refuse nested calls now, so this is the
+    // defence behind that.
+    if (engine_ && engine_->Busy()) {
+        retired_ = std::move(engine_);
+    } else {
+        engine_.reset();
+    }
+    // afterCall_ stays: a shell.open asked for before the failure still opens (as it did when it
+    // ran inside the call); Check posts it.
+    generation_ = NextGeneration();
     requests_ = 0;
     if (PopupShown() || client_.WidgetPassiveShown(*this)) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
     if (!preview_) runtime_.NotifyChanged();
-    Log(ScriptLogLevel::Error, (state == State::Suspended ? L"suspended: " : L"error: ") + message);
+    if (state == State::NeedsConsent) {  // round 25 phase 25D: not an error of the widget's
+        Log(ScriptLogLevel::Warn, L"not started: it needs your permission (" +
+                                      (package_ ? Widgets::PermissionSummary(package_->manifest) : std::wstring(L"?")) +
+                                      (package_ && Widgets::ReplacesBuiltIn(*package_) ? L"; replaces a built-in widget" : L"") +
+                                      L"). " + message);
+    } else {
+        Log(ScriptLogLevel::Error, (state == State::Suspended ? L"suspended: " : L"error: ") + message);
+    }
     measured_ = false;
     changed_ = true;
     client_.WidgetChanged(*this);
@@ -760,7 +1008,16 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
 void WidgetInstance::ScheduleRefresh() {
     if (preview_) return;  // a preview never ticks (it shows the time it was drawn)
     runtime_.Cancel(this, 0);
-    if (refreshMs_ > 0 && state_ == State::Ok) runtime_.Schedule(this, 0, refreshMs_, true, true, refreshZone_);
+    refreshPaused_ = false;
+    if (refreshMs_ == 0 || state_ != State::Ok) return;
+    if (Unseen()) {
+        // Round 26 phase 26A: loaded (or setRefresh called) while it cannot be seen: the schedule
+        // starts with the show; the boundary it would have ticked at decides the catch-up there.
+        refreshPaused_ = true;
+        pausedDue_ = WidgetNowMs() + WidgetAlignedDelay(refreshMs_, refreshZone_);
+        return;
+    }
+    runtime_.Schedule(this, 0, refreshMs_, true, true, refreshZone_);
 }
 
 // --- ScriptHost --------------------------------------------------------------------------------
@@ -769,7 +1026,8 @@ void WidgetInstance::Log(ScriptLogLevel level, const std::wstring& line) {
     LogLine l;
     GetLocalTime(&l.time);
     l.level = level;
-    l.text = line.size() > 4000 ? line.substr(0, 4000) + L"…" : line;
+    const std::wstring shown = Redact(line);  // round 29 phase 29C: never a secret setting's value
+    l.text = shown.size() > 4000 ? shown.substr(0, 4000) + L"…" : shown;
     const wchar_t* tag = level == ScriptLogLevel::Error ? L"error" : level == ScriptLogLevel::Warn ? L"warn" : L"log";
     log_.push_back(std::move(l));
     ++logTotal_;
@@ -809,9 +1067,13 @@ bool WidgetInstance::ReadFile(const std::string& path, std::string& bytes, std::
             return false;
         }
         const std::wstring given = JsonUtil::Utf8ToWide(path.substr(std::strlen(kFileToken)));
-        wchar_t expanded[MAX_PATH * 4]{};
-        ExpandEnvironmentStringsW(given.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
-        const HANDLE h = CreateFileW(expanded, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        // Round 25 phase 25D: the expansion checked (a fixed buffer took a truncated path before).
+        std::wstring expanded;
+        if (!Widgets::ExpandPath(given, expanded)) {
+            error = L"cannot expand " + given;
+            return false;
+        }
+        const HANDLE h = CreateFileW(expanded.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (h == INVALID_HANDLE_VALUE) {
             error = L"cannot open " + given;
@@ -858,6 +1120,12 @@ void WidgetInstance::RequestRedraw() {
     measured_ = false;
     if (changed_) return;  // already asked (the dock redraws once)
     changed_ = true;
+    // Round 26 phase 26A: nobody can see it (a setInterval animating, a provider's onChange while
+    // the dock is hidden): kept, and posted once when it is shown again (ResumeRefresh).
+    if (Unseen()) {
+        redrawOnShow_ = true;
+        return;
+    }
     client_.WidgetChanged(*this);
 }
 
@@ -944,9 +1212,12 @@ bool WidgetInstance::PopupFolder(const std::wstring& path, const std::wstring& v
         error = L"popup.folder needs the \"shell\" permission";
         return false;
     }
-    wchar_t expanded[MAX_PATH * 2]{};
-    ExpandEnvironmentStringsW(path.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
-    const DWORD attrs = GetFileAttributesW(expanded);
+    std::wstring expanded;  // round 25 phase 25D: checked, not a fixed buffer
+    if (!Widgets::ExpandPath(path, expanded)) {
+        error = L"popup.folder: cannot expand " + path;
+        return false;
+    }
+    const DWORD attrs = GetFileAttributesW(expanded.c_str());
     if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
         error = L"popup.folder: not a folder: " + path;
         return false;
@@ -1080,6 +1351,10 @@ std::vector<std::string> WidgetInstance::PackageFiles() {
 
 void WidgetInstance::RenderPopup(ID2D1DeviceContext* dc, float w, float h, float scale) {
     if (state_ != State::Ok || !engine_) return;
+    if (InCall()) {  // round 25 phase 25A: as Render; RunDeferred asks for a popup redraw
+        popupRedrawAfterCall_ = true;
+        return;
+    }
     canvas_.Begin(dc, scale, w, h);
     inCanvas_ = true;
     const ScriptResult r = engine_->Call(ScriptEngine::Fn::DrawPopup, {});
@@ -1091,6 +1366,7 @@ void WidgetInstance::RenderPopup(ID2D1DeviceContext* dc, float w, float h, float
 void WidgetInstance::PopupClick(float x, float y, int button) {
     if (state_ != State::Ok || !engine_) return;
     const char* b = button == 1 ? "middle" : button == 2 ? "right" : "left";
+    Gesture();  // round 29 phase 29C: a click on a row may open its link
     Check(engine_->Call(ScriptEngine::Fn::OnPopupClick, EventJson(x, y) + ",\"button\":\"" + b + "\"}"),
           FnName(ScriptEngine::Fn::OnPopupClick));
 }
@@ -1120,6 +1396,10 @@ bool WidgetInstance::Permitted(Permission p) const {
         case Permission::Calendar: return package_->manifest.calendar;
         case Permission::Weather: return package_->manifest.weather;
         case Permission::Perf: return package_->manifest.perf;
+        case Permission::Network: return package_->manifest.network;  // round 27 phase 27B
+        case Permission::Input: return package_->manifest.input;      // round 27 phase 27C
+        case Permission::Notify: return package_->manifest.notify;    // round 28 phase 28A
+        case Permission::Links: return package_->manifest.links;      // round 29 phase 29C
         case Permission::Http:
         default: return package_->manifest.http;
     }
@@ -1178,19 +1458,153 @@ std::vector<std::string> WidgetInstance::StorageKeys() {
     return keys;
 }
 
-bool WidgetInstance::HostAllowed(const std::wstring& host) const {
-    if (!package_) return false;
-    std::wstring h = host;
-    for (wchar_t& c : h) c = static_cast<wchar_t>(std::towlower(c));
-    for (const std::wstring& allowed : package_->manifest.httpHosts) {
-        if (allowed == h) return true;
-        // "*.example.com": any sub-domain (not example.com itself).
-        if (allowed.size() > 2 && allowed.rfind(L"*.", 0) == 0) {
-            const std::wstring suffix = allowed.substr(1);  // ".example.com"
-            if (h.size() > suffix.size() && h.compare(h.size() - suffix.size(), suffix.size(), suffix) == 0) return true;
+// --- round 29 phase 29C: secrets, settings.set, user hosts, links -----------------------------------
+
+void WidgetInstance::Gesture() {
+    gestureAt_ = WidgetNowMs();
+    gestureUsed_ = false;
+}
+
+void WidgetInstance::UpdateSecrets() {
+    secrets_.clear();
+    if (!package_) return;
+    try {
+        JsonUtil::json::JsonObject o{nullptr};
+        if (!JsonUtil::json::JsonObject::TryParse(JsonUtil::Utf8ToWide(settings_), o) || !o) return;
+        for (const Widgets::SettingField& f : package_->manifest.settings) {
+            if (f.type != Widgets::SettingField::Type::Secret) continue;
+            std::wstring v;
+            JsonUtil::ReadString(o, f.key.c_str(), v);
+            if (v.size() >= 4) secrets_.push_back(std::move(v));  // shorter ones would blank ordinary words
         }
+    } catch (...) {
     }
-    return false;
+}
+
+std::wstring WidgetInstance::Redact(const std::wstring& text) const {
+    if (secrets_.empty()) return text;
+    std::wstring out = text;
+    for (const std::wstring& s : secrets_) {
+        for (size_t at = out.find(s); at != std::wstring::npos; at = out.find(s, at + 8)) out.replace(at, s.size(), L"[secret]");
+    }
+    return out;
+}
+
+std::vector<std::wstring> WidgetInstance::UserHosts() const {
+    std::vector<std::wstring> out;
+    if (!package_ || package_->manifest.hostSettings.empty() || preview_) return out;
+    const WidgetConsent* granted = runtime_.GrantedFor(id_);
+    if (!granted || granted->hosts.empty()) return out;
+    try {
+        JsonUtil::json::JsonObject o{nullptr};
+        if (!JsonUtil::json::JsonObject::TryParse(JsonUtil::Utf8ToWide(settings_), o) || !o) return out;
+        const std::wstring item = JsonUtil::Utf8ToWide(dock_.itemKey);
+        for (const std::wstring& key : package_->manifest.hostSettings) {
+            std::wstring url, host, why;
+            bool local = false;
+            JsonUtil::ReadString(o, key.c_str(), url);
+            if (url.empty() || !Widgets::CheckUrlValue(url, host, local, why)) continue;
+            // Only the host the user allowed for this item and this setting, and only while the
+            // setting still names it (a changed URL needs the prompt again).
+            const auto it = granted->hosts.find(item + L"|" + key);
+            if (it != granted->hosts.end() && it->second == host) out.push_back(host);
+        }
+    } catch (...) {
+    }
+    return out;
+}
+
+bool WidgetInstance::SettingsSet(const std::wstring& key, const std::string& json, std::wstring& error) {
+    if (!package_) {
+        error = L"the widget is not loaded";
+        return false;
+    }
+    const Widgets::SettingField* f = Widgets::FieldOf(package_->manifest, key);
+    if (!f) {
+        error = L"\"" + key.substr(0, 64) + L"\" is not a setting of this widget (its manifest's \"settings\")";
+        return false;
+    }
+    std::wstring normalized;
+    if (!Widgets::CheckSettingValue(*f, json, normalized, error)) return false;
+    if (preview_) return false;  // a preview changes nothing
+    // The value it has now: nothing to write (no token spent).
+    try {
+        JsonUtil::json::JsonObject o{nullptr};
+        if (JsonUtil::json::JsonObject::TryParse(JsonUtil::Utf8ToWide(settings_), o) && o) {
+            const JsonUtil::json::IJsonValue v = JsonUtil::Find(o, key.c_str());
+            const bool pendingOther = std::any_of(pendingSettings_.begin(), pendingSettings_.end(), [&](const auto& p) { return p.first == key; });
+            if (v && !pendingOther && std::wstring(v.Stringify()) == normalized) return true;
+        }
+    } catch (...) {
+    }
+    // The rate limit: the config file is written whole (atomically) on every change, so a script
+    // must not be able to rewrite it many times a second. A burst of kSettingsBurst, then one write
+    // every kSettingsRefillMs; changes of one burst are written together (one posted message).
+    const double now = WidgetNowMs();
+    if (settingsTokensAt_ < 0.0) {
+        settingsTokens_ = kSettingsBurst;
+    } else {
+        settingsTokens_ = std::min(kSettingsBurst, settingsTokens_ + (now - settingsTokensAt_) / kSettingsRefillMs);
+    }
+    settingsTokensAt_ = now;
+    if (settingsTokens_ < 1.0) {
+        if (now - settingsWarnedAt_ > 30000.0) {
+            settingsWarnedAt_ = now;
+            Log(ScriptLogLevel::Warn, L"settings.set: refused (more than 5 changes in a short time; one more every 10 s). Keep "
+                                      L"state that changes often in storage");
+        }
+        return false;
+    }
+    settingsTokens_ -= 1.0;
+    auto it = std::find_if(pendingSettings_.begin(), pendingSettings_.end(), [&](const auto& p) { return p.first == key; });
+    if (it != pendingSettings_.end()) {
+        it->second = normalized;
+    } else {
+        pendingSettings_.emplace_back(key, normalized);
+    }
+    runtime_.QueueSettingsWrite(this);  // written from a posted message, never inside this call
+    return true;
+}
+
+bool WidgetInstance::LinksOpen(const std::wstring& url, std::wstring& error) {
+    if (!Permitted(Permission::Links)) {
+        error = L"links.open needs the \"links\" permission (widget.json)";
+        return false;
+    }
+    bool secure = true;
+    std::wstring host, path;
+    unsigned short port = 0;
+    if (url.size() > 2048 || !Http::SplitUrl(url, secure, host, port, path) ||
+        std::any_of(url.begin(), url.end(), [](wchar_t c) { return c < 0x20 || c == L' '; })) {
+        error = L"only http and https addresses open";
+        return false;
+    }
+    if (preview_) return false;
+    // A page opens only as the answer to a click on the widget or its popup, once per click: a
+    // script cannot open browser windows by itself.
+    const double now = WidgetNowMs();
+    if (gestureUsed_ || now - gestureAt_ > kGestureMs) {
+        Log(ScriptLogLevel::Warn, L"links.open: not right after a click on the widget: nothing opened");
+        return false;
+    }
+    if (afterCall_.size() >= kMaxAfterCall) {
+        error = L"too many things opened in one call";
+        return false;
+    }
+    gestureUsed_ = true;
+    AfterCall a;
+    a.kind = AfterCall::Kind::ShellOpen;
+    a.target = url;
+    a.shown = url.substr(0, 200);
+    afterCall_.push_back(std::move(a));
+    return true;
+}
+
+bool WidgetInstance::HostAllowed(const std::wstring& host) const {
+    // Round 25 phase 25D: the rule lives in Http::HostMatches, which the worker also applies to
+    // every redirect (only the first URL was checked here before; WinHTTP then followed any
+    // redirect to any host). An IP address is matched only by an entry that is that address.
+    return package_ && Http::HostMatches(package_->manifest.httpHosts, host);
 }
 
 int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& url, const std::wstring& headers,
@@ -1210,10 +1624,33 @@ int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& ur
         error = L"not an http(s) URL: " + url;
         return 0;
     }
-    if (!HostAllowed(host)) {
-        error = L"host \"" + host + L"\" is not in the widget's http permission";
+    // Round 29 phase 29C: also a host the user typed into this item's url setting and allowed.
+    const std::vector<std::wstring> userHosts = UserHosts();
+    const std::wstring lowerHost = [&] {
+        std::wstring h = host;
+        for (wchar_t& c : h) c = static_cast<wchar_t>(std::towlower(c));
+        return h;
+    }();
+    const bool userHost = std::find(userHosts.begin(), userHosts.end(), lowerHost) != userHosts.end();
+    if (!HostAllowed(host) && !userHost) {
+        bool named = false;  // a host setting names it, but the user has not allowed it (yet)
+        for (const std::wstring& key : package_->manifest.hostSettings) {
+            JsonUtil::json::JsonObject o{nullptr};
+            std::wstring value, h, why;
+            bool local = false;
+            try {
+                if (JsonUtil::json::JsonObject::TryParse(JsonUtil::Utf8ToWide(settings_), o) && o) JsonUtil::ReadString(o, key.c_str(), value);
+            } catch (...) {
+            }
+            if (Widgets::CheckUrlValue(value, h, local, why) && h == lowerHost) named = true;
+        }
+        error = named ? L"host \"" + host + L"\" was not allowed: enter it in the widget's settings and allow it when asked"
+                      : L"host \"" + host + L"\" is not in the widget's http permission";
         return 0;
     }
+    // Round 25 phase 25D: the headers checked here, not only in the prelude (a script can replace
+    // RegExp.prototype.test, which the prelude's check calls).
+    if (!Http::ValidHeaders(headers, error)) return 0;
     if (requests_ >= WidgetRuntime::kMaxRequests) {
         error = L"too many requests in flight (4 per widget)";
         return 0;
@@ -1224,6 +1661,13 @@ int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& ur
     rq.headers = headers;
     rq.body = body;
     rq.timeoutMs = std::clamp<uint32_t>(timeoutMs ? timeoutMs : 10000u, 1000u, 30000u);
+    // Round 25 phase 25D: the script's timeout bounds the whole request (every redirect, the body),
+    // not each WinHTTP operation; the widget rules (Http::Request::strict): redirects by hand
+    // through the same allowlist, local addresses refused unless listed as themselves.
+    rq.totalMs = rq.timeoutMs;
+    rq.strict = true;
+    rq.allowedHosts = package_->manifest.httpHosts;
+    rq.userHosts = userHosts;  // round 29 phase 29C: re-checked on every hop (HttpClient.cpp)
     rq.maxBody = 2u << 20;
     const int id = nextRequest_;
     nextRequest_ = nextRequest_ >= 0x3FFFFFFF ? 1 : nextRequest_ + 1;
@@ -1248,7 +1692,9 @@ void WidgetInstance::OnHttpResult(uint64_t generation, int id, const Http::Resul
                ",\"text\":" + JsonUtil::WideToUtf8(JsonUtil::Quote(JsonUtil::Utf8ToWide(result.body))) + "}";
     } else {
         wchar_t msg[160];
-        if (result.error == ERROR_FILE_TOO_LARGE) {
+        if (!result.problem.empty()) {  // round 25 phase 25D: a refused redirect or address
+            swprintf_s(msg, L"%.150ls", result.problem.c_str());
+        } else if (result.error == ERROR_FILE_TOO_LARGE) {
             swprintf_s(msg, L"http: the response is larger than 2 MB");
         } else if (result.error == ERROR_WINHTTP_TIMEOUT) {
             swprintf_s(msg, L"http: timed out");
@@ -1270,16 +1716,29 @@ bool WidgetInstance::ShellOpen(const std::wstring& target, const std::wstring& a
         return false;
     }
     if (preview_) return true;  // nothing opens in a preview (the script gets false)
-    wchar_t expanded[MAX_PATH * 4]{};
-    ExpandEnvironmentStringsW(target.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
-    AllowSetForegroundWindow(ASFW_ANY);
-    const auto rc = reinterpret_cast<INT_PTR>(
-        ShellExecuteW(nullptr, nullptr, expanded, args.empty() ? nullptr : args.c_str(), nullptr, SW_SHOWNORMAL));
-    if (rc <= 32) {
-        error = L"shell.open: could not open " + target + L" (" + std::to_wstring(rc) + L")";
+    // Round 25 phase 25D: the expansion checked (a 2048-character target with variables went into a
+    // 1040-character buffer, unchecked: a truncated or empty target was opened).
+    std::wstring expanded;
+    if (!Widgets::ExpandPath(target, expanded)) {
+        error = L"shell.open: the target cannot be expanded (too long)";
         return false;
     }
-    Log(ScriptLogLevel::Info, L"shell.open " + target);
+    // Round 25 phase 25A: ShellExecute runs after the call returns (RunDeferred), not inside it: it
+    // can pump messages (DDE, COM, its own error message box: a modal loop for as long as the box
+    // is up), and a timer, a posted result or a reload of this widget dispatched there ran inside
+    // the script's call (and the watchdog's deadline passed while the box was open). A target that
+    // cannot be opened is logged then instead of thrown.
+    if (afterCall_.size() >= kMaxAfterCall) {
+        error = L"shell.open: too many opens in one call";
+        return false;
+    }
+    AfterCall a;
+    a.kind = AfterCall::Kind::ShellOpen;
+    a.target = expanded;
+    a.args = args;
+    a.shown = target;
+    afterCall_.push_back(std::move(a));
+    KickDeferred();  // posted now unless a call is on the stack (then its end posts it)
     return true;
 }
 
@@ -1288,9 +1747,11 @@ bool WidgetInstance::ShellList(const std::wstring& folder, std::string& json, st
         error = L"shell.list needs the \"shell\" permission";
         return false;
     }
-    wchar_t expanded[MAX_PATH * 2]{};
-    ExpandEnvironmentStringsW(folder.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
-    std::wstring dir = expanded;
+    std::wstring dir;  // round 25 phase 25D: checked, not a fixed buffer
+    if (!Widgets::ExpandPath(folder, dir)) {
+        error = L"shell.list: cannot expand " + folder;
+        return false;
+    }
     while (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
     struct Entry {
         std::wstring name;
@@ -1376,6 +1837,13 @@ constexpr KeyCombo kKeyCombos[] = {
     {L"win+v", {VK_LWIN, 'V'}},         // clipboard history
     {L"win+w", {VK_LWIN, 'W'}},         // Widgets
     {L"win+x", {VK_LWIN, 'X'}},         // the Start button's context menu
+    {L"win+space", {VK_LWIN, VK_SPACE}},  // round 27 phase 27C: the next input language (input.next)
+    // Round 28 phase 28A (the Quick buttons widget): more of Windows' own UI.
+    {L"win+shift+s", {VK_LWIN, VK_SHIFT, 'S'}},          // Snipping Tool's screen snip
+    {L"win+k", {VK_LWIN, 'K'}},                          // Cast
+    {L"win+.", {VK_LWIN, VK_OEM_PERIOD}},                // the emoji panel
+    {L"win+ctrl+left", {VK_LWIN, VK_CONTROL, VK_LEFT}},  // the previous virtual desktop
+    {L"win+ctrl+right", {VK_LWIN, VK_CONTROL, VK_RIGHT}},  // the next virtual desktop
     {L"ctrl+shift+esc", {VK_CONTROL, VK_SHIFT, VK_ESCAPE}},  // Task Manager (11B)
     {L"volume-up", {VK_VOLUME_UP, 0}},
     {L"volume-down", {VK_VOLUME_DOWN, 0}},
@@ -1429,6 +1897,8 @@ bool ExtendedKey(WORD vk) {
         case VK_MEDIA_NEXT_TRACK:
         case VK_MEDIA_PREV_TRACK:
         case VK_MEDIA_STOP:
+        case VK_LEFT:   // round 28: the arrow keys are extended keys (not the numeric keypad's)
+        case VK_RIGHT:
             return true;
         default:
             return false;
@@ -1444,12 +1914,20 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
     }
     std::wstring n = name;
     for (wchar_t& c : n) c = static_cast<wchar_t>(std::towlower(c));
+    if (std::none_of(std::begin(kKeyCombos), std::end(kKeyCombos), [&](const KeyCombo& k) { return n == k.name; })) {
+        error = L"shell.sendKeys: \"" + name + L"\" is not in the allow-list (docs/widgets.md)";
+        return false;
+    }
+    return PressCombo(n, L"shell.sendKeys", error);
+}
+
+bool WidgetInstance::PressCombo(const std::wstring& n, const wchar_t* who, std::wstring& error) {
     const KeyCombo* combo = nullptr;
     for (const KeyCombo& k : kKeyCombos) {
         if (n == k.name) combo = &k;
     }
     if (!combo) {
-        error = L"shell.sendKeys: \"" + name + L"\" is not in the allow-list (docs/widgets.md)";
+        error = std::wstring(who) + L": \"" + n + L"\" is not in the allow-list";
         return false;
     }
     if (preview_) return true;  // nothing is pressed in a preview (the script gets false)
@@ -1477,7 +1955,7 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
     }
     if (SendKeysDryRun(n, combo->keys, count, extra)) {
         if (placer) placer->Restore();  // nothing opens: nothing may stay shifted (Place moved nothing)
-        Log(ScriptLogLevel::Info, L"shell.sendKeys " + n + L" (dry run: WINDOCK_SENDKEYS_LOG)");
+        Log(ScriptLogLevel::Info, std::wstring(who) + L" " + n + L" (dry run: WINDOCK_SENDKEYS_LOG)");
         return true;
     }
     INPUT in[2 * kMaxComboKeys]{};
@@ -1493,11 +1971,11 @@ bool WidgetInstance::SendKeys(const std::wstring& name, std::wstring& error) {
     }
     const UINT total = static_cast<UINT>(2 * count);
     if (SendInput(total, in, sizeof(INPUT)) != total) {
-        error = L"shell.sendKeys: Windows blocked the input (" + std::to_wstring(GetLastError()) + L")";
+        error = std::wstring(who) + L": Windows blocked the input (" + std::to_wstring(GetLastError()) + L")";
         if (placer) placer->Restore();  // 16A: the menu does not open; the script opens All apps instead
         return false;
     }
-    Log(ScriptLogLevel::Info, L"shell.sendKeys " + n);
+    Log(ScriptLogLevel::Info, std::wstring(who) + L" " + n);
     return true;
 }
 
@@ -1698,10 +2176,21 @@ bool WidgetInstance::NotificationsCommand(const std::string& command, double id,
     } else if (command == "markRead") {
         n->MarkRead(nid);
     } else if (command == "activate") {
-        if (!client_.WidgetActivateNotification(nid)) {
+        // Round 25 phase 25A: checked now, done after the call returns (RunDeferred): starting the
+        // app goes through ShellExecuteEx, which can pump messages (see ShellOpen).
+        if (!n->ById(nid)) {
             error = L"notifications.activate: no such notification";
             return false;
         }
+        if (afterCall_.size() >= kMaxAfterCall) {
+            error = L"notifications.activate: too many in one call";
+            return false;
+        }
+        AfterCall a;
+        a.kind = AfterCall::Kind::Activate;
+        a.id = nid;
+        afterCall_.push_back(std::move(a));
+        KickDeferred();
     } else if (command == "openCentre") {
         if (!client_.WidgetOpenCentre(*this)) {
             error = L"notifications.openCentre: the dock cannot show its notification centre";
@@ -1926,7 +2415,8 @@ std::string WidgetInstance::WeatherJson(const WeatherService& w, const WeatherCo
         o += ",\"current\":{\"temp\":" + NumOrNull(f.temp) + ",\"code\":" + std::to_string(f.code) +
              ",\"isDay\":" + Bool(f.isDay) + ",\"description\":" + J(WeatherGlyphs::Describe(f.code)) +
              ",\"glyph\":\"" + GlyphName(WeatherGlyphs::FromWmo(f.code)) + "\",\"wind\":" + NumOrNull(f.wind) +
-             ",\"humidity\":" + NumOrNull(f.humidity) + "}";
+             ",\"humidity\":" + NumOrNull(f.humidity) + ",\"feelsLike\":" + NumOrNull(f.feelsLike) +
+             ",\"uv\":" + NumOrNull(f.uv) + "}";  // round 28 phase 28A: feelsLike, uv
     } else {
         o += ",\"current\":null";
     }
@@ -1946,7 +2436,10 @@ std::string WidgetInstance::WeatherJson(const WeatherService& w, const WeatherCo
         o += (i ? ",{" : "{") + std::string("\"day\":\"") + DayText(d.day) + "\",\"weekday\":" +
              std::to_string((d.weekday + 1) % 7) + ",\"code\":" + std::to_string(d.code) +
              ",\"description\":" + J(WeatherGlyphs::Describe(d.code)) + ",\"min\":" + NumOrNull(d.tmin) +
-             ",\"max\":" + NumOrNull(d.tmax) + "}";
+             ",\"max\":" + NumOrNull(d.tmax) + ",\"uvMax\":" + NumOrNull(d.uvMax) +
+             // Round 28 phase 28A: the location's local minutes -> UTC ms, as `hourly[].time`.
+             ",\"sunrise\":" + (d.sunrise >= 0 ? std::to_string((d.sunrise * 60 - f.utcOffset) * 1000) : std::string("null")) +
+             ",\"sunset\":" + (d.sunset >= 0 ? std::to_string((d.sunset * 60 - f.utcOffset) * 1000) : std::string("null")) + "}";
     }
     o += "]}";
     return o;
@@ -2050,12 +2543,19 @@ bool WidgetInstance::PerfCall(const std::string& what, double number, std::strin
             json = WidgetSamples::PerfHwinfoJson();
         } else if (what == "use") {
             json = "null";
+        } else if (what == "drives") {
+            json = WidgetSamples::DrivesJson();  // round 28 phase 28A
         } else if (what == "setInterval") {
             json = "1000";  // the sampler is not started
         } else {
             error = L"perf: unknown call";
             return false;
         }
+        return true;
+    }
+    if (what == "drives") {
+        // Round 28 phase 28A: the fixed drives' space; no sampler needed (nothing is started).
+        json = PerfService::DrivesJson();
         return true;
     }
     PerfService* perf = runtime_.UsePerf(this);
@@ -2118,5 +2618,125 @@ bool WidgetInstance::PerfSeries(const std::string& key, size_t n, std::vector<do
         return false;
     }
     perf->Series(key, std::min(n, PerfService::kHistory), out);
+    return true;
+}
+
+// --- round 27: network and input --------------------------------------------------------------------
+
+bool WidgetInstance::NetworkCall(const std::string& what, std::string& json, std::wstring& error) {
+    if (!Permitted(Permission::Network)) {
+        error = L"network needs the \"network\" permission";
+        return false;
+    }
+    if (what != "get" && what != "use") {
+        error = L"network: unknown call";
+        return false;
+    }
+    if (preview_) {
+        json = what == "get" ? WidgetSamples::NetworkJson() : std::string("null");
+        return true;
+    }
+    // Windows could not say (the network list service is not there): `available` false, not a throw,
+    // so an indicator can draw "unknown"; the next call tries to start the provider again.
+    const NetworkService* net = runtime_.UseNetwork(this);
+    if (what == "use") {
+        json = "null";
+    } else {
+        json = NetworkService::Json(net ? net->Get() : NetworkService::State{});
+    }
+    return true;
+}
+
+bool WidgetInstance::InputCall(const std::string& what, const std::wstring& text, std::string& json, std::wstring& error) {
+    if (!Permitted(Permission::Input)) {
+        error = L"input needs the \"input\" permission";
+        return false;
+    }
+    if (preview_) {
+        if (what == "get") {
+            json = WidgetSamples::InputJson();
+        } else if (what == "use" || what == "set" || what == "next") {
+            json = what == "use" ? "null" : "true";  // nothing is switched in a preview
+        } else {
+            error = L"input: unknown call";
+            return false;
+        }
+        return true;
+    }
+    InputService* in = runtime_.UseInput(this);
+    if (!in) {
+        error = L"input: the keyboard layouts are not available";
+        return false;
+    }
+    if (what == "get") {
+        json = InputService::Json(in->Get());
+    } else if (what == "use") {
+        json = "null";
+    } else if (what == "set") {
+        if (!in->Select(text, error)) return false;
+        json = "true";
+    } else if (what == "next") {
+        // Windows + Space, as if the user pressed it: the switch every app follows (UWP and console
+        // windows included, which may ignore WM_INPUTLANGCHANGEREQUEST); Windows 11 shows its
+        // language switcher for a moment. Under "input", not "shell": the key is fixed.
+        if (!PressCombo(L"win+space", L"input.next", error)) return false;
+        json = "true";
+    } else {
+        error = L"input: unknown call";
+        return false;
+    }
+    return true;
+}
+
+// --- round 28: notify.banner -------------------------------------------------------------------------
+
+namespace {
+
+// A banner's line: control characters (line breaks, tabs) become spaces, runs of spaces one, the
+// ends trimmed, cut at `max` characters with an ellipsis. Plain text only: the banner draws it as
+// it is (no markup, no links).
+std::wstring BannerLine(const std::wstring& in, size_t max) {
+    std::wstring s;
+    s.reserve(std::min(in.size(), max + 1));
+    for (wchar_t c : in) {
+        if (c < 0x20 || c == 0x7F || (c >= 0x2028 && c <= 0x202E) || (c >= 0x2066 && c <= 0x2069)) c = L' ';
+        if (c == L' ' && (s.empty() || s.back() == L' ')) continue;
+        s.push_back(c);
+        if (s.size() > max) break;
+    }
+    while (!s.empty() && s.back() == L' ') s.pop_back();
+    if (s.size() > max) {
+        s.resize(max - 1);
+        if (!s.empty() && IS_HIGH_SURROGATE(s.back())) s.pop_back();
+        s.push_back(L'\x2026');
+    }
+    return s;
+}
+
+}  // namespace
+
+bool WidgetInstance::NotifyBanner(const std::wstring& title, const std::wstring& text, bool sound, std::wstring& error) {
+    if (!Permitted(Permission::Notify)) {
+        error = L"notify needs the \"notify\" permission";
+        return false;
+    }
+    const std::wstring t = BannerLine(title, kBannerTitleMax);
+    if (t.empty()) {
+        error = L"notify.banner: the title must not be empty";
+        return false;
+    }
+    if (preview_) return true;  // nothing shows in a preview
+    // The rate limit: one banner per widget on screen (a newer one replaces it) and at least
+    // kBannerGapMs between two; a call inside the gap shows nothing and returns false.
+    const double now = WidgetNowMs();
+    if (now - lastBannerMs_ < kBannerGapMs) {
+        Log(ScriptLogLevel::Warn, L"notify.banner: refused (one banner per 5 seconds)");
+        return false;
+    }
+    lastBannerMs_ = now;
+    banner_ = Banner{t, BannerLine(text, kBannerTextMax), sound};
+    bannerPending_ = true;
+    client_.WidgetPopupRequest(*this);  // the host shows it after this call (with the popup requests)
+    Log(ScriptLogLevel::Info, L"notify.banner " + t);
     return true;
 }

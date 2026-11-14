@@ -1,7 +1,7 @@
 {
   "name": "Calendar page",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "Today's date as a skeuomorphic calendar page: a coloured header with the month (or weekday) over a big day number, as a flip calendar or a flat page. Turns over at midnight of its time zone (one timer, nothing in between).",
   "api": 1,
   "size": {

@@ -2,10 +2,14 @@
 
 #include <shellapi.h>
 #include <shellscalingapi.h>
+#include <shobjidl.h>  // round 29 phase 29A: IFileSaveDialog
 #include <uxtheme.h>
 #include <windowsx.h>
 
+#include <winrt/base.h>
+
 #include <algorithm>
+#include <cstring>
 #include <cwchar>
 #include <iterator>
 
@@ -14,6 +18,7 @@
 #include "WidgetPackage.h"
 #include "WidgetRuntime.h"
 #include "resource.h"
+#include "Crash.h"
 
 namespace {
 
@@ -28,6 +33,7 @@ const wchar_t* StateText(WidgetInstance::State s) {
     switch (s) {
         case WidgetInstance::State::Error: return L"error";
         case WidgetInstance::State::Suspended: return L"stopped";
+        case WidgetInstance::State::NeedsConsent: return L"needs permission";  // round 25 phase 25D
         case WidgetInstance::State::Ok:
         default: return L"ok";
     }
@@ -63,7 +69,7 @@ bool WidgetConsole::Create(HINSTANCE instance) {
     dpi_ = dx;
     const int w = Px(kWidthDip), h = Px(kHeightDip);
     const RECT& wa = mi.rcWork;
-    hwnd_ = CreateWindowExW(0, kClassName, L"WinDock widget console", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+    hwnd_ = CreateWindowExW(0, kClassName, L"ViberDock widget console", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                             wa.left + (wa.right - wa.left - w) / 2, wa.top + (wa.bottom - wa.top - h) / 2, w, h, nullptr,
                             nullptr, instance, this);
     if (!hwnd_) return false;
@@ -83,6 +89,8 @@ bool WidgetConsole::Create(HINSTANCE instance) {
     reload_ = make(L"BUTTON", L"Reload", WS_TABSTOP | BS_PUSHBUTTON, 0, kReload);
     folder_ = make(L"BUTTON", L"Open folder", WS_TABSTOP | BS_PUSHBUTTON, 0, kFolder);
     clear_ = make(L"BUTTON", L"Clear", WS_TABSTOP | BS_PUSHBUTTON, 0, kClear);
+    copy_ = make(L"BUTTON", L"Copy all", WS_TABSTOP | BS_PUSHBUTTON, 0, kCopy);       // round 29 phase 29A
+    save_ = make(L"BUTTON", L"Save to file\x2026", WS_TABSTOP | BS_PUSHBUTTON, 0, kSave);
     status_ = make(L"STATIC", L"", SS_LEFTNOWORDWRAP | SS_NOPREFIX, 0, kStatus);
     SendMessageW(log_, EM_SETLIMITTEXT, 0, 0);
     ApplyTheme();
@@ -108,7 +116,7 @@ void WidgetConsole::Activate() {
 void WidgetConsole::ApplyTheme() {
     palette_ = DarkMode::CurrentPalette();
     DarkMode::SetDarkCaption(hwnd_, palette_.dark);
-    for (HWND c : {list_, reload_, folder_, clear_}) DarkMode::ThemeControl(c, palette_.dark);
+    for (HWND c : {list_, reload_, folder_, clear_, copy_, save_}) DarkMode::ThemeControl(c, palette_.dark);
     // The log's scroll bars: the Explorer dark style (the edit-box style leaves them light).
     SetWindowTheme(log_, palette_.dark ? L"DarkMode_Explorer" : nullptr, nullptr);
     if (layerBrush_) DeleteObject(layerBrush_);
@@ -124,7 +132,7 @@ void WidgetConsole::ApplyTheme() {
     wcscpy_s(mono.lfFaceName, L"Cascadia Mono");
     if (mono_) DeleteObject(mono_);
     mono_ = CreateFontIndirectW(&mono);
-    for (HWND c : {list_, reload_, folder_, clear_, status_}) SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
+    for (HWND c : {list_, reload_, folder_, clear_, copy_, save_, status_}) SendMessageW(c, WM_SETFONT, reinterpret_cast<WPARAM>(font_), TRUE);
     SendMessageW(log_, WM_SETFONT, reinterpret_cast<WPARAM>(mono_ ? mono_ : font_), TRUE);
     InvalidateRect(hwnd_, nullptr, TRUE);
 }
@@ -139,7 +147,10 @@ void WidgetConsole::Layout() {
     MoveWindow(reload_, m, bottom, bw, bh, TRUE);
     MoveWindow(folder_, 2 * m + bw, bottom, bw, bh, TRUE);
     MoveWindow(clear_, 3 * m + 2 * bw, bottom, bw, bh, TRUE);
-    MoveWindow(status_, 4 * m + 3 * bw, bottom + Px(5), std::max(0, static_cast<int>(rc.right) - 5 * m - 3 * bw), bh, TRUE);
+    MoveWindow(copy_, 4 * m + 3 * bw, bottom, bw, bh, TRUE);  // round 29 phase 29A
+    MoveWindow(save_, 5 * m + 4 * bw, bottom, bw + Px(16), bh, TRUE);
+    const int statusX = 6 * m + 5 * bw + Px(16);
+    MoveWindow(status_, statusX, bottom + Px(5), std::max(0, static_cast<int>(rc.right) - statusX - m), bh, TRUE);
 }
 
 WidgetInstance* WidgetConsole::Selected() const {
@@ -207,6 +218,69 @@ void WidgetConsole::FillLog() {
     SendMessageW(log_, EM_SCROLLCARET, 0, 0);
     EnableWindow(reload_, w != nullptr);
     EnableWindow(clear_, w != nullptr);
+    EnableWindow(copy_, lines > 0);
+    EnableWindow(save_, lines > 0);
+}
+
+// Round 29 phase 29A: the log as shown (from the last Clear on), CRLF lines, to the clipboard.
+void WidgetConsole::CopyLog() {
+    const int len = GetWindowTextLengthW(log_);
+    if (len <= 0) return;
+    std::wstring text(static_cast<size_t>(len) + 1, L'\0');
+    text.resize(static_cast<size_t>(GetWindowTextW(log_, text.data(), len + 1)));
+    if (!OpenClipboard(hwnd_)) {
+        MessageBeep(MB_ICONWARNING);  // another program holds the clipboard
+        return;
+    }
+    EmptyClipboard();
+    const size_t bytes = (text.size() + 1) * sizeof(wchar_t);
+    if (HGLOBAL mem = GlobalAlloc(GMEM_MOVEABLE, bytes)) {
+        if (void* p = GlobalLock(mem)) {
+            memcpy(p, text.c_str(), bytes);
+            GlobalUnlock(mem);
+            if (!SetClipboardData(CF_UNICODETEXT, mem)) GlobalFree(mem);  // the clipboard owns it on success
+        } else {
+            GlobalFree(mem);
+        }
+    }
+    CloseClipboard();
+    SetWindowTextW(status_, L"Copied the log");
+}
+
+// The same text to a file the user names (UTF-8 with a BOM, so Notepad and editors read it right).
+void WidgetConsole::SaveLog() {
+    WidgetInstance* w = Selected();
+    const int len = GetWindowTextLengthW(log_);
+    if (!w || len <= 0) return;
+    std::wstring text(static_cast<size_t>(len) + 1, L'\0');
+    text.resize(static_cast<size_t>(GetWindowTextW(log_, text.data(), len + 1)));
+    winrt::com_ptr<IFileSaveDialog> dialog;
+    if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
+        MessageBeep(MB_ICONERROR);
+        return;
+    }
+    const COMDLG_FILTERSPEC filters[] = {{L"Text files (*.txt)", L"*.txt"}, {L"All files", L"*.*"}};
+    dialog->SetFileTypes(2, filters);
+    dialog->SetDefaultExtension(L"txt");
+    dialog->SetTitle(L"Save the widget's log");
+    std::wstring name = w->Id() + L"-log.txt";  // a widget id is a valid file name (a-z 0-9 - _ .)
+    dialog->SetFileName(name.c_str());
+    FILEOPENDIALOGOPTIONS options = 0;
+    dialog->GetOptions(&options);
+    dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_OVERWRITEPROMPT | FOS_NOCHANGEDIR);
+    if (FAILED(dialog->Show(hwnd_))) return;  // cancelled
+    winrt::com_ptr<IShellItem> item;
+    PWSTR raw = nullptr;
+    if (FAILED(dialog->GetResult(item.put())) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw) return;
+    const std::wstring path = raw;
+    CoTaskMemFree(raw);
+    const std::string bytes = "\xEF\xBB\xBF" + JsonUtil::WideToUtf8(text);
+    if (JsonUtil::WriteFileAtomic(path, bytes)) {
+        SetWindowTextW(status_, (L"Saved to " + path).c_str());
+    } else {
+        MessageBeep(MB_ICONWARNING);
+        SetWindowTextW(status_, (L"Could not write " + path).c_str());
+    }
 }
 
 void WidgetConsole::PostRefresh(bool list) {
@@ -216,6 +290,9 @@ void WidgetConsole::PostRefresh(bool list) {
 }
 
 LRESULT CALLBACK WidgetConsole::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     WidgetConsole* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<WidgetConsole*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
@@ -246,7 +323,7 @@ LRESULT WidgetConsole::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_GETMINMAXINFO: {
             auto* mmi = reinterpret_cast<MINMAXINFO*>(lp);
-            mmi->ptMinTrackSize = POINT{Px(520), Px(260)};
+            mmi->ptMinTrackSize = POINT{Px(620), Px(260)};  // round 29 phase 29A: five buttons (was 520)
             return 0;
         }
         case WM_DPICHANGED: {
@@ -331,6 +408,10 @@ LRESULT WidgetConsole::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             } else if (id == kClear && w) {
                 clearedAt_ = w->LogTotal();
                 FillLog();
+            } else if (id == kCopy) {  // round 29 phase 29A
+                CopyLog();
+            } else if (id == kSave) {
+                SaveLog();
             } else if (id == kFolder) {
                 std::wstring folder = Widgets::Directory();
                 if (w && w->Package() && w->Package()->source == Widgets::Package::Source::Folder) {

@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "Config.h"
+#include "FolderListing.h"
 #include "IconCache.h"
 #include "ItemGridView.h"
 #include "PopupWindow.h"
@@ -111,7 +112,7 @@ public:
         RECT monitor{};
     };
 
-    FolderPopup() : PopupWindow(kClassName, L"WinDock folder", Mode::Click) {}
+    FolderPopup() : PopupWindow(kClassName, L"ViberDock folder", Mode::Click) {}
     ~FolderPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, IconCache* icons, Callbacks callbacks);
@@ -174,16 +175,19 @@ private:
     static bool Empty(const RECT& r) { return r.right <= r.left || r.bottom <= r.top; }
     static constexpr UINT_PTR kViewTimerBase = 100;  // the view's timers (100, 101)
 
-    struct Entry {
-        std::wstring name;  // file name (sorting)
-        std::wstring path;
-        bool folder = false;
-        ULONGLONG size = 0;
-        FILETIME modified{};
-    };
+    using Entry = FolderListing::Entry;  // round 26 phase 26B: shared with the folder windows
+    // Round 26 phase 26B: posted to the popup's window by the worker listing a slow folder
+    // (wParam: listTag_ when it started, lParam: a FolderListing::Listing* the popup frees).
+    static constexpr UINT kListedMessage = WM_APP + 78;
 
     // Enumerates `folder` into entries_ and the view's items (icons load as rows are drawn).
+    // Round 26 phase 26B: a slow folder (FolderListing::Slow) only shows "Loading…" here; the
+    // caller calls StartListing after ShowAt, OnListed applies the worker's listing.
     void Load(const std::wstring& folder);
+    void StartListing();
+    void OnListed(WPARAM tag, FolderListing::Listing* listing);
+    void ApplyListing(FolderListing::Listing listing);
+    static FolderListing::Filter ListFilter();
     // Shows another folder in place (keeps the anchor).
     void Navigate(const std::wstring& folder);
     void GoBack();
@@ -230,6 +234,9 @@ private:
     std::wstring current_;   // the folder shown
     std::vector<Entry> entries_;
     bool readable_ = true;   // the folder could be enumerated
+    bool loading_ = false;      // round 26 phase 26B: a slow folder's listing has not come yet
+    bool listWanted_ = false;   // ... and StartListing has not started its worker yet
+    WPARAM listTag_ = 0;        // the Load the next listing belongs to
     std::unordered_map<int, winrt::com_ptr<ID2D1Bitmap>> iconByIndex_;  // system image list index -> bitmap
     std::wstring selectAfterLoad_;  // GoBack: the sub-folder we came from (selected)
     int pendingSelect_ = -1;        // ... its index after the load (Measure scrolls to it)

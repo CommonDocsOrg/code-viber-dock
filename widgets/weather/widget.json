@@ -1,7 +1,7 @@
 {
   "name": "Weather",
-  "version": "1.2.0",
-  "author": "WinDock",
+  "version": "1.3.0",
+  "author": "ViberDock",
   "description": "Current conditions and a forecast popup from Open-Meteo, with optional daily forecasts on the dock in several layouts and three icon packs, one of them animated. Choose a place for each widget or use the app's default place.",
   "api": 1,
   "size": {
@@ -94,16 +94,16 @@
         { "value": "plain", "label": "22° 14°" }
       ] },
     { "key": "iconPack", "quick": true, "section": "appearance", "type": "choice", "label": "Icons", "default": "windock", "group": "Icons",
-      "description": "The pictures of the conditions: WinDock's filled glyphs, Lucide's line icons (lucide.dev, ISC licence), or Meteocons' coloured, animated icons (meteocons.com, MIT licence). Default: WinDock.",
+      "description": "The pictures of the conditions: ViberDock's filled glyphs, Lucide's line icons (lucide.dev, ISC licence), or Meteocons' coloured, animated icons (meteocons.com, MIT licence). Default: ViberDock.",
       "choices": [
-        { "value": "windock", "label": "WinDock (filled)" },
+        { "value": "windock", "label": "ViberDock (filled)" },
         { "value": "lucide", "label": "Lucide (line icons)" },
         { "value": "meteocons", "label": "Meteocons (coloured, animated)" }
       ] },
     { "key": "iconMotion", "quick": true, "section": "appearance", "type": "bool", "label": "Animated icons", "default": true, "group": "Icons", "visibleIf": { "iconPack": "meteocons" },
       "description": "Meteocons move: the sun's rays turn, clouds drift, rain falls. Windows' compositor runs the loops, so the dock itself stays idle. Off with reduce motion. On by default." },
     { "key": "iconStyle", "section": "appearance", "type": "choice", "label": "Icon colours", "default": "colour", "group": "Icons",
-      "description": "Coloured: a yellow sun and blue rain. Single colour: everything in the text colour (the WinDock pack keeps its yellow sun; Meteocons are always coloured). Default: coloured.",
+      "description": "Coloured: a yellow sun and blue rain. Single colour: everything in the text colour (the ViberDock pack keeps its yellow sun; Meteocons are always coloured). Default: coloured.",
       "choices": [
         { "value": "colour", "label": "Coloured" },
         { "value": "mono", "label": "Single colour" }

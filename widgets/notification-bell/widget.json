@@ -1,8 +1,8 @@
 {
   "name": "Notification bell",
   "version": "0.3.0",
-  "author": "WinDock",
-  "description": "A scriptable bell that behaves like the notification centre: the unread count in a badge and a click that opens WinDock's notification centre. Settings turn it into a plain button that opens Windows' notification centre (Win+N) with a fixed badge number, a badge colour or your own image.",
+  "author": "ViberDock",
+  "description": "A scriptable bell that behaves like the notification centre: the unread count in a badge and a click that opens ViberDock's notification centre. Settings turn it into a plain button that opens Windows' notification centre (Win+N) with a fixed badge number, a badge colour or your own image.",
   "api": 1,
   "size": {
     "horizontal": { "main": 48, "cross": 48 },
@@ -12,9 +12,9 @@
   "permissions": ["shell", "notifications"],
   "settings": [
     { "key": "unread", "section": "content", "group": "Badge and click", "common": true, "type": "bool", "label": "Show the unread count", "default": true,
-      "description": "Reads Windows' notifications (WinDock polls the notification list every few seconds). Off: nothing polls and the fixed number below shows." },
-    { "key": "click", "section": "content", "group": "Badge and click", "common": true, "type": "choice", "label": "A click opens", "description": "Which notification centre a click opens: WinDock's own or the Windows one (Win+N). Default: WinDock's.", "default": "centre",
-      "choices": [ { "value": "centre", "label": "WinDock's notification centre" },
+      "description": "Reads Windows' notifications (ViberDock polls the notification list every few seconds). Off: nothing polls and the fixed number below shows." },
+    { "key": "click", "section": "content", "group": "Badge and click", "common": true, "type": "choice", "label": "A click opens", "description": "Which notification centre a click opens: ViberDock's own or the Windows one (Win+N). Default: ViberDock's.", "default": "centre",
+      "choices": [ { "value": "centre", "label": "ViberDock's notification centre" },
                    { "value": "windows", "label": "Windows' notification centre (Win+N)" } ] },
     { "key": "badge", "section": "content", "group": "Badge and click", "visibleIf": { "unread": false }, "type": "int", "label": "Fixed badge (0: none)", "min": 0, "max": 99, "default": 0,
       "description": "Shown while the unread count is off." },

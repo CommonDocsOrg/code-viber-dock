@@ -53,7 +53,7 @@ public:
         std::function<ID2D1Bitmap*(const NotificationItem& item, UINT px)> icon;
     };
 
-    NotificationPopup() : PopupWindow(kClassName, L"WinDock notifications", Mode::Click) {}
+    NotificationPopup() : PopupWindow(kClassName, L"ViberDock notifications", Mode::Click) {}
     ~NotificationPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, Callbacks callbacks);

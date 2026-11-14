@@ -1,3 +1,7 @@
+// @ts-check
+/// <reference path="../../docs/windock.d.ts" />
+// (Editor help only: docs/windock.d.ts declares the widget API for VS Code; the dock ignores both lines.)
+
 // A list in a script popup (the pattern of the dock's ItemGridView list mode, drawn with the
 // canvas): a click on the widget toggles a popup, drawPopup() draws one row per link with the
 // shell's icon (canvas.fileIcon) and its name, onPopupClick() hit-tests the rows it drew and opens

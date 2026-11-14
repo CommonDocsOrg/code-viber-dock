@@ -49,6 +49,7 @@ add_executable(WinDock WIN32
   src/Backdrop.cpp
   src/PopupWindow.cpp
   src/PreviewPopup.cpp
+  src/FolderListing.cpp
   src/FolderPopup.cpp
   src/FolderWindow.cpp
   src/WidgetWindow.cpp
@@ -95,6 +96,9 @@ add_executable(WinDock WIN32
   src/QuickJsEngine.cpp
   src/WidgetCanvas.cpp
   src/WidgetPackage.cpp
+  src/WidgetInstall.cpp
+  src/Zip.cpp
+  src/Secrets.cpp
   src/WidgetInstance.cpp
   src/WidgetRuntime.cpp
   src/WidgetSamples.cpp
@@ -107,6 +111,8 @@ add_executable(WinDock WIN32
   src/AudioService.cpp
   src/MediaService.cpp
   src/PerfService.cpp
+  src/NetworkService.cpp
+  src/InputService.cpp
   src/NotificationService.cpp
   src/NotificationElements.cpp
   src/NotificationPopup.cpp
@@ -122,6 +128,7 @@ add_executable(WinDock WIN32
   src/AppQuickSetup.cpp
   src/CoachMarks.cpp
   src/StartMenuPlacer.cpp
+  src/Crash.cpp
   res/app.rc
   res/app.manifest
 )
@@ -151,8 +158,14 @@ target_compile_options(WinDock PRIVATE
 # An 8 MB main-thread stack: the widget scripts run on the UI thread, and QuickJS's own stack
 # limit (JS_SetMaxStackSize, WidgetRuntime.h) must stay well inside the real stack (MSVC frames are
 # ~4.8 KB per JS call; with the default 1 MB stack deep recursion would crash the process).
+# Round 25 phase 25E: /DEPENDENTLOADFLAG:0x800 (LOAD_LIBRARY_SEARCH_SYSTEM32): the loader resolves
+# the exe's static imports that are not KnownDLLs (version, dwmapi, uxtheme, winhttp, dcomp, d2d1,
+# dxgi, pdh, iphlpapi, powrprof, propsys ...) from System32 only, never from the exe's own folder
+# (a DLL planted beside an exe run from Downloads). main.cpp's SetDefaultDllDirectories covers the
+# loads after startup. `dumpbin /loadconfig WinDock.exe` shows it as "Dependent Load Flag".
 target_link_options(WinDock PRIVATE
   /STACK:8388608
+  /DEPENDENTLOADFLAG:0x800
   $<$<CONFIG:Release>:/LTCG /OPT:REF /OPT:ICF>
 )
 
@@ -160,14 +173,16 @@ target_link_libraries(WinDock PRIVATE
   d3d11 dxgi d2d1 dxguid dcomp dwrite windowscodecs
   shell32 ole32 shlwapi dwmapi propsys user32 gdi32 version advapi32
   comctl32 uxtheme comdlg32 winhttp shcore
-  pdh iphlpapi powrprof
+  pdh iphlpapi powrprof wtsapi32
+  crypt32  # round 29 phase 29C: CryptProtectData / CryptUnprotectData (secret settings), base64
   windowsapp coremessaging
   quickjs
 )
 
 # The ICS parser's tests (round 4 phase 13, tests/ics): not built by default.
 #   cmake --build --preset x64-release --target WinDockTests, then build/x64-release/WinDockTests.exe
-add_executable(WinDockTests EXCLUDE_FROM_ALL tests/ics/IcsTests.cpp src/Ics.cpp)
+add_executable(WinDockTests EXCLUDE_FROM_ALL tests/ics/IcsTests.cpp src/Ics.cpp tests/zip/ZipTests.cpp src/Zip.cpp)  # round 29 phase 29B: the zip reader
 target_include_directories(WinDockTests PRIVATE src)
 target_compile_definitions(WinDockTests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 target_compile_options(WinDockTests PRIVATE /W4 /permissive- /utf-8)
+target_link_options(WinDockTests PRIVATE /DEPENDENTLOADFLAG:0x800)  # round 25 phase 25E: as WinDock

@@ -46,7 +46,10 @@ $variants = @(
     @{ name = 'strip before, count'; keys = @{ expander = 'before'; expanderStyle = 'count' }; place = 2; look = 2 },
     @{ name = 'labels beside'; keys = @{ labels = 'beside'; drawerLabels = 'beside'; iconSize = 28; spacing = 1 }; place = 0; look = 0 },
     @{ name = 'drawer overflow, labels none, title off'; keys = @{ drawerShows = 'overflow'; drawerLabels = 'none'; drawerTitle = $false; drawerIconSize = 24; expander = 'after'; expanderStyle = 'dots' }; place = 3; look = 1 },
-    @{ name = 'hover open, always'; keys = @{ drawerOpen = 'hover'; expanderShow = 'always'; colour = 'mono'; drawerColumns = 3 }; place = 0; look = 0 }
+    @{ name = 'hover open, always'; keys = @{ drawerOpen = 'hover'; expanderShow = 'always'; colour = 'mono'; drawerColumns = 3 }; place = 0; look = 0 },
+    # Round 30: the arrow's shape (377 / 378).
+    @{ name = 'count in a circle, strip after'; keys = @{ expander = 'after'; expanderStyle = 'count'; expanderShape = 'circle'; expanderSize = 120; expanderPadding = 6 }; place = 3; look = 2; shape = 1 },
+    @{ name = 'accent pill in a cell'; keys = @{ expanderStyle = 'dots'; expanderShape = 'pill'; expanderFill = 'accent'; expanderSize = 200 }; place = 0; look = 1; shape = 2 }
 )
 
 function TrayItem([hashtable]$Keys) {
@@ -86,6 +89,21 @@ try {
             Check "${tag}: 345 ($shown) = 101" ($shown -eq (Get-DockState 101 -Dock $dock -Arg 0))
             if ($always -or $registered -gt $drawn) { Check "${tag}: the arrow is shown" ($shown -eq 1) }
             if ($shown -eq 1) { Check "${tag}: the arrow has a centre (350)" ((Get-DockState 350 -Dock $dock -Arg 0) -ne -1) }
+            # Round 30: the shape behind the arrow, and that it fits a cell (346) when it is in one.
+            $shape = if ($v.ContainsKey('shape')) { $v.shape } else { 0 }
+            Check "${tag}: arrow shape 377 = $shape" ((Get-DockState 377 -Dock $dock -Arg 0) -eq $shape)
+            $box = Get-DockState 378 -Dock $dock -Arg 0
+            if ($shown -eq 1 -and $shape -ne 0) {
+                $bw = $box -band 0xFFFF; $bh = ($box -shr 16) -band 0xFFFF
+                Check "${tag}: the shape is drawn ($bw x $bh px)" ($bw -gt 0 -and $bh -gt 0)
+                if ($shape -eq 1) { Check "${tag}: the circle is round" ($bw -eq $bh) }
+                if ($v.place -le 1) {
+                    $cellPx = Get-DockState 346 -Dock $dock -Arg 0
+                    Check "${tag}: the shape fits its cell" ($bw -le ($cellPx -band 0xFFFF) -and $bh -le (($cellPx -shr 16) -band 0xFFFF))
+                }
+            } else {
+                Check "${tag}: no shape box (378 = 0)" ($box -eq 0)
+            }
             if ($drawn -gt 0) {
                 $px = Get-DockState 347 -Dock $dock -Arg 0
                 Check "${tag}: icons drawn at $px px" ($px -gt 0)

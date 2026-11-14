@@ -1,3 +1,7 @@
+// @ts-check
+/// <reference path="../../docs/windock.d.ts" />
+// (Editor help only: docs/windock.d.ts declares the widget API for VS Code; the dock ignores both lines.)
+
 // The smallest useful widget: one line of text. Everything a widget needs is here:
 // - `measure(canvas, dock)` returns the box it wants (DIPs along / across the dock), so the dock
 //   can lay it out; without it the manifest's "size" is used.

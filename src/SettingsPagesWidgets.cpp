@@ -24,7 +24,13 @@
 #include "SettingsForm.h"
 #include "SettingsIds.h"
 #include "Weather.h"
+#include "WidgetInstall.h"  // round 29 phase 29B: install from a zip
+#include "Secrets.h"        // round 29 phase 29C: secret settings
 #include "WidgetPackage.h"
+#include "Crash.h"
+
+#include <memory>
+#include <thread>
 
 namespace {
 
@@ -257,6 +263,13 @@ private:
 class WidgetsPage : public FormPage {
 public:
     explicit WidgetsPage(SettingsWindow& w) : FormPage(w, L"Widget library", L'\xEA86'), panel_(w) {}
+    // Round 29 phase 29B: an install that finished but was never committed (the window closed
+    // first) leaves nothing behind; one still running is left to Widgets::RemoveStaleStaging.
+    ~WidgetsPage() override {
+        if (zip_ && zip_->done) Widgets::DiscardZipInstall(*zip_);
+    }
+    WidgetsPage(const WidgetsPage&) = delete;
+    WidgetsPage& operator=(const WidgetsPage&) = delete;
 
 protected:
     void Build() override {
@@ -268,7 +281,7 @@ protected:
         Add(kWidgetsList, CtlKind::List, WC_LISTVIEWW, L"Installed widgets",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
-        Tip(kWidgetsList, L"Every widget WinDock has: the built-in ones and those in your widgets folder. Select one to see its "
+        Tip(kWidgetsList, L"Every widget ViberDock has: the built-in ones and those in your widgets folder. Select one to see its "
                           L"preview and description below, then add it to a dock or the desktop.");
         NextRow(kListH + 8);
         // Round 6 phase 6E: the selected widget's live preview and description.
@@ -276,6 +289,16 @@ protected:
         Add(kWidgetsPreview, CtlKind::Custom, PreviewPanel::kClass, L"Preview", 0, RECT{kMargin, y_, right, y_ + 124});
         Tip(kWidgetsPreview, L"A live preview of the selected widget with sample data, and what it does.");
         NextRow(124 + 10);
+        // Round 25 phase 25D: what the selected widget may do and whether it is allowed, and the
+        // consent dialog (one line and one button for the page, not a control per permission).
+        Text(kWidgetsPermissions, CtlKind::Value, L"", kMargin, right - kMargin - 160 - 8, 40);
+        Tip(kWidgetsPermissions, L"What the selected widget may do beyond drawing (its permissions) and whether you allowed it. "
+                                 L"A widget from your widgets folder runs only after you allow its permissions; built-in widgets "
+                                 L"need no permission.");
+        Button(kWidgetsReview, L"Permissions\x2026", right - 160, 160);
+        Tip(kWidgetsReview, L"Review what the selected widget asks for: allow it to run, or revoke a permission you gave (the "
+                            L"widget then stops and shows Needs permission). Greyed for a widget that needs no permission.");
+        NextRow(44);
         // Round 8 phase 8D: the adds, then "More ▾" (Add from folder…, Export built-in to folder,
         // Reload widgets, Open widgets folder, Console…: the old buttons' ids as its commands).
         Button(kWidgetsAddToDock, L"Add to dock", kMargin, kButtonW);
@@ -308,8 +331,8 @@ protected:
         if (!list) return;
         LVCOLUMNW col{};
         col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
-        const wchar_t* names[] = {L"Name", L"Id", L"Source", L"Version"};
-        for (int i = 0; i < 4; ++i) {
+        const wchar_t* names[] = {L"Name", L"Id", L"Source", L"Version", L"Permissions"};  // 25D: the fifth
+        for (int i = 0; i < 5; ++i) {
             col.pszText = const_cast<wchar_t*>(names[i]);
             col.cx = 100;
             col.iSubItem = i;
@@ -322,18 +345,23 @@ protected:
         if (!list) return;
         const Ctl* c = Find(kWidgetsList);
         const int total = Window().Px(c->dip.right - c->dip.left) - GetSystemMetricsForDpi(SM_CXVSCROLL, Window().Dpi()) - 4;
-        int widths[] = {Window().Px(170), Window().Px(130), Window().Px(110)};
+        // Round 25 phase 25D: a fourth fixed column (Version) before the last, Permissions.
+        int widths[] = {Window().Px(150), Window().Px(110), Window().Px(110), Window().Px(60)};
         // Round 8 phase 8D: a narrow window shares the room (no horizontal scroll bar).
-        if (const int room = total - Window().Px(64), fixed = widths[0] + widths[1] + widths[2]; room > 0 && fixed > room) {
+        if (const int room = total - Window().Px(100), fixed = widths[0] + widths[1] + widths[2] + widths[3]; room > 0 && fixed > room) {
             for (int& w : widths) w = w * room / fixed;
         }
-        for (int i = 0; i < 3; ++i) ListView_SetColumnWidth(list, i, widths[i]);
-        ListView_SetColumnWidth(list, 3, std::max(Window().Px(60), total - widths[0] - widths[1] - widths[2]));
+        for (int i = 0; i < 4; ++i) ListView_SetColumnWidth(list, i, widths[i]);
+        ListView_SetColumnWidth(list, 4, std::max(Window().Px(100), total - widths[0] - widths[1] - widths[2] - widths[3]));
     }
 
     void Load() override { Fill(); }
 
     bool Query(int code, LPARAM, LRESULT& out) override {
+        if (code == 376) {  // round 29 phase 29B: the zip install's state (QueryState 376)
+            out = ZipState();
+            return true;
+        }
         if (code != 269) return false;  // round 6 phase 6E: the preview panel's bitmap size (MAKELONG px; 0 none)
         out = panel_.ShownSize();
         return true;
@@ -361,6 +389,7 @@ protected:
                 ChangedFor(SettingsScope::Pins, dock);
                 Window().Refresh();
                 SetText(kWidgetsStatus, L"Added " + name + L" to the dock " + dockId + L".");
+                if (Host().widgetConsent) Host().widgetConsent(wid, true);  // round 25 phase 25D: asks when it needs it
                 break;
             }
             case kWidgetsAddToDesktop: {
@@ -375,16 +404,45 @@ protected:
                 }
                 Fill(wid);
                 SetText(kWidgetsStatus, L"Added " + name + L" to the desktop as " + Cfg().docks[added].id + L".");
+                if (Host().widgetConsent) Host().widgetConsent(wid, true);  // round 25 phase 25D
                 break;
             }
             case kWidgetsAddFolder:
                 AddFromFolder();
                 break;
+            case kWidgetsInstallZip:  // round 29 phase 29B
+                InstallFromZip();
+                break;
+            case kWidgetsUninstall: {
+                if (!FolderWidget(sel) || !Host().uninstallWidget) return;
+                const std::wstring wid = sel->id, name = sel->name;  // the answer refills the catalog
+                if (Host().uninstallWidget(wid)) {
+                    Fill();
+                    SetText(kWidgetsStatus, L"Uninstalled " + name + L" (its folder is in the Recycle Bin).");
+                }
+                break;
+            }
+            case kWidgetsShowFolder: {
+                if (!FolderWidget(sel)) return;
+                std::wstring error;
+                if (const auto pkg = Widgets::Load(sel->id, error); pkg && !pkg->folder.empty()) {
+                    ShellExecuteW(Owner(), L"open", pkg->folder.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                }
+                break;
+            }
             case kWidgetsExport: {
                 if (!ExportAllowed(sel)) return;
                 std::wstring folder, error;
                 const std::wstring name = sel->name, wid = sel->id;
                 if (Widgets::ExportBuiltIn(wid, folder, error)) {
+                    // Round 25 phase 25D: the user made this copy of WinDock's own widget: it is allowed
+                    // to replace the built-in with the built-in's permissions, without asking (a later
+                    // edit that asks for more shows Needs permission).
+                    std::wstring loadError;
+                    if (const auto pkg = Widgets::Load(wid, loadError)) {
+                        Widgets::GrantConsent(Cfg().widgetConsent[wid], *pkg);
+                        Changed(SettingsScope::SaveOnly);
+                    }
                     Host().command(ContextMenu::kReloadWidgets);  // the folder copy replaces the built-in
                     Fill(wid);
                     SetText(kWidgetsStatus, L"Exported " + name + L" to " + folder + L".");
@@ -407,6 +465,15 @@ protected:
             case kWidgetsConsole:
                 Host().command(ContextMenu::kWidgetConsole);
                 break;
+            case kWidgetsReview: {  // round 25 phase 25D: the consent dialog, modal to this window
+                if (!sel || !Host().widgetConsent) return;
+                const std::wstring wid = sel->id, name = sel->name;  // the dialog's answer refills the catalog
+                if (Host().widgetConsent(wid, false)) {
+                    Fill(wid);
+                    SetText(kWidgetsStatus, L"Permissions of " + name + L" changed.");
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -416,6 +483,115 @@ private:
     // Export built-in to folder: a built-in that no folder replaces yet.
     static bool ExportAllowed(const Widgets::CatalogEntry* sel) {
         return sel && sel->builtIn && sel->source == Widgets::Package::Source::BuiltIn;
+    }
+    // Round 29 phase 29B: Uninstall… / Show folder: a widget from the widgets folder.
+    static bool FolderWidget(const Widgets::CatalogEntry* sel) { return sel && sel->source == Widgets::Package::Source::Folder; }
+
+    static constexpr UINT_PTR kZipDoneTimer = 0x29B1;  // posted by the install's worker (WM_TIMER, never set)
+
+    // Round 29 phase 29B: Install from zip…: a .zip / .viberwidget chosen in the file dialog is read,
+    // checked and unpacked on a worker (Widgets::PrepareZipInstall); OnTimer(kZipDoneTimer) takes the
+    // result on this thread.
+    void InstallFromZip() {
+        if (zip_ && !zip_->done) {
+            MessageBeep(MB_ICONWARNING);  // one at a time
+            return;
+        }
+        winrt::com_ptr<IFileOpenDialog> dialog;
+        if (FAILED(CoCreateInstance(CLSID_FileOpenDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) {
+            MessageBeep(MB_ICONERROR);
+            return;
+        }
+        dialog->SetTitle(L"Install a widget from a zip");
+        const COMDLG_FILTERSPEC filters[] = {{L"Widget archives (*.zip, *.viberwidget)", L"*.zip;*.viberwidget"}, {L"All files", L"*.*"}};
+        dialog->SetFileTypes(2, filters);
+        FILEOPENDIALOGOPTIONS options = 0;
+        dialog->GetOptions(&options);
+        dialog->SetOptions(options | FOS_FORCEFILESYSTEM | FOS_FILEMUSTEXIST | FOS_NOCHANGEDIR);
+        if (FAILED(dialog->Show(Owner()))) return;
+        winrt::com_ptr<IShellItem> item;
+        PWSTR raw = nullptr;
+        if (FAILED(dialog->GetResult(item.put())) || FAILED(item->GetDisplayName(SIGDN_FILESYSPATH, &raw)) || !raw) return;
+        StartZipInstall(raw);
+        CoTaskMemFree(raw);
+    }
+
+public:
+    // The worker half for `path` (also automation: DockCommand 191 through App's settings window).
+    bool StartZipInstall(const std::wstring& path) {
+        if (zip_ && !zip_->done) return false;
+        if (zip_) Widgets::DiscardZipInstall(*zip_);
+        Widgets::RemoveStaleStaging();
+        auto job = std::make_shared<Widgets::ZipInstall>();
+        job->zipPath = path;
+        zip_ = job;
+        const HWND page = Hwnd();
+        SetText(kWidgetsStatus, L"Checking " + path.substr(path.find_last_of(L"\\/") + 1) + L"\x2026");
+        try {
+            std::thread([job, page] {
+                Crash::Job(L"widget zip install", [&] { Widgets::PrepareZipInstall(*job); },
+                           [&] {
+                               job->ok = false;
+                               job->error = L"it could not be read";
+                               job->done = true;
+                           });
+                PostMessageW(page, WM_TIMER, kZipDoneTimer, 0);
+            }).detach();
+        } catch (...) {
+            zip_.reset();
+            SetText(kWidgetsStatus, L"Not installed: a worker could not start.");
+            return false;
+        }
+        return true;
+    }
+    int ZipState() const { return !zip_ ? 0 : !zip_->done ? 1 : zipResult_; }
+
+protected:
+    void OnTimer(UINT_PTR id) override {
+        if (id != kZipDoneTimer || !zip_ || !zip_->done || zipTaken_ == zip_.get()) return;
+        zipTaken_ = zip_.get();
+        Widgets::ZipInstall& job = *zip_;
+        const std::wstring file = job.zipPath.substr(job.zipPath.find_last_of(L"\\/") + 1);
+        if (!job.ok) {
+            zipResult_ = 3;
+            SetText(kWidgetsStatus, L"Not installed: " + file + L": " + job.error);
+            MessageBeep(MB_ICONWARNING);
+            return;
+        }
+        // Never over an installed widget without asking.
+        bool replace = false;
+        if (Widgets::InstalledFolderExists(job.id)) {
+            std::wstring error, installed = L"an installed widget";
+            if (const auto pkg = Widgets::Load(job.id, error)) {
+                installed = L"\"" + pkg->manifest.name + L"\"" + (pkg->manifest.version.empty() ? L"" : L" " + pkg->manifest.version);
+            }
+            const std::wstring text = L"The widget folder \"" + job.id + L"\" is installed already (" + installed + L").\n\n"
+                                      L"Replace it with \"" + job.name + L"\"" + (job.version.empty() ? L"" : L" " + job.version) +
+                                      L" from " + file + L"? The installed folder goes to the Recycle Bin, its saved data stays, "
+                                      L"and the new one asks for your permission again before it runs.";
+            if (MessageBoxW(Owner(), text.c_str(), L"ViberDock widget library", MB_ICONQUESTION | MB_YESNO | MB_DEFBUTTON2) != IDYES) {
+                Widgets::DiscardZipInstall(job);
+                zipResult_ = 4;
+                SetText(kWidgetsStatus, L"Not installed: " + job.id + L" is installed already.");
+                return;
+            }
+            replace = true;
+        }
+        std::wstring error;
+        if (!Widgets::CommitZipInstall(job, replace, Owner(), error)) {
+            zipResult_ = 3;
+            SetText(kWidgetsStatus, L"Not installed: " + error);
+            MessageBeep(MB_ICONWARNING);
+            return;
+        }
+        zipResult_ = 2;
+        const std::wstring wid = job.id;
+        Fill(wid);
+        SetText(kWidgetsStatus, L"Installed " + job.name + L" (" + wid + L", " + std::to_wstring(job.files) + L" files" +
+                                    (job.warnings ? L", " + std::to_wstring(job.warnings) + L" warnings: see the Console" : L"") + L").");
+        // The normal consent path: needs permission until allowed (the dialog is offered now).
+        if (Host().widgetInstalled) Host().widgetInstalled(wid);
+        Fill(wid);
     }
 
     // Round 8 phase 8D: "More ▾" under its button (the old buttons' ids as the commands).
@@ -427,7 +603,14 @@ private:
             return;
         }
         AppendMenuW(menu, MF_STRING, kWidgetsAddFolder, L"Add from folder\x2026");
+        // Round 29 phase 29B: from a zip; the selected folder widget's Uninstall… and Show folder.
+        const bool running = zip_ && !zip_->done;
+        AppendMenuW(menu, MF_STRING | (running ? MF_GRAYED : 0), kWidgetsInstallZip, L"Install from zip\x2026");
         AppendMenuW(menu, MF_STRING | (ExportAllowed(Selected()) ? 0 : MF_GRAYED), kWidgetsExport, L"Export built-in to folder");
+        AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
+        const bool folder = FolderWidget(Selected());
+        AppendMenuW(menu, MF_STRING | (folder ? 0 : MF_GRAYED), kWidgetsShowFolder, L"Show folder");
+        AppendMenuW(menu, MF_STRING | (folder ? 0 : MF_GRAYED), kWidgetsUninstall, L"Uninstall\x2026");
         AppendMenuW(menu, MF_SEPARATOR, 0, nullptr);
         AppendMenuW(menu, MF_STRING, kWidgetsReload, L"Reload widgets");
         AppendMenuW(menu, MF_STRING, kWidgetsOpenFolder, L"Open widgets folder");
@@ -494,6 +677,39 @@ private:
         }
         Enable(kWidgetsAddToDock, sel != nullptr);
         Enable(kWidgetsAddToDesktop, sel != nullptr);
+        // Round 25 phase 25D: the selected widget's permissions and consent.
+        int consent = -1;
+        std::wstring perms;
+        Info info;
+        if (sel) {
+            auto it = consentText_.find(sel->id);
+            if (it != consentText_.end()) {
+                info = it->second;
+                consent = info.consent;
+                perms = info.perms;
+            }
+        }
+        static const wchar_t* const kStateText[] = {L"", L"You allowed it.", L"Not allowed yet: it does not run until you allow it.",
+                                                    L"It asks for more than you allowed: it does not run until you allow it."};
+        // Round 29 phase 29B: a folder widget's maker (as it says) and version lead the line, its
+        // hosts follow its permissions.
+        std::wstring who;
+        if (sel && sel->source == Widgets::Package::Source::Folder) {
+            who = (info.author.empty() ? std::wstring(L"Author not given") : L"By " + info.author) +
+                  (info.version.empty() ? L"" : L", version " + info.version) + L". ";
+        }
+        const std::wstring hosts = info.hosts.empty() ? std::wstring() : L" Connects to: " + info.hosts + L".";
+        if (!sel) {
+            SetText(kWidgetsPermissions, L"");
+        } else if (consent <= 0) {
+            SetText(kWidgetsPermissions, sel->source == Widgets::Package::Source::BuiltIn
+                                             ? L"Built in: needs no permission."
+                                             : who + L"Permissions: " + perms + (perms == L"none" ? L". It needs no permission." : L".") + hosts);
+        } else {
+            SetText(kWidgetsPermissions, who + (perms == L"none" ? L"Replaces a built-in widget. " : L"Permissions: " + perms + L"." + hosts + L" ") +
+                                             std::wstring(kStateText[std::min(consent, 3)]));
+        }
+        Enable(kWidgetsReview, consent > 0);
         SetText(kWidgetsAddToDock, PlainDocks() > 1 ? L"Add to dock \x25BE" : L"Add to dock");  // round 8 phase 8D
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kWidgetsList));
     }
@@ -505,13 +721,31 @@ private:
         const Widgets::CatalogEntry* old = Selected();
         const std::wstring keep = !select.empty() ? select : old ? old->id : std::wstring();
         catalog_ = Widgets::Catalog();
+        consentText_.clear();
         SendMessageW(list, WM_SETREDRAW, FALSE, 0);
         ListView_DeleteAllItems(list);
         int sel = catalog_.empty() ? -1 : 0;
         for (size_t i = 0; i < catalog_.size(); ++i) {
             const Widgets::CatalogEntry& e = catalog_[i];
-            std::wstring error, version;
-            if (const auto pkg = Widgets::Load(e.id, error)) version = pkg->manifest.version;
+            std::wstring error, version, permissions = L"\x2014";
+            if (const auto pkg = Widgets::Load(e.id, error)) {
+                version = pkg->manifest.version;
+                // Round 25 phase 25D: the consent state per row (and the selection's line, UpdateButtons).
+                const auto granted = Cfg().widgetConsent.find(e.id);
+                const Widgets::ConsentState state =
+                    Widgets::ConsentOf(*pkg, granted == Cfg().widgetConsent.end() ? nullptr : &granted->second);
+                const std::wstring summary = Widgets::PermissionSummary(pkg->manifest);
+                // Round 29 phase 29B: who made it (as it says), its version and every host it connects to.
+                std::wstring hosts;
+                for (const std::wstring& h : pkg->manifest.httpHosts) hosts += (hosts.empty() ? L"" : L", ") + h;
+                consentText_[e.id] = Info{static_cast<int>(state), summary, pkg->manifest.author.substr(0, 64), version, hosts};
+                switch (state) {
+                    case Widgets::ConsentState::NotNeeded: permissions = e.source == Widgets::Package::Source::BuiltIn ? L"built in" : L"none needed"; break;
+                    case Widgets::ConsentState::Granted: permissions = L"allowed"; break;
+                    case Widgets::ConsentState::Missing: permissions = L"needs permission"; break;
+                    case Widgets::ConsentState::More: permissions = L"asks for more"; break;
+                }
+            }
             std::wstring source = e.source == Widgets::Package::Source::Folder ? (e.builtIn ? L"folder (replaces built-in)" : L"folder")
                                                                              : L"built-in";
             std::wstring name = e.name, wid = e.id;
@@ -524,6 +758,7 @@ private:
                 ListView_SetItemText(list, at, 1, wid.data());
                 ListView_SetItemText(list, at, 2, source.data());
                 ListView_SetItemText(list, at, 3, version.data());
+                ListView_SetItemText(list, at, 4, permissions.data());
             }
             if (e.id == keep) sel = static_cast<int>(i);
         }
@@ -553,6 +788,9 @@ private:
         if (Widgets::InstallFolder(folder, wid, error)) {
             Fill(wid);
             SetText(kWidgetsStatus, L"Installed " + wid + L" (" + Widgets::Directory() + L"\\" + wid + L").");
+            // Round 25 phase 25D: an installed widget that needs consent asks right now (Don't allow
+            // leaves it installed, showing Needs permission wherever it is added).
+            if (Host().widgetConsent && Host().widgetConsent(wid, true)) Fill(wid);
         } else {
             SetText(kWidgetsStatus, L"Not added: " + error);
             MessageBeep(MB_ICONWARNING);
@@ -560,8 +798,20 @@ private:
     }
 
     std::vector<Widgets::CatalogEntry> catalog_;
+    // Round 29 phase 29B: the zip install in progress or last finished (shared with its worker), the
+    // one OnTimer already took, and its outcome (QueryState 376: 2 installed, 3 refused, 4 not replaced).
+    std::shared_ptr<Widgets::ZipInstall> zip_;
+    const Widgets::ZipInstall* zipTaken_ = nullptr;
+    int zipResult_ = 0;
     PreviewPanel panel_;
     std::map<std::wstring, std::wstring> descriptions_;  // widget id -> its manifest's description
+    // Round 25 phase 25D: widget id -> (Widgets::ConsentState, PermissionSummary), from the last Fill;
+    // round 29 phase 29B: with the author, the version and the http hosts.
+    struct Info {
+        int consent = -1;
+        std::wstring perms, author, version, hosts;
+    };
+    std::map<std::wstring, Info> consentText_;
 };
 
 // --- Widget settings -----------------------------------------------------------------------------
@@ -723,7 +973,7 @@ protected:
             UntitledCard(cardTopic_);
             // Round 10 phase 10D: "Reset to factory defaults…" (asks first; was "Reset to defaults").
             Button(kFooterReset, L"Reset to factory defaults\x2026", kMargin, 190);
-            Tip(kFooterReset, L"Resets every setting of this widget to the values WinDock ships with (it asks first). App "
+            Tip(kFooterReset, L"Resets every setting of this widget to the values ViberDock ships with (it asks first). App "
                               L"defaults and the window's place are not changed.");
             if (kind == ItemKind::Widget) Button(kFooterConsole, L"Console…", kMargin + 198, 110);
             NextRow();
@@ -816,6 +1066,25 @@ protected:
                     label();
                     EditBox(base + 1, kColX, right - kColX - 96, 1024);
                     Button(base + kWidgetFieldBrowse, L"Browse…", right - 88, 88);
+                    NextRow();
+                    break;
+                case T::Secret: {
+                    // Round 29 phase 29C: a password box (dots) and Show / Hide; stored protected.
+                    label();
+                    Ctl& e = Add(base + 1, CtlKind::Edit, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL | ES_PASSWORD,
+                                 RECT{kColX, y_ + 4, right - 96, y_ + kRowH - 4});
+                    e.exStyle = WS_EX_CLIENTEDGE;
+                    e.hi = 1024;
+                    Button(base + kWidgetFieldReveal, L"Show", right - 88, 88);
+                    Tip(base + kWidgetFieldReveal, L"Shows the value in plain text (Hide covers it again). It is saved protected for your "
+                                                    L"Windows account, never in plain text in the settings file.");
+                    NextRow();
+                    break;
+                }
+                case T::Url:
+                    // Round 29 phase 29C: an address; a host setting asks before its host is reached.
+                    label();
+                    EditBox(base + 1, kColX, right - kColX, 2048);
                     NextRow();
                     break;
                 case T::Font:
@@ -1101,6 +1370,16 @@ protected:
             Store(*pf, json::JsonValue::CreateStringValue(path));
             return;
         }
+        // Round 29 phase 29C: a secret's Show / Hide.
+        if (id >= kWidgetFieldBase && (id - kWidgetFieldBase) % 10 == kWidgetFieldReveal && code == BN_CLICKED) {
+            HWND edit = Item(id - kWidgetFieldReveal + 1);
+            if (!edit) return;
+            const bool hidden = SendMessageW(edit, EM_GETPASSWORDCHAR, 0, 0) != 0;
+            SendMessageW(edit, EM_SETPASSWORDCHAR, hidden ? 0 : 0x25CF, 0);
+            SetText(id, hidden ? L"Hide" : L"Show");
+            InvalidateRect(edit, nullptr, TRUE);
+            return;
+        }
         const Widgets::SettingField* f = FieldOf(id);
         if (!f) return;
         using T = Widgets::SettingField::Type;
@@ -1206,6 +1485,29 @@ protected:
                     break;
                 }
                 Store(*f, json::JsonValue::CreateStringValue(FormatArgbColor(argb)));
+                break;
+            }
+            case T::Url: {
+                // Round 29 phase 29C: an https address (http only on the local network, never this
+                // PC). For a host setting the user's host is asked about first (only here: a value a
+                // script sets, or one edited in config.json, never grants a host).
+                const std::wstring url = Trim(text);
+                std::wstring host, why;
+                bool local = false;
+                if (!Widgets::CheckUrlValue(url, host, local, why)) {
+                    MessageBeep(MB_ICONWARNING);
+                    const std::wstring msg = L"This address cannot be used: " + why + L".";
+                    MessageBoxW(Owner(), msg.c_str(), L"ViberDock widget settings", MB_ICONWARNING | MB_OK);
+                    Load();
+                    break;
+                }
+                const Widgets::Manifest* m = Schema();
+                if (!url.empty() && m && Kind() == ItemKind::Widget &&
+                    std::find(m->hostSettings.begin(), m->hostSettings.end(), f->key) != m->hostSettings.end() && Host().hostConsent) {
+                    const size_t dock = static_cast<size_t>(&Dock() - Cfg().docks.data());
+                    Host().hostConsent(dock, static_cast<size_t>(item_), f->key, url);
+                }
+                Store(*f, json::JsonValue::CreateStringValue(url));
                 break;
             }
             default:
@@ -1574,7 +1876,35 @@ bool StoreItemSettings(const Config& config, DockItemEntry& e, const std::vector
         if (base.empty() && e.Kind() == ItemKind::Clock) base = ClockSettingsJson(ClockOf(config, e));
         if (base.empty() && e.Kind() == ItemKind::Weather) base = WeatherSettingsJson(WeatherOf(config, e));
         if (base.empty() || !json::JsonObject::TryParse(base, o) || !o) o = json::JsonObject();
-        for (const auto& [key, value] : keys) o.SetNamedValue(key, json::JsonValue::Parse(value));
+        // Round 29 phase 29C: a script widget's secret settings are stored protected (Secrets.h);
+        // one that DPAPI refuses is not stored at all (Secrets notes it; App says so once).
+        std::shared_ptr<const Widgets::Package> pkg;
+        if (e.Kind() == ItemKind::Widget) {
+            std::wstring error;
+            pkg = Widgets::Load(e.id, error);
+        }
+        for (const auto& [key, value] : keys) {
+            const Widgets::SettingField* f = pkg ? Widgets::FieldOf(pkg->manifest, key) : nullptr;
+            if (f && f->type == Widgets::SettingField::Type::Secret) {
+                const json::JsonValue v = json::JsonValue::Parse(value);
+                const std::wstring plain = v.ValueType() == json::JsonValueType::String ? std::wstring(v.GetString()) : std::wstring();
+                std::wstring stored, before;
+                // The same value again: the stored blob stays (each protection is a new blob, which
+                // would count as a change and save the file on every focus loss).
+                if (const json::IJsonValue old = JsonUtil::Find(o, key.c_str()); old && old.ValueType() == json::JsonValueType::String &&
+                                                                                  Secrets::Unprotect(std::wstring(old.GetString()), before) &&
+                                                                                  before == plain) {
+                    continue;
+                }
+                if (plain.empty()) {
+                    o.SetNamedValue(key, json::JsonValue::CreateStringValue(L""));
+                } else if (Secrets::Protect(plain, stored)) {
+                    o.SetNamedValue(key, json::JsonValue::CreateStringValue(stored));
+                }
+                continue;
+            }
+            o.SetNamedValue(key, json::JsonValue::Parse(value));
+        }
         const std::wstring text(o.Stringify());
         if (text == e.settings) return false;
         e.settings = text;

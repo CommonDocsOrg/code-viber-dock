@@ -12,7 +12,8 @@ shell's icons; a click on a row opens it. It is the pattern of the dock's own li
 Script popups get clicks only (no hover or keyboard): highlight a row on a click if you need
 feedback, or keep a selection in a variable and `popup.redraw()`.
 
-Install: Settings > **Widgets** > **Add from folder…**, pick this folder, then **Add to dock**; edit
-the links on Settings > **Widget settings** ("Name = target; Name = target"). Check it first with
+Install: App settings > **Widget library** > **More ▾** > **Add from folder…**, pick this folder and
+allow its permission (`shell`) when ViberDock asks, then **Add to dock**; edit the links with a
+right-click on the widget > **Widget settings…** ("Name = target; Name = target"). Check it first with
 `WinDock.exe --validate-widget examples\popup-list`. The full API is in
 [docs/widgets.md](../../docs/widgets.md) ("popup", "shell", "canvas").

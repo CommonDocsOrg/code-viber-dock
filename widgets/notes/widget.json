@@ -1,7 +1,7 @@
 {
   "name": "Notes",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "A note: its first line is the title, the lines after it show as space allows. Click it to edit the note in a small text editor window (Ctrl+Enter or OK saves, Escape cancels); the wheel scrolls the text. Each item keeps its own note; give two items the same Note id to share one.",
   "api": 1,
   "size": {

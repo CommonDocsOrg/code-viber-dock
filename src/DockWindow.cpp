@@ -23,6 +23,7 @@
 #include "Launcher.h"
 #include "SnapLines.h"  // round 14 phase 14B
 #include "Theme.h"
+#include "Crash.h"
 #include "WidgetPackage.h"  // round 16 phase 16E: Widgets::CanBeStandalone
 
 namespace {
@@ -392,6 +393,7 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
     shared_ = shared;
     instance_ = instance;
     hook_ = std::move(hook);
+    sessionPaused_ = shared_ && shared_->SessionPaused();  // round 26 phase 26A: made while locked
 
     WNDCLASSEXW wc{sizeof(wc)};
     wc.lpfnWndProc = &DockWindow::WndProcThunk;
@@ -405,7 +407,7 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
     // Start on the target monitor so GetDpiForWindow reports that monitor's DPI.
     MONITORINFO mi{sizeof(mi)};
     GetMonitorInfoW(PickMonitor(), &mi);
-    hwnd_ = CreateWindowExW(kExStyle, kClassName, L"WinDock", kStyle, mi.rcMonitor.left, mi.rcMonitor.bottom - 1, 1, 1,
+    hwnd_ = CreateWindowExW(kExStyle, kClassName, L"ViberDock", kStyle, mi.rcMonitor.left, mi.rcMonitor.bottom - 1, 1, 1,
                             nullptr, nullptr, instance, this);
     if (!hwnd_) return HRESULT_FROM_WIN32(GetLastError());
     dpi_ = GetDpiForWindow(hwnd_);
@@ -491,10 +493,18 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                      [this] {
                          DismissCentre(true);
                          OpenTarget(L"ms-settings:privacy-notifications");
+                         // Round 26 phase 26A: the user is about to change the access: the worker
+                         // re-checks at the pollS pace for a minute instead of every 2 minutes.
+                         if (shared_) shared_->Notifications().PollNow();
                      },
                      [this](const NotificationItem& n, UINT px) -> ID2D1Bitmap* {
                          if (n.key.id.empty()) return nullptr;
-                         return icons_.Get(n.key, nullptr, px, renderer_.ResourceContext(), L"", 0);
+                         // Round 25 phase 25C: transient, at the centre's own size, beside the
+                         // dock's entry of the app (until 25C it replaced it); the centre keeps
+                         // a com_ptr of it, the cache drops it a minute after its last use.
+                         ID2D1Bitmap* b = icons_.Get(n.key, nullptr, px, renderer_.ResourceContext(), L"", 0, true);
+                         ArmIconEvict();
+                         return b;
                      },
                  });
     calendar_.Init(instance, &renderer_,
@@ -1850,6 +1860,41 @@ void DockWindow::TryCompact() {
     UpdateWindowRect();
 }
 
+DockWindow::EnvSeen DockWindow::EnvNow() const {
+    EnvSeen e;
+    MonitorRects(e.monitor, e.work);
+    e.dpi = hwnd_ ? GetDpiForWindow(hwnd_) : dpi_;
+    return e;
+}
+
+void DockWindow::PostEnvCheck(bool acrylic) {
+    envAcrylic_ = envAcrylic_ || acrylic;
+    if (envCheckPosted_ || !hwnd_) return;
+    envCheckPosted_ = PostMessageW(hwnd_, kEnvCheckMessage, 0, 0) != FALSE;
+    if (!envCheckPosted_) OnEnvCheck();  // (a full queue: at once, as before)
+}
+
+void DockWindow::OnEnvCheck() {
+    envCheckPosted_ = false;
+    const bool acrylicAsked = envAcrylic_;
+    envAcrylic_ = false;
+    if (!hwnd_) return;
+    bool acrylicChanged = false;
+    if (acrylicAsked) {
+        acrylicChanged = Backdrop::SystemAllowsTransparency() != acrylicSystem_;
+        if (acrylicChanged) {
+            UpdateAcrylic();
+            SyncLayer();  // a "behind" dock's backdrop beneath it (or none)
+        }
+    }
+    const EnvSeen now = EnvNow();
+    if (!acrylicChanged && now == envSeen_) {
+        ++envSkipped_;  // QueryState 364
+        return;
+    }
+    Relayout();
+}
+
 void DockWindow::Relayout() {
     if (!hwnd_ || inLayout_) return;
     LayoutPass();
@@ -1876,6 +1921,7 @@ void DockWindow::LayoutPass() {
         // during SetWindowPos); lay out once more if it did.
         const UINT now = GetDpiForWindow(hwnd_);
         dpi_ = now;
+        envSeen_ = EnvNow();  // round 26 phase 26C: what this layout used (OnEnvCheck compares)
         if (now == before) break;
         labelDirty_ = true;
         for (DockItem& item : items_) {
@@ -1936,6 +1982,7 @@ void DockWindow::ResetLayers() {
     perspectiveApplied_ = false;
     itemsGroup_.Reset();
     for (Layer& d : dotSources_) d.Reset();
+    dotStyleDrawn_ = -1;
     marker_.Reset();
     markerX_.valid = false;
     label3_ = nullptr;
@@ -2291,13 +2338,17 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
                            : icons_.Get(item.key, sample, l.bitmapPx, renderer_.ResourceContext(), item.iconFile,
                                         item.iconIndex);
     if (item.thumbWindow) return RenderTile(item, bmp);
-    std::vector<ID2D1Bitmap*> minis;
+    // Round 25 phase 25C: held as com_ptrs. They were raw pointers, and until the cache kept an
+    // entry per icon file a second member of the same app with another icon file replaced (freed)
+    // the first one's bitmap before drawIcon used it. With the per-file entries a Get no longer
+    // frees an entry of the same size, so this is belt and braces for a cheap AddRef.
+    std::vector<winrt::com_ptr<ID2D1Bitmap>> minis;
     if (composed) {
         for (size_t k = 0; k < item.members.size() && minis.size() < 4; ++k) {
             const DockItem::Member& m = item.members[k];
-            minis.push_back(m.missing ? nullptr
-                                      : icons_.Get(m.key, nullptr, l.bitmapPx, renderer_.ResourceContext(), m.iconFile,
-                                                   m.iconIndex));
+            winrt::com_ptr<ID2D1Bitmap> mini;
+            if (!m.missing) mini.copy_from(icons_.Get(m.key, nullptr, l.bitmapPx, renderer_.ResourceContext(), m.iconFile, m.iconIndex));
+            minis.push_back(std::move(mini));
         }
     }
 
@@ -2323,7 +2374,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
             for (size_t k = 0; k < minis.size(); ++k) {
                 const float x = pad + static_cast<float>(k % 2) * (mini + gap);
                 const float y = pad + static_cast<float>(k / 2) * (mini + gap);
-                if (ID2D1Bitmap* b = minis[k]) {
+                if (ID2D1Bitmap* b = minis[k].get()) {
                     const D2D1_SIZE_F bs = b->GetSize();
                     const float fit = std::min(mini / std::max(bs.width, 1.0f), mini / std::max(bs.height, 1.0f));
                     const float dw = bs.width * fit, dh = bs.height * fit;
@@ -2579,7 +2630,7 @@ HRESULT DockWindow::RenderEffects(DockItem& item, const std::function<void(ID2D1
     if (wantGlow && icon) {
         const float radiusPx = t.glowRadius * l.scale / k;  // DIPs -> bitmap pixels
         const UINT pad = IconEffects::GlowPad(radiusPx);
-        const uint32_t color = IconEffects::GlowColor(t, icons_.DominantColor(item.key), t.accent);
+        const uint32_t color = IconEffects::GlowColor(t, ItemDominant(item), t.accent);
         const float fpad = static_cast<float>(pad);
         bool drawn = false;
         hr = renderer_.DrawLayer(item.glow, bitmapPx + 2 * pad, bitmapPx + 2 * pad, [&](ID2D1DeviceContext* dc) {
@@ -2731,17 +2782,46 @@ HRESULT DockWindow::RenderDotSources() {
         Theme::ToColor(DockTheme().dotActive),     // owns the foreground window
         Theme::ToColor(DockTheme().dotAttention),  // wants attention
     };
-    for (int i = 0; i < 3; ++i) {
+    // Round 28 phase 28D: the shape follows docks[].indicator; every shape lies inside the dot's
+    // surface (icon wide, dotHeight tall), centred where the dot was, so the layout is unchanged.
+    const IndicatorStyle style = DockCfg().indicator;
+    const float r = l.dotRadius, cx = icon / 2.0f, cy = l.dotCenterY;
+    for (int i = 0; i < kDotSources; ++i) {
+        const int look = i / 3, count = i % 3 + 1;
         HRESULT hr = DrawCanonical(dotSources_[i], icon, static_cast<float>(l.dotHeight),
                                          [&](ID2D1DeviceContext* dc) {
                                              winrt::com_ptr<ID2D1SolidColorBrush> brush;
-                                             if (FAILED(dc->CreateSolidColorBrush(colors[i], brush.put()))) return;
-                                             dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(icon / 2.0f, l.dotCenterY),
-                                                                           l.dotRadius, l.dotRadius),
-                                                             brush.get());
+                                             if (FAILED(dc->CreateSolidColorBrush(colors[look], brush.put()))) return;
+                                             auto bar = [&](float w, float h) {
+                                                 w = std::min(w, icon - 2.0f);
+                                                 dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cx - w / 2.0f, cy - h / 2.0f, cx + w / 2.0f, cy + h / 2.0f),
+                                                                                            h / 2.0f, h / 2.0f),
+                                                                          brush.get());
+                                             };
+                                             switch (style) {
+                                                 case IndicatorStyle::Line:  // a short line, a little thinner than the dot
+                                                     bar(std::max(4.0f * r, icon * 0.32f), std::max(2.0f, 1.3f * r));
+                                                     break;
+                                                 case IndicatorStyle::Pill:  // the app in front: a wider pill
+                                                     bar(look == 1 ? std::max(5.0f * r, icon * 0.42f) : 3.2f * r, std::max(2.0f, 1.6f * r));
+                                                     break;
+                                                 case IndicatorStyle::Windows: {  // one dot per window, up to three
+                                                     const float gap = 2.8f * r;
+                                                     for (int k = 0; k < count; ++k) {
+                                                         const float x = cx + (static_cast<float>(k) - (count - 1) / 2.0f) * gap;
+                                                         dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, cy), r, r), brush.get());
+                                                     }
+                                                     break;
+                                                 }
+                                                 case IndicatorStyle::Dot:
+                                                 default:
+                                                     dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), r, r), brush.get());
+                                                     break;
+                                             }
                                          });
         if (FAILED(hr)) return hr;
     }
+    dotStyleDrawn_ = static_cast<int>(style);
     for (DockItem& item : items_) item.dotDirty = true;  // the shared surfaces were replaced
     return S_OK;
 }
@@ -2753,10 +2833,13 @@ HRESULT DockWindow::RenderDot(DockItem& item) {
     const bool running = item.kind == DockItem::Kind::Group ? item.groupRunning : !item.windows.empty();
     // Round 11 phase 11A: with slot buttons the frame is the indicator (the dot layers stay: cheap,
     // and the style can change at runtime).
-    const Layer& source = layout_.buttons || !running || (item.window && item.minimized) ? none
-                          : item.wantsAttention ? dotSources_[2]
-                          : item.active         ? dotSources_[1]
-                                                : dotSources_[0];
+    // Round 28 phase 28D: the look (0 running, 1 active, 2 attention) times three window counts;
+    // only the "windows" style draws them apart (a window slot and a group count one).
+    const int look = item.wantsAttention ? 2 : item.active ? 1 : 0;
+    const int count = DockCfg().indicator == IndicatorStyle::Windows && !item.window && item.kind != DockItem::Kind::Group
+                          ? static_cast<int>(std::clamp<size_t>(item.windows.size(), 1, 3))
+                          : 1;
+    const Layer& source = layout_.buttons || !running || (item.window && item.minimized) ? none : dotSources_[look * 3 + count - 1];
     const HRESULT hr = renderer_.ShareContent(item.dot, source);
     if (SUCCEEDED(hr)) item.dotDirty = false;
     return hr;
@@ -2823,7 +2906,7 @@ HRESULT DockWindow::RenderButtons() {
                 // The icon's dominant colour (IconEffects, as the glow uses it); a group tile or a
                 // placeholder: the accent.
                 const bool ownIcon = !(item.kind == DockItem::Kind::Group && !item.customIcon) && !(item.missing && item.windows.empty());
-                const uint32_t dominant = ownIcon ? icons_.DominantColor(item.key) : 0;
+                const uint32_t dominant = ownIcon ? ItemDominant(item) : 0;
                 b.hotColor = dominant ? dominant : t.accent;
             }
             hr = DrawCanonical(item.button, w, h, [&](ID2D1DeviceContext* dc) {
@@ -3483,11 +3566,43 @@ void DockWindow::UpdateScrollDrag(POINT pt) {
 void DockWindow::EndWidgetGrab(bool cancelled) {
     const int slot = widgetGrab_;
     widgetGrab_ = -1;
+    widgetGrabSlot_ = AppKey{};  // round 25 phase 25C
+    widgetGrabWidget_.clear();
     if (GetCapture() == hwnd_) ReleaseCapture();
-    if (slot >= 0 && static_cast<size_t>(slot) < items_.size() && elements_[items_[static_cast<size_t>(slot)].element]) {
+    if (slot >= 0 && static_cast<size_t>(slot) < items_.size() && items_[static_cast<size_t>(slot)].element < elements_.size() &&
+        elements_[items_[static_cast<size_t>(slot)].element]) {
         ElementOf(static_cast<size_t>(slot)).OnRelease(slot, cancelled);
     }
     if (!cancelled && !CursorInZone()) LeaveZone();
+}
+
+// Round 25 phase 25C: the grab across a rebuild. The slot is found again by its key, and must
+// still show the same widget instance (an ordinal shift can hand the key's slot to another
+// instance of the same widget id).
+void DockWindow::RefindWidgetGrab() {
+    if (widgetGrab_ < 0) return;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (!items_[i].IsWidget() || items_[i].key != widgetGrabSlot_) continue;
+        const WidgetInstance* w = WidgetAt(static_cast<int>(i));
+        if (w && w->Key() == widgetGrabWidget_) {
+            widgetGrab_ = static_cast<int>(i);
+            return;
+        }
+        break;
+    }
+    DropWidgetGrab();
+}
+
+void DockWindow::DropWidgetGrab() {
+    const std::wstring key = std::move(widgetGrabWidget_);
+    widgetGrab_ = -1;  // first: the WM_CAPTURECHANGED below finds no grab
+    widgetGrabSlot_ = AppKey{};
+    widgetGrabWidget_.clear();
+    if (GetCapture() == hwnd_) ReleaseCapture();
+    // The cancelled release the script API already has ("the window went away": do not act); a
+    // widget that is gone with its slot hears nothing (its runtime went with it). Release is a
+    // no-op unless that instance is still capturing.
+    if (WidgetInstance* w = key.empty() ? nullptr : WidgetByKey(key)) w->Release(0.0f, 0.0f, true);
 }
 
 void DockWindow::EndScrollDrag(bool fling) {
@@ -3883,7 +3998,8 @@ HRESULT DockWindow::DrawFrame(bool all) {
         hr = RenderBackground();
     }
     if (SUCCEEDED(hr) && (all || dotSources_[0].width != static_cast<UINT>(dotSize.width) ||
-                          dotSources_[0].height != static_cast<UINT>(dotSize.height))) {
+                          dotSources_[0].height != static_cast<UINT>(dotSize.height) ||
+                          dotStyleDrawn_ != static_cast<int>(DockCfg().indicator))) {  // round 28 phase 28D
         hr = RenderDotSources();
     }
     for (DockItem& item : items_) {
@@ -5490,6 +5606,21 @@ size_t DockWindow::CalendarEventsToday() const {
     return shared_->Calendar().CountOn(CalendarService::Today());
 }
 
+// Round 25 phase 25C: one clock timer per dock, armed for the earliest boundary any clock element
+// asked for (still one-shot: on the tick every clock asks again, so a later request dropped here
+// is made again then). Before 25C each clock element called SetTimer(kClockTimerId) itself and the
+// last element's interval won.
+void DockWindow::RequestClockTick(UINT delayMs) {
+    if (!hwnd_) return;
+    const ULONGLONG now = GetTickCount64();
+    const ULONGLONG due = now + delayMs;
+    // An earlier tick is armed and still ahead: it comes first. One that is already overdue (a
+    // resume from sleep, a busy thread) is armed again rather than trusted (0: none armed).
+    if (clockDue_ > now && clockDue_ <= due) return;
+    clockDue_ = due;
+    SetTimer(hwnd_, kClockTimerId, std::max<UINT>(delayMs, USER_TIMER_MINIMUM), nullptr);
+}
+
 void DockWindow::OnCalendarChanged() {
     if (!hwnd_ || !tracking_) return;
     DispatchEvent(DockEvent::Calendar);  // the clock's dot
@@ -5512,8 +5643,13 @@ void DockWindow::OnCalendarChanged() {
 
 void DockWindow::ShowReminder(const CalendarService::ReminderInfo& reminder) {
     if (!hwnd_) return;
-    for (const CalendarService::ReminderInfo& r : reminders_) {
-        if (r.id == reminder.id) return;  // already waiting
+    for (size_t i = 0; i < reminders_.size(); ++i) {
+        if (reminders_[i].id != reminder.id) continue;
+        if (!reminder.script) return;  // already waiting
+        // Round 28 phase 28A: a widget's newer banner replaces its waiting one (one per widget).
+        reminders_[i] = reminder;
+        if (i == 0 && !fullscreenHidden_) ShowFrontReminder();
+        return;
     }
     reminders_.push_back(reminder);
     if (reminders_.size() > 32) reminders_.erase(reminders_.begin() + 1);  // the oldest waiting ones go
@@ -5541,7 +5677,19 @@ void DockWindow::ShowFrontReminder() {
     style.monitor = l.work;
     // Over the clock when the dock has one, else over the middle of the bar.
     float anchor = (l.bar.left + l.bar.right) / 2.0f;
+    bool placed = false;
+    if (reminders_.front().script) {  // round 28 phase 28A: a widget's banner over the widget
+        const std::wstring& id = reminders_.front().id;
+        if (const WidgetInstance* w = id.size() > 7 ? WidgetByKey(id.substr(7)) : nullptr) {
+            const int slot = SlotOfWidget(*w);
+            if (slot >= 0) {
+                anchor = items_[static_cast<size_t>(slot)].targetX + items_[static_cast<size_t>(slot)].slotW / 2.0f;
+                placed = true;
+            }
+        }
+    }
     for (const DockItem& item : items_) {
+        if (placed) break;
         if (item.kind == DockItem::Kind::Clock) {
             anchor = item.targetX + item.slotW / 2.0f;
             break;
@@ -5554,9 +5702,9 @@ void DockWindow::ReminderAction(int action) {
     if (reminders_.empty()) return;
     const CalendarService::ReminderInfo r = reminders_.front();
     reminders_.erase(reminders_.begin());
-    if (action == 1 && shared_) shared_->Calendar().Snooze(r.id, 5 * 60);
+    if (action == 1 && shared_ && !r.script) shared_->Calendar().Snooze(r.id, 5 * 60);
     ShowFrontReminder();
-    if (action == 3) {
+    if (action == 3 && !r.script) {  // round 28: a widget's banner just goes
         for (size_t i = 0; i < items_.size(); ++i) {
             if (items_[i].kind != DockItem::Kind::Clock) continue;
             calendarTarget_ = ClockOf(*config_, ElementOf(i).Entry()).clickTarget;
@@ -5739,6 +5887,22 @@ void DockWindow::OnWidgetPopupRequests() {
         }
         // popup.editText (round 6 phase 6C): asked for in the same script call as any popup.
         if (WidgetInstance* still = WidgetByKey(key)) still->OpenPendingEditor();
+        // notify.banner (round 28 phase 28A): the calendar reminders' banner, over the widget; it
+        // shows while the dock is auto-hidden too, waits while a full-screen app is in front (as
+        // the reminders do).
+        if (WidgetInstance* still = WidgetByKey(key)) {
+            WidgetInstance::Banner b;
+            if (still->TakeBanner(b)) {
+                CalendarService::ReminderInfo info;
+                info.id = L"script:" + key;
+                info.title = b.title;
+                info.when = b.text;
+                info.color = DockTheme().accent;
+                info.script = true;
+                if (b.sound && !fullscreenHidden_) MessageBeep(MB_ICONASTERISK);  // the "Asterisk" system sound
+                ShowReminder(info);
+            }
+        }
     }
 }
 
@@ -5835,7 +5999,26 @@ void DockWindow::UpdateRecycleBinWatch() {
     if (!binNotify_) OutputDebugStringW(L"WinDock: SHChangeNotifyRegister (Recycle Bin) failed\n");
 }
 
+bool DockWindow::RecycleBinInfo(SHQUERYRBINFO& info) const {
+    // Round 26 phase 26B: SHQueryRecycleBinW(nullptr) walks the bin of every drive (removable and
+    // mapped ones included); it ran for every hover label and right-click of the bin. The answer is
+    // kept until the bin watch reports a change (OnRecycleBinChanged), which it does for every
+    // recycle, restore and empty (see above). Without a watch (no bin item: the label of a bin that
+    // is gone, an automation call) it is read every time, as before.
+    if (binInfoValid_ && binNotify_) {
+        info = binInfo_;
+        return true;
+    }
+    SHQUERYRBINFO now{sizeof(now)};
+    if (FAILED(SHQueryRecycleBinW(nullptr, &now))) return false;
+    binInfo_ = now;
+    binInfoValid_ = binNotify_ != 0;
+    info = now;
+    return true;
+}
+
 void DockWindow::OnRecycleBinChanged() {
+    binInfoValid_ = false;  // round 26 phase 26B: RecycleBinInfo reads it again
     for (DockItem& item : items_) {
         if (item.kind != DockItem::Kind::RecycleBin) continue;
         icons_.Evict(item.key);
@@ -5848,9 +6031,9 @@ void DockWindow::OnRecycleBinChanged() {
     RenderWithRecovery([this] { return DrawFrame(false); });
 }
 
-std::wstring DockWindow::RecycleBinLabel() {
-    SHQUERYRBINFO info{sizeof(info)};
-    if (FAILED(SHQueryRecycleBinW(nullptr, &info))) return L"Recycle Bin";
+std::wstring DockWindow::RecycleBinLabel() const {
+    SHQUERYRBINFO info{};
+    if (!RecycleBinInfo(info)) return L"Recycle Bin";
     if (info.i64NumItems <= 0) return L"Recycle Bin (empty)";
     wchar_t size[32]{};
     if (FAILED(StrFormatByteSizeEx(static_cast<ULONGLONG>(std::max<__int64>(info.i64Size, 0)),
@@ -5878,8 +6061,9 @@ void DockWindow::UpdateAcrylic() {
     // over the blur window's whole rectangle and ignores its window region (a grey box around the
     // ring on screen, seen in the 2026-11-03 verification), so a ring uses its plain fill too.
     // (A "behind" dock keeps its blur: the desktop layer keeps the backdrop window beneath it.)
+    acrylicSystem_ = Backdrop::SystemAllowsTransparency();  // round 26 phase 26C: OnEnvCheck compares
     const bool want = DockTheme().acrylic && !DockTheme().shelf && !DockTheme().perspective &&
-                      DockCfg().layer != DockLayer::Desktop && !DockCfg().Polar() && Backdrop::SystemAllowsTransparency();
+                      DockCfg().layer != DockLayer::Desktop && !DockCfg().Polar() && acrylicSystem_;
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
     if (acrylic_) {
@@ -6308,11 +6492,31 @@ void DockWindow::SetFullscreenHidden(bool hidden) {
     }
 }
 
+bool DockWindow::ContentVisible() const {
+    // Round 26 phase 26A: also not while the full-screen guard hides the dock (it was left out, so
+    // a dock hidden by the guard kept its widgets ticking and its thumbnails capturing) nor while
+    // the session is paused (locked, display off, disconnected: DockManager::SetSessionPaused).
+    return !desktopHidden_ && !fullscreenHidden_ && !sessionPaused_ &&
+           (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
+}
+
 void DockWindow::SyncWidgetVisibility() {
-    const bool visible = !desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
+    const bool visible = ContentVisible();
     for (auto& [key, w] : widgets_) w->SetVisible(visible);
     // Window thumbnails capture only while the dock can be seen (hidden: sessions closed, no timer).
     thumbs_.Activate(visible);
+    // Round 26 phase 26A: the clocks' tick found the dock hidden and was not re-armed: back on
+    // screen, every clock ticks once now (a changed text redraws) and asks for its next boundary.
+    if (visible && clockPaused_) {
+        clockPaused_ = false;
+        DispatchEvent(DockEvent::ClockTick);
+    }
+}
+
+void DockWindow::SetSessionPaused(bool paused) {
+    if (paused == sessionPaused_) return;
+    sessionPaused_ = paused;
+    SyncWidgetVisibility();
 }
 
 void DockWindow::SyncThumbnails() {
@@ -6612,6 +6816,9 @@ void DockWindow::BuildElements() {
         return std::find(widgetsClaimed_.begin(), widgetsClaimed_.end(), kv.first) == widgetsClaimed_.end();
     });
     widgetsClaimed_.clear();
+    // Round 25 phase 25C: the grabbed widget went with its item: the grab ends now (until the
+    // Rebuild that follows, widgetGrab_ indexes the old slots over the new elements).
+    if (widgetGrab_ >= 0 && !WidgetByKey(widgetGrabWidget_)) DropWidgetGrab();
     if (!popupWidget_.empty() && !WidgetByKey(popupWidget_)) DismissWidgetPopup(false);  // its widget went
     if (!passiveWidget_.empty() && !WidgetByKey(passiveWidget_)) DismissWidgetPassive(false);
     if (!editorWidget_.empty() && !WidgetByKey(editorWidget_)) {  // its widget went (with its editor)
@@ -6633,7 +6840,7 @@ WidgetInstance* DockWindow::AcquireWidget(const DockItemEntry& entry, size_t ord
         return it->second.get();
     }
     ScriptDockInfo info = WidgetDockInfo(*this);
-    info.visible = !desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
+    info.visible = ContentVisible();  // round 26 phase 26A: the same rule as SyncWidgetVisibility
     auto widget = std::make_unique<WidgetInstance>(shared_->Widgets(), static_cast<WidgetInstance::Client&>(*this),
                                                    renderer_.D2DFactory(), renderer_.DWrite(), entry.id, key,
                                                    entry.settings, info, place);
@@ -6711,6 +6918,7 @@ void DockWindow::SyncElements(bool force) {
     }
     // Every element's timers restart (the clock's tick: none once the clock is gone).
     if (hwnd_) KillTimer(hwnd_, kClockTimerId);
+    clockDue_ = 0;  // round 25 phase 25C: the clocks' Start below arm it again for the earliest
     for (auto& e : elements_) {
         if (e) e->Start();
     }
@@ -6854,6 +7062,10 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
             item.dotDirty = true;           // indicator dot
             if (item.missing) item.dirty = true;  // placeholder <-> live icon
         }
+        // Round 28 phase 28D: a dot per window: the count changes the shape (up to three).
+        if (DockCfg().indicator == IndicatorStyle::Windows && std::min<size_t>(item.windows.size(), 3) != std::min<size_t>(windows.size(), 3)) {
+            item.dotDirty = true;
+        }
         item.windows = std::move(windows);
         if (item.wantsAttention != attention) {
             item.wantsAttention = attention;
@@ -6940,6 +7152,9 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     }
 
     items_ = std::move(next);
+    // Round 25 phase 25C: a claimed widget press follows its slot to its new index (or ends with a
+    // cancelled release when the slot is gone); pressed_ / hover below are dropped as before.
+    if (widgetGrab_ >= 0) RefindWidgetGrab();
     UpdateBadges();  // a slot came, went or changed its windows (drawn by the redraw below)
     // Active-app glow follows the foreground (committed by the redraw below).
     if (GlowOf(DockTheme()) == GlowMode::Active) UpdateGlows(motion_.labelFade);
@@ -7206,17 +7421,30 @@ void DockWindow::ScheduleBounceTimer() {
 }
 
 void DockWindow::UpdateIconUsage() {
-    std::vector<AppKey> keys;
-    keys.reserve(items_.size());
+    // Round 25 phase 25C: each slot's app with its icon file / index (the cache keeps an entry per
+    // icon; it was the app keys alone, one entry each).
+    std::vector<IconCache::Use> uses;
+    uses.reserve(items_.size());
     for (const DockItem& item : items_) {
-        keys.push_back(item.key);
-        for (const DockItem::Member& m : item.members) keys.push_back(m.key);  // a group's composed icon
+        uses.push_back(IconCache::Use{item.key, item.iconFile, item.iconIndex});
+        for (const DockItem::Member& m : item.members) uses.push_back(IconCache::Use{m.key, m.iconFile, m.iconIndex});  // a group's composed icon
     }
-    icons_.SetInUse(keys);
+    icons_.SetInUse(uses);
+    ArmIconEvict();
+}
+
+void DockWindow::ArmIconEvict() {
     if (icons_.HasUnused() && !evictPending_ && hwnd_) {
-        SetTimer(hwnd_, kIconEvictTimerId, static_cast<UINT>(IconCache::kEvictAfterMs), nullptr);
+        SetTimer(hwnd_, kIconEvictTimerId, static_cast<UINT>(IconCache::kEvictAfterMs), nullptr);  // one-shot, re-armed while unused entries remain
         evictPending_ = true;
     }
+}
+
+uint32_t DockWindow::ItemDominant(const DockItem& item) const {
+    // Round 26 phase 26C: the colour is computed on first use, with the dock's resource context
+    // (ResourceContext is a non-const accessor; nothing of the renderer changes here).
+    return icons_.DominantColor(item.key, layout_.bitmapPx, item.iconFile, item.iconIndex,
+                                const_cast<Renderer&>(renderer_).ResourceContext());
 }
 
 // --- Drag to reorder ---------------------------------------------------------------------------
@@ -9215,7 +9443,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 35: {
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             const DockItem& item = items_[static_cast<size_t>(lp)];
-            if (wp == 35) return static_cast<LRESULT>(icons_.DominantColor(item.key));
+            if (wp == 35) return static_cast<LRESULT>(ItemDominant(item));
             if (wp == 33) {
                 return item.glow.width && item.glowOpacity.valid ? static_cast<LRESULT>(std::lround(item.glowOpacity.to * 100.0f))
                                                                  : 0;
@@ -9449,7 +9677,9 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 347:  // the icons' drawn size, px
         case 348:  // the cell under the pointer (the hover plate's), -1 none
         case 349:  // 1: labels are drawn beside the icons
-        case 350: {  // the arrow's centre in screen px: x | y << 16 (16 bits each, signed); -1 no arrow
+        case 350:  // the arrow's centre in screen px: x | y << 16 (16 bits each, signed); -1 no arrow
+        case 377:  // round 30: the shape behind the arrow's glyph: 0 none, 1 circle, 2 pill, 3 rounded square
+        case 378: {  // round 30: that shape as drawn, px: width | height << 16 (0: no shape, or no arrow)
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size()) || items_[static_cast<size_t>(lp)].kind != DockItem::Kind::Tray ||
                 !elements_[items_[static_cast<size_t>(lp)].element]) {
                 return -1;
@@ -9466,6 +9696,10 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                 case 347: return look.iconPx;
                 case 348: return look.hotCell;
                 case 349: return look.labels ? 1 : 0;
+                case 377: return look.shape;
+                case 378:
+                    return static_cast<LRESULT>(static_cast<unsigned>(look.shapeW & 0xFFFF) |
+                                                (static_cast<unsigned>(look.shapeH & 0xFFFF) << 16));
                 default: {
                     if (!look.arrow) return -1;
                     const D2D1_RECT_F box = SlotScreenBox(static_cast<int>(lp));
@@ -9486,12 +9720,46 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return folder_.Kind() == 3 ? (folder_.TitleShown() ? 1 : 0) | (folder_.GearShown() ? 2 : 0) : -1;
         case 355:  // the hover-open timers pending (any drawer state): 1 the open delay, + 2 the leave grace
             return (trayHoverPending_ ? 1 : 0) | (trayLeavePending_ ? 2 : 0);
+        // Round 26 phase 26A (process-wide, any dock): the foreground watch's evaluations (its
+        // onChange runs) and the firings that skipped one (a suspension's re-hook, nothing changed).
+        case 359:
+            return static_cast<LRESULT>(shared_->Watch().Evaluations());
+        case 360:
+            return static_cast<LRESULT>(shared_->Watch().SkippedEvaluations());
+        // Round 26 phase 26A: 1 while this dock's clocks and widget refresh ticks are paused (the dock
+        // cannot be seen: hidden, a hidden desktop dock, the full-screen guard, the session paused).
+        case 361:
+            return ContentVisible() ? 0 : 1;
+        // Round 26 phase 26C: settings / display broadcasts this dock checked and found nothing it
+        // uses changed (no relayout, no redraw).
+        case 364:
+            return static_cast<LRESULT>(envSkipped_);
+        case 366:  // round 26 phase 26C (process-wide): window tracker passes that only re-read captions
+            return static_cast<LRESULT>(shared_->Tracker().TitlePasses());
+        case 372:  // round 28 phase 28D: docks[].indicator: 0 dot, 1 line, 2 pill, 3 a dot per window
+            return static_cast<LRESULT>(DockCfg().indicator);
+        case 373:  // 28D: the window count slot lp's indicator shows (1 - 3; 0 none: not running, buttons, a widget)
+            if (lp < 0 || static_cast<size_t>(lp) >= items_.size()) return -1;
+            {
+                const DockItem& it = items_[static_cast<size_t>(lp)];
+                const bool run = it.kind == DockItem::Kind::Group ? it.groupRunning : !it.windows.empty();
+                if (it.IsWidget() || layout_.buttons || !run || (it.window && it.minimized)) return 0;
+                return DockCfg().indicator == IndicatorStyle::Windows && !it.window && it.kind != DockItem::Kind::Group
+                           ? static_cast<LRESULT>(std::clamp<size_t>(it.windows.size(), 1, 3))
+                           : 1;
+            }
+        case 371:  // round 28 phase 28A: widget banners (notify.banner) waiting on this dock, the shown one included
+            return static_cast<LRESULT>(std::count_if(reminders_.begin(), reminders_.end(),
+                                                      [](const CalendarService::ReminderInfo& r) { return r.script; }));
         default:
             return -1;
     }
 }
 
 LRESULT CALLBACK DockWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     DockWindow* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<DockWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
@@ -9516,6 +9784,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msgQueryItem_ && msg == msgQueryItem_) return QueryItemPoint(wp, lp);
     if (msgQueryState_ && msg == msgQueryState_) return QueryState(wp, lp);
+    // Round 26 phase 26A follow-up: real pointer input ends a pause whose resume event was missed
+    // (DockShared::PointerInput; a flag test while not paused).
+    if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST && shared_) shared_->PointerInput(msg);
 
     switch (msg) {
         case WM_MOUSEACTIVATE:
@@ -9752,6 +10023,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // scroll starts from it, and the release is no click. An unclaimed press goes on as before.
             if (!editing_ && pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).PressClaimed(pressed_)) {
                 widgetGrab_ = pressed_;
+                widgetGrabSlot_ = items_[static_cast<size_t>(pressed_)].key;  // round 25 phase 25C (RefindWidgetGrab)
+                const WidgetInstance* grabbed = WidgetAt(pressed_);
+                widgetGrabWidget_ = grabbed ? grabbed->Key() : std::wstring();
                 dockPress_ = false;
                 editMove_ = false;
                 scrollPress_ = false;
@@ -9891,6 +10165,10 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (grown_ && !hold_ && !popupHolds_ && hideState_ != HideState::Hidden && !CursorInZone()) LeaveZone();
             return 0;
 
+        case kEnvCheckMessage:  // round 26 phase 26C
+            OnEnvCheck();
+            return 0;
+
         case kWidgetRedrawMessage:
             widgetRedrawPosted_ = false;
             DispatchEvent(DockEvent::WidgetRedraw);
@@ -9960,8 +10238,16 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_TIMER:
             switch (wp) {
                 case kClockTimerId:
-                    KillTimer(hwnd_, kClockTimerId);  // one-shot; the clock reschedules it (next boundary)
-                    DispatchEvent(DockEvent::ClockTick);
+                    KillTimer(hwnd_, kClockTimerId);  // one-shot; the clocks ask for their next boundary (RequestClockTick)
+                    clockDue_ = 0;
+                    // Round 26 phase 26A: nobody can see the dock (auto-hidden, a hidden desktop dock,
+                    // the full-screen guard, a locked session): no tick, no redraw, and no next timer;
+                    // SyncWidgetVisibility ticks every clock once when the dock is back.
+                    if (!ContentVisible()) {
+                        clockPaused_ = true;
+                        return 0;
+                    }
+                    DispatchEvent(DockEvent::ClockTick);  // round 25 phase 25C: every clock element (each redraws only on a change)
                     return 0;
                 case kBounceTimerId:
                     KillTimer(hwnd_, kBounceTimerId);  // one-shot; rescheduled while bounces run
@@ -10085,22 +10371,30 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_DISPLAYCHANGE:
+            // Round 26 phase 26C (B7): checked (posted, coalesced) instead of an immediate Relayout:
+            // DockManager's Sync follows the same change and relayouts a dock whose monitor handle
+            // changed, so the second pass is skipped when the geometry the dock uses is the same.
             DismissPreview(false, false);
             DismissClickPopups(false, false);
             DismissWidgetPassive(false);
-            Relayout();  // re-picks the monitor (falls back to the primary) and re-centres
+            PostEnvCheck(false);  // re-picks the monitor (falls back to the primary) and re-centres when it changed
             return 0;
 
         case WM_SETTINGCHANGE:
+            // Round 26 phase 26C (B7): every one of these ran a full Relayout (every slot redrawn) on
+            // every dock, and they are frequent: "ImmersiveColorSet" on unlock, accent and theme
+            // changes and from other apps; SPI_SETWORKAREA in bursts (the taskbar controller's own
+            // hide / restore sends several, STATUS "Open follow-ups"). Now one posted check per burst
+            // (PostEnvCheck) compares what this dock uses (its monitor's rect and work area, the DPI,
+            // the system half of the acrylic decision) with what its last layout used, and does
+            // the work only on a difference. The dock's colours do not follow the system theme (the
+            // theme comes from the config), so a colour-set change matters only through acrylic.
             if (wp == SPI_SETHIGHCONTRAST ||
                 (lp && CompareStringOrdinal(reinterpret_cast<const wchar_t*>(lp), -1, L"ImmersiveColorSet", -1,
                                             TRUE) == CSTR_EQUAL)) {
-                // "Transparency effects" or high contrast toggled: acrylic on/off.
-                UpdateAcrylic();
-                SyncLayer();  // a "behind" dock's backdrop beneath it (or none)
-                Relayout();
+                PostEnvCheck(true);  // "Transparency effects" or high contrast toggled: acrylic on / off
             } else if (wp == SPI_SETWORKAREA || wp == SPI_SETNONCLIENTMETRICS) {
-                Relayout();
+                PostEnvCheck(false);  // (the dock reads no non-client metric; checked like a work area change)
             } else if (wp == SPI_SETCLIENTAREAANIMATION) {
                 // Animation effects toggled: reduceMotion "system" follows it from the next animation.
                 RefreshMotion();
@@ -10175,6 +10469,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             trayHoverPending_ = trayLeavePending_ = false;  // round 24 phase 24B
             trayHoverSlot_ = -1;
+            clockDue_ = 0;  // round 25 phase 25C: kClockTimerId is gone with the others
             if (binNotify_) {
                 SHChangeNotifyDeregister(binNotify_);
                 binNotify_ = 0;

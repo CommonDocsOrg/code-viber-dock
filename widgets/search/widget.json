@@ -1,7 +1,7 @@
 {
   "name": "Search",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "Opens Windows Search (Win+S, sent with SendInput). A magnifier glyph, optionally with a label, or your own icon.",
   "api": 1,
   "size": {

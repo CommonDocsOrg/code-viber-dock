@@ -9,7 +9,7 @@
     LicenseRtf  the LICENSE file converted to RTF (the license page of the UI)
 
   What the MSI does: per-machine install of the single static exe into Program Files\ViberDock,
-  a Start menu shortcut, an Apps & features entry with the dock icon, and "Start WinDock now"
+  two Start menu shortcuts (ViberDock; Restore Windows taskbar, round 27), an Apps & features entry with the dock icon, and "Start ViberDock now"
   on the last page. The dock itself keeps running from wherever it was installed; its config
   stays in %LocalAppData%\WinDock and is not touched by install, upgrade or uninstall.
 
@@ -46,7 +46,7 @@
     <Property Id="ARPNOREPAIR" Value="1" />
     <Property Id="ARPURLINFOABOUT" Value="https://codeviber.org" />
 
-    <!-- UI: install folder page, license page (LICENSE as RTF), "Start WinDock now" at the end. -->
+    <!-- UI: install folder page, license page (LICENSE as RTF), "Start ViberDock now" at the end. -->
     <ui:WixUI Id="WixUI_InstallDir" InstallDirectory="INSTALLFOLDER" />
     <WixVariable Id="WixUILicenseRtf" Value="$(var.LicenseRtf)" />
     <Property Id="WIXUI_EXITDIALOGOPTIONALCHECKBOXTEXT" Value="Start ViberDock now" />
@@ -67,6 +67,14 @@
           <Shortcut Id="StartMenuShortcut" Directory="ProgramMenuFolder" Name="ViberDock"
                     Description="ViberDock by CodeViber.org: a macOS-style dock for Windows 11"
                     WorkingDirectory="INSTALLFOLDER" Icon="DockIcon" Advertise="yes" />
+          <!-- Round 27 phase 27A: the way back to the taskbar without a command prompt (the
+               troubleshooting guide's "If the taskbar is missing"). Runs the exe with the
+               restore switch: it works whether or not the dock runs (src/main.cpp). Same file,
+               same component: no new GUID, no registry key path. -->
+          <Shortcut Id="RestoreTaskbarShortcut" Directory="ProgramMenuFolder" Name="Restore Windows taskbar"
+                    Description="ViberDock: brings the Windows taskbar back, also when ViberDock is not running"
+                    Arguments="--restore-taskbar"
+                    WorkingDirectory="INSTALLFOLDER" Icon="DockIcon" Advertise="yes" />
         </File>
         <RemoveRegistryValue Root="HKCU" Key="Software\Microsoft\Windows\CurrentVersion\Run" Name="WinDock" />
       </Component>
@@ -81,7 +89,7 @@
     <!-- Uninstall safety net: bring the taskbar back if a crashed dock left it hidden. -->
     <CustomAction Id="RestoreTaskbar" FileRef="WinDockExe" ExeCommand="--restore-taskbar"
                   Execute="deferred" Impersonate="yes" Return="ignore" />
-    <!-- "Start WinDock now": from the UI sequence, so it runs as the user, not elevated. -->
+    <!-- "Start ViberDock now": from the UI sequence, so it runs as the user, not elevated. -->
     <CustomAction Id="LaunchDock" FileRef="WinDockExe" ExeCommand="" Return="asyncNoWait" />
 
     <InstallExecuteSequence>

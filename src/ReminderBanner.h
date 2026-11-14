@@ -16,6 +16,8 @@
 // "Now"), the location, "+n more" when more reminders wait, and two buttons: Snooze 5 min and
 // Dismiss. A click elsewhere on it dismisses it and opens the month calendar on the event's day.
 // It stays until a button is pressed; nothing animates or ticks while it is shown.
+// Round 28 phase 28A: also a script widget's notify.banner (ReminderInfo::script): the title, the
+// text as the second line, only Dismiss; a click on its body dismisses it too.
 class ReminderBanner : public PopupWindow {
 public:
     static constexpr wchar_t kClassName[] = L"WinDockReminder";
@@ -38,7 +40,7 @@ public:
         std::function<void()> open;  // the banner's body
     };
 
-    ReminderBanner() : PopupWindow(kClassName, L"WinDock reminder", Mode::Hover) {}
+    ReminderBanner() : PopupWindow(kClassName, L"ViberDock reminder", Mode::Hover) {}
     ~ReminderBanner() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, Callbacks callbacks);

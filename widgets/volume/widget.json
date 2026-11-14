@@ -1,7 +1,7 @@
 {
   "name": "Volume",
   "version": "1.1.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "The default output's volume as an icon, a ring that fills up or a bar, with the level in percent. Wheel: change it, with a volume bar beside the dock; click: a popup with a slider, mute, microphone mute, the outputs and Sound settings; middle click: mute.",
   "api": 1,
   "size": {

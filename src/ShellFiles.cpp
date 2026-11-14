@@ -1,4 +1,5 @@
 #include "ShellFiles.h"
+#include "Crash.h"
 
 #include <shellapi.h>
 #include <shlobj.h>
@@ -20,7 +21,7 @@ struct Pidl {
     }
 };
 
-DWORD WINAPI JobThread(void* param) {
+DWORD JobBody(void* param) {
     Job* job = static_cast<Job*>(param);
     if (SUCCEEDED(CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE))) {
         winrt::com_ptr<IFileOperation> op;
@@ -57,6 +58,20 @@ DWORD WINAPI JobThread(void* param) {
     if (job->notify && job->message && IsWindow(job->notify)) PostMessageW(job->notify, job->message, job->tag, 0);
     delete job;
     InterlockedDecrement(&g_running);
+    return 0;
+}
+
+// Round 25 phase 25E: an exception escaping the shell's file operation fails this job only (the
+// window is told it ended, the job is freed, the count of running jobs goes down) instead of
+// std::terminate ending the process with the taskbar hidden (Crash.h). Nothing after the
+// operation throws, so the job is still there when `failed` runs.
+DWORD WINAPI JobThread(void* param) {
+    Crash::Job(L"file operation", [&] { JobBody(param); }, [&] {
+        Job* job = static_cast<Job*>(param);
+        if (job->notify && job->message && IsWindow(job->notify)) PostMessageW(job->notify, job->message, job->tag, 0);
+        delete job;
+        InterlockedDecrement(&g_running);
+    });
     return 0;
 }
 

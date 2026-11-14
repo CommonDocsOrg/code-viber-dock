@@ -52,6 +52,35 @@
 // Round 17 phase 17A: the Photo frame widget (one picture, or a slideshow of a folder).
 #define IDR_WIDGET_PHOTOFRAME_JSON 368
 #define IDR_WIDGET_PHOTOFRAME_MAIN 369
+// Round 27 phases 27B / 27C: what the taskbar had: the network icon and the input-language indicator
+// (377 - 380: after the presets' and guides' 360 - 376).
+#define IDR_WIDGET_NETWORK_JSON 377
+#define IDR_WIDGET_NETWORK_MAIN 378
+#define IDR_WIDGET_INPUTLANG_JSON 379
+#define IDR_WIDGET_INPUTLANG_MAIN 380
+// Round 28 phase 28B: the widgets pack (381 - 390).
+#define IDR_WIDGET_TIMER_JSON 381
+#define IDR_WIDGET_TIMER_MAIN 382
+#define IDR_WIDGET_WORLDCLOCK_JSON 383
+#define IDR_WIDGET_WORLDCLOCK_MAIN 384
+#define IDR_WIDGET_TODO_JSON 385
+#define IDR_WIDGET_TODO_MAIN 386
+#define IDR_WIDGET_MOON_JSON 387
+#define IDR_WIDGET_MOON_MAIN 388
+#define IDR_WIDGET_QUICKBUTTONS_JSON 389
+#define IDR_WIDGET_QUICKBUTTONS_MAIN 390
+// Round 28 phase 28C: the Top bar preset (391) and four clock faces (392 - 395).
+#define IDR_PRESET_TOPBAR 391
+#define IDR_CLOCKFACE_SECONDS_LINE 392
+#define IDR_CLOCKFACE_COMPACT 393
+#define IDR_CLOCKFACE_TIME_WEEKDAY 394
+#define IDR_CLOCKFACE_BIG_DATE 395
+// Round 29 phase 29A: docs/windock.d.ts, written into an exported built-in widget's folder
+// (Widgets::ExportBuiltIn) with a jsconfig.json, for the editor's completions.
+#define IDR_WIDGET_DTS 396
+// Round 29 phase 29C: the Headlines widget (an RSS / Atom feed the user enters).
+#define IDR_WIDGET_FEED_JSON 397
+#define IDR_WIDGET_FEED_MAIN 398
 
 // Round 9 phase 9C: the predefined dock setups (RCDATA, res/presets/<id>.json; Presets.cpp lists
 // them in this order).

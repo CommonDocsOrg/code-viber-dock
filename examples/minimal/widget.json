@@ -1,7 +1,7 @@
 {
   "name": "Minimal (example)",
   "version": "1.0.0",
-  "author": "WinDock examples",
+  "author": "ViberDock examples",
   "description": "The smallest useful widget: one line of text in the dock's colours, sized by measure().",
   "main": "main.js",
   "size": {
