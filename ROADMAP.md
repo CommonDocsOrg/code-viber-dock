@@ -2139,7 +2139,10 @@ mapping table was unnecessary, since the host already converts with Windows' day
 Notes widget's `popup.editText`. The Moon is Meeus' algorithm in about 60 lines (minute accuracy,
 no data). The Quick buttons are the reason for 28A's keys; they stay a fixed list of actions
 rather than a free "keys" field, for the same reason the allow-list exists. Not done: a drive
-space widget (the API is there; System overview could show it later).
+space widget (the API is there; System overview could show it later). Follow-up: the Quick buttons'
+glyph code points, written from memory, were checked against Microsoft Learn's Segoe Fluent Icons
+list; all thirteen are there under the intended names, so nothing changed (F406 ClippingTool was
+not taken for the snip: the F4xx glyphs are missing from the first Windows 11 font).
 
 **28C, styles.** Theme presets are a compiled table, so the palettes are nine more entries built
 from one helper that maps a palette's roles (base, surface, overlay, text, subtext, accent, active,

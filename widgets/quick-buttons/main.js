@@ -7,6 +7,12 @@
 //
 // Icons: Segoe Fluent Icons glyphs (Windows 11's icon font), two drawn as paths. Nothing runs while
 // idle: no timer, no provider; a click does its one thing.
+//
+// Code points checked against Microsoft Learn's "Segoe Fluent Icons font" list (2026-11-13): E7C4
+// TaskView, E77F Paste, E7A8 Crop, EA8F Ringer, E7F4 TVMonitor, E76E Emoji2, E8B7 Folder, E713
+// Settings, E721 Search, E76B / E76C ChevronLeft / ChevronRight, EC15 MiracastLogoSmall, E72E Lock.
+// The list also has F406 ClippingTool for the snip, but the F4xx glyphs came with later font
+// versions than the first Windows 11 release; Crop is in every version.
 
 const ACTIONS = {
   quick: { name: 'Quick settings', keys: 'win+a', draw: 'sliders' },
