@@ -75,7 +75,7 @@ struct ResolvedPin {
 //   folder (the path, or a .lnk's target, is a directory): kind Folder, key = the directory's
 //         full path (so a shortcut to a folder and the folder itself are one item), name = its
 //         last component ("C:" for a drive root), launchPath = targetPath = the directory.
-//   .lnk: IShellLink + IPersistFile::Load + Resolve(SLR_NO_UI); key precedence: the link's
+//   .lnk: IShellLink + IPersistFile::Load (round 26 phase 26B: no Resolve, see ResolveShortcut); key precedence: the link's
 //         PKEY_AppUserModel_ID, else the target's package AUMID when the target is an app
 //         execution alias (e.g. %LOCALAPPDATA%\Microsoft\WindowsApps\mspaint.exe), else the
 //         target exe path. Name: the link's file stem.

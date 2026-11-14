@@ -149,6 +149,9 @@ public:
     // WM_APP + 76 = App::kMalformedNotice (phase 25B, posted to the app window once after a start
     // from a malformed config.json); WM_APP + 77 = WidgetRuntime::kConsentMessage (phase 25D,
     // posted to the app window: a widget's "Needs permission" tile was clicked, the dialog opens).
+    // Round 26: WM_APP + 78 = FolderWindow::kListedMessage and FolderPopup::kListedMessage (phase
+    // 26B, posted to a folder window / the folder popup by the worker that listed a slow folder);
+    // TrayHost's own window: timer 2 = TrayHost::kMirrorRetryTimer (26B). No new timer on a dock.
     // On the settings search dialog's own window (round 9 phase 9B / round 18 phase 18D): WM_APP + 41
     // = SettingsSearch::kRebuildMessage, + 42 its kHideComboMessage, timer 1 = its kIndexTimerId (the
     // next window of the index, one-shot); WM_APP + 40 = SettingsWindow::kRebuildMessage on a settings window.
@@ -316,6 +319,9 @@ public:
     // Round 26 phase 26A: the session is locked, the display is off or the session is disconnected
     // (DockManager): treated like the dock being hidden (widget refresh ticks, clocks, thumbnails).
     void SetSessionPaused(bool paused);
+    // Round 26 phase 26B: the Recycle Bin's item count and size (SHQueryRecycleBinW over every
+    // drive), kept while the bin watch runs until it reports a change. False: unknown.
+    bool RecycleBinInfo(SHQUERYRBINFO& info) const;
     // The weather service's data or status changed: the weather elements redraw (DockEvent), the
     // popup updates.
     void OnWeatherChanged();
@@ -1059,7 +1065,7 @@ private:
     void UpdateRecycleBinWatch();
     void OnRecycleBinChanged();
     // "Recycle Bin (N items, 12.3 MB)" / "Recycle Bin (empty)".
-    static std::wstring RecycleBinLabel();
+    std::wstring RecycleBinLabel() const;  // round 26 phase 26B: from RecycleBinInfo (no longer static)
 
     // --- popup holds ---
     // An open popup keeps the dock shown (part of Held()): one bit per popup in popupHolds_.
@@ -1732,6 +1738,8 @@ private:
 
     // Recycle Bin item
     ULONG binNotify_ = 0;         // SHChangeNotifyRegister id (0: not registered)
+    mutable SHQUERYRBINFO binInfo_{};     // round 26 phase 26B: RecycleBinInfo's cached answer ...
+    mutable bool binInfoValid_ = false;   // ... until the watch's next change
     bool binPending_ = false;     // kRecycleBinTimerId running
 
     // External drops

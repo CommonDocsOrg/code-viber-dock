@@ -12,6 +12,7 @@
 
 #include "Backdrop.h"
 #include "Config.h"
+#include "FolderListing.h"
 #include "IconCache.h"
 #include "ItemGridView.h"
 #include "Renderer.h"
@@ -96,18 +97,15 @@ private:
     static constexpr UINT kChangeMessage = WM_APP + 10;   // SHChangeNotifyRegister
     static constexpr UINT kJobDoneMessage = WM_APP + 11;  // a file operation finished
     static constexpr UINT kMenuMessage = WM_APP + 12;     // posted: the context menu (automation)
+    // Round 26 phase 26B: a slow folder's listing came from its worker (wParam: the tag, lParam: a
+    // FolderListing::Listing* the window frees). Listed in DockWindow.h's WM_APP table.
+    static constexpr UINT kListedMessage = WM_APP + 78;
     static constexpr UINT_PTR kRefreshTimer = 1;          // 250 ms one-shot after a change notification
     static constexpr UINT_PTR kRollTimer = 2;             // rollUpOnHover: 400 ms after the pointer left
     static constexpr UINT_PTR kViewTimerBase = 100;       // the view's (100, 101)
 
     enum class Grab { None, Move, Left, Right, Top, Bottom, TopLeft, TopRight, BottomLeft, BottomRight };
-    struct Entry {
-        std::wstring name;  // file name
-        std::wstring path;
-        bool folder = false;
-        ULONGLONG size = 0;
-        FILETIME modified{};
-    };
+    using Entry = FolderListing::Entry;  // round 26 phase 26B: shared with the folder popup
 
     static LRESULT CALLBACK WndProcThunk(HWND, UINT, WPARAM, LPARAM);
     LRESULT WndProc(UINT msg, WPARAM wp, LPARAM lp);
@@ -146,8 +144,12 @@ private:
     // --- contents ---
     std::wstring FolderPath() const;  // the config path, environment variables expanded
     void Load();
-    // Load again keeping the scroll position and the selection (by path).
-    void Reload();
+    // Load again keeping the scroll position and the selection (by path). `rebuild`: F5 / Refresh.
+    void Reload(bool rebuild = false);
+    // Round 26 phase 26B: the listing, read here or (a slow folder) on a worker; see the .cpp.
+    void RequestListing(bool rebuild, bool keepState);
+    void OnListed(WPARAM tag, FolderListing::Listing* listing);
+    void ApplyListing(FolderListing::Listing listing, bool rebuild, bool keepState, bool async);
     void Watch();
     void Unwatch();
     void ResolveItem(size_t index, GridItem& item);
@@ -211,6 +213,14 @@ private:
     size_t resolved_ = 0;       // entries whose icon / label was resolved (QueryState 196)
     std::vector<std::wstring> selectAfterLoad_;  // a rename / drop: select these when they appear
     LONG jobs_ = 0;             // this window's file operations in flight
+    // Round 26 phase 26B: the worker listing of a slow folder (RequestListing / OnListed).
+    WPARAM listTag_ = 0;        // the newest listing started
+    WPARAM inFlight_ = 0;       // the tag of the one running (0: none; QueryState 362)
+    std::wstring inFlightFolder_;
+    bool inFlightRebuild_ = false, inFlightKeep_ = true;
+    bool listAgain_ = false;    // asked again while it ran: one more run after it, with ...
+    bool againRebuild_ = false, againKeep_ = true;  // ... the most any of those asks wanted
+    bool loading_ = false;      // the folder's first listing has not come yet ("Loading…")
 
     // Move / resize.
     Grab grab_ = Grab::None;

@@ -148,6 +148,12 @@ private:
     static constexpr UINT kOwnerGoneMessage = WM_APP + 2;  // posted by a wait: wParam = pid
     static constexpr UINT kMirrorMessage = WM_APP + 3;     // posted: send the queued messages to Explorer
     static constexpr UINT_PTR kRebroadcastTimer = 1;       // one-shot: TaskbarCreated again after a raise
+    // Round 26 phase 26B: one-shot: the mirror batch goes on after Explorer did not answer in time.
+    static constexpr UINT_PTR kMirrorRetryTimer = 2;
+    static constexpr UINT kFlushTimeoutMs = 500;       // per queued message (the answer is not needed)
+    static constexpr UINT kMirrorRetryMs = 500;        // the pause after a message timed out
+    static constexpr ULONGLONG kFlushSliceMs = 50;     // one flush pass sends for at most this long
+    static constexpr int kMirrorAttempts = 10;         // a message Explorer never took is dropped after this many
     static constexpr ULONGLONG kRebroadcastMs = 1500;      // at most this often ...
     static constexpr int kRebroadcastsPerMinute = 3;       // ... and this many times a minute
     void ScheduleRebroadcast();
@@ -156,9 +162,14 @@ private:
     struct Mirror {
         HWND sender = nullptr;
         std::vector<BYTE> data;
+        int attempts = 0;  // round 26 phase 26B: sends that did not reach Explorer (hung, failed)
     };
     void QueueMirror(HWND sender, const COPYDATASTRUCT& cds);
-    void FlushMirrors();
+    // Round 26 phase 26B: `all` (Stop): everything now, as before. Otherwise a pass sends for at most
+    // kFlushSliceMs and stops at the first message Explorer did not answer within kFlushTimeoutMs;
+    // the rest (in order, before anything queued meanwhile) goes on from a posted kMirrorMessage
+    // (the slice) or kMirrorRetryTimer (a timeout).
+    void FlushMirrors(bool all = false);
 
     struct OwnerWait {
         HANDLE process = nullptr;
@@ -223,6 +234,7 @@ private:
     uint64_t popupOpen_ = 0;  // the icon NIN_POPUPOPEN was sent to (0: none)
     std::deque<Mirror> mirrors_;
     bool mirrorPosted_ = false;
+    bool mirrorRetryPending_ = false;  // round 26 phase 26B: kMirrorRetryTimer armed
     ULONGLONG lastBroadcast_ = 0;
     bool rebroadcastPending_ = false;
     size_t rebroadcasts_ = 0;

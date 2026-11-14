@@ -49,6 +49,7 @@ add_executable(WinDock WIN32
   src/Backdrop.cpp
   src/PopupWindow.cpp
   src/PreviewPopup.cpp
+  src/FolderListing.cpp
   src/FolderPopup.cpp
   src/FolderWindow.cpp
   src/WidgetWindow.cpp

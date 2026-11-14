@@ -401,7 +401,14 @@ winrt::com_ptr<ID2D1Bitmap> IconCache::LoadShellImage(const AppKey& key, UINT px
 winrt::com_ptr<ID2D1Bitmap> IconCache::LoadWindowIcon(HWND hwnd, ID2D1DeviceContext* dc) {
     if (!hwnd || !IsWindow(hwnd)) return nullptr;
     DWORD_PTR icon = 0;
-    if (!SendMessageTimeoutW(hwnd, WM_GETICON, ICON_BIG, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 200, &icon) || !icon) {
+    // Round 26 phase 26B: 50 ms (was 200), as MenuIcons. An app that answers WM_GETICON at all does
+    // so in well under a millisecond; a busy one now costs the UI thread a quarter of the wait per
+    // window (the class icon is the fallback, as before). SMTO_BLOCK stays, as in MenuIcons: this
+    // runs inside the dock's rebuild / render, and without it the wait would dispatch other
+    // processes' sent messages here (a WM_SETTINGCHANGE broadcast relayouts the dock, the tray
+    // takeover's WM_COPYDATA changes its icons) in the middle of that pass. The plan's idea of
+    // dropping it assumed MenuIcons did; it does not.
+    if (!SendMessageTimeoutW(hwnd, WM_GETICON, ICON_BIG, 0, SMTO_ABORTIFHUNG | SMTO_BLOCK, 50, &icon) || !icon) {
         icon = static_cast<DWORD_PTR>(GetClassLongPtrW(hwnd, GCLP_HICON));
     }
     if (!icon) return nullptr;

@@ -391,8 +391,21 @@ void ResolveShortcut(const std::wstring& lnk, ResolvedPin& pin) {
     if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(link.put())))) return;
     winrt::com_ptr<IPersistFile> file = link.try_as<IPersistFile>();
     if (!file || FAILED(file->Load(lnk.c_str(), STGM_READ))) return;
-    // No UI and don't rewrite the .lnk; with SLR_NO_UI the high word is the search timeout (ms).
-    link->Resolve(nullptr, MAKELONG(SLR_NO_UI | SLR_NOUPDATE, 1000));
+    // Round 26 phase 26B: no IShellLink::Resolve any more. It was called with SLR_NO_UI |
+    // SLR_NOUPDATE and a 1000 ms timeout for every .lnk pin before the first frame (and again per
+    // copy of a "monitor": "each" dock): a shortcut whose target is gone started the link-tracking
+    // and search machinery, up to a second each, and one whose target is on an offline share or a
+    // sleeping NAS waited for the network. Nothing read below needs it: GetPath derives the path
+    // from the link's stored ID list / link info (expanded; an environment-variable target too),
+    // GetWorkingDirectory / GetIconLocation and the AUMID property are stored in the file. What is
+    // given up: a target that moved and that Resolve would have found (in memory only: NOUPDATE
+    // never fixed the file) now shows as missing; launching the .lnk itself (Launcher) still lets
+    // the shell resolve it then (OpenWith's .lnk path already read GetPath without Resolve). MSI
+    // advertised shortcuts carry a Darwin descriptor: Resolve without SLR_INVOKE_MSI never
+    // installed or resolved them, so GetPath answers what it answered before (what the link
+    // stores, often nothing useful); they are keyed by their AUMID property when they have one
+    // and launched through the .lnk, as before. shell:AppsFolder links have no file system path
+    // (GetPath fails, as before) and are keyed by their AUMID property.
 
     wchar_t buf[MAX_PATH * 2]{};
     if (SUCCEEDED(link->GetPath(buf, static_cast<int>(std::size(buf)), nullptr, 0)) && buf[0]) {

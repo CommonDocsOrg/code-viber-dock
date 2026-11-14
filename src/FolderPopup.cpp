@@ -88,6 +88,8 @@ void FolderPopup::Release() {
     rootName_.clear();
     current_.clear();
     readable_ = true;
+    loading_ = listWanted_ = false;
+    ++listTag_;  // round 26 phase 26B: a listing still running is dropped when it comes
     dragFiles_.clear();
     trayDrag_ = false;
     selectAfterLoad_.clear();
@@ -133,6 +135,7 @@ bool FolderPopup::Show(const std::wstring& folder, const std::wstring& name, Ite
         if (!OnScreen()) Release();
         return false;
     }
+    StartListing();  // round 26 phase 26B: a slow folder's worker (no-op otherwise)
     return true;
 }
 
@@ -195,32 +198,62 @@ void FolderPopup::LoadGroup() {
     pendingSelect_ = -1;
 }
 
+// Round 26 phase 26B: a folder on a share, a mapped or removable drive (FolderListing::Slow) is
+// listed on a worker thread: Load shows the popup's "Loading…" state, StartListing (after ShowAt,
+// which makes the window the result is posted to) starts it, kListedMessage fills the popup in and
+// sizes it again. A local folder is listed here at once, as before (milliseconds; a popup that
+// opens empty and grows would be worse).
+FolderListing::Filter FolderPopup::ListFilter() {
+    FolderListing::Filter f;  // the popup never shows hidden or system entries
+    f.skipHidden = true;
+    f.skipSystem = true;
+    f.skipProtected = true;
+    return f;
+}
+
 void FolderPopup::Load(const std::wstring& folder) {
     current_ = folder;
     entries_.clear();
     iconByIndex_.clear();
     readable_ = true;
+    loading_ = false;
+    listWanted_ = false;
+    ++listTag_;  // a listing still running for the folder shown before is dropped when it comes
     ClearHot();
-
-    WIN32_FIND_DATAW fd{};
-    HANDLE find = FindFirstFileExW(Join(folder, L"*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr,
-                                   FIND_FIRST_EX_LARGE_FETCH);
-    if (find == INVALID_HANDLE_VALUE) {
-        readable_ = false;
-    } else {
-        do {
-            const wchar_t* n = fd.cFileName;
-            if ((n[0] == L'.' && n[1] == 0) || (n[0] == L'.' && n[1] == L'.' && n[2] == 0)) continue;
-            if (fd.dwFileAttributes & (FILE_ATTRIBUTE_HIDDEN | FILE_ATTRIBUTE_SYSTEM)) continue;
-            Entry e;
-            e.name = n;
-            e.folder = (fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY) != 0;
-            e.size = (static_cast<ULONGLONG>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow;
-            e.modified = fd.ftLastWriteTime;
-            entries_.push_back(std::move(e));
-        } while (entries_.size() < kMaxEntries && FindNextFileW(find, &fd));
-        FindClose(find);
+    if (FolderListing::Slow(folder)) {
+        loading_ = true;
+        listWanted_ = true;
+        FolderListing::Listing none;
+        none.folder = folder;
+        none.readable = true;
+        ApplyListing(std::move(none));
+        return;
     }
+    ApplyListing(FolderListing::Read(folder, ListFilter(), kMaxEntries));
+}
+
+void FolderPopup::StartListing() {
+    if (!listWanted_) return;
+    listWanted_ = false;
+    if (Window() && FolderListing::ReadAsync(Window(), kListedMessage, listTag_, current_, ListFilter(), kMaxEntries)) return;
+    // No window or no thread: here, as before.
+    loading_ = false;
+    ApplyListing(FolderListing::Read(current_, ListFilter(), kMaxEntries));
+    ShowAt(frame_, anchor_);
+}
+
+void FolderPopup::OnListed(WPARAM tag, FolderListing::Listing* raw) {
+    std::unique_ptr<FolderListing::Listing> listing(raw);
+    if (!listing || tag != listTag_ || group_ || !OnScreen() || !SamePath(listing->folder, current_)) return;
+    loading_ = false;
+    ApplyListing(std::move(*listing));
+    if (!ShowAt(frame_, anchor_) && callbacks_.dismiss) callbacks_.dismiss();
+}
+
+void FolderPopup::ApplyListing(FolderListing::Listing listing) {
+    const std::wstring& folder = current_;
+    entries_ = std::move(listing.entries);
+    readable_ = listing.readable;
     // Folders first, then Explorer's logical order ("file2" before "file10").
     std::sort(entries_.begin(), entries_.end(), [](const Entry& a, const Entry& b) {
         if (a.folder != b.folder) return a.folder;
@@ -243,7 +276,7 @@ void FolderPopup::Load(const std::wstring& folder) {
     view_.SetMode(list ? ItemGridView::Mode::List : ItemGridView::Mode::Grid);
     view_.SetDragOut(false);  // a drag on an entry scrolls
     pendingSelect_ = -1;
-    if (!selectAfterLoad_.empty()) {
+    if (!selectAfterLoad_.empty() && !loading_) {  // (26B: not the empty "Loading…" state: the listing's)
         // Back from a sub-folder: it is selected and scrolled into view (Measure).
         for (size_t i = 0; i < entries_.size(); ++i) {
             if (SamePath(entries_[i].path, selectAfterLoad_)) pendingSelect_ = static_cast<int>(i);
@@ -278,7 +311,11 @@ void FolderPopup::ResolveItem(size_t index, GridItem& item) {
 void FolderPopup::Navigate(const std::wstring& folder) {
     if (folder.empty()) return;
     Load(folder);
-    if (!ShowAt(frame_, anchor_) && callbacks_.dismiss) callbacks_.dismiss();
+    if (!ShowAt(frame_, anchor_)) {
+        if (callbacks_.dismiss) callbacks_.dismiss();
+        return;
+    }
+    StartListing();  // round 26 phase 26B
 }
 
 void FolderPopup::GoBack() {
@@ -739,6 +776,7 @@ void FolderPopup::Paint(ID2D1DeviceContext* dc) {
     // The entries are the view's own layers, in front of this surface.
     if (!Empty(messageRect_) && buttonFormat_) {
         const wchar_t* text = group_      ? L"This group is empty"
+                              : loading_  ? L"Loading…"  // round 26 phase 26B: a slow folder's worker runs
                               : readable_ ? L"This folder is empty"
                                           : L"Cannot open this folder";
         brush->SetColor(Theme::ToColor(style_.text, 0.6f));
@@ -856,8 +894,14 @@ bool FolderPopup::OnMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
             if (OnScreen() && !current_.empty()) {
                 const LONG scroll = view_.ScrollOffset();
                 Load(std::wstring(current_));
-                if (ShowAt(frame_, anchor_)) view_.ScrollTo(static_cast<float>(scroll), false);
+                if (ShowAt(frame_, anchor_)) {
+                    view_.ScrollTo(static_cast<float>(scroll), false);
+                    StartListing();  // round 26 phase 26B
+                }
             }
+            return true;
+        case kListedMessage:  // round 26 phase 26B: a slow folder's listing (ours to free)
+            OnListed(wp, reinterpret_cast<FolderListing::Listing*>(lp));
             return true;
         default:
             return false;

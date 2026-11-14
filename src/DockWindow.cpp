@@ -5896,7 +5896,26 @@ void DockWindow::UpdateRecycleBinWatch() {
     if (!binNotify_) OutputDebugStringW(L"WinDock: SHChangeNotifyRegister (Recycle Bin) failed\n");
 }
 
+bool DockWindow::RecycleBinInfo(SHQUERYRBINFO& info) const {
+    // Round 26 phase 26B: SHQueryRecycleBinW(nullptr) walks the bin of every drive (removable and
+    // mapped ones included); it ran for every hover label and right-click of the bin. The answer is
+    // kept until the bin watch reports a change (OnRecycleBinChanged), which it does for every
+    // recycle, restore and empty (see above). Without a watch (no bin item: the label of a bin that
+    // is gone, an automation call) it is read every time, as before.
+    if (binInfoValid_ && binNotify_) {
+        info = binInfo_;
+        return true;
+    }
+    SHQUERYRBINFO now{sizeof(now)};
+    if (FAILED(SHQueryRecycleBinW(nullptr, &now))) return false;
+    binInfo_ = now;
+    binInfoValid_ = binNotify_ != 0;
+    info = now;
+    return true;
+}
+
 void DockWindow::OnRecycleBinChanged() {
+    binInfoValid_ = false;  // round 26 phase 26B: RecycleBinInfo reads it again
     for (DockItem& item : items_) {
         if (item.kind != DockItem::Kind::RecycleBin) continue;
         icons_.Evict(item.key);
@@ -5909,9 +5928,9 @@ void DockWindow::OnRecycleBinChanged() {
     RenderWithRecovery([this] { return DrawFrame(false); });
 }
 
-std::wstring DockWindow::RecycleBinLabel() {
-    SHQUERYRBINFO info{sizeof(info)};
-    if (FAILED(SHQueryRecycleBinW(nullptr, &info))) return L"Recycle Bin";
+std::wstring DockWindow::RecycleBinLabel() const {
+    SHQUERYRBINFO info{};
+    if (!RecycleBinInfo(info)) return L"Recycle Bin";
     if (info.i64NumItems <= 0) return L"Recycle Bin (empty)";
     wchar_t size[32]{};
     if (FAILED(StrFormatByteSizeEx(static_cast<ULONGLONG>(std::max<__int64>(info.i64Size, 0)),

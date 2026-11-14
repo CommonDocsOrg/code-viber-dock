@@ -591,7 +591,8 @@ void FolderWindow::DrawPanel() {
             const float y = static_cast<float>(titleRect_.bottom) - inset;
             dc->DrawLine(D2D1::Point2F(Px(kPad), y), D2D1::Point2F(fw - Px(kPad), y), brush.get(), stroke);
             if (entries_.empty() && messageFormat_) {
-                const wchar_t* text = readable_ ? L"This folder is empty" : L"Cannot open this folder";
+                // Round 26 phase 26B: "Loading…" while a slow folder's listing runs on its worker.
+                const wchar_t* text = loading_ ? L"Loading…" : readable_ ? L"This folder is empty" : L"Cannot open this folder";
                 brush->SetColor(Theme::ToColor(t.labelText, 0.6f));
                 dc->DrawText(text, static_cast<UINT32>(wcslen(text)), messageFormat_.get(), ToRectF(contentRect_), brush.get());
             }
@@ -630,38 +631,84 @@ std::wstring FolderWindow::FolderPath() const {
     return ShellFiles::Normalize(n > 0 && n <= std::size(buf) ? std::wstring(buf) : path);
 }
 
-void FolderWindow::Load() {
-    entries_.clear();
-    iconByIndex_.clear();
-    resolved_ = 0;
-    readable_ = !folder_.empty();
-    const FolderWindowConfig& f = Cfg().folder;
-    if (readable_) {
-        WIN32_FIND_DATAW fd{};
-        HANDLE find = FindFirstFileExW(Join(folder_, L"*").c_str(), FindExInfoBasic, &fd, FindExSearchNameMatch, nullptr,
-                                       FIND_FIRST_EX_LARGE_FETCH);
-        if (find == INVALID_HANDLE_VALUE) {
-            readable_ = false;
-        } else {
-            do {
-                const wchar_t* n = fd.cFileName;
-                if ((n[0] == L'.' && n[1] == 0) || (n[0] == L'.' && n[1] == L'.' && n[2] == 0)) continue;
-                const DWORD a = fd.dwFileAttributes;
-                if ((a & FILE_ATTRIBUTE_HIDDEN) && (a & FILE_ATTRIBUTE_SYSTEM)) continue;  // protected (desktop.ini)
-                if ((a & FILE_ATTRIBUTE_HIDDEN) && !f.showHidden) continue;
-                Entry e;
-                e.name = n;
-                e.folder = (a & FILE_ATTRIBUTE_DIRECTORY) != 0;
-                e.size = (static_cast<ULONGLONG>(fd.nFileSizeHigh) << 32) | fd.nFileSizeLow;
-                e.modified = fd.ftLastWriteTime;
-                entries_.push_back(std::move(e));
-            } while (entries_.size() < kMaxEntries && FindNextFileW(find, &fd));
-            FindClose(find);
-        }
+// Round 26 phase 26B (B8) and 26C (B6). The listing is asked for (RequestListing) and applied when
+// it is there (ApplyListing): at once for a local folder, from a worker thread (FolderListing::
+// ReadAsync, kListedMessage) for one that can block (FolderListing::Slow: UNC, a mapped share, a
+// removable or optical drive), which until 26B was enumerated on the UI thread too, during
+// startup's Sync for a folder window. Local folders stay synchronous on purpose: they list in
+// milliseconds, and a window that would otherwise appear empty and fill a moment later (or a
+// layout done twice) costs more than it saves. One worker at a time per window: a request while
+// one runs is merged into one more run after it (an offline share's timeout never stacks threads).
+// Load: everything from scratch (a new folder, the sort / view / icon size changed, a DPI change);
+// Reload: keeps the scroll position and the selection (by name), `rebuild` (F5, Refresh) also
+// drops the icons kept across reloads.
+void FolderWindow::Load() { RequestListing(true, false); }
+
+void FolderWindow::Reload(bool rebuild) { RequestListing(rebuild, true); }
+
+void FolderWindow::RequestListing(bool rebuild, bool keepState) {
+    FolderListing::Filter filter;
+    filter.skipProtected = true;  // desktop.ini and the like (hidden + system)
+    filter.skipHidden = !Cfg().folder.showHidden;
+    filter.skipSystem = false;
+    if (folder_.empty()) {
+        FolderListing::Listing none;
+        ApplyListing(std::move(none), rebuild, keepState, false);
+        return;
     }
+    if (hwnd_ && FolderListing::Slow(folder_)) {
+        if (inFlight_ && SamePath(inFlightFolder_, folder_)) {
+            // Merged into the one run after the current one (the most a caller asked for).
+            listAgain_ = true;
+            againRebuild_ = againRebuild_ || rebuild;
+            againKeep_ = againKeep_ && keepState;
+            return;
+        }
+        const WPARAM tag = ++listTag_;
+        if (FolderListing::ReadAsync(hwnd_, kListedMessage, tag, folder_, filter, kMaxEntries)) {
+            inFlight_ = tag;
+            inFlightFolder_ = folder_;
+            inFlightRebuild_ = rebuild;
+            inFlightKeep_ = keepState;
+            if (rebuild && !keepState) {
+                // A new folder (or the first one): its old entries go now; the message says
+                // "Loading…" until the listing comes.
+                loading_ = true;
+                entries_.clear();
+                readable_ = true;
+                view_.SetItems({});
+            }
+            return;
+        }
+        // No thread: read here, as before.
+    }
+    ApplyListing(FolderListing::Read(folder_, filter, kMaxEntries), rebuild, keepState, false);
+}
+
+void FolderWindow::OnListed(WPARAM tag, FolderListing::Listing* raw) {
+    std::unique_ptr<FolderListing::Listing> listing(raw);
+    if (tag != inFlight_) return;  // superseded (the folder changed meanwhile): its own run is newer
+    inFlight_ = 0;
+    if (listing && SamePath(listing->folder, folder_)) {
+        ApplyListing(std::move(*listing), inFlightRebuild_, inFlightKeep_, true);
+    }
+    if (listAgain_) {
+        listAgain_ = false;
+        const bool rebuild = againRebuild_, keep = againKeep_;
+        againRebuild_ = false;
+        againKeep_ = true;
+        RequestListing(rebuild, keep);
+    }
+}
+
+void FolderWindow::ApplyListing(FolderListing::Listing listing, bool rebuild, bool keepState, bool async) {
+    loading_ = false;
+    const FolderWindowConfig& f = Cfg().folder;
+    std::vector<Entry> next = std::move(listing.entries);
+    const bool readable = !folder_.empty() && listing.readable;
     auto byName = [](const Entry& a, const Entry& b) { return StrCmpLogicalW(a.name.c_str(), b.name.c_str()) < 0; };
     const FolderSort sort = f.sort;
-    std::sort(entries_.begin(), entries_.end(), [&](const Entry& a, const Entry& b) {
+    std::sort(next.begin(), next.end(), [&](const Entry& a, const Entry& b) {
         if (a.folder != b.folder) return a.folder;
         switch (sort) {
             case FolderSort::Date: {
@@ -685,12 +732,37 @@ void FolderWindow::Load() {
                 return byName(a, b);
         }
     });
-    const bool list = f.view == ItemView::List || (f.view == ItemView::Auto && entries_.size() > kAutoGridMax);
+    for (Entry& e : next) e.path = Join(folder_, e.name);
+    const bool list = f.view == ItemView::List || (f.view == ItemView::Auto && next.size() > kAutoGridMax);
+    // Renamed / dropped entries: selected once they are there (round 26 phase 26B: looked up in the
+    // new listing; GetFileAttributesW on each was UI-thread I/O on a slow share).
+    std::vector<std::wstring> afterLoad;
+    if (keepState && !selectAfterLoad_.empty()) {
+        const bool any = std::any_of(selectAfterLoad_.begin(), selectAfterLoad_.end(), [&](const std::wstring& p) {
+            return std::any_of(next.begin(), next.end(), [&](const Entry& e) { return SamePath(e.path, p); });
+        });
+        if (any) {
+            afterLoad = std::move(selectAfterLoad_);
+            selectAfterLoad_.clear();
+        }
+    }
+    // What a Reload keeps (by path).
+    std::vector<std::wstring> keep;
+    std::wstring caretPath;
+    LONG scroll = 0;
+    if (keepState) {
+        keep = afterLoad.empty() ? SelectedPaths() : std::move(afterLoad);
+        const int caret = view_.Selected();
+        if (caret >= 0 && static_cast<size_t>(caret) < entries_.size()) caretPath = entries_[static_cast<size_t>(caret)].path;
+        scroll = view_.ScrollOffset();
+    }
+    iconByIndex_.clear();
+    resolved_ = 0;
+    (void)rebuild;
     std::vector<GridItem> items;
-    items.reserve(entries_.size());
-    for (size_t i = 0; i < entries_.size(); ++i) {
-        Entry& e = entries_[i];
-        e.path = Join(folder_, e.name);
+    items.reserve(next.size());
+    for (size_t i = 0; i < next.size(); ++i) {
+        const Entry& e = next[i];
         GridItem item;
         item.label = e.name;  // the shell's display name replaces it when the row is drawn
         item.id = i;
@@ -698,26 +770,19 @@ void FolderWindow::Load() {
         if (list) item.secondary = ShellFiles::SizeAndDate(e.folder, e.size, e.modified);
         items.push_back(std::move(item));
     }
+    entries_ = std::move(next);
+    readable_ = readable;
     view_.SetItems(std::move(items));
     view_.SetMode(list ? ItemGridView::Mode::List : ItemGridView::Mode::Grid);
-}
-
-void FolderWindow::Reload() {
-    std::vector<std::wstring> keep = SelectedPaths();
-    const int caret = view_.Selected();
-    const std::wstring caretPath = caret >= 0 && static_cast<size_t>(caret) < entries_.size() ? entries_[static_cast<size_t>(caret)].path : L"";
-    const LONG scroll = view_.ScrollOffset();
-    if (!selectAfterLoad_.empty()) {
-        // Renamed / dropped entries: selected once they are there.
-        const bool any = std::any_of(selectAfterLoad_.begin(), selectAfterLoad_.end(), [](const std::wstring& p) {
-            return GetFileAttributesW(p.c_str()) != INVALID_FILE_ATTRIBUTES;
-        });
-        if (any) {
-            keep = std::move(selectAfterLoad_);
-            selectAfterLoad_.clear();
+    if (!keepState) {
+        // Load: the caller lays out (Create, ApplyConfig, the DPI change); a listing that came from
+        // the worker has no caller left.
+        if (async) {
+            Relayout();
+            Commit();
         }
+        return;
     }
-    Load();
     Relayout();
     view_.ScrollTo(static_cast<float>(scroll), false);
     bool first = true;
@@ -760,12 +825,12 @@ void FolderWindow::Unwatch() {
 }
 
 winrt::com_ptr<ID2D1Bitmap> FolderWindow::IconFor(const std::wstring& path, int sysIndex) {
-    if (auto it = iconByIndex_.find(sysIndex); it != iconByIndex_.end()) return it->second;
-    winrt::com_ptr<ID2D1Bitmap> bitmap;
-    ID2D1DeviceContext* dc = host_.renderer ? host_.renderer->ResourceContext() : nullptr;
     const ItemGridView::Style style = ViewStyle();
     const bool list = view_.GetMode() == ItemGridView::Mode::List;
     const int px = static_cast<int>(std::lround((list ? style.listIconDip : style.iconDip) * scale_));
+    if (auto it = iconByIndex_.find(sysIndex); it != iconByIndex_.end()) return it->second;
+    winrt::com_ptr<ID2D1Bitmap> bitmap;
+    ID2D1DeviceContext* dc = host_.renderer ? host_.renderer->ResourceContext() : nullptr;
     if (dc && px <= 48) {
         winrt::com_ptr<IImageList> images;
         const int which = px <= 16 ? SHIL_SMALL : px <= 32 ? SHIL_LARGE : SHIL_EXTRALARGE;
@@ -969,7 +1034,7 @@ void FolderWindow::BackgroundMenu(POINT screen) {
     bool changed = true;
     switch (cmd) {
         case kOpen: Open(folder_, L"open"); changed = false; break;
-        case kRefresh: Reload(); changed = false; break;
+        case kRefresh: Reload(true); changed = false; break;
         case kPaste: Paste(); changed = false; break;
         case kViewAuto: case kViewGrid: case kViewList: c.view = static_cast<ItemView>(cmd - kViewAuto); break;
         case kSortName: case kSortDate: case kSortType: case kSortSize: c.sort = static_cast<FolderSort>(cmd - kSortName); break;
@@ -1318,6 +1383,7 @@ LRESULT FolderWindow::QueryState(WPARAM what, LPARAM arg) const {
         case 210: return static_cast<LRESULT>(std::lround(Cfg().folder.opacity * 100.0));
         case 211: return view_.GetStyle().labelLines;
         case 212: return static_cast<LRESULT>(Cfg().folder.titleColor ? Cfg().folder.titleColor : config_->ThemeOf(Cfg()).clockText);
+        case 362: return inFlight_ ? 1 : 0;  // round 26 phase 26B: a slow folder's listing runs on its worker
         default: return -1;
     }
 }
@@ -1572,7 +1638,7 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             switch (wp) {
                 case VK_F2: BeginRename(view_.Selected()); return 0;
                 case VK_DELETE: RecycleSelection(); return 0;
-                case VK_F5: Reload(); return 0;
+                case VK_F5: Reload(true); return 0;
                 case VK_ESCAPE: view_.SelectWith(-1, false, false, false); return 0;
                 case 'C':
                 case 'X':
@@ -1640,6 +1706,9 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             return 0;
         }
+        case kListedMessage:  // round 26 phase 26B: a slow folder's listing from its worker (ours to free)
+            OnListed(wp, reinterpret_cast<FolderListing::Listing*>(lp));
+            return 0;
         case kJobDoneMessage:
             if (jobs_ > 0) --jobs_;
             // The change notifications usually come first; a late one is coalesced with this.

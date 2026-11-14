@@ -2024,6 +2024,19 @@ the return finds what came meanwhile). Without notification access the worker no
 minutes instead of every 5 s; the dock's own "Open Windows settings" links bring back the normal
 pace for a minute.
 
+**26B, stalls on the UI thread.** `IShellLink::Resolve` was dropped rather than tamed with
+`SLR_NOSEARCH | SLR_NOTRACK | SLR_NOLINKINFO`: with those flags it does little more than touch the
+target (which an offline share makes slow too), and nothing the dock reads from a link needs it.
+Tray mirroring keeps its order and its "Explorer gets everything" rule; what changed is that a slow
+Explorer now costs one short wait per pass instead of two seconds per message, relying on a
+timed-out cross-thread send staying queued (so it is not resent; resending would show balloons
+twice). Folder listings: only folders that can block (UNC, remote, removable, optical) go to a
+worker, because a local folder lists in milliseconds and making it asynchronous would show every
+popup empty for a frame and lay it out twice; enumerating every folder off the thread was
+rejected for that reason. For the icon fetch the plan's `SMTO_BLOCK` removal was rejected (the
+wait would dispatch other processes' sent messages in the middle of a rebuild); the shorter
+timeout is the part that helps.
+
 ## Dependencies at a glance
 
 ```

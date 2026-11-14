@@ -3798,7 +3798,10 @@ always there, also when every dock is parked) handle these registered messages:
   hidden desktop dock, the full-screen guard, the session paused): its clocks do not tick, its
   script widgets' refresh does not run and their redraws wait (QueryState 58 / 59 stay flat for a
   widget that only refreshes), thumbnails stop. `tools\smoke\idle-cost.ps1` drives 58 / 59 / 358 /
-  361.
+  361. Round 26 phase 26B: **362** = 1 while folder window `HIWORD(lParam)` waits for its listing
+  from a worker thread (a folder on a UNC path or a remote, removable, optical or unknown drive is
+  listed off the UI thread; the window says "Loading…" meanwhile, the folder popup too; local
+  folders are listed at once as before); -1 for a dock.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.

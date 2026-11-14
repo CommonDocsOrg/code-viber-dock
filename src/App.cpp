@@ -2011,8 +2011,10 @@ void App::ShowItemMenu(DockWindow& dock, int index, POINT pt) {
     itemState.kind = item.kind;
     itemState.pinned = item.pinned;
     if (item.kind == DockItem::Kind::RecycleBin) {
-        SHQUERYRBINFO info{sizeof(info)};
-        itemState.binEmpty = SUCCEEDED(SHQueryRecycleBinW(nullptr, &info)) && info.i64NumItems == 0;
+        // Round 26 phase 26B: the dock's cached count (re-read after the bin watch's next change)
+        // instead of SHQueryRecycleBinW over every drive on each right-click.
+        SHQUERYRBINFO info{};
+        itemState.binEmpty = dock.RecycleBinInfo(info) && info.i64NumItems == 0;
     }
     if (item.pinned) {
         // Reset icon follows the config entry, so an `icon` whose file is gone can be cleared too.
