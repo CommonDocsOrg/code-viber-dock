@@ -1407,7 +1407,9 @@ write and edit without compiling anything. The full reference (every call, every
   the desktop** (`layout`: `tile` (default), `deck`, `capsule`, `cover`, `disc`) makes it a mini
   player (art, title, artist, progress you can click or drag to seek, previous / play-pause / next,
   a volume slider on Deck and Cover) in a **Skin** (`skin`: `theme` the dock theme's colours,
-  `silver`, `night`) with **Accent colour** (`accentColor`, transparent: the skin's), **Show the
+  `silver`, `night`) with **Accent colour** (`accentColor`, transparent: the skin's), **Display text colour**
+  (`displayColor`: the title, artist and times; transparent: the skin's, and Night's amber follows
+  a set accent colour), **Show the
   progress** (`showProgress`) and **Show the volume slider** (`showVolume`); picking a layout sizes
   the window to it; on a dock the widget stays the tile)), **Start**
   (`start`: the Windows logo, the Windows 7 orb (round 11: a glossy sphere with the waving flag,
