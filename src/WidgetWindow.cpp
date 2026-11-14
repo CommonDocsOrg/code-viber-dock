@@ -62,7 +62,7 @@ HRESULT WidgetWindow::Create(HINSTANCE instance, Config* config, size_t cfg, HMO
     keepRatio_ = static_cast<float>(Cfg().widgetWindow.w) / static_cast<float>(std::max(1, Cfg().widgetWindow.h));
     rect_ = RectFromConfig();
     const DockItemEntry* item = Cfg().WidgetItem();
-    const std::wstring title = L"WinDock widget: " + (item ? Widgets::DisplayName(item->id) : std::wstring(L"(none)"));
+    const std::wstring title = L"ViberDock widget: " + (item ? Widgets::DisplayName(item->id) : std::wstring(L"(none)"));
     hwnd_ = CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOREDIRECTIONBITMAP, kClassName, title.c_str(), WS_POPUP, rect_.left,
                             rect_.top, rect_.right - rect_.left, rect_.bottom - rect_.top, nullptr, nullptr, instance_, this);
     if (!hwnd_) return HRESULT_FROM_WIN32(GetLastError());
@@ -687,7 +687,7 @@ void WidgetWindow::ApplyConfig() {
         DismissPopups(false);
         DismissPassive(false);
         MakeWidget();
-        const std::wstring title = L"WinDock widget: " + (now ? Widgets::DisplayName(now->id) : std::wstring(L"(none)"));
+        const std::wstring title = L"ViberDock widget: " + (now ? Widgets::DisplayName(now->id) : std::wstring(L"(none)"));
         SetWindowTextW(hwnd_, title.c_str());
     } else if (widget_ && now) {
         widget_->SetWeatherConfig(ScriptWeatherOf(*config_, d, *now));

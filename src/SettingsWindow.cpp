@@ -1294,7 +1294,7 @@ bool SettingsWindow::Create(HINSTANCE instance, bool show) {
     };
     RECT r = place();
     // No owner: an owned window of the topmost, non-activating dock would inherit topmost.
-    CreateWindowExW(ExStyle(), kClassName, L"WinDock settings", Style(), r.left, r.top, r.right - r.left, r.bottom - r.top,
+    CreateWindowExW(ExStyle(), kClassName, L"ViberDock settings", Style(), r.left, r.top, r.right - r.left, r.bottom - r.top,
                     nullptr, nullptr, instance, this);
     if (!hwnd_) {
         if (darkPopups_ && --g_darkPopupWindows == 0) DarkMode::TryEnableDarkPopups(false);

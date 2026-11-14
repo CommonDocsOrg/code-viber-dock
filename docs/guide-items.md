@@ -97,7 +97,7 @@ Some widgets put their everyday settings straight into this menu, above **Widget
 
 The dock menu is grouped by task. First, while there is something to undo, **Undo** with the name of the last change. Then for this dock: **Customize this dock**, **Dock settings…**, **Add**, **Position on screen**, **Auto-hide**, **Lock dock**, **Rename dock…**, **Duplicate dock** and **Save dock as layout…**. Then **All docks** (the dashboard, lock all), **App** (App settings, the taskbar, Start with Windows, Quick setup), **Tools** (the config file, widgets, Task Manager), **Help…** and **Quit**.
 
-The WinDock icon in the notification area has the app-wide commands: **App settings…**, **Docks** (each dock's settings), **Show dashboard**, **Show Windows taskbar temporarily**, **Hide taskbar**, **Start with Windows**, **Tools**, **Help…** and **Quit**.
+The ViberDock icon in the notification area has the app-wide commands: **App settings…**, **Docks** (each dock's settings), **Show dashboard**, **Show Windows taskbar temporarily**, **Hide taskbar**, **Start with Windows**, **Tools**, **Help…** and **Quit**.
 
 To move an item, drag it on the dock, or drag its tile on the Contents tab. To give an item a fixed place, such as the right end, drop it on a target while customizing, or use **Position on the dock** in the Contents tab's inspector.
 
@@ -135,7 +135,7 @@ If a pinned program or shortcut no longer exists, the dock shows a placeholder i
 
 ## Running apps
 
-Apps that are running but not pinned appear where the dock's **Running apps** item is. Without that item, only pinned apps show their windows. You can drag running apps to reorder them for the session, or drop one among the pins to pin it there. WinDock's own settings windows (App settings and an item's window) are listed there too, under WinDock's icon, so you can always get back to one.
+Apps that are running but not pinned appear where the dock's **Running apps** item is. Without that item, only pinned apps show their windows. You can drag running apps to reorder them for the session, or drop one among the pins to pin it there. ViberDock's own settings windows (App settings and an item's window) are listed there too, under ViberDock's icon, so you can always get back to one.
 
 The settings are in the Running apps widget's own settings window: right-click a running app that is not pinned and choose **Running apps settings…** (the first entry under its name), or click **Running apps settings…** for the running apps on the Contents tab. There you also set the **Gap** between the running apps and the **Padding** beside them, their **Order** (as they appear, or by name), titles, thumbnails and notification badges. **Windows** chooses between **Stacked (one slot per app)** and **One slot per window**. With one slot per window, every window gets its own icon, like on the Windows taskbar: its name label shows the window title, and a click brings that window to the front. A minimized window keeps its slot.
 
@@ -280,13 +280,13 @@ The Appearance tab has the forecast on the dock and how it looks:
 - **Layout**: a preset for the slot. **Automatic** follows the dock's edge (a column per day on a bottom or top dock, a line per day on a left or right dock). **Strip** is a column per day beside the conditions. **Tiles** puts each day's name over its icon with the high over the low beside them, after the conditions on a bottom or top dock and stacked under them on a left or right dock: the easiest to read on a narrow dock. **List** stacks the icon over the temperature with a line per day under them. **Card** is for a desktop widget: big conditions with tiles under them. **Custom** shows three fields instead: where the icon goes (beside or above the temperature), what each day's cell is (a column, a tile, a line, or the icon with high/low), and whether the days go after or under the conditions.
 - **Sizes and spacing** (in the Layout card): **Size of the whole slot** scales everything on a dock (also in the Contents inspector), **Size of the day cells** makes the forecast larger than the current conditions on its own, **Space between days** spreads the cells out, and **Space before the days** sets the gap after the current conditions. A thick dock reads best with the day cells at 150 % or more.
 - **Text**: the condition's name under the temperature, the place, today's high and low, **Day names** (Mon, M or Monday), whether the first day says **Today**, and **High and low** (arrows, a slash or a space between them).
-- **Icons**: **Icons** chooses WinDock's filled pictures, Lucide's line icons, or Meteocons, coloured icons that move (the sun's rays turn, clouds drift, rain falls); the motion runs in Windows' compositor, so it costs the dock nothing, and **Animated icons** turns it off (reduce motion does too). **Icon colours** keeps the yellow sun and blue rain or draws everything in the text colour, and **Compact** leaves only the icon.
+- **Icons**: **Icons** chooses ViberDock's filled pictures, Lucide's line icons, or Meteocons, coloured icons that move (the sun's rays turn, clouds drift, rain falls); the motion runs in Windows' compositor, so it costs the dock nothing, and **Animated icons** turns it off (reduce motion does too). **Icon colours** keeps the yellow sun and blue rain or draws everything in the text colour, and **Compact** leaves only the icon.
 
 Right-click the widget for the quickest changes: **Forecast on the dock**, **Layout** and **Icons** are in its menu.
 
 ## Calendar and reminders
 
-WinDock reads calendars in iCal format: a web address, such as the secret address of a Google calendar or a published Outlook calendar, or an `.ics` file on your PC. It cannot sign in to an account.
+ViberDock reads calendars in iCal format: a web address, such as the secret address of a Google calendar or a published Outlook calendar, or an `.ics` file on your PC. It cannot sign in to an account.
 
 To add a calendar, go to App settings > Calendar feeds and click **Add feed…**. See [Calendar feeds](guide-settings.md#calendar-feeds).
 
@@ -309,7 +309,7 @@ To show the tray icons on a dock:
 2. Or add **System tray** from the Contents tab's drawer. This also turns on the takeover (the check box **Show the notification area icons in the dock** on App settings > Tray icons).
 3. Or apply the **Windows 7** layout, which has the tray at the right end and turns on the takeover too (see [Make it look like Windows 7](guide-docks.md#make-it-look-like-windows-7)).
 
-Clicks on the icons go to their apps as they would on the taskbar: a right-click opens the app's own menu. **Ctrl+right-click** an icon opens WinDock's tray menu: hide it from the grid, pin it to the dock, or open the tray settings.
+Clicks on the icons go to their apps as they would on the taskbar: a right-click opens the app's own menu. **Ctrl+right-click** an icon opens ViberDock's tray menu: hide it from the grid, pin it to the dock, or open the tray settings.
 
 When there are more icons than cells, the last cell is an arrow that opens a drawer with every icon. You can move the arrow, change its look and the drawer's layout in the tray's settings window (see [The arrow](#the-arrow) and [The drawer](#the-drawer)). Out of the box the tray looks as it always has; the only change is a soft highlight under the icon the pointer is on.
 
@@ -373,7 +373,7 @@ This card lists every icon in the grid's order. Clear an icon's check box to kee
 
 ## Notifications
 
-WinDock can read the notifications in the Windows notification centre. Windows must allow it: Settings > Privacy & security > Notifications > "Let apps access your notifications".
+ViberDock can read the notifications in the Windows notification centre. Windows must allow it: Settings > Privacy & security > Notifications > "Let apps access your notifications".
 
 The **notification centre** is a bell on the dock with the number of unread notifications. To add it, click or drag **Notification centre** in the drawer (see [Adding items](#adding-items)).
 
@@ -391,7 +391,7 @@ Widgets are small programs that live in a slot of the dock or on the desktop. Ea
 
 ### Built-in widgets
 
-WinDock comes with these widgets:
+ViberDock comes with these widgets:
 
 - **Analog clock**: a clock with hands and five faces, optionally with a second hand, the date and a time zone. It grows a little while the pointer is over it.
 - **Digital clock (script)**: a scripted copy of the dock's own clock, with a date format of your own. Its **Layout** "Taskbar" writes the time over the date in two lines of the same size, as the Windows 7 taskbar clock (for example the time format `%#I:%M %p` over the date format `%#m/%#d/%Y`: 2:05 PM over 11/6/2026).
@@ -453,10 +453,10 @@ Everything about writing widgets is in the [widget developer reference](widgets.
 
 A widget from your widgets folder may ask for permissions: to open files and run programs, to connect to named web sites, to read your notifications, your calendar feeds, the forecast, what is playing, the volume or the PC's performance. Such a widget runs only after you allow what it asks for. The built-in widgets never need this.
 
-- When you add or install such a widget, WinDock asks right away. The question names the widget, its id, version, author and folder, and lists each permission in plain words. **Don't allow** is the default.
+- When you add or install such a widget, ViberDock asks right away. The question names the widget, its id, version, author and folder, and lists each permission in plain words. **Don't allow** is the default.
 - Until you allow it, the widget shows a **Needs permission** tile and its script does not run at all. Click the tile, or right-click it and choose **Review permissions…**, to see the question again.
 - You are asked again only when a new version asks for something you did not allow. A version that asks for the same or less keeps running.
-- A folder with the same id as a built-in widget replaces it, with its settings and saved data, so WinDock asks before it runs even when it asks for no permissions. A copy you make with **Export built-in to folder** is allowed at once.
+- A folder with the same id as a built-in widget replaces it, with its settings and saved data, so ViberDock asks before it runs even when it asks for no permissions. A copy you make with **Export built-in to folder** is allowed at once.
 - App settings > Widget library shows each widget's permissions and whether you allowed them. Select a widget and click **Permissions…** to allow it or to revoke what you allowed; a revoked widget stops and shows Needs permission.
 
 Allow a widget only if you trust where it came from.

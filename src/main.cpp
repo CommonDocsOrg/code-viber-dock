@@ -109,7 +109,7 @@ int ValidateWidget(const std::wstring& folder) {
     std::wstring name;
     Widgets::Manifest manifest;
     const bool read = Widgets::ValidateFolder(folder, issues, name, &manifest);
-    std::wstring text = L"WinDock widget check: " + folder + L"\r\n";
+    std::wstring text = L"ViberDock widget check: " + folder + L"\r\n";
     if (!name.empty()) text += L"  name: " + name + L"\r\n";
     // Round 25 phase 25D: what installing it will ask the user to allow (the consent dialog's lines).
     if (read && !name.empty()) {
@@ -213,7 +213,7 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         }
         if (SUCCEEDED(ole)) OleUninitialize();
     } catch (const winrt::hresult_error& e) {
-        MessageBoxW(nullptr, e.message().c_str(), L"WinDock", MB_ICONERROR | MB_OK);
+        MessageBoxW(nullptr, e.message().c_str(), L"ViberDock", MB_ICONERROR | MB_OK);
         exitCode = 1;
     }
 

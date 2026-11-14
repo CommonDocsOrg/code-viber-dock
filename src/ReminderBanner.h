@@ -38,7 +38,7 @@ public:
         std::function<void()> open;  // the banner's body
     };
 
-    ReminderBanner() : PopupWindow(kClassName, L"WinDock reminder", Mode::Hover) {}
+    ReminderBanner() : PopupWindow(kClassName, L"ViberDock reminder", Mode::Hover) {}
     ~ReminderBanner() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, Callbacks callbacks);

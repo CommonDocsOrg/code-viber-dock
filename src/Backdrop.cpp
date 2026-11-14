@@ -54,7 +54,7 @@ bool Backdrop::Create(HINSTANCE instance, bool mouseTransparent) {
     if (!RegisterClassExW(&wc) && GetLastError() != ERROR_CLASS_ALREADY_EXISTS) return false;
 
     const DWORD ex = kExStyle | (mouseTransparent ? WS_EX_TRANSPARENT | WS_EX_LAYERED : 0);
-    hwnd_ = CreateWindowExW(ex, kClassName, L"WinDock backdrop", kStyle, 0, 0, 1, 1, nullptr, nullptr, instance, nullptr);
+    hwnd_ = CreateWindowExW(ex, kClassName, L"ViberDock backdrop", kStyle, 0, 0, 1, 1, nullptr, nullptr, instance, nullptr);
     if (!hwnd_) return false;
     if (mouseTransparent) SetLayeredWindowAttributes(hwnd_, 0, 255, LWA_ALPHA);
 

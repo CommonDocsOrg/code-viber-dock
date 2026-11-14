@@ -112,7 +112,7 @@ public:
         RECT monitor{};
     };
 
-    FolderPopup() : PopupWindow(kClassName, L"WinDock folder", Mode::Click) {}
+    FolderPopup() : PopupWindow(kClassName, L"ViberDock folder", Mode::Click) {}
     ~FolderPopup() override { Destroy(); }
 
     void Init(HINSTANCE instance, Renderer* renderer, IconCache* icons, Callbacks callbacks);

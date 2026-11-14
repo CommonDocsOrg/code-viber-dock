@@ -1103,20 +1103,20 @@ bool SettingsWindow::ConfirmFactoryReset(const std::wstring& name, ItemKind kind
         case ItemKind::Weather:
             // The values a new clock / weather item gets (Config::EnsureItemSettings): WinDock's,
             // unless config.json's top-level "clock" / "weather" objects were edited by hand.
-            text = L"Resets all of " + name + L"'s settings" + dock + L" to the values WinDock ships with (the ones a new " +
+            text = L"Resets all of " + name + L"'s settings" + dock + L" to the values ViberDock ships with (the ones a new " +
                    (kind == ItemKind::Clock ? std::wstring(L"clock") : std::wstring(L"weather item")) +
                    L" starts with). App defaults are not changed.";
             break;
         case ItemKind::Tray:
             text = L"Resets " + name + dock + L" (rows, columns, icon size, hidden icons and their order) to the values "
-                   L"WinDock ships with. The tray takeover and other app defaults are not changed.";
+                   L"ViberDock ships with. The tray takeover and other app defaults are not changed.";
             break;
         case ItemKind::Running:  // round 13 phase 13D
             text = L"Resets " + name + dock + L" (windows, titles, thumbnails, badges, spacing and order) to the values "
-                   L"WinDock ships with. Previews, the middle click and the wheel stay as they are.";
+                   L"ViberDock ships with. Previews, the middle click and the wheel stay as they are.";
             break;
         default:
-            text = L"Resets all of " + name + L"'s settings" + dock + L" to the values WinDock ships with (the widget's "
+            text = L"Resets all of " + name + L"'s settings" + dock + L" to the values ViberDock ships with (the widget's "
                    L"own defaults). App defaults are not changed.";
             break;
     }

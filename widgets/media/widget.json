@@ -1,7 +1,7 @@
 {
   "name": "Now playing",
   "version": "1.2.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "The current media session (Spotify, a browser, the Media Player app ...): album art, title and artist. Previous / play-pause / next over the face while hovered, always, or as buttons beside it; a long title or artist scrolls; middle-click for a popup with the controls; the wheel changes the volume and shows a volume bar beside the dock (a setting). On the desktop it can be a mini player instead: Deck, Capsule, Cover or Disc, in the dock theme's colours, Silver or Night, with progress (click or drag to seek) and a volume slider.",
   "api": 1,
   "size": {

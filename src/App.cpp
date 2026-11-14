@@ -198,7 +198,7 @@ bool App::Initialize(HINSTANCE instance) {
     // were on only while a settings window was open, and no menu owner was allowed). Once, before
     // the windows that own menus are made; each of them then allows itself (DarkMode::DarkMenusOn).
     DarkMode::EnableDarkMenus();
-    if (!CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, AppIpc::kAppWindowClass, L"WinDock", WS_POPUP, 0, 0, 0, 0,
+    if (!CreateWindowExW(WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, AppIpc::kAppWindowClass, L"ViberDock", WS_POPUP, 0, 0, 0, 0,
                          nullptr, nullptr, instance, this)) {
         return false;
     }
@@ -280,9 +280,9 @@ bool App::Initialize(HINSTANCE instance) {
     const HRESULT hr = docks_.Sync();
     if (FAILED(hr)) {
         wchar_t text[256];
-        swprintf_s(text, L"WinDock could not initialize Direct2D / DirectComposition (error 0x%08X).",
+        swprintf_s(text, L"ViberDock could not initialize Direct2D / DirectComposition (error 0x%08X).",
                    static_cast<unsigned>(hr));
-        MessageBoxW(nullptr, text, L"WinDock", MB_ICONERROR | MB_OK);
+        MessageBoxW(nullptr, text, L"ViberDock", MB_ICONERROR | MB_OK);
         docks_.Shutdown();
         DestroyWindow(hwnd_);
         return false;
@@ -359,12 +359,12 @@ void App::ShowMalformedNotice() {
     for (;;) {
         if (shutDown_ || !hwnd_ || !startedMalformed_) return;
         const std::wstring dir = Config::Directory();
-        std::wstring content = L"WinDock is running with the default settings. ";
+        std::wstring content = L"ViberDock is running with the default settings. ";
         if (badCopyMade_) {
             content += L"A copy of the file was kept as " + badCopyName_ +
                        L" in the same folder. From now on changes are saved to config.json as usual.";
         } else {
-            content += L"A copy of the file could not be made, so WinDock does not save over config.json in this session "
+            content += L"A copy of the file could not be made, so ViberDock does not save over config.json in this session "
                        L"(changes stay in memory until the file can be copied).";
         }
         if (GetFileAttributesW((dir + L"\\config.backup-1.json").c_str()) != INVALID_FILE_ATTRIBUTES) {
@@ -378,7 +378,7 @@ void App::ShowMalformedNotice() {
         tdc.hInstance = instance_;
         tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_ENABLE_HYPERLINKS;
         tdc.dwCommonButtons = TDCBF_CLOSE_BUTTON;
-        tdc.pszWindowTitle = L"WinDock";
+        tdc.pszWindowTitle = L"ViberDock";
         tdc.pszMainIcon = TD_WARNING_ICON;
         tdc.pszMainInstruction = L"config.json could not be read";
         tdc.pszContent = content.c_str();
@@ -466,7 +466,7 @@ bool App::ReviewWidgetConsent(const std::wstring& id, HWND owner) {
     }
     const std::vector<std::wstring> lines = Widgets::PermissionLines(m);
     if (state == Widgets::ConsentState::NotNeeded) {
-        content += pkg->source == Widgets::Package::Source::BuiltIn ? L"This widget is built into WinDock: it needs no permission."
+        content += pkg->source == Widgets::Package::Source::BuiltIn ? L"This widget is built into ViberDock: it needs no permission."
                                                                     : L"This widget asks for no permissions: it only draws and reacts to "
                                                                       L"clicks, with no access to files, programs, the internet or your data.";
     } else if (lines.empty()) {
@@ -492,7 +492,7 @@ bool App::ReviewWidgetConsent(const std::wstring& id, HWND owner) {
     tdc.hwndParent = owner && IsWindow(owner) ? owner : nullptr;
     tdc.hInstance = instance_;
     tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | (tdc.hwndParent ? TDF_POSITION_RELATIVE_TO_WINDOW : 0);
-    tdc.pszWindowTitle = L"WinDock widget permissions";
+    tdc.pszWindowTitle = L"ViberDock widget permissions";
     tdc.pszMainIcon = replaces || state == Widgets::ConsentState::More ? TD_WARNING_ICON : TD_SHIELD_ICON;
     tdc.pszMainInstruction = instruction.c_str();
     tdc.pszContent = content.c_str();
@@ -1901,7 +1901,7 @@ void App::AddTrayIcon() {
     nid.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP | NIF_SHOWTIP;
     nid.uCallbackMessage = kTrayCallback;
     nid.hIcon = trayIcon_ ? trayIcon_ : LoadIconW(nullptr, IDI_APPLICATION);
-    wcscpy_s(nid.szTip, L"WinDock");
+    wcscpy_s(nid.szTip, L"ViberDock");
     trayAdded_ = Shell_NotifyIconW(NIM_ADD, &nid) != FALSE;
     if (trayAdded_) {
         nid.uVersion = NOTIFYICON_VERSION_4;

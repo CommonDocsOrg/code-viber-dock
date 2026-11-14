@@ -1,7 +1,7 @@
 {
   "name": "Show desktop",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "The Windows 7 \"Show desktop\" sliver: a narrow strip at the end of the dock (or a small desktop glyph). A click shows the desktop (Win+D, a second click brings the windows back) or minimizes every window (Win+M), sent with SendInput.",
   "api": 1,
   "size": {

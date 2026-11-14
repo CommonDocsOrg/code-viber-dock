@@ -96,7 +96,7 @@ public:
     // Round 13 phase 13H: part 6, the edge as a segmented control (part 4, the combo, stays hidden).
     enum RowPart { kRowName = 1, kRowLayout = 2, kRowDisplay = 3, kRowEdge = 4, kRowRemove = 5, kRowEdgeChoice = 6 };
 
-    // `firstRun`: the first start's variant ("Welcome to WinDock"; the first row's layout is Basic,
+    // `firstRun`: the first start's variant ("Welcome to ViberDock"; the first row's layout is Basic,
     // which App applied before the preview). `startWithWindows`: the Run key now.
     QuickSetup(QuickSetupHost host, bool firstRun, bool startWithWindows);
     ~QuickSetup();

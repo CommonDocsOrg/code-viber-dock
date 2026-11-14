@@ -1,7 +1,7 @@
 {
   "name": "System overview",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "CPU, memory, GPU, disk and network at a glance: one row on a dock, a list with sparklines on the desktop.",
   "api": 1,
   "size": {

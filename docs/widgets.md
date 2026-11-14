@@ -1,4 +1,4 @@
-# WinDock widgets: API reference
+# ViberDock widgets: API reference
 
 A widget is a small JavaScript program that draws into one slot of a dock. It is a folder (or a
 built-in shipped inside `WinDock.exe`), loads without compiling, and runs in its own sandboxed
@@ -50,7 +50,7 @@ loaded as source; bytecode is never loaded.
 {
   "name": "Hello",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "A label and a click counter.",
   "main": "main.js",
   "size": {
@@ -1043,7 +1043,7 @@ authors and CI; no dock starts, nothing is shown). Each problem names the field 
 
 ```
 > WinDock.exe --validate-widget C:\src\my-widget
-WinDock widget check: C:\src\my-widget
+ViberDock widget check: C:\src\my-widget
   name: My widget
   permissions (installed, it runs only after the user allows them):
     - Internet: connect to api.example.com
@@ -1439,7 +1439,7 @@ built-ins are worked examples too:
   https://lucide.dev: their SVG path data in `main.js`, parsed once into `canvas.path` objects by a
   small M / L / H / V / C / A / Z parser with the endpoint-to-centre arc conversion of the SVG
   spec, stroked 2 / 24 of the box wide with round caps; the popup uses the same pack),
-  `iconStyle` `colour` (sun yellow, rain in the accent) or `mono` (the ink; the WinDock pack keeps
+  `iconStyle` `colour` (sun yellow, rain in the accent) or `mono` (the ink; the ViberDock pack keeps
   its sun). Round 16 phase 16F: `iconPack` `meteocons`, Bas Milius' coloured, animated Meteocons
   (MIT, https://meteocons.com, the fill style): `tools/meteocons_convert.py` turns 20 of the
   upstream animated SVGs into `widgets/weather/meteocons.js` (a third built-in file, `import`ed by

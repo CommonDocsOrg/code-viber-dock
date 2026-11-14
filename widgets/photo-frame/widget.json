@@ -1,7 +1,7 @@
 {
   "name": "Photo frame",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "A picture in a frame: one image file, or a folder of pictures as a slideshow (in name or date order, or shuffled, with a fade or slide between them). Choose the frame's size and shape, how a picture fills it, its border and its shadow. A click shows the next picture or opens it.",
   "api": 1,
   "size": {

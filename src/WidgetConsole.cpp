@@ -65,7 +65,7 @@ bool WidgetConsole::Create(HINSTANCE instance) {
     dpi_ = dx;
     const int w = Px(kWidthDip), h = Px(kHeightDip);
     const RECT& wa = mi.rcWork;
-    hwnd_ = CreateWindowExW(0, kClassName, L"WinDock widget console", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
+    hwnd_ = CreateWindowExW(0, kClassName, L"ViberDock widget console", WS_OVERLAPPEDWINDOW | WS_CLIPCHILDREN,
                             wa.left + (wa.right - wa.left - w) / 2, wa.top + (wa.bottom - wa.top - h) / 2, w, h, nullptr,
                             nullptr, instance, this);
     if (!hwnd_) return false;

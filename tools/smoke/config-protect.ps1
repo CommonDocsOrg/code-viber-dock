@@ -6,7 +6,7 @@
 # %LocalAppData%\WinDock (bytes), quits the user's dock, then:
 #   1. writes a deliberately broken config.json and starts -Exe. Asserts QueryState 356 = 3 (started
 #      malformed + the copy was made), exactly one new config.bad-<stamp>.json whose bytes equal the
-#      broken file, the notice (a #32770 "WinDock" window of the dock process) is shown, and no
+#      broken file, the notice (a #32770 "ViberDock" window of the dock process) is shown, and no
 #      config.backup-* was touched (a malformed start does not rotate).
 #      NOTE: this start necessarily runs on the DEFAULTS (the broken file cannot say otherwise): the
 #      taskbar is hidden and the dock reserves space for a few seconds. The setting change below is
@@ -55,7 +55,7 @@ function Get-SavedConfig {
     try { Get-Content -Raw $configPath | ConvertFrom-Json -AsHashtable } catch { $null }
 }
 function Get-Notice {
-    @(Get-WinDockWindowsOfClass -Class '#32770' | Where-Object { [WinDockSmoke.Native]::TextOf($_) -eq 'WinDock' })
+    @(Get-WinDockWindowsOfClass -Class '#32770' | Where-Object { [WinDockSmoke.Native]::TextOf($_) -eq 'ViberDock' })  # round 27 phase 27A: the title says the product name
 }
 
 $userRunning = @(Get-WinDockProcess).Count -gt 0

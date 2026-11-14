@@ -1,7 +1,7 @@
 {
   "name": "Agenda",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "The next event of the dock's calendar feeds (App settings > Calendar feeds): how long until it starts (\"In 25 min\", \"Now\", the time) and its title; a click shows the next events in a popup, the month calendar or an app / address. It wakes only when what it shows changes: at an event's start or end, each minute of the last hour before one, at midnight, and when the feeds change.",
   "api": 1,
   "size": {

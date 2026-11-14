@@ -181,7 +181,7 @@ bool PresetDialog::Create(HINSTANCE instance) {
         return RECT{x, y, x + w, y + h};
     };
     // Round 12 phase 12C: the dock by its display name; layouts and looks.
-    std::wstring title = mode_ == PresetMode::Welcome   ? std::wstring(L"Welcome to WinDock")
+    std::wstring title = mode_ == PresetMode::Welcome   ? std::wstring(L"Welcome to ViberDock")
                          : mode_ == PresetMode::NewDock ? std::wstring(L"New dock from a layout")
                          : mode_ == PresetMode::AppLook ? std::wstring(L"Apply a look to the app look")
                                                         : L"Apply a layout or look to " + dockName_;
@@ -200,7 +200,7 @@ bool PresetDialog::Create(HINSTANCE instance) {
     };
     CreateFonts();  // WM_MEASUREITEM of the list needs the DPI and the fonts
     if (mode_ == PresetMode::Welcome) {
-        heading_ = make(WC_STATICW, L"Welcome to WinDock", SS_LEFT | SS_NOPREFIX, kPresetHeading);
+        heading_ = make(WC_STATICW, L"Welcome to ViberDock", SS_LEFT | SS_NOPREFIX, kPresetHeading);
         intro_ = make(WC_STATICW,
                       L"Pick a dock to start with. You can change everything later in its settings, or apply another "
                       L"layout or look from the \x22EF menu there.",
@@ -590,7 +590,7 @@ void PresetDialog::OnMineCommand(int id) {
         // or shared).
         winrt::com_ptr<IFileSaveDialog> dialog;
         if (FAILED(CoCreateInstance(CLSID_FileSaveDialog, nullptr, CLSCTX_INPROC_SERVER, IID_PPV_ARGS(dialog.put())))) return;
-        const COMDLG_FILTERSPEC filter[] = {{L"WinDock layout (*.json)", L"*.json"}};
+        const COMDLG_FILTERSPEC filter[] = {{L"ViberDock layout (*.json)", L"*.json"}};
         dialog->SetFileTypes(1, filter);
         dialog->SetDefaultExtension(L"json");
         dialog->SetFileName((layout.id + L".json").c_str());

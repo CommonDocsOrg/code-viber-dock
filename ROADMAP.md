@@ -2050,6 +2050,33 @@ enumerates every window. Rejected: one shared WinHTTP session (cookies, auth sta
 idle connections would cross from one widget to another and to the weather and calendar, against
 round 25's isolation, for a saving nobody measured on requests that are rare).
 
+A follow-up to 26A: should the unlock or display-on notification ever be missed (an RDP
+reconnect that sends no unlock, a display driver that never reports "on"), real pointer input on
+one of the dock's own windows ends the pause. Input that the system makes up (`IMO_SYSTEM`: the
+move sent when a window appears under a resting pointer) does not count; nothing polls.
+
+## Round 27 (2026-11-13)
+
+**27A, the product name** (branch `feature/viberdock-name`, on `feature/idle-cost`). The owner
+decided that everything a user sees says ViberDock: the MSI, the Start menu and README already did,
+while window titles, dialogs, the tray tip, settings texts, the About page, Quick setup, the Help
+window, error texts (also those a widget script sees), the HTTP User-Agent, the built-in widgets'
+author and texts, the user guides and the widget reference still said WinDock. What keeps the old
+name, and why: everything something else depends on by name. The exe `WinDock.exe` (the Run key
+value, shortcuts, scripts and the installer's custom actions point at it), the data folder
+`%LocalAppData%\WinDock` (every user's config, widgets, layouts, themes, caches and the crash
+markers live there), the Run value `WinDock` (an existing "Start with Windows" entry keeps
+working and uninstall finds it), window class names, registered messages, the mutex and clipboard
+formats (automation, `tools\smoke`, an older build's `--quit` and the single-instance check), the
+CMake targets, source and class names, the script API's internal `__windock`, the weather icon
+pack's config value `windock`, the marker files' header lines, the version resource's
+InternalName / OriginalFilename, and the debugger output's `WinDock:` prefix (DebugView filters,
+not seen by users). The guides say so in one sentence where a user looks for something by name.
+The quick start and troubleshooting were written for a loose exe; they now lead with the Start
+menu, and the installer adds a second Start menu shortcut, **Restore Windows taskbar**
+(`--restore-taskbar`), so getting the taskbar back needs no command prompt. Same file and
+component as the main shortcut: no new GUID.
+
 ## Dependencies at a glance
 
 ```

@@ -141,7 +141,7 @@ F1 in any settings window, click the **?** beside a card, or choose **Help…** 
 
 ## Documentation
 
-Guides for people using WinDock (the same pages open inside the app: F1 in any settings window,
+Guides for people using ViberDock (the same pages open inside the app: F1 in any settings window,
 the "?" beside each card, the Help row of App settings, the dock menu's Help…):
 
 - [Quick start](docs/quick-start.md): five minutes from the first start (Quick setup) to your own dock, customized on the dock.
@@ -264,7 +264,7 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
   - **Help…** (round 9): opens the Help window at the quick start (see [Help](#settings) under
     Settings and [Documentation](#documentation)).
   - **Quit**.
-- **The tray-icon menu**: right-click (or click) WinDock's notification-area icon. The main place
+- **The tray-icon menu**: right-click (or click) ViberDock's notification-area icon. The main place
   for app-wide commands: **App settings…**, **Docks** submenu (one "<id> settings…" entry per
   `docks[]` entry, folder windows and desktop widgets marked as such: that entry's settings
   window), **Show dashboard**, then **Show Windows taskbar temporarily**, **Hide taskbar**,
@@ -276,7 +276,7 @@ There are three menus (round 10 phase 10A; "…" marks the entries that open a w
   excepted) starts with a greyed header naming the item with its icon (an app's, a folder's or the
   Recycle Bin's own icon; a group's custom icon, else a group glyph), and the menus show small icons
   beside their main entries and submenus (the same icon for a command in every menu; the dock
-  menu's **App** submenu shows WinDock's own icon). The widget kinds' header reads **Widget:
+  menu's **App** submenu shows ViberDock's own icon). The widget kinds' header reads **Widget:
   <name>** ("Widget: Clock", "Widget: Weather", "Widget: Tray", "Widget: Notification centre", a
   script widget's display name) with the kind's icon, then the kind's own entries, **Widget
   settings…**, **Reload widget** (script widgets only), **Remove this widget** and the **Dock**
@@ -409,7 +409,7 @@ screen, and auto-hide slides the dock off its own edge.
   General > **Full-screen apps** > **Hide the docks while a full-screen app is in front**): any
   window placed above an exclusive full-screen game makes the game leave its full-screen mode, and
   a dock with auto-hide off (or a standalone widget on the "normal" layer) is a topmost window. So
-  while a full-screen app is in front on a display, every WinDock window there that sits above the
+  while a full-screen app is in front on a display, every ViberDock window there that sits above the
   windows (docks of any auto-hide mode, the tray dock, floating docks and standalone widgets on the
   "normal" layer) is hidden (`ShowWindow(SW_HIDE)`: no activation and no z-order call at all
   until it comes back), its popups, name label and previews close and its auto-hide / magnify
@@ -417,7 +417,7 @@ screen, and auto-hide slides the dock off its own edge.
   When the display is no longer full screen (the app closes, or another window comes to the front)
   they come back as they were (`SW_SHOWNA`, in their auto-hide state, topmost once; a calendar
   reminder that fired meanwhile shows then). A display is full screen when the foreground window
-  (not WinDock's own, not the desktop / a taskbar / Start, visible, not cloaked, not minimized)
+  (not ViberDock's own, not the desktop / a taskbar / Start, visible, not cloaked, not minimized)
   either has its visible frame (DWM's extended frame bounds) over the whole display and is not an
   ordinary maximized window (maximized with a caption: with the taskbar hidden that covers the
   display too), or is on that display while `SHQueryUserNotificationState` reports Direct3D full
@@ -479,7 +479,7 @@ back to its place on its edge of its monitor (see Position and Multiple docks).
 ### Multiple docks and monitors
 
 `docks[]` may hold any number of docks; every one is shown, each with its own items, edge,
-position, auto-hide, lock and the other per-dock keys (they all run in the one WinDock process and
+position, auto-hide, lock and the other per-dock keys (they all run in the one `WinDock.exe` process and
 share the window list, the weather data and the foreground watch; each has its own window, renderer,
 icon cache and popups). Per dock:
 
@@ -510,7 +510,7 @@ icon cache and popups). Per dock:
   - `"normal"` (default; "Normal (above windows)"): topmost, above every window.
   - `"desktop"` ("On the desktop, only while the desktop is showing"): the dock is shown only
     while the desktop is the foreground (after Win+D or a click on the wallpaper; also while one of
-    WinDock's own windows, such as its popups or a settings window, is in front) and hides as soon
+    ViberDock's own windows, such as its popups or a settings window, is in front) and hides as soon
     as another window comes to the foreground; while shown it sits at the bottom of the z-order,
     directly above the desktop window (never topmost), so every window stays above it. It follows
     the same WinEvent hooks as intelligent auto-hide (no polling). It draws its bar without the
@@ -852,7 +852,7 @@ popups, drags). The first of them takes the keyboard (the hotkey's input allows 
 - **another window comes to the foreground** (a click on any other window, Alt+Tab, a launched app):
   the shared foreground watch (the WinEvent hooks intelligent auto-hide uses; no global input
   hooks) runs while the mode lasts. A click on the wallpaper makes the desktop the foreground,
-  which **keeps the dashboard up** (the docks are on the desktop anyway); WinDock's own windows
+  which **keeps the dashboard up** (the docks are on the desktop anyway); ViberDock's own windows
   (a settings window, a dock menu) keep it up too.
 
 Round 6 phase 6B: [standalone widgets](#standalone-widgets) with layer `"desktop"` or `"behind"`
@@ -868,7 +868,7 @@ and press the combination: Win, Ctrl, Alt, Shift and a key; Backspace or Delete 
 hotkey); the box shows the canonical text), whether it is registered (a combination another app
 already holds cannot be registered: the line says so and the debugger output logs it; choose
 another one), and **Show the dashboard now** (DockCommand 146). The hotkey is registered with
-`RegisterHotKey` on WinDock's app window and registered again when it changes and on Reload config.
+`RegisterHotKey` on ViberDock's app window and registered again when it changes and on Reload config.
 Nothing runs while the dashboard is off (no timer, no hook beyond what the docks use anyway).
 `WinDock.QueryState` 234 (on), 240 (hotkey registered).
 
@@ -1063,9 +1063,9 @@ Nothing runs while the dashboard is off (no timer, no hook beyond what the docks
 
   The window slots, titles, thumbnails and badges also apply to pinned apps' windows; a dock without
   a running item uses the defaults for them. A new running item gets every key written with its
-  default. Round 18 phase 18C: WinDock's own `WinDock.Settings` windows (the App settings window
+  default. Round 18 phase 18C: ViberDock's own `WinDock.Settings` windows (the App settings window
   and the item windows: ordinary overlapped windows; the Dock settings panel is a tool window)
-  pass the running-apps filter like any app's windows, under WinDock's exe key and icon, so a
+  pass the running-apps filter like any app's windows, under ViberDock's exe key and icon, so a
   settings window lost under others can be brought back from the dock (the Explorer taskbar is
   hidden while the dock runs). Every other window of the process stays excluded (`WindowTracker::PassesFilter`). Its settings window: Dock settings > Contents > the item's **Running apps settings…**, or
   right-click a running app > **Running apps settings…** (the first entry after the header).
@@ -1242,7 +1242,7 @@ shows any more is stopped and dropped at once.
   Round 16 phase 16D: **Layout** presets for the slot (Automatic, Strip, Tiles, List, Card, or
   Custom with the current conditions beside / stacked, each day as a column / tile / line / icon,
   and the days after / under the conditions), up to 7 days, text options (the condition's name,
-  day names, "Today", how a high / low pair is written), a size, and two icon packs: WinDock's
+  day names, "Today", how a high / low pair is written), a size, and two icon packs: ViberDock's
   filled glyphs or Lucide's line icons (ISC licence, https://lucide.dev, their path data embedded
   in the widget), coloured or in the text colour. Round 16 phase 16F adds **Meteocons** (MIT,
   https://meteocons.com, by Bas Milius): coloured, **animated** icons (the sun's rays turn, clouds
@@ -1431,7 +1431,7 @@ write and edit without compiling anything. The full reference (every call, every
   a drop shadow (soft, medium, strong, with an offset; a borderless print with a strong shadow is
   one look); a click shows the next picture or opens it, the wheel steps through them),
   and **Notification bell** (`notification-bell`: a scriptable bell that behaves like the
-  notification centre by default, the unread count in a badge and a click that opens WinDock's
+  notification centre by default, the unread count in a badge and a click that opens ViberDock's
   centre; its settings make it open Windows' notification centre (Win+N) instead, and with "Show
   the unread count" off nothing polls and a fixed badge number shows), and
   **Agenda** (`agenda`: the next event of the calendar feeds, "In 25 min" / "Now" / its time over
@@ -2154,9 +2154,9 @@ the preset's value" (their fallback is the preset). Every other dock / item sett
 (no app default behind it: see the table in STATUS.md "Round 10", 10D). Item windows' **Reset to
 factory defaults…** (was Reset to defaults; a standalone widget's Content tab has it as its last
 card) asks first with a Yes / No message box owned by the settings window ("Resets all of Weather's
-settings on main to the values WinDock ships with … App defaults are not changed.", No is the
+settings on main to the values ViberDock ships with … App defaults are not changed.", No is the
 default); a clock or weather item gets the settings a new one starts with (the top-level `clock` /
-`weather` objects, WinDock's own unless edited by hand), a widget its schema's defaults, the tray
+`weather` objects, ViberDock's own unless edited by hand), a widget its schema's defaults, the tray
 its grid's. A script widget with a place of its own has **Reset to app default** beside it in the
 footer (drops `latitude` / `longitude` / `location`, as the place's ↺ does).
 
@@ -2248,7 +2248,7 @@ window is open, so the next search is instant; they close with the last settings
 you went to one). Not searched: the Contents tab (items are not settings), folder / group / tray
 item windows, and the dock menus.
 
-**Help** (round 9): the guides of [docs/](docs/README.md) are built into WinDock and open in a
+**Help** (round 9): the guides of [docs/](docs/README.md) are built into ViberDock and open in a
 **Help** window (820 × 620 DIPs, resizable, dark like the settings windows; one per process): the
 guides at the left (Quick start, Settings, Docks and displays, Items and widgets,
 Troubleshooting, All guides), the chosen one at the right; a link to another guide or heading
@@ -2352,7 +2352,7 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
 
 - **General**: a line under the title on where each dock's own settings are, then a **System**
   card (Start with Windows, Hide the Windows taskbar, the renderer (`auto` / `software`; takes
-  effect after WinDock restarts, its hint shows the one in use)) and a **Dashboard** card (round
+  effect after ViberDock restarts, its hint shows the one in use)) and a **Dashboard** card (round
   6 phase 6A: the hotkey box (click it and press the combination; Backspace / Delete clears it),
   whether the hotkey is registered, **Show the dashboard now**; see Dashboard). Round 9: between
   them a **Full-screen apps** card with **Hide the docks while a full-screen app is in front**
@@ -3568,7 +3568,7 @@ always there, also when every dock is parked) handle these registered messages:
   Explorer (4128 its label, 4121 its hint, was the note beside it), the footer's 114 Reset to
   defaults (every field above, `hidden` and `order`; 4116 / 4117 Add a tray to this dock, 4122 and
   4110, the 16 / 20 / 24 px icon size combo before round 24, are retired). The tray menu (Ctrl +
-  right click) is a `#32768` of the WinDock process with the ids 1 Hide / Show, 2 Pin, 3 Unpin, 4
+  right click) is a `#32768` of the `WinDock.exe` process with the ids 1 Hide / Show, 2 Pin, 3 Unpin, 4
   Tray settings… (the item's window).
 - **Notifications** (round 4 phase 9): `QueryState` 113 = the notification service (0 off, 1
   polling, 2 access denied / not available), 114 = unread notifications (every app), 115 = the
@@ -3585,7 +3585,7 @@ always there, also when every dock is parked) handle these registered messages:
   (the dock in the high word of `lParam`, the row in `HIWORD(wParam)`): 828 dismisses row n (its
   cross), 829 Clear all, 830 opens row n as a click does; each returns 1 when the centre is open and
   the row exists. A click on the bell's slot (ItemCommand 810) opens / closes it. The centre is a
-  `WinDockNotifications` window of the WinDock process (Delete / Escape / arrows can be posted to
+  `WinDockNotifications` window of the `WinDock.exe` process (Delete / Escape / arrows can be posted to
   it as `WM_KEYDOWN`). Settings: the App settings window's page 5 Notifications: 4204 the note, 4205
   balloons, 4208 clear on activate, 4211 / 4212 poll interval, 4217 the status text, 4218 Open
   Windows settings, 4221 the app list (check boxes; column 2 is the app key; every dock's apps); a
@@ -3644,7 +3644,7 @@ always there, also when every dock is parked) handle these registered messages:
   event row, 177 = the row its detail strip describes (hovered, else selected; -1 none).
   `DockCommand` 135 = every feed fetches / is read now. `ItemCommand` 835 = the open calendar popup
   selects today + `(int16) HIWORD(wParam)` days (its month is shown; 1 when the popup is open). The
-  popup is a `WinDockCalendar` window of the WinDock process (Up / Down / Enter can be sent to it as
+  popup is a `WinDockCalendar` window of the `WinDock.exe` process (Up / Down / Enter can be sent to it as
   `WM_KEYDOWN`). Settings: the App settings window's page 3 Calendar feeds: 4300 the feed list (check boxes = enabled; columns Name,
   Address, Every, Status), 4302 name, 4304 address / file, 4306 colour, 4309 / 4310 interval, 4323
   enabled, 4312 Add feed, 4313 Save changes, 4314 Remove, 4315 Refresh now, 4316 Show dots, 4319 the
@@ -3687,7 +3687,7 @@ always there, also when every dock is parked) handle these registered messages:
   `LOWORD(lParam)` (1: the box is open); 844 commits the rename with the name in the global atom
   `HIWORD(wParam)` (0: the box's text); 845 = Delete (the selection to the Recycle Bin); 846 opens
   the context menu of entry `LOWORD(lParam)` (0xFFFF: the window's menu; posted, the menu is a
-  `#32768` of the WinDock process: drive it with `MN_GETHMENU` and posted keys); 847 = Ctrl+A;
+  `#32768` of the `WinDock.exe` process: drive it with `MN_GETHMENU` and posted keys); 847 = Ctrl+A;
   test hooks for drops (OLE's drag loop needs real input): 848 drops the selection onto folder
   window `HIWORD(wParam)`'s background (the target's drop code, no OLE loop; returns the effect),
   849 / 850 drop the path in the atom `HIWORD(wParam)` onto entry `LOWORD(lParam)` (a sub-folder;
@@ -3768,7 +3768,7 @@ always there, also when every dock is parked) handle these registered messages:
   not installed). `ItemCommand` **872** = **Review permissions…** of script widget slot
   `LOWORD(lParam)` (posted: the dialog opens after the call; the item menu shows the entry only
   while the widget waits for consent; a standalone widget's menu has it too). The dialog is a task
-  dialog titled "WinDock widget permissions" (button 100 Allow / Keep allowed, 101 Don't allow /
+  dialog titled "ViberDock widget permissions" (button 100 Allow / Keep allowed, 101 Don't allow /
   Revoke). Settings ids: 3512 the selected widget's permission line, 3513 **Permissions…**; the
   list (3500) has a fifth column, Permissions. The clock's Face is field 5 of
   the clock schema (0 Digital, then the faces in `QueryState` 217's order; General 2175 - 2178 are
@@ -3788,7 +3788,7 @@ always there, also when every dock is parked) handle these registered messages:
   start; after a start from a malformed (or unreadable) `config.json`: 1, + 2 when its
   `config.bad-<stamp>.json` copy was made, + 4 while saving over the file is blocked (the copy
   failed; cleared once a save's retried copy works, the file is gone, or Reload read it). The notice
-  is a task dialog (`#32770`, title "WinDock", no owner) of the WinDock process, posted after the
+  is a task dialog (`#32770`, title "ViberDock", no owner) of the `WinDock.exe` process, posted after the
   start; its button 100 is Try again (Reload config; shown again while the file is still
   malformed), Close / Escape / `WM_CLOSE` dismiss it. `tools\smoke\config-protect.ps1` drives it.
 - **Idle cost** (round 26 phase 26A): `QueryState` **358** (any dock index) = the session paused:
@@ -4203,7 +4203,7 @@ always there, also when every dock is parked) handle these registered messages:
   picker of App settings (Docks and displays > Add a dock > Standalone widget…, `WM_COMMAND(2812,
   0)` to the page) is shown (1 / 0), **335** = its tiles after its search (the installed script widgets,
   DrawerRefs 7 ...; -1 not shown; `tools\smoke\widget-picker.ps1`). Round 18 phase 18C (app-wide): **336** =
-  how many of WinDock's own windows the running-apps tracker lists (the App settings window and the
+  how many of ViberDock's own windows the running-apps tracker lists (the App settings window and the
   item windows; `tools\smoke\widget-picker.ps1`), **337** = how many of the nine buttons of Docks and
   displays (Floating dock, Folder window…, Standalone widget…, Open settings, Duplicate, Remove,
   Disable / Enable, Rename, Save as layout…) carry their glyph image list (9 when all do; -2 no App
@@ -4346,7 +4346,7 @@ always there, also when every dock is parked) handle these registered messages:
   18B: the standalone widget picker of App settings is a second `WinDock.DrawerPopup` (window text "Add
   a standalone widget", 5707 / 5712, its chips hidden; QueryState 334 / 335, ItemCommand 869).
   Round 12 phase 12G, **Quick setup** (5760 - 5794, round 13 phase 13H 5880 - 5893) is a top-level `WinDock.QuickSetup` window owned by the app
-  window (title "Welcome to WinDock" on the first run, else "Quick setup"); `WM_COMMAND(id, BN_CLICKED)` (or
+  window (title "Welcome to ViberDock" on the first run, else "Quick setup"); `WM_COMMAND(id, BN_CLICKED)` (or
   `lParam` 0) to it presses a button, `CB_SETCURSEL` + `WM_COMMAND(MAKEWPARAM(id, CBN_SELCHANGE), combo)`
   chooses: 5760 the step rail (`WinDock.QuickSetupSteps`, window text "Step n of 4: `<name>`", the names
   Docks / Look / Behaviour / Review since 13H), 5761 Back (hidden on step 1),
@@ -4440,7 +4440,7 @@ always there, also when every dock is parked) handle these registered messages:
   while it is open; the welcome variant (unused since 12G) from the first run, `--welcome` or 152 was owned by the app
   window), titled "Apply a layout or look to `<dock name>`", "New dock from a layout", "Apply a
   look to the app look" (round 12 phase 12C; they were "Apply a preset to <dock>" and "New dock
-  from a preset") or "Welcome to WinDock";
+  from a preset") or "Welcome to ViberDock";
   children 5110 the list (an owner-drawn `LISTBOX`: `LB_SETCURSEL` + `WM_COMMAND(5110,
   LBN_SELCHANGE)` to the dialog chooses; posted Up / Down / Enter / Esc work as keys), 5111 the
   description, 5112 the preview (`WinDock.PresetPreview`; its window text is the "where" line and
@@ -4456,7 +4456,7 @@ always there, also when every dock is parked) handle these registered messages:
   and each card's "?" button **5300 + k** on its page (k the card's index on the page; an
   owner-drawn button, window text "Help: " and the card's title, `BM_CLICK` opens the Help at its topic).
   F1 (a `WM_KEYDOWN` VK_F1 posted to a settings window) opens the Help at the active page's topic.
-  The Help window is a top-level `WinDock.Help` window (title "WinDock Help", unowned, one per
+  The Help window is a top-level `WinDock.Help` window (title "ViberDock Help", unowned, one per
   process): children 5210 the guides (an owner-drawn `LISTBOX`: `LB_SETCURSEL` +
   `WM_COMMAND(5210, LBN_SELCHANGE)` to the window opens one) and 5211 the guide (a read-only
   RichEdit 4.1+ `RICHEDIT50W`: `EM_GETFIRSTVISIBLELINE` + `EM_GETLINE` read the heading at the top,
@@ -4769,7 +4769,7 @@ always there, also when every dock is parked) handle these registered messages:
   an app, opens a folder's or widget's popup; by slot index, so it reaches each window slot of an
   unstacked app), 811 / 812 / 813 a folder's or group's popup layout automatic / grid / list
   (saved as its `view`), 817 Rename… a group (a dialog: sent, it is posted back like 804; the
-  dialog is a `#32770` of the WinDock process with the edit box 100, OK = `IDOK`), 818 Ungroup,
+  dialog is a `#32770` of the `WinDock.exe` process with the edit box 100, OK = `IDOK`), 818 Ungroup,
   819 / 820 / 821 with an argument in the high word of `wParam` (the low word is the command):
   819 slot `lParam` onto slot `HIWORD(wParam)` (a group of the two, or added to that group), 820
   group slot `lParam`'s member `HIWORD(wParam)` out (a pin right after the group), 821 that member

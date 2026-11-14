@@ -54,9 +54,9 @@ const wchar_t* const kIntros[QuickSetup::kSteps] = {
     L"Sensible defaults are already on. Everything here lives in Settings too.",
     L"Finish keeps all of this as one change. Undo in the dock menu brings back what was there before."};
 constexpr wchar_t kInfo[] = L"Your desktop follows along as you choose. Cancel puts everything back.";
-const wchar_t* const kStartHints[2] = {L"Start it yourself from the Start menu or its folder.", L"WinDock opens when you sign in."};
+const wchar_t* const kStartHints[2] = {L"Start it yourself from the Start menu or its folder.", L"ViberDock opens when you sign in."};
 const wchar_t* const kTaskbarHints[2] = {L"Both stay on screen. The dock sits above the taskbar.",
-                                         L"The dock stands in for it. It comes back as soon as WinDock quits."};
+                                         L"The dock stands in for it. It comes back as soon as ViberDock quits."};
 
 // The gallery's second line: what each built-in look is, in a few words (the prototype's). A theme
 // file has no words of its own.
@@ -218,7 +218,7 @@ bool QuickSetup::Create(HINSTANCE instance, HWND owner) {
         return RECT{x, y, x + w, y + h};
     };
     RECT r = rectFor(dpi_);
-    CreateWindowExW(exStyle, kClassName, firstRun_ ? L"Welcome to WinDock" : L"Quick setup", style, r.left, r.top, r.right - r.left,
+    CreateWindowExW(exStyle, kClassName, firstRun_ ? L"Welcome to ViberDock" : L"Quick setup", style, r.left, r.top, r.right - r.left,
                     r.bottom - r.top, owner, nullptr, instance, this);
     if (!hwnd_) return false;
     if (const UINT actual = GetDpiForWindow(hwnd_); actual && actual != dpi_) {
@@ -1115,7 +1115,7 @@ std::vector<QuickSetup::SummaryLine> QuickSetup::SummaryLines() const {
     }
     lines.push_back(SummaryLine{L"Look", look, 1});
     lines.push_back(SummaryLine{L"Starts with Windows", start_ ? L"Yes" : L"No, you start it yourself", 2});
-    lines.push_back(SummaryLine{L"Windows taskbar", hideTaskbar_ ? L"Hidden while WinDock runs" : L"Stays beside the dock", 2});
+    lines.push_back(SummaryLine{L"Windows taskbar", hideTaskbar_ ? L"Hidden while ViberDock runs" : L"Stays beside the dock", 2});
     const DockConfig* first = rows_.empty() ? nullptr : DockOf(rows_.front().id);
     lines.push_back(SummaryLine{L"Auto-hide",
                                 !first             ? L"Never"
@@ -1212,7 +1212,7 @@ void QuickSetup::PaintContent(HDC hdc) {
         DrawTextW(dc, t.c_str(), static_cast<int>(t.size()), &r, flags | DT_NOPREFIX);
         SelectObject(dc, old);
     };
-    text(L"WinDock", PxRect(RECT{64, 13, m_.rail - 12, 31}), fontBold_, k.text, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
+    text(L"ViberDock", PxRect(RECT{64, 13, m_.rail - 12, 31}), fontBold_, k.text, DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
     text(firstRun_ ? L"Welcome! Set up in four steps" : L"Set up in four steps", PxRect(RECT{64, 31, m_.rail - 12, 49}), fontSmall_, k.muted,
          DT_LEFT | DT_TOP | DT_SINGLELINE | DT_END_ELLIPSIS);
     text(kInfo, RECT{info.left + Px(12 + 16 + 10), info.top + Px(12), info.right - Px(12), info.bottom - Px(8)}, fontSmall_, k.muted,

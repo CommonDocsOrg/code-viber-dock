@@ -94,7 +94,7 @@ bool CoachMark::Show(HINSTANCE instance, int index, int count, bool last, const 
     dpi_ = std::max<UINT>(dpi, USER_DEFAULT_SCREEN_DPI / 2);
     if (!hwnd_) {
         // Topmost (the dock is topmost too), never activated: a click on a button still works.
-        CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClassName, L"WinDock tip", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 0,
+        CreateWindowExW(WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, kClassName, L"ViberDock tip", WS_POPUP | WS_CLIPCHILDREN, 0, 0, 0,
                         0, nullptr, nullptr, instance, this);
         if (!hwnd_) return false;
         auto make = [&](const wchar_t* cls, DWORD style, int id) {

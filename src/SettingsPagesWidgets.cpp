@@ -268,7 +268,7 @@ protected:
         Add(kWidgetsList, CtlKind::List, WC_LISTVIEWW, L"Installed widgets",
             WS_TABSTOP | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS | LVS_NOSORTHEADER,
             RECT{kMargin, y_, right, y_ + kListH});
-        Tip(kWidgetsList, L"Every widget WinDock has: the built-in ones and those in your widgets folder. Select one to see its "
+        Tip(kWidgetsList, L"Every widget ViberDock has: the built-in ones and those in your widgets folder. Select one to see its "
                           L"preview and description below, then add it to a dock or the desktop.");
         NextRow(kListH + 8);
         // Round 6 phase 6E: the selected widget's live preview and description.
@@ -797,7 +797,7 @@ protected:
             UntitledCard(cardTopic_);
             // Round 10 phase 10D: "Reset to factory defaults…" (asks first; was "Reset to defaults").
             Button(kFooterReset, L"Reset to factory defaults\x2026", kMargin, 190);
-            Tip(kFooterReset, L"Resets every setting of this widget to the values WinDock ships with (it asks first). App "
+            Tip(kFooterReset, L"Resets every setting of this widget to the values ViberDock ships with (it asks first). App "
                               L"defaults and the window's place are not changed.");
             if (kind == ItemKind::Widget) Button(kFooterConsole, L"Console…", kMargin + 198, 110);
             NextRow();

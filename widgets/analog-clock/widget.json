@@ -1,7 +1,7 @@
 {
   "name": "Analog clock",
   "version": "1.1.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "An analog clock drawn from a face file (faces/*.json: dial, ticks, numerals, hands, date window). Optional second hand (ticking or smooth), the date on the face, the time under the dial, any time zone and a label.",
   "api": 1,
   "size": {

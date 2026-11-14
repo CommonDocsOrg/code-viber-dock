@@ -1,7 +1,7 @@
 {
   "name": "Stocks",
   "version": "1.0.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "Stock, ETF and crypto quotes from Finnhub: one symbol at a time or every symbol in a row or a list, with the change since the previous close and a popup with the day's figures. Needs a free Finnhub API key.",
   "api": 1,
   "size": {

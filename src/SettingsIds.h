@@ -798,7 +798,7 @@ inline constexpr int kPresetLook = 5117;         // the look strip (WinDock.Sett
 inline constexpr int kPresetKeepCaption = 5118;  // the check box's caption (a click toggles it)
 inline constexpr int kPresetNote = 5119;         // instead of the check box when the preset has no pins marker
 inline constexpr int kPresetLookCaption = 5120;  // "Look (sample icons): Glass theme · grows to 2.0×"
-inline constexpr int kPresetHeading = 5121;      // the welcome variant: "Welcome to WinDock"
+inline constexpr int kPresetHeading = 5121;      // the welcome variant: "Welcome to ViberDock"
 inline constexpr int kPresetIntro = 5122;        // ... and its line under it
 
 // Round 9 phase 9D: help (5200 - 5399). The entry points, then the children of the Help window

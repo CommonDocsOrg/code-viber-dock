@@ -88,7 +88,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"Tray icons");
-        Lead(L"Whether WinDock takes over the notification area.");  // round 12 phase 12F
+        Lead(L"Whether ViberDock takes over the notification area.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#tray-icons");
         // Round 8 phase 8A: one-line notes, the explanations as their tooltips; round 8 phase 8D:
         // one card, the note the check box's hint.

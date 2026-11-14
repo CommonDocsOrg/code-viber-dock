@@ -1239,7 +1239,7 @@ private:
         }
         if (error != 0) {
             MessageBeep(MB_ICONERROR);
-            MessageBoxW(Owner(), (L"Could not save the theme \x201C" + name + L"\x201D.").c_str(), L"WinDock", MB_OK | MB_ICONERROR);
+            MessageBoxW(Owner(), (L"Could not save the theme \x201C" + name + L"\x201D.").c_str(), L"ViberDock", MB_OK | MB_ICONERROR);
             return;
         }
         if (!ReadOnly()) {
@@ -1365,7 +1365,7 @@ private:
         const std::wstring stem = StemOf(path);
         if (!Theme::Export(path, Look(), stem)) {
             MessageBeep(MB_ICONERROR);
-            MessageBoxW(Owner(), (L"Could not write " + path).c_str(), L"WinDock", MB_OK | MB_ICONERROR);
+            MessageBoxW(Owner(), (L"Could not write " + path).c_str(), L"ViberDock", MB_OK | MB_ICONERROR);
             return;
         }
         // Saved as a theme file: it becomes the preset, with nothing overridden (a dock that uses

@@ -1,7 +1,7 @@
 {
   "name": "Digital clock (script)",
   "version": "1.2.0",
-  "author": "WinDock",
+  "author": "ViberDock",
   "description": "A scripted copy of the built-in clock: the time in a strftime format, optional seconds, the date under it in a format of your own, any time zone and a label; stacked (a smaller date line) or the Windows 7 taskbar look (time over date, the same size).",
   "api": 1,
   "size": {

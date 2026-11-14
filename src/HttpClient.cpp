@@ -14,7 +14,7 @@
 namespace Http {
 
 namespace {
-constexpr wchar_t kUserAgent[] = L"WinDock/0.1";
+constexpr wchar_t kUserAgent[] = L"ViberDock/0.1";
 
 std::wstring Lower(std::wstring s) {
     for (wchar_t& c : s) c = static_cast<wchar_t>(std::towlower(c));
@@ -260,7 +260,7 @@ bool ValidHeaders(const std::wstring& headers, std::wstring& error) {
         const std::wstring lower = Lower(name);
         if (lower.rfind(L"proxy-", 0) == 0 ||
             std::any_of(std::begin(kForbidden), std::end(kForbidden), [&](const wchar_t* f) { return lower == f; })) {
-            error = L"http: the header " + name + L" is set by WinDock, not by a widget";
+            error = L"http: the header " + name + L" is set by ViberDock, not by a widget";
             return false;
         }
     }

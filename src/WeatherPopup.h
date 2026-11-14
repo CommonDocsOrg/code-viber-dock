@@ -43,7 +43,7 @@ public:
         std::wstring title;  // the place's name for the header (round 5: the item's; "": the service's)
     };
 
-    WeatherPopup() : PopupWindow(kClassName, L"WinDock weather", Mode::Click) {}
+    WeatherPopup() : PopupWindow(kClassName, L"ViberDock weather", Mode::Click) {}
     ~WeatherPopup() override { Destroy(); }
 
     // `source`: the service of the place it shows now (round 5: the item that opened it; null: none,

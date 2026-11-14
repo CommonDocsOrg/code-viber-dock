@@ -1,7 +1,7 @@
 {
   "name": "Air quality (example)",
   "version": "1.0.0",
-  "author": "WinDock examples",
+  "author": "ViberDock examples",
   "description": "Fetches a public JSON API (Open-Meteo's air quality, no key) and shows one value: the European air quality index of a place, refreshed on a timer.",
   "main": "main.js",
   "size": {

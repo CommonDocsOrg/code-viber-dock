@@ -407,7 +407,7 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
     // Start on the target monitor so GetDpiForWindow reports that monitor's DPI.
     MONITORINFO mi{sizeof(mi)};
     GetMonitorInfoW(PickMonitor(), &mi);
-    hwnd_ = CreateWindowExW(kExStyle, kClassName, L"WinDock", kStyle, mi.rcMonitor.left, mi.rcMonitor.bottom - 1, 1, 1,
+    hwnd_ = CreateWindowExW(kExStyle, kClassName, L"ViberDock", kStyle, mi.rcMonitor.left, mi.rcMonitor.bottom - 1, 1, 1,
                             nullptr, nullptr, instance, this);
     if (!hwnd_) return HRESULT_FROM_WIN32(GetLastError());
     dpi_ = GetDpiForWindow(hwnd_);

@@ -166,7 +166,7 @@ protected:
     void Build() override {
         const int right = Width() - kMargin;
         Title(L"General");
-        Lead(L"How WinDock starts and what it does with the Windows taskbar.");  // round 12 phase 12F
+        Lead(L"How ViberDock starts and what it does with the Windows taskbar.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#general");
         // Round 8 phase 8D: where the per-dock settings are, as a line under the title (it was the
         // System card's last row); the cards below are the app's own settings.
@@ -180,14 +180,14 @@ protected:
         NextRow(38);
         Section(kSectionStartup, L"System", L"guide-settings.md#system");
         Check(kStartWithWindows, kStartWithWindowsCaption, L"Start with Windows");
-        Tip(kStartWithWindowsCaption, L"Starts WinDock when you sign in to Windows (a value under your user's Run key). Off until you turn it on.");
+        Tip(kStartWithWindowsCaption, L"Starts ViberDock when you sign in to Windows (a value under your user's Run key). Off until you turn it on.");
         NextRow();
         Check(kHideTaskbar, kHideTaskbarCaption, L"Hide the Windows taskbar");
-        Tip(kHideTaskbarCaption, L"Hides the Explorer taskbar while WinDock runs; it always comes back when WinDock quits. On by default.");
+        Tip(kHideTaskbarCaption, L"Hides the Explorer taskbar while ViberDock runs; it always comes back when ViberDock quits. On by default.");
         NextRow();
         // Round 8 phase 8A: notes are one-line hints, the explanations tooltips.
         Label(kRendererLabel, L"Renderer", L"", kRendererNote);
-        Tip(kRendererLabel, L"Takes effect after WinDock restarts. Automatic draws with the GPU (Direct3D 11) and falls "
+        Tip(kRendererLabel, L"Takes effect after ViberDock restarts. Automatic draws with the GPU (Direct3D 11) and falls "
                             L"back to software when that fails; Software (WARP) needs less memory.");
         Combo(kRendererCombo, kColX, right - kColX, false);
         NextRow();
@@ -1373,7 +1373,7 @@ protected:
         Lead(L"This build, your config file, quick setup and help.");  // round 12 phase 12F
         HelpTopic(L"guide-settings.md#about");
         UntitledCard(L"guide-settings.md#about");
-        Text(kAboutName, CtlKind::Section, L"WinDock", kMargin, right - kMargin, 24);
+        Text(kAboutName, CtlKind::Section, L"ViberDock", kMargin, right - kMargin, 24);
         NextRow(26);
         Text(kAboutVersion, CtlKind::Value, L"Version " + FileVersion(), kMargin, right - kMargin, 20);
         NextRow(22);
@@ -1394,7 +1394,7 @@ protected:
         // Round 9 phase 9C: the first run's preset chooser again (for the first dock). Round 12 phase
         // 12G: Quick setup again (openPresets(1) opens it).
         Button(kAboutWelcome, L"Run quick setup again", kMargin, 200);
-        Tip(kAboutWelcome, L"Opens Quick setup, the steps WinDock shows on its first start: your docks, their looks and how they "
+        Tip(kAboutWelcome, L"Opens Quick setup, the steps ViberDock shows on its first start: your docks, their looks and how they "
                            L"behave. Everything is a preview until Finish; Cancel puts it all back.");
         // Round 9 phase 9D: the Help window at the quick start.
         Button(kAboutQuickStart, L"Quick start guide", kMargin + 212, 170);

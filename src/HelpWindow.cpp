@@ -397,7 +397,7 @@ bool HelpWindow::Create(HINSTANCE instance, HWND nearWindow) {
         return RECT{x, y, x + w, y + h};
     };
     RECT r = rectFor(dpi_);
-    CreateWindowExW(exStyle, kClassName, L"WinDock Help", style, r.left, r.top, r.right - r.left, r.bottom - r.top, nullptr, nullptr,
+    CreateWindowExW(exStyle, kClassName, L"ViberDock Help", style, r.left, r.top, r.right - r.left, r.bottom - r.top, nullptr, nullptr,
                     instance, this);
     if (!hwnd_) return false;
     if (const UINT actual = GetDpiForWindow(hwnd_); actual && actual != dpi_) {
@@ -495,7 +495,7 @@ void HelpWindow::Load(int index) {
                                  palette_.highContrast ? palette_.text : Mix(palette_.text, palette_.accent, 72),
                                  palette_.highContrast ? palette_.layer : Mix(palette_.text, palette_.layer, 11)};
     std::string md = ReadResource(guides[static_cast<size_t>(index)].resource);
-    if (md.empty()) md = "# " + std::string("Guide missing") + "\n\nThis guide is not in this build of WinDock.\n";
+    if (md.empty()) md = "# " + std::string("Guide missing") + "\n\nThis guide is not in this build of ViberDock.\n";
     doc_ = HelpDoc::Render(md, colors);
     SendMessageW(view_, WM_SETREDRAW, FALSE, 0);
     StreamState state{&doc_.rtf, 0};

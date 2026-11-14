@@ -1,4 +1,4 @@
-// A scripted copy of WinDock's own clock (src/Clock.cpp): the time in a strftime format (the
+// A scripted copy of ViberDock's own clock (src/Clock.cpp): the time in a strftime format (the
 // host formats it: system.format), ":%S" added after the last minutes specifier with showSeconds,
 // and the date ("%a %d %b") under the time in a smaller font. On a vertical dock every space
 // breaks the line, as the built-in clock does. It wakes once a minute, or once a second when the
