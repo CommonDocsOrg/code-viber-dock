@@ -713,6 +713,13 @@ size_t WidgetRuntime::PendingTimers(const WidgetInstance* w) const {
     return static_cast<size_t>(std::count_if(entries_.begin(), entries_.end(), [&](const Entry& e) { return e.w == w; }));
 }
 
+double WidgetRuntime::DueOf(const WidgetInstance* w, int id) const {
+    for (const Entry& e : entries_) {
+        if (e.w == w && e.id == id) return e.due;
+    }
+    return -1.0;
+}
+
 void WidgetRuntime::Add(WidgetInstance* w) {
     instances_.push_back(w);
     NotifyChanged();

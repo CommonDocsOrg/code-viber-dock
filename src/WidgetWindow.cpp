@@ -140,6 +140,7 @@ HRESULT WidgetWindow::Create(HINSTANCE instance, Config* config, size_t cfg, HMO
                      [this] {
                          DismissCentre(true);
                          Launcher::OpenTarget(L"ms-settings:privacy-notifications");
+                         if (host_.shared) host_.shared->Notifications().PollNow();  // round 26 phase 26A: as the dock's
                      },
                      [](const NotificationItem&, UINT) -> ID2D1Bitmap* { return nullptr; },  // no icon cache here
                  });
@@ -271,7 +272,7 @@ ScriptDockInfo WidgetWindow::DockInfo() const {
     info.width = info.main = w;
     info.height = info.cross = h;
     info.iconSize = std::min(w, h) / 1.5f;
-    info.visible = !hidden_;
+    info.visible = ScriptVisible();
     return info;
 }
 
@@ -635,10 +636,18 @@ void WidgetWindow::UpdateShown() {
         ShowWindow(hwnd_, SW_SHOWNOACTIVATE);
         AssertZOrder();
     }
-    if (widget_) widget_->SetVisible(!hidden_);
+    if (widget_) widget_->SetVisible(ScriptVisible());
     // Round 12 phase 12I: hidden (the "desktop" rule, the full-screen guard): its settings panel
     // closes, as a parked dock's does (App checks Shown()).
     if (host_.moved) host_.moved();
+}
+
+bool WidgetWindow::ScriptVisible() const {
+    return !hidden_ && !(host_.shared && host_.shared->SessionPaused());
+}
+
+void WidgetWindow::SetSessionPaused() {
+    if (widget_) widget_->SetVisible(ScriptVisible());  // round 26 phase 26A: as a hidden window
 }
 
 void WidgetWindow::OnWatchEvent() {

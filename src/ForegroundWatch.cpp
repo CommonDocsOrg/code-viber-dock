@@ -1,5 +1,7 @@
 #include "ForegroundWatch.h"
 
+#include <algorithm>
+
 ForegroundWatch* ForegroundWatch::s_instance = nullptr;
 
 namespace {
@@ -33,12 +35,19 @@ void ForegroundWatch::Start(HWND owner, std::function<void()> onChange) {
     moveSizeHook_ = Hook(EVENT_SYSTEM_MOVESIZEEND, EVENT_SYSTEM_MOVESIZEEND, &ForegroundWatch::Proc);
     minimizeHook_ = Hook(EVENT_SYSTEM_MINIMIZESTART, EVENT_SYSTEM_MINIMIZEEND, &ForegroundWatch::Proc);
     Rehook(GetForegroundWindow());
+    // Round 26 phase 26A: the caller evaluates now; that is the state a suspension compares with.
+    last_ = Take();
+    dirty_ = false;
+    idleRounds_ = 0;
 }
 
 void ForegroundWatch::Stop() {
     if (owner_ && pending_) KillTimer(owner_, kTimerId);
     pending_ = false;
+    armedMs_ = 0;
     suspended_ = false;
+    dirty_ = false;
+    idleRounds_ = 0;
     Unhook(foregroundHook_);
     Unhook(moveSizeHook_);
     Unhook(minimizeHook_);
@@ -80,6 +89,8 @@ void ForegroundWatch::OnEvent(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG i
         return;  // queued before its hook was replaced (Rehook / Suspend) or removed
     }
     ++accepted_;
+    dirty_ = true;  // round 26 phase 26A: the next firing evaluates, at the short delay
+    idleRounds_ = 0;
     Schedule();
 }
 
@@ -102,21 +113,50 @@ void ForegroundWatch::Suspend() {
     // cursor / caret LOCATIONCHANGE per step. Unhooking at the first one and re-hooking (plus one
     // evaluation, which catches a window move missed meanwhile) when the timer fires bounds that
     // to one delivered event and one evaluation per kCoalesceMs instead of one per mouse move.
+    // Round 26 phase 26A: that still woke the dock (and ran every consumer: DWM queries, the
+    // monitors, SHQueryUserNotificationState, each dock's overlap test) ten times a second for as
+    // long as the pointer moved over any app or the user typed. Now the firing compares a cheap
+    // Probe first (HandleMessage), and the re-hook waits longer while suspensions keep finding
+    // nothing changed (kBackoffMs; the latency this accepts is explained there).
     Unhook(locationHook_);
     hookedThread_ = 0;
     suspended_ = true;
-    Schedule();
+    const uint32_t step = std::min<uint32_t>(idleRounds_ / kBackoffAfter, 2);
+    Schedule(kBackoffMs[step]);
 }
 
-void ForegroundWatch::Schedule() {
+void ForegroundWatch::Schedule(UINT delayMs) {
     // Throttle, not debounce: a window that keeps moving (dragged across the bar) still gets an
     // evaluation every kCoalesceMs instead of none until it stops.
-    if (!owner_ || pending_) return;
-    pending_ = SetTimer(owner_, kTimerId, kCoalesceMs, nullptr) != 0;
+    if (!owner_) return;
+    // Round 26 phase 26A: armed for a longer back-off delay, a real event shortens it (SetTimer on
+    // the same id replaces the countdown).
+    if (pending_ && armedMs_ <= delayMs) return;
+    pending_ = SetTimer(owner_, kTimerId, delayMs, nullptr) != 0;
+    armedMs_ = delayMs;
 }
 
 void ForegroundWatch::Poke() {
+    dirty_ = true;  // round 26 phase 26A: the dock's own geometry changed: always evaluate
+    idleRounds_ = 0;
     Schedule();
+}
+
+ForegroundWatch::Probe ForegroundWatch::Take() {
+    Probe p;
+    p.fg = GetForegroundWindow();
+    if (p.fg) {
+        GetWindowRect(p.fg, &p.rect);
+        p.style = GetWindowLongW(p.fg, GWL_STYLE) & static_cast<LONG>(WS_VISIBLE | WS_MINIMIZE | WS_MAXIMIZE | WS_CAPTION);
+    }
+    return p;
+}
+
+void ForegroundWatch::Evaluate() {
+    last_ = Take();
+    dirty_ = false;
+    ++evaluations_;
+    if (onChange_) onChange_();
 }
 
 bool ForegroundWatch::HandleMessage(UINT msg, WPARAM wp, LPARAM) {
@@ -129,6 +169,18 @@ bool ForegroundWatch::HandleMessage(UINT msg, WPARAM wp, LPARAM) {
     // reordered foreground event.
     const HWND fg = GetForegroundWindow();
     if (fg != fg_ || !locationHook_) Rehook(fg);
-    if (onChange_) onChange_();
+    // Round 26 phase 26A: armed only by a suspension (cursor / caret events): the consumers run
+    // only when what they read can have changed. The suspension window is where a move of the
+    // foreground window could have been missed; the Probe catches it.
+    if (!dirty_) {
+        const Probe now = Take();
+        if (now == last_) {
+            ++skipped_;
+            ++idleRounds_;
+            return true;
+        }
+    }
+    idleRounds_ = 0;
+    Evaluate();
     return true;
 }

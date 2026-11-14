@@ -82,6 +82,9 @@ public:
     virtual bool FullscreenNotice(DockWindow* dock, bool on) = 0;
     // Round 16 phase 16A: the Start menu's placer (App's one instance; null before App set it).
     virtual StartMenuPlacer* StartPlacer() = 0;
+    // Round 26 phase 26A: the session is locked, the display off or the session disconnected (a
+    // window made meanwhile starts paused; DockManager::SetSessionPaused tells the live ones).
+    virtual bool SessionPaused() const = 0;
 
 protected:
     ~DockShared() = default;
@@ -310,6 +313,9 @@ public:
     // window or app, launch, open its popup). False without such a slot.
     bool ClickSlot(int index);
     void OnWatchEvent();
+    // Round 26 phase 26A: the session is locked, the display is off or the session is disconnected
+    // (DockManager): treated like the dock being hidden (widget refresh ticks, clocks, thumbnails).
+    void SetSessionPaused(bool paused);
     // The weather service's data or status changed: the weather elements redraw (DockEvent), the
     // popup updates.
     void OnWeatherChanged();
@@ -1142,8 +1148,12 @@ private:
     // Shows / hides a desktop dock per the foreground (and shows a normal one that was hidden).
     void UpdateDesktopShown();
     // Tells every script widget whether the dock is on screen (dock.visible, onVisibilityChange):
-    // shown or showing, and not a hidden desktop dock.
+    // shown or showing, and not a hidden desktop dock (round 26 phase 26A: ContentVisible; also
+    // resumes the clocks paused while it could not be seen).
     void SyncWidgetVisibility();
+    // Round 26 phase 26A: the dock's content can be seen: shown or showing, not a hidden desktop
+    // dock, not hidden by the full-screen guard, the session not paused (QueryState 361).
+    bool ContentVisible() const;
     // Subscribes to / leaves the shared foreground watch.
     void SetWatchingForeground(bool on) {
         if (on == watching_ || !shared_) return;
@@ -1617,6 +1627,10 @@ private:
     RECT appBarRect_{};           // the rect last set (ABM_SETPOS)
     bool fullscreenApp_ = false;  // ABN_FULLSCREENAPP: a fullscreen app is open, the dock is not topmost
     bool fullscreenHidden_ = false;  // round 9 phase 9A: hidden by the manager's full-screen guard
+    // Round 26 phase 26A: the session is locked / the display is off / disconnected (SetSessionPaused).
+    bool sessionPaused_ = false;
+    // Round 26 phase 26A: kClockTimerId fired while !ContentVisible() and was not re-armed.
+    bool clockPaused_ = false;
     std::function<void(bool, const RECT&, const RECT&)> appBarChanged_;
 
     // Dragging the dock

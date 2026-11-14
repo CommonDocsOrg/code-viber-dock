@@ -19,10 +19,27 @@
 // An accepted event (or a suspension) arms a one-shot kCoalesceMs timer on the owner; when it
 // fires, the location hook is re-installed if suspended and `onChange` runs once. Nothing runs
 // while no event arrives; Stop() removes the hooks.
+// Round 26 phase 26A: a timer armed only by a suspension (the pointer or caret moving over the
+// foreground app: no accepted event, no Poke) runs `onChange` only when the foreground window's
+// cheap state (Probe: its handle, GetWindowRect, its style bits) differs from the last evaluation's,
+// and its delay backs off while the suspensions keep coming with nothing changed (kBackoffMs).
 class ForegroundWatch {
 public:
     static constexpr UINT_PTR kTimerId = 18;
     static constexpr UINT kCoalesceMs = 100;
+    // Round 26 phase 26A: the suspension's re-hook delay after 0, kBackoffAfter, 2 x kBackoffAfter
+    // ... consecutive idle suspensions (nothing the consumers read had changed when the timer
+    // fired): 100 ms for the first half second of movement, then 500 ms for two seconds, then 1 s.
+    // A real change (an accepted event, Poke, a differing Probe) starts over at 100 ms. What the
+    // longer delay can hold back is only a change the system-wide hooks do not report and that
+    // happens while the pointer keeps moving over the app (a maximize / restore by its button or
+    // keyboard, Win+Arrow snapping, an app moving itself): it is noticed when the timer fires, at
+    // most 1 s late. Foreground changes, drags (MOVESIZEEND) and minimize / restore are hooked
+    // system wide and never wait. 2 s (the plan's first idea) would make a maximize click that
+    // follows a long pointer movement take up to two seconds to hide the dock; 1 s keeps that
+    // short and still cuts the wake-ups of a moving pointer from 10 to about 1 a second.
+    static constexpr UINT kBackoffMs[3] = {kCoalesceMs, 500, 1000};
+    static constexpr uint32_t kBackoffAfter = 5;
 
     ForegroundWatch() = default;
     ForegroundWatch(const ForegroundWatch&) = delete;
@@ -48,6 +65,10 @@ public:
     // Diagnostics: events that armed the timer, and every callback delivered (filtered or not).
     uint32_t AcceptedEvents() const { return accepted_; }
     uint32_t DeliveredEvents() const { return delivered_; }
+    // Round 26 phase 26A (QueryState 359 / 360): `onChange` runs, and timer firings that skipped it
+    // (a suspension's re-hook with nothing changed).
+    uint32_t Evaluations() const { return evaluations_; }
+    uint32_t SkippedEvaluations() const { return skipped_; }
 
 private:
     static void CALLBACK Proc(HWINEVENTHOOK hook, DWORD event, HWND hwnd, LONG idObject, LONG idChild, DWORD,
@@ -58,7 +79,24 @@ private:
     void Rehook(HWND fg);
     // Unhooks the location hook and arms the timer, which re-hooks it (a filtered event arrived).
     void Suspend();
-    void Schedule();
+    void Schedule(UINT delayMs = kCoalesceMs);
+
+    // Round 26 phase 26A: what the consumers read of the foreground window (DockManager's
+    // full-screen guard and dashboard check, DockWindow::ForegroundOverlaps, the desktop layer's
+    // rule), reduced to what can change without the system-wide hooks seeing it: the window, its
+    // rect and its style's visible / minimized / maximized / caption bits. GetWindowRect instead of
+    // the DWM frame bounds the consumers use: the frame cannot move without the window rect moving.
+    // Cloaking comes with a foreground change (a virtual desktop switch) and is hooked.
+    struct Probe {
+        HWND fg = nullptr;
+        RECT rect{};
+        LONG style = 0;
+        bool operator==(const Probe& o) const {
+            return fg == o.fg && EqualRect(&rect, &o.rect) && style == o.style;
+        }
+    };
+    static Probe Take();
+    void Evaluate();
 
     HWND owner_ = nullptr;
     std::function<void()> onChange_;
@@ -69,9 +107,15 @@ private:
     DWORD hookedThread_ = 0;
     HWND fg_ = nullptr;
     bool pending_ = false;      // kTimerId armed
+    UINT armedMs_ = 0;          // round 26 phase 26A: the delay it was armed with
     bool suspended_ = false;    // the location hook is off until kTimerId fires
+    bool dirty_ = false;        // round 26 phase 26A: an accepted event or Poke since the last evaluation
+    uint32_t idleRounds_ = 0;   // consecutive suspension-only firings that found nothing changed
+    Probe last_;                // what the last evaluation saw
     uint32_t accepted_ = 0;
     uint32_t delivered_ = 0;
+    uint32_t evaluations_ = 0;
+    uint32_t skipped_ = 0;
 
     static ForegroundWatch* s_instance;
 };

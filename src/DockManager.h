@@ -203,6 +203,17 @@ public:
     StartMenuPlacer* StartPlacer() override { return startPlacer_; }
     void SetStartPlacer(StartMenuPlacer* placer) { startPlacer_ = placer; }
 
+    // --- round 26 phase 26A: the session paused ---
+    // App's session / display notifications: bits of kPausedLocked / Display / Disconnected (0: in
+    // use). While any is set every dock and standalone widget counts as hidden (widget refresh
+    // ticks, clocks and snapshot thumbnails stop, redraws wait), the perf sampler sleeps and the
+    // notification poll stops; leaving it ticks what was due once and polls the notifications at
+    // once (a toast that came while locked shows up then). Other widget timers keep running.
+    static constexpr int kPausedLocked = 1, kPausedDisplayOff = 2, kPausedDisconnected = 4;
+    void SetSessionPaused(int bits);
+    int SessionPausedBits() const { return sessionPaused_; }
+    bool SessionPaused() const override { return sessionPaused_ != 0; }
+
     // --- the dashboard (round 6 phase 6A) ---
     // On: every dock and standalone widget (6B) with layer "desktop" or "behind" is shown, revealed
     // and topmost (a dock's popups
@@ -299,6 +310,7 @@ private:
     bool appBarAllowed_ = false;
     bool syncing_ = false;
     bool trayStartPosted_ = false;
+    int sessionPaused_ = 0;  // round 26 phase 26A: kPaused* bits (SetSessionPaused)
 
     WindowTracker tracker_;
     // The weather services (round 5 phase A), one per place; see SyncWeather.

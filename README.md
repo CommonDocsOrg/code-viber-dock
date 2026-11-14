@@ -1823,7 +1823,11 @@ Notifications ("Let apps access your notifications") is on; the access is checke
   without package identity), so while the feature is on a worker thread asks for the list every
   `notifications.pollS` seconds (default 2), every max(pollS, 5) s once nothing changed for a
   minute, every second while the notification centre popup is open, and goes back to pollS on any
-  change. Only the ids are compared; a new toast's details are read once. The worker exists only
+  change. Round 26 phase 26A: without access it only re-checks the access, every 2 minutes once a
+  minute passed without a change (Open Windows settings in the centre brings back pollS for a
+  minute, opening the centre polls every second); while the session is locked, disconnected or
+  the display is off it does not poll at all and polls once at once on the return, so what came
+  meanwhile shows up then. Only the ids are compared; a new toast's details are read once. The worker exists only
   while something needs it: a dock whose running item has `badges`, a widget that uses the `notifications` provider,
   or the open centre; otherwise nothing polls. Cost measured here with 46 notifications in the
   centre: about 25 ms of CPU per poll, almost all of it inside Windows' `GetNotificationsAsync`
@@ -3782,6 +3786,19 @@ always there, also when every dock is parked) handle these registered messages:
   is a task dialog (`#32770`, title "WinDock", no owner) of the WinDock process, posted after the
   start; its button 100 is Try again (Reload config; shown again while the file is still
   malformed), Close / Escape / `WM_CLOSE` dismiss it. `tools\smoke\config-protect.ps1` drives it.
+- **Idle cost** (round 26 phase 26A): `QueryState` **358** (any dock index) = the session paused:
+  0 in use; 1 locked, + 2 the console display is off (dimmed counts as on), + 4 the session is
+  disconnected (console or remote). While it is not 0 every dock and standalone widget counts as
+  hidden for widgets (`dock.visible` false), clocks, snapshot thumbnails; the perf sampler and the
+  notification poll stop. **359** = the foreground watch's evaluations so far (its callback: the
+  full-screen guard, intelligent auto-hide, the desktop layer's rule; process-wide, any dock),
+  **360** = its timer firings that skipped an evaluation (a cursor / caret suspension found the
+  foreground window unchanged; the re-hook then backs off 100 ms → 500 ms → 1 s). **361** = 1
+  while dock `HIWORD(lParam)`'s content is paused (it cannot be seen: auto-hidden or hiding, a
+  hidden desktop dock, the full-screen guard, the session paused): its clocks do not tick, its
+  script widgets' refresh does not run and their redraws wait (QueryState 58 / 59 stay flat for a
+  widget that only refreshes), thumbnails stop. `tools\smoke\idle-cost.ps1` drives 58 / 59 / 358 /
+  361.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.

@@ -87,6 +87,9 @@ public:
     bool Active() const { return thread_ != nullptr; }
     // The sampling period (clamped to 250 - 10000 ms); the worker re-times at once.
     void SetInterval(uint32_t ms);
+    // Round 26 phase 26A: the session is locked / the display off: the worker takes no samples
+    // until resumed (the history stays). Kept across Start.
+    void SetPaused(bool paused);
     uint32_t Interval() const { return interval_; }
 
     // kMessage: keeps the snapshot, extends the rings, calls the changed callback. True if handled.
@@ -127,6 +130,7 @@ private:
     std::shared_ptr<Shared> shared_;
     uint64_t generation_ = 0;
     uint32_t interval_ = kDefaultInterval;
+    bool paused_ = false;  // round 26 phase 26A
     std::function<void()> changed_;
 
     uint64_t snapshots_ = 0;

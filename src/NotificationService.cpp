@@ -72,6 +72,7 @@ struct NotificationService::Shared {
     std::vector<uint32_t> dismiss;  // ids to RemoveNotification
     std::atomic<int> pollMs{2000};
     std::atomic<bool> fast{false};
+    std::atomic<bool> paused{false};  // round 26 phase 26A: the session is locked / the display off
     std::atomic<uint64_t> polls{0};
     std::atomic<ULONGLONG> lastPoll{0};
     std::atomic<int> interval{2000};
@@ -98,6 +99,7 @@ bool NotificationService::Start(HWND owner, int pollS) {
     shared->generation = ++generation_;
     shared->pollMs = std::clamp(pollS, 1, 60) * 1000;
     shared->interval = shared->pollMs.load();
+    shared->paused = paused_;  // round 26 phase 26A: started while the session is paused
     filter_ = Lower(EnvText(L"WINDOCK_NOTIFY_FILTER"));
     shared->filter = filter_;
     shared->simulateDenied = EnvText(L"WINDOCK_NOTIFY_DENIED") == L"1";
@@ -144,6 +146,15 @@ void NotificationService::SetFast(bool fast) {
 
 void NotificationService::PollNow() {
     if (shared_) SetEvent(shared_->work);
+}
+
+void NotificationService::SetPaused(bool paused) {
+    paused_ = paused;
+    if (!shared_) return;
+    // Round 26 phase 26A: paused, the worker finishes the wait it is in (and that one poll), then
+    // waits for an event only; resumed, it polls at once (WAIT_OBJECT_0 + 1 also starts the
+    // pollS pace again), so what arrived while the session was locked shows up after the unlock.
+    if (shared_->paused.exchange(paused) != paused && !paused) SetEvent(shared_->work);
 }
 
 void NotificationService::Dismiss(uint32_t id) { Dismiss(std::vector<uint32_t>{id}); }
@@ -464,12 +475,21 @@ DWORD NotificationService::ThreadBody(void* param) {
                 post(std::move(c));
             }
             const int base = s->pollMs.load();
+            // Round 26 phase 26A: without access (Denied, undecided, no listener) a poll only asks
+            // for the access state again: past kSlowAfterMs without a change that is every
+            // kDeniedMs (was kSlowMs, a wake-up every 5 s for as long as access stays off). The
+            // centre open (fast), a command or PollNow (the dock's "Open Windows settings" links
+            // call it, as does DockCommand 131) start the pollS pace again for
+            // kSlowAfterMs, so access turned on from there is seen within pollS.
+            const bool denied = lastState != State::Polling;
             const int wait = s->fast.load()                ? kFastMs
-                             : tick - lastChange > kSlowAfterMs ? std::max(base, kSlowMs)
+                             : tick - lastChange > kSlowAfterMs ? std::max(base, denied ? kDeniedMs : kSlowMs)
                                                                 : base;
             s->interval = wait;
             HANDLE events[2] = {s->stop, s->work};
-            const DWORD r = WaitForMultipleObjects(2, events, FALSE, static_cast<DWORD>(wait));
+            // Round 26 phase 26A: paused (locked, display off): no poll until an event (the resume
+            // sets `work`; dismissals sent meanwhile are carried out then too).
+            const DWORD r = WaitForMultipleObjects(2, events, FALSE, s->paused.load() ? INFINITE : static_cast<DWORD>(wait));
             if (r == WAIT_OBJECT_0 || r == WAIT_FAILED) break;
             if (r == WAIT_OBJECT_0 + 1) lastChange = GetTickCount64();  // asked for: back to pollS
         }

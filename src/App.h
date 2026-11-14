@@ -566,6 +566,16 @@ private:
     AutoHideMode lastOnMode_ = AutoHideMode::Always;
     HICON trayIcon_ = nullptr;
     bool trayAdded_ = false;
+    // Round 26 phase 26A: the session / display notifications (RegisterSessionWatch): registered
+    // WTSRegisterSessionNotification, the GUID_CONSOLE_DISPLAY_STATE handle, the paused bits
+    // (DockManager::kPaused*, QueryState 358).
+    void RegisterSessionWatch();
+    void UnregisterSessionWatch();
+    void OnSessionChange(WPARAM code);
+    void OnDisplayState(DWORD state);
+    bool wtsRegistered_ = false;
+    HPOWERNOTIFY displayNotify_ = nullptr;
+    int pausedBits_ = 0;
     bool shutDown_ = false;
     int modalDepth_ = 0;          // menus / dialogs open (RunMenu, ChooseItemIcon)
     bool syncPending_ = false;    // a display sync is posted or waits for the modal loop to end

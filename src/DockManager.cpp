@@ -1090,6 +1090,23 @@ void DockManager::SetCentreOpen(bool open) {
     if (open) notifications_.PollNow();
 }
 
+void DockManager::SetSessionPaused(int bits) {
+    if (bits == sessionPaused_) return;
+    const bool was = sessionPaused_ != 0;
+    sessionPaused_ = bits;
+    const bool now = bits != 0;
+    wchar_t buf[96];
+    swprintf_s(buf, L"WinDock: session paused bits %d\n", bits);
+    OutputDebugStringW(buf);
+    if (was == now) return;  // e.g. the display went off while locked: nothing new to stop
+    notifications_.SetPaused(now);  // resuming polls at once
+    widgets_.SetPaused(now);        // the perf sampler
+    for (Instance& i : instances_) {
+        if (i.window) i.window->SetSessionPaused(now);
+        if (i.widget) i.widget->SetSessionPaused();
+    }
+}
+
 bool DockManager::ActivateNotification(uint32_t id) {
     const NotificationItem* n = notifications_.ById(id);
     if (!n) return false;

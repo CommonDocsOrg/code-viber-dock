@@ -60,6 +60,9 @@ public:
     static constexpr int kSlowAfterMs = 60000;  // no change for this long: poll at max(pollS, 5) s
     static constexpr int kSlowMs = 5000;
     static constexpr int kFastMs = 1000;         // while the centre popup is open
+    // Round 26 phase 26A: without access (State::Denied), past kSlowAfterMs: a poll every 2 minutes
+    // (only GetAccessStatus runs then); PollNow / the centre bring back pollS for kSlowAfterMs.
+    static constexpr int kDeniedMs = 120000;
 
     enum class State { Off = 0, Polling = 1, Denied = 2 };
 
@@ -78,6 +81,9 @@ public:
     void SetFast(bool fast);
     // Poll now (automation, the centre opening).
     void PollNow();
+    // Round 26 phase 26A: the session is locked / the display is off (DockManager): no polls until
+    // resumed, which polls at once. Kept across Start.
+    void SetPaused(bool paused);
 
     // Removes a notification: a toast from Windows' notification centre (RemoveNotification on
     // the worker; gone from the list at once), a balloon from the list.
@@ -129,4 +135,5 @@ private:
     std::wstring filter_;  // WINDOCK_NOTIFY_FILTER, lower case
     std::function<void()> changed_;
     uint64_t changes_ = 0;
+    bool paused_ = false;  // round 26 phase 26A: SetPaused (handed to a worker started later)
 };

@@ -128,6 +128,10 @@ public:
     bool TopmostBand() const;
     void SetFullscreenHidden(bool hidden);
     bool FullscreenHidden() const { return fullscreen_; }
+    // Round 26 phase 26A: DockShared::SessionPaused changed: the widget hears it as dock.visible
+    // (its refresh pauses as in a hidden window). ScriptVisible: shown and the session not paused.
+    void SetSessionPaused();
+    bool ScriptVisible() const;
     // Pulses a border in `argb` (6 steps of 250 ms, as a dock's Flash).
     void Flash(uint32_t argb);
     // The system time / zone changed or the machine resumed.

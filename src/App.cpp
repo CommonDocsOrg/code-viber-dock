@@ -9,6 +9,7 @@
 #include <shobjidl.h>
 #include <shellscalingapi.h>
 #include <windowsx.h>
+#include <wtsapi32.h>
 
 #include <algorithm>
 #include <cwctype>
@@ -285,6 +286,7 @@ bool App::Initialize(HINSTANCE instance) {
     // by Sync) its own broadcast asks the apps to register; otherwise ask them now, for Explorer.
     if (!docks_.SyncTray()) TrayHost::RecoverFromMarker();
     AddTrayIcon();
+    RegisterSessionWatch();  // round 26 phase 26A: lock / display off pause the docks' idle work
     taskbar_.SetEnabled(config_.hideTaskbar);
     // Only now: the controller has saved the original work area (without our reservations).
     docks_.AllowAppBar(true);
@@ -1865,6 +1867,7 @@ void App::Shutdown() {
     taskbar_.SetReservedMonitors(nullptr, 0);
     taskbar_.Restore();
     RemoveTrayIcon();
+    UnregisterSessionWatch();  // round 26 phase 26A
     docks_.Shutdown();
     if (trayIcon_) {
         DestroyIcon(trayIcon_);
@@ -2498,6 +2501,57 @@ void App::SetAutoHide(size_t cfg, AutoHideMode mode) {
     config_.docks[cfg].autoHide = mode;
     docks_.ForConfig(cfg, [](DockWindow& w) { w.ApplyAutoHide(); });
     RequestSave();
+}
+
+// --- round 26 phase 26A: the session paused --------------------------------------------------------
+// Before this round nothing noticed a locked session or a display that went off: notification polls
+// every 2 - 5 s, the perf sampler, snapshot thumbnails, per-second clocks and widget refresh ticks
+// all kept running for a screen nobody could see. Now the app window hears the session's lock /
+// unlock and console / remote (dis)connects (WM_WTSSESSION_CHANGE) and the console display's state
+// (GUID_CONSOLE_DISPLAY_STATE through WM_POWERBROADCAST), and DockManager treats any of them like
+// every dock being hidden. "Dimmed" (2) counts as on: the screen can still be read. Registering
+// for the display state sends its current value at once, so a start with the display off is
+// covered; a start inside a locked session is not (the Run key starts the dock after logon).
+
+void App::RegisterSessionWatch() {
+    if (!hwnd_) return;
+    if (!wtsRegistered_) wtsRegistered_ = WTSRegisterSessionNotification(hwnd_, NOTIFY_FOR_THIS_SESSION) != FALSE;
+    if (!wtsRegistered_) OutputDebugStringW(L"WinDock: WTSRegisterSessionNotification failed\n");
+    if (!displayNotify_) {
+        displayNotify_ = RegisterPowerSettingNotification(hwnd_, &GUID_CONSOLE_DISPLAY_STATE, DEVICE_NOTIFY_WINDOW_HANDLE);
+        if (!displayNotify_) OutputDebugStringW(L"WinDock: RegisterPowerSettingNotification failed\n");
+    }
+}
+
+void App::UnregisterSessionWatch() {
+    if (wtsRegistered_ && hwnd_) WTSUnRegisterSessionNotification(hwnd_);
+    wtsRegistered_ = false;
+    if (displayNotify_) UnregisterPowerSettingNotification(displayNotify_);
+    displayNotify_ = nullptr;
+}
+
+void App::OnSessionChange(WPARAM code) {
+    int bits = pausedBits_;
+    switch (code) {
+        case WTS_SESSION_LOCK: bits |= DockManager::kPausedLocked; break;
+        case WTS_SESSION_UNLOCK:
+        case WTS_SESSION_LOGON: bits &= ~DockManager::kPausedLocked; break;
+        case WTS_CONSOLE_DISCONNECT:
+        case WTS_REMOTE_DISCONNECT: bits |= DockManager::kPausedDisconnected; break;
+        case WTS_CONSOLE_CONNECT:
+        case WTS_REMOTE_CONNECT: bits &= ~DockManager::kPausedDisconnected; break;
+        default: return;
+    }
+    if (bits == pausedBits_) return;
+    pausedBits_ = bits;
+    docks_.SetSessionPaused(bits);
+}
+
+void App::OnDisplayState(DWORD state) {
+    const int bits = state == 0 ? pausedBits_ | DockManager::kPausedDisplayOff : pausedBits_ & ~DockManager::kPausedDisplayOff;
+    if (bits == pausedBits_) return;
+    pausedBits_ = bits;
+    docks_.SetSessionPaused(bits);
 }
 
 void App::ScheduleDisplaySync() {
@@ -4495,6 +4549,8 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             if (!w || !w->Hwnd() || !w->QueryPages(337, arg, out)) out = -2;
             return out;
         }
+        case 358:  // round 26 phase 26A (app-wide): the session paused: 0 in use; 1 locked, + 2 the display off, + 4 disconnected
+            return docks_.SessionPausedBits();
         case 356:  // round 25 phase 25B (app-wide): 0 a normal start; 1 started from a malformed config.json, + 2 its copy was made, + 4 saving is blocked now
             if (!startedMalformed_) return 0;
             return 1 | (badCopyMade_ ? 2 : 0) | (saveBlocked_ ? 4 : 0);
@@ -5370,6 +5426,20 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
         case WM_DEVICECHANGE:
             if (wp == DBT_DEVNODES_CHANGED) ScheduleDisplaySync();  // a display may have been (dis)connected
+            return TRUE;
+        case WM_WTSSESSION_CHANGE:  // round 26 phase 26A
+            OnSessionChange(wp);
+            return 0;
+        case WM_POWERBROADCAST:
+            // Round 26 phase 26A: the console display's state (0 off, 1 on, 2 dimmed).
+            if (wp == PBT_POWERSETTINGCHANGE && lp) {
+                const auto* s = reinterpret_cast<const POWERBROADCAST_SETTING*>(lp);
+                if (IsEqualGUID(s->PowerSetting, GUID_CONSOLE_DISPLAY_STATE) && s->DataLength >= sizeof(DWORD)) {
+                    DWORD state = 0;
+                    memcpy(&state, s->Data, sizeof(state));
+                    OnDisplayState(state);
+                }
+            }
             return TRUE;
         case WM_DESTROY:
             PostQuitMessage(0);

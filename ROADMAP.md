@@ -1997,6 +1997,33 @@ process can end without the unhandled-exception filter (invalid parameter, pure 
 worker thread's exception) now runs the desktop restore, and a worker's exception fails its job
 instead of the dock.
 
+## Round 26 (2026-11-13): idle cost
+
+From the review of round 25 (plan `C:\Users\olson\.claude\plans\carefully-review-all-aspects-glittery-pony.md`,
+the "idle cost" findings, read from the code, never measured): the places where the dock still
+woke up, drew or blocked while nothing the user could see changed. Branch `feature/idle-cost`, on
+`feature/hardening`. Each fix was confirmed against the code first; none was measured.
+
+**26A, wake-ups that should not happen.** The foreground watch's cursor / caret suspension was
+already a throttle (one wake per 100 ms instead of one per mouse move), but each wake ran every
+consumer. The cure is a cheap probe of exactly what the consumers read (the foreground window, its
+rect, four style bits) compared before anything else, plus a back-off of the re-hook while
+suspensions keep finding nothing (100 ms → 500 ms → 1 s). The probe means a missed move is never
+lost, only delayed, and only while the pointer keeps moving over the app; 2 s was rejected for the
+last step because a maximize click after a long pointer movement would then hide the dock up to
+two seconds late. Hidden content: the host, not each widget, stops the refresh tick while the
+widget cannot be seen, and keeps redraw requests for the show; `setTimeout` / `setInterval` keep
+running because widgets poll with them, and stopping them would be a silent behaviour change. The
+catch-up tick on the show runs only when a boundary passed while hidden: running it on every show
+would make a widget that fetches in `tick()` (Stocks) fetch on every reveal of an auto-hide dock.
+"Can be seen" now also excludes the full-screen guard (it was missing: a guarded dock kept its
+widgets ticking and its thumbnails capturing). The session (lock, display off, disconnect) is a
+fourth reason to be hidden; the perf sampler sleeps instead of stopping (stopping empties every
+graph's history), and the notification worker waits for an event instead of polling (one poll on
+the return finds what came meanwhile). Without notification access the worker now asks every 2
+minutes instead of every 5 s; the dock's own "Open Windows settings" links bring back the normal
+pace for a minute.
+
 ## Dependencies at a glance
 
 ```

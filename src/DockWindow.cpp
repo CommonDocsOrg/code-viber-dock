@@ -393,6 +393,7 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
     shared_ = shared;
     instance_ = instance;
     hook_ = std::move(hook);
+    sessionPaused_ = shared_ && shared_->SessionPaused();  // round 26 phase 26A: made while locked
 
     WNDCLASSEXW wc{sizeof(wc)};
     wc.lpfnWndProc = &DockWindow::WndProcThunk;
@@ -492,6 +493,9 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                      [this] {
                          DismissCentre(true);
                          OpenTarget(L"ms-settings:privacy-notifications");
+                         // Round 26 phase 26A: the user is about to change the access: the worker
+                         // re-checks at the pollS pace for a minute instead of every 2 minutes.
+                         if (shared_) shared_->Notifications().PollNow();
                      },
                      [this](const NotificationItem& n, UINT px) -> ID2D1Bitmap* {
                          if (n.key.id.empty()) return nullptr;
@@ -6365,11 +6369,31 @@ void DockWindow::SetFullscreenHidden(bool hidden) {
     }
 }
 
+bool DockWindow::ContentVisible() const {
+    // Round 26 phase 26A: also not while the full-screen guard hides the dock (it was left out, so
+    // a dock hidden by the guard kept its widgets ticking and its thumbnails capturing) nor while
+    // the session is paused (locked, display off, disconnected: DockManager::SetSessionPaused).
+    return !desktopHidden_ && !fullscreenHidden_ && !sessionPaused_ &&
+           (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
+}
+
 void DockWindow::SyncWidgetVisibility() {
-    const bool visible = !desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
+    const bool visible = ContentVisible();
     for (auto& [key, w] : widgets_) w->SetVisible(visible);
     // Window thumbnails capture only while the dock can be seen (hidden: sessions closed, no timer).
     thumbs_.Activate(visible);
+    // Round 26 phase 26A: the clocks' tick found the dock hidden and was not re-armed: back on
+    // screen, every clock ticks once now (a changed text redraws) and asks for its next boundary.
+    if (visible && clockPaused_) {
+        clockPaused_ = false;
+        DispatchEvent(DockEvent::ClockTick);
+    }
+}
+
+void DockWindow::SetSessionPaused(bool paused) {
+    if (paused == sessionPaused_) return;
+    sessionPaused_ = paused;
+    SyncWidgetVisibility();
 }
 
 void DockWindow::SyncThumbnails() {
@@ -6693,7 +6717,7 @@ WidgetInstance* DockWindow::AcquireWidget(const DockItemEntry& entry, size_t ord
         return it->second.get();
     }
     ScriptDockInfo info = WidgetDockInfo(*this);
-    info.visible = !desktopHidden_ && (hideState_ == HideState::Shown || hideState_ == HideState::Showing);
+    info.visible = ContentVisible();  // round 26 phase 26A: the same rule as SyncWidgetVisibility
     auto widget = std::make_unique<WidgetInstance>(shared_->Widgets(), static_cast<WidgetInstance::Client&>(*this),
                                                    renderer_.D2DFactory(), renderer_.DWrite(), entry.id, key,
                                                    entry.settings, info, place);
@@ -9560,6 +9584,16 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return folder_.Kind() == 3 ? (folder_.TitleShown() ? 1 : 0) | (folder_.GearShown() ? 2 : 0) : -1;
         case 355:  // the hover-open timers pending (any drawer state): 1 the open delay, + 2 the leave grace
             return (trayHoverPending_ ? 1 : 0) | (trayLeavePending_ ? 2 : 0);
+        // Round 26 phase 26A (process-wide, any dock): the foreground watch's evaluations (its
+        // onChange runs) and the firings that skipped one (a suspension's re-hook, nothing changed).
+        case 359:
+            return static_cast<LRESULT>(shared_->Watch().Evaluations());
+        case 360:
+            return static_cast<LRESULT>(shared_->Watch().SkippedEvaluations());
+        // Round 26 phase 26A: 1 while this dock's clocks and widget refresh ticks are paused (the dock
+        // cannot be seen: hidden, a hidden desktop dock, the full-screen guard, the session paused).
+        case 361:
+            return ContentVisible() ? 0 : 1;
         default:
             return -1;
     }
@@ -10042,6 +10076,13 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 case kClockTimerId:
                     KillTimer(hwnd_, kClockTimerId);  // one-shot; the clocks ask for their next boundary (RequestClockTick)
                     clockDue_ = 0;
+                    // Round 26 phase 26A: nobody can see the dock (auto-hidden, a hidden desktop dock,
+                    // the full-screen guard, a locked session): no tick, no redraw, and no next timer;
+                    // SyncWidgetVisibility ticks every clock once when the dock is back.
+                    if (!ContentVisible()) {
+                        clockPaused_ = true;
+                        return 0;
+                    }
                     DispatchEvent(DockEvent::ClockTick);  // round 25 phase 25C: every clock element (each redraws only on a change)
                     return 0;
                 case kBounceTimerId:

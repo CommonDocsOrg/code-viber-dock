@@ -114,6 +114,8 @@ public:
     void Cancel(WidgetInstance* w, int id);
     void CancelAll(WidgetInstance* w);
     size_t PendingTimers(const WidgetInstance* w) const;
+    // Round 26 phase 26A: when timer `id` of `w` is due (WidgetNowMs), -1 when none is scheduled.
+    double DueOf(const WidgetInstance* w, int id) const;
 
     void Add(WidgetInstance* w);
     void Remove(WidgetInstance* w);
@@ -160,6 +162,10 @@ public:
     // and stopped with the last; its period is the fastest any live user asked for
     // (perf.setInterval, default 1000 ms). Each snapshot reaches the users as perf.onChange.
     PerfService* UsePerf(WidgetInstance* w);
+    // Round 26 phase 26A: the session is locked / the display off (DockManager): the perf sampler
+    // sleeps. Widget timers (setTimeout / setInterval) are not touched; the refresh ticks pause
+    // through each instance's visibility.
+    void SetPaused(bool paused) { perf_.SetPaused(paused); }
     // `w`'s own period (0: the default); the service re-times to the fastest of its users.
     void SetPerfInterval(WidgetInstance* w, uint32_t ms);
     PerfService& Perf() { return perf_; }

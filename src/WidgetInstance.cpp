@@ -226,17 +226,65 @@ void WidgetInstance::SetSettings(const std::wstring& itemSettings) {
 void WidgetInstance::SetVisible(bool visible) {
     if (dock_.visible == visible) return;
     dock_.visible = visible;
-    if (state_ != State::Ok || !engine_) return;
-    Check(engine_->Call(ScriptEngine::Fn::OnVisibilityChange,
-                        std::string("{\"visible\":") + (visible ? "true" : "false") + "}"),
-          FnName(ScriptEngine::Fn::OnVisibilityChange));
+    if (state_ == State::Ok && engine_) {
+        Check(engine_->Call(ScriptEngine::Fn::OnVisibilityChange,
+                            std::string("{\"visible\":") + (visible ? "true" : "false") + "}"),
+              FnName(ScriptEngine::Fn::OnVisibilityChange));
+    }
+    // Round 26 phase 26A: off screen the refresh tick stops (PauseRefresh); back on screen the
+    // redraw asked for meanwhile is posted once and a tick that was missed runs once.
+    if (!visible) {
+        PauseRefresh();
+    } else {
+        ResumeRefresh();
+    }
+}
+
+// Round 26 phase 26A: a seconds clock on an auto-hidden dock ran tick() + draw() + a composition
+// commit every second for nobody. The host now stops the refresh (timer id 0) while the instance
+// cannot be seen; setTimeout / setInterval keep running (a widget may poll with them), and their
+// redraw requests are kept for the show (RequestRedraw). Not while its popup is open: a popup of a
+// hidden dock can still be on screen and may show what tick() updates.
+bool WidgetInstance::Unseen() const {
+    return !preview_ && !dock_.visible && !client_.WidgetPopupShown(*this) && !client_.WidgetPassiveShown(*this);
+}
+
+void WidgetInstance::PauseRefresh(bool missedNow) {
+    if (preview_ || refreshMs_ == 0 || state_ != State::Ok || !Unseen()) return;
+    if (!refreshPaused_) {
+        const double due = runtime_.DueOf(this, 0);
+        pausedDue_ = due >= 0.0 ? due : WidgetNowMs() + WidgetAlignedDelay(refreshMs_, refreshZone_);
+    }
+    if (missedNow) pausedDue_ = std::min(pausedDue_, WidgetNowMs());
+    runtime_.Cancel(this, 0);
+    refreshPaused_ = true;
+}
+
+void WidgetInstance::ResumeRefresh() {
+    if (Unseen()) return;
+    if (redrawOnShow_) {
+        redrawOnShow_ = false;
+        client_.WidgetChanged(*this);
+    }
+    if (!refreshPaused_) return;
+    refreshPaused_ = false;
+    // The tick due while it was hidden runs once now (12 ms: the runtime's own early-firing slack);
+    // a widget shown again before its next boundary just waits for it, so a widget that fetches in
+    // tick() (Stocks) does not fetch on every reveal of an auto-hide dock.
+    const bool missed = WidgetNowMs() + 12.0 >= pausedDue_;
+    ScheduleRefresh();  // aligned as before
+    if (missed && state_ == State::Ok && engine_) OnTimer(0);
 }
 
 void WidgetInstance::TimeChanged() {
     WidgetSystem::ForgetZones();  // the zone data may have changed with it
     if (state_ != State::Ok || !engine_ || refreshMs_ == 0) return;
     ScheduleRefresh();  // aligned to the new local time
-    OnTimer(0);         // and up to date now
+    if (refreshPaused_) {  // round 26 phase 26A: hidden: the tick waits for the show
+        pausedDue_ = WidgetNowMs();
+        return;
+    }
+    OnTimer(0);  // and up to date now
 }
 
 void WidgetInstance::SetDock(const ScriptDockInfo& info) {
@@ -766,6 +814,13 @@ void WidgetInstance::Hover(bool inside, float x, float y) {
 void WidgetInstance::OnTimer(int id) {
     if (state_ != State::Ok || !engine_) return;
     if (id == 0) {
+        // Round 26 phase 26A: the instance went out of sight while its popup kept the refresh
+        // running (or the visibility changed without SetVisible pausing it): this tick is skipped
+        // and the refresh stops; the show runs it (ResumeRefresh).
+        if (Unseen()) {
+            PauseRefresh(true);
+            return;
+        }
         // The refresh: tick(), then a redraw unless it returned false.
         if (engine_->Has(ScriptEngine::Fn::Tick)) {
             const ScriptResult r = engine_->Call(ScriptEngine::Fn::Tick, {});
@@ -942,7 +997,16 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
 void WidgetInstance::ScheduleRefresh() {
     if (preview_) return;  // a preview never ticks (it shows the time it was drawn)
     runtime_.Cancel(this, 0);
-    if (refreshMs_ > 0 && state_ == State::Ok) runtime_.Schedule(this, 0, refreshMs_, true, true, refreshZone_);
+    refreshPaused_ = false;
+    if (refreshMs_ == 0 || state_ != State::Ok) return;
+    if (Unseen()) {
+        // Round 26 phase 26A: loaded (or setRefresh called) while it cannot be seen: the schedule
+        // starts with the show; the boundary it would have ticked at decides the catch-up there.
+        refreshPaused_ = true;
+        pausedDue_ = WidgetNowMs() + WidgetAlignedDelay(refreshMs_, refreshZone_);
+        return;
+    }
+    runtime_.Schedule(this, 0, refreshMs_, true, true, refreshZone_);
 }
 
 // --- ScriptHost --------------------------------------------------------------------------------
@@ -1044,6 +1108,12 @@ void WidgetInstance::RequestRedraw() {
     measured_ = false;
     if (changed_) return;  // already asked (the dock redraws once)
     changed_ = true;
+    // Round 26 phase 26A: nobody can see it (a setInterval animating, a provider's onChange while
+    // the dock is hidden): kept, and posted once when it is shown again (ResumeRefresh).
+    if (Unseen()) {
+        redrawOnShow_ = true;
+        return;
+    }
     client_.WidgetChanged(*this);
 }
 

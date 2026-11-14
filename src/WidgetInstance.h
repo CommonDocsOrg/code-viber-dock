@@ -148,7 +148,8 @@ public:
     // DIPs (the window's client area); Measure returns it without asking measure() or the manifest.
     void SetStandaloneBox(float widthDip, float heightDip);
     // The dock went off / came back on screen (auto-hide, a desktop dock): dock.visible and
-    // onVisibilityChange({ visible }) when it changed.
+    // onVisibilityChange({ visible }) when it changed. Round 26 phase 26A: off screen the refresh
+    // tick pauses and redraw requests are kept; on screen one catch-up tick and one redraw.
     void SetVisible(bool visible);
     // The system time / time zone changed or the machine resumed: aligned refreshes are re-aligned
     // and a refreshing widget ticks at once.
@@ -349,6 +350,17 @@ private:
     double cpuMs_[kCpuWindowS]{};  // script ms per second (ring, by second % kCpuWindowS)
     int64_t cpuSecond_ = 0;        // the second of the newest bucket
     void ScheduleRefresh();
+    // Round 26 phase 26A: the refresh tick only while the widget can be seen. Unseen: the dock (or
+    // window) is off screen and no popup of the widget is open. PauseRefresh cancels timer 0 and
+    // remembers when it was due (`missedNow`: the tick firing now is the one skipped);
+    // ResumeRefresh posts a redraw kept meanwhile, schedules the refresh aligned again and runs
+    // one tick at once when a boundary passed while hidden.
+    bool Unseen() const;
+    void PauseRefresh(bool missedNow = false);
+    void ResumeRefresh();
+    bool refreshPaused_ = false;  // timer 0 is cancelled until ResumeRefresh
+    double pausedDue_ = 0.0;      // WidgetNowMs of the first tick skipped (or that would have run)
+    bool redrawOnShow_ = false;   // RequestRedraw came while Unseen: WidgetChanged on the show
     // The upright box size in DIPs for the current dock (from the cached measure).
     void BoxDips(float& w, float& h) const;
     void DrawErrorTile(ID2D1DeviceContext* dc, float w, float h);

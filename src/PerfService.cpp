@@ -936,7 +936,8 @@ struct PerfService::Shared {
     uint64_t generation = 0;
     std::atomic<uint32_t> interval{kDefaultInterval};
     std::atomic<bool> stop{false};
-    HANDLE wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);  // auto reset: stop, or the interval changed
+    std::atomic<bool> paused{false};  // round 26 phase 26A: the session is locked / the display off
+    HANDLE wake = CreateEventW(nullptr, FALSE, FALSE, nullptr);  // auto reset: stop, the interval changed, paused / resumed
     ~Shared() {
         if (wake) CloseHandle(wake);
     }
@@ -949,6 +950,7 @@ bool PerfService::Start(HWND owner) {
     shared->owner = owner;
     shared->generation = ++generation_;
     shared->interval = interval_;
+    shared->paused = paused_;
     auto* param = new std::shared_ptr<Shared>(shared);
     HANDLE t = CreateThread(nullptr, 256 * 1024, &PerfService::ThreadMain, param, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
     if (!t) {
@@ -1000,6 +1002,11 @@ void PerfService::SetInterval(uint32_t ms) {
     }
 }
 
+void PerfService::SetPaused(bool paused) {
+    paused_ = paused;
+    if (shared_ && shared_->paused.exchange(paused) != paused) SetEvent(shared_->wake);
+}
+
 // Round 25 phase 25E: an exception escaping the thread's body ends this service's thread (the
 // service stops delivering; the dock keeps running) instead of std::terminate ending the process
 // with the taskbar hidden (Crash.h).
@@ -1022,6 +1029,20 @@ DWORD PerfService::ThreadBody(void* param) {
     double last = QpcMs();
     double next = last + std::min<uint32_t>(s->interval, 500);
     while (!s->stop) {
+        // Round 26 phase 26A: the session is locked or the display off: no samples (and no posts
+        // to the UI thread) until resumed; the history rings are kept, the first sample after the
+        // resume comes at once. Stopping the service as when nobody uses it would empty every
+        // graph of the system monitors.
+        if (s->paused) {
+            WaitForSingleObject(s->wake, INFINITE);
+            if (s->stop) break;
+            if (!s->paused) {
+                sampler.Prime();  // the deltas (CPU, network rates) start over from now
+                last = QpcMs();
+                next = last + std::min<uint32_t>(s->interval, 500);
+            }
+            continue;
+        }
         const double now = QpcMs();
         if (now < next) {
             WaitForSingleObject(s->wake, static_cast<DWORD>(std::ceil(next - now)));
