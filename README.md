@@ -2690,7 +2690,7 @@ Contents, Position, Appearance, Behaviour, Running apps; round 12 phase 12B: App
   magnification range (1-4 icons) and (round 9) **Bar while magnified**: **Grows once and stays**
   (`magnifyBar` `"steady"`, the default) / **Follows the pointer** (`"follow"`) / **Always wide
   (never grows or shrinks)** (`"always"`; see
-  [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). While the dock
+  [Magnification, name label, auto-hide](#magnification-name-label-auto-hide)). Round 28: **Running indicator** (`indicator`): Dot / Line / Pill (wider for the app in front) / A dot per window (up to three). While the dock
   uses the app look a line says "This dock uses the app look. Changes to it are in App settings >
   Themes." with **Give this dock its own look** (copies the app's current preset and fields to the
   dock) and a **Change for every dock** link (App settings > Themes); the Quick look card and the
@@ -3130,6 +3130,15 @@ items that exist. A file whose items have settings already is left alone.
   - `popupGap` (round 7; DIPs, default 6, 0 - 64; written only when not 6): how far the dock's
     popups (previews, calendar, folders, widget popups ...) open beyond a fully magnified icon,
     see [Magnification, name label, auto-hide](#magnification-name-label-auto-hide).
+  - `indicator` (round 28 phase 28D; `"dot"` (default; not written), `"line"`, `"pill"` or
+    `"windows"`; unknown text reads as `"dot"`): the mark under a running app: the dot; a short
+    rounded line (about a third of the icon); a short pill, wider (about 0.42 of the icon) for the
+    app that owns the foreground window; or one dot per open window of the app, at most three (a
+    window slot and a group show one). Drawn in the theme's `dotRunning` / `dotActive` /
+    `dotAttention`, in the dot's place (the layout does not change); a look with `slotStyle`
+    `"buttons"` draws none. The shapes are shared surfaces like the dot's (nine: three looks by
+    three window counts), drawn again only when the layout, the theme or the style changes; a
+    change of look between running and active swaps the surface at once, as the dot always did.
   - `magnifyBar` (round 9; `"steady"` (default; not written), `"follow"` or `"always"`; unknown
     text reads as `"steady"`): how the bar grows while magnified: once, to a fixed length about its
     resting centre, from the moment the pointer first reaches something that zooms (an icon, a
@@ -3871,6 +3880,10 @@ always there, also when every dock is parked) handle these registered messages:
   waiting in that dock's reminder queue, the shown one included (179 is 1 while the banner, a
   reminder's or a widget's, is shown); on a standalone widget's index: 1 its banner is shown, 2 it
   waits for a full-screen app to go, 0 none (`tools\smoke\widgets-pack.ps1`).
+- **Running indicator** (round 28 phase 28D): **372** (dock HIWORD) = `docks[].indicator` (0 dot,
+  1 line, 2 pill, 3 a dot per window); **373** (slot in `LOWORD(lParam)`) = how many dots slot lp's
+  indicator shows: 1 - 3 (only "windows" shows more than 1), 0 none (not running, a minimized
+  window slot, slot buttons, a widget), -1 no such slot.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.
@@ -4724,7 +4737,7 @@ always there, also when every dock is parked) handle these registered messages:
   card with 2101 - 2109 (icon size, magnification, range; on Behaviour until 8B) and (round 9
   phase 9A) 2280 **Bar while magnified** (`magnifyBar`: 0 Grows once and stays (`"steady"`), 1
   Follows the pointer (`"follow"`), 2 Always wide (`"always"`, 9A follow-up); `CB_SETCURSEL` + `WM_COMMAND(2280, CBN_SELCHANGE)`; 2279 its
-  label); Behaviour = the Behaviour page's auto-hide (round 9 phase 9A: for a floating bar the
+  label), (round 28 phase 28D) 2288 **Running indicator** (`indicator`: 0 Dot, 1 Line, 2 Pill, 3 A dot per window; 2287 its label); Behaviour = the Behaviour page's auto-hide (round 9 phase 9A: for a floating bar the
   radios 2201 - 2206, the note 2222 and the delays are collapsed and 2281 (the line) / 2282 (the
   **Position tab** SysLink: a click selects tab 1) are shown; the delays expander 2269 and its
   rows are collapsed while auto-hide is off; the preview delay 2216 - 2218 / 2221 and 2223 are

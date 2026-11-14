@@ -640,6 +640,7 @@ While the dock has its own look, the **Quick look** card and the value cards wor
 
 - **Icon size**: the size of the icons at rest.
 - **Magnification**: how much the icon under the pointer grows. 1.00 turns magnification off; 2.50 is the largest.
+- **Running indicator**: the mark under an app that is running. **Dot** (the default), **Line** (a short line), **Pill** (a short pill that grows wider for the app in front) or **A dot per window** (one dot for each open window, up to three). The colours come from the look: one for running apps, one for the app in front, one for an app that wants your attention. A look with taskbar buttons (Aero glass, Luna) shows the buttons instead of any of these.
 
 The **Magnification details** card under it is closed at first (its heading counts the values you changed):
 

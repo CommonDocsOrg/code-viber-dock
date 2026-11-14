@@ -122,7 +122,7 @@ A pinned app stays on the dock whether it runs or not.
 - **Right-click** for **New window**, **Open file location**, **Close** for each window, **Customize icon**, and **Pin to dock** or **Unpin from dock**.
 - **Drop files** on an app to open them with it.
 
-While an app starts, its icon bounces until its window appears. A dot under the icon shows that it is running: brighter for the app in front, orange when the app wants your attention.
+While an app starts, its icon bounces until its window appears. A dot under the icon shows that it is running: brighter for the app in front, orange when the app wants your attention. The dock's Look tab can make it a line, a pill or a dot for each window (**Running indicator**).
 
 To give an app its own icon:
 

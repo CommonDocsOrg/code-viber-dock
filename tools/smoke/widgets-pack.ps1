@@ -9,7 +9,8 @@
 # error and draw (QueryState 54 = 0, 58 > 0); the test widget's first notify.banner is taken and
 # its second, at once after it, is refused by the rate limit (its storage: a = true, b = false);
 # the dock shows the banner (179 = 1, 371 = 1) and ItemCommand 838 dismisses it (371 = 0);
-# perf.drives() lists at least one fixed drive with a size. Nothing is clicked and no key is
+# perf.drives() lists at least one fixed drive with a size; the dock's "indicator": "pill" reads
+# back (QueryState 372 = 2) and a widget slot has no indicator (373 = 0). Nothing is clicked and no key is
 # pressed (the Quick buttons are never pressed). Always (finally) quits the test dock, removes the
 # test widget and its data, restores the config byte for byte and restarts the user's dock.
 param(
@@ -49,7 +50,7 @@ export function draw(canvas, dock) { canvas.fillRect(4, 4, 8, 8, dock.theme.acce
 $builtIns = 'timer', 'world-clock', 'todo', 'moon', 'quick-buttons'
 $items = @($builtIns | ForEach-Object { @{ kind = 'widget'; id = $_ } }) + @(@{ kind = 'widget'; id = $testId })
 $cfg = @{ hideTaskbar = $false; tray = @{ enabled = $false }; docks = @(
-    @{ id = 'smoke-pack'; edge = 'bottom'; align = 'center'; autoHide = 'off'; items = $items }
+    @{ id = 'smoke-pack'; edge = 'bottom'; align = 'center'; autoHide = 'off'; indicator = 'pill'; items = $items }
 ) }
 
 $userRunning = @(Get-WinDockProcess).Count -gt 0
@@ -64,6 +65,9 @@ try {
         $draws = Get-DockState 58 -Arg $i
         Check "$($builtIns[$i]) (slot $i): state $state (0 = running), draws $draws" ($state -eq 0 -and $draws -gt 0)
     }
+    # Round 28 phase 28D: the dock's indicator style is read from the config; a widget has none.
+    Check "indicator style pill (372 = $(Get-DockState 372))" ((Get-DockState 372) -eq 2)
+    Check "a widget slot shows no indicator (373 = $(Get-DockState 373 -Arg 0))" ((Get-DockState 373 -Arg 0) -eq 0)
 
     # The test widget: installed, then allowed (its instance reloads and runs its top level).
     Check 'test widget installed (DockCommand 141)' ((Install-WidgetFolder -Folder $src) -eq 1)

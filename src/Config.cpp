@@ -56,6 +56,7 @@ const wchar_t* const kThumbnailNames[] = {L"off", L"live", L"snapshots"};
 const wchar_t* const kRunningOrderNames[] = {L"firstSeen", L"name"};  // round 13 phase 13D
 const wchar_t* const kOverflowNames[] = {L"scroll", L"shrink", L"clip"};
 const wchar_t* const kMagnifyBarNames[] = {L"steady", L"follow", L"always"};  // round 9 phase 9A
+const wchar_t* const kIndicatorNames[] = {L"dot", L"line", L"pill", L"windows"};  // round 28 phase 28D
 const wchar_t* const kShapeNames[] = {L"bar", L"arc", L"circle"};
 const wchar_t* const kItemViewNames[] = {L"auto", L"grid", L"list"};
 const wchar_t* const kItemAnchorNames[] = {L"none", L"start", L"center", L"end"};
@@ -122,6 +123,9 @@ void ReadDockOnlyFields(const json::JsonObject& o, DockConfig& d) {
     s.clear();
     ReadString(o, L"magnifyBar", s);  // round 9 phase 9A
     if (!s.empty()) FromString(s, d.magnifyBar);  // unknown text: steady
+    s.clear();
+    ReadString(o, L"indicator", s);  // round 28 phase 28D
+    if (!s.empty()) FromString(s, d.indicator);  // unknown text: dot
     ReadString(o, L"title", d.title);
     // "monitor": a number (ReadDockFields), or "primary" / "each".
     if (auto m = Find(o, L"monitor"); m && m.ValueType() == json::JsonValueType::String) {
@@ -591,6 +595,8 @@ const wchar_t* ToString(OverflowMode v) { return EnumToString(v, kOverflowNames)
 bool FromString(std::wstring_view s, OverflowMode& v) { return EnumFromString(s, v, kOverflowNames); }
 const wchar_t* ToString(MagnifyBar v) { return EnumToString(v, kMagnifyBarNames); }
 bool FromString(std::wstring_view s, MagnifyBar& v) { return EnumFromString(s, v, kMagnifyBarNames); }
+const wchar_t* ToString(IndicatorStyle v) { return EnumToString(v, kIndicatorNames); }
+bool FromString(std::wstring_view s, IndicatorStyle& v) { return EnumFromString(s, v, kIndicatorNames); }
 const wchar_t* ToString(DockShape v) { return EnumToString(v, kShapeNames); }
 bool FromString(std::wstring_view s, DockShape& v) { return EnumFromString(s, v, kShapeNames); }
 const wchar_t* ToString(ItemView v) { return EnumToString(v, kItemViewNames); }
@@ -1215,6 +1221,7 @@ void Config::Sanitize() {
         // Round 13 phase 13D: the running keys are sanitized by RunningOf (the item's settings).
         if (static_cast<unsigned>(d.overflow) > static_cast<unsigned>(OverflowMode::Clip)) d.overflow = OverflowMode::Scroll;
         if (static_cast<unsigned>(d.magnifyBar) > static_cast<unsigned>(MagnifyBar::Always)) d.magnifyBar = MagnifyBar::Steady;
+        if (static_cast<unsigned>(d.indicator) > static_cast<unsigned>(IndicatorStyle::Windows)) d.indicator = IndicatorStyle::Dot;
         if (static_cast<unsigned>(d.shape) > static_cast<unsigned>(DockShape::Circle)) d.shape = DockShape::Bar;
         d.radius = d.radius <= 0 ? 0 : std::clamp(d.radius, 60, 2000);
         if (d.x != DockConfig::kCentred) d.x = std::clamp(d.x, -16000, 16000);
@@ -1787,6 +1794,8 @@ std::wstring Config::ToJson(bool windowSizes) const {
                  (d.popupGap != DockConfig::kDefaultPopupGap ? L",\n      \"popupGap\": " + Num(d.popupGap) : L"") +
                  // Round 9 phase 9A: only when not the default.
                  (d.magnifyBar != MagnifyBar::Steady ? L",\n      \"magnifyBar\": " + Quote(ToString(d.magnifyBar)) : L"") +
+                 // Round 28 phase 28D: only when not the dot.
+                 (d.indicator != IndicatorStyle::Dot ? L",\n      \"indicator\": " + Quote(ToString(d.indicator)) : L"") +
                  // Round 12 phase 12B: the dock's own inline theme fields (its own look with changes).
                  (d.OwnLook() && d.themeOverrides != 0
                       ? L",\n      \"theme\": {" + Theme::WriteFields(d.theme, d.themeOverrides, L"        ").substr(1) + L" }"

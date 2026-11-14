@@ -1527,7 +1527,12 @@ private:
     bool perspectiveApplied_ = false;  // the 3D tilt is set on the groups (QueryState 32 bit 2)
     // The three indicator-dot looks (inactive, active, attention), drawn once and shared by every
     // item's dot visual (each DComp surface has a sizeable fixed cost). The source visuals are hidden.
-    Layer dotSources_[3];
+    // Round 28 phase 28D: per look three window counts (1, 2, 3 or more: docks[].indicator
+    // "windows"; the other styles use the first of each), index look * 3 + count - 1, all drawn in
+    // the dock's indicator style (dotStyleDrawn_: the style they show, -1 none yet).
+    static constexpr int kDotSources = 9;
+    Layer dotSources_[kDotSources];
+    int dotStyleDrawn_ = -1;
     Layer label_;
     Layer title_;
     winrt::com_ptr<IDWriteTextLayout> titleLayout_;  // docks[].title laid out (null: none)

@@ -219,6 +219,13 @@ protected:
             Trackbar(kMagnifyTrack, kColX - 6, 212, 20, 50, 2);
             Text(kMagnifyValue, CtlKind::Value, L"", kColX + 216, 72);
             NextRow();
+            // Round 28 phase 28D: docks[].indicator.
+            Label(kIndicatorLabel, L"Running indicator");
+            Tip(kIndicatorLabel, L"The mark under an app that is running: a dot (the default), a short line, a pill (wider for "
+                                 L"the app in front) or a dot for each open window (up to three). Its colours are the look's "
+                                 L"dot colours. A look with taskbar buttons (Aero glass, Luna) shows the buttons instead.");
+            Combo(kIndicatorCombo, kColX, 212, false);
+            NextRow();
             // Round 10 phase 10D: the magnification's tuning, closed at first.
             UntitledCard();
             HeadingExpander(kMagnifyMore, L"Magnification details", false, L"guide-settings.md#size");
@@ -297,6 +304,9 @@ protected:
         ComboAdd(kMagnifyBarCombo, L"Grows once and stays");  // MagnifyBar order
         ComboAdd(kMagnifyBarCombo, L"Follows the pointer");
         ComboAdd(kMagnifyBarCombo, L"Always wide (never grows or shrinks)");
+        for (const wchar_t* n : {L"Dot", L"Line", L"Pill (wider for the app in front)", L"A dot per window"}) {
+            ComboAdd(kIndicatorCombo, n);  // IndicatorStyle order (round 28 phase 28D)
+        }
     }
 
     void Load() override {
@@ -312,6 +322,7 @@ protected:
             SetTrack(kMagnifyTrack, mag);
             SetText(kMagnifyValue, FormatMagnification(mag));
             SetComboSel(kMagnifyBarCombo, static_cast<int>(d.magnifyBar));
+            SetComboSel(kIndicatorCombo, static_cast<int>(d.indicator));
             UpdateDockCounts();
             const bool own = d.OwnLook();
             Collapse({kLookReason, kOwnLook, kDockThemeLink}, own);
@@ -360,6 +371,15 @@ protected:
                 SetQuick(Quick::Corners, sel, std::wstring(L"Corners: ") + kCornerNames[sel]);
             } else if (sel >= 0 && sel <= 3) {
                 SetQuick(Quick::Effects, sel, std::wstring(L"Icon effects: ") + kEffectNames[sel]);
+            }
+            return;
+        }
+        if (id == kIndicatorCombo) {  // round 28 phase 28D
+            const int sel = ComboSel(id);
+            if (code == CBN_SELCHANGE && sel >= 0 && sel <= static_cast<int>(IndicatorStyle::Windows) &&
+                static_cast<IndicatorStyle>(sel) != Dock().indicator) {
+                Dock().indicator = static_cast<IndicatorStyle>(sel);
+                Changed(SettingsScope::Appearance);  // the dock redraws its indicator surfaces (DrawFrame)
             }
             return;
         }

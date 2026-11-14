@@ -270,6 +270,9 @@ inline constexpr int kSectionMoving = 2283;          // Global > General: the "M
 inline constexpr int kSnapToScreen = 2284;           // check box: settings.snapToScreen (+ caption 2285, hint 2286)
 inline constexpr int kSnapToScreenCaption = 2285;
 inline constexpr int kSnapToScreenHint = 2286;
+// Round 28 phase 28D: a dock's Look tab, Look and size card: "Running indicator" (docks[].indicator).
+inline constexpr int kIndicatorLabel = 2287;
+inline constexpr int kIndicatorCombo = 2288;          // 0 dot, 1 line, 2 pill, 3 a dot per window (IndicatorStyle order)
 
 // About (2300 - 2399)
 inline constexpr int kAboutName = 2300;

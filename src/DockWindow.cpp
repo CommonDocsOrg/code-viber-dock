@@ -1982,6 +1982,7 @@ void DockWindow::ResetLayers() {
     perspectiveApplied_ = false;
     itemsGroup_.Reset();
     for (Layer& d : dotSources_) d.Reset();
+    dotStyleDrawn_ = -1;
     marker_.Reset();
     markerX_.valid = false;
     label3_ = nullptr;
@@ -2781,17 +2782,46 @@ HRESULT DockWindow::RenderDotSources() {
         Theme::ToColor(DockTheme().dotActive),     // owns the foreground window
         Theme::ToColor(DockTheme().dotAttention),  // wants attention
     };
-    for (int i = 0; i < 3; ++i) {
+    // Round 28 phase 28D: the shape follows docks[].indicator; every shape lies inside the dot's
+    // surface (icon wide, dotHeight tall), centred where the dot was, so the layout is unchanged.
+    const IndicatorStyle style = DockCfg().indicator;
+    const float r = l.dotRadius, cx = icon / 2.0f, cy = l.dotCenterY;
+    for (int i = 0; i < kDotSources; ++i) {
+        const int look = i / 3, count = i % 3 + 1;
         HRESULT hr = DrawCanonical(dotSources_[i], icon, static_cast<float>(l.dotHeight),
                                          [&](ID2D1DeviceContext* dc) {
                                              winrt::com_ptr<ID2D1SolidColorBrush> brush;
-                                             if (FAILED(dc->CreateSolidColorBrush(colors[i], brush.put()))) return;
-                                             dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(icon / 2.0f, l.dotCenterY),
-                                                                           l.dotRadius, l.dotRadius),
-                                                             brush.get());
+                                             if (FAILED(dc->CreateSolidColorBrush(colors[look], brush.put()))) return;
+                                             auto bar = [&](float w, float h) {
+                                                 w = std::min(w, icon - 2.0f);
+                                                 dc->FillRoundedRectangle(D2D1::RoundedRect(D2D1::RectF(cx - w / 2.0f, cy - h / 2.0f, cx + w / 2.0f, cy + h / 2.0f),
+                                                                                            h / 2.0f, h / 2.0f),
+                                                                          brush.get());
+                                             };
+                                             switch (style) {
+                                                 case IndicatorStyle::Line:  // a short line, a little thinner than the dot
+                                                     bar(std::max(4.0f * r, icon * 0.32f), std::max(2.0f, 1.3f * r));
+                                                     break;
+                                                 case IndicatorStyle::Pill:  // the app in front: a wider pill
+                                                     bar(look == 1 ? std::max(5.0f * r, icon * 0.42f) : 3.2f * r, std::max(2.0f, 1.6f * r));
+                                                     break;
+                                                 case IndicatorStyle::Windows: {  // one dot per window, up to three
+                                                     const float gap = 2.8f * r;
+                                                     for (int k = 0; k < count; ++k) {
+                                                         const float x = cx + (static_cast<float>(k) - (count - 1) / 2.0f) * gap;
+                                                         dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(x, cy), r, r), brush.get());
+                                                     }
+                                                     break;
+                                                 }
+                                                 case IndicatorStyle::Dot:
+                                                 default:
+                                                     dc->FillEllipse(D2D1::Ellipse(D2D1::Point2F(cx, cy), r, r), brush.get());
+                                                     break;
+                                             }
                                          });
         if (FAILED(hr)) return hr;
     }
+    dotStyleDrawn_ = static_cast<int>(style);
     for (DockItem& item : items_) item.dotDirty = true;  // the shared surfaces were replaced
     return S_OK;
 }
@@ -2803,10 +2833,13 @@ HRESULT DockWindow::RenderDot(DockItem& item) {
     const bool running = item.kind == DockItem::Kind::Group ? item.groupRunning : !item.windows.empty();
     // Round 11 phase 11A: with slot buttons the frame is the indicator (the dot layers stay: cheap,
     // and the style can change at runtime).
-    const Layer& source = layout_.buttons || !running || (item.window && item.minimized) ? none
-                          : item.wantsAttention ? dotSources_[2]
-                          : item.active         ? dotSources_[1]
-                                                : dotSources_[0];
+    // Round 28 phase 28D: the look (0 running, 1 active, 2 attention) times three window counts;
+    // only the "windows" style draws them apart (a window slot and a group count one).
+    const int look = item.wantsAttention ? 2 : item.active ? 1 : 0;
+    const int count = DockCfg().indicator == IndicatorStyle::Windows && !item.window && item.kind != DockItem::Kind::Group
+                          ? static_cast<int>(std::clamp<size_t>(item.windows.size(), 1, 3))
+                          : 1;
+    const Layer& source = layout_.buttons || !running || (item.window && item.minimized) ? none : dotSources_[look * 3 + count - 1];
     const HRESULT hr = renderer_.ShareContent(item.dot, source);
     if (SUCCEEDED(hr)) item.dotDirty = false;
     return hr;
@@ -3965,7 +3998,8 @@ HRESULT DockWindow::DrawFrame(bool all) {
         hr = RenderBackground();
     }
     if (SUCCEEDED(hr) && (all || dotSources_[0].width != static_cast<UINT>(dotSize.width) ||
-                          dotSources_[0].height != static_cast<UINT>(dotSize.height))) {
+                          dotSources_[0].height != static_cast<UINT>(dotSize.height) ||
+                          dotStyleDrawn_ != static_cast<int>(DockCfg().indicator))) {  // round 28 phase 28D
         hr = RenderDotSources();
     }
     for (DockItem& item : items_) {
@@ -7028,6 +7062,10 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
             item.dotDirty = true;           // indicator dot
             if (item.missing) item.dirty = true;  // placeholder <-> live icon
         }
+        // Round 28 phase 28D: a dot per window: the count changes the shape (up to three).
+        if (DockCfg().indicator == IndicatorStyle::Windows && std::min<size_t>(item.windows.size(), 3) != std::min<size_t>(windows.size(), 3)) {
+            item.dotDirty = true;
+        }
         item.windows = std::move(windows);
         if (item.wantsAttention != attention) {
             item.wantsAttention = attention;
@@ -9692,6 +9730,18 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return static_cast<LRESULT>(envSkipped_);
         case 366:  // round 26 phase 26C (process-wide): window tracker passes that only re-read captions
             return static_cast<LRESULT>(shared_->Tracker().TitlePasses());
+        case 372:  // round 28 phase 28D: docks[].indicator: 0 dot, 1 line, 2 pill, 3 a dot per window
+            return static_cast<LRESULT>(DockCfg().indicator);
+        case 373:  // 28D: the window count slot lp's indicator shows (1 - 3; 0 none: not running, buttons, a widget)
+            if (lp < 0 || static_cast<size_t>(lp) >= items_.size()) return -1;
+            {
+                const DockItem& it = items_[static_cast<size_t>(lp)];
+                const bool run = it.kind == DockItem::Kind::Group ? it.groupRunning : !it.windows.empty();
+                if (it.IsWidget() || layout_.buttons || !run || (it.window && it.minimized)) return 0;
+                return DockCfg().indicator == IndicatorStyle::Windows && !it.window && it.kind != DockItem::Kind::Group
+                           ? static_cast<LRESULT>(std::clamp<size_t>(it.windows.size(), 1, 3))
+                           : 1;
+            }
         case 371:  // round 28 phase 28A: widget banners (notify.banner) waiting on this dock, the shown one included
             return static_cast<LRESULT>(std::count_if(reminders_.begin(), reminders_.end(),
                                                       [](const CalendarService::ReminderInfo& r) { return r.script; }));

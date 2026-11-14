@@ -2151,6 +2151,15 @@ click away in Themes (to confirm with the owner). The Top bar preset is a second
 replacement: no pins, small icons, the clock on one line through a new face. Four clock faces fill
 gaps in the shipped set (a seconds line, a compact line, a menu-bar line, a large date).
 
+**28D, indicator shapes.** The dot was already a shared surface per look swapped into each slot,
+so the new shapes are only new drawings of those surfaces (nine now: three looks by three window
+counts) in the same box and place; nothing in the layout, the slot visuals or the ring placement
+changed, which is why it was landed rather than left as a design note. There was no animation
+between inactive and active (the surface swaps), so none was added: a tween of the pill's width
+would need a per-slot surface or a scale transform on the dot visual, a larger change for a small
+effect (a candidate for later, with the Tween path's scale animation). Colours stay the theme's dot
+colours, so no Theme field was added; the style is per dock.
+
 ## Dependencies at a glance
 
 ```

@@ -173,6 +173,11 @@ enum class OverflowMode { Scroll, Shrink, Clip };
 // magnified icons at both ends of the icons, nothing grows or shrinks). Rings, a scrolling bar and
 // a full-width or anchored bar always grow as before.
 enum class MagnifyBar { Steady, Follow, Always };
+// The mark under a running app (round 28 phase 28D, docks[].indicator): "dot" (default: the dot of
+// every version before), "line" (a short rounded line), "pill" (a short pill, a wider one for the
+// app in front) or "windows" (one dot per open window, at most 3). Its colours stay the theme's
+// dotRunning / dotActive / dotAttention; slot buttons (theme slotStyle) draw none of them.
+enum class IndicatorStyle { Dot, Line, Pill, Windows };
 // The dock's shape (round 4 phase 11b): "bar" (default), "arc" (a half ring whose diameter lies
 // on the screen edge, the items along the arc) or "circle" (a full ring floating on the monitor at
 // x / y; it ignores the edge, alignment and offset).
@@ -467,6 +472,8 @@ struct DockConfig {
     // Round 9 phase 9A: how the bar grows while magnified ("steady" / "follow" / "always"). Saved
     // only when not "steady".
     MagnifyBar magnifyBar = MagnifyBar::Steady;
+    // Round 28 phase 28D: the running indicator's shape. Saved only when not "dot".
+    IndicatorStyle indicator = IndicatorStyle::Dot;
     AutoHideMode autoHide = AutoHideMode::Always;
     int hideDelayMs = 400;
     int revealDelayMs = 150;
@@ -716,6 +723,8 @@ const wchar_t* ToString(OverflowMode v);
 bool FromString(std::wstring_view s, OverflowMode& v);
 const wchar_t* ToString(MagnifyBar v);
 bool FromString(std::wstring_view s, MagnifyBar& v);
+const wchar_t* ToString(IndicatorStyle v);  // round 28 phase 28D
+bool FromString(std::wstring_view s, IndicatorStyle& v);
 const wchar_t* ToString(DockShape v);
 bool FromString(std::wstring_view s, DockShape& v);
 const wchar_t* ToString(ItemView v);
