@@ -33,7 +33,8 @@ struct Preset {
     // --- end round 12 phase 12C ---
 };
 
-// The presets in list order (basic, minimal, modern, windows, sidebar, performance, dashboard),
+// The presets in list order (basic, minimal, modern, windows, win7, sidebar, performance, dashboard,
+// everyday),
 // read and validated once (the first call).
 const std::vector<Preset>& All();
 

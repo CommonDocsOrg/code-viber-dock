@@ -1,0 +1,32 @@
+{
+  "id": "everyday",
+  "name": "Everyday taskbar",
+  "tagline": "A full-width bar with everything on it",
+  "description": "A dark bar along the whole bottom edge that takes the place of the taskbar. The weather with a week of forecast sits at the left end. Start, your windows with their titles, your apps, the volume, now playing and a large clock sit in the middle. The system overview, the tray icons, notifications and Show desktop sit at the right end. It never hides, and maximized windows stop above it.",
+  "dock": {
+    "edge": "bottom", "align": "center", "fullWidth": true, "reserveSpace": true,
+    "iconSize": 48, "magnification": 1.1, "magnifyRange": 3, "magnifyBar": "always",
+    "autoHide": "off", "hideDelayMs": 400, "revealDelayMs": 150,
+    "previews": true, "previewsSingleWindow": false, "previewDelayMs": 600,
+    "middleClick": "newInstance", "wheel": "none", "layer": "normal",
+    "titleShow": "off", "titleUseName": true,
+    "themePreset": "dark"
+  },
+  "items": [
+    { "kind": "widget", "id": "weather", "anchor": "start",
+      "settings": { "dockForecast": "days", "dockDays": 7, "compact": false, "showLow": false, "showHigh": false, "showPlace": true, "days": 5, "hours": 12, "layout": "strip", "showCondition": true, "dayNames": "full", "rangeStyle": "arrows", "iconPack": "meteocons", "iconStyle": "colour", "size": 160 } },
+    { "kind": "widget", "id": "start", "settings": { "size": 100 } },
+    { "kind": "running",
+      "settings": { "filter": "all", "windows": "stacked", "titles": "one", "titlesVertical": "under", "thumbnails": "snapshots", "thumbnailIntervalS": 2, "thumbnailSize": 0, "thumbnailFps": 10, "gap": 10, "order": "firstSeen", "badges": true, "pile": true, "padding": 0 } },
+    { "kind": "separator" },
+    { "kind": "pins" },
+    { "kind": "widget", "id": "volume", "settings": { "style": "ring", "showPercent": false, "icon": "speaker", "scale": 1.25 } },
+    { "kind": "widget", "id": "media", "settings": { "controls": "hover", "marqueeMode": "always", "marqueeSpeed": 25, "textWidth": 150 } },
+    { "kind": "clock",
+      "settings": { "format": "%#I:%M %p", "showSeconds": true, "showDate": true, "click": "calendar", "clickTarget": "", "face": "large-time-small-date", "timeZone": "", "label": "", "scale": 1.5, "font": "", "timeColor": "#FFFFFFFF" } },
+    { "kind": "widget", "id": "system-overview", "anchor": "end" },
+    { "kind": "tray", "anchor": "end", "rows": 2, "columns": 4, "iconSize": 16, "expander": "after", "expanderStyle": "count", "drawerShows": "overflow", "drawerIconSize": 36, "drawerColumns": 5 },
+    { "kind": "notifications", "anchor": "end" },
+    { "kind": "widget", "id": "show-desktop", "anchor": "end" }
+  ]
+}
