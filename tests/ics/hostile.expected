@@ -1,0 +1,12 @@
+# Round 25 phase 25C: a hostile feed. FREQ=DAILY;COUNT=999999999;BYMONTH=2;BYMONTHDAY=30 from the
+# year 1000 never matches: until 25C each such event iterated to the 400 000 guard on the UI
+# thread, every refresh. Now each event stops at 200 000 iterations and one Expand call at
+# 1 000 000 for all its events together; the hostile events give no instances, and the ordinary
+# weekly event between them (the budget is not used up by two of them) is unchanged.
+# window: 20261101T000000Z 20261201T000000Z
+# local: Pacific Standard Time
+20261102T160000Z/20261102T170000Z Weekly on MO after the hostile ones
+20261109T160000Z/20261109T170000Z Weekly on MO after the hostile ones
+20261116T160000Z/20261116T170000Z Weekly on MO after the hostile ones
+20261123T160000Z/20261123T170000Z Weekly on MO after the hostile ones
+20261130T160000Z/20261130T170000Z Weekly on MO after the hostile ones

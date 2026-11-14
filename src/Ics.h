@@ -109,10 +109,17 @@ struct Calendar {
     std::vector<std::wstring> fallbackZones;  // TZIDs resolved through the Windows zones
     std::vector<std::wstring> unknownZones;   // TZIDs read as the local zone
     size_t skipped = 0;     // malformed lines / properties ignored
+    size_t eventsDropped = 0;  // round 25 phase 25C: VEVENTs beyond Parse's maxEvents (not kept)
 };
 
+// Round 25 phase 25C: at most this many VEVENTs (masters and overrides) are kept per feed, the
+// first ones in file order; the rest are counted in Calendar::eventsDropped (the feed's status
+// says so). The body may be 32 MB: without a cap a hostile feed could hold a million events, each
+// expanded on the UI thread at every refresh.
+inline constexpr size_t kMaxEvents = 50000;
+
 // Parses an iCalendar text. False (and `error`) if it holds no VCALENDAR. Never throws.
-bool Parse(const std::string& text, Calendar& out, std::wstring* error = nullptr);
+bool Parse(const std::string& text, Calendar& out, std::wstring* error = nullptr, size_t maxEvents = kMaxEvents);
 
 struct Occurrence {
     int64_t start = 0, end = 0;  // UTC seconds; all-day: the local midnights of the dates
@@ -124,10 +131,23 @@ struct Occurrence {
     bool recurring = false;
 };
 
+// Round 25 phase 25C: the recurrence expander's limits. One Expand call iterates at most
+// kExpandBudget rule periods over all its events together, and one event at most kEventIterations
+// (until 25C: 400 000 per event and no total, so N hostile events cost N x 400 000 on the UI
+// thread). An event cut short keeps what it produced (DTSTART, RDATEs, instances found so far).
+inline constexpr int64_t kExpandBudget = 1'000'000;
+inline constexpr int64_t kEventIterations = 200'000;
+struct ExpandStats {
+    int64_t iterations = 0;  // rule periods iterated
+    size_t eventsCut = 0;    // events whose expansion stopped at a limit (its own or the budget)
+    bool budgetHit = false;  // kExpandBudget was used up (later events got no rule instances)
+};
+
 // The occurrences overlapping [from, to) (UTC seconds), sorted by start (all-day first on the same
 // start). `local` is the zone of all-day dates and of floating times. At most `limit` (the rest
-// are dropped, the earliest kept).
-std::vector<Occurrence> Expand(const Calendar& cal, int64_t from, int64_t to, const Zone& local, size_t limit = 20000);
+// are dropped, the earliest kept). `stats` (optional): what the limits did.
+std::vector<Occurrence> Expand(const Calendar& cal, int64_t from, int64_t to, const Zone& local, size_t limit = 20000,
+                               ExpandStats* stats = nullptr);
 
 // Helpers shared with the tests and the service.
 // "20261103T090000Z" style text of a UTC instant / "20261103" of a day.

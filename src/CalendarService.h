@@ -59,6 +59,7 @@ public:
         std::wstring etag, lastModified;
         std::shared_ptr<const Ics::Calendar> cal;
         size_t occurrences = 0;   // in the expansion window
+        size_t expandCut = 0;     // round 25 phase 25C: repeating events the last expansion cut short (Ics::ExpandStats)
         uint64_t fileStamp = 0;   // file feeds: last write time, to skip unchanged notifications
     };
     // One occurrence in the window.

@@ -103,9 +103,11 @@ public:
         block = text_;
         return true;
     }
-    void Start() override {
-        if (host_.Hwnd()) clock_.ScheduleNextTick(host_.Hwnd(), ElementHost::kClockTimerId);
-    }
+    // Round 25 phase 25C: the dock's shared clock timer, armed for the earliest of its clocks; on
+    // its tick every clock element hears ClockTick, asks for its own next boundary again and redraws
+    // only when its text changed (UpdateText compares), so a minutes clock beside a seconds clock
+    // costs one format per second and no redraw.
+    void Start() override { host_.RequestClockTick(clock_.NextTickDelay()); }
     bool Update() override { return clock_.UpdateText(); }
     // Main / cross: width / height on a horizontal dock. On a vertical dock the lines stack one
     // word per line (the time over its AM / PM, the date's words under it) and the block's height

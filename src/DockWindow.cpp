@@ -494,7 +494,12 @@ HRESULT DockWindow::Create(HINSTANCE instance, const Config* config, size_t dock
                      },
                      [this](const NotificationItem& n, UINT px) -> ID2D1Bitmap* {
                          if (n.key.id.empty()) return nullptr;
-                         return icons_.Get(n.key, nullptr, px, renderer_.ResourceContext(), L"", 0);
+                         // Round 25 phase 25C: transient, at the centre's own size, beside the
+                         // dock's entry of the app (until 25C it replaced it); the centre keeps
+                         // a com_ptr of it, the cache drops it a minute after its last use.
+                         ID2D1Bitmap* b = icons_.Get(n.key, nullptr, px, renderer_.ResourceContext(), L"", 0, true);
+                         ArmIconEvict();
+                         return b;
                      },
                  });
     calendar_.Init(instance, &renderer_,
@@ -2291,13 +2296,17 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
                            : icons_.Get(item.key, sample, l.bitmapPx, renderer_.ResourceContext(), item.iconFile,
                                         item.iconIndex);
     if (item.thumbWindow) return RenderTile(item, bmp);
-    std::vector<ID2D1Bitmap*> minis;
+    // Round 25 phase 25C: held as com_ptrs. They were raw pointers, and until the cache kept an
+    // entry per icon file a second member of the same app with another icon file replaced (freed)
+    // the first one's bitmap before drawIcon used it. With the per-file entries a Get no longer
+    // frees an entry of the same size, so this is belt and braces for a cheap AddRef.
+    std::vector<winrt::com_ptr<ID2D1Bitmap>> minis;
     if (composed) {
         for (size_t k = 0; k < item.members.size() && minis.size() < 4; ++k) {
             const DockItem::Member& m = item.members[k];
-            minis.push_back(m.missing ? nullptr
-                                      : icons_.Get(m.key, nullptr, l.bitmapPx, renderer_.ResourceContext(), m.iconFile,
-                                                   m.iconIndex));
+            winrt::com_ptr<ID2D1Bitmap> mini;
+            if (!m.missing) mini.copy_from(icons_.Get(m.key, nullptr, l.bitmapPx, renderer_.ResourceContext(), m.iconFile, m.iconIndex));
+            minis.push_back(std::move(mini));
         }
     }
 
@@ -2323,7 +2332,7 @@ HRESULT DockWindow::RenderItem(DockItem& item) {
             for (size_t k = 0; k < minis.size(); ++k) {
                 const float x = pad + static_cast<float>(k % 2) * (mini + gap);
                 const float y = pad + static_cast<float>(k / 2) * (mini + gap);
-                if (ID2D1Bitmap* b = minis[k]) {
+                if (ID2D1Bitmap* b = minis[k].get()) {
                     const D2D1_SIZE_F bs = b->GetSize();
                     const float fit = std::min(mini / std::max(bs.width, 1.0f), mini / std::max(bs.height, 1.0f));
                     const float dw = bs.width * fit, dh = bs.height * fit;
@@ -2579,7 +2588,7 @@ HRESULT DockWindow::RenderEffects(DockItem& item, const std::function<void(ID2D1
     if (wantGlow && icon) {
         const float radiusPx = t.glowRadius * l.scale / k;  // DIPs -> bitmap pixels
         const UINT pad = IconEffects::GlowPad(radiusPx);
-        const uint32_t color = IconEffects::GlowColor(t, icons_.DominantColor(item.key), t.accent);
+        const uint32_t color = IconEffects::GlowColor(t, ItemDominant(item), t.accent);
         const float fpad = static_cast<float>(pad);
         bool drawn = false;
         hr = renderer_.DrawLayer(item.glow, bitmapPx + 2 * pad, bitmapPx + 2 * pad, [&](ID2D1DeviceContext* dc) {
@@ -2823,7 +2832,7 @@ HRESULT DockWindow::RenderButtons() {
                 // The icon's dominant colour (IconEffects, as the glow uses it); a group tile or a
                 // placeholder: the accent.
                 const bool ownIcon = !(item.kind == DockItem::Kind::Group && !item.customIcon) && !(item.missing && item.windows.empty());
-                const uint32_t dominant = ownIcon ? icons_.DominantColor(item.key) : 0;
+                const uint32_t dominant = ownIcon ? ItemDominant(item) : 0;
                 b.hotColor = dominant ? dominant : t.accent;
             }
             hr = DrawCanonical(item.button, w, h, [&](ID2D1DeviceContext* dc) {
@@ -3483,11 +3492,43 @@ void DockWindow::UpdateScrollDrag(POINT pt) {
 void DockWindow::EndWidgetGrab(bool cancelled) {
     const int slot = widgetGrab_;
     widgetGrab_ = -1;
+    widgetGrabSlot_ = AppKey{};  // round 25 phase 25C
+    widgetGrabWidget_.clear();
     if (GetCapture() == hwnd_) ReleaseCapture();
-    if (slot >= 0 && static_cast<size_t>(slot) < items_.size() && elements_[items_[static_cast<size_t>(slot)].element]) {
+    if (slot >= 0 && static_cast<size_t>(slot) < items_.size() && items_[static_cast<size_t>(slot)].element < elements_.size() &&
+        elements_[items_[static_cast<size_t>(slot)].element]) {
         ElementOf(static_cast<size_t>(slot)).OnRelease(slot, cancelled);
     }
     if (!cancelled && !CursorInZone()) LeaveZone();
+}
+
+// Round 25 phase 25C: the grab across a rebuild. The slot is found again by its key, and must
+// still show the same widget instance (an ordinal shift can hand the key's slot to another
+// instance of the same widget id).
+void DockWindow::RefindWidgetGrab() {
+    if (widgetGrab_ < 0) return;
+    for (size_t i = 0; i < items_.size(); ++i) {
+        if (!items_[i].IsWidget() || items_[i].key != widgetGrabSlot_) continue;
+        const WidgetInstance* w = WidgetAt(static_cast<int>(i));
+        if (w && w->Key() == widgetGrabWidget_) {
+            widgetGrab_ = static_cast<int>(i);
+            return;
+        }
+        break;
+    }
+    DropWidgetGrab();
+}
+
+void DockWindow::DropWidgetGrab() {
+    const std::wstring key = std::move(widgetGrabWidget_);
+    widgetGrab_ = -1;  // first: the WM_CAPTURECHANGED below finds no grab
+    widgetGrabSlot_ = AppKey{};
+    widgetGrabWidget_.clear();
+    if (GetCapture() == hwnd_) ReleaseCapture();
+    // The cancelled release the script API already has ("the window went away": do not act); a
+    // widget that is gone with its slot hears nothing (its runtime went with it). Release is a
+    // no-op unless that instance is still capturing.
+    if (WidgetInstance* w = key.empty() ? nullptr : WidgetByKey(key)) w->Release(0.0f, 0.0f, true);
 }
 
 void DockWindow::EndScrollDrag(bool fling) {
@@ -5490,6 +5531,21 @@ size_t DockWindow::CalendarEventsToday() const {
     return shared_->Calendar().CountOn(CalendarService::Today());
 }
 
+// Round 25 phase 25C: one clock timer per dock, armed for the earliest boundary any clock element
+// asked for (still one-shot: on the tick every clock asks again, so a later request dropped here
+// is made again then). Before 25C each clock element called SetTimer(kClockTimerId) itself and the
+// last element's interval won.
+void DockWindow::RequestClockTick(UINT delayMs) {
+    if (!hwnd_) return;
+    const ULONGLONG now = GetTickCount64();
+    const ULONGLONG due = now + delayMs;
+    // An earlier tick is armed and still ahead: it comes first. One that is already overdue (a
+    // resume from sleep, a busy thread) is armed again rather than trusted (0: none armed).
+    if (clockDue_ > now && clockDue_ <= due) return;
+    clockDue_ = due;
+    SetTimer(hwnd_, kClockTimerId, std::max<UINT>(delayMs, USER_TIMER_MINIMUM), nullptr);
+}
+
 void DockWindow::OnCalendarChanged() {
     if (!hwnd_ || !tracking_) return;
     DispatchEvent(DockEvent::Calendar);  // the clock's dot
@@ -6612,6 +6668,9 @@ void DockWindow::BuildElements() {
         return std::find(widgetsClaimed_.begin(), widgetsClaimed_.end(), kv.first) == widgetsClaimed_.end();
     });
     widgetsClaimed_.clear();
+    // Round 25 phase 25C: the grabbed widget went with its item: the grab ends now (until the
+    // Rebuild that follows, widgetGrab_ indexes the old slots over the new elements).
+    if (widgetGrab_ >= 0 && !WidgetByKey(widgetGrabWidget_)) DropWidgetGrab();
     if (!popupWidget_.empty() && !WidgetByKey(popupWidget_)) DismissWidgetPopup(false);  // its widget went
     if (!passiveWidget_.empty() && !WidgetByKey(passiveWidget_)) DismissWidgetPassive(false);
     if (!editorWidget_.empty() && !WidgetByKey(editorWidget_)) {  // its widget went (with its editor)
@@ -6711,6 +6770,7 @@ void DockWindow::SyncElements(bool force) {
     }
     // Every element's timers restart (the clock's tick: none once the clock is gone).
     if (hwnd_) KillTimer(hwnd_, kClockTimerId);
+    clockDue_ = 0;  // round 25 phase 25C: the clocks' Start below arm it again for the earliest
     for (auto& e : elements_) {
         if (e) e->Start();
     }
@@ -6940,6 +7000,9 @@ void DockWindow::Rebuild(const WindowTracker::Snapshot& snap) {
     }
 
     items_ = std::move(next);
+    // Round 25 phase 25C: a claimed widget press follows its slot to its new index (or ends with a
+    // cancelled release when the slot is gone); pressed_ / hover below are dropped as before.
+    if (widgetGrab_ >= 0) RefindWidgetGrab();
     UpdateBadges();  // a slot came, went or changed its windows (drawn by the redraw below)
     // Active-app glow follows the foreground (committed by the redraw below).
     if (GlowOf(DockTheme()) == GlowMode::Active) UpdateGlows(motion_.labelFade);
@@ -7206,17 +7269,27 @@ void DockWindow::ScheduleBounceTimer() {
 }
 
 void DockWindow::UpdateIconUsage() {
-    std::vector<AppKey> keys;
-    keys.reserve(items_.size());
+    // Round 25 phase 25C: each slot's app with its icon file / index (the cache keeps an entry per
+    // icon; it was the app keys alone, one entry each).
+    std::vector<IconCache::Use> uses;
+    uses.reserve(items_.size());
     for (const DockItem& item : items_) {
-        keys.push_back(item.key);
-        for (const DockItem::Member& m : item.members) keys.push_back(m.key);  // a group's composed icon
+        uses.push_back(IconCache::Use{item.key, item.iconFile, item.iconIndex});
+        for (const DockItem::Member& m : item.members) uses.push_back(IconCache::Use{m.key, m.iconFile, m.iconIndex});  // a group's composed icon
     }
-    icons_.SetInUse(keys);
+    icons_.SetInUse(uses);
+    ArmIconEvict();
+}
+
+void DockWindow::ArmIconEvict() {
     if (icons_.HasUnused() && !evictPending_ && hwnd_) {
-        SetTimer(hwnd_, kIconEvictTimerId, static_cast<UINT>(IconCache::kEvictAfterMs), nullptr);
+        SetTimer(hwnd_, kIconEvictTimerId, static_cast<UINT>(IconCache::kEvictAfterMs), nullptr);  // one-shot, re-armed while unused entries remain
         evictPending_ = true;
     }
+}
+
+uint32_t DockWindow::ItemDominant(const DockItem& item) const {
+    return icons_.DominantColor(item.key, layout_.bitmapPx, item.iconFile, item.iconIndex);
 }
 
 // --- Drag to reorder ---------------------------------------------------------------------------
@@ -9215,7 +9288,7 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 35: {
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size())) return -1;
             const DockItem& item = items_[static_cast<size_t>(lp)];
-            if (wp == 35) return static_cast<LRESULT>(icons_.DominantColor(item.key));
+            if (wp == 35) return static_cast<LRESULT>(ItemDominant(item));
             if (wp == 33) {
                 return item.glow.width && item.glowOpacity.valid ? static_cast<LRESULT>(std::lround(item.glowOpacity.to * 100.0f))
                                                                  : 0;
@@ -9752,6 +9825,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             // scroll starts from it, and the release is no click. An unclaimed press goes on as before.
             if (!editing_ && pressed_ >= 0 && ElementOf(static_cast<size_t>(pressed_)).PressClaimed(pressed_)) {
                 widgetGrab_ = pressed_;
+                widgetGrabSlot_ = items_[static_cast<size_t>(pressed_)].key;  // round 25 phase 25C (RefindWidgetGrab)
+                const WidgetInstance* grabbed = WidgetAt(pressed_);
+                widgetGrabWidget_ = grabbed ? grabbed->Key() : std::wstring();
                 dockPress_ = false;
                 editMove_ = false;
                 scrollPress_ = false;
@@ -9960,8 +10036,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case WM_TIMER:
             switch (wp) {
                 case kClockTimerId:
-                    KillTimer(hwnd_, kClockTimerId);  // one-shot; the clock reschedules it (next boundary)
-                    DispatchEvent(DockEvent::ClockTick);
+                    KillTimer(hwnd_, kClockTimerId);  // one-shot; the clocks ask for their next boundary (RequestClockTick)
+                    clockDue_ = 0;
+                    DispatchEvent(DockEvent::ClockTick);  // round 25 phase 25C: every clock element (each redraws only on a change)
                     return 0;
                 case kBounceTimerId:
                     KillTimer(hwnd_, kBounceTimerId);  // one-shot; rescheduled while bounces run
@@ -10175,6 +10252,7 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             }
             trayHoverPending_ = trayLeavePending_ = false;  // round 24 phase 24B
             trayHoverSlot_ = -1;
+            clockDue_ = 0;  // round 25 phase 25C: kClockTimerId is gone with the others
             if (binNotify_) {
                 SHChangeNotifyDeregister(binNotify_);
                 binNotify_ = 0;

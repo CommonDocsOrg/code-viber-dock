@@ -93,7 +93,7 @@ protected:
 class DockWindow : private ElementHost, private WidgetInstance::Client {
 public:
     static constexpr wchar_t kClassName[] = L"WinDock.DockWindow";
-    static constexpr UINT_PTR kClockTimerId = ElementHost::kClockTimerId;  // a clock element's tick
+    static constexpr UINT_PTR kClockTimerId = ElementHost::kClockTimerId;  // the clock elements' tick (round 25 phase 25C: one for all, RequestClockTick)
     // 3 = WindowTracker::kCoalesceTimerId
     static constexpr UINT_PTR kIconEvictTimerId = 4;
     // 5 = App::kSaveTimerId
@@ -142,6 +142,9 @@ public:
     // one of the search index's hidden settings windows, then again while any remain).
     // Round 23 phase 23A: WM_APP + 74 = WidgetWindow::kResizeMessage (posted to a standalone
     // widget's window: widget.resize asked for another size).
+    // Round 25: WM_APP + 75 = WidgetRuntime::kDeferredMessage (phase 25A, the deferred script entries);
+    // WM_APP + 76 = App::kMalformedNotice (phase 25B, posted to the app window once after a start
+    // from a malformed config.json).
     // On the settings search dialog's own window (round 9 phase 9B / round 18 phase 18D): WM_APP + 41
     // = SettingsSearch::kRebuildMessage, + 42 its kHideComboMessage, timer 1 = its kIndexTimerId (the
     // next window of the index, one-shot); WM_APP + 40 = SettingsWindow::kRebuildMessage on a settings window.
@@ -1171,6 +1174,8 @@ private:
     }
     const ThemeConfig& DockTheme() const override { return config_->ThemeOf(DockCfg()); }
     void SlotWindows(int slot, WindowsCommand cmd) override;
+    void RequestClockTick(UINT delayMs) override;  // round 25 phase 25C
+    ULONGLONG clockDue_ = 0;  // GetTickCount64 the armed kClockTimerId is due at (0: none armed)
     void OpenTarget(const std::wstring& target) override;
     void ActivateOrLaunch(int slot) override;
     void LaunchSlot(int slot, bool newInstance) override { LaunchItem(slot, newInstance); }
@@ -1264,6 +1269,12 @@ private:
     void OnBounceTimer();
     void ScheduleBounceTimer();
     void UpdateIconUsage();
+    // Round 25 phase 25C: the icon eviction timer (one-shot) when the cache has unused entries and
+    // none is pending (UpdateIconUsage; a transient Get from the notification centre).
+    void ArmIconEvict();
+    // The dominant colour of the slot's own cache entry (its app at the layout's bitmap size with
+    // its icon file / index); 0 unknown.
+    uint32_t ItemDominant(const DockItem& item) const;
     // The slot under a stage point (inside the active zone; widgets with their hit slack), or -1:
     // where the slots are laid out now (HitAlong).
     int HitTest(POINT stagePt) const;
@@ -1740,6 +1751,18 @@ private:
     // Round 23 phase 23A: the slot whose script widget claimed the left press (onPress returned
     // true; -1 none): the capture is the dock's, moves go to the widget's onDrag until the release.
     int widgetGrab_ = -1;
+    // Round 25 phase 25C: what the grab is on, so it survives a rebuild that moves the slot (a
+    // window opened or closed during a seek-bar drag): the slot's key (Rebuild finds its new index
+    // by it, as the preview and the drag are found again) and its widget instance's key. Until 25C
+    // Rebuild kept the old index and the moves / release went to whatever slot had it then.
+    AppKey widgetGrabSlot_;
+    std::wstring widgetGrabWidget_;
+    // After a rebuild: widgetGrab_ = the grabbed slot's new index, or (gone, or another widget there
+    // now) DropWidgetGrab.
+    void RefindWidgetGrab();
+    // Ends the grab without its slot: the capture goes and the widget, if it still runs, hears a
+    // cancelled onRelease (x / y 0: there is no box to measure from).
+    void DropWidgetGrab();
     bool scrollPress_ = false;    // a left press on the bar's background of a scrolling dock
     bool scrollDrag_ = false;     // ... moved: the run follows the pointer
     float scrollPressMain_ = 0.0f;

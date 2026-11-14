@@ -765,9 +765,20 @@ void CalendarService::Rebuild() {
     for (size_t k = 0; k < feeds_.size(); ++k) {
         Feed& f = feeds_[k];
         f.occurrences = 0;
+        f.expandCut = 0;
         if (!f.cfg.enabled || !f.cal) continue;
-        const std::vector<Ics::Occurrence> occ = Ics::Expand(*f.cal, from, to, *local_);
+        // Round 25 phase 25C: Expand's work is bounded per call (Ics::kExpandBudget); what it cut
+        // short shows in the feed's status line.
+        Ics::ExpandStats stats;
+        const std::vector<Ics::Occurrence> occ = Ics::Expand(*f.cal, from, to, *local_, 20000, &stats);
         f.occurrences = occ.size();
+        f.expandCut = stats.eventsCut;
+        if (stats.eventsCut) {
+            wchar_t buf[256];
+            swprintf_s(buf, L"WinDock: calendar \"%s\": %zu repeating events cut short (%lld periods)\n", f.cfg.name.c_str(),
+                       stats.eventsCut, static_cast<long long>(stats.iterations));
+            OutputDebugStringW(buf);
+        }
         for (const Ics::Occurrence& o : occ) items_.push_back(Item{o, static_cast<uint32_t>(k)});
     }
     std::stable_sort(items_.begin(), items_.end(), [](const Item& a, const Item& b) {
@@ -846,6 +857,12 @@ std::wstring CalendarService::StatusText(size_t index) const {
         s = (f.lastFetch > 0 ? L"Updated " + FormatClock(LocalWall(f.lastFetch)) : std::wstring(L"Loaded")) + L", " +
             std::to_wstring(f.occurrences) + (f.occurrences == 1 ? L" event" : L" events");
         if (f.fromCache) s += L" (cached)";
+        // Round 25 phase 25C: the limits, said where the feed's state is shown.
+        if (f.cal->eventsDropped) s += L"; only the first " + std::to_wstring(Ics::kMaxEvents) + L" events are read";
+        if (f.expandCut) {
+            s += L"; " + std::to_wstring(f.expandCut) + (f.expandCut == 1 ? L" repeating event is" : L" repeating events are") +
+                 L" too complex to show in full";
+        }
     }
     if (f.inFlight) return s.empty() ? std::wstring(L"Loading\x2026") : s + L"; updating\x2026";
     if (!f.error.empty()) {
