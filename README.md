@@ -100,7 +100,7 @@ Prefer to build it yourself? See [Build](#build) below.
   that sort the Desktop into them.
 - **Customize on the dock**: customize mode with drag, remove badges and an add drawer with live
   previews; a settings panel attached to each dock; layouts (Basic, Modern, Minimal, Sidebar,
-  Windows 7, Windows and labels, Dashboard, Performance); looks you can save, import and export;
+  Windows 7, Windows and labels, Dashboard, Performance, Everyday taskbar); looks you can save, import and export;
   50 steps of undo for every change made anywhere; settings search.
 - **Light on the machine**: one process, one UI thread, one-shot timers, nothing ticking while
   idle; GPU rendering with a software fallback; no services, no background helpers.
@@ -2311,6 +2311,7 @@ asks for a name and writes the dock's place, behaviour, items and look to `layou
 | **Sidebar** (`sidebar`) | a bar along the left edge | left, full length, items from the top, 40 px, no magnification, one slot per window, no titles (2026-11-11: they were beside the icons), hides while covered | Start, your pins, separator, running apps, then at the end (`"anchor": "end"`, the bottom corner): separator, Volume, clock |
 | **Floating performance** (`performance`) | system load at a glance | floating at the top right (`x` 16000 = against the right end, `y` 8), facing the top edge (popups open downward), on the desktop under your windows, 40 px, no magnification, locked | System monitor, System overview, Battery, clock (no pins) |
 | **Desktop dashboard** (`dashboard`) | a desktop panel | floating in the middle, on the desktop under your windows, 56 px, no magnification | Analog clock, weather, Agenda, Notes (no pins) |
+| **Everyday taskbar** (`everyday`) | a full taskbar replacement with widgets | bottom, full length, centred, reserves its space (`reserveSpace`), never hides, 48 px, magnification 1.1 / range 3, previews, one slot per app with one line of title under it, window pictures every 2 s, middle click opens a new window, the Dark theme | at the start: weather (7 days on the dock); in the middle: Start, running apps, separator, your pins, Volume (ring), Media, clock (large time over a small date, 1.5 ×); at the end: System overview, the System tray (2 rows of 4, 16 DIP icons, the overflow in a drawer), notifications, Show desktop |
 
 A layout picks a theme preset for the dock (`themePreset`): Modern uses Glass, Minimal Solid,
 Windows 7 Aero glass. Since round 12 phase 12B that gives the dock its own look (the preset's values;
@@ -3840,7 +3841,7 @@ always there, also when every dock is parked) handle these registered messages:
   open one is brought forward), 0 refused (a folder window / standalone widget, no presets). 153
   applies preset `LOWORD(lParam) & 0xFF` (its index in the list: 0 basic, 1 minimal, 2 modern, 3
   windows, 4 win7 (round 11 phase 11C; before it sidebar, performance and dashboard were 4 - 6), 5
-  sidebar, 6 performance, 7 dashboard) to dock `HIWORD(lParam)` without the dialog; bit 8
+  sidebar, 6 performance, 7 dashboard, 8 everyday) to dock `HIWORD(lParam)` without the dialog; bit 8
   (`0x100`) keeps the dock's pins at the preset's marker; 1 applied (saved, the windows refreshed,
   the dock flashed), 0 refused (no such preset or dock, not a dock, a dock menu or dialog open).
   `WinDock.Welcome` (a registered message, posted by `WinDock.exe --welcome`) opens the welcome
