@@ -171,6 +171,7 @@ void WidgetInstance::Reload() {
     }
     // A preview (round 6 phase 6E): the manifest's preview.settings over the defaults.
     settings_ = Widgets::MergeSettings(m, preview_ ? m.previewSettings : itemSettings_);
+    UpdateSecrets();  // round 29 phase 29C
     Log(ScriptLogLevel::Info, L"loading " + m.name + (m.version.empty() ? L"" : L" " + m.version) +
                                   (package_->source == Widgets::Package::Source::BuiltIn ? L" (built-in)"
                                                                                        : L" from " + package_->folder));
@@ -214,11 +215,15 @@ void WidgetInstance::SetSettings(const std::wstring& itemSettings) {
     const std::string merged = Widgets::MergeSettings(package_->manifest, itemSettings_);
     if (merged == settings_) return;
     settings_ = merged;
+    UpdateSecrets();  // round 29 phase 29C
     measured_ = false;
     changed_ = true;
     if (state_ == State::Ok && engine_) {
         engine_->SettingsChanged();
         Check(engine_->Call(ScriptEngine::Fn::OnSettingsChanged, {}), FnName(ScriptEngine::Fn::OnSettingsChanged));
+        // Round 29 phase 29C: settings.onChange listeners (after the export; kept like any call
+        // while the script is busy).
+        if (state_ == State::Ok && engine_) Check(engine_->Emit("settings"), "settings.onChange");
     }
     client_.WidgetChanged(*this);
 }
@@ -788,6 +793,7 @@ void WidgetInstance::Click(float x, float y, bool closedPopup) {
         return;
     }
     if (state_ != State::Ok || !engine_) return;
+    Gesture();  // round 29 phase 29C: links.open may follow this click
     Check(engine_->Call(ScriptEngine::Fn::OnClick, EventJson(x, y) + ",\"button\":\"left\",\"closedPopup\":" +
                                                       (closedPopup ? "true" : "false") + "}"),
           FnName(ScriptEngine::Fn::OnClick));
@@ -795,6 +801,7 @@ void WidgetInstance::Click(float x, float y, bool closedPopup) {
 
 void WidgetInstance::MiddleClick(float x, float y) {
     if (state_ != State::Ok || !engine_) return;
+    Gesture();  // round 29 phase 29C
     Check(engine_->Call(ScriptEngine::Fn::OnMiddleClick, EventJson(x, y) + ",\"button\":\"middle\"}"),
           FnName(ScriptEngine::Fn::OnMiddleClick));
 }
@@ -962,7 +969,7 @@ void WidgetInstance::RunDeferred() {
 
 void WidgetInstance::Fail(State state, const std::wstring& message) {
     state_ = state;
-    error_ = message;
+    error_ = Redact(message);  // round 29 phase 29C: the error tile shows no secret either
     DropEditor(true);
     if (!preview_) {
         runtime_.CancelAll(this);
@@ -1019,7 +1026,8 @@ void WidgetInstance::Log(ScriptLogLevel level, const std::wstring& line) {
     LogLine l;
     GetLocalTime(&l.time);
     l.level = level;
-    l.text = line.size() > 4000 ? line.substr(0, 4000) + L"…" : line;
+    const std::wstring shown = Redact(line);  // round 29 phase 29C: never a secret setting's value
+    l.text = shown.size() > 4000 ? shown.substr(0, 4000) + L"…" : shown;
     const wchar_t* tag = level == ScriptLogLevel::Error ? L"error" : level == ScriptLogLevel::Warn ? L"warn" : L"log";
     log_.push_back(std::move(l));
     ++logTotal_;
@@ -1358,6 +1366,7 @@ void WidgetInstance::RenderPopup(ID2D1DeviceContext* dc, float w, float h, float
 void WidgetInstance::PopupClick(float x, float y, int button) {
     if (state_ != State::Ok || !engine_) return;
     const char* b = button == 1 ? "middle" : button == 2 ? "right" : "left";
+    Gesture();  // round 29 phase 29C: a click on a row may open its link
     Check(engine_->Call(ScriptEngine::Fn::OnPopupClick, EventJson(x, y) + ",\"button\":\"" + b + "\"}"),
           FnName(ScriptEngine::Fn::OnPopupClick));
 }
@@ -1390,6 +1399,7 @@ bool WidgetInstance::Permitted(Permission p) const {
         case Permission::Network: return package_->manifest.network;  // round 27 phase 27B
         case Permission::Input: return package_->manifest.input;      // round 27 phase 27C
         case Permission::Notify: return package_->manifest.notify;    // round 28 phase 28A
+        case Permission::Links: return package_->manifest.links;      // round 29 phase 29C
         case Permission::Http:
         default: return package_->manifest.http;
     }
@@ -1448,6 +1458,148 @@ std::vector<std::string> WidgetInstance::StorageKeys() {
     return keys;
 }
 
+// --- round 29 phase 29C: secrets, settings.set, user hosts, links -----------------------------------
+
+void WidgetInstance::Gesture() {
+    gestureAt_ = WidgetNowMs();
+    gestureUsed_ = false;
+}
+
+void WidgetInstance::UpdateSecrets() {
+    secrets_.clear();
+    if (!package_) return;
+    try {
+        JsonUtil::json::JsonObject o{nullptr};
+        if (!JsonUtil::json::JsonObject::TryParse(JsonUtil::Utf8ToWide(settings_), o) || !o) return;
+        for (const Widgets::SettingField& f : package_->manifest.settings) {
+            if (f.type != Widgets::SettingField::Type::Secret) continue;
+            std::wstring v;
+            JsonUtil::ReadString(o, f.key.c_str(), v);
+            if (v.size() >= 4) secrets_.push_back(std::move(v));  // shorter ones would blank ordinary words
+        }
+    } catch (...) {
+    }
+}
+
+std::wstring WidgetInstance::Redact(const std::wstring& text) const {
+    if (secrets_.empty()) return text;
+    std::wstring out = text;
+    for (const std::wstring& s : secrets_) {
+        for (size_t at = out.find(s); at != std::wstring::npos; at = out.find(s, at + 8)) out.replace(at, s.size(), L"[secret]");
+    }
+    return out;
+}
+
+std::vector<std::wstring> WidgetInstance::UserHosts() const {
+    std::vector<std::wstring> out;
+    if (!package_ || package_->manifest.hostSettings.empty() || preview_) return out;
+    const WidgetConsent* granted = runtime_.GrantedFor(id_);
+    if (!granted || granted->hosts.empty()) return out;
+    try {
+        JsonUtil::json::JsonObject o{nullptr};
+        if (!JsonUtil::json::JsonObject::TryParse(JsonUtil::Utf8ToWide(settings_), o) || !o) return out;
+        const std::wstring item = JsonUtil::Utf8ToWide(dock_.itemKey);
+        for (const std::wstring& key : package_->manifest.hostSettings) {
+            std::wstring url, host, why;
+            bool local = false;
+            JsonUtil::ReadString(o, key.c_str(), url);
+            if (url.empty() || !Widgets::CheckUrlValue(url, host, local, why)) continue;
+            // Only the host the user allowed for this item and this setting, and only while the
+            // setting still names it (a changed URL needs the prompt again).
+            const auto it = granted->hosts.find(item + L"|" + key);
+            if (it != granted->hosts.end() && it->second == host) out.push_back(host);
+        }
+    } catch (...) {
+    }
+    return out;
+}
+
+bool WidgetInstance::SettingsSet(const std::wstring& key, const std::string& json, std::wstring& error) {
+    if (!package_) {
+        error = L"the widget is not loaded";
+        return false;
+    }
+    const Widgets::SettingField* f = Widgets::FieldOf(package_->manifest, key);
+    if (!f) {
+        error = L"\"" + key.substr(0, 64) + L"\" is not a setting of this widget (its manifest's \"settings\")";
+        return false;
+    }
+    std::wstring normalized;
+    if (!Widgets::CheckSettingValue(*f, json, normalized, error)) return false;
+    if (preview_) return false;  // a preview changes nothing
+    // The value it has now: nothing to write (no token spent).
+    try {
+        JsonUtil::json::JsonObject o{nullptr};
+        if (JsonUtil::json::JsonObject::TryParse(JsonUtil::Utf8ToWide(settings_), o) && o) {
+            const JsonUtil::json::IJsonValue v = JsonUtil::Find(o, key.c_str());
+            const bool pendingOther = std::any_of(pendingSettings_.begin(), pendingSettings_.end(), [&](const auto& p) { return p.first == key; });
+            if (v && !pendingOther && std::wstring(v.Stringify()) == normalized) return true;
+        }
+    } catch (...) {
+    }
+    // The rate limit: the config file is written whole (atomically) on every change, so a script
+    // must not be able to rewrite it many times a second. A burst of kSettingsBurst, then one write
+    // every kSettingsRefillMs; changes of one burst are written together (one posted message).
+    const double now = WidgetNowMs();
+    if (settingsTokensAt_ < 0.0) {
+        settingsTokens_ = kSettingsBurst;
+    } else {
+        settingsTokens_ = std::min(kSettingsBurst, settingsTokens_ + (now - settingsTokensAt_) / kSettingsRefillMs);
+    }
+    settingsTokensAt_ = now;
+    if (settingsTokens_ < 1.0) {
+        if (now - settingsWarnedAt_ > 30000.0) {
+            settingsWarnedAt_ = now;
+            Log(ScriptLogLevel::Warn, L"settings.set: refused (more than 5 changes in a short time; one more every 10 s). Keep "
+                                      L"state that changes often in storage");
+        }
+        return false;
+    }
+    settingsTokens_ -= 1.0;
+    auto it = std::find_if(pendingSettings_.begin(), pendingSettings_.end(), [&](const auto& p) { return p.first == key; });
+    if (it != pendingSettings_.end()) {
+        it->second = normalized;
+    } else {
+        pendingSettings_.emplace_back(key, normalized);
+    }
+    runtime_.QueueSettingsWrite(this);  // written from a posted message, never inside this call
+    return true;
+}
+
+bool WidgetInstance::LinksOpen(const std::wstring& url, std::wstring& error) {
+    if (!Permitted(Permission::Links)) {
+        error = L"links.open needs the \"links\" permission (widget.json)";
+        return false;
+    }
+    bool secure = true;
+    std::wstring host, path;
+    unsigned short port = 0;
+    if (url.size() > 2048 || !Http::SplitUrl(url, secure, host, port, path) ||
+        std::any_of(url.begin(), url.end(), [](wchar_t c) { return c < 0x20 || c == L' '; })) {
+        error = L"only http and https addresses open";
+        return false;
+    }
+    if (preview_) return false;
+    // A page opens only as the answer to a click on the widget or its popup, once per click: a
+    // script cannot open browser windows by itself.
+    const double now = WidgetNowMs();
+    if (gestureUsed_ || now - gestureAt_ > kGestureMs) {
+        Log(ScriptLogLevel::Warn, L"links.open: not right after a click on the widget: nothing opened");
+        return false;
+    }
+    if (afterCall_.size() >= kMaxAfterCall) {
+        error = L"too many things opened in one call";
+        return false;
+    }
+    gestureUsed_ = true;
+    AfterCall a;
+    a.kind = AfterCall::Kind::ShellOpen;
+    a.target = url;
+    a.shown = url.substr(0, 200);
+    afterCall_.push_back(std::move(a));
+    return true;
+}
+
 bool WidgetInstance::HostAllowed(const std::wstring& host) const {
     // Round 25 phase 25D: the rule lives in Http::HostMatches, which the worker also applies to
     // every redirect (only the first URL was checked here before; WinHTTP then followed any
@@ -1472,8 +1624,28 @@ int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& ur
         error = L"not an http(s) URL: " + url;
         return 0;
     }
-    if (!HostAllowed(host)) {
-        error = L"host \"" + host + L"\" is not in the widget's http permission";
+    // Round 29 phase 29C: also a host the user typed into this item's url setting and allowed.
+    const std::vector<std::wstring> userHosts = UserHosts();
+    const std::wstring lowerHost = [&] {
+        std::wstring h = host;
+        for (wchar_t& c : h) c = static_cast<wchar_t>(std::towlower(c));
+        return h;
+    }();
+    const bool userHost = std::find(userHosts.begin(), userHosts.end(), lowerHost) != userHosts.end();
+    if (!HostAllowed(host) && !userHost) {
+        bool named = false;  // a host setting names it, but the user has not allowed it (yet)
+        for (const std::wstring& key : package_->manifest.hostSettings) {
+            JsonUtil::json::JsonObject o{nullptr};
+            std::wstring value, h, why;
+            bool local = false;
+            try {
+                if (JsonUtil::json::JsonObject::TryParse(JsonUtil::Utf8ToWide(settings_), o) && o) JsonUtil::ReadString(o, key.c_str(), value);
+            } catch (...) {
+            }
+            if (Widgets::CheckUrlValue(value, h, local, why) && h == lowerHost) named = true;
+        }
+        error = named ? L"host \"" + host + L"\" was not allowed: enter it in the widget's settings and allow it when asked"
+                      : L"host \"" + host + L"\" is not in the widget's http permission";
         return 0;
     }
     // Round 25 phase 25D: the headers checked here, not only in the prelude (a script can replace
@@ -1495,6 +1667,7 @@ int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& ur
     rq.totalMs = rq.timeoutMs;
     rq.strict = true;
     rq.allowedHosts = package_->manifest.httpHosts;
+    rq.userHosts = userHosts;  // round 29 phase 29C: re-checked on every hop (HttpClient.cpp)
     rq.maxBody = 2u << 20;
     const int id = nextRequest_;
     nextRequest_ = nextRequest_ >= 0x3FFFFFFF ? 1 : nextRequest_ + 1;

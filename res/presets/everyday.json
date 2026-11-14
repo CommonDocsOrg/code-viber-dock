@@ -25,7 +25,7 @@
     { "kind": "clock",
       "settings": { "format": "%#I:%M %p", "showSeconds": true, "showDate": true, "click": "calendar", "clickTarget": "", "face": "large-time-small-date", "timeZone": "", "label": "", "scale": 1.5, "font": "", "timeColor": "#FFFFFFFF" } },
     { "kind": "widget", "id": "system-overview", "anchor": "end" },
-    { "kind": "tray", "anchor": "end", "rows": 2, "columns": 4, "iconSize": 16, "expander": "after", "expanderStyle": "count", "drawerShows": "overflow", "drawerIconSize": 36, "drawerColumns": 5 },
+    { "kind": "tray", "anchor": "end", "rows": 2, "columns": 4, "iconSize": 16, "expander": "after", "expanderStyle": "count", "expanderShape": "circle", "drawerShows": "overflow", "drawerIconSize": 36, "drawerColumns": 5 },
     { "kind": "widget", "id": "network", "anchor": "end" },
     { "kind": "widget", "id": "input-language", "anchor": "end", "settings": { "hideSingle": true } },
     { "kind": "notifications", "anchor": "end" },

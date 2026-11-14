@@ -231,6 +231,21 @@ int LocalScope(const std::wstring& host) {
     return 0;
 }
 
+bool LocalNetworkHost(const std::wstring& host) {
+    const std::wstring h = Lower(Bare(host));
+    if (h.empty()) return false;
+    const int scope = LocalScope(h);
+    if (scope == 1) return false;  // this PC: never
+    if (scope == 2) return true;
+    if (IsIpLiteral(h)) return false;  // a public address
+    auto ends = [&](const wchar_t* suffix) {
+        const size_t n = wcslen(suffix);
+        return h.size() > n && h.compare(h.size() - n, n, suffix) == 0;
+    };
+    return h.find(L'.') == std::wstring::npos || ends(L".local") || ends(L".lan") || ends(L".home") || ends(L".home.arpa") ||
+           ends(L".internal") || ends(L".localdomain");
+}
+
 bool ValidHeaders(const std::wstring& headers, std::wstring& error) {
     if (headers.size() > 16 * 1024) {
         error = L"http: the request headers are larger than 16 KB";
@@ -300,25 +315,63 @@ void Perform(const Request& rq, Result& r) {
             }
             break;
         }
-        bool allowLocal = false;
+        // The connected address may be: 0 public only; 1 also this PC and the local network (a
+        // manifest host listed as itself that names one); 2 also the local network, never this PC
+        // (a host the user typed and allowed that names a device on the local network).
+        int allowScope = 0;
         if (rq.strict) {
             if (hop > 0 && wasSecure && !secure) {
                 refuse(L"http: a redirect from https to http was refused (" + url.substr(0, 200) + L")");
                 break;
             }
-            if (!HostMatches(rq.allowedHosts, host)) {
+            const std::wstring lower = Lower(Bare(host));
+            const bool manifest = HostMatches(rq.allowedHosts, host);
+            // Round 29 phase 29C. The attack this guards against: a widget steering itself to an
+            // address inside the user's network (a router's admin page, a NAS, a printer, a service on
+            // this PC) through a host the user allowed. It cannot get there by choosing the URL:
+            // settings.set on a url setting grants nothing (only a value typed in the settings page
+            // and allowed in the prompt is in userHosts, and only its exact host). It cannot get
+            // there by a redirect: every hop is checked against the same lists, and an https -> http
+            // hop is refused. It cannot get there by DNS: a user host that looks public must connect
+            // to a public address (a name that resolves, or is rebound, to 192.168.1.1 is refused
+            // after connect, before the script sees anything), and only a host whose text itself says
+            // "local network" (LocalNetworkHost: a private literal, .local / .lan / .home.arpa /
+            // .internal, one label), which the prompt names as such, may reach a private address;
+            // even then never loopback. Plain http is allowed only for such a host. What is left: the
+            // user typing an internal address on purpose, after a prompt that says it is on the local
+            // network, and a request already sent to a rebound address (its side effect, not its
+            // answer) - the 25D note above.
+            const bool user = !manifest && std::any_of(rq.userHosts.begin(), rq.userHosts.end(),
+                                                       [&](const std::wstring& u) { return Lower(Bare(u)) == lower; });
+            if (!manifest && !user) {
                 refuse(hop == 0 ? L"http: host \"" + host + L"\" is not in the widget's http permission"
                                 : L"http: the redirect to host \"" + host + L"\" is not in the widget's http permission");
                 break;
             }
-            // A local address only when the host is listed as itself and names one.
-            const std::wstring lower = Lower(Bare(host));
-            const bool exact = std::any_of(rq.allowedHosts.begin(), rq.allowedHosts.end(),
-                                           [&](const std::wstring& a) { return Lower(Bare(a)) == lower; });
-            allowLocal = exact && LocalScope(lower) != 0;
-            if (!allowLocal && IsIpLiteral(lower) && LocalScope(lower) != 0) {
-                refuse(L"http: " + host + L" is an address on this PC or the local network");
-                break;
+            if (manifest) {
+                // A local address only when the host is listed as itself and names one.
+                const bool exact = std::any_of(rq.allowedHosts.begin(), rq.allowedHosts.end(),
+                                               [&](const std::wstring& a) { return Lower(Bare(a)) == lower; });
+                allowScope = exact && LocalScope(lower) != 0 ? 1 : 0;
+                if (!allowScope && IsIpLiteral(lower) && LocalScope(lower) != 0) {
+                    refuse(L"http: " + host + L" is an address on this PC or the local network");
+                    break;
+                }
+            } else {
+                const bool local = LocalNetworkHost(lower);
+                if (!secure && !local) {
+                    refuse(L"http: plain http is allowed only for a host on your local network (" + host + L"): use https");
+                    break;
+                }
+                if (LocalScope(lower) == 1) {
+                    refuse(L"http: " + host + L" is this PC (refused)");
+                    break;
+                }
+                allowScope = local ? 2 : 0;
+                if (!local && IsIpLiteral(lower) && LocalScope(lower) != 0) {
+                    refuse(L"http: " + host + L" is an address on this PC or the local network");
+                    break;
+                }
             }
         }
         wasSecure = secure;
@@ -356,7 +409,7 @@ void Perform(const Request& rq, Result& r) {
             if (!ConnectedScope(request, scope, connectedPort)) {
                 refuse(L"http: the address of " + host + L" could not be checked");
                 ok = false;
-            } else if (scope != 0 && !allowLocal && connectedPort == port) {
+            } else if (connectedPort == port && ((scope == 1 && allowScope != 1) || (scope == 2 && allowScope == 0))) {
                 refuse(L"http: " + host + L" resolved to an address on this PC or the local network (refused)");
                 ok = false;
             }

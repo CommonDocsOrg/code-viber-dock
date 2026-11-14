@@ -12,6 +12,7 @@
 #include "HttpClient.h"
 #include "JsonUtil.h"
 #include "ScriptEngine.h"  // round 29 phase 29A: CheckScriptSyntax (the CLI's check)
+#include "Secrets.h"       // round 29 phase 29C: secret settings
 #include "resource.h"
 
 namespace Widgets {
@@ -88,6 +89,8 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"moon", "main.js", IDR_WIDGET_MOON_MAIN},
     {L"quick-buttons", "widget.json", IDR_WIDGET_QUICKBUTTONS_JSON},
     {L"quick-buttons", "main.js", IDR_WIDGET_QUICKBUTTONS_MAIN},
+    {L"feed", "widget.json", IDR_WIDGET_FEED_JSON},  // round 29 phase 29C
+    {L"feed", "main.js", IDR_WIDGET_FEED_MAIN},
 };
 
 bool IsBuiltIn(const std::wstring& id) {
@@ -166,6 +169,8 @@ SettingField::Type TypeOf(const std::wstring& t, bool& ok) {
     if (s == L"timezone") return SettingField::Type::TimeZone;
     if (s == L"file") return SettingField::Type::File;      // round 17 phase 17A
     if (s == L"folder") return SettingField::Type::Folder;  // round 17 phase 17A
+    if (s == L"secret") return SettingField::Type::Secret;  // round 29 phase 29C
+    if (s == L"url") return SettingField::Type::Url;        // round 29 phase 29C
     ok = false;
     return SettingField::Type::String;
 }
@@ -258,6 +263,8 @@ void ReadPermissions(const json::JsonObject& root, Manifest& m) {
                 m.input = true;  // round 27 phase 27C
             } else if (s == L"notify") {
                 m.notify = true;  // round 28 phase 28A
+            } else if (s == L"links") {
+                m.links = true;  // round 29 phase 29C: links.open
             } else if (s == L"http") {
                 m.http = true;  // no hosts: every request is refused (name the hosts)
             } else if (s.rfind(L"http:", 0) == 0) {
@@ -272,6 +279,17 @@ void ReadPermissions(const json::JsonObject& root, Manifest& m) {
                 m.http = true;
                 for (const auto& h : hosts) {
                     if (h.ValueType() == json::JsonValueType::String) addHost(std::wstring(h.GetString()));
+                }
+            }
+            // Round 29 phase 29C: url settings whose host the user may allow (WidgetInstance::UserHosts).
+            if (const json::JsonArray keys = JsonUtil::ReadArray(o, L"hostSettings")) {
+                m.http = true;
+                for (const auto& k : keys) {
+                    if (k.ValueType() != json::JsonValueType::String) continue;
+                    const std::wstring key(k.GetString());
+                    if (!key.empty() && key.size() <= 64 && std::find(m.hostSettings.begin(), m.hostSettings.end(), key) == m.hostSettings.end()) {
+                        m.hostSettings.push_back(key);
+                    }
                 }
             }
             bool shell = false;
@@ -308,6 +326,13 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
         JsonUtil::ReadString(o, L"group", f.group);
         JsonUtil::ReadString(o, L"unit", f.unit);
         JsonUtil::ReadBool(o, L"common", f.common);  // round 10 phase 10B
+        // Round 29 phase 29C: a secret is never shown in plain words by the Contents inspector, and
+        // a url is edited only on the settings page (where its host is checked and asked about).
+        if (f.common && (f.type == SettingField::Type::Secret || f.type == SettingField::Type::Url)) {
+            m.warnings.push_back(L"settings." + f.key + L": a " + (f.type == SettingField::Type::Secret ? L"secret" : L"url") +
+                                 L" cannot be common (ignored)");
+            f.common = false;
+        }
         // Round 13 phase 13C: a quick setting (the widget's menu): bool / choice only, at most 8.
         JsonUtil::ReadBool(o, L"quick", f.quick);
         if (f.quick && f.type != SettingField::Type::Bool && f.type != SettingField::Type::Choice) {
@@ -391,6 +416,19 @@ void ReadSettingsSchema(const json::JsonObject& root, Manifest& m) {
             case SettingField::Type::Place:
                 f.defaultJson = L"null";  // its value is the item's latitude / longitude / location
                 break;
+            case SettingField::Type::Secret:
+                // Round 29 phase 29C: no default (it would be in the manifest, for everyone to read).
+                f.defaultJson = L"\"\"";
+                break;
+            case SettingField::Type::Url: {
+                // Round 29 phase 29C: a default that is not a valid url value reads as none.
+                std::wstring s = dt == json::JsonValueType::String ? std::wstring(d.GetString()) : std::wstring();
+                std::wstring host, error;
+                bool local = false;
+                if (!s.empty() && !CheckUrlValue(s, host, local, error)) s.clear();
+                f.defaultJson = JsonUtil::Quote(s);
+                break;
+            }
             case SettingField::Type::Font:
             case SettingField::Type::String:
             case SettingField::Type::TimeZone:  // "" = the local time
@@ -445,6 +483,13 @@ bool ParseManifest(const std::string& bytes, const std::wstring& id, Manifest& m
         JsonUtil::ReadBool(root, L"watch", m.watch);
         ReadPermissions(root, m);
         ReadSettingsSchema(root, m);
+        // Round 29 phase 29C: a host setting must name a url field (Validate reports the others).
+        std::erase_if(m.hostSettings, [&](const std::wstring& key) {
+            const SettingField* f = FieldOf(m, key);
+            if (f && f->type == SettingField::Type::Url) return false;
+            m.warnings.push_back(L"permissions: hostSettings \"" + key + L"\" names no url setting (ignored)");
+            return true;
+        });
         return true;
     } catch (...) {
         error = L"widget.json could not be read";
@@ -708,8 +753,8 @@ constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"
                                          L"quick",                 // round 13 phase 13C
                                          L"filter"};               // round 17 phase 17A (file fields)
 constexpr wchar_t kPermissionFix[] =
-    L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\", \"network\", \"input\", \"notify\" or "
-    L"{ \"http\": [\"host\"] }";
+    L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\", \"network\", \"input\", \"notify\", "
+    L"\"links\" or { \"http\": [\"host\"], \"hostSettings\": [\"urlSetting\"] }";
 
 bool Known(const wchar_t* const* begin, const wchar_t* const* end, const std::wstring& key) {
     return std::any_of(begin, end, [&](const wchar_t* k) { return key == k; });
@@ -845,7 +890,8 @@ void CheckPermissions(Checker& c, const json::JsonObject& root) {
             const std::wstring s = Lower(std::wstring(v.GetString()));
             if (s == L"shell" || s == L"audio" || s == L"media" || s == L"notifications" || s == L"calendar" ||
                 s == L"weather" || s == L"perf" || s == L"network" || s == L"input" ||  // round 27: network, input
-                s == L"notify") {                                                       // round 28
+                s == L"notify" ||                                                       // round 28
+                s == L"links") {                                                        // round 29
                 continue;
             }
             if (s == L"http") {
@@ -860,6 +906,33 @@ void CheckPermissions(Checker& c, const json::JsonObject& root) {
             for (const auto& kv : o) {
                 const std::wstring k(kv.Key());
                 if (k == L"shell") continue;
+                if (k == L"hostSettings") {
+                    // Round 29 phase 29C: the url settings whose typed host the user may allow.
+                    const json::JsonArray schema = JsonUtil::ReadArray(root, L"settings");
+                    auto urlField = [&](const std::wstring& key) {
+                        if (!schema) return false;
+                        for (const auto& f : schema) {
+                            if (f.ValueType() != json::JsonValueType::Object) continue;
+                            std::wstring fk, ft;
+                            JsonUtil::ReadString(f.GetObject(), L"key", fk);
+                            JsonUtil::ReadString(f.GetObject(), L"type", ft);
+                            if (fk == key) return Lower(ft) == L"url";
+                        }
+                        return false;
+                    };
+                    if (kv.Value().ValueType() != json::JsonValueType::Array) {
+                        c.Error(field + L".hostSettings", L"is not an array of setting keys", L"\"hostSettings\": [\"feedUrl\"]");
+                        continue;
+                    }
+                    uint32_t j = 0;
+                    for (const auto& h : kv.Value().GetArray()) {
+                        const std::wstring hf = field + L".hostSettings[" + std::to_wstring(j++) + L"]";
+                        if (h.ValueType() != json::JsonValueType::String || !urlField(std::wstring(h.GetString()))) {
+                            c.Error(hf, L"names no setting of type \"url\"", L"the key of a { \"type\": \"url\" } entry of \"settings\"");
+                        }
+                    }
+                    continue;
+                }
                 if (k != L"http") {
                     c.Error(field + L"." + k, L"unknown permission \"" + k + L"\"", kPermissionFix);
                     continue;
@@ -883,7 +956,8 @@ void CheckPermissions(Checker& c, const json::JsonObject& root) {
 }
 
 constexpr wchar_t kTypeNames[] =
-    L"\"bool\", \"int\", \"number\", \"string\", \"choice\", \"colour\", \"font\", \"place\", \"timezone\", \"file\" or \"folder\"";
+    L"\"bool\", \"int\", \"number\", \"string\", \"choice\", \"colour\", \"font\", \"place\", \"timezone\", \"file\", \"folder\", "
+    L"\"secret\" or \"url\"";
 
 // A Windows time zone key name of this machine (EnumDynamicTimeZoneInformation).
 bool KnownTimeZone(const std::wstring& key) {
@@ -932,6 +1006,11 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
         field += L" (" + key + L")";
         if (std::find(seen.begin(), seen.end(), key) != seen.end()) {
             c.Error(field + L".key", L"\"" + key + L"\" is used twice", L"give every setting its own key");
+            continue;
+        }
+        // Round 29 phase 29C: settings.set and settings.onChange are methods of the settings object.
+        if (key == L"set" || key == L"onChange") {
+            c.Error(field + L".key", L"\"" + key + L"\" is a method of the settings object", L"another key");
             continue;
         }
         seen.push_back(key);
@@ -1008,6 +1087,25 @@ void CheckSettings(Checker& c, const json::JsonObject& root, const Package& pkg)
             } else if (dt == json::JsonValueType::String && !d.GetString().empty() && !KnownTimeZone(std::wstring(d.GetString()))) {
                 c.Warn(field + L".default", L"\"" + std::wstring(d.GetString()) + L"\" is not a time zone of this Windows (local used)",
                        L"a key name such as \"Tokyo Standard Time\"");
+            }
+        } else if (t == SettingField::Type::Secret) {
+            // Round 29 phase 29C: a secret's default would be readable in the manifest by anyone.
+            if (d && !(dt == json::JsonValueType::String && d.GetString().empty())) {
+                c.Warn(field + L".default", L"a secret has no default (ignored)", L"remove it: the user enters the value");
+            }
+            bool common = false;
+            JsonUtil::ReadBool(o, L"common", common);
+            if (common) c.Warn(field + L".common", L"a secret is never shown in the Contents inspector (ignored)", L"remove \"common\"");
+        } else if (t == SettingField::Type::Url) {
+            std::wstring host, error;
+            bool local = false;
+            bool common = false;
+            JsonUtil::ReadBool(o, L"common", common);
+            if (common) c.Warn(field + L".common", L"a url is edited on the settings page only (ignored)", L"remove \"common\"");
+            if (d && dt != json::JsonValueType::String) {
+                c.Warn(field + L".default", std::wstring(L"is ") + TypeName(dt) + L", not a URL (\"\" used)", L"\"https://example.com/feed.xml\" or \"\"");
+            } else if (dt == json::JsonValueType::String && !d.GetString().empty() && !CheckUrlValue(std::wstring(d.GetString()), host, local, error)) {
+                c.Warn(field + L".default", error + L" (\"\" used)", L"an https URL");
             }
         } else if (d && dt != json::JsonValueType::String) {
             c.Warn(field + L".default", std::wstring(L"is ") + TypeName(dt) + L", not a string", L"a string");
@@ -1209,6 +1307,7 @@ void CheckPackageExtras(const Package& pkg, const std::string& bytes, std::vecto
         {m.network, L"network", uses({"network."})},
         {m.input, L"input", uses({"input."})},
         {m.notify, L"notify", uses({"notify."})},
+        {m.links, L"links", uses({"links."})},  // round 29
     };
     for (const Use& u : table) {
         if (u.asked && !u.used && scripts > 0) {
@@ -1597,6 +1696,30 @@ std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson
                         }
                         break;
                     }
+                    case SettingField::Type::Secret:
+                        // Round 29 phase 29C: stored protected ("dpapi:..."): the script gets the plain
+                        // value; one that cannot be unprotected (another user's) reads as empty. A plain
+                        // value (written before the field was a secret, by hand) is used as it is until
+                        // App::ProtectWidgetSecrets rewrites it.
+                        if (t == json::JsonValueType::String) {
+                            const std::wstring stored(given.GetString());
+                            std::wstring plain;
+                            if (Secrets::IsProtected(stored)) {
+                                Secrets::Unprotect(stored, plain);
+                            } else {
+                                plain = stored;
+                            }
+                            value = json::JsonValue::CreateStringValue(plain);
+                        }
+                        break;
+                    case SettingField::Type::Url:
+                        if (t == json::JsonValueType::String) {
+                            std::wstring host, error;
+                            bool local = false;
+                            const std::wstring s(given.GetString());
+                            if (s.empty() || CheckUrlValue(s, host, local, error)) value = given;  // else the default
+                        }
+                        break;
                     case SettingField::Type::Font:
                     case SettingField::Type::String:
                     case SettingField::Type::File:  // round 17 phase 17A: any string (the widget checks the path)
@@ -1784,8 +1907,11 @@ std::vector<std::wstring> PermissionList(const Manifest& m) {
     if (m.perf) out.push_back(L"perf");
     if (m.shell) out.push_back(L"shell");
     if (m.weather) out.push_back(L"weather");
-    if (m.http && m.httpHosts.empty()) out.push_back(L"http");
+    if (m.links) out.push_back(L"links");  // round 29
+    if (m.http && m.httpHosts.empty() && m.hostSettings.empty()) out.push_back(L"http");
     for (const std::wstring& h : m.httpHosts) out.push_back(L"http:" + h);
+    // Round 29 phase 29C: that it may ask the user for a host (each host is then asked per item).
+    for (const std::wstring& k : m.hostSettings) out.push_back(L"http-setting:" + k);
     std::sort(out.begin(), out.end());
     out.erase(std::unique(out.begin(), out.end()), out.end());
     return out;
@@ -1814,6 +1940,12 @@ WidgetConsent ConsentFor(const Package& pkg) {
     return c;
 }
 
+void GrantConsent(WidgetConsent& slot, const Package& pkg) {
+    const WidgetConsent c = ConsentFor(pkg);
+    slot.permissions = c.permissions;
+    slot.replacesBuiltIn = c.replacesBuiltIn;
+}
+
 std::vector<std::wstring> PermissionLines(const Manifest& m) {
     std::vector<std::wstring> out;
     if (m.audio) out.push_back(L"Audio: read and change the system volume, mute and the default speakers");
@@ -1832,8 +1964,13 @@ std::vector<std::wstring> PermissionLines(const Manifest& m) {
                       L"a few Windows keys");
     }
     if (m.weather) out.push_back(L"Weather: read the forecast for your places (and refresh it)");
+    if (m.links) {  // round 29 phase 29C
+        out.push_back(L"Links: open web pages (http and https) in your browser, only right after you click the widget");
+    }
     if (m.http) {
-        if (m.httpHosts.empty()) {
+        if (m.httpHosts.empty() && !m.hostSettings.empty()) {
+            // Round 29 phase 29C: only the addresses the user types (said below).
+        } else if (m.httpHosts.empty()) {
             out.push_back(L"Internet: none (no host is named, so every request is refused)");
         } else {
             std::wstring hosts;
@@ -1848,15 +1985,173 @@ std::vector<std::wstring> PermissionLines(const Manifest& m) {
             }
             out.push_back(L"Internet: connect to " + hosts);
         }
+        // Round 29 phase 29C: one line per url setting the user's host may come from.
+        for (const std::wstring& k : m.hostSettings) {
+            const SettingField* f = FieldOf(m, k);
+            const std::wstring label = f && !f->label.empty() ? f->label : k;
+            out.push_back(L"Internet: connect to the address you enter as \"" + label +
+                          L"\" (you are asked again for each new host it names)");
+        }
     }
     return out;
+}
+
+// --- round 29 phase 29C: url values, settings.set ------------------------------------------------
+
+const SettingField* FieldOf(const Manifest& manifest, const std::wstring& key) {
+    for (const SettingField& f : manifest.settings) {
+        if (f.key == key) return &f;
+    }
+    return nullptr;
+}
+
+bool CheckUrlValue(const std::wstring& url, std::wstring& host, bool& local, std::wstring& error) {
+    host.clear();
+    local = false;
+    if (url.empty()) return true;
+    if (url.size() > 2048) {
+        error = L"the address is longer than 2048 characters";
+        return false;
+    }
+    if (std::any_of(url.begin(), url.end(), [](wchar_t c) { return c < 0x20 || c == 0x7F || c == L' '; })) {
+        error = L"the address has spaces or control characters";
+        return false;
+    }
+    bool secure = true;
+    std::wstring path;
+    unsigned short port = 0;
+    if (!Http::SplitUrl(url, secure, host, port, path)) {
+        error = L"not an https address (https://example.com/...)";
+        return false;
+    }
+    host = Lower(host);
+    if (Http::LocalScope(host) == 1) {
+        error = L"an address on this PC (localhost) is not allowed";
+        host.clear();
+        return false;
+    }
+    local = Http::LocalNetworkHost(host);
+    if (!secure && !local) {
+        error = L"plain http is allowed only for a device on your local network: use https";
+        host.clear();
+        return false;
+    }
+    return true;
+}
+
+bool CheckSettingValue(const SettingField& f, const std::string& jsonText, std::wstring& normalized, std::wstring& error) {
+    using T = SettingField::Type;
+    json::IJsonValue v{nullptr};
+    try {
+        v = json::JsonValue::Parse(Utf8ToWide(jsonText));
+    } catch (...) {
+        error = L"not a JSON value";
+        return false;
+    }
+    const json::JsonValueType t = v.ValueType();
+    auto str = [&](std::wstring& out) {
+        if (t != json::JsonValueType::String) {
+            error = L"\"" + f.key + L"\" takes a string";
+            return false;
+        }
+        out = std::wstring(v.GetString());
+        return true;
+    };
+    switch (f.type) {
+        case T::Bool:
+            if (t != json::JsonValueType::Boolean) {
+                error = L"\"" + f.key + L"\" takes true or false";
+                return false;
+            }
+            normalized = v.GetBoolean() ? L"true" : L"false";
+            return true;
+        case T::Int:
+        case T::Number: {
+            if (t != json::JsonValueType::Number || !std::isfinite(v.GetNumber())) {
+                error = L"\"" + f.key + L"\" takes a number";
+                return false;
+            }
+            double n = v.GetNumber();
+            if (f.type == T::Int) {
+                // The page's stepper: whole numbers within min - max (a typed value outside is refused).
+                n = std::round(n);
+                if (n < f.min || n > f.max) {
+                    error = L"\"" + f.key + L"\" takes a whole number from " + NumberJson(f.min) + L" to " + NumberJson(f.max);
+                    return false;
+                }
+            } else {
+                n = Clamp(n, f.min, f.max);  // the page's edit box clamps
+            }
+            normalized = NumberJson(n);
+            return true;
+        }
+        case T::Choice: {
+            std::wstring s;
+            if (!str(s)) return false;
+            const bool listed = std::any_of(f.choices.begin(), f.choices.end(), [&](const auto& c) { return c.first == s; });
+            // A perf metric choice keeps any key (the page lists the metrics there are now).
+            if (!listed && !(f.ChoiceFromPerf() && !s.empty() && s.size() <= 256)) {
+                error = L"\"" + s.substr(0, 64) + L"\" is not one of the choices of \"" + f.key + L"\"";
+                return false;
+            }
+            normalized = JsonUtil::Quote(s);
+            return true;
+        }
+        case T::Color: {
+            std::wstring s;
+            uint32_t argb = 0;
+            if (!str(s)) return false;
+            if (!ParseArgbColor(s, argb)) {
+                error = L"\"" + f.key + L"\" takes a colour \"#AARRGGBB\" or \"#RRGGBB\"";
+                return false;
+            }
+            normalized = JsonUtil::Quote(FormatArgbColor(argb));
+            return true;
+        }
+        case T::TimeZone: {
+            std::wstring s;
+            if (!str(s)) return false;
+            if (!s.empty() && !KnownTimeZone(s)) {
+                error = L"\"" + s.substr(0, 64) + L"\" is not a time zone of this Windows";
+                return false;
+            }
+            normalized = JsonUtil::Quote(s);
+            return true;
+        }
+        case T::Url: {
+            std::wstring s, host;
+            bool local = false;
+            if (!str(s)) return false;
+            if (!CheckUrlValue(s, host, local, error)) return false;
+            normalized = JsonUtil::Quote(s);
+            return true;
+        }
+        case T::Place:
+            error = L"a place is set in the widget's settings window";
+            return false;
+        case T::String:
+        case T::Font:
+        case T::File:
+        case T::Folder:
+        case T::Secret:
+        default: {
+            std::wstring s;
+            if (!str(s)) return false;
+            if (s.size() > 1024 || std::any_of(s.begin(), s.end(), [](wchar_t c) { return c < 0x20; })) {
+                error = L"\"" + f.key + L"\" takes one line of at most 1024 characters";
+                return false;
+            }
+            normalized = JsonUtil::Quote(s);
+            return true;
+        }
+    }
 }
 
 std::wstring PermissionSummary(const Manifest& m) {
     std::wstring s;
     auto add = [&](const wchar_t* w) { s += (s.empty() ? L"" : L", ") + std::wstring(w); };
     if (m.shell) add(L"shell");
-    if (m.http) {
+    if (m.http && !(m.httpHosts.empty() && !m.hostSettings.empty())) {
         add(m.httpHosts.size() == 1 ? (L"http: " + m.httpHosts.front()).c_str()
                                     : (L"http (" + std::to_wstring(m.httpHosts.size()) + L" hosts)").c_str());
     }
@@ -1869,6 +2164,8 @@ std::wstring PermissionSummary(const Manifest& m) {
     if (m.network) add(L"network");  // round 27
     if (m.input) add(L"input");
     if (m.notify) add(L"notify");  // round 28
+    if (m.links) add(L"links");    // round 29
+    if (!m.hostSettings.empty() && m.httpHosts.empty()) add(L"http (addresses you enter)");  // round 29
     return s.empty() ? L"none" : s;
 }
 

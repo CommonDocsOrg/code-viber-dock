@@ -9677,7 +9677,9 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         case 347:  // the icons' drawn size, px
         case 348:  // the cell under the pointer (the hover plate's), -1 none
         case 349:  // 1: labels are drawn beside the icons
-        case 350: {  // the arrow's centre in screen px: x | y << 16 (16 bits each, signed); -1 no arrow
+        case 350:  // the arrow's centre in screen px: x | y << 16 (16 bits each, signed); -1 no arrow
+        case 377:  // round 30: the shape behind the arrow's glyph: 0 none, 1 circle, 2 pill, 3 rounded square
+        case 378: {  // round 30: that shape as drawn, px: width | height << 16 (0: no shape, or no arrow)
             if (lp < 0 || lp >= static_cast<LPARAM>(items_.size()) || items_[static_cast<size_t>(lp)].kind != DockItem::Kind::Tray ||
                 !elements_[items_[static_cast<size_t>(lp)].element]) {
                 return -1;
@@ -9694,6 +9696,10 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
                 case 347: return look.iconPx;
                 case 348: return look.hotCell;
                 case 349: return look.labels ? 1 : 0;
+                case 377: return look.shape;
+                case 378:
+                    return static_cast<LRESULT>(static_cast<unsigned>(look.shapeW & 0xFFFF) |
+                                                (static_cast<unsigned>(look.shapeH & 0xFFFF) << 16));
                 default: {
                     if (!look.arrow) return -1;
                     const D2D1_RECT_F box = SlotScreenBox(static_cast<int>(lp));

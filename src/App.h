@@ -287,6 +287,28 @@ private:
     // How many dock items / standalone widgets show widget `id` (the confirmation, QueryState 374).
     void WidgetUses(const std::wstring& id, size_t& dockItems, size_t& docks, size_t& standalone) const;
     int lastUninstall_ = 0;  // QueryState 375: the last Uninstall's result (0 none, 1 removed, 2 refused, 3 cancelled, 4 failed)
+    // --- round 29 phase 29C: the script settings API ---
+    // settings.set's changes of instance `w` (validated by it), written into its config item as the
+    // Item window writes (StoreItemSettings: secrets protected), one undo step, saved debounced; the
+    // dock re-reads the item, so onSettingsChanged / settings.onChange follow and an open settings
+    // window refreshes. Called from WidgetRuntime's posted message, never inside a script call.
+    void WriteScriptSettings(WidgetInstance& w, const std::vector<std::pair<std::wstring, std::wstring>>& changes);
+    // The config item an instance shows (its dock entry by dock id, then the n-th item of its widget
+    // there; a standalone widget's entry). False: none (removed meanwhile).
+    bool ItemOfInstance(const WidgetInstance& w, size_t& cfg, size_t& element) const;
+    // dock.itemKey of item `element` of docks[cfg] ("<dock id>/<widget id>#<n>", a standalone
+    // widget's entry id).
+    std::wstring ItemKeyOf(size_t cfg, size_t element) const;
+    // The prompt for a host the user typed into host setting `key` of a widget item: "<Widget>
+    // wants to connect to <host>" (a local-network host said so), Allow / Don't allow (default).
+    // Allowed: WidgetConsent::hosts["<item key>|<key>"] = host (saved; not an undo step). Nothing
+    // asked when that host is allowed already. True when the widget may connect to it now.
+    bool ReviewHostConsent(size_t cfg, size_t element, const std::wstring& key, const std::wstring& url, HWND owner);
+    // Plain values of secret settings (written before the field was a secret, by hand) protected in
+    // place; at start and after Reload config. True when something changed (saved).
+    bool ProtectWidgetSecrets();
+    static constexpr UINT kSecretNotice = WM_APP + 83;  // posted once: DPAPI refused a secret (DockWindow.h's table)
+    int lastHostConsent_ = 0;  // QueryState 379: the last host prompt: 0 none, 1 allowed now, 2 allowed before, 3 refused
     // --- the dashboard hotkey (round 6 phase 6A) ---
     // Registers config.dashboard.hotkey on the app window (RegisterHotKey, id kDashboardHotkeyId),
     // replacing the one registered before; "" registers none. A combination another app holds

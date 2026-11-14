@@ -48,6 +48,9 @@ public:
     // Round 25 phase 25D: posted (coalesced): the consent dialog for the widgets RequestConsent
     // named (App's handler, SetConsent). Never inside a script call or a click's own handling.
     static constexpr UINT kConsentMessage = WM_APP + 77;
+    // Round 29 phase 29C: posted (coalesced) to the owner: settings.set changes to write
+    // (QueueSettingsWrite, the writer of SetSettingsWriter). DockWindow.h's table has it.
+    static constexpr UINT kSettingsWriteMessage = WM_APP + 82;
     // Round 25 phase 25A (A6): OnTimer runs due timers back to back for at most this long (the first
     // always runs), then re-arms for the rest, so input and painting get a turn between them (a
     // WM_TIMER is only generated when the queue is otherwise empty). 6 ms: a second's worth of
@@ -146,6 +149,15 @@ public:
         consentReview_ = std::move(review);
     }
     const WidgetConsent* GrantedFor(const std::wstring& id) const { return consentLookup_ ? consentLookup_(id) : nullptr; }
+    // --- round 29 phase 29C: settings.set ---
+    // The writer (App): stores an instance's validated changes ("key" -> JSON) in its config item.
+    using SettingsWriter = std::function<void(WidgetInstance&, const std::vector<std::pair<std::wstring, std::wstring>>&)>;
+    void SetSettingsWriter(SettingsWriter writer) { settingsWriter_ = std::move(writer); }
+    // `w` has settings.set changes (WidgetInstance::TakeSettingsWrites): written from a posted message.
+    void QueueSettingsWrite(WidgetInstance* w);
+    // Reloads the instances showing item `itemKey` (dock.itemKey; a host consent given for a URL
+    // that did not change: the script starts over and fetches with it).
+    void ReloadItem(const std::string& itemKey);
     // A "Needs permission" tile was clicked (or its menu entry chosen): the dialog for `id`,
     // posted (coalesced per id).
     void RequestConsent(const std::wstring& id);
@@ -329,6 +341,9 @@ private:
     std::function<const WidgetConsent*(const std::wstring&)> consentLookup_;  // round 25 phase 25D
     std::function<void(const std::wstring&)> consentReview_;
     std::vector<std::wstring> consentAsked_;  // ids waiting for kConsentMessage
+    SettingsWriter settingsWriter_;               // round 29 phase 29C
+    std::vector<WidgetInstance*> settingsWriters_;  // waiting for kSettingsWriteMessage
+    bool settingsPosted_ = false;
     bool consentPosted_ = false;
     void NotifyProvider(std::set<WidgetInstance*>& users, const char* channel, const std::string& payload = {});
 };

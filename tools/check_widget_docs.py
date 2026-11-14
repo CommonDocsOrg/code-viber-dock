@@ -48,7 +48,13 @@ where = {'canvas': 'canvas', 'path': 'canvas', 'dock.theme': 'dock', 'dock': 'do
          'console': 'console', 'http': 'http', 'widget': 'widget', 'audio': 'audio', 'media': 'media',
          'notifications': 'notifications', 'calendar': 'calendar', 'weather': 'weather', 'perf': 'perf',
          'network': 'network', 'input': 'input',  # round 27
-         'notify': 'notify'}  # round 28
+         'notify': 'notify',  # round 28
+         'links': 'links', 'settings': 'settings'}  # round 29
+# Round 29 phase 29C: settings.set / settings.onChange are defined by the host on every settings
+# object from the prelude's n.settingsMethods (not a g.<ns> object).
+m_sm = re.search(r'n\.settingsMethods = Object\.freeze\(\{(.*?)\n\s*\}\);', prelude, re.S)
+if m_sm:
+    api['settings'] = set(re.findall(r'^\s+([a-zA-Z]+):', m_sm.group(1), re.M))
 drift = []
 for ns, names in sorted(api.items()):
     text = section(where[ns])
@@ -59,7 +65,7 @@ for ns, names in sorted(api.items()):
         if not re.search(r'(?<![A-Za-z0-9_])' + re.escape(name) + r'(?![A-Za-z0-9_])', text):
             drift.append(f'undocumented: {ns}.{name} (not in "### {where[ns]}")')
 # The reverse: `ns.name` in the docs that the bindings do not have.
-known_ns = {k for k in api if '.' not in k and k not in ('global', 'path')}
+known_ns = {k for k in api if '.' not in k and k not in ('global', 'path', 'settings')}  # settings.<key>: any setting's value
 for ns, name in sorted(set(re.findall(r'`(' + '|'.join(sorted(known_ns)) + r')\.([a-zA-Z0-9]+)', docs))):
     config_keys = {('notifications', 'balloons'), ('weather', 'units'), ('clock', 'face'), ('widget', 'json'),
                    ('system', 'uptime'),  # a perf metric key, not system.uptime
@@ -112,7 +118,7 @@ dts_names = {'canvas': 'Canvas', 'path': 'Path', 'dock.theme': 'DockTheme', 'doc
              'system': 'System', 'storage': 'Storage', 'shell': 'Shell', 'popup': 'Popup', 'console': 'Console',
              'http': 'Http', 'widget': 'Widget', 'audio': 'Audio', 'media': 'Media', 'notifications': 'Notifications',
              'calendar': 'Calendar', 'weather': 'Weather', 'perf': 'Perf', 'network': 'Network', 'input': 'Input',
-             'notify': 'Notify'}
+             'notify': 'Notify', 'links': 'Links', 'settings': 'Settings'}
 api['console'] = api.get('console', set()) | {'log', 'info', 'debug', 'warn', 'error'}
 if dts:
     for ns, names in sorted(api.items()):

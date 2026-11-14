@@ -25,6 +25,7 @@
 #include "SettingsIds.h"
 #include "Weather.h"
 #include "WidgetInstall.h"  // round 29 phase 29B: install from a zip
+#include "Secrets.h"        // round 29 phase 29C: secret settings
 #include "WidgetPackage.h"
 #include "Crash.h"
 
@@ -439,7 +440,7 @@ protected:
                     // edit that asks for more shows Needs permission).
                     std::wstring loadError;
                     if (const auto pkg = Widgets::Load(wid, loadError)) {
-                        Cfg().widgetConsent[wid] = Widgets::ConsentFor(*pkg);
+                        Widgets::GrantConsent(Cfg().widgetConsent[wid], *pkg);
                         Changed(SettingsScope::SaveOnly);
                     }
                     Host().command(ContextMenu::kReloadWidgets);  // the folder copy replaces the built-in
@@ -1067,6 +1068,25 @@ protected:
                     Button(base + kWidgetFieldBrowse, L"Browse…", right - 88, 88);
                     NextRow();
                     break;
+                case T::Secret: {
+                    // Round 29 phase 29C: a password box (dots) and Show / Hide; stored protected.
+                    label();
+                    Ctl& e = Add(base + 1, CtlKind::Edit, WC_EDITW, L"", WS_TABSTOP | ES_AUTOHSCROLL | ES_PASSWORD,
+                                 RECT{kColX, y_ + 4, right - 96, y_ + kRowH - 4});
+                    e.exStyle = WS_EX_CLIENTEDGE;
+                    e.hi = 1024;
+                    Button(base + kWidgetFieldReveal, L"Show", right - 88, 88);
+                    Tip(base + kWidgetFieldReveal, L"Shows the value in plain text (Hide covers it again). It is saved protected for your "
+                                                    L"Windows account, never in plain text in the settings file.");
+                    NextRow();
+                    break;
+                }
+                case T::Url:
+                    // Round 29 phase 29C: an address; a host setting asks before its host is reached.
+                    label();
+                    EditBox(base + 1, kColX, right - kColX, 2048);
+                    NextRow();
+                    break;
                 case T::Font:
                 case T::String:
                 default:
@@ -1350,6 +1370,16 @@ protected:
             Store(*pf, json::JsonValue::CreateStringValue(path));
             return;
         }
+        // Round 29 phase 29C: a secret's Show / Hide.
+        if (id >= kWidgetFieldBase && (id - kWidgetFieldBase) % 10 == kWidgetFieldReveal && code == BN_CLICKED) {
+            HWND edit = Item(id - kWidgetFieldReveal + 1);
+            if (!edit) return;
+            const bool hidden = SendMessageW(edit, EM_GETPASSWORDCHAR, 0, 0) != 0;
+            SendMessageW(edit, EM_SETPASSWORDCHAR, hidden ? 0 : 0x25CF, 0);
+            SetText(id, hidden ? L"Hide" : L"Show");
+            InvalidateRect(edit, nullptr, TRUE);
+            return;
+        }
         const Widgets::SettingField* f = FieldOf(id);
         if (!f) return;
         using T = Widgets::SettingField::Type;
@@ -1455,6 +1485,29 @@ protected:
                     break;
                 }
                 Store(*f, json::JsonValue::CreateStringValue(FormatArgbColor(argb)));
+                break;
+            }
+            case T::Url: {
+                // Round 29 phase 29C: an https address (http only on the local network, never this
+                // PC). For a host setting the user's host is asked about first (only here: a value a
+                // script sets, or one edited in config.json, never grants a host).
+                const std::wstring url = Trim(text);
+                std::wstring host, why;
+                bool local = false;
+                if (!Widgets::CheckUrlValue(url, host, local, why)) {
+                    MessageBeep(MB_ICONWARNING);
+                    const std::wstring msg = L"This address cannot be used: " + why + L".";
+                    MessageBoxW(Owner(), msg.c_str(), L"ViberDock widget settings", MB_ICONWARNING | MB_OK);
+                    Load();
+                    break;
+                }
+                const Widgets::Manifest* m = Schema();
+                if (!url.empty() && m && Kind() == ItemKind::Widget &&
+                    std::find(m->hostSettings.begin(), m->hostSettings.end(), f->key) != m->hostSettings.end() && Host().hostConsent) {
+                    const size_t dock = static_cast<size_t>(&Dock() - Cfg().docks.data());
+                    Host().hostConsent(dock, static_cast<size_t>(item_), f->key, url);
+                }
+                Store(*f, json::JsonValue::CreateStringValue(url));
                 break;
             }
             default:
@@ -1823,7 +1876,35 @@ bool StoreItemSettings(const Config& config, DockItemEntry& e, const std::vector
         if (base.empty() && e.Kind() == ItemKind::Clock) base = ClockSettingsJson(ClockOf(config, e));
         if (base.empty() && e.Kind() == ItemKind::Weather) base = WeatherSettingsJson(WeatherOf(config, e));
         if (base.empty() || !json::JsonObject::TryParse(base, o) || !o) o = json::JsonObject();
-        for (const auto& [key, value] : keys) o.SetNamedValue(key, json::JsonValue::Parse(value));
+        // Round 29 phase 29C: a script widget's secret settings are stored protected (Secrets.h);
+        // one that DPAPI refuses is not stored at all (Secrets notes it; App says so once).
+        std::shared_ptr<const Widgets::Package> pkg;
+        if (e.Kind() == ItemKind::Widget) {
+            std::wstring error;
+            pkg = Widgets::Load(e.id, error);
+        }
+        for (const auto& [key, value] : keys) {
+            const Widgets::SettingField* f = pkg ? Widgets::FieldOf(pkg->manifest, key) : nullptr;
+            if (f && f->type == Widgets::SettingField::Type::Secret) {
+                const json::JsonValue v = json::JsonValue::Parse(value);
+                const std::wstring plain = v.ValueType() == json::JsonValueType::String ? std::wstring(v.GetString()) : std::wstring();
+                std::wstring stored, before;
+                // The same value again: the stored blob stays (each protection is a new blob, which
+                // would count as a change and save the file on every focus loss).
+                if (const json::IJsonValue old = JsonUtil::Find(o, key.c_str()); old && old.ValueType() == json::JsonValueType::String &&
+                                                                                  Secrets::Unprotect(std::wstring(old.GetString()), before) &&
+                                                                                  before == plain) {
+                    continue;
+                }
+                if (plain.empty()) {
+                    o.SetNamedValue(key, json::JsonValue::CreateStringValue(L""));
+                } else if (Secrets::Protect(plain, stored)) {
+                    o.SetNamedValue(key, json::JsonValue::CreateStringValue(stored));
+                }
+                continue;
+            }
+            o.SetNamedValue(key, json::JsonValue::Parse(value));
+        }
         const std::wstring text(o.Stringify());
         if (text == e.settings) return false;
         e.settings = text;

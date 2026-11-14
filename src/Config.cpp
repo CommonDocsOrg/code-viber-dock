@@ -5,6 +5,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cwchar>
+#include <cwctype>  // round 29 phase 29C: towlower (consent hosts)
 #include <iterator>
 
 #include "Hotkey.h"
@@ -66,6 +67,8 @@ const wchar_t* const kTrayColourNames[] = {L"original", L"mono"};
 const wchar_t* const kTrayExpanderNames[] = {L"end", L"start", L"before", L"after"};
 const wchar_t* const kTrayExpanderStyleNames[] = {L"chevron", L"dots", L"count"};
 const wchar_t* const kTrayExpanderShowNames[] = {L"auto", L"always"};
+const wchar_t* const kTrayExpanderShapeNames[] = {L"none", L"circle", L"pill", L"square"};
+const wchar_t* const kTrayExpanderFillNames[] = {L"subtle", L"accent"};
 const wchar_t* const kTrayDrawerOpenNames[] = {L"click", L"hover"};
 const wchar_t* const kTrayDrawerShowsNames[] = {L"all", L"overflow"};
 const wchar_t* const kTrayDrawerLabelsNames[] = {L"below", L"beside", L"none"};
@@ -512,6 +515,10 @@ void ReadDockItems(const json::JsonObject& obj, DockConfig& d) {
             ReadEnum(io, L"expander", e.trayExpander);
             ReadEnum(io, L"expanderStyle", e.trayExpanderStyle);
             ReadEnum(io, L"expanderShow", e.trayExpanderShow);
+            ReadEnum(io, L"expanderShape", e.trayExpanderShape);  // round 30
+            ReadEnum(io, L"expanderFill", e.trayExpanderFill);
+            ReadInt(io, L"expanderSize", e.trayExpanderSize);
+            ReadInt(io, L"expanderPadding", e.trayExpanderPadding);
             ReadEnum(io, L"drawerOpen", e.trayDrawerOpen);
             ReadEnum(io, L"drawerShows", e.trayDrawerShows);
             ReadInt(io, L"drawerIconSize", e.trayDrawerIconSize);
@@ -613,6 +620,10 @@ const wchar_t* ToString(TrayExpanderStyle v) { return EnumToString(v, kTrayExpan
 bool FromString(std::wstring_view s, TrayExpanderStyle& v) { return EnumFromString(s, v, kTrayExpanderStyleNames); }
 const wchar_t* ToString(TrayExpanderShow v) { return EnumToString(v, kTrayExpanderShowNames); }
 bool FromString(std::wstring_view s, TrayExpanderShow& v) { return EnumFromString(s, v, kTrayExpanderShowNames); }
+const wchar_t* ToString(TrayExpanderShape v) { return EnumToString(v, kTrayExpanderShapeNames); }
+bool FromString(std::wstring_view s, TrayExpanderShape& v) { return EnumFromString(s, v, kTrayExpanderShapeNames); }
+const wchar_t* ToString(TrayExpanderFill v) { return EnumToString(v, kTrayExpanderFillNames); }
+bool FromString(std::wstring_view s, TrayExpanderFill& v) { return EnumFromString(s, v, kTrayExpanderFillNames); }
 const wchar_t* ToString(TrayDrawerOpen v) { return EnumToString(v, kTrayDrawerOpenNames); }
 bool FromString(std::wstring_view s, TrayDrawerOpen& v) { return EnumFromString(s, v, kTrayDrawerOpenNames); }
 const wchar_t* ToString(TrayDrawerShows v) { return EnumToString(v, kTrayDrawerShowsNames); }
@@ -1253,6 +1264,10 @@ void Config::Sanitize() {
             inRange(e.trayExpander, TrayExpander::After, TrayExpander::End);
             inRange(e.trayExpanderStyle, TrayExpanderStyle::Count, TrayExpanderStyle::Chevron);
             inRange(e.trayExpanderShow, TrayExpanderShow::Always, TrayExpanderShow::Auto);
+            inRange(e.trayExpanderShape, TrayExpanderShape::Square, TrayExpanderShape::None);  // round 30
+            inRange(e.trayExpanderFill, TrayExpanderFill::Accent, TrayExpanderFill::Subtle);
+            e.trayExpanderSize = std::clamp(e.trayExpanderSize, 50, 200);
+            e.trayExpanderPadding = std::clamp(e.trayExpanderPadding, 0, 12);
             inRange(e.trayDrawerOpen, TrayDrawerOpen::Hover, TrayDrawerOpen::Click);
             inRange(e.trayDrawerShows, TrayDrawerShows::Overflow, TrayDrawerShows::All);
             inRange(e.trayDrawerLabels, TrayDrawerLabels::None, TrayDrawerLabels::Below);
@@ -1332,6 +1347,12 @@ void Config::Sanitize() {
         std::sort(c.permissions.begin(), c.permissions.end());
         c.permissions.erase(std::unique(c.permissions.begin(), c.permissions.end()), c.permissions.end());
         if (c.permissions.size() > 256) c.permissions.resize(256);
+        // Round 29 phase 29C: hosts lower case, at most 253 characters, at most 256 per widget.
+        std::erase_if(c.hosts, [](const auto& kv) { return kv.first.empty() || kv.first.size() > 300 || kv.second.empty() || kv.second.size() > 253; });
+        for (auto& [k, h] : c.hosts) {
+            for (wchar_t& ch : h) ch = static_cast<wchar_t>(std::towlower(ch));
+        }
+        while (c.hosts.size() > 256) c.hosts.erase(std::prev(c.hosts.end()));
     }
 }
 
@@ -1585,6 +1606,12 @@ Config::LoadResult Config::LoadJson(const std::wstring& text) {
                 WidgetConsent c;
                 ReadStrings(o, L"permissions", c.permissions);
                 ReadBool(o, L"replacesBuiltIn", c.replacesBuiltIn);
+                // Round 29 phase 29C: the hosts allowed through url settings (strings only).
+                if (auto hosts = ReadObject(o, L"hosts")) {
+                    for (const auto& h : hosts) {
+                        if (h.Value().ValueType() == json::JsonValueType::String) c.hosts[std::wstring(h.Key())] = std::wstring(h.Value().GetString());
+                    }
+                }
                 widgetConsent[id] = std::move(c);
             }
         }
@@ -1737,6 +1764,10 @@ std::wstring Config::ToJson(bool windowSizes) const {
                     if (e.trayExpander != defaults.trayExpander) add(L"expander", ToString(e.trayExpander));
                     if (e.trayExpanderStyle != defaults.trayExpanderStyle) add(L"expanderStyle", ToString(e.trayExpanderStyle));
                     if (e.trayExpanderShow != defaults.trayExpanderShow) add(L"expanderShow", ToString(e.trayExpanderShow));
+                    if (e.trayExpanderShape != defaults.trayExpanderShape) add(L"expanderShape", ToString(e.trayExpanderShape));
+                    if (e.trayExpanderFill != defaults.trayExpanderFill) add(L"expanderFill", ToString(e.trayExpanderFill));
+                    num(L"expanderSize", e.trayExpanderSize, defaults.trayExpanderSize);
+                    num(L"expanderPadding", e.trayExpanderPadding, defaults.trayExpanderPadding);
                     if (e.trayDrawerOpen != defaults.trayDrawerOpen) add(L"drawerOpen", ToString(e.trayDrawerOpen));
                     if (e.trayDrawerShows != defaults.trayDrawerShows) add(L"drawerShows", ToString(e.trayDrawerShows));
                     num(L"drawerIconSize", e.trayDrawerIconSize, defaults.trayDrawerIconSize);
@@ -1891,8 +1922,11 @@ std::wstring Config::ToJson(bool windowSizes) const {
             for (const auto& [id, c] : widgetConsent) {
                 std::wstring list;
                 for (size_t k = 0; k < c.permissions.size(); ++k) list += (k ? L", " : L"") + Quote(c.permissions[k]);
+                std::wstring hosts;  // round 29 phase 29C
+                for (const auto& [k, h] : c.hosts) hosts += (hosts.empty() ? L"" : L", ") + Quote(k) + L": " + Quote(h);
                 o += (first ? L"\n    " : L",\n    ") + Quote(id) + L": { \"permissions\": [" + list + L"]" +
-                     (c.replacesBuiltIn ? L", \"replacesBuiltIn\": true" : L"") + L" }";
+                     (c.replacesBuiltIn ? L", \"replacesBuiltIn\": true" : L"") +
+                     (hosts.empty() ? L"" : L", \"hosts\": { " + hosts + L" }") + L" }";
                 first = false;
             }
             o += L"\n  }";
@@ -1914,6 +1948,22 @@ std::wstring Config::DockJson(size_t index) const {
     try {
         Config one;
         one.docks = {docks[index]};
+        // Round 29 phase 29C: a widget's secret settings ("dpapi:..." values) never leave in a saved
+        // layout or an exported dock: bound to this Windows user they are useless elsewhere, and a
+        // layout is a file people share. The other settings of the item stay.
+        for (DockItemEntry& e : one.docks[0].items) {
+            if (e.settings.empty() || e.settings.find(L"dpapi:") == std::wstring::npos) continue;
+            json::JsonObject so{nullptr};
+            if (!json::JsonObject::TryParse(e.settings, so) || !so) continue;
+            std::vector<std::wstring> drop;
+            for (const auto& kv : so) {
+                if (kv.Value().ValueType() == json::JsonValueType::String && std::wstring(kv.Value().GetString()).rfind(L"dpapi:", 0) == 0) {
+                    drop.emplace_back(kv.Key());
+                }
+            }
+            for (const std::wstring& k : drop) so.Remove(k);
+            e.settings = so.Size() == 0 ? std::wstring() : std::wstring(so.Stringify());
+        }
         one.extraDocks.clear();
         one.extraFields.clear();
         json::JsonObject root{nullptr};

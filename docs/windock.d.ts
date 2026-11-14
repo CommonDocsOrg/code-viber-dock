@@ -584,6 +584,21 @@ declare namespace ViberDock {
   /** The merged settings of this item: the schema's defaults overridden by the item's values. */
   interface Settings {
     [key: string]: any;
+    /**
+     * Round 29: changes one of this item's own settings (a key of the manifest's schema), validated
+     * as the settings page would; written after the call (onSettingsChanged follows). false: the
+     * rate limit refused it (5 at once, then one every 10 s). Throws on a bad key or value. A url
+     * set this way never makes its host reachable: only one the user types and allows does.
+     */
+    set(key: string, value: unknown): boolean;
+    /** Round 29: fn(settings) after the item's settings changed (after onSettingsChanged). Returns a remover. */
+    onChange(fn: (settings: Settings) => void): () => void;
+  }
+
+  /** Permission "links" (round 29). */
+  interface Links {
+    /** Opens an http(s) address in the browser after the call; only right after a click on the widget (once per click): false otherwise. */
+    open(url: string): boolean;
   }
 
   interface PointerEvent {
@@ -620,12 +635,17 @@ declare namespace ViberDock {
   // --- widget.json ---------------------------------------------------------------------------------
 
   type Permission =
-    | 'shell' | 'audio' | 'media' | 'notifications' | 'calendar' | 'weather' | 'perf' | 'network' | 'input' | 'notify'
+    | 'shell' | 'audio' | 'media' | 'notifications' | 'calendar' | 'weather' | 'perf' | 'network' | 'input' | 'notify' | 'links'
     | `http:${string}`
-    | { http: string[]; shell?: boolean };
+    /** hostSettings (round 29): keys of `url` settings whose host the user may allow, per item, after a prompt. */
+    | { http: string[]; hostSettings?: string[]; shell?: boolean };
   type SettingType =
     | 'bool' | 'boolean' | 'int' | 'integer' | 'number' | 'string' | 'text' | 'choice' | 'enum' | 'colour' | 'color'
-    | 'font' | 'place' | 'timezone' | 'file' | 'folder';
+    | 'font' | 'place' | 'timezone' | 'file' | 'folder'
+    /** Round 29: a password box, stored protected for the Windows user (the script gets the plain value). */
+    | 'secret'
+    /** Round 29: an https address (http only on the local network). */
+    | 'url';
   interface SettingSchema {
     key: string;
     type?: SettingType;
@@ -700,6 +720,7 @@ declare const input: ViberDock.Input;
 declare const notify: ViberDock.Notify;
 declare const popup: ViberDock.Popup;
 declare const widget: ViberDock.Widget;
+declare const links: ViberDock.Links;
 
 /** At least 16 ms between runs of an interval; at most 64 timers per widget. */
 declare function setTimeout(fn: () => void, ms?: number): number;

@@ -169,7 +169,9 @@ public:
     // TrayHost's own window: timer 2 = TrayHost::kMirrorRetryTimer (26B). No new timer on a dock.
     // WM_APP + 79 = kEnvCheckMessage (26C, posted to the dock window itself, below). WM_APP + 80 =
     // App::kUserPresentMessage (26A follow-up, posted to the app window, coalesced: real pointer
-    // input on one of our windows while the session counts as paused).
+    // input on one of our windows while the session counts as paused). WM_APP + 81 =
+    // NetworkService::kMessage (27B). Round 29: WM_APP + 82 = WidgetRuntime::kSettingsWriteMessage
+    // (29C, posted to the app window, coalesced: settings.set changes to write).
     // On the settings search dialog's own window (round 9 phase 9B / round 18 phase 18D): WM_APP + 41
     // = SettingsSearch::kRebuildMessage, + 42 its kHideComboMessage, timer 1 = its kIndexTimerId (the
     // next window of the index, one-shot); WM_APP + 40 = SettingsWindow::kRebuildMessage on a settings window.

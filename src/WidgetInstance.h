@@ -230,6 +230,13 @@ public:
     bool WatchFolder(std::wstring& id, std::wstring& folder) const;
     // A line of the host's own in the widget's log (reloads, file changes).
     void Note(const std::wstring& line) { Log(ScriptLogLevel::Info, line); }
+    // Round 29 phase 29C (WidgetRuntime, posted): the settings.set changes since the last call
+    // ("key" -> JSON, validated), for the writer.
+    std::vector<std::pair<std::wstring, std::wstring>> TakeSettingsWrites() {
+        std::vector<std::pair<std::wstring, std::wstring>> out = std::move(pendingSettings_);
+        pendingSettings_.clear();
+        return out;
+    }
 
     // Round 25 phase 25A, WidgetRuntime (posted, PostDeferred): what had to wait while a call into
     // this script was on the stack runs now: an engine that failed or a reload asked for meanwhile,
@@ -311,6 +318,30 @@ private:
     bool NetworkCall(const std::string& what, std::string& json, std::wstring& error) override;  // round 27 phase 27B
     bool InputCall(const std::string& what, const std::wstring& text, std::string& json, std::wstring& error) override;  // 27C
     bool NotifyBanner(const std::wstring& title, const std::wstring& text, bool sound, std::wstring& error) override;  // 28A
+    // --- round 29 phase 29C ---
+    bool SettingsSet(const std::wstring& key, const std::string& json, std::wstring& error) override;
+    bool LinksOpen(const std::wstring& url, std::wstring& error) override;
+    // The hosts the user typed into this item's host settings and allowed (Http::Request::userHosts).
+    std::vector<std::wstring> UserHosts() const;
+    // The plain values of its secret settings (4 characters or more): replaced by "[secret]" in
+    // every line of its log and in its error tile.
+    void UpdateSecrets();
+    std::wstring Redact(const std::wstring& text) const;
+    std::vector<std::wstring> secrets_;
+    // settings.set: what waits for the runtime's posted write, and the rate limit (a bucket of
+    // kSettingsBurst writes, one more every kSettingsRefillMs).
+    std::vector<std::pair<std::wstring, std::wstring>> pendingSettings_;
+    double settingsTokens_ = 0.0;
+    double settingsTokensAt_ = -1.0;
+    double settingsWarnedAt_ = -1e12;
+    static constexpr double kSettingsBurst = 5.0;
+    static constexpr double kSettingsRefillMs = 10000.0;
+    // links.open: the last click on the widget or its popup (WidgetNowMs), and whether a link was
+    // opened for it already (one per click, within kGestureMs).
+    double gestureAt_ = -1e12;
+    bool gestureUsed_ = true;
+    static constexpr double kGestureMs = 1500.0;
+    void Gesture();
     // shell.sendKeys's pressing of an allow-listed combination `n` (lower case), the permission
     // already checked (round 27 phase 27C: input.next presses "win+space" under "input"). `who`
     // names the caller in errors and the log.

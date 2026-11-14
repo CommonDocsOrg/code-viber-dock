@@ -98,6 +98,7 @@ add_executable(WinDock WIN32
   src/WidgetPackage.cpp
   src/WidgetInstall.cpp
   src/Zip.cpp
+  src/Secrets.cpp
   src/WidgetInstance.cpp
   src/WidgetRuntime.cpp
   src/WidgetSamples.cpp
@@ -173,6 +174,7 @@ target_link_libraries(WinDock PRIVATE
   shell32 ole32 shlwapi dwmapi propsys user32 gdi32 version advapi32
   comctl32 uxtheme comdlg32 winhttp shcore
   pdh iphlpapi powrprof wtsapi32
+  crypt32  # round 29 phase 29C: CryptProtectData / CryptUnprotectData (secret settings), base64
   windowsapp coremessaging
   quickjs
 )

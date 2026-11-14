@@ -340,6 +340,23 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             }
             return true;
         }
+        case kSettingsWriteMessage: {
+            // Round 29 phase 29C: settings.set of the instances that asked (each one's changes, taken
+            // now: a later set before this message merged into them). The writer (App) stores them
+            // through the config's debounced save and re-applies the item: onSettingsChanged follows
+            // from that, outside any call of the script.
+            settingsPosted_ = false;
+            const std::vector<WidgetInstance*> list = std::move(settingsWriters_);
+            settingsWriters_.clear();
+            for (WidgetInstance* w : list) {
+                if (!Alive(w)) continue;
+                std::vector<std::pair<std::wstring, std::wstring>> changes = w->TakeSettingsWrites();
+                if (!changes.empty() && settingsWriter_) {
+                    settingsWriter_(*w, changes);
+                }
+            }
+            return true;
+        }
         case AudioService::kMessage:
             return audio_.HandleMessage(msg, wp, lp);
         case MediaService::kMessage:
@@ -359,6 +376,19 @@ void WidgetRuntime::RequestConsent(const std::wstring& id) {
     if (!owner_ || id.empty()) return;
     if (std::find(consentAsked_.begin(), consentAsked_.end(), id) == consentAsked_.end()) consentAsked_.push_back(id);
     if (!consentPosted_) consentPosted_ = PostMessageW(owner_, kConsentMessage, 0, 0) != FALSE;
+}
+
+void WidgetRuntime::QueueSettingsWrite(WidgetInstance* w) {
+    if (!owner_ || !w) return;
+    if (std::find(settingsWriters_.begin(), settingsWriters_.end(), w) == settingsWriters_.end()) settingsWriters_.push_back(w);
+    if (!settingsPosted_) settingsPosted_ = PostMessageW(owner_, kSettingsWriteMessage, 0, 0) != FALSE;
+}
+
+void WidgetRuntime::ReloadItem(const std::string& itemKey) {
+    const std::vector<WidgetInstance*> all = instances_;
+    for (WidgetInstance* w : all) {
+        if (Alive(w) && w->DockInfo().itemKey == itemKey) w->Reload();
+    }
 }
 
 void WidgetRuntime::ConsentChanged(const std::wstring& id) {

@@ -48,6 +48,12 @@ struct Request {
     // Round 25 phase 25D: the widget rules above (redirects by hand, local addresses refused).
     bool strict = false;
     std::vector<std::wstring> allowedHosts;  // strict: lowercase, "*.example.com" any sub-domain
+    // Round 29 phase 29C (strict): hosts the user typed into a widget's `url` setting and allowed in
+    // the prompt (exact names, lowercase), reachable besides allowedHosts on every hop. A hop whose
+    // host is allowed only through this list: https only, unless LocalNetworkHost(host); its
+    // connection may then reach a private / link-local / unique-local address, never loopback; a
+    // public-looking name must connect to a public address (see the attack note in HttpClient.cpp).
+    std::vector<std::wstring> userHosts;
 };
 
 struct Result {
@@ -75,6 +81,11 @@ bool IsIpLiteral(const std::wstring& host);
 // What a listed host names, for the consent dialog: 0 a name or a public address, 1 this PC
 // (localhost, loopback), 2 the local network (a private, link-local or unique-local address).
 int LocalScope(const std::wstring& host);
+// Round 29 phase 29C: a host the user may mean as "a device on my network" by its text alone: a
+// private / link-local / unique-local address literal (LocalScope 2), a name under .local, .lan,
+// .home, .home.arpa, .internal or .localdomain, or a single-label name ("homeassistant"). Never
+// localhost or loopback (LocalScope 1).
+bool LocalNetworkHost(const std::wstring& host);
 // Validates request headers ("Name: value\r\n" lines): a token name, no CR / LF / NUL inside a
 // line, not one of the headers WinHTTP or the host own (Host, Content-Length, Transfer-Encoding,
 // Connection, Keep-Alive, Upgrade, TE, Trailer, Expect, Proxy-*), at most 16 KB. False with

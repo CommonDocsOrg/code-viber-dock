@@ -540,6 +540,9 @@ inline constexpr int kWidgetFieldMax = 30;     // fields shown per widget
 // 7 a file's / folder's "Browse…" button (round 17 phase 17A; BN_CLICKED: the picker, modal).
 inline constexpr int kWidgetFieldSwatch = 6;
 inline constexpr int kWidgetFieldBrowse = 7;
+// Round 29 phase 29C: 8 a secret's "Show" / "Hide" button (BN_CLICKED: the box shows the value in
+// plain text, or dots again; the button's text says which).
+inline constexpr int kWidgetFieldReveal = 8;
 
 // Folders and groups (4000 - 4099; round 4 phase 7): the Item window's folder / group item.
 // 4000 / 4001: the item picker until round 5 phase B; reserved.
@@ -636,6 +639,17 @@ inline constexpr int kTrayDrawerColumnsSpin = 4161;
 inline constexpr int kTrayDrawerColumnsValue = 4162;   // "Automatic" at 0, else "columns"
 inline constexpr int kTrayDrawerTitle = 4163;          // check box: drawerTitle (the gear is in the title row)
 inline constexpr int kTrayDrawerTitleCaption = 4164;
+// Round 30: the arrow's shape rows in the card "The arrow".
+inline constexpr int kTrayArrowShapeLabel = 4165;
+inline constexpr int kTrayArrowShapeCombo = 4166;  // 0 none, 1 circle, 2 pill, 3 rounded square (expanderShape)
+inline constexpr int kTrayArrowFillLabel = 4167;
+inline constexpr int kTrayArrowFillCombo = 4168;   // 0 subtle, 1 accent (expanderFill); disabled while the shape is none
+inline constexpr int kTrayArrowSizeLabel = 4169;
+inline constexpr int kTrayArrowSizeTrack = 4170;   // slider 50 - 200 % (expanderSize)
+inline constexpr int kTrayArrowSizeValue = 4171;   // its value ("100 %")
+inline constexpr int kTrayArrowPaddingLabel = 4172;
+inline constexpr int kTrayArrowPaddingEdit = 4173; // 0 - 12 DIPs (expanderPadding); disabled while the shape is none
+inline constexpr int kTrayArrowPaddingSpin = 4174;
 
 // Notifications (4200 - 4299; round 4 phase 9): config.notifications. 4200 - 4203 (the edited
 // dock's badges / centre) moved to the Dock window's Behaviour tab in round 5 phase D (2254 /

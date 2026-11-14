@@ -242,7 +242,7 @@ constexpr char kPrelude[] = R"JS(
   });
   // Providers: onChange listeners kept here; the host calls the returned emit(channel).
   const listeners = { audio: [], media: [], notifications: [], calendar: [], calendarReminder: [], weather: [], storage: [], perf: [],
-    network: [], input: [] };
+    network: [], input: [], settings: [] };
   const onChange = (ch) => (cb) => {
     if (typeof cb !== 'function') throw new TypeError(ch + '.onChange: the argument must be a function');
     listeners[ch].push(cb);
@@ -368,6 +368,20 @@ constexpr char kPrelude[] = R"JS(
       return p.banner(s(o.title), s(o.text), !!o.sound);
     },
   });
+  // links (round 29 phase 29C): a web page in the browser, right after a click on the widget.
+  g.links = Object.freeze({
+    open: (url) => p.linksOpen(String(url ?? '').slice(0, 4096)),
+  });
+  // settings.set / settings.onChange (round 29 phase 29C): the host defines them on every settings
+  // object it makes (not enumerable: JSON.stringify(settings) is the values only).
+  n.settingsMethods = Object.freeze({
+    set: (key, value) => {
+      const json = JSON.stringify(value);
+      if (json === undefined) throw new TypeError('settings.set: the value must be a JSON value (not undefined or a function)');
+      return p.settingsSet(String(key), json.length > 8192 ? json.slice(0, 8192) : json);
+    },
+    onChange: onChange('settings'),
+  });
   // storage.onChange (round 6 phase 6C): another item of this widget changed a key ({ key }).
   g.storage.onChange = onChange('storage');
   Object.freeze(g.storage);
@@ -376,7 +390,8 @@ constexpr char kPrelude[] = R"JS(
     if (!l || !l.length) return;
     const state = ch === 'audio' ? p.audioGet() : ch === 'media' ? p.mediaGet() : ch === 'calendar' ? cal('feeds')
       : ch === 'calendarReminder' || ch === 'storage' ? JSON.parse(data) : ch === 'weather' ? wx('get')
-      : ch === 'perf' ? perfGet() : ch === 'network' ? p.net('get') : ch === 'input' ? p.input('get') : p.notifGet().items;
+      : ch === 'perf' ? perfGet() : ch === 'network' ? p.net('get') : ch === 'input' ? p.input('get')
+      : ch === 'settings' ? g.settings : p.notifGet().items;
     for (const cb of l.slice()) cb(state);
   };
 })(globalThis, globalThis.__windock);
@@ -404,6 +419,7 @@ public:
         }
         settles_.clear();
         for (JSValue& f : fns_) JS_FreeValue(ctx_, f);
+        JS_FreeValue(ctx_, settingsMethods_);
         JS_FreeValue(ctx_, emit_);
         JS_FreeValue(ctx_, ns_);
         JS_FreeValue(ctx_, canvas_);
@@ -1091,7 +1107,23 @@ private:
             JS_FreeValue(ctx_, JS_GetException(ctx_));
             v = JS_NewObject(ctx_);
         }
+        AddSettingsMethods(v);
         return v;
+    }
+
+    // Round 29 phase 29C: settings.set / settings.onChange on a settings object (the prelude's
+    // functions; defined, not set: configurable only, not enumerable or writable, so the values
+    // stringify as before and a setting cannot shadow them; Validate refuses those two keys).
+    void AddSettingsMethods(JSValueConst v) {
+        if (!JS_IsObject(v) || !JS_IsObject(settingsMethods_)) return;
+        for (const char* name : {"set", "onChange"}) {
+            JSValue f = JS_GetPropertyStr(ctx_, settingsMethods_, name);
+            if (JS_IsException(f)) {
+                JS_FreeValue(ctx_, JS_GetException(ctx_));
+                continue;
+            }
+            if (JS_DefinePropertyValueStr(ctx_, v, name, f, JS_PROP_CONFIGURABLE) < 0) JS_FreeValue(ctx_, JS_GetException(ctx_));
+        }
     }
 
     bool InstallApi();
@@ -1102,6 +1134,7 @@ private:
     JSValue fns_[static_cast<size_t>(Fn::Count)]{};
     JSValue ns_ = JS_UNDEFINED;
     JSValue emit_ = JS_UNDEFINED;  // the prelude's emit(channel) for provider changes
+    JSValue settingsMethods_ = JS_UNDEFINED;  // round 29 phase 29C: the prelude's { set, onChange }
     JSValue canvas_ = JS_UNDEFINED;
     JSValue dock_ = JS_UNDEFINED;
     JSValue settings_ = JS_UNDEFINED;
@@ -2282,6 +2315,30 @@ JSValue BannerFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     return JS_NewBool(ctx, ok && !Self(ctx)->host_.Dock().preview);
 }
 
+// Round 29 phase 29C: settingsSet(key, json): settings.set (the prelude made the JSON). True: taken;
+// false: the rate limit refused it (or a preview); throws on a bad key or value.
+JSValue SettingsSetFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring key = a.S(0);
+    const std::string json = a.Has(1) ? ToStd(ctx, argv[1]) : std::string();
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.SettingsSet(key, json, error);
+    if (!ok && !error.empty()) return JS_ThrowTypeError(ctx, "settings.set: %s", WideToUtf8(error).c_str());
+    return JS_NewBool(ctx, ok);
+}
+// linksOpen(url): links.open (permission "links"). True: it opens after the call; false: no click
+// on the widget just before (or a preview); throws on a missing permission or a URL that is not http(s).
+JSValue LinksOpenFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring url = a.S(0);
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.LinksOpen(url, error);
+    if (!ok && !error.empty()) return JS_ThrowTypeError(ctx, "links.open: %s", WideToUtf8(error).c_str());
+    return JS_NewBool(ctx, ok);
+}
+
 // canvas.fileIcon(path, x, y, size): the shell's icon of a file or folder (permission "shell").
 JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     CANVAS_OR_THROW();
@@ -2507,6 +2564,8 @@ const JSCFunctionListEntry kProviderFuncs[] = {
     JS_CFUNC_DEF("net", 1, Guard<NetFn>),      // round 27 phase 27B
     JS_CFUNC_DEF("input", 2, Guard<InputFn>),  // round 27 phase 27C
     JS_CFUNC_DEF("banner", 3, Guard<BannerFn>),  // round 28 phase 28A
+    JS_CFUNC_DEF("settingsSet", 2, Guard<SettingsSetFn>),  // round 29 phase 29C
+    JS_CFUNC_DEF("linksOpen", 1, Guard<LinksOpenFn>),
 };
 
 const JSCFunctionListEntry kPopupFuncs[] = {
@@ -2580,6 +2639,22 @@ bool QuickJsEngine::InstallApi() {
         JS_FreeValue(ctx_, r);
     }
     JSValue g = JS_GetGlobalObject(ctx_);
+    // Round 29 phase 29C: the prelude's settings methods, kept for every settings object to come;
+    // the first one (made before the prelude ran) gets them now.
+    {
+        JSValue n = JS_GetPropertyStr(ctx_, g, "__windock");
+        if (!JS_IsException(n)) {
+            settingsMethods_ = JS_GetPropertyStr(ctx_, n, "settingsMethods");
+            if (JS_IsException(settingsMethods_)) {
+                JS_FreeValue(ctx_, JS_GetException(ctx_));
+                settingsMethods_ = JS_UNDEFINED;
+            }
+        } else {
+            JS_FreeValue(ctx_, JS_GetException(ctx_));
+        }
+        JS_FreeValue(ctx_, n);
+        AddSettingsMethods(settings_);
+    }
     const JSAtom atom = JS_NewAtom(ctx_, "__windock");
     JS_DeleteProperty(ctx_, g, atom, 0);
     JS_FreeAtom(ctx_, atom);

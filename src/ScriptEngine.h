@@ -72,7 +72,7 @@ public:
     virtual void SetRefresh(uint32_t ms, const std::wstring& timeZone) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf, Network, Input, Notify };
+    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf, Network, Input, Notify, Links };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -151,6 +151,16 @@ public:
     // A banner on screen (the dock's reminder banner). False with `error` empty: refused by the
     // rate limit (the script gets false); false with `error`: thrown.
     virtual bool NotifyBanner(const std::wstring& title, const std::wstring& text, bool sound, std::wstring& error) = 0;
+    // --- round 29 phase 29C ---
+    // settings.set(key, value): `json` is the value as JSON. True: taken (written after the call,
+    // onSettingsChanged follows); false with `error` empty: refused by the rate limit (the script
+    // gets false); false with `error`: thrown (not a key of the manifest, a value the settings page
+    // would not take).
+    virtual bool SettingsSet(const std::wstring& key, const std::string& json, std::wstring& error) = 0;
+    // links.open(url) (permission "links"): an http(s) URL in the browser, after the call, only
+    // right after a click on the widget. False with `error` empty: no click just before (the script
+    // gets false); false with `error`: thrown.
+    virtual bool LinksOpen(const std::wstring& url, std::wstring& error) = 0;
 
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs. `passive`: the passive kind (never takes

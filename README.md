@@ -1696,6 +1696,16 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   open), `"dots"` (three dots along the arrow's longer side) or `"count"` (`+N`, the icons the
   grid does not show; a chevron while that is none). `expanderShow` `"always"` shows the arrow
   even when every icon fits (`"auto"`, the default: only when the grid leaves icons out).
+  Round 30, to make it easier to see and hit: `expanderShape` `"circle"` / `"pill"` / `"square"`
+  (rounded) draws that shape behind the glyph (`"none"`, the default: the glyph alone);
+  `expanderFill` `"subtle"` (a faint tint of the text colour with an outline) or `"accent"` (the
+  theme's `accent`, the glyph in black or white, whichever reads on it); `expanderSize` 50 - 200
+  (%, 100) scales the chevron, the dots or the `+N`; `expanderPadding` 0 - 12 DIPs (4) is the room
+  between the glyph and its shape's edge. A strip grows along the bar to hold the shape (never
+  narrower than before); in a grid cell, and across the bar in a strip, the glyph and its shape
+  shrink together to the room. A shape is brighter under the pointer (it replaces the hover
+  plate there) and while this grid's drawer is open. With shape `"none"` and size 100 the arrow
+  is drawn exactly as before round 30.
 - **The drawer's look** (round 24 phase 24B; every default is the look before it, plus the gear):
   `drawerIconSize` (16 - 48 DIPs, 40) sizes its icons; the cells follow the icon and
   `drawerLabelSize` (10 - 16 DIPs, 12; a name line is 4 / 3 of it): with `drawerLabels`
@@ -1759,7 +1769,10 @@ Explorer, whose taskbar the dock hides anyway; the volume, media and date widget
   **Icon size** (round 24 phase 24C: a slider 16 - 32 with its value; was a 16 / 20 / 24 list),
   **Space around icons** (0 - 8), **Labels** (None / Beside the icon), **Colours** (Original / One
   colour); the card **The arrow** (24C): **Place** (Last cell / First cell / Strip before the icons
-  / Strip after the icons), **Looks like** (Chevron / Dots / Count), **Shown** (When there are more
+  / Strip after the icons), **Looks like** (Chevron / Dots / Count), **Shape** (round 30: None /
+  Circle / Pill / Rounded square), **Shape colour** (Subtle / Accent; greyed without a shape),
+  **Size** (a slider 50 - 200 %, steps of 5), **Space inside the shape** (0 - 12; greyed without
+  a shape), **Shown** (When there are more
   icons / Always), **Opens the drawer on** (Click / Hover); the card **The drawer** (24C): **Shows**
   (Every icon / Only icons not in the grid), **Icon size** (a slider 16 - 48), **Labels** (Below /
   Beside / None), **Label size** (10 - 16), **Columns** (0 - 8, 0 reads "Automatic"; greyed while
@@ -3051,7 +3064,9 @@ items that exist. A file whose items have settings already is left alone.
       Round 24 phase 24A, the look (see System tray; out of range: clamped, unknown text: the
       default): `spacing` 0 - 8 DIPs around each grid icon (3), `labels` `"none"` / `"beside"`,
       `colour` `"original"` / `"mono"`, `expander` `"end"` / `"start"` / `"before"` / `"after"`,
-      `expanderStyle` `"chevron"` / `"dots"` / `"count"`, `expanderShow` `"auto"` / `"always"`;
+      `expanderStyle` `"chevron"` / `"dots"` / `"count"`, `expanderShow` `"auto"` / `"always"`,
+      `expanderShape` `"none"` / `"circle"` / `"pill"` / `"square"`, `expanderFill` `"subtle"` /
+      `"accent"`, `expanderSize` 50 - 200 % (100), `expanderPadding` 0 - 12 DIPs (4) (round 30);
       and the drawer's (round 24 phase 24B): `drawerOpen` `"click"` / `"hover"`, `drawerShows`
       `"all"` / `"overflow"` (only the icons the grid does not show), `drawerIconSize` 16 - 48
       DIPs (40), `drawerLabels` `"below"` / `"beside"` / `"none"`, `drawerLabelSize` 10 - 16 (12),
@@ -3605,7 +3620,8 @@ always there, also when every dock is parked) handle these registered messages:
   beside the icon included), 347 = the icons' drawn size, px, 348 = the cell under the hover plate
   (-1 none; the icons' cells, then the arrow's at the icons' count), 349 = 1 while labels are drawn
   beside the icons, 350 = the arrow's centre in screen px, x | y << 16 (16 bits each, signed; -1
-  no arrow). Round 24 phase 24B, this dock's open tray drawer (each -1 while no tray drawer is
+  no arrow); round 30: 377 = the shape behind the arrow (0 none, 1 circle, 2 pill, 3 rounded
+  square), 378 = that shape as drawn, px: width | height << 16 (0 without a shape or an arrow). Round 24 phase 24B, this dock's open tray drawer (each -1 while no tray drawer is
   open): 351 = its columns as laid out (1 for `drawerLabels` `"beside"`, a list), 352 = its icons'
   drawn size, px, 353 = 1 while it is open by hover (0 once a click on the arrow or a right click
   on an icon made it an ordinary drawer, and for a click-opened one), 354 = 1 the title row is

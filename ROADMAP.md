@@ -2205,6 +2205,17 @@ undo it from the bin) and keeps the saved data unless asked, because a note or a
 user's, not the widget's; placed items are left as "not installed" tiles rather than removed, so
 reinstalling puts everything back where it was.
 
+## Round 30 (2026-11-13): the tray arrow's shape and size
+
+The user's request: the tray's `+20` toggle was hard to notice; put it in a larger circle, or make
+shape, padding and size settable. Done as four keys of the tray item (`expanderShape`,
+`expanderFill`, `expanderSize`, `expanderPadding`; README, System tray > The arrow), all defaults
+the old look. Design notes: the shape is sized from the glyph plus padding, not from the cell, so
+`expanderSize` and `expanderPadding` both make it larger; a strip follows it along the bar, while a
+grid cell keeps its size and shrinks the arrow instead (the grid must not jump). The lit shape
+replaces the hover plate and also shows the open drawer, which dots and `+N` could not show before.
+Status and what was not verified: STATUS.md, Round 30.
+
 ## Dependencies at a glance
 
 ```

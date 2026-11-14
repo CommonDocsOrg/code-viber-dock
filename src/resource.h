@@ -78,6 +78,9 @@
 // Round 29 phase 29A: docs/windock.d.ts, written into an exported built-in widget's folder
 // (Widgets::ExportBuiltIn) with a jsconfig.json, for the editor's completions.
 #define IDR_WIDGET_DTS 396
+// Round 29 phase 29C: the Headlines widget (an RSS / Atom feed the user enters).
+#define IDR_WIDGET_FEED_JSON 397
+#define IDR_WIDGET_FEED_MAIN 398
 
 // Round 9 phase 9C: the predefined dock setups (RCDATA, res/presets/<id>.json; Presets.cpp lists
 // them in this order).

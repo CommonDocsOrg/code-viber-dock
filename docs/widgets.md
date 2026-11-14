@@ -9,7 +9,8 @@ thread. This file is the full reference; README.md has the short version.
 - [widget.json](#widgetjson): the manifest
 - [main.js](#mainjs): the module and its exports, when they are called
 - [The host API](#the-host-api): `canvas`, `dock`, `timer`, `console`, `system`, `settings`,
-  `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `weather`, `perf`, `popup`, `widget`
+  `storage`, `http`, `shell`, `audio`, `media`, `notifications`, `calendar`, `weather`, `perf`, `network`,
+  `input`, `notify`, `links`, `popup`, `widget`
 - [Animation](#animation): frames with timers, `dock.visible`, `dock.reduceMotion`, the cost rules
 - [Clock faces](#clock-faces): the face formats: analog (`faces/*.json` of the Analog clock widget)
   and digital (the dock's own clock, `clock.face`)
@@ -38,7 +39,8 @@ thread. This file is the full reference; README.md has the short version.
 
 Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volume`, `media`,
 `start`, `search`, `notification-bell`, `agenda`, `weather`, `notes`, `system-monitor`,
-`system-overview`, `battery`, `show-desktop`, `stocks`, `photo-frame`) are compiled into the
+`system-overview`, `battery`, `show-desktop`, `stocks`, `photo-frame`, `network`, `input-language`,
+`timer`, `world-clock`, `todo`, `moon`, `quick-buttons`, `feed`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
 widget. Round 25: such a folder takes over the built-in's places, settings and `widget-data` file,
@@ -79,7 +81,7 @@ loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws (only while the widget can be seen, see `timer.setRefresh`). 0: no ticking. `timer.setRefresh(ms)` overrides it at run time (also for another time zone: `timer.setRefresh(ms, { timeZone })`). |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `"network"` (round 27: the [network](#network) provider), `"input"` (round 27: the [input](#input) provider: the keyboard language), `"notify"` (round 28: [notify](#notify), a banner on screen), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself; an IP address is matched only by an entry that is that address). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). Round 25: a widget from the widgets folder runs only after the user allowed its permissions (see [Consent](#consent)); ask for the fewest you need. |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `"network"` (round 27: the [network](#network) provider), `"input"` (round 27: the [input](#input) provider: the keyboard language), `"notify"` (round 28: [notify](#notify), a banner on screen), `"links"` (round 29: [links](#links), a web page in the browser on a click), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself; an IP address is matched only by an entry that is that address), and in that object (round 29) `"hostSettings": ["feedUrl"]`: `url` settings whose host the user may allow per item ([http](#http), user hosts; `"http": []` with it: only the user's hosts). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). Round 25: a widget from the widgets folder runs only after the user allowed its permissions (see [Consent](#consent)); ask for the fewest you need. |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `preview` | none | Round 6 phase 6E: the widget's live preview in the settings window's widget drawer and Widget library ([Preview mode](#preview-mode)): `{ "settings": { "face": "classic" }, "width": 64, "height": 48 }`. `settings`: an object of setting values merged over the schema's defaults for the preview only (a nice face, a sample label); `width` / `height`: the preview's box in DIPs (8 - 1024 / 8 - 512; left out: the box the widget measures on a 48 DIP bottom dock). The manifest check reports a non-object, a setting the schema does not name (a warning) and sizes out of range. |
 | `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum); `supported`: `false` when the widget needs a dock (round 16 phase 16E; default `true`): it is never made a standalone widget (dragging it off the dock only reorders it, the drawer does not drop it on the desktop, **Add to the desktop** refuses it). |
@@ -103,6 +105,30 @@ Each entry: `key` (required), `type`, `label`, `description`, `default`, the pag
 | `timezone` | a Windows time zone key name (`"Tokyo Standard Time"`); `""` = the local time | none |
 | `file` | an absolute path to a file (`""` = none; round 17 phase 17A) | `filter`: the picker's patterns, `"*.png;*.jpg"` (left out: every file) |
 | `folder` | an absolute path to a folder (`""` = none; round 17 phase 17A) | |
+| `secret` | text the user keeps private: an API key, a token, a password (round 29) | none: no `default` (it would be in the manifest for everyone), never `common` or `quick` |
+| `url` | `""` or an `https://` address; `http://` only for a device on the local network; never this PC (round 29) | none (a `default` must be a valid url value, else `""`); name it in `hostSettings` to let the user's host be reached |
+
+`secret` (round 29): the settings page shows a password box (dots) with **Show** / **Hide** beside
+it. The value is stored in config.json **protected with Windows' DPAPI for the current user**
+(`"apiKey": "dpapi:AQAAANCMnd8B..."`), so the file, its backups and copies of it do not give the
+value away on another account or machine; **Save layout** and dock exports leave secret values out
+altogether. The script gets the plain value in `settings`. The widget's log and its error tile never
+show it: a line that contains the value (4 characters or more) shows `[secret]` in its place. A
+plain value found in config.json for a secret field (a widget updated to make a field secret, or a
+value typed into the file) is protected the next time the dock starts or reloads its config. If
+Windows refuses to protect a value, it is not saved at all and the dock says so once. What it does
+not do: hide the value from other programs running as the same Windows user (they could ask DPAPI
+too), or from the widget itself. The built-in Stocks widget's **API key** is a secret since 1.1.0.
+
+`url` (round 29): an edit box; what the user types is checked when the box loses the focus (a
+message says why an address is refused, and the box goes back to the value before): `https://`
+only, unless the host names a device on the local network (a private address, `.local`, `.lan`,
+`.home`, `.home.arpa`, `.internal`, `.localdomain` or one label: then `http://` works too); never
+`localhost` or a loopback address; no user name or password in it; at most 2048 characters. A
+`url` field named in the manifest's `hostSettings` ([http](#http)) asks, right after the user types
+a new host, `"<Widget> wants to connect to <host>"` with **Allow** / **Don't allow** (the default);
+the address is kept either way, and the widget can reach the host only after Allow. Like `secret`,
+a `url` cannot be `common` (the Contents inspector would skip the check and the prompt).
 
 `file` / `folder` (round 17 phase 17A): the settings page shows the path in a box (typed or pasted
 paths work, `%VAR%` included) with a **Browse…** button that opens the Windows file or folder
@@ -343,7 +369,26 @@ export function draw(canvas, dock) {
 ### settings
 
 The global `settings` is the merged settings object (see [Settings schema](#settings-schema)). It
-is replaced (and `onSettingsChanged` called) when the item's settings change.
+is replaced (and `onSettingsChanged` called) when the item's settings change. A `secret` setting's
+value is there in plain text (the widget needs it); a `url` setting's value is one the settings
+page would accept (else its default).
+
+Round 29: the settings object also has two methods (not enumerable: `JSON.stringify(settings)` and
+`Object.keys(settings)` see the values only; no setting may be named `set` or `onChange`):
+
+| Call | |
+|---|---|
+| `settings.set(key, value)` | Changes one of this item's own settings: `key` must be a key of the manifest's schema (another key throws a TypeError), and `value` is checked exactly as the settings page checks what the user types: a `bool` a boolean; an `int` a whole number within `min` - `max` (outside: refused); a `number` finite, clamped to `min` - `max`; a `choice` one of its values (a `"perf"` choice any metric key); a `colour` `#AARRGGBB` / `#RRGGBB`; a `timezone` `""` or a zone of this Windows; a `url` a valid url value (below); `string`, `font`, `file`, `folder` and `secret` one line of at most 1024 characters; a `place` cannot be set (it throws: the user picks a place). A refused value throws a TypeError naming the reason. The change is written after the calling function returns (with the other changes of the same moment, in one write of config.json through its usual debounced save, as one Undo step `"Changed <setting> of <widget> (by the widget)"`); then the dock re-reads the item, so `onSettingsChanged` and `settings.onChange` run (never inside the call that set it) and an open settings window shows the new value. A `secret` is stored protected, as when the user types it. Returns `true` when the change was taken (also when the value is the one it has), **`false`** when the rate limit refused it: 5 changes at once, then one more every 10 seconds (a warning in the log, at most every 30 s). config.json is rewritten whole on every save: keep state that changes often in `storage`, not in settings. **A `url` set this way does not make its host reachable**: only an address the user types in the settings page, followed by the prompt, does (see [http](#http), user hosts). In a preview it changes nothing and returns `false`. |
+| `settings.onChange(fn)` | `fn(settings)` after the item's settings changed (the settings window, a quick setting, Reload config, the widget's own `settings.set`), right after `onSettingsChanged`. Returns a remover. Register it at the top level: the listeners belong to the script, not to one settings object, so they keep working after `settings` is replaced. |
+
+```js
+// A widget that remembers the view the user picked in its popup (a choice setting "view").
+export function onPopupClick(e) {
+  const view = e.x < POPUP_W / 2 ? 'day' : 'week';        // the popup's width, as opened
+  if (!settings.set('view', view)) console.warn('too many changes; try again in a few seconds');
+}
+settings.onChange(() => requestRedraw());
+```
 
 ### storage
 
@@ -388,6 +433,25 @@ come back as a promise resolved on the dock's thread. Round 25:
   refused (a TypeError at the call), and all headers together are at most 16 KB. On a redirect to
   another host `Authorization` is dropped.
 - Windows credentials are never sent (no automatic logon to intranet servers or proxies).
+- **User hosts** (round 29): a manifest can let the user choose the server, for a widget that reads
+  "any RSS feed" or "your Home Assistant": `{ "http": ["api.example.com"], "hostSettings": ["feedUrl"] }`
+  names `url` settings ([Settings schema](#settings-schema)) whose host becomes reachable for that
+  item once the user typed the address in the widget's settings page and allowed it in the prompt
+  that follows (`"<Widget> wants to connect to <host>"`). The consent is per item (`dock.itemKey`) and
+  setting, for exactly that host; the URL changed to another host asks again, and until then a
+  request to it throws ("host ... was not allowed: enter it in the widget's settings and allow it
+  when asked"). A value the script sets with `settings.set`, or one written into config.json, is
+  never allowed by itself. Every redirect is checked against the manifest's hosts plus that host.
+  Such a host must use **https**; plain `http://` and **local addresses** are allowed only when the
+  host's own text names a device on the local network: a private, link-local or unique-local
+  address (`192.168.1.20`, `fd00::5`), a name under `.local`, `.lan`, `.home`, `.home.arpa`,
+  `.internal` or `.localdomain`, or a single-label name (`homeassistant`); the prompt then says the
+  address is on the local network. Such a host may connect to a private address, never to this PC
+  (`localhost`, loopback). A public-looking name must connect to a public address: a name the user
+  typed that resolves (or is rebound) to an address on the local network is refused after connect,
+  before the script sees anything (use the device's own `.local` name or its address instead). The
+  idea behind the rules: a widget must not be able to steer itself to an address inside the user's
+  network (a router's admin page, a NAS) through a host the user allowed for something else.
 
 | Call | |
 |---|---|
@@ -727,6 +791,20 @@ app is in front (the full-screen guard) and shows when that app is gone, and on 
 behind a calendar reminder already shown. Script timers keep running while the dock is hidden, so a
 `setTimeout` for the end of a countdown raises its banner then too (the Timer widget does this).
 
+### links
+
+Round 29. Needs `"links"` in `permissions`. Opens a web page in the user's browser, for a widget
+that lists things to read (the built-in Headlines widget opens a headline's article) without asking
+for `"shell"` (which could open anything and run programs).
+
+| Call | |
+|---|---|
+| `links.open(url)` | Opens `url` (an `http://` or `https://` address, at most 2048 characters, no spaces or control characters; anything else throws a TypeError) in the default browser, right after the calling function returns. Only **as the answer to a click**: within 1.5 s of a click on the widget (`onClick`, `onMiddleClick`) or in its popup (`onPopupClick`), and once per click; otherwise it opens nothing, returns `false` and writes a warning to the log. Returns `true` when the page will open (`false` in a preview). |
+
+A script cannot open pages by itself (a timer, a provider's `onChange`, an http answer): the user's
+click is the consent for each page. The address can be any host: it is shown by the browser, not
+fetched by ViberDock.
+
 ### popup
 
 A widget can open one popup at a time, anchored on its slot beside the dock (above a bottom dock,
@@ -1050,7 +1128,10 @@ machine's performance counters and HWiNFO's shared sensor memory (nothing else);
 27) reads the state of the internet connection (online or not, its kind, the Wi-Fi network's name and
 its signal bars); `"input"` (round 27) reads the keyboard layouts and switches the one in use (a
 posted request to the window the user works in, or Windows + Space); `"notify"` (round 28) shows
-a banner on screen, with the limits in [notify](#notify). Modules and images
+a banner on screen, with the limits in [notify](#notify); `"links"` (round 29) opens http(s) pages in
+the browser, only as the answer to a click ([links](#links)). A `secret` setting is stored protected
+and never shown in the log; a host the user types into a `url` setting is reachable only after the
+prompt ([http](#http), user hosts). Modules and images
 are read
 only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
@@ -1087,6 +1168,11 @@ decides on:
 - **Review and revoke**: App settings > Widget library shows every widget's permissions and state;
   **Permissions…** opens the dialog (Keep allowed / Revoke for an allowed widget). Revoking stops the
   widget at once and brings the tile back.
+- **Hosts the user types** (round 29): a widget with `hostSettings` lists "Internet: connect to the
+  address you enter as ..." among its permissions; each host itself is asked about later, per item,
+  when the user types it ([http](#http)). Those answers are stored with the consent
+  (`widgetConsent.<id>.hosts`, `"<item key>|<setting key>": "<host>"`, also for built-in widgets);
+  revoking the widget, uninstalling it or installing another zip of that id forgets them.
 
 For authors: ask for the minimum. Every permission is one more line the user must accept, and
 `"shell"` (which can run any program) is the one most users should refuse; prefer `http` with exact
@@ -1121,7 +1207,8 @@ user's network. `WinDock.exe --validate-widget` prints the lines the dialog will
   folder, or the widgets folder for a built-in) and **Clear** (the view; the log is kept). It
   updates as lines arrive. Round 29: **Copy all** puts the log as shown (from the last Clear on) on
   the clipboard, **Save to file…** writes it to a text file (UTF-8, `<id>-log.txt` by default), for a
-  bug report.
+  bug report. A [secret](#settings-schema) setting's value is never in it: a line that contains
+  the value shows `[secret]` in its place (the host's own lines never print it to begin with).
 - **Editor help** (round 29): `docs/windock.d.ts` declares the whole API (every global, method,
   event, the export signatures, the manifest and its settings schema) with short doc comments, for
   VS Code or any TypeScript-aware editor. Put these two lines at the top of main.js:
@@ -1346,6 +1433,7 @@ Each preview is the widget's own `draw()`, run once by a **preview instance**:
 | `input.get()` | Round 27: English (United States) current (`id` "04090409", `tag` "en-US", `code` "ENG", `region` "US", `layout` "US"), then German (Germany) (`id` "04070407", "de-DE", "DEU", "DE", "German"). `input.set` / `input.next` switch nothing and return true. |
 | `perf` | `get()`: serial 1, interval 1000, `cpu.total` 37, eight cores, `cpu.frequency` 4180, `memory.percent` 58, `memory.used` / `total` 9.3 / 16 GB, `gpu.total` 12, `disk.total` 4, `network.down` 120 KB/s, `up` 18 KB/s, `system.uptime` 3 days 4 hours, a laptop on battery (round 7: `battery.percent` 74, `battery.charging` 0, `battery.acLine` 0, `battery.timeLeft` 11400 s = 3 h 10 min); `metrics()` lists those keys (35); `series(key, n)` up to 60 samples (a sine wave with noise, the newest one the snapshot's value; the same numbers every time); `hwinfo()` `{ available: false, reason: "preview" }`; `setInterval` answers 1000; round 28: `drives()` C: "Windows" 1 TB with 380 GB free and D: "Data" 2 TB with 1.2 TB free. |
 | `notify.banner()` | Round 28: shows nothing and returns false (the permission and the title are checked). |
+| `settings.set()`, `links.open()` | Round 29: change / open nothing and return false (the key, the value and the URL are checked as always). |
 
 The manifest's `preview` object (see [widget.json](#widgetjson)) picks what the preview shows:
 
@@ -1407,6 +1495,13 @@ in each; install with App settings > Widget library > **More ▾** > **Add from 
 `examples/http-json`, `examples/popup-list`, `examples/edit-text` ([Developing a widget](#developing-a-widget)). The
 built-ins are worked examples too:
 
+- `widgets/feed` ("Headlines", round 29): the newest items of an RSS or Atom feed. The worked
+  example of a widget that reaches a server the user chooses: its manifest names no host
+  (`{ "http": [], "hostSettings": ["feedUrl"] }` and `"links"`), the feed's address is a `url`
+  setting, so ViberDock asks before the typed host is reached; `timer.setRefresh` every
+  `refreshMinutes`; a small tolerant parser (RSS 2.0, RSS 1.0, Atom; CDATA and entities) with
+  `indexOf` scans over at most the first 512 KB of the answer; the tile rotates the headlines with
+  one `setTimeout` while `dock.visible`; the popup lists them and `links.open` opens a clicked one.
 - `widgets/hello`: a label and a counter. `onClick` counts, `onMiddleClick` resets, `onWheel`
   counts up / down and returns `true`, `onHover` highlights the border; every handler ends with
   `requestRedraw()`.

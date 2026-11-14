@@ -1,0 +1,33 @@
+{
+  "name": "Headlines",
+  "version": "1.0.0",
+  "author": "ViberDock",
+  "description": "The latest headlines of an RSS or Atom feed you choose. The tile shows the newest one (or each in turn); a click opens the list, and a click on a headline opens it in your browser. Enter the feed's address in the settings: ViberDock asks before the widget may connect to that site.",
+  "api": 1,
+  "size": {
+    "horizontal": { "main": 220, "cross": 48 },
+    "vertical": { "main": 48, "cross": 48 }
+  },
+  "refreshMs": 0,
+  "timeLimitMs": 250,
+  "standalone": { "minWidth": 140, "minHeight": 48, "defaultWidth": 300, "defaultHeight": 72 },
+  "preview": { "settings": {}, "width": 200, "height": 44 },
+  "permissions": [ { "http": [], "hostSettings": ["feedUrl"] }, "links" ],
+  "settings": [
+    { "key": "feedUrl", "section": "content", "group": "Feed", "type": "url", "label": "Feed address", "default": "",
+      "description": "The address of an RSS or Atom feed (https://...). When you enter it, ViberDock asks whether the widget may connect to that site. Plain http only for a device on your local network." },
+    { "key": "refreshMinutes", "section": "content", "group": "Feed", "common": true, "type": "int", "label": "Refresh every", "default": 30, "min": 5, "max": 1440, "step": 5, "unit": "minutes",
+      "description": "How often the feed is fetched again. Default: 30 minutes." },
+    { "key": "items", "section": "content", "group": "Feed", "type": "int", "label": "Headlines in the list", "default": 10, "min": 3, "max": 30,
+      "description": "How many of the newest headlines the popup lists. Default: 10." },
+    { "key": "rotate", "section": "appearance", "group": "Tile", "common": true, "quick": true, "type": "bool", "label": "Show each headline in turn", "default": true,
+      "description": "The tile steps through the newest headlines while the dock is on screen. Off: the newest one only." },
+    { "key": "rotateSeconds", "section": "appearance", "group": "Tile", "type": "int", "label": "Each headline for", "default": 12, "min": 5, "max": 120, "unit": "seconds",
+      "visibleIf": { "rotate": true },
+      "description": "How long the tile shows each headline. Default: 12 seconds." },
+    { "key": "showSource", "section": "appearance", "group": "Tile", "type": "bool", "label": "Show the feed's name", "default": true,
+      "description": "A small line with the feed's name over the headline." },
+    { "key": "width", "section": "appearance", "group": "Tile", "type": "int", "label": "Width on a top or bottom dock", "default": 220, "min": 100, "max": 600, "step": 10, "unit": "DIPs",
+      "description": "How wide the tile is along a horizontal dock. Default: 220." }
+  ]
+}

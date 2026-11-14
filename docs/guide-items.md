@@ -347,6 +347,10 @@ The arrow opens the drawer. The card **The arrow** sets where it is and how it b
 
 - **Place**: **Last cell** (the grid's last cell, as before), **First cell** (the icons follow it), or a slim strip **before** or **after** the icons. A strip sits outside the grid and takes no cell, so every cell holds an icon.
 - **Looks like**: a **Chevron** that turns over while the drawer is open, three **Dots**, or a **Count** of the icons the grid does not show (for example +3).
+- **Shape**: **None** (the arrow alone), or a **Circle**, **Pill** or **Rounded square** behind it, so the arrow stands out and is easier to hit. The shape lights up under the pointer and while the drawer is open. A strip grows to hold the shape; in a grid cell the shape and the arrow shrink to fit the cell.
+- **Shape colour**: **Subtle** (a faint tint of the text colour with an outline) or **Accent** (the theme's accent colour).
+- **Size**: the size of the chevron, the dots or the count, from 50 % to 200 %.
+- **Space inside the shape**: the room between the arrow and the edge of its shape. More makes a larger shape.
 - **Shown**: **When there are more icons** (only while some icons do not fit or are hidden), or **Always**, so the drawer is one click away even when every icon fits.
 - **Opens the drawer on**: **Click**, or **Hover**: the drawer opens when the pointer rests on the arrow and closes shortly after the pointer leaves both the arrow and the drawer. A drawer you opened with a click stays until you click elsewhere.
 
@@ -404,7 +408,8 @@ ViberDock comes with these widgets:
 - **System monitor**: one measurement, such as processor, memory, graphics, disk, network or battery, as a graph, a bar, a dial or a number.
 - **System overview**: processor, memory, graphics, disk and network at once.
 - **Battery**: the battery level, whether it charges and the time left.
-- **Stocks**: quotes for the ticker symbols you list (stocks, ETFs, forex and crypto as Finnhub spells them), one symbol at a time or all of them, with the change since the previous close in green or red. It needs a free API key from finnhub.io, entered under Widget settings > Data. A click opens the day's figures; a click on a symbol there opens it on Yahoo Finance.
+- **Stocks**: quotes for the ticker symbols you list (stocks, ETFs, forex and crypto as Finnhub spells them), one symbol at a time or all of them, with the change since the previous close in green or red. It needs a free API key from finnhub.io, entered under Widget settings > Data. The key is kept protected for your Windows account and shows as dots (click **Show** to see it). A click opens the day's figures; a click on a symbol there opens it on Yahoo Finance.
+- **Headlines**: the newest headlines of a news feed (RSS or Atom) you choose. See [Headlines](#headlines).
 - **Photo frame**: a picture in a frame, or a folder of pictures as a slideshow. Choose the picture or the folder with the Browse… button in its settings (Content > Picture). A slideshow goes by name, by date or shuffled, waits the time you set on each picture, and changes with a fade, a slide from a side, or at once. Under Appearance pick the frame's size on a dock and its shape (the picture's own, square, 4:3, 16:9, a portrait ratio, or your own width and height; on the desktop the window is the frame), whether a picture of another shape is cropped to fill the frame or fits inside it, the border (none, a thin line, a mat, a Polaroid band), rounded corners and the drop shadow. A click shows the next picture (or opens the picture), a middle click opens it, and the wheel steps through a slideshow.
 - **Start** and **Search**: open the Start menu and Windows Search. Start shows the Windows logo, your own icon or the **Windows 7 orb**, a glossy sphere with the four-colour flag that lights up under the pointer and darkens while pressed. Its icon size 0 is automatic: the orb then fills the slot. The Start menu opens next to the button you clicked: above it on a bottom dock, beside it on a side dock. Its **Menu position** setting (Content) can put it back where Windows puts it; the Windows key always opens it at its usual place.
 - **Show desktop**: the narrow strip at the end of the Windows 7 taskbar. On a full-width dock it is as tall as the bar and, as the last item, sits right against the screen's end. A click shows the desktop (Win+D; a second click brings the windows back) or, if you choose, minimizes every window (Win+M). Its style can also be a small desktop glyph, for other themes. Hovering it does not make the windows transparent (Aero Peek is not available).
@@ -419,6 +424,15 @@ ViberDock comes with these widgets:
 - **Hello**: a tiny example widget.
 
 The System monitor can also show any sensor of HWiNFO (temperatures, fans, power) while HWiNFO runs with its shared memory turned on. See [Performance and memory](troubleshooting.md#performance-and-memory).
+
+### Headlines
+
+The Headlines widget shows the newest items of a news feed. Open its settings and type the feed's address under **Feed address** (most news sites and blogs have one; it usually ends in /feed, /rss or .xml).
+
+- When you leave the box, ViberDock asks whether the widget may connect to that site, naming it. Click **Allow** to let it fetch the feed. You are asked again if you change the address to another site.
+- An address of a device in your own network (for example a .local name) works too; the question then says the address is on your local network.
+- The tile shows the newest headline, or each one in turn (**Show each headline in turn**). A click lists the newest headlines; click one to open it in your browser. A middle click opens the headline the tile shows.
+- **Refresh every** sets how often the feed is fetched again.
 
 ### Network
 
@@ -551,3 +565,9 @@ A widget from your widgets folder may ask for permissions: to open files and run
 - App settings > Widget library shows each widget's permissions and whether you allowed them. Select a widget and click **Permissions…** to allow it or to revoke what you allowed; a revoked widget stops and shows Needs permission.
 
 Allow a widget only if you trust where it came from.
+
+Some questions come later, while you set a widget up:
+
+- **"Headlines wants to connect to news.example.com"** (with the widget's and the site's names): you typed an address into one of the widget's settings (a feed, a server of your own). Allow it and the widget may fetch from that site, for this one widget on this dock; change the address to another site and you are asked again. If the question says the address is on your local network, it is a device in your home or office rather than the internet: allow it only if you want that widget to talk to that device. A widget can never make this choice for you by changing its own settings.
+- **Opening web pages**: a widget with the "Links" permission opens a page in your browser only when you click it, one page per click.
+- **Secret settings** such as an API key show as dots, with **Show** to see them. They are kept protected for your Windows account: the settings file holds them in a scrambled form, saved layouts leave them out, and the widget console never prints them.

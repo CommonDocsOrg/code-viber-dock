@@ -179,6 +179,10 @@ struct SettingsHost {
     // dropped, widgets reloaded, the consent offered).
     std::function<bool(const std::wstring& id)> uninstallWidget;
     std::function<void(const std::wstring& id)> widgetInstalled;
+    // Round 29 phase 29C: the user typed `url` into host setting `key` of item `item` of docks[`dock`]
+    // (a script widget): App::ReviewHostConsent asks whether the widget may connect to its host
+    // (nothing when it was allowed for this item and setting already). True when it may.
+    std::function<bool(size_t dock, size_t item, const std::wstring& key, const std::wstring& url)> hostConsent;
     // Round 6 phase 6E: widget `id`'s live preview at `scale` px per DIP, fitted into `fitPx` (a
     // smaller widget drawn up to `maxZoom` times larger; DockManager::RenderPreview: a premultiplied 32-bit top-down DIB the window then owns; null
     // bitmap + error: it failed),

@@ -293,6 +293,9 @@ public:
         int hotCell = -1;     // the cell under the pointer (the hover plate), -1 none
         bool labels = false;  // labels are drawn beside the icons
         D2D1_RECT_F arrowRect{};  // the arrow's cell or strip in the slot's box, px
+        int shape = 0;        // round 30: the shape behind the arrow's glyph (TrayExpanderShape)
+        int shapeW = 0;       // ... and the shape as drawn, px (0, 0: none, or no arrow)
+        int shapeH = 0;
     };
     virtual bool TrayLook(TrayLookState& /*out*/) const { return false; }
     // Tray: the key of the icon under screen point `screen` (a grid cell, a pinned tray icon;

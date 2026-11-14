@@ -34,7 +34,11 @@ struct SettingField {
     // local time).
     // Round 17 phase 17A: File and Folder (an absolute path as a string; the settings page adds a
     // Browse… button that opens the file / folder picker; `filter` narrows the file picker).
-    enum class Type { Bool, Int, Number, String, Choice, Color, Font, Place, TimeZone, File, Folder };
+    // Round 29 phase 29C: Secret (a password-style box; stored DPAPI-protected, Secrets.h; the script
+    // gets the plain value; never a default, never common or quick) and Url (an https URL, http only
+    // for a host on the local network, never this PC: CheckUrlValue; a manifest's `hostSettings` can
+    // let the user's host be reached, after a prompt).
+    enum class Type { Bool, Int, Number, String, Choice, Color, Font, Place, TimeZone, File, Folder, Secret, Url };
     std::wstring key;
     std::wstring label;        // default: the key
     std::wstring description;  // optional note
@@ -147,7 +151,12 @@ struct Manifest {
     bool network = false;        // permission "network" (round 27 phase 27B)
     bool input = false;          // permission "input" (round 27 phase 27C)
     bool notify = false;         // permission "notify" (round 28 phase 28A: notify.banner)
+    bool links = false;          // permission "links" (round 29 phase 29C: links.open, a web page in the browser on a click)
     std::vector<std::wstring> httpHosts;  // lowercase; "*.example.com" matches sub-domains
+    // Round 29 phase 29C: { "http": [...], "hostSettings": ["feedUrl"] }: `url` settings whose host,
+    // as the user typed it in the settings page and allowed in the prompt that follows, this item
+    // may reach too (WidgetConsent::hosts, per item and setting).
+    std::vector<std::wstring> hostSettings;
     std::vector<SettingField> settings;
     std::vector<std::wstring> warnings;  // what was ignored while reading it
     std::vector<Issue> issues;           // Validate's findings (Load fills them in)
@@ -228,6 +237,21 @@ bool InstallFolder(const std::wstring& source, std::wstring& id, std::wstring& e
 // `location` (a string) when it has them. UTF-8 JSON object.
 std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson);
 
+// Round 29 phase 29C: a `url` setting's value: "" (none), an https URL, or an http one whose host
+// is on the local network (Http::LocalNetworkHost: a private address, a .local / .lan / .home.arpa /
+// .internal name, a single-label name); never this PC (localhost, loopback), never user info, at
+// most 2048 characters. `host` (lowercase) and `local` describe it. False with `error` (plain words).
+bool CheckUrlValue(const std::wstring& url, std::wstring& host, bool& local, std::wstring& error);
+// Round 29 phase 29C (settings.set): `json` (a JSON value) for field `f`, by the rules the settings
+// page applies: bool a boolean; int a whole number within min - max; number finite, clamped to
+// min - max; choice one of its values (a "perf" choice: any metric key); colour #AARRGGBB / #RRGGBB;
+// timezone "" or a zone of this Windows; url CheckUrlValue; string / font / file / folder / secret
+// a single-line string of at most 1024 characters. `normalized`: the JSON to store. A place is set
+// in its settings window only (refused).
+bool CheckSettingValue(const SettingField& f, const std::string& json, std::wstring& normalized, std::wstring& error);
+// The field with key `key` of `manifest` (null: none).
+const SettingField* FieldOf(const Manifest& manifest, const std::wstring& key);
+
 // The schemas of the built-in kinds that have item settings (round 5 phase A), for the generated
 // settings page: ItemKind::Clock (format, showSeconds, timeZone, showDate, label, face, click,
 // clickTarget) and ItemKind::Weather (place, label, units, refreshMinutes); empty for the others.
@@ -258,6 +282,9 @@ enum class ConsentState {
 ConsentState ConsentOf(const Package& pkg, const WidgetConsent* granted);
 // What a consent for the package as it is now holds.
 WidgetConsent ConsentFor(const Package& pkg);
+// Round 29 phase 29C: `slot` allows the package as it is now (ConsentFor), keeping the hosts the
+// user allowed through its url settings.
+void GrantConsent(WidgetConsent& slot, const Package& pkg);
 // The dialog's lines: one per permission, in plain words ("Open files, folders and web pages, and
 // run programs on this PC"; http: "Connect to: a.com, *.b.org (any sub-domain of b.org),
 // localhost (this PC)"), in PermissionList's order.

@@ -161,9 +161,20 @@ A widget from your widgets folder that asks for permissions (to open files or pr
 - Or open App settings > Widget library, select the widget and click **Permissions…**.
 - After an update of ViberDock, widgets you installed before show Needs permission once, until you review them.
 - A widget that worked before and shows Needs permission again was updated and now asks for something more. Review it again.
-- Built-in widgets never show it. If a built-in widget shows Needs permission, a folder with its id in your widgets folder replaces it: allow it, or delete that folder (App settings > Widget library > **More ▾** > **Open widgets folder**) to get the built-in back.
+- Built-in widgets never show it. If a built-in widget shows Needs permission, a folder with its id in your widgets folder replaces it: allow it, or uninstall that folder (App settings > Widget library, select it, **More ▾** > **Uninstall…**) to get the built-in back.
+- A widget you just installed from a zip shows Needs permission until you allow it, even if you allowed an earlier widget of the same name.
 
 See [Widget permissions](guide-items.md#widget-permissions).
+
+## A widget cannot reach the address I entered
+
+A widget that fetches from an address you type (such as the Headlines widget's feed) may connect to that site only after you allowed it in the question that follows.
+
+- If you clicked **Don't allow**, or the question did not come, type the address again (or click into the box and leave it): the question comes again.
+- Changing the address to another site asks again; until you allow it, the widget says it is not allowed.
+- A plain http address works only for a device on your local network (a .local name, an address such as 192.168.1.20). Use the https address of the site.
+- An address of this PC (localhost) is never allowed.
+- A web site's name that points to a device on your network is refused. Use the device's own name (such as homeassistant.local) or its address instead.
 
 ## Reset to defaults
 

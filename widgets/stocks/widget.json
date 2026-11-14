@@ -1,6 +1,6 @@
 {
   "name": "Stocks",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "author": "ViberDock",
   "description": "Stock, ETF and crypto quotes from Finnhub: one symbol at a time or every symbol in a row or a list, with the change since the previous close and a popup with the day's figures. Needs a free Finnhub API key.",
   "api": 1,
@@ -15,8 +15,8 @@
     { "key": "provider", "section": "content", "group": "Data", "type": "choice", "label": "Data source", "default": "finnhub",
       "description": "Where the quotes come from. Finnhub (finnhub.io) has a free plan with 60 requests a minute.",
       "choices": [ { "value": "finnhub", "label": "Finnhub" } ] },
-    { "key": "apiKey", "section": "content", "group": "Data", "type": "string", "label": "API key", "default": "",
-      "description": "Your Finnhub API key (free at finnhub.io/register). Empty: nothing is fetched." },
+    { "key": "apiKey", "section": "content", "group": "Data", "type": "secret", "label": "API key",
+      "description": "Your Finnhub API key (free at finnhub.io/register). Empty: nothing is fetched. Saved protected for your Windows account (never in plain text in the settings file); Show reveals it." },
     { "key": "symbols", "common": true, "section": "content", "group": "Symbols", "type": "string", "label": "Symbols", "default": "AAPL, MSFT, NVDA",
       "description": "Ticker symbols separated by commas, as Finnhub spells them: AAPL, MSFT, SPY, BINANCE:BTCUSDT, OANDA:EUR_USD." },
     { "key": "view", "common": true, "quick": true, "section": "content", "group": "Symbols", "type": "choice", "label": "View", "default": "all",

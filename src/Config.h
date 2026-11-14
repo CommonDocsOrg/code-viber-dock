@@ -43,6 +43,10 @@ enum class TrayColour { Original, Mono };
 enum class TrayExpander { End, Start, Before, After };
 enum class TrayExpanderStyle { Chevron, Dots, Count };
 enum class TrayExpanderShow { Auto, Always };
+// Round 30: a shape behind the arrow's glyph ("none": the glyph alone, as before) and its fill:
+// "subtle" (the text colour, faint) or "accent" (the theme's accent, the glyph in black or white).
+enum class TrayExpanderShape { None, Circle, Pill, Square };
+enum class TrayExpanderFill { Subtle, Accent };
 // The drawer (phase 24B consumes these): opened by a "click" on the arrow or by "hover"; it shows
 // "all" icons or only the "overflow" (those the grid does not show); labels "below" / "beside" /
 // "none".
@@ -102,6 +106,11 @@ struct DockItemEntry {
     TrayExpander trayExpander = TrayExpander::End;                // "expander"
     TrayExpanderStyle trayExpanderStyle = TrayExpanderStyle::Chevron;  // "expanderStyle"
     TrayExpanderShow trayExpanderShow = TrayExpanderShow::Auto;   // "expanderShow"
+    // Round 30: the arrow's shape, its fill, the glyph's size and the room between glyph and shape.
+    TrayExpanderShape trayExpanderShape = TrayExpanderShape::None;  // "expanderShape"
+    TrayExpanderFill trayExpanderFill = TrayExpanderFill::Subtle;   // "expanderFill"
+    int trayExpanderSize = 100;                                   // "expanderSize": the glyph, 50 - 200 % of the look before round 30
+    int trayExpanderPadding = 4;                                  // "expanderPadding": DIPs between the glyph and its shape's edge, 0 - 12
     TrayDrawerOpen trayDrawerOpen = TrayDrawerOpen::Click;        // "drawerOpen"
     TrayDrawerShows trayDrawerShows = TrayDrawerShows::All;       // "drawerShows"
     int trayDrawerIconSize = 40;                                  // "drawerIconSize": 16 - 48 DIPs
@@ -742,6 +751,10 @@ const wchar_t* ToString(TrayExpanderStyle v);
 bool FromString(std::wstring_view s, TrayExpanderStyle& v);
 const wchar_t* ToString(TrayExpanderShow v);
 bool FromString(std::wstring_view s, TrayExpanderShow& v);
+const wchar_t* ToString(TrayExpanderShape v);
+bool FromString(std::wstring_view s, TrayExpanderShape& v);
+const wchar_t* ToString(TrayExpanderFill v);
+bool FromString(std::wstring_view s, TrayExpanderFill& v);
 const wchar_t* ToString(TrayDrawerOpen v);
 bool FromString(std::wstring_view s, TrayDrawerOpen& v);
 const wchar_t* ToString(TrayDrawerShows v);
@@ -902,6 +915,12 @@ struct SettingsUiConfig {
 struct WidgetConsent {
     std::vector<std::wstring> permissions;  // sorted, unique
     bool replacesBuiltIn = false;
+    // Round 29 phase 29C: the hosts the user allowed through a widget's `url` setting (the manifest's
+    // `hostSettings`): "<item key>|<setting key>" -> the host (lowercase), one per item and setting,
+    // replaced when the user allows a new one. The item key is the script's dock.itemKey ("<dock
+    // id>/<widget id>#<n>", a standalone widget's entry id). Kept for built-in widgets too (an entry
+    // with only hosts: ConsentOf ignores them). `widgetConsent.<id>.hosts` in config.json.
+    std::map<std::wstring, std::wstring> hosts;
     bool operator==(const WidgetConsent&) const = default;
 };
 
