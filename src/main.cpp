@@ -17,6 +17,7 @@
 #include "DockWindow.h"
 #include "StartMenuPlacer.h"
 #include "TaskbarController.h"
+#include "WidgetInstall.h"
 #include "WidgetPackage.h"
 
 namespace {
@@ -105,11 +106,35 @@ int ValidateWidget(const std::wstring& folder) {
         return 2;
     }
     winrt::init_apartment(winrt::apartment_type::single_threaded);  // Windows.Data.Json
+    // Round 29 phase 29B: a .zip / .viberwidget is checked as the Widget library's Install from
+    // zip… reads it (every entry's name, links, sizes, the ratio), unpacked into a staging folder
+    // under %LocalAppData%\WinDock that is removed again, and that folder checked as below.
+    Widgets::ZipInstall zip;
+    std::wstring checked = folder;
+    const DWORD attrs = GetFileAttributesW(folder.c_str());
+    const size_t dot = folder.find_last_of(L'.');
+    const std::wstring ext = dot == std::wstring::npos ? L"" : folder.substr(dot);
+    if (attrs != INVALID_FILE_ATTRIBUTES && !(attrs & FILE_ATTRIBUTE_DIRECTORY) &&
+        (_wcsicmp(ext.c_str(), L".zip") == 0 || _wcsicmp(ext.c_str(), L".viberwidget") == 0)) {
+        zip.zipPath = folder;
+        Widgets::PrepareZipInstall(zip);
+        if (!zip.ok) {
+            // The archive itself was refused (or its widget fails the check: the first error).
+            Print(L"ViberDock widget check: " + folder + L"\r\n  error: " + zip.error + L"\r\nFAILED: the archive cannot be installed\r\n");
+            Widgets::DiscardZipInstall(zip);
+            return 1;
+        }
+        checked = zip.staged;
+    }
     std::vector<Widgets::Issue> issues;
     std::wstring name;
     Widgets::Manifest manifest;
-    const bool read = Widgets::ValidateFolder(folder, issues, name, &manifest);
+    const bool read = Widgets::ValidateFolder(checked, issues, name, &manifest);
+    if (!zip.zipPath.empty()) Widgets::DiscardZipInstall(zip);
     std::wstring text = L"ViberDock widget check: " + folder + L"\r\n";
+    if (!zip.zipPath.empty()) {
+        text += L"  archive: " + std::to_wstring(zip.files) + L" files, installs as \"" + zip.id + L"\"\r\n";
+    }
     if (!name.empty()) text += L"  name: " + name + L"\r\n";
     // Round 25 phase 25D: what installing it will ask the user to allow (the consent dialog's lines).
     if (read && !name.empty()) {
@@ -118,6 +143,7 @@ int ValidateWidget(const std::wstring& folder) {
         while (id.size() > 3 && (id.back() == L'\\' || id.back() == L'/')) id.pop_back();
         if (const size_t cut = id.find_last_of(L"\\/"); cut != std::wstring::npos) id = id.substr(cut + 1);
         for (wchar_t& c : id) c = static_cast<wchar_t>(std::towlower(c));
+        if (!zip.zipPath.empty()) id = zip.id;  // round 29 phase 29B: the id it installs as
         const bool shadow = Widgets::IsBuiltInId(id);  // installed, it replaces that built-in
         if (lines.empty()) {
             text += shadow ? L"  permissions: none\r\n" : L"  permissions: none (installed, it runs without asking)\r\n";

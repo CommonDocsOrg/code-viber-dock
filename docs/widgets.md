@@ -18,6 +18,7 @@ thread. This file is the full reference; README.md has the short version.
 - [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages, `examples/`,
   editor help with [`windock.d.ts`](windock.d.ts)
 - [Validating a widget](#validating-a-widget): the manifest and syntax check, `WinDock.exe --validate-widget`
+- [Publishing a widget](#publishing-a-widget): zip it; what Install from zip… checks; uninstalling
 - [Standalone widgets](#standalone-widgets): a widget in a window of its own on the desktop
 - [Preview mode](#preview-mode): the widget drawer's live previews, `dock.preview`, the sample data,
   the manifest's `preview`
@@ -1196,6 +1197,67 @@ out of range (the type's default or the clamped value is used), `refreshMs` / `t
 On a dock, a widget with an error does not run: its tile shows "Error" and the first problem
 (`widget.json: permissions[1]: ...`), and the Console lists every problem with its fix; warnings
 go to the Console only.
+
+Round 29: given a `.zip` or `.viberwidget` file instead of a folder, the check reads the archive
+exactly as **Install from zip…** does (see [Publishing a widget](#publishing-a-widget)), unpacks it
+into a staging folder under `%LocalAppData%\WinDock` (removed again) and checks that folder; the
+output adds `archive: <n> files, installs as "<id>"`. Run it on the file you are about to publish.
+
+## Publishing a widget
+
+Round 29. To give a widget to other people, zip its folder:
+
+```
+my-widget.zip
+  my-widget\            the only top-level folder: its name (lower case) is the widget's id
+    widget.json
+    main.js
+    lib\util.js         any modules and assets, as in the folder
+    windock.d.ts        optional (editor help; the dock never reads it)
+```
+
+A zip whose root holds `widget.json` directly works too: the id is then the zip's file name, lower
+case, with anything but a-z 0-9 - _ . turned into `-` (`My Clock (2).zip` installs as
+`my-clock-2`). `.viberwidget` is the same format under its own extension. Check the file with
+`WinDock.exe --validate-widget my-widget.zip` before you publish it.
+
+**What the user does**: App settings > Widget library > More ▾ > **Install from zip…**. What
+ViberDock does, in this order, refusing the whole archive at the first problem (the reason is
+shown under the library's buttons):
+
+1. Reads the archive (at most 20 MB) with its own reader: only the stored and deflate methods, no
+   encryption, no zip64, at most 200 entries, a file at most 8 MB and all files at most 20 MB
+   unpacked (as declared, and checked again while unpacking: a file never grows past its declared
+   size), no file above 64 KB compressed more than 100 to 1, every CRC-32 checked.
+2. Checks every name: no absolute paths, drive letters, `:` (alternate data streams), `..` or `.`
+   segments, empty segments, names ending in a dot or a space, the characters `< > " | ? *` or
+   control characters, reserved device names (`CON`, `NUL`, `COM1`, `LPT1`, ..., also `con.txt`),
+   non-ASCII names unless the archive marks them UTF-8, two names that differ only in case, more
+   than 16 levels; no symbolic links or reparse points. A Finder-made `__MACOSX/` folder and
+   `.DS_Store` files are skipped.
+3. Finds the widget: `widget.json` at the root, or inside the one top-level folder.
+4. Unpacks into a fresh staging folder `%LocalAppData%\WinDock\install-<unique>\<id>\` (every file
+   created new) and runs the [widget check](#validating-a-widget) on it, the script compile
+   included; an error refuses it. Nothing of the archive runs.
+5. If a widget with that id is installed, asks whether to replace it (the old folder goes to the
+   Recycle Bin, its `widget-data` stays). Then moves the folder into the widgets folder.
+6. Drops any consent the user gave an earlier widget of that id: the new one asks for its
+   permissions like any widget from the widgets folder ([Consent](#consent)) and shows **Needs
+   permission** until the user allows them. A widget that asks for nothing and replaces nothing
+   runs at once.
+
+**How your permissions read to the user**: the consent dialog lists one line per permission in
+plain words, for example "Internet: connect to api.example.com", "Shell: open files, folders and
+web pages, and run programs on this PC (with any arguments) ...", "Banners: show banners on
+screen ...". Ask for as little as you can: every line is one more reason to click Don't allow, and
+`"shell"` reads as what it is. Give `name`, `version`, `author` and `description` in the manifest:
+the dialog and the library show them (`--validate-widget` warns when one is missing).
+
+**Uninstall** (Widget library > More ▾ > **Uninstall…**) moves the widget's folder to the Recycle
+Bin after a confirmation that names it and how many docks and desktop widgets use it; its
+`widget-data\<id>.json` goes too only when the user ticks the box. Its consent is forgotten. Items
+that showed it stay and show the "not installed" error tile. Built-in widgets cannot be
+uninstalled; uninstalling a folder that replaced a built-in brings the built-in back.
 
 ## Standalone widgets
 

@@ -216,7 +216,10 @@ phase 12G; it replaced the welcome dialog; see Quick setup under [Settings](#set
 fields and fixes and exits with 0 (no errors), 1 (errors) or 2 (not a widget folder); see
 [docs/widgets.md](docs/widgets.md#validating-a-widget). Round 29: it also compiles every script of
 the folder (a syntax error is an error with its file, line and column; nothing runs) and warns about
-permissions no script mentions and a missing description, version or author.
+permissions no script mentions and a missing description, version or author. Given a `.zip` or
+`.viberwidget` file it checks the archive as Install from zip… reads it (entry names, links, sizes,
+the compression ratio), unpacks it into a staging folder under `%LocalAppData%\WinDock` that it
+removes again, and checks that folder; exit 1 when the archive cannot be installed.
 
 There are three menus (round 10 phase 10A; "…" marks the entries that open a window or a dialog):
 
@@ -2529,7 +2532,16 @@ Notifications, Tray icons; **WIDGETS** Widget library; then About after a gap):
   widget](#standalone-widgets) of the selected one) and **More ▾** (round 8 phase 8D: a menu with
   **Add from folder…**, **Export built-in to folder** (greyed unless a built-in that no folder
   replaces is selected), **Reload widgets**, **Open widgets folder** and **Console…**; see
-  **Widgets** above), and the last action's result line.
+  **Widgets** above), and the last action's result line. Round 29: More ▾ also has **Install from
+  zip…** (a `.zip` or `.viberwidget` file: checked and unpacked off the UI thread into a staging
+  folder, then moved into the widgets folder; it asks before replacing an installed widget of the
+  same id, and the widget needs your permission before it runs, see
+  [docs/widgets.md](docs/widgets.md#publishing-a-widget)), **Show folder** and **Uninstall…** (a
+  widget from your widgets folder: a confirmation names it and how many docks and desktop widgets
+  use it; its folder goes to the Recycle Bin, its saved data only when you tick the box; placed
+  items stay and show "not installed"; built-ins cannot be uninstalled). The permission line under
+  the preview names a folder widget's author (as the widget says) and version, its permissions and
+  every host it connects to.
 - **About**: version, the config file path (click it to show the file in Explorer), **Open config
   file**, **Reload config**, the renderer in use, **Run quick setup again** (round 12 phase 12G;
   was round 9's Show the welcome dialog: Quick setup, see above) and **Show the tips again**.
@@ -3832,7 +3844,19 @@ always there, also when every dock is parked) handle these registered messages:
   while the widget waits for consent; a standalone widget's menu has it too). The dialog is a task
   dialog titled "ViberDock widget permissions" (button 100 Allow / Keep allowed, 101 Don't allow /
   Revoke). Settings ids: 3512 the selected widget's permission line, 3513 **Permissions…**; the
-  list (3500) has a fifth column, Permissions. The clock's Face is field 5 of
+  list (3500) has a fifth column, Permissions. **Install and uninstall** (round 29 phase 29B):
+  `DockCommand` **190** installs the `.zip` / `.viberwidget` whose path is in the global atom
+  `LOWORD(lParam)` (on the calling thread; never over an installed widget of that id; no consent
+  dialog: the widget stays "Needs permission" until 188 or the UI, and any earlier consent of that
+  id is dropped; 1 installed, 0 refused, the reason to the debugger output); **191** uninstalls the
+  widget folder whose id is in the atom (no dialog, its saved data kept; 1 removed, 0 refused: a
+  built-in, not installed, the Recycle Bin failed). `QueryState` **374** = the uses of the widget
+  whose id is in the atom, `MAKELONG(dock items, standalone widgets)` (-1 no atom); **375** = the
+  last Uninstall (0 none, 1 removed, 2 refused, 3 cancelled, 4 failed); **376** = the Widget
+  library's zip install (0 none, 1 running, 2 installed, 3 refused, 4 an installed widget was not
+  replaced; -2 no App settings window). The Uninstall confirmation is a task dialog titled
+  "ViberDock widget library" (button 100 Uninstall, Cancel; its check box "Also delete its saved
+  data" only when the widget has a `widget-data` file). The clock's Face is field 5 of
   the clock schema (0 Digital, then the faces in `QueryState` 217's order; General 2175 - 2178 are
   retired); the generated page (an Item window): field k's controls are 3700 + 10 k + part (0 label, 1 the
   control, 2 its caption / spin, 3 description, 4 the group header before it, 5 its unit, 6 a
@@ -4806,7 +4830,9 @@ always there, also when every dock is parked) handle these registered messages:
   result; round 25 phase 25D: the list's fifth column Permissions (built in, none needed, allowed,
   needs permission, asks for more), 3512 the selected widget's permissions and consent in words,
   3513 Permissions… (the consent dialog, modal to the window: press it with `PostMessage`; greyed
-  for a widget that needs no consent)); the generated page (an Item
+  for a widget that needs no consent); round 29 phase 29B: More ▾ also runs 3514 Install from zip…
+  (a file dialog: post it), 3515 Uninstall… (the confirmation: post it) and 3516 Show folder, the
+  last two greyed for a built-in); the generated page (an Item
   window of a widget, clock or weather item; per schema field k `3700 + 10 * k + part`: 0 label, 1
   the control (check box, edit, drop-down), 2 the check box's caption or the int's up-down, 3 the
   field's hint (round 8 phase 8C: one line under the label or the check box's caption, the whole

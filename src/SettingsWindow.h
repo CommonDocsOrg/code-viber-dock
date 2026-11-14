@@ -174,6 +174,11 @@ struct SettingsHost {
     // ReviewWidgetConsent); `offer`: only when it needs a consent it does not have (an add or an
     // install). True when the consent changed (the windows were refreshed).
     std::function<bool(const std::wstring& id, bool offer)> widgetConsent;
+    // Round 29 phase 29B: the Widget library's Uninstall… (App::UninstallWidget: asks first; true when
+    // removed) and the end of an install from a zip (App::WidgetInstalled: consent of that id
+    // dropped, widgets reloaded, the consent offered).
+    std::function<bool(const std::wstring& id)> uninstallWidget;
+    std::function<void(const std::wstring& id)> widgetInstalled;
     // Round 6 phase 6E: widget `id`'s live preview at `scale` px per DIP, fitted into `fitPx` (a
     // smaller widget drawn up to `maxZoom` times larger; DockManager::RenderPreview: a premultiplied 32-bit top-down DIB the window then owns; null
     // bitmap + error: it failed),

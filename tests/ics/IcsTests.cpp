@@ -1,6 +1,8 @@
 // WinDockTests: the ICS parser / expander against hand-written cases (round 4 phase 13).
 //
-//   WinDockTests.exe [folder]   (default: the folder of this source, tests\ics)
+//   WinDockTests.exe [folder] [zip folder]   (default: the folder of this source, tests\ics, and tests\zip)
+//
+// Round 29 phase 29B: also the zip reader's cases (tests/zip/ZipTests.cpp, before the ICS ones).
 //
 // Every <name>.ics with a <name>.expected beside it is parsed and expanded into the window the
 // .expected file names ("# window: <from> <to>", UTC "YYYYMMDDTHHMMSSZ"), with the local zone it
@@ -191,6 +193,9 @@ void RunCase(const std::wstring& folder, const std::wstring& name) {
 
 }  // namespace
 
+// Round 29 phase 29B: the zip reader's cases (tests/zip/ZipTests.cpp).
+int RunZipTests(const std::wstring& folder, int& cases);
+
 int wmain(int argc, wchar_t** argv) {
     SetConsoleOutputCP(CP_UTF8);
     std::wstring folder;
@@ -201,6 +206,18 @@ int wmain(int argc, wchar_t** argv) {
         const size_t cut = src.find_last_of("\\/");
         folder.assign(src.begin(), src.begin() + static_cast<ptrdiff_t>(cut == std::string::npos ? 0 : cut));
     }
+    // Round 29 phase 29B: the zip cases, from the second argument, else tests\zip beside tests\ics.
+    std::wstring zipFolder;
+    if (argc > 2) {
+        zipFolder = argv[2];
+    } else {
+        const size_t cut = folder.find_last_of(L"\\/");
+        zipFolder = (cut == std::wstring::npos ? std::wstring(L".") : folder.substr(0, cut)) + L"\\zip";
+    }
+    int zipCases = 0;
+    const int zipFailures = RunZipTests(zipFolder, zipCases);
+    std::printf("%d zip case files, %d failures\n", zipCases, zipFailures);
+    g_failures += zipFailures;
     Direct();
     WIN32_FIND_DATAW fd{};
     HANDLE find = FindFirstFileW((folder + L"\\*.expected").c_str(), &fd);

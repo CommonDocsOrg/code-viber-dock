@@ -83,6 +83,9 @@ public:
     static std::wstring StorageDirectory();
     // Writes every changed storage file now.
     void FlushStorage();
+    // Round 29 phase 29B (Uninstall with its data): forgets widget `id`'s store in memory, unsaved
+    // changes included, so nothing writes its file again (a later read loads the file anew).
+    void ForgetStore(const std::wstring& id) { stores_.erase(id); }
 
     // --- http ---
     // Runs `request` on a worker thread; the result comes back as WidgetInstance::OnHttpResult(id)

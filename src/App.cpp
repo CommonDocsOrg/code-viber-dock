@@ -30,6 +30,7 @@
 #include "SettingsPreview.h"  // round 18 phase 18A: SettingsGallery::kMsgChoose (DockCommand 187)
 #include "Theme.h"
 #include "WidgetPackage.h"
+#include "WidgetInstall.h"  // round 29 phase 29B: RecyclePaths (Uninstall)
 #include "resource.h"
 #include "Crash.h"
 
@@ -293,6 +294,7 @@ bool App::Initialize(HINSTANCE instance) {
     if (!docks_.SyncTray()) TrayHost::RecoverFromMarker();
     AddTrayIcon();
     RegisterSessionWatch();  // round 26 phase 26A: lock / display off pause the docks' idle work
+    Widgets::RemoveStaleStaging();  // round 29 phase 29B: a zip install the last run did not finish
     taskbar_.SetEnabled(config_.hideTaskbar);
     // Only now: the controller has saved the original work area (without our reservations).
     docks_.AllowAppBar(true);
@@ -526,6 +528,120 @@ bool App::ReviewWidgetConsent(const std::wstring& id, HWND owner) {
     InvalidatePreviews();
     RefreshSettings();
     return true;
+}
+
+// --- round 29 phase 29B: uninstall, install -----------------------------------------------------
+
+void App::WidgetUses(const std::wstring& id, size_t& dockItems, size_t& docks, size_t& standalone) const {
+    dockItems = docks = standalone = 0;
+    for (const DockConfig& d : config_.docks) {
+        const size_t n = static_cast<size_t>(std::count_if(d.items.begin(), d.items.end(), [&](const DockItemEntry& e) {
+            return e.Kind() == ItemKind::Widget && e.id == id;
+        }));
+        if (!n) continue;
+        if (d.IsWidgetWindow()) {
+            standalone += n;
+        } else if (d.IsDock()) {
+            dockItems += n;
+            ++docks;
+        }
+    }
+}
+
+bool App::UninstallWidget(const std::wstring& id, HWND owner, bool ask, bool deleteData) {
+    lastUninstall_ = 2;
+    if (shutDown_ || !Widgets::ValidId(id) || consentOpen_ || modalDepth_ > 0) {
+        MessageBeep(MB_ICONWARNING);
+        return false;
+    }
+    std::wstring error;
+    const auto pkg = Widgets::Load(id, error);
+    if (!pkg || pkg->source != Widgets::Package::Source::Folder) {
+        MessageBeep(MB_ICONWARNING);  // not installed, or a built-in (it cannot be uninstalled)
+        return false;
+    }
+    const std::wstring folder = pkg->folder;
+    const std::wstring dataFile = WidgetRuntime::StorageDirectory() + L"\\" + id + L".json";
+    const bool hasData = GetFileAttributesW(dataFile.c_str()) != INVALID_FILE_ATTRIBUTES;
+    if (ask) {
+        size_t items = 0, docks = 0, standalone = 0;
+        WidgetUses(id, items, docks, standalone);
+        const std::wstring name = pkg->manifest.name.substr(0, 64);
+        std::wstring content;
+        if (items || standalone) {
+            content = L"It is in use: ";
+            if (items) content += std::to_wstring(items) + (items == 1 ? L" item on " : L" items on ") + std::to_wstring(docks) + (docks == 1 ? L" dock" : L" docks");
+            if (items && standalone) content += L" and ";
+            if (standalone) content += std::to_wstring(standalone) + (standalone == 1 ? L" widget on the desktop" : L" widgets on the desktop");
+            content += L". They stay where they are and show \"not installed\" until you remove them or install the widget again.\n\n";
+        } else {
+            content = L"No dock or desktop widget uses it.\n\n";
+        }
+        content += Widgets::ReplacesBuiltIn(*pkg) ? L"This folder replaces the built-in widget of the same id: the built-in comes back.\n\n" : L"";
+        content += L"Its folder goes to the Recycle Bin:\n" + folder;
+        const std::wstring instruction = L"Uninstall \"" + name + L"\"?";
+        enum { kUninstall = 100 };
+        TASKDIALOG_BUTTON buttons[] = {{kUninstall, L"Uninstall"}};
+        TASKDIALOGCONFIG tdc{};
+        tdc.cbSize = sizeof(tdc);
+        tdc.hwndParent = owner && IsWindow(owner) ? owner : nullptr;
+        tdc.hInstance = instance_;
+        tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | (tdc.hwndParent ? TDF_POSITION_RELATIVE_TO_WINDOW : 0);
+        tdc.dwCommonButtons = TDCBF_CANCEL_BUTTON;
+        tdc.pszWindowTitle = L"ViberDock widget library";
+        tdc.pszMainIcon = TD_WARNING_ICON;
+        tdc.pszMainInstruction = instruction.c_str();
+        tdc.pszContent = content.c_str();
+        tdc.pButtons = buttons;
+        tdc.cButtons = static_cast<UINT>(std::size(buttons));
+        tdc.nDefaultButton = IDCANCEL;
+        // Its saved data (notes, lists, settings it stored) only when asked: off by default.
+        const std::wstring verify = L"Also delete its saved data (widget-data\\" + id + L".json)";
+        if (hasData) tdc.pszVerificationText = verify.c_str();
+        int button = IDCANCEL;
+        BOOL checked = FALSE;
+        ++modalDepth_;
+        const HRESULT hr = TaskDialogIndirect(&tdc, &button, nullptr, &checked);
+        EndModal();
+        if (FAILED(hr) || button != kUninstall || shutDown_) {
+            lastUninstall_ = 3;
+            return false;
+        }
+        deleteData = checked != FALSE;
+    }
+    std::vector<std::wstring> paths{folder};
+    if (deleteData && hasData) {
+        docks_.Widgets().ForgetStore(id);  // the in-memory copy must not write the file back
+        paths.push_back(dataFile);
+    }
+    ++modalDepth_;  // the shell may ask (an item it cannot recycle)
+    const bool removed = Widgets::RecyclePaths(paths, owner, error);
+    EndModal();
+    if (!removed) {
+        lastUninstall_ = 4;
+        MessageBeep(MB_ICONWARNING);
+        if (ask && !error.empty()) {
+            const std::wstring text = L"The widget could not be uninstalled: " + error + L".";
+            MessageBoxW(owner && IsWindow(owner) ? owner : nullptr, text.c_str(), L"ViberDock widget library", MB_ICONWARNING | MB_OK);
+        }
+        return false;
+    }
+    config_.widgetConsent.erase(id);
+    RequestSave();
+    docks_.Widgets().ReloadAll();  // its instances: "not installed" (or the built-in again)
+    InvalidatePreviews();
+    RefreshSettings();
+    lastUninstall_ = 1;
+    return true;
+}
+
+void App::WidgetInstalled(const std::wstring& id, HWND owner) {
+    if (shutDown_ || !Widgets::ValidId(id)) return;
+    if (config_.widgetConsent.erase(id)) RequestSave();
+    docks_.Widgets().ReloadAll();
+    InvalidatePreviews();
+    RefreshSettings();
+    OfferWidgetConsent(id, owner);
 }
 
 void App::OpenWelcome() {
@@ -3072,6 +3188,8 @@ SettingsHost App::MakeSettingsHost(SettingsWindow* w) {
         const HWND owner = w->Hwnd();
         return offer ? OfferWidgetConsent(id, owner) : ReviewWidgetConsent(id, owner);
     };
+    host.uninstallWidget = [this, w](const std::wstring& id) { return UninstallWidget(id, w->Hwnd()); };  // round 29 phase 29B
+    host.widgetInstalled = [this, w](const std::wstring& id) { WidgetInstalled(id, w->Hwnd()); };
     host.dashboardOn = [this] { return docks_.Dashboard(); };
     host.calendarFeeds = [this] {
         std::vector<SettingsCalendarFeed> feeds;
@@ -4598,6 +4716,23 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             wchar_t buf[256]{};
             return GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf))) ? WidgetConsentState(buf) : -1;
         }
+        case 374: {
+            // Round 29 phase 29B (app-wide): the uses of the widget whose id is in the global atom
+            // LOWORD(lParam): MAKELONG(dock items, standalone widgets); -1 no atom.
+            wchar_t buf[256]{};
+            if (!GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf)))) return -1;
+            size_t items = 0, docks = 0, standalone = 0;
+            WidgetUses(buf, items, docks, standalone);
+            return MAKELONG(static_cast<WORD>(std::min<size_t>(items, 0xFFFF)), static_cast<WORD>(std::min<size_t>(standalone, 0xFFFF)));
+        }
+        case 375:  // round 29 phase 29B (app-wide): the last Uninstall: 0 none, 1 removed, 2 refused, 3 cancelled, 4 failed
+            return lastUninstall_;
+        case 376: {  // round 29 phase 29B: Global > Widget library's zip install: 0 none, 1 running, 2 installed, 3 refused, 4 not replaced; -2 no Global window
+            SettingsWindow* w = FindSettings(SettingsKind::Global);
+            LRESULT out = -2;
+            if (w && !w->QueryPages(376, arg, out)) out = -2;
+            return out;
+        }
         default:
             break;
     }
@@ -4748,6 +4883,33 @@ bool App::OnSharedMessage(UINT msg, WPARAM wp, LPARAM lp, LRESULT& result) {
         if (result) RefreshSettings();
         // Round 25 phase 25D: no consent dialog here (automation must never get a modal): a widget
         // that needs one stays unallowed ("Needs permission") until DockCommand 188 or the UI.
+        return true;
+    }
+    if (msg == msgDockCommand_ && (wp == ContextMenu::kInstallWidgetZip || wp == ContextMenu::kUninstallWidget)) {
+        // Round 29 phase 29B: the path / the id in the global atom LOWORD(lParam).
+        wchar_t buf[512]{};
+        result = 0;
+        if (GlobalGetAtomNameW(static_cast<ATOM>(lp & 0xFFFF), buf, static_cast<int>(std::size(buf)))) {
+            if (wp == ContextMenu::kUninstallWidget) {
+                result = UninstallWidget(buf, nullptr, false, false) ? 1 : 0;
+            } else {
+                Widgets::ZipInstall job;
+                job.zipPath = buf;
+                Widgets::PrepareZipInstall(job);
+                std::wstring error = job.error;
+                if (job.ok && !Widgets::InstalledFolderExists(job.id) && Widgets::CommitZipInstall(job, false, nullptr, error)) {
+                    if (config_.widgetConsent.erase(job.id)) RequestSave();
+                    docks_.Widgets().ReloadAll();
+                    InvalidatePreviews();
+                    RefreshSettings();
+                    result = 1;
+                } else {
+                    Widgets::DiscardZipInstall(job);
+                    if (job.ok && error.empty()) error = L"a widget \"" + job.id + L"\" is installed already";
+                    OutputDebugStringW((L"WinDock: install widget zip: " + error + L"\n").c_str());
+                }
+            }
+        }
         return true;
     }
     if (msg == msgDockCommand_ && (wp == ContextMenu::kGrantWidgetConsent || wp == ContextMenu::kRevokeWidgetConsent)) {

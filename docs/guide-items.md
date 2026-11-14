@@ -513,11 +513,32 @@ To put a desktop widget back on a dock, drag its window onto the dock's bar: a m
 A widget is a folder with a small description file and a JavaScript file. You can write your own, or change a copy of a built-in one, without any tools.
 
 - App settings > Widget library > **More ▾** > **Add from folder…** installs a widget from a folder.
+- **Install from zip…** installs a widget from a .zip or .viberwidget file (see below).
 - **Export built-in to folder** makes an editable copy of a built-in widget.
-- **Open widgets folder** opens the folder where your widgets live.
+- **Open widgets folder** opens the folder where your widgets live; **Show folder** opens the selected widget's own folder.
+- **Uninstall…** removes the selected widget (see below).
 - **Console…** shows each widget's log and errors.
 
 Everything about writing widgets is in the [widget developer reference](widgets.md).
+
+#### Installing a widget
+
+Widgets made by other people usually come as a .zip file (or a .viberwidget file, which is the same thing with its own name). To install one, open App settings > Widget library, choose **More ▾** > **Install from zip…** and pick the file.
+
+- ViberDock checks the file before anything is installed: every name in it, its size (at most 20 MB unpacked, 200 files), and every script. A file with something odd in it, such as a name that points outside the widget's folder, a link, or a file that unpacks to far more than its size, is refused as a whole, and the line under the buttons says why.
+- Nothing in the file runs while it is checked and installed.
+- If a widget with the same id is installed already, ViberDock asks before replacing it. The old one goes to the Recycle Bin; its saved data stays.
+- After installing, the widget asks for its permissions as any widget from your widgets folder does (see Widget permissions below). An installed widget never keeps a permission you gave an earlier widget of the same name.
+
+#### Uninstalling a widget
+
+Select a widget from your widgets folder in App settings > Widget library and choose **More ▾** > **Uninstall…**. The question names the widget and how many docks and desktop widgets use it.
+
+- Its folder goes to the Recycle Bin, so you can restore it from there.
+- Its saved data (notes, lists and the like) is kept unless you tick **Also delete its saved data**.
+- Docks that show it keep its place and show "not installed" until you remove the item or install the widget again.
+- The permission you gave it is forgotten.
+- Built-in widgets cannot be uninstalled. Uninstalling a folder that replaced a built-in brings the built-in back.
 
 #### Widget permissions
 

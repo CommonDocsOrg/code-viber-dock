@@ -2186,6 +2186,25 @@ editor gives loose `.js` files the DOM library, which redeclares `console` and t
 (an `interface Console` + `declare var`) is what works, `no-default-lib` did not; the exported
 folder's `jsconfig.json` removes the DOM there.
 
+**29B, installing and removing.** The brief offered two ways to read a zip; the Shell's zip folder
+was rejected because it gives no say over what it writes: names, links and sizes are its business
+and are known only after the copy, so a bomb or a `..` name is found out on disk, and it can show
+dialogs of its own from a worker. A reader of our own is small when it only has to read what a
+widget needs (stored and deflate, the central directory, no zip64 or encryption) and can refuse
+everything else before a byte is written; the decoder is the puff.c design (slow, simple, every
+read checked) because speed does not matter at this size and safety does. The test suite builds
+one archive per flaw by hand rather than trusting a zip tool to produce the hostile cases. What the
+install refuses rather than repairs (a name with a trailing dot, two names differing in case, a
+non-UTF-8 name): repairing would mean deciding which of two files the author meant. Staging in a
+fresh folder of our own, then one rename, means a failed install never leaves half a widget in
+`widgets\`, and the existing folder of that id is only touched after the user said yes. Dropping
+the id's consent on every zip install is the security choice: the consent was given to a folder's
+permission set, and a different archive under the same name may come from someone else (cost: an
+update of a widget you trust asks again). Uninstall recycles instead of deleting (the user can
+undo it from the bin) and keeps the saved data unless asked, because a note or a to-do list is the
+user's, not the widget's; placed items are left as "not installed" tiles rather than removed, so
+reinstalling puts everything back where it was.
+
 ## Dependencies at a glance
 
 ```

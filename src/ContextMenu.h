@@ -149,6 +149,14 @@ enum Command : UINT {
     // it. 1 done, 0 refused. QueryState 357 reads the state.
     kGrantWidgetConsent = 188,
     kRevokeWidgetConsent = 189,
+    // Round 29 phase 29B (automation only, app-wide): install the .zip whose path is in the global
+    // atom LOWORD(lParam) (Widgets::PrepareZipInstall + CommitZipInstall on the calling thread, never
+    // over an installed widget, no consent dialog: it stays "Needs permission" until 188 or the UI;
+    // any earlier consent of that id is dropped), 1 installed, 0 refused (the reason to the debugger
+    // output); and uninstall the widget folder whose id is in the atom (no dialog, its saved data
+    // kept), 1 removed, 0 refused.
+    kInstallWidgetZip = 190,
+    kUninstallWidget = 191,
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,

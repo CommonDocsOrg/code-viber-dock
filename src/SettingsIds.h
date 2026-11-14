@@ -491,6 +491,14 @@ inline constexpr int kWidgetsMore = 3511;      // round 8 phase 8D: "More ▾" (
 // needs no consent).
 inline constexpr int kWidgetsPermissions = 3512;
 inline constexpr int kWidgetsReview = 3513;
+// Round 29 phase 29B: more of the "More ▾" menu's commands (WM_COMMAND with lParam 0 to the page runs
+// them): "Install from zip…" (a file dialog, modal: post it; the archive is unpacked and checked
+// on a worker, the result in kWidgetsStatus), "Uninstall…" (the selected widget folder; a
+// confirmation, modal: post it; greyed for a built-in) and "Show folder" (Explorer on the selected
+// widget's folder; greyed for a built-in).
+inline constexpr int kWidgetsInstallZip = 3514;
+inline constexpr int kWidgetsUninstall = 3515;
+inline constexpr int kWidgetsShowFolder = 3516;
 
 // Widget settings (3600 - 3999; phase 4b). The fixed controls, then per schema field k
 // (widget.json "settings" order) 3700 + 10 * k + part: 0 label, 1 the control (check box, edit,

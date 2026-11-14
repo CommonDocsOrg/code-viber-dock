@@ -438,11 +438,11 @@ See [The tray](guide-items.md#the-tray).
 
 The Widget library lists every installed widget with its name, id, where it comes from (built in or a folder), its version and its permissions: built in, none needed, allowed, needs permission, or asks for more (than you allowed).
 
-Select a widget to see a live preview and its description. The line under the preview says what the selected widget may do and whether you allowed it; **Permissions…** opens the question to allow it, or to revoke what you allowed (the widget then stops). See [Widget permissions](guide-items.md#widget-permissions). Then:
+Select a widget to see a live preview and its description. The line under the preview says, for a widget from your widgets folder, who made it (as the widget says) and its version, then what it may do, the internet hosts it connects to, and whether you allowed it; **Permissions…** opens the question to allow it, or to revoke what you allowed (the widget then stops). See [Widget permissions](guide-items.md#widget-permissions). Then:
 
 - **Add to dock**: adds it to a dock. With several docks a small menu asks which one.
 - **Add to the desktop**: puts it on the desktop in a window of its own. See [Standalone widgets](guide-docks.md#standalone-widgets).
-- **More ▾**: a menu with **Add from folder…** (install a widget from a folder), **Export built-in to folder** (make a copy of a built-in widget you can edit), **Reload widgets**, **Open widgets folder** and **Console…** (each widget's log and errors).
+- **More ▾**: a menu with **Add from folder…** (install a widget from a folder), **Install from zip…** (install a widget someone sent you as a .zip or .viberwidget file, see [Installing a widget](guide-items.md#installing-a-widget)), **Export built-in to folder** (make a copy of a built-in widget you can edit), **Show folder** and **Uninstall…** (for a widget from your widgets folder), **Reload widgets**, **Open widgets folder** and **Console…** (each widget's log and errors).
 
 The line under the buttons shows the result of the last action.
 

@@ -272,6 +272,21 @@ private:
     // The consent state of widget `id` (QueryState 357; -1: not installed).
     int WidgetConsentState(const std::wstring& id) const;
     bool consentOpen_ = false;  // a consent dialog is open (one at a time)
+    // --- round 29 phase 29B: the Widget library's Uninstall… and install from a zip ---
+    // Uninstall… of a widget folder (`id`): a confirmation naming the widget and how many docks and
+    // desktop widgets use it, with a check box for its saved data (widget-data\<id>.json, off by
+    // default); then the folder (and, ticked, the data file) to the Recycle Bin, its consent
+    // dropped, its widgets reloaded: placed items stay and show the "not installed" error tile (a
+    // folder that replaced a built-in: the built-in comes back). Built-ins: refused. `ask` false
+    // (automation, DockCommand 190): no dialog, the data kept. True when it was removed.
+    bool UninstallWidget(const std::wstring& id, HWND owner, bool ask = true, bool deleteData = false);
+    // A widget folder `id` was just installed (from a zip): any consent of that id is dropped (an
+    // install never inherits what the user allowed an earlier folder of that name), the widgets
+    // reload, and the consent dialog is offered when it needs one.
+    void WidgetInstalled(const std::wstring& id, HWND owner);
+    // How many dock items / standalone widgets show widget `id` (the confirmation, QueryState 374).
+    void WidgetUses(const std::wstring& id, size_t& dockItems, size_t& docks, size_t& standalone) const;
+    int lastUninstall_ = 0;  // QueryState 375: the last Uninstall's result (0 none, 1 removed, 2 refused, 3 cancelled, 4 failed)
     // --- the dashboard hotkey (round 6 phase 6A) ---
     // Registers config.dashboard.hotkey on the app window (RegisterHotKey, id kDashboardHotkeyId),
     // replacing the one registered before; "" registers none. A combination another app holds
