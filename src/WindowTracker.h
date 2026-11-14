@@ -43,6 +43,10 @@ public:
 
     static constexpr UINT_PTR kCoalesceTimerId = 3;
     static constexpr UINT kCoalesceMs = 50;
+    // Round 26 phase 26C: a burst of events postpones the pass at most this long after its first.
+    static constexpr ULONGLONG kMaxDelayMs = 250;
+    // Diagnostics (QueryState 366): passes that only re-read captions (no EnumWindows).
+    size_t TitlePasses() const { return titlePasses_; }
 
     WindowTracker() = default;
     WindowTracker(const WindowTracker&) = delete;
@@ -80,8 +84,12 @@ private:
                                       DWORD);
 
     void OnShellEvent(WPARAM code, HWND hwnd);
-    void Schedule();
+    // `structural`: anything but a tracked window's caption change (round 26 phase 26C).
+    void Schedule(bool structural = true);
     void Reconcile();
+    // Round 26 phase 26C: only captions changed: the tracked windows' titles, no enumeration.
+    void ReconcileTitles();
+    std::vector<HWND> TakeTitles();
     bool PassesFilter(HWND hwnd, bool checkCloak) const;
     void Forget(HWND hwnd);
 
@@ -93,6 +101,9 @@ private:
     HWINEVENTHOOK minimizeHook_ = nullptr;
     TitleFn onTitles_;
     std::unordered_set<HWND> titleChanged_;  // HSHELL_REDRAW since the last reconcile
+    bool structural_ = false;          // round 26 phase 26C: the pending pass needs the full Reconcile
+    ULONGLONG scheduledSince_ = 0;     // the first event of the pending pass (0: none pending)
+    size_t titlePasses_ = 0;
 
     std::vector<Tracked> windows_;               // first-seen order
     std::unordered_map<HWND, size_t> index_;     // hwnd -> position in windows_ (rebuilt on change)

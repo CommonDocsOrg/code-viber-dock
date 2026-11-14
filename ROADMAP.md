@@ -2037,6 +2037,19 @@ rejected for that reason. For the icon fetch the plan's `SMTO_BLOCK` removal was
 wait would dispatch other processes' sent messages in the middle of a rebuild); the shorter
 timeout is the part that helps.
 
+**26C, storms and repeated work.** The rule throughout: compare what the consumer actually uses
+before doing the work, and coalesce with a cap. A folder window's reload compares only what it
+shows (names, folder flags, sizes and dates only where seen or sorted by); the throttle became a
+debounce with a one-second cap, so a burst that never pauses still shows its changes. Settings
+broadcasts compare the dock's monitor rect, work area, DPI and the system transparency switch
+(the dock's colours come from the config, not the system theme), posted once per burst. Device
+nodes compare the monitor list Sync last saw; no recorded case needed a Sync without a monitor
+change, and a real display change also brings `WM_DISPLAYCHANGE`, which is not skipped. The
+window tracker keeps its 50 ms debounce but caps it at 250 ms, and a caption change alone no longer
+enumerates every window. Rejected: one shared WinHTTP session (cookies, auth state and pooled
+idle connections would cross from one widget to another and to the weather and calendar, against
+round 25's isolation, for a saving nobody measured on requests that are rare).
+
 ## Dependencies at a glance
 
 ```

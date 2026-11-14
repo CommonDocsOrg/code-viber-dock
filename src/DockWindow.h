@@ -152,6 +152,7 @@ public:
     // Round 26: WM_APP + 78 = FolderWindow::kListedMessage and FolderPopup::kListedMessage (phase
     // 26B, posted to a folder window / the folder popup by the worker that listed a slow folder);
     // TrayHost's own window: timer 2 = TrayHost::kMirrorRetryTimer (26B). No new timer on a dock.
+    // WM_APP + 79 = kEnvCheckMessage (26C, posted to the dock window itself, below).
     // On the settings search dialog's own window (round 9 phase 9B / round 18 phase 18D): WM_APP + 41
     // = SettingsSearch::kRebuildMessage, + 42 its kHideComboMessage, timer 1 = its kIndexTimerId (the
     // next window of the index, one-shot); WM_APP + 40 = SettingsWindow::kRebuildMessage on a settings window.
@@ -178,6 +179,9 @@ public:
     // Posted (coalesced): a popup's hold ended without a leave check while the bar is grown (9A
     // follow-up): if nothing holds the dock any more and the pointer is gone, the bar returns to rest.
     static constexpr UINT kGrownCheckMessage = WM_APP + 48;
+    // Round 26 phase 26C: posted (coalesced): a WM_SETTINGCHANGE / WM_DISPLAYCHANGE came; OnEnvCheck
+    // relayouts only when what the dock uses changed.
+    static constexpr UINT kEnvCheckMessage = WM_APP + 79;
 
     // Diagnostics / automation: SendMessage(dock, RegisterWindowMessage(kQueryItemMessage), wp, lp)
     // with wp = a top-level HWND (or 0 and lp = item index) returns the screen point of the
@@ -1160,6 +1164,25 @@ private:
     // Round 26 phase 26A: the dock's content can be seen: shown or showing, not a hidden desktop
     // dock, not hidden by the full-screen guard, the session not paused (QueryState 361).
     bool ContentVisible() const;
+    // Round 26 phase 26C (B7): what a layout depends on from outside the config: the monitor's rect
+    // and work area, the DPI (recorded by LayoutPass), and the system half of the acrylic decision
+    // (recorded by UpdateAcrylic). PostEnvCheck posts one kEnvCheckMessage per burst; OnEnvCheck
+    // relayouts only on a difference (QueryState 364 counts the checks that skipped).
+    struct EnvSeen {
+        RECT monitor{}, work{};
+        UINT dpi = 0;
+        bool operator==(const EnvSeen& o) const {
+            return EqualRect(&monitor, &o.monitor) && EqualRect(&work, &o.work) && dpi == o.dpi;
+        }
+    };
+    EnvSeen EnvNow() const;
+    void PostEnvCheck(bool acrylic);
+    void OnEnvCheck();
+    EnvSeen envSeen_;
+    bool acrylicSystem_ = true;
+    bool envCheckPosted_ = false;
+    bool envAcrylic_ = false;  // the pending check also re-tests acrylic
+    size_t envSkipped_ = 0;
     // Subscribes to / leaves the shared foreground watch.
     void SetWatchingForeground(bool on) {
         if (on == watching_ || !shared_) return;

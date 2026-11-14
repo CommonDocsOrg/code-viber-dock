@@ -2556,8 +2556,12 @@ void App::OnDisplayState(DWORD state) {
     docks_.SetSessionPaused(bits);
 }
 
-void App::ScheduleDisplaySync() {
+void App::ScheduleDisplaySync(bool deviceNodes) {
+    // Round 26 phase 26C (B7): only device-node events alone may be skipped (kDisplaySync compares);
+    // anything else pending makes it a full Sync as before.
+    if (!deviceNodes) syncDeviceOnly_ = false;
     if (syncPending_ || !hwnd_) return;
+    if (deviceNodes) syncDeviceOnly_ = true;
     syncPending_ = true;
     PostMessageW(hwnd_, kDisplaySync, 0, 0);
 }
@@ -4553,6 +4557,8 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
         }
         case 358:  // round 26 phase 26A (app-wide): the session paused: 0 in use; 1 locked, + 2 the display off, + 4 disconnected
             return docks_.SessionPausedBits();
+        case 365:  // round 26 phase 26C (app-wide): device-node events that found the monitors unchanged (no Sync)
+            return static_cast<LRESULT>(deviceSyncsSkipped_);
         case 356:  // round 25 phase 25B (app-wide): 0 a normal start; 1 started from a malformed config.json, + 2 its copy was made, + 4 saving is blocked now
             if (!startedMalformed_) return 0;
             return 1 | (badCopyMade_ ? 2 : 0) | (saveBlocked_ ? 4 : 0);
@@ -5320,6 +5326,18 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
     if (msg == kDisplaySync) {
         if (modalDepth_ > 0) return 0;  // EndModal posts it again
         syncPending_ = false;
+        // Round 26 phase 26C (B7): WM_DEVICECHANGE(DBT_DEVNODES_CHANGED) comes for every USB /
+        // Bluetooth device plugged or removed, and each ran the whole SyncDocks (every folder and
+        // widget window's ApplyConfig, weather, notifications, the panels, the settings). It is
+        // there for displays (round 3a: "a display may have been (dis)connected"; no case was
+        // recorded where WM_DISPLAYCHANGE did not come too), so a device-node event alone syncs
+        // only when the monitors (handles, rects, DPI) differ from what the last Sync saw.
+        const bool deviceOnly = syncDeviceOnly_;
+        syncDeviceOnly_ = false;
+        if (deviceOnly && !docks_.MonitorsChanged()) {
+            ++deviceSyncsSkipped_;
+            return 0;
+        }
         SyncDocks();
         RefreshSettings();  // the Docks page's parked states, the display lists
         return 0;
@@ -5427,7 +5445,7 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
             ScheduleDisplaySync();  // monitors came, went or changed: park / unpark / re-point docks
             return 0;
         case WM_DEVICECHANGE:
-            if (wp == DBT_DEVNODES_CHANGED) ScheduleDisplaySync();  // a display may have been (dis)connected
+            if (wp == DBT_DEVNODES_CHANGED) ScheduleDisplaySync(true);  // a display may have been (dis)connected
             return TRUE;
         case WM_WTSSESSION_CHANGE:  // round 26 phase 26A
             OnSessionChange(wp);

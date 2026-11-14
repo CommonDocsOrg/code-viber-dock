@@ -5,6 +5,7 @@
 #include <cwchar>
 
 #include <dwmapi.h>
+#include <shellscalingapi.h>  // round 26 phase 26C: GetDpiForMonitor (MonitorSignature)
 #include <shlobj.h>
 #include <shlwapi.h>
 
@@ -625,10 +626,28 @@ HRESULT DockManager::CreateWindowFor(Instance& inst) {
     return S_OK;
 }
 
+std::vector<DockManager::MonitorSeen> DockManager::MonitorSignature(const std::vector<HMONITOR>& monitors) {
+    std::vector<MonitorSeen> out;
+    out.reserve(monitors.size());
+    for (HMONITOR m : monitors) {
+        MonitorSeen s;
+        s.monitor = m;
+        MONITORINFO mi{sizeof(mi)};
+        if (GetMonitorInfoW(m, &mi)) s.rect = mi.rcMonitor;
+        UINT dx = 96, dy = 96;
+        if (SUCCEEDED(GetDpiForMonitor(m, MDT_EFFECTIVE_DPI, &dx, &dy))) s.dpi = dx;
+        out.push_back(s);
+    }
+    return out;
+}
+
+bool DockManager::MonitorsChanged() const { return MonitorSignature(EnumerateMonitors()) != syncedMonitors_; }
+
 HRESULT DockManager::Sync() {
     if (!config_ || syncing_) return S_OK;
     syncing_ = true;
     monitors_ = EnumerateMonitors();
+    syncedMonitors_ = MonitorSignature(monitors_);  // round 26 phase 26C: MonitorsChanged compares with it
 
     // What should exist: per config dock one instance, or one per monitor ("each").
     std::vector<Instance> next;

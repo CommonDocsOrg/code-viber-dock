@@ -214,7 +214,10 @@ FolderListing::Filter FolderPopup::ListFilter() {
 void FolderPopup::Load(const std::wstring& folder) {
     current_ = folder;
     entries_.clear();
-    iconByIndex_.clear();
+    // Round 26 phase 26C: iconByIndex_ is kept while the popup is open (Release clears it): the
+    // system image list's indexes are stable for the process and every bitmap is SHIL_EXTRALARGE,
+    // so going into a sub-folder and back, or the reload after a drop, converts no icon twice.
+    // (The popup has no change watch: it does not reload by itself, so B6's storm does not apply.)
     readable_ = true;
     loading_ = false;
     listWanted_ = false;

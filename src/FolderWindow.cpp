@@ -43,6 +43,7 @@ constexpr size_t kAutoGridMax = 48;   // auto view: a grid up to this many entri
 constexpr size_t kMaxEntries = 20000;
 constexpr size_t kMaxOpen = 16;       // Enter / double click on a selection opens at most this many
 constexpr UINT kRefreshMs = 250;
+constexpr ULONGLONG kRefreshMaxMs = 1000;  // round 26 phase 26C: the debounce's cap (ArmRefresh)
 constexpr UINT kEditMessage = WM_APP + 13;  // posted by the rename box: wParam 1 commit, 0 cancel
 constexpr UINT kCmdFirst = 1, kCmdLast = 0x7FFF;
 
@@ -746,6 +747,26 @@ void FolderWindow::ApplyListing(FolderListing::Listing listing, bool rebuild, bo
             selectAfterLoad_.clear();
         }
     }
+    // Round 26 phase 26C (B6): a change notification that changed nothing shown (a file growing
+    // during a download, a time stamp touched) is not laid out and drawn again. What is shown: the
+    // names (the order follows them), folder or file, and size and date only where they are seen
+    // (the list view's second column) or order the entries (sort by size / date).
+    const bool viewIsList = view_.GetMode() == ItemGridView::Mode::List;
+    if (!rebuild && keepState && afterLoad.empty() && readable == readable_ && list == viewIsList &&
+        next.size() == entries_.size() && view_.Count() == entries_.size()) {
+        const bool sizesShown = list || sort == FolderSort::Size || sort == FolderSort::Date;
+        bool same = true;
+        for (size_t i = 0; same && i < next.size(); ++i) {
+            const Entry& a = next[i];
+            const Entry& b = entries_[i];
+            same = a.folder == b.folder && a.name == b.name &&
+                   (!sizesShown || (a.size == b.size && CompareFileTime(&a.modified, &b.modified) == 0));
+        }
+        if (same) {
+            ++unchangedReloads_;
+            return;
+        }
+    }
     // What a Reload keeps (by path).
     std::vector<std::wstring> keep;
     std::wstring caretPath;
@@ -756,15 +777,34 @@ void FolderWindow::ApplyListing(FolderListing::Listing listing, bool rebuild, bo
         if (caret >= 0 && static_cast<size_t>(caret) < entries_.size()) caretPath = entries_[static_cast<size_t>(caret)].path;
         scroll = view_.ScrollOffset();
     }
-    iconByIndex_.clear();
-    resolved_ = 0;
-    (void)rebuild;
+    // Round 26 phase 26C (B6): the icons stay across reloads (every reload used to clear them, so
+    // every visible entry asked the shell again and converted its HICON again). iconByIndex_ is
+    // keyed by the system image list's index, stable for the process (IconFor drops it when the
+    // pixel size changes); an entry still there keeps its resolved label and icon, so a reload asks
+    // the shell (SHGetFileInfoW) only for new names. F5 / Refresh and Load start over (a file whose
+    // icon changed under the same name shows the new one then).
+    std::unordered_map<std::wstring, size_t> old;
+    if (rebuild) {
+        iconByIndex_.clear();
+        resolved_ = 0;
+    } else if (list == viewIsList) {  // (an automatic view switching between grid and list: other icon sizes)
+        old.reserve(entries_.size());
+        for (size_t i = 0; i < entries_.size() && i < view_.Count(); ++i) {
+            if (view_.At(i).resolved) old.emplace(entries_[i].name, i);
+        }
+    }
     std::vector<GridItem> items;
     items.reserve(next.size());
     for (size_t i = 0; i < next.size(); ++i) {
         const Entry& e = next[i];
         GridItem item;
         item.label = e.name;  // the shell's display name replaces it when the row is drawn
+        if (auto it = old.find(e.name); it != old.end() && entries_[it->second].folder == e.folder) {
+            const GridItem& was = view_.At(it->second);
+            item.label = was.label;
+            item.icon = was.icon;
+            item.resolved = true;
+        }
         item.id = i;
         item.flags = e.folder ? 1u : 0u;
         if (list) item.secondary = ShellFiles::SizeAndDate(e.folder, e.size, e.modified);
@@ -772,6 +812,9 @@ void FolderWindow::ApplyListing(FolderListing::Listing listing, bool rebuild, bo
     }
     entries_ = std::move(next);
     readable_ = readable;
+    // A busy folder's history (names come and go): the cache is dropped past a bound; the entries
+    // kept above hold their own bitmaps.
+    if (iconByIndex_.size() > 4 * entries_.size() + 256) iconByIndex_.clear();
     view_.SetItems(std::move(items));
     view_.SetMode(list ? ItemGridView::Mode::List : ItemGridView::Mode::Grid);
     if (!keepState) {
@@ -807,6 +850,20 @@ void FolderWindow::ApplyListing(FolderListing::Listing listing, bool rebuild, bo
     Commit();
 }
 
+void FolderWindow::ArmRefresh() {
+    // Round 26 phase 26C (B6): a debounce with a cap instead of a throttle. The throttle reloaded
+    // every kRefreshMs for as long as notifications kept coming (a Downloads window during a
+    // download: four full reloads a second); now each notification moves the reload to kRefreshMs
+    // after it, but never later than kRefreshMaxMs after the first one of the burst, so a stream
+    // that never pauses still shows its changes once a second.
+    if (!hwnd_) return;
+    const ULONGLONG now = GetTickCount64();
+    if (!refreshPending_ || refreshSince_ == 0) refreshSince_ = now;
+    const ULONGLONG due = std::min(now + kRefreshMs, refreshSince_ + kRefreshMaxMs);
+    const UINT delay = static_cast<UINT>(std::max<ULONGLONG>(due > now ? due - now : 0, USER_TIMER_MINIMUM));
+    refreshPending_ = SetTimer(hwnd_, kRefreshTimer, delay, nullptr) != 0;  // replaces a pending one
+}
+
 void FolderWindow::Watch() {
     Unwatch();
     if (!hwnd_ || folder_.empty()) return;
@@ -828,6 +885,11 @@ winrt::com_ptr<ID2D1Bitmap> FolderWindow::IconFor(const std::wstring& path, int 
     const ItemGridView::Style style = ViewStyle();
     const bool list = view_.GetMode() == ItemGridView::Mode::List;
     const int px = static_cast<int>(std::lround((list ? style.listIconDip : style.iconDip) * scale_));
+    // Round 26 phase 26C: the cache outlives reloads now, so it is for one pixel size.
+    if (px != iconCachePx_) {
+        iconByIndex_.clear();
+        iconCachePx_ = px;
+    }
     if (auto it = iconByIndex_.find(sysIndex); it != iconByIndex_.end()) return it->second;
     winrt::com_ptr<ID2D1Bitmap> bitmap;
     ID2D1DeviceContext* dc = host_.renderer ? host_.renderer->ResourceContext() : nullptr;
@@ -1384,6 +1446,7 @@ LRESULT FolderWindow::QueryState(WPARAM what, LPARAM arg) const {
         case 211: return view_.GetStyle().labelLines;
         case 212: return static_cast<LRESULT>(Cfg().folder.titleColor ? Cfg().folder.titleColor : config_->ThemeOf(Cfg()).clockText);
         case 362: return inFlight_ ? 1 : 0;  // round 26 phase 26B: a slow folder's listing runs on its worker
+        case 363: return static_cast<LRESULT>(unchangedReloads_);  // 26C: reloads that changed nothing shown (not drawn)
         default: return -1;
     }
 }
@@ -1675,6 +1738,7 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (wp == kRefreshTimer) {
                 KillTimer(hwnd_, kRefreshTimer);  // one-shot
                 refreshPending_ = false;
+                refreshSince_ = 0;
                 ++refreshes_;
                 Reload();
                 return 0;
@@ -1701,9 +1765,7 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
                 SHChangeNotification_Unlock(lock);
             }
             ++notifications_;
-            if (!refreshPending_) {
-                refreshPending_ = SetTimer(hwnd_, kRefreshTimer, kRefreshMs, nullptr) != 0;  // coalesced
-            }
+            ArmRefresh();
             return 0;
         }
         case kListedMessage:  // round 26 phase 26B: a slow folder's listing from its worker (ours to free)
@@ -1712,7 +1774,7 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         case kJobDoneMessage:
             if (jobs_ > 0) --jobs_;
             // The change notifications usually come first; a late one is coalesced with this.
-            if (!refreshPending_) refreshPending_ = SetTimer(hwnd_, kRefreshTimer, kRefreshMs, nullptr) != 0;
+            ArmRefresh();
             return 0;
         case kMenuMessage: {
             const int index = static_cast<int>(wp) == 0xFFFF ? -1 : static_cast<int>(wp);

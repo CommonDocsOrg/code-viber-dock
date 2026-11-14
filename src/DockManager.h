@@ -101,6 +101,9 @@ public:
     // docks[].monitor indexes).
     const std::vector<HMONITOR>& Monitors() const { return monitors_; }
     static std::vector<HMONITOR> EnumerateMonitors();
+    // Round 26 phase 26C: the monitors now differ from what the last Sync saw (handles in order,
+    // rects, effective DPI): App skips a device-node-only Sync when they do not.
+    bool MonitorsChanged() const;
     // The monitor index a config dock (not "each") is on, or -1 when its monitor is not connected.
     int MonitorIndexFor(const DockConfig& d) const;
 
@@ -294,6 +297,14 @@ private:
     // Round 6 phase 6E: the settings windows' widget previews (reads widgets_' storage).
     WidgetPreview previews_{widgets_};
     std::vector<HMONITOR> monitors_;
+    struct MonitorSeen {  // round 26 phase 26C
+        HMONITOR monitor = nullptr;
+        RECT rect{};
+        UINT dpi = 0;
+        bool operator==(const MonitorSeen& o) const { return monitor == o.monitor && EqualRect(&rect, &o.rect) && dpi == o.dpi; }
+    };
+    static std::vector<MonitorSeen> MonitorSignature(const std::vector<HMONITOR>& monitors);
+    std::vector<MonitorSeen> syncedMonitors_;
     std::vector<Instance> instances_;
     std::vector<std::unique_ptr<DockWindow>> graveyard_;  // closed windows, freed by Reap
     std::vector<std::unique_ptr<FolderWindow>> folderGraveyard_;

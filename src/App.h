@@ -229,8 +229,11 @@ private:
     UINT RunMenu(DockWindow* dock, const std::function<UINT()>& show);
     void EndModal();
     // Display / monitor changes: re-sync the docks with the monitors (deferred while a menu or
-    // dialog is open).
-    void ScheduleDisplaySync();
+    // dialog is open). Round 26 phase 26C: `deviceNodes` (DBT_DEVNODES_CHANGED only): skipped when
+    // the monitors are what the last Sync saw (syncDeviceOnly_, QueryState 365).
+    void ScheduleDisplaySync(bool deviceNodes = false);
+    bool syncDeviceOnly_ = false;
+    size_t deviceSyncsSkipped_ = 0;
     // DockManager::Sync, then the reserved work areas and the settings window follow.
     void SyncDocks();
     void UpdateReservedMonitors();

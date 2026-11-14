@@ -89,6 +89,8 @@ void WindowTracker::Stop() {
         minimizeHook_ = nullptr;
     }
     titleChanged_.clear();
+    structural_ = false;
+    scheduledSince_ = 0;
     if (s_instance == this) s_instance = nullptr;
     owner_ = nullptr;
     onChange_ = nullptr;
@@ -112,7 +114,15 @@ bool WindowTracker::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == WM_TIMER && wp == kCoalesceTimerId) {
         KillTimer(owner_, kCoalesceTimerId);  // one-shot
-        Reconcile();
+        scheduledSince_ = 0;
+        const bool structural = structural_;
+        structural_ = false;
+        if (structural) {
+            Reconcile();
+        } else {
+            ++titlePasses_;
+            ReconcileTitles();  // round 26 phase 26C: only captions changed
+        }
         return true;
     }
     return false;
@@ -138,8 +148,15 @@ void WindowTracker::OnShellEvent(WPARAM code, HWND hwnd) {
             }
             break;
         case HSHELL_REDRAW:          // title/icon change: cached identity stays valid
-            if (hwnd && index_.contains(hwnd)) titleChanged_.insert(hwnd);  // compared at the reconcile
-            break;
+            if (hwnd && index_.contains(hwnd)) {
+                // Round 26 phase 26C: a tracked window's caption: compared at the next pass, which
+                // needs no EnumWindows unless something else came too (ReconcileTitles). A
+                // browser playing a video or a terminal retitles itself many times a second.
+                titleChanged_.insert(hwnd);
+                Schedule(false);
+                return;
+            }
+            break;  // an untracked window (its title may just have made it count): a full pass
         case HSHELL_WINDOWREPLACED:
         case HSHELL_WINDOWREPLACING:
         case HSHELL_MONITORCHANGED:
@@ -150,8 +167,16 @@ void WindowTracker::OnShellEvent(WPARAM code, HWND hwnd) {
     Schedule();
 }
 
-void WindowTracker::Schedule() {
-    if (owner_) SetTimer(owner_, kCoalesceTimerId, kCoalesceMs, nullptr);
+void WindowTracker::Schedule(bool structural) {
+    // A debounce (each event moves the pass to kCoalesceMs after it), round 26 phase 26C: capped at
+    // kMaxDelayMs after the first event of the burst. A steady stream (a window being retitled or
+    // reshown faster than every 50 ms) used to postpone the pass for as long as it lasted.
+    if (!owner_) return;
+    structural_ = structural_ || structural;
+    const ULONGLONG now = GetTickCount64();
+    if (scheduledSince_ == 0) scheduledSince_ = now;
+    const ULONGLONG due = std::min<ULONGLONG>(now + kCoalesceMs, scheduledSince_ + kMaxDelayMs);
+    SetTimer(owner_, kCoalesceTimerId, static_cast<UINT>(std::max<ULONGLONG>(due > now ? due - now : 0, USER_TIMER_MINIMUM)), nullptr);
 }
 
 void WindowTracker::Forget(HWND hwnd) {
@@ -218,18 +243,8 @@ void WindowTracker::Reconcile() {
         windows_.push_back(Tracked{hwnd, std::move(*key), WindowTitle(hwnd)});
     }
 
-    // 2b. Title changes of tracked windows (HSHELL_REDRAW also means an icon / flash redraw: only
-    //     a caption that differs from the last one counts).
-    std::vector<HWND> retitled;
-    for (HWND hwnd : titleChanged_) {
-        auto it = index_.find(hwnd);
-        if (it == index_.end()) continue;
-        std::wstring title = WindowTitle(hwnd);
-        if (title == windows_[it->second].title) continue;
-        windows_[it->second].title = std::move(title);
-        retitled.push_back(hwnd);
-    }
-    titleChanged_.clear();
+    // 2b. Title changes of tracked windows (TakeTitles).
+    std::vector<HWND> retitled = TakeTitles();
 
     // 3. Attention state: only for tracked, non-foreground windows.
     const HWND fgOwner = TrackedOwnerOf(GetForegroundWindow());
@@ -267,6 +282,32 @@ void WindowTracker::Reconcile() {
     }
     // The change callback may have stopped the tracker (quit from inside it).
     if (!retitled.empty() && owner_ && onTitles_) onTitles_(retitled);
+}
+
+std::vector<HWND> WindowTracker::TakeTitles() {
+    // HSHELL_REDRAW also means an icon / flash redraw: only a caption that differs from the last
+    // one counts.
+    std::vector<HWND> retitled;
+    for (HWND hwnd : titleChanged_) {
+        auto it = index_.find(hwnd);
+        if (it == index_.end()) continue;
+        std::wstring title = WindowTitle(hwnd);
+        if (title == windows_[it->second].title) continue;
+        windows_[it->second].title = std::move(title);
+        retitled.push_back(hwnd);
+    }
+    titleChanged_.clear();
+    return retitled;
+}
+
+void WindowTracker::ReconcileTitles() {
+    // Round 26 phase 26C: every HSHELL_REDRAW used to run the full Reconcile (a filter test per
+    // tracked window, EnumWindows over every top-level window, the snapshot rebuilt and compared).
+    // A caption change alters nothing the snapshot holds (windows, order, monitors, minimized,
+    // attention): only the captions, which go to onTitles_ as before.
+    if (!owner_) return;
+    const std::vector<HWND> retitled = TakeTitles();
+    if (!retitled.empty() && onTitles_) onTitles_(retitled);
 }
 
 std::wstring WindowTracker::WindowTitle(HWND hwnd) {

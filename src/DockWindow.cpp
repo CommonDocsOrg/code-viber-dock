@@ -1860,6 +1860,41 @@ void DockWindow::TryCompact() {
     UpdateWindowRect();
 }
 
+DockWindow::EnvSeen DockWindow::EnvNow() const {
+    EnvSeen e;
+    MonitorRects(e.monitor, e.work);
+    e.dpi = hwnd_ ? GetDpiForWindow(hwnd_) : dpi_;
+    return e;
+}
+
+void DockWindow::PostEnvCheck(bool acrylic) {
+    envAcrylic_ = envAcrylic_ || acrylic;
+    if (envCheckPosted_ || !hwnd_) return;
+    envCheckPosted_ = PostMessageW(hwnd_, kEnvCheckMessage, 0, 0) != FALSE;
+    if (!envCheckPosted_) OnEnvCheck();  // (a full queue: at once, as before)
+}
+
+void DockWindow::OnEnvCheck() {
+    envCheckPosted_ = false;
+    const bool acrylicAsked = envAcrylic_;
+    envAcrylic_ = false;
+    if (!hwnd_) return;
+    bool acrylicChanged = false;
+    if (acrylicAsked) {
+        acrylicChanged = Backdrop::SystemAllowsTransparency() != acrylicSystem_;
+        if (acrylicChanged) {
+            UpdateAcrylic();
+            SyncLayer();  // a "behind" dock's backdrop beneath it (or none)
+        }
+    }
+    const EnvSeen now = EnvNow();
+    if (!acrylicChanged && now == envSeen_) {
+        ++envSkipped_;  // QueryState 364
+        return;
+    }
+    Relayout();
+}
+
 void DockWindow::Relayout() {
     if (!hwnd_ || inLayout_) return;
     LayoutPass();
@@ -1886,6 +1921,7 @@ void DockWindow::LayoutPass() {
         // during SetWindowPos); lay out once more if it did.
         const UINT now = GetDpiForWindow(hwnd_);
         dpi_ = now;
+        envSeen_ = EnvNow();  // round 26 phase 26C: what this layout used (OnEnvCheck compares)
         if (now == before) break;
         labelDirty_ = true;
         for (DockItem& item : items_) {
@@ -5958,8 +5994,9 @@ void DockWindow::UpdateAcrylic() {
     // over the blur window's whole rectangle and ignores its window region (a grey box around the
     // ring on screen, seen in the 2026-11-03 verification), so a ring uses its plain fill too.
     // (A "behind" dock keeps its blur: the desktop layer keeps the backdrop window beneath it.)
+    acrylicSystem_ = Backdrop::SystemAllowsTransparency();  // round 26 phase 26C: OnEnvCheck compares
     const bool want = DockTheme().acrylic && !DockTheme().shelf && !DockTheme().perspective &&
-                      DockCfg().layer != DockLayer::Desktop && !DockCfg().Polar() && Backdrop::SystemAllowsTransparency();
+                      DockCfg().layer != DockLayer::Desktop && !DockCfg().Polar() && acrylicSystem_;
     if (want && !backdrop_.Exists()) backdrop_.Create(instance_);
     acrylic_ = want && backdrop_.Exists();
     if (acrylic_) {
@@ -7333,7 +7370,10 @@ void DockWindow::ArmIconEvict() {
 }
 
 uint32_t DockWindow::ItemDominant(const DockItem& item) const {
-    return icons_.DominantColor(item.key, layout_.bitmapPx, item.iconFile, item.iconIndex);
+    // Round 26 phase 26C: the colour is computed on first use, with the dock's resource context
+    // (ResourceContext is a non-const accessor; nothing of the renderer changes here).
+    return icons_.DominantColor(item.key, layout_.bitmapPx, item.iconFile, item.iconIndex,
+                                const_cast<Renderer&>(renderer_).ResourceContext());
 }
 
 // --- Drag to reorder ---------------------------------------------------------------------------
@@ -9613,6 +9653,12 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
         // cannot be seen: hidden, a hidden desktop dock, the full-screen guard, the session paused).
         case 361:
             return ContentVisible() ? 0 : 1;
+        // Round 26 phase 26C: settings / display broadcasts this dock checked and found nothing it
+        // uses changed (no relayout, no redraw).
+        case 364:
+            return static_cast<LRESULT>(envSkipped_);
+        case 366:  // round 26 phase 26C (process-wide): window tracker passes that only re-read captions
+            return static_cast<LRESULT>(shared_->Tracker().TitlePasses());
         default:
             return -1;
     }
@@ -10024,6 +10070,10 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             if (grown_ && !hold_ && !popupHolds_ && hideState_ != HideState::Hidden && !CursorInZone()) LeaveZone();
             return 0;
 
+        case kEnvCheckMessage:  // round 26 phase 26C
+            OnEnvCheck();
+            return 0;
+
         case kWidgetRedrawMessage:
             widgetRedrawPosted_ = false;
             DispatchEvent(DockEvent::WidgetRedraw);
@@ -10226,22 +10276,30 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
             return 0;
 
         case WM_DISPLAYCHANGE:
+            // Round 26 phase 26C (B7): checked (posted, coalesced) instead of an immediate Relayout:
+            // DockManager's Sync follows the same change and relayouts a dock whose monitor handle
+            // changed, so the second pass is skipped when the geometry the dock uses is the same.
             DismissPreview(false, false);
             DismissClickPopups(false, false);
             DismissWidgetPassive(false);
-            Relayout();  // re-picks the monitor (falls back to the primary) and re-centres
+            PostEnvCheck(false);  // re-picks the monitor (falls back to the primary) and re-centres when it changed
             return 0;
 
         case WM_SETTINGCHANGE:
+            // Round 26 phase 26C (B7): every one of these ran a full Relayout (every slot redrawn) on
+            // every dock, and they are frequent: "ImmersiveColorSet" on unlock, accent and theme
+            // changes and from other apps; SPI_SETWORKAREA in bursts (the taskbar controller's own
+            // hide / restore sends several, STATUS "Open follow-ups"). Now one posted check per burst
+            // (PostEnvCheck) compares what this dock uses (its monitor's rect and work area, the DPI,
+            // the system half of the acrylic decision) with what its last layout used, and does
+            // the work only on a difference. The dock's colours do not follow the system theme (the
+            // theme comes from the config), so a colour-set change matters only through acrylic.
             if (wp == SPI_SETHIGHCONTRAST ||
                 (lp && CompareStringOrdinal(reinterpret_cast<const wchar_t*>(lp), -1, L"ImmersiveColorSet", -1,
                                             TRUE) == CSTR_EQUAL)) {
-                // "Transparency effects" or high contrast toggled: acrylic on/off.
-                UpdateAcrylic();
-                SyncLayer();  // a "behind" dock's backdrop beneath it (or none)
-                Relayout();
+                PostEnvCheck(true);  // "Transparency effects" or high contrast toggled: acrylic on / off
             } else if (wp == SPI_SETWORKAREA || wp == SPI_SETNONCLIENTMETRICS) {
-                Relayout();
+                PostEnvCheck(false);  // (the dock reads no non-client metric; checked like a work area change)
             } else if (wp == SPI_SETCLIENTAREAANIMATION) {
                 // Animation effects toggled: reduceMotion "system" follows it from the next animation.
                 RefreshMotion();

@@ -1877,7 +1877,12 @@ folder, the window opens at the pointer) or on App settings > Docks and displays
   list above (icon, name, size and date), like the folder popup. Icons come from the shell (the
   system image list; above 48 px the shell's icon at that size) as rows scroll into view. The
   window follows the folder live: one `SHChangeNotifyRegister` per window, changes coalesced into
-  one reload 250 ms after the last notification; nothing polls.
+  one reload 250 ms after the last notification (round 26 phase 26C: at most 1 s after the first
+  of a burst that does not pause; until then it was a 250 ms throttle); a reload that changes
+  nothing shown (a file growing during a download, with the grid view and sort by name or type)
+  is neither laid out nor drawn, and entries still there keep their icons; F5 / Refresh starts
+  over. A folder on a share or a removable drive is listed on a worker thread (round 26 phase 26B;
+  "Loading…" meanwhile); nothing polls.
 - **Mouse and keyboard**: a click selects (Ctrl + click adds / removes one, Shift + click a range, a
   click on the background selects nothing), a double click or Enter opens the entry with the shell's
   default verb (folders open in Explorer; `singleClick`: a click opens). Ctrl+A, the arrows, Home /
@@ -3801,7 +3806,16 @@ always there, also when every dock is parked) handle these registered messages:
   361. Round 26 phase 26B: **362** = 1 while folder window `HIWORD(lParam)` waits for its listing
   from a worker thread (a folder on a UNC path or a remote, removable, optical or unknown drive is
   listed off the UI thread; the window says "Loading…" meanwhile, the folder popup too; local
-  folders are listed at once as before); -1 for a dock.
+  folders are listed at once as before); -1 for a dock. Round 26 phase 26C: **363** = folder
+  window `HIWORD(lParam)`'s reloads after change notifications that changed nothing shown (not
+  laid out or drawn; QueryState 194 counts every reload); **364** = the settings / display
+  broadcasts (`WM_SETTINGCHANGE` work area, non-client metrics, high contrast,
+  "ImmersiveColorSet"; `WM_DISPLAYCHANGE`) dock `HIWORD(lParam)` checked and found nothing it uses
+  changed (its monitor rect, work area, DPI, the system transparency setting): no relayout;
+  **365** (any dock index) = `DBT_DEVNODES_CHANGED` events that found the monitors (handles,
+  rects, DPI) as the last Sync saw them, so no Sync ran; **366** (any dock index) = window tracker
+  passes that only re-read captions (a tracked window's `HSHELL_REDRAW` alone: no
+  `EnumWindows`). The tracker's 50 ms debounce is capped at 250 ms after the first event.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.

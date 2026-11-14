@@ -54,7 +54,12 @@ public:
     // Saturation- and alpha-weighted average colour (0xFFRRGGBB) of that exact entry's icon,
     // computed once per load. 0 when unknown (not loaded, no icon, or nothing opaque).
     // Round 25 phase 25C: by the full entry key (it was by AppKey alone, the one entry there was).
-    uint32_t DominantColor(const AppKey& key, UINT pixelSize, const std::wstring& iconFile, int iconIndex) const;
+    // Round 26 phase 26C: computed on the first call for the entry, not in Get: it is a GPU read-back
+    // (a CPU-readable copy, a map that waits for the GPU) that only the glow and the Windows 7 hot
+    // tile use, and it ran for every icon load, also at every new size, with neither on. `dc`: the
+    // context the entry was loaded with (the dock's resource context).
+    uint32_t DominantColor(const AppKey& key, UINT pixelSize, const std::wstring& iconFile, int iconIndex,
+                           ID2D1DeviceContext* dc) const;
 
     // HICON -> D2D bitmap (the icon is not destroyed). Null on failure.
     winrt::com_ptr<ID2D1Bitmap> FromHicon(HICON icon, ID2D1DeviceContext* dc);
@@ -105,7 +110,8 @@ private:
     };
     struct Entry {
         winrt::com_ptr<ID2D1Bitmap> bitmap;  // null: no icon could be loaded (placeholder)
-        uint32_t dominant = 0;               // DominantColor (0: unknown)
+        mutable uint32_t dominant = 0;       // DominantColor (0: unknown)
+        mutable bool dominantDone = false;   // round 26 phase 26C: computed (lazily, DominantColor)
         bool inUse = true;
         bool transient = false;              // Get(..., transient): never in use
         ULONGLONG unusedSince = 0;

@@ -100,7 +100,7 @@ private:
     // Round 26 phase 26B: a slow folder's listing came from its worker (wParam: the tag, lParam: a
     // FolderListing::Listing* the window frees). Listed in DockWindow.h's WM_APP table.
     static constexpr UINT kListedMessage = WM_APP + 78;
-    static constexpr UINT_PTR kRefreshTimer = 1;          // 250 ms one-shot after a change notification
+    static constexpr UINT_PTR kRefreshTimer = 1;          // one-shot: 250 ms after the last change notification, at most 1 s after the first (26C)
     static constexpr UINT_PTR kRollTimer = 2;             // rollUpOnHover: 400 ms after the pointer left
     static constexpr UINT_PTR kViewTimerBase = 100;       // the view's (100, 101)
 
@@ -150,6 +150,8 @@ private:
     void RequestListing(bool rebuild, bool keepState);
     void OnListed(WPARAM tag, FolderListing::Listing* listing);
     void ApplyListing(FolderListing::Listing listing, bool rebuild, bool keepState, bool async);
+    // Round 26 phase 26C: a change notification / a finished file operation: the reload, debounced.
+    void ArmRefresh();
     void Watch();
     void Unwatch();
     void ResolveItem(size_t index, GridItem& item);
@@ -221,6 +223,11 @@ private:
     bool listAgain_ = false;    // asked again while it ran: one more run after it, with ...
     bool againRebuild_ = false, againKeep_ = true;  // ... the most any of those asks wanted
     bool loading_ = false;      // the folder's first listing has not come yet ("Loading…")
+    // Round 26 phase 26C: reloads after notifications that changed nothing shown (QueryState 363),
+    // the first notification of the pending debounce (ArmRefresh), the icon cache's pixel size.
+    size_t unchangedReloads_ = 0;
+    ULONGLONG refreshSince_ = 0;
+    int iconCachePx_ = 0;
 
     // Move / resize.
     Grab grab_ = Grab::None;

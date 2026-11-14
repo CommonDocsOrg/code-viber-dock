@@ -295,7 +295,7 @@ winrt::com_ptr<ID2D1Bitmap> IconCache::LoadRecycleBinIcon(UINT px, ID2D1DeviceCo
 
 uint32_t IconCache::ComputeDominantColor(ID2D1Bitmap* bitmap, ID2D1DeviceContext* dc) {
     // Read back through a CPU-readable copy (a bitmap that can be drawn cannot be mapped). Done
-    // once per load; the copy is released at once.
+    // once per entry, at its first DominantColor (round 26 phase 26C); the copy is released at once.
     if (!bitmap || !dc) return 0;
     const D2D1_SIZE_U size = bitmap->GetPixelSize();
     if (size.width == 0 || size.height == 0) return 0;
@@ -462,15 +462,22 @@ ID2D1Bitmap* IconCache::Get(const AppKey& key, HWND sampleWindow, UINT pixelSize
     }
     if (!e.bitmap && !key.IsSynthetic()) e.bitmap = LoadShellImage(key, pixelSize, dc);
     if (!e.bitmap) e.bitmap = LoadWindowIcon(sampleWindow, dc);
-    e.dominant = ComputeDominantColor(e.bitmap.get(), dc);
+    // (Round 26 phase 26C: the dominant colour waits for its first DominantColor call.)
     ID2D1Bitmap* raw = e.bitmap.get();
     entries_.insert_or_assign(std::move(k), std::move(e));
     return raw;
 }
 
-uint32_t IconCache::DominantColor(const AppKey& key, UINT pixelSize, const std::wstring& iconFile, int iconIndex) const {
+uint32_t IconCache::DominantColor(const AppKey& key, UINT pixelSize, const std::wstring& iconFile, int iconIndex,
+                                  ID2D1DeviceContext* dc) const {
     const auto it = entries_.find(EntryKey{key, pixelSize, iconFile, iconIndex});
-    return it != entries_.end() ? it->second.dominant : 0;
+    if (it == entries_.end()) return 0;
+    const Entry& e = it->second;
+    if (!e.dominantDone && dc) {
+        e.dominant = ComputeDominantColor(e.bitmap.get(), dc);
+        e.dominantDone = true;
+    }
+    return e.dominant;
 }
 
 void IconCache::Evict(const AppKey& key) {
