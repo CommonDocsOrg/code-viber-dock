@@ -276,6 +276,16 @@ protected:
         Add(kWidgetsPreview, CtlKind::Custom, PreviewPanel::kClass, L"Preview", 0, RECT{kMargin, y_, right, y_ + 124});
         Tip(kWidgetsPreview, L"A live preview of the selected widget with sample data, and what it does.");
         NextRow(124 + 10);
+        // Round 25 phase 25D: what the selected widget may do and whether it is allowed, and the
+        // consent dialog (one line and one button for the page, not a control per permission).
+        Text(kWidgetsPermissions, CtlKind::Value, L"", kMargin, right - kMargin - 160 - 8, 40);
+        Tip(kWidgetsPermissions, L"What the selected widget may do beyond drawing (its permissions) and whether you allowed it. "
+                                 L"A widget from your widgets folder runs only after you allow its permissions; built-in widgets "
+                                 L"need no permission.");
+        Button(kWidgetsReview, L"Permissions\x2026", right - 160, 160);
+        Tip(kWidgetsReview, L"Review what the selected widget asks for: allow it to run, or revoke a permission you gave (the "
+                            L"widget then stops and shows Needs permission). Greyed for a widget that needs no permission.");
+        NextRow(44);
         // Round 8 phase 8D: the adds, then "More ▾" (Add from folder…, Export built-in to folder,
         // Reload widgets, Open widgets folder, Console…: the old buttons' ids as its commands).
         Button(kWidgetsAddToDock, L"Add to dock", kMargin, kButtonW);
@@ -308,8 +318,8 @@ protected:
         if (!list) return;
         LVCOLUMNW col{};
         col.mask = LVCF_TEXT | LVCF_WIDTH | LVCF_SUBITEM;
-        const wchar_t* names[] = {L"Name", L"Id", L"Source", L"Version"};
-        for (int i = 0; i < 4; ++i) {
+        const wchar_t* names[] = {L"Name", L"Id", L"Source", L"Version", L"Permissions"};  // 25D: the fifth
+        for (int i = 0; i < 5; ++i) {
             col.pszText = const_cast<wchar_t*>(names[i]);
             col.cx = 100;
             col.iSubItem = i;
@@ -322,13 +332,14 @@ protected:
         if (!list) return;
         const Ctl* c = Find(kWidgetsList);
         const int total = Window().Px(c->dip.right - c->dip.left) - GetSystemMetricsForDpi(SM_CXVSCROLL, Window().Dpi()) - 4;
-        int widths[] = {Window().Px(170), Window().Px(130), Window().Px(110)};
+        // Round 25 phase 25D: a fourth fixed column (Version) before the last, Permissions.
+        int widths[] = {Window().Px(150), Window().Px(110), Window().Px(110), Window().Px(60)};
         // Round 8 phase 8D: a narrow window shares the room (no horizontal scroll bar).
-        if (const int room = total - Window().Px(64), fixed = widths[0] + widths[1] + widths[2]; room > 0 && fixed > room) {
+        if (const int room = total - Window().Px(100), fixed = widths[0] + widths[1] + widths[2] + widths[3]; room > 0 && fixed > room) {
             for (int& w : widths) w = w * room / fixed;
         }
-        for (int i = 0; i < 3; ++i) ListView_SetColumnWidth(list, i, widths[i]);
-        ListView_SetColumnWidth(list, 3, std::max(Window().Px(60), total - widths[0] - widths[1] - widths[2]));
+        for (int i = 0; i < 4; ++i) ListView_SetColumnWidth(list, i, widths[i]);
+        ListView_SetColumnWidth(list, 4, std::max(Window().Px(100), total - widths[0] - widths[1] - widths[2] - widths[3]));
     }
 
     void Load() override { Fill(); }
@@ -361,6 +372,7 @@ protected:
                 ChangedFor(SettingsScope::Pins, dock);
                 Window().Refresh();
                 SetText(kWidgetsStatus, L"Added " + name + L" to the dock " + dockId + L".");
+                if (Host().widgetConsent) Host().widgetConsent(wid, true);  // round 25 phase 25D: asks when it needs it
                 break;
             }
             case kWidgetsAddToDesktop: {
@@ -375,6 +387,7 @@ protected:
                 }
                 Fill(wid);
                 SetText(kWidgetsStatus, L"Added " + name + L" to the desktop as " + Cfg().docks[added].id + L".");
+                if (Host().widgetConsent) Host().widgetConsent(wid, true);  // round 25 phase 25D
                 break;
             }
             case kWidgetsAddFolder:
@@ -385,6 +398,14 @@ protected:
                 std::wstring folder, error;
                 const std::wstring name = sel->name, wid = sel->id;
                 if (Widgets::ExportBuiltIn(wid, folder, error)) {
+                    // Round 25 phase 25D: the user made this copy of WinDock's own widget: it is allowed
+                    // to replace the built-in with the built-in's permissions, without asking (a later
+                    // edit that asks for more shows Needs permission).
+                    std::wstring loadError;
+                    if (const auto pkg = Widgets::Load(wid, loadError)) {
+                        Cfg().widgetConsent[wid] = Widgets::ConsentFor(*pkg);
+                        Changed(SettingsScope::SaveOnly);
+                    }
                     Host().command(ContextMenu::kReloadWidgets);  // the folder copy replaces the built-in
                     Fill(wid);
                     SetText(kWidgetsStatus, L"Exported " + name + L" to " + folder + L".");
@@ -407,6 +428,15 @@ protected:
             case kWidgetsConsole:
                 Host().command(ContextMenu::kWidgetConsole);
                 break;
+            case kWidgetsReview: {  // round 25 phase 25D: the consent dialog, modal to this window
+                if (!sel || !Host().widgetConsent) return;
+                const std::wstring wid = sel->id, name = sel->name;  // the dialog's answer refills the catalog
+                if (Host().widgetConsent(wid, false)) {
+                    Fill(wid);
+                    SetText(kWidgetsStatus, L"Permissions of " + name + L" changed.");
+                }
+                break;
+            }
             default:
                 break;
         }
@@ -494,6 +524,29 @@ private:
         }
         Enable(kWidgetsAddToDock, sel != nullptr);
         Enable(kWidgetsAddToDesktop, sel != nullptr);
+        // Round 25 phase 25D: the selected widget's permissions and consent.
+        int consent = -1;
+        std::wstring perms;
+        if (sel) {
+            auto it = consentText_.find(sel->id);
+            if (it != consentText_.end()) {
+                consent = it->second.first;
+                perms = it->second.second;
+            }
+        }
+        static const wchar_t* const kStateText[] = {L"", L"You allowed it.", L"Not allowed yet: it does not run until you allow it.",
+                                                    L"It asks for more than you allowed: it does not run until you allow it."};
+        if (!sel) {
+            SetText(kWidgetsPermissions, L"");
+        } else if (consent <= 0) {
+            SetText(kWidgetsPermissions, sel->source == Widgets::Package::Source::BuiltIn
+                                             ? L"Built in: needs no permission."
+                                             : L"Permissions: " + perms + (perms == L"none" ? L". It needs no permission." : L"."));
+        } else {
+            SetText(kWidgetsPermissions, (perms == L"none" ? L"Replaces a built-in widget. " : L"Permissions: " + perms + L". ") +
+                                             std::wstring(kStateText[std::min(consent, 3)]));
+        }
+        Enable(kWidgetsReview, consent > 0);
         SetText(kWidgetsAddToDock, PlainDocks() > 1 ? L"Add to dock \x25BE" : L"Add to dock");  // round 8 phase 8D
         if (HWND f = GetFocus(); f && IsChild(Hwnd(), f) && !IsWindowEnabled(f)) SetFocus(Item(kWidgetsList));
     }
@@ -505,13 +558,28 @@ private:
         const Widgets::CatalogEntry* old = Selected();
         const std::wstring keep = !select.empty() ? select : old ? old->id : std::wstring();
         catalog_ = Widgets::Catalog();
+        consentText_.clear();
         SendMessageW(list, WM_SETREDRAW, FALSE, 0);
         ListView_DeleteAllItems(list);
         int sel = catalog_.empty() ? -1 : 0;
         for (size_t i = 0; i < catalog_.size(); ++i) {
             const Widgets::CatalogEntry& e = catalog_[i];
-            std::wstring error, version;
-            if (const auto pkg = Widgets::Load(e.id, error)) version = pkg->manifest.version;
+            std::wstring error, version, permissions = L"\x2014";
+            if (const auto pkg = Widgets::Load(e.id, error)) {
+                version = pkg->manifest.version;
+                // Round 25 phase 25D: the consent state per row (and the selection's line, UpdateButtons).
+                const auto granted = Cfg().widgetConsent.find(e.id);
+                const Widgets::ConsentState state =
+                    Widgets::ConsentOf(*pkg, granted == Cfg().widgetConsent.end() ? nullptr : &granted->second);
+                const std::wstring summary = Widgets::PermissionSummary(pkg->manifest);
+                consentText_[e.id] = {static_cast<int>(state), summary};
+                switch (state) {
+                    case Widgets::ConsentState::NotNeeded: permissions = e.source == Widgets::Package::Source::BuiltIn ? L"built in" : L"none needed"; break;
+                    case Widgets::ConsentState::Granted: permissions = L"allowed"; break;
+                    case Widgets::ConsentState::Missing: permissions = L"needs permission"; break;
+                    case Widgets::ConsentState::More: permissions = L"asks for more"; break;
+                }
+            }
             std::wstring source = e.source == Widgets::Package::Source::Folder ? (e.builtIn ? L"folder (replaces built-in)" : L"folder")
                                                                              : L"built-in";
             std::wstring name = e.name, wid = e.id;
@@ -524,6 +592,7 @@ private:
                 ListView_SetItemText(list, at, 1, wid.data());
                 ListView_SetItemText(list, at, 2, source.data());
                 ListView_SetItemText(list, at, 3, version.data());
+                ListView_SetItemText(list, at, 4, permissions.data());
             }
             if (e.id == keep) sel = static_cast<int>(i);
         }
@@ -553,6 +622,9 @@ private:
         if (Widgets::InstallFolder(folder, wid, error)) {
             Fill(wid);
             SetText(kWidgetsStatus, L"Installed " + wid + L" (" + Widgets::Directory() + L"\\" + wid + L").");
+            // Round 25 phase 25D: an installed widget that needs consent asks right now (Don't allow
+            // leaves it installed, showing Needs permission wherever it is added).
+            if (Host().widgetConsent && Host().widgetConsent(wid, true)) Fill(wid);
         } else {
             SetText(kWidgetsStatus, L"Not added: " + error);
             MessageBeep(MB_ICONWARNING);
@@ -562,6 +634,8 @@ private:
     std::vector<Widgets::CatalogEntry> catalog_;
     PreviewPanel panel_;
     std::map<std::wstring, std::wstring> descriptions_;  // widget id -> its manifest's description
+    // Round 25 phase 25D: widget id -> (Widgets::ConsentState, PermissionSummary), from the last Fill.
+    std::map<std::wstring, std::pair<int, std::wstring>> consentText_;
 };
 
 // --- Widget settings -----------------------------------------------------------------------------

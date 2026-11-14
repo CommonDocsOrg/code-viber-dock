@@ -1318,6 +1318,14 @@ void Config::Sanitize() {
         if (s == SettingsUiConfig::kDefault[k]) s = SettingsWindowSize{};
     }
     settings.tipsShown &= (1 << SettingsUiConfig::kTipCount) - 1;  // round 12 phase 12G: the three tips' bits
+    // Round 25 phase 25D: each consent's list sorted and unique (the canonical form the comparison
+    // with Widgets::PermissionList relies on), empty strings dropped, at most 256 entries.
+    for (auto& [id, c] : widgetConsent) {
+        std::erase_if(c.permissions, [](const std::wstring& p) { return p.empty() || p.size() > 300; });
+        std::sort(c.permissions.begin(), c.permissions.end());
+        c.permissions.erase(std::unique(c.permissions.begin(), c.permissions.end()), c.permissions.end());
+        if (c.permissions.size() > 256) c.permissions.resize(256);
+    }
 }
 
 Config::LoadResult Config::LoadFile() {
@@ -1408,7 +1416,7 @@ Config::LoadResult Config::LoadJson(const std::wstring& text) {
             L"theme",         L"animation",   L"weather",          L"pinned",         L"iconSize",
             L"magnification", L"magnifyRange", L"autoHide",        L"hideDelayMs",    L"revealDelayMs",
             L"previews",      L"previewDelayMs", L"monitor",       L"tray",           L"notifications",
-            L"calendars",     L"dashboard",   L"settings",
+            L"calendars",     L"dashboard",   L"settings",         L"widgetConsent",  // round 25 phase 25D
         };
         for (const auto& kv : root) {
             const std::wstring key(kv.Key());
@@ -1559,6 +1567,19 @@ Config::LoadResult Config::LoadJson(const std::wstring& text) {
             ReadBool(s, L"confirmPlacement", settings.confirmPlacement);  // round 12 phase 12A
             ReadBool(s, L"snapToScreen", settings.snapToScreen);          // round 14 phase 14B
             ReadInt(s, L"tipsShown", settings.tipsShown);                  // round 12 phase 12G
+        }
+        // Round 25 phase 25D: widget id -> the permissions the user allowed. An entry under an
+        // invalid id, or a permission that is not a string, is dropped (Sanitize sorts the lists).
+        if (auto wc = ReadObject(root, L"widgetConsent")) {
+            for (const auto& kv : wc) {
+                const std::wstring id(kv.Key());
+                if (kv.Value().ValueType() != json::JsonValueType::Object || id.empty() || id.size() > 64) continue;
+                const json::JsonObject o = kv.Value().GetObject();
+                WidgetConsent c;
+                ReadStrings(o, L"permissions", c.permissions);
+                ReadBool(o, L"replacesBuiltIn", c.replacesBuiltIn);
+                widgetConsent[id] = std::move(c);
+            }
         }
     } catch (...) {
         OutputDebugStringW(L"WinDock: failed to read config.json; using defaults\n");
@@ -1852,6 +1873,20 @@ std::wstring Config::ToJson(bool windowSizes) const {
             // Round 12 phase 12G: the tips' bits, with the windows' sizes (UI state: not in a snapshot).
             if (settings.tipsShown != 0 && windowSizes) parts += (parts.empty() ? L"" : L", ") + std::wstring(L"\"tipsShown\": ") + Num(settings.tipsShown);
             if (!parts.empty()) o += L",\n  \"settings\": { " + parts + L" }";
+        }
+        // Round 25 phase 25D: the widgets' consents, with the windows' sizes (not in an undo
+        // snapshot: undo never grants or revokes a permission).
+        if (windowSizes && !widgetConsent.empty()) {
+            o += L",\n  \"widgetConsent\": {";
+            bool first = true;
+            for (const auto& [id, c] : widgetConsent) {
+                std::wstring list;
+                for (size_t k = 0; k < c.permissions.size(); ++k) list += (k ? L", " : L"") + Quote(c.permissions[k]);
+                o += (first ? L"\n    " : L",\n    ") + Quote(id) + L": { \"permissions\": [" + list + L"]" +
+                     (c.replacesBuiltIn ? L", \"replacesBuiltIn\": true" : L"") + L" }";
+                first = false;
+            }
+            o += L"\n  }";
         }
         for (const auto& [key, value] : extraFields) o += L",\n  " + Quote(key) + L": " + value;
         o += L"\n}\n";

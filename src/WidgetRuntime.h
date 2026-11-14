@@ -43,6 +43,9 @@ public:
     // Round 25 phase 25A: posted (coalesced): WidgetInstance::RunDeferred for the instances that
     // kept work while one of their calls was on the stack (PostDeferred). No timer.
     static constexpr UINT kDeferredMessage = WM_APP + 75;
+    // Round 25 phase 25D: posted (coalesced): the consent dialog for the widgets RequestConsent
+    // named (App's handler, SetConsent). Never inside a script call or a click's own handling.
+    static constexpr UINT kConsentMessage = WM_APP + 77;
     // Round 25 phase 25A (A6): OnTimer runs due timers back to back for at most this long (the first
     // always runs), then re-arms for the rest, so input and painting get a turn between them (a
     // WM_TIMER is only generated when the queue is otherwise empty). 6 ms: a second's worth of
@@ -127,6 +130,23 @@ public:
     // How often the scheduler's timer fired (automation: idle widgets never wake the process).
     uint64_t Wakeups() const { return wakeups_; }
 
+    // --- round 25 phase 25D: consent (Widgets::ConsentOf) ---
+    // `lookup`: what the user allowed widget `id` (config.json widgetConsent; null: nothing);
+    // `review`: opens the consent dialog for `id` (App, from a posted message).
+    void SetConsent(std::function<const WidgetConsent*(const std::wstring& id)> lookup,
+                    std::function<void(const std::wstring& id)> review) {
+        consentLookup_ = std::move(lookup);
+        consentReview_ = std::move(review);
+    }
+    const WidgetConsent* GrantedFor(const std::wstring& id) const { return consentLookup_ ? consentLookup_(id) : nullptr; }
+    // A "Needs permission" tile was clicked (or its menu entry chosen): the dialog for `id`,
+    // posted (coalesced per id).
+    void RequestConsent(const std::wstring& id);
+    // The consent of `id` changed ("" every id: a reload of config.json): each of its instances
+    // whose consent state no longer matches what it runs reloads (a granted one starts its
+    // script, a revoked one stops it and shows the placeholder).
+    void ConsentChanged(const std::wstring& id);
+
     // --- providers (audio, media): started for the first widget that uses one, stopped when the
     // last such widget goes or reloads; their changes reach every widget that used them
     // (WidgetInstance::ProviderChanged). Null if the provider cannot start.
@@ -205,6 +225,7 @@ private:
     struct Store {
         bool loaded = false;
         bool dirty = false;
+        bool oversized = false;  // round 25 phase 25D: the file passed the cap: not loaded, never written
         std::map<std::string, std::string> values;  // key -> JSON text
         size_t bytes = 0;
     };
@@ -265,6 +286,10 @@ private:
     uint64_t weatherNotices_ = 0;
     NotificationService* notifications_ = nullptr;
     std::function<void()> notificationsDemand_;
+    std::function<const WidgetConsent*(const std::wstring&)> consentLookup_;  // round 25 phase 25D
+    std::function<void(const std::wstring&)> consentReview_;
+    std::vector<std::wstring> consentAsked_;  // ids waiting for kConsentMessage
+    bool consentPosted_ = false;
     void NotifyProvider(std::set<WidgetInstance*>& users, const char* channel, const std::string& payload = {});
 };
 

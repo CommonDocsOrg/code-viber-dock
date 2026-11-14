@@ -434,9 +434,9 @@ See [The tray](guide-items.md#the-tray).
 
 ### Widget library
 
-The Widget library lists every installed widget with its name, id, where it comes from (built in or a folder) and its version.
+The Widget library lists every installed widget with its name, id, where it comes from (built in or a folder), its version and its permissions: built in, none needed, allowed, needs permission, or asks for more (than you allowed).
 
-Select a widget to see a live preview and its description. Then:
+Select a widget to see a live preview and its description. The line under the preview says what the selected widget may do and whether you allowed it; **Permissions…** opens the question to allow it, or to revoke what you allowed (the widget then stops). See [Widget permissions](guide-items.md#widget-permissions). Then:
 
 - **Add to dock**: adds it to a dock. With several docks a small menu asks which one.
 - **Add to the desktop**: puts it on the desktop in a window of its own. See [Standalone widgets](guide-docks.md#standalone-widgets).

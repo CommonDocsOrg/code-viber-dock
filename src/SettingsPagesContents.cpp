@@ -1477,6 +1477,7 @@ private:
         DockConfig& d = Dock();
         size_t at = SIZE_MAX;
         const ItemKind k = e->Kind();
+        const std::wstring widgetId = k == ItemKind::Widget ? e->id : std::wstring();  // round 25 phase 25D
         if (k == ItemKind::Widget) {
             at = d.AddScriptWidget(e->id);
         } else if (k == ItemKind::Separator || k == ItemKind::RecycleBin) {
@@ -1495,6 +1496,8 @@ private:
         Changed(SettingsScope::Pins);  // also starts the weather service for a weather item
         FillStrip(static_cast<int>(at));
         FillDrawer();
+        // Round 25 phase 25D: a widget folder that needs consent asks right after it was added.
+        if (!widgetId.empty() && Host().widgetConsent) Host().widgetConsent(widgetId, true);
     }
 
     // A script widget's "Desktop" (round 6 phase 6B): a standalone widget of it on this dock's
@@ -1503,7 +1506,11 @@ private:
         const DrawerEntry* de = catalog_.EntryOf(entry);
         if (!de || de->kind != ItemKind::Widget) return;
         const std::wstring id = de->id;
-        if (!Host().addWidgetWindow || Host().addWidgetWindow(id, DockIndex(), true) == SIZE_MAX) MessageBeep(MB_ICONWARNING);
+        if (!Host().addWidgetWindow || Host().addWidgetWindow(id, DockIndex(), true) == SIZE_MAX) {
+            MessageBeep(MB_ICONWARNING);
+        } else if (Host().widgetConsent) {
+            Host().widgetConsent(id, true);  // round 25 phase 25D
+        }
     }
 
     // A drawer row dropped on the strip at `slot`.
@@ -1511,6 +1518,7 @@ private:
         std::optional<DockItemEntry> e = NewEntry(entry);
         if (!e) return;
         DockConfig& d = Dock();
+        const std::wstring widgetId = e->Kind() == ItemKind::Widget ? e->id : std::wstring();  // round 25 phase 25D
         size_t at = std::min(static_cast<size_t>(std::max(0, slot)), d.items.size());
         d.items.insert(d.items.begin() + static_cast<ptrdiff_t>(at), std::move(*e));
         at = Regroup(at);
@@ -1519,6 +1527,7 @@ private:
         FillStrip(static_cast<int>(at));
         FillDrawer();
         SetFocus(strip_.Hwnd());
+        if (!widgetId.empty() && Host().widgetConsent) Host().widgetConsent(widgetId, true);  // round 25 phase 25D
     }
 
     // Enter / a double click on a tile, "Settings…": an item with settings

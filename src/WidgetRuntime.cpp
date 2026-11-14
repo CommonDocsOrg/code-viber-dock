@@ -11,6 +11,7 @@
 #include "JsonUtil.h"
 #include "Weather.h"
 #include "WidgetInstance.h"
+#include "Crash.h"
 
 namespace WidgetSystem {
 
@@ -324,6 +325,17 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             }
             return true;
         }
+        case kConsentMessage: {
+            // Round 25 phase 25D: the consent dialogs asked for (one per id; the dialog is modal, so
+            // the rest wait for it in turn).
+            consentPosted_ = false;
+            const std::vector<std::wstring> ids = std::move(consentAsked_);
+            consentAsked_.clear();
+            for (const std::wstring& id : ids) {
+                if (consentReview_) consentReview_(id);
+            }
+            return true;
+        }
         case AudioService::kMessage:
             return audio_.HandleMessage(msg, wp, lp);
         case MediaService::kMessage:
@@ -335,6 +347,21 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     }
 }
 
+// --- consent (round 25 phase 25D) ----------------------------------------------------------------
+
+void WidgetRuntime::RequestConsent(const std::wstring& id) {
+    if (!owner_ || id.empty()) return;
+    if (std::find(consentAsked_.begin(), consentAsked_.end(), id) == consentAsked_.end()) consentAsked_.push_back(id);
+    if (!consentPosted_) consentPosted_ = PostMessageW(owner_, kConsentMessage, 0, 0) != FALSE;
+}
+
+void WidgetRuntime::ConsentChanged(const std::wstring& id) {
+    const std::vector<WidgetInstance*> all = instances_;  // a reload may register / unregister nothing, but be safe
+    for (WidgetInstance* w : all) {
+        if (Alive(w) && (id.empty() || w->Id() == id)) w->ConsentChanged();
+    }
+}
+
 // --- storage -----------------------------------------------------------------------------------
 
 std::wstring WidgetRuntime::StorageDirectory() { return Config::Directory() + L"\\widget-data"; }
@@ -343,8 +370,22 @@ WidgetRuntime::Store& WidgetRuntime::StoreFor(const std::wstring& id) {
     Store& s = stores_[id];
     if (s.loaded) return s;
     s.loaded = true;
+    // Round 25 phase 25D (D3): a store is never loaded beyond what a widget may write. The reader
+    // took files up to 16 MB while writes are capped at kMaxStorageBytes, so an oversized file (an
+    // edit by hand, another program) made every later write fail as "full" and stay so. Now such a
+    // file is not loaded at all: the widget sees an empty store, every write is refused with a
+    // message naming the file, and the file is left on disk untouched (never rewritten). The file
+    // test allows the format's overhead (quotes, indentation, a line per key) on top of the cap.
+    const std::wstring path = StorageDirectory() + L"\\" + id + L".json";
+    WIN32_FILE_ATTRIBUTE_DATA fa{};
+    if (GetFileAttributesExW(path.c_str(), GetFileExInfoStandard, &fa) &&
+        ((static_cast<uint64_t>(fa.nFileSizeHigh) << 32) | fa.nFileSizeLow) > 2 * kMaxStorageBytes) {
+        s.oversized = true;
+        OutputDebugStringW((L"WinDock: " + path + L" is larger than the 1 MB a widget may store: not loaded\n").c_str());
+        return s;
+    }
     JsonUtil::json::JsonObject o{nullptr};
-    if (JsonUtil::ReadObjectFile(StorageDirectory() + L"\\" + id + L".json", o) && o) {
+    if (JsonUtil::ReadObjectFile(path, o) && o) {
         try {
             for (const auto& kv : o) {
                 std::string key = JsonUtil::WideToUtf8(std::wstring(kv.Key()));
@@ -354,6 +395,12 @@ WidgetRuntime::Store& WidgetRuntime::StoreFor(const std::wstring& id) {
             }
         } catch (...) {
         }
+    }
+    if (s.bytes > kMaxStorageBytes) {
+        s.values.clear();
+        s.bytes = 0;
+        s.oversized = true;
+        OutputDebugStringW((L"WinDock: " + path + L" holds more than the 1 MB a widget may store: not loaded\n").c_str());
     }
     return s;
 }
@@ -369,6 +416,10 @@ bool WidgetRuntime::StorageGet(const std::wstring& id, const std::string& key, s
 bool WidgetRuntime::StorageSet(const std::wstring& id, const std::string& key, const std::string& json,
                                std::wstring& error, WidgetInstance* writer) {
     Store& s = StoreFor(id);
+    if (s.oversized) {  // round 25 phase 25D: the file on disk is kept as it is
+        error = L"storage: widget-data\\" + id + L".json is larger than 1 MB and was not loaded (move or trim it)";
+        return false;
+    }
     auto it = s.values.find(key);
     const size_t old = it == s.values.end() ? 0 : key.size() + it->second.size();
     if (s.bytes - old + key.size() + json.size() > kMaxStorageBytes) {
@@ -386,6 +437,7 @@ bool WidgetRuntime::StorageSet(const std::wstring& id, const std::string& key, c
 
 void WidgetRuntime::StorageRemove(const std::wstring& id, const std::string& key, WidgetInstance* writer) {
     Store& s = StoreFor(id);
+    if (s.oversized) return;  // round 25 phase 25D: nothing loaded, nothing written
     auto it = s.values.find(key);
     if (it == s.values.end()) return;
     s.bytes -= key.size() + it->second.size();
@@ -459,7 +511,7 @@ struct HttpJob {
     Http::Result result;
 };
 
-DWORD WINAPI HttpThread(LPVOID param) {
+DWORD HttpBody(LPVOID param) {
     auto* job = static_cast<HttpJob*>(param);
     try {
         Http::Perform(job->request, job->result);
@@ -469,6 +521,13 @@ DWORD WINAPI HttpThread(LPVOID param) {
     }
     // The owner window frees it; a window that is gone cannot.
     if (!PostMessageW(job->owner, WidgetRuntime::kHttpMessage, 0, reinterpret_cast<LPARAM>(job))) delete job;
+    return 0;
+}
+
+// Round 25 phase 25E: as the weather fetch: the body catches the request's exceptions, Crash::Job
+// is the backstop and the thread's terminate handler (Crash.h).
+DWORD WINAPI HttpThread(LPVOID param) {
+    Crash::Job(L"widget http request", [&] { HttpBody(param); }, [] {});
     return 0;
 }
 
@@ -511,7 +570,7 @@ struct WatchThreadArgs {
 
 // Blocks in ReadDirectoryChangesW on every watched folder (overlapped, one event each) and posts
 // kWatchMessage(folder index) for each batch of changes. Ends when `stop` is set.
-DWORD WINAPI WatchThread(LPVOID param) {
+DWORD WatchBody(LPVOID param) {
     std::unique_ptr<WatchThreadArgs> args(static_cast<WatchThreadArgs*>(param));
     struct Dir {
         HANDLE handle = INVALID_HANDLE_VALUE;
@@ -562,6 +621,13 @@ DWORD WINAPI WatchThread(LPVOID param) {
         CloseHandle(d->ov.hEvent);
         CloseHandle(d->handle);
     }
+    return 0;
+}
+
+// Round 25 phase 25E: an exception (std::bad_alloc) ends the watch only: `watch` widgets stop
+// reloading on a change until the next sync starts a new watcher; the dock keeps running (Crash.h).
+DWORD WINAPI WatchThread(LPVOID param) {
+    Crash::Job(L"widget folder watch", [&] { WatchBody(param); }, [] {});
     return 0;
 }
 

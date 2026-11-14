@@ -3,6 +3,7 @@
 #include <climits>
 
 #include <cstdint>
+#include <map>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -881,6 +882,20 @@ struct SettingsUiConfig {
     }
 };
 
+// Round 25 phase 25D: what the user allowed a widget from the widgets folder to do (the consent
+// dialog, App::ReviewWidgetConsent). `widgetConsent` in config.json: { "<id>": { "permissions":
+// [...], "replacesBuiltIn": true } }. `permissions` is the canonical list Widgets::PermissionList
+// makes from the manifest (sorted, one entry per permission, an http host as "http:<host>"), kept
+// as a list rather than a hash so a manifest asking for fewer permissions than granted (a version
+// bump that drops one) is recognised as covered, and so the file says what was allowed.
+// `replacesBuiltIn`: the user also allowed the folder to take a built-in widget's place (its
+// placements and its widget-data file). Built-in widgets never need an entry.
+struct WidgetConsent {
+    std::vector<std::wstring> permissions;  // sorted, unique
+    bool replacesBuiltIn = false;
+    bool operator==(const WidgetConsent&) const = default;
+};
+
 struct Config {
     // At least one dock after LoadFile / Sanitize; ids are unique (Sanitize). Every dock is shown
     // (DockManager), docks[].monitor "each" once per monitor.
@@ -908,6 +923,10 @@ struct Config {
     CalendarsConfig calendars;
     DashboardConfig dashboard;
     SettingsUiConfig settings;  // round 8 phase 8A: `settings.windows`
+    // Round 25 phase 25D: widget id -> what the user allowed (WidgetConsent). Like the windows'
+    // sizes it is not part of an undo snapshot (ToJson(false) leaves it out, App::ApplySnapshot keeps
+    // the current map): undo must never grant or revoke a permission. Saved only when not empty.
+    std::map<std::wstring, WidgetConsent> widgetConsent;
     // Top-level keys this version does not know, kept verbatim (compact JSON) so a save does not
     // drop them. Unknown keys inside known objects (docks, items, clock, theme, animation, weather)
     // are not kept, nor are the legacy pre-`docks` keys.

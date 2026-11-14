@@ -1514,10 +1514,22 @@ write and edit without compiling anything. The full reference (every call, every
   `"weather"` and `"perf"` for the providers. Without them
   those calls throw. The audio and media providers run only while a widget uses them and never
   poll (Core Audio and media-session events).
+- **Consent** (round 25 phase 25D): a widget from the widgets folder that asks for permissions, or
+  whose id is a built-in's (it replaces that widget), runs only after the user allowed it: the
+  consent dialog (name, id, version, author, folder, each permission in plain words; Allow /
+  Don't allow, the default) comes when it is added or installed through the settings or a drawer,
+  and from a click on its "Needs permission" tile or **Review permissions…** in its menu. Until
+  then its script is not loaded. Stored in config.json `widgetConsent`; asked again only when the
+  manifest asks for something not yet allowed. Built-in widgets never ask. Widget http requests
+  re-check every redirect against the allowlist, refuse local addresses unless listed as
+  themselves, send no Windows credentials and bound the whole request by its timeout
+  (docs/widgets.md, http).
 - **Settings**: each widget item's own settings window is generated from its schema (**<name>
   settings…** in the dock menu over it, or **Settings…** on its tile in Dock
   settings > Contents); changes apply at once.
-  App settings > **Widget library** lists the installed widgets (built-in / folder) with **Add to dock**,
+  App settings > **Widget library** lists the installed widgets (built-in / folder; round 25 phase
+  25D: their permissions and consent state, the selected one's in words and **Permissions…** to
+  allow or revoke) with **Add to dock**,
   **Add to the desktop** and **More ▾** (round 8 phase 8D: **Add from folder…**, **Export built-in
   to folder** (to edit a copy), **Reload widgets**, **Open widgets folder** and **Console…**).
 - **Developing**: `"watch": true` reloads a folder widget when one of its files changes (no
@@ -3257,6 +3269,16 @@ items that exist. A file whose items have settings already is left alone.
   0 / 1 / 2 = the first / second / third tip on the dock was seen or skipped, or its gesture was
   made (the dock menu opened, customize mode entered, a dock dragged); such a tip is not shown by
   Show me around. Like the windows' sizes it is not part of an undo step.
+- `widgetConsent` (round 25 phase 25D; written only when not empty): what the user allowed each
+  widget from the widgets folder, `{ "<widget id>": { "permissions": ["http:api.example.com",
+  "shell"], "replacesBuiltIn": true } }`. `permissions`: the sorted list of the manifest's
+  permissions as allowed (`"audio"`, `"calendar"`, `"media"`, `"notifications"`, `"perf"`,
+  `"shell"`, `"weather"`, `"http:<host>"`); `replacesBuiltIn`: the folder (whose id is a built-in
+  widget's) may replace that widget. A widget runs only when this covers what its manifest asks
+  for now (Widgets::ConsentOf; a manifest asking for less keeps running). Written by the consent
+  dialog, App settings > Widget library > Permissions…, Export built-in to folder and DockCommand
+  188 / 189; never part of an undo step (Undo cannot grant or revoke). Editing it by hand and
+  Reload config applies it.
 
 Saved layouts (round 12 phase 12C) live in `%LocalAppData%\WinDock\layouts\<id>.json` (the folder
 is made by the first Save dock as layout…; the file name without `.json` is the id): the preset
@@ -3726,7 +3748,20 @@ always there, also when every dock is parked) handle these registered messages:
   clock draws, -1 a face that cannot be read (the clock draws digital); 217 = the faces offered
   (shipped + readable user files). `DockCommand` 141 = App settings > Widget library > Add from folder…
   without its dialog: the path in the global atom `LOWORD(lParam)` (returns 1 installed, 0
-  refused: no widget.json, an invalid folder name, the id taken). The clock's Face is field 5 of
+  refused: no widget.json, an invalid folder name, the id taken; round 25 phase 25D: never a consent
+  dialog, so a widget that needs consent stays unallowed). **Consent** (round 25 phase 25D):
+  `QueryState` 357 = the consent state of the widget whose id is in the global atom
+  `LOWORD(lParam)` (any dock index): 0 needs none (built-in, or a folder asking for nothing that
+  replaces nothing), 1 allowed, 2 never allowed / revoked, 3 asks for more than allowed; -1 not
+  installed. `DockCommand` **188** allows the widget named by the atom (its manifest's current
+  permissions, as the dialog's Allow), **189** revokes it (as Revoke); both without a dialog, saved,
+  its instances reload at once (1 done, 0 refused: no atom, an invalid id, 188 for a widget that is
+  not installed). `ItemCommand` **872** = **Review permissions…** of script widget slot
+  `LOWORD(lParam)` (posted: the dialog opens after the call; the item menu shows the entry only
+  while the widget waits for consent; a standalone widget's menu has it too). The dialog is a task
+  dialog titled "WinDock widget permissions" (button 100 Allow / Keep allowed, 101 Don't allow /
+  Revoke). Settings ids: 3512 the selected widget's permission line, 3513 **Permissions…**; the
+  list (3500) has a fifth column, Permissions. The clock's Face is field 5 of
   the clock schema (0 Digital, then the faces in `QueryState` 217's order; General 2175 - 2178 are
   retired); the generated page (an Item window): field k's controls are 3700 + 10 k + part (0 label, 1 the
   control, 2 its caption / spin, 3 description, 4 the group header before it, 5 its unit, 6 a
@@ -3916,7 +3951,7 @@ always there, also when every dock is parked) handle these registered messages:
   window handle (0 parked). 52 = `docks[].layer` (0 normal, 1 desktop, 2 behind). 53 = a
   `"desktop"`-layer dock's window is shown (1) or hidden because another window is in the
   foreground (0); -1 for a normal or `"behind"` dock, and while dashboard mode lifts it. Script widgets (24 reports kind 6 for their slots): 54 = the widget state of slot
-  `lParam` (0 ok, 1 error, 2 suspended by the watchdog; -1 if the slot is not a script widget).
+  `lParam` (0 ok, 1 error, 2 suspended by the watchdog, 3 needs permission (round 25 phase 25D: not allowed by the user, its script not loaded); -1 if the slot is not a script widget).
   55 = the number of script widgets on the dock. 56 = the number of script widgets of every dock
   (live script runtimes). 57 = the script heap of slot `lParam`'s widget in bytes (0 once it
   failed: the runtime is freed). 58 = how often slot `lParam`'s widget has drawn (`draw()` calls).
@@ -3968,7 +4003,7 @@ always there, also when every dock is parked) handle these registered messages:
   entry `HIWORD(lParam)` is a [standalone widget](#standalone-widgets)): 241 = the kind of
   `docks[]` entry behind that index (0 dock, 1 folder window, 2 standalone widget; any index); 242 =
   the window's screen left / top as `MAKELONG` (px), 243 = its width / height; 244 = its widget's
-  state (0 ok, 1 error, 2 suspended; -1 none; = 54); 245 = its layer (0 normal, 1 desktop, 2
+  state (0 ok, 1 error, 2 suspended, 3 needs permission; -1 none; = 54); 245 = its layer (0 normal, 1 desktop, 2
   behind; 235 answers too); 246 = `DesktopLayer::AboveDesktop` (= 239); 247 = the widget's draw
   count (= 58); 248 = its script popup is visible; 249 = locked; 250 = the window is shown (not
   hidden by the "desktop" rule); 251 = `dock.width` / `dock.height` as the script sees them
@@ -4659,7 +4694,10 @@ always there, also when every dock is parked) handle these registered messages:
   to dock ▾": press it with `PostMessage`), 3509 Add to the desktop, 3511 More ▾ (round 8 phase
   8D: a menu of 3501 Add from folder…, 3502 Export built-in to folder, 3503 Reload widgets, 3504
   Open widgets folder, 3505 Console…, which were buttons until then), 3508 the last action's
-  result); the generated page (an Item
+  result; round 25 phase 25D: the list's fifth column Permissions (built in, none needed, allowed,
+  needs permission, asks for more), 3512 the selected widget's permissions and consent in words,
+  3513 Permissions… (the consent dialog, modal to the window: press it with `PostMessage`; greyed
+  for a widget that needs no consent)); the generated page (an Item
   window of a widget, clock or weather item; per schema field k `3700 + 10 * k + part`: 0 label, 1
   the control (check box, edit, drop-down), 2 the check box's caption or the int's up-down, 3 the
   field's hint (round 8 phase 8C: one line under the label or the check box's caption, the whole

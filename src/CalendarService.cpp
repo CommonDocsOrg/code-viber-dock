@@ -10,6 +10,7 @@
 #include <new>
 
 #include "HttpClient.h"
+#include "Crash.h"
 
 namespace {
 
@@ -190,7 +191,7 @@ bool ParseBody(const std::string& body, CalendarService::Job& job) {
     return true;
 }
 
-DWORD WINAPI JobThread(LPVOID param) {
+DWORD JobBody(LPVOID param) {
     auto* job = static_cast<CalendarService::Job*>(param);
     try {
         using Job = CalendarService::Job;
@@ -221,6 +222,10 @@ DWORD WINAPI JobThread(LPVOID param) {
             Http::Request rq;
             rq.url = job->location;
             rq.timeoutMs = kTimeoutMs;
+            // Round 25 phase 25D: the whole fetch at most 2 minutes (a feed may be up to kMaxBody,
+            // 32 MB: about 2 Mbit/s for that, far beyond any real calendar; the default 4 x 15 s
+            // could cut a large feed on a slow line). Redirects stay WinHTTP's (feeds move hosts).
+            rq.totalMs = 120000;
             rq.maxBody = kMaxBody;
             rq.headers = L"Accept: text/calendar, */*\r\n";
             if (!job->etag.empty()) rq.headers += L"If-None-Match: " + job->etag + L"\r\n";
@@ -254,6 +259,19 @@ DWORD WINAPI JobThread(LPVOID param) {
     return 0;
 }
 
+// Round 25 phase 25E: the body catches what the fetch and the parser throw; Crash::Job is the
+// backstop (and sets the thread's terminate handler): nothing after its catch throws, so a job
+// that reaches `failed` was not posted yet and is posted as failed (Crash.h).
+DWORD WINAPI JobThread(LPVOID param) {
+    Crash::Job(L"calendar feed", [&] { JobBody(param); }, [&] {
+        auto* job = static_cast<CalendarService::Job*>(param);
+        job->cal.reset();
+        job->error = ERROR_GEN_FAILURE;
+        if (!PostMessageW(job->owner, CalendarService::kResultMessage, 0, reinterpret_cast<LPARAM>(job))) delete job;
+    });
+    return 0;
+}
+
 struct WatchArgs {
     HWND owner = nullptr;
     HANDLE stop = nullptr;
@@ -264,7 +282,7 @@ struct WatchArgs {
 
 // One thread: ReadDirectoryChangesW on each folder (not recursive, overlapped); a batch that names
 // one of the watched files posts kFileMessage(generation, folder). Ends when `stop` is set.
-DWORD WINAPI WatchThread(LPVOID param) {
+DWORD WatchBody(LPVOID param) {
     std::unique_ptr<WatchArgs> args(static_cast<WatchArgs*>(param));
     struct Dir {
         HANDLE handle = INVALID_HANDLE_VALUE;
@@ -320,6 +338,13 @@ DWORD WINAPI WatchThread(LPVOID param) {
         CloseHandle(d->ov.hEvent);
         CloseHandle(d->handle);
     }
+    return 0;
+}
+
+// Round 25 phase 25E: an exception (std::bad_alloc) ends the watch only: the feeds' files are no
+// longer followed until the next sync starts a new watcher; the dock keeps running (Crash.h).
+DWORD WINAPI WatchThread(LPVOID param) {
+    Crash::Job(L"calendar file watch", [&] { WatchBody(param); }, [] {});
     return 0;
 }
 

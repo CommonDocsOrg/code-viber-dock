@@ -144,7 +144,8 @@ public:
     // widget's window: widget.resize asked for another size).
     // Round 25: WM_APP + 75 = WidgetRuntime::kDeferredMessage (phase 25A, the deferred script entries);
     // WM_APP + 76 = App::kMalformedNotice (phase 25B, posted to the app window once after a start
-    // from a malformed config.json).
+    // from a malformed config.json); WM_APP + 77 = WidgetRuntime::kConsentMessage (phase 25D,
+    // posted to the app window: a widget's "Needs permission" tile was clicked, the dialog opens).
     // On the settings search dialog's own window (round 9 phase 9B / round 18 phase 18D): WM_APP + 41
     // = SettingsSearch::kRebuildMessage, + 42 its kHideComboMessage, timer 1 = its kIndexTimerId (the
     // next window of the index, one-shot); WM_APP + 40 = SettingsWindow::kRebuildMessage on a settings window.

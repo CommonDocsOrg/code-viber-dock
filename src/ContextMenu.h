@@ -143,6 +143,12 @@ enum Command : UINT {
     // preview; the card's own earlier preview is cancelled first). 1 added, 0 refused (no App settings
     // window, no such tile, another preview is open, a dock menu / dialog is open).
     kAddDockTile = 187,
+    // Round 25 phase 25D (automation only, App::OnSharedMessage; app-wide, HIWORD(lParam) ignored): the
+    // widget whose id is in the global atom LOWORD(lParam) gets its manifest's current permissions
+    // allowed (188) / its consent revoked (189), as the consent dialog's Allow / Revoke but without
+    // it. 1 done, 0 refused. QueryState 357 reads the state.
+    kGrantWidgetConsent = 188,
+    kRevokeWidgetConsent = 189,
     // Round 10 phase 10A, menu only (not automation): the tray-icon menu's Docks > "<id> settings…"
     // entries, kDockSettingsBase + the docks[] index (at most 200).
     kDockSettingsBase = 3000,
@@ -263,6 +269,10 @@ enum Command : UINT {
     // low word; 1 done, 0 refused):
     kTrayHoverOpen = 870,   // opens tray slot LOWORD(lParam)'s drawer the hover way (at once; the leave grace applies)
     kTrayDrawerGear = 871,  // presses the open drawer's gear (the tray item's settings window; 0: no gear shown)
+    // Round 25 phase 25D: "Review permissions…" of a script widget slot (also a standalone widget's
+    // menu): the consent dialog for its widget (posted). The menu shows it only while the widget
+    // needs a consent it does not have; as an ItemCommand it works on any script widget slot.
+    kReviewConsent = 872,
     kCloseAllWindows = 900,
     // Round 13 phase 13C: a widget menu's quick entries, kQuickBase + the entry's index in
     // ItemMenuState::quick (at most kQuickMax). Menu-local: never sent as ItemCommands (866 is). The
@@ -349,6 +359,7 @@ struct ItemMenuState {
     bool hasSettings = false;        // round 13 phase 13B: "Widget settings…" (kOpenItemSettings; was "<name> settings…")
     bool weatherConfigured = false;  // a weather item with a place (Refresh weather enabled)
     bool locked = false;             // the dock is locked (Remove this widget greyed)
+    bool needsConsent = false;       // round 25 phase 25D: a script widget waiting for consent: "Review permissions…" first
     // Round 13 phase 13B: the disabled header entry (empty: none): the item's name, or
     // "Widget: <name>" for the widget kinds. Its picture: headerIcon (the item's own icon, drawn
     // at 16 DIPs; the caller keeps owning it until the menu returns), else headerGlyph (KindGlyph).

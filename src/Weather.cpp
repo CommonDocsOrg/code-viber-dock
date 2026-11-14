@@ -12,6 +12,7 @@
 
 #include "HttpClient.h"
 #include "JsonUtil.h"
+#include "Crash.h"
 
 using namespace JsonUtil;
 
@@ -45,7 +46,7 @@ void HttpGet(const std::wstring& host, const std::wstring& path, WeatherService:
     r.body = std::move(result.body);
 }
 
-DWORD WINAPI FetchThread(LPVOID param) {
+DWORD FetchBody(LPVOID param) {
     std::unique_ptr<FetchJob> job(static_cast<FetchJob*>(param));
     auto* response = new (std::nothrow) WeatherService::Response;
     if (!response) return 0;
@@ -57,6 +58,14 @@ DWORD WINAPI FetchThread(LPVOID param) {
     }
     // The receiver owns the response; a window that is gone cannot, so free it here.
     if (!PostMessageW(job->hwnd, job->msg, job->tag, reinterpret_cast<LPARAM>(response))) delete response;
+    return 0;
+}
+
+// Round 25 phase 25E: the body catches what the request throws; Crash::Job is the backstop (and
+// the thread's terminate handler, Crash.h). Nothing that can throw is left outside the body's own
+// catch, so `failed` has nothing to deliver.
+DWORD WINAPI FetchThread(LPVOID param) {
+    Crash::Job(L"weather fetch", [&] { FetchBody(param); }, [] {});
     return 0;
 }
 

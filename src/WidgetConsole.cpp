@@ -14,6 +14,7 @@
 #include "WidgetPackage.h"
 #include "WidgetRuntime.h"
 #include "resource.h"
+#include "Crash.h"
 
 namespace {
 
@@ -28,6 +29,7 @@ const wchar_t* StateText(WidgetInstance::State s) {
     switch (s) {
         case WidgetInstance::State::Error: return L"error";
         case WidgetInstance::State::Suspended: return L"stopped";
+        case WidgetInstance::State::NeedsConsent: return L"needs permission";  // round 25 phase 25D
         case WidgetInstance::State::Ok:
         default: return L"ok";
     }
@@ -216,6 +218,9 @@ void WidgetConsole::PostRefresh(bool list) {
 }
 
 LRESULT CALLBACK WidgetConsole::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     WidgetConsole* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<WidgetConsole*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

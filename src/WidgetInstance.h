@@ -35,9 +35,13 @@ class TextEditorWindow;
 // exception: an error tile with the message is shown until a reload); Suspended (a call ran past
 // the manifest's timeLimitMs and the watchdog stopped it: the same tile, no more calls until a
 // reload). Reload (ItemCommand 809, DockCommand 126) re-reads the package and starts over.
+// Round 25 phase 25D: NeedsConsent (a widget from the widgets folder whose permissions, or whose
+// replacing a built-in, the user has not allowed: Widgets::ConsentOf). Its script is never loaded;
+// the tile says "Needs permission" and a click on it asks for the consent dialog
+// (WidgetRuntime::RequestConsent). A grant or a revoke reloads it (ConsentChanged).
 class WidgetInstance final : private ScriptHost, private WidgetCanvas::LayerSink {
 public:
-    enum class State { Ok = 0, Error = 1, Suspended = 2 };
+    enum class State { Ok = 0, Error = 1, Suspended = 2, NeedsConsent = 3 };
 
     // The dock that shows the widget.
     class Client {
@@ -120,6 +124,9 @@ public:
 
     // Loads (again) the package and the script. The first load happens in the constructor.
     void Reload();
+    // Round 25 phase 25D: the user granted or revoked this widget's consent: reloads when what it
+    // runs no longer matches (NeedsConsent but now allowed, or running but no longer allowed).
+    void ConsentChanged();
     // --- popup.editText (round 6 phase 6C) ---
     // Opens the editor asked for in the last script call (the host calls it from its posted popup
     // request handler, never inside a script call). No-op without a pending request.

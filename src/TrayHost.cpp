@@ -11,6 +11,7 @@
 #include <iterator>
 
 #include "Config.h"
+#include "Crash.h"
 
 namespace {
 
@@ -165,7 +166,13 @@ bool TrayHost::Start(HINSTANCE instance) {
                             r.right - r.left, r.bottom - r.top, nullptr, nullptr, instance, this);
     if (!hwnd_) return false;
     CreateWindowExW(0, kNotifyClass, nullptr, WS_CHILD, 0, 0, 0, 0, hwnd_, nullptr, instance, nullptr);
-    // Elevated apps may register too (a higher integrity level may always send down; allow the copy).
+    // Round 25 phase 25E (the old note had the direction wrong: elevated apps never needed this, a
+    // higher integrity level may always send down): WM_COPYDATA is let through from LOWER-integrity
+    // processes, as Explorer's Shell_TrayWnd lets them register notify icons. Such a sender is not
+    // trusted with anything the dock does for it: an icon's callback must be WM_USER or above (the
+    // dock posts it to the owner window from medium integrity, past UIPI: WM_SYSCOMMAND, WM_CLOSE or
+    // WM_KEYDOWN to another app's window would be a confused deputy; OnNotifyIcon, Post), and the
+    // in-process app bar path takes only same-thread calls (OnAppBar).
     ChangeWindowMessageFilterEx(hwnd_, WM_COPYDATA, MSGFLT_ALLOW, nullptr);
     self_ = this;
     live_.store(hwnd_);
@@ -358,6 +365,20 @@ void TrayHost::EmergencyRelease() {
 // Window
 
 LRESULT CALLBACK TrayHost::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    // One exception keeps the restore whole: the dock's own ABM_REMOVE (DockWindow::
+    // EmergencyRemoveAppBar, from a thread other than this window's, which then still exists) finds
+    // this Shell_TrayWnd, so an app bar message is handed to Explorer's as it is (ABM_REMOVE needs no
+    // answer block; ExplorerTray allocates nothing).
+    if (Crash::Crashing()) {
+        if (msg == WM_COPYDATA && lp && reinterpret_cast<const COPYDATASTRUCT*>(lp)->dwData == 0) {
+            DWORD_PTR result = 0;
+            if (HWND ex = ExplorerTray()) SendMessageTimeoutW(ex, WM_COPYDATA, wp, lp, SMTO_ABORTIFHUNG, kMirrorTimeoutMs, &result);
+            return static_cast<LRESULT>(result);
+        }
+        return DefWindowProcW(hwnd, msg, wp, lp);
+    }
     TrayHost* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<TrayHost*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
@@ -443,11 +464,21 @@ LRESULT TrayHost::OnAppBar(WPARAM wp, const COPYDATASTRUCT& cds) {
     if (cds.cbData < sizeof(AppBarMessage64) || !cds.lpData) return Relay(wp, reinterpret_cast<LPARAM>(&cds));
     AppBarMessage64 m;
     std::memcpy(&m, cds.lpData, sizeof(m));
-    if (!m.hSharedMemory || m.dwSourceProcessId != GetCurrentProcessId()) return Relay(wp, reinterpret_cast<LPARAM>(&cds));
+    // Round 25 phase 25E: dwSourceProcessId is the sender's word, not proof: any process (a lower
+    // integrity one too, the message filter above) could name our pid and an address in our memory,
+    // which this code reads, sends to Explorer and then OVERWRITES with Explorer's answer. The real
+    // in-process call is a dock's SHAppBarMessage on the UI thread, this window's own thread, so
+    // shell32's SendMessage calls this procedure directly: InSendMessage() is false only then (a
+    // message sent from another thread or process sets it). Anything else is relayed as it is (its
+    // "handle" is then Explorer's to map, as for every other process). The block must also be what
+    // SHAllocShared makes: a mapped view (MEM_MAPPED).
+    if (!m.hSharedMemory || m.dwSourceProcessId != GetCurrentProcessId() || InSendMessage()) {
+        return Relay(wp, reinterpret_cast<LPARAM>(&cds));
+    }
     auto* header = reinterpret_cast<BYTE*>(static_cast<ULONG_PTR>(m.hSharedMemory));
     MEMORY_BASIC_INFORMATION mbi{};
     // A handle value is never a mapped address (the first 64 KB are never mapped).
-    if (m.hSharedMemory < 0x10000 || !VirtualQuery(header, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT ||
+    if (m.hSharedMemory < 0x10000 || !VirtualQuery(header, &mbi, sizeof(mbi)) || mbi.State != MEM_COMMIT || mbi.Type != MEM_MAPPED ||
         !(mbi.Protect & (PAGE_READWRITE | PAGE_EXECUTE_READWRITE)) ||
         header + 16 > static_cast<BYTE*>(mbi.BaseAddress) + mbi.RegionSize) {
         return Relay(wp, reinterpret_cast<LPARAM>(&cds));
@@ -560,8 +591,13 @@ LRESULT TrayHost::OnNotifyIcon(HWND sender, const COPYDATASTRUCT& cds) {
                     WatchOwner(pid);
                 }
                 if (n.uFlags & NIF_MESSAGE) {
-                    if (t.callback != n.uCallbackMessage) changed = true;
-                    t.callback = n.uCallbackMessage;
+                    // Round 25 phase 25E: a callback below WM_USER is never kept (0: the dock posts
+                    // nothing for the icon). Real tray callbacks are private messages (WM_USER /
+                    // WM_APP ranges, registered ones); a system message here would let any sender
+                    // have the dock post WM_SYSCOMMAND / WM_CLOSE / WM_KEYDOWN to a window it names.
+                    const UINT callback = n.uCallbackMessage >= WM_USER ? n.uCallbackMessage : 0;
+                    if (t.callback != callback) changed = true;
+                    t.callback = callback;
                 }
                 if (n.uFlags & NIF_TIP) {
                     std::wstring tip = Bounded(n.szTip, std::size(n.szTip));
@@ -762,6 +798,7 @@ void TrayHost::PostChanged() {
 // Input
 
 bool TrayHost::Post(const TrayIcon& icon, UINT event, POINT anchor) const {
+    if (icon.callback < WM_USER) return false;  // round 25 phase 25E: never a system message (OnNotifyIcon)
     WPARAM wp;
     LPARAM lp;
     if (icon.version >= NOTIFYICON_VERSION_4) {

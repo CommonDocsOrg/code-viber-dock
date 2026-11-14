@@ -2233,8 +2233,8 @@ JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     const std::wstring path = a.S(0);
     const float x = a.F(1), y = a.F(2), size = a.F(3, 32.0f);
     if (a.failed) return JS_EXCEPTION;
-    wchar_t expanded[MAX_PATH * 2]{};
-    ExpandEnvironmentStringsW(path.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
+    std::wstring expanded;  // round 25 phase 25D: checked (a fixed buffer, the result ignored, before)
+    if (!Widgets::ExpandPath(path, expanded)) return JS_ThrowTypeError(ctx, "fileIcon: the path cannot be expanded");
     std::wstring error;
     if (!c->FileIcon(expanded, x, y, size, error)) return JS_ThrowTypeError(ctx, "fileIcon: %s", WideToUtf8(error).c_str());
     return JS_UNDEFINED;

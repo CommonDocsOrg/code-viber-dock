@@ -23,6 +23,7 @@
 #include "Launcher.h"
 #include "SnapLines.h"  // round 14 phase 14B
 #include "Theme.h"
+#include "Crash.h"
 #include "WidgetPackage.h"  // round 16 phase 16E: Widgets::CanBeStandalone
 
 namespace {
@@ -9565,6 +9566,9 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
 }
 
 LRESULT CALLBACK DockWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     DockWindow* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<DockWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

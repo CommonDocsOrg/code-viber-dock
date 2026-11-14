@@ -448,3 +448,15 @@ A widget is a folder with a small description file and a JavaScript file. You ca
 - **Console…** shows each widget's log and errors.
 
 Everything about writing widgets is in the [widget developer reference](widgets.md).
+
+#### Widget permissions
+
+A widget from your widgets folder may ask for permissions: to open files and run programs, to connect to named web sites, to read your notifications, your calendar feeds, the forecast, what is playing, the volume or the PC's performance. Such a widget runs only after you allow what it asks for. The built-in widgets never need this.
+
+- When you add or install such a widget, WinDock asks right away. The question names the widget, its id, version, author and folder, and lists each permission in plain words. **Don't allow** is the default.
+- Until you allow it, the widget shows a **Needs permission** tile and its script does not run at all. Click the tile, or right-click it and choose **Review permissions…**, to see the question again.
+- You are asked again only when a new version asks for something you did not allow. A version that asks for the same or less keeps running.
+- A folder with the same id as a built-in widget replaces it, with its settings and saved data, so WinDock asks before it runs even when it asks for no permissions. A copy you make with **Export built-in to folder** is allowed at once.
+- App settings > Widget library shows each widget's permissions and whether you allowed them. Select a widget and click **Permissions…** to allow it or to revoke what you allowed; a revoked widget stops and shows Needs permission.
+
+Allow a widget only if you trust where it came from.

@@ -18,6 +18,7 @@
 #include "SettingsIds.h"
 #include "WidgetPackage.h"
 #include "resource.h"
+#include "Crash.h"
 
 namespace {
 
@@ -756,6 +757,9 @@ bool SettingsSearch::PreTranslateMessage(MSG& msg) {
 // --- window procedures -----------------------------------------------------------------------------
 
 LRESULT CALLBACK SettingsSearch::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     SettingsSearch* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<SettingsSearch*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

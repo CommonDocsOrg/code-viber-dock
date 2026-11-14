@@ -482,6 +482,12 @@ inline constexpr int kWidgetsStatus = 3508;    // the last action's result ("Exp
 inline constexpr int kWidgetsAddToDesktop = 3509;  // round 6 phase 6B: "Add to the desktop" (a standalone widget of the selected one)
 inline constexpr int kWidgetsPreview = 3510;   // round 6 phase 6E: WinDock.WidgetPreviewPanel: the selected widget's live preview + description
 inline constexpr int kWidgetsMore = 3511;      // round 8 phase 8D: "More ▾" (a menu of 3501 - 3505)
+// Round 25 phase 25D: the selected widget's permissions in words and its consent state (a Value
+// line; the list's fifth column "Permissions" shows the state of every row), and "Permissions…":
+// the consent dialog (Allow / Don't allow, or Keep allowed / Revoke; greyed for a widget that
+// needs no consent).
+inline constexpr int kWidgetsPermissions = 3512;
+inline constexpr int kWidgetsReview = 3513;
 
 // Widget settings (3600 - 3999; phase 4b). The fixed controls, then per schema field k
 // (widget.json "settings" order) 3700 + 10 * k + part: 0 label, 1 the control (check box, edit,

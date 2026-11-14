@@ -9,6 +9,7 @@
 #include <vector>
 
 #include "Theme.h"
+#include "Crash.h"
 
 namespace {
 
@@ -473,6 +474,9 @@ void PopupWindow::ButtonUp(Button button, POINT pt) {
 }
 
 LRESULT CALLBACK PopupWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     PopupWindow* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<PopupWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

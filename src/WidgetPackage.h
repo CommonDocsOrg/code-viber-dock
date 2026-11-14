@@ -12,7 +12,8 @@
 // Widget packages (docs/widgets.md). A widget is a folder %LocalAppData%\WinDock\widgets\<id>\
 // with a manifest `widget.json`, its ES module `main.js` (plus any modules it imports) and its
 // assets, or a built-in shipped inside the exe as RCDATA resources (res/app.rc, the sources live in
-// the repo's widgets\ folder). A folder with the id of a built-in replaces it (the folder wins).
+// the repo's widgets\ folder). A folder with the id of a built-in replaces it (the folder wins;
+// round 25 phase 25D: only with the user's consent, see ConsentOf).
 // Everything a script reads goes through Package::Read, which keeps it inside the package.
 namespace Widgets {
 
@@ -187,7 +188,8 @@ std::shared_ptr<const Package> Load(const std::wstring& id, std::wstring& error)
 std::vector<Issue> Validate(const std::string& bytes, const Package& pkg);
 // The CLI's check of a widget folder (not installed): reads and validates it. False when it cannot
 // be read at all (no folder, no widget.json; `issues` say why). `name`: its manifest name.
-bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name);
+// Round 25 phase 25D: `manifest` (optional): the parsed manifest (the CLI prints its permissions).
+bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name, Manifest* manifest = nullptr);
 
 // The installed widgets for menus and the settings window: every built-in and every folder under
 // Directory() with a widget.json, one entry per id (folder wins), sorted by name.
@@ -226,6 +228,39 @@ std::string MergeSettings(const Manifest& manifest, const std::wstring& itemJson
 // The clock's face choices are read now (Digital, then ClockFaces::List()). The keys are those of
 // ClockConfig / WeatherConfig (Config.h: ClockOf / WeatherOf read them).
 std::vector<SettingField> BuiltInSchema(ItemKind kind);
+
+// --- round 25 phase 25D: consent for a widget folder's permissions ---
+// A widget from the widgets folder runs only when the user allowed what its manifest asks for
+// (config.json `widgetConsent`, WidgetConsent in Config.h); a built-in never needs it. A folder
+// needs consent when its manifest asks for any permission, or when it replaces a built-in widget
+// (it takes over that widget's placements and its widget-data file), even without permissions.
+//
+// The manifest's permissions as the canonical list stored in a consent: sorted, unique, one entry
+// per permission ("audio", "calendar", "media", "notifications", "perf", "shell", "weather"), an
+// http host as "http:<host>" ("http" alone for the permission without hosts).
+std::vector<std::wstring> PermissionList(const Manifest& manifest);
+// The package is a folder with the id of a built-in widget.
+bool ReplacesBuiltIn(const Package& pkg);
+bool IsBuiltInId(const std::wstring& id);
+enum class ConsentState {
+    NotNeeded = 0,  // a built-in, or a folder that asks for nothing and replaces nothing
+    Granted = 1,    // the consent covers every permission it asks for (and the replacement)
+    Missing = 2,    // never allowed (or revoked)
+    More = 3,       // allowed before, but the manifest now asks for something not yet allowed
+};
+ConsentState ConsentOf(const Package& pkg, const WidgetConsent* granted);
+// What a consent for the package as it is now holds.
+WidgetConsent ConsentFor(const Package& pkg);
+// The dialog's lines: one per permission, in plain words ("Open files, folders and web pages, and
+// run programs on this PC"; http: "Connect to: a.com, *.b.org (any sub-domain of b.org),
+// localhost (this PC)"), in PermissionList's order.
+std::vector<std::wstring> PermissionLines(const Manifest& manifest);
+// The same as one short line for a list column ("shell, http (2 hosts)"; "none").
+std::wstring PermissionSummary(const Manifest& manifest);
+// Round 25 phase 25D (D3): %VAR% expanded into `out` with the result's size checked (the callers
+// used fixed buffers and ignored a truncated or failed expansion). False when the expansion
+// fails or the result is longer than `maxChars`.
+bool ExpandPath(const std::wstring& in, std::wstring& out, size_t maxChars = 32767);
 
 // Round 10 phase 10B: the fields the Contents tab's inspector offers (indexes into
 // manifest.settings, in schema order): the ones marked `"common": true`; a schema without any: its

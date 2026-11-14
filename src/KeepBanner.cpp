@@ -7,6 +7,7 @@
 #include <algorithm>
 
 #include "SettingsIds.h"
+#include "Crash.h"
 
 namespace {
 
@@ -137,6 +138,9 @@ void KeepBanner::Layout() {
 }
 
 LRESULT CALLBACK KeepBanner::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     KeepBanner* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<KeepBanner*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

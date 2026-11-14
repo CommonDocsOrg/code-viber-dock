@@ -16,6 +16,7 @@
 
 #include "SettingsIds.h"
 #include "resource.h"
+#include "Crash.h"
 
 // --- the guides and the converter -------------------------------------------------------------
 
@@ -359,7 +360,9 @@ HelpWindow::~HelpWindow() {
 
 bool HelpWindow::Create(HINSTANCE instance, HWND nearWindow) {
     instance_ = instance;
-    static HMODULE richEdit = LoadLibraryW(L"Msftedit.dll");  // kept for the process (the class lives in it)
+    // Kept for the process (the class lives in it). Round 25 phase 25E: from System32 only (a bare
+    // LoadLibraryW searched the exe's folder first: a planted Msftedit.dll there ran in the dock).
+    static HMODULE richEdit = LoadLibraryExW(L"Msftedit.dll", nullptr, LOAD_LIBRARY_SEARCH_SYSTEM32);
     if (!richEdit) return false;
     WNDCLASSEXW wc{sizeof(wc)};
     wc.lpfnWndProc = WndProcThunk;
@@ -687,6 +690,9 @@ void HelpWindow::DrawListItem(const DRAWITEMSTRUCT& di) {
 }
 
 LRESULT CALLBACK HelpWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     HelpWindow* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<HelpWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

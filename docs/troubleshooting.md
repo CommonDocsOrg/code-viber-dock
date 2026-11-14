@@ -148,6 +148,18 @@ To start the widgets again, right-click the dock and choose **Reload widgets** (
 
 If a widget you installed has a problem with its description file, the message names the field and how to fix it. Widget authors can check a widget folder from the command line with `WinDock.exe --validate-widget <folder>`. See the [widget developer reference](widgets.md).
 
+## A widget shows Needs permission
+
+A widget from your widgets folder that asks for permissions (to open files or programs, connect to web sites, read your notifications and so on), or that replaces a built-in widget, runs only after you allow it. Until then it shows **Needs permission** and does nothing else. This is not an error.
+
+- Click the tile, or right-click it and choose **Review permissions…**. Read what it asks for and click **Allow** if you trust where the widget came from.
+- Or open App settings > Widget library, select the widget and click **Permissions…**.
+- After an update of WinDock, widgets you installed before show Needs permission once, until you review them.
+- A widget that worked before and shows Needs permission again was updated and now asks for something more. Review it again.
+- Built-in widgets never show it. If a built-in widget shows Needs permission, a folder with its id in your widgets folder replaces it: allow it, or delete that folder (App settings > Widget library > **More ▾** > **Open widgets folder**) to get the built-in back.
+
+See [Widget permissions](guide-items.md#widget-permissions).
+
 ## Reset to defaults
 
 You can go back to the defaults one part at a time, or start over completely.

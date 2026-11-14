@@ -200,6 +200,13 @@ try {
         @{ kind = 'widget'; id = 'smoke-25a-throw'; settings = @{ dismiss = $dismiss } }
     )
     [void](Start-WinDock -Exe $Exe -Config $cfg)
+    # Round 25 phase 25D: widget folders with permissions run only with consent: grant it (the
+    # widgets reload and start their timers now; the test config, and with it the consent, is
+    # replaced by run 2's and the user's config is restored at the end).
+    foreach ($id in 'smoke-25a-notif', 'smoke-25a-cal', 'smoke-25a-throw') {
+        Check "consent granted to $id (DockCommand 188)" ((Grant-WidgetConsent -Id $id) -eq 1)
+        Check "$id is allowed (QueryState 357 = 1)" ((Get-WidgetConsent -Id $id) -eq 1)
+    }
     Check 'three script widgets on the dock (QueryState 55)' (Wait-Until -TimeoutMs 4000 { (Get-DockState 55) -eq 3 })
     foreach ($slot in 0..2) { Check "slot $slot is a script widget (QueryState 24 = 6)" ((Get-DockState 24 -Arg $slot) -eq 6) }
 

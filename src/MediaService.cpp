@@ -1,4 +1,5 @@
 #include "MediaService.h"
+#include "Crash.h"
 
 #include <winrt/Windows.Foundation.h>
 #include <winrt/Windows.Foundation.Collections.h>
@@ -118,7 +119,16 @@ bool MediaService::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
     return true;
 }
 
+// Round 25 phase 25E: an exception escaping the thread's body ends this service's thread (the
+// service stops delivering; the dock keeps running) instead of std::terminate ending the process
+// with the taskbar hidden (Crash.h).
 DWORD WINAPI MediaService::ThreadMain(void* param) {
+    DWORD rc = 1;
+    Crash::Job(L"media service", [&] { rc = ThreadBody(param); }, [] {});
+    return rc;
+}
+
+DWORD MediaService::ThreadBody(void* param) {
     std::shared_ptr<Shared> s = std::move(*static_cast<std::shared_ptr<Shared>*>(param));
     delete static_cast<std::shared_ptr<Shared>*>(param);
     try {

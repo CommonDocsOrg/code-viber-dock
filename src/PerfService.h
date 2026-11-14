@@ -120,6 +120,7 @@ public:
 private:
     struct Shared;  // what the worker and the UI thread share (owner, interval, the wake event)
     static DWORD WINAPI ThreadMain(void* param);
+    static DWORD ThreadBody(void* param);  // round 25 phase 25E: ThreadMain runs it through Crash::Job
     void TakeSample(std::unique_ptr<Sample> s);
 
     HANDLE thread_ = nullptr;

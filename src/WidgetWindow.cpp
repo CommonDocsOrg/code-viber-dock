@@ -17,6 +17,7 @@
 #include "SnapLines.h"  // round 14 phase 14B
 #include "Theme.h"
 #include "WidgetRuntime.h"
+#include "Crash.h"
 
 namespace {
 
@@ -1085,6 +1086,9 @@ LRESULT WidgetWindow::QueryState(WPARAM what, LPARAM) const {
 // --- window --------------------------------------------------------------------------------------
 
 LRESULT CALLBACK WidgetWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     WidgetWindow* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<WidgetWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

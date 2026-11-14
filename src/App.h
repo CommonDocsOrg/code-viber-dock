@@ -251,6 +251,22 @@ private:
     bool badCopyMade_ = false;       // ... and its copy (badCopyName_) was made
     bool saveBlocked_ = false;       // ... without a copy: nothing is written over the file
     std::wstring badCopyName_;       // config.bad-<stamp>.json (file name only)
+    // --- round 25 phase 25D: consent for widget folders (Widgets::ConsentOf) ---
+    // The consent dialog for widget `id` (a task dialog, owned by `owner` when given): what the
+    // widget is, each permission in plain words, a prominent line when it replaces a built-in.
+    // Not yet allowed: Allow / Don't allow (default); allowed: Keep allowed (default) / Revoke.
+    // A widget needing nothing: a short note. True when the consent changed.
+    bool ReviewWidgetConsent(const std::wstring& id, HWND owner);
+    // An add / install through the UI: the dialog only when `id` needs a consent it does not have.
+    // `post`: from a click of a popup (the drawer, the picker): posted (WidgetRuntime::RequestConsent).
+    bool OfferWidgetConsent(const std::wstring& id, HWND owner, bool post = false);
+    // Grants (the manifest's current set) or revokes widget `id`'s consent without a dialog
+    // (automation, the dialog's answer): saved, its instances follow, the settings windows refresh.
+    // False: grant of a widget that is not installed.
+    bool SetWidgetConsent(const std::wstring& id, bool grant);
+    // The consent state of widget `id` (QueryState 357; -1: not installed).
+    int WidgetConsentState(const std::wstring& id) const;
+    bool consentOpen_ = false;  // a consent dialog is open (one at a time)
     // --- the dashboard hotkey (round 6 phase 6A) ---
     // Registers config.dashboard.hotkey on the app window (RegisterHotKey, id kDashboardHotkeyId),
     // replacing the one registered before; "" registers none. A combination another app holds

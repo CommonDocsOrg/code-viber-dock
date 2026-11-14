@@ -93,6 +93,21 @@ public static class Native {
 '@
 }
 
+# Round 25 phase 25D: global atoms (the DockCommands that take a string: 141, 162 - 169, 188 / 189,
+# QueryState 357). A type of its own, so a session that loaded an older Native type still gets it.
+if (-not ('WinDockSmoke.Atom' -as [type])) {
+    Add-Type -TypeDefinition @'
+using System;
+using System.Runtime.InteropServices;
+namespace WinDockSmoke {
+public static class Atom {
+    [DllImport("kernel32.dll", CharSet = CharSet.Unicode)] public static extern ushort GlobalAddAtomW(string s);
+    [DllImport("kernel32.dll")] public static extern ushort GlobalDeleteAtom(ushort a);
+}
+}
+'@
+}
+
 $script:N = [WinDockSmoke.Native]
 $script:Msg = @{}
 foreach ($name in 'QueryState', 'QueryItemPoint', 'DockCommand', 'ItemCommand') {
@@ -165,6 +180,49 @@ function Send-DockCommand {
 function Send-ItemCommand {
     param([Parameter(Mandatory)][int]$Command, [Parameter(Mandatory)][int]$Item, [int]$Dock = 0, [switch]$Post)
     Send-WinDockMessage -Name ItemCommand -WParam $Command -LParam (ConvertTo-LParam $Dock $Item) -Post:$Post
+}
+
+function Send-AtomMessage {
+    <#
+      Round 25 phase 25D: a message whose LOWORD(lParam) is a global atom holding -Text (the atom is
+      deleted after the call returns; with -Post it would be gone too early, so this always sends).
+      -Name DockCommand / QueryState; returns the answer (sign-extended 32-bit).
+    #>
+    param([Parameter(Mandatory)][string]$Name, [Parameter(Mandatory)][int64]$WParam, [Parameter(Mandatory)][string]$Text, [int]$Dock = 0)
+    $atom = [WinDockSmoke.Atom]::GlobalAddAtomW($Text)
+    if ($atom -eq 0) { throw "GlobalAddAtom failed for '$Text'" }
+    try {
+        ConvertTo-Int32 (Send-WinDockMessage -Name $Name -WParam $WParam -LParam (ConvertTo-LParam $Dock $atom))
+    } finally {
+        [void][WinDockSmoke.Atom]::GlobalDeleteAtom($atom)
+    }
+}
+
+function Install-WidgetFolder {
+    <# DockCommand 141 (Add from folder… without its dialog; never asks for consent). 1 installed. #>
+    param([Parameter(Mandatory)][string]$Folder)
+    Send-AtomMessage -Name DockCommand -WParam 141 -Text $Folder
+}
+
+function Get-WidgetConsent {
+    <# QueryState 357: 0 needs none, 1 allowed, 2 never allowed / revoked, 3 asks for more; -1 not installed. #>
+    param([Parameter(Mandatory)][string]$Id)
+    Send-AtomMessage -Name QueryState -WParam 357 -Text $Id
+}
+
+function Grant-WidgetConsent {
+    <#
+      DockCommand 188: allows widget -Id's current permissions without the dialog (saved into the
+      config: back it up first). Its instances reload and run. 1 done.
+    #>
+    param([Parameter(Mandatory)][string]$Id)
+    Send-AtomMessage -Name DockCommand -WParam 188 -Text $Id
+}
+
+function Revoke-WidgetConsent {
+    <# DockCommand 189: the widget's consent goes; its instances stop and show Needs permission. 1 done. #>
+    param([Parameter(Mandatory)][string]$Id)
+    Send-AtomMessage -Name DockCommand -WParam 189 -Text $Id
 }
 
 function Get-DockItemPoint {

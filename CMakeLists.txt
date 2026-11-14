@@ -122,6 +122,7 @@ add_executable(WinDock WIN32
   src/AppQuickSetup.cpp
   src/CoachMarks.cpp
   src/StartMenuPlacer.cpp
+  src/Crash.cpp
   res/app.rc
   res/app.manifest
 )
@@ -151,8 +152,14 @@ target_compile_options(WinDock PRIVATE
 # An 8 MB main-thread stack: the widget scripts run on the UI thread, and QuickJS's own stack
 # limit (JS_SetMaxStackSize, WidgetRuntime.h) must stay well inside the real stack (MSVC frames are
 # ~4.8 KB per JS call; with the default 1 MB stack deep recursion would crash the process).
+# Round 25 phase 25E: /DEPENDENTLOADFLAG:0x800 (LOAD_LIBRARY_SEARCH_SYSTEM32): the loader resolves
+# the exe's static imports that are not KnownDLLs (version, dwmapi, uxtheme, winhttp, dcomp, d2d1,
+# dxgi, pdh, iphlpapi, powrprof, propsys ...) from System32 only, never from the exe's own folder
+# (a DLL planted beside an exe run from Downloads). main.cpp's SetDefaultDllDirectories covers the
+# loads after startup. `dumpbin /loadconfig WinDock.exe` shows it as "Dependent Load Flag".
 target_link_options(WinDock PRIVATE
   /STACK:8388608
+  /DEPENDENTLOADFLAG:0x800
   $<$<CONFIG:Release>:/LTCG /OPT:REF /OPT:ICF>
 )
 
@@ -171,3 +178,4 @@ add_executable(WinDockTests EXCLUDE_FROM_ALL tests/ics/IcsTests.cpp src/Ics.cpp)
 target_include_directories(WinDockTests PRIVATE src)
 target_compile_definitions(WinDockTests PRIVATE UNICODE _UNICODE NOMINMAX WIN32_LEAN_AND_MEAN _WIN32_WINNT=0x0A00 WINVER=0x0A00)
 target_compile_options(WinDockTests PRIVATE /W4 /permissive- /utf-8)
+target_link_options(WinDockTests PRIVATE /DEPENDENTLOADFLAG:0x800)  # round 25 phase 25E: as WinDock

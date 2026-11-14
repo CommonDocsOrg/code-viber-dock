@@ -39,7 +39,10 @@ Built-in widgets (`hello`, `digital-clock`, `analog-clock`, `analog-date`, `volu
 `system-overview`, `battery`, `show-desktop`, `stocks`, `photo-frame`) are compiled into the
 exe as resources (their sources are in the repository's `widgets\` folder). A folder with the same id as a built-in replaces it:
 the folder wins, so copying a built-in's files into `widgets\<id>\` and editing them changes the
-widget. Widgets are always loaded as source; bytecode is never loaded.
+widget. Round 25: such a folder takes over the built-in's places, settings and `widget-data` file,
+so it runs only after the user allowed it (see [Consent](#consent)), even when it asks for no
+permissions; **Export built-in to folder** makes a copy that is allowed at once. Widgets are always
+loaded as source; bytecode is never loaded.
 
 ## widget.json
 
@@ -74,7 +77,7 @@ widget. Widgets are always loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws. 0: no ticking. `timer.setRefresh(ms)` overrides it at run time (also for another time zone: `timer.setRefresh(ms, { timeZone })`). |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself; an IP address is matched only by an entry that is that address). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). Round 25: a widget from the widgets folder runs only after the user allowed its permissions (see [Consent](#consent)); ask for the fewest you need. |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `preview` | none | Round 6 phase 6E: the widget's live preview in the settings window's widget drawer and Widget library ([Preview mode](#preview-mode)): `{ "settings": { "face": "classic" }, "width": 64, "height": 48 }`. `settings`: an object of setting values merged over the schema's defaults for the preview only (a nice face, a sample label); `width` / `height`: the preview's box in DIPs (8 - 1024 / 8 - 512; left out: the box the widget measures on a 48 DIP bottom dock). The manifest check reports a non-object, a setting the schema does not name (a warning) and sizes out of range. |
 | `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum); `supported`: `false` when the widget needs a dock (round 16 phase 16E; default `true`): it is never made a standalone widget (dragging it off the dock only reorders it, the drawer does not drop it on the desktop, **Add to the desktop** refuses it). |
@@ -346,7 +349,9 @@ A small persistent JSON store per widget **id** (every item with that id shares 
 `%LocalAppData%\WinDock\widget-data\<id>.json` (outside the widget's folder, so exporting,
 replacing or deleting the folder keeps the data, and `watch` does not see the writes). Changes are
 written one second after the last change (and when the dock quits); nothing is written while
-nothing changes. At most 1 MB per widget.
+nothing changes. At most 1 MB per widget. Round 25: a store file larger than that on disk (edited
+by hand, written by another program) is not loaded: the widget sees an empty store, every
+`storage.set` throws an Error naming the file, and the file is left as it is (never rewritten).
 
 | Call | |
 |---|---|
@@ -359,11 +364,32 @@ nothing changes. At most 1 MB per widget.
 
 Needs `{ "http": [hosts] }` in `permissions`; any other host, or no permission, throws a
 TypeError at the call. Requests run on a worker thread (WinHTTP, the system's proxy settings) and
-come back as a promise resolved on the dock's thread.
+come back as a promise resolved on the dock's thread. Round 25:
+
+- **Redirects** are followed by the host, at most 5, and each one is checked like the first URL:
+  its host must be in the permission (a wildcard never matches an IP address), and an https URL
+  never redirects to http. A refused redirect rejects the promise ("http: the redirect to host ...
+  is not in the widget's http permission").
+- **Local addresses are refused**: this PC (`localhost`, 127.0.0.0/8, ::1), the local network
+  (10/8, 172.16/12, 192.168/16, link-local 169.254/16 and fe80::/10, unique-local fc00::/7) and
+  the unspecified address, in their IPv4-mapped forms too. The address checked is the one the
+  request actually connected to, before anything of the response reaches the script, so a public
+  name that resolves to a local address is refused as well. To reach a device on your network or a
+  server on this PC, list that address itself (`"http:192.168.1.20"`) or `"http:localhost"`; the
+  consent dialog then says "this PC" / "your local network" for it. Behind a proxy the address
+  WinHTTP connects to is the proxy's, and the check does not apply.
+- **The timeout** (`timeout`, 1000 - 30000 ms, default 10000) is for the whole request, redirects
+  and body included.
+- **Headers**: the name must be a token and neither name nor value may hold a line break (checked
+  by the host, not only by the API's own code); `Host`, `Content-Length`, `Transfer-Encoding`,
+  `Connection`, `Keep-Alive`, `Upgrade`, `TE`, `Trailer`, `Expect` and every `Proxy-*` header are
+  refused (a TypeError at the call), and all headers together are at most 16 KB. On a redirect to
+  another host `Authorization` is dropped.
+- Windows credentials are never sent (no automatic logon to intranet servers or proxies).
 
 | Call | |
 |---|---|
-| `http.get(url, options)` | `options`: `{ headers: { name: value }, timeout: ms (1000 - 30000, default 10000), type: "json" \| "text" }`. |
+| `http.get(url, options)` | `options`: `{ headers: { name: value }, timeout: ms (1000 - 30000, default 10000; the whole request), type: "json" \| "text" }`. |
 | `http.post(url, body, options)` | A string body is sent as text (`Content-Type: text/plain; charset=utf-8`), anything else as JSON (`application/json`), unless `headers` names a content type. |
 | `http.request({ method, url, body, headers, timeout, type })` | `GET`, `POST`, `PUT`, `DELETE`, `PATCH`, `HEAD`. |
 
@@ -903,6 +929,11 @@ An analog clock on the dock is the Analog clock widget (Dock settings > Contents
   triggering it again is cut off after 8 such rounds (a warning in the log), and at most 64 calls
   are kept at a time. A widget may also see `shell.open` and `notifications.activate` take effect
   only after its function returned (see their entries).
+- **Needs permission** (round 25). A widget from the widgets folder that the user has not allowed
+  yet (see [Consent](#consent)) does not load its script at all: its tile says "Needs permission"
+  (on a narrow tile "Permission" or "?") and a click on it, or **Review permissions…** in its
+  right-click menu, opens the consent dialog. The Console lists it as "needs permission";
+  `QueryState` 54 (and 244 for a standalone widget) report state 3.
 - **Errors.** An uncaught exception in any export or timer callback (and a module that fails to
   load, a missing `draw` export, a package that is not installed) puts the widget in the **error**
   state: an "Error" tile with the first line of the message, the message and its stack
@@ -939,6 +970,38 @@ only from the widget's own package (and `media.art()` tokens, with `"media"`):
   backslashes, empty segments, and any `..` that would leave the package.
 - For folder widgets the file actually opened must be inside the widget's folder (a junction or
   symbolic link pointing elsewhere is refused), and every file is at most 8 MB.
+
+### Consent
+
+Round 25. Widgets written by other people are expected, so the permissions are a boundary the user
+decides on:
+
+- **Built-in widgets** (compiled into the exe) never ask.
+- **A widget from the widgets folder** that asks for any permission, or whose id is a built-in's
+  (it replaces that widget, its settings and its saved data), runs only after the user allowed it.
+  Without that its script is not loaded at all (not even in the drawer's preview): it shows the
+  "Needs permission" tile. A folder asking for nothing and replacing nothing needs no consent.
+- **The question** comes when the user adds or installs such a widget through the settings or the
+  drawer (App settings > Widget library's Add from folder…, Add to dock, Add to the desktop; the
+  Contents tab's drawer; customize mode's drawer; the standalone widget picker), and from a click on
+  its tile. It names the widget (name, id, version, author, folder), lists each permission in plain
+  words (for `http` every host, a wildcard as "any sub-domain of", a local address as "this PC" /
+  "your local network"), says so prominently when the folder replaces a built-in, and offers
+  **Allow** / **Don't allow** (the default). Nothing asks at startup: widgets installed before
+  round 25 show the tile until they are reviewed. Automation installs (`DockCommand` 141) never
+  ask.
+- **What is stored**: `widgetConsent` in config.json, the widget's id with the sorted list of what
+  was allowed (`"shell"`, `"http:api.example.com"`, ...) and `"replacesBuiltIn"`. It is asked again
+  only when the manifest asks for something that list does not hold: a new version with the same
+  or fewer permissions keeps running. Undo / Redo never change it.
+- **Review and revoke**: App settings > Widget library shows every widget's permissions and state;
+  **Permissions…** opens the dialog (Keep allowed / Revoke for an allowed widget). Revoking stops the
+  widget at once and brings the tile back.
+
+For authors: ask for the minimum. Every permission is one more line the user must accept, and
+`"shell"` (which can run any program) is the one most users should refuse; prefer `http` with exact
+host names over wildcards, and never list a local address unless the widget is for a device on the
+user's network. `WinDock.exe --validate-widget` prints the lines the dialog will show.
 
 ## Developing a widget
 
@@ -979,11 +1042,17 @@ authors and CI; no dock starts, nothing is shown). Each problem names the field 
 > WinDock.exe --validate-widget C:\src\my-widget
 WinDock widget check: C:\src\my-widget
   name: My widget
+  permissions (installed, it runs only after the user allows them):
+    - Internet: connect to api.example.com
   error: main: "app.js" was not found in the widget (fix: add the module or set "main" to its path)
   error: permissions[1]: unknown permission "camera" (fix: use "shell", "audio", ... or { "http": ["host"] })
   warning: settings[2] (size).default: 500 is outside min - max (clamped)
 FAILED: 2 errors, 1 warning
 ```
+
+Round 25: after the name it prints the permissions as the consent dialog will list them ("none"
+when it asks for nothing), and a note when the folder name is a built-in widget's id (installed,
+it would replace that widget and ask for consent).
 
 Exit code **0**: no errors (warnings may be listed), **1**: errors, **2**: no folder given, or no
 widget.json in it. The output goes to the console that started it (or a redirected standard

@@ -9,6 +9,7 @@
 
 #include "ClockFaces.h"
 #include "Config.h"
+#include "HttpClient.h"
 #include "JsonUtil.h"
 #include "resource.h"
 
@@ -1116,7 +1117,7 @@ std::vector<Issue> Validate(const std::string& bytes, const Package& pkg) {
     return issues;
 }
 
-bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name) {
+bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name, Manifest* manifest) {
     issues.clear();
     std::wstring src = folder;
     while (src.size() > 3 && (src.back() == L'\\' || src.back() == L'/')) src.pop_back();
@@ -1141,7 +1142,10 @@ bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std:
     }
     std::vector<Issue> found = Validate(bytes, pkg);
     issues.insert(issues.end(), found.begin(), found.end());
-    if (ParseManifest(bytes, pkg.id, pkg.manifest, error)) name = pkg.manifest.name;
+    if (ParseManifest(bytes, pkg.id, pkg.manifest, error)) {
+        name = pkg.manifest.name;
+        if (manifest) *manifest = pkg.manifest;
+    }
     return true;
 }
 
@@ -1616,6 +1620,111 @@ std::vector<size_t> CommonFields(const Manifest& manifest) {
         if (simple) out.push_back(k);
     }
     return out;
+}
+
+// --- round 25 phase 25D: consent ---------------------------------------------------------------
+
+bool IsBuiltInId(const std::wstring& id) { return IsBuiltIn(id); }
+
+std::vector<std::wstring> PermissionList(const Manifest& m) {
+    std::vector<std::wstring> out;
+    if (m.audio) out.push_back(L"audio");
+    if (m.calendar) out.push_back(L"calendar");
+    if (m.media) out.push_back(L"media");
+    if (m.notifications) out.push_back(L"notifications");
+    if (m.perf) out.push_back(L"perf");
+    if (m.shell) out.push_back(L"shell");
+    if (m.weather) out.push_back(L"weather");
+    if (m.http && m.httpHosts.empty()) out.push_back(L"http");
+    for (const std::wstring& h : m.httpHosts) out.push_back(L"http:" + h);
+    std::sort(out.begin(), out.end());
+    out.erase(std::unique(out.begin(), out.end()), out.end());
+    return out;
+}
+
+bool ReplacesBuiltIn(const Package& pkg) { return pkg.source == Package::Source::Folder && IsBuiltIn(pkg.id); }
+
+ConsentState ConsentOf(const Package& pkg, const WidgetConsent* granted) {
+    if (pkg.source != Package::Source::Folder) return ConsentState::NotNeeded;
+    const std::vector<std::wstring> want = PermissionList(pkg.manifest);
+    const bool replaces = ReplacesBuiltIn(pkg);
+    if (want.empty() && !replaces) return ConsentState::NotNeeded;
+    if (!granted) return ConsentState::Missing;
+    if (replaces && !granted->replacesBuiltIn) return ConsentState::More;
+    // Both lists sorted (Config::Sanitize sorts a stored one; App writes PermissionList's).
+    if (!std::includes(granted->permissions.begin(), granted->permissions.end(), want.begin(), want.end())) {
+        return ConsentState::More;
+    }
+    return ConsentState::Granted;
+}
+
+WidgetConsent ConsentFor(const Package& pkg) {
+    WidgetConsent c;
+    c.permissions = PermissionList(pkg.manifest);
+    c.replacesBuiltIn = ReplacesBuiltIn(pkg);
+    return c;
+}
+
+std::vector<std::wstring> PermissionLines(const Manifest& m) {
+    std::vector<std::wstring> out;
+    if (m.audio) out.push_back(L"Audio: read and change the system volume, mute and the default speakers");
+    if (m.calendar) out.push_back(L"Calendar: read the events of your calendar feeds (and refresh them)");
+    if (m.media) out.push_back(L"Media: see what your media apps are playing (title, artist, cover art) and control playback");
+    if (m.notifications) out.push_back(L"Notifications: read your Windows notifications (app, title and text) and dismiss them");
+    if (m.perf) out.push_back(L"Performance: read this PC's performance counters (processor, memory, disks, network) and HWiNFO's sensors");
+    if (m.shell) {
+        out.push_back(L"Shell: open files, folders and web pages, and run programs on this PC (with any arguments). It can "
+                      L"also list folders, show pictures from anywhere on the disk, receive files you drop on it and press "
+                      L"a few Windows keys");
+    }
+    if (m.weather) out.push_back(L"Weather: read the forecast for your places (and refresh it)");
+    if (m.http) {
+        if (m.httpHosts.empty()) {
+            out.push_back(L"Internet: none (no host is named, so every request is refused)");
+        } else {
+            std::wstring hosts;
+            for (size_t k = 0; k < m.httpHosts.size(); ++k) {
+                const std::wstring& h = m.httpHosts[k];
+                std::wstring shown = h;
+                if (h.size() > 2 && h.rfind(L"*.", 0) == 0) shown += L" (any sub-domain of " + h.substr(2) + L")";
+                const int scope = Http::LocalScope(h);
+                if (scope == 1) shown += L" (this PC)";
+                if (scope == 2) shown += L" (your local network)";
+                hosts += (k ? L", " : L"") + shown;
+            }
+            out.push_back(L"Internet: connect to " + hosts);
+        }
+    }
+    return out;
+}
+
+std::wstring PermissionSummary(const Manifest& m) {
+    std::wstring s;
+    auto add = [&](const wchar_t* w) { s += (s.empty() ? L"" : L", ") + std::wstring(w); };
+    if (m.shell) add(L"shell");
+    if (m.http) {
+        add(m.httpHosts.size() == 1 ? (L"http: " + m.httpHosts.front()).c_str()
+                                    : (L"http (" + std::to_wstring(m.httpHosts.size()) + L" hosts)").c_str());
+    }
+    if (m.notifications) add(L"notifications");
+    if (m.media) add(L"media");
+    if (m.audio) add(L"audio");
+    if (m.calendar) add(L"calendar");
+    if (m.weather) add(L"weather");
+    if (m.perf) add(L"perf");
+    return s.empty() ? L"none" : s;
+}
+
+bool ExpandPath(const std::wstring& in, std::wstring& out, size_t maxChars) {
+    out.clear();
+    const DWORD need = ExpandEnvironmentStringsW(in.c_str(), nullptr, 0);  // characters, the terminator included
+    if (need == 0 || need - 1 > maxChars) return false;
+    std::wstring buf(need, L'\0');
+    const DWORD n = ExpandEnvironmentStringsW(in.c_str(), buf.data(), need);
+    if (n == 0 || n > need) return false;  // a variable changed in between: refused, not truncated
+    buf.resize(n - 1);
+    out = std::move(buf);
+    return true;
 }
 
 }  // namespace Widgets

@@ -159,6 +159,16 @@ void WidgetInstance::Reload() {
                                (firstError->fix.empty() ? L"" : L" (fix: " + firstError->fix + L")"));
         return;
     }
+    // Round 25 phase 25D: a widget folder whose permissions (or whose taking a built-in's place) the
+    // user has not allowed never loads its script; the tile asks for a click (Click -> the dialog).
+    // Previews follow the same rule: nothing of an unallowed folder runs, not even sandboxed.
+    const Widgets::ConsentState consent = Widgets::ConsentOf(*package_, runtime_.GrantedFor(id_));
+    if (consent == Widgets::ConsentState::Missing || consent == Widgets::ConsentState::More) {
+        Fail(State::NeedsConsent, consent == Widgets::ConsentState::More
+                                      ? L"It now asks for more than you allowed. Click to review."
+                                      : L"Click to review what it asks for.");
+        return;
+    }
     // A preview (round 6 phase 6E): the manifest's preview.settings over the defaults.
     settings_ = Widgets::MergeSettings(m, preview_ ? m.previewSettings : itemSettings_);
     Log(ScriptLogLevel::Info, L"loading " + m.name + (m.version.empty() ? L"" : L" " + m.version) +
@@ -180,6 +190,14 @@ void WidgetInstance::Reload() {
     if (!refreshSet_) refreshMs_ = static_cast<uint32_t>(m.refreshMs);
     ScheduleRefresh();
     client_.WidgetChanged(*this);
+}
+
+void WidgetInstance::ConsentChanged() {
+    if (!package_) return;
+    const Widgets::ConsentState c = Widgets::ConsentOf(*package_, runtime_.GrantedFor(id_));
+    const bool allowed = c == Widgets::ConsentState::NotNeeded || c == Widgets::ConsentState::Granted;
+    if (allowed == (state_ != State::NeedsConsent)) return;  // it already runs (or waits) as it should
+    Reload();  // reads the package again (the folder may have changed too) and decides there
 }
 
 void WidgetInstance::SetWeatherConfig(const WeatherConfig& weather) {
@@ -657,10 +675,13 @@ void WidgetInstance::DrawInto(ID2D1DeviceContext* dc) {
 
 void WidgetInstance::DrawErrorTile(ID2D1DeviceContext* dc, float w, float h) {
     canvas_.Begin(dc, dock_.scale, w, h);
+    // Round 25 phase 25D: NeedsConsent is the same tile in a neutral slate with an amber edge (it is
+    // waiting for the user, not broken), "Needs permission" over "Click to review ...".
+    const bool consent = state_ == State::NeedsConsent;
     CanvasPaint fill;
-    fill.color = CanvasColorFromArgb(0xD8471C1C);
+    fill.color = CanvasColorFromArgb(consent ? 0xD82A2F3A : 0xD8471C1C);
     CanvasPaint edge;
-    edge.color = CanvasColorFromArgb(0xC0FF7A6E);
+    edge.color = CanvasColorFromArgb(consent ? 0xC0FFC15A : 0xC0FF7A6E);
     CanvasPaint ink;
     ink.color = CanvasColorFromArgb(0xFFFFFFFF);
     CanvasStroke stroke;
@@ -673,8 +694,12 @@ void WidgetInstance::DrawErrorTile(ID2D1DeviceContext* dc, float w, float h) {
     title.weight = 700;
     title.align = 1;
     title.valign = 0;
-    const std::wstring head = state_ == State::Suspended ? L"Stopped" : L"Error";
+    std::wstring head = state_ == State::Suspended ? L"Stopped" : consent ? L"Needs permission" : L"Error";
     CanvasTextMetrics tm = canvas_.MeasureText(head, title);
+    if (consent && tm.width > w - 4.0f) {  // a dock-sized tile: the short form
+        head = L"Permission";
+        tm = canvas_.MeasureText(head, title);
+    }
     if (tm.width > w - 4.0f && tm.width > 0.0f) {  // a narrow tile: a smaller title
         title.size = std::max(7.0f, title.size * (w - 4.0f) / tm.width);
         tm = canvas_.MeasureText(head, title);
@@ -682,7 +707,7 @@ void WidgetInstance::DrawErrorTile(ID2D1DeviceContext* dc, float w, float h) {
     const bool room = h >= tm.height + 16.0f && w >= 40.0f;
     if (!room) {
         title.valign = 1;
-        canvas_.Text(w >= tm.width + 4.0f ? head : L"!", w / 2.0f, h / 2.0f, title, ink);
+        canvas_.Text(w >= tm.width + 4.0f ? head : (consent ? L"?" : L"!"), w / 2.0f, h / 2.0f, title, ink);
         canvas_.End();
         return;
     }
@@ -706,6 +731,10 @@ std::string WidgetInstance::EventJson(float x, float y) {
 }
 
 void WidgetInstance::Click(float x, float y, bool closedPopup) {
+    if (state_ == State::NeedsConsent) {  // round 25 phase 25D: the tile's click opens the dialog (posted)
+        if (!preview_) runtime_.RequestConsent(id_);
+        return;
+    }
     if (state_ != State::Ok || !engine_) return;
     Check(engine_->Call(ScriptEngine::Fn::OnClick, EventJson(x, y) + ",\"button\":\"left\",\"closedPopup\":" +
                                                       (closedPopup ? "true" : "false") + "}"),
@@ -897,7 +926,14 @@ void WidgetInstance::Fail(State state, const std::wstring& message) {
     requests_ = 0;
     if (PopupShown() || client_.WidgetPassiveShown(*this)) RequestPopup(PopupRequest{PopupRequest::Kind::Close});
     if (!preview_) runtime_.NotifyChanged();
-    Log(ScriptLogLevel::Error, (state == State::Suspended ? L"suspended: " : L"error: ") + message);
+    if (state == State::NeedsConsent) {  // round 25 phase 25D: not an error of the widget's
+        Log(ScriptLogLevel::Warn, L"not started: it needs your permission (" +
+                                      (package_ ? Widgets::PermissionSummary(package_->manifest) : std::wstring(L"?")) +
+                                      (package_ && Widgets::ReplacesBuiltIn(*package_) ? L"; replaces a built-in widget" : L"") +
+                                      L"). " + message);
+    } else {
+        Log(ScriptLogLevel::Error, (state == State::Suspended ? L"suspended: " : L"error: ") + message);
+    }
     measured_ = false;
     changed_ = true;
     client_.WidgetChanged(*this);
@@ -955,9 +991,13 @@ bool WidgetInstance::ReadFile(const std::string& path, std::string& bytes, std::
             return false;
         }
         const std::wstring given = JsonUtil::Utf8ToWide(path.substr(std::strlen(kFileToken)));
-        wchar_t expanded[MAX_PATH * 4]{};
-        ExpandEnvironmentStringsW(given.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
-        const HANDLE h = CreateFileW(expanded, GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
+        // Round 25 phase 25D: the expansion checked (a fixed buffer took a truncated path before).
+        std::wstring expanded;
+        if (!Widgets::ExpandPath(given, expanded)) {
+            error = L"cannot expand " + given;
+            return false;
+        }
+        const HANDLE h = CreateFileW(expanded.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                                      OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
         if (h == INVALID_HANDLE_VALUE) {
             error = L"cannot open " + given;
@@ -1090,9 +1130,12 @@ bool WidgetInstance::PopupFolder(const std::wstring& path, const std::wstring& v
         error = L"popup.folder needs the \"shell\" permission";
         return false;
     }
-    wchar_t expanded[MAX_PATH * 2]{};
-    ExpandEnvironmentStringsW(path.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
-    const DWORD attrs = GetFileAttributesW(expanded);
+    std::wstring expanded;  // round 25 phase 25D: checked, not a fixed buffer
+    if (!Widgets::ExpandPath(path, expanded)) {
+        error = L"popup.folder: cannot expand " + path;
+        return false;
+    }
+    const DWORD attrs = GetFileAttributesW(expanded.c_str());
     if (attrs == INVALID_FILE_ATTRIBUTES || !(attrs & FILE_ATTRIBUTE_DIRECTORY)) {
         error = L"popup.folder: not a folder: " + path;
         return false;
@@ -1329,18 +1372,10 @@ std::vector<std::string> WidgetInstance::StorageKeys() {
 }
 
 bool WidgetInstance::HostAllowed(const std::wstring& host) const {
-    if (!package_) return false;
-    std::wstring h = host;
-    for (wchar_t& c : h) c = static_cast<wchar_t>(std::towlower(c));
-    for (const std::wstring& allowed : package_->manifest.httpHosts) {
-        if (allowed == h) return true;
-        // "*.example.com": any sub-domain (not example.com itself).
-        if (allowed.size() > 2 && allowed.rfind(L"*.", 0) == 0) {
-            const std::wstring suffix = allowed.substr(1);  // ".example.com"
-            if (h.size() > suffix.size() && h.compare(h.size() - suffix.size(), suffix.size(), suffix) == 0) return true;
-        }
-    }
-    return false;
+    // Round 25 phase 25D: the rule lives in Http::HostMatches, which the worker also applies to
+    // every redirect (only the first URL was checked here before; WinHTTP then followed any
+    // redirect to any host). An IP address is matched only by an entry that is that address.
+    return package_ && Http::HostMatches(package_->manifest.httpHosts, host);
 }
 
 int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& url, const std::wstring& headers,
@@ -1364,6 +1399,9 @@ int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& ur
         error = L"host \"" + host + L"\" is not in the widget's http permission";
         return 0;
     }
+    // Round 25 phase 25D: the headers checked here, not only in the prelude (a script can replace
+    // RegExp.prototype.test, which the prelude's check calls).
+    if (!Http::ValidHeaders(headers, error)) return 0;
     if (requests_ >= WidgetRuntime::kMaxRequests) {
         error = L"too many requests in flight (4 per widget)";
         return 0;
@@ -1374,6 +1412,12 @@ int WidgetInstance::HttpStart(const std::wstring& method, const std::wstring& ur
     rq.headers = headers;
     rq.body = body;
     rq.timeoutMs = std::clamp<uint32_t>(timeoutMs ? timeoutMs : 10000u, 1000u, 30000u);
+    // Round 25 phase 25D: the script's timeout bounds the whole request (every redirect, the body),
+    // not each WinHTTP operation; the widget rules (Http::Request::strict): redirects by hand
+    // through the same allowlist, local addresses refused unless listed as themselves.
+    rq.totalMs = rq.timeoutMs;
+    rq.strict = true;
+    rq.allowedHosts = package_->manifest.httpHosts;
     rq.maxBody = 2u << 20;
     const int id = nextRequest_;
     nextRequest_ = nextRequest_ >= 0x3FFFFFFF ? 1 : nextRequest_ + 1;
@@ -1398,7 +1442,9 @@ void WidgetInstance::OnHttpResult(uint64_t generation, int id, const Http::Resul
                ",\"text\":" + JsonUtil::WideToUtf8(JsonUtil::Quote(JsonUtil::Utf8ToWide(result.body))) + "}";
     } else {
         wchar_t msg[160];
-        if (result.error == ERROR_FILE_TOO_LARGE) {
+        if (!result.problem.empty()) {  // round 25 phase 25D: a refused redirect or address
+            swprintf_s(msg, L"%.150ls", result.problem.c_str());
+        } else if (result.error == ERROR_FILE_TOO_LARGE) {
             swprintf_s(msg, L"http: the response is larger than 2 MB");
         } else if (result.error == ERROR_WINHTTP_TIMEOUT) {
             swprintf_s(msg, L"http: timed out");
@@ -1420,8 +1466,13 @@ bool WidgetInstance::ShellOpen(const std::wstring& target, const std::wstring& a
         return false;
     }
     if (preview_) return true;  // nothing opens in a preview (the script gets false)
-    wchar_t expanded[MAX_PATH * 4]{};
-    ExpandEnvironmentStringsW(target.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
+    // Round 25 phase 25D: the expansion checked (a 2048-character target with variables went into a
+    // 1040-character buffer, unchecked: a truncated or empty target was opened).
+    std::wstring expanded;
+    if (!Widgets::ExpandPath(target, expanded)) {
+        error = L"shell.open: the target cannot be expanded (too long)";
+        return false;
+    }
     // Round 25 phase 25A: ShellExecute runs after the call returns (RunDeferred), not inside it: it
     // can pump messages (DDE, COM, its own error message box: a modal loop for as long as the box
     // is up), and a timer, a posted result or a reload of this widget dispatched there ran inside
@@ -1446,9 +1497,11 @@ bool WidgetInstance::ShellList(const std::wstring& folder, std::string& json, st
         error = L"shell.list needs the \"shell\" permission";
         return false;
     }
-    wchar_t expanded[MAX_PATH * 2]{};
-    ExpandEnvironmentStringsW(folder.c_str(), expanded, static_cast<DWORD>(std::size(expanded)));
-    std::wstring dir = expanded;
+    std::wstring dir;  // round 25 phase 25D: checked, not a fixed buffer
+    if (!Widgets::ExpandPath(folder, dir)) {
+        error = L"shell.list: cannot expand " + folder;
+        return false;
+    }
     while (dir.size() > 3 && (dir.back() == L'\\' || dir.back() == L'/')) dir.pop_back();
     struct Entry {
         std::wstring name;

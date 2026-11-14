@@ -13,6 +13,7 @@
 
 #include "AppIdentity.h"
 #include "TrayHost.h"
+#include "Crash.h"
 
 namespace {
 
@@ -312,7 +313,16 @@ void ReadText(const wun::UserNotification& n, NotificationItem& out) {
 
 }  // namespace
 
+// Round 25 phase 25E: an exception escaping the thread's body ends this service's thread (the
+// service stops delivering; the dock keeps running) instead of std::terminate ending the process
+// with the taskbar hidden (Crash.h).
 DWORD WINAPI NotificationService::ThreadMain(void* param) {
+    DWORD rc = 1;
+    Crash::Job(L"notification service", [&] { rc = ThreadBody(param); }, [] {});
+    return rc;
+}
+
+DWORD NotificationService::ThreadBody(void* param) {
     std::shared_ptr<Shared> s = std::move(*static_cast<std::shared_ptr<Shared>*>(param));
     delete static_cast<std::shared_ptr<Shared>*>(param);
     try {

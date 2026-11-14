@@ -6,12 +6,14 @@
 #include <winrt/base.h>
 
 #include <algorithm>
+#include <cwctype>
 #include <exception>
 #include <string>
 #include <vector>
 #include <string_view>
 
 #include "App.h"
+#include "Crash.h"
 #include "DockWindow.h"
 #include "StartMenuPlacer.h"
 #include "TaskbarController.h"
@@ -69,26 +71,9 @@ bool SignalRunningInstance(const wchar_t* messageName, bool waitForExit, bool al
     return posted;
 }
 
-// Last-chance taskbar restore on a crash. Minimal and re-entrancy safe: runs at most once,
-// TaskbarController::Restore() does not allocate, and the crash then proceeds as usual (the
-// crash marker covers anything this misses).
-LONG g_crashRestoreDone = 0;
-
-void CrashRestoreTaskbar() {
-    if (InterlockedExchange(&g_crashRestoreDone, 1) == 0) {
-        TrayHost::EmergencyRelease();  // the notify icons back to Explorer (our Shell_TrayWnd gone)
-        DockWindow::EmergencyRemoveAppBar();  // the dock's reserved band first (best effort)
-        TaskbarController::EmergencyRestore();
-        // Round 16 phase 16A: a Start menu host shifted beside a button goes back to its place (the
-        // shift persists in the shell's window: the next Windows key would open the menu there).
-        StartMenuPlacer::EmergencyRestore();
-    }
-}
-
-LONG WINAPI UnhandledExceptionHandler(EXCEPTION_POINTERS*) {
-    CrashRestoreTaskbar();
-    return EXCEPTION_CONTINUE_SEARCH;
-}
+// (Round 25 phase 25E: the last-chance restore, CrashRestoreTaskbar, and the unhandled-exception
+// filter moved to Crash.cpp (Crash::RestoreDesktop), with the handlers for the crash paths that
+// never reached the filter.)
 
 // Text to the caller (a GUI-subsystem exe: its redirected standard output, else the console of the
 // process that started it), UTF-8 into a pipe or file, UTF-16 into a console.
@@ -122,9 +107,29 @@ int ValidateWidget(const std::wstring& folder) {
     winrt::init_apartment(winrt::apartment_type::single_threaded);  // Windows.Data.Json
     std::vector<Widgets::Issue> issues;
     std::wstring name;
-    const bool read = Widgets::ValidateFolder(folder, issues, name);
+    Widgets::Manifest manifest;
+    const bool read = Widgets::ValidateFolder(folder, issues, name, &manifest);
     std::wstring text = L"WinDock widget check: " + folder + L"\r\n";
     if (!name.empty()) text += L"  name: " + name + L"\r\n";
+    // Round 25 phase 25D: what installing it will ask the user to allow (the consent dialog's lines).
+    if (read && !name.empty()) {
+        const std::vector<std::wstring> lines = Widgets::PermissionLines(manifest);
+        std::wstring id = folder;
+        while (id.size() > 3 && (id.back() == L'\\' || id.back() == L'/')) id.pop_back();
+        if (const size_t cut = id.find_last_of(L"\\/"); cut != std::wstring::npos) id = id.substr(cut + 1);
+        for (wchar_t& c : id) c = static_cast<wchar_t>(std::towlower(c));
+        const bool shadow = Widgets::IsBuiltInId(id);  // installed, it replaces that built-in
+        if (lines.empty()) {
+            text += shadow ? L"  permissions: none\r\n" : L"  permissions: none (installed, it runs without asking)\r\n";
+        } else {
+            text += L"  permissions (installed, it runs only after the user allows them):\r\n";
+            for (const std::wstring& l : lines) text += L"    - " + l + L"\r\n";
+        }
+        if (shadow) {
+            text += L"  note: the folder name \"" + id + L"\" is a built-in widget's id: installed, it replaces that widget "
+                    L"(its places and saved data) and asks for the user's consent even without permissions\r\n";
+        }
+    }
     size_t errors = 0, warnings = 0;
     for (const Widgets::Issue& i : issues) {
         (i.error ? errors : warnings)++;
@@ -145,6 +150,14 @@ int ValidateWidget(const std::wstring& folder) {
 }  // namespace
 
 int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In_ int) {
+    // Round 25 phase 25E: DLLs only from System32 from here on, before anything can load one. The
+    // static imports that are not KnownDLLs (version, dwmapi, uxtheme, winhttp, dcomp, d2d1, ...) are
+    // covered by the link option /DEPENDENTLOADFLAG:0x800 (LOAD_LIBRARY_SEARCH_SYSTEM32, CMakeLists.txt),
+    // which the loader applies to the exe's import table before this line runs; this call covers
+    // every later load by name: LoadLibrary, the delay-loads, and what a system DLL loads in turn.
+    // COM / WinRT activation loads its servers by the full path in the registry and is unaffected.
+    // Nothing of WinDock's lives beside the exe (one static exe), so no load needs its folder.
+    SetDefaultDllDirectories(LOAD_LIBRARY_SEARCH_SYSTEM32);
     const Options options = ParseCommandLine();
 
     // A tool for widget authors and CI: no dock, no mutex, nothing shown.
@@ -173,11 +186,10 @@ int WINAPI wWinMain(_In_ HINSTANCE instance, _In_opt_ HINSTANCE, _In_ PWSTR, _In
         return 0;  // already running
     }
 
-    SetUnhandledExceptionFilter(UnhandledExceptionHandler);
-    std::set_terminate([] {
-        CrashRestoreTaskbar();
-        std::abort();
-    });
+    // Round 25 phase 25E: the unhandled-exception filter and this thread's terminate handler as
+    // before, plus invalid-parameter, purecall and SIGABRT (Crash.h); the worker threads set their
+    // own terminate handler (Crash::Job).
+    Crash::InstallProcessHandlers();
 
     int exitCode = 0;
     try {

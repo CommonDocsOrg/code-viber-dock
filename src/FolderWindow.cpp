@@ -17,6 +17,7 @@
 #include "DesktopLayer.h"
 #include "SnapLines.h"  // round 14 phase 14B
 #include "Theme.h"
+#include "Crash.h"
 
 namespace {
 
@@ -1390,6 +1391,9 @@ LRESULT FolderWindow::Command(UINT cmd, int arg, int high) {
 // --- window --------------------------------------------------------------------------------------
 
 LRESULT CALLBACK FolderWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     FolderWindow* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<FolderWindow*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);

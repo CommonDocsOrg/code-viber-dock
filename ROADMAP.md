@@ -1971,6 +1971,32 @@ rounds. The watchdog only ever bounded one call; a CPU budget over ten seconds (
 bounds their sum, and the timer pass yields after 6 ms. Tried and kept out: suspending by timer
 count or frequency alone (the sweeping clocks legitimately run at 16 ms).
 
+**25B, the settings file.** A file that cannot be parsed is the user's work with a typo in it, so
+it is copied aside before anything can save, and said once in a dialog that blocks nothing. With
+the copy made, saving goes on as usual: refusing to save for a whole session would lose the
+session's changes to protect a file that is already safe. Backups rotate only at startup and only
+when the file changed, so they are three distinct earlier states, not three copies of today.
+
+**25C, four bugs.** The icon cache's key is the whole request (app, size, icon file, index); the
+old size of the same icon is dropped when the dock asks for a new one, which keeps the cache as
+small as the one-entry map was. Clocks: one timer for the earliest boundary and every clock asked
+on each tick (a compare per clock) instead of a timer id per clock. ICS: limits that a real
+calendar never meets (50 000 events, a million periods per expansion) plus exact skip-ahead for
+the plain COUNT rules, because a budget alone would have cut long-running honest series.
+
+**25D, widget trust.** Consent is per permission set, not per version: asking again on every
+update teaches people to click Allow. It is asked where the user acts (adding a widget, clicking
+its tile), never at startup, and automation can never answer the dialog for the user by showing
+none. A folder that takes a built-in's id needs consent even with no permissions: it takes over
+that widget's settings and data. Http: the allowlist is checked on every hop and on the address
+the connection really reached, since a name in the manifest says nothing about where it resolves.
+Left for later: a finer `shell` permission (open versus run).
+
+**25E, the process.** System32 is the only place a DLL is loaded from by name. Every way the
+process can end without the unhandled-exception filter (invalid parameter, pure call, abort, a
+worker thread's exception) now runs the desktop restore, and a worker's exception fails its job
+instead of the dock.
+
 ## Dependencies at a glance
 
 ```

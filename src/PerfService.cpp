@@ -25,6 +25,7 @@
 #include <type_traits>
 
 #include "JsonUtil.h"
+#include "Crash.h"
 
 namespace {
 
@@ -999,7 +1000,16 @@ void PerfService::SetInterval(uint32_t ms) {
     }
 }
 
+// Round 25 phase 25E: an exception escaping the thread's body ends this service's thread (the
+// service stops delivering; the dock keeps running) instead of std::terminate ending the process
+// with the taskbar hidden (Crash.h).
 DWORD WINAPI PerfService::ThreadMain(void* param) {
+    DWORD rc = 1;
+    Crash::Job(L"perf service", [&] { rc = ThreadBody(param); }, [] {});
+    return rc;
+}
+
+DWORD PerfService::ThreadBody(void* param) {
     std::shared_ptr<Shared> s = std::move(*static_cast<std::shared_ptr<Shared>*>(param));
     delete static_cast<std::shared_ptr<Shared>*>(param);
     Sampler sampler;

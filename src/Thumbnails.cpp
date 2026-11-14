@@ -15,6 +15,7 @@
 #include <cmath>
 
 #include "Renderer.h"
+#include "Crash.h"
 
 #ifndef PW_RENDERFULLCONTENT
 #define PW_RENDERFULLCONTENT 0x00000002
@@ -112,7 +113,7 @@ struct Thumbnails::Job {
 namespace {
 
 // Snapshot worker: PrintWindow of each window that can be drawn now, scaled down with HALFTONE.
-DWORD WINAPI SnapshotThread(void* param) {
+DWORD SnapshotBody(void* param) {
     auto* job = static_cast<Thumbnails::Job*>(param);
     HDC screen = GetDC(nullptr);
     for (HWND window : job->windows) {
@@ -170,6 +171,16 @@ DWORD WINAPI SnapshotThread(void* param) {
     }
     ReleaseDC(nullptr, screen);
     if (!PostMessageW(job->dock, Thumbnails::kSnapshotMessage, 0, reinterpret_cast<LPARAM>(job))) delete job;
+    return 0;
+}
+
+// Round 25 phase 25E: an exception (std::bad_alloc of a shot's pixels) fails this snapshot only:
+// the shots made so far are delivered as usual (Crash.h).
+DWORD WINAPI SnapshotThread(void* param) {
+    Crash::Job(L"window snapshots", [&] { SnapshotBody(param); }, [&] {
+        auto* job = static_cast<Thumbnails::Job*>(param);
+        if (!PostMessageW(job->dock, Thumbnails::kSnapshotMessage, 0, reinterpret_cast<LPARAM>(job))) delete job;
+    });
     return 0;
 }
 

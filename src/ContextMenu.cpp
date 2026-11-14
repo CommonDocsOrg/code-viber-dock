@@ -303,6 +303,8 @@ void AppendQuick(HMENU menu, const ItemMenuState& item) {
 }
 
 void AppendWidgetTail(HMENU menu, const ItemMenuState& item) {
+    // Round 25 phase 25D: a widget that waits for consent: the way to it first.
+    if (item.needsConsent) Append(menu, kReviewConsent, L"Review permissions…", true, false, G::kSettings);
     AppendQuick(menu, item);  // round 13 phase 13C (13B left the place for them)
     if (item.hasSettings) Append(menu, kOpenItemSettings, L"Widget settings…", true, false, G::kSettings);
     if (item.kind == DockItem::Kind::Widget) Append(menu, kReloadWidget, L"Reload widget", true, false, G::kReload);

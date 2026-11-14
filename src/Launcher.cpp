@@ -63,11 +63,18 @@ winrt::com_ptr<IShellItemArray> ItemArray(const std::vector<std::wstring>& files
     return items;
 }
 
+// Round 25 phase 25E: under the CommandLineToArgvW / CRT rules a backslash run right before the
+// closing quote escapes it: a dropped drive root `C:\` became `"C:\"`, which the app read as `C:"`
+// followed by the next file glued on (or an unterminated argument). The run is doubled before the
+// closing quote (2n backslashes + quote = n backslashes and the end of the argument). Backslashes
+// elsewhere stay as they are (they only escape a quote), and a file name cannot hold a quote.
 std::wstring QuotedList(const std::vector<std::wstring>& files) {
     std::wstring out;
     for (const std::wstring& f : files) {
         if (!out.empty()) out += L' ';
-        out += L'"' + f + L'"';
+        size_t trailing = 0;
+        while (trailing < f.size() && f[f.size() - 1 - trailing] == L'\\') ++trailing;
+        out += L'"' + f + std::wstring(trailing, L'\\') + L'"';
     }
     return out;
 }

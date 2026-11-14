@@ -9,6 +9,7 @@
 #include <cmath>
 
 #include "SettingsIds.h"
+#include "Crash.h"
 
 namespace {
 
@@ -384,6 +385,9 @@ void DrawerPopup::PaintPreview(HDC dc, const RECT& box, const Image& img, COLORR
 }
 
 LRESULT CALLBACK DrawerPopup::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp) {
+    // Round 25 phase 25E: during the emergency restore (Crash::Crashing) none of our handlers run
+    // (the restore's system calls send messages back here, on state the crash may have broken).
+    if (Crash::Crashing()) return DefWindowProcW(hwnd, msg, wp, lp);
     DrawerPopup* self = nullptr;
     if (msg == WM_NCCREATE) {
         self = static_cast<DrawerPopup*>(reinterpret_cast<CREATESTRUCTW*>(lp)->lpCreateParams);
