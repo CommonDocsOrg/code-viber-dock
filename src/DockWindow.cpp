@@ -5609,8 +5609,13 @@ void DockWindow::OnCalendarChanged() {
 
 void DockWindow::ShowReminder(const CalendarService::ReminderInfo& reminder) {
     if (!hwnd_) return;
-    for (const CalendarService::ReminderInfo& r : reminders_) {
-        if (r.id == reminder.id) return;  // already waiting
+    for (size_t i = 0; i < reminders_.size(); ++i) {
+        if (reminders_[i].id != reminder.id) continue;
+        if (!reminder.script) return;  // already waiting
+        // Round 28 phase 28A: a widget's newer banner replaces its waiting one (one per widget).
+        reminders_[i] = reminder;
+        if (i == 0 && !fullscreenHidden_) ShowFrontReminder();
+        return;
     }
     reminders_.push_back(reminder);
     if (reminders_.size() > 32) reminders_.erase(reminders_.begin() + 1);  // the oldest waiting ones go
@@ -5638,7 +5643,19 @@ void DockWindow::ShowFrontReminder() {
     style.monitor = l.work;
     // Over the clock when the dock has one, else over the middle of the bar.
     float anchor = (l.bar.left + l.bar.right) / 2.0f;
+    bool placed = false;
+    if (reminders_.front().script) {  // round 28 phase 28A: a widget's banner over the widget
+        const std::wstring& id = reminders_.front().id;
+        if (const WidgetInstance* w = id.size() > 7 ? WidgetByKey(id.substr(7)) : nullptr) {
+            const int slot = SlotOfWidget(*w);
+            if (slot >= 0) {
+                anchor = items_[static_cast<size_t>(slot)].targetX + items_[static_cast<size_t>(slot)].slotW / 2.0f;
+                placed = true;
+            }
+        }
+    }
     for (const DockItem& item : items_) {
+        if (placed) break;
         if (item.kind == DockItem::Kind::Clock) {
             anchor = item.targetX + item.slotW / 2.0f;
             break;
@@ -5651,9 +5668,9 @@ void DockWindow::ReminderAction(int action) {
     if (reminders_.empty()) return;
     const CalendarService::ReminderInfo r = reminders_.front();
     reminders_.erase(reminders_.begin());
-    if (action == 1 && shared_) shared_->Calendar().Snooze(r.id, 5 * 60);
+    if (action == 1 && shared_ && !r.script) shared_->Calendar().Snooze(r.id, 5 * 60);
     ShowFrontReminder();
-    if (action == 3) {
+    if (action == 3 && !r.script) {  // round 28: a widget's banner just goes
         for (size_t i = 0; i < items_.size(); ++i) {
             if (items_[i].kind != DockItem::Kind::Clock) continue;
             calendarTarget_ = ClockOf(*config_, ElementOf(i).Entry()).clickTarget;
@@ -5836,6 +5853,22 @@ void DockWindow::OnWidgetPopupRequests() {
         }
         // popup.editText (round 6 phase 6C): asked for in the same script call as any popup.
         if (WidgetInstance* still = WidgetByKey(key)) still->OpenPendingEditor();
+        // notify.banner (round 28 phase 28A): the calendar reminders' banner, over the widget; it
+        // shows while the dock is auto-hidden too, waits while a full-screen app is in front (as
+        // the reminders do).
+        if (WidgetInstance* still = WidgetByKey(key)) {
+            WidgetInstance::Banner b;
+            if (still->TakeBanner(b)) {
+                CalendarService::ReminderInfo info;
+                info.id = L"script:" + key;
+                info.title = b.title;
+                info.when = b.text;
+                info.color = DockTheme().accent;
+                info.script = true;
+                if (b.sound && !fullscreenHidden_) MessageBeep(MB_ICONASTERISK);  // the "Asterisk" system sound
+                ShowReminder(info);
+            }
+        }
     }
 }
 
@@ -9659,6 +9692,9 @@ LRESULT DockWindow::QueryState(WPARAM wp, LPARAM lp) const {
             return static_cast<LRESULT>(envSkipped_);
         case 366:  // round 26 phase 26C (process-wide): window tracker passes that only re-read captions
             return static_cast<LRESULT>(shared_->Tracker().TitlePasses());
+        case 371:  // round 28 phase 28A: widget banners (notify.banner) waiting on this dock, the shown one included
+            return static_cast<LRESULT>(std::count_if(reminders_.begin(), reminders_.end(),
+                                                      [](const CalendarService::ReminderInfo& r) { return r.script; }));
         default:
             return -1;
     }

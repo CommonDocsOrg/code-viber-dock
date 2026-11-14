@@ -117,6 +117,11 @@ public:
     // The metrics a sampler sees now, for the settings page when the service is not running: a
     // short synchronous sample (cached for 30 s).
     static std::vector<Metric> ListOnce();
+    // Round 28 phase 28A, perf.drives(): the fixed drives' space as JSON
+    // ([{ drive, label, ready, total, free, used }]); read when asked, cached for kDrivesCacheMs.
+    // Needs no running sampler.
+    static constexpr double kDrivesCacheMs = 5000.0;
+    static std::string DrivesJson();
     // The metric list of `catalog` as metrics() JSON (shared with ListOnce users).
     static std::string MetricsJsonOf(const Catalog& catalog);
 

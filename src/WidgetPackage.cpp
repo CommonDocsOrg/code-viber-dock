@@ -245,6 +245,8 @@ void ReadPermissions(const json::JsonObject& root, Manifest& m) {
                 m.network = true;  // round 27 phase 27B
             } else if (s == L"input") {
                 m.input = true;  // round 27 phase 27C
+            } else if (s == L"notify") {
+                m.notify = true;  // round 28 phase 28A
             } else if (s == L"http") {
                 m.http = true;  // no hosts: every request is refused (name the hosts)
             } else if (s.rfind(L"http:", 0) == 0) {
@@ -695,7 +697,7 @@ constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"
                                          L"quick",                 // round 13 phase 13C
                                          L"filter"};               // round 17 phase 17A (file fields)
 constexpr wchar_t kPermissionFix[] =
-    L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\", \"network\", \"input\" or "
+    L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\", \"network\", \"input\", \"notify\" or "
     L"{ \"http\": [\"host\"] }";
 
 bool Known(const wchar_t* const* begin, const wchar_t* const* end, const std::wstring& key) {
@@ -831,7 +833,8 @@ void CheckPermissions(Checker& c, const json::JsonObject& root) {
         if (v.ValueType() == json::JsonValueType::String) {
             const std::wstring s = Lower(std::wstring(v.GetString()));
             if (s == L"shell" || s == L"audio" || s == L"media" || s == L"notifications" || s == L"calendar" ||
-                s == L"weather" || s == L"perf" || s == L"network" || s == L"input") {  // round 27: network, input
+                s == L"weather" || s == L"perf" || s == L"network" || s == L"input" ||  // round 27: network, input
+                s == L"notify") {                                                       // round 28
                 continue;
             }
             if (s == L"http") {
@@ -1643,6 +1646,7 @@ std::vector<std::wstring> PermissionList(const Manifest& m) {
     if (m.media) out.push_back(L"media");
     if (m.network) out.push_back(L"network");  // round 27
     if (m.notifications) out.push_back(L"notifications");
+    if (m.notify) out.push_back(L"notify");  // round 28
     if (m.perf) out.push_back(L"perf");
     if (m.shell) out.push_back(L"shell");
     if (m.weather) out.push_back(L"weather");
@@ -1686,6 +1690,7 @@ std::vector<std::wstring> PermissionLines(const Manifest& m) {
         out.push_back(L"Network: see whether this PC is online, the kind of connection and the Wi-Fi network's name and signal");
     }
     if (m.notifications) out.push_back(L"Notifications: read your Windows notifications (app, title and text) and dismiss them");
+    if (m.notify) out.push_back(L"Banners: show banners on screen (a title and a line of text, at most one every 5 seconds)");  // round 28
     if (m.perf) out.push_back(L"Performance: read this PC's performance counters (processor, memory, disks, network) and HWiNFO's sensors");
     if (m.shell) {
         out.push_back(L"Shell: open files, folders and web pages, and run programs on this PC (with any arguments). It can "
@@ -1729,6 +1734,7 @@ std::wstring PermissionSummary(const Manifest& m) {
     if (m.perf) add(L"perf");
     if (m.network) add(L"network");  // round 27
     if (m.input) add(L"input");
+    if (m.notify) add(L"notify");  // round 28
     return s.empty() ? L"none" : s;
 }
 

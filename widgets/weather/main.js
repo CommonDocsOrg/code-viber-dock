@@ -321,6 +321,21 @@ function drawIcon(canvas, dock, code, isDay, x, y, size, dim = 1, ink, key = 'ic
 // As C++ std::lround (halves away from zero; JS Math.round rounds -0.5 up).
 const lround = (x) => (x < 0 ? -Math.round(-x) : Math.round(x));
 const tempText = (t) => (t === null || t === undefined ? '--°' : `${lround(t) || 0}°`);
+
+// Round 28: a time (ms since 1970) on the place's own clock, in the user's 12 / 24 h format. The
+// place's offset comes from the hourly data (its `hour` is the place's local hour of `time`).
+function placeTime(ms) {
+  const h0 = (wx.hourly || [])[0];
+  let offsetMin = 0;
+  if (h0) {
+    const d = new Date(h0.time);
+    offsetMin = (((h0.hour * 60 - (d.getUTCHours() * 60 + d.getUTCMinutes())) % 1440) + 1440 + 720) % 1440 - 720;
+  }
+  const t = new Date(ms + offsetMin * 60000);
+  const hh = t.getUTCHours(), mm = String(t.getUTCMinutes()).padStart(2, '0');
+  if (system.hour12) return `${(hh % 12) || 12}:${mm} ${hh < 12 ? 'AM' : 'PM'}`;
+  return `${String(hh).padStart(2, '0')}:${mm}`;
+}
 const fresh = () => wx.state === 'fresh';
 
 // settings.dockForecast (round 7 phase 7C): "none", "today" (today's high / low under the
@@ -748,9 +763,17 @@ export function drawPopup(canvas, dock) {
   const condX = tempX + tempW + 14;
   line(canvas, c.description, condX, MAIN_TOP + 6, 20, { size: 13, color: text });
   const details = [];
+  if (c.feelsLike !== null && c.feelsLike !== undefined) details.push(`Feels like ${lround(c.feelsLike) || 0}°${unit}`);  // round 28
   if (c.humidity !== null) details.push(`Humidity ${lround(c.humidity)}%`);
   if (c.wind !== null) details.push(`Wind ${lround(c.wind)} ${wx.windUnit}`);
   line(canvas, details.join(' · '), condX, MAIN_TOP + 28, 18, { size: 12, color: secondary });
+  // Round 28: today's sunrise / sunset (the place's own clock) and the UV index, a second line.
+  const sun = [];
+  const today = (wx.daily || [])[0];
+  if (today && today.sunrise !== null && today.sunrise !== undefined) sun.push('Sunrise ' + placeTime(today.sunrise));
+  if (today && today.sunset !== null && today.sunset !== undefined) sun.push('Sunset ' + placeTime(today.sunset));
+  if (c.uv !== null && c.uv !== undefined) sun.push('UV ' + lround(c.uv));
+  if (sun.length) line(canvas, sun.join(' · '), condX, MAIN_TOP + 45, 16, { size: 12, color: secondary });
   line(canvas, ago(wx.age) + (wx.state === 'stale' ? ' (stale)' : ''), w - PAD, MAIN_TOP + 6, 18, { size: 12, align: 'right', color: secondary });
   const creditW = Math.ceil(canvas.measureText(CREDIT, { size: 12 }).width);
   const credit = { x: w - PAD - creditW, y: MAIN_TOP + 28, w: creditW, h: 18, what: 'credit' };

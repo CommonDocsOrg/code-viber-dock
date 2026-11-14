@@ -45,7 +45,8 @@ where = {'canvas': 'canvas', 'path': 'canvas', 'dock.theme': 'dock', 'dock': 'do
          'global': 'timer and redraws', 'system': 'system', 'storage': 'storage', 'shell': 'shell', 'popup': 'popup',
          'console': 'console', 'http': 'http', 'widget': 'widget', 'audio': 'audio', 'media': 'media',
          'notifications': 'notifications', 'calendar': 'calendar', 'weather': 'weather', 'perf': 'perf',
-         'network': 'network', 'input': 'input'}  # round 27
+         'network': 'network', 'input': 'input',  # round 27
+         'notify': 'notify'}  # round 28
 drift = []
 for ns, names in sorted(api.items()):
     text = section(where[ns])

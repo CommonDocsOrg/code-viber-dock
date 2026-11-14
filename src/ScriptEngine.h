@@ -71,7 +71,7 @@ public:
     virtual void SetRefresh(uint32_t ms, const std::wstring& timeZone) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf, Network, Input };
+    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf, Network, Input, Notify };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -146,6 +146,10 @@ public:
     // `what`: "get" (the state object, docs/widgets.md "input"), "set" (`text`: a layout id or a
     // language tag), "next" (Windows + Space, as the user's own shortcut). The result as JSON.
     virtual bool InputCall(const std::string& what, const std::wstring& text, std::string& json, std::wstring& error) = 0;
+    // --- notify (permission "notify", round 28 phase 28A): notify.banner ---
+    // A banner on screen (the dock's reminder banner). False with `error` empty: refused by the
+    // rate limit (the script gets false); false with `error`: thrown.
+    virtual bool NotifyBanner(const std::wstring& title, const std::wstring& text, bool sound, std::wstring& error) = 0;
 
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs. `passive`: the passive kind (never takes

@@ -1206,7 +1206,8 @@ shows any more is stopped and dropped at once.
 
 - A click on the widget opens the **forecast popup** above it (click again, Escape, or clicking
   anywhere else closes it; F5 refreshes): the place, a large glyph and temperature, the condition,
-  humidity and wind, when the data was fetched, the **Weather data by Open-Meteo** credit (a link)
+  the feels-like temperature, humidity and wind, today's sunrise and sunset (the place's own time)
+  and the UV index (round 28), when the data was fetched, the **Weather data by Open-Meteo** credit (a link)
   and a refresh button; then 24 hourly columns starting at the current hour (hour, glyph,
   temperature, the chance of precipitation when it is above 0 %, and a thin line through the
   temperatures) and 7 daily rows (weekday, glyph, low and high, and a bar showing the day's range
@@ -1513,7 +1514,9 @@ write and edit without compiling anything. The full reference (every call, every
   `setInterval(ms)`, `hwinfo()`, `onChange`), `network` (round 27: the internet connection:
   online or not, its kind, the Wi-Fi network's name and signal bars, metered; `get()`,
   `onChange`), `input` (round 27: the keyboard layout in use and the installed ones; `get()`,
-  `set(id)`, `next()`, `onChange`), `popup` (a popup the widget
+  `set(id)`, `next()`, `onChange`), `notify` (round 28: `banner({ title, text, sound })`, the
+  dock's reminder banner over the widget, one per widget at a time, at most one every 5 seconds),
+  `popup` (a popup the widget
   draws, or the dock's folder / window-preview / month calendar popups, anchored on the widget;
   round 6: `editText({ title, text, multiline, maxLength, placeholder })`, a text editor window
   whose promise gives the typed text, or `null` when cancelled),
@@ -1521,7 +1524,8 @@ write and edit without compiling anything. The full reference (every call, every
 - **Permissions** (`"permissions"` in widget.json): `{ "http": ["api.example.com"] }` for
   requests to those hosts, `"shell"` for opening files / URLs, listing folders, file icons, the
   folder popup, file drops and `sendKeys`, `"audio"`, `"media"`, `"notifications"`, `"calendar"`,
-  `"weather"`, `"perf"` and (round 27) `"network"` / `"input"` for the providers. Without them
+  `"weather"`, `"perf"`, (round 27) `"network"` / `"input"` for the providers and (round 28)
+  `"notify"` for `notify.banner`. Without them
   those calls throw. The audio and media providers run only while a widget uses them and never
   poll (Core Audio and media-session events).
 - **Consent** (round 25 phase 25D): a widget from the widgets folder that asks for permissions, or
@@ -3292,8 +3296,8 @@ items that exist. A file whose items have settings already is left alone.
   widget from the widgets folder, `{ "<widget id>": { "permissions": ["http:api.example.com",
   "shell"], "replacesBuiltIn": true } }`. `permissions`: the sorted list of the manifest's
   permissions as allowed (`"audio"`, `"calendar"`, `"input"`, `"media"`, `"network"`,
-  `"notifications"`, `"perf"`, `"shell"`, `"weather"`, `"http:<host>"`; `"input"` and `"network"`
-  since round 27); `replacesBuiltIn`: the folder (whose id is a built-in
+  `"notifications"`, `"notify"`, `"perf"`, `"shell"`, `"weather"`, `"http:<host>"`; `"input"` and
+  `"network"` since round 27, `"notify"` since round 28); `replacesBuiltIn`: the folder (whose id is a built-in
   widget's) may replace that widget. A widget runs only when this covers what its manifest asks
   for now (Widgets::ConsentOf; a manifest asking for less keeps running). Written by the consent
   dialog, App settings > Widget library > Permissions…, Export built-in to folder and DockCommand
@@ -3832,6 +3836,10 @@ always there, also when every dock is parked) handle these registered messages:
   paused: Windows' events are only noted); **368** = widgets using it; **369** / **370** = the same
   for the input-language provider (27C). Both start with the first widget that calls them and stop
   when the last one goes (`tools\smoke\taskbar-gaps.ps1` drives 54 / 55 / 367 - 370).
+- **Widget banners** (round 28 phase 28A): **371** on a dock = widget banners (`notify.banner`)
+  waiting in that dock's reminder queue, the shown one included (179 is 1 while the banner, a
+  reminder's or a widget's, is shown); on a standalone widget's index: 1 its banner is shown, 2 it
+  waits for a full-screen app to go, 0 none (`tools\smoke\widgets-pack.ps1`).
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.

@@ -343,6 +343,7 @@ constexpr char kPrelude[] = R"JS(
     series: (key, n) => p.perfSeries(String(key), n === undefined ? 600 : Number(n)),
     setInterval: (ms) => p.perf('setInterval', Number(ms)),
     hwinfo: () => p.perf('hwinfo', 0),
+    drives: () => p.perf('drives', 0),  // round 28 phase 28A
     onChange: perfOnChange,
   });
   // network (round 27 phase 27B): the connection Windows uses for the internet. The first listener
@@ -357,6 +358,15 @@ constexpr char kPrelude[] = R"JS(
     set: (id) => p.input('set', String(id)),
     next: () => p.input('next'),
     onChange: (cb) => { const off = onChange('input')(cb); p.input('use'); return off; },
+  });
+  // notify (round 28 phase 28A): a banner on screen. The host caps and cleans the text; the slice
+  // only keeps a huge string from being copied across.
+  g.notify = Object.freeze({
+    banner: (o) => {
+      if (!o || typeof o !== 'object') throw new TypeError('notify.banner: the argument must be { title, text, sound }');
+      const s = (v) => (v === undefined || v === null ? '' : String(v).slice(0, 1000));
+      return p.banner(s(o.title), s(o.text), !!o.sound);
+    },
   });
   // storage.onChange (round 6 phase 6C): another item of this widget changed a key ({ key }).
   g.storage.onChange = onChange('storage');
@@ -2259,6 +2269,18 @@ JSValue InputFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
     const bool ok = Self(ctx)->host_.InputCall(what, text, json, error);
     return JsonResult(ctx, ok, json, error, "<input>");
 }
+// banner(title, text, sound): notify.banner (permission "notify", round 28 phase 28A). True: shown
+// (after the call returns); false: refused by the rate limit (or a preview); throws on an error.
+JSValue BannerFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
+    Args a{ctx, argc, argv};
+    const std::wstring title = a.S(0), text = a.S(1);
+    const bool sound = a.B(2);
+    if (a.failed) return JS_EXCEPTION;
+    std::wstring error;
+    const bool ok = Self(ctx)->host_.NotifyBanner(title, text, sound, error);
+    if (!ok && !error.empty()) return JS_ThrowTypeError(ctx, "%s", WideToUtf8(error).c_str());
+    return JS_NewBool(ctx, ok && !Self(ctx)->host_.Dock().preview);
+}
 
 // canvas.fileIcon(path, x, y, size): the shell's icon of a file or folder (permission "shell").
 JSValue FileIconFn(JSContext* ctx, JSValueConst, int argc, JSValueConst* argv) {
@@ -2484,6 +2506,7 @@ const JSCFunctionListEntry kProviderFuncs[] = {
     JS_CFUNC_DEF("perfSeries", 2, Guard<PerfSeriesFn>),
     JS_CFUNC_DEF("net", 1, Guard<NetFn>),      // round 27 phase 27B
     JS_CFUNC_DEF("input", 2, Guard<InputFn>),  // round 27 phase 27C
+    JS_CFUNC_DEF("banner", 3, Guard<BannerFn>),  // round 28 phase 28A
 };
 
 const JSCFunctionListEntry kPopupFuncs[] = {

@@ -187,6 +187,10 @@ bool ParseForecast(const json::JsonObject& root, WeatherService::Forecast& out) 
     ReadNumber(current, L"is_day", isDay);
     ReadNumber(current, L"wind_speed_10m", f.wind);
     ReadNumber(current, L"relative_humidity_2m", f.humidity);
+    f.feelsLike = kNaN;  // round 28 phase 28A (absent in a cache written before it)
+    f.uv = kNaN;
+    ReadNumber(current, L"apparent_temperature", f.feelsLike);
+    ReadNumber(current, L"uv_index", f.uv);
     if (!std::isfinite(temp) || !std::isfinite(code)) return false;
     f.temp = temp;
     f.code = static_cast<int>(code);
@@ -213,12 +217,15 @@ bool ParseForecast(const json::JsonObject& root, WeatherService::Forecast& out) 
         }
     }
     if (const json::JsonObject daily = ReadObject(root, L"daily")) {
-        std::vector<std::wstring> times;
-        std::vector<double> codes, tmax, tmin;
+        std::vector<std::wstring> times, rises, sets;
+        std::vector<double> codes, tmax, tmin, uv;
         ReadStrings(daily, L"time", times);
         ReadNumbers(daily, L"weather_code", codes);
         ReadNumbers(daily, L"temperature_2m_max", tmax);
         ReadNumbers(daily, L"temperature_2m_min", tmin);
+        ReadStrings(daily, L"sunrise", rises);  // round 28 phase 28A: "2026-11-13T07:12", local
+        ReadStrings(daily, L"sunset", sets);
+        ReadNumbers(daily, L"uv_index_max", uv);
         f.daily.reserve(times.size());
         for (size_t i = 0; i < times.size(); ++i) {
             WeatherService::Day d;
@@ -227,6 +234,10 @@ bool ParseForecast(const json::JsonObject& root, WeatherService::Forecast& out) 
             d.code = CodeAt(codes, i);
             d.tmax = At(tmax, i);
             d.tmin = At(tmin, i);
+            d.uvMax = At(uv, i);
+            int unusedHour = 0;
+            if (i >= rises.size() || !ParseDateTime(rises[i], d.sunrise, unusedHour)) d.sunrise = -1;
+            if (i >= sets.size() || !ParseDateTime(sets[i], d.sunset, unusedHour)) d.sunset = -1;
             f.daily.push_back(d);
         }
     }
@@ -301,8 +312,10 @@ std::wstring WeatherService::CachePath(const WeatherConfig& cfg) {
 std::wstring WeatherService::ForecastPath() const {
     std::wstring p = L"/v1/forecast?latitude=" + CoordText(cfg_.latitude) + L"&longitude=" + CoordText(cfg_.longitude) +
                      L"&current=temperature_2m,weather_code,is_day,wind_speed_10m,relative_humidity_2m"
+                     L",apparent_temperature,uv_index"  // round 28 phase 28A: same request, more fields
                      L"&hourly=temperature_2m,weather_code,precipitation_probability,is_day"
-                     L"&daily=weather_code,temperature_2m_max,temperature_2m_min&forecast_days=7&timezone=auto";
+                     L"&daily=weather_code,temperature_2m_max,temperature_2m_min,sunrise,sunset,uv_index_max"
+                     L"&forecast_days=7&timezone=auto";
     if (cfg_.units == Units::Imperial) p += L"&temperature_unit=fahrenheit&wind_speed_unit=mph";
     return p;
 }

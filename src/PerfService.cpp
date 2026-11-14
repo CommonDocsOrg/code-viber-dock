@@ -1213,6 +1213,49 @@ void PerfService::Series(const std::string& key, size_t n, std::vector<double>& 
     for (size_t i = 0; i < count; ++i) out.push_back(ring[(head_ - count + i) % kHistory]);
 }
 
+// Round 28 phase 28A: perf.drives(). Read on the UI thread when a script asks, at most every
+// kDrivesCacheMs (the answer is cached for the process): the fixed drives only. GetDriveTypeW is a
+// mount-manager query that touches no media; DRIVE_REMOTE (mapped shares, which can hang on a
+// dead server), DRIVE_REMOVABLE / CDROM (an empty reader can block or ask for a disc) and RAM disks
+// are never asked for their space. Critical-error boxes are off for the calls (a locked BitLocker
+// volume fails quietly: it is listed with `ready` false).
+std::string PerfService::DrivesJson() {
+    static double at = -1e12;
+    static std::string cached;
+    const double now = QpcMs();
+    if (now - at < kDrivesCacheMs && !cached.empty()) return cached;
+    DWORD oldMode = 0;
+    SetThreadErrorMode(SEM_FAILCRITICALERRORS | SEM_NOOPENFILEERRORBOX, &oldMode);
+    std::string out = "[";
+    bool first = true;
+    const DWORD mask = GetLogicalDrives();
+    for (int i = 0; i < 26; ++i) {
+        if (!(mask & (1u << i))) continue;
+        const wchar_t root[4] = {static_cast<wchar_t>(L'A' + i), L':', L'\\', 0};
+        if (GetDriveTypeW(root) != DRIVE_FIXED) continue;
+        ULARGE_INTEGER freeToCaller{}, total{}, freeTotal{};
+        const bool ready = GetDiskFreeSpaceExW(root, &freeToCaller, &total, &freeTotal) != FALSE;
+        wchar_t label[MAX_PATH + 1]{};
+        if (ready && !GetVolumeInformationW(root, label, MAX_PATH + 1, nullptr, nullptr, nullptr, nullptr, 0)) label[0] = 0;
+        const std::wstring name(root, 2);
+        out += first ? "{" : ",{";
+        first = false;
+        out += "\"drive\":" + Quoted(name) + ",\"label\":" + Quoted(label) + ",\"ready\":" + (ready ? "true" : "false");
+        if (ready) {
+            // `free`: what this user may still write (quotas); `total` the volume's size.
+            const unsigned long long t = total.QuadPart, f = freeToCaller.QuadPart;
+            out += ",\"total\":" + std::to_string(t) + ",\"free\":" + std::to_string(f) +
+                   ",\"used\":" + std::to_string(t > freeTotal.QuadPart ? t - freeTotal.QuadPart : 0ull);
+        }
+        out += "}";
+    }
+    out += "]";
+    SetThreadErrorMode(oldMode, nullptr);
+    cached = out;
+    at = now;
+    return cached;
+}
+
 std::vector<PerfService::Metric> PerfService::ListOnce() {
     static double at = -1e12;
     static std::vector<Metric> cached;

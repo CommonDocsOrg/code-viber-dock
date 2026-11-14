@@ -1,6 +1,6 @@
 {
   "name": "Weather",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "ViberDock",
   "description": "Current conditions and a forecast popup from Open-Meteo, with optional daily forecasts on the dock in several layouts and three icon packs, one of them animated. Choose a place for each widget or use the app's default place.",
   "api": 1,

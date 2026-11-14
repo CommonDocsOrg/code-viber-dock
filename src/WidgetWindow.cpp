@@ -144,6 +144,13 @@ HRESULT WidgetWindow::Create(HINSTANCE instance, Config* config, size_t cfg, HMO
                      },
                      [](const NotificationItem&, UINT) -> ID2D1Bitmap* { return nullptr; },  // no icon cache here
                  });
+    // Round 28 phase 28A: notify.banner. Dismiss, or a click on its body, closes it.
+    banner_.Init(instance_, host_.renderer,
+                 ReminderBanner::Callbacks{
+                     [this] { banner_.Hide(true); },
+                     [this] { banner_.Hide(true); },
+                     [this] { banner_.Hide(true); },
+                 });
     popupsReady_ = true;
 
     // The layer first (a "behind" window is registered before it shows: no flash above the apps).
@@ -171,6 +178,7 @@ void WidgetWindow::Destroy() {
         folderPopup_.Destroy();
         calendar_.Destroy();
         centre_.Destroy();
+        banner_.Destroy();
     }
     // The widget goes before the window (its last callbacks may still post to it: harmless).
     widget_.reset();
@@ -207,6 +215,7 @@ void WidgetWindow::ReleaseDevice() {
     folderPopup_.Destroy();
     calendar_.Destroy();
     centre_.Destroy();
+    banner_.Destroy();  // round 28: a widget banner on screen is lost with the device (as a popup is)
     icons_.Clear();
     panel_.Reset();
     content_.Reset();
@@ -617,6 +626,37 @@ void WidgetWindow::SetFullscreenHidden(bool hidden) {
     if (!hwnd_ || hidden == fullscreen_) return;
     fullscreen_ = hidden;
     UpdateShown();  // hides (popups closed, no z-order call) / shows (topmost once: AssertZOrder)
+    // Round 28 phase 28A: a widget banner waits while a full-screen app is in front (as the
+    // dock's reminders do), and comes back with the window.
+    if (hidden && banner_.Visible()) {
+        banner_.Hide(false);
+        bannerWaiting_ = true;
+    } else if (!hidden && bannerWaiting_) {
+        ShowBanner();
+    }
+}
+
+void WidgetWindow::ShowBanner() {
+    bannerWaiting_ = false;
+    if (!hwnd_ || !popupsReady_) return;
+    if (fullscreen_) {
+        bannerWaiting_ = true;
+        return;
+    }
+    const ThemeConfig& t = ThemeCfg();
+    ReminderBanner::Style style;
+    style.scale = scale_;
+    style.acrylic = t.acrylic && Backdrop::SystemAllowsTransparency();
+    style.tint = style.acrylic ? t.acrylicBackground : t.background;
+    style.text = t.labelText;
+    style.secondary = t.clockDateText;
+    style.border = t.barBorder;
+    style.hotBackground = t.previewHotBackground;
+    style.hotBorder = t.previewHotBorder;
+    style.cornerRadiusDip = t.cornerRadius;
+    style.monitor = PopupMonitor();
+    bannerInfo_.color = t.accent;
+    if (!banner_.Show(style, AnchorFor(100.0f), bannerInfo_, 0)) MessageBeep(MB_ICONINFORMATION);
 }
 
 void WidgetWindow::UpdateShown() {
@@ -1004,6 +1044,18 @@ void WidgetWindow::OnPopupRequest() {
             break;
     }
     if (widget_) widget_->OpenPendingEditor();  // popup.editText (round 6 phase 6C)
+    // notify.banner (round 28 phase 28A): also while a "desktop" layer hides the window (the user
+    // is in another app, where the banner is seen); not over a full-screen app (ShowBanner waits).
+    WidgetInstance::Banner b;
+    if (widget_ && widget_->TakeBanner(b)) {
+        bannerInfo_ = CalendarService::ReminderInfo{};
+        bannerInfo_.id = L"script:" + widget_->Key();
+        bannerInfo_.title = b.title;
+        bannerInfo_.when = b.text;
+        bannerInfo_.script = true;
+        if (b.sound && !fullscreen_) MessageBeep(MB_ICONASTERISK);
+        ShowBanner();
+    }
 }
 
 // --- drops ---------------------------------------------------------------------------------------
@@ -1087,6 +1139,8 @@ LRESULT WidgetWindow::QueryState(WPARAM what, LPARAM) const {
             return widget_ ? (widget_->EditorOpen() ? 1 : 0) : -1;
         case 256:  // the editor's HWND (0: none)
             return widget_ ? reinterpret_cast<LRESULT>(widget_->EditorHwnd()) : 0;
+        case 371:  // round 28 phase 28A: the widget's banner (notify.banner): 1 shown, 2 waiting for the full-screen app to go, 0 none
+            return banner_.Visible() ? 1 : (bannerWaiting_ ? 2 : 0);
         default:
             return -1;
     }

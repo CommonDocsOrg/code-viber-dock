@@ -66,6 +66,11 @@ public:
         int weekday = 0;       // 0 = Monday ... 6 = Sunday
         int code = -1;
         double tmin = 0.0, tmax = 0.0;
+        // Round 28 phase 28A (same request, `daily=...,sunrise,sunset,uv_index_max`): minutes since
+        // 1970-01-01 in the location's local time (-1: missing, e.g. polar night or an older cache),
+        // and the day's highest UV index (NaN when missing).
+        int64_t sunrise = -1, sunset = -1;
+        double uvMax = 0.0;
     };
     struct Forecast {
         bool valid = false;
@@ -74,6 +79,8 @@ public:
         bool isDay = true;
         double wind = 0.0;       // km/h or mph (NaN when missing)
         double humidity = 0.0;   // % (NaN when missing)
+        double feelsLike = 0.0;  // round 28: apparent temperature, configured units (NaN when missing)
+        double uv = 0.0;         // round 28: the current UV index (NaN when missing)
         int utcOffset = 0;       // seconds, the location's offset from UTC when fetched
         std::vector<Hour> hourly;  // the whole forecast (7 days)
         std::vector<Day> daily;

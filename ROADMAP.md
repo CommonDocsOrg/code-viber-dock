@@ -2108,6 +2108,28 @@ language bar's old way, because `ActivateKeyboardLayout` only affects the dock's
 refusals (elevated windows, apps that handle the message) are documented, and `next()` still works
 there.
 
+## Round 28 (2026-11-13): widgets and styles pack
+
+Branch `feature/widgets-styles`, on `feature/taskbar-gaps`. The owner asked for a pack of small
+widgets and looks ("do what you think is best"); each host addition below exists for one of the
+widgets in 28B.
+
+**28A, host additions.** The `sendKeys` allow-list grows by the Windows UI a quick-buttons row
+needs (snip, Cast, emoji, virtual desktops); it stays a fixed list (round 11's rule: no
+"modifier+key" parser). Weather: Open-Meteo returns sunrise / sunset, UV and the apparent
+temperature for the same request, so they were added to it rather than fetched separately (no
+second request per place). Drive space: `perf.drives()` reads only `DRIVE_FIXED` volumes and only
+when asked (cached 5 s), because a mapped share can hang the UI thread and an empty card reader
+can raise a "insert a disk" box; it does not start the perf sampler, which a disk tile does not
+need. Banners: `notify.banner` reuses the calendar reminder banner (one window class, the same
+queue, the same full-screen rule), behind a new `notify` permission and a per-widget rate limit (one
+on screen, 5 s between calls, plain one-line text) so a widget from someone else cannot flood the
+screen or draw a fake dialog with links. Rejected: Windows toast notifications (they need an
+AppUserModelID shortcut and show under the app's name in the notification centre, and a widget
+would then speak for ViberDock in Windows' own UI). The round 26 pause was checked, not changed:
+only the refresh tick stops while a widget is unseen; script timers run, so a countdown's
+`setTimeout` still fires on a hidden dock.
+
 ## Dependencies at a glance
 
 ```

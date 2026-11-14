@@ -75,6 +75,9 @@ public:
         int64_t day = 0;        // its local day
         uint32_t color = 0;
         std::string json;       // EventJson(item)
+        // Round 28 phase 28A: a widget's notify.banner in the same banner: `title`, `when` the
+        // text, no location; `id` "script:<widget key>"; only a Dismiss button (ReminderBanner).
+        bool script = false;
     };
 
     struct Job;  // a worker's job and its result (CalendarService.cpp)

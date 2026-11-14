@@ -1389,6 +1389,7 @@ bool WidgetInstance::Permitted(Permission p) const {
         case Permission::Perf: return package_->manifest.perf;
         case Permission::Network: return package_->manifest.network;  // round 27 phase 27B
         case Permission::Input: return package_->manifest.input;      // round 27 phase 27C
+        case Permission::Notify: return package_->manifest.notify;    // round 28 phase 28A
         case Permission::Http:
         default: return package_->manifest.http;
     }
@@ -1664,6 +1665,12 @@ constexpr KeyCombo kKeyCombos[] = {
     {L"win+w", {VK_LWIN, 'W'}},         // Widgets
     {L"win+x", {VK_LWIN, 'X'}},         // the Start button's context menu
     {L"win+space", {VK_LWIN, VK_SPACE}},  // round 27 phase 27C: the next input language (input.next)
+    // Round 28 phase 28A (the Quick buttons widget): more of Windows' own UI.
+    {L"win+shift+s", {VK_LWIN, VK_SHIFT, 'S'}},          // Snipping Tool's screen snip
+    {L"win+k", {VK_LWIN, 'K'}},                          // Cast
+    {L"win+.", {VK_LWIN, VK_OEM_PERIOD}},                // the emoji panel
+    {L"win+ctrl+left", {VK_LWIN, VK_CONTROL, VK_LEFT}},  // the previous virtual desktop
+    {L"win+ctrl+right", {VK_LWIN, VK_CONTROL, VK_RIGHT}},  // the next virtual desktop
     {L"ctrl+shift+esc", {VK_CONTROL, VK_SHIFT, VK_ESCAPE}},  // Task Manager (11B)
     {L"volume-up", {VK_VOLUME_UP, 0}},
     {L"volume-down", {VK_VOLUME_DOWN, 0}},
@@ -1717,6 +1724,8 @@ bool ExtendedKey(WORD vk) {
         case VK_MEDIA_NEXT_TRACK:
         case VK_MEDIA_PREV_TRACK:
         case VK_MEDIA_STOP:
+        case VK_LEFT:   // round 28: the arrow keys are extended keys (not the numeric keypad's)
+        case VK_RIGHT:
             return true;
         default:
             return false;
@@ -2233,7 +2242,8 @@ std::string WidgetInstance::WeatherJson(const WeatherService& w, const WeatherCo
         o += ",\"current\":{\"temp\":" + NumOrNull(f.temp) + ",\"code\":" + std::to_string(f.code) +
              ",\"isDay\":" + Bool(f.isDay) + ",\"description\":" + J(WeatherGlyphs::Describe(f.code)) +
              ",\"glyph\":\"" + GlyphName(WeatherGlyphs::FromWmo(f.code)) + "\",\"wind\":" + NumOrNull(f.wind) +
-             ",\"humidity\":" + NumOrNull(f.humidity) + "}";
+             ",\"humidity\":" + NumOrNull(f.humidity) + ",\"feelsLike\":" + NumOrNull(f.feelsLike) +
+             ",\"uv\":" + NumOrNull(f.uv) + "}";  // round 28 phase 28A: feelsLike, uv
     } else {
         o += ",\"current\":null";
     }
@@ -2253,7 +2263,10 @@ std::string WidgetInstance::WeatherJson(const WeatherService& w, const WeatherCo
         o += (i ? ",{" : "{") + std::string("\"day\":\"") + DayText(d.day) + "\",\"weekday\":" +
              std::to_string((d.weekday + 1) % 7) + ",\"code\":" + std::to_string(d.code) +
              ",\"description\":" + J(WeatherGlyphs::Describe(d.code)) + ",\"min\":" + NumOrNull(d.tmin) +
-             ",\"max\":" + NumOrNull(d.tmax) + "}";
+             ",\"max\":" + NumOrNull(d.tmax) + ",\"uvMax\":" + NumOrNull(d.uvMax) +
+             // Round 28 phase 28A: the location's local minutes -> UTC ms, as `hourly[].time`.
+             ",\"sunrise\":" + (d.sunrise >= 0 ? std::to_string((d.sunrise * 60 - f.utcOffset) * 1000) : std::string("null")) +
+             ",\"sunset\":" + (d.sunset >= 0 ? std::to_string((d.sunset * 60 - f.utcOffset) * 1000) : std::string("null")) + "}";
     }
     o += "]}";
     return o;
@@ -2357,12 +2370,19 @@ bool WidgetInstance::PerfCall(const std::string& what, double number, std::strin
             json = WidgetSamples::PerfHwinfoJson();
         } else if (what == "use") {
             json = "null";
+        } else if (what == "drives") {
+            json = WidgetSamples::DrivesJson();  // round 28 phase 28A
         } else if (what == "setInterval") {
             json = "1000";  // the sampler is not started
         } else {
             error = L"perf: unknown call";
             return false;
         }
+        return true;
+    }
+    if (what == "drives") {
+        // Round 28 phase 28A: the fixed drives' space; no sampler needed (nothing is started).
+        json = PerfService::DrivesJson();
         return true;
     }
     PerfService* perf = runtime_.UsePerf(this);
@@ -2492,5 +2512,58 @@ bool WidgetInstance::InputCall(const std::string& what, const std::wstring& text
         error = L"input: unknown call";
         return false;
     }
+    return true;
+}
+
+// --- round 28: notify.banner -------------------------------------------------------------------------
+
+namespace {
+
+// A banner's line: control characters (line breaks, tabs) become spaces, runs of spaces one, the
+// ends trimmed, cut at `max` characters with an ellipsis. Plain text only: the banner draws it as
+// it is (no markup, no links).
+std::wstring BannerLine(const std::wstring& in, size_t max) {
+    std::wstring s;
+    s.reserve(std::min(in.size(), max + 1));
+    for (wchar_t c : in) {
+        if (c < 0x20 || c == 0x7F || (c >= 0x2028 && c <= 0x202E) || (c >= 0x2066 && c <= 0x2069)) c = L' ';
+        if (c == L' ' && (s.empty() || s.back() == L' ')) continue;
+        s.push_back(c);
+        if (s.size() > max) break;
+    }
+    while (!s.empty() && s.back() == L' ') s.pop_back();
+    if (s.size() > max) {
+        s.resize(max - 1);
+        if (!s.empty() && IS_HIGH_SURROGATE(s.back())) s.pop_back();
+        s.push_back(L'\x2026');
+    }
+    return s;
+}
+
+}  // namespace
+
+bool WidgetInstance::NotifyBanner(const std::wstring& title, const std::wstring& text, bool sound, std::wstring& error) {
+    if (!Permitted(Permission::Notify)) {
+        error = L"notify needs the \"notify\" permission";
+        return false;
+    }
+    const std::wstring t = BannerLine(title, kBannerTitleMax);
+    if (t.empty()) {
+        error = L"notify.banner: the title must not be empty";
+        return false;
+    }
+    if (preview_) return true;  // nothing shows in a preview
+    // The rate limit: one banner per widget on screen (a newer one replaces it) and at least
+    // kBannerGapMs between two; a call inside the gap shows nothing and returns false.
+    const double now = WidgetNowMs();
+    if (now - lastBannerMs_ < kBannerGapMs) {
+        Log(ScriptLogLevel::Warn, L"notify.banner: refused (one banner per 5 seconds)");
+        return false;
+    }
+    lastBannerMs_ = now;
+    banner_ = Banner{t, BannerLine(text, kBannerTextMax), sound};
+    bannerPending_ = true;
+    client_.WidgetPopupRequest(*this);  // the host shows it after this call (with the popup requests)
+    Log(ScriptLogLevel::Info, L"notify.banner " + t);
     return true;
 }

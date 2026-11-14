@@ -197,6 +197,22 @@ public:
         popupRequest_ = PopupRequest{};
         return r;
     }
+    // Round 28 phase 28A, notify.banner: the banner the script asked for, handed to the dock / the
+    // standalone window with the popup requests (WidgetPopupRequest). False: none waiting.
+    struct Banner {
+        std::wstring title, text;
+        bool sound = false;
+    };
+    bool TakeBanner(Banner& out) {
+        if (!bannerPending_) return false;
+        out = std::move(banner_);
+        banner_ = Banner{};
+        bannerPending_ = false;
+        return true;
+    }
+    // The limits notify.banner enforces per instance (docs/widgets.md "notify").
+    static constexpr size_t kBannerTitleMax = 80, kBannerTextMax = 160;
+    static constexpr double kBannerGapMs = 5000.0;
     // drawPopup(canvas, dock) into the popup's surface (w x h DIPs at `scale`).
     void RenderPopup(ID2D1DeviceContext* dc, float w, float h, float scale);
     void PopupClick(float x, float y, int button);
@@ -294,6 +310,7 @@ private:
     bool PerfSeries(const std::string& key, size_t n, std::vector<double>& out, std::wstring& error) override;
     bool NetworkCall(const std::string& what, std::string& json, std::wstring& error) override;  // round 27 phase 27B
     bool InputCall(const std::string& what, const std::wstring& text, std::string& json, std::wstring& error) override;  // 27C
+    bool NotifyBanner(const std::wstring& title, const std::wstring& text, bool sound, std::wstring& error) override;  // 28A
     // shell.sendKeys's pressing of an allow-listed combination `n` (lower case), the permission
     // already checked (round 27 phase 27C: input.next presses "win+space" under "input"). `who`
     // names the caller in errors and the log.
@@ -421,6 +438,10 @@ private:
     int nextRequest_ = 1;
     int requests_ = 0;         // http requests in flight (this generation)
     PopupRequest popupRequest_;
+    // notify.banner (round 28 phase 28A): the one waiting for the host, and when the last was asked.
+    Banner banner_;
+    bool bannerPending_ = false;
+    double lastBannerMs_ = -1e12;
     // popup.editText: the request waiting for the host's posted handler, and the open editor (a
     // self-deleting window; null when none).
     struct EditPending {
