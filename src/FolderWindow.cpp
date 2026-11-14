@@ -1542,6 +1542,8 @@ LRESULT FolderWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
         if (menu3_ && SUCCEEDED(menu3_->HandleMenuMsg2(msg, wp, lp, &result))) return result;
         if (menu2_ && SUCCEEDED(menu2_->HandleMenuMsg(msg, wp, lp))) return msg == WM_INITMENUPOPUP ? 0 : TRUE;
     }
+    // Round 26 phase 26A follow-up: real pointer input ends a pause whose resume event was missed.
+    if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST && host_.pointerInput) host_.pointerInput(msg);
     const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
     const bool collapsed = cfg_ < config_->docks.size() && Collapsed();
     switch (msg) {

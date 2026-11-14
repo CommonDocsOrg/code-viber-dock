@@ -76,6 +76,9 @@ public:
         // shown (FolderWindow / WidgetWindow Host::moved): the settings panel beside it follows. May
         // come from inside Sync (SetMonitor): the receiver must not walk the instances synchronously.
         std::function<void()> desktopMoved;
+        // Round 26 phase 26A follow-up: the user is evidently there (PointerInput while paused):
+        // App clears its paused bits as an unlock / display-on would.
+        std::function<void()> userPresent;
     };
 
     DockManager() = default;
@@ -216,6 +219,11 @@ public:
     void SetSessionPaused(int bits);
     int SessionPausedBits() const { return sessionPaused_; }
     bool SessionPaused() const override { return sessionPaused_ != 0; }
+    // Follow-up: real pointer input on one of our windows while paused (DockShared::PointerInput;
+    // folder windows through their Host::pointerInput) calls Callbacks::userPresent once.
+    void PointerInput(UINT msg) override {
+        if (sessionPaused_ != 0 && callbacks_.userPresent && RealPointerInput(msg)) callbacks_.userPresent();
+    }
 
     // --- the dashboard (round 6 phase 6A) ---
     // On: every dock and standalone widget (6B) with layer "desktop" or "behind" is shown, revealed

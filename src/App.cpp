@@ -252,6 +252,12 @@ bool App::Initialize(HINSTANCE instance) {
         });
         if (anyPanel) panelAnchorPending_ = PostMessageW(hwnd_, kPanelAnchorMoved, 0, 0) != FALSE;
     };
+    // Round 26 phase 26A follow-up: posted (it comes from inside a window's mouse message; resuming
+    // re-schedules widget ticks and redraws every window).
+    callbacks.userPresent = [this] {
+        if (userPresentPosted_ || !hwnd_) return;
+        userPresentPosted_ = PostMessageW(hwnd_, kUserPresentMessage, 0, 0) != FALSE;
+    };
     startPlacer_.Initialize(hwnd_);  // round 16 phase 16A: its watch's timer is on the app window
     docks_.SetStartPlacer(&startPlacer_);
     docks_.Initialize(instance, &config_, hwnd_, std::move(callbacks));
@@ -2554,6 +2560,20 @@ void App::OnDisplayState(DWORD state) {
     if (bits == pausedBits_) return;
     pausedBits_ = bits;
     docks_.SetSessionPaused(bits);
+}
+
+// Follow-up: the pause clears on an unlock / display-on notification; were one ever missed (an RDP
+// reconnect that sends no unlock, a driver that never reports the display back on), the dock would
+// stay paused. A real mouse message on one of our windows (DockShared::RealPointerInput: from a
+// device or SendInput, not a system-made WM_MOUSEMOVE) means a user is there and can see the
+// screen: every bit goes as if each event had come. No timer and no polling: it costs a flag test
+// per mouse message while not paused. A locked session's windows get no input (the lock screen is
+// another desktop), so this cannot end a real lock early.
+void App::OnUserPresent() {
+    if (pausedBits_ == 0) return;
+    OutputDebugStringW(L"WinDock: pointer input while paused: resuming\n");
+    pausedBits_ = 0;
+    docks_.SetSessionPaused(0);
 }
 
 void App::ScheduleDisplaySync(bool deviceNodes) {
@@ -5290,6 +5310,11 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == kMalformedNotice) {  // round 25 phase 25B
         ShowMalformedNotice();
+        return 0;
+    }
+    if (msg == kUserPresentMessage) {  // round 26 phase 26A follow-up (coalesced)
+        userPresentPosted_ = false;
+        OnUserPresent();
         return 0;
     }
     if (msg == kPanelAnchorMoved) {  // round 12 phase 12I: a folder window / standalone widget moved (coalesced)

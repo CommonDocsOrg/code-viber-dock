@@ -110,6 +110,8 @@ private:
     // Round 25 phase 25B: posted once by Initialize after a start from a malformed config.json: the
     // notice (ShowMalformedNotice) opens once the docks are up and the message loop runs.
     static constexpr UINT kMalformedNotice = WM_APP + 76;
+    // Round 26 phase 26A follow-up: posted to the app window (coalesced, userPresentPosted_).
+    static constexpr UINT kUserPresentMessage = WM_APP + 80;
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
     // Round 12 phase 12A: the Keep / Revert bar's countdown (1 s steps, only while the bar shows;
@@ -579,6 +581,11 @@ private:
     bool wtsRegistered_ = false;
     HPOWERNOTIFY displayNotify_ = nullptr;
     int pausedBits_ = 0;
+    // Follow-up: real pointer input reached a dock / folder window / standalone widget while paused
+    // (DockManager::Callbacks::userPresent posts kUserPresentMessage once): the pause is cleared as
+    // an unlock plus display-on would, in case one of those notifications was missed.
+    void OnUserPresent();
+    bool userPresentPosted_ = false;
     bool shutDown_ = false;
     int modalDepth_ = 0;          // menus / dialogs open (RunMenu, ChooseItemIcon)
     bool syncPending_ = false;    // a display sync is posted or waits for the modal loop to end

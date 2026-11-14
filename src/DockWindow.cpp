@@ -9692,6 +9692,9 @@ LRESULT DockWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msgQueryItem_ && msg == msgQueryItem_) return QueryItemPoint(wp, lp);
     if (msgQueryState_ && msg == msgQueryState_) return QueryState(wp, lp);
+    // Round 26 phase 26A follow-up: real pointer input ends a pause whose resume event was missed
+    // (DockShared::PointerInput; a flag test while not paused).
+    if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST && shared_) shared_->PointerInput(msg);
 
     switch (msg) {
         case WM_MOUSEACTIVATE:

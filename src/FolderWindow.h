@@ -62,6 +62,8 @@ public:
         // by the program: the config, a display / DPI change, collapse): its settings panel goes
         // beside it again. Not on each step of a drag (the panel follows when it ends).
         std::function<void()> moved;
+        // Round 26 phase 26A follow-up: every mouse message (DockShared::PointerInput).
+        std::function<void(UINT msg)> pointerInput;
     };
 
     FolderWindow() = default;

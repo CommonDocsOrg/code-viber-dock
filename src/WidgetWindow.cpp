@@ -1112,6 +1112,8 @@ LRESULT CALLBACK WidgetWindow::WndProcThunk(HWND hwnd, UINT msg, WPARAM wp, LPAR
 
 LRESULT WidgetWindow::WndProc(UINT msg, WPARAM wp, LPARAM lp) {
     if (!Valid()) return DefWindowProcW(hwnd_, msg, wp, lp);
+    // Round 26 phase 26A follow-up: real pointer input ends a pause whose resume event was missed.
+    if (msg >= WM_MOUSEFIRST && msg <= WM_MOUSELAST && host_.shared) host_.shared->PointerInput(msg);
     const POINT pt{GET_X_LPARAM(lp), GET_Y_LPARAM(lp)};
     switch (msg) {
         case WM_WINDOWPOSCHANGING:

@@ -85,6 +85,21 @@ public:
     // Round 26 phase 26A: the session is locked, the display off or the session disconnected (a
     // window made meanwhile starts paused; DockManager::SetSessionPaused tells the live ones).
     virtual bool SessionPaused() const = 0;
+    // Round 26 phase 26A follow-up: a fallback for a missed unlock / display-on notification. Each
+    // dock, folder window and standalone widget window calls it for every mouse message it gets
+    // (cheap: a flag test while not paused); while the session counts as paused, a message that
+    // RealPointerInput accepts clears the pause through App's own path (the same as the event).
+    virtual void PointerInput(UINT msg) = 0;
+    // A mouse message (WM_MOUSEFIRST..WM_MOUSELAST) that came from a device or SendInput, not one
+    // the system made up (GetCurrentInputMessageSource: IMO_SYSTEM is e.g. the WM_MOUSEMOVE sent
+    // when a window appears or moves under a resting pointer; IMO_UNAVAILABLE a SendMessage'd one,
+    // documented). Valid only while the message is being handled.
+    static bool RealPointerInput(UINT msg) {
+        if (msg < WM_MOUSEFIRST || msg > WM_MOUSELAST) return false;
+        INPUT_MESSAGE_SOURCE src{};
+        if (!GetCurrentInputMessageSource(&src)) return false;
+        return src.originId == IMO_HARDWARE || src.originId == IMO_INJECTED;
+    }
 
 protected:
     ~DockShared() = default;
@@ -152,7 +167,9 @@ public:
     // Round 26: WM_APP + 78 = FolderWindow::kListedMessage and FolderPopup::kListedMessage (phase
     // 26B, posted to a folder window / the folder popup by the worker that listed a slow folder);
     // TrayHost's own window: timer 2 = TrayHost::kMirrorRetryTimer (26B). No new timer on a dock.
-    // WM_APP + 79 = kEnvCheckMessage (26C, posted to the dock window itself, below).
+    // WM_APP + 79 = kEnvCheckMessage (26C, posted to the dock window itself, below). WM_APP + 80 =
+    // App::kUserPresentMessage (26A follow-up, posted to the app window, coalesced: real pointer
+    // input on one of our windows while the session counts as paused).
     // On the settings search dialog's own window (round 9 phase 9B / round 18 phase 18D): WM_APP + 41
     // = SettingsSearch::kRebuildMessage, + 42 its kHideComboMessage, timer 1 = its kIndexTimerId (the
     // next window of the index, one-shot); WM_APP + 40 = SettingsWindow::kRebuildMessage on a settings window.

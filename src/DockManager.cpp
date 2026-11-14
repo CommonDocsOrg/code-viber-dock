@@ -311,6 +311,7 @@ HRESULT DockManager::CreateFolderFor(Instance& inst) {
     host.moved = [this] {  // round 12 phase 12I
         if (callbacks_.desktopMoved) callbacks_.desktopMoved();
     };
+    host.pointerInput = [this](UINT msg) { PointerInput(msg); };  // round 26 phase 26A follow-up
     const HRESULT hr = folder->Create(instance_, config_, inst.cfg, inst.monitor, std::move(host));
     if (FAILED(hr)) {
         folder->Destroy();
