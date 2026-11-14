@@ -409,9 +409,26 @@ ViberDock comes with these widgets:
 - **Start** and **Search**: open the Start menu and Windows Search. Start shows the Windows logo, your own icon or the **Windows 7 orb**, a glossy sphere with the four-colour flag that lights up under the pointer and darkens while pressed. Its icon size 0 is automatic: the orb then fills the slot. The Start menu opens next to the button you clicked: above it on a bottom dock, beside it on a side dock. Its **Menu position** setting (Content) can put it back where Windows puts it; the Windows key always opens it at its usual place.
 - **Show desktop**: the narrow strip at the end of the Windows 7 taskbar. On a full-width dock it is as tall as the bar and, as the last item, sits right against the screen's end. A click shows the desktop (Win+D; a second click brings the windows back) or, if you choose, minimizes every window (Win+M). Its style can also be a small desktop glyph, for other themes. Hovering it does not make the windows transparent (Aero Peek is not available).
 - **Notification bell**: a bell like the notification centre, with more choices.
+- **Network**: the network icon of the taskbar: Wi-Fi with its signal, ethernet, cellular or a VPN, and whether there is internet. See [Network](#network).
 - **Hello**: a tiny example widget.
 
 The System monitor can also show any sensor of HWiNFO (temperatures, fans, power) while HWiNFO runs with its shared memory turned on. See [Performance and memory](troubleshooting.md#performance-and-memory).
+
+### Network
+
+While ViberDock hides the taskbar, its network icon is gone with it. The Network widget puts it back on a dock (or on the desktop).
+
+- **Wi-Fi** shows as a dot and three arcs, lit up to the signal strength Windows reports (its bars).
+- **Ethernet** shows as a network plug, **cellular** as five rising bars, a **VPN** as a padlock.
+- A small red cross on the icon means you are connected but have **no internet**. A yellow exclamation mark means the network wants you to **sign in** (a hotel or airport Wi-Fi). A crossed-out globe means there is **no connection** at all.
+
+Its settings:
+
+- **Show a label beside the icon**: writes the network's name (or, with **Label** set to the state, Connected, No internet, Sign-in needed or Not connected) next to the icon.
+- **A click opens**: the widget's popup (the network's name, the kind of connection, its state, the signal, and buttons for **Network & internet settings** and **Quick settings**), Windows' quick settings (where you switch Wi-Fi networks), or the Network & internet settings page.
+- **Size**, **Font** and the colours of the icon, the label and the no-internet cross.
+
+The signal follows Windows' own bars. It is updated whenever the connection changes and when you click the widget, so it can lag behind a slowly changing signal. The widget does not ask Windows for your location: it never shows the "allow location" prompt that some Wi-Fi tools cause.
 
 ### Widget settings
 
@@ -451,7 +468,7 @@ Everything about writing widgets is in the [widget developer reference](widgets.
 
 #### Widget permissions
 
-A widget from your widgets folder may ask for permissions: to open files and run programs, to connect to named web sites, to read your notifications, your calendar feeds, the forecast, what is playing, the volume or the PC's performance. Such a widget runs only after you allow what it asks for. The built-in widgets never need this.
+A widget from your widgets folder may ask for permissions: to open files and run programs, to connect to named web sites, to read your notifications, your calendar feeds, the forecast, what is playing, the volume, the PC's performance or the network connection. Such a widget runs only after you allow what it asks for. The built-in widgets never need this.
 
 - When you add or install such a widget, ViberDock asks right away. The question names the widget, its id, version, author and folder, and lists each permission in plain words. **Don't allow** is the default.
 - Until you allow it, the widget shows a **Needs permission** tile and its script does not run at all. Click the tile, or right-click it and choose **Review permissions…**, to see the question again.

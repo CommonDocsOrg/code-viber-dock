@@ -14,6 +14,7 @@
 #include "Config.h"
 #include "HttpClient.h"
 #include "MediaService.h"
+#include "NetworkService.h"
 #include "PerfService.h"
 
 class NotificationService;
@@ -165,7 +166,11 @@ public:
     // Round 26 phase 26A: the session is locked / the display off (DockManager): the perf sampler
     // sleeps. Widget timers (setTimeout / setInterval) are not touched; the refresh ticks pause
     // through each instance's visibility.
-    void SetPaused(bool paused) { perf_.SetPaused(paused); }
+    void SetPaused(bool paused) {
+        perf_.SetPaused(paused);
+        sessionPaused_ = paused;  // round 27: the network provider goes quiet too
+        SyncProviderQuiet();
+    }
     // `w`'s own period (0: the default); the service re-times to the fastest of its users.
     void SetPerfInterval(WidgetInstance* w, uint32_t ms);
     PerfService& Perf() { return perf_; }
@@ -216,7 +221,23 @@ public:
     void NotifyWeather(const WeatherConfig& place);
     uint64_t WeatherNotices() const { return weatherNotices_; }  // onChange deliveries (QueryState 215)
 
+    // --- round 27: network (27B) ---
+    // Started for the first widget that uses it, stopped when the last such widget goes or
+    // reloads (ReleaseProviders); its changes reach every user (ProviderChanged). Quiet while
+    // none of its users can be seen (WidgetInstance::CanBeSeen: an auto-hidden dock, a hidden
+    // desktop widget, the full-screen guard) or the session is paused (SetPaused): nothing is read
+    // or delivered then, and leaving quiet reads once if something changed meanwhile.
+    NetworkService* UseNetwork(WidgetInstance* w);
+    const NetworkService& Network() const { return network_; }
+    size_t NetworkUsers() const { return networkUsers_.size(); }
+    // A widget's visibility changed (WidgetInstance::SetVisible): the provider's quiet follows.
+    void ProviderVisibilityChanged() { SyncProviderQuiet(); }
+
 private:
+    void SyncProviderQuiet();
+    NetworkService network_;
+    std::set<WidgetInstance*> networkUsers_;
+    bool sessionPaused_ = false;
     struct Entry {
         WidgetInstance* w = nullptr;
         int id = 0;

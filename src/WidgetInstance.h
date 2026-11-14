@@ -151,6 +151,9 @@ public:
     // onVisibilityChange({ visible }) when it changed. Round 26 phase 26A: off screen the refresh
     // tick pauses and redraw requests are kept; on screen one catch-up tick and one redraw.
     void SetVisible(bool visible);
+    // Round 27: the dock / window shows it, or a popup of it is open (WidgetRuntime: the network and
+    // input providers go quiet while none of their users can be seen).
+    bool CanBeSeen() const;
     // The system time / time zone changed or the machine resumed: aligned refreshes are re-aligned
     // and a refreshing widget ticks at once.
     void TimeChanged();
@@ -289,6 +292,7 @@ private:
     bool WeatherCall(const std::string& what, const std::string& args, std::string& json, std::wstring& error) override;
     bool PerfCall(const std::string& what, double number, std::string& json, std::wstring& error) override;
     bool PerfSeries(const std::string& key, size_t n, std::vector<double>& out, std::wstring& error) override;
+    bool NetworkCall(const std::string& what, std::string& json, std::wstring& error) override;  // round 27 phase 27B
     std::vector<std::string> PackageFiles() override;
     void RequestPopup(PopupRequest r);
     bool HostAllowed(const std::wstring& host) const;

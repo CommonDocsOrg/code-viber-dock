@@ -244,6 +244,8 @@ void WidgetRuntime::Shutdown() {
     audio_.Stop();
     media_.Stop();
     perf_.Stop();
+    networkUsers_.clear();  // round 27
+    network_.Stop();
     FlushStorage();
     StopWatcher();
     watched_.clear();
@@ -342,6 +344,8 @@ bool WidgetRuntime::HandleMessage(UINT msg, WPARAM wp, LPARAM lp) {
             return media_.HandleMessage(msg, wp, lp);
         case PerfService::kMessage:
             return perf_.HandleMessage(msg, wp, lp);
+        case NetworkService::kMessage:  // round 27 phase 27B
+            return network_.HandleMessage(msg, wp, lp);
         default:
             return false;
     }
@@ -758,6 +762,25 @@ MediaService* WidgetRuntime::UseMedia(WidgetInstance* w) {
     return &media_;
 }
 
+NetworkService* WidgetRuntime::UseNetwork(WidgetInstance* w) {
+    if (!network_.Active()) {
+        if (!owner_ || !network_.Start(owner_)) return nullptr;
+        network_.SetChanged([this] { NotifyProvider(networkUsers_, "network"); });
+    }
+    if (networkUsers_.insert(w).second) SyncProviderQuiet();
+    return &network_;
+}
+
+void WidgetRuntime::SyncProviderQuiet() {
+    // Round 27 (the round 26 rule for providers): quiet unless some user can be seen and the session
+    // is in use. A user is any live instance that called the provider (previews never do).
+    auto quiet = [this](const std::set<WidgetInstance*>& users) {
+        if (sessionPaused_) return true;
+        return std::none_of(users.begin(), users.end(), [this](WidgetInstance* w) { return Alive(w) && w->CanBeSeen(); });
+    };
+    if (network_.Active()) network_.SetQuiet(quiet(networkUsers_));
+}
+
 PerfService* WidgetRuntime::UsePerf(WidgetInstance* w) {
     if (!perf_.Active()) {
         perfIntervals_.clear();
@@ -839,6 +862,11 @@ void WidgetRuntime::ReleaseProviders(WidgetInstance* w) {
     if (weatherUsers_.erase(w)) WeatherRequest(WeatherAction::Sync, w->WeatherCfg());
     if (audioUsers_.erase(w) && audioUsers_.empty()) audio_.Stop();
     if (mediaUsers_.erase(w) && mediaUsers_.empty()) media_.Stop();
+    // Round 27: the last user stops the provider; another one leaving may make it quiet.
+    if (networkUsers_.erase(w)) {
+        if (networkUsers_.empty()) network_.Stop();
+        SyncProviderQuiet();
+    }
     if (perfUsers_.erase(w)) {
         perfIntervals_.erase(w);
         if (perfUsers_.empty()) {

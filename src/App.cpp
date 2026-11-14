@@ -4579,6 +4579,10 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             return docks_.SessionPausedBits();
         case 365:  // round 26 phase 26C (app-wide): device-node events that found the monitors unchanged (no Sync)
             return static_cast<LRESULT>(deviceSyncsSkipped_);
+        case 367:  // round 27 phase 27B (app-wide): the network provider runs: 0 no, 1 yes, 3 yes and quiet
+            return docks_.Widgets().Network().Active() ? (docks_.Widgets().Network().Quiet() ? 3 : 1) : 0;
+        case 368:  // round 27 phase 27B (app-wide): widgets using the network provider
+            return static_cast<LRESULT>(docks_.Widgets().NetworkUsers());
         case 356:  // round 25 phase 25B (app-wide): 0 a normal start; 1 started from a malformed config.json, + 2 its copy was made, + 4 saving is blocked now
             if (!startedMalformed_) return 0;
             return 1 | (badCopyMade_ ? 2 : 0) | (saveBlocked_ ? 4 : 0);

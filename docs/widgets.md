@@ -77,7 +77,7 @@ loaded as source; bytecode is never loaded.
 | `refreshMs` | 0 | Above 0: the dock calls `tick()` every `refreshMs` ms (at least 100), aligned to multiples of it in local time (60000 = on the minute), then redraws (only while the widget can be seen, see `timer.setRefresh`). 0: no ticking. `timer.setRefresh(ms)` overrides it at run time (also for another time zone: `timer.setRefresh(ms, { timeZone })`). |
 | `timeLimitMs` | 50 | The watchdog: the longest one call into the script may run (10 - 1000; loading the module gets four times as long, at least 200 ms). |
 | `memoryLimitMB` | 32 | The script heap (4 - 256 MB). |
-| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself; an IP address is matched only by an entry that is that address). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). Round 25: a widget from the widgets folder runs only after the user allowed its permissions (see [Consent](#consent)); ask for the fewest you need. |
+| `permissions` | [] | What the widget may do beyond drawing (see [Sandbox](#sandbox)): `"shell"` (open files / URLs, list folders, file icons, the folder popup, file drops, `shell.sendKeys`), `"audio"` (the [audio](#audio) provider), `"media"` (the [media](#media) provider), `"notifications"` (the [notifications](#notifications) provider), `"calendar"` (the [calendar](#calendar) provider), `"weather"` (the [weather](#weather) provider), `"perf"` (the [perf](#perf) provider: performance counters and HWiNFO's sensors), `"network"` (round 27: the [network](#network) provider), `{ "http": ["api.example.com", "*.example.org"] }` (also written `"http:api.example.com"`: requests to those hosts only; `*.example.org` is any sub-domain of it, not example.org itself; an IP address is matched only by an entry that is that address). An unknown entry is an error: the widget does not load (see [Validating a widget](#validating-a-widget)). Round 25: a widget from the widgets folder runs only after the user allowed its permissions (see [Consent](#consent)); ask for the fewest you need. |
 | `watch` | false | Folder widgets: reload when a file of the widget's folder changes (see [Developing a widget](#developing-a-widget)). |
 | `preview` | none | Round 6 phase 6E: the widget's live preview in the settings window's widget drawer and Widget library ([Preview mode](#preview-mode)): `{ "settings": { "face": "classic" }, "width": 64, "height": 48 }`. `settings`: an object of setting values merged over the schema's defaults for the preview only (a nice face, a sample label); `width` / `height`: the preview's box in DIPs (8 - 1024 / 8 - 512; left out: the box the widget measures on a 48 DIP bottom dock). The manifest check reports a non-object, a setting the schema does not name (a warning) and sizes out of range. |
 | `standalone` | none | How the widget behaves as a [standalone widget](#standalone-widgets) (a window of its own on the desktop): `{ "minWidth": 96, "minHeight": 96, "aspect": "keep", "defaultWidth": 200, "defaultHeight": 200 }`. `minWidth` / `minHeight`: the smallest window in DIPs (16 - 4000; default 48, and never below 48); `aspect`: `"free"` (default: any shape), `"keep"` (resizing keeps the width : height of the window as it was made or last set in its settings) or a number (width / height, e.g. `1` for a square); `defaultWidth` / `defaultHeight`: the size **Add to the desktop** gives a new one (default: 200 x 200 when the horizontal size hint is about square, else twice the horizontal hint; never below the minimum); `supported`: `false` when the widget needs a dock (round 16 phase 16E; default `true`): it is never made a standalone widget (dragging it off the dock only reorders it, the drawer does not drop it on the desktop, **Add to the desktop** refuses it). |
@@ -644,6 +644,32 @@ export function draw(canvas, dock) {
 The built-in `system-monitor` and `system-overview` widgets are the worked examples (see
 [Examples](#examples)).
 
+### network
+
+Round 27. Needs `"network"` in `permissions`. The connection Windows uses for the internet, what the
+taskbar's network icon showed (Windows.Networking.Connectivity: `GetInternetConnectionProfile`).
+The provider starts with the first call (`get()` or `onChange`) of a widget that has the
+permission and stops when the last such widget goes. It is event-driven (Windows'
+`NetworkStatusChanged`: connected / disconnected, internet gained or lost, a captive portal, the
+cost, another connection taking over); nothing polls, and it is quiet (reads nothing, calls no
+listener) while none of its widgets can be seen (`dock.visible` false and no popup open) or the
+session is locked; when one is seen again it reads once if something changed meanwhile.
+
+| Call | |
+|---|---|
+| `network.get()` | `{ available, connected, internet, state, kind, name, bars, signal, metered }`: `available` false when Windows could not say; `connected` there is a connection for the internet; `state` `"internet"`, `"local"` (connected, no internet), `"constrained"` (a captive portal: sign-in needed) or `"none"`; `internet` the same as `state === "internet"`; `kind` `"wifi"`, `"ethernet"`, `"cellular"`, `"vpn"` (a PPP, tunnel or virtual adapter carries it), `"other"` or `"none"`; `name` the Wi-Fi network's name (SSID), for other kinds the connection's profile name ("Network 2"), `""` without one; `bars` Windows' signal bars 0 - 5 for Wi-Fi and cellular, else `null`; `signal` `bars` × 20 (0 - 100) or `null`; `metered` the connection is set as metered (a fixed or variable cost). |
+| `network.onChange(fn)` | `fn(state)` (the `get()` object) when anything in it changed (coalesced: one call per change, not per Windows event). Returns a remover. |
+
+Limits (from Microsoft's documentation; not measured): the signal is the 0 - 5 bars Windows shows,
+not a percentage, and a change of the bars alone is not an event: they are read again at every
+network event and whenever the provider wakes, so they can lag while nothing else changes. The
+Wi-Fi APIs that give a 0 - 100 quality and signal events (`wlanapi`'s current connection and its
+MSM notifications) need the user's precise-location consent since Windows 11 24H2 and would show a
+location prompt; they are not used. The SSID comes from `WlanConnectionProfileDetails.
+GetConnectedSsid`, which Microsoft's page on that change ("Changes to API behavior for Wi-Fi access and location") recommends instead. A VPN is recognised by its adapter's
+type only (the built-in Windows VPN, WireGuard, OpenVPN's TAP / wintun); one that presents an
+ethernet adapter shows as ethernet. Airplane mode shows as no connection.
+
 ### popup
 
 A widget can open one popup at a time, anchored on its slot beside the dock (above a bottom dock,
@@ -963,7 +989,9 @@ allow-list; `"audio"` reads and changes the system volume / mutes / the default 
 reads the current media session and controls its playback; `"notifications"` reads Windows'
 notifications and dismisses them; `"calendar"` reads the dock's calendar feeds (and asks them to
 refresh); `"weather"` reads the dock's forecast (and asks it to refresh); `"perf"` reads the
-machine's performance counters and HWiNFO's shared sensor memory (nothing else). Modules and images
+machine's performance counters and HWiNFO's shared sensor memory (nothing else); `"network"` (round
+27) reads the state of the internet connection (online or not, its kind, the Wi-Fi network's name and
+its signal bars). Modules and images
 are read
 only from the widget's own package (and `media.art()` tokens, with `"media"`):
 
@@ -1158,6 +1186,7 @@ Each preview is the widget's own `draw()`, run once by a **preview instance**:
 | `notifications` | `state` "polling", 3 unread: "Mail" (5 minutes ago, "Sam Rivera"), "Mail" (20 minutes ago, "Weekly report"), "Calendar" (an hour ago, "Stand-up"), newest first. |
 | `calendar` | One feed "Sample" in the first feed colour (`#FF4CC2FF`); today "Stand-up" 09:30 - 09:45 and "Lunch with Sam" 12:30 - 13:30 (local time, `recurring`); `eventsOn` another day is empty; `next()` lists today's events that have not ended, after 13:30 the same two tomorrow (so an agenda never previews "No events"); `events()` covers today and tomorrow. |
 | `weather.get()` | `state` "fresh" (fetched 5 minutes ago), "Sample City", sunny (code 0, day), 21 °C or 70 °F (the default `units`), wind 12 km/h / 7 mph, humidity 45 %, 24 hourly columns from the current hour (a mild day / night curve), 7 days from today (WMO codes 0, 1, 2, 3, 61, 2, 0: clear, through overcast and rain, to clear; highs 23 - 16 °C). `weather.icon()` works as always. |
+| `network.get()` | Round 27: `available`, `connected` and `internet` true, `state` "internet", `kind` "wifi", `name` "Sample Wi-Fi", `bars` 4, `signal` 80, not `metered`. |
 | `perf` | `get()`: serial 1, interval 1000, `cpu.total` 37, eight cores, `cpu.frequency` 4180, `memory.percent` 58, `memory.used` / `total` 9.3 / 16 GB, `gpu.total` 12, `disk.total` 4, `network.down` 120 KB/s, `up` 18 KB/s, `system.uptime` 3 days 4 hours, a laptop on battery (round 7: `battery.percent` 74, `battery.charging` 0, `battery.acLine` 0, `battery.timeLeft` 11400 s = 3 h 10 min); `metrics()` lists those keys (35); `series(key, n)` up to 60 samples (a sine wave with noise, the newest one the snapshot's value; the same numbers every time); `hwinfo()` `{ available: false, reason: "preview" }`; `setInterval` answers 1000. |
 
 The manifest's `preview` object (see [widget.json](#widgetjson)) picks what the preview shows:
@@ -1216,7 +1245,7 @@ centred on the dock's display, under the other windows; its settings open in a p
 ## Examples
 
 The repository's `examples\` folder holds four small annotated widgets to start from (README.md
-in each; install with App settings > Widget library > **Add from folder…**): `examples/minimal`,
+in each; install with App settings > Widget library > **More ▾** > **Add from folder…**): `examples/minimal`,
 `examples/http-json`, `examples/popup-list`, `examples/edit-text` ([Developing a widget](#developing-a-widget)). The
 built-ins are worked examples too:
 
@@ -1521,6 +1550,18 @@ built-ins are worked examples too:
   `badge` number shows) draws `notifications.count()` and redraws on `notifications.onChange`;
   `click` `centre` (default: `notifications.openCentre()`) or `windows`
   (`shell.sendKeys('win+n')`); `badgeColor`, `image`. Permissions `shell`, `notifications`.
+- `widgets/network` ("Network", round 27 phase 27B): the [network](#network) provider as the
+  taskbar's icon, drawn with paths in one square of `dock.iconSize` x 0.5 x `scale`: Wi-Fi as a dot
+  and three arcs lit up to the signal (the 0 - 5 bars mapped to four steps, the rest at 28 %
+  opacity), an ethernet plug, five cellular bars, a padlock for a VPN, a globe otherwise; a cross
+  badge (`warnColor`) without internet, an exclamation mark for a captive portal, a crossed globe
+  without a connection. `showLabel` (default off) with `label` `name` (the SSID, else "No internet"
+  / "Not connected") or `state`; on a side dock the label goes under the icon when it fits across.
+  `click` `popup` (default: 280 x 150, the name, kind, state, "metered", the signal as five
+  segments, **Network & internet settings** (`shell.open('ms-settings:network-status')`) and
+  **Quick settings** (`shell.sendKeys('win+a')`)), `quick` or `settings`. `network.onChange`
+  redraws only when something drawn changed. Settings `showLabel`, `label`, `scale`, `font`,
+  `iconColor`, `textColor`, `warnColor`, `click`. Permissions `network`, `shell`.
 
 A minimal widget:
 

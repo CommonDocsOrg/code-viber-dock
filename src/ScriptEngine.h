@@ -71,7 +71,7 @@ public:
     virtual void SetRefresh(uint32_t ms, const std::wstring& timeZone) = 0;
 
     // --- permissions ---
-    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf };
+    enum class Permission { Http, Shell, Audio, Media, Notifications, Calendar, Weather, Perf, Network };
     virtual bool Permitted(Permission p) const = 0;
 
     // --- storage: one JSON object per widget id, values as JSON text ---
@@ -138,6 +138,10 @@ public:
     virtual bool PerfCall(const std::string& what, double number, std::string& json, std::wstring& error) = 0;
     // perf.series(key, n): up to n newest values, oldest first (NaN: no value in that sample).
     virtual bool PerfSeries(const std::string& key, size_t n, std::vector<double>& out, std::wstring& error) = 0;
+
+    // --- network (permission "network", round 27 phase 27B): the process's NetworkService ---
+    // `what`: "get" (the state object, docs/widgets.md "network"). The result as JSON.
+    virtual bool NetworkCall(const std::string& what, std::string& json, std::wstring& error) = 0;
 
     // --- popups (anchored on the widget's slot, beside the dock) ---
     // A popup the script draws (drawPopup) of w x h DIPs. `passive`: the passive kind (never takes
@@ -249,7 +253,8 @@ public:
     virtual void SettingsChanged() = 0;
     // Bytes allocated by the script heap (JS_ComputeMemoryUsage malloc_size).
     virtual size_t HeapBytes() = 0;
-    // A provider changed ("audio", "media", "notifications", "calendar", "weather", "perf"): its onChange listeners
+    // A provider changed ("audio", "media", "notifications", "calendar", "weather", "perf", "network"
+    // (round 27)): its onChange listeners
     // run with its new state. "calendarReminder": the onReminder listeners get `payload` (JSON);
     // "storage" (round 6 phase 6C): storage.onChange listeners get `payload` ({ key }, JSON).
     virtual ScriptResult Emit(const std::string& channel, const std::string& payload = {}) = 0;

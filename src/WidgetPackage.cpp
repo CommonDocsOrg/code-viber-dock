@@ -73,6 +73,8 @@ constexpr BuiltInFile kBuiltIns[] = {
     {L"stocks", "main.js", IDR_WIDGET_STOCKS_MAIN},
     {L"photo-frame", "widget.json", IDR_WIDGET_PHOTOFRAME_JSON},  // round 17 phase 17A
     {L"photo-frame", "main.js", IDR_WIDGET_PHOTOFRAME_MAIN},
+    {L"network", "widget.json", IDR_WIDGET_NETWORK_JSON},  // round 27 phase 27B
+    {L"network", "main.js", IDR_WIDGET_NETWORK_MAIN},
 };
 
 bool IsBuiltIn(const std::wstring& id) {
@@ -237,6 +239,8 @@ void ReadPermissions(const json::JsonObject& root, Manifest& m) {
                 m.weather = true;
             } else if (s == L"perf") {
                 m.perf = true;
+            } else if (s == L"network") {
+                m.network = true;  // round 27 phase 27B
             } else if (s == L"http") {
                 m.http = true;  // no hosts: every request is refused (name the hosts)
             } else if (s.rfind(L"http:", 0) == 0) {
@@ -687,7 +691,8 @@ constexpr const wchar_t* kFieldKeys[] = {L"key",     L"type",       L"label", L"
                                          L"quick",                 // round 13 phase 13C
                                          L"filter"};               // round 17 phase 17A (file fields)
 constexpr wchar_t kPermissionFix[] =
-    L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\" or { \"http\": [\"host\"] }";
+    L"use \"shell\", \"audio\", \"media\", \"notifications\", \"calendar\", \"weather\", \"perf\", \"network\" or "
+    L"{ \"http\": [\"host\"] }";
 
 bool Known(const wchar_t* const* begin, const wchar_t* const* end, const std::wstring& key) {
     return std::any_of(begin, end, [&](const wchar_t* k) { return key == k; });
@@ -822,7 +827,7 @@ void CheckPermissions(Checker& c, const json::JsonObject& root) {
         if (v.ValueType() == json::JsonValueType::String) {
             const std::wstring s = Lower(std::wstring(v.GetString()));
             if (s == L"shell" || s == L"audio" || s == L"media" || s == L"notifications" || s == L"calendar" ||
-                s == L"weather" || s == L"perf") {
+                s == L"weather" || s == L"perf" || s == L"network") {  // round 27: network
                 continue;
             }
             if (s == L"http") {
@@ -1631,6 +1636,7 @@ std::vector<std::wstring> PermissionList(const Manifest& m) {
     if (m.audio) out.push_back(L"audio");
     if (m.calendar) out.push_back(L"calendar");
     if (m.media) out.push_back(L"media");
+    if (m.network) out.push_back(L"network");  // round 27
     if (m.notifications) out.push_back(L"notifications");
     if (m.perf) out.push_back(L"perf");
     if (m.shell) out.push_back(L"shell");
@@ -1670,6 +1676,9 @@ std::vector<std::wstring> PermissionLines(const Manifest& m) {
     if (m.audio) out.push_back(L"Audio: read and change the system volume, mute and the default speakers");
     if (m.calendar) out.push_back(L"Calendar: read the events of your calendar feeds (and refresh them)");
     if (m.media) out.push_back(L"Media: see what your media apps are playing (title, artist, cover art) and control playback");
+    if (m.network) {  // round 27
+        out.push_back(L"Network: see whether this PC is online, the kind of connection and the Wi-Fi network's name and signal");
+    }
     if (m.notifications) out.push_back(L"Notifications: read your Windows notifications (app, title and text) and dismiss them");
     if (m.perf) out.push_back(L"Performance: read this PC's performance counters (processor, memory, disks, network) and HWiNFO's sensors");
     if (m.shell) {
@@ -1712,6 +1721,7 @@ std::wstring PermissionSummary(const Manifest& m) {
     if (m.calendar) add(L"calendar");
     if (m.weather) add(L"weather");
     if (m.perf) add(L"perf");
+    if (m.network) add(L"network");  // round 27
     return s.empty() ? L"none" : s;
 }
 

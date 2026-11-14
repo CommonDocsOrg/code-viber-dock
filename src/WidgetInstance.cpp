@@ -238,7 +238,11 @@ void WidgetInstance::SetVisible(bool visible) {
     } else {
         ResumeRefresh();
     }
+    // Round 27: the network provider goes quiet while none of its users can be seen.
+    if (!preview_) runtime_.ProviderVisibilityChanged();
 }
+
+bool WidgetInstance::CanBeSeen() const { return !Unseen(); }
 
 // Round 26 phase 26A: a seconds clock on an auto-hidden dock ran tick() + draw() + a composition
 // commit every second for nobody. The host now stops the refresh (timer id 0) while the instance
@@ -1383,6 +1387,7 @@ bool WidgetInstance::Permitted(Permission p) const {
         case Permission::Calendar: return package_->manifest.calendar;
         case Permission::Weather: return package_->manifest.weather;
         case Permission::Perf: return package_->manifest.perf;
+        case Permission::Network: return package_->manifest.network;  // round 27 phase 27B
         case Permission::Http:
         default: return package_->manifest.http;
     }
@@ -2410,5 +2415,31 @@ bool WidgetInstance::PerfSeries(const std::string& key, size_t n, std::vector<do
         return false;
     }
     perf->Series(key, std::min(n, PerfService::kHistory), out);
+    return true;
+}
+
+// --- round 27: network ------------------------------------------------------------------------------
+
+bool WidgetInstance::NetworkCall(const std::string& what, std::string& json, std::wstring& error) {
+    if (!Permitted(Permission::Network)) {
+        error = L"network needs the \"network\" permission";
+        return false;
+    }
+    if (what != "get" && what != "use") {
+        error = L"network: unknown call";
+        return false;
+    }
+    if (preview_) {
+        json = what == "get" ? WidgetSamples::NetworkJson() : std::string("null");
+        return true;
+    }
+    // Windows could not say (the network list service is not there): `available` false, not a throw,
+    // so an indicator can draw "unknown"; the next call tries to start the provider again.
+    const NetworkService* net = runtime_.UseNetwork(this);
+    if (what == "use") {
+        json = "null";
+    } else {
+        json = NetworkService::Json(net ? net->Get() : NetworkService::State{});
+    }
     return true;
 }

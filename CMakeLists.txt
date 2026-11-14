@@ -108,6 +108,7 @@ add_executable(WinDock WIN32
   src/AudioService.cpp
   src/MediaService.cpp
   src/PerfService.cpp
+  src/NetworkService.cpp
   src/NotificationService.cpp
   src/NotificationElements.cpp
   src/NotificationPopup.cpp

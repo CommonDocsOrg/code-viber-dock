@@ -9,6 +9,7 @@
 
 #include "Config.h"
 #include "JsonUtil.h"
+#include "NetworkService.h"
 #include "WeatherGlyphs.h"
 
 namespace WidgetSamples {
@@ -532,6 +533,17 @@ void PerfSeries(const std::string& key, size_t n, std::vector<double>& out) {
         }
         out.push_back(std::clamp(x, m->min, m->max));
     }
+}
+
+// Round 27: the real provider's Json builder, so the shapes cannot drift.
+std::string NetworkJson() {
+    NetworkService::State s;
+    s.available = s.connected = true;
+    s.level = 3;
+    s.kind = L"wifi";
+    s.name = L"Sample Wi-Fi";
+    s.bars = 4;
+    return NetworkService::Json(s);
 }
 
 }  // namespace WidgetSamples

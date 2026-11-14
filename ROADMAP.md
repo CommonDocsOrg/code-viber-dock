@@ -2077,6 +2077,26 @@ menu, and the installer adds a second Start menu shortcut, **Restore Windows tas
 (`--restore-taskbar`), so getting the taskbar back needs no command prompt. Same file and
 component as the main shortcut: no new GUID.
 
+**27B, what the taskbar had: the network icon** (branch `feature/taskbar-gaps`, on
+`feature/viberdock-name`). Hiding the Explorer taskbar loses indicators nothing in the dock
+replaced; the network icon is now a built-in script widget on a small native provider, in the
+pattern of audio / media / perf (started by the first widget that calls it, stopped with the last,
+changes delivered through `ProviderChanged`), with the round 26 rule added for providers: quiet
+while none of its widgets can be seen or the session is paused, one read when seen again if
+something came meanwhile.
+
+Network: the plan was wlanapi for the SSID and a 0 - 100 signal with its notifications. Microsoft's
+documentation ("Changes to API behavior for Wi-Fi access and location") says that since Windows 11
+24H2 exactly those calls (the current connection query, MSM notifications) need precise-location
+consent and show a one-time location prompt; a network icon that makes Windows ask for the user's
+location was not acceptable, so wlanapi is not used at all (no DLL to load dynamically). One WinRT
+call (`GetInternetConnectionProfile`) gives connectivity, kind, SSID (`GetConnectedSsid`, the
+documented alternative), bars and cost, and `NetworkStatusChanged` covers the state changes; it was
+preferred to `INetworkListManager`'s connection points and `NotifyNetworkConnectivityHintChange`,
+which give connectivity (and cost) only. What this costs: the signal is Windows' 0 - 5 bars, and a
+bars-only change has no event (re-read at every event, on wake and on a click). The profile read is
+an RPC, so it runs on a pool thread and posts its result.
+
 ## Dependencies at a glance
 
 ```
