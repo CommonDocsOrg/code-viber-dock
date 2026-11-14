@@ -1,6 +1,6 @@
 {
   "name": "Now playing",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "author": "ViberDock",
   "description": "The current media session (Spotify, a browser, the Media Player app ...): album art, title and artist. Previous / play-pause / next over the face while hovered, always, or as buttons beside it; a long title or artist scrolls; middle-click for a popup with the controls; the wheel changes the volume and shows a volume bar beside the dock (a setting). On the desktop it can be a mini player instead: Deck, Capsule, Cover or Disc, in the dock theme's colours, Silver or Night, with progress (click or drag to seek) and a volume slider.",
   "api": 1,
@@ -47,6 +47,8 @@
       ] },
     { "key": "accentColor", "section": "appearance", "group": "Desktop mini player", "visibleIf": { "layout": ["deck", "capsule", "cover", "disc"] }, "type": "colour", "label": "Accent colour", "default": "#00000000",
       "description": "The progress, the volume slider and (Silver, Night) the play button. Transparent (#00000000): the skin's own." },
+    { "key": "displayColor", "section": "appearance", "group": "Desktop mini player", "visibleIf": { "layout": ["deck", "capsule", "cover", "disc"] }, "type": "colour", "label": "Display text colour", "default": "#00000000",
+      "description": "The title, the artist and the times. Transparent (#00000000): the skin's own (Night: amber, or the accent colour when that is set)." },
     { "key": "showProgress", "section": "appearance", "group": "Desktop mini player", "visibleIf": { "layout": ["deck", "capsule", "cover", "disc"] }, "type": "bool", "label": "Show the progress", "default": true,
       "description": "The position in the track (the Disc: a ring round its rim), redrawn once a second while something plays. Click or drag on it to jump, when the playing app allows that." },
     { "key": "showVolume", "section": "appearance", "group": "Desktop mini player", "visibleIf": { "layout": ["deck", "cover"] }, "type": "bool", "label": "Show the volume slider", "default": true,

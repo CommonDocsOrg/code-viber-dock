@@ -1082,6 +1082,15 @@ Nothing was run on the desktop.
 | | | **Verified** (2026-11-13): `Config.cpp`, `TrayElements.cpp`, `SettingsPagesTray.cpp`, `DockWindow.cpp` compile with 0 warnings in `build\dev`; `check_docs.py` clean (84 topics); the smoke script parses. |
 | | | **Not verified**: `build\dev\WinDock.exe` did not link at the time, on symbols of other work in progress in the tree (`Widgets::FieldOf`, `Widgets::CheckUrlValue`), so nothing of this was run: the look of every shape / fill / style on each edge and at 100 / 125 / 150 %, the `+N`'s optical centring in a shape (a 0.06 em lift), the default look unchanged to the pixel, the settings rows (greying, the slider's steps of 5), `tray-look.ps1`. |
 
+## Round 31: Now playing's display text colour (from the user's request of 2026-11-14; branch `media-display-colour`, from master)
+Nothing was run on the desktop.
+
+| Phase | Status | Notes |
+|---|---|---|
+| 31A The display text colour | Done, not run (2026-11-14) | Now playing 1.3.0: a colour setting `displayColor` (Display text colour, the Desktop mini player group) for the mini players' title, artist and times; transparent is the skin's own. The dim lines are the same colour at 73 % alpha. Unset, the Night skin's text follows a set `accentColor` instead of staying amber (the user's pink accent beside amber text was the report). README, `docs/guide-items.md`, `docs/widgets.md` updated. |
+| | | **Verified**: `build\dev` builds; `--validate-widget widgets\media` OK; `check_docs.py` and `check_widget_docs.py` clean. |
+| | | **Not verified**: the look of any skin with the colour set, the 73 % dim lines against each display, the settings row. `build\x64-release` was not rebuilt. |
+
 ## How to resume
 
 **Round 29** (2026-11-13, table "Round 29" above, branch `feature/widget-dev-tools`, on `feature/widgets-styles`, not merged or pushed): 29A `--validate-widget` compiles the scripts and warns about unused permissions and missing metadata, `docs/windock.d.ts` (RCDATA 396, written by Export built-in), the Console's Copy all / Save to file… (4007 / 4008); 29B the in-tree zip reader (`Zip.cpp`, tests in `tests\zip`), Install from zip… / Uninstall… / Show folder (3514 - 3516, DockCommand 190 / 191, QueryState 374 - 376), `--validate-widget` on a zip. Built into `build\dev` only, nothing run.

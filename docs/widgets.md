@@ -1584,7 +1584,8 @@ built-ins are worked examples too:
   natural size under one `translate` + `scaleBy` that fits it into the window (centred; the Deck's
   display and the Capsule's pill take extra width instead of leaving it empty); `skin` `"theme"`
   (`dock.theme` colours), `"silver"`, `"night"` (Consolas in the display); `accentColor`
-  (transparent: the skin's); `showProgress`; `showVolume` (Deck, Cover). These four use
+  (transparent: the skin's); `displayColor` (the display's text; transparent: the skin's, Night
+  following a set `accentColor`); `showProgress`; `showVolume` (Deck, Cover). These five use
   `visibleIf` arrays. The transport buttons, the progress bar (the Disc's rim ring, by angle) and
   the volume slider **claim** their presses (`onPress` returns `true`), so they work with
   `onDrag` / `onRelease` (a button acts on release over it, drawn brighter while held; the bar

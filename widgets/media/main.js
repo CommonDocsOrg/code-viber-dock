@@ -529,6 +529,14 @@ function skin() {
     if (s.play.radial) s.play = { radial: [mix(acc, WHITE, 0.55), acc, mix(acc, BLACK, 0.45)], mid: 0.56 };
     else if (s.play.linear) s.play = { linear: [mix(acc, WHITE, 0.25), mix(acc, BLACK, 0.12)] };
   }
+  // The display's text (title, artist, times): settings.displayColor; unset, Night's display stays
+  // one colour, so it follows a set accent rather than staying amber beside it. The dim lines are
+  // the same colour at 73% (Night's own #BD8230 over its display is amber at about that).
+  const ink = colorOf(settings.displayColor, settings.skin === 'night' ? acc : null);
+  if (ink) {
+    s.lcdInk = ink;
+    s.lcdDim = withAlpha(ink, 'BA');
+  }
   return s;
 }
 
