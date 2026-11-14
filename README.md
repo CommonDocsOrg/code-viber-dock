@@ -214,7 +214,9 @@ phase 12G; it replaced the welcome dialog; see Quick setup under [Settings](#set
 
 `--validate-widget <folder>` starts no dock: it prints the folder's manifest problems with their
 fields and fixes and exits with 0 (no errors), 1 (errors) or 2 (not a widget folder); see
-[docs/widgets.md](docs/widgets.md#validating-a-widget).
+[docs/widgets.md](docs/widgets.md#validating-a-widget). Round 29: it also compiles every script of
+the folder (a syntax error is an error with its file, line and column; nothing runs) and warns about
+permissions no script mentions and a missing description, version or author.
 
 There are three menus (round 10 phase 10A; "…" marks the entries that open a window or a dialog):
 
@@ -1575,7 +1577,12 @@ write and edit without compiling anything. The full reference (every call, every
   a bad size, an unknown permission, a bad settings entry, a `choiceFrom` glob that matches nothing)
   stops it with the field and the fix on its tile and in the Console, warnings go to the Console.
   `WinDock.exe --validate-widget <folder>` runs the same check from a command line (exit code 0 / 1
-  / 2), for authors and CI.
+  / 2), for authors and CI; round 29: plus a compile of every script (syntax errors with file:line:column)
+  and warnings for unused permissions and missing metadata.
+- **Editor help** (round 29): `docs/windock.d.ts` declares the whole script API for TypeScript-aware
+  editors: `// @ts-check` and `/// <reference path="windock.d.ts" />` at the top of main.js give VS Code
+  completions, the doc comments and type checks. Export built-in to folder writes a copy (and a
+  `jsconfig.json`) into the exported folder; the examples reference the repository's copy.
 - **Settings page layout**: schema entries can carry `group` (section headers), `unit` (after a
   stepper), `visibleIf` (shown only for some value of another field) and (round 10 phase 10B)
   `common` (`true`: the field is one of the few the Dock window's Contents tab edits in its
@@ -4903,4 +4910,6 @@ always there, also when every dock is parked) handle these registered messages:
 - Widget Console (class `WinDock.WidgetConsole`, `DockCommand` 127, `QueryState` 63 / 64): 4001 the
   instance list (LISTBOX, one row "dock · name (id#n) · state"; select with `LB_SETCURSEL` +
   `WM_COMMAND(LBN_SELCHANGE)`), 4002 the log (read-only EDIT, `WM_GETTEXT`), 4003 Reload, 4004 Open
-  folder, 4005 Clear, 4006 the count.
+  folder, 4005 Clear, 4006 the count; round 29: 4007 Copy all (the shown log to the clipboard as text),
+  4008 Save to file… (a Save dialog, modal: post its `BN_CLICKED`; UTF-8 with a BOM, default name
+  `<id>-log.txt`); both greyed while the shown log is empty.

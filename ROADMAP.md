@@ -2163,6 +2163,29 @@ would need a per-slot surface or a scale transform on the dot visual, a larger c
 effect (a candidate for later, with the Tween path's scale animation). Colours stay the theme's dot
 colours, so no Theme field was added; the style is per dock.
 
+## Round 29 (2026-11-13): widget developer tools
+
+Branch `feature/widget-dev-tools`, on `feature/widgets-styles`. The owner expects widgets written by
+other people; this round is for the people writing them (checks, typing, the Console), for the
+people installing them (zip install, uninstall, what the prompts say) and for the script API a
+real third-party widget needs (secrets, settings it can change, a host the user types).
+
+**29A, validation and typing.** The syntax check lives only in `--validate-widget`: the dock already
+reports a load error with its stack, and compiling every script once more at every dock start would
+double the parse cost for nothing the user can act on. QuickJS stays inside `QuickJsEngine.cpp`: the
+check is one engine-neutral function in `ScriptEngine.h`. A surprise worth recording: QuickJS-ng
+resolves a module's static imports at compile time, so the check needs a loader (the widget's own
+rules: package paths only), and an import that is not a file is caught as a bonus. The usage
+warnings are textual on purpose (no AST walk): a permission whose name appears in no script is
+almost certainly not needed, and a false "used" only means no warning. The `.d.ts` is written by
+hand from the bindings rather than generated: the prelude's objects and the native lists are not a
+type source, the doc comments are the point, and the checker makes drift a failure the same way it
+does for widgets.md. It is embedded (26 KB) because an exported built-in is where people start
+editing, and a folder outside the repository has no other way to get it. The DOM question: an
+editor gives loose `.js` files the DOM library, which redeclares `console` and the timers; merging
+(an `interface Console` + `declare var`) is what works, `no-default-lib` did not; the exported
+folder's `jsconfig.json` removes the DOM there.
+
 ## Dependencies at a glance
 
 ```

@@ -15,8 +15,9 @@ thread. This file is the full reference; README.md has the short version.
   and digital (the dock's own clock, `clock.face`)
 - [Limits and errors](#limits-and-errors): the watchdog, memory, the error tile, reloading
 - [Sandbox](#sandbox): what a widget can and cannot reach, permissions
-- [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages, `examples/`
-- [Validating a widget](#validating-a-widget): the manifest check, `WinDock.exe --validate-widget`
+- [Developing a widget](#developing-a-widget): `watch`, the Console, the Settings pages, `examples/`,
+  editor help with [`windock.d.ts`](windock.d.ts)
+- [Validating a widget](#validating-a-widget): the manifest and syntax check, `WinDock.exe --validate-widget`
 - [Standalone widgets](#standalone-widgets): a widget in a window of its own on the desktop
 - [Preview mode](#preview-mode): the widget drawer's live previews, `dock.preview`, the sample data,
   the manifest's `preview`
@@ -1117,7 +1118,25 @@ user's network. `WinDock.exe --validate-widget` prints the lines the dialog will
   stopped), the selected one's log (console output, errors with their stacks, the host's own
   lines: loading, reloads, file changes, shell.open), **Reload**, **Open folder** (the widget's
   folder, or the widgets folder for a built-in) and **Clear** (the view; the log is kept). It
-  updates as lines arrive.
+  updates as lines arrive. Round 29: **Copy all** puts the log as shown (from the last Clear on) on
+  the clipboard, **Save to file…** writes it to a text file (UTF-8, `<id>-log.txt` by default), for a
+  bug report.
+- **Editor help** (round 29): `docs/windock.d.ts` declares the whole API (every global, method,
+  event, the export signatures, the manifest and its settings schema) with short doc comments, for
+  VS Code or any TypeScript-aware editor. Put these two lines at the top of main.js:
+
+  ```js
+  // @ts-check
+  /// <reference path="./windock.d.ts" />
+  ```
+
+  and `canvas.`, `dock.`, `settings.` ... complete with their documentation, wrong argument types are
+  underlined, and `/** @type {ViberDock.Exports['draw']} */` above an export types its parameters.
+  The dock ignores both lines (they are comments). **Export built-in to folder** writes a copy of the
+  file and a `jsconfig.json` (ES2023 only, no DOM) into the exported folder, so the globals are known
+  there without the reference line; the repository's examples reference `../../docs/windock.d.ts`.
+  `// @ts-check` is optional: without it the editor still completes, it just does not underline.
+  `tools/check_widget_docs.py` keeps the file in step with the bindings.
 - **Errors** show on the widget's tile ("Error" / "Stopped" and the first line of the message).
 
 ## Validating a widget
@@ -1141,6 +1160,24 @@ FAILED: 2 errors, 1 warning
 Round 25: after the name it prints the permissions as the consent dialog will list them ("none"
 when it asks for nothing), and a note when the folder name is a built-in widget's id (installed,
 it would replace that widget and ask for consent).
+
+Round 29, what only the command line checks (the dock does not, to keep loading cheap):
+
+- **Every script compiles**: each `.js` / `.mjs` file of the folder (at most 64) is parsed and
+  compiled as a module, with its static imports, in a throwaway engine with no host API; nothing
+  runs, not even the top-level code. A syntax error, or an import that is not a file of the
+  widget, is an error with its place: `error: lib/util.js:12:7: SyntaxError: unexpected token in
+  expression: ';'`. What it cannot see: errors that only happen when the code runs (a misspelt
+  global, a wrong argument), which the Console shows.
+- **Permissions in use** (warnings, textual): a permission that no script mentions (`"http"` asked
+  for, no `http.` anywhere; `"shell"` counts `shell.`, `fileIcon`, `popup.folder`, `onDrop` and a
+  `file` / `folder` setting), and the reverse for the calls that need one (`http.get(` without an
+  `http` permission, `shell.open(` without `"shell"`, `notify.banner(` without `"notify"`).
+- **What the user sees**: a missing `description` (the Widget library and the drawer show it),
+  `version` or `author` (the consent dialog shows both).
+
+The manifest has no icon: the drawer and the library show the widget's own live preview
+([Preview mode](#preview-mode)), so there is nothing to check for one.
 
 Exit code **0**: no errors (warnings may be listed), **1**: errors, **2**: no folder given, or no
 widget.json in it. The output goes to the console that started it (or a redirected standard

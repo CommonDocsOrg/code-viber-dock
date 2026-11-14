@@ -1,3 +1,7 @@
+// @ts-check
+/// <reference path="../../docs/windock.d.ts" />
+// (Editor help only: docs/windock.d.ts declares the widget API for VS Code; the dock ignores both lines.)
+
 // Fetching a public JSON API: Open-Meteo's air quality (https://open-meteo.com, no key) for one
 // place, shown as "AQI 23" with a coloured dot. What it shows:
 // - The manifest's permission { "http": ["air-quality-api.open-meteo.com"] }: requests to any other

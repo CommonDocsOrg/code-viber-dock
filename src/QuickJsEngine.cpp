@@ -2598,3 +2598,118 @@ std::unique_ptr<ScriptEngine> CreateQuickJsEngine(ScriptHost& host, const Script
         return nullptr;
     }
 }
+
+// Round 29 phase 29A. JS_EVAL_FLAG_COMPILE_ONLY on a module parses it and builds its function and
+// import / export records; linking (where the module loader would be asked for the imports) and
+// evaluation happen only in JS_EvalFunction, which is never called here, so no loader, prelude or
+// host is needed. A parse error's stack is "    at <name>:<line>:<column>" (quickjs.c js_parse_error
+// builds it from the token's position), which is where the position is read from.
+namespace {
+
+struct SyntaxCheck {
+    const std::function<bool(const std::string&, std::string&)>* read = nullptr;
+    int modules = 0;  // imports compiled (bounded: a package has at most 512 files)
+};
+
+char* CheckNormalize(JSContext* ctx, const char* base, const char* name, void*) {
+    try {
+        std::string out;
+        if (!Widgets::ResolvePath(base ? base : "", name ? name : "", out)) {
+            JS_ThrowReferenceError(ctx, "module '%s' is not a path inside the widget folder", name ? name : "");
+            return nullptr;
+        }
+        return js_strdup(ctx, out.c_str());
+    } catch (...) {
+        JS_ThrowInternalError(ctx, "module name error");
+        return nullptr;
+    }
+}
+
+JSModuleDef* CheckLoader(JSContext* ctx, const char* name, void* opaque) {
+    auto* check = static_cast<SyntaxCheck*>(opaque);
+    try {
+        std::string src;
+        if (++check->modules > 512 || !check->read || !(*check->read)(name, src)) {
+            JS_ThrowReferenceError(ctx, "could not load module '%s': it is not a file of the widget", name);
+            return nullptr;
+        }
+        JSValue fn = JS_Eval(ctx, src.c_str(), src.size(), name, JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        if (JS_IsException(fn)) return nullptr;
+        auto* m = static_cast<JSModuleDef*>(JS_VALUE_GET_PTR(fn));
+        JS_FreeValue(ctx, fn);  // kept by the runtime's module list
+        return m;
+    } catch (...) {
+        JS_ThrowInternalError(ctx, "module loader error");
+        return nullptr;
+    }
+}
+
+}  // namespace
+
+bool CheckScriptSyntax(const std::string& source, const std::string& name,
+                       const std::function<bool(const std::string& path, std::string& bytes)>& read, std::wstring& message,
+                       std::string& where, int& line, int& column) {
+    message.clear();
+    where = name;
+    line = column = 0;
+    JSRuntime* rt = JS_NewRuntime();
+    if (!rt) {
+        message = L"the script engine could not start";
+        return false;
+    }
+    SyntaxCheck check;
+    check.read = &read;
+    JS_SetMemoryLimit(rt, 64u << 20);
+    JS_SetMaxStackSize(rt, 4u << 20);
+    JS_UpdateStackTop(rt);
+    JS_SetModuleLoaderFunc(rt, &CheckNormalize, &CheckLoader, &check);
+    JSContext* ctx = JS_NewContext(rt);
+    if (!ctx) {
+        JS_FreeRuntime(rt);
+        message = L"the script engine could not start";
+        return false;
+    }
+    bool ok = false;
+    try {
+        // JS_Eval reads up to the terminating NUL: std::string's data() has one.
+        JSValue fn = JS_Eval(ctx, source.c_str(), source.size(), name.c_str(), JS_EVAL_TYPE_MODULE | JS_EVAL_FLAG_COMPILE_ONLY);
+        ok = !JS_IsException(fn);
+        if (ok) {
+            JS_FreeValue(ctx, fn);
+        } else {
+            JSValue e = JS_GetException(ctx);
+            message = ToWide(ctx, e);
+            std::string stack;
+            if (JS_IsError(e)) {
+                JSValue st = JS_GetPropertyStr(ctx, e, "stack");
+                if (JS_IsString(st)) stack = ToStd(ctx, st);
+                JS_FreeValue(ctx, st);
+            }
+            JS_FreeValue(ctx, e);
+            // "    at lib/a.js:12:5": the first "at <file>:<digits>:<digits>" of the stack (the file
+            // may be an import of `name`).
+            for (size_t at = stack.find("at "); at != std::string::npos; at = stack.find("at ", at + 3)) {
+                const size_t start = at + 3, end = stack.find_first_of("\r\n", start);
+                const std::string frame = stack.substr(start, end == std::string::npos ? std::string::npos : end - start);
+                const size_t c2 = frame.rfind(':');
+                const size_t c1 = c2 == std::string::npos || c2 == 0 ? std::string::npos : frame.rfind(':', c2 - 1);
+                if (c1 == std::string::npos || c1 == 0) continue;
+                const int l = std::atoi(frame.c_str() + c1 + 1), c = std::atoi(frame.c_str() + c2 + 1);
+                if (l <= 0) continue;
+                std::string file = frame.substr(0, c1);
+                if (const size_t paren = file.find_last_of('('); paren != std::string::npos) file = file.substr(paren + 1);
+                where = file;
+                line = l;
+                column = c > 0 ? c : 0;
+                break;
+            }
+            if (message.empty()) message = L"the script does not compile";
+        }
+    } catch (...) {
+        ok = false;
+        if (message.empty()) message = L"the script could not be checked";
+    }
+    JS_FreeContext(ctx);
+    JS_FreeRuntime(rt);
+    return ok;
+}

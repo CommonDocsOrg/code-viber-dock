@@ -75,6 +75,9 @@
 #define IDR_CLOCKFACE_COMPACT 393
 #define IDR_CLOCKFACE_TIME_WEEKDAY 394
 #define IDR_CLOCKFACE_BIG_DATE 395
+// Round 29 phase 29A: docs/windock.d.ts, written into an exported built-in widget's folder
+// (Widgets::ExportBuiltIn) with a jsconfig.json, for the editor's completions.
+#define IDR_WIDGET_DTS 396
 
 // Round 9 phase 9C: the predefined dock setups (RCDATA, res/presets/<id>.json; Presets.cpp lists
 // them in this order).

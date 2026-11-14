@@ -13,6 +13,10 @@ allow them), then **Add to dock**.
 | [`edit-text`](edit-text) | A label renamed with a click: `popup.editText`, the dock's text editor, the answer kept in `storage`. |
 
 Check a folder before installing it: `WinDock.exe --validate-widget examples\minimal` prints the
-manifest's problems (with the field and the fix) and exits with 0 when there is no error. The full
+manifest's problems (with the field and the fix) and every script's syntax errors (file:line:column),
+and exits with 0 when there is no error. Each `main.js` starts with `// @ts-check` and a reference to
+[docs/windock.d.ts](../docs/windock.d.ts), the API's TypeScript declarations: open the repository in
+VS Code and the API completes and is type-checked as you type (a copy installed elsewhere loses the
+reference; copy `windock.d.ts` next to it and change the path to `./windock.d.ts`). The full
 API is in [docs/widgets.md](../docs/widgets.md); the built-in widgets in [`widgets/`](../widgets)
 are larger worked examples (the analog clock's faces, the weather popup, the agenda).

@@ -192,6 +192,9 @@ std::vector<Issue> Validate(const std::string& bytes, const Package& pkg);
 // The CLI's check of a widget folder (not installed): reads and validates it. False when it cannot
 // be read at all (no folder, no widget.json; `issues` say why). `name`: its manifest name.
 // Round 25 phase 25D: `manifest` (optional): the parsed manifest (the CLI prints its permissions).
+// Round 29 phase 29A: also compiles every script of the folder (CheckScriptSyntax: a syntax error is
+// an error with file:line:column), warns about permissions no script mentions (and http / shell /
+// notify calls without their permission), and about a missing description, version or author.
 bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name, Manifest* manifest = nullptr);
 
 // The installed widgets for menus and the settings window: every built-in and every folder under

@@ -2,6 +2,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <functional>
 #include <memory>
 #include <string>
 #include <vector>
@@ -279,3 +280,13 @@ public:
 };
 
 std::unique_ptr<ScriptEngine> CreateQuickJsEngine(ScriptHost& host, const ScriptLimits& limits);
+
+// Round 29 phase 29A (`WinDock.exe --validate-widget`): parses and compiles `source` as an ES module
+// named `name` in a throwaway runtime of its own: no host API is bound, nothing runs (not even the
+// top-level code). Compiling a module also compiles its static imports (QuickJS-ng resolves them
+// then): `read` gives a package file by its normalized path (Widgets::ResolvePath rules, as the
+// widget's own loader). True when it all compiles; else `message` (the engine's error text) and the
+// position (`line` / `column` 1-based, 0 when the engine gave none) in `where` (the file it is in).
+bool CheckScriptSyntax(const std::string& source, const std::string& name,
+                       const std::function<bool(const std::string& path, std::string& bytes)>& read, std::wstring& message,
+                       std::string& where, int& line, int& column);

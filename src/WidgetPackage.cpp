@@ -11,6 +11,7 @@
 #include "Config.h"
 #include "HttpClient.h"
 #include "JsonUtil.h"
+#include "ScriptEngine.h"  // round 29 phase 29A: CheckScriptSyntax (the CLI's check)
 #include "resource.h"
 
 namespace Widgets {
@@ -1139,6 +1140,111 @@ std::vector<Issue> Validate(const std::string& bytes, const Package& pkg) {
     return issues;
 }
 
+namespace {
+
+// Round 29 phase 29A: what only the CLI checks (`--validate-widget`; Load does not: it would compile
+// every script twice at every dock start): every script of the package compiles, the permissions
+// asked for are used (and the ones used are asked for), and the manifest has what the Widget library
+// and the consent dialog show. The usage checks are textual (a name such as "http." anywhere in a
+// script, comments included), so they only warn: a permission whose name appears nowhere is almost
+// certainly not needed; one that appears may still be unused.
+void CheckPackageExtras(const Package& pkg, const std::string& bytes, std::vector<Issue>& issues) {
+    Checker c(issues);
+    std::string all;  // every script's text, for the usage checks
+    size_t scripts = 0;
+    for (const std::string& file : pkg.Files()) {
+        const bool js = (file.size() > 3 && _stricmp(file.c_str() + file.size() - 3, ".js") == 0) ||
+                        (file.size() > 4 && _stricmp(file.c_str() + file.size() - 4, ".mjs") == 0);
+        if (!js) continue;
+        if (++scripts > 64) {
+            c.Warn(L"scripts", L"more than 64 scripts: the others were not checked");
+            break;
+        }
+        std::string text;
+        std::wstring error;
+        if (!pkg.Read(file, text, error)) {
+            c.Error(Utf8ToWide(file), error, L"keep scripts inside the widget folder, at most 8 MB each");
+            continue;
+        }
+        std::wstring message;
+        std::string in;
+        int line = 0, column = 0;
+        const auto read = [&pkg](const std::string& path, std::string& out) {
+            std::wstring readError;
+            return pkg.Read(path, out, readError);
+        };
+        if (!CheckScriptSyntax(text, file, read, message, in, line, column)) {
+            std::wstring where = Utf8ToWide(in);
+            if (line > 0) where += L":" + std::to_wstring(line) + (column > 0 ? L":" + std::to_wstring(column) : L"");
+            // An error in an import is reported once, at the file it is in.
+            const bool seen = std::any_of(issues.begin(), issues.end(), [&](const Issue& i) { return i.field == where && i.message == message; });
+            if (!seen) c.Error(where, message, L"fix it: the widget cannot load while a script does not compile");
+        }
+        all += text;
+        all += '\n';
+    }
+    const Manifest& m = pkg.manifest;
+    auto uses = [&](std::initializer_list<const char*> names) {
+        return std::any_of(names.begin(), names.end(), [&](const char* n) { return all.find(n) != std::string::npos; });
+    };
+    // A file / folder setting is the usual reason for "shell" without a shell.* call (canvas.image
+    // and shell.list of a path the user chose).
+    const bool pathSetting = std::any_of(m.settings.begin(), m.settings.end(), [](const SettingField& f) {
+        return f.type == SettingField::Type::File || f.type == SettingField::Type::Folder;
+    });
+    struct Use {
+        bool asked;
+        const wchar_t* name;
+        bool used;
+    };
+    const Use table[] = {
+        {m.shell, L"shell", pathSetting || uses({"shell.", "fileIcon", "popup.folder", "onDrop"})},
+        {m.http, L"http", uses({"http."})},
+        {m.audio, L"audio", uses({"audio."})},
+        {m.media, L"media", uses({"media."})},
+        {m.notifications, L"notifications", uses({"notifications."})},
+        {m.calendar, L"calendar", uses({"calendar."})},
+        {m.weather, L"weather", uses({"weather."})},
+        {m.perf, L"perf", uses({"perf."})},
+        {m.network, L"network", uses({"network."})},
+        {m.input, L"input", uses({"input."})},
+        {m.notify, L"notify", uses({"notify."})},
+    };
+    for (const Use& u : table) {
+        if (u.asked && !u.used && scripts > 0) {
+            c.Warn(L"permissions", L"\"" + std::wstring(u.name) + L"\" is asked for but no script mentions it",
+                   L"remove it: every permission is one more line the user must allow");
+        }
+    }
+    // The other way round, only where a call needs the permission and its name is distinctive.
+    if (!m.http && uses({"http.get(", "http.post(", "http.request("})) {
+        c.Warn(L"permissions", L"a script calls http.* but the manifest has no http permission (every request throws)",
+               L"{ \"http\": [\"api.example.com\"] }");
+    }
+    if (!m.shell && uses({"shell.open(", "shell.list(", "shell.sendKeys("})) {
+        c.Warn(L"permissions", L"a script calls shell.* but the manifest has no \"shell\" permission (every call throws)",
+               L"add \"shell\" (or remove the calls)");
+    }
+    if (!m.notify && uses({"notify.banner("})) {
+        c.Warn(L"permissions", L"a script calls notify.banner but the manifest has no \"notify\" permission", L"add \"notify\"");
+    }
+    // What the Widget library, the drawer and the consent dialog show about the widget.
+    try {
+        json::JsonObject root{nullptr};
+        if (json::JsonObject::TryParse(Utf8ToWide(bytes), root) && root) {
+            if (!root.HasKey(L"description")) {
+                c.Warn(L"description", L"is missing: the Widget library and the widget drawer show none",
+                       L"one or two sentences: what the widget shows and what a click does");
+            }
+            if (!root.HasKey(L"version")) c.Warn(L"version", L"is missing: the Widget library and the consent dialog show none", L"\"1.0.0\"");
+            if (!root.HasKey(L"author")) c.Warn(L"author", L"is missing: the consent dialog shows who made the widget", L"your name");
+        }
+    } catch (...) {
+    }
+}
+
+}  // namespace
+
 bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std::wstring& name, Manifest* manifest) {
     issues.clear();
     std::wstring src = folder;
@@ -1167,6 +1273,7 @@ bool ValidateFolder(const std::wstring& folder, std::vector<Issue>& issues, std:
     if (ParseManifest(bytes, pkg.id, pkg.manifest, error)) {
         name = pkg.manifest.name;
         if (manifest) *manifest = pkg.manifest;
+        CheckPackageExtras(pkg, bytes, issues);  // round 29 phase 29A
     }
     return true;
 }
@@ -1343,6 +1450,21 @@ bool ExportBuiltIn(const std::wstring& id, std::wstring& folder, std::wstring& e
             return false;
         }
     }
+    // Round 29 phase 29A: the API's TypeScript declarations and a jsconfig.json that makes the folder
+    // one project for VS Code (the globals are then known in main.js without a reference line; the
+    // library is ES2023 only: a widget has no DOM). Neither is a file the widget reads.
+    std::string dts;
+    if (ReadResource(IDR_WIDGET_DTS, dts) && !JsonUtil::WriteFileAtomic(folder + L"\\windock.d.ts", dts)) {
+        error = L"cannot write " + folder + L"\\windock.d.ts";
+        return false;
+    }
+    const std::string jsconfig =
+        "{\n  \"compilerOptions\": { \"target\": \"es2023\", \"module\": \"es2022\", \"lib\": [\"es2023\"], \"checkJs\": false },\n"
+        "  \"include\": [\"**/*.js\", \"windock.d.ts\"]\n}\n";
+    if (!JsonUtil::WriteFileAtomic(folder + L"\\jsconfig.json", jsconfig)) {
+        error = L"cannot write " + folder + L"\\jsconfig.json";
+        return false;
+    }
     // A stub README: where the API is documented and how the copy behaves.
     std::wstring name = id;
     if (const auto pkg = Load(id, error)) name = pkg->manifest.name;
@@ -1355,7 +1477,9 @@ bool ExportBuiltIn(const std::wstring& id, std::wstring& folder, std::wstring& e
         "Delete the folder to get the built-in back.\n\n"
         "- The API (canvas, dock, timer, settings, storage, providers, popups, the manifest and its settings schema):\n"
         "  docs/widgets.md in the ViberDock source repository.\n"
-        "- Check the manifest: `WinDock.exe --validate-widget \"<this folder>\"`.\n"
+        "- Check the manifest and the scripts' syntax: `WinDock.exe --validate-widget \"<this folder>\"`.\n"
+        "- Editor help: `windock.d.ts` (the API's TypeScript declarations) and `jsconfig.json` make VS Code complete\n"
+        "  and explain `canvas`, `dock`, `settings` ... in main.js; add `// @ts-check` at its top for type checks.\n"
         "- Errors and `console.log` output: the dock menu's Tools > Widget console (or the Console button of the widget's settings).\n";
     if (!JsonUtil::WriteFileAtomic(folder + L"\\README.md", readme)) {
         error = L"cannot write " + folder + L"\\README.md";
