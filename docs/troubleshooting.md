@@ -175,4 +175,20 @@ To start over completely:
 
 Your own themes (`themes`) and saved layouts (`layouts`) stay in the folder and are offered again.
 
-If your settings file has a mistake in it, WinDock starts with the defaults and leaves the file as it is, so you can fix it. After you fix it, choose **Tools** > **Reload config** in the dock menu.
+## If your settings file cannot be read
+
+If `config.json` has a mistake in it (or cannot be read), WinDock starts with the default settings and tells you so in a message. Before it saves anything, it keeps a copy of the file as it was, named `config.bad-` followed by the date and time, for example `config.bad-20261113-101500.json`, in the same folder. The five newest such copies are kept.
+
+From then on WinDock saves as usual: the first change you make writes the default-based settings into `config.json`. Your old settings are in the `config.bad-…` copy. If WinDock could not make the copy, it does not save over `config.json` at all until the file can be read or copied; the settings window then shows **Couldn't save**.
+
+To get your settings back:
+
+1. In the message, click **Open the folder** (or open `%LocalAppData%\WinDock`).
+2. Fix the mistake in `config.json`, or copy a backup over it: the `config.bad-…` copy after you fix it, or one of the automatic backups below.
+3. Click **Try again** in the message, or choose **Tools** > **Reload config** in the dock menu.
+
+## Automatic backups
+
+Each time WinDock starts with a good settings file, it keeps a copy of it as it was: `config.backup-1.json` is the newest, then `config.backup-2.json` and `config.backup-3.json`. A new copy is made only when the file changed since the last one, so restarting without changes keeps the older backups. They are in the same folder as `config.json`, `%LocalAppData%\WinDock`.
+
+To go back to a backup, quit WinDock, copy the backup over `config.json` and start WinDock again.

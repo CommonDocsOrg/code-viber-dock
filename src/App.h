@@ -107,6 +107,9 @@ private:
     static constexpr UINT kHelpClosed = WM_APP + 13;      // round 9 phase 9D: posted: delete the closed Help window
     static constexpr UINT kTimelineCommit = WM_APP + 14;  // round 12 phase 12A: posted (coalesced): record the gesture's change
     // (WM_APP + 71 = kPanelAnchorMoved, round 12 phase 12I, declared with ReanchorPanels.)
+    // Round 25 phase 25B: posted once by Initialize after a start from a malformed config.json: the
+    // notice (ShowMalformedNotice) opens once the docks are up and the message loop runs.
+    static constexpr UINT kMalformedNotice = WM_APP + 76;
     static constexpr UINT_PTR kSaveTimerId = 5;  // debounced config save (one-shot)
     static constexpr UINT kSaveDelayMs = 300;
     // Round 12 phase 12A: the Keep / Revert bar's countdown (1 s steps, only while the bar shows;
@@ -231,8 +234,23 @@ private:
     // DockManager::Sync, then the reserved work areas and the settings window follow.
     void SyncDocks();
     void UpdateReservedMonitors();
-    void ReloadConfig();
+    // Round 25 phase 25B: true when the file was read and applied (false: refused while a menu is
+    // open, the file is malformed, or it was missing and the settings were written back).
+    bool ReloadConfig();
     void OpenConfigFile();
+    // --- round 25 phase 25B: a malformed config.json at startup ---
+    // The notice (a task dialog without owner, posted after the start: the docks are up and
+    // usable while it shows): what happened, the copy's name, links to the folder and the file,
+    // Try again (ReloadConfig; shown again while the file is still malformed).
+    void ShowMalformedNotice();
+    static HRESULT CALLBACK MalformedNoticeProc(HWND hwnd, UINT msg, WPARAM wp, LPARAM lp, LONG_PTR data);
+    // Config::Save unless saving is blocked (a malformed start whose copy could not be made: each
+    // call tries the copy again first; the file gone: nothing to protect any more). `error` as Save.
+    bool WriteConfig(DWORD* error = nullptr);
+    bool startedMalformed_ = false;  // QueryState 356: this run started from a malformed config.json
+    bool badCopyMade_ = false;       // ... and its copy (badCopyName_) was made
+    bool saveBlocked_ = false;       // ... without a copy: nothing is written over the file
+    std::wstring badCopyName_;       // config.bad-<stamp>.json (file name only)
     // --- the dashboard hotkey (round 6 phase 6A) ---
     // Registers config.dashboard.hotkey on the app window (RegisterHotKey, id kDashboardHotkeyId),
     // replacing the one registered before; "" registers none. A combination another app holds

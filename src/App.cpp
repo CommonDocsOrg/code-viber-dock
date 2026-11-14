@@ -146,7 +146,8 @@ bool App::Initialize(HINSTANCE instance) {
     msgQueryState_ = RegisterWindowMessageW(DockWindow::kQueryStateMessage);
     msgQueryItem_ = RegisterWindowMessageW(DockWindow::kQueryItemMessage);
 
-    if (config_.Load()) {
+    const Config::LoadResult loaded = config_.LoadFile();
+    if (loaded == Config::LoadResult::Missing) {
         // First run: no config file yet. Seed the default pins and write the file; the welcome
         // dialog opens once the first dock is up (round 9 phase 9C; round 12 phase 12G: Quick setup's
         // first-run variant).
@@ -154,8 +155,20 @@ bool App::Initialize(HINSTANCE instance) {
         SeedDefaultPins();
         config_.EnsureItemSettings();  // the default clock item's settings (from the defaults)
         config_.Save();
-    } else if (config_.migrated) {
-        config_.Save();  // a legacy file (pinned[], top-level dock keys): rewrite it as docks[] once
+    } else if (loaded == Config::LoadResult::Malformed) {
+        // Round 25 phase 25B: the file is there but could not be read or parsed. Until 25B this ran
+        // like a good load (Load() only told Missing apart): the dock used the defaults without a
+        // word and the first debounced save replaced the user's file. Now, before anything can
+        // save: a copy beside it; without one nothing is written over the file this session
+        // (WriteConfig). The notice is posted below, once the docks are up.
+        startedMalformed_ = true;
+        badCopyMade_ = Config::KeepBadCopy(badCopyName_);
+        saveBlocked_ = !badCopyMade_;
+    } else {
+        // Round 25 phase 25B: a good file: config.backup-1 ... -3 of it as it is on disk (before
+        // the migration below rewrites it).
+        Config::RotateBackups();
+        if (config_.migrated) config_.Save();  // a legacy file (pinned[], top-level dock keys): rewrite it as docks[] once
     }
     if (config_.Main().AutoHideOn()) lastOnMode_ = config_.Main().autoHide;
 
@@ -266,7 +279,91 @@ bool App::Initialize(HINSTANCE instance) {
     lastPlacement_ = PlacementOf(config_);
     timelineReady_ = true;
     if (firstRun_) OpenWelcome();  // round 9 phase 9C: posted, after the docks are shown
+    // Round 25 phase 25B: posted, so the notice comes after RecoverFromMarker / Sync / the taskbar
+    // and the docks are usable while it shows (it has no owner and disables nothing).
+    if (startedMalformed_) PostMessageW(hwnd_, kMalformedNotice, 0, 0);
     return true;
+}
+
+// --- round 25 phase 25B: a malformed config.json at startup ---------------------------------------
+
+bool App::WriteConfig(DWORD* error) {
+    if (error) *error = 0;
+    if (saveBlocked_) {
+        // The copy failed at the start (the file locked or unreadable): try it again; the file gone
+        // meanwhile (deleted, renamed by the user) leaves nothing to protect.
+        if (GetFileAttributesW(Config::FilePath().c_str()) == INVALID_FILE_ATTRIBUTES) {
+            saveBlocked_ = false;
+        } else if (Config::KeepBadCopy(badCopyName_)) {
+            badCopyMade_ = true;
+            saveBlocked_ = false;
+        } else {
+            if (error) *error = ERROR_FILE_CORRUPT;  // SaveErrorText says why (saveBlocked_)
+            return false;
+        }
+    }
+    return config_.Save(error);
+}
+
+HRESULT CALLBACK App::MalformedNoticeProc(HWND, UINT msg, WPARAM, LPARAM lp, LONG_PTR data) {
+    App* self = reinterpret_cast<App*>(data);
+    if (msg == TDN_HYPERLINK_CLICKED && self && lp) {
+        const wchar_t* href = reinterpret_cast<const wchar_t*>(lp);
+        if (wcscmp(href, L"folder") == 0) self->OpenConfigFolder();  // config.json selected
+        if (wcscmp(href, L"file") == 0) self->OpenConfigFile();
+    }
+    return S_OK;  // the links leave the notice open
+}
+
+void App::ShowMalformedNotice() {
+    // A task dialog (not the tray balloon, the Keep banner or the settings bar): the tray icon sits
+    // in Explorer's notification area, hidden with the taskbar by default, and a balloon becomes a
+    // toast that Do not disturb swallows; the banner is one line with Keep / Revert semantics that
+    // closes itself; the save-state bar shows only in an open settings window. This happens rarely
+    // and the user's settings seem gone, so it is said once, plainly, with the actions at hand.
+    // No owner: nothing is disabled and the docks keep working while it is open; it is not counted
+    // in modalDepth_, so Try again's ReloadConfig is not refused because of it.
+    enum { kTryAgain = 100 };
+    for (;;) {
+        if (shutDown_ || !hwnd_ || !startedMalformed_) return;
+        const std::wstring dir = Config::Directory();
+        std::wstring content = L"WinDock is running with the default settings. ";
+        if (badCopyMade_) {
+            content += L"A copy of the file was kept as " + badCopyName_ +
+                       L" in the same folder. From now on changes are saved to config.json as usual.";
+        } else {
+            content += L"A copy of the file could not be made, so WinDock does not save over config.json in this session "
+                       L"(changes stay in memory until the file can be copied).";
+        }
+        if (GetFileAttributesW((dir + L"\\config.backup-1.json").c_str()) != INVALID_FILE_ATTRIBUTES) {
+            content += L"\n\nconfig.backup-1.json in the same folder is the settings file as it was at the last good start.";
+        }
+        content += L"\n\nFix the file (or put a backup in its place) and click Try again.\n\n"
+                   L"<a href=\"folder\">Open the folder</a>    <a href=\"file\">Open config.json</a>";
+        TASKDIALOG_BUTTON buttons[] = {{kTryAgain, L"Try again"}};
+        TASKDIALOGCONFIG tdc{};
+        tdc.cbSize = sizeof(tdc);
+        tdc.hInstance = instance_;
+        tdc.dwFlags = TDF_ALLOW_DIALOG_CANCELLATION | TDF_ENABLE_HYPERLINKS;
+        tdc.dwCommonButtons = TDCBF_CLOSE_BUTTON;
+        tdc.pszWindowTitle = L"WinDock";
+        tdc.pszMainIcon = TD_WARNING_ICON;
+        tdc.pszMainInstruction = L"config.json could not be read";
+        tdc.pszContent = content.c_str();
+        tdc.pButtons = buttons;
+        tdc.cButtons = static_cast<UINT>(std::size(buttons));
+        tdc.nDefaultButton = IDCLOSE;
+        tdc.pfCallback = &App::MalformedNoticeProc;
+        tdc.lpCallbackData = reinterpret_cast<LONG_PTR>(this);
+        int button = IDCLOSE;
+        if (FAILED(TaskDialogIndirect(&tdc, &button, nullptr, nullptr))) {
+            MessageBeep(MB_ICONWARNING);
+            return;
+        }
+        // --quit while it was open: its WM_QUIT ended the dialog; nothing more to do.
+        if (button != kTryAgain || shutDown_) return;
+        if (ReloadConfig()) return;  // fixed: the file's settings apply (saveBlocked_ cleared there)
+    }
 }
 
 void App::OpenWelcome() {
@@ -434,7 +531,7 @@ void App::SeedDefaultPins() {
 
 void App::RequestSave() {
     if (!hwnd_) {
-        config_.Save();
+        WriteConfig();  // round 25 phase 25B: the malformed start's rule applies here too
         return;
     }
     ScheduleCommit();  // round 12 phase 12A: the gesture becomes one timeline entry
@@ -461,7 +558,9 @@ void App::FlushSave() {
 void App::SaveNow() {
     DWORD error = 0;
     // A failed save keeps the config in memory; the next change saves again (and Retry does now).
-    saveError_ = config_.Save(&error) ? 0 : (error ? error : static_cast<DWORD>(ERROR_GEN_FAILURE));
+    // Round 25 phase 25B: WriteConfig, not Config::Save (after a malformed start without its copy
+    // nothing is written over the file: a failed save the bar explains, Retry tries the copy again).
+    saveError_ = WriteConfig(&error) ? 0 : (error ? error : static_cast<DWORD>(ERROR_GEN_FAILURE));
     if (saveError_) {
         wchar_t buf[96];
         swprintf_s(buf, L"WinDock: saving config.json failed (error %lu)\n", saveError_);
@@ -490,6 +589,7 @@ int App::BarKind() const {
 }
 
 std::wstring App::SaveErrorText() const {
+    if (saveBlocked_) return L"config.json could not be read or copied, so it is not overwritten";  // round 25 phase 25B
     switch (saveError_) {
         case ERROR_ACCESS_DENIED:
         case ERROR_SHARING_VIOLATION:
@@ -2243,21 +2343,25 @@ void App::SyncDocks() {
     PlaceTip();  // round 12 phase 12G: the first dock may be on another display now
 }
 
-void App::ReloadConfig() {
+bool App::ReloadConfig() {
     if (modalDepth_ > 0) {
         MessageBeep(MB_ICONWARNING);  // a menu or dialog of a dock is open: its dock must stay
-        return;
+        return false;
     }
     Config fresh;
     const Config::LoadResult result = fresh.LoadFile();
     if (result == Config::LoadResult::Malformed) {
         // Keep running with the current settings; the user can fix the file and reload again.
         MessageBeep(MB_ICONWARNING);
-        return;
+        return false;
     }
     if (result == Config::LoadResult::Missing) {
         SaveNow();  // the file was deleted: write the current settings back
-        return;
+        return false;
+    }
+    if (saveBlocked_) {
+        saveBlocked_ = false;  // round 25 phase 25B: the file reads again; saving over it is fine
+        saveError_ = 0;        // the refused save's bar goes (what is in memory now is the file)
     }
     // Round 12 phase 12A: what came before is an entry of its own; a preview open now ends (the
     // file never had it: the reload is its Cancel).
@@ -2293,6 +2397,7 @@ void App::ReloadConfig() {
     pendingLabel_ = L"Reloaded config.json";
     CommitTimeline(false);
     UpdateTimelineUi();
+    return true;
 }
 
 void App::RefreshSettings(SettingsWindow* except) {
@@ -4203,6 +4308,9 @@ LRESULT App::QueryState(WPARAM wp, LPARAM lp) {
             if (!w || !w->Hwnd() || !w->QueryPages(337, arg, out)) out = -2;
             return out;
         }
+        case 356:  // round 25 phase 25B (app-wide): 0 a normal start; 1 started from a malformed config.json, + 2 its copy was made, + 4 saving is blocked now
+            if (!startedMalformed_) return 0;
+            return 1 | (badCopyMade_ ? 2 : 0) | (saveBlocked_ ? 4 : 0);
         default:
             break;
     }
@@ -4906,6 +5014,10 @@ LRESULT App::OnAppMessage(UINT msg, WPARAM wp, LPARAM lp) {
     }
     if (msg == kShowWelcome) {
         OpenQuickSetup(firstRun_);  // round 12 phase 12G: the first run's variant once
+        return 0;
+    }
+    if (msg == kMalformedNotice) {  // round 25 phase 25B
+        ShowMalformedNotice();
         return 0;
     }
     if (msg == kPanelAnchorMoved) {  // round 12 phase 12I: a folder window / standalone widget moved (coalesced)

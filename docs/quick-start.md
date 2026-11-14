@@ -170,7 +170,7 @@ You do not need to edit it: every setting is in the settings windows. If you do 
 
 App settings > About shows the file's full path. Click the path to show the file in File Explorer.
 
-The same folder holds your own themes (`themes`), your saved layouts (`layouts`), widgets and clock faces. To back up WinDock, copy this folder.
+The same folder holds your own themes (`themes`), your saved layouts (`layouts`), widgets and clock faces. To back up WinDock, copy this folder. WinDock also keeps the last three versions of the settings file there by itself (`config.backup-1.json` is the newest); see [Automatic backups](troubleshooting.md#automatic-backups).
 
 ## Quit and get the taskbar back
 

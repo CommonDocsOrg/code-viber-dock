@@ -2850,8 +2850,18 @@ beeps). Pinning, unpinning, and the menu toggles save the file within 300 ms. Th
 (a temp file replaced with `MoveFileEx`). The dock rewrites the whole file in its own layout.
 Top-level keys it does not know are kept, as compact JSON. Unknown keys inside a dock, an item,
 `clock`, `theme`, `animation` or `weather` are dropped (an item's `settings` object is kept as it
-is). If the file is malformed, the dock starts
-with the defaults and leaves the file untouched.
+is).
+
+Round 25 phase 25B: if the file is malformed (or present but unreadable) at startup, the dock first
+copies it to `config.bad-<yyyyMMdd-HHmmss>.json` in the same folder (the five newest such copies
+are kept), runs with the defaults and says so in a task dialog (Open the folder, Open config.json,
+Try again = Reload config). With the copy made it saves as usual, so the first change writes the
+defaults-based settings over `config.json` (the copy is the recovery); if the copy failed, nothing
+is written over `config.json` in that session (each save tries the copy again first; the save state
+shows "Couldn't save") until the file reads again (Reload) or is gone. After a good load at
+startup, `config.backup-1.json` (newest), `-2` and `-3` keep the file as it was on disk, rotated
+only when it differs from `config.backup-1.json` (plain file copies; restarts without changes do
+not rotate).
 
 ```json
 {
@@ -3730,6 +3740,13 @@ always there, also when every dock is parked) handle these registered messages:
 - **The window pile** (round 21 phase 21A): `QueryState` 342 = slot `LOWORD(lParam)`'s pile on dock
   `HIWORD(lParam)`: the cards drawn behind it, 0 - 2 (min(2, windows - 1) for a stacked app slot with
   two or more windows while the running item's `pile` is on; 0 otherwise; -1 no such slot).
+- **Config protection** (round 25 phase 25B; any dock index): `QueryState` 356 = 0 after a normal
+  start; after a start from a malformed (or unreadable) `config.json`: 1, + 2 when its
+  `config.bad-<stamp>.json` copy was made, + 4 while saving over the file is blocked (the copy
+  failed; cleared once a save's retried copy works, the file is gone, or Reload read it). The notice
+  is a task dialog (`#32770`, title "WinDock", no owner) of the WinDock process, posted after the
+  start; its button 100 is Try again (Reload config; shown again while the file is still
+  malformed), Close / Escape / `WM_CLOSE` dismiss it. `tools\smoke\config-protect.ps1` drives it.
 - **Passive widget popups**: `QueryState` 218 = 1 while a script widget's passive popup
   (`popup.open(w, h, { passive: true })`, e.g. the Volume widget's volume bar; window class
   `WinDockWidgetPassivePopup`, `WS_EX_NOACTIVATE | WS_EX_TRANSPARENT`) is visible on the dock.

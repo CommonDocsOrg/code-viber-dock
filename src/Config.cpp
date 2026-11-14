@@ -1333,6 +1333,64 @@ Config::LoadResult Config::LoadFile() {
     return LoadJson(Utf8ToWide(bytes));
 }
 
+// --- round 25 phase 25B: the malformed file's copy and the rotating backups ---
+
+bool Config::KeepBadCopy(std::wstring& name) {
+    name.clear();
+    const std::wstring dir = Directory();
+    const std::wstring source = FilePath();
+    SYSTEMTIME t{};
+    GetLocalTime(&t);
+    wchar_t stamp[32];
+    swprintf_s(stamp, L"%04u%02u%02u-%02u%02u%02u", t.wYear, t.wMonth, t.wDay, t.wHour, t.wMinute, t.wSecond);
+    for (int n = 1; n <= 9; ++n) {
+        std::wstring candidate = std::wstring(L"config.bad-") + stamp + (n > 1 ? L"-" + std::to_wstring(n) : std::wstring()) + L".json";
+        const std::wstring target = dir + L"\\" + candidate;
+        // bFailIfExists: an older copy (two starts in one second) is never replaced.
+        if (CopyFileW(source.c_str(), target.c_str(), TRUE)) {
+            // CopyFile keeps the attributes: a read-only config.json would give a copy the pruning
+            // below could not delete later.
+            SetFileAttributesW(target.c_str(), FILE_ATTRIBUTE_NORMAL);
+            name = std::move(candidate);
+            break;
+        }
+        const DWORD error = GetLastError();
+        if (error != ERROR_FILE_EXISTS && error != ERROR_ALREADY_EXISTS) break;  // unreadable / locked / disk full
+    }
+    if (name.empty()) return false;
+    // Keep the newest few. The stamp sorts by time (a "-2" copy of the same second may sort before
+    // its first; both are kept or dropped together in practice).
+    std::vector<std::wstring> copies;
+    WIN32_FIND_DATAW fd{};
+    HANDLE find = FindFirstFileW((dir + L"\\config.bad-*.json").c_str(), &fd);
+    if (find != INVALID_HANDLE_VALUE) {
+        do {
+            if (!(fd.dwFileAttributes & FILE_ATTRIBUTE_DIRECTORY)) copies.emplace_back(fd.cFileName);
+        } while (FindNextFileW(find, &fd));
+        FindClose(find);
+    }
+    std::sort(copies.begin(), copies.end());
+    for (size_t i = 0; i + kBadCopiesKept < copies.size(); ++i) {
+        if (copies[i] != name) DeleteFileW((dir + L"\\" + copies[i]).c_str());
+    }
+    return true;
+}
+
+void Config::RotateBackups() {
+    const std::wstring dir = Directory();
+    auto backup = [&](int n) { return dir + L"\\config.backup-" + std::to_wstring(n) + L".json"; };
+    // The bytes only (no JSON parse): ReadFileUtf8 is a plain read (it drops a UTF-8 BOM, on both
+    // sides of the comparison).
+    std::string current, newest;
+    if (!ReadFileUtf8(FilePath(), current)) return;
+    if (ReadFileUtf8(backup(1), newest) && newest == current) return;  // unchanged since the last start
+    DeleteFileW(backup(kBackupsKept).c_str());
+    for (int n = kBackupsKept - 1; n >= 1; --n) {
+        MoveFileExW(backup(n).c_str(), backup(n + 1).c_str(), MOVEFILE_REPLACE_EXISTING);  // a missing one: nothing
+    }
+    if (CopyFileW(FilePath().c_str(), backup(1).c_str(), FALSE)) SetFileAttributesW(backup(1).c_str(), FILE_ATTRIBUTE_NORMAL);
+}
+
 Config::LoadResult Config::LoadJson(const std::wstring& text) {
     *this = Config{};
     weather.units = LocaleUnits();  // the default when the file (or its "units" key) is absent

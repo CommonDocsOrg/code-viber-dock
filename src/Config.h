@@ -961,13 +961,33 @@ struct Config {
 
     enum class LoadResult { Ok, Missing, Malformed };
     // Loads the config file into *this (defaults for anything missing). Missing file: defaults.
-    // Malformed file: defaults (the file is left untouched so the user can fix it). Never throws.
+    // Malformed file (unparsable, or present but unreadable): defaults; LoadFile itself writes
+    // nothing. Never throws.
+    // Round 25 phase 25B, the save rule after a malformed start (App::Initialize / WriteConfig):
+    // before anything can save, the file is copied to config.bad-<yyyyMMdd-HHmmss>.json beside it
+    // (KeepBadCopy). With that copy made, the session saves as usual: the first change writes the
+    // defaults-based settings over config.json and the copy is the user's recovery. Without it
+    // (the copy failed), nothing is written over config.json in that session; each save tries the
+    // copy again first. Until 25B the start treated Malformed like Ok and the first debounced save
+    // silently replaced the user's file (only Reload refused a malformed file).
     LoadResult LoadFile();
     // Round 12 phase 12A: the same from the file's text (an undo snapshot; ToJson's output): Ok,
     // or Malformed (defaults). Never throws. LoadFile reads the file and calls it.
     LoadResult LoadJson(const std::wstring& text);
-    // LoadFile() == Missing, i.e. first run: the caller seeds defaults and saves.
-    bool Load() { return LoadFile() == LoadResult::Missing; }
+    // (Round 25 phase 25B: `bool Load()`, "LoadFile() == Missing", is gone: it let the start treat
+    // a malformed file like a good one.)
+
+    // --- round 25 phase 25B: copies of the file (plain file copies, no parsing) ---
+    // Copies config.json to config.bad-<local time yyyyMMdd-HHmmss>.json in Directory() (a "-2" ...
+    // suffix when that name exists) and deletes the oldest such copies beyond kBadCopiesKept (by
+    // name, i.e. by time). `name` gets the copy's file name. False when the copy failed.
+    static bool KeepBadCopy(std::wstring& name);
+    static constexpr size_t kBadCopiesKept = 5;
+    // After a good (Ok) load at startup: config.backup-1.json (newest) ... -3.json of the file as it
+    // is on disk, rotated only when the file differs from backup-1 (a restart without changes does
+    // not churn). Two small reads, at most two renames and a copy; failures are ignored.
+    static void RotateBackups();
+    static constexpr int kBackupsKept = 3;
     // Round 12 phase 12A: the file's text, exactly what Save writes; `windowSizes` false leaves the
     // settings windows' sizes out (`settings.windows`: an undo snapshot must not record a resize).
     // May throw (winrt string quoting); Save catches.
